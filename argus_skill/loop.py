@@ -89,6 +89,7 @@ class SkillLoop:
         config: SkillLoopConfig | None = None,
         skill_store: SkillStore | None = None,
         on_event: Callable[[dict], None] | None = None,
+        extra_guidance_provider: Callable[[], list[str]] | None = None,
     ) -> None:
         self.config = config or SkillLoopConfig()
         self.skills_dir = Path(skills_dir)
@@ -96,6 +97,10 @@ class SkillLoop:
         self.engineer_runner = engineer_runner
         self.reviewer_runner = reviewer_runner or engineer_runner
         self.on_event = on_event
+        # Optional callable consulted at the start of each engineer round.
+        # Returns a list of additional guidance strings to append to the
+        # prompt (used by the daemon to honour /inject between rounds).
+        self.extra_guidance_provider = extra_guidance_provider
 
         self.skill_store = skill_store or SkillStore(
             self.skills_dir,
@@ -172,10 +177,12 @@ class SkillLoop:
 
         # Step 3: supervised round-loop
         def build_prompt(next_action: str | None) -> str:
+            extra = self._collect_extra_guidance()
             return self._build_engineer_prompt(
                 task=task,
                 skill_text=skill_text,
                 next_action=next_action,
+                extra_guidance=extra,
             )
 
         status, rounds, final_message, reason = self.supervised.run(
@@ -241,6 +248,7 @@ class SkillLoop:
         task: str,
         skill_text: str,
         next_action: str | None,
+        extra_guidance: list[str] | None = None,
     ) -> str:
         sections: list[str] = []
         if skill_text:
@@ -253,6 +261,11 @@ class SkillLoop:
                 "following before declaring done:\n\n"
                 + next_action
             )
+        if extra_guidance:
+            sections.append(
+                "## Operator guidance (injected since last round)\n"
+                + "\n\n".join(extra_guidance)
+            )
         sections.append(
             "## Required output\n"
             "Make concrete progress: read files, run commands, edit code\n"
@@ -260,6 +273,16 @@ class SkillLoop:
             "evidence proves it (commands run, tests passed, files changed)."
         )
         return "\n\n".join(sections)
+
+    def _collect_extra_guidance(self) -> list[str]:
+        if self.extra_guidance_provider is None:
+            return []
+        try:
+            collected = self.extra_guidance_provider() or []
+        except Exception:  # never let a hook raise into the loop
+            log.exception("extra_guidance_provider raised")
+            return []
+        return [str(item).strip() for item in collected if str(item).strip()]
 
     @staticmethod
     def _summarize_trajectory(rounds: list[RoundRecord]) -> str:

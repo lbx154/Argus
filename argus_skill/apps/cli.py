@@ -73,6 +73,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("list-skills", help="list skills currently in the cache").add_argument(
         "--skills-dir", default="skills"
     )
+
+    from .daemon_app import add_daemon_subcommands
+    add_daemon_subcommands(sub)
     return parser
 
 
@@ -196,5 +199,20 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_run(args)
     if args.cmd == "list-skills":
         return cmd_list_skills(args)
+    if args.cmd == "daemon":
+        from .daemon_app import cmd_daemon
+        return cmd_daemon(args, runner_factory=_load_backend)
+    if args.cmd == "daemon-status":
+        from .daemon_app import cmd_daemon_status
+        return cmd_daemon_status(args)
+    if args.cmd == "daemon-stop":
+        from .daemon_app import cmd_daemon_stop
+        return cmd_daemon_stop(args)
+    if args.cmd == "daemon-inject":
+        from .daemon_app import cmd_daemon_inject
+        return cmd_daemon_inject(args)
+    if args.cmd == "daemon-run":
+        from .daemon_app import cmd_daemon_run
+        return cmd_daemon_run(args)
     parser.print_help()
     return 2

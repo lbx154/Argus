@@ -100,6 +100,62 @@ print(outcome.status, outcome.round_count, outcome.skill_used)
 The same `RunnerBackend` interface works for codex, claude-code, copilot
 CLI, or anything else — only the wrapper changes.
 
+## Run as a 7×24 daemon (with optional Telegram control)
+
+argus-skill ships a foreground daemon that keeps a single `SkillLoop`
+alive across many tasks, accepts commands from a JSONL bus and/or a
+Telegram bot, and writes a status JSON for external monitoring.
+
+```bash
+# 1) Start the daemon (foreground; pin in a tmux/systemd unit).
+argus-skill daemon \
+    --state-dir ./argus-state \
+    --skills-dir ./skills \
+    --max-rounds 3 \
+    --telegram-bot-token "$TELEGRAM_BOT_TOKEN" \
+    --telegram-chat-id   "$TELEGRAM_CHAT_ID"
+```
+
+Then, from any other shell on the same host:
+
+```bash
+# Queue a task.
+argus-skill daemon-run "add a healthcheck to src/server.py"  --state-dir ./argus-state
+
+# Inject extra guidance for the next reviewer round.
+argus-skill daemon-inject "use pytest, not unittest"          --state-dir ./argus-state
+
+# Inspect health (returns non-zero if status is stale or pid is dead).
+argus-skill daemon-status --state-dir ./argus-state
+
+# Graceful shutdown.
+argus-skill daemon-stop   --state-dir ./argus-state
+```
+
+From Telegram (in the configured chat):
+
+| Telegram message | Effect |
+| --- | --- |
+| `/run <task>`           | Queue a new task. |
+| `/inject <text>` (or plain text) | Append guidance to the next round's prompt. |
+| `/skip`                 | Abort the currently-running task (next event boundary). |
+| `/status` / `/stat`     | Get the current daemon status. |
+| `/stop`                 | Gracefully shut the daemon down. |
+| `/help`                 | Show a one-line command summary. |
+
+Implementation notes:
+
+* `--state-dir` holds three artifacts: `inbox.jsonl` (control bus —
+  what the daemon reads), `outbox.jsonl` (event log — what the daemon
+  emits), and `status.json` (heartbeat + last outcome).
+* The Telegram poller uses long-polling on `getUpdates`; no inbound
+  webhook server is required.
+* A token-lock file in `/tmp/argusbot-token-locks` prevents two daemons
+  from fighting over the same Telegram bot. Pass `--no-token-lock` to
+  bypass for debug runs.
+* Without `--telegram-*` flags the daemon still works — control comes
+  exclusively from the JSONL bus / `argus-skill daemon-*` CLI.
+
 ## Architecture at a glance
 
 ```
@@ -118,9 +174,19 @@ argus_skill/
 │   ├── checks.py        # vendored from ArgusBot
 │   └── runner.py        # SupervisedEngineer: round-loop control flow (NEW)
 ├── adapters/
-│   └── memory_backend.py  # deterministic stub for tests / smoke runs (NEW)
+│   ├── memory_backend.py  # deterministic stub for tests / smoke runs (NEW)
+│   ├── control_channels.py  # LocalBus + Telegram control channels for the daemon (NEW)
+│   └── event_sinks.py     # Terminal + JSONL + Telegram event sinks (NEW)
+├── daemon/
+│   ├── token_lock.py    # vendored verbatim from ArgusBot (single-process token guard)
+│   ├── bus.py           # vendored verbatim from ArgusBot (JsonlCommandBus + status helpers)
+│   └── runtime.py       # Daemon class: 7×24 wrapper around SkillLoop (NEW)
+├── telegram/
+│   ├── poller.py        # slim Telegram getUpdates poller + command parser (NEW)
+│   └── notifier.py      # slim Telegram sendMessage / sendDocument (NEW)
 ├── apps/
-│   └── cli.py           # `argus-skill run` (NEW)
+│   ├── cli.py           # `argus-skill run` / `list-skills` (NEW)
+│   └── daemon_app.py    # `argus-skill daemon` / `daemon-status|stop|inject|run` (NEW)
 └── loop.py              # SkillLoop — the matcher × distiller × supervised-engineer GLUE (NEW)
 ```
 

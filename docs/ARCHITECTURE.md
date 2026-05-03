@@ -18,12 +18,25 @@ adaptation.
 | `argus_skill/engineer/checks.py` | ArgusBot/codex_autoloop/checks.py | Verbatim except for the import path (`models.CheckResult` → `..core.models.CheckResult`). |
 | `argus_skill/engineer/runner.py` | new | The `SupervisedEngineer` class — the round-loop control flow. Replaces what `LoopEngine` does in ArgusBot, but for a single-agent (no planner / explore subagent) shape. |
 | `argus_skill/adapters/memory_backend.py` | new | Deterministic stub backend for tests + smoke runs. |
-| `argus_skill/loop.py` | new | The `SkillLoop` — the actual integration: matcher → distill-on-miss → SupervisedEngineer → skill writeback on success. |
-| `argus_skill/apps/cli.py` | new (loose inspiration from skill-agent's `__main__.py`) | Minimal `argus-skill run` CLI. |
+| `argus_skill/adapters/control_channels.py` | shaped after `ArgusBot/codex_autoloop/adapters/control_channels.py` | TelegramControlChannel + LocalBusControlChannel + CompositeControlChannel. FeishuControlChannel intentionally dropped. |
+| `argus_skill/adapters/event_sinks.py` | shaped after `ArgusBot/codex_autoloop/adapters/event_sinks.py` | TerminalEventSink + JsonlEventSink + TelegramEventSink + CompositeEventSink. Dashboard / Feishu sinks intentionally dropped. |
+| `argus_skill/daemon/__init__.py` | new | package marker |
+| `argus_skill/daemon/token_lock.py` | `ArgusBot/codex_autoloop/token_lock.py` | **Verbatim** (single-process exclusion via fcntl/msvcrt + JSON sidecar). |
+| `argus_skill/daemon/bus.py` | `ArgusBot/codex_autoloop/daemon_bus.py` | **Verbatim** (`JsonlCommandBus`, `BusCommand`, `read_status` / `write_status` / `inspect_daemon_status`). |
+| `argus_skill/daemon/runtime.py` | new (structurally inspired by `ArgusBot/codex_autoloop/apps/daemon_app.py`) | `Daemon` class: queue-based 7×24 wrapper around `SkillLoop`. Honours `/run`, `/inject`, `/skip`, `/stop`, `/status`. Periodic status writer + graceful shutdown. |
+| `argus_skill/telegram/__init__.py` | new | package marker |
+| `argus_skill/telegram/poller.py` | trimmed from `ArgusBot/codex_autoloop/telegram_control.py` | `TelegramCommandPoller` + slim `parse_command_text`. Kept: `/run`, `/inject`, `/interrupt`, `/skip`, `/stop`, `/status`, `/help`, plain-text-as-inject, full-width slash normalisation. Dropped: voice/Whisper, plan-mode, callback queries, `/btw`, `/criteria`, `/show-*`, `/clock`, `/new`, `/fresh-session`, `/confirm-send`. |
+| `argus_skill/telegram/notifier.py` | trimmed from `ArgusBot/codex_autoloop/telegram_notifier.py` | `TelegramNotifier` with `sendMessage` + `sendDocument` + 3900-char chunking + typing pulse. Live-edit / photo-special-case dropped. |
+| `argus_skill/apps/daemon_app.py` | new | Wires `argus-skill daemon` + `daemon-status|stop|inject|run` subcommands. |
+| `argus_skill/loop.py` | new | The `SkillLoop` — the actual integration: matcher → distill-on-miss → SupervisedEngineer → skill writeback on success. Optional `extra_guidance_provider` hook lets the daemon append `/inject` text into each round's prompt. |
+| `argus_skill/apps/cli.py` | new (loose inspiration from skill-agent's `__main__.py`) | Minimal `argus-skill run` CLI; routes `daemon*` subcommands into `daemon_app`. |
 | `argus_skill/__main__.py` | new | Entry-point shim. |
 | `tests/test_loop_smoke.py` | new | End-to-end test of SkillLoop with the memory backend. |
 | `tests/test_reviewer_parse.py` | new | Reviewer JSON parsing tests; structurally similar to ArgusBot's reviewer tests. |
 | `tests/test_skill_store.py` | new | Skill store + matcher tests; structurally similar to skill-agent's `test_skill_store_matcher.py`. |
+| `tests/test_telegram_parse.py` | new | Slim Telegram command parser unit tests. |
+| `tests/test_daemon_bus.py` | new | JSONL bus + status helpers unit tests. |
+| `tests/test_daemon_localbus.py` | new | End-to-end integration test: Daemon + LocalBusControlChannel + memory backend. |
 
 ## Why this layout
 
