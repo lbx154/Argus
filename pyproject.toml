@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "argus-skill"
+version = "0.1.0"
+description = "Supervised skill-driven coding agent: combines skill-agent's horizontal skill reuse with ArgusBot's vertical reviewer-loop supervision."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [
+  { name = "lbx154", email = "lbxhaixing154@sjtu.edu.cn" },
+]
+keywords = ["agent", "llm", "codex", "claude-code", "skills", "supervised", "reviewer", "loop"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7",
+  "ruff>=0.4",
+]
+
+[project.scripts]
+argus-skill = "argus_skill.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/lbx154/argus-skill"
+Repository = "https://github.com/lbx154/argus-skill"
+
+[tool.hatch.build.targets.wheel]
+packages = ["argus_skill"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"argus_skill/engineer/reviewer_schema.json" = "argus_skill/engineer/reviewer_schema.json"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "argus_skill",
+  "tests",
+  "docs",
+  "README.md",
+  "LICENSE",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["build", "dist", ".venv"]
+
+[tool.ruff.lint]
+select = ["F", "E", "I"]
+ignore = [
+  "E501",
+  "E402",
+  "E731",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["argus_skill"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+filterwarnings = [
+  "ignore::DeprecationWarning",
+]

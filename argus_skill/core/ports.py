@@ -1,0 +1,111 @@
+"""Core protocols (ports) the loop integrates against.
+
+Provenance: ``ControlChannel`` / ``EventSink`` shapes are adapted from
+ArgusBot's ``core/ports.py``. ``RunnerBackend`` is new — it sits at the
+seam where ArgusBot's hard-coded ``CodexRunner`` used to be, and where
+skill-agent's ``codex_exec(...)`` callable used to be. By making it a
+``Protocol`` we can plug in:
+
+  * ``CodexBackend`` — wraps ArgusBot's codex_runner.
+  * ``ClaudeBackend`` — wraps the claude-code CLI (skill-agent's adapter).
+  * ``MemoryBackend`` — deterministic stub for tests / CI.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Callable, Protocol
+
+from .models import RunnerOptions, RunnerResult
+
+# ---------------------------------------------------------------------------
+# Runner protocol
+# ---------------------------------------------------------------------------
+
+class RunnerBackend(Protocol):
+    """One LLM-CLI invocation. Both engineer and reviewer call this."""
+
+    def run_exec(
+        self,
+        *,
+        prompt: str,
+        options: RunnerOptions,
+        run_label: str,
+        resume_thread_id: str | None = None,
+    ) -> RunnerResult:
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Skill source protocol
+# ---------------------------------------------------------------------------
+
+class SkillSource(Protocol):
+    """The minimum surface SkillLoop needs from a skill backend.
+
+    The default implementation (``SkillStore``) is on-disk markdown.
+    Alternative implementations could front a remote API or a vector
+    index without changing the loop.
+    """
+
+    def find_relevant(self, task_description: str) -> tuple[list[Any] | None, int]:
+        ...
+
+    def render_skill(self, skill: Any) -> str:
+        """Render a skill into the prompt-injectable string form."""
+        ...
+
+    def list_summaries(self) -> list[dict]:
+        ...
+
+    def save_distilled(
+        self,
+        *,
+        task_description: str,
+        raw_distill_output: str,
+        scientist_model: str,
+    ) -> Any:
+        ...
+
+    def writeback_from_trajectory(
+        self,
+        *,
+        skill: Any,
+        task_description: str,
+        successful_trajectory: str,
+    ) -> None:
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Control + notification (for daemon / interactive modes — vendored from
+# ArgusBot. Loop core does not depend on these in v0.1, but apps do.)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ControlCommand:
+    kind: str
+    text: str = ""
+    source: str = "unknown"
+
+
+CommandHandler = Callable[[ControlCommand], None]
+
+
+class ControlChannel(Protocol):
+    def start(self, on_command: CommandHandler) -> None: ...
+
+    def stop(self) -> None: ...
+
+
+class NotificationSink(Protocol):
+    def send_message(self, message: str) -> None: ...
+
+    def close(self) -> None: ...
+
+
+class EventSink(Protocol):
+    def handle_event(self, event: dict[str, Any]) -> None: ...
+
+    def handle_stream_line(self, stream: str, line: str) -> None: ...
+
+    def close(self) -> None: ...

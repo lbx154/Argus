@@ -1,0 +1,30 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+env/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+htmlcov/
+
+# user state
+skills/
+.argus-skill/
+
+# scratch
+benchmarks/results/
+
+# editor
+.idea/
+.vscode/
+*.swp
+.DS_Store
