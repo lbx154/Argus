@@ -375,6 +375,7 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
         rounds_summary: list[dict] = []
         last_review_feedback: str | None = None
         last_thread_id: str | None = None
+        run_error: str | None = None
 
         try:
             for round_idx in range(1, max_rounds + 1):
@@ -399,17 +400,38 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                         total_rounds=max_rounds,
                     )
 
-                # Engineer round (in container)
+                # Engineer round (in container). We catch the docker-exec
+                # RuntimeError so a per-round timeout does not abort the
+                # trial — the verifier will still judge whatever the
+                # engineer left on disk, exactly as bare-mini behaves
+                # when its agent timeout fires.
                 round_t0 = time.time()
-                stdout, exit_code = await self._run_codex_in_container(
-                    environment=environment,
-                    env=env,
-                    cli_flags_arg=cli_flags_arg,
-                    model=model,
-                    prompt=round_prompt,
-                    round_idx=round_idx,
-                    round_timeout=round_timeout,
-                )
+                round_error: str | None = None
+                stdout = ""
+                exit_code = -1
+                try:
+                    stdout, exit_code = await self._run_codex_in_container(
+                        environment=environment,
+                        env=env,
+                        cli_flags_arg=cli_flags_arg,
+                        model=model,
+                        prompt=round_prompt,
+                        round_idx=round_idx,
+                        round_timeout=round_timeout,
+                    )
+                except RuntimeError as exc:
+                    # Harbor's docker exec raises RuntimeError on timeout
+                    # (e.g. "Command timed out after 200 seconds").
+                    round_error = f"engineer_runtime_error:{exc}"
+                    self.logger.warning(
+                        "round %d engineer raised RuntimeError: %s", round_idx, exc
+                    )
+                except Exception as exc:  # pragma: no cover - unexpected
+                    round_error = f"engineer_exception:{type(exc).__name__}:{exc}"
+                    self.logger.warning(
+                        "round %d engineer raised %s: %s",
+                        round_idx, type(exc).__name__, exc,
+                    )
                 round_elapsed = time.time() - round_t0
 
                 agent_messages = _parse_agent_messages_from_jsonl(stdout)
@@ -419,19 +441,27 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                 )
 
                 self.logger.info(
-                    "round %d engineer: exit=%d, %d agent_messages, %.1fs",
+                    "round %d engineer: exit=%d, %d agent_messages, %.1fs%s",
                     round_idx, exit_code, len(agent_messages), round_elapsed,
+                    f" error={round_error}" if round_error else "",
                 )
 
-                # Reviewer (on host) — skip if disabled OR last round.
+                # If engineer errored OR is the last round OR produced no
+                # message, skip the reviewer and stop the loop.
+                round_record: dict = {
+                    "round": round_idx,
+                    "engineer_exit": exit_code,
+                    "agent_messages": len(agent_messages),
+                    "elapsed_s": round_elapsed,
+                }
+                if round_error:
+                    round_record["engineer_error"] = round_error
+                    round_record["review_status"] = "skipped_engineer_error"
+                    rounds_summary.append(round_record)
+                    break
                 if no_reviewer or round_idx == max_rounds or not last_msg.strip():
-                    rounds_summary.append({
-                        "round": round_idx,
-                        "engineer_exit": exit_code,
-                        "agent_messages": len(agent_messages),
-                        "review_status": "skipped",
-                        "elapsed_s": round_elapsed,
-                    })
+                    round_record["review_status"] = "skipped"
+                    rounds_summary.append(round_record)
                     break
 
                 review_decision = await self._run_reviewer_on_host(
@@ -440,14 +470,9 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                     round_idx=round_idx,
                     thread_id=last_thread_id,
                 )
-                rounds_summary.append({
-                    "round": round_idx,
-                    "engineer_exit": exit_code,
-                    "agent_messages": len(agent_messages),
-                    "review_status": review_decision.get("status"),
-                    "review_confidence": review_decision.get("confidence"),
-                    "elapsed_s": round_elapsed,
-                })
+                round_record["review_status"] = review_decision.get("status")
+                round_record["review_confidence"] = review_decision.get("confidence")
+                rounds_summary.append(round_record)
 
                 status = review_decision.get("status")
                 if status == "done":
@@ -465,25 +490,31 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                     or review_decision.get("reason")
                     or ""
                 )
+        except Exception as exc:  # pragma: no cover - unexpected outer error
+            run_error = f"{type(exc).__name__}:{exc}"
+            self.logger.exception("argus-skill round-loop raised — recording and re-raising")
+            raise
         finally:
-            await self._cleanup_container(environment, env)
-
-        _write_decision({
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "model": model,
-            "matched": prep.matched,
-            "match_count": prep.match_count,
-            "match_names": prep.match_names,
-            "skill_used": prep.skill_used,
-            "scientist_tokens": prep.scientist_tokens,
-            "match_tokens": prep.match_tokens,
-            "prep_elapsed_s": prep.elapsed_s,
-            "fallback_reason": prep.fallback_reason,
-            "max_rounds": max_rounds,
-            "rounds_executed": len(rounds_summary),
-            "rounds": rounds_summary,
-            "no_reviewer": no_reviewer,
-        })
+            with contextlib.suppress(Exception):
+                await self._cleanup_container(environment, env)
+            with contextlib.suppress(Exception):
+                _write_decision({
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "model": model,
+                    "matched": prep.matched,
+                    "match_count": prep.match_count,
+                    "match_names": prep.match_names,
+                    "skill_used": prep.skill_used,
+                    "scientist_tokens": prep.scientist_tokens,
+                    "match_tokens": prep.match_tokens,
+                    "prep_elapsed_s": prep.elapsed_s,
+                    "fallback_reason": prep.fallback_reason,
+                    "max_rounds": max_rounds,
+                    "rounds_executed": len(rounds_summary),
+                    "rounds": rounds_summary,
+                    "no_reviewer": no_reviewer,
+                    "run_error": run_error,
+                })
 
     # ----------------------------------------------------------------------
     # Phase helpers (mostly mirroring Harbor's stock Codex.run)

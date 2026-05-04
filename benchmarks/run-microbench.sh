@@ -34,10 +34,14 @@ export ARGUS_SKILL_HARBOR_REVIEWER_EFFORT=medium
 export ARGUS_SKILL_HARBOR_SKILLS_DIR="$EXP_DIR/skills"
 export ARGUS_SKILL_HARBOR_DECISIONS_LOG="$DECISIONS_LOG"
 
-# --- Loop budgets (tight; rubber-duck warned about budget overrun)
+# --- Loop budgets.
+# Per-task agent timeouts on this 11-task subset are 900s-3600s, so the
+# worst case envelope below (distill 120 + r1 360 + rev 50 + r2 320 = 850s)
+# fits the tightest task. Most rounds finish in <250s so the average is
+# well under budget.
 export ARGUS_SKILL_HARBOR_DISTILL_BUDGET=120
-export ARGUS_SKILL_HARBOR_REVIEWER_BUDGET=60
-export ARGUS_SKILL_HARBOR_ROUND_TIMEOUT=200
+export ARGUS_SKILL_HARBOR_REVIEWER_BUDGET=50
+export ARGUS_SKILL_HARBOR_ROUND_TIMEOUT=360
 export ARGUS_SKILL_HARBOR_MAX_ROUNDS=2
 
 # --- 11 tasks (mirrors skill-agent's tb2-microbench-2026-05-03 set)
