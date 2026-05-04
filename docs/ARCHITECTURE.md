@@ -18,6 +18,7 @@ adaptation.
 | `argus_skill/engineer/checks.py` | ArgusBot/codex_autoloop/checks.py | Verbatim except for the import path (`models.CheckResult` → `..core.models.CheckResult`). |
 | `argus_skill/engineer/runner.py` | new | The `SupervisedEngineer` class — the round-loop control flow. Replaces what `LoopEngine` does in ArgusBot, but for a single-agent (no planner / explore subagent) shape. |
 | `argus_skill/adapters/memory_backend.py` | new | Deterministic stub backend for tests + smoke runs. |
+| `argus_skill/adapters/codex_backend.py` | new (thin wrapper over `ArgusBot/codex_autoloop/codex_runner.py`) | `CodexRunnerBackend` — the production backend. Translates argus-skill's `RunnerOptions`/`RunnerResult` to/from ArgusBot's, catches subprocess failures, best-effort token accounting from JSON event stream. |
 | `argus_skill/adapters/control_channels.py` | shaped after `ArgusBot/codex_autoloop/adapters/control_channels.py` | TelegramControlChannel + LocalBusControlChannel + CompositeControlChannel. FeishuControlChannel intentionally dropped. |
 | `argus_skill/adapters/event_sinks.py` | shaped after `ArgusBot/codex_autoloop/adapters/event_sinks.py` | TerminalEventSink + JsonlEventSink + TelegramEventSink + CompositeEventSink. Dashboard / Feishu sinks intentionally dropped. |
 | `argus_skill/daemon/__init__.py` | new | package marker |

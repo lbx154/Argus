@@ -91,11 +91,22 @@ def _load_backend() -> RunnerBackend:
     backend_name = os.environ.get("ARGUS_SKILL_BACKEND", "memory").lower()
     if backend_name == "memory":
         return _build_demo_memory_backend()
+    if backend_name == "codex":
+        # Lazy import: ArgusBot is an optional runtime dependency.
+        try:
+            from ..adapters.codex_backend import build_codex_backend_from_env
+        except ImportError as exc:
+            raise SystemExit(
+                f"Codex backend requested but unavailable: {exc}.\n"
+                "Install ArgusBot (`pip install -e /path/to/ArgusBot`) "
+                "or set ARGUS_SKILL_BACKEND=memory."
+            ) from exc
+        return build_codex_backend_from_env()
     raise SystemExit(
         f"Backend '{backend_name}' is not wired into the CLI.\n"
-        "For real LLM-backed runs, import argus_skill.SkillLoop from\n"
-        "your own script and pass a runner backend that wraps your CLI.\n"
-        "Set ARGUS_SKILL_BACKEND=memory for the stub (smoke-test only)."
+        "Supported: 'memory' (stub) or 'codex' (real CLI via ArgusBot).\n"
+        "For custom backends, import argus_skill.SkillLoop from your own\n"
+        "script and pass a runner backend that wraps your CLI."
     )
 
 

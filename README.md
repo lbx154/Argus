@@ -62,9 +62,36 @@ Run `argus-skill list-skills` to see the skill the demo distilled.
 
 ## Real usage (with codex / claude-code)
 
-The CLI's only built-in backend is the memory stub. For real LLM use,
-import `SkillLoop` from your own driver script and pass a
-`RunnerBackend` that wraps your CLI:
+There are two ways to drive a real CLI:
+
+### Option A — `ARGUS_SKILL_BACKEND=codex` (zero code)
+
+The CLI ships a `CodexRunnerBackend` adapter that wraps ArgusBot's
+battle-tested `codex_autoloop.codex_runner.CodexRunner`. Set the env
+vars and run:
+
+```bash
+ARGUS_SKILL_BACKEND=codex \
+ARGUS_SKILL_RUNNER_BACKEND=codex \
+ARGUS_SKILL_RUNNER_BIN=$(which codex) \
+argus-skill run "fix the failing tests in src/foo/" --check 'pytest -q'
+```
+
+Honoured env vars:
+
+| Variable | Meaning | Default |
+|----------|---------|---------|
+| `ARGUS_SKILL_BACKEND` | `memory` (stub) or `codex` (real CLI) | `memory` |
+| `ARGUS_SKILL_RUNNER_BACKEND` | which CLI: `codex` / `claude` / `copilot` | `codex` |
+| `ARGUS_SKILL_RUNNER_BIN` | path to the CLI binary | resolved on `$PATH` |
+| `ARGUS_SKILL_RUNNER_EXTRA_ARGS` | shell-quoted args appended to every call | empty |
+
+Requires ArgusBot to be importable (`pip install -e ../ArgusBot`).
+
+### Option B — custom backend (full control)
+
+For non-codex / non-claude CLIs, import `SkillLoop` from your own
+driver script and pass a `RunnerBackend` that wraps your CLI:
 
 ```python
 from pathlib import Path
@@ -175,6 +202,7 @@ argus_skill/
 │   └── runner.py        # SupervisedEngineer: round-loop control flow (NEW)
 ├── adapters/
 │   ├── memory_backend.py  # deterministic stub for tests / smoke runs (NEW)
+│   ├── codex_backend.py   # CodexRunnerBackend — wraps ArgusBot's CodexRunner (NEW)
 │   ├── control_channels.py  # LocalBus + Telegram control channels for the daemon (NEW)
 │   └── event_sinks.py     # Terminal + JSONL + Telegram event sinks (NEW)
 ├── daemon/
