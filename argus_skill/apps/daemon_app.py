@@ -44,7 +44,7 @@ from ..daemon.bus import (
     inspect_daemon_status,
 )
 from ..daemon.runtime import Daemon, DaemonConfig
-from ..daemon.token_lock import TokenLock
+from ..daemon.token_lock import acquire_token_lock
 from ..loop import SkillLoop, SkillLoopConfig
 from ..telegram.notifier import TelegramConfig, TelegramNotifier
 
@@ -141,14 +141,17 @@ def cmd_daemon(args: argparse.Namespace, *, runner_factory) -> int:
 
     # Token lock — protects against two daemons fighting over one Telegram bot.
     lock_token = (args.telegram_bot_token or "local") if not args.no_token_lock else None
-    lock_ctx = TokenLock(lock_token) if lock_token else None
-    if lock_ctx is not None:
+    lock_ctx = None
+    if lock_token is not None:
         try:
-            lock_ctx.acquire(owner_info={
-                "pid": os.getpid(),
-                "started_at": datetime.utcnow().isoformat(),
-                "host": "argus-skill",
-            })
+            lock_ctx = acquire_token_lock(
+                token=lock_token,
+                owner_info={
+                    "pid": os.getpid(),
+                    "started_at": datetime.utcnow().isoformat(),
+                    "host": "argus-skill",
+                },
+            )
         except RuntimeError as exc:
             sys.stderr.write(f"daemon: token lock busy: {exc}\n")
             return 2
