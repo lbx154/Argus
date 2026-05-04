@@ -77,3 +77,192 @@ def test_set_verbose_false_restores_minimal() -> None:
     notifier.set_verbose(False)
     assert notifier.config.verbose is False
     assert notifier.config.notify_event_types == _USER_FACING_EVENTS
+
+
+# ---------------------------------------------------------------------------
+# Rich payload renderers (LoopEngine + SkillLoopRunner mission events)
+# ---------------------------------------------------------------------------
+
+
+def test_format_loop_started_shows_objective_and_max_rounds() -> None:
+    msg = format_event_message({
+        "type": "loop.started",
+        "objective": "build a CLI",
+        "max_rounds": 20,
+        "plan_mode": "auto",
+    })
+    assert msg.startswith("🚀 ")
+    assert "max_rounds=20" in msg
+    assert "plan_mode=auto" in msg
+    assert "build a CLI" in msg
+
+
+def test_format_round_started_shows_round_index() -> None:
+    msg = format_event_message({"type": "round.started", "round_index": 3})
+    assert msg == "🔁 round 3 starting…"
+
+
+def test_format_round_main_completed_shows_last_message() -> None:
+    msg = format_event_message({
+        "type": "round.main.completed",
+        "round_index": 1,
+        "turn_completed": True,
+        "turn_failed": False,
+        "last_message": "wrote todo.py and ran pytest: 6 passed",
+    })
+    assert msg.startswith("🔧 round 1: main agent finished")
+    assert "wrote todo.py and ran pytest: 6 passed" in msg
+
+
+def test_format_round_main_completed_shows_fatal_when_no_message() -> None:
+    msg = format_event_message({
+        "type": "round.main.completed",
+        "round_index": 2,
+        "turn_completed": False,
+        "turn_failed": True,
+        "fatal_error": "External interrupt: operator stop",
+        "last_message": "",
+    })
+    assert "turn_failed" in msg
+    assert "External interrupt" in msg
+
+
+def test_format_round_checks_completed_summarises_pass_fail() -> None:
+    msg = format_event_message({
+        "type": "round.checks.completed",
+        "round_index": 1,
+        "checks": [
+            {"command": "pytest -q", "exit_code": 0, "passed": True},
+            {"command": "ruff check .", "exit_code": 1, "passed": False},
+        ],
+    })
+    assert "1 ✓ / 1 ✗" in msg
+    assert "ruff check" in msg
+    assert "exit 1" in msg
+
+
+def test_format_round_checks_completed_handles_no_checks() -> None:
+    msg = format_event_message({
+        "type": "round.checks.completed",
+        "round_index": 1,
+        "checks": [],
+    })
+    assert "no acceptance checks" in msg
+
+
+def test_format_round_review_completed_done() -> None:
+    msg = format_event_message({
+        "type": "round.review.completed",
+        "round_index": 1,
+        "status": "done",
+        "reason": "objective met",
+        "next_action": "",
+    })
+    assert "✅ done" in msg
+    assert "objective met" in msg
+    # 'done' status doesn't show next-action even if present.
+    assert "next:" not in msg
+
+
+def test_format_round_review_completed_continue_shows_next() -> None:
+    msg = format_event_message({
+        "type": "round.review.completed",
+        "round_index": 2,
+        "status": "continue",
+        "reason": "tests still failing",
+        "next_action": "fix the rm error path",
+    })
+    assert "↻ continue" in msg
+    assert "tests still failing" in msg
+    assert "fix the rm error path" in msg
+
+
+def test_format_plan_completed_shows_main_and_explore() -> None:
+    msg = format_event_message({
+        "type": "plan.completed",
+        "round_index": 3,
+        "plan_mode": "auto",
+        "follow_up_required": True,
+        "main_instruction": "add --json flag",
+        "next_explore": "test the new flag",
+        "review_instruction": "verify json output",
+    })
+    assert "round 3 plan (auto)" in msg
+    assert "follow-up needed" in msg
+    assert "add --json flag" in msg
+    assert "test the new flag" in msg
+    assert "verify json output" in msg
+
+
+def test_format_plan_completed_no_followup() -> None:
+    msg = format_event_message({
+        "type": "plan.completed",
+        "round_index": 5,
+        "plan_mode": "auto",
+        "follow_up_required": False,
+        "main_instruction": "",
+        "next_explore": "",
+        "review_instruction": "",
+    })
+    assert "no more follow-up" in msg
+
+
+def test_format_round_control_injected_shows_text() -> None:
+    msg = format_event_message({
+        "type": "round.control.injected",
+        "round_index": 4,
+        "instruction": "switch to JSON output",
+    })
+    assert msg.startswith("💉 round 4")
+    assert "switch to JSON output" in msg
+
+
+def test_format_loop_completed_success() -> None:
+    msg = format_event_message({
+        "type": "loop.completed",
+        "success": True,
+        "stop_reason": "objective met cleanly",
+    })
+    assert "success" in msg
+    assert "objective met cleanly" in msg
+
+
+def test_format_loop_completed_failure() -> None:
+    msg = format_event_message({
+        "type": "loop.completed",
+        "success": False,
+        "stop_reason": "max_rounds exceeded",
+    })
+    assert "FAILED" in msg
+    assert "max_rounds exceeded" in msg
+
+
+def test_format_final_report_ready_shows_path() -> None:
+    msg = format_event_message({
+        "type": "final.report.ready",
+        "path": "/tmp/x/final.md",
+        "generated_by": "main-agent",
+    })
+    assert "/tmp/x/final.md" in msg
+    assert "main-agent" in msg
+
+
+def test_user_facing_set_includes_mission_lifecycle() -> None:
+    # Quiet-mode users should still see the mission-level verdicts.
+    for kind in (
+        "mission.started", "mission.completed", "mission.error",
+        "round.review.completed", "plan.completed",
+        "loop.completed", "final.report.ready", "round.control.injected",
+    ):
+        assert kind in _USER_FACING_EVENTS, f"{kind} should be user-facing"
+
+
+def test_internal_set_includes_per_round_noise() -> None:
+    # Verbose-only events stay hidden by default.
+    for kind in (
+        "round.started", "round.main.completed",
+        "round.checks.completed", "round.watchdog.checked",
+        "match.info", "scientist.start",
+    ):
+        assert kind in _VERBOSE_EVENTS
+        assert kind not in _USER_FACING_EVENTS, f"{kind} should be verbose-only"

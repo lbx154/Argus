@@ -34,15 +34,32 @@ _USER_FACING_EVENTS: set[str] = {
     "daemon.stopping",
     "help",
     "status.report",
+    # Mission-mode high-signal lifecycle (always shown, even in quiet mode).
+    "mission.started",
+    "mission.completed",
+    "mission.error",
+    "round.review.completed",
+    "plan.completed",
+    "round.control.injected",
+    "loop.completed",
+    "pptx.report.ready",
+    "final.report.ready",
 }
 
 # Internal lifecycle events — visible only when verbose mode is on.
 _INTERNAL_EVENTS: set[str] = {
     "loop.start",
+    "loop.started",
     "loop.done",
     "match.info",
     "scientist.start",
+    "scientist.error",
     "round.start",
+    "round.started",
+    "round.main.completed",
+    "round.checks.completed",
+    "round.watchdog.checked",
+    "round.watchdog.restart_requested",
     "review.done",
     "checks.done",
     "skill.writeback",
@@ -66,6 +83,25 @@ _EVENT_ICONS: dict[str, str] = {
     "daemon.stopping":  "🛑",
     "help":             "ℹ️",
     "status.report":    "📊",
+    "mission.started":  "🎯",
+    "mission.completed": "🎉",
+    "mission.error":    "💥",
+    "loop.started":     "🚀",
+    "loop.completed":   "🏁",
+    "round.started":    "🔁",
+    "round.main.completed":   "🔧",
+    "round.checks.completed": "🔍",
+    "round.review.completed": "🧑‍⚖️",
+    "round.control.injected": "💉",
+    "round.watchdog.checked":          "🐶",
+    "round.watchdog.restart_requested": "🔄",
+    "plan.completed":   "📋",
+    "match.info":       "🎯",
+    "scientist.start":  "🧪",
+    "scientist.error":  "🧪❌",
+    "skill.writeback":  "💾",
+    "pptx.report.ready": "📊",
+    "final.report.ready": "📄",
 }
 
 
@@ -239,17 +275,30 @@ class TelegramNotifier:
 
 
 def format_event_message(event: dict[str, Any]) -> str:
-    """Render a structured event as a short Telegram-friendly string.
+    """Render a structured event as a short human-friendly string.
 
-    User-facing events (``task.completed``, ``daemon.started``, …) get a
-    leading icon and no ``[event.type]`` clutter. Internal/dev events
-    fall through to the legacy ``[type] text`` form so verbose-mode
-    grep'ing still works.
+    LoopEngine and SkillLoopRunner emit events with rich structured payloads
+    (``round_index``, ``status``, ``reason``, ``last_message``, …) instead of
+    a single ``text`` field, so we dispatch to per-type renderers that pick
+    out the most useful pieces.  Events without a custom renderer fall back
+    to the legacy ``icon + text`` shape, and totally-unknown events keep the
+    bracketed form so they remain grep-able in verbose mode.
     """
     kind = str(event.get("type", "?"))
+    icon = _EVENT_ICONS.get(kind, "")
+
+    # Per-event renderer: receives the full event dict, returns body text
+    # (without the leading icon).
+    renderer = _RICH_RENDERERS.get(kind)
+    if renderer is not None:
+        body = renderer(event)
+        if not body:
+            return icon or f"[{kind}]"
+        return f"{icon} {body}".lstrip()
+
+    # Legacy / simple events with a free-form ``text`` field.
     text = str(event.get("text", "")).strip()
-    icon = _EVENT_ICONS.get(kind)
-    if icon is None:
+    if icon == "":
         # Internal / unknown event — keep bracketed form for grep-ability.
         if not text:
             return f"[{kind}]"
@@ -258,12 +307,183 @@ def format_event_message(event: dict[str, Any]) -> str:
         return f"[{kind}] {text}"
     if not text:
         return icon
-    # Per-event length cap. ``task.completed`` carries the engineer's
-    # final answer, so we let it run longer; others stay short.
     cap = 1500 if kind == "task.completed" else 300
     if len(text) > cap:
         text = text[:cap].rstrip() + "…"
     return f"{icon} {text}"
+
+
+# ---------------------------------------------------------------------------
+# Per-event-type rich renderers (LoopEngine + SkillLoopRunner payloads).
+# ---------------------------------------------------------------------------
+
+def _trunc(s: str, n: int) -> str:
+    s = (s or "").strip()
+    if len(s) <= n:
+        return s
+    return s[:n].rstrip() + "…"
+
+
+def _round_label(event: dict[str, Any]) -> str:
+    idx = event.get("round_index")
+    return f"round {idx}" if idx is not None else "round ?"
+
+
+def _render_loop_started(event: dict[str, Any]) -> str:
+    obj = _trunc(str(event.get("objective", "")), 120)
+    parts = [f"loop started — max_rounds={event.get('max_rounds', '?')}"]
+    plan_mode = event.get("plan_mode")
+    if plan_mode:
+        parts.append(f"plan_mode={plan_mode}")
+    out = ", ".join(parts)
+    if obj:
+        out += f"\n   objective: {obj}"
+    return out
+
+
+def _render_round_started(event: dict[str, Any]) -> str:
+    return _round_label(event) + " starting…"
+
+
+def _render_round_main_completed(event: dict[str, Any]) -> str:
+    label = _round_label(event)
+    last = _trunc(str(event.get("last_message") or ""), 800)
+    fatal = (event.get("fatal_error") or "").strip()
+    turn_completed = event.get("turn_completed")
+    turn_failed = event.get("turn_failed")
+    flags = []
+    if turn_failed:
+        flags.append("turn_failed")
+    elif turn_completed is False:
+        flags.append("incomplete")
+    head = f"{label}: main agent finished"
+    if flags:
+        head += f" ({', '.join(flags)})"
+    body = ""
+    if last:
+        body = f"\n   ↳ {last}"
+    elif fatal:
+        body = f"\n   ↳ ⚠ {_trunc(fatal, 300)}"
+    return head + body
+
+
+def _render_round_checks_completed(event: dict[str, Any]) -> str:
+    label = _round_label(event)
+    checks = event.get("checks") or []
+    if not checks:
+        return f"{label}: (no acceptance checks configured)"
+    passed = sum(1 for c in checks if c.get("passed"))
+    failed = len(checks) - passed
+    head = f"{label}: checks {passed} ✓ / {failed} ✗"
+    if failed:
+        # Show first failing command for quick diagnosis.
+        for c in checks:
+            if not c.get("passed"):
+                cmd = _trunc(str(c.get("command") or ""), 80)
+                head += f" — failed: {cmd} (exit {c.get('exit_code')})"
+                break
+    return head
+
+
+def _render_round_review_completed(event: dict[str, Any]) -> str:
+    label = _round_label(event)
+    status = str(event.get("status", "?"))
+    reason = _trunc(str(event.get("reason") or ""), 400)
+    next_action = _trunc(str(event.get("next_action") or ""), 200)
+    status_icon = {
+        "done": "✅",
+        "continue": "↻",
+        "blocked": "⛔",
+        "no_progress": "🚫",
+    }.get(status, "•")
+    head = f"{label}: review {status_icon} {status}"
+    parts = [head]
+    if reason:
+        parts.append(f"   ↳ reason: {reason}")
+    if next_action and status != "done":
+        parts.append(f"   ↳ next: {next_action}")
+    return "\n".join(parts)
+
+
+def _render_plan_completed(event: dict[str, Any]) -> str:
+    label = _round_label(event)
+    plan_mode = event.get("plan_mode") or "?"
+    follow_up = event.get("follow_up_required")
+    main_inst = _trunc(str(event.get("main_instruction") or ""), 400)
+    review_inst = _trunc(str(event.get("review_instruction") or ""), 200)
+    next_explore = _trunc(str(event.get("next_explore") or ""), 200)
+    flag = "" if follow_up is None else (
+        " (follow-up needed)" if follow_up else " (no more follow-up)"
+    )
+    parts = [f"{label} plan ({plan_mode}){flag}"]
+    if main_inst:
+        parts.append(f"   ↳ main: {main_inst}")
+    if next_explore:
+        parts.append(f"   ↳ explore: {next_explore}")
+    if review_inst:
+        parts.append(f"   ↳ review: {review_inst}")
+    return "\n".join(parts)
+
+
+def _render_round_control_injected(event: dict[str, Any]) -> str:
+    label = _round_label(event)
+    instruction = _trunc(str(event.get("instruction") or ""), 400)
+    return f"{label}: operator instruction injected\n   ↳ {instruction}"
+
+
+def _render_round_watchdog_checked(event: dict[str, Any]) -> str:
+    label = _round_label(event)
+    idle = event.get("idle_seconds")
+    should_restart = event.get("should_restart")
+    reason = _trunc(str(event.get("reason") or ""), 200)
+    matched = event.get("matched_pattern")
+    suffix = f" idle={idle}s"
+    if should_restart:
+        suffix += " — RESTART"
+    if matched:
+        suffix += f" ({matched})"
+    if reason and should_restart:
+        suffix += f" — {reason}"
+    return f"{label} watchdog:{suffix}"
+
+
+def _render_round_watchdog_restart_requested(event: dict[str, Any]) -> str:
+    label = _round_label(event)
+    reason = _trunc(str(event.get("reason") or ""), 300)
+    return f"{label}: watchdog → restart — {reason}"
+
+
+def _render_loop_completed(event: dict[str, Any]) -> str:
+    success = event.get("success")
+    reason = _trunc(str(event.get("stop_reason") or ""), 400)
+    head = "loop done — success" if success else "loop done — FAILED"
+    if reason:
+        head += f"\n   ↳ {reason}"
+    return head
+
+
+def _render_pptx_report_ready(event: dict[str, Any]) -> str:
+    return f"pptx report ready: {event.get('path', '')} (via {event.get('generated_by', '?')})"
+
+
+def _render_final_report_ready(event: dict[str, Any]) -> str:
+    return f"final report ready: {event.get('path', '')} (via {event.get('generated_by', '?')})"
+
+
+_RICH_RENDERERS: dict[str, Callable[[dict[str, Any]], str]] = {
+    "loop.started": _render_loop_started,
+    "round.started": _render_round_started,
+    "round.main.completed": _render_round_main_completed,
+    "round.checks.completed": _render_round_checks_completed,
+    "round.review.completed": _render_round_review_completed,
+    "round.control.injected": _render_round_control_injected,
+    "round.watchdog.checked": _render_round_watchdog_checked,
+    "round.watchdog.restart_requested": _render_round_watchdog_restart_requested,
+    "plan.completed": _render_plan_completed,
+    "loop.completed": _render_loop_completed,
+    "pptx.report.ready": _render_pptx_report_ready,
+    "final.report.ready": _render_final_report_ready,
+}
 
 
 def _split_telegram_text(text: str, *, limit: int) -> list[str]:
