@@ -440,3 +440,115 @@ def test_write_status_payload_contains_phase_and_history(tmp_path):
     assert payload["last_review"]["reason"] == "still red"
     assert isinstance(payload["recent_events"], list)
     assert len(payload["recent_events"]) >= 2
+
+
+# ---------------------------------------------------------------------------
+# Phase E: /show prompt|plan|review|all
+# ---------------------------------------------------------------------------
+
+def _loop_state_dir(tmp_path):
+    """Return the directory where MissionDaemon expects loop_state artifacts."""
+    return tmp_path / "state" / "missions" / "mission_TESTID" / "loop_state"
+
+
+def test_show_no_target_emits_error(tmp_path):
+    daemon, sinks, _ = _build_daemon(tmp_path)
+    daemon.handle_command(ControlCommand(kind="show", text=""))
+    errs = [e for e in sinks.events if e.get("type") == "command.error"]
+    assert errs and "/show requires" in errs[0]["text"]
+
+
+def test_show_unknown_target_emits_error(tmp_path):
+    daemon, sinks, _ = _build_daemon(tmp_path)
+    daemon.handle_command(ControlCommand(kind="show", text="diary"))
+    errs = [e for e in sinks.events if e.get("type") == "command.error"]
+    assert errs and "diary" in errs[0]["text"]
+
+
+def test_show_prompt_when_missing_returns_helpful_text(tmp_path):
+    daemon, sinks, _ = _build_daemon(tmp_path)
+    daemon.handle_command(ControlCommand(kind="show", text="prompt"))
+    acks = [e for e in sinks.events if e.get("type") == "command.ack"]
+    assert acks
+    assert acks[0].get("show_kind") == "prompt"
+    assert "no prompts" in acks[0]["text"].lower() or "engineer hasn't run" in acks[0]["text"]
+
+
+def test_show_prompt_returns_last_round_section(tmp_path):
+    daemon, sinks, _ = _build_daemon(tmp_path)
+    base = _loop_state_dir(tmp_path)
+    base.mkdir(parents=True, exist_ok=True)
+    (base / "main_prompts.md").write_text(
+        "# round 1\nfirst prompt body…\n# round 2\nSECOND PROMPT BODY here\n",
+        encoding="utf-8",
+    )
+    daemon.handle_command(ControlCommand(kind="show", text="prompt"))
+    ack = next(e for e in sinks.events if e.get("type") == "command.ack")
+    assert "SECOND PROMPT BODY" in ack["text"]
+    # The first round's section should NOT bleed into the latest view.
+    assert "first prompt body" not in ack["text"]
+
+
+def test_show_plan_returns_plan_overview(tmp_path):
+    daemon, sinks, _ = _build_daemon(tmp_path)
+    base = _loop_state_dir(tmp_path)
+    base.mkdir(parents=True, exist_ok=True)
+    (base / "plan_overview.md").write_text(
+        "## Plan\nmain_instruction: refine error handling\n",
+        encoding="utf-8",
+    )
+    daemon.handle_command(ControlCommand(kind="show", text="plan"))
+    ack = next(e for e in sinks.events if e.get("type") == "command.ack")
+    assert "refine error handling" in ack["text"]
+
+
+def test_show_review_returns_latest_summary(tmp_path):
+    daemon, sinks, _ = _build_daemon(tmp_path)
+    base = _loop_state_dir(tmp_path)
+    rdir = base / "review_summaries"
+    rdir.mkdir(parents=True, exist_ok=True)
+    import os, time as _time
+    (rdir / "round_001.md").write_text("OLD review", encoding="utf-8")
+    _time.sleep(0.01)
+    (rdir / "round_002.md").write_text("FRESH review verdict", encoding="utf-8")
+    daemon.handle_command(ControlCommand(kind="show", text="review"))
+    ack = next(e for e in sinks.events if e.get("type") == "command.ack")
+    assert "FRESH review verdict" in ack["text"]
+    assert "OLD review" not in ack["text"]
+
+
+def test_show_all_combines_all_three(tmp_path):
+    daemon, sinks, _ = _build_daemon(tmp_path)
+    base = _loop_state_dir(tmp_path)
+    base.mkdir(parents=True, exist_ok=True)
+    (base / "main_prompts.md").write_text("# round 1\nMP body\n", encoding="utf-8")
+    (base / "plan_overview.md").write_text("PLAN body\n", encoding="utf-8")
+    rdir = base / "review_summaries"
+    rdir.mkdir(parents=True, exist_ok=True)
+    (rdir / "round_001.md").write_text("REVIEW body\n", encoding="utf-8")
+    daemon.handle_command(ControlCommand(kind="show", text="all"))
+    ack = next(e for e in sinks.events if e.get("type") == "command.ack")
+    assert "MP body" in ack["text"]
+    assert "PLAN body" in ack["text"]
+    assert "REVIEW body" in ack["text"]
+    assert ack.get("show_kind") == "all"
+
+
+# ---------------------------------------------------------------------------
+# Phase E (parser): /show kind
+# ---------------------------------------------------------------------------
+
+def test_parser_show_with_target():
+    from argus_skill.telegram.poller import parse_command_text
+    cmd = parse_command_text(text="/show prompt", plain_text_as_inject=False)
+    assert cmd is not None
+    assert cmd.kind == "show"
+    assert cmd.text == "prompt"
+
+
+def test_parser_show_bare_emits_show_with_empty_text():
+    from argus_skill.telegram.poller import parse_command_text
+    cmd = parse_command_text(text="/show", plain_text_as_inject=False)
+    assert cmd is not None
+    assert cmd.kind == "show"
+    assert cmd.text == ""

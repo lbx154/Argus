@@ -392,6 +392,8 @@ class MissionDaemon:
                         "text": "quiet mode on — only essential events"})
         elif kind == "help":
             self._emit({"type": "help", "text": self._help_text()})
+        elif kind == "show":
+            self._handle_show_command(command.text)
         else:
             self._emit({"type": "command.unknown", "text": f"unknown command: {kind}"})
 
@@ -613,6 +615,111 @@ class MissionDaemon:
             "Plain text without '/' is buffered as an inject."
         )
 
+    # --- /show -----------------------------------------------------------
+
+    _SHOW_KINDS = {"prompt", "plan", "review", "all"}
+    _SHOW_CAP_BYTES = 4096
+
+    def _handle_show_command(self, text: str) -> None:
+        kind = (text or "").strip().lower()
+        if not kind:
+            self._emit({
+                "type": "command.error",
+                "text": "/show requires one of: prompt | plan | review | all",
+            })
+            return
+        if kind not in self._SHOW_KINDS:
+            self._emit({
+                "type": "command.error",
+                "text": f"/show: unknown target '{kind}'. Try prompt | plan | review | all.",
+            })
+            return
+
+        sections: list[tuple[str, str]] = []  # [(label, content)]
+        targets = ["prompt", "plan", "review"] if kind == "all" else [kind]
+        for tgt in targets:
+            label, content = self._read_show_target(tgt)
+            sections.append((label, content))
+
+        # Cap to ~4KB total. If multiple sections, divide the budget.
+        budget = self._SHOW_CAP_BYTES
+        per_section = budget // len(sections)
+        rendered_parts: list[str] = []
+        for label, content in sections:
+            body = content
+            if len(body.encode("utf-8")) > per_section:
+                body = body[: per_section - 32].rstrip() + "\n…[truncated]"
+            rendered_parts.append(f"── {label} ──\n{body}")
+        rendered = "\n\n".join(rendered_parts)
+        self._emit({
+            "type": "command.ack",
+            "text": rendered,
+            "show_kind": kind,
+        })
+
+    def _read_show_target(self, target: str) -> tuple[str, str]:
+        """Return (label, content) for one of prompt|plan|review."""
+        paths = _mission_loop_state_paths(
+            self.config.state_dir, self.mission.mission_id
+        )
+        try:
+            if target == "prompt":
+                p = Path(paths["main_prompt_file"])
+                label = "main_prompts.md (latest engineer prompt)"
+                if not p.exists():
+                    return label, "(no prompts written yet — engineer hasn't run a round)"
+                # main_prompts.md is append-only with delimiters per round.
+                # Show the LAST entry (the freshest the engineer saw).
+                full = p.read_text(encoding="utf-8", errors="replace")
+                last = self._last_main_prompt_section(full)
+                return label, last or full
+            if target == "plan":
+                p = Path(paths["plan_overview_file"])
+                label = "plan_overview.md"
+                if not p.exists():
+                    return label, "(no plan written yet — planner hasn't run)"
+                return label, p.read_text(encoding="utf-8", errors="replace")
+            if target == "review":
+                d = Path(paths["review_summaries_dir"])
+                label = "review_summaries/ (latest)"
+                if not d.exists():
+                    return label, "(no review summaries yet — reviewer hasn't run)"
+                files = sorted(
+                    [f for f in d.iterdir() if f.is_file()],
+                    key=lambda f: f.stat().st_mtime,
+                )
+                if not files:
+                    return label, "(review_summaries dir empty)"
+                latest = files[-1]
+                body = latest.read_text(encoding="utf-8", errors="replace")
+                return f"review_summaries/{latest.name}", body
+        except OSError as exc:
+            return target, f"(read error: {exc})"
+        return target, "(unknown target)"
+
+    @staticmethod
+    def _last_main_prompt_section(full_text: str) -> str | None:
+        """Best-effort: return the trailing section of main_prompts.md.
+
+        The file is a running journal. We split on lines that look like
+        round delimiters (``# round N`` / ``## round N`` / ``--- round N``)
+        and keep the last chunk. If no such delimiter exists, return the
+        last 2 KB so the operator at least sees something fresh.
+        """
+        import re
+        if not full_text:
+            return None
+        lines = full_text.splitlines(keepends=True)
+        last_idx = 0
+        delim = re.compile(r"^(?:#+\s*round\b|---+\s*round\b|=+\s*round\b)", re.IGNORECASE)
+        for i, line in enumerate(lines):
+            if delim.match(line):
+                last_idx = i
+        if last_idx == 0:
+            tail = full_text[-2048:]
+            return tail
+        return "".join(lines[last_idx:])
+
 
 # ---------------------------------------------------------------------------
 # Helpers (sinks + status rendering)
@@ -680,7 +787,7 @@ def _render_mission_status(
 
     Pure function (no daemon state, no I/O) so it's trivial to unit-test.
     """
-    head = f"📊 mission {mission_id}   {mission_status}"
+    head = f"mission {mission_id}   {mission_status}"
     if max_rounds:
         head += f"   round {current_round}/{max_rounds}"
     head += f"   phase={phase}"

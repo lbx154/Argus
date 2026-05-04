@@ -54,8 +54,10 @@ def add_chat_subcommand(sub: argparse._SubParsersAction) -> None:
     )
     chat_p.add_argument("--state-dir", default=".argus-skill",
                         help="daemon state-dir (where inbox.jsonl + outbox.jsonl live)")
-    chat_p.add_argument("--verbose", action="store_true",
+    chat_p.add_argument("--verbose", dest="verbose", action="store_true", default=None,
                         help="start in verbose mode (show internal events)")
+    chat_p.add_argument("--quiet", dest="verbose", action="store_false",
+                        help="start in quiet mode (only user-facing events)")
     chat_p.add_argument("--no-plain-text-inject", action="store_true",
                         help="drop plain text instead of buffering it as /inject")
     chat_p.add_argument("--from-start", action="store_true",
@@ -72,11 +74,13 @@ def cmd_chat(args: argparse.Namespace) -> int:
     status_path = state / "status.json"
 
     daemon_pid: int | None = None
+    detected_mode: str | None = None
     if status_path.exists():
         try:
             st = json.loads(status_path.read_text())
             daemon_pid = st.get("daemon_pid")
             mode = st.get("mode")
+            detected_mode = mode
             if mode == "mission":
                 # Mission daemon writes a different status shape.
                 obj = (st.get("mission_objective") or "")[:60]
@@ -98,12 +102,20 @@ def cmd_chat(args: argparse.Namespace) -> int:
     else:
         print(f"warning: no status.json in {state} — daemon may not be running", file=sys.stderr)
 
+    # Tri-state verbose:
+    #   --verbose / --quiet → explicit;
+    #   neither            → auto: mission mode = on, queue mode = off.
+    if args.verbose is None:
+        initial_verbose = detected_mode == "mission"
+    else:
+        initial_verbose = bool(args.verbose)
+
     print("type /help for commands, /exit (or Ctrl-D) to leave\n")
 
     bus = JsonlCommandBus(str(inbox))
     stop_event = threading.Event()
     state_lock = threading.Lock()
-    verbose_local = [bool(args.verbose)]
+    verbose_local = [initial_verbose]
 
     def _allowed(event_type: str) -> bool:
         with state_lock:

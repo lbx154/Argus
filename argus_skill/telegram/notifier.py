@@ -470,6 +470,34 @@ def _render_final_report_ready(event: dict[str, Any]) -> str:
     return f"final report ready: {event.get('path', '')} (via {event.get('generated_by', '?')})"
 
 
+def _render_command_ack(event: dict[str, Any]) -> str:
+    """Render command acknowledgements.
+
+    For most acks we just show the short text. For ``/show`` responses
+    (``show_kind`` present) we render the full body in a fenced block so
+    the operator can read the prompt/plan/review verbatim.
+    """
+    text = str(event.get("text", "")).strip()
+    show_kind = event.get("show_kind")
+    if show_kind:
+        # The body may be multi-line — wrap in a code fence and let the
+        # caller decide whether to truncate further.
+        if not text:
+            return f"/show {show_kind}: (empty)"
+        return f"/show {show_kind}:\n```\n{text}\n```"
+    return text
+
+
+def _render_status_report(event: dict[str, Any]) -> str:
+    """Pass /status text through verbatim (multi-line, no truncation).
+
+    The MissionDaemon now emits a multi-line snapshot with round/phase/
+    last-verdict/recent events; chopping it at 300 chars (the legacy
+    cap) would defeat the whole point.
+    """
+    return str(event.get("text", "")).rstrip()
+
+
 _RICH_RENDERERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "loop.started": _render_loop_started,
     "round.started": _render_round_started,
@@ -483,6 +511,8 @@ _RICH_RENDERERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "loop.completed": _render_loop_completed,
     "pptx.report.ready": _render_pptx_report_ready,
     "final.report.ready": _render_final_report_ready,
+    "command.ack": _render_command_ack,
+    "status.report": _render_status_report,
 }
 
 

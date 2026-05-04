@@ -131,6 +131,7 @@ def test_add_go_subcommand_defaults():
     assert ns.plan_mode == "auto"
     assert ns.max_rounds == 20
     assert ns.attach_only is False
+    assert ns.quiet is False
 
 
 def test_add_go_subcommand_passes_objective():
@@ -142,3 +143,12 @@ def test_add_go_subcommand_passes_objective():
     assert ns.objective == "build a thing"
     assert ns.plan_mode == "off"
     assert ns.max_rounds == 3
+
+
+def test_add_go_subcommand_accepts_quiet():
+    import argparse
+    p = argparse.ArgumentParser()
+    sub = p.add_subparsers(dest="cmd", required=True)
+    go_app.add_go_subcommand(sub)
+    ns = p.parse_args(["go", "x", "--quiet"])
+    assert ns.quiet is True

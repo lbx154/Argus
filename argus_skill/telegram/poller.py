@@ -225,6 +225,11 @@ def parse_command_text(*, text: str, plain_text_as_inject: bool) -> TelegramComm
         return TelegramCommand(kind="mode", text=content[len("/mode ") :].strip())
     if lowered == "/mode":
         return None
+    # Peek at LoopStateStore artifacts the engineer/planner/reviewer saw.
+    if lowered.startswith("/show "):
+        return TelegramCommand(kind="show", text=content[len("/show ") :].strip())
+    if lowered == "/show":
+        return TelegramCommand(kind="show", text="")
     if content.startswith("/"):
         # Unknown slash command — treat as a no-op rather than guess.
         return None

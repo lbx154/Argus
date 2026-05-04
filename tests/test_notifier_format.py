@@ -266,3 +266,39 @@ def test_internal_set_includes_per_round_noise() -> None:
     ):
         assert kind in _VERBOSE_EVENTS
         assert kind not in _USER_FACING_EVENTS, f"{kind} should be verbose-only"
+
+
+def test_format_command_ack_show_kind_wraps_in_fence() -> None:
+    out = format_event_message({
+        "type": "command.ack",
+        "text": "round 1 prompt body\nmore lines",
+        "show_kind": "prompt",
+    })
+    assert "/show prompt" in out
+    assert "```" in out
+    assert "round 1 prompt body" in out
+    assert "more lines" in out
+
+
+def test_format_command_ack_plain_text_unchanged() -> None:
+    out = format_event_message({
+        "type": "command.ack",
+        "text": "plan_mode → auto",
+    })
+    assert "```" not in out  # plain ack — no fence
+    assert "plan_mode → auto" in out
+
+
+def test_format_status_report_preserves_multi_line() -> None:
+    body = (
+        "mission X running   round 3/5   phase=review\n"
+        "   objective: do the thing\n"
+        "   plan_mode: auto\n"
+        "   last review (round 2): ↻ continue — tests failing\n"
+    )
+    out = format_event_message({"type": "status.report", "text": body})
+    # Both the icon and every body line must survive — no 300-char chop.
+    assert "📊" in out
+    assert "round 3/5" in out
+    assert "↻ continue" in out
+    assert "tests failing" in out

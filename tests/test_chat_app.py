@@ -19,15 +19,32 @@ def test_chat_subcommand_registers() -> None:
     args = parser.parse_args(["chat", "--state-dir", "/nonexistent/abc"])
     assert args.cmd == "chat"
     assert args.state_dir == "/nonexistent/abc"
-    assert args.verbose is False
+    # Tri-state default: neither flag set → None (auto-detect at runtime).
+    assert args.verbose is None
     assert args.no_plain_text_inject is False
     assert args.from_start is False
+
+
+def test_chat_subcommand_explicit_verbose() -> None:
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="cmd")
+    add_chat_subcommand(sub)
+    args = parser.parse_args(["chat", "--state-dir", "/x", "--verbose"])
+    assert args.verbose is True
+
+
+def test_chat_subcommand_explicit_quiet() -> None:
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="cmd")
+    add_chat_subcommand(sub)
+    args = parser.parse_args(["chat", "--state-dir", "/x", "--quiet"])
+    assert args.verbose is False
 
 
 def test_chat_rejects_missing_state_dir(tmp_path: Path) -> None:
     args = argparse.Namespace(
         state_dir=str(tmp_path / "does-not-exist"),
-        verbose=False,
+        verbose=None,
         no_plain_text_inject=False,
         from_start=False,
     )

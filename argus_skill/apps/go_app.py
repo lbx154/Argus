@@ -98,6 +98,15 @@ def add_go_subcommand(sub: argparse._SubParsersAction) -> None:
         default=90,
         help="seconds to wait for graceful daemon shutdown after REPL exits",
     )
+    go_p.add_argument(
+        "--quiet",
+        action="store_true",
+        help=(
+            "start chat REPL in quiet mode (only user-facing events). "
+            "Default for `argus-skill go` is verbose-on so you see the "
+            "engineer/reviewer/planner stream as it happens."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -391,6 +400,15 @@ def cmd_go(args: argparse.Namespace) -> int:
             f"✅ daemon up (pid={daemon_proc.pid})  plan_mode={args.plan_mode}  "
             f"max_rounds={args.max_rounds}\n"
         )
+        # Welcome banner with high-signal commands (Phase F).
+        sys.stdout.write(
+            "💡 high-signal commands once you're at the > prompt:\n"
+            "    /status                 — round / phase / last-verdict / recent\n"
+            "    /show prompt|plan|review — peek at what the engineer/planner saw\n"
+            "    /inject <text>          — nudge mid-round\n"
+            "    /verbose, /quiet        — toggle internal events\n"
+            "    /exit                   — leave (the daemon shuts down automatically)\n"
+        )
         sys.stdout.write(
             "──────────────────────────────────────────────────────────────\n"
         )
@@ -401,7 +419,9 @@ def cmd_go(args: argparse.Namespace) -> int:
     chat_args = argparse.Namespace(
         cmd="chat",
         state_dir=str(state_dir),
-        verbose=False,
+        # `argus-skill go` defaults to verbose-on (show the engineer/reviewer
+        # /planner stream as it happens). --quiet flips it off.
+        verbose=False if getattr(args, "quiet", False) else True,
         no_plain_text_inject=False,
         from_start=False,
     )
