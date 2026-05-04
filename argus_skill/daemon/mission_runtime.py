@@ -53,10 +53,13 @@ import json
 import logging
 import os
 import threading
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from ..telegram.notifier import format_event_message
 
 from ..adapters.skill_loop_runner import (
     EngineerCallConfig,
@@ -203,6 +206,17 @@ class MissionDaemon:
         self._mission_status = "idle"  # idle | running | done | error
         self._mission_result: dict | None = None
 
+        # Rich runtime state (populated by _track_event so /status and the
+        # status.json writer can render it without re-querying LoopEngine).
+        # phase: ready | engineering | checks | review | planning | idle
+        self._current_phase: str = "ready"
+        self._current_round: int = 0
+        self._max_rounds: int = mission.max_rounds
+        self._last_review: dict[str, Any] | None = None
+        self._last_plan: dict[str, Any] | None = None
+        self._last_main_summary: str = ""
+        self._recent_events: deque[dict[str, Any]] = deque(maxlen=12)
+
         # Build the LoopEngine + supporting machinery up-front so we can
         # surface configuration errors before the worker thread starts.
         self.skill_store = SkillStore(
@@ -267,7 +281,7 @@ class MissionDaemon:
             planner=self.planner,
             config=self.loop_config,
             state_store=self.state_store,
-            event_sink=self.sinks,
+            event_sink=_StateTrackingEventSink(self, self.sinks),
         )
 
     # --- lifecycle --------------------------------------------------------
@@ -437,7 +451,15 @@ class MissionDaemon:
                     "mission_objective": self.mission.objective[:200],
                     "mission_status": self._mission_status,
                     "mission_result": self._mission_result,
-                    "plan_mode": self.mission.plan_mode,
+                    "plan_mode": self._effective_plan_mode_locked(),
+                    # Rich runtime state — for /status, dashboards, debugging.
+                    "current_phase": self._current_phase,
+                    "current_round": self._current_round,
+                    "max_rounds": self._max_rounds,
+                    "last_review": self._last_review,
+                    "last_plan": self._last_plan,
+                    "last_main_summary": self._last_main_summary[:1500],
+                    "recent_events": list(self._recent_events),
                 }
             write_status(
                 str(Path(self.config.state_dir) / "status.json"),
@@ -449,10 +471,106 @@ class MissionDaemon:
     # --- helpers ----------------------------------------------------------
 
     def _emit(self, event: dict) -> None:
+        # Track first (in-process state); even if the user sink raises, our
+        # internal bookkeeping stays accurate.
+        try:
+            self._track_event(event)
+        except Exception:  # noqa: BLE001
+            log.exception("state tracker raised (event will still ship)")
         try:
             self.sinks.handle_event(event)
         except Exception:  # noqa: BLE001
             log.exception("sink.handle_event raised")
+
+    def _track_event(self, event: dict[str, Any]) -> None:
+        """Update in-memory mission state from a single LoopEngine/runner event.
+
+        Called both from ``self._emit`` (mission-level events emitted by this
+        class) and via ``_StateTrackingEventSink`` (events emitted by
+        LoopEngine itself). Idempotent — re-receiving the same event simply
+        re-applies the assignments.
+        """
+        kind = str(event.get("type", ""))
+        with self._lock:
+            self._note_recent(event)
+            if kind == "loop.started":
+                mr = event.get("max_rounds")
+                if isinstance(mr, int) and mr > 0:
+                    self._max_rounds = mr
+                self._current_phase = "ready"
+            elif kind == "round.started":
+                ri = event.get("round_index")
+                if isinstance(ri, int):
+                    self._current_round = ri
+                self._current_phase = "engineering"
+            elif kind == "round.main.completed":
+                last = (event.get("last_message") or "").strip()
+                if last:
+                    self._last_main_summary = last
+                self._current_phase = "checks"
+            elif kind == "round.checks.completed":
+                self._current_phase = "review"
+            elif kind == "round.review.completed":
+                ri = event.get("round_index") or self._current_round
+                status = str(event.get("status") or "")
+                self._last_review = {
+                    "round": ri,
+                    "status": status,
+                    "reason": (event.get("reason") or "")[:600],
+                    "next_action": (event.get("next_action") or "")[:300],
+                }
+                self._current_phase = "planning" if status == "done" else "engineering"
+            elif kind == "plan.completed":
+                ri = event.get("round_index") or self._current_round
+                self._last_plan = {
+                    "round": ri,
+                    "plan_mode": event.get("plan_mode"),
+                    "follow_up_required": event.get("follow_up_required"),
+                    "main_instruction": (event.get("main_instruction") or "")[:600],
+                    "next_explore": (event.get("next_explore") or "")[:300],
+                    "review_instruction": (event.get("review_instruction") or "")[:300],
+                }
+                self._current_phase = "engineering"
+            elif kind == "loop.completed":
+                self._current_phase = "idle"
+            elif kind == "mission.started":
+                self._current_phase = "ready"
+            elif kind in ("mission.completed", "mission.error"):
+                self._current_phase = "idle"
+
+    def _note_recent(self, event: dict[str, Any]) -> None:
+        """Append a sanitized summary of ``event`` to the recent ring buffer.
+
+        We store only what's needed to show a one-line history in /status —
+        the full event continues to ship through the user sinks unmodified.
+        """
+        kind = str(event.get("type", ""))
+        if not kind or kind in ("status.report", "help"):
+            return  # don't pollute history with our own status echoes
+        try:
+            short = format_event_message(event).split("\n", 1)[0]
+        except Exception:  # noqa: BLE001
+            short = kind
+        self._recent_events.append({
+            "ts": event.get("ts") or datetime.now(timezone.utc).isoformat(),
+            "type": kind,
+            "round_index": event.get("round_index"),
+            "short": short[:240],
+        })
+
+    def _effective_plan_mode(self) -> str:
+        """plan_mode honouring runtime ``/mode`` updates (rubber-duck #2)."""
+        with self._lock:
+            return self._effective_plan_mode_locked()
+
+    def _effective_plan_mode_locked(self) -> str:
+        try:
+            getter = getattr(self.state_store, "current_plan_mode", None)
+            if callable(getter):
+                return str(getter())
+        except Exception:  # noqa: BLE001
+            log.debug("state_store.current_plan_mode raised", exc_info=True)
+        return self.mission.plan_mode
 
     def _set_sinks_verbose(self, verbose: bool) -> None:
         setter = getattr(self.sinks, "set_verbose", None)
@@ -464,11 +582,18 @@ class MissionDaemon:
 
     def _render_status_short(self) -> str:
         with self._lock:
-            return (
-                f"mode=mission id={self.mission.mission_id} "
-                f"status={self._mission_status} "
-                f"objective={self.mission.objective[:60]} "
-                f"plan_mode={self.mission.plan_mode}"
+            return _render_mission_status(
+                mission_id=self.mission.mission_id,
+                mission_status=self._mission_status,
+                phase=self._current_phase,
+                current_round=self._current_round,
+                max_rounds=self._max_rounds,
+                objective=self.mission.objective,
+                plan_mode=self._effective_plan_mode_locked(),
+                last_review=self._last_review,
+                last_plan=self._last_plan,
+                last_main_summary=self._last_main_summary,
+                recent_events=list(self._recent_events),
             )
 
     @staticmethod
@@ -480,12 +605,133 @@ class MissionDaemon:
             "/review <criteria>   — set/append criteria the reviewer should grade against\n"
             "/plan <direction>    — guide the planner's next follow-up\n"
             "/mode auto|off|record — switch plan mode (auto = unattended chaining)\n"
-            "/status              — short summary\n"
+            "/show prompt|plan|review|all  — peek at LoopStateStore artifacts\n"
+            "/status              — round / phase / last-verdict / recent events\n"
             "/verbose, /quiet     — toggle event verbosity\n"
             "/stop                — terminate the mission\n"
             "/help                — this help\n"
             "Plain text without '/' is buffered as an inject."
         )
+
+
+# ---------------------------------------------------------------------------
+# Helpers (sinks + status rendering)
+# ---------------------------------------------------------------------------
+
+class _StateTrackingEventSink:
+    """Wraps the user-facing event sink with an in-process state tracker.
+
+    LoopEngine is given THIS as its ``event_sink`` so every emitted event
+    flows through ``MissionDaemon._track_event`` (updating round/phase/
+    last_review/last_plan/recent_events) BEFORE being forwarded to the
+    real downstream sinks (Telegram, JSONL outbox, console, …).
+
+    Per rubber-duck feedback #4: tracking lives inside the daemon's
+    bookkeeping path, not as another peer sink, so even if the user-sink
+    chain raises (it is best-effort), tracking stays correct.
+    """
+
+    def __init__(self, daemon: "MissionDaemon", downstream: EventSink) -> None:
+        self._daemon = daemon
+        self._downstream = downstream
+
+    def handle_event(self, event: dict) -> None:
+        try:
+            self._daemon._track_event(event)
+        except Exception:  # noqa: BLE001
+            log.exception("state tracker raised (event still ships)")
+        try:
+            self._downstream.handle_event(event)
+        except Exception:  # noqa: BLE001
+            log.exception("downstream sink raised")
+
+    def set_verbose(self, verbose: bool) -> None:
+        setter = getattr(self._downstream, "set_verbose", None)
+        if callable(setter):
+            try:
+                setter(verbose)
+            except Exception:  # noqa: BLE001
+                pass
+
+
+_REVIEW_STATUS_ICONS = {
+    "done": "✅",
+    "continue": "↻",
+    "blocked": "⛔",
+    "no_progress": "🚫",
+}
+
+
+def _render_mission_status(
+    *,
+    mission_id: str,
+    mission_status: str,
+    phase: str,
+    current_round: int,
+    max_rounds: int,
+    objective: str,
+    plan_mode: str,
+    last_review: dict[str, Any] | None,
+    last_plan: dict[str, Any] | None,
+    last_main_summary: str,
+    recent_events: list[dict[str, Any]],
+) -> str:
+    """Multi-line snapshot for ``/status``.
+
+    Pure function (no daemon state, no I/O) so it's trivial to unit-test.
+    """
+    head = f"📊 mission {mission_id}   {mission_status}"
+    if max_rounds:
+        head += f"   round {current_round}/{max_rounds}"
+    head += f"   phase={phase}"
+    lines: list[str] = [head]
+    obj_preview = (objective or "").strip()
+    if len(obj_preview) > 140:
+        obj_preview = obj_preview[:140].rstrip() + "…"
+    lines.append(f"   objective: {obj_preview}")
+    lines.append(f"   plan_mode: {plan_mode}")
+
+    if last_review:
+        status = str(last_review.get("status", "?"))
+        icon = _REVIEW_STATUS_ICONS.get(status, "•")
+        line = f"   last review (round {last_review.get('round', '?')}): {icon} {status}"
+        reason = (last_review.get("reason") or "").strip()
+        if reason:
+            line += f" — {reason[:200]}"
+        lines.append(line)
+        next_action = (last_review.get("next_action") or "").strip()
+        if status != "done" and next_action:
+            lines.append(f"     ↳ next: {next_action[:200]}")
+    else:
+        lines.append("   last review: (none yet)")
+
+    if last_plan:
+        main_inst = (last_plan.get("main_instruction") or "").strip()
+        round_idx = last_plan.get("round", "?")
+        if main_inst:
+            lines.append(f"   last plan (round {round_idx}): {main_inst[:240]}")
+        else:
+            lines.append(f"   last plan (round {round_idx}): (no follow-up)")
+
+    last_main_summary = (last_main_summary or "").strip()
+    if last_main_summary:
+        preview = last_main_summary[:240]
+        if len(last_main_summary) > 240:
+            preview = preview.rstrip() + "…"
+        lines.append(f"   last main: {preview}")
+
+    if recent_events:
+        lines.append("   recent:")
+        for entry in recent_events[-6:]:
+            ts = (entry.get("ts") or "")
+            # Prefer HH:MM:SS slice from ISO-8601 timestamps.
+            if "T" in ts:
+                ts = ts.split("T", 1)[1][:8]
+            else:
+                ts = ts[:8]
+            short = (entry.get("short") or entry.get("type") or "").strip()
+            lines.append(f"     {ts} {short}")
+    return "\n".join(lines)
 
 
 __all__ = [

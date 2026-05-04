@@ -29,6 +29,7 @@ class FakeLoopStateStore:
         self.plan_directions: list[str] = []
         self.plan_modes: list[str] = []
         self.stop_calls = 0
+        self.plan_mode: str | None = None
 
     def request_inject(self, text, source="operator"):
         self.calls.append(("inject", text, source))
@@ -49,7 +50,11 @@ class FakeLoopStateStore:
     def request_plan_mode(self, mode, source="operator"):
         self.calls.append(("mode", mode, source))
         self.plan_modes.append(mode)
+        self.plan_mode = mode
         return mode
+
+    def current_plan_mode(self) -> str | None:
+        return self.plan_mode
 
 
 class FakeSink:
@@ -120,6 +125,15 @@ def _build_daemon(tmp_path, *, plan_mode="auto") -> tuple[MissionDaemon, FakeSin
     daemon._mission_status = "running"
     daemon._mission_result = None
     daemon._started_at = "1970-01-01T00:00:00+00:00"
+    # Rich runtime state added in Phase B; fixture bypasses __init__ so set defaults.
+    daemon._current_phase = "ready"
+    daemon._current_round = 0
+    daemon._max_rounds = mission.max_rounds
+    daemon._last_review = None
+    daemon._last_plan = None
+    daemon._last_main_summary = ""
+    from collections import deque
+    daemon._recent_events = deque(maxlen=12)
     return daemon, sinks, fake_store
 
 
@@ -297,3 +311,132 @@ def test_mission_config_defaults_when_fields_missing(tmp_path):
     assert cfg.plan_mode == "off"
     assert cfg.main_model == "gpt-5.4-mini"
     assert cfg.check_commands == []
+
+
+# ---------------------------------------------------------------------------
+# Phase B: state tracker + rich /status rendering
+# ---------------------------------------------------------------------------
+
+def test_track_event_updates_round_and_phase(tmp_path):
+    daemon, _, _ = _build_daemon(tmp_path)
+    daemon._track_event({"type": "loop.started", "max_rounds": 7, "objective": "x"})
+    assert daemon._max_rounds == 7
+    daemon._track_event({"type": "round.started", "round_index": 2})
+    assert daemon._current_round == 2
+    assert daemon._current_phase == "engineering"
+    daemon._track_event({"type": "round.main.completed", "round_index": 2,
+                         "last_message": "wrote files; pytest 6 passed"})
+    assert daemon._current_phase == "checks"
+    assert daemon._last_main_summary == "wrote files; pytest 6 passed"
+    daemon._track_event({"type": "round.checks.completed", "round_index": 2, "checks": []})
+    assert daemon._current_phase == "review"
+    daemon._track_event({"type": "round.review.completed", "round_index": 2,
+                         "status": "continue", "reason": "test X failing",
+                         "next_action": "fix X"})
+    assert daemon._last_review == {
+        "round": 2, "status": "continue",
+        "reason": "test X failing", "next_action": "fix X",
+    }
+    assert daemon._current_phase == "engineering"  # not done → next round
+    daemon._track_event({"type": "plan.completed", "round_index": 3,
+                         "plan_mode": "auto", "follow_up_required": True,
+                         "main_instruction": "fix X", "next_explore": "verify",
+                         "review_instruction": ""})
+    assert daemon._last_plan["main_instruction"] == "fix X"
+    assert daemon._current_phase == "engineering"
+
+
+def test_track_event_done_review_moves_to_planning(tmp_path):
+    daemon, _, _ = _build_daemon(tmp_path)
+    daemon._track_event({"type": "round.review.completed", "round_index": 1,
+                         "status": "done", "reason": "objective met", "next_action": ""})
+    assert daemon._current_phase == "planning"
+    assert daemon._last_review["status"] == "done"
+
+
+def test_recent_events_are_sanitized_and_capped(tmp_path):
+    daemon, _, _ = _build_daemon(tmp_path)
+    # Push 20 events; ring buffer caps at 12.
+    for i in range(20):
+        daemon._track_event({"type": "round.started", "round_index": i,
+                             "ts": f"2026-05-04T18:{i:02d}:00Z"})
+    assert len(daemon._recent_events) == 12
+    # Each entry is sanitized: only ts/type/round_index/short keys.
+    sample = daemon._recent_events[0]
+    assert set(sample.keys()) == {"ts", "type", "round_index", "short"}
+    # `short` is a single line (the rich renderer's first line).
+    assert "\n" not in sample["short"]
+    assert "round" in sample["short"]
+
+
+def test_recent_events_skips_status_report_echoes(tmp_path):
+    daemon, _, _ = _build_daemon(tmp_path)
+    daemon._track_event({"type": "round.started", "round_index": 1})
+    daemon._track_event({"type": "status.report", "text": "..."})
+    daemon._track_event({"type": "help", "text": "..."})
+    assert len(daemon._recent_events) == 1
+    assert daemon._recent_events[0]["type"] == "round.started"
+
+
+def test_effective_plan_mode_reads_from_state_store(tmp_path):
+    daemon, _, store = _build_daemon(tmp_path, plan_mode="off")
+    # Simulate /mode auto via state_store (the FakeLoopStateStore must support it).
+    store.plan_mode = "auto"
+    # _effective_plan_mode should reflect the runtime override, not the
+    # mission.json value.
+    assert daemon._effective_plan_mode() == "auto"
+
+
+def test_render_mission_status_includes_round_phase_review_plan_recent(tmp_path):
+    daemon, _, _ = _build_daemon(tmp_path)
+    daemon._max_rounds = 10
+    daemon._current_round = 3
+    daemon._current_phase = "review"
+    daemon._last_review = {"round": 2, "status": "continue",
+                           "reason": "tests failing", "next_action": "fix X"}
+    daemon._last_plan = {"round": 3, "main_instruction": "modify rm exit code",
+                         "plan_mode": "auto", "follow_up_required": True,
+                         "next_explore": "", "review_instruction": ""}
+    daemon._last_main_summary = "wrote rm fix; pytest still red on edge case"
+    from collections import deque
+    daemon._recent_events = deque([
+        {"ts": "2026-05-04T18:42:08Z", "type": "round.started",
+         "round_index": 1, "short": "🔁 round 1 starting…"},
+        {"ts": "2026-05-04T18:43:35Z", "type": "round.review.completed",
+         "round_index": 1, "short": "🧑‍⚖️ round 1: review ↻ continue"},
+    ], maxlen=12)
+    out = daemon._render_status_short()
+    assert "round 3/10" in out
+    assert "phase=review" in out
+    assert "↻ continue" in out
+    assert "tests failing" in out
+    assert "modify rm exit code" in out
+    assert "wrote rm fix" in out
+    assert "18:42:08" in out
+    assert "🔁 round 1" in out
+
+
+def test_render_mission_status_no_review_yet(tmp_path):
+    daemon, _, _ = _build_daemon(tmp_path)
+    out = daemon._render_status_short()
+    assert "(none yet)" in out
+
+
+def test_write_status_payload_contains_phase_and_history(tmp_path):
+    daemon, _, _ = _build_daemon(tmp_path)
+    daemon._track_event({"type": "loop.started", "max_rounds": 5, "objective": "x"})
+    daemon._track_event({"type": "round.started", "round_index": 1})
+    daemon._track_event({"type": "round.review.completed", "round_index": 1,
+                         "status": "continue", "reason": "still red",
+                         "next_action": "fix"})
+    daemon._write_status()
+    import json as _json
+    payload = _json.loads((tmp_path / "state" / "status.json").read_text())
+    assert payload["mode"] == "mission"
+    assert payload["current_phase"] == "engineering"
+    assert payload["current_round"] == 1
+    assert payload["max_rounds"] == 5
+    assert payload["last_review"]["status"] == "continue"
+    assert payload["last_review"]["reason"] == "still red"
+    assert isinstance(payload["recent_events"], list)
+    assert len(payload["recent_events"]) >= 2
