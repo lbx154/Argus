@@ -23,7 +23,7 @@ from ..loop import SkillLoop, SkillLoopConfig
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="argus-skill")
-    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub = parser.add_subparsers(dest="cmd", required=False)
 
     run_p = sub.add_parser("run", help="run a task through the supervised skill loop")
     run_p.add_argument("task", help="task description (free-form prompt)")
@@ -80,6 +80,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_chat_subcommand(sub)
     from .mission_app import add_mission_subcommands
     add_mission_subcommands(sub)
+    from .go_app import add_go_subcommand
+    add_go_subcommand(sub)
     return parser
 
 
@@ -210,6 +212,22 @@ def cmd_list_skills(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    # No subcommand → drop straight into `go` (one-command-to-chat).
+    if not args.cmd:
+        from .go_app import cmd_go
+        go_args = argparse.Namespace(
+            cmd="go",
+            objective=None,
+            state_dir="~/.argus-skill/mission-state",
+            skills_dir="/home/argustest/argus-skill/skills",
+            plan_mode="auto",
+            max_rounds=20,
+            check=[],
+            workdir=None,
+            attach_only=False,
+            shutdown_timeout=90,
+        )
+        return cmd_go(go_args)
     if args.cmd == "run":
         return cmd_run(args)
     if args.cmd == "list-skills":
@@ -235,5 +253,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "mission":
         from .mission_app import cmd_mission
         return cmd_mission(args)
+    if args.cmd == "go":
+        from .go_app import cmd_go
+        return cmd_go(args)
     parser.print_help()
     return 2

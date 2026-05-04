@@ -76,11 +76,23 @@ def cmd_chat(args: argparse.Namespace) -> int:
         try:
             st = json.loads(status_path.read_text())
             daemon_pid = st.get("daemon_pid")
-            print(
-                f"argus-skill chat → {state}\n"
-                f"  daemon: pid={daemon_pid}  status={st.get('current_status')}  "
-                f"queue={st.get('queue_size')}  done={st.get('tasks_done')}"
-            )
+            mode = st.get("mode")
+            if mode == "mission":
+                # Mission daemon writes a different status shape.
+                obj = (st.get("mission_objective") or "")[:60]
+                print(
+                    f"argus-skill chat → {state}\n"
+                    f"  mission: id={st.get('mission_id')} "
+                    f"status={st.get('mission_status')} "
+                    f"plan_mode={st.get('plan_mode')}\n"
+                    f"  objective: {obj}"
+                )
+            else:
+                print(
+                    f"argus-skill chat → {state}\n"
+                    f"  daemon: pid={daemon_pid}  status={st.get('current_status')}  "
+                    f"queue={st.get('queue_size')}  done={st.get('tasks_done')}"
+                )
         except (json.JSONDecodeError, OSError) as exc:
             print(f"warning: cannot read {status_path}: {exc}", file=sys.stderr)
     else:
