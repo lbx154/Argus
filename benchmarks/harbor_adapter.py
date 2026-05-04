@@ -38,8 +38,11 @@ Launch::
 
 Ablation env vars:
   ``ARGUS_SKILL_HARBOR_NO_SKILL=1``    — skip matcher+distill (reviewer-only)
-  ``ARGUS_SKILL_HARBOR_NO_REVIEWER=1`` — skip reviewer loop (max_rounds=1, skill-only)
-  Combine both to fall back to plain bare-mini behaviour (sanity).
+  ``ARGUS_SKILL_HARBOR_NO_REVIEWER=1`` — skip reviewer entirely (max_rounds=1)
+  ``ARGUS_SKILL_HARBOR_REVIEWER_GATE=1`` — restore legacy "reviewer says continue
+                                          → fire R2" behaviour (default off:
+                                          R2 fires only on objective R1 failure)
+  Combine the first two to fall back to plain bare-mini behaviour (sanity).
 """
 from __future__ import annotations
 
@@ -365,8 +368,14 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
             prep.matched, prep.match_count, prep.skill_used, prep.elapsed_s,
         )
 
-        # ---- Phase 3: multi-round engineer + reviewer loop ----
+        # ---- Phase 3: multi-round engineer (+ optional reviewer) loop ----
         no_reviewer = _bool_env("ARGUS_SKILL_HARBOR_NO_REVIEWER")
+        # v7: Reviewer-as-gate is OFF by default. Reviewer now runs as a
+        # diagnostic logger only; R2 fires on objective failure of R1
+        # (timeout / non-zero exit / empty output), not on a reviewer
+        # disagreement with the engineer's prose. Set
+        # ARGUS_SKILL_HARBOR_REVIEWER_GATE=1 to restore old gating behavior.
+        reviewer_gate = _bool_env("ARGUS_SKILL_HARBOR_REVIEWER_GATE")
         max_rounds = 1 if no_reviewer else _int_env(
             "ARGUS_SKILL_HARBOR_MAX_ROUNDS", _DEFAULT_MAX_ROUNDS
         )
@@ -374,6 +383,8 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
 
         rounds_summary: list[dict] = []
         last_review_feedback: str | None = None
+        last_round_summary: str | None = None
+        last_round_failure: str | None = None
         last_thread_id: str | None = None
         run_error: str | None = None
 
@@ -383,6 +394,8 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                     instruction=instruction,
                     skill_text=prep.skill_text,
                     review_feedback=last_review_feedback,
+                    previous_round_summary=last_round_summary,
+                    previous_round_failure=last_round_failure,
                     round_idx=round_idx,
                     total_rounds=max_rounds,
                 )
@@ -396,6 +409,8 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                         instruction=instruction,
                         skill_text="",
                         review_feedback=last_review_feedback,
+                        previous_round_summary=last_round_summary,
+                        previous_round_failure=last_round_failure,
                         round_idx=round_idx,
                         total_rounds=max_rounds,
                     )
@@ -418,7 +433,14 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                         prompt=round_prompt,
                         round_idx=round_idx,
                         round_timeout=round_timeout,
-                        resume_session_id=last_thread_id if round_idx > 1 else None,
+                        # v5: do NOT resume R1's codex session in R2. The
+                        # filesystem is preserved (Harbor keeps the
+                        # container), so R2 sees R1's files; but starting
+                        # a fresh session means R2 doesn't inherit R1's
+                        # (potentially wrong) self-belief that the work
+                        # is done. R1's summary is fed via the prompt
+                        # builder so R2 still has context to verify.
+                        resume_session_id=None,
                     )
                 except RuntimeError as exc:
                     # Harbor's docker exec raises RuntimeError on timeout
@@ -447,50 +469,109 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                     f" error={round_error}" if round_error else "",
                 )
 
-                # If engineer errored OR is the last round OR produced no
-                # message, skip the reviewer and stop the loop.
+                # v7 round-loop policy:
+                #   * R1=clean (exit 0 + non-empty output) → break, trust the
+                #     engineer like skill-cap-phaseA does (single-shot).
+                #   * R1=objective failure (timeout, non-zero exit, empty
+                #     output) → fire R2 with retry context. This is exactly
+                #     where retries pay off; reviewer-disagreement does not
+                #     correlate with verifier outcome.
+                #   * Reviewer is OPTIONAL and DIAGNOSTIC only by default.
+                #     Set ARGUS_SKILL_HARBOR_REVIEWER_GATE=1 to restore the
+                #     old "reviewer says continue → fire R2" behavior.
                 round_record: dict = {
                     "round": round_idx,
                     "engineer_exit": exit_code,
                     "agent_messages": len(agent_messages),
                     "elapsed_s": round_elapsed,
                 }
-                if round_error:
-                    round_record["engineer_error"] = round_error
-                    round_record["review_status"] = "skipped_engineer_error"
-                    rounds_summary.append(round_record)
-                    break
-                if no_reviewer or round_idx == max_rounds or not last_msg.strip():
-                    round_record["review_status"] = "skipped"
-                    rounds_summary.append(round_record)
-                    break
 
-                review_decision = await self._run_reviewer_on_host(
-                    instruction=instruction,
-                    last_msg=last_msg,
-                    round_idx=round_idx,
-                    thread_id=last_thread_id,
-                    engineer_exit_code=exit_code,
+                # Classify R1 outcome.
+                if round_error:
+                    failure_mode: str | None = round_error
+                elif exit_code != 0:
+                    failure_mode = (
+                        f"engineer exit_code={exit_code}"
+                        if exit_code != -1
+                        else f"engineer round timed out after {round_timeout}s"
+                    )
+                elif not last_msg.strip():
+                    failure_mode = "engineer produced no agent message"
+                else:
+                    failure_mode = None
+
+                # Diagnostic reviewer pass: log the verdict so we can study
+                # how often reviewer & verifier agree, but DO NOT gate on it
+                # unless the user explicitly opted into the legacy gate.
+                review_decision: dict | None = None
+                run_reviewer = (
+                    not no_reviewer
+                    and last_msg.strip()
+                    and not round_error
                 )
-                round_record["review_status"] = review_decision.get("status")
-                round_record["review_confidence"] = review_decision.get("confidence")
+                if run_reviewer:
+                    try:
+                        review_decision = await self._run_reviewer_on_host(
+                            instruction=instruction,
+                            last_msg=last_msg,
+                            round_idx=round_idx,
+                            thread_id=last_thread_id,
+                            engineer_exit_code=exit_code,
+                        )
+                        round_record["review_status"] = review_decision.get("status")
+                        round_record["review_confidence"] = review_decision.get(
+                            "confidence"
+                        )
+                    except Exception as exc:  # pragma: no cover - defensive
+                        self.logger.warning(
+                            "round %d reviewer raised %s: %s — ignoring",
+                            round_idx, type(exc).__name__, exc,
+                        )
+                        round_record["review_status"] = "reviewer_error"
+                else:
+                    round_record["review_status"] = "skipped"
+
                 rounds_summary.append(round_record)
 
-                status = review_decision.get("status")
-                if status == "done":
-                    self.logger.info("round %d reviewer: done — stopping early.", round_idx)
+                # If engineer crashed outright (exception in container exec),
+                # we have no useful state and another round is unlikely to
+                # help.
+                if round_error:
                     break
-                if status == "blocked":
-                    self.logger.info(
-                        "round %d reviewer: blocked — stopping (no more useful work).",
-                        round_idx,
-                    )
+
+                # Decide whether to retry.
+                if failure_mode is None:
+                    # R1 completed cleanly. Trust it (sc-A parity).
+                    if reviewer_gate and review_decision is not None:
+                        # Legacy gate: reviewer disagreement still triggers
+                        # another round.
+                        status = review_decision.get("status")
+                        if status == "continue" and round_idx < max_rounds:
+                            last_review_feedback = (
+                                review_decision.get("next_action")
+                                or review_decision.get("reason")
+                                or ""
+                            )
+                            last_round_summary = last_msg or last_round_summary
+                            last_round_failure = None
+                            continue
                     break
-                # Continue → wire feedback into next round.
-                last_review_feedback = (
-                    review_decision.get("next_action")
-                    or review_decision.get("reason")
-                    or ""
+
+                # Failure path: only retry if we have rounds left.
+                if round_idx == max_rounds:
+                    break
+
+                last_round_failure = failure_mode
+                last_round_summary = last_msg or last_round_summary
+                if review_decision is not None:
+                    last_review_feedback = (
+                        review_decision.get("next_action")
+                        or review_decision.get("reason")
+                        or ""
+                    ) or last_review_feedback
+                self.logger.info(
+                    "round %d engineer failed (%s) — retrying in round %d",
+                    round_idx, failure_mode, round_idx + 1,
                 )
         except Exception as exc:  # pragma: no cover - unexpected outer error
             run_error = f"{type(exc).__name__}:{exc}"
@@ -515,6 +596,7 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                     "rounds_executed": len(rounds_summary),
                     "rounds": rounds_summary,
                     "no_reviewer": no_reviewer,
+                    "reviewer_gate": reviewer_gate,
                     "run_error": run_error,
                 })
 
@@ -740,7 +822,14 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
         review_feedback: str | None,
         round_idx: int,
         total_rounds: int,
+        previous_round_summary: str | None = None,
+        previous_round_failure: str | None = None,
     ) -> str:
+        # v7: Round 1 prompt mirrors skill-cap-phaseA's exact shape — bare
+        # `guide intro + ## Skill guide + ## Task`. Verify-evidence and
+        # round-X-of-Y reminders were removed: they cost the agent reasoning
+        # time without delivering parity gains. Round 2+ adds a failure
+        # context block (we only retry on objective R1 failure now).
         parts: list[str] = []
         if skill_text:
             parts.append(
@@ -749,24 +838,38 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
             )
             parts.append(f"## Skill guide\n{skill_text}")
 
+        # Round 2+ context. A retry only fires when the previous round
+        # objectively failed (timeout / non-zero exit / empty output), so
+        # frame the context around finishing partial work — not around
+        # rebutting a reviewer.
+        if previous_round_summary or previous_round_failure:
+            header = (
+                f"## Previous attempt (round {round_idx - 1}) — RETRY CONTEXT\n"
+                "Your previous attempt did not complete cleanly. The container "
+                "filesystem still holds whatever was written. Inspect what is "
+                "already on disk, then complete (or fix) the task. Do NOT "
+                "restart from scratch unless the existing state is unusable."
+            )
+            blocks: list[str] = [header]
+            if previous_round_failure:
+                blocks.append(f"Failure mode: {previous_round_failure}")
+            if previous_round_summary:
+                trimmed = previous_round_summary.strip()
+                if len(trimmed) > 4000:
+                    trimmed = trimmed[:4000] + "\n\n[... truncated ...]"
+                blocks.append(
+                    "Last engineer summary (may be partial):\n"
+                    f"```\n{trimmed}\n```"
+                )
+            parts.append("\n\n".join(blocks))
+
         if review_feedback:
             parts.append(
-                f"## Reviewer feedback (from round {round_idx - 1})\n"
-                f"A reviewer evaluated your last attempt and produced this "
-                f"actionable next-step feedback. Address it directly in this "
-                f"round before returning a final answer:\n\n"
+                f"## Reviewer hint (from round {round_idx - 1})\n"
                 f"{review_feedback}"
             )
 
-        parts.append(
-            f"## Task\n{instruction}"
-        )
-
-        if total_rounds > 1:
-            parts.append(
-                f"\n(This is round {round_idx} of {total_rounds}. If you complete "
-                f"the task fully, say so plainly so the reviewer can finalize.)"
-            )
+        parts.append(f"## Task\n{instruction}")
 
         return "\n\n".join(parts)
 

@@ -1,10 +1,22 @@
 #!/usr/bin/env bash
-# argus-skill A-lite microbench: 11-task subset (5 wins + 6 losses from
+# argus-skill v7 microbench: 11-task subset (5 wins + 6 losses from
 # tb2-cap-2026-05-02), same as skill-agent's tb2-microbench-2026-05-03.
 #
+# v7 design (post-rubber-duck on v6 plateau):
+#   * R1 prompt mirrors skill-cap-phaseA's exact shape (no Reporting
+#     requirements, no round-X-of-Y tail).
+#   * Reviewer is diagnostic-only by default (no longer gates rounds);
+#     set ARGUS_SKILL_HARBOR_REVIEWER_GATE=1 to restore old behaviour.
+#   * R2 fires only on objective R1 failure (timeout / non-zero exit /
+#     empty output) — not on reviewer disagreement with the engineer's
+#     prose. This was the regression source from v3-v6.
+#   * Concurrency dropped 11 → 6 to reduce docker/apt-get contention
+#     (sparql setup-error in v6 was a symptom).
+#
 # Compare against:
-#   - bare-mini control:          benchmarks/results/tb2-cap-2026-05-02/bare-mini/
-#   - Phase A skill-cap treatment: benchmarks/results/tb2-microbench-2026-05-03/skill-cap-phaseA/
+#   - bare-mini control:           tb2-cap-2026-05-02/bare-mini/      (6/11)
+#   - skill-cap-phaseA reference:  tb2-microbench-2026-05-03/         (9/11)
+#   - argus-skill v6 (last loop):  tb2-microbench-2026-05-04/__v6/    (5/11)
 #
 # Decision line (post rubber-duck): argus-skill_pass - bare-mini_pass >= 3
 # would clear the 0.022 lift gap that Phase C missed.
@@ -42,8 +54,10 @@ export ARGUS_SKILL_HARBOR_DECISIONS_LOG="$DECISIONS_LOG"
 # actually finish a round instead of always cliffing on a timeout.
 export ARGUS_SKILL_HARBOR_DISTILL_BUDGET=120
 export ARGUS_SKILL_HARBOR_REVIEWER_BUDGET=60
-export ARGUS_SKILL_HARBOR_ROUND_TIMEOUT=600
+export ARGUS_SKILL_HARBOR_ROUND_TIMEOUT=900
 export ARGUS_SKILL_HARBOR_MAX_ROUNDS=2
+# v7: explicit OFF — reviewer logs verdicts but does NOT gate rounds.
+export ARGUS_SKILL_HARBOR_REVIEWER_GATE=0
 
 # --- 11 tasks (mirrors skill-agent's tb2-microbench-2026-05-03 set)
 TASKS=(
@@ -67,17 +81,18 @@ done
 
 {
   echo "=========================================="
-  echo " argus-skill A-lite microbench (codex backend, 2-round reviewer-loop)"
+  echo " argus-skill v7 microbench (codex backend, conditional R2)"
   echo " started_at        : $(date -Iseconds)"
   echo " host              : $(hostname)"
   echo " exp_dir           : $EXP_DIR"
-  echo " concurrency       : 8"
+  echo " concurrency       : 6"
   echo " scientist         : $ARGUS_SKILL_HARBOR_SCIENTIST_MODEL  (effort=$ARGUS_SKILL_HARBOR_SCIENTIST_EFFORT)"
-  echo " reviewer          : $ARGUS_SKILL_HARBOR_REVIEWER_MODEL    (effort=$ARGUS_SKILL_HARBOR_REVIEWER_EFFORT)"
+  echo " reviewer          : $ARGUS_SKILL_HARBOR_REVIEWER_MODEL    (effort=$ARGUS_SKILL_HARBOR_REVIEWER_EFFORT) [diagnostic only]"
   echo " engineer (cont.)  : openai/gpt-5.4-mini  (effort=high)"
   echo " skills_dir        : $ARGUS_SKILL_HARBOR_SKILLS_DIR (cold start)"
   echo " jobs_dir          : $EXP_DIR/jobs"
   echo " max_rounds        : $ARGUS_SKILL_HARBOR_MAX_ROUNDS"
+  echo " reviewer_gate     : $ARGUS_SKILL_HARBOR_REVIEWER_GATE (R2 fires on objective failure only)"
   echo " distill_budget_s  : $ARGUS_SKILL_HARBOR_DISTILL_BUDGET"
   echo " reviewer_budget_s : $ARGUS_SKILL_HARBOR_REVIEWER_BUDGET"
   echo " round_timeout_s   : $ARGUS_SKILL_HARBOR_ROUND_TIMEOUT"
@@ -101,12 +116,14 @@ sg docker -c "
   ARGUS_SKILL_HARBOR_REVIEWER_BUDGET='$ARGUS_SKILL_HARBOR_REVIEWER_BUDGET' \
   ARGUS_SKILL_HARBOR_ROUND_TIMEOUT='$ARGUS_SKILL_HARBOR_ROUND_TIMEOUT' \
   ARGUS_SKILL_HARBOR_MAX_ROUNDS='$ARGUS_SKILL_HARBOR_MAX_ROUNDS' \
+  ARGUS_SKILL_HARBOR_REVIEWER_GATE='$ARGUS_SKILL_HARBOR_REVIEWER_GATE' \
   harbor run \
     --dataset terminal-bench@2.0 \
     --agent-import-path benchmarks.harbor_adapter:ArgusSkillCodex \
     --model openai/gpt-5.4-mini \
     --ak reasoning_effort=high \
-    -n 8 \
+    --agent-setup-timeout-multiplier 3 \
+    -n 6 \
     --jobs-dir '$EXP_DIR/jobs' \
     ${INCLUDE_FLAGS[*]} \
     -y

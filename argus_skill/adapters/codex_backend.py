@@ -132,6 +132,16 @@ class CodexRunnerBackend:
             before_exec=before_exec,
         )
 
+    @property
+    def argus_runner(self):
+        """Expose the underlying ArgusBot ``CodexRunner`` instance.
+
+        Needed by ``MissionDaemon`` so it can hand the same runner to
+        ArgusBot's ``Reviewer`` / ``Planner`` / report fallback paths
+        without constructing a second codex subprocess wrapper.
+        """
+        return self._argus_runner
+
     # --- RunnerBackend.run_exec ------------------------------------------
 
     def run_exec(
@@ -170,8 +180,9 @@ class CodexRunnerBackend:
     def _translate_options(self, options: RunnerOptions):
         argus_cls = self._deps["ArgusRunnerOptions"]
         # ArgusBot's RunnerOptions is a superset (has watchdog hooks,
-        # add_dirs, plugin_dirs, etc.). We forward only the fields
-        # argus-skill exposes; the rest take their dataclass defaults.
+        # add_dirs, plugin_dirs, etc.). Forward the fields argus-skill
+        # exposes; the watchdog hooks are propagated when set so an
+        # outer supervisor can interrupt the codex subprocess.
         return argus_cls(
             model=options.model,
             reasoning_effort=options.reasoning_effort,
@@ -181,6 +192,10 @@ class CodexRunnerBackend:
             extra_args=list(options.extra_args) if options.extra_args else None,
             working_dir=options.working_dir,
             output_schema_path=options.output_schema_path,
+            external_interrupt_reason_provider=options.external_interrupt_reason_provider,
+            inactivity_callback=options.inactivity_callback,
+            watchdog_soft_idle_seconds=options.watchdog_soft_idle_seconds,
+            watchdog_hard_idle_seconds=options.watchdog_hard_idle_seconds,
         )
 
     def _translate_result(self, argus_result) -> RunnerResult:

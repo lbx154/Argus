@@ -67,9 +67,11 @@ def test_round_prompt_with_skill_and_feedback(adapter):
         total_rounds=3,
     )
     assert "## Skill guide" in prompt
-    assert "## Reviewer feedback (from round 1)" in prompt
+    assert "## Reviewer hint (from round 1)" in prompt
     assert "## Task\nfix the bug in foo.py" in prompt
-    assert "round 2 of 3" in prompt
+    # v7: Reporting-requirements and "round X of Y" reminders were dropped.
+    assert "## Reporting requirements" not in prompt
+    assert "round 2 of 3" not in prompt
 
 
 def test_round_prompt_without_skill(adapter):
@@ -81,10 +83,74 @@ def test_round_prompt_without_skill(adapter):
         total_rounds=1,
     )
     assert "## Skill guide" not in prompt
-    assert "## Reviewer feedback" not in prompt
+    assert "## Reviewer hint" not in prompt
+    assert "## Previous attempt" not in prompt
     assert "## Task\ntask" in prompt
-    # Single-round runs shouldn't mention "round 1 of 1" hint.
+    # v7: round 1 mirrors skill-cap-phaseA's exact shape — no Reporting
+    # requirements, no "round X of Y" hint.
+    assert "## Reporting requirements" not in prompt
     assert "round 1 of 1" not in prompt
+
+
+def test_round_prompt_round1_matches_sc_a_shape(adapter):
+    """v7: round 1 with a skill must produce a prompt with exactly the same
+    structural sections as skill-cap-phaseA's adapter — bare guide intro +
+    `## Skill guide` + `## Task`. No Reporting-requirements, no Previous-
+    attempt, no Reviewer hint, no round-X-of-Y tail."""
+    prompt = adapter.ArgusSkillCodex._build_round_prompt(
+        instruction="do the thing",
+        skill_text="## Title\nSome guide\n",
+        review_feedback=None,
+        round_idx=1,
+        total_rounds=2,
+    )
+    assert "You have been provided with a reusable skill guide" in prompt
+    assert "## Skill guide" in prompt
+    assert "## Task\ndo the thing" in prompt
+    # The R1 prompt must NOT pre-leak any retry / reviewer scaffolding.
+    assert "## Previous attempt" not in prompt
+    assert "## Reviewer hint" not in prompt
+    assert "## Reporting requirements" not in prompt
+    assert "round 1 of 2" not in prompt
+
+
+def test_round_prompt_passes_previous_failure_to_r2(adapter):
+    """v7: R2 only fires on objective R1 failure. The retry prompt must
+    surface the failure mode and (when available) the engineer's last
+    summary, framed as retry context — not as reviewer skepticism."""
+    prompt = adapter.ArgusSkillCodex._build_round_prompt(
+        instruction="solve task",
+        skill_text="",
+        review_feedback="focus on missing cases",
+        round_idx=2,
+        total_rounds=2,
+        previous_round_summary="I edited /app/main.py partially.",
+        previous_round_failure="engineer round timed out after 900s",
+    )
+    assert "## Previous attempt (round 1)" in prompt
+    assert "RETRY CONTEXT" in prompt
+    assert "Failure mode: engineer round timed out after 900s" in prompt
+    assert "I edited /app/main.py partially." in prompt
+    assert "## Reviewer hint (from round 1)" in prompt
+    assert "focus on missing cases" in prompt
+
+
+def test_round_prompt_truncates_huge_previous_summary(adapter):
+    """Bound the previous-round summary so we don't blow past the prompt
+    cap when an earlier round dumped a 50 KB self-report."""
+    huge = "X" * 10000
+    prompt = adapter.ArgusSkillCodex._build_round_prompt(
+        instruction="t",
+        skill_text="",
+        review_feedback=None,
+        round_idx=2,
+        total_rounds=2,
+        previous_round_summary=huge,
+        previous_round_failure="engineer produced no agent message",
+    )
+    assert "[... truncated ...]" in prompt
+    # truncation cap is 4000 chars; total should reflect that
+    assert prompt.count("X") <= 4001
 
 
 def test_bool_env_handles_falsey_values(adapter, monkeypatch):

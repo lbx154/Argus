@@ -20,6 +20,55 @@ from uuid import uuid4
 ErrorCallback = Callable[[str], None]
 
 
+# Events the average user wants to see (default).
+_USER_FACING_EVENTS: set[str] = {
+    "task.queued",
+    "task.started",
+    "task.completed",
+    "task.skipped",
+    "task.error",
+    "command.ack",
+    "command.error",
+    "command.unknown",
+    "daemon.started",
+    "daemon.stopping",
+    "help",
+    "status.report",
+}
+
+# Internal lifecycle events — visible only when verbose mode is on.
+_INTERNAL_EVENTS: set[str] = {
+    "loop.start",
+    "loop.done",
+    "match.info",
+    "scientist.start",
+    "round.start",
+    "review.done",
+    "checks.done",
+    "skill.writeback",
+}
+
+_VERBOSE_EVENTS: set[str] = _USER_FACING_EVENTS | _INTERNAL_EVENTS
+
+# Per-event presentation: an icon (or short prefix). Events not in this
+# map fall back to ``[event.type]`` so internal/dev events stay grep-able
+# in verbose mode.
+_EVENT_ICONS: dict[str, str] = {
+    "task.queued":      "📥",
+    "task.started":     "🏃",
+    "task.completed":   "✅",
+    "task.skipped":     "⏭",
+    "task.error":       "❌",
+    "command.ack":      "✓",
+    "command.error":    "⚠️",
+    "command.unknown":  "❓",
+    "daemon.started":   "🟢",
+    "daemon.stopping":  "🛑",
+    "help":             "ℹ️",
+    "status.report":    "📊",
+}
+
+
 @dataclass
 class TelegramConfig:
     bot_token: str
@@ -27,28 +76,13 @@ class TelegramConfig:
     timeout_seconds: int = 10
     typing_enabled: bool = True
     typing_interval_seconds: int = 4
-    notify_event_types: set[str] = field(default_factory=lambda: {
-        "task.queued",
-        "task.started",
-        "task.completed",
-        "task.skipped",
-        "loop.start",
-        "match.info",
-        "scientist.start",
-        "round.start",
-        "review.done",
-        "checks.done",
-        "skill.writeback",
-        "loop.done",
-        "task.error",
-        "daemon.started",
-        "daemon.stopping",
-        "help",
-        "status.report",
-        "command.ack",
-        "command.error",
-        "command.unknown",
-    })
+    # Default to user-facing events only. Internal events still go to the
+    # JSONL event sink (for diagnostics) but stop polluting the chat.
+    # Toggle with /verbose or /quiet at runtime.
+    notify_event_types: set[str] = field(
+        default_factory=lambda: set(_USER_FACING_EVENTS)
+    )
+    verbose: bool = False
 
 
 class TelegramNotifier:
@@ -63,6 +97,18 @@ class TelegramNotifier:
         self._typing_thread: threading.Thread | None = None
 
     # --- public surface ---------------------------------------------------
+
+    def set_verbose(self, verbose: bool) -> None:
+        """Toggle the chat-side event filter.
+
+        Verbose mode forwards internal lifecycle events (round.start,
+        match.info, …) to Telegram. Quiet mode (the default) shows only
+        the user-facing milestones.
+        """
+        self.config.verbose = bool(verbose)
+        self.config.notify_event_types = (
+            set(_VERBOSE_EVENTS) if self.config.verbose else set(_USER_FACING_EVENTS)
+        )
 
     def send_message(self, message: str) -> bool:
         chunks = _split_telegram_text(message, limit=3900)
@@ -193,16 +239,31 @@ class TelegramNotifier:
 
 
 def format_event_message(event: dict[str, Any]) -> str:
-    """Render a structured event as a short Telegram-friendly string."""
+    """Render a structured event as a short Telegram-friendly string.
+
+    User-facing events (``task.completed``, ``daemon.started``, …) get a
+    leading icon and no ``[event.type]`` clutter. Internal/dev events
+    fall through to the legacy ``[type] text`` form so verbose-mode
+    grep'ing still works.
+    """
     kind = str(event.get("type", "?"))
     text = str(event.get("text", "")).strip()
+    icon = _EVENT_ICONS.get(kind)
+    if icon is None:
+        # Internal / unknown event — keep bracketed form for grep-ability.
+        if not text:
+            return f"[{kind}]"
+        if len(text) > 200:
+            text = text[:200].rstrip() + "…"
+        return f"[{kind}] {text}"
     if not text:
-        return f"[{kind}]"
-    # 200-char cap per event line; long texts get summarized client-side.
-    if len(text) > 200:
-        text = text[:200].rstrip() + "…"
-    prefix = f"[{kind}]"
-    return f"{prefix} {text}"
+        return icon
+    # Per-event length cap. ``task.completed`` carries the engineer's
+    # final answer, so we let it run longer; others stay short.
+    cap = 1500 if kind == "task.completed" else 300
+    if len(text) > cap:
+        text = text[:cap].rstrip() + "…"
+    return f"{icon} {text}"
 
 
 def _split_telegram_text(text: str, *, limit: int) -> list[str]:

@@ -126,9 +126,11 @@ class Daemon:
 
     def stop(self, *, timeout: float = 30.0) -> None:
         with self.state_lock:
+            already_stopping = self.state.stop_requested
             self.state.stop_requested = True
             self.state.current_status = "stopping"
-        self._emit({"type": "daemon.stopping", "text": "shutdown requested"})
+        if not already_stopping:
+            self._emit({"type": "daemon.stopping", "text": "shutdown requested"})
         try:
             self._command_queue.put_nowait(_STOP)  # type: ignore[arg-type]
         except queue.Full:
@@ -157,10 +159,13 @@ class Daemon:
                 self._emit({"type": "command.error",
                             "text": "/run needs a task description"})
                 return
+            # Emit task.queued BEFORE enqueueing so it cannot race with the
+            # worker thread's task.started — otherwise users may see
+            # "running: foo" appear above "queued: foo" in Telegram.
+            self._emit({"type": "task.queued",
+                        "text": f"queued: {text[:80]}"})
             try:
                 self._command_queue.put_nowait(command)
-                self._emit({"type": "task.queued",
-                            "text": f"queued: {text[:80]}"})
             except queue.Full:
                 self._emit({"type": "command.error",
                             "text": "task queue full; drop or wait"})
@@ -170,25 +175,59 @@ class Daemon:
                 return
             with self.state_lock:
                 self.state.pending_inject.append(text)
-            self._emit({"type": "command.ack",
-                        "text": f"inject buffered ({len(text)} chars)"})
+                running = self.state.current_status == "running"
+            if running:
+                ack = (
+                    f"noted ({len(text)} chars) — will be injected into the "
+                    "next engineer round of the running task"
+                )
+            else:
+                ack = (
+                    f"noted ({len(text)} chars) — will be attached to the "
+                    "next /run task"
+                )
+            self._emit({"type": "command.ack", "text": ack})
         elif kind == "skip":
             with self.state_lock:
                 self.state.skip_current = True
-            self._emit({"type": "command.ack", "text": "skip current task"})
+            self._emit({"type": "command.ack", "text": "skipping current task"})
         elif kind == "stop":
             self.stop()
         elif kind == "status":
             self._emit({"type": "status.report", "text": self._render_status_short()})
+        elif kind == "verbose":
+            self._set_sinks_verbose(True)
+            self._emit({"type": "command.ack",
+                        "text": "verbose mode on — internal events will appear"})
+        elif kind == "quiet":
+            self._set_sinks_verbose(False)
+            self._emit({"type": "command.ack",
+                        "text": "quiet mode on — only essential events"})
         elif kind == "help":
             self._emit({"type": "help",
                         "text": (
-                            "/run <task> /inject <text> /skip /status /stop /help"
+                            "/run <task>  — start a task\n"
+                            "/inject <txt> — add hint for next round (or buffer for next /run)\n"
+                            "/skip        — skip the current task\n"
+                            "/status      — show daemon status\n"
+                            "/verbose     — show internal lifecycle events\n"
+                            "/quiet       — show only essential events (default)\n"
+                            "/stop        — shut down the daemon\n"
+                            "/help        — this help\n"
+                            "Plain text without `/` is buffered as an inject."
                         )})
         else:
             self._emit({"type": "command.unknown", "text": f"unknown command: {kind}"})
 
     # --- internals --------------------------------------------------------
+
+    def _set_sinks_verbose(self, verbose: bool) -> None:
+        setter = getattr(self.sinks, "set_verbose", None)
+        if callable(setter):
+            try:
+                setter(verbose)
+            except Exception:  # noqa: BLE001
+                pass
 
     def _run_worker(self) -> None:
         while True:
@@ -257,10 +296,7 @@ class Daemon:
                 self.state.tasks_done += 1
                 self.state.last_outcome = outcome_payload
             self._emit({"type": "task.completed",
-                        "text": (
-                            f"status={outcome.status} rounds={outcome.round_count} "
-                            f"skill={outcome.skill_used or '-'}"
-                        )})
+                        "text": _format_completion_text(outcome)})
         except _SkipTaskRequested:
             with self.state_lock:
                 self.state.tasks_failed += 1
@@ -361,6 +397,36 @@ class Daemon:
 
 class _SkipTaskRequested(Exception):
     """Raised inside the SkillLoop event callback when /skip is set."""
+
+
+def _format_completion_text(outcome: Any) -> str:
+    """Render a friendly task.completed payload.
+
+    Includes the engineer's final answer (truncated to 1500 chars so the
+    Telegram message limit isn't an issue) when available, plus a short
+    metadata header. When the engineer produced no final message, emit
+    a friendly hint instead of a blank line.
+    """
+    final = (getattr(outcome, "final_message", "") or "").strip()
+    status = getattr(outcome, "status", "")
+    rounds = getattr(outcome, "round_count", 0)
+    skill = getattr(outcome, "skill_used", None)
+    parts = [f"status={status}", f"rounds={rounds}"]
+    if skill:
+        parts.append(f"skill={skill}")
+    header = ", ".join(parts)
+    if final:
+        if len(final) > 1500:
+            final = final[:1500].rstrip() + "…"
+        return f"{header}\n\n{final}"
+    if status == "no_progress":
+        return (
+            f"{header}\n\nThe engineer didn't produce a final message — "
+            "the task may be too broad or under-specified. "
+            "Try `/run <a more concrete request>` or use `/inject` to add "
+            "constraints, then `/run` again."
+        )
+    return header
 
 
 # --- helpers exposed for tests ------------------------------------------

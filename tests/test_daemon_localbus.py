@@ -164,6 +164,20 @@ def test_daemon_runs_two_tasks_with_inject_and_stop(tmp_path: Path) -> None:
     assert event_types.count("task.completed") >= 2
     assert "daemon.started" in event_types
     assert "daemon.stopping" in event_types
+    # daemon.stopping must be emitted at most once even if /stop arrives
+    # via multiple paths (signal handler + supervisor + manual call).
+    assert event_types.count("daemon.stopping") == 1, (
+        "daemon.stopping should be idempotent; got %d" % event_types.count("daemon.stopping")
+    )
+    # task.queued must always appear BEFORE its corresponding task.started
+    # (otherwise users see "running: foo" above "queued: foo" in Telegram).
+    queued_indexes = [i for i, t in enumerate(event_types) if t == "task.queued"]
+    started_indexes = [i for i, t in enumerate(event_types) if t == "task.started"]
+    assert len(queued_indexes) >= 2 and len(started_indexes) >= 2
+    for q_idx, s_idx in zip(queued_indexes, started_indexes):
+        assert q_idx < s_idx, (
+            "task.queued at index %d must come before task.started at %d" % (q_idx, s_idx)
+        )
 
     # Inject should have been delivered to engineer-r1 of the second run.
     second_run_engineer_prompts = [

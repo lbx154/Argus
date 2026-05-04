@@ -41,6 +41,16 @@ class CompositeEventSink:
             except Exception:  # noqa: BLE001
                 pass
 
+    def set_verbose(self, verbose: bool) -> None:
+        """Forward verbose toggle to any sink that supports it."""
+        for sink in self._sinks:
+            setter = getattr(sink, "set_verbose", None)
+            if callable(setter):
+                try:
+                    setter(verbose)
+                except Exception:  # noqa: BLE001
+                    pass
+
     def close(self) -> None:
         for sink in reversed(self._sinks):
             try:
@@ -89,6 +99,10 @@ class TelegramEventSink:
     def handle_stream_line(self, stream: str, line: str) -> None:
         # We deliberately don't forward every stream line — too noisy.
         return
+
+    def set_verbose(self, verbose: bool) -> None:
+        """Toggle the chat-side event filter (forwards to the notifier)."""
+        self.notifier.set_verbose(verbose)
 
     def close(self) -> None:
         if self._closed:

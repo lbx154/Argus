@@ -196,6 +196,61 @@ def test_token_count_extraction_handles_nested_content():
     assert (in_tok, out_tok) == (42, 7)
 
 
+def test_run_exec_forwards_watchdog_hooks(monkeypatch):
+    """Watchdog hooks on argus-skill RunnerOptions must reach ArgusBot.
+
+    A MissionDaemon-driven supervisor passes ``external_interrupt_reason_provider``
+    so it can interrupt a long-running engineer turn promptly when an
+    operator sends ``/inject`` or ``/stop``. If the adapter drops these
+    fields, /inject becomes ineffective during a round.
+    """
+    backend = CodexRunnerBackend(backend="codex")
+    captured: dict[str, Any] = {}
+
+    def fake_run_exec(self, *, prompt, resume_thread_id, options, run_label):
+        captured["options"] = options
+        return _make_argus_result(agent_messages=["ok"])
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+
+    interrupt_calls: list[None] = []
+
+    def interrupt_provider() -> str | None:
+        interrupt_calls.append(None)
+        return None
+
+    def inactivity_callback(snapshot) -> str | None:  # noqa: ARG001
+        return None
+
+    options = RunnerOptions(
+        model="gpt-5.4-mini",
+        external_interrupt_reason_provider=interrupt_provider,
+        inactivity_callback=inactivity_callback,
+        watchdog_soft_idle_seconds=120,
+        watchdog_hard_idle_seconds=600,
+    )
+    backend.run_exec(prompt="x", options=options, run_label="main")
+
+    forwarded = captured["options"]
+    assert forwarded.external_interrupt_reason_provider is interrupt_provider
+    assert forwarded.inactivity_callback is inactivity_callback
+    assert forwarded.watchdog_soft_idle_seconds == 120
+    assert forwarded.watchdog_hard_idle_seconds == 600
+
+
+def test_run_exec_default_watchdog_options_are_inert():
+    """When the caller doesn't supply watchdog hooks the translated
+    ArgusBot options must still be valid (None providers + 0 thresholds).
+    """
+    options = RunnerOptions(model="gpt-5.4-mini")
+    assert options.external_interrupt_reason_provider is None
+    assert options.inactivity_callback is None
+    assert options.watchdog_soft_idle_seconds == 0
+    assert options.watchdog_hard_idle_seconds == 0
+
+
 def test_build_codex_backend_from_env_uses_env(monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "claude")
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_EXTRA_ARGS", '-c "model_profile=fast"')

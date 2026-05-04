@@ -206,6 +206,25 @@ def parse_command_text(*, text: str, plain_text_as_inject: bool) -> TelegramComm
         return TelegramCommand(kind="status", text="")
     if lowered in {"/help", "/commands"}:
         return TelegramCommand(kind="help", text="")
+    # Verbosity toggles.
+    if lowered in {"/verbose", "/loud", "/debug"}:
+        return TelegramCommand(kind="verbose", text="")
+    if lowered in {"/quiet", "/silent"}:
+        return TelegramCommand(kind="quiet", text="")
+    # Mission-mode commands (only meaningful when the daemon is in
+    # mission mode — the queue Daemon ignores these as unknown).
+    if lowered.startswith("/review "):
+        return TelegramCommand(kind="review", text=content[len("/review ") :].strip())
+    if lowered == "/review":
+        return None
+    if lowered.startswith("/plan "):
+        return TelegramCommand(kind="plan", text=content[len("/plan ") :].strip())
+    if lowered == "/plan":
+        return None
+    if lowered.startswith("/mode "):
+        return TelegramCommand(kind="mode", text=content[len("/mode ") :].strip())
+    if lowered == "/mode":
+        return None
     if content.startswith("/"):
         # Unknown slash command — treat as a no-op rather than guess.
         return None

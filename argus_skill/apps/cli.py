@@ -76,6 +76,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     from .daemon_app import add_daemon_subcommands
     add_daemon_subcommands(sub)
+    from .chat_app import add_chat_subcommand
+    add_chat_subcommand(sub)
+    from .mission_app import add_mission_subcommands
+    add_mission_subcommands(sub)
     return parser
 
 
@@ -225,5 +229,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "daemon-run":
         from .daemon_app import cmd_daemon_run
         return cmd_daemon_run(args)
+    if args.cmd == "chat":
+        from .chat_app import cmd_chat
+        return cmd_chat(args)
+    if args.cmd == "mission":
+        from .mission_app import cmd_mission
+        return cmd_mission(args)
     parser.print_help()
     return 2

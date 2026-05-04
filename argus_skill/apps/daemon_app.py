@@ -102,6 +102,18 @@ def add_daemon_subcommands(sub: argparse._SubParsersAction) -> None:
             "to slash commands."
         ),
     )
+    daemon_p.add_argument(
+        "--mission-file",
+        default=None,
+        help=(
+            "if set, run in mission mode: load mission.json (created by "
+            "`argus-skill mission start`) and host an ArgusBot LoopEngine "
+            "instead of the queue-based SkillLoop dispatcher. Enables "
+            "true 7×24 unattended operation (planner-driven follow-ups, "
+            "reviewer-gated done/continue/blocked, persistent operator "
+            "criteria via /review /plan /mode)."
+        ),
+    )
 
     status_p = sub.add_parser("daemon-status", help="print the daemon's status.json")
     status_p.add_argument("--state-dir", default=".argus-skill")
@@ -164,6 +176,19 @@ def cmd_daemon(args: argparse.Namespace, *, runner_factory) -> int:
         except RuntimeError as exc:
             sys.stderr.write(f"daemon: token lock busy: {exc}\n")
             return 2
+
+    # ------------------------------------------------------------------
+    # Branch: --mission-file → MissionDaemon (LoopEngine-backed),
+    #         otherwise   → queue Daemon (existing behaviour, preserved).
+    # ------------------------------------------------------------------
+    mission_mode = bool(getattr(args, "mission_file", None))
+    if mission_mode:
+        return _run_mission_daemon(
+            args=args,
+            paths=paths,
+            runner=runner,
+            lock_ctx=lock_ctx,
+        )
 
     config = SkillLoopConfig(
         scientist_model=args.scientist_model,
@@ -310,6 +335,131 @@ def cmd_daemon_run(args: argparse.Namespace) -> int:
     bus = JsonlCommandBus(paths["inbox"])
     bus.publish(_make_bus_command("run", args.task))
     print(f"queued task -> {paths['inbox']}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Mission-mode daemon (--mission-file)
+# ---------------------------------------------------------------------------
+
+def _run_mission_daemon(
+    *,
+    args: argparse.Namespace,
+    paths: dict,
+    runner,
+    lock_ctx,
+) -> int:
+    """Mission-mode counterpart to ``cmd_daemon`` queue path.
+
+    Loads ``mission.json``, builds a ``MissionDaemon`` (which hosts an
+    ArgusBot ``LoopEngine``), and runs the same control-channel /
+    sink wiring as the queue daemon.
+    """
+    from ..daemon.mission_runtime import (
+        MissionConfig,
+        MissionDaemon,
+        MissionDaemonConfig,
+    )
+
+    mission_path = Path(args.mission_file).expanduser().resolve()
+    if not mission_path.is_file():
+        sys.stderr.write(f"daemon: --mission-file not found: {mission_path}\n")
+        return 2
+    try:
+        mission = MissionConfig.from_json_file(mission_path)
+    except Exception as exc:  # noqa: BLE001
+        sys.stderr.write(f"daemon: failed to load mission.json: {exc}\n")
+        return 2
+
+    # The argus-skill RunnerBackend (codex_backend) wraps an ArgusBot
+    # CodexRunner internally; we need both the wrapper (for engineer +
+    # matcher + distill) and the inner runner (for reviewer + planner +
+    # report fallback).
+    inner_argus_runner = getattr(runner, "argus_runner", None)
+    if inner_argus_runner is None:
+        sys.stderr.write(
+            "daemon: --mission-file requires a runner that exposes "
+            "`argus_runner` (ArgusBot CodexRunner). Memory/test backends "
+            "are not supported in mission mode.\n"
+        )
+        return 2
+
+    sinks = [TerminalEventSink(verbose=False), JsonlEventSink(paths["outbox"])]
+    notifier = None
+    telegram_active = (
+        bool(args.telegram_bot_token and args.telegram_chat_id)
+        and not args.no_telegram
+    )
+    if telegram_active:
+        notifier = TelegramNotifier(TelegramConfig(
+            bot_token=args.telegram_bot_token,
+            chat_id=args.telegram_chat_id,
+        ))
+        sinks.append(TelegramEventSink(notifier=notifier))
+    composite_sink = CompositeEventSink(sinks)
+
+    outbox_only_sink = JsonlEventSink(paths["outbox"])
+
+    def _telegram_error(msg: str) -> None:
+        try:
+            outbox_only_sink.handle_event({"type": "telegram.error", "text": msg})
+        except Exception:  # noqa: BLE001
+            pass
+        sys.stderr.write(f"[telegram.error] {msg}\n")
+        sys.stderr.flush()
+
+    daemon = MissionDaemon(
+        mission=mission,
+        sinks=composite_sink,
+        engineer_backend=runner,
+        codex_runner=inner_argus_runner,
+        config=MissionDaemonConfig(
+            state_dir=args.state_dir,
+            skills_dir=args.skills_dir,
+        ),
+    )
+
+    channels = [LocalBusControlChannel(path=paths["inbox"], source="bus")]
+    if telegram_active:
+        channels.append(TelegramControlChannel(
+            bot_token=args.telegram_bot_token,
+            chat_id=args.telegram_chat_id,
+            on_error=_telegram_error,
+            plain_text_as_inject=not args.no_plain_text_inject,
+        ))
+    channel = CompositeControlChannel(channels)
+
+    def _on_signal(_signum, _frame):
+        daemon.stop()
+
+    signal.signal(signal.SIGINT, _on_signal)
+    signal.signal(signal.SIGTERM, _on_signal)
+
+    try:
+        channel.start(daemon.handle_command)
+        daemon.start()
+        sys.stderr.write(
+            f"argus-skill mission daemon: id={mission.mission_id} "
+            f"plan_mode={mission.plan_mode} state_dir={args.state_dir} "
+            f"telegram={'on' if telegram_active else 'off'}\n"
+        )
+        sys.stderr.flush()
+        daemon.wait()
+    finally:
+        try:
+            channel.stop()
+        except Exception:  # noqa: BLE001
+            pass
+        if notifier is not None:
+            try:
+                notifier.close()
+            except Exception:  # noqa: BLE001
+                pass
+        if lock_ctx is not None:
+            try:
+                lock_ctx.release()
+            except Exception:  # noqa: BLE001
+                pass
     return 0
 
 

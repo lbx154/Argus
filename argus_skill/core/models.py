@@ -7,7 +7,7 @@ uses (no planner snapshots — argus-skill is reviewer-only for v0.1).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 ReviewStatus = Literal["done", "continue", "blocked"]
 LoopStatus = Literal["done", "max_rounds", "blocked", "no_progress", "error"]
@@ -17,10 +17,10 @@ LoopStatus = Literal["done", "max_rounds", "blocked", "no_progress", "error"]
 class RunnerOptions:
     """Per-call knobs for an LLM runner backend.
 
-    Vendored shape from ArgusBot's RunnerOptions but stripped of fields
-    we don't propagate yet (watchdog callbacks, plugin dirs, etc.). New
-    backends only have to honour what's listed here; unknown fields
-    travel through ``extra_args`` if needed.
+    Vendored shape from ArgusBot's RunnerOptions. Watchdog hooks are
+    optional and only honoured by backends that wrap a real subprocess
+    (e.g. ``CodexRunnerBackend``); ``MemoryBackend`` and other
+    deterministic backends ignore them.
     """
     model: str | None = None
     reasoning_effort: str | None = None
@@ -30,6 +30,26 @@ class RunnerOptions:
     skip_git_repo_check: bool = False
     full_auto: bool = False
     dangerous_yolo: bool = False
+    # Watchdog hooks — propagated to the codex subprocess so an outer
+    # supervisor (e.g. ArgusBot's LoopEngine, the MissionDaemon) can
+    # interrupt a long-running engineer turn promptly.
+    #
+    # ``external_interrupt_reason_provider`` is polled by the runner
+    # while the subprocess is alive; when it returns a non-empty
+    # string the subprocess is terminated and the result carries
+    # ``fatal_error="External interrupt: <reason>"``.
+    #
+    # ``inactivity_callback`` is invoked on soft-idle boundaries (no
+    # stdout for ``watchdog_soft_idle_seconds``); it can return
+    # ``"restart"`` to force termination + retry semantics, or any
+    # other value to keep waiting.
+    #
+    # ``watchdog_soft_idle_seconds`` / ``watchdog_hard_idle_seconds``
+    # are absolute idle thresholds; ``0`` disables that level.
+    external_interrupt_reason_provider: Callable[[], str | None] | None = None
+    inactivity_callback: Callable[[Any], str | None] | None = None
+    watchdog_soft_idle_seconds: int = 0
+    watchdog_hard_idle_seconds: int = 0
 
 
 @dataclass

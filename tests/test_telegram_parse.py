@@ -71,6 +71,20 @@ def test_unknown_slash_command_dropped() -> None:
         assert parse_command_text(text=text, plain_text_as_inject=False) is None, text
 
 
+def test_parse_verbose_command() -> None:
+    for text in ("/verbose", "/loud", "/debug"):
+        assert parse_command_text(text=text, plain_text_as_inject=False) == TelegramCommand(
+            kind="verbose", text=""
+        ), text
+
+
+def test_parse_quiet_command() -> None:
+    for text in ("/quiet", "/silent"):
+        assert parse_command_text(text=text, plain_text_as_inject=False) == TelegramCommand(
+            kind="quiet", text=""
+        ), text
+
+
 def test_plain_text_as_inject_when_enabled() -> None:
     cmd = parse_command_text(text="please use pytest", plain_text_as_inject=True)
     assert cmd == TelegramCommand(kind="inject", text="please use pytest")
@@ -113,3 +127,55 @@ def test_extract_command_from_update_uses_caption_fallback() -> None:
                                     expected_chat_id="100",
                                     plain_text_as_inject=False)
     assert cmd == TelegramCommand(kind="run", text="from caption")
+
+
+# -- mission-mode commands ------------------------------------------------
+
+
+def test_parse_review_command() -> None:
+    cmd = parse_command_text(
+        text="/review must include integration tests",
+        plain_text_as_inject=False,
+    )
+    assert cmd == TelegramCommand(
+        kind="review", text="must include integration tests"
+    )
+
+
+def test_parse_review_without_text_returns_none() -> None:
+    assert (
+        parse_command_text(text="/review", plain_text_as_inject=False) is None
+    )
+
+
+def test_parse_plan_command() -> None:
+    cmd = parse_command_text(
+        text="/plan focus on parser robustness",
+        plain_text_as_inject=False,
+    )
+    assert cmd == TelegramCommand(
+        kind="plan", text="focus on parser robustness"
+    )
+
+
+def test_parse_plan_without_text_returns_none() -> None:
+    assert parse_command_text(text="/plan", plain_text_as_inject=False) is None
+
+
+def test_parse_mode_auto() -> None:
+    cmd = parse_command_text(text="/mode auto", plain_text_as_inject=False)
+    assert cmd == TelegramCommand(kind="mode", text="auto")
+
+
+def test_parse_mode_off() -> None:
+    cmd = parse_command_text(text="/mode off", plain_text_as_inject=False)
+    assert cmd == TelegramCommand(kind="mode", text="off")
+
+
+def test_parse_mode_record() -> None:
+    cmd = parse_command_text(text="/mode record", plain_text_as_inject=False)
+    assert cmd == TelegramCommand(kind="mode", text="record")
+
+
+def test_parse_mode_without_text_returns_none() -> None:
+    assert parse_command_text(text="/mode", plain_text_as_inject=False) is None
