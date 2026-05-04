@@ -79,7 +79,7 @@ log = logging.getLogger(__name__)
 
 _DEFAULT_DISTILL_BUDGET = 120.0          # seconds, host-side matcher+distill cap
 _DEFAULT_REVIEWER_BUDGET = 60.0          # seconds, per reviewer call
-_DEFAULT_ROUND_TIMEOUT = 200             # seconds, per in-container engineer call
+_DEFAULT_ROUND_TIMEOUT = 600             # seconds, per in-container engineer call
 _DEFAULT_MAX_ROUNDS = 2
 _AUGMENTED_MAX_CHARS = 24 * 1024
 
@@ -418,6 +418,7 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                         prompt=round_prompt,
                         round_idx=round_idx,
                         round_timeout=round_timeout,
+                        resume_session_id=last_thread_id if round_idx > 1 else None,
                     )
                 except RuntimeError as exc:
                     # Harbor's docker exec raises RuntimeError on timeout
@@ -469,6 +470,7 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                     last_msg=last_msg,
                     round_idx=round_idx,
                     thread_id=last_thread_id,
+                    engineer_exit_code=exit_code,
                 )
                 round_record["review_status"] = review_decision.get("status")
                 round_record["review_confidence"] = review_decision.get("confidence")
@@ -594,11 +596,17 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
         prompt: str,
         round_idx: int,
         round_timeout: int,
+        resume_session_id: str | None = None,
     ) -> tuple[str, int]:
         """Run a single ``codex exec`` round inside the container.
 
         Returns ``(stdout, exit_code)``. We do NOT raise on non-zero
         exit so the round-loop can decide whether to retry / continue.
+
+        When ``resume_session_id`` is given we use ``codex exec resume
+        <id> ...`` so the round inherits R1's conversation thread —
+        otherwise R2 would start from scratch and could overwrite R1's
+        on-disk progress without ever seeing R1's tool history.
         """
         escaped = shlex.quote(prompt)
         per_round_log = (
@@ -608,17 +616,36 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
         # post-run capture (only the LAST round's content survives — that's
         # OK since the verifier looks at the final filesystem state, not
         # intermediate logs).
+        if resume_session_id:
+            # `codex exec resume` syntax: positional [SESSION_ID] [PROMPT]
+            # come AFTER the `--` end-of-options marker.
+            quoted_session = shlex.quote(resume_session_id)
+            codex_invocation = (
+                "codex exec resume "
+                "--dangerously-bypass-approvals-and-sandbox "
+                "--skip-git-repo-check "
+                f"--model {model} "
+                "--json "
+                "--enable unified_exec "
+                f"{cli_flags_arg}"
+                "-- "
+                f"{quoted_session} {escaped}"
+            )
+        else:
+            codex_invocation = (
+                "codex exec "
+                "--dangerously-bypass-approvals-and-sandbox "
+                "--skip-git-repo-check "
+                f"--model {model} "
+                "--json "
+                "--enable unified_exec "
+                f"{cli_flags_arg}"
+                "-- "
+                f"{escaped}"
+            )
         cmd = (
             "if [ -s ~/.nvm/nvm.sh ]; then . ~/.nvm/nvm.sh; fi; "
-            "codex exec "
-            "--dangerously-bypass-approvals-and-sandbox "
-            "--skip-git-repo-check "
-            f"--model {model} "
-            "--json "
-            "--enable unified_exec "
-            f"{cli_flags_arg}"
-            "-- "
-            f"{escaped} "
+            f"{codex_invocation} "
             f"2>&1 </dev/null | tee {per_round_log.as_posix()} "
             f"{(EnvironmentPaths.agent_dir / self._OUTPUT_FILENAME).as_posix()}"
         )
@@ -637,13 +664,25 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
         last_msg: str,
         round_idx: int,
         thread_id: str | None,
+        engineer_exit_code: int,
     ) -> dict:
         """Run argus-skill's reviewer on the host. Returns a JSON-friendly dict.
 
         On any failure we return ``status="continue"`` so the loop keeps
         going (better to do another engineer round than abort).
+
+        ``engineer_exit_code`` is the in-container ``codex exec`` exit
+        code from this round. We surface it to the reviewer as
+        ``main_error`` so a non-zero exit becomes an explicit signal
+        (otherwise the reviewer only sees the last agent message and
+        cannot tell whether the engineer crashed mid-task).
         """
         budget = _float_env("ARGUS_SKILL_HARBOR_REVIEWER_BUDGET", _DEFAULT_REVIEWER_BUDGET)
+        main_error = (
+            None
+            if engineer_exit_code == 0
+            else f"engineer exit_code={engineer_exit_code} (non-zero — investigate before declaring done)"
+        )
         try:
             decision = await asyncio.wait_for(
                 asyncio.to_thread(
@@ -652,6 +691,7 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                     last_msg=last_msg,
                     round_idx=round_idx,
                     thread_id=thread_id,
+                    main_error=main_error,
                 ),
                 timeout=budget,
             )
@@ -737,6 +777,7 @@ def _invoke_reviewer(
     last_msg: str,
     round_idx: int,
     thread_id: str | None,
+    main_error: str | None = None,
 ) -> dict:
     """Pure-sync wrapper around Reviewer.evaluate. Called via to_thread."""
     deps = _import_argus_skill()
@@ -756,7 +797,7 @@ def _invoke_reviewer(
         round_index=round_idx,
         session_id=thread_id,
         main_summary=last_msg,
-        main_error=None,
+        main_error=main_error,
         checks=[],
         config=cfg,
     )

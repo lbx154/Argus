@@ -43,6 +43,49 @@ def test_publish_appends_jsonl_line(tmp_path: Path) -> None:
     assert payload["kind"] == "stop"
 
 
+def test_persistent_offset_survives_restart(tmp_path: Path) -> None:
+    """A new JsonlCommandBus on the same path resumes from the persisted
+    offset — it does NOT re-process commands that the previous instance
+    already consumed, AND it DOES pick up commands queued after the
+    previous instance read.
+    """
+    bus_path = tmp_path / "inbox.jsonl"
+    # Instance 1: publish + consume two commands.
+    bus1 = JsonlCommandBus(str(bus_path))
+    bus1.publish(_cmd("run", "first"))
+    bus1.publish(_cmd("inject", "second"))
+    consumed = bus1.read_new()
+    assert [c.kind for c in consumed] == ["run", "inject"]
+    # External writer queues a third command while there's no live bus.
+    bus_path.open("a", encoding="utf-8").write(
+        json.dumps({"kind": "run", "text": "third", "source": "ext", "ts": time.time()})
+        + "\n"
+    )
+    # Instance 2: should ONLY see the third command, not the first two.
+    bus2 = JsonlCommandBus(str(bus_path))
+    fresh = bus2.read_new()
+    assert [c.kind for c in fresh] == ["run"]
+    assert fresh[0].text == "third"
+
+
+def test_offset_reset_when_inbox_truncated(tmp_path: Path) -> None:
+    """If the inbox is rotated/truncated externally, a stale offset that
+    is past the new file size must reset so that newly-published
+    commands are read instead of silently skipped.
+    """
+    bus_path = tmp_path / "inbox.jsonl"
+    bus = JsonlCommandBus(str(bus_path))
+    bus.publish(_cmd("run", "before-rotate"))
+    bus.read_new()  # advances offset past the entry
+    # External rotation: clear the file.
+    bus_path.write_text("", encoding="utf-8")
+    # New publish goes to the start of the now-empty file.
+    bus.publish(_cmd("run", "after-rotate"))
+    fresh = bus.read_new()
+    assert [c.kind for c in fresh] == ["run"]
+    assert fresh[0].text == "after-rotate"
+
+
 def test_status_round_trip(tmp_path: Path) -> None:
     status_path = tmp_path / "status.json"
     payload = {

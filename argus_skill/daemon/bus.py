@@ -22,13 +22,62 @@ class BusCommand:
 
 
 class JsonlCommandBus:
+    """Append-only JSONL command queue with a persisted read offset.
+
+    The read offset is stored alongside the inbox file at
+    ``<path>.offset`` so that a daemon restart resumes from where the
+    previous daemon left off — instead of either re-reading all old
+    commands (offset=0) or skipping commands that were enqueued while
+    the daemon was down (offset=file_size).
+    """
+
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._offset_path = self.path.with_suffix(self.path.suffix + ".offset")
         self._lock = threading.Lock()
-        self._offset = 0
-        if self.path.exists():
-            self._offset = self.path.stat().st_size
+        self._offset = self._load_offset()
+
+    def _load_offset(self) -> int:
+        """Return the previously-persisted offset, clamped to the current file size.
+
+        Behaviour:
+        * No offset file → fall back to current file size (i.e. skip
+          anything that was sitting in the inbox at daemon start). This
+          matches the historical default and is the safer choice when
+          state files have been touched out-of-band.
+        * Offset file present and ≤ file size → use it.
+        * Offset file present but > file size (e.g. inbox truncated /
+          rotated) → reset to file size.
+        * Unparseable / malformed → reset to file size and warn-by-overwrite.
+        """
+        try:
+            file_size = self.path.stat().st_size if self.path.exists() else 0
+        except OSError:
+            file_size = 0
+        try:
+            raw = self._offset_path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            return file_size
+        except OSError:
+            return file_size
+        try:
+            persisted = int(raw)
+        except ValueError:
+            return file_size
+        if persisted < 0 or persisted > file_size:
+            return file_size
+        return persisted
+
+    def _persist_offset(self, offset: int) -> None:
+        try:
+            tmp = self._offset_path.with_suffix(self._offset_path.suffix + ".tmp")
+            tmp.write_text(str(offset), encoding="utf-8")
+            os.replace(tmp, self._offset_path)
+        except OSError:
+            # Persistence is best-effort. If we can't write, the next
+            # restart falls back to "skip pre-existing".
+            pass
 
     def publish(self, command: BusCommand) -> None:
         line = json.dumps(asdict(command), ensure_ascii=True)
@@ -41,10 +90,22 @@ class JsonlCommandBus:
             return []
         out: list[BusCommand] = []
         with self._lock:
+            try:
+                file_size = self.path.stat().st_size
+            except OSError:
+                file_size = 0
+            # If the file shrank (truncate / rotate / external rm+recreate)
+            # the cached offset is past the end. Reset to 0 so we don't
+            # silently lose newly-published commands.
+            if self._offset > file_size:
+                self._offset = 0
             with self.path.open("r", encoding="utf-8") as f:
                 f.seek(self._offset)
                 lines = f.readlines()
-                self._offset = f.tell()
+                new_offset = f.tell()
+            if new_offset != self._offset:
+                self._offset = new_offset
+                self._persist_offset(new_offset)
         for line in lines:
             line = line.strip()
             if not line:

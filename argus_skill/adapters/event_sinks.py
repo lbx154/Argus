@@ -98,11 +98,30 @@ class TelegramEventSink:
 
 
 class JsonlEventSink:
-    """Append every event as one JSONL line. Mainly for tests + audit."""
+    """Append every event as one JSONL line. Mainly for tests + audit.
 
-    def __init__(self, path: str | Path) -> None:
+    Rotates the file when it grows beyond ``rotate_max_bytes`` (default
+    5 MB), keeping up to ``rotate_keep`` historical copies as
+    ``<name>.1``, ``<name>.2`` ... so a long-running daemon doesn't
+    end up with an ever-growing log.
+    """
+
+    DEFAULT_ROTATE_MAX_BYTES = 5 * 1024 * 1024
+    DEFAULT_ROTATE_KEEP = 3
+
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        rotate_max_bytes: int | None = None,
+        rotate_keep: int | None = None,
+    ) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.rotate_max_bytes = (
+            self.DEFAULT_ROTATE_MAX_BYTES if rotate_max_bytes is None else rotate_max_bytes
+        )
+        self.rotate_keep = self.DEFAULT_ROTATE_KEEP if rotate_keep is None else rotate_keep
         self._lock = threading.Lock()
 
     def handle_event(self, event: dict[str, object]) -> None:
@@ -117,5 +136,30 @@ class JsonlEventSink:
 
     def _append(self, record: dict) -> None:
         with self._lock:
+            self._maybe_rotate()
             with self.path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def _maybe_rotate(self) -> None:
+        if self.rotate_max_bytes <= 0 or self.rotate_keep <= 0:
+            return
+        try:
+            size = self.path.stat().st_size
+        except OSError:
+            return
+        if size < self.rotate_max_bytes:
+            return
+        # Shift backups: <name>.(keep-1) -> <name>.keep, ..., <name> -> <name>.1
+        for i in range(self.rotate_keep, 0, -1):
+            src = (
+                self.path.with_suffix(self.path.suffix + f".{i - 1}") if i > 1 else self.path
+            )
+            dst = self.path.with_suffix(self.path.suffix + f".{i}")
+            try:
+                if src.exists():
+                    if dst.exists():
+                        dst.unlink()
+                    src.rename(dst)
+            except OSError:
+                # Rotation is best-effort. If it fails, keep appending.
+                return

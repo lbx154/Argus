@@ -38,7 +38,19 @@ class TokenLock:
 
 
 def default_token_lock_dir() -> str:
+    """Pick a writable directory for token-lock files.
+
+    Order of preference:
+      1. ``$TMP/argus-skill-token-locks`` (canonical name)
+      2. ``$CWD/.argus-skill-token-locks`` (canonical name, project-local)
+      3. ``$TMP/argusbot-token-locks`` (legacy from ArgusBot — kept for
+         backward compatibility with any other daemon binaries that
+         may still use the old path)
+      4. ``$CWD/.argusbot-token-locks`` (same legacy)
+    """
     candidates = [
+        Path(tempfile.gettempdir()) / "argus-skill-token-locks",
+        Path.cwd() / ".argus-skill-token-locks",
         Path(tempfile.gettempdir()) / "argusbot-token-locks",
         Path.cwd() / ".argusbot-token-locks",
     ]

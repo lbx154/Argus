@@ -35,13 +35,14 @@ export ARGUS_SKILL_HARBOR_SKILLS_DIR="$EXP_DIR/skills"
 export ARGUS_SKILL_HARBOR_DECISIONS_LOG="$DECISIONS_LOG"
 
 # --- Loop budgets.
-# Per-task agent timeouts on this 11-task subset are 900s-3600s, so the
-# worst case envelope below (distill 120 + r1 360 + rev 50 + r2 320 = 850s)
-# fits the tightest task. Most rounds finish in <250s so the average is
-# well under budget.
+# Per-task agent timeouts on this 11-task subset are 900s-3600s. With
+# distill 120 + r1 600 + rev 60 + r2 600 = 1380s worst case we now
+# comfortably fit even the 900s tasks, and r1/r2 each have enough
+# headroom that the slow tasks (cython compile, corewars bench) can
+# actually finish a round instead of always cliffing on a timeout.
 export ARGUS_SKILL_HARBOR_DISTILL_BUDGET=120
-export ARGUS_SKILL_HARBOR_REVIEWER_BUDGET=50
-export ARGUS_SKILL_HARBOR_ROUND_TIMEOUT=360
+export ARGUS_SKILL_HARBOR_REVIEWER_BUDGET=60
+export ARGUS_SKILL_HARBOR_ROUND_TIMEOUT=600
 export ARGUS_SKILL_HARBOR_MAX_ROUNDS=2
 
 # --- 11 tasks (mirrors skill-agent's tb2-microbench-2026-05-03 set)

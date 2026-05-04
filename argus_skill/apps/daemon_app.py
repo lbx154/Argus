@@ -93,6 +93,15 @@ def add_daemon_subcommands(sub: argparse._SubParsersAction) -> None:
         action="store_true",
         help="skip token-lock check (debug only)",
     )
+    daemon_p.add_argument(
+        "--no-plain-text-inject",
+        action="store_true",
+        help=(
+            "drop plain Telegram messages instead of treating them as /inject. "
+            "Useful when you want the bot to ignore casual chat and only react "
+            "to slash commands."
+        ),
+    )
 
     status_p = sub.add_parser("daemon-status", help="print the daemon's status.json")
     status_p.add_argument("--state-dir", default=".argus-skill")
@@ -177,6 +186,20 @@ def cmd_daemon(args: argparse.Namespace, *, runner_factory) -> int:
         bool(args.telegram_bot_token and args.telegram_chat_id)
         and not args.no_telegram
     )
+    if not telegram_active and not args.no_telegram:
+        # Helpful warning: user almost certainly meant to enable Telegram
+        # but forgot to source the secrets file.
+        missing: list[str] = []
+        if not args.telegram_bot_token:
+            missing.append("--telegram-bot-token / TELEGRAM_BOT_TOKEN")
+        if not args.telegram_chat_id:
+            missing.append("--telegram-chat-id / TELEGRAM_CHAT_ID")
+        if missing:
+            sys.stderr.write(
+                "argus-skill daemon: starting WITHOUT Telegram. Missing: "
+                + ", ".join(missing)
+                + ". (Pass --no-telegram to silence this warning.)\n"
+            )
     if telegram_active:
         notifier = TelegramNotifier(TelegramConfig(
             bot_token=args.telegram_bot_token,
@@ -184,6 +207,19 @@ def cmd_daemon(args: argparse.Namespace, *, runner_factory) -> int:
         ))
         sinks.append(TelegramEventSink(notifier=notifier))
     composite_sink = CompositeEventSink(sinks)
+
+    # Route Telegram-poller errors to the outbox + stderr so an
+    # operator can see them. We deliberately do NOT forward them back
+    # over Telegram itself — that's the surface that's already failing.
+    outbox_only_sink = JsonlEventSink(paths["outbox"])
+
+    def _telegram_error(msg: str) -> None:
+        try:
+            outbox_only_sink.handle_event({"type": "telegram.error", "text": msg})
+        except Exception:  # noqa: BLE001
+            pass
+        sys.stderr.write(f"[telegram.error] {msg}\n")
+        sys.stderr.flush()
 
     daemon = Daemon(
         loop=loop,
@@ -199,6 +235,8 @@ def cmd_daemon(args: argparse.Namespace, *, runner_factory) -> int:
         channels.append(TelegramControlChannel(
             bot_token=args.telegram_bot_token,
             chat_id=args.telegram_chat_id,
+            on_error=_telegram_error,
+            plain_text_as_inject=not args.no_plain_text_inject,
         ))
     channel = CompositeControlChannel(channels)
 

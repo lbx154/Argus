@@ -30,6 +30,8 @@ class TelegramConfig:
     notify_event_types: set[str] = field(default_factory=lambda: {
         "task.queued",
         "task.started",
+        "task.completed",
+        "task.skipped",
         "loop.start",
         "match.info",
         "scientist.start",
@@ -41,6 +43,11 @@ class TelegramConfig:
         "task.error",
         "daemon.started",
         "daemon.stopping",
+        "help",
+        "status.report",
+        "command.ack",
+        "command.error",
+        "command.unknown",
     })
 
 

@@ -317,12 +317,40 @@ class Daemon:
     def _render_status_short(self) -> str:
         with self.state_lock:
             current = self.state.current_task or "idle"
+            uptime_str = self._format_uptime(self.state.started_at)
             return (
                 f"status={self.state.current_status} "
                 f"current={current[:60]} "
                 f"done={self.state.tasks_done} failed={self.state.tasks_failed} "
-                f"queue={self._command_queue.qsize()}"
+                f"queue={self._command_queue.qsize()} "
+                f"pending_inject={len(self.state.pending_inject)} "
+                f"uptime={uptime_str}"
             )
+
+    @staticmethod
+    def _format_uptime(started_at_iso: str) -> str:
+        if not started_at_iso:
+            return "?"
+        try:
+            started = datetime.fromisoformat(started_at_iso)
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            elapsed = datetime.now(timezone.utc) - started
+        except (ValueError, TypeError):
+            return "?"
+        seconds = int(elapsed.total_seconds())
+        if seconds < 0:
+            seconds = 0
+        days, seconds = divmod(seconds, 86400)
+        hours, seconds = divmod(seconds, 3600)
+        minutes, seconds = divmod(seconds, 60)
+        if days:
+            return f"{days}d{hours}h{minutes}m"
+        if hours:
+            return f"{hours}h{minutes}m"
+        if minutes:
+            return f"{minutes}m{seconds}s"
+        return f"{seconds}s"
 
     def _emit(self, event: dict) -> None:
         try:
