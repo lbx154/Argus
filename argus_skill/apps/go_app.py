@@ -378,6 +378,19 @@ def cmd_go(args: argparse.Namespace) -> int:
     state_dir = Path(args.state_dir).expanduser().resolve()
     state_dir.mkdir(parents=True, exist_ok=True)
 
+    # Branded logo + tagline FIRST — before anything else, so the very
+    # first thing the user sees on `argus-skill` is the brand.
+    from .. import __version__ as _argus_version
+    from ..cli.branding import render_startup_banner
+    from ..cli.theme import Theme as _Theme
+    _go_theme = _Theme.auto(force=getattr(args, "color", None))
+    sys.stdout.write(render_startup_banner(
+        theme=_go_theme,
+        version=_argus_version,
+        show_hint=False,            # hint shown later by chat_app
+    ))
+    sys.stdout.flush()
+
     alive, pid = _is_daemon_alive(state_dir)
 
     daemon_proc: subprocess.Popen | None = None
@@ -456,6 +469,7 @@ def cmd_go(args: argparse.Namespace) -> int:
         no_plain_text_inject=False,
         from_start=False,
         color=getattr(args, "color", None),
+        compact_banner=True,
     )
 
     rc = 0

@@ -92,21 +92,29 @@ def render_startup_banner(
     state_dir: str | None = None,
     daemon_pid: int | None = None,
     max_rounds: int | None = None,
+    show_logo: bool = True,
+    show_hint: bool = True,
 ) -> str:
     """Compose the full startup banner (logo + tagline + status block).
 
     All status fields are optional; only the lines that have values are
     rendered. Designed to be called once at the top of ``argus-skill go``
     or ``argus-skill chat`` — *replaces* the previous flat text header.
+
+    Pass ``show_logo=False`` to render only the status block (used when
+    the logo has already been shown earlier in the same session, e.g.
+    ``argus-skill go`` shows the logo before the objective prompt and
+    then opens the chat REPL which only needs to show the status block).
     """
     parts: list[str] = []
-    parts.append(render_logo(theme=theme))
-    parts.append("")
-    parts.append(
-        "  " + theme.italic(theme.gray(TAGLINE)) +
-        "  " + theme.dim(f"v{version}")
-    )
-    parts.append("")
+    if show_logo:
+        parts.append(render_logo(theme=theme))
+        parts.append("")
+        parts.append(
+            "  " + theme.italic(theme.gray(TAGLINE)) +
+            "  " + theme.dim(f"v{version}")
+        )
+        parts.append("")
 
     arrow = theme.dim("→")
     label = lambda s: theme.gray(f"{s:<11}")  # noqa: E731
@@ -143,11 +151,12 @@ def render_startup_banner(
             f"  {label('daemon')} {arrow} pid={daemon_pid}"
         )
     parts.append("")
-    # Hint line — analogous to skill-agent.
-    parts.append(
-        "  " + theme.gray("type a command to begin  ·  ")
-        + theme.cyan("/help") + theme.gray(" for commands  ·  ")
-        + theme.cyan("/exit") + theme.gray(" to leave (daemon keeps running)")
-    )
-    parts.append("")
+    if show_hint:
+        # Hint line — analogous to skill-agent.
+        parts.append(
+            "  " + theme.gray("type a command to begin  ·  ")
+            + theme.cyan("/help") + theme.gray(" for commands  ·  ")
+            + theme.cyan("/exit") + theme.gray(" to leave (daemon keeps running)")
+        )
+        parts.append("")
     return "\n".join(parts)

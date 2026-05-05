@@ -226,6 +226,8 @@ def main(argv: list[str] | None = None) -> int:
             workdir=None,
             attach_only=False,
             shutdown_timeout=90,
+            quiet=False,
+            color=None,
         )
         return cmd_go(go_args)
     if args.cmd == "run":

@@ -106,14 +106,19 @@ def cmd_chat(args: argparse.Namespace) -> int:
     else:
         print(f"warning: no status.json in {state} — daemon may not be running", file=sys.stderr)
 
-    # Branded startup banner (logo + tagline + status block).
+    # Branded startup banner. When called from `argus-skill go` the
+    # logo + tagline have already been printed, so we render only the
+    # mission status block here.
     from .. import __version__ as _argus_version
     from ..cli.branding import render_startup_banner
+    _compact = bool(getattr(args, "compact_banner", False))
     print(render_startup_banner(
         theme=theme,
         version=_argus_version,
         state_dir=str(state),
         daemon_pid=daemon_pid,
+        show_logo=not _compact,
+        show_hint=not _compact,
         **banner_kwargs,
     ))
     # Tri-state verbose:

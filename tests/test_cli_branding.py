@@ -112,7 +112,34 @@ def test_banner_queue_mode_renders_queue_label() -> None:
 def test_banner_no_status_block_when_no_mode() -> None:
     out = render_startup_banner(theme=_PLAIN, version="0.1.0")
     assert TAGLINE in out
-    assert "mission" not in out.lower() or "/help" in out  # no mission block
+    # logo + tagline + hint, but no mission line
+    assert "max_rounds" not in out
+    # the word "mission" can only appear in TAGLINE-adjacent context, not
+    # in a "mission     → m1" status row.
+    assert " mission " not in out  # status row uses " mission     →"
+
+
+def test_banner_show_logo_false_omits_logo() -> None:
+    out = render_startup_banner(
+        theme=_PLAIN, version="0.1.0", mode="mission",
+        mission_id="m1", mission_status="running", plan_mode="auto",
+        show_logo=False,
+    )
+    assert "█" not in out
+    assert TAGLINE not in out
+    # status block still present
+    assert "m1" in out
+    assert "running" in out
+
+
+def test_banner_show_hint_false_omits_hint() -> None:
+    out = render_startup_banner(
+        theme=_PLAIN, version="0.1.0", show_hint=False,
+    )
+    assert "/help" not in out
+    assert "/exit" not in out
+    # logo + tagline still present
+    assert TAGLINE in out
 
 
 def test_banner_no_ansi_when_theme_disabled() -> None:
