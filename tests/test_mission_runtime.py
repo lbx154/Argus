@@ -552,3 +552,90 @@ def test_parser_show_bare_emits_show_with_empty_text():
     assert cmd is not None
     assert cmd.kind == "show"
     assert cmd.text == ""
+
+
+# ---------------------------------------------------------------------------
+# Post-completion behaviour: daemon idles, inspection still works,
+# mutations emit friendly no-op acks.
+# ---------------------------------------------------------------------------
+
+def test_mission_done_state_keeps_daemon_alive(tmp_path):
+    """After _mission_status flips to done, /status must still respond."""
+    daemon, sinks, _ = _build_daemon(tmp_path)
+    # Simulate mission completion (don't actually run a worker thread).
+    daemon._mission_status = "done"
+    daemon._mission_result = {"success": True, "stop_reason": "ok",
+                              "session_id": "x", "rounds": 2}
+    daemon._current_phase = "idle"
+    # _stop_event is NOT set — the daemon is idling.
+    assert not daemon._stop_event.is_set()
+
+    # /status, /show, /help, /verbose, /quiet, /stop must all work.
+    daemon.handle_command(ControlCommand(kind="status", text=""))
+    daemon.handle_command(ControlCommand(kind="help", text=""))
+    daemon.handle_command(ControlCommand(kind="verbose", text=""))
+    daemon.handle_command(ControlCommand(kind="quiet", text=""))
+    types = [e.get("type") for e in sinks.events]
+    assert "status.report" in types
+    assert "help" in types
+    assert "command.ack" in types  # verbose/quiet
+
+
+def test_mutating_command_post_completion_returns_friendly_noop(tmp_path):
+    """/inject /skip /review /plan /mode after mission done → ack with explanation."""
+    daemon, sinks, store = _build_daemon(tmp_path)
+    daemon._mission_status = "done"
+    daemon._current_phase = "idle"
+
+    for cmd in [
+        ControlCommand(kind="inject", text="late nudge"),
+        ControlCommand(kind="skip", text=""),
+        ControlCommand(kind="review", text="be strict"),
+        ControlCommand(kind="plan", text="redirect"),
+        ControlCommand(kind="mode", text="auto"),
+        ControlCommand(kind="run", text="late task"),
+    ]:
+        sinks.events.clear()
+        daemon.handle_command(cmd)
+        acks = [e for e in sinks.events if e.get("type") == "command.ack"]
+        assert acks, f"/{cmd.kind} produced no ack post-completion"
+        text = acks[0]["text"]
+        assert "no-op" in text or "already finished" in text, \
+            f"/{cmd.kind} ack should explain the no-op: {text!r}"
+
+    # And NONE of these mutations should have hit the state_store.
+    assert store.injects == []
+    assert store.review_criteria == []
+    assert store.plan_directions == []
+    assert store.plan_modes == []
+
+
+def test_show_post_completion_still_reads_artifacts(tmp_path):
+    daemon, sinks, _ = _build_daemon(tmp_path)
+    daemon._mission_status = "done"
+    base = _loop_state_dir(tmp_path)
+    base.mkdir(parents=True, exist_ok=True)
+    (base / "plan_overview.md").write_text("LATE PLAN", encoding="utf-8")
+    daemon.handle_command(ControlCommand(kind="show", text="plan"))
+    acks = [e for e in sinks.events if e.get("type") == "command.ack"]
+    assert any("LATE PLAN" in (e.get("text") or "") for e in acks)
+
+
+def test_stop_post_completion_sets_stop_event(tmp_path):
+    daemon, _, _ = _build_daemon(tmp_path)
+    daemon._mission_status = "done"
+    assert not daemon._stop_event.is_set()
+    daemon.handle_command(ControlCommand(kind="stop", text=""))
+    # stop() sets the event so daemon.wait() can return + process exits cleanly.
+    assert daemon._stop_event.is_set()
+
+
+def test_mission_finished_helper_recognizes_done_and_error(tmp_path):
+    daemon, _, _ = _build_daemon(tmp_path)
+    assert not daemon._mission_finished()
+    daemon._mission_status = "done"
+    assert daemon._mission_finished()
+    daemon._mission_status = "error"
+    assert daemon._mission_finished()
+    daemon._mission_status = "running"
+    assert not daemon._mission_finished()

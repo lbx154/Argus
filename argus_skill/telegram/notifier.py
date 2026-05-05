@@ -38,6 +38,7 @@ _USER_FACING_EVENTS: set[str] = {
     "mission.started",
     "mission.completed",
     "mission.error",
+    "mission.idle",
     "round.review.completed",
     "plan.completed",
     "round.control.injected",
@@ -63,6 +64,8 @@ _INTERNAL_EVENTS: set[str] = {
     "review.done",
     "checks.done",
     "skill.writeback",
+    "distill.start",
+    "distill.done",
 }
 
 _VERBOSE_EVENTS: set[str] = _USER_FACING_EVENTS | _INTERNAL_EVENTS
@@ -86,6 +89,7 @@ _EVENT_ICONS: dict[str, str] = {
     "mission.started":  "🎯",
     "mission.completed": "🎉",
     "mission.error":    "💥",
+    "mission.idle":     "🟦",
     "loop.started":     "🚀",
     "loop.completed":   "🏁",
     "round.started":    "🔁",
@@ -102,6 +106,8 @@ _EVENT_ICONS: dict[str, str] = {
     "skill.writeback":  "💾",
     "pptx.report.ready": "📊",
     "final.report.ready": "📄",
+    "distill.start":    "🧬",
+    "distill.done":     "🧬",
 }
 
 

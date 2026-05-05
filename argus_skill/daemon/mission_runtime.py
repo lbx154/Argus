@@ -293,14 +293,18 @@ class MissionDaemon:
             self._started_at = datetime.now(timezone.utc).isoformat()
             self._mission_status = "running"
         self._stop_event.clear()
-        self._worker = threading.Thread(target=self._run_mission, daemon=True)
-        self._status_thread = threading.Thread(target=self._run_status_writer, daemon=True)
-        self._worker.start()
-        self._status_thread.start()
+        # Emit mission.started BEFORE spawning the worker so the state
+        # tracker sees it first (otherwise on fast missions / unit
+        # tests the mission.started event can race after mission.completed
+        # and reset _current_phase from "idle" back to "ready").
         self._emit({
             "type": "mission.started",
             "text": f"mission {self.mission.mission_id} started ({self.mission.plan_mode}, max_rounds={self.mission.max_rounds})",
         })
+        self._worker = threading.Thread(target=self._run_mission, daemon=True)
+        self._status_thread = threading.Thread(target=self._run_status_writer, daemon=True)
+        self._worker.start()
+        self._status_thread.start()
         self._write_status()
 
     def stop(self) -> None:
@@ -324,14 +328,44 @@ class MissionDaemon:
         self._stop_event.set()
 
     def wait(self) -> None:
+        """Block until ``stop()`` (or a SIGINT/SIGTERM via ``stop()``) is called.
+
+        The mission worker thread may finish well before this returns —
+        once ``LoopEngine`` is done, the daemon idles so the operator
+        can still issue /status, /show, /inject (no-op but acked) and
+        eventually /stop or /exit to clean up.
+        """
+        self._stop_event.wait()
         if self._worker is not None:
-            self._worker.join()
+            self._worker.join(timeout=2.0)
+
+    def _mission_finished(self) -> bool:
+        with self._lock:
+            return self._mission_status in ("done", "error")
 
     # --- command intake ---------------------------------------------------
 
     def handle_command(self, command: ControlCommand) -> None:
         kind = command.kind
         text = (command.text or "").strip()
+
+        # Inspection commands (status / show / help / verbose / quiet) +
+        # /stop must work in any state (running OR idle-after-completion).
+        # Mutation commands (inject / skip / review / plan / mode) only
+        # make sense while a mission is running — once it's done, the
+        # LoopStateStore mutation is a no-op, so we ack with a clear
+        # explanation instead of silently routing it.
+        mission_done = self._mission_finished()
+        mutating = kind in {"run", "inject", "skip", "review", "plan", "mode"}
+        if mutating and mission_done:
+            self._emit({
+                "type": "command.ack",
+                "text": (
+                    f"mission already finished — /{kind} is a no-op. "
+                    "Use /show plan|review|prompt to inspect or /exit to clean up."
+                ),
+            })
+            return
 
         if kind in ("run", "inject"):
             # In mission mode there's no separate /run — a /run during a
@@ -410,6 +444,7 @@ class MissionDaemon:
                     "session_id": result.session_id,
                     "rounds": len(result.rounds),
                 }
+                self._current_phase = "idle"
             self._emit({
                 "type": "mission.completed",
                 "text": (
@@ -426,13 +461,28 @@ class MissionDaemon:
                     "success": False,
                     "exception": f"{type(exc).__name__}: {exc}",
                 }
+                self._current_phase = "idle"
             self._emit({
                 "type": "mission.error",
                 "text": f"mission errored: {type(exc).__name__}: {str(exc)[:200]}",
             })
         finally:
-            self._stop_event.set()
+            # NOTE: We deliberately do NOT set ``_stop_event`` here.
+            # When LoopEngine returns, the operator should still be able
+            # to issue /status, /show prompt|plan|review, /inject (no-op
+            # but acked), and finally /stop or /exit to clean up. If we
+            # set _stop_event in finally, the daemon process tears down
+            # immediately on mission.completed and the chat REPL types
+            # into a dead inbox.
             self._write_status()
+            # Print a clear, actionable hint once.
+            self._emit({
+                "type": "mission.idle",
+                "text": (
+                    "mission finished — daemon idling. "
+                    "Try /status, /show plan|review|prompt, or /exit to clean up."
+                ),
+            })
 
     def _run_status_writer(self) -> None:
         while not self._stop_event.is_set():
