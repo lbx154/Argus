@@ -1,0 +1,153 @@
+"""``argus-skill`` brand assets — ASCII logo + startup banner.
+
+The logo is a two-tone gradient (cyan → blue → magenta) ANSI Shadow
+rendering of "argus-skill". A compact small-font fallback is used on
+terminals narrower than the full logo's 84 columns.
+
+``render_startup_banner(...)`` composes the logo + tagline + a small
+status block (mission id, plan_mode, state-dir) — modelled on the
+codex / skill-agent / claude-code interactive banners.
+"""
+
+from __future__ import annotations
+
+from .theme import Theme
+
+__all__ = [
+    "LOGO_FULL",
+    "LOGO_COMPACT",
+    "TAGLINE",
+    "render_logo",
+    "render_startup_banner",
+]
+
+
+# ── ASCII art ─────────────────────────────────────────────────────────────
+
+# Generated with pyfiglet ANSI Shadow font; 84 columns × 6 rows.
+# DO NOT reflow — alignment is hand-tuned.
+LOGO_FULL = r"""
+ █████╗ ██████╗  ██████╗ ██╗   ██╗███████╗      ███████╗██╗  ██╗██╗██╗     ██╗
+██╔══██╗██╔══██╗██╔════╝ ██║   ██║██╔════╝      ██╔════╝██║ ██╔╝██║██║     ██║
+███████║██████╔╝██║  ███╗██║   ██║███████╗█████╗███████╗█████╔╝ ██║██║     ██║
+██╔══██║██╔══██╗██║   ██║██║   ██║╚════██║╚════╝╚════██║██╔═██╗ ██║██║     ██║
+██║  ██║██║  ██║╚██████╔╝╚██████╔╝███████║      ███████║██║  ██╗██║███████╗███████╗
+╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝      ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝
+"""
+
+# pyfiglet "small" font; 40 columns × 5 rows. Used when terminal width
+# is below the full logo's 84 columns.
+LOGO_COMPACT = r"""
+                              _   _ _ _
+ __ _ _ _ __ _ _  _ ______ __| |_(_) | |
+/ _` | '_/ _` | || (_-<___(_-< / / | | |
+\__,_|_| \__, |\_,_/__/   /__/_\_\_|_|_|
+         |___/
+"""
+
+TAGLINE = "supervised skill-driven coding agent"
+
+
+def _gradient_palette(theme: Theme) -> list[str]:
+    """Return six ANSI methods on ``theme`` for the 6-row logo gradient."""
+    return [
+        "bold_cyan",
+        "bold_cyan",
+        "bold_blue",
+        "bold_blue",
+        "bold_magenta",
+        "bold_magenta",
+    ]
+
+
+def render_logo(*, theme: Theme) -> str:
+    """Render the logo, picking the variant that fits the terminal."""
+    full_lines = LOGO_FULL.strip("\n").splitlines()
+    full_w = max(len(ln) for ln in full_lines)
+    if theme.width >= full_w:
+        lines = full_lines
+        palette = _gradient_palette(theme)
+    else:
+        lines = LOGO_COMPACT.strip("\n").splitlines()
+        # Compact logo is only 5 rows tall; cycle the gradient.
+        full_palette = _gradient_palette(theme)
+        palette = full_palette[: len(lines)]
+
+    out: list[str] = []
+    for i, ln in enumerate(lines):
+        method = palette[i % len(palette)]
+        out.append(getattr(theme, method)(ln))
+    return "\n".join(out)
+
+
+def render_startup_banner(
+    *,
+    theme: Theme,
+    version: str,
+    mode: str | None = None,           # "mission" | "queue"
+    mission_id: str | None = None,
+    mission_status: str | None = None,
+    plan_mode: str | None = None,
+    objective: str | None = None,
+    state_dir: str | None = None,
+    daemon_pid: int | None = None,
+    max_rounds: int | None = None,
+) -> str:
+    """Compose the full startup banner (logo + tagline + status block).
+
+    All status fields are optional; only the lines that have values are
+    rendered. Designed to be called once at the top of ``argus-skill go``
+    or ``argus-skill chat`` — *replaces* the previous flat text header.
+    """
+    parts: list[str] = []
+    parts.append(render_logo(theme=theme))
+    parts.append("")
+    parts.append(
+        "  " + theme.italic(theme.gray(TAGLINE)) +
+        "  " + theme.dim(f"v{version}")
+    )
+    parts.append("")
+
+    arrow = theme.dim("→")
+    label = lambda s: theme.gray(f"{s:<11}")  # noqa: E731
+
+    if mode == "mission" and mission_id:
+        status_color = {
+            "running": theme.bold_blue,
+            "done": theme.bold_green,
+            "error": theme.bold_red,
+            "pending": theme.bold,
+        }.get(mission_status or "", theme.bold)
+        parts.append(
+            f"  {label('mission')} {arrow} {theme.cyan(mission_id)}  "
+            + status_color(mission_status or "?")
+        )
+        if plan_mode:
+            parts.append(
+                f"  {label('plan_mode')} {arrow} {theme.bold(plan_mode)}"
+                + (f"   {theme.dim(f'max_rounds={max_rounds}')}" if max_rounds else "")
+            )
+        if objective:
+            obj = objective.strip().splitlines()[0]
+            if len(obj) > 100:
+                obj = obj[:99] + "…"
+            parts.append(f"  {label('objective')} {obj}")
+    elif mode == "queue":
+        parts.append(
+            f"  {label('mode')} {arrow} {theme.bold('queue (worker)')}"
+        )
+    if state_dir:
+        parts.append(f"  {label('state-dir')} {theme.cyan(state_dir)}")
+    if daemon_pid is not None:
+        parts.append(
+            f"  {label('daemon')} {arrow} pid={daemon_pid}"
+        )
+    parts.append("")
+    # Hint line — analogous to skill-agent.
+    parts.append(
+        "  " + theme.gray("type a command to begin  ·  ")
+        + theme.cyan("/help") + theme.gray(" for commands  ·  ")
+        + theme.cyan("/exit") + theme.gray(" to leave (daemon keeps running)")
+    )
+    parts.append("")
+    return "\n".join(parts)

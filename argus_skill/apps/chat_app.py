@@ -83,6 +83,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
 
     daemon_pid: int | None = None
     detected_mode: str | None = None
+    banner_kwargs: dict = {"mode": None}
     if status_path.exists():
         try:
             st = json.loads(status_path.read_text())
@@ -90,44 +91,31 @@ def cmd_chat(args: argparse.Namespace) -> int:
             mode = st.get("mode")
             detected_mode = mode
             if mode == "mission":
-                # Mission daemon writes a different status shape.
-                obj = (st.get("mission_objective") or "")[:80]
-                mid = st.get("mission_id") or "?"
-                mstatus = st.get("mission_status") or "?"
-                pmode = st.get("plan_mode") or "?"
-                print(
-                    theme.bold_cyan("argus-skill chat") + theme.dim(" → ") +
-                    theme.gray(str(state))
-                )
-                status_color = {
-                    "running": theme.bold_blue,
-                    "done": theme.bold_green,
-                    "error": theme.bold_red,
-                }.get(mstatus, theme.bold)
-                print(
-                    "  " + theme.bold("mission ") + theme.cyan(mid) +
-                    theme.dim("  ·  ") + status_color(mstatus) +
-                    theme.dim("  ·  plan_mode=") + theme.bold(pmode)
-                )
-                print(
-                    "  " + theme.dim("objective: ") + obj
-                )
+                banner_kwargs = {
+                    "mode": "mission",
+                    "mission_id": st.get("mission_id"),
+                    "mission_status": st.get("mission_status"),
+                    "plan_mode": st.get("plan_mode"),
+                    "objective": st.get("mission_objective"),
+                    "max_rounds": st.get("max_rounds"),
+                }
             else:
-                print(
-                    theme.bold_cyan("argus-skill chat") + theme.dim(" → ") +
-                    theme.gray(str(state))
-                )
-                print(
-                    "  " + theme.dim("daemon: pid=") + str(daemon_pid) +
-                    theme.dim("  status=") + str(st.get("current_status")) +
-                    theme.dim("  queue=") + str(st.get("queue_size")) +
-                    theme.dim("  done=") + str(st.get("tasks_done"))
-                )
+                banner_kwargs = {"mode": "queue"}
         except (json.JSONDecodeError, OSError) as exc:
             print(f"warning: cannot read {status_path}: {exc}", file=sys.stderr)
     else:
         print(f"warning: no status.json in {state} — daemon may not be running", file=sys.stderr)
 
+    # Branded startup banner (logo + tagline + status block).
+    from .. import __version__ as _argus_version
+    from ..cli.branding import render_startup_banner
+    print(render_startup_banner(
+        theme=theme,
+        version=_argus_version,
+        state_dir=str(state),
+        daemon_pid=daemon_pid,
+        **banner_kwargs,
+    ))
     # Tri-state verbose:
     #   --verbose / --quiet → explicit;
     #   neither            → auto: mission mode = on, queue mode = off.
@@ -135,8 +123,6 @@ def cmd_chat(args: argparse.Namespace) -> int:
         initial_verbose = detected_mode == "mission"
     else:
         initial_verbose = bool(args.verbose)
-
-    print(theme.dim("type /help for commands, /exit (or Ctrl-D) to leave") + "\n")
 
     bus = JsonlCommandBus(str(inbox))
     stop_event = threading.Event()

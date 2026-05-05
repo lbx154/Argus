@@ -230,10 +230,11 @@ def cmd_mission_start(args: argparse.Namespace) -> int:
     print(f"mission_id  : {mission_id}")
     print(f"mission.json: {mission_file}")
     print(f"active.json : {_active_pointer_path(args.state_dir)}")
-    print()
-    print("Next:")
-    print(f"  argus-skill daemon --mission-file {mission_file} --state-dir {args.state_dir}")
-    print("  (or restart your systemd unit with the same flag)")
+    if not getattr(args, "quiet", False):
+        print()
+        print("Next:")
+        print(f"  argus-skill daemon --mission-file {mission_file} --state-dir {args.state_dir}")
+        print("  (or restart your systemd unit with the same flag)")
     return 0
 
 

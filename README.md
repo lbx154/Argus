@@ -1,9 +1,26 @@
+<div align="center">
+
 # argus-skill
 
-> **Supervised skill-driven coding agent.**
-> A merge of [skill-agent](https://github.com/lbx154/skill-agent)'s
-> *horizontal* skill reuse and [ArgusBot](../ArgusBot)'s *vertical*
-> reviewer-loop supervision.
+**Supervised skill-driven coding agent.**
+
+A merge of [skill-agent](https://github.com/lbx154/skill-agent)'s *horizontal*
+skill reuse and [ArgusBot](../ArgusBot)'s *vertical* reviewer-loop supervision.
+
+```text
+ █████╗ ██████╗  ██████╗ ██╗   ██╗███████╗      ███████╗██╗  ██╗██╗██╗     ██╗
+██╔══██╗██╔══██╗██╔════╝ ██║   ██║██╔════╝      ██╔════╝██║ ██╔╝██║██║     ██║
+███████║██████╔╝██║  ███╗██║   ██║███████╗█████╗███████╗█████╔╝ ██║██║     ██║
+██╔══██║██╔══██╗██║   ██║██║   ██║╚════██║╚════╝╚════██║██╔═██╗ ██║██║     ██║
+██║  ██║██║  ██║╚██████╔╝╚██████╔╝███████║      ███████║██║  ██╗██║███████╗███████╗
+╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝      ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝
+```
+
+<p><img src="docs/demo.svg" alt="argus-skill REPL demo — branded banner, round dividers, status box, /show review" width="900"></p>
+
+<sub>Replay on your own terminal: <code>asciinema play docs/demo.cast</code></sub>
+
+</div>
 
 ## What it is
 

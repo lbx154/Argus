@@ -216,8 +216,14 @@ def _create_mission(
     max_rounds: int,
     checks: list[str],
 ) -> Path:
-    """Reuse mission_app.cmd_mission_start by synthesising its args."""
+    """Reuse mission_app.cmd_mission_start by synthesising its args.
+
+    Suppresses the verbose mission-id / mission.json / "Next:" output —
+    `argus-skill go` shows the same information inside the chat banner.
+    """
     from .mission_app import cmd_mission_start
+    import contextlib
+    import io
 
     ns = argparse.Namespace(
         cmd="mission",
@@ -234,10 +240,13 @@ def _create_mission(
         main_reasoning_effort="medium",
         reviewer_reasoning_effort="medium",
         plan_reasoning_effort="high",
+        quiet=True,
     )
-    rc = cmd_mission_start(ns)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = cmd_mission_start(ns)
     if rc != 0:
-        raise RuntimeError(f"mission start failed (rc={rc})")
+        raise RuntimeError(f"mission start failed (rc={rc})\n{buf.getvalue()}")
     active = json.loads((state_dir / "missions" / "active.json").read_text())
     return state_dir / "missions" / active["mission_id"] / "mission.json"
 
@@ -405,9 +414,13 @@ def cmd_go(args: argparse.Namespace) -> int:
         # parent directory name is exactly the mission_id we just created.
         new_mission_id = mission_file.parent.name
 
-        sys.stdout.write(f"✅ mission file: {mission_file}\n")
+        from ..cli.theme import Theme as _Theme
+        _t = _Theme.auto(force=getattr(args, "color", None))
         log_file = mission_file.parent / "daemon.log"
-        sys.stdout.write(f"🚀 starting daemon (log: {log_file})\n")
+        sys.stdout.write(_t.dim(
+            f"✅ mission {new_mission_id}\n"
+            f"   spawning daemon (log: {log_file}) …\n"
+        ))
         daemon_proc = _spawn_daemon(
             state_dir=state_dir,
             mission_file=mission_file,
@@ -428,15 +441,8 @@ def cmd_go(args: argparse.Namespace) -> int:
                 pass
             _shutdown_daemon(daemon_proc, state_dir=state_dir, timeout=10)
             return 2
-        sys.stdout.write(
-            f"✅ daemon up (pid={daemon_proc.pid})  plan_mode={args.plan_mode}  "
-            f"max_rounds={args.max_rounds}\n"
-        )
-        # Welcome banner with high-signal commands.
-        from ..cli import render_welcome_banner
-        from ..cli.theme import Theme
-        _banner_theme = Theme.auto(force=getattr(args, "color", None))
-        sys.stdout.write(render_welcome_banner(theme=_banner_theme) + "\n")
+        # Branded banner is now rendered by chat_app on entry; we don't
+        # print our own welcome here so the user only sees one banner.
 
     # --- Open chat REPL inline ------------------------------------------------
     from .chat_app import cmd_chat
