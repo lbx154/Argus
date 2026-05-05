@@ -221,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
             state_dir="~/.argus-skill/mission-state",
             skills_dir="/home/argustest/argus-skill/skills",
             plan_mode="auto",
+            auto_follow_up=False,
             max_rounds=20,
             check=[],
             workdir=None,

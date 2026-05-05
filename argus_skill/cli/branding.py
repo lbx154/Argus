@@ -88,6 +88,7 @@ def render_startup_banner(
     mission_id: str | None = None,
     mission_status: str | None = None,
     plan_mode: str | None = None,
+    auto_follow_up: bool | None = None,
     objective: str | None = None,
     state_dir: str | None = None,
     daemon_pid: int | None = None,
@@ -134,6 +135,17 @@ def render_startup_banner(
             parts.append(
                 f"  {label('plan_mode')} {arrow} {theme.bold(plan_mode)}"
                 + (f"   {theme.dim(f'max_rounds={max_rounds}')}" if max_rounds else "")
+            )
+        if auto_follow_up is not None:
+            if auto_follow_up:
+                # Highlighted in yellow — this is the dangerous knob.
+                state_text = theme.bold(theme.yellow("on"))
+                hint = theme.dim("(planner auto-spawns round N+1)")
+            else:
+                state_text = theme.bold_green("off")
+                hint = theme.dim("(mission ends on first ✅ done)")
+            parts.append(
+                f"  {label('auto-follow')} {arrow} {state_text}   {hint}"
             )
         if objective:
             obj = objective.strip().splitlines()[0]

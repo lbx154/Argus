@@ -155,6 +155,96 @@ def test_add_go_subcommand_accepts_quiet():
     assert ns.quiet is True
 
 
+def test_add_go_subcommand_auto_follow_up_default_off():
+    """``argus-skill go`` defaults --auto-follow-up to OFF (the safe value)."""
+    import argparse
+    p = argparse.ArgumentParser()
+    sub = p.add_subparsers(dest="cmd", required=True)
+    go_app.add_go_subcommand(sub)
+    ns = p.parse_args(["go"])
+    assert ns.auto_follow_up is False
+
+
+def test_add_go_subcommand_auto_follow_up_can_be_enabled():
+    """--auto-follow-up explicitly opts in to autonomous chaining."""
+    import argparse
+    p = argparse.ArgumentParser()
+    sub = p.add_subparsers(dest="cmd", required=True)
+    go_app.add_go_subcommand(sub)
+    ns = p.parse_args(["go", "x", "--auto-follow-up"])
+    assert ns.auto_follow_up is True
+
+
+def test_add_go_subcommand_no_auto_follow_up_explicit_off():
+    import argparse
+    p = argparse.ArgumentParser()
+    sub = p.add_subparsers(dest="cmd", required=True)
+    go_app.add_go_subcommand(sub)
+    ns = p.parse_args(["go", "x", "--no-auto-follow-up"])
+    assert ns.auto_follow_up is False
+
+
+def test_create_mission_forwards_auto_follow_up(tmp_path):
+    """``go_app._create_mission(auto_follow_up=True)`` must propagate the flag
+    to ``mission_app.cmd_mission_start``, which writes mission.json.
+    """
+    state = tmp_path / "state"
+    state.mkdir()
+    mfile = go_app._create_mission(
+        state_dir=state,
+        objective="x",
+        workdir=str(state),
+        plan_mode="auto",
+        max_rounds=3,
+        checks=[],
+        auto_follow_up=True,
+    )
+    import json as _json
+    payload = _json.loads(mfile.read_text())
+    assert payload["auto_follow_up"] is True
+    assert payload["plan_mode"] == "auto"
+
+
+def test_create_mission_default_auto_follow_up_off(tmp_path):
+    """Omitting auto_follow_up keyword keeps the safe default OFF."""
+    state = tmp_path / "state"
+    state.mkdir()
+    mfile = go_app._create_mission(
+        state_dir=state,
+        objective="x",
+        workdir=str(state),
+        plan_mode="auto",
+        max_rounds=3,
+        checks=[],
+    )
+    import json as _json
+    payload = _json.loads(mfile.read_text())
+    assert payload["auto_follow_up"] is False
+
+
+def test_cli_no_subcommand_fallback_includes_auto_follow_up(monkeypatch):
+    """``argus-skill`` (bare command) falls back to ``go`` with synthesized args.
+    The synthetic Namespace must include ``auto_follow_up=False`` so the safe
+    default is preserved on the most common entrypoint.
+    """
+    from argus_skill.apps import cli as cli_module
+
+    captured: dict = {}
+
+    def _fake_cmd_go(args):
+        captured["args"] = args
+        return 0
+
+    # Patch cmd_go's import target — cli.main does `from .go_app import cmd_go`.
+    monkeypatch.setattr(go_app, "cmd_go", _fake_cmd_go)
+    rc = cli_module.main([])
+    assert rc == 0
+    ns = captured["args"]
+    assert ns.cmd == "go"
+    assert hasattr(ns, "auto_follow_up")
+    assert ns.auto_follow_up is False
+
+
 # ---------------------------------------------------------------------------
 # _wait_for_daemon_up — mission_id-aware to avoid stale status.json
 # ---------------------------------------------------------------------------

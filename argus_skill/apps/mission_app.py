@@ -135,9 +135,29 @@ def add_mission_subcommands(sub: argparse._SubParsersAction) -> None:
         choices=VALID_PLAN_MODES,
         default="auto",
         help=(
-            "auto: planner proposes follow-ups when reviewer says done (true 7×24); "
-            "off: stop after first done; record: planner records but doesn't auto-execute."
+            "auto: planner is active and proposes follow-ups (chaining is "
+            "still gated by --auto-follow-up); "
+            "off: planner disabled; "
+            "record: planner records but never auto-executes."
         ),
+    )
+    s.add_argument(
+        "--auto-follow-up",
+        dest="auto_follow_up",
+        action="store_true",
+        default=False,
+        help=(
+            "DANGEROUS: when reviewer says ✅ done, let the planner auto-spawn "
+            "round N+1 with a new sub-objective. Required for true 7×24 "
+            "unattended operation. Default OFF — mission ends after the first "
+            "✅ done so the operator stays in control."
+        ),
+    )
+    s.add_argument(
+        "--no-auto-follow-up",
+        dest="auto_follow_up",
+        action="store_false",
+        help="explicit OFF (current default — mission ends after first ✅ done)",
     )
     s.add_argument(
         "--main-model",
@@ -214,6 +234,7 @@ def cmd_mission_start(args: argparse.Namespace) -> int:
         "check_commands": list(args.check or []),
         "max_rounds": int(args.max_rounds),
         "plan_mode": args.plan_mode,
+        "auto_follow_up": bool(getattr(args, "auto_follow_up", False)),
         "main_model": args.main_model,
         "reviewer_model": args.reviewer_model,
         "plan_model": args.plan_model,

@@ -96,23 +96,47 @@ class MissionConfig:
     main_reasoning_effort: str
     reviewer_reasoning_effort: str
     plan_reasoning_effort: str
+    # When False (the safe default), reviewer ✅ done + checks_ok
+    # ENDS the mission immediately. The planner still runs once and
+    # records its "next session" suggestion in plan_overview.md /
+    # final_report.md, but the engine does NOT auto-spawn round N+1.
+    # Set True only for explicit unattended 7×24 chaining.
+    auto_follow_up: bool = False
 
     @classmethod
     def from_json_file(cls, path: Path) -> "MissionConfig":
         payload = json.loads(Path(path).read_text())
+        plan_mode = payload.get("plan_mode", "off")
+        if "auto_follow_up" in payload:
+            auto_follow_up = bool(payload["auto_follow_up"])
+        else:
+            auto_follow_up = False
+            if plan_mode == "auto":
+                # Backward-compat: pre-existing mission.json files defaulted
+                # to engine.allow_follow_up_phase=True implicitly. The new
+                # safe default is OFF; warn so power users notice.
+                log.warning(
+                    "mission.json at %s is plan_mode=auto but missing the "
+                    "'auto_follow_up' field — defaulting to False (the new "
+                    "safe default). Add '\"auto_follow_up\": true' to the "
+                    "mission.json or pass --auto-follow-up to opt back in "
+                    "to autonomous chaining.",
+                    path,
+                )
         return cls(
             mission_id=payload["mission_id"],
             objective=payload["objective"],
             workdir=payload.get("workdir") or os.getcwd(),
             check_commands=list(payload.get("check_commands") or []),
             max_rounds=int(payload.get("max_rounds", 50)),
-            plan_mode=payload.get("plan_mode", "off"),
+            plan_mode=plan_mode,
             main_model=payload.get("main_model", "gpt-5.4-mini"),
             reviewer_model=payload.get("reviewer_model", "gpt-5.4-mini"),
             plan_model=payload.get("plan_model", "gpt-5.4"),
             main_reasoning_effort=payload.get("main_reasoning_effort", "medium"),
             reviewer_reasoning_effort=payload.get("reviewer_reasoning_effort", "medium"),
             plan_reasoning_effort=payload.get("plan_reasoning_effort", "high"),
+            auto_follow_up=auto_follow_up,
         )
 
 
@@ -274,6 +298,12 @@ class MissionDaemon:
             plan_reasoning_effort=self.mission.plan_reasoning_effort,
             full_auto=True,
             skip_git_repo_check=True,
+            # Argus-skill default is OFF: reviewer ✅ done ends the
+            # mission immediately. The planner still runs once and
+            # records its suggestion in plan_overview.md / final_report
+            # so the user can decide what to do next. Explicit opt-in
+            # via --auto-follow-up for 7×24 unattended chaining.
+            allow_follow_up_phase=self.mission.auto_follow_up,
         )
         self.loop_engine = self._argus["LoopEngine"](
             runner=self.skill_loop_runner,
@@ -504,6 +534,7 @@ class MissionDaemon:
                     "mission_status": self._mission_status,
                     "mission_result": self._mission_result,
                     "plan_mode": self._effective_plan_mode_locked(),
+                    "auto_follow_up": self.mission.auto_follow_up,
                     # Rich runtime state — for /status, dashboards, debugging.
                     "current_phase": self._current_phase,
                     "current_round": self._current_round,
@@ -656,7 +687,7 @@ class MissionDaemon:
             "/skip                — abandon current approach + ask for different one\n"
             "/review <criteria>   — set/append criteria the reviewer should grade against\n"
             "/plan <direction>    — guide the planner's next follow-up\n"
-            "/mode auto|off|record — switch plan mode (auto = unattended chaining)\n"
+            "/mode auto|off|record — switch plan mode (auto = planner active; chaining gated by --auto-follow-up)\n"
             "/show prompt|plan|review|all  — peek at LoopStateStore artifacts\n"
             "/status              — round / phase / last-verdict / recent events\n"
             "/verbose, /quiet     — toggle event verbosity\n"

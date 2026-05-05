@@ -148,3 +148,60 @@ def test_banner_no_ansi_when_theme_disabled() -> None:
         mission_id="m", mission_status="done", plan_mode="auto",
     )
     assert "\x1b" not in out
+
+
+def test_banner_omits_auto_follow_up_line_when_unset() -> None:
+    """When ``auto_follow_up`` is None (legacy/queue), no row is rendered."""
+    out = render_startup_banner(
+        theme=_PLAIN, version="0.1.0", mode="mission",
+        mission_id="m", mission_status="running", plan_mode="auto",
+    )
+    assert "auto-follow" not in out
+
+
+def test_banner_renders_auto_follow_up_off_state() -> None:
+    """``auto_follow_up=False`` shows up as a green ``off`` row with hint."""
+    out = render_startup_banner(
+        theme=_PLAIN, version="0.1.0", mode="mission",
+        mission_id="m", mission_status="running", plan_mode="auto",
+        auto_follow_up=False,
+    )
+    assert "auto-follow" in out
+    assert "off" in out
+    # Hint helps the user see WHY it's off — mission ends on first ✅ done.
+    assert "first ✅ done" in out
+
+
+def test_banner_renders_auto_follow_up_on_state() -> None:
+    """``auto_follow_up=True`` shows the dangerous-looking on row + hint."""
+    out = render_startup_banner(
+        theme=_PLAIN, version="0.1.0", mode="mission",
+        mission_id="m", mission_status="running", plan_mode="auto",
+        auto_follow_up=True,
+    )
+    assert "auto-follow" in out
+    assert "on" in out
+    assert "round N+1" in out
+
+
+def test_banner_auto_follow_up_off_uses_green_when_colored() -> None:
+    """In ANSI mode the OFF state uses bold-green; ON uses bold-yellow.
+    These are the explicit color signals the user should rely on.
+    """
+    t = Theme(enabled=True, width=120)
+    out_off = render_startup_banner(
+        theme=t, version="0.1.0", mode="mission",
+        mission_id="m", mission_status="running", plan_mode="auto",
+        auto_follow_up=False,
+        show_logo=False, show_hint=False,
+    )
+    out_on = render_startup_banner(
+        theme=t, version="0.1.0", mode="mission",
+        mission_id="m", mission_status="running", plan_mode="auto",
+        auto_follow_up=True,
+        show_logo=False, show_hint=False,
+    )
+    # Off → green (32). On → yellow (33).
+    assert "\x1b[1m\x1b[32m" in out_off  # bold green
+    assert "\x1b[33m" in out_on            # yellow somewhere
+

@@ -311,6 +311,63 @@ def test_mission_config_defaults_when_fields_missing(tmp_path):
     assert cfg.plan_mode == "off"
     assert cfg.main_model == "gpt-5.4-mini"
     assert cfg.check_commands == []
+    # Default for the new safety knob: OFF.
+    assert cfg.auto_follow_up is False
+
+
+def test_mission_config_auto_follow_up_round_trip(tmp_path):
+    """Explicit ``auto_follow_up=true`` is preserved through JSON load."""
+    p = tmp_path / "mission.json"
+    p.write_text(
+        json.dumps(
+            {
+                "mission_id": "m1",
+                "objective": "obj",
+                "plan_mode": "auto",
+                "auto_follow_up": True,
+            }
+        )
+    )
+    cfg = MissionConfig.from_json_file(p)
+    assert cfg.auto_follow_up is True
+
+
+def test_mission_config_auto_follow_up_defaults_off_for_legacy_auto_mode(tmp_path, caplog):
+    """Pre-existing mission.json with plan_mode=auto but no auto_follow_up
+    field: load to False (the safe default) and emit a one-time warning so
+    operators notice the breaking change.
+    """
+    import logging
+    p = tmp_path / "mission.json"
+    p.write_text(
+        json.dumps(
+            {
+                "mission_id": "m1",
+                "objective": "obj",
+                "plan_mode": "auto",
+            }
+        )
+    )
+    with caplog.at_level(logging.WARNING, logger="argus_skill.daemon.mission_runtime"):
+        cfg = MissionConfig.from_json_file(p)
+    assert cfg.auto_follow_up is False
+    assert any(
+        "auto_follow_up" in rec.message and "safe default" in rec.message
+        for rec in caplog.records
+    )
+
+
+def test_mission_config_auto_follow_up_silent_for_non_auto_mode(tmp_path, caplog):
+    """plan_mode != 'auto' → no warning needed; field defaults to False quietly."""
+    import logging
+    p = tmp_path / "mission.json"
+    p.write_text(
+        json.dumps({"mission_id": "m1", "objective": "obj", "plan_mode": "off"})
+    )
+    with caplog.at_level(logging.WARNING, logger="argus_skill.daemon.mission_runtime"):
+        cfg = MissionConfig.from_json_file(p)
+    assert cfg.auto_follow_up is False
+    assert not any("auto_follow_up" in rec.message for rec in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -440,6 +497,115 @@ def test_write_status_payload_contains_phase_and_history(tmp_path):
     assert payload["last_review"]["reason"] == "still red"
     assert isinstance(payload["recent_events"], list)
     assert len(payload["recent_events"]) >= 2
+
+
+def test_write_status_includes_auto_follow_up_field(tmp_path):
+    """status.json must surface auto_follow_up so chat_app's banner can show it."""
+    daemon, _, _ = _build_daemon(tmp_path)
+    # Default mission.json fixture omits auto_follow_up → False.
+    daemon._write_status()
+    import json as _json
+    payload = _json.loads((tmp_path / "state" / "status.json").read_text())
+    assert payload["auto_follow_up"] is False
+    # Flip it and confirm the new value flows through.
+    daemon.mission.auto_follow_up = True
+    daemon._write_status()
+    payload2 = _json.loads((tmp_path / "state" / "status.json").read_text())
+    assert payload2["auto_follow_up"] is True
+
+
+def test_setup_loop_passes_auto_follow_up_to_loop_config(tmp_path, monkeypatch):
+    """``MissionDaemon.__init__`` must wire ``mission.auto_follow_up`` to
+    ``LoopConfig.allow_follow_up_phase`` — that is the engine's gate that
+    decides whether reviewer ✅ done auto-launches round N+1.
+    """
+    from argus_skill.daemon import mission_runtime as mr
+
+    captured: dict = {}
+
+    class _StubLoopConfig:
+        def __init__(self, **kwargs):
+            captured.clear()
+            captured.update(kwargs)
+
+    class _StubStateStore:
+        def __init__(self, **kwargs):
+            self.plan_mode = kwargs.get("plan_mode")
+
+        def current_plan_mode(self):
+            return self.plan_mode
+
+    class _StubReviewer:
+        def __init__(self, *a, **kw):
+            pass
+
+    class _StubPlanner:
+        def __init__(self, *a, **kw):
+            pass
+
+    class _StubEngine:
+        def __init__(self, **kw):
+            pass
+
+    fake = {
+        "CodexRunner": object,
+        "LoopConfig": _StubLoopConfig,
+        "LoopEngine": _StubEngine,
+        "LoopStateStore": _StubStateStore,
+        "Reviewer": _StubReviewer,
+        "ReviewerConfig": object,
+        "Planner": _StubPlanner,
+        "PlannerConfig": object,
+    }
+    monkeypatch.setattr(mr, "_import_argusbot", lambda: fake)
+    monkeypatch.setattr(mr, "SkillStore", lambda *a, **kw: object())
+    monkeypatch.setattr(mr, "Distiller", lambda *a, **kw: object())
+    monkeypatch.setattr(mr, "SkillLoopRunner", lambda *a, **kw: object())
+
+    state = tmp_path / "state"
+    state.mkdir()
+    payload_dict = {
+        "mission_id": "mission_X",
+        "objective": "do thing",
+        "workdir": str(state),
+        "check_commands": [],
+        "max_rounds": 3,
+        "plan_mode": "auto",
+        "auto_follow_up": False,
+        "main_model": "m",
+        "reviewer_model": "m",
+        "plan_model": "m",
+        "main_reasoning_effort": "medium",
+        "reviewer_reasoning_effort": "medium",
+        "plan_reasoning_effort": "high",
+    }
+    (state / "mission.json").write_text(json.dumps(payload_dict))
+    mission = mr.MissionConfig.from_json_file(state / "mission.json")
+    cfg = mr.MissionDaemonConfig(state_dir=str(state))
+
+    # Default OFF.
+    daemon = mr.MissionDaemon(
+        mission=mission,
+        sinks=FakeSink(),
+        engineer_backend=object(),
+        codex_runner=object(),
+        config=cfg,
+    )
+    assert captured["allow_follow_up_phase"] is False
+    assert daemon.mission.auto_follow_up is False
+
+    # Flip to ON.
+    payload_dict["auto_follow_up"] = True
+    (state / "mission.json").write_text(json.dumps(payload_dict))
+    mission_on = mr.MissionConfig.from_json_file(state / "mission.json")
+    mr.MissionDaemon(
+        mission=mission_on,
+        sinks=FakeSink(),
+        engineer_backend=object(),
+        codex_runner=object(),
+        config=cfg,
+    )
+    assert captured["allow_follow_up_phase"] is True
 
 
 # ---------------------------------------------------------------------------

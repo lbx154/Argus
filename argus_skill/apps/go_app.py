@@ -27,7 +27,8 @@ Behaviour:
 Defaults are tuned for "I just want to chat with my agent":
 
   * ``--state-dir`` = ``~/.argus-skill/mission-state``
-  * ``--plan-mode`` = ``auto``  (unattended chaining)
+  * ``--plan-mode`` = ``auto``  (planner active, chaining off)
+  * ``--auto-follow-up`` = off  (mission ends after first ✅ done)
   * ``--max-rounds`` = ``20``
 """
 from __future__ import annotations
@@ -74,6 +75,23 @@ def add_go_subcommand(sub: argparse._SubParsersAction) -> None:
         "--plan-mode",
         choices=("auto", "off", "record"),
         default=DEFAULT_PLAN_MODE,
+    )
+    go_p.add_argument(
+        "--auto-follow-up",
+        dest="auto_follow_up",
+        action="store_true",
+        default=False,
+        help=(
+            "let the planner auto-spawn round N+1 after reviewer says ✅ done "
+            "(true 7×24 unattended operation). Default OFF — mission ends so "
+            "you stay in control."
+        ),
+    )
+    go_p.add_argument(
+        "--no-auto-follow-up",
+        dest="auto_follow_up",
+        action="store_false",
+        help="explicit OFF (current default)",
     )
     go_p.add_argument("--max-rounds", type=int, default=DEFAULT_MAX_ROUNDS)
     go_p.add_argument(
@@ -215,6 +233,7 @@ def _create_mission(
     plan_mode: str,
     max_rounds: int,
     checks: list[str],
+    auto_follow_up: bool = False,
 ) -> Path:
     """Reuse mission_app.cmd_mission_start by synthesising its args.
 
@@ -234,6 +253,7 @@ def _create_mission(
         check=list(checks),
         max_rounds=max_rounds,
         plan_mode=plan_mode,
+        auto_follow_up=bool(auto_follow_up),
         main_model=os.environ.get("ARGUS_SKILL_MAIN_MODEL", "gpt-5.4-mini"),
         reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.4-mini"),
         plan_model=os.environ.get("ARGUS_SKILL_PLAN_MODEL", "gpt-5.4"),
@@ -418,6 +438,7 @@ def cmd_go(args: argparse.Namespace) -> int:
                 plan_mode=args.plan_mode,
                 max_rounds=args.max_rounds,
                 checks=args.check or [],
+                auto_follow_up=bool(getattr(args, "auto_follow_up", False)),
             )
         except Exception as exc:  # noqa: BLE001
             sys.stderr.write(f"❌ mission create failed: {exc}\n")

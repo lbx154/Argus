@@ -109,9 +109,10 @@ def add_daemon_subcommands(sub: argparse._SubParsersAction) -> None:
             "if set, run in mission mode: load mission.json (created by "
             "`argus-skill mission start`) and host an ArgusBot LoopEngine "
             "instead of the queue-based SkillLoop dispatcher. Enables "
-            "true 7×24 unattended operation (planner-driven follow-ups, "
-            "reviewer-gated done/continue/blocked, persistent operator "
-            "criteria via /review /plan /mode)."
+            "true 7×24 unattended operation (reviewer-gated "
+            "done/continue/blocked, persistent operator criteria via "
+            "/review /plan /mode; planner-driven chaining requires "
+            "--auto-follow-up at mission-start)."
         ),
     )
 

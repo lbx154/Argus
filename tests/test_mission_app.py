@@ -178,6 +178,60 @@ def test_mission_start_rejects_empty_objective(tmp_path, capsys):
 
 
 # ---------------------------------------------------------------------
+# auto_follow_up flag — safety knob added after the "你好 → ArgusBot edit"
+# incident. mission.json must default to OFF and round-trip the flag.
+# ---------------------------------------------------------------------
+
+
+def test_mission_start_auto_follow_up_defaults_off(tmp_path):
+    """Without --auto-follow-up, mission.json's auto_follow_up is False."""
+    parser = build_parser()
+    cmd_mission_start(
+        parser.parse_args(["mission", "start", "obj", "--state-dir", str(tmp_path)])
+    )
+    payload = json.loads(
+        next((tmp_path / "missions").glob("mission_*/mission.json")).read_text()
+    )
+    assert payload["auto_follow_up"] is False
+
+
+def test_mission_start_auto_follow_up_flag_round_trips(tmp_path):
+    """--auto-follow-up writes auto_follow_up: true into mission.json."""
+    parser = build_parser()
+    cmd_mission_start(
+        parser.parse_args(
+            [
+                "mission", "start", "obj",
+                "--state-dir", str(tmp_path),
+                "--auto-follow-up",
+            ]
+        )
+    )
+    payload = json.loads(
+        next((tmp_path / "missions").glob("mission_*/mission.json")).read_text()
+    )
+    assert payload["auto_follow_up"] is True
+
+
+def test_mission_start_no_auto_follow_up_explicit_off(tmp_path):
+    """--no-auto-follow-up is an explicit OFF (matches default but documents intent)."""
+    parser = build_parser()
+    cmd_mission_start(
+        parser.parse_args(
+            [
+                "mission", "start", "obj",
+                "--state-dir", str(tmp_path),
+                "--no-auto-follow-up",
+            ]
+        )
+    )
+    payload = json.loads(
+        next((tmp_path / "missions").glob("mission_*/mission.json")).read_text()
+    )
+    assert payload["auto_follow_up"] is False
+
+
+# ---------------------------------------------------------------------
 # mission status
 # ---------------------------------------------------------------------
 

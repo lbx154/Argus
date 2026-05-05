@@ -43,7 +43,7 @@ _HELP_TEXT = (
     "Mission mode (LoopEngine daemon):\n"
     "  /review <criteria>   set/append the reviewer's grading criteria\n"
     "  /plan <direction>    guide the planner's next follow-up\n"
-    "  /mode auto|off|record  switch plan mode (auto = unattended chaining)\n"
+    "  /mode auto|off|record  switch plan mode (auto = planner active; chaining gated by --auto-follow-up)\n"
     "/exit | Ctrl-D       leave the chat (daemon keeps running)\n"
     "<plain text>         buffered as an inject hint for the next round\n"
 )
@@ -96,6 +96,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
                     "mission_id": st.get("mission_id"),
                     "mission_status": st.get("mission_status"),
                     "plan_mode": st.get("plan_mode"),
+                    "auto_follow_up": st.get("auto_follow_up"),
                     "objective": st.get("mission_objective"),
                     "max_rounds": st.get("max_rounds"),
                 }

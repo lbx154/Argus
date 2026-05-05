@@ -125,6 +125,7 @@ def main() -> int:
         mission_id="mission_20260505T085108Z",
         mission_status="running",
         plan_mode="auto",
+        auto_follow_up=False,
         max_rounds=20,
         objective="在 /tmp/argus-test-palette 用 Python 实现 hex↔rgb 调色板 CLI; ≥6 个 pytest 用例必须全过",
         state_dir="/home/u/.argus-skill/mission-state",
