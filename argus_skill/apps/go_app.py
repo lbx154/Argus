@@ -283,12 +283,31 @@ def _spawn_daemon(
     )
 
 
-def _wait_for_daemon_up(state_dir: Path, *, timeout: float = 8.0) -> bool:
+def _wait_for_daemon_up(
+    state_dir: Path,
+    *,
+    timeout: float = 8.0,
+    expected_mission_id: str | None = None,
+) -> bool:
+    """Wait until the daemon has written status.json.
+
+    If ``expected_mission_id`` is provided, also wait until status.json
+    reflects that specific mission (not a stale value from a previous
+    daemon at the same state-dir). This prevents the chat REPL from
+    showing yesterday's mission in its opening banner.
+    """
     deadline = time.monotonic() + timeout
     status = state_dir / "status.json"
     while time.monotonic() < deadline:
         if status.is_file():
-            return True
+            if expected_mission_id is None:
+                return True
+            try:
+                payload = json.loads(status.read_text())
+                if payload.get("mission_id") == expected_mission_id:
+                    return True
+            except (json.JSONDecodeError, OSError):
+                pass  # mid-write or transient — keep polling
         time.sleep(0.2)
     return False
 
@@ -378,6 +397,10 @@ def cmd_go(args: argparse.Namespace) -> int:
             sys.stderr.write(f"❌ mission create failed: {exc}\n")
             return 2
 
+        # mission_file lives at state_dir/missions/<id>/mission.json — the
+        # parent directory name is exactly the mission_id we just created.
+        new_mission_id = mission_file.parent.name
+
         sys.stdout.write(f"✅ mission file: {mission_file}\n")
         log_file = mission_file.parent / "daemon.log"
         sys.stdout.write(f"🚀 starting daemon (log: {log_file})\n")
@@ -387,8 +410,13 @@ def cmd_go(args: argparse.Namespace) -> int:
             skills_dir=args.skills_dir,
             log_file=log_file,
         )
-        if not _wait_for_daemon_up(state_dir, timeout=8):
-            sys.stderr.write("❌ daemon failed to start within 8s; tail of log:\n")
+        if not _wait_for_daemon_up(
+            state_dir, timeout=10, expected_mission_id=new_mission_id
+        ):
+            sys.stderr.write(
+                "❌ daemon failed to publish fresh status within 10s "
+                f"(expected mission_id={new_mission_id}); tail of log:\n"
+            )
             try:
                 lines = log_file.read_text(errors="replace").splitlines()[-40:]
                 sys.stderr.write("\n".join(lines) + "\n")

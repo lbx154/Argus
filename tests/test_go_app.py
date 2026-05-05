@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import os
 import sys
+import time
 
 import pytest
 
@@ -152,3 +153,75 @@ def test_add_go_subcommand_accepts_quiet():
     go_app.add_go_subcommand(sub)
     ns = p.parse_args(["go", "x", "--quiet"])
     assert ns.quiet is True
+
+
+# ---------------------------------------------------------------------------
+# _wait_for_daemon_up — mission_id-aware to avoid stale status.json
+# ---------------------------------------------------------------------------
+
+def test_wait_for_daemon_up_returns_false_when_no_status_json(tmp_path):
+    assert go_app._wait_for_daemon_up(tmp_path, timeout=0.3) is False
+
+
+def test_wait_for_daemon_up_returns_true_when_no_mission_id_required(tmp_path):
+    (tmp_path / "status.json").write_text('{"mission_id": "anything"}')
+    assert go_app._wait_for_daemon_up(tmp_path, timeout=0.3) is True
+
+
+def test_wait_for_daemon_up_rejects_stale_mission_id(tmp_path):
+    """Yesterday's daemon left status.json behind; we must NOT accept it."""
+    (tmp_path / "status.json").write_text('{"mission_id": "yesterday"}')
+    assert (
+        go_app._wait_for_daemon_up(
+            tmp_path, timeout=0.3, expected_mission_id="today"
+        )
+        is False
+    )
+
+
+def test_wait_for_daemon_up_accepts_matching_mission_id(tmp_path):
+    (tmp_path / "status.json").write_text('{"mission_id": "today"}')
+    assert (
+        go_app._wait_for_daemon_up(
+            tmp_path, timeout=0.3, expected_mission_id="today"
+        )
+        is True
+    )
+
+
+def test_wait_for_daemon_up_polls_until_fresh_status(tmp_path):
+    """Simulate stale status that gets overwritten mid-poll."""
+    import threading
+    status = tmp_path / "status.json"
+    status.write_text('{"mission_id": "yesterday"}')
+
+    def _flip():
+        time.sleep(0.2)
+        status.write_text('{"mission_id": "today"}')
+
+    threading.Thread(target=_flip, daemon=True).start()
+    assert (
+        go_app._wait_for_daemon_up(
+            tmp_path, timeout=2.0, expected_mission_id="today"
+        )
+        is True
+    )
+
+
+def test_wait_for_daemon_up_tolerates_torn_writes(tmp_path):
+    """Mid-write status.json with invalid JSON shouldn't crash the wait loop."""
+    status = tmp_path / "status.json"
+    status.write_text('{"mission_id": "tod')  # truncated
+    import threading
+
+    def _finish():
+        time.sleep(0.2)
+        status.write_text('{"mission_id": "today"}')
+
+    threading.Thread(target=_finish, daemon=True).start()
+    assert (
+        go_app._wait_for_daemon_up(
+            tmp_path, timeout=2.0, expected_mission_id="today"
+        )
+        is True
+    )
