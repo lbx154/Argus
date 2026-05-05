@@ -107,6 +107,10 @@ def add_go_subcommand(sub: argparse._SubParsersAction) -> None:
             "engineer/reviewer/planner stream as it happens."
         ),
     )
+    go_p.add_argument("--color", dest="color", action="store_true", default=None,
+                      help="force ANSI colors on (auto-detect by default)")
+    go_p.add_argument("--no-color", dest="color", action="store_false",
+                      help="disable ANSI colors (auto-detect by default)")
 
 
 # ---------------------------------------------------------------------------
@@ -428,18 +432,11 @@ def cmd_go(args: argparse.Namespace) -> int:
             f"✅ daemon up (pid={daemon_proc.pid})  plan_mode={args.plan_mode}  "
             f"max_rounds={args.max_rounds}\n"
         )
-        # Welcome banner with high-signal commands (Phase F).
-        sys.stdout.write(
-            "💡 high-signal commands once you're at the > prompt:\n"
-            "    /status                 — round / phase / last-verdict / recent\n"
-            "    /show prompt|plan|review — peek at what the engineer/planner saw\n"
-            "    /inject <text>          — nudge mid-round\n"
-            "    /verbose, /quiet        — toggle internal events\n"
-            "    /exit                   — leave (the daemon shuts down automatically)\n"
-        )
-        sys.stdout.write(
-            "──────────────────────────────────────────────────────────────\n"
-        )
+        # Welcome banner with high-signal commands.
+        from ..cli import render_welcome_banner
+        from ..cli.theme import Theme
+        _banner_theme = Theme.auto(force=getattr(args, "color", None))
+        sys.stdout.write(render_welcome_banner(theme=_banner_theme) + "\n")
 
     # --- Open chat REPL inline ------------------------------------------------
     from .chat_app import cmd_chat
@@ -452,6 +449,7 @@ def cmd_go(args: argparse.Namespace) -> int:
         verbose=False if getattr(args, "quiet", False) else True,
         no_plain_text_inject=False,
         from_start=False,
+        color=getattr(args, "color", None),
     )
 
     rc = 0

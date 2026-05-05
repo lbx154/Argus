@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any
 
 from ..daemon.bus import BusCommand, JsonlCommandBus
+from ..cli import default_theme, render_event_for_terminal
+from ..cli.theme import Theme
 from ..telegram.notifier import (
     _USER_FACING_EVENTS,
     _VERBOSE_EVENTS,
@@ -62,6 +64,10 @@ def add_chat_subcommand(sub: argparse._SubParsersAction) -> None:
                         help="drop plain text instead of buffering it as /inject")
     chat_p.add_argument("--from-start", action="store_true",
                         help="replay the entire outbox, not just events from now on")
+    chat_p.add_argument("--color", dest="color", action="store_true", default=None,
+                        help="force ANSI colors on (auto-detect by default)")
+    chat_p.add_argument("--no-color", dest="color", action="store_false",
+                        help="disable ANSI colors (auto-detect by default)")
 
 
 def cmd_chat(args: argparse.Namespace) -> int:
@@ -73,6 +79,8 @@ def cmd_chat(args: argparse.Namespace) -> int:
     outbox = state / "outbox.jsonl"
     status_path = state / "status.json"
 
+    theme = Theme.auto(force=getattr(args, "color", None))
+
     daemon_pid: int | None = None
     detected_mode: str | None = None
     if status_path.exists():
@@ -83,19 +91,37 @@ def cmd_chat(args: argparse.Namespace) -> int:
             detected_mode = mode
             if mode == "mission":
                 # Mission daemon writes a different status shape.
-                obj = (st.get("mission_objective") or "")[:60]
+                obj = (st.get("mission_objective") or "")[:80]
+                mid = st.get("mission_id") or "?"
+                mstatus = st.get("mission_status") or "?"
+                pmode = st.get("plan_mode") or "?"
                 print(
-                    f"argus-skill chat → {state}\n"
-                    f"  mission: id={st.get('mission_id')} "
-                    f"status={st.get('mission_status')} "
-                    f"plan_mode={st.get('plan_mode')}\n"
-                    f"  objective: {obj}"
+                    theme.bold_cyan("argus-skill chat") + theme.dim(" → ") +
+                    theme.gray(str(state))
+                )
+                status_color = {
+                    "running": theme.bold_blue,
+                    "done": theme.bold_green,
+                    "error": theme.bold_red,
+                }.get(mstatus, theme.bold)
+                print(
+                    "  " + theme.bold("mission ") + theme.cyan(mid) +
+                    theme.dim("  ·  ") + status_color(mstatus) +
+                    theme.dim("  ·  plan_mode=") + theme.bold(pmode)
+                )
+                print(
+                    "  " + theme.dim("objective: ") + obj
                 )
             else:
                 print(
-                    f"argus-skill chat → {state}\n"
-                    f"  daemon: pid={daemon_pid}  status={st.get('current_status')}  "
-                    f"queue={st.get('queue_size')}  done={st.get('tasks_done')}"
+                    theme.bold_cyan("argus-skill chat") + theme.dim(" → ") +
+                    theme.gray(str(state))
+                )
+                print(
+                    "  " + theme.dim("daemon: pid=") + str(daemon_pid) +
+                    theme.dim("  status=") + str(st.get("current_status")) +
+                    theme.dim("  queue=") + str(st.get("queue_size")) +
+                    theme.dim("  done=") + str(st.get("tasks_done"))
                 )
         except (json.JSONDecodeError, OSError) as exc:
             print(f"warning: cannot read {status_path}: {exc}", file=sys.stderr)
@@ -110,7 +136,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
     else:
         initial_verbose = bool(args.verbose)
 
-    print("type /help for commands, /exit (or Ctrl-D) to leave\n")
+    print(theme.dim("type /help for commands, /exit (or Ctrl-D) to leave") + "\n")
 
     bus = JsonlCommandBus(str(inbox))
     stop_event = threading.Event()
@@ -128,7 +154,8 @@ def cmd_chat(args: argparse.Namespace) -> int:
         # Clear current input line, write the message, then redraw the
         # prompt with whatever the user has typed so far. This is the
         # standard pattern for chat REPLs that interleave async output
-        # with sync input editing.
+        # with sync input editing. Multi-line messages need each line
+        # printed separately so the redrawn prompt sits below.
         try:
             buf = readline.get_line_buffer()
         except Exception:  # noqa: BLE001
@@ -177,7 +204,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
                     et = str(event.get("type", ""))
                     if not _allowed(et):
                         continue
-                    _print_above_prompt(format_event_message(event))
+                    _print_above_prompt(render_event_for_terminal(event, theme=theme))
             except Exception:  # noqa: BLE001
                 time.sleep(0.5)
 

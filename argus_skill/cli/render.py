@@ -1,0 +1,278 @@
+"""Terminal-side event rendering.
+
+The daemon emits raw structured events to JSONL outbox; this module
+turns them into pretty multi-line terminal output. We layer ANSI
+color + box drawing + round dividers on top of the existing
+``format_event_message`` so Telegram / JSONL-only consumers stay
+plain-text.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from ..telegram.notifier import format_event_message
+from .theme import BOX, Theme
+
+
+# ── per-event-type coloring ───────────────────────────────────────────────
+
+_REVIEW_STATUS_COLOR = {
+    "✅": "bold_green",
+    "↻": "yellow",
+    "⛔": "bold_red",
+    "🚫": "bold_red",
+}
+
+
+def _colorize_first_line(line: str, color_method: str, theme: Theme) -> str:
+    """Apply a colour to the first line; leave the rest untouched."""
+    if "\n" in line:
+        head, _, rest = line.partition("\n")
+        return getattr(theme, color_method)(head) + "\n" + rest
+    return getattr(theme, color_method)(line)
+
+
+def _round_index_from_event(event: dict[str, Any]) -> int | None:
+    idx = event.get("round_index")
+    if isinstance(idx, int) and idx > 0:
+        return idx
+    return None
+
+
+def render_event_for_terminal(
+    event: dict[str, Any],
+    *,
+    theme: Theme,
+) -> str:
+    """Render one event as a (possibly multi-line) terminal string.
+
+    Special-cases:
+      * ``round.started``  prepends a horizontal rule with ``Round N``.
+      * ``mission.started`` prepends a thicker rule.
+      * ``status.report``  rendered in a left-bordered block.
+      * ``command.ack`` with ``show_kind`` → left-bordered block.
+      * ``command.ack`` plain → dim / cyan accent.
+      * ``round.review.completed`` → status icon coloured by verdict.
+
+    Falls back to ``format_event_message`` for anything else and
+    applies a per-icon color.
+    """
+    kind = str(event.get("type", ""))
+
+    if kind == "round.started":
+        round_idx = _round_index_from_event(event) or "?"
+        rule = theme.hr(f"Round {round_idx}")
+        return "\n" + rule
+
+    if kind == "mission.started":
+        body = format_event_message(event)
+        rule_top = theme.hr("Mission")
+        return "\n" + rule_top + "\n" + theme.bold_cyan(body)
+
+    if kind == "loop.started":
+        body = format_event_message(event)
+        return _colorize_first_line(body, "bold_cyan", theme)
+
+    if kind == "loop.completed":
+        body = format_event_message(event)
+        success = event.get("success", True)
+        method = "bold_green" if success else "bold_red"
+        return _colorize_first_line(body, method, theme)
+
+    if kind == "mission.completed":
+        body = format_event_message(event)
+        # mission.completed text starts with "mission ID: success=True/False"
+        success = "success=True" in (event.get("text") or "")
+        method = "bold_green" if success else "bold_red"
+        return _colorize_first_line(body, method, theme)
+
+    if kind == "mission.error":
+        return _colorize_first_line(format_event_message(event), "bold_red", theme)
+
+    if kind == "mission.idle":
+        # Render in a soft cyan callout box (left-bordered).
+        body = format_event_message(event)
+        # Strip leading icon; we'll show it in the title.
+        return theme.left_box(
+            [theme.dim(body[2:].strip()) if body.startswith("🟦 ") else theme.dim(body)],
+            title=theme.bold_cyan("🟦 mission idle"),
+        )
+
+    if kind == "round.main.completed":
+        body = format_event_message(event)
+        return _colorize_first_line(body, "bold_blue", theme)
+
+    if kind == "round.checks.completed":
+        return _colorize_first_line(format_event_message(event), "yellow", theme)
+
+    if kind == "round.review.completed":
+        body = format_event_message(event)
+        # The renderer sticks a status icon (✅ ↻ ⛔ 🚫) into the first
+        # line; pick a color from the icon character.
+        first = body.split("\n", 1)[0]
+        method = "bold_blue"
+        for icon, m in _REVIEW_STATUS_COLOR.items():
+            if icon in first:
+                method = m
+                break
+        return _colorize_first_line(body, method, theme)
+
+    if kind == "plan.completed":
+        return _colorize_first_line(format_event_message(event), "magenta", theme)
+
+    if kind in ("final.report.ready", "pptx.report.ready"):
+        return _colorize_first_line(format_event_message(event), "bold_magenta", theme)
+
+    if kind == "command.error":
+        return _colorize_first_line(format_event_message(event), "bold_red", theme)
+
+    if kind == "command.unknown":
+        return theme.yellow(format_event_message(event))
+
+    if kind == "command.ack" and event.get("show_kind"):
+        return _render_show_ack(event, theme=theme)
+
+    if kind == "status.report":
+        return _render_status_report(event, theme=theme)
+
+    if kind == "help":
+        body = format_event_message(event)
+        return _colorize_first_line(body, "cyan", theme)
+
+    if kind == "command.ack":
+        return _colorize_first_line(format_event_message(event), "green", theme)
+
+    if kind in ("distill.start", "distill.done", "scientist.start"):
+        return _colorize_first_line(format_event_message(event), "magenta", theme)
+
+    if kind == "match.info":
+        return theme.cyan(format_event_message(event))
+
+    if kind == "daemon.stopping":
+        return _colorize_first_line(format_event_message(event), "bold_red", theme)
+
+    # Fallback: plain.
+    return format_event_message(event)
+
+
+# ── special-cased renderers ──────────────────────────────────────────────
+
+def _render_status_report(event: dict[str, Any], *, theme: Theme) -> str:
+    """Render the multi-line /status snapshot inside a left-bordered box."""
+    body = (event.get("text") or "").rstrip("\n")
+    if not body:
+        return theme.dim("(no status)")
+
+    raw_lines = body.splitlines()
+    # The daemon's _render_mission_status produces:
+    #   header line               (mission ID  status  round X/Y  phase=…)
+    #   "   key: value" lines     (objective / plan_mode / last review / …)
+    #   "   recent:"              (literal label)
+    #   "     HH:MM:SS rendered…" (recent events list)
+    header_raw = raw_lines[0].strip() if raw_lines else ""
+    title = theme.bold_cyan("📊 " + _highlight_status_header(header_raw, theme))
+
+    body_lines: list[str] = []
+    in_recent = False
+    for line in raw_lines[1:]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped == "recent:":
+            in_recent = True
+            body_lines.append(theme.dim(BOX["left_mid"] + BOX["h"]) + " "
+                              + theme.bold("recent"))
+            continue
+        if in_recent:
+            # Each recent line starts with "HH:MM:SS rendered_message".
+            ts, _, rest = stripped.partition(" ")
+            body_lines.append(theme.gray(ts) + "  " + rest)
+        else:
+            # "key: value" → bold key, plain value.
+            if ":" in stripped:
+                key, _, val = stripped.partition(":")
+                body_lines.append(theme.bold(key) + ":" + val)
+            else:
+                body_lines.append(stripped)
+
+    return theme.left_box(body_lines, title=title)
+
+
+def _highlight_status_header(header: str, theme: Theme) -> str:
+    """Color the status header tokens.
+
+    Examples seen:
+      * ``mission abc-123   running   round 3/10   phase=engineering``
+      * ``mission abc-123   done   round 2/5   phase=idle``
+      * ``mission abc-123   error   ...``
+    """
+    parts = [p for p in header.split("   ") if p]
+    out: list[str] = []
+    for p in parts:
+        ps = p.strip()
+        low = ps.lower()
+        if low in ("running",):
+            out.append(theme.bold_blue(ps))
+        elif low in ("done",):
+            out.append(theme.bold_green(ps))
+        elif low in ("error",):
+            out.append(theme.bold_red(ps))
+        elif ps.startswith("phase="):
+            phase = ps.split("=", 1)[1]
+            phase_color = {
+                "ready": "cyan", "engineering": "bold_blue",
+                "checks": "yellow", "review": "magenta",
+                "planning": "magenta", "idle": "gray",
+            }.get(phase, "cyan")
+            out.append("phase=" + getattr(theme, phase_color)(phase))
+        else:
+            out.append(ps)
+    return "  ·  ".join(out)
+
+
+def _render_show_ack(event: dict[str, Any], *, theme: Theme) -> str:
+    """Render /show response as a left-bordered code-style block."""
+    show_kind = event.get("show_kind", "?")
+    text = (event.get("text") or "").rstrip()
+    if not text:
+        return theme.left_box(
+            [theme.dim("(empty)")],
+            title=theme.bold_cyan(f"📂 /show {show_kind}"),
+        )
+    # Strip "── label ──\n" headers we already have from the daemon
+    # and turn them into in-block sub-headers.
+    lines: list[str] = []
+    for raw in text.splitlines():
+        if raw.startswith("── ") and raw.rstrip().endswith(" ──"):
+            label = raw.strip().strip("─").strip()
+            if lines:
+                lines.append("")  # blank between sections
+            lines.append(theme.bold_magenta(label))
+        else:
+            lines.append(raw)
+    return theme.left_box(
+        lines,
+        title=theme.bold_cyan(f"📂 /show {show_kind}"),
+    )
+
+
+# ── welcome banner ───────────────────────────────────────────────────────
+
+_BANNER_COMMANDS: list[tuple[str, str]] = [
+    ("/status", "round / phase / last verdict / recent"),
+    ("/show prompt|plan|review", "peek at engineer / planner artifacts"),
+    ("/inject <text>", "nudge mid-round (raises External interrupt)"),
+    ("/verbose, /quiet", "toggle internal events"),
+    ("/exit", "leave (daemon shuts down automatically)"),
+]
+
+
+def render_welcome_banner(*, theme: Theme) -> str:
+    """ASCII-only boxed cheatsheet for the chat REPL prompt."""
+    cmd_w = max(len(c) for c, _ in _BANNER_COMMANDS)
+    rows = [
+        f"{cmd.ljust(cmd_w)}  {desc}"
+        for cmd, desc in _BANNER_COMMANDS
+    ]
+    return theme.boxed(rows, title="commands at the > prompt")
