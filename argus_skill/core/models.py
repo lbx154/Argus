@@ -99,6 +99,15 @@ class ReviewDecision:
     next_action: str
     round_summary_markdown: str = ""
     completion_summary_markdown: str = ""
+    # Phase 1 reviewer→skill feedback loop. Reviewer may classify the
+    # round's failure mode (``skill_gap`` / ``execution_mistake`` /
+    # ``ambiguous_objective`` / ``environmental`` / ``unknown``). When
+    # ``failure_cause == "skill_gap"`` the reviewer also emits a
+    # ``mission_lesson`` — a one-paragraph patch the next round's prompt
+    # should carry verbatim. Empty on success / clean done verdicts.
+    failure_cause: str = ""
+    mission_lesson: str = ""
+    verification_summary: str = ""
 
 
 @dataclass

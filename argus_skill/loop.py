@@ -53,6 +53,9 @@ class SkillLoopConfig:
     no_progress_threshold: int = 2
     skill_writeback: bool = True
     distill_on_miss: bool = True
+    # When True, the writeback also calls the scientist to revise the
+    # playbook based on the successful trajectory (bumps version).
+    skill_revise_on_writeback: bool = False
     full_auto: bool = True
     skip_git_repo_check: bool = True
     dangerous_yolo: bool = False
@@ -207,6 +210,10 @@ class SkillLoop:
                     skill=skill,
                     task_description=task,
                     successful_trajectory=trajectory,
+                    distiller=self.distiller if self.config.skill_revise_on_writeback else None,
+                    scientist_model=self.config.scientist_model,
+                    revise=self.config.skill_revise_on_writeback,
+                    on_event=self.on_event,
                 )
                 self._emit({"type": "skill.writeback",
                             "text": f"wrote {skill.name} v{skill.version} back to store"})

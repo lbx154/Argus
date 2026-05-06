@@ -5,7 +5,12 @@ import subprocess
 from ..core.models import CheckResult
 
 
-def run_checks(commands: list[str], timeout_seconds: int) -> list[CheckResult]:
+def run_checks(
+    commands: list[str],
+    timeout_seconds: int,
+    *,
+    cwd: str | None = None,
+) -> list[CheckResult]:
     results: list[CheckResult] = []
     for command in commands:
         completed = subprocess.run(
@@ -14,6 +19,7 @@ def run_checks(commands: list[str], timeout_seconds: int) -> list[CheckResult]:
             capture_output=True,
             text=True,
             timeout=timeout_seconds,
+            cwd=cwd,
         )
         merged = _merge_output(completed.stdout, completed.stderr)
         results.append(

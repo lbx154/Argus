@@ -29,3 +29,14 @@ benchmarks/results/
 *.swp
 .DS_Store
 .codex
+
+# vendored / scratch directories (not part of argus-skill)
+pyknotid-scratch/
+
+# smoke artifacts
+hello-mission-smoke.txt
+
+# per-user secrets / local overrides
+*.api-key.local
+.env
+.env.local

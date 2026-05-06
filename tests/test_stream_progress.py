@@ -1,0 +1,228 @@
+"""Tests for ``adapters.stream_progress.make_stream_progress_callback``.
+
+The callback wraps a sink so codex/copilot/claude stream-json lines
+become structured ``engineer.progress`` events. These tests cover:
+
+* Stream lines are always forwarded to ``sink.handle_stream_line``
+  (audit-trail invariant).
+* Engineer-role and ``main``-role stdout JSON ``item.completed`` events
+  emit ``engineer.progress`` (LoopEngine uses ``main`` as the
+  run_label; the legacy SkillLoop uses ``engineer``).
+* Other roles (matcher / reviewer / distiller) do NOT emit progress —
+  their stdout is protocol traffic.
+* Stderr is never converted to progress events.
+"""
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from argus_skill.adapters.stream_progress import make_stream_progress_callback
+
+
+class _RecordingSink:
+    def __init__(self) -> None:
+        self.events: list[dict[str, Any]] = []
+        self.streams: list[tuple[str, str]] = []
+
+    def handle_event(self, event: dict[str, Any]) -> None:
+        self.events.append(event)
+
+    def handle_stream_line(self, stream: str, line: str) -> None:
+        self.streams.append((stream, line))
+
+
+def _item_completed_line(text: str, kind: str = "agent_message") -> str:
+    return json.dumps({
+        "type": "item.completed",
+        "item": {"id": "item_0", "type": kind, "text": text},
+    })
+
+
+def test_main_stdout_emits_engineer_progress() -> None:
+    """LoopEngine-mode stream label ``main.stdout`` must emit progress."""
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    line = _item_completed_line("Hello from main agent.")
+
+    cb("main.stdout", line)
+
+    # raw forwarded
+    assert sink.streams == [("main.stdout", line)]
+    # cooked event emitted
+    assert len(sink.events) == 1
+    ev = sink.events[0]
+    assert ev["type"] == "engineer.progress"
+    assert ev["text"] == "Hello from main agent."
+    assert ev["kind"] == "agent_message"
+
+
+def test_engineer_stdout_still_works() -> None:
+    """Legacy SkillLoop label ``engineer.stdout`` must keep working."""
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    line = _item_completed_line("hi", kind="reasoning")
+
+    cb("engineer.stdout", line)
+    assert any(e["type"] == "engineer.progress" and e["kind"] == "reasoning"
+               for e in sink.events)
+
+
+def test_reviewer_and_matcher_stdout_do_not_emit_progress() -> None:
+    """Protocol agents' JSON output must not become user-visible progress."""
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    cb("reviewer.stdout", _item_completed_line("{\"status\":\"done\"}"))
+    cb("matcher.stdout", _item_completed_line("[]"))
+    cb("distiller.stdout", _item_completed_line("## Title"))
+
+    # Stream lines forwarded for audit
+    assert len(sink.streams) == 3
+    # No progress events
+    assert sink.events == []
+
+
+def test_stderr_never_emits_progress() -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    cb("main.stderr", _item_completed_line("warning"))
+    cb("engineer.stderr", _item_completed_line("warning"))
+    assert sink.events == []
+    assert len(sink.streams) == 2  # both still forwarded
+
+
+def test_main_final_report_subroles_emit_progress() -> None:
+    """``main-final-report.stdout`` is a codex follow-up; surface it too."""
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    cb("main-final-report.stdout", _item_completed_line("writing report"))
+    assert any(e["type"] == "engineer.progress" for e in sink.events)
+
+
+def test_non_item_completed_lines_do_not_emit() -> None:
+    """thread.started / turn.started / turn.completed are noise."""
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    cb("main.stdout", json.dumps({"type": "thread.started"}))
+    cb("main.stdout", json.dumps({"type": "turn.completed"}))
+    assert sink.events == []
+
+
+# ---------------------------------------------------------------------------
+# Copilot dialect — incremental message_delta + final assistant.message
+# ---------------------------------------------------------------------------
+
+def test_copilot_message_delta_accumulates() -> None:
+    """assistant.message_delta events should accumulate per messageId."""
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+
+    def delta(content: str, mid: str = "m1") -> str:
+        return json.dumps({
+            "type": "assistant.message_delta",
+            "data": {"messageId": mid, "deltaContent": content},
+        })
+
+    cb("main.stdout", delta("Hello, "))
+    cb("main.stdout", delta("how "))
+    cb("main.stdout", delta("are you?"))
+
+    progress = [e for e in sink.events if e["type"] == "engineer.progress"]
+    assert len(progress) == 3
+    # Each successive event carries the accumulated text.
+    assert progress[0]["text"] == "Hello,"
+    assert progress[1]["text"] == "Hello, how"
+    assert progress[2]["text"] == "Hello, how are you?"
+    # All marked replace=True so the renderer can update in place.
+    assert all(e.get("replace") is True for e in progress)
+    # All carry the same message_id so the renderer can group them.
+    assert all(e.get("message_id") == "m1" for e in progress)
+
+
+def test_copilot_assistant_message_final_clears_buffer() -> None:
+    """assistant.message (final) emits the full text once and clears
+    the buffer, so a subsequent delta with the same messageId starts
+    fresh (corner case: pipeline replays).
+    """
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+
+    cb("main.stdout", json.dumps({
+        "type": "assistant.message_delta",
+        "data": {"messageId": "m1", "deltaContent": "draft"},
+    }))
+    cb("main.stdout", json.dumps({
+        "type": "assistant.message",
+        "data": {"messageId": "m1", "content": "Final answer."},
+    }))
+    cb("main.stdout", json.dumps({
+        "type": "assistant.message_delta",
+        "data": {"messageId": "m1", "deltaContent": "second"},
+    }))
+
+    progress = [e for e in sink.events if e["type"] == "engineer.progress"]
+    # 1: delta "draft", 2: final "Final answer.", 3: delta "second" (NOT "Final answer.second")
+    assert progress[0]["text"] == "draft"
+    assert progress[1]["text"] == "Final answer."
+    assert progress[2]["text"] == "second"
+
+
+def test_copilot_result_clears_actor_buffers() -> None:
+    """A 'result' event ends the turn and resets buffers for that actor."""
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+
+    cb("main.stdout", json.dumps({
+        "type": "assistant.message_delta",
+        "data": {"messageId": "abandoned", "deltaContent": "partial"},
+    }))
+    cb("main.stdout", json.dumps({"type": "result"}))
+    # Even with the same messageId, accumulation should restart.
+    cb("main.stdout", json.dumps({
+        "type": "assistant.message_delta",
+        "data": {"messageId": "abandoned", "deltaContent": "fresh"},
+    }))
+
+    progress = [e for e in sink.events if e["type"] == "engineer.progress"]
+    assert progress[0]["text"] == "partial"
+    assert progress[1]["text"] == "fresh"  # buffer cleared by 'result'
+
+
+def test_copilot_buffers_isolated_per_callback() -> None:
+    """Two callback instances must not cross-talk via shared globals."""
+    sink_a = _RecordingSink()
+    sink_b = _RecordingSink()
+    cb_a = make_stream_progress_callback(sink_a)
+    cb_b = make_stream_progress_callback(sink_b)
+
+    cb_a("main.stdout", json.dumps({
+        "type": "assistant.message_delta",
+        "data": {"messageId": "m1", "deltaContent": "from-A"},
+    }))
+    cb_b("main.stdout", json.dumps({
+        "type": "assistant.message_delta",
+        "data": {"messageId": "m1", "deltaContent": "from-B"},
+    }))
+
+    progress_a = [e for e in sink_a.events if e["type"] == "engineer.progress"]
+    progress_b = [e for e in sink_b.events if e["type"] == "engineer.progress"]
+    assert progress_a[-1]["text"] == "from-A"
+    assert progress_b[-1]["text"] == "from-B"
+
+
+def test_copilot_tool_call_and_result_emit_progress() -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+
+    cb("main.stdout", json.dumps({
+        "type": "tool.call",
+        "data": {"name": "bash", "arguments": "ls -la"},
+    }))
+    cb("main.stdout", json.dumps({
+        "type": "tool.result",
+        "data": {"content": "total 0\n..."},
+    }))
+
+    kinds = [e["kind"] for e in sink.events if e["type"] == "engineer.progress"]
+    assert "tool_use" in kinds
+    assert "tool_result" in kinds

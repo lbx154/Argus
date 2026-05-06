@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# argus-skill v7 microbench: 11-task subset (5 wins + 6 losses from
+# argus-skill v10 microbench (3-failure fixes: timeout bump 900→1800, post-round runtime probe, daemon-survival prompt nudge).
 # tb2-cap-2026-05-02), same as skill-agent's tb2-microbench-2026-05-03.
 #
 # v7 design (post-rubber-duck on v6 plateau):
@@ -16,13 +16,13 @@
 # Compare against:
 #   - bare-mini control:           tb2-cap-2026-05-02/bare-mini/      (6/11)
 #   - skill-cap-phaseA reference:  tb2-microbench-2026-05-03/         (9/11)
-#   - argus-skill v6 (last loop):  tb2-microbench-2026-05-04/__v6/    (5/11)
+#   - argus-skill v6 (last loop):  tb2-microbench-2026-05-06-v10/__v6/    (5/11)
 #
 # Decision line (post rubber-duck): argus-skill_pass - bare-mini_pass >= 3
 # would clear the 0.022 lift gap that Phase C missed.
 set -uo pipefail
 
-EXP_ROOT="/home/argustest/argus-skill/benchmarks/results/tb2-microbench-2026-05-04"
+EXP_ROOT="/home/argustest/argus-skill/benchmarks/results/tb2-microbench-2026-05-06-v10"
 EXP_DIR="$EXP_ROOT/argus-skill-codex"
 LOG_DIR="$EXP_DIR/logs"
 LOG_FILE="$LOG_DIR/run.log"
@@ -54,7 +54,7 @@ export ARGUS_SKILL_HARBOR_DECISIONS_LOG="$DECISIONS_LOG"
 # actually finish a round instead of always cliffing on a timeout.
 export ARGUS_SKILL_HARBOR_DISTILL_BUDGET=120
 export ARGUS_SKILL_HARBOR_REVIEWER_BUDGET=60
-export ARGUS_SKILL_HARBOR_ROUND_TIMEOUT=900
+export ARGUS_SKILL_HARBOR_ROUND_TIMEOUT=1800
 export ARGUS_SKILL_HARBOR_MAX_ROUNDS=2
 # v7: explicit OFF — reviewer logs verdicts but does NOT gate rounds.
 export ARGUS_SKILL_HARBOR_REVIEWER_GATE=0
@@ -81,7 +81,7 @@ done
 
 {
   echo "=========================================="
-  echo " argus-skill v7 microbench (codex backend, conditional R2)"
+  echo " argus-skill v10 microbench (3 fixes: timeout 1800s, runtime probe, daemon-survival nudge)"
   echo " started_at        : $(date -Iseconds)"
   echo " host              : $(hostname)"
   echo " exp_dir           : $EXP_DIR"

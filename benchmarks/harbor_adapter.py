@@ -57,6 +57,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 # Harbor imports happen lazily so importing this file outside Harbor
 # (e.g. for unit tests) doesn't blow up.
@@ -219,6 +220,14 @@ class _HostPrep:
     match_tokens: int
     fallback_reason: str | None
     elapsed_s: float
+    # Phase-2 reviewer→skill loop: callers (e.g. swebench_pro runner)
+    # need the live Skill object + SkillStore + Distiller to perform
+    # post-mission writeback-revise and skill_gap lesson promotion.
+    # Left as ``None`` on cache miss / no-match / errors.
+    matched_skill: Any = None  # argus_skill.skills.store.Skill | None
+    skill_store: Any = None    # argus_skill.skills.store.SkillStore | None
+    distiller: Any = None      # argus_skill.scientist.distiller.Distiller | None
+    scientist_model: str = ""
 
 
 def _do_host_prep(instruction: str) -> _HostPrep:
@@ -250,6 +259,8 @@ def _do_host_prep(instruction: str) -> _HostPrep:
     fallback_reason: str | None = None
     scientist_tokens = 0
     skill_text = ""
+    distilled_skill: Any = None  # populated when we save_distilled below
+    distiller_obj: Any = None    # reused for revise/promote_lesson hooks
 
     try:
         matched_skills_or_none, match_tokens = store.find_relevant(instruction)
@@ -263,7 +274,7 @@ def _do_host_prep(instruction: str) -> _HostPrep:
     if not skill_text and not _bool_env("ARGUS_SKILL_HARBOR_NO_DISTILL"):
         # No match — distill a new skill.
         try:
-            distiller = deps["Distiller"](backend)
+            distiller_obj = deps["Distiller"](backend)
             cfg = deps["DistillerConfig"](
                 model=scientist_model,
                 reasoning_effort=os.environ.get("ARGUS_SKILL_HARBOR_SCIENTIST_EFFORT", "high"),
@@ -271,18 +282,18 @@ def _do_host_prep(instruction: str) -> _HostPrep:
                 full_auto=True,
             )
             with tempfile.TemporaryDirectory(prefix="argus-skill-harbor-"):
-                result = distiller.distill(
+                result = distiller_obj.distill(
                     task_description=instruction,
                     config=cfg,
                 )
             scientist_tokens = result.input_tokens + result.output_tokens
             try:
-                skill = store.save_distilled(
+                distilled_skill = store.save_distilled(
                     task_description=instruction,
                     raw_distill_output=result.last_agent_message,
                     scientist_model=scientist_model,
                 )
-                skill_text = skill.render()
+                skill_text = distilled_skill.render()
             except Exception as exc:
                 # Parse failure — keep the raw distill output as the skill text.
                 log.warning("save_distilled failed: %s", exc)
@@ -292,11 +303,25 @@ def _do_host_prep(instruction: str) -> _HostPrep:
             fallback_reason = f"distill_exception:{type(exc).__name__}"
             log.warning("distill failed: %s", exc)
 
+    if distiller_obj is None:
+        # Lazily build a distiller for matched-cache-hit case so the
+        # caller can still hook revise/promote_lesson against it.
+        try:
+            distiller_obj = deps["Distiller"](backend)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("post-match distiller construction failed: %s", exc)
+
     elapsed = round(time.time() - t0, 2)
     if skill_text and len(skill_text) > _AUGMENTED_MAX_CHARS:
         log.warning("skill text too large (%d chars); dropping.", len(skill_text))
         fallback_reason = fallback_reason or "skill_oversize"
         skill_text = ""
+
+    matched_skill_obj = None
+    if matched_skills:
+        matched_skill_obj = matched_skills[0]
+    elif distilled_skill is not None:
+        matched_skill_obj = distilled_skill
 
     return _HostPrep(
         skill_text=skill_text,
@@ -308,6 +333,10 @@ def _do_host_prep(instruction: str) -> _HostPrep:
         match_tokens=match_tokens,
         fallback_reason=fallback_reason,
         elapsed_s=elapsed,
+        matched_skill=matched_skill_obj,
+        skill_store=store,
+        distiller=distiller_obj,
+        scientist_model=scientist_model,
     )
 
 

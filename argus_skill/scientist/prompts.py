@@ -146,6 +146,91 @@ class Prompts:
             "requires them."
         )
 
+    # -- Step 3b: Skill revision (big model) --
+    @staticmethod
+    def revise(
+        *,
+        old_skill_md: str,
+        task_description: str,
+        change_kind: str,
+        evidence: str,
+    ) -> str:
+        """Produce a revised playbook that integrates new evidence.
+
+        ``change_kind`` is one of:
+        - ``"success_trajectory"``: a new task in the same family was just
+          solved using this playbook. The trajectory may reveal a hidden
+          step, pitfall, or anti-condition that should be promoted into
+          the playbook for next time.
+        - ``"failure_lesson"``: the reviewer flagged ``failure_cause==
+          skill_gap`` and emitted a one-paragraph lesson the engineer
+          needed but the playbook did not give. Integrate the lesson
+          (typically as a new ``Common pitfalls`` bullet, a tightened
+          ``How to solve`` step, or a new ``When NOT to use`` entry).
+
+        The output MUST stay strictly within the same heading structure
+        as the input and remain CAPABILITY-level. Narrowing the family
+        scope to fit only the new example is a regression — the matcher
+        relies on broad ``When to use`` / ``Description`` to recall the
+        skill across future tasks.
+        """
+        kind_directive = {
+            "success_trajectory": (
+                "A new task in this skill's family was just solved using "
+                "the playbook. Read the trajectory: did the engineer have "
+                "to discover anything the playbook did not say? If yes, "
+                "fold that knowledge in (a sharper step, a new pitfall, a "
+                "tighter anti-condition). If the playbook already covered "
+                "everything the engineer did, output the playbook UNCHANGED "
+                "(byte-for-byte the same markdown body) — do not rewrite "
+                "for the sake of rewriting."
+            ),
+            "failure_lesson": (
+                "The reviewer judged that this playbook had a gap that "
+                "caused the engineer to fail, and emitted a lesson. "
+                "Integrate the lesson into the playbook so a future "
+                "engineer with only the playbook (not the lesson) would "
+                "not hit the same gap. Prefer adding to ``Common pitfalls`` "
+                "or sharpening a ``How to solve`` step over inventing new "
+                "headings."
+            ),
+        }.get(change_kind, (
+            "Integrate the evidence below into the playbook with the "
+            "minimum edit that prevents a future engineer from repeating "
+            "the same gap."
+        ))
+
+        return (
+            "You are a senior engineer revising a CAPABILITY playbook. "
+            "The playbook is CACHED and REUSED for many future tasks of "
+            "the same kind, so any edit must broaden capability, not "
+            "narrow it to the specific incoming example.\n\n"
+            f"## Existing playbook (current version)\n{old_skill_md}\n\n"
+            f"## Incoming task that just exercised the playbook\n{task_description}\n\n"
+            f"## New evidence ({change_kind})\n{evidence}\n\n"
+            f"## What to do\n{kind_directive}\n\n"
+            "## Hard rules\n"
+            "1. Keep the SAME heading structure as the existing playbook: "
+            "``Title``, ``Description``, ``Category``, ``When to use``, "
+            "``When NOT to use``, ``How to solve`` (with ``Common "
+            "pitfalls``), ``Examples``, ``Response shape``, ``Generality "
+            "check``, ``Coverage check``. Do not introduce or drop "
+            "top-level sections.\n"
+            "2. PRESERVE ``Title``, ``Description``, and ``Category`` "
+            "verbatim unless the family scope itself genuinely changed. "
+            "If you cannot justify a rename in one sentence in the "
+            "Generality check, leave them alone.\n"
+            "3. DO NOT hardcode the specific task: no concrete paths, "
+            "issue numbers, repository names, function signatures, or "
+            "literal values from the incoming example. Use angle-bracket "
+            "placeholders like ``<token_store>`` instead.\n"
+            "4. Re-run the embedded Generality check and Coverage check. "
+            "If the revised playbook now excludes the incoming task or a "
+            "previous family member, undo that change.\n"
+            "5. Output ONLY the revised markdown playbook (with the same "
+            "headings, no frontmatter). No code fences, no commentary."
+        )
+
     # -- Step 4: Task execution (small model, with skill) --
     @staticmethod
     def execute(task_description: str, *, in_container: bool = False,
