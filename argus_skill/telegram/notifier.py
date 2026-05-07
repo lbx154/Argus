@@ -42,6 +42,7 @@ _USER_FACING_EVENTS: set[str] = {
     "round.review.completed",
     "plan.completed",
     "round.control.injected",
+    "engineer.failure_nudge",
     "loop.completed",
     "pptx.report.ready",
     "final.report.ready",
@@ -125,6 +126,10 @@ _EVENT_ICONS: dict[str, str] = {
     # Live codex/claude/copilot stream progress (one beat per
     # ``item.completed`` JSON event the backend emits).
     "engineer.progress": "◆",
+    # Repeated-tool-failure interrupt: the failed-tool ledger fires this
+    # at most once per tool per mission when the agent is detected to be
+    # blind-retrying a failing operation. High-signal — user should see it.
+    "engineer.failure_nudge": "⚠",
 }
 
 
