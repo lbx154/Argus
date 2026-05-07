@@ -88,6 +88,7 @@ class SupervisedEngineer:
         workdir: Path,
         on_event: Callable[[dict], None] | None = None,
         seed_thread_id: str | None = None,
+        failed_tool_ledger: "object | None" = None,
     ) -> tuple[LoopStatus, list[RoundRecord], str, str, str | None]:
         """Run the supervised loop.
 
@@ -113,6 +114,25 @@ class SupervisedEngineer:
 
         for round_index in range(1, supervised_config.max_rounds + 1):
             engineer_prompt = engineer_prompt_builder(last_next_action)
+            # Repeated-tool-failure interrupt: if the same tool/command has
+            # failed multiple times this mission and we haven't yet
+            # nudged the agent about it, splice an advisory at the top
+            # of this round's prompt. The ledger tracks "already nudged"
+            # so the warning fires only once per tool per mission, not
+            # every subsequent round.
+            if failed_tool_ledger is not None:
+                try:
+                    advisory = failed_tool_ledger.render_advisory()
+                except Exception:  # noqa: BLE001 — ledger must never break the loop
+                    advisory = ""
+                if advisory:
+                    engineer_prompt = advisory + "\n\n" + engineer_prompt
+                    if on_event:
+                        on_event({
+                            "type": "engineer.failure_nudge",
+                            "round": round_index,
+                            "text": "repeated tool failures detected — advisory injected",
+                        })
             if on_event:
                 on_event({
                     "type": "round.start",

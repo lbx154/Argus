@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from .core.models import LoopOutcome, RoundRecord
 from .core.ports import RunnerBackend
@@ -138,7 +138,8 @@ class SkillLoop:
     # Public API
     # ------------------------------------------------------------------
 
-    def run(self, task: str, *, workdir: Path | None = None, seed_thread_id: str | None = None) -> LoopOutcome:
+    def run(self, task: str, *, workdir: Path | None = None, seed_thread_id: str | None = None,
+            failed_tool_ledger: Any | None = None) -> LoopOutcome:
         workdir = Path(workdir) if workdir else Path.cwd()
         self._emit({"type": "loop.start", "text": f"task: {task[:120]}"})
 
@@ -201,6 +202,7 @@ class SkillLoop:
             workdir=workdir,
             on_event=self.on_event,
             seed_thread_id=seed_thread_id,
+            failed_tool_ledger=failed_tool_ledger,
         )
 
         # Step 4: skill writeback on success

@@ -63,7 +63,87 @@ def _truncate(s: str, n: int = _PROGRESS_TEXT_LIMIT) -> str:
     return s[: n - 1].rstrip() + "…"
 
 
-def make_stream_progress_callback(sink: Any) -> Callable[[str, str], None]:
+def _shell_tool_bucket(command: str) -> str:
+    """Group shell commands by leading binary so 'apply_patch'-style
+    repeated failures cluster (e.g. all ``git ...`` invocations under
+    ``shell:git``) without one-bucket-per-unique-command explosion.
+    """
+    cmd = (command or "").strip()
+    # Codex wraps as /bin/bash -lc 'real cmd'; peel one quoting layer.
+    for p in ("/bin/bash -lc ", "/bin/bash -c ", "bash -lc ", "bash -c ", "sh -c "):
+        if cmd.startswith(p):
+            inner = cmd[len(p):].strip()
+            if len(inner) >= 2 and inner[0] == inner[-1] and inner[0] in ("'", '"'):
+                cmd = inner[1:-1]
+            else:
+                cmd = inner
+            break
+    leader = cmd.split(None, 1)[0] if cmd else ""
+    # Strip path so ``/usr/bin/python3`` and ``python3`` share a bucket.
+    leader = leader.rsplit("/", 1)[-1] or "shell"
+    return f"shell:{leader}"
+
+
+def _record_failure_if_any(ledger: Any, kind: str, item: dict[str, Any]) -> None:
+    """Inspect a codex ``item.completed`` payload and, when it represents
+    a failed beat, record it in the ledger.
+
+    Failure semantics observed in codex stream-json:
+      * ``command_execution``: ``status == "failed"`` AND/OR
+        non-zero ``exit_code``; ``aggregated_output`` carries stderr.
+      * ``file_change``: ``status == "failed"``; ``changes`` carries
+        path metadata. ``apply_patch``-style failures land here.
+      * ``tool_use``: rare in codex CLI but follow the same status
+        contract.
+
+    The ledger silently no-ops on success or unrecognised shapes so this
+    is safe to call on every beat.
+    """
+    if not isinstance(item, dict):
+        return
+    status = str(item.get("status") or "").lower()
+    exit_code = item.get("exit_code")
+    failed = (
+        status == "failed"
+        or (isinstance(exit_code, int) and exit_code not in (0, None))
+    )
+    if not failed:
+        return
+
+    err = ""
+    detail = ""
+    bucket = ""
+    if kind == "command_execution":
+        cmd = str(item.get("command") or "").strip()
+        bucket = _shell_tool_bucket(cmd)
+        detail = cmd
+        err = str(item.get("aggregated_output") or "").strip() or f"exit_code={exit_code}"
+    elif kind == "file_change":
+        bucket = "apply_patch"
+        changes = item.get("changes") or []
+        if isinstance(changes, list):
+            paths = ", ".join(
+                str(c.get("path", "?")) for c in changes if isinstance(c, dict)
+            )
+            detail = paths
+        err = (
+            str(item.get("aggregated_output") or item.get("error") or "").strip()
+            or f"file_change failed (status={status})"
+        )
+    elif kind == "tool_use":
+        bucket = "tool:" + str(item.get("name") or "unknown")
+        detail = str(item.get("name") or "")
+        err = str(item.get("aggregated_output") or item.get("error") or "").strip() or f"status={status}"
+    else:
+        return
+
+    try:
+        ledger.record(bucket, err, detail=detail)
+    except Exception:  # noqa: BLE001 — ledger failures must never crash the stream
+        pass
+
+
+def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Callable[[str, str], None]:
     """Return an ``(stream, line) -> None`` callback that:
 
       * always forwards the raw line to ``sink.handle_stream_line`` so
@@ -156,6 +236,11 @@ def make_stream_progress_callback(sink: Any) -> Callable[[str, str], None]:
             if not isinstance(item, dict):
                 return
             kind = str(item.get("type") or "").strip() or "message"
+            # Failure side-channel: codex marks failed beats with
+            # ``status == "failed"``. Tally these into the ledger so the
+            # engineer prompt can interrupt blind-retry loops.
+            if ledger is not None:
+                _record_failure_if_any(ledger, kind, item)
             text = _extract_text(item)
             if not text:
                 return

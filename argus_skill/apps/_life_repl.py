@@ -212,13 +212,18 @@ class _CodexSkillLoopRunner:
         # currently-installed sink so codex's stream-json events become
         # ``engineer.progress`` items in whichever sink owns this call.
         self._current_sink: EventSink | None = None
+        # Per-mission ledger of failed tool/command beats. Reset on every
+        # execute() so warnings don't bleed across missions.
+        self._current_failure_ledger: object | None = None
 
         def _trampoline(stream: str, line: str) -> None:
             sink = self._current_sink
             if sink is None:
                 return
             try:
-                make_stream_progress_callback(sink)(stream, line)
+                make_stream_progress_callback(
+                    sink, ledger=self._current_failure_ledger
+                )(stream, line)
             except Exception:  # noqa: BLE001 — never let logging crash the runner
                 pass
 
@@ -280,11 +285,18 @@ class _CodexSkillLoopRunner:
         # execute() calls (LifeSupervisor may run several missions in one
         # supervisor.run()) chain off the previous mission's last thread_id.
         seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
+        from ..engineer.failed_tool_ledger import FailedToolLedger
+        ledger = FailedToolLedger()
         self._current_sink = sink
+        self._current_failure_ledger = ledger
         try:
-            outcome = loop.run(full_task, workdir=workdir, seed_thread_id=seed)
+            outcome = loop.run(
+                full_task, workdir=workdir, seed_thread_id=seed,
+                failed_tool_ledger=ledger,
+            )
         finally:
             self._current_sink = None
+            self._current_failure_ledger = None
         new_tid = getattr(outcome, "last_thread_id", None)
         if new_tid:
             self.last_thread_id = new_tid
