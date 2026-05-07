@@ -141,8 +141,10 @@ def add_life_subcommand(sub) -> None:  # noqa: ANN001 — argparse subparsers ob
     run_p.add_argument(
         "--backend",
         choices=("memory", "codex"),
-        default=os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "memory"),
-        help="memory: deterministic stub (no API calls); codex: real LLM",
+        default=os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex"),
+        help="codex (default): real LLM via codex CLI. "
+             "memory: deterministic in-process stub (no API calls, no work done) "
+             "— only useful for smoke tests / CI.",
     )
     run_p.add_argument(
         "--once",
@@ -468,7 +470,7 @@ Slash commands:
 
   /backlog                  list pending items
   /backlog all              list every item (incl. done/skipped/failed)
-  /add <text>               add a new mission (same as typing free text)
+  /add <text>               enqueue a mission WITHOUT running it
   /done <id>                mark backlog item as done
   /skip <id>                mark backlog item as skipped
   /rm <id>                  remove backlog item
@@ -476,18 +478,21 @@ Slash commands:
   /journal [N]              tail last N journal entries (default 10)
   /note <text>              append a manual journal note
 
-  /run [opts]               run supervisor in FOREGROUND (Ctrl-C = stop)
+  /run [opts]               drain the entire backlog (foreground; Ctrl-C stops)
                             opts: --once  --backend memory|codex
                                   --max-missions N
                                   --per-mission-cap-usd X
                                   --daily-cap-usd X
                                   --quiet
+  /backend [codex|memory]   show / set the default backend used by free text
+                            and /run when no --backend is given
 
   /quit  /exit              leave the REPL (Ctrl-D also works)
 
-Free text (no leading '/') is shorthand for /add — it appends a new
-backlog mission with priority=100 and the default cost cap. Nothing
-runs until you say /run, so plain text is safe.
+Free text (no leading '/') is treated as a one-shot command: it gets
+appended to the backlog AND runs immediately on the current default
+backend (codex by default — real tokens). Use /add if you only want to
+enqueue without running.
 """
 
 
@@ -504,7 +509,15 @@ def _cmd_chat(mem: LifeMemory, args: argparse.Namespace) -> int:
         print(f"  created: {', '.join(created)}")
     else:
         print(f"life memory: {mem.root}")
-    print("Type /help for commands.  Free text adds a backlog mission.")
+
+    # Default backend used by free-text and bare /run. Env override; codex
+    # is the real one. memory is a deterministic stub kept around for
+    # CI / no-API-key smoke tests.
+    chat_state = {
+        "backend": os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex"),
+    }
+    print(f"backend: {chat_state['backend']}  (change with /backend memory|codex)")
+    print("Type /help for commands.  Free text runs immediately on the backend.")
 
     while True:
         try:
@@ -520,7 +533,7 @@ def _cmd_chat(mem: LifeMemory, args: argparse.Namespace) -> int:
             continue
 
         if not line.startswith("/"):
-            _chat_add_freeform(mem, raw)
+            _chat_run_freeform(mem, args, raw, chat_state)
             continue
 
         try:
@@ -551,7 +564,7 @@ def _cmd_chat(mem: LifeMemory, args: argparse.Namespace) -> int:
             if not rest_text:
                 print("usage: /add <objective text>")
                 continue
-            _chat_add_freeform(mem, rest_text)
+            _chat_add_only(mem, rest_text)
             continue
         if cmd in ("/done", "/skip", "/rm"):
             if not rest:
@@ -582,17 +595,18 @@ def _cmd_chat(mem: LifeMemory, args: argparse.Namespace) -> int:
             mem.journal.append(entry)
             print(f"note appended (id={entry.id})")
             continue
+        if cmd == "/backend":
+            _chat_backend(rest, chat_state)
+            continue
         if cmd == "/run":
-            _chat_run(mem, args, rest)
+            _chat_run(mem, args, rest, chat_state)
             continue
         print(f"unknown command: {cmd}  (try /help)")
 
 
-def _chat_add_freeform(mem: LifeMemory, text: str) -> None:
-    """Append a backlog item from a free-form objective."""
+def _chat_add_only(mem: LifeMemory, text: str) -> "BacklogItem":
+    """Append a backlog item from a free-form objective. No execution."""
     text = text.strip()
-    if not text:
-        return
     title = text.splitlines()[0][:60].strip() or "(untitled)"
     item = mem.backlog.add(BacklogItem.new(
         title=title,
@@ -605,7 +619,39 @@ def _chat_add_freeform(mem: LifeMemory, text: str) -> None:
         f"added {item.id}: {item.title}  "
         f"(priority={item.priority}, max_cost=${item.max_cost_usd:.2f})"
     )
-    print("  run it with /run --once  (or /run for the whole backlog)")
+    return item
+
+
+def _chat_run_freeform(
+    mem: LifeMemory,
+    base_args: argparse.Namespace,
+    text: str,
+    chat_state: dict[str, Any],
+) -> None:
+    """Free-text input: enqueue + run immediately on the current backend."""
+    item = _chat_add_only(mem, text)
+    print(f"running on backend={chat_state['backend']} (Ctrl-C to stop)...")
+    _chat_invoke_supervisor(
+        mem=mem,
+        backend=chat_state["backend"],
+        once=True,
+        max_missions=1,
+        per_mission_cap_usd=1.0,
+        daily_cap_usd=5.0,
+        quiet=False,
+    )
+
+
+def _chat_backend(tokens: list[str], chat_state: dict[str, Any]) -> None:
+    if not tokens:
+        print(f"backend: {chat_state['backend']}")
+        return
+    new = tokens[0].lower()
+    if new not in ("codex", "memory"):
+        print(f"unknown backend: {new}  (codex|memory)")
+        return
+    chat_state["backend"] = new
+    print(f"backend set to {new}")
 
 
 def _chat_identity(mem: LifeMemory, tokens: list[str], rest_text: str) -> None:
@@ -634,7 +680,6 @@ def _chat_identity(mem: LifeMemory, tokens: list[str], rest_text: str) -> None:
         print(f"identity card updated ({len(lines)} lines)")
         return
     if sub == "set":
-        # /identity set <text> — one-line replacement
         body = rest_text[len("set"):].lstrip() if rest_text.lower().startswith("set") else ""
         if not body:
             print("usage: /identity set <text>")
@@ -689,14 +734,19 @@ def _chat_journal_tail(mem: LifeMemory, n: int) -> None:
             print(f"    {e.summary}")
 
 
-def _chat_run(mem: LifeMemory, base_args: argparse.Namespace, opts: list[str]) -> None:
+def _chat_run(
+    mem: LifeMemory,
+    base_args: argparse.Namespace,
+    opts: list[str],
+    chat_state: dict[str, Any],
+) -> None:
     """Parse /run options and run the supervisor in foreground."""
     p = argparse.ArgumentParser(prog="/run", add_help=False)
     p.add_argument("--once", action="store_true")
     p.add_argument(
         "--backend",
         choices=("memory", "codex"),
-        default=os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "memory"),
+        default=chat_state["backend"],
     )
     p.add_argument("--max-missions", type=int, default=3)
     p.add_argument("--per-mission-cap-usd", type=float, default=1.0)
@@ -705,22 +755,7 @@ def _chat_run(mem: LifeMemory, base_args: argparse.Namespace, opts: list[str]) -
     try:
         run_args = p.parse_args(opts)
     except SystemExit:
-        # argparse calls sys.exit on bad opts; convert to a chat-friendly nope
         return
-
-    # Build a Namespace compatible with _build_runner / _CodexSkillLoopRunner
-    run_args.engineer_model = os.environ.get(
-        "ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini"
-    )
-    run_args.reviewer_model = os.environ.get(
-        "ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.4"
-    )
-    run_args.scientist_model = os.environ.get(
-        "ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4"
-    )
-    run_args.skills_dir = os.environ.get("ARGUS_SKILL_SKILLS_DIR", "skills")
-    run_args.workdir = os.environ.get("ARGUS_SKILL_WORKDIR")
-    run_args.max_rounds = 3
 
     print(
         f"/run: backend={run_args.backend}  "
@@ -730,12 +765,9 @@ def _chat_run(mem: LifeMemory, base_args: argparse.Namespace, opts: list[str]) -
     )
     print("       (foreground; Ctrl-C requests graceful stop)")
 
-    runner = _build_runner(run_args)
-    summary = _run_supervisor(
+    summary = _chat_invoke_supervisor(
         mem=mem,
-        runner=runner,
-        engineer_model=run_args.engineer_model,
-        reviewer_model=run_args.reviewer_model,
+        backend=run_args.backend,
         once=run_args.once,
         max_missions=run_args.max_missions,
         per_mission_cap_usd=run_args.per_mission_cap_usd,
@@ -744,6 +776,40 @@ def _chat_run(mem: LifeMemory, base_args: argparse.Namespace, opts: list[str]) -
     )
     print("\n--- /run summary ---")
     print(json.dumps(summary, indent=2, default=str))
+
+
+def _chat_invoke_supervisor(
+    *,
+    mem: LifeMemory,
+    backend: str,
+    once: bool,
+    max_missions: int,
+    per_mission_cap_usd: float,
+    daily_cap_usd: float,
+    quiet: bool,
+) -> dict[str, Any]:
+    """Build a runner Namespace, drive the supervisor, return its summary."""
+    ns = argparse.Namespace()
+    ns.backend = backend
+    ns.engineer_model = os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini")
+    ns.reviewer_model = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.4")
+    ns.scientist_model = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4")
+    ns.skills_dir = os.environ.get("ARGUS_SKILL_SKILLS_DIR", "skills")
+    ns.workdir = os.environ.get("ARGUS_SKILL_WORKDIR")
+    ns.max_rounds = 3
+
+    runner = _build_runner(ns)
+    return _run_supervisor(
+        mem=mem,
+        runner=runner,
+        engineer_model=ns.engineer_model,
+        reviewer_model=ns.reviewer_model,
+        once=once,
+        max_missions=max_missions,
+        per_mission_cap_usd=per_mission_cap_usd,
+        daily_cap_usd=daily_cap_usd,
+        quiet=quiet,
+    )
 
 
 # ---------------------------------------------------------------------------
