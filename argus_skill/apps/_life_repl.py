@@ -32,7 +32,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from ..core.ports import EventSink
 from ..life import BacklogItem, JournalEntry, LifeMemory
@@ -86,10 +86,16 @@ class LifeStderrSink:
             return event_type in self._verbose_set or event_type not in self._user_facing
         return event_type in self._user_facing
 
+    # Events that life.mission.started/completed already cover; we silence
+    # them in life mode to avoid duplicate noise around mission boundaries.
+    _SILENCED_IN_LIFE: ClassVar[frozenset[str]] = frozenset({"loop.start", "loop.done"})
+
     def handle_event(self, event: dict[str, Any]) -> None:
         if self.quiet:
             return
         et = str(event.get("type", ""))
+        if et in self._SILENCED_IN_LIFE:
+            return
         if not self._allowed(et):
             return
         if self._render is not None:
@@ -103,6 +109,18 @@ class LifeStderrSink:
         text = event.get("text") or event.get("title") or ""
         sys.stderr.write(f"[{et}] {text}\n")
         sys.stderr.flush()
+
+    def handle_stream_line(self, stream: str, line: str) -> None:  # noqa: ARG002
+        """Required by ``make_stream_progress_callback``.
+
+        Life mode has no JSONL outbox to keep an audit trail in — the
+        cooked ``engineer.progress`` events that ``stream_progress``
+        synthesises from the same raw lines are what we render. The raw
+        lines themselves are intentionally discarded here; ``codex
+        --output-format stream-json`` produces dozens per second and
+        echoing them all would defeat the point of having a renderer.
+        """
+        return
 
 
 # ---------------------------------------------------------------------------
@@ -171,14 +189,41 @@ class _CodexSkillLoopRunner:
         self._SkillLoop = SkillLoop
         self._SkillLoopConfig = SkillLoopConfig
         try:
-            from ..adapters.codex_backend import build_codex_backend_from_env
+            from ..adapters.codex_backend import CodexRunnerBackend
+            from ..adapters.stream_progress import make_stream_progress_callback
         except ImportError as exc:  # pragma: no cover — depends on optional install
             raise SystemExit(
                 f"Codex backend requested but ArgusBot is unavailable: {exc}.\n"
                 "Install it (`pip install -e /path/to/ArgusBot`) or use "
                 "/backend memory for the in-process stub."
             ) from exc
-        self._backend = build_codex_backend_from_env()
+        # Per-call sink swap: backend is built once, but the sink rotates
+        # for every execute(). A trampoline callback dispatches to the
+        # currently-installed sink so codex's stream-json events become
+        # ``engineer.progress`` items in whichever sink owns this call.
+        self._current_sink: EventSink | None = None
+
+        def _trampoline(stream: str, line: str) -> None:
+            sink = self._current_sink
+            if sink is None:
+                return
+            try:
+                make_stream_progress_callback(sink)(stream, line)
+            except Exception:  # noqa: BLE001 — never let logging crash the runner
+                pass
+
+        # Mirror build_codex_backend_from_env's env-var contract here so
+        # we can also pass event_callback (the helper doesn't expose it).
+        backend_name = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND") or None
+        runner_bin = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or None
+        raw_extra = os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", "").strip()
+        extra = shlex.split(raw_extra) if raw_extra else None
+        self._backend = CodexRunnerBackend(
+            backend=backend_name,
+            runner_bin=runner_bin,
+            default_extra_args=extra,
+            event_callback=_trampoline,
+        )
         self._args = args
         # Session continuity: seed_thread_id is the codex session id from
         # the previous mission in the same REPL session. We propagate it
@@ -225,7 +270,11 @@ class _CodexSkillLoopRunner:
         # execute() calls (LifeSupervisor may run several missions in one
         # supervisor.run()) chain off the previous mission's last thread_id.
         seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
-        outcome = loop.run(full_task, workdir=workdir, seed_thread_id=seed)
+        self._current_sink = sink
+        try:
+            outcome = loop.run(full_task, workdir=workdir, seed_thread_id=seed)
+        finally:
+            self._current_sink = None
         new_tid = getattr(outcome, "last_thread_id", None)
         if new_tid:
             self.last_thread_id = new_tid

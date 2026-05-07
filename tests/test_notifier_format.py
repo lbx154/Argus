@@ -26,10 +26,11 @@ def test_format_known_event_uses_icon_and_drops_brackets() -> None:
 
 
 def test_format_unknown_event_keeps_legacy_bracketed_form() -> None:
-    msg = format_event_message({"type": "round.start", "text": "round 1"})
-    # Internal/dev events still get the bracketed form so verbose-mode
-    # users can grep them.
-    assert msg == "[round.start] round 1"
+    # ``round.start`` used to be in this category — it now has an icon
+    # and a rich renderer because life-mode surfaces it directly. Use a
+    # truly unknown kind to exercise the legacy fallback path.
+    msg = format_event_message({"type": "totally.fictional.kind", "text": "x"})
+    assert msg == "[totally.fictional.kind] x"
 
 
 def test_format_no_text_emits_just_icon_for_known_kind() -> None:

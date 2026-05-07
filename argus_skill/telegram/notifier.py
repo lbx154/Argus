@@ -66,6 +66,10 @@ _INTERNAL_EVENTS: set[str] = {
     "skill.writeback",
     "distill.start",
     "distill.done",
+    "engineer.progress",
+    "life.mission.started",
+    "life.mission.completed",
+    "life.status",
 }
 
 _VERBOSE_EVENTS: set[str] = _USER_FACING_EVENTS | _INTERNAL_EVENTS
@@ -108,6 +112,19 @@ _EVENT_ICONS: dict[str, str] = {
     "final.report.ready": "📄",
     "distill.start":    "🧬",
     "distill.done":     "🧬",
+    # Life-mode lifecycle (in-process REPL surfaces these).
+    "life.mission.started":   "▶",
+    "life.mission.completed": "■",
+    "life.status":            "ℹ️",
+    # SkillLoop legacy lifecycle (used by life mode's runner).
+    "loop.start":  "🚀",
+    "loop.done":   "🏁",
+    "round.start": "🔁",
+    "review.done": "🧑‍⚖️",
+    "checks.done": "🔍",
+    # Live codex/claude/copilot stream progress (one beat per
+    # ``item.completed`` JSON event the backend emits).
+    "engineer.progress": "◆",
 }
 
 
@@ -504,6 +521,93 @@ def _render_status_report(event: dict[str, Any]) -> str:
     return str(event.get("text", "")).rstrip()
 
 
+_PROGRESS_KIND_BADGE = {
+    "agent_message":      "💬",
+    "assistant_message":  "💬",
+    "reasoning":          "🤔",
+    "command_execution":  "$",
+    "tool_use":           "🔧",
+    "file_change":        "📝",
+}
+
+
+def _render_engineer_progress(event: dict[str, Any]) -> str:
+    """Live codex/claude/copilot stream beat — one item per call."""
+    kind = str(event.get("kind") or "message").strip()
+    text = str(event.get("text") or "").strip()
+    badge = _PROGRESS_KIND_BADGE.get(kind, "•")
+    if not text:
+        return f"{badge} {kind}"
+    # Already truncated upstream to 600 chars; trim further for chat scroll.
+    text = _trunc(text, 240)
+    if "\n" in text:
+        # Keep the first non-blank line as the headline; show line count.
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        head = lines[0] if lines else text
+        more = len(lines) - 1
+        head = _trunc(head, 200)
+        if more > 0:
+            return f"{badge} {head}  (+{more} line{'s' if more != 1 else ''})"
+        return f"{badge} {head}"
+    return f"{badge} {text}"
+
+
+def _render_life_mission_started(event: dict[str, Any]) -> str:
+    title = (event.get("title") or event.get("objective") or "").strip()
+    if title:
+        return f"mission start — {_trunc(title, 100)}"
+    return "mission start"
+
+
+def _render_life_mission_completed(event: dict[str, Any]) -> str:
+    parts: list[str] = []
+    status = event.get("status")
+    if status:
+        parts.append(f"status={status}")
+    rounds = event.get("rounds")
+    if rounds is not None:
+        parts.append(f"rounds={rounds}")
+    elapsed = event.get("elapsed_seconds") or event.get("elapsed_s")
+    if elapsed is not None:
+        parts.append(f"elapsed={float(elapsed):.1f}s")
+    cost = event.get("cost_usd")
+    if cost is not None:
+        parts.append(f"cost=${float(cost):.4f}")
+    if not parts:
+        return "mission complete"
+    return "mission complete  ·  " + "  ·  ".join(parts)
+
+
+def _render_loop_start(event: dict[str, Any]) -> str:
+    """Hide the giant memory-context dump; show only the live objective."""
+    text = str(event.get("text") or "")
+    # The supervisor prepends "### Memory context (non-authoritative) … ---
+    # ## Live objective\n<objective>". Skip the prelude entirely.
+    marker = "## Live objective"
+    if marker in text:
+        live = text.split(marker, 1)[1].strip()
+        live = live.lstrip(":").strip()
+        return f"task: {_trunc(live, 200)}"
+    # Fallback: show the first non-blank line.
+    line = next((ln for ln in text.splitlines() if ln.strip()), "")
+    return f"task: {_trunc(line, 200)}" if line else "task started"
+
+
+def _render_loop_done(event: dict[str, Any]) -> str:
+    text = str(event.get("text") or "").strip()
+    return _trunc(text, 200) if text else "loop done"
+
+
+def _render_round_start(event: dict[str, Any]) -> str:
+    text = str(event.get("text") or "").strip()
+    return _trunc(text, 160) if text else "engineer round"
+
+
+def _render_review_done(event: dict[str, Any]) -> str:
+    text = str(event.get("text") or "").strip()
+    return _trunc(text, 200) if text else "review done"
+
+
 _RICH_RENDERERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "loop.started": _render_loop_started,
     "round.started": _render_round_started,
@@ -519,6 +623,14 @@ _RICH_RENDERERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "final.report.ready": _render_final_report_ready,
     "command.ack": _render_command_ack,
     "status.report": _render_status_report,
+    # Life mode + legacy SkillLoop:
+    "engineer.progress": _render_engineer_progress,
+    "life.mission.started": _render_life_mission_started,
+    "life.mission.completed": _render_life_mission_completed,
+    "loop.start": _render_loop_start,
+    "loop.done": _render_loop_done,
+    "round.start": _render_round_start,
+    "review.done": _render_review_done,
 }
 
 
