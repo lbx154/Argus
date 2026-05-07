@@ -411,6 +411,7 @@ def _run_supervisor(
     per_mission_cap_usd: float,
     daily_cap_usd: float,
     quiet: bool,
+    verbose: bool = False,
 ) -> dict[str, Any]:
     """Run LifeSupervisor with proper signal-handler save/restore.
 
@@ -430,7 +431,7 @@ def _run_supervisor(
     signal.signal(signal.SIGTERM, _on_signal)
 
     try:
-        sink = _StderrSink(quiet=quiet)
+        sink = _StderrSink(quiet=quiet, verbose=verbose)
         cfg = LifeSupervisorConfig(
             budget=LifeBudget(
                 per_mission_cap_usd=per_mission_cap_usd,
@@ -458,7 +459,7 @@ def _run_supervisor(
 # chat — interactive REPL
 # ---------------------------------------------------------------------------
 
-_CHAT_HELP = """\
+_CHAT_HELP_PLAIN = """\
 argus-skill life chat — interactive lifetime-agent REPL
 
 Slash commands:
@@ -486,8 +487,10 @@ Slash commands:
                                   --quiet
   /backend [codex|memory]   show / set the default backend used by free text
                             and /run when no --backend is given
+  /verbose                  show internal lifecycle events (round.start, …)
+  /quiet                    hide internal events (default)
 
-  /quit  /exit              leave the REPL (Ctrl-D also works)
+  /quit  /exit  :q          leave the REPL (Ctrl-D also works)
 
 Free text (no leading '/') is treated as a one-shot command: it gets
 appended to the backlog AND runs immediately on the current default
@@ -496,49 +499,110 @@ enqueue without running.
 """
 
 
+def _render_chat_help(theme) -> str:  # noqa: ANN001 — Theme not imported at top
+    """Themed two-column help mirroring chat_app's _HELP_TEXT."""
+    rows: list[tuple[str, str]] = [
+        ("/help", "show this help"),
+        ("/status", "summary of identity, backlog, recent journal"),
+        ("/identity [edit|set …]", "view or update the identity card"),
+        ("/backlog [all]", "list pending (or all) items"),
+        ("/add <text>", "enqueue a mission WITHOUT running it"),
+        ("/done|/skip|/rm <id>", "change item status"),
+        ("/journal [N]", "tail last N journal entries (default 10)"),
+        ("/note <text>", "append a manual journal note"),
+        ("/run [opts]", "drain the backlog (foreground; Ctrl-C stops)"),
+        ("/backend [codex|memory]", "show / set free-text default backend"),
+        ("/verbose", "show internal lifecycle events"),
+        ("/quiet", "hide internal events (default)"),
+        ("/quit  /exit  :q", "leave the REPL (Ctrl-D also works)"),
+    ]
+    width = max(len(k) for k, _ in rows)
+    out: list[str] = []
+    out.append(theme.bold("argus-skill life chat") + theme.gray("  — interactive lifetime-agent REPL"))
+    out.append("")
+    out.append(theme.gray("Slash commands:"))
+    for key, desc in rows:
+        out.append(f"  {theme.cyan(key.ljust(width))}  {theme.gray(desc)}")
+    out.append("")
+    out.append(theme.gray(
+        "Free text (no leading '/') is appended to the backlog AND runs immediately"
+    ))
+    out.append(theme.gray(
+        "on the current default backend.  Use /add to enqueue without running."
+    ))
+    out.append("")
+    return "\n".join(out)
+
+
 def _cmd_chat(mem: LifeMemory, args: argparse.Namespace) -> int:
     """Interactive REPL — replaces file editing with slash commands.
 
     Shares input handling (read_pasted_message), event rendering
-    (render_event_for_terminal via _StderrSink), and exit aliases
-    (/quit /exit :q :quit) with ``argus-skill chat``. Also imports
-    ``readline`` for the same line-editing behaviour (history,
-    arrow-key recall) the chat REPL gets.
+    (render_event_for_terminal via _StderrSink), banner (render_startup_banner),
+    theme coloring, exit aliases (/quit /exit :q :quit), and verbose/quiet
+    toggle with ``argus-skill chat``. Also imports ``readline`` for the same
+    line-editing behaviour the chat REPL gets.
     """
     import readline  # noqa: F401 — enables line-editing for input()
     import shlex
     from ._input_helpers import read_pasted_message
+    from ..cli.theme import Theme
+    from ..cli.branding import render_startup_banner
+    from .. import __version__ as _argus_version
 
-    # Auto-init on first use so users don't need a separate `life init`.
+    theme = Theme.auto(force=getattr(args, "color", None))
+
     state = mem.init()
     created = [k for k, v in state.items() if v]
-    if created:
-        print(f"initialized life memory at {mem.root}")
-        print(f"  created: {', '.join(created)}")
-    else:
-        print(f"life memory: {mem.root}")
 
-    chat_state = {
-        "backend": os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex"),
+    # Branded banner — same logo + tagline `argus-skill chat` uses.
+    print(render_startup_banner(
+        theme=theme,
+        version=_argus_version,
+        mode=None,
+        state_dir=str(mem.root),
+        show_logo=True,
+        show_hint=False,
+    ))
+    if created:
+        print("  " + theme.gray("initialized: ") + theme.cyan(", ".join(created)))
+
+    backend_default = os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
+    chat_state: dict[str, Any] = {
+        "backend": backend_default,
+        "verbose": False,
+        "theme": theme,
+        "running": False,
     }
-    print(f"backend: {chat_state['backend']}  (change with /backend memory|codex)")
-    print("Type /help for commands.  Free text runs immediately on the backend.")
+    arrow = theme.dim("→")
+    print(f"  {theme.gray('backend   ')} {arrow} {theme.bold(backend_default)}  "
+          + theme.dim("(/backend memory|codex)"))
+    n_pending = len(mem.backlog.pending())
+    print(f"  {theme.gray('backlog   ')} {arrow} {theme.bold(str(n_pending))} "
+          + theme.gray("pending"))
+    print()
+    print("  " + theme.gray("type ") + theme.cyan("/help") + theme.gray(" for commands  ·  ")
+          + theme.cyan("/exit") + theme.gray(" or Ctrl-D to leave  ·  free text runs immediately"))
+    print()
+
+    prompt = theme.cyan("> ")
 
     while True:
         try:
-            raw = read_pasted_message("> ")
+            raw = read_pasted_message(prompt)
         except KeyboardInterrupt:
             print()
             continue
         if raw is None:  # EOF
             print()
+            print(theme.gray("bye."))
             return 0
         line = raw.strip()
         if not line:
             continue
 
-        # Exit aliases — same set as `argus-skill chat`.
         if line in ("/quit", "/exit", ":q", ":quit"):
+            print(theme.gray("bye."))
             return 0
 
         if not line.startswith("/"):
@@ -548,14 +612,15 @@ def _cmd_chat(mem: LifeMemory, args: argparse.Namespace) -> int:
         try:
             tokens = shlex.split(line)
         except ValueError as exc:
-            print(f"parse error: {exc}")
+            print(theme.red(f"parse error: {exc}"))
             continue
         cmd = tokens[0].lower()
         rest = tokens[1:]
         rest_text = line[len(tokens[0]):].lstrip()
 
-        if cmd == "/help":
-            print(_CHAT_HELP)
+        if cmd in ("/help", "/commands"):
+            sys.stdout.write(_render_chat_help(theme))
+            sys.stdout.flush()
             continue
         if cmd == "/status":
             _cmd_status(mem)
@@ -569,13 +634,13 @@ def _cmd_chat(mem: LifeMemory, args: argparse.Namespace) -> int:
             continue
         if cmd == "/add":
             if not rest_text:
-                print("usage: /add <objective text>")
+                print(theme.gray("usage: /add <objective text>"))
                 continue
             _chat_add_only(mem, rest_text)
             continue
         if cmd in ("/done", "/skip", "/rm"):
             if not rest:
-                print(f"usage: {cmd} <item_id>")
+                print(theme.gray(f"usage: {cmd} <item_id>"))
                 continue
             _chat_status_change(mem, cmd, rest[0])
             continue
@@ -585,13 +650,13 @@ def _cmd_chat(mem: LifeMemory, args: argparse.Namespace) -> int:
                 try:
                     n = int(rest[0])
                 except ValueError:
-                    print(f"usage: /journal [N]  (got: {rest[0]!r})")
+                    print(theme.gray(f"usage: /journal [N]  (got: {rest[0]!r})"))
                     continue
             _chat_journal_tail(mem, n)
             continue
         if cmd == "/note":
             if not rest_text:
-                print("usage: /note <text>")
+                print(theme.gray("usage: /note <text>"))
                 continue
             entry = JournalEntry.new(
                 kind="user_note",
@@ -600,15 +665,23 @@ def _cmd_chat(mem: LifeMemory, args: argparse.Namespace) -> int:
                 tags=[],
             )
             mem.journal.append(entry)
-            print(f"note appended (id={entry.id})")
+            print(theme.gray(f"note appended (id={entry.id})"))
             continue
         if cmd == "/backend":
             _chat_backend(rest, chat_state)
             continue
+        if cmd == "/verbose":
+            chat_state["verbose"] = True
+            print(theme.gray("verbose: on  (showing internal events)"))
+            continue
+        if cmd == "/quiet":
+            chat_state["verbose"] = False
+            print(theme.gray("verbose: off  (user-facing events only)"))
+            continue
         if cmd == "/run":
             _chat_run(mem, args, rest, chat_state)
             continue
-        print(f"unknown command: {cmd}  (try /help)")
+        print(theme.gray(f"unknown command: {cmd}  (try /help)"))
 
 
 def _chat_add_only(mem: LifeMemory, text: str) -> "BacklogItem":
@@ -637,7 +710,9 @@ def _chat_run_freeform(
 ) -> None:
     """Free-text input: enqueue + run immediately on the current backend."""
     item = _chat_add_only(mem, text)
-    print(f"running on backend={chat_state['backend']} (Ctrl-C to stop)...")
+    theme = chat_state.get("theme")
+    msg = f"running on backend={chat_state['backend']} (Ctrl-C to stop)..."
+    print(theme.gray(msg) if theme else msg)
     _chat_invoke_supervisor(
         mem=mem,
         backend=chat_state["backend"],
@@ -646,6 +721,7 @@ def _chat_run_freeform(
         per_mission_cap_usd=1.0,
         daily_cap_usd=5.0,
         quiet=False,
+        verbose=bool(chat_state.get("verbose")),
     )
 
 
@@ -780,6 +856,7 @@ def _chat_run(
         per_mission_cap_usd=run_args.per_mission_cap_usd,
         daily_cap_usd=run_args.daily_cap_usd,
         quiet=run_args.quiet,
+        verbose=bool(chat_state.get("verbose")),
     )
     print("\n--- /run summary ---")
     print(json.dumps(summary, indent=2, default=str))
@@ -794,6 +871,7 @@ def _chat_invoke_supervisor(
     per_mission_cap_usd: float,
     daily_cap_usd: float,
     quiet: bool,
+    verbose: bool = False,
 ) -> dict[str, Any]:
     """Build a runner Namespace, drive the supervisor, return its summary."""
     ns = argparse.Namespace()
@@ -816,6 +894,7 @@ def _chat_invoke_supervisor(
         per_mission_cap_usd=per_mission_cap_usd,
         daily_cap_usd=daily_cap_usd,
         quiet=quiet,
+        verbose=verbose,
     )
 
 
@@ -827,14 +906,19 @@ class _StderrSink:
     """Forward events to stderr in human-readable form.
 
     Uses the SAME renderer chat_app uses (render_event_for_terminal)
-    so events look consistent across `argus-skill chat` and
-    `argus-skill life chat`. Falls back to the simple [type] text
-    format if the renderer is unavailable (e.g. in a stripped-down
-    install).
+    and the SAME user-facing/internal event split (from telegram.notifier),
+    so events look consistent across ``argus-skill chat`` and
+    ``argus-skill life chat``.
+
+    Filtering rules:
+    - ``quiet=True``  → drop everything (used by /run --quiet for batch runs).
+    - ``verbose=True`` → show user-facing AND internal events.
+    - ``verbose=False`` → show only user-facing events (default; matches chat).
     """
 
-    def __init__(self, *, quiet: bool) -> None:
+    def __init__(self, *, quiet: bool, verbose: bool = False) -> None:
         self.quiet = quiet
+        self.verbose = verbose
         try:
             from ..cli import default_theme, render_event_for_terminal
             self._render = render_event_for_terminal
@@ -842,9 +926,26 @@ class _StderrSink:
         except Exception:  # noqa: BLE001
             self._render = None
             self._theme = None
+        try:
+            from ..telegram.notifier import _USER_FACING_EVENTS, _VERBOSE_EVENTS
+            self._user_facing = set(_USER_FACING_EVENTS)
+            self._verbose_set = set(_VERBOSE_EVENTS)
+        except Exception:  # noqa: BLE001
+            self._user_facing = set()
+            self._verbose_set = set()
+
+    def _allowed(self, event_type: str) -> bool:
+        if not self._user_facing:
+            return True  # filter sets unavailable; fall through (show all)
+        if self.verbose:
+            return event_type in self._verbose_set or event_type not in self._user_facing
+        return event_type in self._user_facing
 
     def handle_event(self, event: dict[str, Any]) -> None:
         if self.quiet:
+            return
+        et = str(event.get("type", ""))
+        if not self._allowed(et):
             return
         if self._render is not None:
             try:
@@ -853,10 +954,9 @@ class _StderrSink:
                 sys.stderr.flush()
                 return
             except Exception:  # noqa: BLE001
-                pass  # fall through to legacy format
-        kind = event.get("type", "?")
+                pass
         text = event.get("text") or event.get("title") or ""
-        sys.stderr.write(f"[{kind}] {text}\n")
+        sys.stderr.write(f"[{et}] {text}\n")
         sys.stderr.flush()
 
 
