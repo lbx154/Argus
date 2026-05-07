@@ -1,0 +1,93 @@
+"""Shared input helpers for argus-skill terminal apps (go, chat, up).
+
+The kernel's line discipline only delivers the first ``\\n``-terminated
+line to ``input()``; the rest of a multi-line paste sits in stdin's
+buffer and would otherwise be silently dispatched as N follow-up
+commands. This module provides a small drain helper plus a "read one
+logical message (which may span pasted lines)" entry point that all
+argus-skill REPLs share.
+"""
+from __future__ import annotations
+
+import os
+import re
+import select
+import sys
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z~]")
+# Bracketed-paste markers some terminals inject around a paste burst.
+_BRACKETED_START = "\x1b[200~"
+_BRACKETED_END = "\x1b[201~"
+
+
+def drain_pasted_lines(timeout: float = 0.10, *, max_bytes: int = 65536) -> list[str]:
+    """Read any extra lines already sitting in stdin's buffer right after
+    ``input()`` returned. Returns the post-first-line lines (still raw —
+    callers decide whether to strip blanks). ANSI / bracketed-paste
+    markers are stripped.
+
+    Newlines are preserved as element boundaries (one element per line)
+    so callers can re-join with their preferred separator (``\\n`` for
+    REPL messages that should preserve multi-line structure, ``" "`` for
+    objective-style prompts that want a single sentence).
+    """
+    try:
+        fd = sys.stdin.fileno()
+    except (AttributeError, OSError):
+        return []
+
+    chunks: list[bytes] = []
+    total = 0
+    poll = timeout
+    while total < max_bytes:
+        try:
+            ready, _, _ = select.select([fd], [], [], poll)
+        except (ValueError, OSError):
+            break
+        if not ready:
+            break
+        try:
+            chunk = os.read(fd, 4096)
+        except OSError:
+            break
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+        # After the first follow-on chunk arrives, give a much shorter
+        # grace period for the remainder of the same paste burst.
+        poll = 0.04
+
+    if not chunks:
+        return []
+    text = b"".join(chunks)[:max_bytes].decode("utf-8", errors="replace")
+    # Strip terminal control noise.
+    text = text.replace(_BRACKETED_START, "").replace(_BRACKETED_END, "")
+    text = _ANSI_RE.sub("", text)
+    return text.splitlines()
+
+
+def read_pasted_message(prompt: str = "> ") -> str | None:
+    """Read one logical message from stdin, preserving paste newlines.
+
+    Returns ``None`` on EOF / Ctrl-D so callers can break their loop.
+    Returns ``""`` if the user pressed Enter on an empty line (callers
+    typically treat that as "ignore"). Pasted multi-line content is
+    joined with ``\\n`` so code snippets, JSON blobs, etc. retain their
+    structure when forwarded to the daemon / engineer.
+    """
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+    try:
+        first = input()
+    except EOFError:
+        return None
+    extras = drain_pasted_lines()
+    if not extras:
+        return first
+    parts = [first, *extras]
+    # Drop pure-blank trailing lines (terminals often append one).
+    while parts and parts[-1] == "":
+        parts.pop()
+    return "\n".join(parts)

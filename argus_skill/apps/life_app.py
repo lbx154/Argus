@@ -497,7 +497,15 @@ enqueue without running.
 
 
 def _cmd_chat(mem: LifeMemory, args: argparse.Namespace) -> int:
-    """Interactive REPL — replaces file editing with slash commands."""
+    """Interactive REPL — replaces file editing with slash commands.
+
+    Shares input handling (read_pasted_message), event rendering
+    (render_event_for_terminal via _StderrSink), and exit aliases
+    (/quit /exit :q :quit) with ``argus-skill chat``. Also imports
+    ``readline`` for the same line-editing behaviour (history,
+    arrow-key recall) the chat REPL gets.
+    """
+    import readline  # noqa: F401 — enables line-editing for input()
     import shlex
     from ._input_helpers import read_pasted_message
 
@@ -510,9 +518,6 @@ def _cmd_chat(mem: LifeMemory, args: argparse.Namespace) -> int:
     else:
         print(f"life memory: {mem.root}")
 
-    # Default backend used by free-text and bare /run. Env override; codex
-    # is the real one. memory is a deterministic stub kept around for
-    # CI / no-API-key smoke tests.
     chat_state = {
         "backend": os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex"),
     }
@@ -521,7 +526,7 @@ def _cmd_chat(mem: LifeMemory, args: argparse.Namespace) -> int:
 
     while True:
         try:
-            raw = read_pasted_message("life> ")
+            raw = read_pasted_message("> ")
         except KeyboardInterrupt:
             print()
             continue
@@ -531,6 +536,10 @@ def _cmd_chat(mem: LifeMemory, args: argparse.Namespace) -> int:
         line = raw.strip()
         if not line:
             continue
+
+        # Exit aliases — same set as `argus-skill chat`.
+        if line in ("/quit", "/exit", ":q", ":quit"):
+            return 0
 
         if not line.startswith("/"):
             _chat_run_freeform(mem, args, raw, chat_state)
@@ -545,8 +554,6 @@ def _cmd_chat(mem: LifeMemory, args: argparse.Namespace) -> int:
         rest = tokens[1:]
         rest_text = line[len(tokens[0]):].lstrip()
 
-        if cmd in ("/quit", "/exit"):
-            return 0
         if cmd == "/help":
             print(_CHAT_HELP)
             continue
@@ -817,14 +824,36 @@ def _chat_invoke_supervisor(
 # ---------------------------------------------------------------------------
 
 class _StderrSink:
-    """Forward events to stderr in human-readable form."""
+    """Forward events to stderr in human-readable form.
+
+    Uses the SAME renderer chat_app uses (render_event_for_terminal)
+    so events look consistent across `argus-skill chat` and
+    `argus-skill life chat`. Falls back to the simple [type] text
+    format if the renderer is unavailable (e.g. in a stripped-down
+    install).
+    """
 
     def __init__(self, *, quiet: bool) -> None:
         self.quiet = quiet
+        try:
+            from ..cli import default_theme, render_event_for_terminal
+            self._render = render_event_for_terminal
+            self._theme = default_theme()
+        except Exception:  # noqa: BLE001
+            self._render = None
+            self._theme = None
 
     def handle_event(self, event: dict[str, Any]) -> None:
         if self.quiet:
             return
+        if self._render is not None:
+            try:
+                line = self._render(event, theme=self._theme)
+                sys.stderr.write(line + "\n")
+                sys.stderr.flush()
+                return
+            except Exception:  # noqa: BLE001
+                pass  # fall through to legacy format
         kind = event.get("type", "?")
         text = event.get("text") or event.get("title") or ""
         sys.stderr.write(f"[{kind}] {text}\n")
@@ -910,13 +939,23 @@ class _CodexSkillLoopRunner:
     """
 
     def __init__(self, args: argparse.Namespace) -> None:
-        # Lazy import: ArgusBot may be missing in lightweight envs.
-        from .cli import _load_backend
+        # Force the codex backend regardless of the ARGUS_SKILL_BACKEND
+        # env var: when life chose "--backend codex", that's the user's
+        # explicit ask and we should honour it (the env var is a
+        # convenience for CLI users, not the source of truth here).
         from ..loop import SkillLoop, SkillLoopConfig
 
         self._SkillLoop = SkillLoop
         self._SkillLoopConfig = SkillLoopConfig
-        self._backend = _load_backend()
+        try:
+            from ..adapters.codex_backend import build_codex_backend_from_env
+        except ImportError as exc:  # pragma: no cover — depends on optional install
+            raise SystemExit(
+                f"Codex backend requested but ArgusBot is unavailable: {exc}.\n"
+                "Install it (`pip install -e /path/to/ArgusBot`) or set "
+                "/backend memory in life chat for the in-process stub."
+            ) from exc
+        self._backend = build_codex_backend_from_env()
         self._args = args
 
     def execute(

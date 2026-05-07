@@ -104,6 +104,14 @@ class MissionLoopConfig:
     # ``SkillStore.promote_lesson``). Best-effort: exceptions are
     # caught and logged, the engine never crashes on them.
     on_skill_lesson: Callable[[str, str], None] | None = None
+    # Phase 3 lifetime-agent: a non-authoritative memory block (identity
+    # card + relevant prior journal entries) rendered alongside the
+    # objective. Empty string ⇒ no preamble, no behavioral change. The
+    # block's own header marks it advisory, but we additionally keep it
+    # *outside* the ``Objective`` section so skill-matching / mission-id
+    # hashing / reviewer prompts that read ``cfg.objective`` are
+    # unaffected.
+    prelude_context: str = ""
 
 
 @dataclass
@@ -180,6 +188,7 @@ class MissionLoopEngine:
             objective=self.config.objective,
             operator_messages=self._operator_messages_for("main"),
             plan=current_plan,
+            prelude_context=self.config.prelude_context,
         )
         next_phase = "initial"
 
@@ -208,6 +217,8 @@ class MissionLoopEngine:
                 "turn_failed": getattr(main_result, "turn_failed", False),
                 "fatal_error": getattr(main_result, "fatal_error", None),
                 "last_message": getattr(main_result, "last_agent_message", "") or "",
+                "input_tokens": int(getattr(main_result, "input_tokens", 0) or 0),
+                "output_tokens": int(getattr(main_result, "output_tokens", 0) or 0),
             })
 
             # --- handle external interruption --------------------------------
@@ -262,6 +273,7 @@ class MissionLoopEngine:
                         checks_ok=False,
                         operator_messages=self._operator_messages_for("main"),
                         plan=current_plan,
+                        prelude_context=self.config.prelude_context,
                     )
                     next_phase = "continue"
                 continue
@@ -419,6 +431,7 @@ class MissionLoopEngine:
                 plan=current_plan,
                 mission_lesson=self._active_lesson,
                 verification_evidence=self._active_verification_evidence,
+                prelude_context=self.config.prelude_context,
             )
             next_phase = "continue"
 
@@ -519,6 +532,8 @@ class MissionLoopEngine:
             "next_action": review.next_action,
             "failure_cause": getattr(review, "failure_cause", "") or "",
             "mission_lesson_emitted": bool((getattr(review, "mission_lesson", "") or "").strip()),
+            "input_tokens": int(getattr(review, "input_tokens", 0) or 0),
+            "output_tokens": int(getattr(review, "output_tokens", 0) or 0),
         })
 
     # ------------------------------------------------------------------

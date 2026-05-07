@@ -31,6 +31,7 @@ from ..telegram.notifier import (
     format_event_message,
 )
 from ..telegram.poller import parse_command_text
+from ._input_helpers import read_pasted_message
 
 _HELP_TEXT = (
     "/run <task>          start a task (queue daemon)\n"
@@ -207,21 +208,27 @@ def cmd_chat(args: argparse.Namespace) -> int:
     rc = 0
     try:
         while True:
-            try:
-                line = input("> ")
-            except EOFError:
+            line = read_pasted_message("> ")
+            if line is None:
                 print()  # newline after Ctrl-D so the goodbye reads cleanly
                 break
-            line = line.strip()
-            if not line:
+            stripped = line.strip()
+            if not stripped:
                 continue
-            if line in ("/exit", "/quit", ":q", ":quit"):
+            if stripped in ("/exit", "/quit", ":q", ":quit"):
                 break
-            if line in ("/help", "/commands"):
+            if stripped in ("/help", "/commands"):
                 sys.stdout.write(_HELP_TEXT)
                 sys.stdout.flush()
                 continue
-            cmd = parse_command_text(text=line, plain_text_as_inject=plain_as_inject)
+            # For multi-line input we keep the original newlines so a
+            # pasted code block / JSON body / stack trace forwards intact
+            # to the daemon. ``parse_command_text`` only looks at the
+            # first whitespace-separated token to detect /-commands, so
+            # this preserves command-detection while letting plain text
+            # carry newlines.
+            payload = line if "\n" in line else stripped
+            cmd = parse_command_text(text=payload, plain_text_as_inject=plain_as_inject)
             if cmd is None:
                 print("(unrecognized — try /help)")
                 continue

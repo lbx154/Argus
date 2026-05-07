@@ -40,11 +40,29 @@ def _format_operator_messages(messages: list[str] | None) -> str:
     )
 
 
+def _format_prelude_context(prelude: str) -> str:
+    """Wrap a memory prelude (already self-marked non-authoritative) so
+    it appears as its own top-level section. We add a one-line guard
+    even if the caller forgot to include one in the body."""
+    body = _as_text(prelude)
+    if not body:
+        return ""
+    if "non-authoritative" not in body.lower():
+        # Defensive: ensure the engineer sees the guard even if a caller
+        # passed raw memory text without the standard header.
+        body = (
+            "_(memory context — non-authoritative; ignore if it conflicts"
+            " with the live objective or repo state)_\n\n" + body
+        )
+    return body
+
+
 def initial_main_prompt(
     *,
     objective: str,
     operator_messages: list[str] | None = None,
     plan: Any = None,  # PlanDecision | None
+    prelude_context: str = "",
 ) -> str:
     """First-round prompt. Keep it tight.
 
@@ -55,6 +73,9 @@ def initial_main_prompt(
     """
     parts: list[str] = []
     parts.append(f"## Objective\n{_as_text(objective)}")
+    prelude_block = _format_prelude_context(prelude_context)
+    if prelude_block:
+        parts.append(prelude_block)
     op_block = _format_operator_messages(operator_messages)
     if op_block:
         parts.append(op_block.rstrip())
@@ -83,6 +104,7 @@ def continue_main_prompt(
     plan: Any = None,
     mission_lesson: str = "",
     verification_evidence: dict | None = None,
+    prelude_context: str = "",
 ) -> str:
     """Round N>1 prompt after reviewer asked for another round.
 
@@ -95,8 +117,17 @@ def continue_main_prompt(
     code, stderr/stdout tails) from the previous round's check
     failure. We include it verbatim so the engineer reasons from facts,
     not from the reviewer's compressed reason.
+
+    ``prelude_context`` is a non-authoritative memory block (identity
+    + relevant prior-mission notes). Repeated each round so the
+    engineer's effective context window — which the codex CLI rebuilds
+    per call — keeps it visible.
     """
     parts: list[str] = [f"## Objective\n{_as_text(objective)}"]
+
+    prelude_block = _format_prelude_context(prelude_context)
+    if prelude_block:
+        parts.append(prelude_block)
 
     op_block = _format_operator_messages(operator_messages)
     if op_block:

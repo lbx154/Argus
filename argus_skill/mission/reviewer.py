@@ -88,6 +88,8 @@ class MissionReviewer:
             ),
             run_label="reviewer",
         )
+        rev_in = int(getattr(result, "input_tokens", 0) or 0)
+        rev_out = int(getattr(result, "output_tokens", 0) or 0)
         agent_messages = list(result.agent_messages or [])
         if not agent_messages:
             return ReviewDecision(
@@ -96,6 +98,8 @@ class MissionReviewer:
                 reason=f"Reviewer returned empty output (exit={result.exit_code}).",
                 next_action="Continue and produce a clearer summary of what was done.",
                 round_summary_markdown="# Review Summary\n\n- Reviewer returned empty output.\n",
+                input_tokens=rev_in,
+                output_tokens=rev_out,
             )
         parsed = _find_decision_in_messages(agent_messages)
         if parsed is None:
@@ -110,7 +114,11 @@ class MissionReviewer:
                 reason=f"Reviewer output was not valid JSON; raw: {tail}",
                 next_action="Continue and produce a concise summary that addresses the objective.",
                 round_summary_markdown="# Review Summary\n\n- Reviewer output not parseable.\n",
+                input_tokens=rev_in,
+                output_tokens=rev_out,
             )
+        parsed.input_tokens = rev_in
+        parsed.output_tokens = rev_out
         return parsed
 
     # ------------------------------------------------------------------

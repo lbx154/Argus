@@ -189,6 +189,7 @@ class MissionExecutor:
         objective: str,
         sink: EventSink,
         preload_injects: list[str] | None = None,
+        prelude_context: str = "",
     ) -> MissionOutcome:
         """Run one mission for ``objective`` and return its outcome.
 
@@ -196,6 +197,11 @@ class MissionExecutor:
         task started (queue's pending_inject buffer); they are pushed
         into the fresh ``LoopStateStore`` so the engineer sees them in
         round 1 (rubber-duck critique #10).
+
+        ``prelude_context`` (Phase 3 lifetime-agent) is a non-authoritative
+        memory block (identity card + prior journal entries) that's
+        rendered alongside the objective in every round's engineer
+        prompt. Pass ``""`` (the default) for no behavioral change.
         """
         mission_id = self._next_mission_id(objective)
         config = self.config
@@ -282,6 +288,7 @@ class MissionExecutor:
             workdir=workdir,
             mission_id=mission_id,
             on_skill_lesson=_on_skill_lesson,
+            prelude_context=prelude_context,
         )
 
         # Track follow-up phases via a thin event-sink wrapper.

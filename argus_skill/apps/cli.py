@@ -82,6 +82,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_mission_subcommands(sub)
     from .go_app import add_go_subcommand
     add_go_subcommand(sub)
+    from .life_app import add_life_subcommand
+    add_life_subcommand(sub)
     return parser
 
 
@@ -259,5 +261,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "go":
         from .go_app import cmd_go
         return cmd_go(args)
+    if args.cmd == "life":
+        from .life_app import cmd_life
+        return cmd_life(args)
     parser.print_help()
     return 2

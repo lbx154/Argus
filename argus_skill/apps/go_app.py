@@ -155,52 +155,12 @@ _ANSI_RE = __import__("re").compile(r"\x1b\[[0-9;]*[a-zA-Z~]")
 
 
 def _drain_pasted_lines(timeout: float = 0.10, *, max_bytes: int = 16384) -> list[str]:
-    """Read any extra lines that are *already* sitting in stdin's buffer.
-
-    When a user pastes multi-line text into the ``input()`` prompt, the kernel's
-    line discipline only delivers the first line to ``input()``; the rest stays
-    queued.  After ``input()`` returns we use ``select`` with a short timeout to
-    detect that burst and drain it.  A regular interactive single-line typer
-    sees no queued data and we return immediately.
-
-    ANSI escape sequences (e.g. bracketed-paste markers ``\\x1b[200~`` /
-    ``\\x1b[201~`` that some terminals inject) are stripped from the result.
-    """
-    import os
-    import select
-
-    try:
-        fd = sys.stdin.fileno()
-    except (AttributeError, OSError):
-        return []
-
-    chunks: list[bytes] = []
-    total = 0
-    poll = timeout
-    while total < max_bytes:
-        try:
-            ready, _, _ = select.select([fd], [], [], poll)
-        except (ValueError, OSError):
-            break
-        if not ready:
-            break
-        try:
-            chunk = os.read(fd, 4096)
-        except OSError:
-            break
-        if not chunk:
-            break
-        chunks.append(chunk)
-        total += len(chunk)
-        # After the first follow-on chunk arrives, give a much shorter
-        # grace period for the rest of the same paste burst.
-        poll = 0.04
-
-    if not chunks:
-        return []
-    text = b"".join(chunks)[:max_bytes].decode("utf-8", errors="replace")
-    text = _ANSI_RE.sub("", text)
-    return [line.strip() for line in text.splitlines() if line.strip()]
+    """Thin wrapper around :func:`._input_helpers.drain_pasted_lines` for
+    backward compatibility with the call sites in this module. Strips
+    blanks because the historical ``go`` objective prompt joined them
+    with spaces."""
+    from ._input_helpers import drain_pasted_lines
+    return [line.strip() for line in drain_pasted_lines(timeout, max_bytes=max_bytes) if line.strip()]
 
 
 def _prompt_objective() -> str:

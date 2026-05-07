@@ -108,6 +108,12 @@ class ReviewDecision:
     failure_cause: str = ""
     mission_lesson: str = ""
     verification_summary: str = ""
+    # Side-channel: token usage of the reviewer subprocess that produced
+    # this decision. Populated by ``MissionReviewer.evaluate``; used by
+    # benchmarks/runners to compute USD cost. Not part of the reviewer's
+    # semantic output — paper analytics only.
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 @dataclass
