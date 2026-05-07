@@ -327,7 +327,12 @@ def _invoke_supervisor(
     ns.scientist_model = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4")
     ns.skills_dir = os.environ.get("ARGUS_SKILL_SKILLS_DIR", "skills")
     ns.workdir = os.environ.get("ARGUS_SKILL_WORKDIR")
-    ns.max_rounds = 3
+    # Life-mode default: 6 engineer rounds. The earlier value of 3 was
+    # too small for moderate "implement + test until pytest green"
+    # tasks where round 1 implements, round 2 tests + fixes, round 3
+    # re-tests + fixes; tight 3-round caps were stranding work that
+    # could finish cleanly in 4-5. Override via ARGUS_SKILL_MAX_ROUNDS.
+    ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "6"))
 
     runner = build_life_runner(ns, seed_thread_id=seed_thread_id)
     summary = run_life_supervisor(
