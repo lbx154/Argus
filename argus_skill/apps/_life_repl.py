@@ -117,6 +117,7 @@ class _Outcome:
     matched_skill_name: str | None = None
     skill_distilled: bool = False
     had_follow_up: bool = False
+    last_thread_id: str | None = None
 
 
 class _MemoryRunner:
@@ -133,6 +134,7 @@ class _MemoryRunner:
         sink: EventSink,
         preload_injects: list[str] | None = None,
         prelude_context: str = "",
+        seed_thread_id: str | None = None,  # noqa: ARG002 — protocol parity
     ) -> _Outcome:
         sink.handle_event({
             "type": "round.main.completed",
@@ -161,7 +163,7 @@ class _CodexSkillLoopRunner:
     var was unset, while the UI happily printed ``backend: codex``.
     """
 
-    def __init__(self, args: argparse.Namespace) -> None:
+    def __init__(self, args: argparse.Namespace, *, seed_thread_id: str | None = None) -> None:
         from ..loop import SkillLoop, SkillLoopConfig
 
         self._SkillLoop = SkillLoop
@@ -176,6 +178,13 @@ class _CodexSkillLoopRunner:
             ) from exc
         self._backend = build_codex_backend_from_env()
         self._args = args
+        # Session continuity: seed_thread_id is the codex session id from
+        # the previous mission in the same REPL session. We propagate it
+        # into the *first* engineer round of this mission, then update
+        # in-place after each execute() so the chat REPL can recover the
+        # latest thread_id and forward it to the next mission.
+        self._next_seed_thread_id: str | None = seed_thread_id
+        self.last_thread_id: str | None = seed_thread_id
 
     def execute(
         self,
@@ -184,6 +193,7 @@ class _CodexSkillLoopRunner:
         sink: EventSink,
         preload_injects: list[str] | None = None,
         prelude_context: str = "",
+        seed_thread_id: str | None = None,
     ) -> _Outcome:
         args = self._args
         config = self._SkillLoopConfig(
@@ -209,7 +219,15 @@ class _CodexSkillLoopRunner:
         workdir = (
             Path(args.workdir).expanduser() if args.workdir else Path.cwd()
         )
-        outcome = loop.run(full_task, workdir=workdir)
+        # Use the seed for the first execute() of this runner; subsequent
+        # execute() calls (LifeSupervisor may run several missions in one
+        # supervisor.run()) chain off the previous mission's last thread_id.
+        seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
+        outcome = loop.run(full_task, workdir=workdir, seed_thread_id=seed)
+        new_tid = getattr(outcome, "last_thread_id", None)
+        if new_tid:
+            self.last_thread_id = new_tid
+            self._next_seed_thread_id = new_tid
         return _Outcome(
             success=outcome.successful,
             status=outcome.status,
@@ -217,15 +235,16 @@ class _CodexSkillLoopRunner:
             rounds=outcome.round_count,
             matched_skill_name=outcome.skill_used,
             skill_distilled=outcome.skill_distilled,
+            last_thread_id=new_tid,
         )
 
 
-def build_life_runner(args: argparse.Namespace):
+def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = None):
     """Return a ``_MissionRunner``-shaped adapter for the requested backend."""
     if args.backend == "memory":
         return _MemoryRunner()
     if args.backend == "codex":
-        return _CodexSkillLoopRunner(args)
+        return _CodexSkillLoopRunner(args, seed_thread_id=seed_thread_id)
     raise SystemExit(f"unknown backend: {args.backend}")
 
 
@@ -297,7 +316,8 @@ def _invoke_supervisor(
     daily_cap_usd: float,
     quiet: bool,
     verbose: bool = False,
-) -> dict[str, Any]:
+    seed_thread_id: str | None = None,
+) -> tuple[dict[str, Any], str | None]:
     ns = argparse.Namespace()
     ns.backend = backend
     ns.engineer_model = os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini")
@@ -307,8 +327,8 @@ def _invoke_supervisor(
     ns.workdir = os.environ.get("ARGUS_SKILL_WORKDIR")
     ns.max_rounds = 3
 
-    runner = build_life_runner(ns)
-    return run_life_supervisor(
+    runner = build_life_runner(ns, seed_thread_id=seed_thread_id)
+    summary = run_life_supervisor(
         mem=mem,
         runner=runner,
         engineer_model=ns.engineer_model,
@@ -320,6 +340,8 @@ def _invoke_supervisor(
         quiet=quiet,
         verbose=verbose,
     )
+    final_thread_id = getattr(runner, "last_thread_id", None)
+    return summary, final_thread_id
 
 
 # ---------------------------------------------------------------------------
@@ -438,16 +460,48 @@ def _free_text_cmd(
     theme = chat_state.get("theme")
     msg = f"running on backend={chat_state['backend']} (Ctrl-C to stop)..."
     print(theme.gray(msg) if theme else msg)
-    _invoke_supervisor(
+    _invoke_and_track(
         mem=mem,
-        backend=chat_state["backend"],
+        chat_state=chat_state,
         once=True,
         max_missions=1,
         per_mission_cap_usd=1.0,
         daily_cap_usd=5.0,
         quiet=False,
-        verbose=bool(chat_state.get("verbose")),
     )
+
+
+def _invoke_and_track(
+    *,
+    mem: LifeMemory,
+    chat_state: dict[str, Any],
+    once: bool,
+    max_missions: int,
+    per_mission_cap_usd: float,
+    daily_cap_usd: float,
+    quiet: bool,
+) -> dict[str, Any]:
+    """Run the supervisor and persist the resulting codex thread_id back
+    into ``chat_state`` so the next mission resumes the same session."""
+    seed = chat_state.get("last_thread_id")
+    if seed and not quiet:
+        theme = chat_state.get("theme")
+        note = f"resuming codex session {seed[:12]}…"
+        print(theme.gray(note) if theme else note)
+    summary, last_tid = _invoke_supervisor(
+        mem=mem,
+        backend=chat_state["backend"],
+        once=once,
+        max_missions=max_missions,
+        per_mission_cap_usd=per_mission_cap_usd,
+        daily_cap_usd=daily_cap_usd,
+        quiet=quiet,
+        verbose=bool(chat_state.get("verbose")),
+        seed_thread_id=seed,
+    )
+    if last_tid:
+        chat_state["last_thread_id"] = last_tid
+    return summary
 
 
 def _run_cmd(
@@ -479,7 +533,15 @@ def _run_cmd(
     )
     print("       (foreground; Ctrl-C requests graceful stop)")
 
-    summary = _invoke_supervisor(
+    # If user overrode backend on /run, we still resume only when it matches
+    # the chat_state backend (where the thread was originally created).
+    use_seed = run_args.backend == chat_state["backend"]
+    seed = chat_state.get("last_thread_id") if use_seed else None
+    if seed and not run_args.quiet:
+        theme = chat_state.get("theme")
+        note = f"resuming codex session {seed[:12]}…"
+        print(theme.gray(note) if theme else note)
+    summary, last_tid = _invoke_supervisor(
         mem=mem,
         backend=run_args.backend,
         once=run_args.once,
@@ -488,7 +550,10 @@ def _run_cmd(
         daily_cap_usd=run_args.daily_cap_usd,
         quiet=run_args.quiet,
         verbose=bool(chat_state.get("verbose")),
+        seed_thread_id=seed,
     )
+    if last_tid and use_seed:
+        chat_state["last_thread_id"] = last_tid
     print("\n--- /run summary ---")
     print(json.dumps(summary, indent=2, default=str))
 
@@ -530,6 +595,7 @@ def _render_help(theme) -> str:  # noqa: ANN001
         ("/journal [N]", "tail last N journal entries (default 10)"),
         ("/note <text>", "append a manual journal note"),
         ("/run [opts]", "drain the backlog (foreground; Ctrl-C stops)"),
+        ("/reset", "drop codex session — next mission starts fresh"),
         ("/backend [codex|memory]", "show / set free-text default backend"),
         ("/verbose", "show internal lifecycle events"),
         ("/quiet", "hide internal events (default)"),
@@ -593,6 +659,10 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
         "backend": backend_default,
         "verbose": initial_verbose,
         "theme": theme,
+        # Codex CLI session id of the most recent mission. Reused as
+        # ``resume_thread_id`` on the next mission so the codex CLI does
+        # NOT spin up a fresh session for every prompt. Cleared by /reset.
+        "last_thread_id": None,
     }
 
     # ── Banner ─────────────────────────────────────────────────────
@@ -630,9 +700,14 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
           + theme.cyan("/exit") + theme.gray(" or Ctrl-D to leave"))
     print()
 
-    prompt = theme.bold(theme.cyan("argus")) + theme.dim(" › ")
+    base_prompt = theme.bold(theme.cyan("argus"))
+    sep = theme.dim(" › ")
+    resume_marker = theme.dim(" ↻")  # subtle indicator when codex session is being reused
 
     while True:
+        prompt = (
+            base_prompt + (resume_marker if chat_state.get("last_thread_id") else "") + sep
+        )
         try:
             raw = read_pasted_message(prompt)
         except KeyboardInterrupt:
@@ -722,6 +797,15 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
         if cmd == "/quiet":
             chat_state["verbose"] = False
             print(theme.gray("verbose: off  (user-facing events only)"))
+            continue
+        if cmd == "/reset":
+            old = chat_state.get("last_thread_id")
+            chat_state["last_thread_id"] = None
+            if old:
+                print(theme.gray(f"reset: dropped codex session {old[:12]}…  "
+                                 "next mission will start fresh"))
+            else:
+                print(theme.gray("reset: no active codex session"))
             continue
         if cmd == "/run":
             _run_cmd(mem, rest, chat_state)

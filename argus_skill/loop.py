@@ -138,7 +138,7 @@ class SkillLoop:
     # Public API
     # ------------------------------------------------------------------
 
-    def run(self, task: str, *, workdir: Path | None = None) -> LoopOutcome:
+    def run(self, task: str, *, workdir: Path | None = None, seed_thread_id: str | None = None) -> LoopOutcome:
         workdir = Path(workdir) if workdir else Path.cwd()
         self._emit({"type": "loop.start", "text": f"task: {task[:120]}"})
 
@@ -188,7 +188,7 @@ class SkillLoop:
                 extra_guidance=extra,
             )
 
-        status, rounds, final_message, reason = self.supervised.run(
+        status, rounds, final_message, reason, last_thread_id = self.supervised.run(
             objective=task,
             engineer_prompt_builder=build_prompt,
             supervised_config=SupervisedConfig(
@@ -200,6 +200,7 @@ class SkillLoop:
             ),
             workdir=workdir,
             on_event=self.on_event,
+            seed_thread_id=seed_thread_id,
         )
 
         # Step 4: skill writeback on success
@@ -230,6 +231,7 @@ class SkillLoop:
             final_message=final_message,
             reason=reason,
             workdir=str(workdir),
+            last_thread_id=last_thread_id,
         )
         self._emit({
             "type": "loop.done",

@@ -87,7 +87,8 @@ class SupervisedEngineer:
         supervised_config: SupervisedConfig,
         workdir: Path,
         on_event: Callable[[dict], None] | None = None,
-    ) -> tuple[LoopStatus, list[RoundRecord], str, str]:
+        seed_thread_id: str | None = None,
+    ) -> tuple[LoopStatus, list[RoundRecord], str, str, str | None]:
         """Run the supervised loop.
 
         ``engineer_prompt_builder(next_action)`` is called once per round.
@@ -96,12 +97,19 @@ class SupervisedEngineer:
         The builder is responsible for assembling the full engineer
         prompt (task + skill block + injection text).
 
-        Returns ``(status, rounds, final_message, reason)``.
+        Codex session continuity: round N+1 reuses round N's
+        ``thread_id`` as ``resume_thread_id``. ``seed_thread_id`` (if
+        provided) seeds round 1, allowing higher layers (e.g.
+        life chat) to thread continuity *across* missions, not just
+        across rounds.
+
+        Returns ``(status, rounds, final_message, reason, last_thread_id)``.
         """
         rounds: list[RoundRecord] = []
         last_engineer_message = ""
         last_next_action: str | None = None
         no_progress_streak = 0
+        current_thread_id: str | None = seed_thread_id
 
         for round_index in range(1, supervised_config.max_rounds + 1):
             engineer_prompt = engineer_prompt_builder(last_next_action)
@@ -109,13 +117,20 @@ class SupervisedEngineer:
                 on_event({
                     "type": "round.start",
                     "round": round_index,
-                    "text": f"engineer round {round_index}",
+                    "text": f"engineer round {round_index}"
+                            + (" (resuming codex session)" if current_thread_id else ""),
                 })
             engineer_result = self._run_engineer(
                 prompt=engineer_prompt,
                 workdir=workdir,
                 run_label=f"engineer-r{round_index}",
+                resume_thread_id=current_thread_id,
             )
+            # Capture thread_id so the next round (and the next mission,
+            # via the return value) can resume the same codex session.
+            new_tid = getattr(engineer_result, "thread_id", None)
+            if new_tid:
+                current_thread_id = new_tid
             engineer_message = engineer_result.last_agent_message or ""
             last_engineer_message = engineer_message or last_engineer_message
 
@@ -170,7 +185,7 @@ class SupervisedEngineer:
                 max_rounds=supervised_config.max_rounds,
             )
             if terminal_status is not None:
-                return terminal_status, rounds, last_engineer_message, reason
+                return terminal_status, rounds, last_engineer_message, reason, current_thread_id
 
             last_next_action = review.next_action
 
@@ -179,6 +194,7 @@ class SupervisedEngineer:
             rounds,
             last_engineer_message,
             f"Hit max_rounds={supervised_config.max_rounds} without reviewer-confirmed completion.",
+            current_thread_id,
         )
 
     def _run_engineer(
@@ -187,6 +203,7 @@ class SupervisedEngineer:
         prompt: str,
         workdir: Path,
         run_label: str,
+        resume_thread_id: str | None = None,
     ) -> RunnerResult:
         return self.engineer_runner.run_exec(
             prompt=prompt,
@@ -200,6 +217,7 @@ class SupervisedEngineer:
                 working_dir=str(workdir),
             ),
             run_label=run_label,
+            resume_thread_id=resume_thread_id,
         )
 
     @staticmethod

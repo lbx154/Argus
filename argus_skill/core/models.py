@@ -142,6 +142,7 @@ class LoopOutcome:
     final_message: str
     reason: str
     workdir: str
+    last_thread_id: str | None = None
     extras: dict[str, Any] = field(default_factory=dict)
 
     @property
