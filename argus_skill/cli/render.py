@@ -9,9 +9,10 @@ plain-text.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
-from ..telegram.notifier import format_event_message
+from ..telegram.notifier import format_event_message, _trunc
 from .theme import BOX, Theme
 
 
@@ -59,6 +60,9 @@ def render_event_for_terminal(
     applies a per-icon color.
     """
     kind = str(event.get("type", ""))
+
+    if kind == "engineer.progress":
+        return _render_engineer_progress_terminal(event, theme=theme)
 
     if kind == "round.started":
         round_idx = _round_index_from_event(event) or "?"
@@ -276,3 +280,90 @@ def render_welcome_banner(*, theme: Theme) -> str:
         for cmd, desc in _BANNER_COMMANDS
     ]
     return theme.boxed(rows, title="commands at the > prompt")
+
+
+# ── engineer.progress: model speech vs. operations ───────────────────────
+
+# Empty string from the renderer means "swallow this event entirely" —
+# useful for hiding `reasoning` items by default since they're inner
+# monologue, not user-visible communication. Set
+# ARGUS_SKILL_SHOW_REASONING=1 to opt back in.
+_SHOW_REASONING = os.environ.get("ARGUS_SKILL_SHOW_REASONING", "0").lower() in (
+    "1", "true", "yes", "on",
+)
+
+
+def _render_engineer_progress_terminal(event: dict[str, Any], *, theme: Theme) -> str:
+    """Two visually-distinct lanes: the model's *speech* vs. its *operations*.
+
+    Model speech (``assistant_message`` / ``agent_message``) is what the
+    user actually wants to read — render bright, full-width, multi-line
+    preserved, with a ``▌`` left bar so it reads like a quoted speaker
+    turn.
+
+    Operations (``command_execution`` / ``tool_use`` / ``file_change``)
+    are bookkeeping the user only glances at — render dim, single-line,
+    indented under a small ``▸`` so they recede visually.
+
+    ``reasoning`` is the model's internal scratchpad — hidden by default
+    (set ``ARGUS_SKILL_SHOW_REASONING=1`` to see it as faint italic).
+    """
+    kind = str(event.get("kind") or "").strip()
+    text = str(event.get("text") or "").strip()
+    if not text and kind not in ("file_change", "command_execution", "tool_use"):
+        return ""
+
+    if kind == "reasoning":
+        if not _SHOW_REASONING:
+            return ""
+        head = _trunc(_first_line(text), 200)
+        return theme.dim("  ⋯ " + head)
+
+    if kind in ("assistant_message", "agent_message", "message"):
+        # Preserve multi-line model speech but trim each line. The full
+        # text was already truncated to 600 chars upstream.
+        lines = [ln.rstrip() for ln in text.splitlines() if ln.strip()]
+        if not lines:
+            return ""
+        bar = theme.cyan("▌")
+        out: list[str] = []
+        for ln in lines:
+            out.append(f"{bar} {theme.bold(_trunc(ln, 240))}")
+        return "\n".join(out)
+
+    if kind == "command_execution":
+        # Strip the ``/bin/bash -lc 'cmd'`` wrapper codex always emits so
+        # the user sees the actual command they care about.
+        cmd = _strip_shell_wrapper(_first_line(text))
+        return theme.dim("  ▸ $ " + _trunc(cmd, 200))
+
+    if kind == "tool_use":
+        return theme.dim("  ▸ ⚙ " + _trunc(_first_line(text), 200))
+
+    if kind == "file_change":
+        return theme.dim("  ▸ ✎ " + _trunc(_first_line(text), 200))
+
+    # Unknown progress kind — fall back to dim single-liner.
+    return theme.dim("  ▸ " + _trunc(_first_line(text) or kind, 200))
+
+
+def _first_line(text: str) -> str:
+    for ln in text.splitlines():
+        s = ln.strip()
+        if s:
+            return s
+    return text.strip()
+
+
+def _strip_shell_wrapper(cmd: str) -> str:
+    # codex stream-json wraps commands as ``/bin/bash -lc 'real cmd'`` or
+    # ``/bin/bash -c "real cmd"``. Unwrap one layer of quotes so the
+    # operations lane shows the command the model actually intended.
+    prefixes = ("/bin/bash -lc ", "/bin/bash -c ", "bash -lc ", "bash -c ", "sh -c ")
+    for p in prefixes:
+        if cmd.startswith(p):
+            inner = cmd[len(p):].strip()
+            if len(inner) >= 2 and inner[0] == inner[-1] and inner[0] in ("'", '"'):
+                return inner[1:-1]
+            return inner
+    return cmd

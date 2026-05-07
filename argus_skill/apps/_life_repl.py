@@ -88,7 +88,16 @@ class LifeStderrSink:
 
     # Events that life.mission.started/completed already cover; we silence
     # them in life mode to avoid duplicate noise around mission boundaries.
-    _SILENCED_IN_LIFE: ClassVar[frozenset[str]] = frozenset({"loop.start", "loop.done"})
+    # Also drop a few protocol/skill-machinery events that the user can't
+    # act on and that just clutter the chat scroll (matcher/scientist
+    # banter, internal "distill done" weight reports).
+    _SILENCED_IN_LIFE: ClassVar[frozenset[str]] = frozenset({
+        "loop.start",
+        "loop.done",
+        "match.info",         # "skill store empty - will distill a new playbook"
+        "scientist.start",    # "no high-fit skill — distilling"
+        "distill.done",       # "distilled (4009 chars, 0 tok)"
+    })
 
     def handle_event(self, event: dict[str, Any]) -> None:
         if self.quiet:
@@ -101,8 +110,9 @@ class LifeStderrSink:
         if self._render is not None:
             try:
                 line = self._render(event, theme=self._theme)
-                sys.stderr.write(line + "\n")
-                sys.stderr.flush()
+                if line:  # empty string = renderer chose to swallow event
+                    sys.stderr.write(line + "\n")
+                    sys.stderr.flush()
                 return
             except Exception:  # noqa: BLE001
                 pass
@@ -748,7 +758,8 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
     commands dispatch in-process — no daemon, no jsonl bus.
     """
     import readline  # noqa: F401 — enables line-editing for input()
-    from ._input_helpers import read_pasted_message
+    from ._input_helpers import read_pasted_message, enable_bracketed_paste
+    enable_bracketed_paste()
     from ..cli.theme import Theme
     from ..cli.branding import render_logo, TAGLINE
     from .. import __version__ as _argus_version

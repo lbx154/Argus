@@ -21,6 +21,29 @@ _BRACKETED_START = "\x1b[200~"
 _BRACKETED_END = "\x1b[201~"
 
 
+def enable_bracketed_paste() -> None:
+    """Make ``input()`` return multi-line pastes as a single string.
+
+    Without this, GNU readline reads paste bytes greedily into its
+    internal buffer and returns only the first line; the remainder
+    never reaches the raw fd, so ``drain_pasted_lines`` can't recover
+    it. With bracketed-paste enabled, the terminal wraps the paste in
+    ``\\e[200~…\\e[201~`` markers and readline accumulates the whole
+    burst into the line buffer, returning it (with embedded ``\\n``)
+    on the first Enter.
+
+    Safe to call multiple times. No-op if readline isn't available.
+    """
+    try:
+        import readline
+    except ImportError:
+        return
+    try:
+        readline.parse_and_bind("set enable-bracketed-paste on")
+    except Exception:  # noqa: BLE001 — readline is best-effort
+        pass
+
+
 def drain_pasted_lines(timeout: float = 0.10, *, max_bytes: int = 65536) -> list[str]:
     """Read any extra lines already sitting in stdin's buffer right after
     ``input()`` returned. Returns the post-first-line lines (still raw —

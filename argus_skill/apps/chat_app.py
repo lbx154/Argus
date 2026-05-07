@@ -31,7 +31,7 @@ from ..telegram.notifier import (
     format_event_message,
 )
 from ..telegram.poller import parse_command_text
-from ._input_helpers import read_pasted_message
+from ._input_helpers import read_pasted_message, enable_bracketed_paste
 
 _HELP_TEXT = (
     "/run <task>          start a task (queue daemon)\n"
@@ -79,6 +79,7 @@ def add_chat_subcommand(sub: argparse._SubParsersAction) -> None:
 
 
 def cmd_chat(args: argparse.Namespace) -> int:
+    enable_bracketed_paste()
     # --life routes to the in-process lifetime-agent REPL. Sharing the
     # same `chat` subcommand means one banner/paste/theme stack and one
     # set of muscle-memory keystrokes; the daemon-backed mode below is
