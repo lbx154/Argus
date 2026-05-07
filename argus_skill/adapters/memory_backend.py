@@ -67,6 +67,7 @@ class MemoryBackend:
     ))
     _queues: dict[str, list[CannedResponse]] = field(default_factory=dict)
     history: list[tuple[str, str, RunnerOptions]] = field(default_factory=list)
+    resume_history: list[tuple[str, str | None]] = field(default_factory=list)
 
     def queue(self, run_label: str, *responses: CannedResponse) -> None:
         bucket = self._queues.setdefault(run_label, [])
@@ -78,9 +79,10 @@ class MemoryBackend:
         prompt: str,
         options: RunnerOptions,
         run_label: str,
-        resume_thread_id: str | None = None,  # noqa: ARG002 — protocol parity, unused in stub
+        resume_thread_id: str | None = None,
     ) -> RunnerResult:
         self.history.append((run_label, prompt, options))
+        self.resume_history.append((run_label, resume_thread_id))
         bucket = self._queues.get(run_label, [])
         response = bucket.pop(0) if bucket else self.default
         return response.render(prompt, options)

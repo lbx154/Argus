@@ -28,7 +28,9 @@ import shlex
 import signal
 import sys
 import threading
+import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -444,7 +446,7 @@ def _journal_tail_cmd(mem: LifeMemory, n: int) -> None:
         print("(journal is empty)")
         return
     for e in entries:
-        ts = e.created_at if isinstance(e.created_at, str) else str(e.created_at)
+        ts = datetime.fromtimestamp(e.ts).strftime("%Y-%m-%d %H:%M:%S")
         print(f"  [{ts}] {e.kind:<14} {e.title}")
         if e.summary:
             print(f"      {e.summary}")
@@ -471,6 +473,18 @@ def _free_text_cmd(
     )
 
 
+def _format_elapsed(seconds: float) -> str:
+    if seconds < 1.0:
+        return f"{seconds * 1000:.0f}ms"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    mins, secs = divmod(int(seconds), 60)
+    if mins < 60:
+        return f"{mins}m{secs:02d}s"
+    hours, mins = divmod(mins, 60)
+    return f"{hours}h{mins:02d}m{secs:02d}s"
+
+
 def _invoke_and_track(
     *,
     mem: LifeMemory,
@@ -482,12 +496,17 @@ def _invoke_and_track(
     quiet: bool,
 ) -> dict[str, Any]:
     """Run the supervisor and persist the resulting codex thread_id back
-    into ``chat_state`` so the next mission resumes the same session."""
+    into ``chat_state`` so the next mission resumes the same session.
+
+    Also records wall-clock elapsed time and prints a one-line footer
+    so the user sees how long each mission took.
+    """
     seed = chat_state.get("last_thread_id")
+    theme = chat_state.get("theme")
     if seed and not quiet:
-        theme = chat_state.get("theme")
         note = f"resuming codex session {seed[:12]}…"
         print(theme.gray(note) if theme else note)
+    t0 = time.monotonic()
     summary, last_tid = _invoke_supervisor(
         mem=mem,
         backend=chat_state["backend"],
@@ -499,8 +518,23 @@ def _invoke_and_track(
         verbose=bool(chat_state.get("verbose")),
         seed_thread_id=seed,
     )
+    elapsed = time.monotonic() - t0
     if last_tid:
         chat_state["last_thread_id"] = last_tid
+    chat_state["last_elapsed_s"] = elapsed
+    chat_state["total_elapsed_s"] = (
+        chat_state.get("total_elapsed_s", 0.0) + elapsed
+    )
+    chat_state["mission_count"] = chat_state.get("mission_count", 0) + 1
+    if not quiet:
+        ran = int(summary.get("missions_run", 0)) if isinstance(summary, dict) else 0
+        cost = float(summary.get("total_cost_usd", 0.0)) if isinstance(summary, dict) else 0.0
+        footer = (
+            f"⏱  elapsed {_format_elapsed(elapsed)}"
+            + (f"  ·  missions={ran}" if ran else "")
+            + (f"  ·  cost=${cost:.4f}" if cost else "")
+        )
+        print(theme.dim(footer) if theme else footer)
     return summary
 
 
@@ -537,10 +571,11 @@ def _run_cmd(
     # the chat_state backend (where the thread was originally created).
     use_seed = run_args.backend == chat_state["backend"]
     seed = chat_state.get("last_thread_id") if use_seed else None
+    theme = chat_state.get("theme")
     if seed and not run_args.quiet:
-        theme = chat_state.get("theme")
         note = f"resuming codex session {seed[:12]}…"
         print(theme.gray(note) if theme else note)
+    t0 = time.monotonic()
     summary, last_tid = _invoke_supervisor(
         mem=mem,
         backend=run_args.backend,
@@ -552,13 +587,20 @@ def _run_cmd(
         verbose=bool(chat_state.get("verbose")),
         seed_thread_id=seed,
     )
+    elapsed = time.monotonic() - t0
     if last_tid and use_seed:
         chat_state["last_thread_id"] = last_tid
+    chat_state["last_elapsed_s"] = elapsed
+    chat_state["total_elapsed_s"] = chat_state.get("total_elapsed_s", 0.0) + elapsed
+    if isinstance(summary, dict):
+        summary.setdefault("elapsed_s", round(elapsed, 3))
     print("\n--- /run summary ---")
     print(json.dumps(summary, indent=2, default=str))
+    footer = f"⏱  /run elapsed {_format_elapsed(elapsed)}"
+    print(theme.dim(footer) if theme else footer)
 
 
-def _status_cmd(mem: LifeMemory) -> None:
+def _status_cmd(mem: LifeMemory, chat_state: dict[str, Any] | None = None) -> None:
     """Lightweight status print (mirrors `argus-skill life status` output)."""
     identity = mem.identity.read().strip()
     if identity:
@@ -577,7 +619,27 @@ def _status_cmd(mem: LifeMemory) -> None:
     if last:
         print("recent journal:")
         for e in last:
-            print(f"  [{e.created_at}] {e.kind} — {e.title}")
+            ts_str = datetime.fromtimestamp(e.ts).strftime("%Y-%m-%d %H:%M:%S")
+            print(f"  [{ts_str}] {e.kind} — {e.title}")
+    if chat_state is not None:
+        started = chat_state.get("session_started_s")
+        if started is not None:
+            uptime = time.monotonic() - started
+            count = int(chat_state.get("mission_count", 0))
+            total = float(chat_state.get("total_elapsed_s", 0.0))
+            last_e = chat_state.get("last_elapsed_s")
+            line = f"timing : uptime {_format_elapsed(uptime)}"
+            if count:
+                line += (
+                    f"  ·  {count} mission{'s' if count != 1 else ''}"
+                    f" totaling {_format_elapsed(total)}"
+                )
+            if last_e is not None:
+                line += f"  ·  last {_format_elapsed(last_e)}"
+            print(line)
+            tid = chat_state.get("last_thread_id")
+            if tid:
+                print(f"codex  : resuming session {tid[:12]}…  (/reset to drop)")
 
 
 # ---------------------------------------------------------------------------
@@ -663,6 +725,12 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
         # ``resume_thread_id`` on the next mission so the codex CLI does
         # NOT spin up a fresh session for every prompt. Cleared by /reset.
         "last_thread_id": None,
+        # Wall-clock timing — populated as missions run so /status and the
+        # post-mission footer can report uptime / per-mission elapsed.
+        "session_started_s": time.monotonic(),
+        "mission_count": 0,
+        "total_elapsed_s": 0.0,
+        "last_elapsed_s": None,
     }
 
     # ── Banner ─────────────────────────────────────────────────────
@@ -743,7 +811,7 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
             sys.stdout.flush()
             continue
         if cmd == "/status":
-            _status_cmd(mem)
+            _status_cmd(mem, chat_state)
             continue
         if cmd == "/identity":
             _identity_cmd(mem, rest, rest_text)
