@@ -568,7 +568,7 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
     import readline  # noqa: F401 — enables line-editing for input()
     from ._input_helpers import read_pasted_message
     from ..cli.theme import Theme
-    from ..cli.branding import render_startup_banner
+    from ..cli.branding import render_logo, TAGLINE
     from .. import __version__ as _argus_version
 
     life_dir_arg = getattr(args, "life_dir", None)
@@ -579,37 +579,58 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
 
     theme = Theme.auto(force=getattr(args, "color", None))
 
-    print(render_startup_banner(
-        theme=theme,
-        version=_argus_version,
-        mode=None,
-        state_dir=str(mem.root),
-        show_logo=True,
-        show_hint=False,
-    ))
-    if created:
-        print("  " + theme.gray("initialized: ") + theme.cyan(", ".join(created)))
+    # Verbose default is on for life mode: this REPL has no separate
+    # progress UI, so seeing internal events (round.start, match.info,
+    # skill.writeback, …) is what tells the user the agent is actually
+    # working. CLI flags --verbose/--quiet still win.
+    if getattr(args, "verbose", None) is None:
+        initial_verbose = True
+    else:
+        initial_verbose = bool(args.verbose)
 
     backend_default = os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
     chat_state: dict[str, Any] = {
         "backend": backend_default,
-        "verbose": False,
+        "verbose": initial_verbose,
         "theme": theme,
     }
-    arrow = theme.dim("→")
-    print(f"  {theme.gray('mode      ')} {arrow} {theme.bold('life')}  "
-          + theme.dim("(in-process; no daemon)"))
-    print(f"  {theme.gray('backend   ')} {arrow} {theme.bold(backend_default)}  "
-          + theme.dim("(/backend memory|codex)"))
-    n_pending = len(mem.backlog.pending())
-    print(f"  {theme.gray('backlog   ')} {arrow} {theme.bold(str(n_pending))} "
-          + theme.gray("pending"))
+
+    # ── Banner ─────────────────────────────────────────────────────
     print()
-    print("  " + theme.gray("type ") + theme.cyan("/help") + theme.gray(" for commands  ·  ")
-          + theme.cyan("/exit") + theme.gray(" or Ctrl-D to leave  ·  free text runs immediately"))
+    print(render_logo(theme=theme))
+    print()
+    print("  " + theme.italic(theme.gray(TAGLINE))
+          + "  " + theme.dim(f"v{_argus_version}"))
+    print()
+    rule = theme.dim("─" * min(theme.width - 2, 60))
+    print("  " + rule)
+
+    arrow = theme.dim("→")
+    label = lambda s: theme.gray(f"{s:<10}")  # noqa: E731
+    verbose_text = (theme.bold(theme.yellow("on"))
+                    if initial_verbose
+                    else theme.bold_green("off"))
+    rows = [
+        ("mode",    f"{theme.bold('life')}    " + theme.dim("in-process · no daemon")),
+        ("backend", f"{theme.bold(backend_default)}   " + theme.dim("(/backend memory|codex)")),
+        ("backlog", f"{theme.bold(str(len(mem.backlog.pending())))} "
+                    + theme.gray("pending")),
+        ("verbose", f"{verbose_text}      " + theme.dim("(/verbose · /quiet)")),
+        ("state",   theme.cyan(str(mem.root))),
+    ]
+    for k, v in rows:
+        print(f"  {label(k)} {arrow} {v}")
+    if created:
+        print(f"  {label('init')} {arrow} " + theme.dim("created ")
+              + theme.cyan(", ".join(created)))
+    print("  " + rule)
+    print()
+    print("  " + theme.gray("free text runs immediately on the backend  ·  ")
+          + theme.cyan("/help") + theme.gray(" for commands  ·  ")
+          + theme.cyan("/exit") + theme.gray(" or Ctrl-D to leave"))
     print()
 
-    prompt = theme.cyan("> ")
+    prompt = theme.bold(theme.cyan("argus")) + theme.dim(" › ")
 
     while True:
         try:
