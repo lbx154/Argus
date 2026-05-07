@@ -1,6 +1,6 @@
 ---
 name: Write Autonomous-Agent Try-Out Instructions
-description: Produce concrete, copy-pasteable shell instructions that let a human user benchmark argus-skill life chat in fully autonomous mode (no human-in-the-loop) and audit the result objectively.
+description: Produce concrete, copy-pasteable shell instructions that let a human user benchmark argus-skill chat --life in fully autonomous mode (no human-in-the-loop) and audit the result objectively.
 category: agent-eval-protocol
 version: 1
 scientist_model: gpt-5.4
@@ -14,7 +14,7 @@ Write Autonomous-Agent Try-Out Instructions
 
 ## Description
 Produce concrete, copy-pasteable shell instructions that let a human user
-benchmark `argus-skill life chat` in **fully autonomous mode** (no
+benchmark `argus-skill chat --life` in **fully autonomous mode** (no
 human-in-the-loop), with explicit success criteria and an audit trail the
 human can inspect after the run.
 
@@ -83,7 +83,7 @@ them. Show the user the math: "with X tokens at Y \$/Mtok this caps at Z".
 The minimal autonomous flow uses `life run --once` (NOT chat) so the
 process is fully non-interactive:
 ```bash
-echo '<one-sentence task>' | argus-skill life chat <<EOF
+echo '<one-sentence task>' | argus-skill chat --life <<EOF
 <paste the task as free text — runs immediately on codex by default>
 /quit
 EOF

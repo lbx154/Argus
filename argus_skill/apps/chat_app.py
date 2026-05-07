@@ -53,7 +53,7 @@ _HELP_TEXT = (
 def add_chat_subcommand(sub: argparse._SubParsersAction) -> None:
     chat_p = sub.add_parser(
         "chat",
-        help="interactive REPL talking to a running daemon (events + commands in one terminal)",
+        help="interactive REPL — talks to a running daemon, or use --life for the in-process lifetime-agent REPL",
     )
     chat_p.add_argument("--state-dir", default=".argus-skill",
                         help="daemon state-dir (where inbox.jsonl + outbox.jsonl live)")
@@ -69,9 +69,24 @@ def add_chat_subcommand(sub: argparse._SubParsersAction) -> None:
                         help="force ANSI colors on (auto-detect by default)")
     chat_p.add_argument("--no-color", dest="color", action="store_false",
                         help="disable ANSI colors (auto-detect by default)")
+    chat_p.add_argument("--life", action="store_true",
+                        help="lifetime-agent REPL (in-process; no daemon required). "
+                             "Slash commands: /add /backlog /journal /note /identity "
+                             "/run /backend /verbose. Free text runs immediately.")
+    chat_p.add_argument("--life-dir", default=None,
+                        help="override life root for --life "
+                             "(default: $ARGUS_SKILL_LIFE_DIR or ~/.argus-skill/life)")
 
 
 def cmd_chat(args: argparse.Namespace) -> int:
+    # --life routes to the in-process lifetime-agent REPL. Sharing the
+    # same `chat` subcommand means one banner/paste/theme stack and one
+    # set of muscle-memory keystrokes; the daemon-backed mode below is
+    # used when --life is not set.
+    if getattr(args, "life", False):
+        from ._life_repl import run_life_chat_loop
+        return run_life_chat_loop(args)
+
     state = Path(args.state_dir).expanduser().resolve()
     if not state.is_dir():
         print(f"state-dir {state} not found — is the daemon running?", file=sys.stderr)
