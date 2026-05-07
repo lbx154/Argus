@@ -222,6 +222,29 @@ class TaskResult:
     match_tokens: int = 0
     final_review_status: str | None = None
     docker_image: str = ""
+    # ---- paper-table instrumentation (added 2026-05) ----
+    # Aggregate engineer / reviewer token usage across all rounds.
+    engineer_input_tokens: int = 0
+    engineer_output_tokens: int = 0
+    reviewer_input_tokens: int = 0
+    reviewer_output_tokens: int = 0
+    # USD cost computed from prices_usd_per_mtok env override; ``0.0``
+    # when no price for the model is configured.
+    usd_cost: float = 0.0
+    # Verifier outcome from the in-container test harness (ground truth).
+    # One of: "pass" (all acceptance tests green), "fail" (some still
+    # failing), "error" (verifier crashed / not installed), "not_run".
+    verifier_outcome: str = "not_run"
+    verifier_failing_count: int = 0
+    verifier_expected_count: int = 0
+    # V-trusted shim: True when the patch is non-empty AND verifier says
+    # ``pass`` AND the reviewer never said ``done`` (i.e., the shim
+    # rescued a task the reviewer would have marked as fail).
+    rescued_by_v_trusted: bool = False
+    # Phase-2 skill mutation counters.
+    skill_revise_count: int = 0
+    lesson_promote_count: int = 0
+    pending_lesson_recorded: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -244,6 +267,18 @@ class TaskResult:
             "match_tokens": self.match_tokens,
             "final_review_status": self.final_review_status,
             "docker_image": self.docker_image,
+            "engineer_input_tokens": self.engineer_input_tokens,
+            "engineer_output_tokens": self.engineer_output_tokens,
+            "reviewer_input_tokens": self.reviewer_input_tokens,
+            "reviewer_output_tokens": self.reviewer_output_tokens,
+            "usd_cost": self.usd_cost,
+            "verifier_outcome": self.verifier_outcome,
+            "verifier_failing_count": self.verifier_failing_count,
+            "verifier_expected_count": self.verifier_expected_count,
+            "rescued_by_v_trusted": self.rescued_by_v_trusted,
+            "skill_revise_count": self.skill_revise_count,
+            "lesson_promote_count": self.lesson_promote_count,
+            "pending_lesson_recorded": self.pending_lesson_recorded,
         }
 
 
@@ -252,17 +287,62 @@ class TaskResult:
 # ----------------------------------------------------------------------------
 
 
-def _summarise_engine_rounds(engine_result: Any) -> list[dict]:
+def _summarise_engine_rounds_from_token_log(token_log: dict) -> list[dict]:
+    """Salvage per-round token info when the engine crashed mid-mission.
+
+    The event sink keeps cumulative engineer/reviewer token counts in
+    ``token_log`` keyed by round_index. When the surrounding pipeline
+    raised before ``_summarise_engine_rounds`` could run, we still want
+    to record the tokens we actually paid for.
+    """
     out: list[dict] = []
+    for rnd, tl in sorted((token_log or {}).items(), key=lambda kv: kv[0] or 0):
+        if not tl:
+            continue
+        entry: dict = {
+            "round": rnd,
+            "engineer_exit": None,
+            "main_turn_completed": None,
+            "main_turn_failed": None,
+            "thread_id": None,
+            "engineer_input_tokens": int(tl.get("eng_in", 0) or 0),
+            "engineer_output_tokens": int(tl.get("eng_out", 0) or 0),
+            "reviewer_input_tokens": int(tl.get("rev_in", 0) or 0),
+            "reviewer_output_tokens": int(tl.get("rev_out", 0) or 0),
+        }
+        out.append(entry)
+    return out
+
+
+def _summarise_engine_rounds(
+    engine_result: Any,
+    *,
+    token_log: dict | None = None,
+) -> list[dict]:
+    """Per-round summary of the engine result.
+
+    ``token_log`` (when provided) is a dict keyed by round_index with
+    cumulative engineer / reviewer token counts captured by the engine
+    event sink. Used by the SWE-Bench-Pro runner to compute USD cost.
+    """
+    out: list[dict] = []
+    token_log = token_log or {}
     for r in getattr(engine_result, "rounds", []) or []:
         review = getattr(r, "review", None)
+        rnd = getattr(r, "round_index", None)
         entry: dict = {
-            "round": getattr(r, "round_index", None),
+            "round": rnd,
             "engineer_exit": getattr(r, "main_exit_code", None),
             "main_turn_completed": getattr(r, "main_turn_completed", None),
             "main_turn_failed": getattr(r, "main_turn_failed", None),
             "thread_id": getattr(r, "thread_id", None),
         }
+        tl = token_log.get(rnd) or {}
+        if tl:
+            entry["engineer_input_tokens"] = int(tl.get("eng_in", 0) or 0)
+            entry["engineer_output_tokens"] = int(tl.get("eng_out", 0) or 0)
+            entry["reviewer_input_tokens"] = int(tl.get("rev_in", 0) or 0)
+            entry["reviewer_output_tokens"] = int(tl.get("rev_out", 0) or 0)
         if review is not None:
             entry["review_status"] = getattr(review, "status", None)
             entry["review_confidence"] = getattr(review, "confidence", None)
@@ -271,6 +351,60 @@ def _summarise_engine_rounds(engine_result: Any) -> list[dict]:
                 entry["review_failure_cause"] = cause
         out.append(entry)
     return out
+
+
+# Default Azure-style price table in USD per million tokens.
+# Override per-model via ARGUS_SKILL_SWEBPRO_PRICES_JSON env var, e.g.:
+#   '{"gpt-5.4": [1.25, 10.0], "gpt-5.4-mini": [0.25, 2.0]}'
+_DEFAULT_PRICES_USD_PER_MTOK = {
+    "gpt-5.4":      (1.25, 10.0),
+    "gpt-5.4-mini": (0.25, 2.0),
+}
+
+
+def _load_price_table() -> dict[str, tuple[float, float]]:
+    raw = os.environ.get("ARGUS_SKILL_SWEBPRO_PRICES_JSON", "").strip()
+    if not raw:
+        return dict(_DEFAULT_PRICES_USD_PER_MTOK)
+    try:
+        parsed = json.loads(raw)
+        out: dict[str, tuple[float, float]] = {}
+        for k, v in parsed.items():
+            if isinstance(v, (list, tuple)) and len(v) == 2:
+                out[str(k)] = (float(v[0]), float(v[1]))
+        return out or dict(_DEFAULT_PRICES_USD_PER_MTOK)
+    except Exception:  # noqa: BLE001
+        return dict(_DEFAULT_PRICES_USD_PER_MTOK)
+
+
+def _compute_usd_cost(
+    *,
+    engineer_model: str,
+    reviewer_model: str,
+    scientist_model: str,
+    engineer_in: int,
+    engineer_out: int,
+    reviewer_in: int,
+    reviewer_out: int,
+    scientist_tokens: int,
+    match_tokens: int,
+) -> float:
+    """Best-effort USD cost. ``scientist_tokens`` and ``match_tokens``
+    don't carry an input/output split, so they are charged at the
+    *output* rate as a conservative upper bound."""
+    prices = _load_price_table()
+    e_in, e_out = prices.get(engineer_model, (0.0, 0.0))
+    r_in, r_out = prices.get(reviewer_model, (0.0, 0.0))
+    s_in, s_out = prices.get(scientist_model, (0.0, 0.0))
+    cost = (
+        engineer_in * e_in / 1_000_000
+        + engineer_out * e_out / 1_000_000
+        + reviewer_in * r_in / 1_000_000
+        + reviewer_out * r_out / 1_000_000
+        + scientist_tokens * s_out / 1_000_000
+        + match_tokens * s_out / 1_000_000
+    )
+    return round(cost, 4)
 
 
 def _build_engineer_cli_flags(model: str, effort: str) -> str:
@@ -323,19 +457,33 @@ def _make_lesson_promoter(
     scientist_model: str,
     objective: str,
     logger: logging.Logger,
+    counters: dict | None = None,
 ):
     """Build the engine's ``on_skill_lesson`` callback.
+
+    ``counters`` (when provided) is a dict that will be mutated with
+    ``pending`` (always incremented when the engine emits a lesson) and
+    ``promoted`` (incremented on successful promote_lesson). The
+    SWE-Bench-Pro runner uses this to populate per-task analytics.
 
     Returns ``None`` if any dependency is missing or the env flag is not
     set — the engine treats ``None`` as "do not auto-promote, just
     record to pending_lessons/ as before".
     """
-    if not _bool_promote_env():
-        return None
-    if matched is None or store is None or distiller is None:
+    # Always wire a counter callback when ``counters`` is provided, even
+    # if auto-promote is off, so the paper can report how many lessons
+    # were emitted per task vs. how many were promoted.
+    promote_enabled = _bool_promote_env() and (
+        matched is not None and store is not None and distiller is not None
+    )
+    if counters is None and not promote_enabled:
         return None
 
     def _cb(skill_id: str, lesson_text: str) -> None:
+        if counters is not None:
+            counters["pending"] = int(counters.get("pending", 0)) + 1
+        if not promote_enabled:
+            return
         try:
             ok = store.promote_lesson(
                 skill=matched,
@@ -345,6 +493,8 @@ def _make_lesson_promoter(
                 scientist_model=scientist_model,
             )
             if ok:
+                if counters is not None:
+                    counters["promoted"] = int(counters.get("promoted", 0)) + 1
                 logger.info(
                     "auto-promoted lesson into %s → v%s",
                     matched.name, matched.version,
@@ -378,6 +528,7 @@ async def _run_mission_engine_in_container(
     logger: logging.Logger,
     verifier: "InContainerVerifier | None" = None,
     on_skill_lesson: Any = None,
+    token_log: dict | None = None,
 ) -> Any:
     """Construct and run a MissionLoopEngine instance against *environment*."""
     # Imports are lazy so the module stays importable even without
@@ -402,9 +553,30 @@ async def _run_mission_engine_in_container(
 
     loop = asyncio.get_running_loop()
 
+    _tlog = token_log if token_log is not None else {}
+
     def event_sink(event: dict) -> None:
         try:
             et = event.get("type", "?")
+            # Aggregate per-round token usage for paper analytics.
+            if et == "round.main.completed":
+                rnd = event.get("round_index")
+                slot = _tlog.setdefault(rnd, {})
+                slot["eng_in"] = int(slot.get("eng_in", 0)) + int(
+                    event.get("input_tokens", 0) or 0
+                )
+                slot["eng_out"] = int(slot.get("eng_out", 0)) + int(
+                    event.get("output_tokens", 0) or 0
+                )
+            elif et == "round.review.completed":
+                rnd = event.get("round_index")
+                slot = _tlog.setdefault(rnd, {})
+                slot["rev_in"] = int(slot.get("rev_in", 0)) + int(
+                    event.get("input_tokens", 0) or 0
+                )
+                slot["rev_out"] = int(slot.get("rev_out", 0)) + int(
+                    event.get("output_tokens", 0) or 0
+                )
             if et == "engineer.progress":
                 rnd = event.get("round")
                 kind = event.get("kind") or "message"
@@ -524,7 +696,10 @@ async def _run_mission_engine_in_container(
             def evaluate(self, **_kwargs):
                 from argus_skill.core.models import ReviewDecision
                 return ReviewDecision(
-                    status="done", confidence=1.0, reason="no_reviewer ablation"
+                    status="done",
+                    confidence=1.0,
+                    reason="no_reviewer ablation",
+                    next_action="Stop; ablation skips the reviewer.",
                 )
         reviewer = _NoReviewer()  # type: ignore[assignment]
 
@@ -587,6 +762,7 @@ async def run_one_task(
     max_rounds: int = _DEFAULT_MAX_ROUNDS,
     round_timeout: int = _DEFAULT_ROUND_TIMEOUT,
     no_reviewer: bool = False,
+    no_skill: bool = False,
     logger: logging.Logger | None = None,
 ) -> TaskResult:
     """Run argus-skill on one SWE-Bench-Pro task.
@@ -607,25 +783,33 @@ async def run_one_task(
     skill_store_obj = None
     distiller_obj = None
     scientist_model_str = ""
-    try:
-        from benchmarks.harbor_adapter import _do_host_prep
-        prep = await asyncio.to_thread(_do_host_prep, _build_instruction(task))
-        res.skill_used = prep.skill_used
-        res.skill_match_names = list(prep.match_names)
-        res.fallback_reason = prep.fallback_reason
-        res.scientist_tokens = prep.scientist_tokens
-        res.match_tokens = prep.match_tokens
-        skill_text = prep.skill_text
-        skill_name = prep.match_names[0] if prep.match_names else None
-        matched_skill_obj = prep.matched_skill
-        skill_store_obj = prep.skill_store
-        distiller_obj = prep.distiller
-        scientist_model_str = prep.scientist_model
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[%s] host prep failed: %s", task.instance_id, exc)
+    if no_skill:
+        # Codex-bare ablation: never look at the skill cache, never
+        # distill, never write back. Engine runs on the raw objective.
         skill_text = ""
         skill_name = None
-        res.fallback_reason = f"prep_exception:{type(exc).__name__}"
+        res.fallback_reason = "no_skill_ablation"
+        logger.info("[%s] ablation: --no-skill (skill prep skipped)", task.instance_id)
+    else:
+        try:
+            from benchmarks.harbor_adapter import _do_host_prep
+            prep = await asyncio.to_thread(_do_host_prep, _build_instruction(task))
+            res.skill_used = prep.skill_used
+            res.skill_match_names = list(prep.match_names)
+            res.fallback_reason = prep.fallback_reason
+            res.scientist_tokens = prep.scientist_tokens
+            res.match_tokens = prep.match_tokens
+            skill_text = prep.skill_text
+            skill_name = prep.match_names[0] if prep.match_names else None
+            matched_skill_obj = prep.matched_skill
+            skill_store_obj = prep.skill_store
+            distiller_obj = prep.distiller
+            scientist_model_str = prep.scientist_model
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[%s] host prep failed: %s", task.instance_id, exc)
+            skill_text = ""
+            skill_name = None
+            res.fallback_reason = f"prep_exception:{type(exc).__name__}"
 
     # Parse public fail_to_pass test names so the reviewer (and only the
     # reviewer) gets a ground-truth acceptance list. ``fail_to_pass`` on
@@ -678,6 +862,8 @@ async def run_one_task(
                     )
                     verifier = None
 
+            token_log: dict = {}
+            lesson_counters: dict = {"pending": 0, "promoted": 0}
             engine_result = await _run_mission_engine_in_container(
                 instruction=instruction,
                 environment=env,
@@ -693,6 +879,7 @@ async def run_one_task(
                 no_reviewer=no_reviewer,
                 logger=logger,
                 verifier=verifier,
+                token_log=token_log,
                 on_skill_lesson=_make_lesson_promoter(
                     matched=matched_skill_obj,
                     store=skill_store_obj,
@@ -700,18 +887,58 @@ async def run_one_task(
                     scientist_model=scientist_model_str,
                     objective=instruction,
                     logger=logger,
+                    counters=lesson_counters,
                 ),
             )
+            res.pending_lesson_recorded = bool(lesson_counters.get("pending", 0))
+            res.lesson_promote_count = int(lesson_counters.get("promoted", 0))
 
-            res.rounds = _summarise_engine_rounds(engine_result)
+            res.rounds = _summarise_engine_rounds(engine_result, token_log=token_log)
             if res.rounds:
                 res.final_review_status = res.rounds[-1].get("review_status")
+            # Aggregate per-round tokens onto the task-level totals.
+            for r in res.rounds:
+                res.engineer_input_tokens += int(r.get("engineer_input_tokens", 0) or 0)
+                res.engineer_output_tokens += int(r.get("engineer_output_tokens", 0) or 0)
+                res.reviewer_input_tokens += int(r.get("reviewer_input_tokens", 0) or 0)
+                res.reviewer_output_tokens += int(r.get("reviewer_output_tokens", 0) or 0)
 
             # Patch extraction.
             res.patch = await env.diff_repo(repo_path=DEFAULT_WORKDIR)
             if not res.patch:
                 logger.info("[%s] empty diff after %d rounds",
                             task.instance_id, len(res.rounds))
+
+            # Final verifier pass (ground truth for the paper table).
+            if verifier is not None:
+                try:
+                    final_failing = await asyncio.wait_for(
+                        verifier.run_and_get_failing(),
+                        timeout=verifier.timeout_sec + 60,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "[%s] final verifier run failed: %s",
+                        task.instance_id, exc,
+                    )
+                    res.verifier_outcome = "error"
+                else:
+                    if final_failing is None:
+                        res.verifier_outcome = "error"
+                    else:
+                        res.verifier_failing_count = len(final_failing)
+                        res.verifier_expected_count = len(verifier.expected_to_pass)
+                        res.verifier_outcome = "pass" if not final_failing else "fail"
+            elif acceptance_tests or selected_test_files:
+                res.verifier_outcome = "error"  # we wanted to run but couldn't
+
+            # V-trusted shim: any task where the verifier says PASS but
+            # the reviewer did NOT say "done" was rescued by the shim.
+            res.rescued_by_v_trusted = bool(
+                res.patch
+                and res.verifier_outcome == "pass"
+                and res.final_review_status != "done"
+            )
 
             # ---- Phase-2 reviewer→skill loop: success writeback-revise.
             # Only fires when env flag is set, the mission ended with the
@@ -724,6 +951,7 @@ async def run_one_task(
                 and res.final_review_status == "done"
             ):
                 try:
+                    pre_version = matched_skill_obj.version
                     await asyncio.to_thread(
                         skill_store_obj.writeback_from_trajectory,
                         skill=matched_skill_obj,
@@ -733,6 +961,8 @@ async def run_one_task(
                         scientist_model=scientist_model_str,
                         revise=True,
                     )
+                    if matched_skill_obj.version != pre_version:
+                        res.skill_revise_count += 1
                     logger.info(
                         "[%s] skill writeback-revise → %s v%s",
                         task.instance_id,
@@ -747,14 +977,43 @@ async def run_one_task(
     except Exception as exc:  # noqa: BLE001
         logger.exception("[%s] task failed", task.instance_id)
         res.error = f"{type(exc).__name__}: {exc}"[:500]
+        # Even when the engine crashed midway, the engineer rounds may
+        # already have spent tokens that we captured in token_log via
+        # the event sink. Surface them as best-effort task-level totals
+        # so cost analyses don't silently swallow paid-for traffic.
+        try:
+            tl = locals().get("token_log") or {}
+            if tl and not res.rounds:
+                res.rounds = _summarise_engine_rounds_from_token_log(tl)
+                for r in res.rounds:
+                    res.engineer_input_tokens += int(r.get("engineer_input_tokens", 0) or 0)
+                    res.engineer_output_tokens += int(r.get("engineer_output_tokens", 0) or 0)
+                    res.reviewer_input_tokens += int(r.get("reviewer_input_tokens", 0) or 0)
+                    res.reviewer_output_tokens += int(r.get("reviewer_output_tokens", 0) or 0)
+        except Exception:  # noqa: BLE001
+            log.exception("token-log salvage failed for %s", task.instance_id)
 
     res.elapsed_s = round(time.time() - t0, 1)
+    # USD cost (best-effort; zero when no price for the model is configured).
+    res.usd_cost = _compute_usd_cost(
+        engineer_model=engineer_model,
+        reviewer_model=reviewer_model,
+        scientist_model=scientist_model_str or "",
+        engineer_in=res.engineer_input_tokens,
+        engineer_out=res.engineer_output_tokens,
+        reviewer_in=res.reviewer_input_tokens,
+        reviewer_out=res.reviewer_output_tokens,
+        scientist_tokens=res.scientist_tokens,
+        match_tokens=res.match_tokens,
+    )
     logger.info(
-        "[%s] %s patch=%d rounds=%d elapsed=%.0fs",
+        "[%s] %s patch=%d rounds=%d verifier=%s elapsed=%.0fs cost=$%.3f",
         task.instance_id,
         "OK" if res.patch and not res.error else "EMPTY/ERR",
         len(res.patch),
         len(res.rounds),
+        res.verifier_outcome,
         res.elapsed_s,
+        res.usd_cost,
     )
     return res

@@ -38,6 +38,97 @@ from typing import Any, Callable
 log = logging.getLogger(__name__)
 
 
+def _parse_jsonl_events(text: str) -> list[dict[str, Any]]:
+    """Parse a codex JSONL stdout stream into a list of event dicts.
+
+    Lines that aren't valid JSON or aren't dicts are silently skipped.
+    """
+    events: list[dict[str, Any]] = []
+    if not text:
+        return events
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def _sum_token_counts_from_events(events: list[dict[str, Any]]) -> tuple[int, int]:
+    """Best-effort token accounting from a codex JSONL event list.
+
+    Codex CLI ``--json`` stdout emits a final
+    ``{"type":"turn.completed","usage":{"input_tokens":...,"output_tokens":...}}``
+    event per turn. We pick the last non-zero pair seen across the
+    stream. We also tolerate the on-disk rollout JSONL format where
+    token counts are nested under ``payload.info.total_token_usage``.
+    """
+    if not events:
+        return 0, 0
+    last_in = 0
+    last_out = 0
+    for event in events:
+        in_tok = _coerce_int(event.get("input_tokens"))
+        out_tok = _coerce_int(event.get("output_tokens"))
+        # codex CLI --json: usage block on turn.completed
+        if in_tok == 0 or out_tok == 0:
+            usage = event.get("usage")
+            if isinstance(usage, dict):
+                if in_tok == 0:
+                    in_tok = _coerce_int(usage.get("input_tokens"))
+                if out_tok == 0:
+                    out_tok = _coerce_int(usage.get("output_tokens"))
+        # rollout-on-disk: payload.info.total_token_usage
+        if in_tok == 0 or out_tok == 0:
+            payload = event.get("payload")
+            if isinstance(payload, dict):
+                info = payload.get("info")
+                if isinstance(info, dict):
+                    total = info.get("total_token_usage")
+                    if isinstance(total, dict):
+                        if in_tok == 0:
+                            in_tok = _coerce_int(total.get("input_tokens"))
+                        if out_tok == 0:
+                            out_tok = _coerce_int(total.get("output_tokens"))
+        # Older flat-shape fallback (older codex / msg envelopes).
+        if in_tok == 0 or out_tok == 0:
+            for nested_key in ("info", "content", "total_token_usage"):
+                nested = event.get(nested_key)
+                if isinstance(nested, dict):
+                    if in_tok == 0:
+                        in_tok = _coerce_int(nested.get("input_tokens"))
+                    if out_tok == 0:
+                        out_tok = _coerce_int(nested.get("output_tokens"))
+        if in_tok > 0:
+            last_in = in_tok
+        if out_tok > 0:
+            last_out = out_tok
+    return last_in, last_out
+
+
+def _coerce_int(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            try:
+                return int(float(value))
+            except ValueError:
+                return 0
+    return 0
+
+
 # In-container launcher script. Installed once into the container's
 # agent_dir (see ContainerCodexRunner._ensure_launcher_in_container)
 # and invoked per round with positional args:
@@ -933,19 +1024,35 @@ class ContainerCodexRunner:
         fatal_error: str | None,
     ):
         cls = self._codex_run_result_cls
+        # Codex CLI emits its event stream as JSONL on stdout when invoked
+        # with --json. Parse it so downstream code (engine token-emit,
+        # benchmark cost aggregator) can see real token counts. Without
+        # this, the upstream CodexRunResult dataclass has no tokens and
+        # SWE-Bench-Pro / Phase-2 cost capture sees zeros.
+        json_events = _parse_jsonl_events(stdout) if stdout else []
+        in_tok, out_tok = _sum_token_counts_from_events(json_events)
         kwargs: dict[str, Any] = dict(
             command=["codex", "exec", "(in container)"],
             exit_code=exit_code,
             thread_id=thread_id,
             agent_messages=list(agent_messages),
-            json_events=[],
+            json_events=json_events,
             stdout_lines=stdout.splitlines() if stdout else [],
             stderr_lines=[],
             turn_completed=(exit_code == 0 and fatal_error is None),
             turn_failed=(exit_code != 0 or fatal_error is not None),
             fatal_error=fatal_error,
         )
-        return cls(**kwargs)
+        result = cls(**kwargs)
+        # Upstream CodexRunResult doesn't have token fields; engine reads
+        # them via getattr with a default, so attaching as attrs is safe
+        # for both upstream dataclass and core.RunnerResult.
+        try:
+            setattr(result, "input_tokens", int(in_tok))
+            setattr(result, "output_tokens", int(out_tok))
+        except Exception:  # noqa: BLE001 - frozen dataclasses etc.
+            pass
+        return result
 
     def _stub_result_for_non_main(self, run_label: str | None):
         """Engine occasionally fires non-main rounds (final report etc.).

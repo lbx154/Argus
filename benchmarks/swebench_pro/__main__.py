@@ -64,6 +64,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--round-timeout", type=int, default=_DEFAULT_ROUND_TIMEOUT)
     p.add_argument("--no-reviewer", action="store_true",
                    help="Ablation: skip reviewer (1 engineer round only when set).")
+    p.add_argument("--no-skill", action="store_true",
+                   help="Ablation: disable skill matching/distillation/writeback. "
+                        "Engine runs on objective only — yields a true codex-bare baseline.")
     p.add_argument("--workers", type=int, default=int(
         os.environ.get("ARGUS_SKILL_SWEBPRO_WORKERS", "4")))
     p.add_argument(
@@ -87,6 +90,7 @@ async def _run_task_safe(task: Task, args, logger: logging.Logger) -> TaskResult
             max_rounds=args.max_rounds,
             round_timeout=args.round_timeout,
             no_reviewer=args.no_reviewer,
+            no_skill=args.no_skill,
             logger=logger,
         )
     except Exception as exc:  # noqa: BLE001
