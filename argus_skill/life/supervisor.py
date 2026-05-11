@@ -10,8 +10,9 @@ Per the rubber-duck critique:
   high-priority objectives into the supervisor's own queue without two
   consumers racing on the same offset file.
 - Bounded autonomy: ``LifeBudget`` enforces a per-mission preflight cap
-  AND a daily cap. Defaults are conservative (max 3 autonomous missions
-  in one supervisor run, $1/mission, $5/day).
+  AND a daily cap. Defaults are generous enough for long polish runs
+  (max 6 autonomous missions in one supervisor run, $30/mission,
+  $180/day).
 - Memory injection is a separate channel (``prelude_context``) — the
   objective string passed to the executor is unmodified, so skill
   matching, mission-id hashing, and reviewer prompts are unaffected.
@@ -28,18 +29,15 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..core.ports import EventSink
 from .memory import (
-    Backlog,
     BacklogItem,
     Journal,
     JournalEntry,
     LifeMemory,
 )
-
 
 log = logging.getLogger(__name__)
 
@@ -77,9 +75,9 @@ class LifeBudget:
       process (resets per ``LifeSupervisor`` instance).
     """
 
-    per_mission_cap_usd: float = 1.0
-    daily_cap_usd: float = 5.0
-    max_missions: int = 3
+    per_mission_cap_usd: float = 30.0
+    daily_cap_usd: float = 180.0
+    max_missions: int = 6
 
     def remaining_today(self, journal: Journal, *, now: float | None = None) -> float:
         """USD remaining in today's budget."""
@@ -99,17 +97,26 @@ class LifeBudget:
         journal: Journal,
         now: float | None = None,
     ) -> tuple[bool, str]:
-        """Return ``(allowed, reason)``. ``reason`` is empty when allowed."""
-        if item.max_cost_usd > self.per_mission_cap_usd:
-            return False, (
-                f"item max_cost_usd=${item.max_cost_usd:.2f} exceeds "
-                f"per-mission cap ${self.per_mission_cap_usd:.2f}"
-            )
+        """Return ``(allowed, reason)``. ``reason`` is empty when allowed.
+
+        We do NOT refuse a mission just because ``item.max_cost_usd``
+        exceeds ``per_mission_cap_usd`` — that's a daemon-vs-item
+        misconfiguration and a 7×24 product should keep working. The
+        per-mission cap is enforced inside the supervisor by clamping
+        the effective per-mission budget (see
+        ``LifeSupervisor._effective_per_mission_cap``); this method
+        only blocks on the *daily* budget envelope, which is the real
+        bottom line.
+        """
         remain = self.remaining_today(journal, now=now)
-        if remain < item.max_cost_usd:
+        # Use the smaller of (operator-requested mission budget, our
+        # per-mission cap) when comparing to daily remaining — same
+        # number the supervisor will actually permit.
+        effective_cap = min(item.max_cost_usd, self.per_mission_cap_usd)
+        if remain < effective_cap:
             return False, (
                 f"daily budget remaining ${remain:.2f} < "
-                f"item cap ${item.max_cost_usd:.2f}"
+                f"effective mission cap ${effective_cap:.2f}"
             )
         return True, ""
 
@@ -213,6 +220,24 @@ class LifeSupervisorConfig:
     # Highest-level kill switch — the supervisor checks this between
     # missions. The CLI sets it on SIGTERM/SIGINT.
     stop_event: threading.Event | None = None
+    # Optional callable consulted at the start of every mission; should
+    # return one pending operator nudge per call (or ``None`` when the
+    # bus is empty). The supervisor splices each message into the
+    # prelude_context so the engineer sees it as live operator
+    # guidance. The default ``None`` disables the bus.
+    user_inbox: Any = None  # Callable[[], str | None] | None
+    # Runtime context injected into the prelude of every mission so
+    # the agent knows its own backend, models, and budget constraints.
+    # Set by the REPL / daemon worker; empty string disables injection.
+    runtime_context: str = ""
+    # --- Continuous improvement mode -----------------------------------
+    # When enabled, the supervisor does not exit when the backlog is
+    # empty. Instead it invokes the critic-as-planner to inspect the
+    # project and generate the next batch of tasks. The supervisor
+    # only stops when the planner declares the project done, or when
+    # budget / stop_event fires.
+    continuous: bool = False
+    continuous_objective: str = ""
 
 
 # ----- thin protocol describing what we need from a MissionExecutor --------
@@ -264,6 +289,7 @@ class LifeSupervisor:
         config: LifeSupervisorConfig | None = None,
         engineer_model: str = "gpt-5.4-mini",
         reviewer_model: str = "gpt-5.4",
+        critic_runner: Any | None = None,
     ) -> None:
         self.memory = memory
         self.runner = runner
@@ -271,7 +297,56 @@ class LifeSupervisor:
         self.config = config or LifeSupervisorConfig()
         self.engineer_model = engineer_model
         self.reviewer_model = reviewer_model
+        # critic_runner: any RunnerBackend (codex / memory). When None
+        # the iteration loop is effectively disabled — items still go
+        # ``done`` after the first successful mission. Wired by the
+        # life worker / REPL to the same backend the engineer uses.
+        self.critic_runner = critic_runner
         self._missions_started = 0
+        self._planning_cycles = 0
+        self._reap_orphans_on_startup()
+
+    def _reap_orphans_on_startup(self) -> None:
+        """Mark any item left ``running`` by a previous crashed process
+        as ``failed`` so it can never silently re-execute.
+
+        Recovery policy is intentionally **non-automatic**: we journal
+        the orphan and stop. The user decides whether to re-add. This
+        prevents poison-pill items from looping a freshly-started
+        supervisor into the same crash.
+        """
+        try:
+            reaped = self.memory.backlog.reap_orphans()
+        except Exception:  # noqa: BLE001
+            log.exception("life supervisor: orphan reaper failed")
+            return
+        for it in reaped:
+            entry = JournalEntry.new(
+                kind="mission_orphaned",
+                title=f"orphaned at startup: {it.title}",
+                summary=(
+                    f"item_id={it.id} "
+                    f"started_ts={it.started_ts} "
+                    f"err={it.last_error}"
+                ),
+                tags=list(it.tags) + ["life", "orphan"],
+            )
+            try:
+                self.memory.journal.append(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("life supervisor: failed to journal orphan %s", it.id)
+            try:
+                from .notify import dispatch_journal_entry
+                dispatch_journal_entry(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("notify dispatch failed; continuing")
+            self._emit({
+                "type": "life.mission.orphaned",
+                "item_id": it.id,
+                "title": it.title,
+                "started_ts": it.started_ts,
+                "error": it.last_error,
+            })
 
     # ------------------------------------------------------------------
     # Public driving methods
@@ -280,35 +355,56 @@ class LifeSupervisor:
     def run(self) -> dict[str, Any]:
         """Drive missions until a stop condition. Returns a summary."""
         results: list[dict[str, Any]] = []
+        stopped_by: str = ""
         while True:
             stop_reason = self._maybe_stop()
             if stop_reason:
-                self._emit_status(stop_reason)
+                if stop_reason != "__silent_stop__":
+                    self._emit_status(stop_reason)
+                stopped_by = stop_reason
                 break
             outcome = self.tick()
             if outcome is None:
-                # Backlog empty — sleep then re-check (so user-added
+                # Backlog empty — continuous mode: ask planner for more
+                if self.config.continuous and self.config.continuous_objective:
+                    planned = self._plan_next_work()
+                    if planned:
+                        continue  # new items in backlog, loop around
+                    else:
+                        self._emit_status("planner: project done")
+                        stopped_by = "project_done"
+                        break
+                # Non-continuous: sleep then re-check (so user-added
                 # items via the file get picked up). Sleep is bounded
                 # by the stop_event so a Ctrl-C shuts us down quickly.
                 if self._wait_idle():
                     self._emit_status("stop requested while idle")
+                    stopped_by = "stop_requested"
                     break
                 # Re-check: if backlog still empty, exit cleanly so
                 # `life run --once` semantics work in tests.
                 if self.memory.backlog.next_pending() is None:
                     self._emit_status("backlog empty; exiting")
+                    stopped_by = "backlog_empty"
                     break
                 continue
             results.append(outcome)
+            # Auth failure flagged by _run_one: propagate immediately
+            if outcome.get("auth_failure"):
+                stopped_by = "auth_failure"
+                break
             # Stop conditions that ``tick`` signals via the result dict
             # (budget pause leaves the item PENDING on purpose so a
             # later supervisor run can retry — but for THIS run we must
             # not spin on the same blocked item).
             if outcome.get("status") in {"budget_pause", "iteration_cap"}:
+                stopped_by = outcome.get("status", "")
                 break
         return {
             "missions_started": self._missions_started,
+            "planning_cycles": self._planning_cycles,
             "results": results,
+            "stopped_by": stopped_by,
         }
 
     def tick(self) -> dict[str, Any] | None:
@@ -326,20 +422,33 @@ class LifeSupervisor:
             # run when the daily cap rolls over. Just journal it and
             # signal the caller to exit cleanly.
             self._emit_status(f"budget block: {reason}")
-            self.memory.journal.append(
-                JournalEntry.new(
-                    kind="budget_pause",
-                    title=f"paused before '{item.title}'",
-                    summary=reason,
-                    tags=["budget"],
-                )
+            entry = JournalEntry.new(
+                kind="budget_pause",
+                title=f"paused before '{item.title}'",
+                summary=reason,
+                tags=["budget"],
             )
+            self.memory.journal.append(entry)
+            try:
+                from .notify import dispatch_journal_entry
+                dispatch_journal_entry(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("notify dispatch failed; continuing")
             return {"status": "budget_pause", "item_id": item.id, "reason": reason}
 
-        if self._missions_started >= self.config.budget.max_missions:
-            self._emit_status(
-                f"max-missions cap reached ({self.config.budget.max_missions})"
-            )
+        if not self.config.continuous and self._missions_started >= self.config.budget.max_missions:
+            # Only narrate the cap when there's actually pending work
+            # being held back. If the backlog is empty (or the user
+            # asked for ``--once`` and we just ran their one mission),
+            # this message is just noise.
+            try:
+                more_pending = self.memory.backlog.next_pending() is not None
+            except Exception:  # noqa: BLE001
+                more_pending = False
+            if more_pending:
+                self._emit_status(
+                    f"max-missions cap reached ({self.config.budget.max_missions})"
+                )
             return {"status": "iteration_cap", "item_id": item.id}
 
         return self._run_one(item)
@@ -350,7 +459,39 @@ class LifeSupervisor:
 
     def _run_one(self, item: BacklogItem) -> dict[str, Any]:
         prelude = self.memory.render_prelude(objective=item.objective)
-        self.memory.backlog.mark_running(item.id)
+        # Inject runtime context (backend, models, budget) so the agent
+        # knows its own environment. Placed before operator nudges so
+        # nudges can override if needed.
+        rt = self.config.runtime_context
+        if rt:
+            prelude = rt + "\n---\n\n" + prelude if prelude else rt
+        # Drain any pending operator nudges from the inbox bus and
+        # splice them in front of the prelude as live operator
+        # guidance. Each round in the engineer loop will see this as
+        # `Operator message history`.
+        nudges = self._drain_user_inbox()
+        if nudges:
+            prelude = (
+                "## Operator messages (live nudges, most recent last)\n"
+                + "\n".join(f"- {m}" for m in nudges)
+                + "\n\n---\n\n"
+                + prelude
+            )
+        # Atomic claim: flip pending → running in one rewrite. If the
+        # head moved between the budget peek and now (concurrent writer
+        # or user `/rm`), bail; the next tick will re-evaluate.
+        claimed = self.memory.backlog.claim_next()
+        if claimed is None or claimed.id != item.id:
+            if claimed is not None:
+                # Roll back so the next tick sees it again. running →
+                # pending is a legal transition (only terminal states
+                # are sealed).
+                try:
+                    self.memory.backlog.update(claimed.id, status="pending")
+                except Exception:  # noqa: BLE001
+                    log.exception("life supervisor: claim rollback failed")
+            return {"status": "claim_lost", "item_id": item.id}
+        item = claimed
         self._missions_started += 1
 
         self._emit({
@@ -386,15 +527,69 @@ class LifeSupervisor:
         stop_reason = str(getattr(outcome, "stop_reason", "") or "")
         usd = cost_sink.total_usd()
 
+        # Auth failure: the codex backend detected an expired/invalid
+        # token. Stop the supervisor so we don't loop over failing
+        # missions all night. The operator needs to run `codex login`.
+        auth_failure = bool(getattr(outcome, "auth_failure", False))
+        if auth_failure:
+            self._emit({
+                "type": "life.auth_failure",
+                "item_id": item.id,
+                "text": (
+                    "⚠️  codex authentication failed — run `codex login` "
+                    "to refresh credentials, then restart the REPL/daemon."
+                ),
+            })
+            ev = self.config.stop_event
+            if ev is not None:
+                ev.set()
+
+        # ---- iteration loop: should we requeue for another polish cycle?
+        # Trigger on `success` (mission marked done) AND on `max_rounds`
+        # (engineer ran out of rounds without reviewer-confirmed done).
+        # The latter is critical for a 7×24 product: when the engineer
+        # built a perfectly correct artifact but reviewer kept demanding
+        # more verbatim evidence, we don't want the whole mission to die
+        # — let the critic sub-agent inspect the work and either certify
+        # it as done or ask for a *concrete* next round.
+        iteration_outcome: dict[str, Any] | None = None
+        salvage_mode = (not success) and status == "max_rounds" and item.iterate
+        # Chat fast-path: when the runner short-circuited a conversational
+        # input, there is no artifact to polish — skip the critic loop
+        # entirely. Otherwise the critic would try to "improve" a
+        # one-line greeting reply, costing another LLM call for no gain.
+        chat_mode = bool(getattr(outcome, "chat_mode", False))
+        if not chat_mode and (success or salvage_mode):
+            iteration_outcome = self._maybe_iterate(
+                item=item,
+                outcome=outcome,
+                cycle_cost_usd=usd,
+                salvage_mode=salvage_mode,
+            )
+        # If the critic accepted the salvage attempt, treat the mission
+        # as successful so it transitions to ``done`` not ``failed``.
+        if salvage_mode and iteration_outcome and iteration_outcome.get("salvaged"):
+            success = True
+            status = "done"
+            stop_reason = iteration_outcome.get("stop_reason") or stop_reason
+
         # Update backlog row.
-        if success:
+        if iteration_outcome and iteration_outcome.get("requeued"):
+            # Item is back to ``pending``; do not mark_done. The next
+            # tick will pick it up and re-execute with the polished
+            # objective.
+            pass
+        elif success:
             self.memory.backlog.mark_done(item.id)
         else:
             err = exc_str or stop_reason or "unspecified failure"
             self.memory.backlog.mark_failed(item.id, error=err)
 
         # Journal entry.
-        kind = "mission_complete" if success else "mission_failed"
+        if iteration_outcome and iteration_outcome.get("requeued"):
+            kind = "mission_iterated"
+        else:
+            kind = "mission_complete" if success else "mission_failed"
         summary_parts = [
             f"status={status}",
             f"rounds={rounds}",
@@ -403,6 +598,16 @@ class LifeSupervisor:
             f"tokens_out={cost_sink.total_output_tokens()}",
             f"cost_usd=${usd:.4f}",
         ]
+        if iteration_outcome:
+            summary_parts.append(
+                f"iter={iteration_outcome.get('cycles_done', 0)}/{item.iteration_max_cycles}"
+            )
+            if iteration_outcome.get("requeued"):
+                summary_parts.append(
+                    f"improvements={iteration_outcome.get('improvement_count', 0)}"
+                )
+            elif iteration_outcome.get("stop_reason"):
+                summary_parts.append(f"iter_stop={iteration_outcome['stop_reason']}")
         if stop_reason:
             summary_parts.append(f"reason={stop_reason}")
         if exc_str:
@@ -423,9 +628,15 @@ class LifeSupervisor:
                 "matched_skill": str(getattr(outcome, "matched_skill_name", "") or ""),
                 "skill_distilled": bool(getattr(outcome, "skill_distilled", False)),
                 "had_follow_up": bool(getattr(outcome, "had_follow_up", False)),
+                "iteration": iteration_outcome or {},
             },
         )
         self.memory.journal.append(entry)
+        try:
+            from .notify import dispatch_journal_entry
+            dispatch_journal_entry(entry)
+        except Exception:  # noqa: BLE001
+            log.exception("notify dispatch failed; continuing")
 
         self._emit({
             "type": "life.mission.completed",
@@ -435,6 +646,7 @@ class LifeSupervisor:
             "rounds": rounds,
             "cost_usd": usd,
             "journal_entry_id": entry.id,
+            "iteration": iteration_outcome or None,
         })
 
         return {
@@ -445,18 +657,64 @@ class LifeSupervisor:
             "rounds": rounds,
             "cost_usd": usd,
             "journal_entry_id": entry.id,
+            "iteration": iteration_outcome,
+            "auth_failure": auth_failure,
         }
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
+    def _drain_user_inbox(self, *, max_messages: int = 10) -> list[str]:
+        """Pull all pending operator nudges from the configured inbox.
+
+        Returns up to ``max_messages`` lines (oldest-first). Empty list
+        if no inbox is configured or nothing is pending. Any exception
+        from the user-supplied callable is swallowed — a flaky bus
+        must never break a mission.
+        """
+        cb = getattr(self.config, "user_inbox", None)
+        if cb is None:
+            return []
+        out: list[str] = []
+        for _ in range(max(1, int(max_messages))):
+            try:
+                msg = cb()
+            except Exception:  # noqa: BLE001
+                log.exception("user_inbox callable raised; ignoring")
+                break
+            if not msg:
+                break
+            text = str(msg).strip()
+            if text:
+                out.append(text)
+        if out:
+            self._emit({
+                "type": "life.inbox.drained",
+                "count": len(out),
+                "messages": out,
+            })
+        return out
+
     def _maybe_stop(self) -> str:
         ev = self.config.stop_event
         if ev is not None and ev.is_set():
             return "stop_event signalled"
-        if self._missions_started >= self.config.budget.max_missions:
-            return f"max-missions cap reached ({self.config.budget.max_missions})"
+        # In continuous mode, max_missions is not a hard cap — the
+        # planner generates new work indefinitely until it declares
+        # the project done. Only daily budget is enforced.
+        if not self.config.continuous:
+            if self._missions_started >= self.config.budget.max_missions:
+                # Suppress the cap message when there's no held-back work.
+                # Treats "you asked for one mission, you got one" as silent
+                # success rather than a noisy guardrail trip.
+                try:
+                    more_pending = self.memory.backlog.next_pending() is not None
+                except Exception:  # noqa: BLE001
+                    more_pending = False
+                if more_pending:
+                    return f"max-missions cap reached ({self.config.budget.max_missions})"
+                return "__silent_stop__"
         if self.config.budget.remaining_today(self.memory.journal) <= 0:
             return "daily budget exhausted"
         return ""
@@ -479,3 +737,291 @@ class LifeSupervisor:
 
     def _emit_status(self, text: str) -> None:
         self._emit({"type": "life.status", "text": text})
+
+    # ------------------------------------------------------------------
+    # Iteration loop
+    # ------------------------------------------------------------------
+
+    def _maybe_iterate(
+        self,
+        *,
+        item: BacklogItem,
+        outcome: Any,
+        cycle_cost_usd: float,
+        salvage_mode: bool = False,
+    ) -> dict[str, Any] | None:
+        """Decide whether to requeue ``item`` for another polish cycle.
+
+        Returns a dict describing the decision (always non-None when
+        called on a successful mission). The keys reported back to the
+        journal/event sink:
+
+        * ``cycles_done`` — count after this cycle (pre-requeue).
+        * ``cost_so_far_usd`` — accumulated iteration cost.
+        * ``requeued`` — bool, True if we re-armed the item.
+        * ``stop_reason`` — present when ``requeued=False`` because of
+          budget / cycles / vanity / disabled / runner missing.
+        * ``improvement_count`` / ``improvements`` — when requeued.
+        """
+        if not item.iterate:
+            return {
+                "cycles_done": item.iteration_cycles_done,
+                "cost_so_far_usd": item.iteration_cost_usd,
+                "requeued": False,
+                "stop_reason": "iteration disabled",
+            }
+        if self.critic_runner is None:
+            return {
+                "cycles_done": item.iteration_cycles_done,
+                "cost_so_far_usd": item.iteration_cost_usd,
+                "requeued": False,
+                "stop_reason": "no critic runner wired",
+            }
+
+        cycles_done = int(item.iteration_cycles_done)
+        cycles_max = int(item.iteration_max_cycles)
+        cost_so_far = float(item.iteration_cost_usd) + max(0.0, float(cycle_cost_usd))
+        budget = float(item.iteration_budget_usd)
+        remaining_budget = max(0.0, budget - cost_so_far)
+
+        if cycles_done >= cycles_max:
+            return {
+                "cycles_done": cycles_done,
+                "cost_so_far_usd": cost_so_far,
+                "requeued": False,
+                "stop_reason": f"cycle ceiling {cycles_max} reached",
+            }
+        if remaining_budget <= 0.0:
+            return {
+                "cycles_done": cycles_done,
+                "cost_so_far_usd": cost_so_far,
+                "requeued": False,
+                "stop_reason": (
+                    f"iteration budget exhausted (${cost_so_far:.2f}/${budget:.2f})"
+                ),
+            }
+
+        # Pull the reviewer's accepted completion summary.
+        latest = ""
+        for attr in ("final_message", "completion_summary_markdown", "stop_reason"):
+            v = getattr(outcome, attr, "") or ""
+            if v:
+                latest = str(v)
+                break
+        original = item.original_objective or item.objective
+
+        try:
+            from ..critic import (
+                Critic,
+                CriticConfig,
+                render_iteration_objective,
+            )
+            critic = Critic(self.critic_runner)
+            verdict = critic.evaluate(
+                original_objective=original,
+                latest_completion_summary=latest,
+                cycles_done=cycles_done,
+                cycles_max=cycles_max,
+                budget_remaining_usd=remaining_budget,
+                journal_tail=self._render_recent_journal_for_critic(item.id),
+                config=CriticConfig(model=self.reviewer_model),
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.exception("life supervisor: critic raised; finalizing as done")
+            return {
+                "cycles_done": cycles_done,
+                "cost_so_far_usd": cost_so_far,
+                "requeued": False,
+                "stop_reason": f"critic error: {type(exc).__name__}",
+            }
+
+        self._emit({
+            "type": "life.iteration.critic",
+            "item_id": item.id,
+            "stop": verdict.stop,
+            "improvement_count": len(verdict.improvements),
+            "reason": verdict.reason,
+        })
+
+        if verdict.stop or not verdict.improvements:
+            # Salvage path: the engineer hit max_rounds without a `done`
+            # verdict, but the critic — looking at journal evidence —
+            # decided no further work is needed. Promote the mission to
+            # ``done`` so the operator isn't woken up by a false-failure.
+            return {
+                "cycles_done": cycles_done,
+                "cost_so_far_usd": cost_so_far,
+                "requeued": False,
+                "stop_reason": verdict.reason or "critic stopped",
+                "salvaged": bool(salvage_mode),
+            }
+
+        new_objective = render_iteration_objective(
+            original_objective=original,
+            cycles_done=cycles_done,
+            improvements=verdict.improvements,
+        )
+        try:
+            self.memory.backlog.requeue_for_iteration(
+                item.id,
+                new_objective=new_objective,
+                cost_delta_usd=cycle_cost_usd,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.exception("life supervisor: requeue_for_iteration failed")
+            return {
+                "cycles_done": cycles_done,
+                "cost_so_far_usd": cost_so_far,
+                "requeued": False,
+                "stop_reason": f"requeue failed: {type(exc).__name__}",
+            }
+        self._emit({
+            "type": "life.iteration.continued",
+            "item_id": item.id,
+            "cycles_done": cycles_done + 1,
+            "cycles_max": cycles_max,
+            "cost_so_far_usd": cost_so_far,
+            "budget_usd": budget,
+            "improvements": [
+                {"title": imp.title, "acceptance": imp.acceptance}
+                for imp in verdict.improvements
+            ],
+        })
+        return {
+            "cycles_done": cycles_done + 1,
+            "cost_so_far_usd": cost_so_far,
+            "requeued": True,
+            "improvement_count": len(verdict.improvements),
+            "improvements": [
+                {"title": imp.title, "acceptance": imp.acceptance}
+                for imp in verdict.improvements
+            ],
+        }
+
+    def _render_recent_journal_for_critic(self, item_id: str) -> str:
+        """A tiny tail of journal entries for the current item, plain text."""
+        try:
+            entries = self.memory.journal.all()[-6:]
+        except Exception:  # noqa: BLE001
+            return ""
+        lines: list[str] = []
+        for e in entries:
+            extra = getattr(e, "extra", None) or {}
+            if isinstance(extra, dict) and extra.get("item_id") == item_id:
+                lines.append(f"- {e.kind}: {e.summary}")
+        return "\n".join(lines[-3:])
+
+    # ------------------------------------------------------------------
+    # Planner — continuous improvement mode
+    # ------------------------------------------------------------------
+
+    def _plan_next_work(self) -> bool:
+        """Call the critic-as-planner to generate new backlog items.
+
+        Returns ``True`` if new work was added (caller should loop),
+        ``False`` if the planner declares the project done.
+        """
+        if self.critic_runner is None:
+            self._emit_status("planner: no critic runner wired; stopping")
+            return False
+
+        self._planning_cycles += 1
+        self._emit({
+            "type": "life.planner.start",
+            "cycle": self._planning_cycles,
+            "objective": self.config.continuous_objective[:200],
+        })
+
+        journal_tail = self._render_journal_for_planner()
+        remaining = self.config.budget.remaining_today(self.memory.journal)
+
+        try:
+            from ..critic import Critic, CriticConfig
+
+            critic = Critic(self.critic_runner)
+            verdict = critic.plan_next(
+                continuous_objective=self.config.continuous_objective,
+                journal_tail=journal_tail,
+                budget_remaining_usd=remaining,
+                planning_cycle=self._planning_cycles - 1,
+                config=CriticConfig(model=self.reviewer_model),
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.exception("life supervisor: planner raised; stopping")
+            self._emit({
+                "type": "life.planner.error",
+                "cycle": self._planning_cycles,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+            return False
+
+        self._emit({
+            "type": "life.planner.verdict",
+            "cycle": self._planning_cycles,
+            "project_done": verdict.project_done,
+            "reason": verdict.reason,
+            "task_count": len(verdict.new_tasks),
+        })
+
+        if verdict.project_done:
+            self._emit_status(
+                f"planner: project done — {verdict.reason}"
+            )
+            entry = JournalEntry.new(
+                kind="planner_done",
+                title="planner declares project done",
+                summary=verdict.reason,
+                tags=["life", "planner"],
+            )
+            self.memory.journal.append(entry)
+            return False
+
+        # Add new tasks to the backlog.
+        for task in verdict.new_tasks:
+            item = BacklogItem.new(
+                title=task.title,
+                objective=task.objective,
+                priority=100,
+                iterate=True,
+                iteration_max_cycles=self._item_iteration_cycles(),
+                iteration_budget_usd=self._item_iteration_budget(),
+            )
+            self.memory.backlog.add(item)
+            self._emit({
+                "type": "life.planner.task_added",
+                "item_id": item.id,
+                "title": item.title,
+            })
+
+        entry = JournalEntry.new(
+            kind="planner_cycle",
+            title=f"planner cycle #{self._planning_cycles}",
+            summary=(
+                f"generated {len(verdict.new_tasks)} task(s): "
+                + ", ".join(t.title for t in verdict.new_tasks)
+            ),
+            tags=["life", "planner"],
+        )
+        self.memory.journal.append(entry)
+        return True
+
+    def _item_iteration_cycles(self) -> int:
+        """Default iteration cycles for planner-generated tasks."""
+        return 6
+
+    def _item_iteration_budget(self) -> float:
+        """Default iteration budget for planner-generated tasks."""
+        return 30.0
+
+    def _render_journal_for_planner(self) -> str:
+        """Render recent journal entries for the planner's context."""
+        try:
+            entries = self.memory.journal.all()[-20:]
+        except Exception:  # noqa: BLE001
+            return ""
+        lines: list[str] = []
+        for e in entries:
+            from datetime import datetime
+            ts = datetime.fromtimestamp(e.ts).strftime("%m-%d %H:%M")
+            lines.append(f"- [{ts}] {e.kind}: {e.title} — {e.summary}")
+        return "\n".join(lines) or "(empty)"

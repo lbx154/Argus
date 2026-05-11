@@ -12,7 +12,7 @@ stdin quirks. Re-vendoring would mean carrying ~700 LOC + tests of
 edge-case bug fixes. So instead this adapter *wraps* it.
 
 Provenance: new code. Depends on ArgusBot being importable
-(``pip install -e ../ArgusBot``).
+(``pip install 'argus-skill[codex]'``).
 
 The translation layer:
 
@@ -39,6 +39,40 @@ from ..core.models import RunnerOptions, RunnerResult
 log = logging.getLogger(__name__)
 
 
+_AUTH_FAILURE_PATTERNS: tuple[str, ...] = (
+    "unauthorized",
+    "expired token",
+    "invalid token",
+    "authentication failed",
+    "401",
+    "please run `codex login`",
+    "codex login",
+    "invalid api key",
+    "no api key",
+    "missing credentials",
+)
+
+
+def looks_like_auth_failure(stderr_lines) -> bool:  # noqa: ANN001
+    """Return True iff any stderr line matches a known auth-failure pattern.
+
+    Used by the lifetime daemon to detect "codex token expired overnight"
+    without crashing — the daemon logs a warning, finishes the current
+    mission as failed, and keeps polling. Operators see the warning in
+    the journal / stderr and re-authenticate at their leisure.
+    """
+    if not stderr_lines:
+        return False
+    for raw in stderr_lines:
+        if not raw:
+            continue
+        low = str(raw).lower()
+        for pat in _AUTH_FAILURE_PATTERNS:
+            if pat in low:
+                return True
+    return False
+
+
 # --- ArgusBot import (lazy, with friendly error) ---------------------------
 
 def _import_argusbot():
@@ -60,7 +94,7 @@ def _import_argusbot():
     except ImportError as exc:  # pragma: no cover - environmental
         raise ImportError(
             "CodexRunnerBackend requires ArgusBot to be importable. "
-            "Install with `pip install -e /path/to/ArgusBot` (or add it to PYTHONPATH)."
+            "Install with `pip install 'argus-skill[codex]'` (or add it to PYTHONPATH)."
         ) from exc
     return {
         "CodexRunner": CodexRunner,
@@ -131,6 +165,10 @@ class CodexRunnerBackend:
             default_extra_args=default_extra_args,
             before_exec=before_exec,
         )
+        # Auth failure flag: set by run_exec() when the codex CLI
+        # reports auth-related stderr. Checked by the REPL runner to
+        # propagate to the supervisor's stop logic.
+        self._auth_failure_detected: bool = False
 
     @property
     def argus_runner(self):
@@ -171,6 +209,17 @@ class CodexRunnerBackend:
             return RunnerResult(
                 exit_code=-1,
                 fatal_error=f"{type(exc).__name__}: {exc}",
+            )
+
+        # 7×24 survivability: codex auth tokens expire silently. Detect
+        # the well-known stderr patterns and log a warning so the daemon
+        # surfaces it instead of looping over failing missions all night.
+        if looks_like_auth_failure(getattr(argus_result, "stderr_lines", None)):
+            self._auth_failure_detected = True
+            log.warning(
+                "codex backend reported auth-related stderr "
+                "(run_label=%s) — run `codex login` to refresh credentials",
+                run_label,
             )
 
         return self._translate_result(argus_result)
@@ -236,9 +285,19 @@ def _sum_token_counts(events: list[dict[str, Any]] | None) -> tuple[int, int]:
     for event in events:
         if not isinstance(event, dict):
             continue
-        # Newer codex events: top-level fields.
-        in_tok = _coerce_int(event.get("input_tokens"))
-        out_tok = _coerce_int(event.get("output_tokens"))
+        # Newer codex events (>=0.121): usage nested under top-level "usage".
+        #   {"type":"turn.completed","usage":{"input_tokens":..,"output_tokens":..}}
+        usage = event.get("usage") if isinstance(event.get("usage"), dict) else None
+        in_tok = 0
+        out_tok = 0
+        if usage is not None:
+            in_tok = _coerce_int(usage.get("input_tokens"))
+            out_tok = _coerce_int(usage.get("output_tokens"))
+        # Fallback: top-level fields (older codex / token_count event).
+        if in_tok == 0:
+            in_tok = _coerce_int(event.get("input_tokens"))
+        if out_tok == 0:
+            out_tok = _coerce_int(event.get("output_tokens"))
         # Older codex events: nested under 'msg' / 'content'.
         if in_tok == 0 or out_tok == 0:
             content = event.get("content") if isinstance(event.get("content"), dict) else None

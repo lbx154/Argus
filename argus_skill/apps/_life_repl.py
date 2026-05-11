@@ -1,28 +1,30 @@
-"""Life-mode REPL + runner adapters for ``argus-skill chat --life``.
+"""Unified ``argus-skill`` REPL + runner adapters.
 
 This module owns everything the lifetime-agent interactive loop needs:
 
-- ``run_life_chat_loop``       — public entry point invoked from chat_app
-                                  when ``--life`` is set. The single
-                                  interactive surface for life mode.
-- ``run_life_supervisor``      — non-interactive driver used by
-                                  ``argus-skill life run``. Same engine,
-                                  same sink, no REPL.
-- ``LifeStderrSink``           — chat-style event renderer + verbose/quiet
-                                  filter (shared with telegram.notifier).
+- ``run_life_chat_loop``       — public entry point invoked from
+                                  ``apps.cli.main`` when the user types
+                                  ``argus-skill`` with no subcommand.
+                                  The single interactive surface.
+- ``run_life_supervisor``      — non-interactive driver kept for
+                                  programmatic use (drain a backlog
+                                  without a TTY).
+- ``LifeStderrSink``           — chat-style event renderer + verbose/
+                                  quiet filter (shared with
+                                  telegram.notifier).
 - ``build_life_runner``        — factory for memory / codex backends.
 
-Why split out of life_app.py: previously life had its own REPL with a
-duplicated banner / paste / theme stack. Per the merge plan, the
-interactive surface lives next to ``argus-skill chat`` (this file is
-imported by chat_app on demand), while ``argus-skill life`` retains
-only its non-interactive subcommands and delegates the runner /
-supervisor wiring back here. One REPL, one renderer, one help screen.
+History: the original layout had a separate ``argus-skill chat
+--life`` subcommand. As of Phase 5 (2026-05-08) the bare
+``argus-skill`` command IS this REPL, and the chat / go / mission /
+life / daemon / up subcommands have been deleted. One REPL, one
+renderer, one help screen.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import shlex
 import signal
@@ -43,27 +45,25 @@ from ..life.supervisor import (
     LifeSupervisorConfig,
 )
 
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Sink (event rendering)
 # ---------------------------------------------------------------------------
 
 class LifeStderrSink:
-    """Forward events to stderr using chat's renderer + event filters.
+    """Forward events to stderr using chat's renderer.
 
-    Same renderer (``render_event_for_terminal``) and same user-facing
-    vs internal split (``telegram.notifier._USER_FACING_EVENTS``)
-    ``argus-skill chat`` uses, so output looks identical.
-
-    Filter rules:
-    - ``quiet=True``  → drop everything (used by ``--quiet`` batch runs).
-    - ``verbose=True`` → show user-facing AND internal events.
-    - ``verbose=False`` → user-facing only (matches chat default).
+    Always-verbose: every event type the engine emits (except a small
+    in-life silence-list below) is shown. The product positioning is a
+    7×24 lifetime agent — operators want full visibility of what the
+    daemon is doing, always. The earlier ``verbose``/``quiet`` toggles
+    have been removed (kept ``quiet`` only for in-process tests that
+    pump events without wanting stderr noise).
     """
 
-    def __init__(self, *, quiet: bool, verbose: bool = False) -> None:
+    def __init__(self, *, quiet: bool = False) -> None:
         self.quiet = quiet
-        self.verbose = verbose
         try:
             from ..cli import default_theme, render_event_for_terminal
             self._render = render_event_for_terminal
@@ -71,20 +71,9 @@ class LifeStderrSink:
         except Exception:  # noqa: BLE001
             self._render = None
             self._theme = None
-        try:
-            from ..telegram.notifier import _USER_FACING_EVENTS, _VERBOSE_EVENTS
-            self._user_facing = set(_USER_FACING_EVENTS)
-            self._verbose_set = set(_VERBOSE_EVENTS)
-        except Exception:  # noqa: BLE001
-            self._user_facing = set()
-            self._verbose_set = set()
 
-    def _allowed(self, event_type: str) -> bool:
-        if not self._user_facing:
-            return True
-        if self.verbose:
-            return event_type in self._verbose_set or event_type not in self._user_facing
-        return event_type in self._user_facing
+    def _allowed(self, event_type: str) -> bool:  # noqa: ARG002
+        return True
 
     # Events that life.mission.started/completed already cover; we silence
     # them in life mode to avoid duplicate noise around mission boundaries.
@@ -148,14 +137,32 @@ class _Outcome:
     skill_distilled: bool = False
     had_follow_up: bool = False
     last_thread_id: str | None = None
+    # Chat fast-path: when True, the supervisor skips iteration / critic
+    # because the operator's input was a conversational message (greeting,
+    # capability question, ack) that doesn't warrant a polish cycle.
+    chat_mode: bool = False
+    # Set when the codex backend reports auth-related stderr (expired
+    # token, missing API key, etc.). The supervisor uses this to stop
+    # early instead of looping over failing missions.
+    auth_failure: bool = False
 
 
 class _MemoryRunner:
     """Deterministic in-process runner for CI / smoke tests.
 
-    Emits a couple of synthetic events with non-zero token counts so
-    the daily budget logic is testable, then returns success.
+    Emits a complete sequence of fully-shaped lifecycle events
+    (``loop.started`` → ``round.started`` → ``round.main.completed`` →
+    ``round.review.completed`` → ``loop.completed``) so the terminal
+    renderer prints ``Round 1`` and ``review ✅ done`` cleanly instead
+    of the ``round ?`` placeholders that result from missing
+    ``round_index`` / ``status`` fields.
     """
+
+    # The supervisor's iteration loop pulls a RunnerBackend off
+    # ``runner.backend`` to drive the Critic. ``None`` here means
+    # "no critic possible" — items still go ``done`` after the first
+    # cycle. Tests that exercise iteration substitute a real backend.
+    backend: Any = None
 
     def execute(
         self,
@@ -166,19 +173,39 @@ class _MemoryRunner:
         prelude_context: str = "",
         seed_thread_id: str | None = None,  # noqa: ARG002 — protocol parity
     ) -> _Outcome:
+        ack = f"(memory backend) acknowledged objective: {objective[:80]}"
+        sink.handle_event({
+            "type": "loop.started",
+            "objective": objective,
+            "max_rounds": 1,
+        })
+        sink.handle_event({
+            "type": "round.started",
+            "round_index": 1,
+        })
         sink.handle_event({
             "type": "round.main.completed",
+            "round_index": 1,
             "input_tokens": 800,
             "output_tokens": 200,
+            "last_message": ack,
+            "turn_completed": True,
         })
         sink.handle_event({
             "type": "round.review.completed",
+            "round_index": 1,
+            "status": "done",
+            "confidence": 1.0,
+            "reason": "memory backend: synthetic acknowledgement",
+            "next_action": "",
             "input_tokens": 100,
             "output_tokens": 50,
         })
         sink.handle_event({
-            "type": "life.adapter.memory",
-            "text": f"(memory backend) acknowledged objective: {objective[:80]}",
+            "type": "loop.completed",
+            "rounds": 1,
+            "success": True,
+            "stop_reason": "review_done",
         })
         return _Outcome(success=True, status="success", rounds=1)
 
@@ -204,8 +231,7 @@ class _CodexSkillLoopRunner:
         except ImportError as exc:  # pragma: no cover — depends on optional install
             raise SystemExit(
                 f"Codex backend requested but ArgusBot is unavailable: {exc}.\n"
-                "Install it (`pip install -e /path/to/ArgusBot`) or use "
-                "/backend memory for the in-process stub."
+                "Install it: `pip install 'argus-skill[codex]'`."
             ) from exc
         # Per-call sink swap: backend is built once, but the sink rotates
         # for every execute(). A trampoline callback dispatches to the
@@ -239,6 +265,10 @@ class _CodexSkillLoopRunner:
             default_extra_args=extra,
             event_callback=_trampoline,
         )
+        # Expose the underlying backend so the LifeSupervisor's
+        # iteration loop can drive a Critic agent through it without
+        # building a second codex process.
+        self.backend = self._backend
         self._args = args
         # Session continuity: seed_thread_id is the codex session id from
         # the previous mission in the same REPL session. We propagate it
@@ -257,7 +287,31 @@ class _CodexSkillLoopRunner:
         prelude_context: str = "",
         seed_thread_id: str | None = None,
     ) -> _Outcome:
+        # Chat fast-path. Conversational input (greetings, capability
+        # questions, acks) doesn't need matcher → distill → engineer
+        # round-loop → reviewer → critic. A trace before this guard:
+        # "hello" cost $0.10 + 72s, ran `pwd && ls && rg --files && sed
+        # README.md`, then the reviewer rejected it for "doing unrelated
+        # repo inspection". The router below short-circuits to a single
+        # codex call with a chat prompt — no skill machinery, no
+        # reviewer, no writeback. ~$0.001 + ~3s.
+        from ..life.router import is_conversational
+        if is_conversational(objective):
+            return self._chat_quick_reply(
+                objective=objective,
+                sink=sink,
+                seed_thread_id=seed_thread_id,
+            )
+
         args = self._args
+        # 7×24 product: default to dangerous_yolo (no bwrap sandbox).
+        # The operator runs the daemon on their own box and explicitly
+        # consents to autonomous execution; the sandbox only fights us
+        # (`bwrap: Can't create file at /.codex: Permission denied`).
+        # Operators can opt back into sandbox via ARGUS_SKILL_SAFE_MODE=1.
+        safe_mode = os.environ.get("ARGUS_SKILL_SAFE_MODE", "").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
         config = self._SkillLoopConfig(
             scientist_model=args.scientist_model,
             engineer_model=args.engineer_model,
@@ -266,6 +320,9 @@ class _CodexSkillLoopRunner:
             check_commands=[],
             skill_writeback=True,
             distill_on_miss=True,
+            dangerous_yolo=not safe_mode,
+            full_auto=safe_mode,
+            skip_git_repo_check=True,
         )
         loop = self._SkillLoop(
             skills_dir=Path(args.skills_dir),
@@ -293,6 +350,7 @@ class _CodexSkillLoopRunner:
             outcome = loop.run(
                 full_task, workdir=workdir, seed_thread_id=seed,
                 failed_tool_ledger=ledger,
+                objective_for_skill=objective,
             )
         finally:
             self._current_sink = None
@@ -301,6 +359,9 @@ class _CodexSkillLoopRunner:
         if new_tid:
             self.last_thread_id = new_tid
             self._next_seed_thread_id = new_tid
+        auth_fail = getattr(self._backend, "_auth_failure_detected", False)
+        if auth_fail:
+            self._backend._auth_failure_detected = False
         return _Outcome(
             success=outcome.successful,
             status=outcome.status,
@@ -309,7 +370,209 @@ class _CodexSkillLoopRunner:
             matched_skill_name=outcome.skill_used,
             skill_distilled=outcome.skill_distilled,
             last_thread_id=new_tid,
+            auth_failure=auth_fail,
         )
+
+    def _chat_quick_reply(
+        self,
+        *,
+        objective: str,
+        sink: EventSink,
+        seed_thread_id: str | None = None,
+    ) -> _Outcome:
+        """One-shot codex call for conversational input.
+
+        Bypasses every component of the mission pipeline (matcher,
+        distiller, supervised round-loop, reviewer, skill writeback,
+        critic). Emits the minimum event sequence needed by the REPL
+        renderer + cost-tracking sink: ``loop.start`` → optional
+        streaming ``engineer.progress`` (via the trampoline) →
+        ``round.main.completed`` (with token counts so cost is
+        accounted for) → ``loop.done``.
+        """
+        from ..core.models import RunnerOptions
+        from ..life.router import build_chat_prompt
+
+        args = self._args
+        safe_mode = os.environ.get("ARGUS_SKILL_SAFE_MODE", "").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+        seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
+
+        sink.handle_event({
+            "type": "loop.start",
+            "text": f"chat: {objective[:80]}",
+            "chat_mode": True,
+        })
+
+        prompt = build_chat_prompt(objective=objective)
+        workdir = (
+            Path(args.workdir).expanduser() if args.workdir else Path.cwd()
+        )
+
+        # Wire the trampoline so codex's stream-json events still
+        # become ``engineer.progress`` items in the REPL. No ledger:
+        # nothing to fail on a chat reply.
+        self._current_sink = sink
+        self._current_failure_ledger = None
+        try:
+            result = self._backend.run_exec(
+                prompt=prompt,
+                options=RunnerOptions(
+                    model=args.engineer_model,
+                    # ``low`` keeps chat fast and cheap; codex's default
+                    # ``medium`` over-thinks short replies.
+                    reasoning_effort="low",
+                    full_auto=safe_mode,
+                    skip_git_repo_check=True,
+                    dangerous_yolo=not safe_mode,
+                    working_dir=str(workdir),
+                ),
+                run_label="chat-1",
+                resume_thread_id=seed,
+            )
+        finally:
+            self._current_sink = None
+
+        last_msg = (result.last_agent_message or "").strip()
+        new_tid = getattr(result, "thread_id", None)
+        if new_tid:
+            self.last_thread_id = new_tid
+            self._next_seed_thread_id = new_tid
+
+        # ``round.main.completed`` is the event the cost-tracking sink
+        # listens to for engineer-side tokens. Emitting it here keeps
+        # the chat fast-path's USD figure honest.
+        sink.handle_event({
+            "type": "round.main.completed",
+            "round_index": 1,
+            "input_tokens": int(getattr(result, "input_tokens", 0) or 0),
+            "output_tokens": int(getattr(result, "output_tokens", 0) or 0),
+            "last_message": last_msg,
+            "turn_completed": True,
+        })
+
+        fatal = getattr(result, "fatal_error", None)
+        success = (result.exit_code == 0) and not fatal
+        status = "done" if success else "error"
+        stop_reason = "" if success else (str(fatal) if fatal else f"exit={result.exit_code}")
+
+        auth_fail = getattr(self._backend, "_auth_failure_detected", False)
+        if auth_fail:
+            self._backend._auth_failure_detected = False
+
+        sink.handle_event({
+            "type": "loop.done",
+            "text": f"status={status} rounds=1 (chat)",
+        })
+
+        return _Outcome(
+            success=success,
+            status=status,
+            stop_reason=stop_reason,
+            rounds=1,
+            last_thread_id=new_tid,
+            chat_mode=True,
+            auth_failure=auth_fail,
+        )
+
+
+def _format_daemon_mode_cell(theme, mem: LifeMemory) -> str:  # noqa: ANN001
+    """Banner ``mode`` cell — life + daemon liveness in one line.
+
+    Shows ``life ⚡ daemon: alive (pid X · up Yh)`` when a 7×24 worker
+    is draining the backlog in the background, or
+    ``life · in-process · no daemon (start --daemon for 7×24)`` when not.
+    """
+    try:
+        from ..daemon.life_worker import read_daemon_status
+        from .cli import _format_short_duration
+        status = read_daemon_status(mem.root)
+    except Exception:  # noqa: BLE001
+        return f"{theme.bold('life')}    " + theme.dim("in-process · no daemon")
+    if status.alive and status.pid is not None:
+        uptime = _format_short_duration(status.uptime_seconds or 0.0)
+        body = (
+            f"{theme.bold('life')}  "
+            + theme.bold_green("⚡ daemon")
+            + theme.dim(f": pid {status.pid} · up {uptime}")
+        )
+        return body
+    return (
+        f"{theme.bold('life')}    "
+        + theme.dim("in-process · ")
+        + theme.yellow("no daemon")
+        + theme.dim("  (start with `argus-skill --daemon` for 7×24)")
+    )
+
+
+def _codex_preflight_warning() -> str | None:
+    """Return a one-line warning if the codex backend cannot run, else None.
+
+    Surfaced on the banner so the user does not discover at mission time
+    that ArgusBot or the ``codex`` binary are missing. Best-effort: if
+    anything raises we stay quiet — a confusing warning is worse than no
+    warning, and the real failure path (``_CodexSkillLoopRunner``) will
+    print a precise error when a mission actually starts.
+    """
+    try:
+        from ..adapters.codex_backend import _import_argusbot
+    except ImportError:
+        return "ArgusBot not installed — `pip install 'argus-skill[codex]'`"
+    try:  # noqa: SIM105
+        _import_argusbot()
+    except Exception:  # noqa: BLE001
+        return ("ArgusBot importable but codex_autoloop failed to load — "
+                "check the install")
+    import shutil
+    bin_path = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or shutil.which("codex")
+    if not bin_path:
+        return ("`codex` binary not found on PATH — set ARGUS_SKILL_RUNNER_BIN")
+    return None
+
+
+def _inbox_drainer_for(life_dir: Path):
+    """Return a `user_inbox` callable that drains pending messages from
+    ``<life_dir>/inbox.jsonl``.
+
+    The CLI's ``argus-skill --notify "<msg>"`` and the REPL's ``/nudge``
+    slash command both append to this file. Each call to the returned
+    callable returns one message (or ``None``) and advances a tiny
+    offset file so the same line is never replayed twice.
+    """
+    inbox_path = Path(life_dir) / "inbox.jsonl"
+    offset_path = Path(life_dir) / "inbox.offset"
+
+    def _drain_one() -> str | None:
+        try:
+            if not inbox_path.exists():
+                return None
+            try:
+                offset = int(offset_path.read_text().strip() or "0")
+            except (OSError, ValueError):
+                offset = 0
+            with inbox_path.open("rb") as fh:
+                fh.seek(offset)
+                raw = fh.readline()
+                if not raw:
+                    return None
+                new_offset = fh.tell()
+            try:
+                offset_path.write_text(str(new_offset), encoding="utf-8")
+            except OSError:
+                return None
+            try:
+                obj = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                return None
+            text = obj.get("text") if isinstance(obj, dict) else None
+            if not isinstance(text, str) or not text.strip():
+                return None
+            return text.strip()
+        except Exception:  # noqa: BLE001
+            return None
+
+    return _drain_one
 
 
 def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = None):
@@ -335,8 +598,10 @@ def run_life_supervisor(
     max_missions: int,
     per_mission_cap_usd: float,
     daily_cap_usd: float,
-    quiet: bool,
-    verbose: bool = False,
+    quiet: bool = False,
+    runtime_context: str = "",
+    continuous: bool = False,
+    continuous_objective: str = "",
 ) -> dict[str, Any]:
     """Run ``LifeSupervisor`` with proper signal-handler save/restore.
 
@@ -355,7 +620,10 @@ def run_life_supervisor(
     signal.signal(signal.SIGTERM, _on_signal)
 
     try:
-        sink = LifeStderrSink(quiet=quiet, verbose=verbose)
+        from ..life.event_log import JsonlEventSink
+
+        stderr_sink = LifeStderrSink(quiet=quiet)
+        sink = JsonlEventSink(stderr_sink, life_dir=mem.root)
         cfg = LifeSupervisorConfig(
             budget=LifeBudget(
                 per_mission_cap_usd=per_mission_cap_usd,
@@ -364,6 +632,10 @@ def run_life_supervisor(
             ),
             poll_interval_seconds=2.0,
             stop_event=stop_event,
+            user_inbox=_inbox_drainer_for(mem.root),
+            runtime_context=runtime_context,
+            continuous=continuous,
+            continuous_objective=continuous_objective,
         )
         sup = LifeSupervisor(
             memory=mem,
@@ -372,6 +644,7 @@ def run_life_supervisor(
             config=cfg,
             engineer_model=engineer_model,
             reviewer_model=reviewer_model,
+            critic_runner=getattr(runner, "backend", None),
         )
         return sup.run()
     finally:
@@ -387,23 +660,41 @@ def _invoke_supervisor(
     max_missions: int,
     per_mission_cap_usd: float,
     daily_cap_usd: float,
-    quiet: bool,
-    verbose: bool = False,
+    quiet: bool = False,
     seed_thread_id: str | None = None,
+    continuous: bool = False,
+    continuous_objective: str = "",
 ) -> tuple[dict[str, Any], str | None]:
     ns = argparse.Namespace()
     ns.backend = backend
     ns.engineer_model = os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini")
     ns.reviewer_model = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.4")
     ns.scientist_model = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4")
-    ns.skills_dir = os.environ.get("ARGUS_SKILL_SKILLS_DIR", "skills")
+    ns.skills_dir = os.environ.get(
+        "ARGUS_SKILL_SKILLS_DIR",
+        str(Path.home() / ".argus-skill" / "skills"),
+    )
     ns.workdir = os.environ.get("ARGUS_SKILL_WORKDIR")
-    # Life-mode default: 6 engineer rounds. The earlier value of 3 was
-    # too small for moderate "implement + test until pytest green"
-    # tasks where round 1 implements, round 2 tests + fixes, round 3
-    # re-tests + fixes; tight 3-round caps were stranding work that
-    # could finish cleanly in 4-5. Override via ARGUS_SKILL_MAX_ROUNDS.
-    ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "6"))
+    # Life-mode default: 500 engineer rounds. The earlier low cap was
+    # too small for "implement + test + polish" tasks that need many
+    # tool calls. Override via ARGUS_SKILL_MAX_ROUNDS.
+    ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "500"))
+
+    # Runtime context injected into every mission prelude so the agent
+    # knows its own backend, models, and budget constraints at runtime.
+    runner_backend = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND") or backend
+    mode_label = "continuous" if continuous else "single-shot"
+    runtime_context = (
+        f"## Runtime info\n"
+        f"- Life backend: {backend}\n"
+        f"- Runner backend: {runner_backend}\n"
+        f"- Engineer model: {ns.engineer_model}\n"
+        f"- Reviewer model: {ns.reviewer_model}\n"
+        f"- Max rounds per mission: {ns.max_rounds}\n"
+        f"- Per-mission budget cap: ${per_mission_cap_usd:.2f}\n"
+        f"- Daily budget cap: ${daily_cap_usd:.2f}\n"
+        f"- Mode: {mode_label}\n"
+    )
 
     runner = build_life_runner(ns, seed_thread_id=seed_thread_id)
     summary = run_life_supervisor(
@@ -416,7 +707,9 @@ def _invoke_supervisor(
         per_mission_cap_usd=per_mission_cap_usd,
         daily_cap_usd=daily_cap_usd,
         quiet=quiet,
-        verbose=verbose,
+        runtime_context=runtime_context,
+        continuous=continuous,
+        continuous_objective=continuous_objective,
     )
     final_thread_id = getattr(runner, "last_thread_id", None)
     return summary, final_thread_id
@@ -426,33 +719,162 @@ def _invoke_supervisor(
 # Slash-command helpers (in-process; mirror the public CLI subcommands)
 # ---------------------------------------------------------------------------
 
-def _add_only(mem: LifeMemory, text: str) -> BacklogItem:
+def _parse_add_flags(
+    text: str,
+    *,
+    default_iterate: bool = True,
+    default_cycles: int = 6,
+    default_budget: float = 30.0,
+) -> tuple[bool, int, float, str]:
+    """Strip ``--once`` / ``--cycles=N`` / ``--budget=$X`` from an /add body.
+
+    Returns ``(iterate, max_cycles, budget_usd, remaining_text)``. Defaults
+    come from the caller (typically session config); the hardcoded fallbacks
+    match the long-run positioning: iterate=True with 6 cycles and $30
+    budget so the lifetime agent can actually finish a sizeable polish pass.
+    """
+    iterate = default_iterate
+    max_cycles = default_cycles
+    budget = default_budget
+    tokens = text.split()
+    keep: list[str] = []
+    for tok in tokens:
+        low = tok.lower()
+        if low == "--once":
+            iterate = False
+            continue
+        if low.startswith("--cycles="):
+            try:
+                max_cycles = max(1, int(low.split("=", 1)[1]))
+            except ValueError:
+                pass
+            continue
+        if low.startswith("--budget="):
+            raw = low.split("=", 1)[1].lstrip("$")
+            try:
+                budget = max(0.0, float(raw))
+            except ValueError:
+                pass
+            continue
+        keep.append(tok)
+    return iterate, max_cycles, budget, " ".join(keep).strip()
+
+
+def _add_only(
+    mem: LifeMemory,
+    text: str,
+    *,
+    priority: int = 100,
+    iterate: bool = True,
+    iteration_max_cycles: int = 6,
+    iteration_budget_usd: float = 30.0,
+) -> BacklogItem:
     text = text.strip()
     title = text.splitlines()[0][:60].strip() or "(untitled)"
     item = mem.backlog.add(BacklogItem.new(
         title=title,
         objective=text,
-        priority=100,
-        max_cost_usd=1.0,
+        priority=priority,
+        max_cost_usd=30.0,
         tags=[],
+        iterate=iterate,
+        iteration_max_cycles=iteration_max_cycles,
+        iteration_budget_usd=iteration_budget_usd,
     ))
+    iter_blurb = (
+        f", iter≤{item.iteration_max_cycles} ${item.iteration_budget_usd:.1f}"
+        if item.iterate else ", once"
+    )
     print(
         f"added {item.id}: {item.title}  "
-        f"(priority={item.priority}, max_cost=${item.max_cost_usd:.2f})"
+        f"(priority={item.priority}, max_cost=${item.max_cost_usd:.2f}{iter_blurb})",
+        flush=True,
     )
     return item
 
 
 def _backend_cmd(tokens: list[str], chat_state: dict[str, Any]) -> None:
     if not tokens:
-        print(f"backend: {chat_state['backend']}")
+        print(f"backend: {chat_state['backend']}  (memory or codex)")
         return
     new = tokens[0].lower()
-    if new not in ("codex", "memory"):
-        print(f"unknown backend: {new}  (codex|memory)")
+    if new in {"codex", "memory"}:
+        chat_state["backend"] = new
+        print(f"backend: {new}")
         return
-    chat_state["backend"] = new
-    print(f"backend set to {new}")
+    print(
+        f"backend {new!r} is not available. Use `codex` or `memory`."
+    )
+
+
+_CONFIG_DEFAULTS: dict[str, Any] = {
+    "iterate": True,
+    "cycles": 6,
+    "budget": 30.0,
+    "per_mission_cap": 30.0,
+    "daily_cap": 180.0,
+    "continuous": False,
+}
+
+_CONFIG_TYPES: dict[str, type] = {
+    "iterate": bool,
+    "cycles": int,
+    "budget": float,
+    "per_mission_cap": float,
+    "daily_cap": float,
+    "continuous": bool,
+}
+
+
+def _config_cmd(tokens: list[str], chat_state: dict[str, Any]) -> None:
+    """``/config [key=value ...]`` — view or change REPL-session defaults.
+
+    These defaults apply to free-text input and ``/add``/``/run`` when
+    the corresponding flag is not explicitly provided. Changes are
+    session-local (this REPL process only — the background daemon uses
+    its own config from env vars / CLI flags).
+    """
+    cfg = chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))
+    if not tokens:
+        print("session config (REPL-local, does not affect daemon):")
+        for k, v in cfg.items():
+            if isinstance(v, float):
+                print(f"  {k:20s} = ${v:.2f}" if k != "iterate" else f"  {k:20s} = {v}")
+            elif isinstance(v, bool):
+                print(f"  {k:20s} = {'on' if v else 'off'}")
+            else:
+                print(f"  {k:20s} = {v}")
+        print("\n  usage: /config cycles=10 budget=50 daily_cap=300")
+        return
+    for tok in tokens:
+        if "=" not in tok:
+            print(f"  skip: {tok!r} — expected key=value")
+            continue
+        key, _, val = tok.partition("=")
+        key = key.strip().lower().replace("-", "_")
+        if key not in _CONFIG_DEFAULTS:
+            print(f"  unknown key: {key!r}  "
+                  f"(valid: {', '.join(sorted(_CONFIG_DEFAULTS))})")
+            continue
+        expected = _CONFIG_TYPES[key]
+        try:
+            val = val.strip().lstrip("$")
+            if expected is bool:
+                parsed: Any = val.lower() in {"true", "on", "yes", "1"}
+            elif expected is int:
+                parsed = max(1, int(val))
+            else:
+                parsed = max(0.0, float(val))
+        except ValueError:
+            print(f"  bad value for {key}: {val!r}")
+            continue
+        cfg[key] = parsed
+        if isinstance(parsed, float):
+            print(f"  {key} = ${parsed:.2f}")
+        elif isinstance(parsed, bool):
+            print(f"  {key} = {'on' if parsed else 'off'}")
+        else:
+            print(f"  {key} = {parsed}")
 
 
 def _identity_cmd(mem: LifeMemory, tokens: list[str], rest_text: str) -> None:
@@ -533,19 +955,68 @@ def _free_text_cmd(
     text: str,
     chat_state: dict[str, Any],
 ) -> None:
-    """Free-text input: enqueue + run immediately on the current backend."""
-    _add_only(mem, text)
+    """Free-text input: enqueue at the head + run immediately on the current backend.
+
+    Free-text typed at the prompt expresses intent ``run THIS now``, so we
+    inject the new item with a priority that beats anything ``/add`` can
+    produce, and then ask the supervisor to drain a single mission. This
+    avoids the surprise of typing "hello" and watching an unrelated
+    older backlog item run instead.
+
+    Supports ``--once`` / ``--cycles=N`` / ``--budget=$X`` inline flags
+    (same as ``/add``). When no flags are present, session-wide defaults
+    from ``chat_state["config"]`` are used.
+
+    When ``config["continuous"]`` is True, the supervisor runs in
+    continuous improvement mode: the critic-as-planner inspects the
+    project after each completed task and generates new work until
+    the project satisfies the objective.
+    """
+    cfg = chat_state.get("config", {})
+    continuous = cfg.get("continuous", False)
+    iterate, max_cycles, budget, body = _parse_add_flags(
+        text,
+        default_iterate=cfg.get("iterate", True),
+        default_cycles=cfg.get("cycles", 6),
+        default_budget=cfg.get("budget", 30.0),
+    )
+    body = body or text.strip()
+    pending = mem.backlog.pending()
+    head_priority = min((it.priority for it in pending), default=100)
+    free_priority = min(head_priority - 1, -1)
+    _add_only(
+        mem,
+        body,
+        priority=free_priority,
+        iterate=iterate,
+        iteration_max_cycles=max_cycles,
+        iteration_budget_usd=budget,
+    )
     theme = chat_state.get("theme")
-    msg = f"running on backend={chat_state['backend']} (Ctrl-C to stop)..."
-    print(theme.gray(msg) if theme else msg)
+    if continuous:
+        msg = (
+            f"🔄 continuous mode on backend={chat_state['backend']} "
+            f"(Ctrl-C to stop)..."
+        )
+    else:
+        msg = f"running on backend={chat_state['backend']} (Ctrl-C to stop)..."
+    print(theme.gray(msg) if theme else msg, flush=True)
     _invoke_and_track(
         mem=mem,
         chat_state=chat_state,
-        once=True,
-        max_missions=1,
-        per_mission_cap_usd=1.0,
-        daily_cap_usd=5.0,
+        once=not continuous,
+        max_missions=999 if continuous else 1,
+        per_mission_cap_usd=float(os.environ.get(
+            "ARGUS_SKILL_PER_MISSION_CAP_USD",
+            str(cfg.get("per_mission_cap", 30.0)),
+        )),
+        daily_cap_usd=float(os.environ.get(
+            "ARGUS_SKILL_DAILY_CAP_USD",
+            str(cfg.get("daily_cap", 180.0)),
+        )),
         quiet=False,
+        continuous=continuous,
+        continuous_objective=body if continuous else "",
     )
 
 
@@ -570,6 +1041,8 @@ def _invoke_and_track(
     per_mission_cap_usd: float,
     daily_cap_usd: float,
     quiet: bool,
+    continuous: bool = False,
+    continuous_objective: str = "",
 ) -> dict[str, Any]:
     """Run the supervisor and persist the resulting codex thread_id back
     into ``chat_state`` so the next mission resumes the same session.
@@ -591,8 +1064,9 @@ def _invoke_and_track(
         per_mission_cap_usd=per_mission_cap_usd,
         daily_cap_usd=daily_cap_usd,
         quiet=quiet,
-        verbose=bool(chat_state.get("verbose")),
         seed_thread_id=seed,
+        continuous=continuous,
+        continuous_objective=continuous_objective,
     )
     elapsed = time.monotonic() - t0
     if last_tid:
@@ -611,6 +1085,17 @@ def _invoke_and_track(
             + (f"  ·  cost=${cost:.4f}" if cost else "")
         )
         print(theme.dim(footer) if theme else footer)
+
+    # Surface auth failures prominently so the user knows to re-login
+    # (the supervisor already set the stop event, but the REPL user
+    # may not read stderr logs).
+    if isinstance(summary, dict) and summary.get("stopped_by") == "auth_failure":
+        warn = (
+            "⚠  codex authentication failed — run `codex login` to "
+            "refresh credentials, then restart the REPL or daemon."
+        )
+        print(theme.yellow(warn) if theme and hasattr(theme, "yellow") else warn)
+
     return summary
 
 
@@ -619,16 +1104,20 @@ def _run_cmd(
     opts: list[str],
     chat_state: dict[str, Any],
 ) -> None:
+    cfg = chat_state.get("config", {})
     p = argparse.ArgumentParser(prog="/run", add_help=False)
     p.add_argument("--once", action="store_true")
     p.add_argument(
         "--backend",
-        choices=("memory", "codex"),
+        choices=("codex",),
         default=chat_state["backend"],
     )
-    p.add_argument("--max-missions", type=int, default=3)
-    p.add_argument("--per-mission-cap-usd", type=float, default=1.0)
-    p.add_argument("--daily-cap-usd", type=float, default=5.0)
+    p.add_argument("--max-missions", type=int,
+                   default=int(cfg.get("cycles", 6)))
+    p.add_argument("--per-mission-cap-usd", type=float,
+                   default=float(cfg.get("per_mission_cap", 30.0)))
+    p.add_argument("--daily-cap-usd", type=float,
+                   default=float(cfg.get("daily_cap", 180.0)))
     p.add_argument("--quiet", action="store_true")
     try:
         run_args = p.parse_args(opts)
@@ -639,9 +1128,10 @@ def _run_cmd(
         f"/run: backend={run_args.backend}  "
         f"max_missions={'1 (once)' if run_args.once else run_args.max_missions}  "
         f"per_mission_cap=${run_args.per_mission_cap_usd:.2f}  "
-        f"daily_cap=${run_args.daily_cap_usd:.2f}"
+        f"daily_cap=${run_args.daily_cap_usd:.2f}",
+        flush=True,
     )
-    print("       (foreground; Ctrl-C requests graceful stop)")
+    print("       (foreground; Ctrl-C requests graceful stop)", flush=True)
 
     # If user overrode backend on /run, we still resume only when it matches
     # the chat_state backend (where the thread was originally created).
@@ -660,7 +1150,6 @@ def _run_cmd(
         per_mission_cap_usd=run_args.per_mission_cap_usd,
         daily_cap_usd=run_args.daily_cap_usd,
         quiet=run_args.quiet,
-        verbose=bool(chat_state.get("verbose")),
         seed_thread_id=seed,
     )
     elapsed = time.monotonic() - t0
@@ -713,6 +1202,21 @@ def _status_cmd(mem: LifeMemory, chat_state: dict[str, Any] | None = None) -> No
             if last_e is not None:
                 line += f"  ·  last {_format_elapsed(last_e)}"
             print(line)
+    # Background daemon status — surfaces the 7×24 worker so /status
+    # answers "is anything running while I'm idle?".
+    try:
+        from ..daemon.life_worker import read_daemon_status
+        from .cli import _format_short_duration
+        ds = read_daemon_status(mem.root)
+    except Exception:  # noqa: BLE001
+        ds = None
+    if ds is not None:
+        if ds.alive and ds.pid is not None:
+            up = _format_short_duration(ds.uptime_seconds or 0.0)
+            print(f"daemon : alive (pid {ds.pid}, up {up}, "
+                  f"backend {ds.backend or '?'})")
+        else:
+            print("daemon : not running   (start with `argus-skill --daemon`)")
             tid = chat_state.get("last_thread_id")
             if tid:
                 print(f"codex  : resuming session {tid[:12]}…  (/reset to drop)")
@@ -726,77 +1230,179 @@ def _render_help(theme) -> str:  # noqa: ANN001
     rows: list[tuple[str, str]] = [
         ("/help", "show this help"),
         ("/status", "summary of identity, backlog, recent journal"),
+        ("/config [key=val ...]", "view/change session defaults "
+                                  "(cycles, budget, continuous, daily_cap)"),
         ("/identity [edit|set …]", "view or update the identity card"),
         ("/backlog [all]", "list pending (or all) items"),
-        ("/add <text>", "enqueue a mission WITHOUT running it"),
+        ("/add <text> [--once] [--cycles=N] [--budget=$X]",
+            "enqueue a mission (iterates by default until critic stops)"),
         ("/done|/skip|/rm <id>", "change item status"),
+        ("/stop <id>", "disable iteration on an item (let it finish naturally)"),
         ("/journal [N]", "tail last N journal entries (default 10)"),
         ("/note <text>", "append a manual journal note"),
+        ("/nudge <text>", "send live operator guidance — the next "
+                          "engineer round will see it"),
         ("/run [opts]", "drain the backlog (foreground; Ctrl-C stops)"),
+        ("/skills [ls|promote <name>]",
+            "list global skills or promote a project skill to global"),
         ("/reset", "drop codex session — next mission starts fresh"),
-        ("/backend [codex|memory]", "show / set free-text default backend"),
-        ("/verbose", "show internal lifecycle events"),
-        ("/quiet", "hide internal events (default)"),
+        ("/backend", "show or change the backend (codex / memory)"),
         ("/exit  /quit  :q", "leave the REPL (Ctrl-D also works)"),
     ]
     width = max(len(k) for k, _ in rows)
     out: list[str] = []
-    out.append(theme.bold("argus-skill chat --life") + theme.gray("  — interactive lifetime-agent REPL"))
+    out.append(theme.bold("argus-skill")
+               + theme.gray("  — unified lifetime-agent REPL"))
     out.append("")
     out.append(theme.gray("Slash commands:"))
     for key, desc in rows:
         out.append(f"  {theme.cyan(key.ljust(width))}  {theme.gray(desc)}")
     out.append("")
     out.append(theme.gray(
-        "Free text (no leading '/') is appended to the backlog AND runs immediately"
+        "Free text (no leading '/') is appended to the backlog AND runs immediately."
     ))
     out.append(theme.gray(
-        "on the current default backend.  Use /add to enqueue without running."
+        "Supports --once / --cycles=N / --budget=$X inline flags."
+    ))
+    out.append(theme.gray(
+        "Use /config continuous=true to enable 24/7 continuous improvement mode."
+    ))
+    out.append(theme.gray(
+        "In continuous mode the critic-as-planner inspects the project after each "
+        "task and generates new work until the objective is fully satisfied."
     ))
     out.append("")
     return "\n".join(out)
 
 
 # ---------------------------------------------------------------------------
-# Public entry point — invoked by chat_app when --life is set
+# Slash-command helpers + public REPL entry point — invoked by apps/cli.main
 # ---------------------------------------------------------------------------
 
+def _skills_cmd(mem: LifeMemory, tokens: list[str]) -> None:
+    """``/skills [ls|promote <name>]`` — inspect or promote a skill
+    from the current project layer to the global layer."""
+    op = (tokens[0].lower() if tokens else "ls")
+    if op in ("ls", "list"):
+        from ..core import paths as core_paths
+        from ..skills.store import SkillStore
+
+        global_store = SkillStore(core_paths.skills_global_root())
+        rows = global_store.list_summaries()
+        if not rows:
+            print("(no global skills)")
+            return
+        for s in rows:
+            print(f"- {s['name']}  ({s.get('category') or '-'})  "
+                  f"{s['description']}")
+        return
+    if op == "promote":
+        if len(tokens) < 2:
+            print("usage: /skills promote <name>")
+            return
+        name = tokens[1]
+        from ..core import paths as core_paths
+        from ..core.project import project_fingerprint
+        from ..skills.layered import LayeredSkillStore
+
+        try:
+            fp = project_fingerprint(Path.cwd()).fingerprint
+        except Exception as exc:  # noqa: BLE001
+            print(f"could not compute project fingerprint: {exc}")
+            return
+        layered = LayeredSkillStore(
+            project_dir=core_paths.project_skills_root(fp),
+            global_dir=core_paths.skills_global_root(),
+        )
+        # Find the project skill by name.
+        target = None
+        for s in layered.project.list_summaries():
+            if s["name"].casefold() == name.casefold():
+                target = layered.project.load(s["path"])
+                break
+        if target is None:
+            print(f"no project skill named {name!r} to promote")
+            return
+        try:
+            promoted = layered.promote_to_global(target)
+        except Exception as exc:  # noqa: BLE001
+            print(f"promote failed: {exc}")
+            return
+        print(f"promoted {promoted.name} → global ({promoted.path})")
+        return
+    print(f"unknown /skills subcommand: {op}  (try ls | promote)")
+
+
 def run_life_chat_loop(args: argparse.Namespace) -> int:
-    """Drive the life-mode REPL.
+    """Drive the unified ``argus-skill`` REPL.
 
-    Shares ``read_pasted_message`` (paste handling), ``Theme.auto``
-    (color), ``render_startup_banner`` (logo + tagline), and the
-    user-facing/internal event filter with ``argus-skill chat``. Slash
-    commands dispatch in-process — no daemon, no jsonl bus.
+    Slash commands dispatch in-process — no daemon, no jsonl bus.
+    Free text becomes a backlog item AND runs immediately on the
+    current default backend.
     """
-    import readline  # noqa: F401 — enables line-editing for input()
-    from ._input_helpers import read_pasted_message, enable_bracketed_paste
-    enable_bracketed_paste()
-    from ..cli.theme import Theme
-    from ..cli.branding import render_logo, TAGLINE
-    from .. import __version__ as _argus_version
-
     life_dir_arg = getattr(args, "life_dir", None)
     root = Path(life_dir_arg).expanduser() if life_dir_arg else default_life_dir()
     mem = LifeMemory.open(root)
     state = mem.init()
     created = [k for k, v in state.items() if v]
 
+    # Singleton guard: two argus-skill REPLs running against the same
+    # life-dir would race on backlog.jsonl rewrites and corrupt journal
+    # appends mid-flight. Acquire an OS-level advisory lock per life-dir
+    # so a second invocation gets a clear error instead of silent
+    # corruption. The lock auto-releases when the process exits; we also
+    # release explicitly via try/finally below.
+    from ..core.daemon_lock import (
+        DaemonAlreadyRunning,
+        acquire_global_daemon_lock,
+    )
+    lock_path = mem.root / "repl.pid"
+    try:
+        repl_lock = acquire_global_daemon_lock(pid_path=lock_path)
+    except DaemonAlreadyRunning as exc:
+        sys.stderr.write(
+            f"argus-skill: another REPL is already running here "
+            f"(pid={exc.pid}, lock={exc.lock_path}).\n"
+            f"  ↳ if that process is dead, remove {exc.lock_path} and retry.\n"
+        )
+        return 2
+
+    try:
+        return _run_life_chat_loop_locked(args, mem, created)
+    finally:
+        try:
+            repl_lock.release()
+        except Exception:  # noqa: BLE001
+            log.exception("life REPL: failed to release singleton lock")
+
+
+def _run_life_chat_loop_locked(
+    args: argparse.Namespace,
+    mem: LifeMemory,
+    created: list[str],
+) -> int:
+    """The interactive REPL body. Split out so the singleton lock in
+    :func:`run_life_chat_loop` cleanly wraps the entire loop with
+    a try/finally release."""
+    import readline  # noqa: F401 — enables line-editing for input()
+
+    from ._input_helpers import enable_bracketed_paste, read_pasted_message
+    enable_bracketed_paste()
+    from .. import __version__ as _argus_version
+    from ..cli.branding import TAGLINE, render_logo
+    from ..cli.theme import Theme
+
     theme = Theme.auto(force=getattr(args, "color", None))
 
-    # Verbose default is on for life mode: this REPL has no separate
-    # progress UI, so seeing internal events (round.start, match.info,
-    # skill.writeback, …) is what tells the user the agent is actually
-    # working. CLI flags --verbose/--quiet still win.
-    if getattr(args, "verbose", None) is None:
-        initial_verbose = True
-    else:
-        initial_verbose = bool(args.verbose)
+    # Always-verbose: the lifetime-agent product positioning means the
+    # operator wants to see every internal event (round.start, match.info,
+    # skill.writeback, …). The earlier ``verbose``/``quiet`` toggles have
+    # been removed; ``--verbose`` and ``--quiet`` flags are accepted but
+    # ignored (kept for backward compat in scripts).
 
     backend_default = os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
     chat_state: dict[str, Any] = {
         "backend": backend_default,
-        "verbose": initial_verbose,
         "theme": theme,
         # Codex CLI session id of the most recent mission. Reused as
         # ``resume_thread_id`` on the next mission so the codex CLI does
@@ -808,7 +1414,51 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
         "mission_count": 0,
         "total_elapsed_s": 0.0,
         "last_elapsed_s": None,
+        # Session-wide iteration/budget defaults. Changed via /config.
+        # REPL-local only — does not affect the background daemon.
+        "config": dict(_CONFIG_DEFAULTS),
     }
+
+    # ── Auto-spawn 7×24 daemon ────────────────────────────────────
+    # Lifetime-agent positioning means the daemon is the default. We
+    # silently spawn one in the background unless the user opted out
+    # with --no-daemon or one is already alive (idempotent: spawn is
+    # a no-op when the singleton lock is held).
+    auto_spawn_msg: str | None = None
+    legacy_zombie_msg: str | None = None
+    # Detect a pre-pivot ``python -m argus_skill daemon`` zombie still
+    # writing to the legacy ``state/`` dir. Two independent daemons will
+    # double-claim work and corrupt accounting, so we surface this loudly.
+    legacy_status = mem.root.parent / "state" / "status.json"
+    if legacy_status.exists():
+        try:
+            data = json.loads(legacy_status.read_text(encoding="utf-8"))
+            zpid = int(data.get("daemon_pid") or 0)
+            if zpid > 0:
+                try:
+                    os.kill(zpid, 0)
+                    legacy_zombie_msg = (
+                        f"legacy daemon detected (pid {zpid}, pre-pivot). "
+                        f"Run: kill {zpid} && rm -rf {legacy_status.parent}"
+                    )
+                except OSError:
+                    legacy_zombie_msg = None
+        except Exception:  # noqa: BLE001
+            pass
+    if not getattr(args, "no_daemon", False):
+        try:
+            from ..daemon.life_worker import (
+                read_daemon_status,
+                spawn_detached_daemon,
+            )
+            from .cli import _build_worker_config
+            status = read_daemon_status(mem.root)
+            if not status.alive:
+                cfg = _build_worker_config(args)
+                pid = spawn_detached_daemon(cfg)
+                auto_spawn_msg = f"daemon auto-spawned (pid {pid})"
+        except Exception as exc:  # noqa: BLE001
+            auto_spawn_msg = f"daemon auto-spawn skipped: {exc!s}"
 
     # ── Banner ─────────────────────────────────────────────────────
     print()
@@ -822,22 +1472,42 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
 
     arrow = theme.dim("→")
     label = lambda s: theme.gray(f"{s:<10}")  # noqa: E731
-    verbose_text = (theme.bold(theme.yellow("on"))
-                    if initial_verbose
-                    else theme.bold_green("off"))
+    cfg = chat_state["config"]
+    iter_status = theme.bold_green("on") if cfg["iterate"] else theme.bold("off")
+    iter_detail = (
+        f"default {cfg['cycles']} cycles · ${cfg['budget']:.0f} budget"
+        f" · /add --once to opt out"
+    )
     rows = [
         ("mode",    f"{theme.bold('life')}    " + theme.dim("in-process · no daemon")),
-        ("backend", f"{theme.bold(backend_default)}   " + theme.dim("(/backend memory|codex)")),
+        ("backend", f"{theme.bold(backend_default)}   " + theme.dim("(memory or codex)")),
         ("backlog", f"{theme.bold(str(len(mem.backlog.pending())))} "
                     + theme.gray("pending")),
-        ("verbose", f"{verbose_text}      " + theme.dim("(/verbose · /quiet)")),
+        ("iterate", iter_status + "    "
+                    + theme.dim(iter_detail)),
+        ("verbose", theme.bold_green("always") + " "
+                    + theme.dim("(filter removed — every event is shown)")),
         ("state",   theme.cyan(str(mem.root))),
     ]
+    # Replace the static "in-process · no daemon" hint with live daemon
+    # status so the user sees whether the 7×24 worker is draining the
+    # backlog in the background. The lifetime-agent positioning is only
+    # honest if this is observable at a glance.
+    rows[0] = ("mode", _format_daemon_mode_cell(theme, mem))
     for k, v in rows:
         print(f"  {label(k)} {arrow} {v}")
     if created:
         print(f"  {label('init')} {arrow} " + theme.dim("created ")
               + theme.cyan(", ".join(created)))
+    if auto_spawn_msg:
+        print(f"  {label('daemon')} {arrow} " + theme.dim(auto_spawn_msg))
+    if legacy_zombie_msg:
+        print(f"  {label('warn')} {arrow} " + theme.yellow(legacy_zombie_msg))
+    # Preflight: surface codex-backend problems at launch, not mid-mission.
+    if backend_default == "codex":
+        warning = _codex_preflight_warning()
+        if warning:
+            print(f"  {label('warn')} {arrow} " + theme.yellow(warning))
     print("  " + rule)
     print()
     print("  " + theme.gray("free text runs immediately on the backend  ·  ")
@@ -899,9 +1569,41 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
             continue
         if cmd == "/add":
             if not rest_text:
-                print(theme.gray("usage: /add <objective text>"))
+                print(theme.gray(
+                    "usage: /add <objective>  "
+                    "[--once] [--cycles=N] [--budget=$X]"
+                ))
                 continue
-            _add_only(mem, rest_text)
+            cfg = chat_state.get("config", {})
+            iterate, max_cycles, budget, body = _parse_add_flags(
+                rest_text,
+                default_iterate=cfg.get("iterate", True),
+                default_cycles=cfg.get("cycles", 6),
+                default_budget=cfg.get("budget", 30.0),
+            )
+            if not body:
+                print(theme.gray("/add: empty objective after flags"))
+                continue
+            _add_only(
+                mem,
+                body,
+                iterate=iterate,
+                iteration_max_cycles=max_cycles,
+                iteration_budget_usd=budget,
+            )
+            continue
+        if cmd == "/stop":
+            if not rest:
+                print(theme.gray("usage: /stop <item_id>"))
+                continue
+            stopped = mem.backlog.stop_iteration(rest[0])
+            if stopped is None:
+                print(theme.red(f"/stop: no item with id {rest[0]!r}"))
+            else:
+                print(
+                    f"iteration disabled for {stopped.id}: {stopped.title}  "
+                    f"(status={stopped.status})"
+                )
             continue
         if cmd in ("/done", "/skip", "/rm"):
             if not rest:
@@ -932,16 +1634,32 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
             mem.journal.append(entry)
             print(theme.gray(f"note appended (id={entry.id})"))
             continue
+        if cmd in ("/nudge", "/inject", "/notify"):
+            if not rest_text:
+                print(theme.gray("usage: /nudge <message>  (one line, "
+                                 "spliced into the next engineer round)"))
+                continue
+            inbox = mem.root / "inbox.jsonl"
+            inbox.parent.mkdir(parents=True, exist_ok=True)
+            record = {"ts": time.time(), "text": rest_text}
+            with inbox.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+            print(theme.gray(
+                f"nudge queued ({len(rest_text)} chars) → next mission round "
+                f"will see it as operator guidance"
+            ))
+            continue
         if cmd == "/backend":
             _backend_cmd(rest, chat_state)
             continue
-        if cmd == "/verbose":
-            chat_state["verbose"] = True
-            print(theme.gray("verbose: on  (showing internal events)"))
+        if cmd == "/config":
+            _config_cmd(rest, chat_state)
             continue
-        if cmd == "/quiet":
-            chat_state["verbose"] = False
-            print(theme.gray("verbose: off  (user-facing events only)"))
+        if cmd in ("/verbose", "/quiet"):
+            print(theme.gray(
+                "verbose is always on now (the toggle was removed). "
+                "every event is rendered."
+            ))
             continue
         if cmd == "/reset":
             old = chat_state.get("last_thread_id")
@@ -954,6 +1672,9 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
             continue
         if cmd == "/run":
             _run_cmd(mem, rest, chat_state)
+            continue
+        if cmd == "/skills":
+            _skills_cmd(mem, rest)
             continue
         print(theme.gray(f"unknown command: {cmd}  (try /help)"))
 
