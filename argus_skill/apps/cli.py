@@ -21,6 +21,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from typing import Sequence
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_grp.add_argument(
         "--status",
         action="store_true",
-        help="print daemon + backlog status and exit (no REPL)",
+        help="print daemon + active/history backlog status and exit (no REPL)",
     )
     daemon_grp.add_argument(
         "--daemon-runbook",
@@ -371,6 +372,23 @@ def _cmd_skill_compact(args: argparse.Namespace) -> int:
     )
 
 
+def _count_backlog_statuses(items: Sequence[object]) -> tuple[int, int, int, int, int]:
+    pending = running = done = failed = skipped = 0
+    for item in items:
+        status = getattr(item, "status", "")
+        if status == "pending":
+            pending += 1
+        elif status == "running":
+            running += 1
+        elif status == "done":
+            done += 1
+        elif status == "failed":
+            failed += 1
+        elif status == "skipped":
+            skipped += 1
+    return pending, running, done, failed, skipped
+
+
 def _cmd_status(args: argparse.Namespace) -> int:
     from ..daemon.life_worker import read_continuous_state, read_daemon_status
     from ..life.memory import LifeMemory
@@ -378,11 +396,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     status = read_daemon_status(life_dir)
     mem = LifeMemory.open(life_dir)
     all_items = mem.backlog.all()
-    pending = sum(1 for it in all_items if it.status == "pending")
-    running = sum(1 for it in all_items if it.status == "running")
-    done = sum(1 for it in all_items if it.status == "done")
-    failed = sum(1 for it in all_items if it.status == "failed")
-    skipped = sum(1 for it in all_items if it.status == "skipped")
+    pending, running, done, failed, skipped = _count_backlog_statuses(all_items)
     # Status should stay cheap even on a long-lived daemon.
     journal_tail = mem.journal.tail(3)
 
@@ -393,12 +407,14 @@ def _cmd_status(args: argparse.Namespace) -> int:
         print(f"  daemon   : alive (pid {status.pid}, up {uptime}, backend {backend})")
     else:
         print("  daemon   : not running   (start with `argus-skill --daemon`)")
-    parts = [f"{pending} pending", f"{done} done", f"{failed} failed"]
-    if running:
-        parts.insert(1, f"{running} running ⚠")
-    if skipped:
-        parts.append(f"{skipped} skipped")
-    print(f"  backlog  : {' · '.join(parts)}")
+    print(f"  active   : {pending} pending · {running} running")
+    history_parts = [part for part in (
+        f"{done} done" if done else "",
+        f"{failed} failed" if failed else "",
+        f"{skipped} skipped" if skipped else "",
+    ) if part]
+    if history_parts:
+        print(f"  history  : {' · '.join(history_parts)}")
     # Total cost from journal
     try:
         total_cost = mem.journal.total_cost_since(0)

@@ -4,7 +4,7 @@ Runs as a daemon thread inside :class:`~argus_skill.daemon.life_worker.LifeWorke
 Polls ``getUpdates`` with long-polling and dispatches commands:
 
 * ``/add <title>: <objective>`` — add a task to the backlog
-* ``/status`` — reply with daemon / backlog / cost summary
+* ``/status`` — reply with daemon / active queue / history / cost summary
 * ``/backlog`` — list pending tasks
 * ``/start [objective]`` — enable continuous mode
 * ``/stop`` — disable continuous mode
@@ -22,7 +22,7 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 log = logging.getLogger(__name__)
 
@@ -230,10 +230,7 @@ class _CommandRouter:
         cs = read_continuous_state(self.life_dir)
 
         all_items = mem.backlog.all()
-        pending = sum(1 for it in all_items if it.status == "pending")
-        running = sum(1 for it in all_items if it.status == "running")
-        done = sum(1 for it in all_items if it.status == "done")
-        failed = sum(1 for it in all_items if it.status == "failed")
+        pending, running, done, failed, skipped = _count_backlog_statuses(all_items)
 
         try:
             total_cost = mem.journal.total_cost_since(0)
@@ -279,7 +276,14 @@ class _CommandRouter:
                 lines.append("\n💤 空闲中")
 
         # Backlog
-        lines.append(f"\n📋 待办 {pending} · 运行中 {running} · 完成 {done} · 失败 {failed}")
+        lines.append(f"\n📋 active: {pending} pending · {running} running")
+        history_parts = [part for part in (
+            f"{done} done" if done else "",
+            f"{failed} failed" if failed else "",
+            f"{skipped} skipped" if skipped else "",
+        ) if part]
+        if history_parts:
+            lines.append(f"🕰️ history: {' · '.join(history_parts)}")
 
         # Cost
         lines.append(f"💵 累计花费: <b>${total_cost:.2f}</b>")
@@ -348,6 +352,23 @@ class _CommandRouter:
 # ---------------------------------------------------------------------------
 # Poller
 # ---------------------------------------------------------------------------
+
+
+def _count_backlog_statuses(items: Sequence[object]) -> tuple[int, int, int, int, int]:
+    pending = running = done = failed = skipped = 0
+    for item in items:
+        status = getattr(item, "status", "")
+        if status == "pending":
+            pending += 1
+        elif status == "running":
+            running += 1
+        elif status == "done":
+            done += 1
+        elif status == "failed":
+            failed += 1
+        elif status == "skipped":
+            skipped += 1
+    return pending, running, done, failed, skipped
 
 class TelegramPoller:
     """Long-polling thread that listens for inbound Telegram commands.

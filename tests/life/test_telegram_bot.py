@@ -2,13 +2,43 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from pathlib import Path
+from typing import TypedDict
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.telegram_bot import TelegramPoller, _CommandRouter
+
+
+class _ApiCallRecord(TypedDict):
+    token: str
+    method: str
+    payload: dict[str, object]
+    timeout: float
+
+
+class _SingleIterationEvent(threading.Event):
+    def wait(self, timeout: float | None = None) -> bool:
+        self.set()
+        return True
+
+
+def _offset_from_payload(payload: dict[str, object] | None) -> int:
+    if payload is None:
+        return 0
+    offset = payload.get("offset")
+    assert isinstance(offset, int)
+    return offset
+
+
+def _offset_from_call(call: _ApiCallRecord) -> int:
+    offset = call["payload"].get("offset")
+    assert isinstance(offset, int)
+    return offset
 
 # ---------------------------------------------------------------------------
 # _CommandRouter tests
@@ -23,6 +53,19 @@ def life_dir(tmp_path: Path) -> Path:
     (d / "journal.jsonl").touch()
     (d / "identity.md").write_text("# test\n")
     return d
+
+
+@pytest.fixture()
+def status_life_dir(tmp_path: Path) -> Path:
+    mem = LifeMemory.open(tmp_path)
+    mem.init()
+    done = mem.backlog.add(BacklogItem.new(title="done", objective="finished work"))
+    mem.backlog.mark_done(done.id)
+    failed = mem.backlog.add(BacklogItem.new(title="failed", objective="bad work"))
+    mem.backlog.mark_failed(failed.id, error="boom")
+    skipped = mem.backlog.add(BacklogItem.new(title="skipped", objective="later work"))
+    mem.backlog.update(skipped.id, status="skipped")
+    return tmp_path
 
 
 class TestCommandRouter:
@@ -63,6 +106,19 @@ class TestCommandRouter:
         reply = mock_send.call_args[0][2]
         assert "状态" in reply
         assert "守护进程" in reply
+
+    @patch("argus_skill.life.telegram_bot._send_message")
+    def test_status_separates_active_queue_and_history(
+        self,
+        mock_send: MagicMock,
+        status_life_dir: Path,
+    ) -> None:
+        router = self._make_router(status_life_dir)
+        router.dispatch("/status")
+        reply = mock_send.call_args[0][2]
+        assert "active: 0 pending · 0 running" in reply
+        assert "history: 1 done · 1 failed · 1 skipped" in reply
+        assert "failed" in reply
 
     @patch("argus_skill.life.telegram_bot._send_message")
     def test_backlog_empty(self, mock_send: MagicMock, life_dir: Path) -> None:
@@ -259,8 +315,8 @@ class TestPoller:
                 },
             },
         ]
-        calls_first: list[dict[str, object]] = []
-        calls_second: list[dict[str, object]] = []
+        calls_first: list[_ApiCallRecord] = []
+        calls_second: list[_ApiCallRecord] = []
         written_offsets: list[int] = []
 
         real_write_offset = tg._write_offset
@@ -273,7 +329,7 @@ class TestPoller:
                 "timeout": timeout,
             })
             if method == "getUpdates":
-                offset = int((payload or {}).get("offset", 0))
+                offset = _offset_from_payload(payload)
                 if offset == 5:
                     return {"ok": True, "result": first_batch}
                 return None
@@ -289,7 +345,7 @@ class TestPoller:
                 "timeout": timeout,
             })
             if method == "getUpdates":
-                offset = int((payload or {}).get("offset", 0))
+                offset = _offset_from_payload(payload)
                 if offset == 9:
                     return {"ok": True, "result": second_batch}
                 return None
@@ -305,13 +361,14 @@ class TestPoller:
 
         def run_once(api_func) -> None:
             monkeypatch.setattr(tg, "_api_call", api_func)
+            stop_event = _SingleIterationEvent()
             poller = TelegramPoller(
                 life_dir=life_dir,
                 token="token",
                 chat_id="123",
                 user_id="456",
+                stop_event=stop_event,
             )
-            poller._stop.wait = lambda timeout=None: poller._stop.set() or True  # type: ignore[method-assign]
             poller._poll_loop()
 
         run_once(fake_api_first)
@@ -323,8 +380,8 @@ class TestPoller:
         second_backlog = LifeMemory.open(life_dir).backlog.pending()
         second_offset = (life_dir / "telegram.offset").read_text().strip()
 
-        assert [call["payload"]["offset"] for call in calls_first if call["method"] == "getUpdates"][:1] == [5]
-        assert [call["payload"]["offset"] for call in calls_second if call["method"] == "getUpdates"][:1] == [9]
+        assert [_offset_from_call(call) for call in calls_first if call["method"] == "getUpdates"][:1] == [5]
+        assert [_offset_from_call(call) for call in calls_second if call["method"] == "getUpdates"][:1] == [9]
         assert len(first_backlog) == 1
         assert first_backlog[0].objective == "build the first thing"
         assert first_inbox["text"] == "keep going"

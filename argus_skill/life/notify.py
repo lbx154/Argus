@@ -217,10 +217,10 @@ def _format_telegram_message(payload: dict[str, Any]) -> str:
         s = _esc(summary if len(summary) <= 300 else summary[:297] + "…")
         lines.append(f"\n{s}")
 
-    # Cost line
+    # Cost line — skip "本次" for phase_change (it's always 0)
     cumul = extra.get("cumulative_cost_usd")
     cost_parts: list[str] = []
-    if cost is not None:
+    if cost is not None and kind not in ("phase_change", "mission_started"):
         cost_parts.append(f"本次 ${float(cost):.2f}")
     if cumul is not None:
         cost_parts.append(f"累计 <b>${float(cumul):.2f}</b>")

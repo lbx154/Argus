@@ -600,8 +600,11 @@ class LifeSupervisor:
                         "engineer_rounds": info.get("engineer_rounds", 0),
                     },
                 )
-                # Don't journal phase changes — just notify
-                self._inject_cumulative_cost(entry)
+                # Don't journal phase changes — just notify.
+                # Pass in-flight cost so cumulative includes current mission.
+                self._inject_cumulative_cost(
+                    entry, in_flight_usd=cost_sink.total_usd(),
+                )
                 dispatch_journal_entry(entry)
             except Exception:  # noqa: BLE001
                 log.debug("phase_change notify failed; non-critical")
@@ -939,7 +942,9 @@ class LifeSupervisor:
                     "iteration_max": cycles_max,
                 },
             )
-            self._inject_cumulative_cost(critic_start)
+            self._inject_cumulative_cost(
+                critic_start, in_flight_usd=cycle_cost_usd,
+            )
             dispatch_journal_entry(critic_start)
         except Exception:  # noqa: BLE001
             log.debug("critic phase_change notify failed; non-critical")
@@ -1070,11 +1075,17 @@ class LifeSupervisor:
                 lines.append(f"- {e.kind}: {e.summary}")
         return "\n".join(lines[-3:])
 
-    def _inject_cumulative_cost(self, entry: Any) -> None:
-        """Stamp ``cumulative_cost_usd`` onto ``entry.extra`` after it has
-        been appended to the journal (so the current entry is included)."""
+    def _inject_cumulative_cost(
+        self, entry: Any, *, in_flight_usd: float = 0.0,
+    ) -> None:
+        """Stamp ``cumulative_cost_usd`` onto ``entry.extra``.
+
+        ``in_flight_usd`` is an optional cost from the *current* mission
+        that hasn't been journaled yet (e.g. during phase-change
+        notifications that fire mid-execution).
+        """
         try:
-            cumul = self.memory.journal.total_cost_since(0)
+            cumul = self.memory.journal.total_cost_since(0) + max(0.0, in_flight_usd)
             extra = getattr(entry, "extra", None)
             if extra is None:
                 entry.extra = {"cumulative_cost_usd": round(cumul, 2)}

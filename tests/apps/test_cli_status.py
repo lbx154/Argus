@@ -8,52 +8,30 @@ from pathlib import Path
 import pytest
 
 from argus_skill.apps.cli import _cmd_status
+from argus_skill.life.memory import BacklogItem, JournalEntry, LifeMemory
 
 
-def test_status_uses_journal_tail_instead_of_full_scan(
+@pytest.fixture()
+def life_dir_with_history(tmp_path: Path) -> Path:
+    mem = LifeMemory.open(tmp_path)
+    mem.init()
+    mem.journal.append(
+        JournalEntry.new(kind="mission_failed", title="old failure", summary="boom")
+    )
+    done = mem.backlog.add(BacklogItem.new(title="done", objective="finished work"))
+    mem.backlog.mark_done(done.id)
+    failed = mem.backlog.add(BacklogItem.new(title="failed", objective="bad work"))
+    mem.backlog.mark_failed(failed.id, error="boom")
+    skipped = mem.backlog.add(BacklogItem.new(title="skipped", objective="later work"))
+    mem.backlog.update(skipped.id, status="skipped")
+    return tmp_path
+
+
+def test_status_separates_active_queue_from_history(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+    life_dir_with_history: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    class _FakeEntry:
-        def __init__(self, kind: str, summary: str) -> None:
-            self.kind = kind
-            self.summary = summary
-
-    class _FakeJournal:
-        def __init__(self) -> None:
-            self.tail_calls: list[int] = []
-
-        def tail(self, n: int = 20):
-            self.tail_calls.append(n)
-            if n != 3:
-                raise AssertionError(f"expected tail(3), got tail({n})")
-            return [
-                _FakeEntry("mission_complete", "finished"),
-                _FakeEntry("mission_failed", "oops"),
-            ]
-
-        def all(self):
-            raise AssertionError("status must not read the full journal")
-
-    class _FakeBacklog:
-        def all(self):
-            return [
-                Namespace(status="pending"),
-                Namespace(status="running"),
-                Namespace(status="done"),
-                Namespace(status="failed"),
-                Namespace(status="skipped"),
-            ]
-
-    class _FakeMemory:
-        def __init__(self) -> None:
-            self.journal = _FakeJournal()
-            self.backlog = _FakeBacklog()
-
-    fake_mem = _FakeMemory()
-
-    monkeypatch.setattr("argus_skill.life.memory.LifeMemory.open", lambda root: fake_mem)
     monkeypatch.setattr("argus_skill.daemon.life_worker.read_daemon_status", lambda life_dir: Namespace(
         alive=True,
         pid=4321,
@@ -62,7 +40,7 @@ def test_status_uses_journal_tail_instead_of_full_scan(
     ))
     monkeypatch.setattr("argus_skill.apps.cli._check_logout_survival", lambda status: None)
 
-    (tmp_path / "continuous.json").write_text(
+    (life_dir_with_history / "continuous.json").write_text(
         json.dumps(
             {
                 "enabled": True,
@@ -74,15 +52,14 @@ def test_status_uses_journal_tail_instead_of_full_scan(
         encoding="utf-8",
     )
 
-    rc = _cmd_status(Namespace(life_dir=str(tmp_path)))
+    rc = _cmd_status(Namespace(life_dir=str(life_dir_with_history)))
     out = capsys.readouterr().out
 
     assert rc == 0
-    assert fake_mem.journal.tail_calls == [3]
-    assert "1 pending" in out
-    assert "1 running" in out
-    assert "2 done" not in out
-    assert "mission_failed" in out or "oops" in out
+    assert "active   : 0 pending · 0 running" in out
+    assert "history  : 1 done · 1 failed · 1 skipped" in out
+    assert "done   :" not in out
+    assert "failed" in out
     assert "continuous: on" in out
     assert "objective: hardening objective" in out
     assert "done_reason: planner declared project done" in out
