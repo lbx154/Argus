@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import subprocess
+from argparse import Namespace
 from pathlib import Path
 
 import pytest
 
+from argus_skill.apps.cli import main
 from argus_skill.core import project
 from argus_skill.life import (
+    BacklogItem,
     GlobalMemory,
     JournalEntry,
     MemoryBundle,
@@ -299,3 +302,68 @@ def test_life_memory_still_works(tmp_path: Path) -> None:
     assert (tmp_path / "identity.md").exists()
     assert (tmp_path / "journal.jsonl").exists()
     assert (tmp_path / "backlog.jsonl").exists()
+
+
+def test_cli_status_and_prelude_are_project_scoped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    home = tmp_path / "home"
+    repo_a = tmp_path / "repo-a"
+    repo_b = tmp_path / "repo-b"
+    repo_a.mkdir()
+    repo_b.mkdir()
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(home))
+
+    bundle_a = MemoryBundle.for_cwd(repo_a)
+    bundle_b = MemoryBundle.for_cwd(repo_b)
+    bundle_a.init()
+    bundle_b.init()
+
+    bundle_a.project.project_card.path.write_text(
+        "# alpha\nAlpha project card\n", encoding="utf-8"
+    )
+    bundle_b.project.project_card.path.write_text(
+        "# beta\nBeta project card\n", encoding="utf-8"
+    )
+    bundle_a.project.memory.append(
+        JournalEntry.new(kind="note", title="alpha memory", summary="alpha only")
+    )
+    bundle_b.project.memory.append(
+        JournalEntry.new(kind="note", title="beta memory", summary="beta only")
+    )
+    bundle_a.backlog.add(BacklogItem.new(title="alpha backlog", objective="alpha"))
+    bundle_b.backlog.add(BacklogItem.new(title="beta backlog", objective="beta"))
+
+    assert bundle_a.project.root != bundle_b.project.root
+    assert bundle_a.project.memory.path != bundle_b.project.memory.path
+    assert bundle_a.backlog.path != bundle_b.backlog.path
+
+    prelude_a = bundle_a.render_prelude(objective="alpha objective")
+    prelude_b = bundle_b.render_prelude(objective="beta objective")
+    assert "Alpha project card" in prelude_a
+    assert "alpha memory" in prelude_a
+    assert "Beta project card" in prelude_b
+    assert "beta memory" in prelude_b
+
+    monkeypatch.setattr(
+        "argus_skill.daemon.life_worker.read_daemon_status",
+        lambda life_dir: Namespace(
+            alive=False,
+            pid=None,
+            uptime_seconds=None,
+            backend=None,
+        ),
+    )
+    monkeypatch.setattr("argus_skill.apps.cli._check_logout_survival", lambda status: None)
+
+    monkeypatch.chdir(repo_a)
+    rc_a = main(["--status"])
+    out_a = capsys.readouterr().out
+    assert rc_a == 0
+    assert str(bundle_a.project.root) in out_a
+
+    monkeypatch.chdir(repo_b)
+    rc_b = main(["--status"])
+    out_b = capsys.readouterr().out
+    assert rc_b == 0
+    assert str(bundle_b.project.root) in out_b

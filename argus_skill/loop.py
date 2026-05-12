@@ -163,8 +163,18 @@ class SkillLoop:
         matched, matcher_tokens = self.skill_store.find_relevant(
             skill_task, on_event=self.on_event,
         )
+        matcher_input_tokens = int(
+            getattr(self.skill_store, "last_match_input_tokens", 0) or 0
+        )
+        matcher_cached_input_tokens = int(
+            getattr(self.skill_store, "last_match_cached_input_tokens", 0) or 0
+        )
+        matcher_output_tokens = int(
+            getattr(self.skill_store, "last_match_output_tokens", 0) or 0
+        )
         skill: Skill | None = matched[0] if matched else None
         skill_distilled = False
+        distill_result = None
 
         # Step 2: distill on miss
         if skill is None and self.config.distill_on_miss:
@@ -264,6 +274,20 @@ class SkillLoop:
                 "skill_hit": bool(skill_name) and not skill_distilled,
                 "skill_distilled": bool(skill_distilled),
                 "matcher_tokens": int(matcher_tokens or 0),
+                "matcher_input_tokens": matcher_input_tokens,
+                "matcher_cached_input_tokens": matcher_cached_input_tokens,
+                "matcher_output_tokens": matcher_output_tokens,
+                "distiller_tokens": int(
+                    (getattr(distill_result, "input_tokens", 0) or 0)
+                    + (getattr(distill_result, "output_tokens", 0) or 0)
+                ),
+                "distiller_input_tokens": int(getattr(distill_result, "input_tokens", 0) or 0),
+                "distiller_cached_input_tokens": int(
+                    getattr(distill_result, "cached_input_tokens", 0) or 0
+                ),
+                "distiller_output_tokens": int(
+                    getattr(distill_result, "output_tokens", 0) or 0
+                ),
                 "rounds": int(len(rounds)),
                 "status": str(status),
                 "success": bool(status == "done"),

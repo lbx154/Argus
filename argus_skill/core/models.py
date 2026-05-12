@@ -66,6 +66,7 @@ class RunnerResult:
     thread_id: str | None = None
     fatal_error: str | None = None
     input_tokens: int = 0
+    cached_input_tokens: int = 0
     output_tokens: int = 0
 
     @property
@@ -113,6 +114,7 @@ class ReviewDecision:
     # benchmarks/runners to compute USD cost. Not part of the reviewer's
     # semantic output — paper analytics only.
     input_tokens: int = 0
+    cached_input_tokens: int = 0
     output_tokens: int = 0
 
 

@@ -240,17 +240,19 @@ def run_compact(
 ) -> int:
     """CLI entry point. Returns shell exit code."""
     import json as _json
-    import sys as _sys
 
+    skills_dir = Path(skills_dir)
+    if not skills_dir.is_dir():
+        print("compact: no skill files found")
+        return 0
     from ..skills.lifecycle import archive_skill
     from ..skills.store import SkillStore
 
-    skills_dir = Path(skills_dir)
-    if not skills_dir.exists():
-        print(f"compact: skills dir not found: {skills_dir}", file=_sys.stderr)
-        return 2
     store = SkillStore(skills_dir=skills_dir)
     summaries = store.list_summaries()
+    if not summaries:
+        print("compact: no skill files found")
+        return 0
     skills = [store.load(s["path"]) for s in summaries]
     plan = plan_compaction(skills, sim_threshold=sim_threshold)
     if as_json and dry_run:

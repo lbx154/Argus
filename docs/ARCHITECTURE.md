@@ -55,14 +55,15 @@ origin or notes when a module is new in this repo.
 ## Layout Notes
 
 The current tree is intentionally flatter than the historical one. The
-daemon, REPL, and Telegram poller all share the same life-memory state
-and the same current `apps/cli.py` entry point. The live tree still
-includes `life/telegram_bot.py` for inbound command handling, while the
-older split control modules remain historical only. Continuous mode is
-coordinated through `continuous.json` via
-`read_continuous_state()` / `write_continuous_config()`, and the CLI
-`--status` command reports that file alongside daemon and backlog
-state.
+daemon, REPL, and Telegram poller all share the same current
+`apps/cli.py` entry point, but not the same on-disk root: global
+identity/journal/skill state lives at `~/.argus-skill/`, while the
+active project card, memory journal, backlog, event log, inbox, and
+process state live under `~/.argus-skill/projects/<fingerprint>/`.
+Continuous mode is coordinated through each project's `continuous.json`
+via `read_continuous_state()` / `write_continuous_config()`, and the
+CLI `--status` command reports the current project state alongside the
+shared global journal.
 
 ## How a task flows through the loop
 

@@ -15,6 +15,7 @@ from argus_skill.daemon.life_worker import (
     LifeWorker,
     LifeWorkerConfig,
     _DaemonSink,
+    _runner_namespace,
     read_continuous_state,
     read_daemon_status,
     stop_daemon,
@@ -162,6 +163,36 @@ def test_format_short_duration() -> None:
     assert _format_short_duration(125) == "2m 5s"
     assert _format_short_duration(3725) == "1h 2m"
     assert _format_short_duration(90061) == "1d 1h"
+
+
+@pytest.mark.parametrize(
+    ("skills_env", "expected"),
+    [
+        (None, "root"),
+        ("custom-skills", "custom-skills"),
+    ],
+)
+def test_runner_namespace_uses_global_skills_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    skills_env: str | None,
+    expected: str,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "root"))
+    monkeypatch.delenv("ARGUS_SKILL_SKILLS_DIR", raising=False)
+    if skills_env is not None:
+        monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / skills_env))
+
+    ns = _runner_namespace(
+        LifeWorkerConfig(life_dir=tmp_path / "life", backend="memory")
+    )
+
+    expected_path = (
+        tmp_path / expected / "skills"
+        if skills_env is None
+        else tmp_path / expected
+    )
+    assert ns.skills_dir == str(expected_path)
 
 
 def test_daemon_pid_path_isolated_from_repl(tmp_path: Path) -> None:

@@ -74,6 +74,10 @@ def test_validate_experiment_dir_allows_explicit_exemption(tmp_path: Path) -> No
     assert validate_experiment_dir(exp) == []
 
 
-def test_validate_current_results_tree() -> None:
-    issues = validate_results_root(Path("benchmarks/results"))
+def test_validate_current_results_tree(tmp_path: Path) -> None:
+    results_root = Path("benchmarks/results")
+    if not results_root.exists():
+        results_root = tmp_path / "results"
+        _make_complete_experiment(results_root)
+    issues = validate_results_root(results_root)
     assert issues == []

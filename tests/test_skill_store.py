@@ -101,3 +101,36 @@ def test_find_relevant_keyword_fallback_when_runner_fails(tmp_path: Path) -> Non
     # Keyword overlap should fire ("nginx", "static", "site").
     assert matched is not None
     assert matched[0].name == "set-up-nginx"
+
+
+def test_find_relevant_cache_hit_resets_previous_token_counts(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    _write_skill(skills_dir, "set-up-nginx", "configure nginx static site", "nginx")
+
+    backend = MemoryBackend()
+    backend.queue(
+        "matcher",
+        CannedResponse(
+            message=json.dumps({
+                "matched": [{"name": "set-up-nginx", "fit": "high", "why": "exact"}],
+            }),
+            input_tokens=101,
+            cached_input_tokens=11,
+            output_tokens=7,
+        ),
+    )
+    store = SkillStore(skills_dir, runner=backend, matcher_model="m")
+
+    matched, tokens = store.find_relevant("install nginx and serve a static site")
+    assert matched is not None
+    assert tokens == 108
+    assert store.last_match_cached_input_tokens == 11
+
+    matched_again, tokens_again = store.find_relevant(
+        "install nginx and serve a static site"
+    )
+    assert matched_again is not None
+    assert tokens_again == 0
+    assert store.last_match_input_tokens == 0
+    assert store.last_match_cached_input_tokens == 0
+    assert store.last_match_output_tokens == 0

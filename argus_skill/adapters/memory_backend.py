@@ -28,6 +28,7 @@ class CannedResponse:
     exit_code: int = 0
     fatal_error: str | None = None
     input_tokens: int = 0
+    cached_input_tokens: int = 0
     output_tokens: int = 0
     thread_id: str | None = None
 
@@ -42,6 +43,7 @@ class CannedResponse:
             thread_id=self.thread_id,
             fatal_error=self.fatal_error,
             input_tokens=self.input_tokens,
+            cached_input_tokens=self.cached_input_tokens,
             output_tokens=self.output_tokens,
         )
 

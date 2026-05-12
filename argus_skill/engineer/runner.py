@@ -173,6 +173,9 @@ class SupervisedEngineer:
                     "fatal_error": getattr(engineer_result, "fatal_error", None),
                     "last_message": engineer_message,
                     "input_tokens": int(getattr(engineer_result, "input_tokens", 0) or 0),
+                    "cached_input_tokens": int(
+                        getattr(engineer_result, "cached_input_tokens", 0) or 0
+                    ),
                     "output_tokens": int(getattr(engineer_result, "output_tokens", 0) or 0),
                 })
 
@@ -227,6 +230,9 @@ class SupervisedEngineer:
                     "completion_summary_markdown": getattr(review, "completion_summary_markdown", "") or "",
                     "failure_cause": getattr(review, "failure_cause", "") or "",
                     "input_tokens": int(getattr(review, "input_tokens", 0) or 0),
+                    "cached_input_tokens": int(
+                        getattr(review, "cached_input_tokens", 0) or 0
+                    ),
                     "output_tokens": int(getattr(review, "output_tokens", 0) or 0),
                     "text": f"review: {review.status} (conf={review.confidence:.2f}) — {review.reason}",
                 })

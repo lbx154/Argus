@@ -52,12 +52,12 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_grp.add_argument(
         "--daemon-stop",
         action="store_true",
-        help="send SIGTERM to a running daemon for this life-dir",
+        help="send SIGTERM to the current project's daemon",
     )
     daemon_grp.add_argument(
         "--status",
         action="store_true",
-        help="print daemon + active/history backlog status and exit (no REPL)",
+        help="print the current project daemon + backlog status and exit",
     )
     daemon_grp.add_argument(
         "--daemon-runbook",
@@ -72,7 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_grp.add_argument(
         "--life-dir",
         default=None,
-        help="override life state directory (default: ~/.argus-skill/life)",
+        help="override the global argus-skill root (default: ~/.argus-skill)",
     )
     daemon_grp.add_argument(
         "--continuous",
@@ -90,7 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
     cockpit_grp.add_argument(
         "--watch",
         action="store_true",
-        help="open the live read-only cockpit (mission/events/journal/backlog)",
+        help="open the live read-only cockpit for the current project",
     )
     cockpit_grp.add_argument(
         "--notify",
@@ -151,7 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     skills_grp.add_argument(
         "--skills-dir",
         default=None,
-        help="override skills directory (default: ~/.argus-skill/skills)",
+        help="override skills directory (default: global skills root)",
     )
 
     return parser
@@ -167,6 +167,18 @@ def _continuous_contract_error(
     return continuous_mode_error(backend, continuous, objective)
 
 
+def _resolve_global_root(args: argparse.Namespace) -> Path:
+    from ..core import paths as core_paths
+
+    if args.life_dir:
+        return Path(args.life_dir).expanduser()
+    return core_paths.global_root()
+
+
+def _resolve_project_bundle(args: argparse.Namespace):
+    from ..life import MemoryBundle
+
+    return MemoryBundle.for_cwd(Path.cwd(), global_root=_resolve_global_root(args))
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
@@ -263,20 +275,24 @@ def main(argv: list[str] | None = None) -> int:
 # ---------------------------------------------------------------------------
 
 def _resolve_life_dir(args: argparse.Namespace) -> Path:
-    from ..life.memory import default_life_dir
     if args.life_dir:
         return Path(args.life_dir).expanduser()
-    return default_life_dir()
+    from ..core import paths as core_paths
+    return core_paths.global_root()
 
 
 def _build_worker_config(args: argparse.Namespace):
     from ..daemon.life_worker import LifeWorkerConfig
+    bundle = _resolve_project_bundle(args)
     backend = getattr(args, "backend", None) or os.environ.get(
         "ARGUS_SKILL_LIFE_BACKEND",
         "codex",
     )
     return LifeWorkerConfig(
-        life_dir=_resolve_life_dir(args),
+        life_dir=bundle.project.root,
+        global_root=bundle.global_root,
+        project_fingerprint=bundle.project.fingerprint,
+        project_label=bundle.project.label,
         backend=backend,
         engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini"),
         reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.4"),
@@ -308,21 +324,20 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
 
 def _cmd_daemon_stop(args: argparse.Namespace) -> int:
     from ..daemon.life_worker import stop_daemon
-    return stop_daemon(_resolve_life_dir(args))
+    bundle = _resolve_project_bundle(args)
+    return stop_daemon(bundle.project.root)
 
 
 def _cmd_watch(args: argparse.Namespace) -> int:
     from ._watch import run_watch
-    return run_watch(_resolve_life_dir(args))
+    return run_watch(_resolve_project_bundle(args))
 
 
 def _cmd_follow(args: argparse.Namespace) -> int:
     """Tail events.jsonl with pretty formatting — like ``tail -f``."""
-    life_dir = _resolve_life_dir(args)
-    events_path = life_dir / "events.jsonl"
-    if not events_path.exists():
-        sys.stderr.write(f"argus-skill: {events_path} not found\n")
-        return 1
+    bundle = _resolve_project_bundle(args)
+    bundle.project.root.mkdir(parents=True, exist_ok=True)
+    events_path = bundle.project.root / "events.jsonl"
 
     _EMOJI = {
         "agent_message": "💭",
@@ -345,21 +360,24 @@ def _cmd_follow(args: argparse.Namespace) -> int:
 
     import json as _json
 
-    # Seek to near end of file (last 8KB)
+    print(f"argus-skill: following {events_path}  (Ctrl-C to stop)", flush=True)
+    print("━" * 60, flush=True)
+    fh = None
     try:
-        fh = events_path.open("r", encoding="utf-8")
-        fh.seek(0, 2)
-        pos = fh.tell()
-        fh.seek(max(0, pos - 8192))
-        if pos > 8192:
-            fh.readline()  # skip partial line
-    except OSError as exc:
-        sys.stderr.write(f"argus-skill: cannot open {events_path}: {exc}\n")
-        return 1
-
-    print(f"argus-skill: following {events_path}  (Ctrl-C to stop)")
-    print("━" * 60)
-    try:
+        while fh is None:
+            try:
+                fh = events_path.open("r", encoding="utf-8")
+                fh.seek(0, 2)
+                pos = fh.tell()
+                fh.seek(max(0, pos - 8192))
+                if pos > 8192:
+                    fh.readline()  # skip partial line
+            except FileNotFoundError:
+                print(f"argus-skill: waiting for {events_path} ...", flush=True)
+                time.sleep(0.5)
+            except OSError as exc:
+                sys.stderr.write(f"argus-skill: cannot open {events_path}: {exc}\n")
+                return 1
         while True:
             line = fh.readline()
             if not line:
@@ -382,11 +400,21 @@ def _cmd_follow(args: argparse.Namespace) -> int:
             etype = ev.get("type", "")
             if etype == "engineer.progress":
                 kind = ev.get("kind", "")
-                emoji = _EMOJI.get(kind, "▸")
                 text = ev.get("text", "")
-                if len(text) > 200:
-                    text = text[:197] + "…"
-                print(f"  {emoji} {text}")
+                if not text:
+                    continue
+                if kind == "agent_message":
+                    msg = text if len(text) <= 200 else text[:197] + "…"
+                    print(f"  💭 {msg}", flush=True)
+                elif kind == "command_execution":
+                    from ..life.notify import _parse_command
+                    print(f"  {_parse_command(text)}", flush=True)
+                elif kind == "reasoning":
+                    msg = text if len(text) <= 150 else text[:147] + "…"
+                    print(f"  🧠 {msg}", flush=True)
+                else:
+                    short = text if len(text) <= 120 else text[:117] + "…"
+                    print(f"  ▸ {short}", flush=True)
             elif etype in _LIFECYCLE:
                 emoji = _LIFECYCLE[etype]
                 # Build a useful one-liner
@@ -399,12 +427,13 @@ def _cmd_follow(args: argparse.Namespace) -> int:
                         if len(sv) > 80:
                             sv = sv[:77] + "…"
                         parts.append(f"{k}={sv}")
-                print(f"{emoji} {' · '.join(parts)}")
+                print(f"{emoji} {' · '.join(parts)}", flush=True)
             # Skip noisy internal events (stream lines etc.)
     except KeyboardInterrupt:
-        print("\nargus-skill: stopped following")
+        print("\nargus-skill: stopped following", flush=True)
     finally:
-        fh.close()
+        if fh is not None:
+            fh.close()
     return 0
 
 
@@ -421,9 +450,9 @@ def _cmd_notify(args: argparse.Namespace) -> int:
     if not msg:
         sys.stderr.write("argus-skill: --notify requires a non-empty message\n")
         return 2
-    life_dir = _resolve_life_dir(args)
-    life_dir.mkdir(parents=True, exist_ok=True)
-    inbox = life_dir / "inbox.jsonl"
+    bundle = _resolve_project_bundle(args)
+    bundle.project.root.mkdir(parents=True, exist_ok=True)
+    inbox = bundle.project.root / "inbox.jsonl"
     record = {"ts": time.time(), "text": msg}
     with inbox.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -433,21 +462,19 @@ def _cmd_notify(args: argparse.Namespace) -> int:
 
 def _cmd_init_identity(args: argparse.Namespace) -> int:
     from ._init_identity import run_init_identity
-    return run_init_identity(_resolve_life_dir(args))
+    return run_init_identity(_resolve_global_root(args))
 
 
 def _resolve_skills_dir(args: argparse.Namespace) -> Path:
     if getattr(args, "skills_dir", None):
         return Path(args.skills_dir).expanduser()
-    # Default: <life_dir>/../skills, matching _life_repl + life_worker.
-    life_dir = _resolve_life_dir(args)
-    return life_dir.parent / "skills"
+    return _resolve_global_root(args) / "skills"
 
 
 def _cmd_skill_stats(args: argparse.Namespace) -> int:
     from ._skill_stats import run_skill_stats
     return run_skill_stats(
-        _resolve_life_dir(args),
+        _resolve_project_bundle(args).project.root,
         as_json=bool(args.skill_stats_json),
     )
 
@@ -493,16 +520,15 @@ def _count_backlog_statuses(items: Sequence[object]) -> tuple[int, int, int, int
 
 def _cmd_status(args: argparse.Namespace) -> int:
     from ..daemon.life_worker import read_continuous_state, read_daemon_status
-    from ..life.memory import LifeMemory
-    life_dir = _resolve_life_dir(args)
-    status = read_daemon_status(life_dir)
-    mem = LifeMemory.open(life_dir)
-    all_items = mem.backlog.all()
+    bundle = _resolve_project_bundle(args)
+    status = read_daemon_status(bundle.project.root)
+    all_items = bundle.backlog.all()
     pending, running, done, failed, skipped = _count_backlog_statuses(all_items)
     # Status should stay cheap even on a long-lived daemon.
-    journal_tail = mem.journal.tail(3)
+    journal_tail = bundle.journal.tail(3)
 
-    print(f"argus-skill — life-dir: {life_dir}")
+    print(f"argus-skill — global-root: {bundle.global_root}")
+    print(f"  project  : {bundle.project.root}")
     if status.alive and status.pid is not None:
         uptime = _format_short_duration(status.uptime_seconds or 0.0)
         backend = status.backend or "?"
@@ -519,7 +545,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
         print(f"  history  : {' · '.join(history_parts)}")
     # Total cost from journal
     try:
-        total_cost = mem.journal.total_cost_since(0)
+        total_cost = bundle.journal.total_cost_since(0)
         print(f"  cost     : ${total_cost:.2f} total")
     except Exception:  # noqa: BLE001
         pass
@@ -528,7 +554,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
             "             ↳ orphan running items will be reaped to `failed` "
             "when a worker (REPL or --daemon) next starts."
         )
-    cont = read_continuous_state(life_dir)
+    cont = read_continuous_state(bundle.project.root)
     print(f"  continuous: {'on' if cont.enabled else 'off'}")
     if cont.objective:
         print(f"    objective: {cont.objective}")
@@ -547,13 +573,14 @@ def _cmd_status(args: argparse.Namespace) -> int:
 
 
 def _cmd_daemon_runbook(args: argparse.Namespace) -> int:
-    life_dir = _resolve_life_dir(args)
+    bundle = _resolve_project_bundle(args)
     from ..daemon.life_worker import read_daemon_status
 
-    status = read_daemon_status(life_dir)
+    status = read_daemon_status(bundle.project.root)
     lines = [
         "argus-skill daemon-safe upgrade runbook",
-        f"life-dir : {life_dir}",
+        f"global   : {bundle.global_root}",
+        f"project  : {bundle.project.root}",
         (
             f"daemon   : alive (pid {status.pid})"
             if status.alive and status.pid is not None
@@ -562,7 +589,7 @@ def _cmd_daemon_runbook(args: argparse.Namespace) -> int:
         "",
         "1. Open a second shell, tmux pane, or systemd session before touching the daemon.",
         "2. Treat the live daemon as the control plane: do not restart the process that owns your current session.",
-        "3. Persist context first. The backlog, journal, inbox, and skills already live on disk under the life-dir root.",
+        "3. Persist context first. Global identity/journal live under the global root; the backlog, inbox, and project memory live under the project root.",
         "4. For an ad-hoc detached worker, run `argus-skill --daemon-stop` from the external shell, wait for exit, update the code, then relaunch with `argus-skill --daemon`.",
         "5. For a systemd-managed worker, edit the unit from the maintenance shell, then run `systemctl daemon-reload && systemctl restart argus-skill.service`.",
         "6. Verify the new process with `argus-skill --status` before resuming work.",

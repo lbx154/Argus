@@ -17,6 +17,9 @@ the underlying ``CodexRunner.run_exec`` to return a synthetic
 """
 from __future__ import annotations
 
+import sys
+from dataclasses import dataclass
+from types import ModuleType
 from typing import Any
 
 import pytest
@@ -28,13 +31,92 @@ from argus_skill.adapters.codex_backend import (
 )
 from argus_skill.core.models import RunnerOptions
 
-# Skip the entire module if ArgusBot isn't importable. Locally we have it
-# pip-installed, but downstream consumers might run argus-skill alone.
-pytest.importorskip("codex_autoloop.codex_runner")
+
+@dataclass
+class ArgusRunnerOptions:
+    model: str = "gpt-5.4-mini"
+    reasoning_effort: str = "medium"
+    dangerous_yolo: bool = False
+    full_auto: bool = False
+    skip_git_repo_check: bool = False
+    extra_args: list[str] | None = None
+    working_dir: str | None = None
+    output_schema_path: str | None = None
+    external_interrupt_reason_provider: Any | None = None
+    inactivity_callback: Any | None = None
+    watchdog_soft_idle_seconds: int = 0
+    watchdog_hard_idle_seconds: int = 0
 
 
-from codex_autoloop.codex_runner import RunnerOptions as ArgusRunnerOptions  # noqa: E402
-from codex_autoloop.models import CodexRunResult  # noqa: E402
+@dataclass
+class CodexRunResult:
+    command: list[str]
+    exit_code: int
+    thread_id: str | None
+    agent_messages: list[str]
+    json_events: list[dict[str, Any]]
+    stdout_lines: list[str]
+    stderr_lines: list[str]
+    turn_completed: bool
+    turn_failed: bool
+    fatal_error: str | None = None
+
+
+class CodexRunner:
+    def __init__(
+        self,
+        *,
+        codex_bin: str | None = None,
+        backend: str = "codex",
+        event_callback: Any | None = None,
+        default_extra_args: list[str] | None = None,
+        before_exec: Any | None = None,
+    ) -> None:
+        self.codex_bin = codex_bin
+        self.backend = backend
+        self.event_callback = event_callback
+        self.default_extra_args = list(default_extra_args or [])
+        self.before_exec = before_exec
+
+    def run_exec(self, *, prompt, resume_thread_id, options, run_label):
+        raise NotImplementedError
+
+
+@pytest.fixture(autouse=True)
+def fake_codex_autoloop(monkeypatch: pytest.MonkeyPatch) -> None:
+    pkg = ModuleType("codex_autoloop")
+    setattr(pkg, "__path__", [])
+
+    runner_mod = ModuleType("codex_autoloop.codex_runner")
+    runner_mod.__dict__["CodexRunner"] = CodexRunner
+    runner_mod.__dict__["RunnerOptions"] = ArgusRunnerOptions
+
+    backend_mod = ModuleType("codex_autoloop.runner_backend")
+    backend_mod.__dict__["BACKEND_CLAUDE"] = "claude"
+    backend_mod.__dict__["BACKEND_CODEX"] = "codex"
+    backend_mod.__dict__["BACKEND_COPILOT"] = "copilot"
+    backend_mod.__dict__["DEFAULT_RUNNER_BACKEND"] = "codex"
+
+    def default_runner_bin() -> str | None:
+        return "codex"
+
+    def normalize_runner_backend(backend: str | None) -> str:
+        return (backend or "codex").lower()
+
+    backend_mod.__dict__["default_runner_bin"] = default_runner_bin
+    backend_mod.__dict__["normalize_runner_backend"] = normalize_runner_backend
+
+    models_mod = ModuleType("codex_autoloop.models")
+    models_mod.__dict__["CodexRunResult"] = CodexRunResult
+
+    setattr(pkg, "codex_runner", runner_mod)
+    setattr(pkg, "runner_backend", backend_mod)
+    setattr(pkg, "models", models_mod)
+
+    monkeypatch.setitem(sys.modules, "codex_autoloop", pkg)
+    monkeypatch.setitem(sys.modules, "codex_autoloop.codex_runner", runner_mod)
+    monkeypatch.setitem(sys.modules, "codex_autoloop.runner_backend", backend_mod)
+    monkeypatch.setitem(sys.modules, "codex_autoloop.models", models_mod)
 
 
 def _make_argus_result(
@@ -74,8 +156,18 @@ def test_run_exec_translates_options_and_result(monkeypatch):
         return _make_argus_result(
             agent_messages=["hello world", "final answer"],
             json_events=[
-                {"type": "token_count", "input_tokens": 100, "output_tokens": 50},
-                {"type": "token_count", "input_tokens": 250, "output_tokens": 75},
+                {
+                    "type": "token_count",
+                    "input_tokens": 100,
+                    "cached_input_tokens": 10,
+                    "output_tokens": 50,
+                },
+                {
+                    "type": "token_count",
+                    "input_tokens": 250,
+                    "cached_input_tokens": 25,
+                    "output_tokens": 75,
+                },
             ],
         )
 
@@ -122,6 +214,7 @@ def test_run_exec_translates_options_and_result(monkeypatch):
     assert result.fatal_error is None
     # Token counts: latest non-zero wins.
     assert result.input_tokens == 250
+    assert result.cached_input_tokens == 25
     assert result.output_tokens == 75
 
 
@@ -167,33 +260,46 @@ def test_run_exec_handles_generic_exception(monkeypatch):
 
 
 def test_token_count_extraction_handles_missing_events():
-    in_tok, out_tok = _sum_token_counts(None)
-    assert (in_tok, out_tok) == (0, 0)
-    in_tok, out_tok = _sum_token_counts([])
-    assert (in_tok, out_tok) == (0, 0)
+    in_tok, cached_tok, out_tok = _sum_token_counts(None)
+    assert (in_tok, cached_tok, out_tok) == (0, 0, 0)
+    in_tok, cached_tok, out_tok = _sum_token_counts([])
+    assert (in_tok, cached_tok, out_tok) == (0, 0, 0)
 
 
 def test_token_count_extraction_picks_latest_nonzero():
     events = [
-        {"type": "agent_message", "input_tokens": 0, "output_tokens": 0},
-        {"type": "token_count", "input_tokens": 100, "output_tokens": 30},
+        {"type": "agent_message", "input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0},
+        {"type": "token_count", "input_tokens": 100, "cached_input_tokens": 10, "output_tokens": 30},
         # a later event with zero tokens shouldn't overwrite the earlier non-zero
-        {"type": "agent_message", "input_tokens": 0, "output_tokens": 0},
-        {"type": "token_count", "input_tokens": 250, "output_tokens": 80},
+        {"type": "agent_message", "input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0},
+        {"type": "token_count", "input_tokens": 250, "cached_input_tokens": 25, "output_tokens": 80},
     ]
-    in_tok, out_tok = _sum_token_counts(events)
-    assert (in_tok, out_tok) == (250, 80)
+    in_tok, cached_tok, out_tok = _sum_token_counts(events)
+    assert (in_tok, cached_tok, out_tok) == (250, 25, 80)
 
 
 def test_token_count_extraction_handles_nested_content():
     events = [
         {
             "type": "msg",
-            "content": {"input_tokens": 42, "output_tokens": 7},
+            "content": {"input_tokens": 42, "cached_input_tokens": 5, "output_tokens": 7},
         }
     ]
-    in_tok, out_tok = _sum_token_counts(events)
-    assert (in_tok, out_tok) == (42, 7)
+    in_tok, cached_tok, out_tok = _sum_token_counts(events)
+    assert (in_tok, cached_tok, out_tok) == (42, 5, 7)
+
+
+def test_token_count_extraction_handles_top_level_cached_tokens():
+    events = [
+        {
+            "type": "token_count",
+            "input_tokens": 17,
+            "cached_input_tokens": 4,
+            "output_tokens": 3,
+        }
+    ]
+    in_tok, cached_tok, out_tok = _sum_token_counts(events)
+    assert (in_tok, cached_tok, out_tok) == (17, 4, 3)
 
 
 def test_token_count_extraction_reads_codex_0_121_usage_field():
@@ -209,11 +315,11 @@ def test_token_count_extraction_reads_codex_0_121_usage_field():
         {"type": "item.completed", "item": {"type": "agent_message", "text": "hi"}},
         {
             "type": "turn.completed",
-            "usage": {"input_tokens": 12944, "cached_input_tokens": 0, "output_tokens": 75},
+            "usage": {"input_tokens": 12944, "cached_input_tokens": 1234, "output_tokens": 75},
         },
     ]
-    in_tok, out_tok = _sum_token_counts(events)
-    assert (in_tok, out_tok) == (12944, 75)
+    in_tok, cached_tok, out_tok = _sum_token_counts(events)
+    assert (in_tok, cached_tok, out_tok) == (12944, 1234, 75)
 
 
 def test_run_exec_forwards_watchdog_hooks(monkeypatch):

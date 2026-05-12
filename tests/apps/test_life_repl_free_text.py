@@ -11,12 +11,72 @@ import pytest
 
 from argus_skill.apps import _life_repl
 from argus_skill.daemon.life_worker import write_continuous_config
+from argus_skill.life import MemoryBundle
 from argus_skill.life.memory import BacklogItem, LifeMemory
 
 
 @pytest.fixture()
 def mem(tmp_path: Path) -> LifeMemory:
     return LifeMemory.open(root=tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("skills_env", "expected"),
+    [
+        (None, "root/skills"),
+        ("custom-skills", "custom-skills"),
+    ],
+)
+def test_invoke_supervisor_uses_global_skills_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    skills_env: str | None,
+    expected: str,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "root"))
+    monkeypatch.delenv("ARGUS_SKILL_SKILLS_DIR", raising=False)
+    if skills_env is not None:
+        monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / skills_env))
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+    bundle = MemoryBundle.for_cwd(repo)
+
+    captured: dict[str, Any] = {}
+
+    class DummyRunner:
+        backend: Any = None
+        last_thread_id: str | None = None
+
+    def fake_build_life_runner(ns: argparse.Namespace, *, seed_thread_id=None):
+        captured["skills_dir"] = ns.skills_dir
+        return DummyRunner()
+
+    def fake_run_life_supervisor(**kwargs: Any) -> dict[str, Any]:
+        captured["runtime_context"] = kwargs["runtime_context"]
+        return {"missions_run": 0}
+
+    monkeypatch.setattr(_life_repl, "build_life_runner", fake_build_life_runner)
+    monkeypatch.setattr(_life_repl, "run_life_supervisor", fake_run_life_supervisor)
+
+    summary, last_thread_id = _life_repl._invoke_supervisor(
+        mem=bundle,
+        backend="memory",
+        once=True,
+        max_missions=1,
+        per_mission_cap_usd=1.0,
+        daily_cap_usd=1.0,
+    )
+
+    expected_path = (
+        tmp_path / "root" / "skills"
+        if skills_env is None
+        else tmp_path / expected
+    )
+    assert captured["skills_dir"] == str(expected_path)
+    assert summary == {"missions_run": 0}
+    assert last_thread_id is None
 
 
 def test_add_only_default_priority(mem: LifeMemory, capsys: pytest.CaptureFixture[str]) -> None:
@@ -88,7 +148,7 @@ def test_free_text_beats_aggressive_priority_zero_pending(mem: LifeMemory) -> No
 # ---------------------------------------------------------------------------
 
 def test_run_life_chat_loop_refuses_concurrent_invocations(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A second REPL launched while the first holds the lock must
     print a clear error and exit non-zero, NOT silently corrupt
@@ -99,11 +159,15 @@ def test_run_life_chat_loop_refuses_concurrent_invocations(
 
     life_dir = tmp_path / "life"
     life_dir.mkdir()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+    project_root = MemoryBundle.for_cwd(repo, global_root=life_dir).project.root
 
     # Simulate the lock being held by a "first" REPL process.
     # acquire_global_daemon_lock is per-pid_path, so use the same path
-    # the REPL would use: <life_dir>/repl.pid.
-    lock = acquire_global_daemon_lock(pid_path=life_dir / "repl.pid")
+    # the REPL would use: <project-root>/repl.pid.
+    lock = acquire_global_daemon_lock(pid_path=project_root / "repl.pid")
     try:
         ns = argparse.Namespace(life_dir=str(life_dir), color="never", verbose=None)
         rc = _life_repl.run_life_chat_loop(ns)
@@ -116,7 +180,9 @@ def test_run_life_chat_loop_refuses_concurrent_invocations(
     assert "another REPL is already running" in err
 
 
-def test_run_life_chat_loop_releases_lock_on_exit(tmp_path: Path) -> None:
+def test_run_life_chat_loop_releases_lock_on_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """After the REPL exits, a second invocation must be able to
     acquire the lock — i.e. release was actually called."""
     import argparse
@@ -129,6 +195,10 @@ def test_run_life_chat_loop_releases_lock_on_exit(tmp_path: Path) -> None:
 
     life_dir = tmp_path / "life"
     life_dir.mkdir()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+    project_root = MemoryBundle.for_cwd(repo, global_root=life_dir).project.root
 
     # Patch the inner loop to be a no-op so we just exercise lock+release.
     with patch.object(_life_repl, "_run_life_chat_loop_locked", return_value=0):
@@ -137,11 +207,11 @@ def test_run_life_chat_loop_releases_lock_on_exit(tmp_path: Path) -> None:
     assert rc == 0
 
     # The lock must be reacquirable now.
-    lock = acquire_global_daemon_lock(pid_path=life_dir / "repl.pid")
+    lock = acquire_global_daemon_lock(pid_path=project_root / "repl.pid")
     try:
         # And taking it again would fail.
         with pytest.raises(DaemonAlreadyRunning):
-            acquire_global_daemon_lock(pid_path=life_dir / "repl.pid")
+            acquire_global_daemon_lock(pid_path=project_root / "repl.pid")
     finally:
         lock.release()
 

@@ -1142,6 +1142,30 @@ class MemoryBundle:
     global_mem: GlobalMemory
     project: ProjectMemory
 
+    @property
+    def root(self) -> Path:
+        return self.global_mem.root
+
+    @property
+    def global_root(self) -> Path:
+        return self.global_mem.root
+
+    @property
+    def project_root(self) -> Path:
+        return self.project.root
+
+    @property
+    def identity(self) -> IdentityCard:
+        return self.global_mem.identity
+
+    @property
+    def backlog(self) -> Backlog:
+        return self.project.backlog
+
+    @property
+    def journal(self) -> "_MirroredJournal":
+        return _MirroredJournal(self.global_mem.journal, self.project.memory)
+
     @classmethod
     def for_cwd(
         cls,
@@ -1235,6 +1259,41 @@ class MemoryBundle:
                     f"{entry.summary}"
                 )
         return "\n".join(lines).strip() + "\n"
+
+
+@dataclass
+class _MirroredJournal:
+    """Append to both journals while reading from the global journal.
+
+    The live REPL / supervisor wants a single journal-shaped object, but
+    we still need the project-scoped memory log to stay warm for the
+    project prelude. Keeping the read side global preserves the existing
+    operator-facing history / cost views while dual-writing seeds the
+    project-scoped memory.
+    """
+
+    global_journal: Journal
+    project_journal: Journal
+
+    @property
+    def path(self) -> Path:
+        return self.global_journal.path
+
+    def append(self, entry: JournalEntry) -> None:
+        self.global_journal.append(entry)
+        self.project_journal.append(entry)
+
+    def all(self) -> list[JournalEntry]:
+        return self.global_journal.all()
+
+    def tail(self, n: int) -> list[JournalEntry]:
+        return self.global_journal.tail(n)
+
+    def total_cost_since(self, since_ts: float) -> float:
+        return self.global_journal.total_cost_since(since_ts)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.global_journal, name)
 
 
 # ---------------------------------------------------------------------------

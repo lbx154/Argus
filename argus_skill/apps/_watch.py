@@ -1,8 +1,8 @@
 """``argus-skill --watch`` — read-only live cockpit.
 
-Tails ``events.jsonl``, ``journal.jsonl``, ``daemon.status.json``, and
-``backlog.jsonl`` from the configured life-dir and renders a four-pane
-``rich.Live`` layout:
+Tails the current project's ``events.jsonl``, ``daemon.status.json``,
+and ``backlog.jsonl`` while reading the shared global ``journal.jsonl``
+and renders a four-pane ``rich.Live`` layout:
 
   +-------------------+--------------------+
   | Current mission   | Recent events      |
@@ -176,10 +176,16 @@ class _WatchState:
             self.mission.apply(event)
 
 
-def run_watch(life_dir: Path, *, refresh_hz: float = 2.0) -> int:
-    life_dir = Path(life_dir)
-    if not life_dir.exists():
-        print(f"watch: life-dir not found: {life_dir}", file=sys.stderr)
+def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
+    if hasattr(life, "project") and hasattr(life, "global_root"):
+        bundle = life  # MemoryBundle-like
+        project_root = Path(getattr(bundle.project, "root"))
+        global_root = Path(getattr(bundle, "global_root"))
+    else:
+        project_root = Path(life)
+        global_root = project_root
+    if not project_root.exists():
+        print(f"watch: life-dir not found: {project_root}", file=sys.stderr)
         return 2
 
     try:
@@ -197,10 +203,10 @@ def run_watch(life_dir: Path, *, refresh_hz: float = 2.0) -> int:
         )
         return 2
 
-    events_path = life_dir / "events.jsonl"
-    journal_path = life_dir / "journal.jsonl"
-    backlog_path = life_dir / "backlog.jsonl"
-    status_path = life_dir / "daemon.status.json"
+    events_path = project_root / "events.jsonl"
+    journal_path = global_root / "journal.jsonl"
+    backlog_path = project_root / "backlog.jsonl"
+    status_path = project_root / "daemon.status.json"
 
     console = Console()
     refresh = max(1, int(refresh_hz))
@@ -214,7 +220,7 @@ def run_watch(life_dir: Path, *, refresh_hz: float = 2.0) -> int:
     layout["top"].split_row(Layout(name="mission"), Layout(name="events"))
     layout["bottom"].split_row(Layout(name="journal"), Layout(name="backlog"))
 
-    state = _WatchState(events_path=events_path, roll_path=life_dir / "events.jsonl.1")
+    state = _WatchState(events_path=events_path, roll_path=project_root / "events.jsonl.1")
 
     def _read_status() -> dict[str, Any]:
         try:
@@ -330,7 +336,8 @@ def run_watch(life_dir: Path, *, refresh_hz: float = 2.0) -> int:
         pid = st.get("pid", "-")
         backend = st.get("backend", "-")
         header = Text.from_markup(
-            f"[bold]argus-skill watch[/bold]  [cyan]life-dir[/cyan]={life_dir}  "
+            f"[bold]argus-skill watch[/bold]  [cyan]global[/cyan]={global_root}  "
+            f"[cyan]project[/cyan]={project_root}  "
             f"[cyan]daemon[/cyan]={'[green]alive[/green]' if alive else '[red]down[/red]'}  "
             f"pid={pid}  backend={backend}  [dim](Ctrl-C to exit)[/dim]"
         )

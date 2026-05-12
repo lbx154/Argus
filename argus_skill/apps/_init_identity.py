@@ -1,7 +1,7 @@
 """Interactive ``argus-skill --init-identity`` wizard.
 
-Populates ``<life_dir>/identity.md`` with a richer-than-default persona
-card. Existing cards are NEVER overwritten — instead the wizard writes
+Populates the global ``identity.md`` card at the argus-skill root.
+Existing cards are NEVER overwritten — instead the wizard writes
 ``identity.next.md`` and prints a one-liner showing how to merge.
 
 The wizard works in two modes:
@@ -16,15 +16,15 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from ..life.memory import LifeMemory
+from ..life import MemoryBundle
 
 
 def run_init_identity(life_dir: Path, *, force: bool = False) -> int:
     life_dir = Path(life_dir)
     life_dir.mkdir(parents=True, exist_ok=True)
-    mem = LifeMemory.open(life_dir)
+    mem = MemoryBundle.for_cwd(Path.cwd(), global_root=life_dir)
 
-    target = life_dir / "identity.md"
+    target = mem.identity.path
     is_tty = sys.stdin.isatty() and sys.stdout.isatty()
 
     answers = _collect(is_tty)
@@ -43,7 +43,7 @@ def run_init_identity(life_dir: Path, *, force: bool = False) -> int:
         return 0
 
     target.write_text(rendered, encoding="utf-8")
-    # Touch the rest of the life-dir scaffolding too.
+    # Touch the rest of the global + current-project scaffolding too.
     mem.init()
     print(f"argus-skill: identity written to {target}")
     return 0

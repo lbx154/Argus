@@ -55,6 +55,7 @@ class CriticVerdict:
     improvements: list[Improvement] = field(default_factory=list)
     raw_text: str = ""
     input_tokens: int = 0
+    cached_input_tokens: int = 0
     output_tokens: int = 0
 
 
@@ -222,6 +223,7 @@ class Critic:
             run_label=f"critic.cycle{cycles_done + 1}",
         )
         input_tokens = int(getattr(result, "input_tokens", 0) or 0)
+        cached_input_tokens = int(getattr(result, "cached_input_tokens", 0) or 0)
         output_tokens = int(getattr(result, "output_tokens", 0) or 0)
         text = "\n".join(result.agent_messages or [])
         parsed = parse_critic_text(text)
@@ -235,6 +237,7 @@ class Critic:
                 improvements=[],
                 raw_text=text,
                 input_tokens=input_tokens,
+                cached_input_tokens=cached_input_tokens,
                 output_tokens=output_tokens,
             )
         return CriticVerdict(
@@ -243,6 +246,7 @@ class Critic:
             improvements=parsed.improvements,
             raw_text=text,
             input_tokens=input_tokens,
+            cached_input_tokens=cached_input_tokens,
             output_tokens=output_tokens,
         )
 
@@ -315,6 +319,7 @@ class Critic:
             run_label=f"planner.cycle{planning_cycle}",
         )
         input_tokens = int(getattr(result, "input_tokens", 0) or 0)
+        cached_input_tokens = int(getattr(result, "cached_input_tokens", 0) or 0)
         output_tokens = int(getattr(result, "output_tokens", 0) or 0)
         text = "\n".join(result.agent_messages or [])
         parsed = parse_planner_text(text)
@@ -325,6 +330,7 @@ class Critic:
                 new_tasks=[],
                 raw_text=text,
                 input_tokens=input_tokens,
+                cached_input_tokens=cached_input_tokens,
                 output_tokens=output_tokens,
             )
         return PlannerVerdict(
@@ -333,6 +339,7 @@ class Critic:
             new_tasks=parsed.new_tasks,
             raw_text=parsed.raw_text,
             input_tokens=input_tokens,
+            cached_input_tokens=cached_input_tokens,
             output_tokens=output_tokens,
         )
 

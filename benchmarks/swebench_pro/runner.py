@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from argus_skill.core.pricing import usd_for_tokens
+
 from .docker_env import DEFAULT_WORKDIR, MinimalDockerEnvironment, docker_container
 from .task_loader import Task
 
@@ -220,14 +222,22 @@ class TaskResult:
     fallback_reason: str | None = None
     scientist_tokens: int = 0
     match_tokens: int = 0
+    scientist_input_tokens: int = 0
+    scientist_output_tokens: int = 0
+    match_input_tokens: int = 0
+    match_output_tokens: int = 0
     final_review_status: str | None = None
     docker_image: str = ""
     # ---- paper-table instrumentation (added 2026-05) ----
     # Aggregate engineer / reviewer token usage across all rounds.
     engineer_input_tokens: int = 0
+    engineer_cached_input_tokens: int = 0
     engineer_output_tokens: int = 0
     reviewer_input_tokens: int = 0
+    reviewer_cached_input_tokens: int = 0
     reviewer_output_tokens: int = 0
+    scientist_cached_input_tokens: int = 0
+    match_cached_input_tokens: int = 0
     # USD cost computed from prices_usd_per_mtok env override; ``0.0``
     # when no price for the model is configured.
     usd_cost: float = 0.0
@@ -265,12 +275,20 @@ class TaskResult:
             "fallback_reason": self.fallback_reason,
             "scientist_tokens": self.scientist_tokens,
             "match_tokens": self.match_tokens,
+            "scientist_input_tokens": self.scientist_input_tokens,
+            "scientist_output_tokens": self.scientist_output_tokens,
+            "match_input_tokens": self.match_input_tokens,
+            "match_output_tokens": self.match_output_tokens,
             "final_review_status": self.final_review_status,
             "docker_image": self.docker_image,
             "engineer_input_tokens": self.engineer_input_tokens,
+            "engineer_cached_input_tokens": self.engineer_cached_input_tokens,
             "engineer_output_tokens": self.engineer_output_tokens,
             "reviewer_input_tokens": self.reviewer_input_tokens,
+            "reviewer_cached_input_tokens": self.reviewer_cached_input_tokens,
             "reviewer_output_tokens": self.reviewer_output_tokens,
+            "scientist_cached_input_tokens": self.scientist_cached_input_tokens,
+            "match_cached_input_tokens": self.match_cached_input_tokens,
             "usd_cost": self.usd_cost,
             "verifier_outcome": self.verifier_outcome,
             "verifier_failing_count": self.verifier_failing_count,
@@ -306,8 +324,10 @@ def _summarise_engine_rounds_from_token_log(token_log: dict) -> list[dict]:
             "main_turn_failed": None,
             "thread_id": None,
             "engineer_input_tokens": int(tl.get("eng_in", 0) or 0),
+            "engineer_cached_input_tokens": int(tl.get("eng_cached", 0) or 0),
             "engineer_output_tokens": int(tl.get("eng_out", 0) or 0),
             "reviewer_input_tokens": int(tl.get("rev_in", 0) or 0),
+            "reviewer_cached_input_tokens": int(tl.get("rev_cached", 0) or 0),
             "reviewer_output_tokens": int(tl.get("rev_out", 0) or 0),
         }
         out.append(entry)
@@ -340,8 +360,10 @@ def _summarise_engine_rounds(
         tl = token_log.get(rnd) or {}
         if tl:
             entry["engineer_input_tokens"] = int(tl.get("eng_in", 0) or 0)
+            entry["engineer_cached_input_tokens"] = int(tl.get("eng_cached", 0) or 0)
             entry["engineer_output_tokens"] = int(tl.get("eng_out", 0) or 0)
             entry["reviewer_input_tokens"] = int(tl.get("rev_in", 0) or 0)
+            entry["reviewer_cached_input_tokens"] = int(tl.get("rev_cached", 0) or 0)
             entry["reviewer_output_tokens"] = int(tl.get("rev_out", 0) or 0)
         if review is not None:
             entry["review_status"] = getattr(review, "status", None)
@@ -383,26 +405,53 @@ def _compute_usd_cost(
     reviewer_model: str,
     scientist_model: str,
     engineer_in: int,
+    engineer_cached_in: int,
     engineer_out: int,
     reviewer_in: int,
+    reviewer_cached_in: int,
     reviewer_out: int,
-    scientist_tokens: int,
-    match_tokens: int,
+    scientist_in: int,
+    scientist_cached_tokens: int,
+    scientist_out: int,
+    match_in: int,
+    match_cached_tokens: int,
+    match_out: int,
 ) -> float:
-    """Best-effort USD cost. ``scientist_tokens`` and ``match_tokens``
-    don't carry an input/output split, so they are charged at the
-    *output* rate as a conservative upper bound."""
-    prices = _load_price_table()
-    e_in, e_out = prices.get(engineer_model, (0.0, 0.0))
-    r_in, r_out = prices.get(reviewer_model, (0.0, 0.0))
-    s_in, s_out = prices.get(scientist_model, (0.0, 0.0))
+    """Best-effort USD cost using cache-aware input pricing."""
+    price_table = _load_price_table()
+
+    def _lookup(model: str) -> tuple[float, float]:
+        return price_table.get(model, (0.0, 0.0))
+
     cost = (
-        engineer_in * e_in / 1_000_000
-        + engineer_out * e_out / 1_000_000
-        + reviewer_in * r_in / 1_000_000
-        + reviewer_out * r_out / 1_000_000
-        + scientist_tokens * s_out / 1_000_000
-        + match_tokens * s_out / 1_000_000
+        usd_for_tokens(
+            engineer_model,
+            engineer_in,
+            engineer_cached_in,
+            engineer_out,
+            price_lookup=_lookup,
+        )
+        + usd_for_tokens(
+            reviewer_model,
+            reviewer_in,
+            reviewer_cached_in,
+            reviewer_out,
+            price_lookup=_lookup,
+        )
+        + usd_for_tokens(
+            scientist_model,
+            scientist_in,
+            scientist_cached_tokens,
+            scientist_out,
+            price_lookup=_lookup,
+        )
+        + usd_for_tokens(
+            scientist_model,
+            match_in,
+            match_cached_tokens,
+            match_out,
+            price_lookup=_lookup,
+        )
     )
     return round(cost, 4)
 
@@ -565,6 +614,9 @@ async def _run_mission_engine_in_container(
                 slot["eng_in"] = int(slot.get("eng_in", 0)) + int(
                     event.get("input_tokens", 0) or 0
                 )
+                slot["eng_cached"] = int(slot.get("eng_cached", 0)) + int(
+                    event.get("cached_input_tokens", 0) or 0
+                )
                 slot["eng_out"] = int(slot.get("eng_out", 0)) + int(
                     event.get("output_tokens", 0) or 0
                 )
@@ -573,6 +625,9 @@ async def _run_mission_engine_in_container(
                 slot = _tlog.setdefault(rnd, {})
                 slot["rev_in"] = int(slot.get("rev_in", 0)) + int(
                     event.get("input_tokens", 0) or 0
+                )
+                slot["rev_cached"] = int(slot.get("rev_cached", 0)) + int(
+                    event.get("cached_input_tokens", 0) or 0
                 )
                 slot["rev_out"] = int(slot.get("rev_out", 0)) + int(
                     event.get("output_tokens", 0) or 0
@@ -799,6 +854,12 @@ async def run_one_task(
             res.fallback_reason = prep.fallback_reason
             res.scientist_tokens = prep.scientist_tokens
             res.match_tokens = prep.match_tokens
+            res.scientist_input_tokens = prep.scientist_input_tokens
+            res.scientist_cached_input_tokens = prep.scientist_cached_input_tokens
+            res.scientist_output_tokens = prep.scientist_output_tokens
+            res.match_input_tokens = prep.match_input_tokens
+            res.match_cached_input_tokens = prep.match_cached_input_tokens
+            res.match_output_tokens = prep.match_output_tokens
             skill_text = prep.skill_text
             skill_name = prep.match_names[0] if prep.match_names else None
             matched_skill_obj = prep.matched_skill
@@ -899,8 +960,14 @@ async def run_one_task(
             # Aggregate per-round tokens onto the task-level totals.
             for r in res.rounds:
                 res.engineer_input_tokens += int(r.get("engineer_input_tokens", 0) or 0)
+                res.engineer_cached_input_tokens += int(
+                    r.get("engineer_cached_input_tokens", 0) or 0
+                )
                 res.engineer_output_tokens += int(r.get("engineer_output_tokens", 0) or 0)
                 res.reviewer_input_tokens += int(r.get("reviewer_input_tokens", 0) or 0)
+                res.reviewer_cached_input_tokens += int(
+                    r.get("reviewer_cached_input_tokens", 0) or 0
+                )
                 res.reviewer_output_tokens += int(r.get("reviewer_output_tokens", 0) or 0)
 
             # Patch extraction.
@@ -987,8 +1054,14 @@ async def run_one_task(
                 res.rounds = _summarise_engine_rounds_from_token_log(tl)
                 for r in res.rounds:
                     res.engineer_input_tokens += int(r.get("engineer_input_tokens", 0) or 0)
+                    res.engineer_cached_input_tokens += int(
+                        r.get("engineer_cached_input_tokens", 0) or 0
+                    )
                     res.engineer_output_tokens += int(r.get("engineer_output_tokens", 0) or 0)
                     res.reviewer_input_tokens += int(r.get("reviewer_input_tokens", 0) or 0)
+                    res.reviewer_cached_input_tokens += int(
+                        r.get("reviewer_cached_input_tokens", 0) or 0
+                    )
                     res.reviewer_output_tokens += int(r.get("reviewer_output_tokens", 0) or 0)
         except Exception:  # noqa: BLE001
             log.exception("token-log salvage failed for %s", task.instance_id)
@@ -1000,11 +1073,17 @@ async def run_one_task(
         reviewer_model=reviewer_model,
         scientist_model=scientist_model_str or "",
         engineer_in=res.engineer_input_tokens,
+        engineer_cached_in=res.engineer_cached_input_tokens,
         engineer_out=res.engineer_output_tokens,
         reviewer_in=res.reviewer_input_tokens,
+        reviewer_cached_in=res.reviewer_cached_input_tokens,
         reviewer_out=res.reviewer_output_tokens,
-        scientist_tokens=res.scientist_tokens,
-        match_tokens=res.match_tokens,
+        scientist_in=res.scientist_input_tokens,
+        scientist_cached_tokens=res.scientist_cached_input_tokens,
+        scientist_out=res.scientist_output_tokens,
+        match_in=res.match_input_tokens,
+        match_cached_tokens=res.match_cached_input_tokens,
+        match_out=res.match_output_tokens,
     )
     logger.info(
         "[%s] %s patch=%d rounds=%d verifier=%s elapsed=%.0fs cost=$%.3f",

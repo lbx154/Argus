@@ -344,6 +344,119 @@ _PROGRESS_KIND_EMOJI: dict[str, str] = {
 }
 
 
+def _parse_command(raw: str) -> str:
+    """Turn a raw shell command into a short, readable description."""
+    import re
+
+    # Strip /bin/bash -lc wrapper
+    m = re.search(r'/bin/(?:ba)?sh\s+-\w*c\s+["\'](.+)', raw, re.DOTALL)
+    cmd = m.group(1).rstrip("'\"") if m else raw
+
+    # sed -n 'N,Mp' FILE → 📖 reading FILE:N-M
+    m = re.match(r"sed\s+-n\s+'?(\d+),(\d+)p'?\s+(.+)", cmd)
+    if m:
+        path = _short_path(m.group(3).strip().strip("'\""))
+        return f"📖 读取 {path}:{m.group(1)}-{m.group(2)}"
+
+    # cat FILE → 📖 reading FILE
+    m = re.match(r"cat\s+(.+)", cmd)
+    if m:
+        return f"📖 读取 {_short_path(m.group(1).strip())}"
+
+    # rg / grep → 🔍 searching PATTERN
+    if cmd.startswith(("rg ", "grep ")):
+        # Extract quoted pattern if possible
+        m2 = re.search(r'''["']([^"']+)["']''', cmd)
+        if m2:
+            pat = m2.group(1)[:50]
+        else:
+            # Take first non-flag argument
+            parts = cmd.split()
+            pat = next((p for p in parts[1:] if not p.startswith("-")), "…")[:50]
+        return f"🔍 搜索 {pat}"
+
+    # python / python3 → 🐍 running python script
+    if cmd.startswith(("python", "python3")):
+        # Try to extract the module/script or first meaningful line
+        if "<<" in cmd:
+            return "🐍 执行 Python 脚本"
+        m2 = re.match(r"python3?\s+(?:-\w+\s+)*(.+)", cmd)
+        return f"🐍 执行 {_short_path(m2.group(1)[:60])}" if m2 else "🐍 执行 Python"
+
+    # git commands
+    if cmd.startswith("git "):
+        return f"📦 {cmd[:60]}"
+
+    # npm/pip/make/pytest
+    for tool in ("npm", "pip", "make", "pytest", "ruff", "mypy"):
+        if cmd.startswith(tool):
+            return f"🔧 {cmd[:60]}"
+
+    # Generic: just truncate
+    short = cmd if len(cmd) <= 60 else cmd[:57] + "…"
+    return f"▸ {short}"
+
+
+def _short_path(path: str) -> str:
+    """Strip common prefixes to make paths readable."""
+    import re
+    # Remove /home/<user>/<project>/ prefix
+    path = re.sub(r'^/home/[^/]+/[^/]+/', '', path.strip().strip("'\""))
+    # Remove leading ./ or ./
+    path = re.sub(r'^\./', '', path)
+    return path
+
+
+def _summarize_progress(items: list[dict[str, Any]]) -> list[str]:
+    """Turn a list of progress events into readable action lines.
+
+    Consecutive file reads are batched into a single summary line.
+    Agent messages are always shown individually (they're the most valuable).
+    """
+    actions: list[str] = []
+    pending_reads: list[str] = []
+
+    def _flush_reads() -> None:
+        if not pending_reads:
+            return
+        if len(pending_reads) == 1:
+            actions.append(pending_reads[0])
+        else:
+            # Collapse N file reads into one line
+            actions.append(f"📖 读取了 {len(pending_reads)} 个文件")
+        pending_reads.clear()
+
+    for ev in items:
+        kind = ev.get("kind", "")
+        text = ev.get("text", "")
+        if not text:
+            continue
+
+        if kind == "agent_message":
+            _flush_reads()
+            # Agent thinking — the most valuable content
+            msg = text if len(text) <= 150 else text[:147] + "…"
+            actions.append(f"💭 {msg}")
+        elif kind == "reasoning":
+            _flush_reads()
+            msg = text if len(text) <= 100 else text[:97] + "…"
+            actions.append(f"🧠 {msg}")
+        elif kind == "command_execution":
+            parsed = _parse_command(text)
+            if parsed.startswith("📖"):
+                pending_reads.append(parsed)
+            else:
+                _flush_reads()
+                actions.append(parsed)
+        else:
+            _flush_reads()
+            short = text if len(text) <= 80 else text[:77] + "…"
+            actions.append(f"▸ {short}")
+
+    _flush_reads()
+    return actions
+
+
 class TelegramStreamReporter:
     """Buffers ``engineer.progress`` events and periodically edits a
     single live-status Telegram message.
@@ -489,14 +602,10 @@ class TelegramStreamReporter:
         lines.append(f"📌 {_esc(title[:80])}")
         lines.append("")
 
-        recent = items[-self.MAX_LINES:]
-        for ev in recent:
-            kind = ev.get("kind", "")
-            emoji = _PROGRESS_KIND_EMOJI.get(kind, "▸")
-            raw = ev.get("text", "")
-            # Truncate long lines
-            txt = raw if len(raw) <= 120 else raw[:117] + "…"
-            lines.append(f"{emoji} {_esc(txt)}")
+        # Intelligently summarize recent activity
+        actions = _summarize_progress(items)
+        for a in actions[-self.MAX_LINES:]:
+            lines.append(_esc(a))
 
         body = "\n".join(lines)
         if len(body) > self.MAX_MSG_LEN:

@@ -176,8 +176,15 @@ def test_skill_outcome_emitted_on_match_path(tmp_path: Path) -> None:
         scientist_model="test",
     )
     backend = MemoryBackend()
-    backend.queue("matcher",
-                  CannedResponse(message='{"matched":["Provision an HTTP service"]}'))
+    backend.queue(
+        "matcher",
+        CannedResponse(
+            message='{"matched":["Provision an HTTP service"]}',
+            input_tokens=111,
+            cached_input_tokens=22,
+            output_tokens=7,
+        ),
+    )
     backend.queue("engineer", CannedResponse(message="finished"))
     backend.queue("reviewer", CannedResponse(message=_done()))
 
@@ -202,13 +209,24 @@ def test_skill_outcome_emitted_on_match_path(tmp_path: Path) -> None:
     assert ev["success"] is True
     assert ev["rounds"] == 1
     assert ev["matcher_tokens"] >= 0
+    assert ev["matcher_input_tokens"] == 111
+    assert ev["matcher_cached_input_tokens"] == 22
+    assert ev["matcher_output_tokens"] == 7
 
 
 def test_skill_outcome_emitted_on_distill_path(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched":[]}'))
-    backend.queue("distiller", CannedResponse(message=GOOD_SKILL))
+    backend.queue(
+        "distiller",
+        CannedResponse(
+            message=GOOD_SKILL,
+            input_tokens=333,
+            cached_input_tokens=44,
+            output_tokens=55,
+        ),
+    )
     backend.queue("engineer", CannedResponse(message="finished"))
     backend.queue("reviewer", CannedResponse(message=_done()))
 
@@ -229,6 +247,9 @@ def test_skill_outcome_emitted_on_distill_path(tmp_path: Path) -> None:
     ev = outcomes[0]
     assert ev["skill_distilled"] is True
     assert ev["skill_hit"] is False  # distilled doesn't count as hit
+    assert ev["distiller_input_tokens"] == 333
+    assert ev["distiller_cached_input_tokens"] == 44
+    assert ev["distiller_output_tokens"] == 55
 
 
 def test_objective_for_skill_is_used_for_matcher(tmp_path: Path) -> None:

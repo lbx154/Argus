@@ -88,6 +88,7 @@ class Reviewer:
             run_label="reviewer",
         )
         rev_in = int(getattr(result, "input_tokens", 0) or 0)
+        rev_cached = int(getattr(result, "cached_input_tokens", 0) or 0)
         rev_out = int(getattr(result, "output_tokens", 0) or 0)
         if not result.agent_messages:
             return ReviewDecision(
@@ -97,6 +98,7 @@ class Reviewer:
                 next_action="Continue implementation and provide concrete completed work.",
                 round_summary_markdown="# Review Summary\n\n- Reviewer returned empty output.\n",
                 input_tokens=rev_in,
+                cached_input_tokens=rev_cached,
                 output_tokens=rev_out,
             )
         parsed = _find_decision_in_messages(result.agent_messages)
@@ -108,6 +110,7 @@ class Reviewer:
                 next_action="Continue implementation and include clear completion evidence.",
                 round_summary_markdown="# Review Summary\n\n- Reviewer output was not valid JSON.\n",
                 input_tokens=rev_in,
+                cached_input_tokens=rev_cached,
                 output_tokens=rev_out,
             )
         # Phase-2 instrumentation: cost-tracking sinks (e.g. LifeSupervisor's
@@ -115,6 +118,7 @@ class Reviewer:
         # events. If we don't propagate them every iteration budget enforcement
         # silently breaks and the journal shows ``cost_usd=$0.0000``.
         parsed.input_tokens = rev_in
+        parsed.cached_input_tokens = rev_cached
         parsed.output_tokens = rev_out
         return _coerce_decision_against_main_summary(parsed, main_summary=main_summary)
 

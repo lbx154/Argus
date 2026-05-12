@@ -34,11 +34,10 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, Protocol
 
 from ..core.ports import EventSink
-from ..life import BacklogItem, JournalEntry, LifeMemory
-from ..life.memory import default_life_dir
+from ..life import BacklogItem, JournalEntry, LifeMemory, MemoryBundle
 from ..life.supervisor import (
     LifeBudget,
     LifeSupervisor,
@@ -46,6 +45,39 @@ from ..life.supervisor import (
 )
 
 log = logging.getLogger(__name__)
+
+
+class _CommonMemory(Protocol):
+    @property
+    def identity(self) -> Any: ...
+
+    @property
+    def journal(self) -> Any: ...
+
+    @property
+    def backlog(self) -> Any: ...
+
+
+class _SplitMemory(_CommonMemory, Protocol):
+    @property
+    def global_mem(self) -> Any: ...
+
+    @property
+    def project(self) -> Any: ...
+
+    @property
+    def global_root(self) -> Any: ...
+
+    def render_prelude(self, *, objective: str) -> str: ...
+
+
+def _resolve_global_root(args: argparse.Namespace) -> Path:
+    from ..core import paths as core_paths
+
+    life_dir_arg = getattr(args, "life_dir", None)
+    if life_dir_arg:
+        return Path(life_dir_arg).expanduser()
+    return core_paths.global_root()
 
 # ---------------------------------------------------------------------------
 # Sink (event rendering)
@@ -501,7 +533,7 @@ class _CodexSkillLoopRunner:
         )
 
 
-def _format_daemon_mode_cell(theme, mem: LifeMemory) -> str:  # noqa: ANN001
+def _format_daemon_mode_cell(theme, mem: _SplitMemory) -> str:  # noqa: ANN001
     """Banner ``mode`` cell — life + daemon liveness in one line.
 
     Shows ``life ⚡ daemon: alive (pid X · up Yh)`` when a 7×24 worker
@@ -511,7 +543,7 @@ def _format_daemon_mode_cell(theme, mem: LifeMemory) -> str:  # noqa: ANN001
     try:
         from ..daemon.life_worker import read_daemon_status
         from .cli import _format_short_duration
-        status = read_daemon_status(mem.root)
+        status = read_daemon_status(mem.project.root)
     except Exception:  # noqa: BLE001
         return f"{theme.bold('life')}    " + theme.dim("in-process · no daemon")
     if status.alive and status.pid is not None:
@@ -614,7 +646,7 @@ def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = 
 
 def run_life_supervisor(
     *,
-    mem: LifeMemory,
+    mem: _SplitMemory,
     runner: Any,
     engineer_model: str,
     reviewer_model: str,
@@ -647,7 +679,7 @@ def run_life_supervisor(
         from ..life.event_log import JsonlEventSink
 
         stderr_sink = LifeStderrSink(quiet=quiet)
-        sink = JsonlEventSink(stderr_sink, life_dir=mem.root)
+        sink = JsonlEventSink(stderr_sink, life_dir=mem.project.root)
         cfg = LifeSupervisorConfig(
             budget=LifeBudget(
                 per_mission_cap_usd=per_mission_cap_usd,
@@ -656,7 +688,7 @@ def run_life_supervisor(
             ),
             poll_interval_seconds=2.0,
             stop_event=stop_event,
-            user_inbox=_inbox_drainer_for(mem.root),
+            user_inbox=_inbox_drainer_for(mem.project.root),
             runtime_context=runtime_context,
             continuous=continuous,
             continuous_objective=continuous_objective,
@@ -678,7 +710,7 @@ def run_life_supervisor(
 
 def _invoke_supervisor(
     *,
-    mem: LifeMemory,
+    mem: _SplitMemory,
     backend: str,
     once: bool,
     max_missions: int,
@@ -696,7 +728,7 @@ def _invoke_supervisor(
     ns.scientist_model = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4")
     ns.skills_dir = os.environ.get(
         "ARGUS_SKILL_SKILLS_DIR",
-        str(Path.home() / ".argus-skill" / "skills"),
+        str(mem.global_root / "skills"),
     )
     ns.workdir = os.environ.get("ARGUS_SKILL_WORKDIR")
     # Life-mode default: 500 engineer rounds. The earlier low cap was
@@ -785,7 +817,7 @@ def _parse_add_flags(
 
 
 def _add_only(
-    mem: LifeMemory,
+    mem: _CommonMemory,
     text: str,
     *,
     priority: int = 100,
@@ -947,7 +979,7 @@ def _config_cmd(tokens: list[str], chat_state: dict[str, Any],
         print("  (synced to daemon — takes effect within seconds)")
 
 
-def _identity_cmd(mem: LifeMemory, tokens: list[str], rest_text: str) -> None:
+def _identity_cmd(mem: _CommonMemory, tokens: list[str], rest_text: str) -> None:
     if not tokens:
         text = mem.identity.read().strip()
         if not text:
@@ -983,7 +1015,7 @@ def _identity_cmd(mem: LifeMemory, tokens: list[str], rest_text: str) -> None:
     print(f"unknown /identity subcommand: {sub}")
 
 
-def _backlog_list_cmd(mem: LifeMemory, *, include_all: bool) -> None:
+def _backlog_list_cmd(mem: _CommonMemory, *, include_all: bool) -> None:
     items = mem.backlog.all() if include_all else [
         i for i in mem.backlog.all() if i.status == "pending"
     ]
@@ -998,7 +1030,7 @@ def _backlog_list_cmd(mem: LifeMemory, *, include_all: bool) -> None:
         )
 
 
-def _status_change_cmd(mem: LifeMemory, cmd: str, item_id: str) -> None:
+def _status_change_cmd(mem: _CommonMemory, cmd: str, item_id: str) -> None:
     if cmd == "/done":
         ok = mem.backlog.mark_done(item_id) is not None
     elif cmd == "/skip":
@@ -1008,7 +1040,7 @@ def _status_change_cmd(mem: LifeMemory, cmd: str, item_id: str) -> None:
     print(f"{cmd[1:]}: {item_id}  {'ok' if ok else '(not found)'}")
 
 
-def _journal_tail_cmd(mem: LifeMemory, n: int) -> None:
+def _journal_tail_cmd(mem: _CommonMemory, n: int) -> None:
     entries = mem.journal.tail(n)
     if not entries:
         print("(journal is empty)")
@@ -1021,7 +1053,7 @@ def _journal_tail_cmd(mem: LifeMemory, n: int) -> None:
 
 
 def _free_text_cmd(
-    mem: LifeMemory,
+    mem: Any,
     text: str,
     chat_state: dict[str, Any],
 ) -> None:
@@ -1072,7 +1104,7 @@ def _free_text_cmd(
         chat_state["continuous_objective"] = body
         from ..daemon.life_worker import write_continuous_config
         write_continuous_config(
-            mem.root,
+            mem.project.root,
             enabled=True,
             objective=body,
         )
@@ -1112,7 +1144,7 @@ def _format_elapsed(seconds: float) -> str:
 
 def _invoke_and_track(
     *,
-    mem: LifeMemory,
+    mem: _SplitMemory,
     chat_state: dict[str, Any],
     once: bool,
     max_missions: int,
@@ -1178,7 +1210,7 @@ def _invoke_and_track(
 
 
 def _run_cmd(
-    mem: LifeMemory,
+    mem: _SplitMemory,
     opts: list[str],
     chat_state: dict[str, Any],
 ) -> None:
@@ -1243,7 +1275,7 @@ def _run_cmd(
     print(theme.dim(footer) if theme else footer)
 
 
-def _status_cmd(mem: LifeMemory, chat_state: dict[str, Any] | None = None) -> None:
+def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> None:
     """Lightweight status print (mirrors `argus-skill life status` output)."""
     from ..daemon.life_worker import ContinuousConfigState, read_continuous_state
 
@@ -1270,7 +1302,7 @@ def _status_cmd(mem: LifeMemory, chat_state: dict[str, Any] | None = None) -> No
     if chat_state is not None:
         cont = chat_state.get("continuous_state")
     if not isinstance(cont, ContinuousConfigState):
-        cont = read_continuous_state(mem.root)
+        cont = read_continuous_state(mem.project.root)
     print(f"continuous: {'on' if cont.enabled else 'off'}")
     if cont.objective:
         print(f"  objective: {cont.objective}")
@@ -1299,7 +1331,7 @@ def _status_cmd(mem: LifeMemory, chat_state: dict[str, Any] | None = None) -> No
     try:
         from ..daemon.life_worker import read_daemon_status
         from .cli import _format_short_duration
-        ds = read_daemon_status(mem.root)
+        ds = read_daemon_status(mem.project.root)
     except Exception:  # noqa: BLE001
         ds = None
     if ds is not None:
@@ -1371,7 +1403,7 @@ def _render_help(theme) -> str:  # noqa: ANN001
 # Slash-command helpers + public REPL entry point — invoked by apps/cli.main
 # ---------------------------------------------------------------------------
 
-def _skills_cmd(mem: LifeMemory, tokens: list[str]) -> None:
+def _skills_cmd(mem: _CommonMemory, tokens: list[str]) -> None:
     """``/skills [ls|promote <name>]`` — inspect or promote a skill
     from the current project layer to the global layer."""
     op = (tokens[0].lower() if tokens else "ls")
@@ -1425,14 +1457,26 @@ def _skills_cmd(mem: LifeMemory, tokens: list[str]) -> None:
     print(f"unknown /skills subcommand: {op}  (try ls | promote)")
 
 
-def _seed_chat_state(args: argparse.Namespace, mem: LifeMemory, *, theme: Any) -> tuple[dict[str, Any], str | None]:
+def _seed_chat_state(
+    args: argparse.Namespace,
+    mem: LifeMemory | MemoryBundle,
+    *,
+    theme: Any,
+) -> tuple[dict[str, Any], str | None]:
     from ..daemon.life_worker import ContinuousConfigState, read_continuous_state
+
+    project_root = getattr(mem, "project_root", None)
+    if project_root is None:
+        project = getattr(mem, "project", None)
+        project_root = getattr(project, "root", None)
+    if project_root is None:
+        project_root = getattr(mem, "root")
 
     backend_default = getattr(args, "backend", None) or os.environ.get(
         "ARGUS_SKILL_LIFE_BACKEND",
         "codex",
     )
-    disk_state = read_continuous_state(mem.root)
+    disk_state = read_continuous_state(Path(project_root))
     cli_continuous = bool(getattr(args, "continuous", False))
     cli_objective = str(getattr(args, "objective", "") or "").strip()
     disk_objective = disk_state.objective.strip()
@@ -1477,11 +1521,14 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
     Free text becomes a backlog item AND runs immediately on the
     current default backend.
     """
-    life_dir_arg = getattr(args, "life_dir", None)
-    root = Path(life_dir_arg).expanduser() if life_dir_arg else default_life_dir()
-    mem = LifeMemory.open(root)
+    global_root = _resolve_global_root(args)
+    mem: MemoryBundle = MemoryBundle.for_cwd(Path.cwd(), global_root=global_root)
     state = mem.init()
-    created = [k for k, v in state.items() if v]
+    created: list[str] = []
+    for scope, rows in state.items():
+        for name, was_created in rows.items():
+            if was_created:
+                created.append(f"{scope}.{name}")
     theme = None  # populated in the locked body
 
     # Fail fast before we take the singleton lock if the requested
@@ -1501,7 +1548,7 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
         DaemonAlreadyRunning,
         acquire_global_daemon_lock,
     )
-    lock_path = mem.root / "repl.pid"
+    lock_path = mem.project.root / "repl.pid"
     try:
         repl_lock = acquire_global_daemon_lock(pid_path=lock_path)
     except DaemonAlreadyRunning as exc:
@@ -1523,7 +1570,7 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
 
 def _run_life_chat_loop_locked(
     args: argparse.Namespace,
-    mem: LifeMemory,
+    mem: _SplitMemory,
     created: list[str],
     *,
     chat_state: dict[str, Any],
@@ -1560,7 +1607,7 @@ def _run_life_chat_loop_locked(
     # Detect a pre-pivot ``python -m argus_skill daemon`` zombie still
     # writing to the legacy ``state/`` dir. Two independent daemons will
     # double-claim work and corrupt accounting, so we surface this loudly.
-    legacy_status = mem.root.parent / "state" / "status.json"
+    legacy_status = mem.global_mem.root / "state" / "status.json"
     if legacy_status.exists():
         try:
             data = json.loads(legacy_status.read_text(encoding="utf-8"))
@@ -1581,13 +1628,19 @@ def _run_life_chat_loop_locked(
             from ..daemon.life_worker import (
                 read_daemon_status,
                 spawn_detached_daemon,
+                wait_for_daemon_status,
             )
             from .cli import _build_worker_config
-            status = read_daemon_status(mem.root)
+            status = read_daemon_status(mem.project.root)
             if not status.alive:
                 cfg = _build_worker_config(args)
-                pid = spawn_detached_daemon(cfg)
-                auto_spawn_msg = f"daemon auto-spawned (pid {pid})"
+                spawn_rc = spawn_detached_daemon(cfg)
+                if spawn_rc == 0:
+                    started = wait_for_daemon_status(mem.project.root)
+                    if started is not None and started.pid is not None:
+                        auto_spawn_msg = f"daemon auto-spawned (pid {started.pid})"
+                    else:
+                        auto_spawn_msg = "daemon auto-spawned"
         except Exception as exc:  # noqa: BLE001
             auto_spawn_msg = f"daemon auto-spawn skipped: {exc!s}"
 
@@ -1618,7 +1671,7 @@ def _run_life_chat_loop_locked(
                     + theme.dim(iter_detail)),
         ("verbose", theme.bold_green("always") + " "
                     + theme.dim("(filter removed — every event is shown)")),
-        ("state",   theme.cyan(str(mem.root))),
+        ("state",   theme.cyan(str(mem.project.root))),
     ]
     # Replace the static "in-process · no daemon" hint with live daemon
     # status so the user sees whether the 7×24 worker is draining the
@@ -1770,7 +1823,7 @@ def _run_life_chat_loop_locked(
                 print(theme.gray("usage: /nudge <message>  (one line, "
                                  "spliced into the next engineer round)"))
                 continue
-            inbox = mem.root / "inbox.jsonl"
+            inbox = mem.project.root / "inbox.jsonl"
             inbox.parent.mkdir(parents=True, exist_ok=True)
             record = {"ts": time.time(), "text": rest_text}
             with inbox.open("a", encoding="utf-8") as fh:
@@ -1784,7 +1837,7 @@ def _run_life_chat_loop_locked(
             _backend_cmd(rest, chat_state)
             continue
         if cmd == "/config":
-            _config_cmd(rest, chat_state, life_dir=mem.root)
+            _config_cmd(rest, chat_state, life_dir=mem.project.root)
             continue
         if cmd in ("/verbose", "/quiet"):
             print(theme.gray(

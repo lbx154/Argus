@@ -257,7 +257,7 @@ class CodexRunnerBackend:
         )
 
     def _translate_result(self, argus_result) -> RunnerResult:
-        input_tokens, output_tokens = _sum_token_counts(
+        input_tokens, cached_input_tokens, output_tokens = _sum_token_counts(
             getattr(argus_result, "json_events", None)
         )
         return RunnerResult(
@@ -268,11 +268,12 @@ class CodexRunnerBackend:
             thread_id=argus_result.thread_id,
             fatal_error=argus_result.fatal_error,
             input_tokens=input_tokens,
+            cached_input_tokens=cached_input_tokens,
             output_tokens=output_tokens,
         )
 
 
-def _sum_token_counts(events: list[dict[str, Any]] | None) -> tuple[int, int]:
+def _sum_token_counts(events: list[dict[str, Any]] | None) -> tuple[int, int, int]:
     """Best-effort token accounting from the codex JSON event stream.
 
     The codex CLI emits events with shapes like::
@@ -283,13 +284,15 @@ def _sum_token_counts(events: list[dict[str, Any]] | None) -> tuple[int, int]:
 
         {"type": "msg", "content": {..., "input_tokens": ...}}
 
-    We pick the last non-zero ``input_tokens`` / ``output_tokens`` pair
-    rather than summing — codex emits running totals, not per-event
-    deltas. If the run produced no countable events we return (0, 0).
+    We pick the last non-zero ``input_tokens`` / ``cached_input_tokens`` /
+    ``output_tokens`` triple rather than summing — codex emits running
+    totals, not per-event deltas. If the run produced no countable events
+    we return (0, 0, 0).
     """
     if not events:
-        return 0, 0
+        return 0, 0, 0
     last_in = 0
+    last_cached = 0
     last_out = 0
     for event in events:
         if not isinstance(event, dict):
@@ -298,13 +301,17 @@ def _sum_token_counts(events: list[dict[str, Any]] | None) -> tuple[int, int]:
         #   {"type":"turn.completed","usage":{"input_tokens":..,"output_tokens":..}}
         usage = event.get("usage") if isinstance(event.get("usage"), dict) else None
         in_tok = 0
+        cached_tok = 0
         out_tok = 0
         if usage is not None:
             in_tok = _coerce_int(usage.get("input_tokens"))
+            cached_tok = _coerce_int(usage.get("cached_input_tokens"))
             out_tok = _coerce_int(usage.get("output_tokens"))
         # Fallback: top-level fields (older codex / token_count event).
         if in_tok == 0:
             in_tok = _coerce_int(event.get("input_tokens"))
+        if cached_tok == 0:
+            cached_tok = _coerce_int(event.get("cached_input_tokens"))
         if out_tok == 0:
             out_tok = _coerce_int(event.get("output_tokens"))
         # Older codex events: nested under 'msg' / 'content'.
@@ -313,13 +320,17 @@ def _sum_token_counts(events: list[dict[str, Any]] | None) -> tuple[int, int]:
             if content is not None:
                 if in_tok == 0:
                     in_tok = _coerce_int(content.get("input_tokens"))
+                if cached_tok == 0:
+                    cached_tok = _coerce_int(content.get("cached_input_tokens"))
                 if out_tok == 0:
                     out_tok = _coerce_int(content.get("output_tokens"))
         if in_tok > 0:
             last_in = in_tok
+        if cached_tok > 0:
+            last_cached = cached_tok
         if out_tok > 0:
             last_out = out_tok
-    return last_in, last_out
+    return last_in, last_cached, last_out
 
 
 def _coerce_int(value: Any) -> int:

@@ -219,17 +219,25 @@ argus › /exit                  # bye
 
 The persistent state lives under `~/.argus-skill/`:
 
-| Path | Owner |
+| Path | Scope |
 | --- | --- |
-| `identity.md`, `journal.jsonl`        | global (cross-project) |
-| `skills/`                             | global skill library |
-| `skills/_archive/`                    | retired skills |
-| `reviewer/lessons.jsonl`              | reviewer calibration (`/correct` writes here) |
-| `projects/<fingerprint>/backlog.jsonl`| per-project backlog |
-| `projects/<fingerprint>/skills/`      | per-project skill cache |
+| `identity.md`, `journal.jsonl` | global (cross-project) |
+| `skills/` | global skill library |
+| `skills/_archive/` | retired skills |
+| `reviewer/lessons.jsonl` | reviewer calibration (`/correct` writes here) |
+| `projects/<fingerprint>/project.md` | per-project card |
+| `projects/<fingerprint>/memory.jsonl` | per-project memory journal |
+| `projects/<fingerprint>/backlog.jsonl` | per-project backlog |
+| `projects/<fingerprint>/continuous.json` | per-project continuous-mode state |
+| `projects/<fingerprint>/events.jsonl` | per-project event log / watch feed |
+| `projects/<fingerprint>/inbox.jsonl` | per-project operator nudge queue |
+| `projects/<fingerprint>/daemon.pid` / `daemon.status.json` / `repl.pid` | per-project process state |
+| `projects/<fingerprint>/skills/` | per-project skill cache |
+| `projects/<fingerprint>/missions/` | per-project mission records |
 
-Run `argus-skill --status` to inspect the daemon, backlog, and current
-continuous-state file without entering the REPL.
+Run `argus-skill --status` to inspect the current project backlog, the
+project-local daemon state, and the shared global journal without
+entering the REPL.
 
 ### Background daemon (real 7×24)
 
@@ -432,9 +440,11 @@ v0.1. End-to-end working with two backends:
 The unified REPL is the primary entry point. Historical one-shot modes
 were removed during the consolidation into `apps/cli.py` and
 `apps/_life_repl.py`. The detached daemon and Telegram poller share the
-same life-memory state. Cross-process safety is provided by a
-per-life-dir singleton lock (`<state>/repl.pid`) and a state-machine
-seal that makes terminal backlog items unrunnable.
+same split memory state: global identity/journal live at the shared
+root, while backlog, project memory, events, and process locks live
+under `projects/<fingerprint>/`. Cross-process safety is provided by a
+per-project singleton lock (`projects/<fingerprint>/repl.pid`) and a
+state-machine seal that makes terminal backlog items unrunnable.
 
 ## License
 

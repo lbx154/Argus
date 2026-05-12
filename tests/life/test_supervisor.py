@@ -132,18 +132,37 @@ def test_price_for_unknown_falls_back() -> None:
 def test_cost_tracking_sink_aggregates_and_forwards() -> None:
     inner = _RecordingSink()
     s = _CostTrackingSink(inner, engineer_model="gpt-5.4-mini", reviewer_model="gpt-5.4")
-    s.handle_event({"type": "round.main.completed", "input_tokens": 1000, "output_tokens": 500})
-    s.handle_event({"type": "round.review.completed", "input_tokens": 100, "output_tokens": 50})
+    s.handle_event({
+        "type": "round.main.completed",
+        "input_tokens": 1000,
+        "cached_input_tokens": 400,
+        "output_tokens": 500,
+    })
+    s.handle_event({
+        "type": "round.review.completed",
+        "input_tokens": 100,
+        "cached_input_tokens": 25,
+        "output_tokens": 50,
+    })
     s.handle_event({"type": "other"})  # forwarded, not counted
     # Forwarded events.
     assert len(inner.events) == 3
     # Tokens.
     assert s.engineer_input_tokens == 1000
+    assert s.engineer_cached_input_tokens == 400
     assert s.engineer_output_tokens == 500
     assert s.reviewer_input_tokens == 100
+    assert s.reviewer_cached_input_tokens == 25
     assert s.reviewer_output_tokens == 50
-    # Cost: 1000*0.25/1e6 + 500*2.0/1e6 + 100*1.25/1e6 + 50*10.0/1e6
-    expected = (1000 * 0.25 + 500 * 2.0 + 100 * 1.25 + 50 * 10.0) / 1_000_000
+    # Cost: engineer input discount + reviewer input discount.
+    expected = (
+        (600 * 0.25)
+        + (400 * 0.025)
+        + (500 * 2.0)
+        + (75 * 1.25)
+        + (25 * 0.125)
+        + (50 * 10.0)
+    ) / 1_000_000
     assert s.total_usd() == pytest.approx(expected)
 
 
@@ -865,6 +884,7 @@ def test_planner_budget_counts_planner_tokens(tmp_path: Path) -> None:
                     exit_code=0,
                     agent_messages=['{"stop": true, "reason": "done", "improvements": []}'],
                     input_tokens=0,
+                    cached_input_tokens=0,
                     output_tokens=0,
                 )
 
@@ -883,6 +903,7 @@ def test_planner_budget_counts_planner_tokens(tmp_path: Path) -> None:
                 exit_code=0,
                 agent_messages=[payload],
                 input_tokens=750,
+                cached_input_tokens=250,
                 output_tokens=250,
             )
 
@@ -910,7 +931,7 @@ def test_planner_budget_counts_planner_tokens(tmp_path: Path) -> None:
 
     summary = sup.run()
 
-    planner_cost = (750 * 1.25 + 250 * 10.0) / 1_000_000
+    planner_cost = ((500 * 1.25) + (250 * 0.125) + (250 * 10.0)) / 1_000_000
     entries = mem.journal.all()
     planner_entries = [e for e in entries if e.kind.startswith("planner")]
 

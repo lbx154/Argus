@@ -48,6 +48,7 @@ class _TokenedEngineer:
             exit_code=0,
             agent_messages=[f"engineer-r{self.calls}: did concrete work running pytest -q"],
             input_tokens=self._in,
+            cached_input_tokens=self._in // 10,
             output_tokens=self._out,
         )
 
@@ -103,6 +104,7 @@ def test_round_main_completed_emitted_with_engineer_tokens(tmp_path: Path) -> No
         + repr([e.get("type") for e in events])
     )
     assert main_evts[0]["input_tokens"] == 12000
+    assert main_evts[0]["cached_input_tokens"] == 1200
     assert main_evts[0]["output_tokens"] == 345
 
     assert len(review_evts) == 1
@@ -126,6 +128,7 @@ class _StubReviewerRunner:
             exit_code=0,
             agent_messages=list(self.agent_messages),
             input_tokens=self._in,
+            cached_input_tokens=self._in // 10,
             output_tokens=self._out,
         )
 
@@ -143,6 +146,7 @@ def test_reviewer_propagates_tokens_on_empty_messages() -> None:
         config=ReviewerConfig(model="stub"),
     )
     assert decision.input_tokens == 42
+    assert decision.cached_input_tokens == 4
     assert decision.output_tokens == 7
 
 
@@ -163,6 +167,7 @@ def test_reviewer_propagates_tokens_on_unparseable_output() -> None:
         config=ReviewerConfig(model="stub"),
     )
     assert decision.input_tokens == 33
+    assert decision.cached_input_tokens == 3
     assert decision.output_tokens == 4
 
 
@@ -185,4 +190,5 @@ def test_reviewer_propagates_tokens_on_valid_json() -> None:
         config=ReviewerConfig(model="stub"),
     )
     assert decision.input_tokens == 77
+    assert decision.cached_input_tokens == 7
     assert decision.output_tokens == 9

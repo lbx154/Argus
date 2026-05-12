@@ -34,14 +34,24 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from ..core.ports import EventSink
+from ..core.pricing import price_for, usd_for_tokens
 from .memory import (
     BacklogItem,
     Journal,
     JournalEntry,
-    LifeMemory,
 )
 
 log = logging.getLogger(__name__)
+
+
+class _MemoryView(Protocol):
+    @property
+    def backlog(self) -> Any: ...
+
+    @property
+    def journal(self) -> Any: ...
+
+    def render_prelude(self, *, objective: str) -> str: ...
 
 
 # ---------------------------------------------------------------------------
@@ -127,38 +137,6 @@ class LifeBudget:
 # Cost-tracking sink wrapper
 # ---------------------------------------------------------------------------
 
-# Default Azure-style USD prices per million tokens. The supervisor only
-# uses these to gate against the budget *before* the next mission; it
-# does not bill the user. Same defaults as benchmarks/swebench_pro/runner.py.
-_DEFAULT_PRICES = {
-    "gpt-5.4": (1.25, 10.0),
-    "gpt-5.4-mini": (0.25, 2.0),
-    "gpt-5.2": (1.25, 10.0),
-    "gpt-5.2-codex": (1.25, 10.0),
-}
-
-
-def _price_for(model: str) -> tuple[float, float]:
-    """USD per million ``(input, output)`` tokens for ``model``."""
-    if not model:
-        return _DEFAULT_PRICES["gpt-5.4-mini"]
-    if model in _DEFAULT_PRICES:
-        return _DEFAULT_PRICES[model]
-    # Fallback by family heuristic.
-    if "mini" in model:
-        return _DEFAULT_PRICES["gpt-5.4-mini"]
-    return _DEFAULT_PRICES["gpt-5.4"]
-
-
-def _usd_for_tokens(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Convert token usage into USD using the configured model price."""
-    in_price, out_price = _price_for(model)
-    return (
-        float(input_tokens) * in_price / 1_000_000
-        + float(output_tokens) * out_price / 1_000_000
-    )
-
-
 def _normalize_planner_text(text: str) -> str:
     """Normalize planner task text for duplicate detection."""
     normalized = unicodedata.normalize("NFKC", str(text))
@@ -197,16 +175,24 @@ class _CostTrackingSink:
         self._on_phase_change = on_phase_change
         self._reviewer_notified = False
         self._engineer_round_count = 0
+        self.engineer_cached_input_tokens = 0
+        self.reviewer_cached_input_tokens = 0
 
     def handle_event(self, event: dict[str, Any]) -> None:
         try:
             kind = event.get("type") if isinstance(event, dict) else None
             if kind == "round.main.completed":
                 self.engineer_input_tokens += int(event.get("input_tokens", 0) or 0)
+                self.engineer_cached_input_tokens += int(
+                    event.get("cached_input_tokens", 0) or 0
+                )
                 self.engineer_output_tokens += int(event.get("output_tokens", 0) or 0)
                 self._engineer_round_count += 1
             elif kind == "round.review.completed":
                 self.reviewer_input_tokens += int(event.get("input_tokens", 0) or 0)
+                self.reviewer_cached_input_tokens += int(
+                    event.get("cached_input_tokens", 0) or 0
+                )
                 self.reviewer_output_tokens += int(event.get("output_tokens", 0) or 0)
                 # Notify on first reviewer round per mission
                 if not self._reviewer_notified and self._on_phase_change:
@@ -245,27 +231,24 @@ class _CostTrackingSink:
             log.exception("downstream close raised; continuing")
 
     def total_usd(self) -> float:
-        in_eng, out_eng = _price_for(self.engineer_model)
-        in_rev, out_rev = _price_for(self.reviewer_model)
-        return (
-            self.engineer_input_tokens * in_eng / 1_000_000
-            + self.engineer_output_tokens * out_eng / 1_000_000
-            + self.reviewer_input_tokens * in_rev / 1_000_000
-            + self.reviewer_output_tokens * out_rev / 1_000_000
-        )
+        return self.engineer_usd() + self.reviewer_usd()
 
     def engineer_usd(self) -> float:
-        in_eng, out_eng = _price_for(self.engineer_model)
-        return (
-            self.engineer_input_tokens * in_eng / 1_000_000
-            + self.engineer_output_tokens * out_eng / 1_000_000
+        return usd_for_tokens(
+            self.engineer_model,
+            self.engineer_input_tokens,
+            self.engineer_cached_input_tokens,
+            self.engineer_output_tokens,
+            price_lookup=price_for,
         )
 
     def reviewer_usd(self) -> float:
-        in_rev, out_rev = _price_for(self.reviewer_model)
-        return (
-            self.reviewer_input_tokens * in_rev / 1_000_000
-            + self.reviewer_output_tokens * out_rev / 1_000_000
+        return usd_for_tokens(
+            self.reviewer_model,
+            self.reviewer_input_tokens,
+            self.reviewer_cached_input_tokens,
+            self.reviewer_output_tokens,
+            price_lookup=price_for,
         )
 
     def total_input_tokens(self) -> int:
@@ -356,7 +339,7 @@ class LifeSupervisor:
     def __init__(
         self,
         *,
-        memory: LifeMemory,
+        memory: _MemoryView,
         runner: _MissionRunner,
         sink: EventSink,
         config: LifeSupervisorConfig | None = None,
@@ -1055,10 +1038,12 @@ class LifeSupervisor:
                 "stop_reason": f"critic error: {type(exc).__name__}",
             }
 
-        critic_cost_usd = _usd_for_tokens(
+        critic_cost_usd = usd_for_tokens(
             self.reviewer_model,
             verdict.input_tokens,
+            verdict.cached_input_tokens,
             verdict.output_tokens,
+            price_lookup=price_for,
         )
         cost_so_far += critic_cost_usd
         remaining_budget = max(0.0, budget - cost_so_far)
@@ -1084,6 +1069,7 @@ class LifeSupervisor:
                     "improvement_count": len(verdict.improvements),
                     "reason": verdict.reason,
                     "input_tokens": verdict.input_tokens,
+                    "cached_input_tokens": verdict.cached_input_tokens,
                     "output_tokens": verdict.output_tokens,
                 },
             )
@@ -1101,6 +1087,7 @@ class LifeSupervisor:
             "improvement_count": len(verdict.improvements),
             "reason": verdict.reason,
             "input_tokens": verdict.input_tokens,
+            "cached_input_tokens": verdict.cached_input_tokens,
             "output_tokens": verdict.output_tokens,
             "cost_usd": critic_cost_usd,
         })
@@ -1282,10 +1269,12 @@ class LifeSupervisor:
             })
             return None
 
-        planner_cost_usd = _usd_for_tokens(
+        planner_cost_usd = usd_for_tokens(
             self.reviewer_model,
             verdict.input_tokens,
+            verdict.cached_input_tokens,
             verdict.output_tokens,
+            price_lookup=price_for,
         )
 
         if verdict.project_done:
@@ -1300,6 +1289,7 @@ class LifeSupervisor:
                 "enqueued_titles": [],
                 "skipped_duplicate_titles": [],
                 "input_tokens": verdict.input_tokens,
+                "cached_input_tokens": verdict.cached_input_tokens,
                 "output_tokens": verdict.output_tokens,
                 "cost_usd": planner_cost_usd,
             })
@@ -1414,11 +1404,12 @@ class LifeSupervisor:
             "enqueued_tasks": len(added_titles),
             "skipped_duplicate_tasks": len(skipped_titles),
             "enqueued_titles": added_titles,
-            "skipped_duplicate_titles": skipped_titles,
-            "input_tokens": verdict.input_tokens,
-            "output_tokens": verdict.output_tokens,
-            "cost_usd": planner_cost_usd,
-        })
+                "skipped_duplicate_titles": skipped_titles,
+                "input_tokens": verdict.input_tokens,
+                "cached_input_tokens": verdict.cached_input_tokens,
+                "output_tokens": verdict.output_tokens,
+                "cost_usd": planner_cost_usd,
+            })
         self.memory.journal.append(entry)
         self._inject_cumulative_cost(entry)
         try:

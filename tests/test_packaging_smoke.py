@@ -11,6 +11,8 @@ import venv
 import zipfile
 from pathlib import Path
 
+from argus_skill.core import project
+
 
 def _run(cmd: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -108,6 +110,9 @@ def test_built_artifacts_and_installed_cli_contract(tmp_path: Path) -> None:
 
     life_dir = tmp_path / "life"
     life_dir.mkdir()
+    runtime_fp = project.project_fingerprint(runtime_cwd).fingerprint
+    watch_project_root = life_dir / "projects" / runtime_fp
+    watch_project_root.mkdir(parents=True)
     status_run = _run(
         [str(cli), "--status", "--life-dir", str(life_dir)],
         cwd=runtime_cwd,
@@ -116,6 +121,8 @@ def test_built_artifacts_and_installed_cli_contract(tmp_path: Path) -> None:
 
     watch_life_dir = tmp_path / "watch-life"
     watch_life_dir.mkdir()
+    watch_project_root = watch_life_dir / "projects" / runtime_fp
+    watch_project_root.mkdir(parents=True)
     watch_fallback = subprocess.run(
         [str(cli), "--watch", "--life-dir", str(watch_life_dir)],
         cwd=runtime_cwd,
@@ -126,6 +133,7 @@ def test_built_artifacts_and_installed_cli_contract(tmp_path: Path) -> None:
     assert "watch: rich is required for the live cockpit" in watch_fallback.stderr
 
     missing_dir = tmp_path / "missing-life"
+    missing_project_root = missing_dir / "projects" / runtime_fp
     watch_run = subprocess.run(
         [str(cli), "--watch", "--life-dir", str(missing_dir)],
         cwd=runtime_cwd,
@@ -133,7 +141,7 @@ def test_built_artifacts_and_installed_cli_contract(tmp_path: Path) -> None:
         capture_output=True,
     )
     assert watch_run.returncode == 2
-    assert f"watch: life-dir not found: {missing_dir}" in watch_run.stderr
+    assert f"watch: life-dir not found: {missing_project_root}" in watch_run.stderr
     assert "Traceback" not in watch_run.stderr
 
 
@@ -169,8 +177,10 @@ def test_installed_cli_daemon_lifecycle(tmp_path: Path) -> None:
     )
 
     life_dir = tmp_path / "life"
-    pid_path = life_dir / "daemon.pid"
-    status_path = life_dir / "daemon.status.json"
+    runtime_fp = project.project_fingerprint(runtime_cwd).fingerprint
+    project_root = life_dir / "projects" / runtime_fp
+    pid_path = project_root / "daemon.pid"
+    status_path = project_root / "daemon.status.json"
     pid: int | None = None
 
     try:
@@ -189,7 +199,7 @@ def test_installed_cli_daemon_lifecycle(tmp_path: Path) -> None:
         status = json.loads(status_path.read_text(encoding="utf-8"))
         assert status["pid"] == pid
         assert status["backend"] == "memory"
-        assert status["life_dir"] == str(life_dir)
+        assert status["life_dir"] == str(project_root)
         assert "started_at_iso" in status
 
         live_status = _run(

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from types import ModuleType
 from pathlib import Path
 
 import pytest
@@ -180,6 +181,21 @@ def test_int_and_float_env_default_on_invalid(adapter, monkeypatch):
     monkeypatch.setenv("BAR", "42")
     assert adapter._int_env("BAR", 7) == 42
     assert adapter._float_env("BAR", 1.25) == 42.0
+
+
+def test_compute_model_cost_usd_applies_cached_discount(adapter, monkeypatch):
+    fake = ModuleType("litellm")
+    fake.model_cost = {
+        "gpt-5.4-mini": {
+            "input_cost_per_token": 2.0,
+            "output_cost_per_token": 5.0,
+            "cache_read_input_token_cost": 0.5,
+        }
+    }
+    monkeypatch.setitem(sys.modules, "litellm", fake)
+
+    cost = adapter._compute_model_cost_usd("gpt-5.4-mini", 10, 3, 4)
+    assert cost == 29.0
 
 
 def test_no_skill_ablation_skips_host_prep(adapter, monkeypatch):

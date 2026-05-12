@@ -12,7 +12,6 @@ those polluted entries. Idempotent — clean files are unchanged.
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 from ..skills.store import Skill, SkillStore, cleanse_task_history
@@ -22,9 +21,9 @@ def run_cleanse(
     skills_dir: Path, *, dry_run: bool = False
 ) -> int:
     skills_dir = Path(skills_dir)
-    if not skills_dir.exists():
-        print(f"cleanse: skills dir not found: {skills_dir}", file=sys.stderr)
-        return 2
+    if not skills_dir.is_dir():
+        print("cleanse: no skill files found")
+        return 0
     store = SkillStore(skills_dir=skills_dir)
     summaries = store.list_summaries()
     if not summaries:

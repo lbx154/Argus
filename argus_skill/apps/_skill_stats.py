@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import json
 import statistics
-import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -172,9 +171,6 @@ def render_text(report: dict[str, Any]) -> str:
 
 def run_skill_stats(life_dir: Path, *, as_json: bool = False) -> int:
     life_dir = Path(life_dir)
-    if not life_dir.exists():
-        print(f"skill-stats: life-dir not found: {life_dir}", file=sys.stderr)
-        return 2
     events = _read_events(life_dir)
     outcomes = collect_skill_outcomes(events)
     report = aggregate(outcomes)

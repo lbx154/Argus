@@ -529,15 +529,30 @@ class _HostPrep:
     skill_store: Any = None    # argus_skill.skills.store.SkillStore | None
     distiller: Any = None      # argus_skill.scientist.distiller.Distiller | None
     scientist_model: str = ""
+    matcher_model: str = ""
     # Split scientist token counts for accurate cost computation.
     scientist_input_tokens: int = 0
+    scientist_cached_input_tokens: int = 0
     scientist_output_tokens: int = 0
+    match_input_tokens: int = 0
+    match_cached_input_tokens: int = 0
+    match_output_tokens: int = 0
 
 
 def _do_host_prep(instruction: str) -> _HostPrep:
     """Run matcher+distiller on the host. Cheap on cache hits, ≤120s on miss."""
     if _bool_env("ARGUS_SKILL_HARBOR_NO_SKILL"):
-        return _HostPrep("", False, False, 0, [], 0, 0, "no_skill_ablation", 0.0)
+        return _HostPrep(
+            skill_text="",
+            skill_used=False,
+            matched=False,
+            match_count=0,
+            match_names=[],
+            scientist_tokens=0,
+            match_tokens=0,
+            fallback_reason="no_skill_ablation",
+            elapsed_s=0.0,
+        )
 
     deps = _import_argus_skill()
     scientist_model = os.environ.get("ARGUS_SKILL_HARBOR_SCIENTIST_MODEL", "gpt-5.4")
@@ -563,13 +578,20 @@ def _do_host_prep(instruction: str) -> _HostPrep:
     fallback_reason: str | None = None
     scientist_tokens = 0
     scientist_input_tokens = 0
+    scientist_cached_input_tokens = 0
     scientist_output_tokens = 0
+    match_input_tokens = 0
+    match_cached_input_tokens = 0
+    match_output_tokens = 0
     skill_text = ""
     distilled_skill: Any = None  # populated when we save_distilled below
     distiller_obj: Any = None    # reused for revise/promote_lesson hooks
 
     try:
         matched_skills_or_none, match_tokens = store.find_relevant(instruction)
+        match_input_tokens = getattr(store, "last_match_input_tokens", 0) or 0
+        match_cached_input_tokens = getattr(store, "last_match_cached_input_tokens", 0) or 0
+        match_output_tokens = getattr(store, "last_match_output_tokens", 0) or 0
         if matched_skills_or_none:
             matched_skills = matched_skills_or_none
             skill_text = "\n\n---\n\n".join(s.render() for s in matched_skills)
@@ -603,6 +625,7 @@ def _do_host_prep(instruction: str) -> _HostPrep:
                 )
             scientist_tokens = result.input_tokens + result.output_tokens
             scientist_input_tokens = result.input_tokens
+            scientist_cached_input_tokens = getattr(result, "cached_input_tokens", 0) or 0
             scientist_output_tokens = result.output_tokens
             try:
                 distilled_skill = store.save_distilled(
@@ -665,8 +688,13 @@ def _do_host_prep(instruction: str) -> _HostPrep:
         skill_store=store,
         distiller=distiller_obj,
         scientist_model=scientist_model,
+        matcher_model=matcher_model,
         scientist_input_tokens=scientist_input_tokens,
+        scientist_cached_input_tokens=scientist_cached_input_tokens,
         scientist_output_tokens=scientist_output_tokens,
+        match_input_tokens=match_input_tokens,
+        match_cached_input_tokens=match_cached_input_tokens,
+        match_output_tokens=match_output_tokens,
     )
 
 
@@ -715,11 +743,29 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
             self.logger.warning(
                 "host prep exceeded %.0fs; falling back to engineer-only.", distill_budget
             )
-            prep = _HostPrep("", False, False, 0, [], 0, 0, "distill_timeout", distill_budget)
+            prep = _HostPrep(
+                skill_text="",
+                skill_used=False,
+                matched=False,
+                match_count=0,
+                match_names=[],
+                scientist_tokens=0,
+                match_tokens=0,
+                fallback_reason="distill_timeout",
+                elapsed_s=distill_budget,
+            )
         except Exception as exc:
             self.logger.warning("host prep raised: %s", exc)
             prep = _HostPrep(
-                "", False, False, 0, [], 0, 0, f"prep_exception:{type(exc).__name__}", 0.0
+                skill_text="",
+                skill_used=False,
+                matched=False,
+                match_count=0,
+                match_names=[],
+                scientist_tokens=0,
+                match_tokens=0,
+                fallback_reason=f"prep_exception:{type(exc).__name__}",
+                elapsed_s=0.0,
             )
 
         self.logger.info(
@@ -768,6 +814,7 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
         run_error: str | None = None
         # Accumulate reviewer tokens across rounds for full cost tracking.
         total_reviewer_input_tokens = 0
+        total_reviewer_cached_input_tokens = 0
         total_reviewer_output_tokens = 0
 
         try:
@@ -1005,6 +1052,9 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                             "confidence"
                         )
                         total_reviewer_input_tokens += review_decision.get("input_tokens", 0)
+                        total_reviewer_cached_input_tokens += review_decision.get(
+                            "cached_input_tokens", 0
+                        )
                         total_reviewer_output_tokens += review_decision.get("output_tokens", 0)
                     except Exception as exc:  # pragma: no cover - defensive
                         self.logger.warning(
@@ -1085,30 +1135,50 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                     self.model_name or model,
                     eng["total_input"], eng["total_output"], eng["total_cached"],
                 )
+                match_model_name = prep.matcher_model or prep.scientist_model or "gpt-5.4"
+                match_cost = _compute_model_cost_usd(
+                    match_model_name,
+                    prep.match_input_tokens,
+                    prep.match_output_tokens,
+                    prep.match_cached_input_tokens,
+                )
                 sci_cost = _compute_model_cost_usd(
                     scientist_model_name,
-                    prep.scientist_input_tokens, prep.scientist_output_tokens,
+                    prep.scientist_input_tokens,
+                    prep.scientist_output_tokens,
+                    prep.scientist_cached_input_tokens,
                 )
                 rev_cost = _compute_model_cost_usd(
                     reviewer_model,
-                    total_reviewer_input_tokens, total_reviewer_output_tokens,
+                    total_reviewer_input_tokens,
+                    total_reviewer_output_tokens,
+                    total_reviewer_cached_input_tokens,
                 )
                 total_input = (
                     eng["total_input"]
+                    + prep.match_input_tokens
                     + prep.scientist_input_tokens
                     + total_reviewer_input_tokens
                 )
                 total_output = (
                     eng["total_output"]
+                    + prep.match_output_tokens
                     + prep.scientist_output_tokens
                     + total_reviewer_output_tokens
                 )
-                total_cost = sum(c for c in (eng_cost, sci_cost, rev_cost) if c is not None)
+                total_cost = sum(
+                    c for c in (eng_cost, match_cost, sci_cost, rev_cost) if c is not None
+                )
 
                 context.cost_usd = total_cost or None
                 context.n_input_tokens = total_input
                 context.n_output_tokens = total_output
-                context.n_cache_tokens = eng["total_cached"]
+                context.n_cache_tokens = (
+                    eng["total_cached"]
+                    + prep.match_cached_input_tokens
+                    + prep.scientist_cached_input_tokens
+                    + total_reviewer_cached_input_tokens
+                )
 
                 cost_breakdown = {
                     "engineer_input": eng["total_input"],
@@ -1116,18 +1186,24 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                     "engineer_cached": eng["total_cached"],
                     "engineer_sessions": len(eng["sessions"]),
                     "engineer_cost_usd": eng_cost,
+                    "matcher_input": prep.match_input_tokens,
+                    "matcher_cached": prep.match_cached_input_tokens,
+                    "matcher_output": prep.match_output_tokens,
+                    "matcher_cost_usd": match_cost,
                     "scientist_input": prep.scientist_input_tokens,
+                    "scientist_cached": prep.scientist_cached_input_tokens,
                     "scientist_output": prep.scientist_output_tokens,
                     "scientist_cost_usd": sci_cost,
                     "reviewer_input": total_reviewer_input_tokens,
+                    "reviewer_cached": total_reviewer_cached_input_tokens,
                     "reviewer_output": total_reviewer_output_tokens,
                     "reviewer_cost_usd": rev_cost,
                     "total_cost_usd": total_cost,
                 }
                 self.logger.info(
-                    "full cost: eng=$%.4f (%d sess) sci=$%.4f rev=$%.4f total=$%.4f",
+                    "full cost: eng=$%.4f (%d sess) match=$%.4f sci=$%.4f rev=$%.4f total=$%.4f",
                     eng_cost or 0, len(eng["sessions"]),
-                    sci_cost or 0, rev_cost or 0, total_cost,
+                    match_cost or 0, sci_cost or 0, rev_cost or 0, total_cost,
                 )
 
             with contextlib.suppress(Exception):
@@ -1140,6 +1216,12 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                     "skill_used": prep.skill_used,
                     "scientist_tokens": prep.scientist_tokens,
                     "match_tokens": prep.match_tokens,
+                    "scientist_input_tokens": prep.scientist_input_tokens,
+                    "scientist_cached_input_tokens": prep.scientist_cached_input_tokens,
+                    "scientist_output_tokens": prep.scientist_output_tokens,
+                    "match_input_tokens": prep.match_input_tokens,
+                    "match_cached_input_tokens": prep.match_cached_input_tokens,
+                    "match_output_tokens": prep.match_output_tokens,
                     "prep_elapsed_s": prep.elapsed_s,
                     "fallback_reason": prep.fallback_reason,
                     "max_rounds": max_rounds,
@@ -1735,6 +1817,7 @@ def _invoke_reviewer(
         "reason": decision.reason,
         "next_action": decision.next_action,
         "input_tokens": getattr(decision, "input_tokens", 0) or 0,
+        "cached_input_tokens": getattr(decision, "cached_input_tokens", 0) or 0,
         "output_tokens": getattr(decision, "output_tokens", 0) or 0,
     }
 

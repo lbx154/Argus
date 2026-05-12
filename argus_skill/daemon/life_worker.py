@@ -4,15 +4,15 @@ backlog forever.
 This is the substrate behind ``argus-skill --daemon``. It is the
 non-interactive twin of :func:`argus_skill.apps._life_repl.run_life_chat_loop`:
 both build the same :class:`~argus_skill.life.supervisor.LifeSupervisor`
-against the same :class:`~argus_skill.life.memory.LifeMemory` root, but
-the worker has no TTY, no slash commands, and no exit on Ctrl-D — only
-on SIGTERM / SIGINT.
+against the current project's split memory bundle, but the worker has
+no TTY, no slash commands, and no exit on Ctrl-D — only on SIGTERM /
+SIGINT.
 
 Coordination with the REPL is provided by the backlog state machine
 (:meth:`Backlog.claim_next` is atomic) plus two distinct PID locks:
 
-* ``<life_dir>/repl.pid``    — REPL singleton (per life-dir)
-* ``<life_dir>/daemon.pid``  — daemon singleton (per life-dir)
+* ``<project-root>/repl.pid``    — REPL singleton (per project)
+* ``<project-root>/daemon.pid``  — daemon singleton (per project)
 
 The two can run side by side: a REPL session lets you /add and inspect
 journal/backlog while the daemon drains in the background. They cannot
@@ -33,8 +33,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..core import paths as core_paths
 from ..core.daemon_lock import DaemonAlreadyRunning, acquire_global_daemon_lock
-from ..life.memory import LifeMemory, default_life_dir
+from ..life.memory import GlobalMemory, LifeMemory, MemoryBundle, ProjectMemory
 from ..life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 
 log = logging.getLogger(__name__)
@@ -69,6 +70,9 @@ class LifeWorkerConfig:
     """
 
     life_dir: Path
+    global_root: Path | None = None
+    project_fingerprint: str = ""
+    project_label: str = ""
     backend: str = "codex"  # "codex" | "memory"
     engineer_model: str = "gpt-5.4-mini"
     reviewer_model: str = "gpt-5.4"
@@ -223,7 +227,20 @@ class LifeWorker:
         self._started_at = time.time()
 
         cfg = self.config
-        mem = LifeMemory.open(cfg.life_dir)
+        split_memory = bool(cfg.global_root and cfg.project_fingerprint)
+        mem: MemoryBundle | LifeMemory
+        if split_memory:
+            global_mem = GlobalMemory.open(cfg.global_root)
+            project_mem = ProjectMemory.open(
+                cfg.project_fingerprint,
+                label=cfg.project_label or cfg.project_fingerprint,
+                global_root=cfg.global_root,
+            )
+            mem = MemoryBundle(global_mem=global_mem, project=project_mem)
+            runtime_root = mem.project.root
+        else:
+            mem = LifeMemory.open(cfg.life_dir)
+            runtime_root = cfg.life_dir
         mem.init()
 
         # Build the runner the same way the REPL does. Importing here
@@ -251,18 +268,18 @@ class LifeWorker:
 
         sink = JsonlEventSink(
             _DaemonSink(self, stream_reporter=stream_reporter),
-            life_dir=cfg.life_dir,
+            life_dir=runtime_root,
         )
 
         # Build a config provider that reads continuous.json from disk,
         # so the REPL can enable/disable continuous mode while the daemon
         # is running — no daemon restart needed.
         def _continuous_provider() -> tuple[bool, str]:
-            enabled, objective = read_continuous_config(cfg.life_dir)
+            enabled, objective = read_continuous_config(runtime_root)
             if continuous_mode_error(cfg.backend, enabled, objective):
                 if enabled:
                     write_continuous_config(
-                        cfg.life_dir,
+                        runtime_root,
                         enabled=False,
                         objective=objective,
                     )
@@ -276,7 +293,7 @@ class LifeWorker:
             init_continuous = True
             init_objective = cfg.continuous_objective or init_objective
             write_continuous_config(
-                cfg.life_dir,
+                runtime_root,
                 enabled=True,
                 objective=init_objective,
             )
@@ -290,7 +307,7 @@ class LifeWorker:
             ),
             poll_interval_seconds=2.0,
             stop_event=self._stop,
-            user_inbox=_inbox_drainer_for(cfg.life_dir),
+            user_inbox=_inbox_drainer_for(runtime_root),
             continuous=init_continuous,
             continuous_objective=init_objective,
             continuous_config_provider=_continuous_provider,
@@ -307,7 +324,7 @@ class LifeWorker:
 
         log.info(
             "daemon: ready (life_dir=%s backend=%s pid=%d)",
-            cfg.life_dir, cfg.backend, os.getpid(),
+            runtime_root, cfg.backend, os.getpid(),
         )
         # Use the LifeStderrSink shape only inside ``run`` if verbose
         # debug ever needed; default sink emits to log.
@@ -318,7 +335,7 @@ class LifeWorker:
         try:
             from ..life.telegram_bot import TelegramPoller
             tg_poller = TelegramPoller(
-                life_dir=cfg.life_dir, stop_event=self._stop,
+                life_dir=runtime_root, stop_event=self._stop,
             )
             tg_poller.start()
         except Exception:  # noqa: BLE001
@@ -331,14 +348,14 @@ class LifeWorker:
                 # so we don't re-plan the same objective next loop.
                 if summary.get("stopped_by") == "project_done":
                     write_continuous_config(
-                        cfg.life_dir,
+                        runtime_root,
                         enabled=False,
                         objective=sup.config.continuous_objective,
                         done_reason="planner declared project done",
                     )
                 elif summary.get("stopped_by") == "planner_unavailable":
                     write_continuous_config(
-                        cfg.life_dir,
+                        runtime_root,
                         enabled=False,
                         objective=sup.config.continuous_objective,
                     )
@@ -367,9 +384,14 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     ns.engineer_model = cfg.engineer_model
     ns.reviewer_model = cfg.reviewer_model
     ns.scientist_model = cfg.scientist_model
+    default_skills_dir = (
+        core_paths.skills_global_root()
+        if cfg.global_root is None
+        else Path(cfg.global_root) / "skills"
+    )
     ns.skills_dir = os.environ.get(
         "ARGUS_SKILL_SKILLS_DIR",
-        str(Path.home() / ".argus-skill" / "skills"),
+        str(default_skills_dir),
     )
     ns.workdir = os.environ.get("ARGUS_SKILL_WORKDIR")
     ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "500"))
@@ -443,7 +465,11 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
     from a hard kill returns ``alive=False`` so callers know the lock
     is reclaimable.
     """
-    life_dir = Path(life_dir).expanduser() if life_dir else default_life_dir()
+    if life_dir is None:
+        from ..core import paths as core_paths
+        life_dir = core_paths.global_root()
+    else:
+        life_dir = Path(life_dir).expanduser()
     pid_path = _daemon_pid_path(life_dir)
     if not pid_path.exists():
         return DaemonStatus(
@@ -481,6 +507,25 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
         backend=backend,
         pid_path=pid_path,
     )
+
+
+def wait_for_daemon_status(
+    life_dir: Path | None = None,
+    *,
+    timeout: float = 5.0,
+    poll_interval: float = 0.05,
+) -> DaemonStatus | None:
+    """Wait briefly for the daemon pid/status sidecars to become readable."""
+    deadline = time.monotonic() + max(0.0, timeout)
+    last: DaemonStatus | None = None
+    while True:
+        status = read_daemon_status(life_dir)
+        last = status
+        if status.alive and status.pid is not None:
+            return status
+        if time.monotonic() >= deadline:
+            return last
+        time.sleep(max(0.0, poll_interval))
 
 
 def _process_alive(pid: int) -> bool:
