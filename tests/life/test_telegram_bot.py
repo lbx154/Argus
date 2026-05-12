@@ -68,6 +68,23 @@ def status_life_dir(tmp_path: Path) -> Path:
     return tmp_path
 
 
+@pytest.fixture()
+def status_life_dir_with_active(tmp_path: Path) -> Path:
+    mem = LifeMemory.open(tmp_path)
+    mem.init()
+    pending = mem.backlog.add(BacklogItem.new(title="pending", objective="queued work"))
+    running = mem.backlog.add(BacklogItem.new(title="running", objective="in flight"))
+    mem.backlog.mark_running(running.id)
+    done = mem.backlog.add(BacklogItem.new(title="done", objective="finished work"))
+    mem.backlog.mark_done(done.id)
+    failed = mem.backlog.add(BacklogItem.new(title="failed", objective="bad work"))
+    mem.backlog.mark_failed(failed.id, error="boom")
+    skipped = mem.backlog.add(BacklogItem.new(title="skipped", objective="later work"))
+    mem.backlog.update(skipped.id, status="skipped")
+    assert pending.id
+    return tmp_path
+
+
 class TestCommandRouter:
     def _make_router(self, life_dir: Path) -> _CommandRouter:
         return _CommandRouter(
@@ -119,6 +136,19 @@ class TestCommandRouter:
         assert "active: 0 pending · 0 running" in reply
         assert "history: 1 done · 1 failed · 1 skipped" in reply
         assert "failed" in reply
+
+    @patch("argus_skill.life.telegram_bot._send_message")
+    def test_status_shows_active_work_when_present(
+        self,
+        mock_send: MagicMock,
+        status_life_dir_with_active: Path,
+    ) -> None:
+        router = self._make_router(status_life_dir_with_active)
+        router.dispatch("/status")
+        reply = mock_send.call_args[0][2]
+        assert "active: 1 pending · 1 running" in reply
+        assert "history: 1 done · 1 failed · 1 skipped" in reply
+        assert "running" in reply
 
     @patch("argus_skill.life.telegram_bot._send_message")
     def test_backlog_empty(self, mock_send: MagicMock, life_dir: Path) -> None:

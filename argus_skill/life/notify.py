@@ -199,10 +199,28 @@ def _format_telegram_message(payload: dict[str, Any]) -> str:
         lines.append(f"🎯 {obj_text}")
 
     # Kind-specific details
+    phase_status = extra.get("phase_status", "")
     if kind == "mission_started":
         pass  # objective line above is sufficient
     elif kind == "phase_change":
-        pass  # layer line + objective is sufficient
+        if phase_status == "completed":
+            # Show completion details
+            details: list[str] = []
+            tokens_in = extra.get("input_tokens", 0)
+            tokens_out = extra.get("output_tokens", 0)
+            if tokens_in or tokens_out:
+                details.append(f"tokens: {tokens_in}→{tokens_out}")
+            rounds = extra.get("rounds")
+            if rounds:
+                details.append(f"轮次: {rounds}")
+            imp_count = extra.get("improvement_count")
+            if imp_count is not None:
+                details.append(f"改进: {imp_count}项")
+            reason = extra.get("reason", "")
+            if reason:
+                details.append(_esc(reason[:100]))
+            if details:
+                lines.append(f"📊 {' · '.join(details)}")
     elif kind in ("mission_complete", "mission_failed", "mission_iterated"):
         _format_mission_details(lines, extra, summary)
     elif kind == "planner_cycle":
@@ -217,11 +235,15 @@ def _format_telegram_message(payload: dict[str, Any]) -> str:
         s = _esc(summary if len(summary) <= 300 else summary[:297] + "…")
         lines.append(f"\n{s}")
 
-    # Cost line — skip "本次" for phase_change (it's always 0)
+    # Cost line
+    # Show "本次" for phase_change only when completed (has real cost)
     cumul = extra.get("cumulative_cost_usd")
     cost_parts: list[str] = []
-    if cost is not None and kind not in ("phase_change", "mission_started"):
-        cost_parts.append(f"本次 ${float(cost):.2f}")
+    show_per_item = kind not in ("mission_started",)
+    if kind == "phase_change" and phase_status != "completed":
+        show_per_item = False
+    if cost is not None and show_per_item and float(cost) > 0:
+        cost_parts.append(f"本次 ${float(cost):.4f}")
     if cumul is not None:
         cost_parts.append(f"累计 <b>${float(cumul):.2f}</b>")
     if cost_parts:

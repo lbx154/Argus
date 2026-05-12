@@ -27,6 +27,26 @@ def life_dir_with_history(tmp_path: Path) -> Path:
     return tmp_path
 
 
+@pytest.fixture()
+def life_dir_with_active_and_history(tmp_path: Path) -> Path:
+    mem = LifeMemory.open(tmp_path)
+    mem.init()
+    mem.journal.append(
+        JournalEntry.new(kind="mission_failed", title="old failure", summary="boom")
+    )
+    pending = mem.backlog.add(BacklogItem.new(title="pending", objective="queued work"))
+    running = mem.backlog.add(BacklogItem.new(title="running", objective="in flight"))
+    mem.backlog.mark_running(running.id)
+    done = mem.backlog.add(BacklogItem.new(title="done", objective="finished work"))
+    mem.backlog.mark_done(done.id)
+    failed = mem.backlog.add(BacklogItem.new(title="failed", objective="bad work"))
+    mem.backlog.mark_failed(failed.id, error="boom")
+    skipped = mem.backlog.add(BacklogItem.new(title="skipped", objective="later work"))
+    mem.backlog.update(skipped.id, status="skipped")
+    assert pending.id
+    return tmp_path
+
+
 def test_status_separates_active_queue_from_history(
     monkeypatch: pytest.MonkeyPatch,
     life_dir_with_history: Path,
@@ -64,3 +84,26 @@ def test_status_separates_active_queue_from_history(
     assert "objective: hardening objective" in out
     assert "done_reason: planner declared project done" in out
     assert "done_at: 2026-05-12T00:00:00Z" in out
+
+
+def test_status_shows_active_work_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+    life_dir_with_active_and_history: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("argus_skill.daemon.life_worker.read_daemon_status", lambda life_dir: Namespace(
+        alive=True,
+        pid=4321,
+        uptime_seconds=12.0,
+        backend="memory",
+    ))
+    monkeypatch.setattr("argus_skill.apps.cli._check_logout_survival", lambda status: None)
+
+    rc = _cmd_status(Namespace(life_dir=str(life_dir_with_active_and_history)))
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "active   : 1 pending · 1 running" in out
+    assert "history  : 1 done · 1 failed · 1 skipped" in out
+    assert "pending" in out
+    assert "running" in out

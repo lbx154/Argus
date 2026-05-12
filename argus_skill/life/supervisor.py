@@ -242,6 +242,20 @@ class _CostTrackingSink:
             + self.reviewer_output_tokens * out_rev / 1_000_000
         )
 
+    def engineer_usd(self) -> float:
+        in_eng, out_eng = _price_for(self.engineer_model)
+        return (
+            self.engineer_input_tokens * in_eng / 1_000_000
+            + self.engineer_output_tokens * out_eng / 1_000_000
+        )
+
+    def reviewer_usd(self) -> float:
+        in_rev, out_rev = _price_for(self.reviewer_model)
+        return (
+            self.reviewer_input_tokens * in_rev / 1_000_000
+            + self.reviewer_output_tokens * out_rev / 1_000_000
+        )
+
     def total_input_tokens(self) -> int:
         return self.engineer_input_tokens + self.reviewer_input_tokens
 
@@ -636,6 +650,52 @@ class LifeSupervisor:
         stop_reason = str(getattr(outcome, "stop_reason", "") or "")
         usd = cost_sink.total_usd()
 
+        # Emit per-layer completion notifications with actual costs
+        try:
+            from .notify import dispatch_journal_entry
+            eng_usd = cost_sink.engineer_usd()
+            rev_usd = cost_sink.reviewer_usd()
+            # L1 engineer completed
+            eng_done = JournalEntry.new(
+                kind="phase_change",
+                title=item.title,
+                summary=f"工程师完成: {rounds}轮, ${eng_usd:.4f}",
+                tags=["life", "phase"],
+                cost_usd=eng_usd,
+                extra={
+                    "item_id": item.id,
+                    "objective": item.objective,
+                    "agent_layer": "engineer",
+                    "phase_status": "completed",
+                    "rounds": rounds,
+                    "input_tokens": cost_sink.engineer_input_tokens,
+                    "output_tokens": cost_sink.engineer_output_tokens,
+                },
+            )
+            self._inject_cumulative_cost(eng_done, in_flight_usd=usd)
+            dispatch_journal_entry(eng_done)
+            # L2 reviewer completed (only if reviewer was actually used)
+            if cost_sink.reviewer_input_tokens > 0:
+                rev_done = JournalEntry.new(
+                    kind="phase_change",
+                    title=item.title,
+                    summary=f"审查员完成: ${rev_usd:.4f}",
+                    tags=["life", "phase"],
+                    cost_usd=rev_usd,
+                    extra={
+                        "item_id": item.id,
+                        "objective": item.objective,
+                        "agent_layer": "reviewer",
+                        "phase_status": "completed",
+                        "input_tokens": cost_sink.reviewer_input_tokens,
+                        "output_tokens": cost_sink.reviewer_output_tokens,
+                    },
+                )
+                self._inject_cumulative_cost(rev_done, in_flight_usd=usd)
+                dispatch_journal_entry(rev_done)
+        except Exception:  # noqa: BLE001
+            log.debug("layer completion notify failed; non-critical")
+
         # Auth failure: the codex backend detected an expired/invalid
         # token. Stop the supervisor so we don't loop over failing
         # missions all night. The operator needs to run `codex login`.
@@ -981,6 +1041,37 @@ class LifeSupervisor:
         )
         cost_so_far += critic_cost_usd
         remaining_budget = max(0.0, budget - cost_so_far)
+
+        # Notify: critic layer completed with cost
+        try:
+            from .notify import dispatch_journal_entry
+            critic_done = JournalEntry.new(
+                kind="phase_change",
+                title=item.title,
+                summary=(
+                    f"评审员完成: {'停止迭代' if verdict.stop else f'{len(verdict.improvements)}项改进'}"
+                    f", ${critic_cost_usd:.4f}"
+                ),
+                tags=["life", "phase"],
+                cost_usd=critic_cost_usd,
+                extra={
+                    "item_id": item.id,
+                    "objective": item.objective,
+                    "agent_layer": "critic",
+                    "phase_status": "completed",
+                    "stop": verdict.stop,
+                    "improvement_count": len(verdict.improvements),
+                    "reason": verdict.reason,
+                    "input_tokens": verdict.input_tokens,
+                    "output_tokens": verdict.output_tokens,
+                },
+            )
+            self._inject_cumulative_cost(
+                critic_done, in_flight_usd=cycle_cost_usd + critic_cost_usd,
+            )
+            dispatch_journal_entry(critic_done)
+        except Exception:  # noqa: BLE001
+            log.debug("critic completion notify failed; non-critical")
 
         self._emit({
             "type": "life.iteration.critic",
