@@ -35,10 +35,12 @@ log = logging.getLogger(__name__)
 DEFAULT_NOTIFY_KINDS = frozenset({
     "mission_complete",
     "mission_failed",
+    "mission_iterated",
     "mission_orphaned",
     "budget_pause",
     "auth_failure",
     "planner_cycle",
+    "planner_done",
 })
 
 
@@ -128,24 +130,32 @@ def _run_cmd(payload: dict[str, Any]) -> None:
 # Telegram Bot API
 # ---------------------------------------------------------------------------
 
-_EMOJI = {
-    "mission_complete": "✅",
-    "mission_failed": "❌",
-    "mission_orphaned": "⚠️",
-    "budget_pause": "💰",
-    "auth_failure": "🔐",
-    "planner_cycle": "📋",
+_KIND_LABELS: dict[str, tuple[str, str]] = {
+    "mission_complete":  ("✅", "任务完成"),
+    "mission_failed":    ("❌", "任务失败"),
+    "mission_iterated":  ("🔁", "任务迭代中"),
+    "mission_orphaned":  ("⚠️", "任务被回收"),
+    "budget_pause":      ("💰", "预算暂停"),
+    "auth_failure":      ("🔐", "认证失败"),
+    "planner_cycle":     ("📋", "规划完成"),
+    "planner_done":      ("🏁", "项目完成"),
 }
+
+# HTML-escape helper
+def _esc(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _format_telegram_message(payload: dict[str, Any]) -> str:
-    """Build a compact Telegram message from a journal payload."""
+    """Build a human-readable Telegram message from a journal payload."""
     kind = payload.get("kind", "unknown")
-    emoji = _EMOJI.get(kind, "🔔")
+    emoji, label = _KIND_LABELS.get(kind, ("🔔", kind))
     title = payload.get("title", "")
     summary = payload.get("summary", "")
     cost = payload.get("cost_usd")
     extra = payload.get("extra") or {}
+    if not isinstance(extra, dict):
+        extra = {}
 
     # Timestamp
     ts = payload.get("ts")
@@ -155,37 +165,96 @@ def _format_telegram_message(payload: dict[str, Any]) -> str:
     else:
         ts_str = time.strftime("%H:%M:%S")
 
-    lines = [f"{emoji} <b>{kind}</b>  {ts_str}"]
+    # Header
+    lines = [f"{emoji} <b>{label}</b>  {ts_str}", "━━━━━━━━━━━━━━━━"]
+
+    # Task title
     if title:
-        # Truncate long titles
-        t = title if len(title) <= 80 else title[:77] + "…"
-        lines.append(t)
-    if summary:
-        s = summary if len(summary) <= 300 else summary[:297] + "…"
+        t = _esc(title if len(title) <= 80 else title[:77] + "…")
+        lines.append(f"📌 {t}")
+
+    # Objective (from extra, if available)
+    objective = extra.get("objective", "")
+    if objective:
+        obj_text = _esc(objective if len(objective) <= 200 else objective[:197] + "…")
+        lines.append(f"🎯 {obj_text}")
+
+    # Kind-specific details
+    if kind in ("mission_complete", "mission_failed", "mission_iterated"):
+        _format_mission_details(lines, extra, summary)
+    elif kind == "planner_cycle":
+        _format_planner_details(lines, summary)
+    elif kind == "planner_done":
+        if summary:
+            lines.append(f"\n{_esc(summary[:300])}")
+    elif kind == "budget_pause":
+        if summary:
+            lines.append(f"\n⏸️ {_esc(summary[:200])}")
+    elif summary:
+        s = _esc(summary if len(summary) <= 300 else summary[:297] + "…")
         lines.append(f"\n{s}")
 
-    # Cost: show both this-event and cumulative
-    cumul = (extra.get("cumulative_cost_usd") if isinstance(extra, dict) else None)
+    # Cost line
+    cumul = extra.get("cumulative_cost_usd")
     cost_parts: list[str] = []
     if cost is not None:
         cost_parts.append(f"本次 ${float(cost):.2f}")
     if cumul is not None:
-        cost_parts.append(f"累计 ${float(cumul):.2f}")
+        cost_parts.append(f"累计 <b>${float(cumul):.2f}</b>")
     if cost_parts:
         lines.append(f"\n💵 {' · '.join(cost_parts)}")
 
-    # Iteration / rounds info from extra
-    if isinstance(extra, dict):
-        rounds = extra.get("rounds")
-        iteration = extra.get("iteration") or {}
-        if rounds:
-            lines.append(f"🔄 rounds: {rounds}")
-        if isinstance(iteration, dict) and iteration.get("cycle"):
-            lines.append(
-                f"🔁 iter: {iteration['cycle']}/{iteration.get('max_cycles', '?')}"
-            )
-
     return "\n".join(lines)
+
+
+def _format_mission_details(lines: list[str], extra: dict[str, Any], summary: str) -> None:
+    """Add mission-specific progress info."""
+    details: list[str] = []
+
+    # Rounds
+    # Parse from summary (format: "status=done; rounds=5; ...")
+    for part in summary.split(";"):
+        part = part.strip()
+        if part.startswith("rounds="):
+            try:
+                rounds = int(part.split("=")[1])
+                details.append(f"执行 {rounds} 轮")
+            except (ValueError, IndexError):
+                pass
+        elif part.startswith("elapsed="):
+            try:
+                elapsed = part.split("=")[1]
+                details.append(f"耗时 {elapsed}")
+            except IndexError:
+                pass
+
+    # Iteration info
+    iteration = extra.get("iteration") or {}
+    if isinstance(iteration, dict):
+        cycle = iteration.get("cycle") or iteration.get("cycles_done")
+        max_c = iteration.get("max_cycles")
+        if cycle:
+            details.append(f"迭代 {cycle}/{max_c or '?'}")
+        if iteration.get("requeued"):
+            details.append("已重排队")
+
+    if details:
+        lines.append(f"\n📊 {' · '.join(details)}")
+
+
+def _format_planner_details(lines: list[str], summary: str) -> None:
+    """Add planner-specific task list."""
+    # Summary format: "generated N task(s): title1, title2, ..."
+    if ":" in summary:
+        prefix, tasks_str = summary.split(":", 1)
+        lines.append(f"\n{_esc(prefix.strip())}")
+        tasks = [t.strip() for t in tasks_str.split(",") if t.strip()]
+        for i, t in enumerate(tasks[:5], 1):
+            lines.append(f"  {i}. {_esc(t[:60])}")
+        if len(tasks) > 5:
+            lines.append(f"  … 还有 {len(tasks) - 5} 个")
+    elif summary:
+        lines.append(f"\n{_esc(summary[:300])}")
 
 
 def _post_telegram(payload: dict[str, Any]) -> None:

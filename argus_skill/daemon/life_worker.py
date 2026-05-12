@@ -270,6 +270,17 @@ class LifeWorker:
         # debug ever needed; default sink emits to log.
         del LifeStderrSink
 
+        # Start the Telegram inbound command poller (daemon thread — dies
+        # with the process). Accepts /add, /status, /nudge, /start, /stop.
+        try:
+            from ..life.telegram_bot import TelegramPoller
+            tg_poller = TelegramPoller(
+                life_dir=cfg.life_dir, stop_event=self._stop,
+            )
+            tg_poller.start()
+        except Exception:  # noqa: BLE001
+            log.exception("daemon: failed to start telegram poller; continuing")
+
         while not self._stop.is_set():
             try:
                 summary = sup.run()
