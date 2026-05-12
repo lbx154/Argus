@@ -353,12 +353,6 @@ class LifeWorker:
                         objective=sup.config.continuous_objective,
                         done_reason="planner declared project done",
                     )
-                elif summary.get("stopped_by") == "planner_unavailable":
-                    write_continuous_config(
-                        runtime_root,
-                        enabled=False,
-                        objective=sup.config.continuous_objective,
-                    )
             except Exception:  # noqa: BLE001
                 log.exception("daemon: drain pass raised; sleeping and retrying")
             # Reset per-run counters so future drain passes work.

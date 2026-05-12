@@ -319,22 +319,33 @@ def test_parse_planner_inconsistent_done_with_tasks():
 
 
 def test_parse_planner_inconsistent_not_done_no_tasks():
-    """project_done=False but no tasks → treat as done."""
+    """project_done=False but no tasks → retry later, not done."""
     text = '{"project_done": false, "reason": "", "new_tasks": []}'
     v = parse_planner_text(text)
-    assert v is not None
-    assert v.project_done is True
+    assert v.project_done is False
+    assert v.error
+    assert "no concrete tasks" in v.error
 
 
 def test_parse_planner_empty_input():
-    assert parse_planner_text("") is None
-    assert parse_planner_text("no json here") is None
+    empty = parse_planner_text("")
+    assert empty.project_done is False
+    assert empty.error == "empty planner output"
+    garbage = parse_planner_text("no json here")
+    assert garbage.project_done is False
+    assert garbage.error == "unparseable planner output"
+
+
+def test_parse_planner_malformed_json_returns_error():
+    text = '{"project_done": false, "reason": "x", "new_tasks": [}'
+    v = parse_planner_text(text)
+    assert v.project_done is False
+    assert "unparseable" in v.error
 
 
 def test_parse_planner_tolerates_markdown_fences():
     text = '```json\n{"project_done": false, "reason": "more work", "new_tasks": [{"title": "a", "objective": "b"}]}\n```'
     v = parse_planner_text(text)
-    assert v is not None
     assert v.project_done is False
     assert len(v.new_tasks) == 1
 
@@ -347,7 +358,6 @@ def test_parse_planner_text_ignores_brace_heavy_prose() -> None:
         "afterword {still prose}\n"
     )
     v = parse_planner_text(txt)
-    assert v is not None
     assert v.project_done is False
     assert v.new_tasks[0].title == "tighten budget"
 

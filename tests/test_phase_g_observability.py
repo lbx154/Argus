@@ -175,6 +175,8 @@ def test_webhook_uses_env_url_and_posts_json(tmp_path: Path, monkeypatch) -> Non
         return _Resp()
 
     monkeypatch.setenv("ARGUS_SKILL_NOTIFY_WEBHOOK", "https://example.test/hook")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
     with mock.patch("urllib.request.urlopen", _fake_open):
         notify.dispatch_journal_entry({"kind": "mission_failed", "title": "t"})
     assert captured["url"] == "https://example.test/hook"

@@ -43,6 +43,8 @@ from .memory import (
 
 log = logging.getLogger(__name__)
 
+_price_for = price_for
+
 
 class _MemoryView(Protocol):
     @property
@@ -444,7 +446,7 @@ class LifeSupervisor:
                         self._emit_status("planner: project done")
                         stopped_by = "project_done"
                         break
-                    stopped_by = "planner_unavailable"
+                    stopped_by = "planner_error"
                     break
                 # Non-continuous: sleep then re-check (so user-added
                 # items via the file get picked up). Sleep is bounded
@@ -1224,10 +1226,24 @@ class LifeSupervisor:
 
         Returns ``True`` if new work was added (caller should loop),
         ``False`` if the planner declares the project done, and
-        ``None`` when the planner is unavailable or fails.
+        ``None`` when the planner fails and should be retried later.
         """
         if self.critic_runner is None:
-            self._emit_status("planner: no critic runner wired; stopping")
+            self._emit_status("planner error: no critic runner wired; retry later")
+            entry = JournalEntry.new(
+                kind="planner_error",
+                title="planner unavailable",
+                summary="no critic runner wired",
+                tags=["life", "planner"],
+                extra={"agent_layer": "planner", "error": "no critic runner wired"},
+            )
+            self.memory.journal.append(entry)
+            self._inject_cumulative_cost(entry)
+            try:
+                from .notify import dispatch_journal_entry
+                dispatch_journal_entry(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("notify dispatch failed; continuing")
             return None
 
         self._planning_cycles += 1
@@ -1261,12 +1277,29 @@ class LifeSupervisor:
                 if stream_ctx:
                     stream_ctx.__exit__(None, None, None)
         except Exception as exc:  # noqa: BLE001
-            log.exception("life supervisor: planner raised; stopping")
+            log.exception("life supervisor: planner raised; retrying later")
             self._emit({
                 "type": "life.planner.error",
                 "cycle": self._planning_cycles,
                 "error": f"{type(exc).__name__}: {exc}",
             })
+            entry = JournalEntry.new(
+                kind="planner_error",
+                title=f"planner cycle #{self._planning_cycles}",
+                summary=f"{type(exc).__name__}: {exc}",
+                tags=["life", "planner"],
+                extra={
+                    "agent_layer": "planner",
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+            )
+            self.memory.journal.append(entry)
+            self._inject_cumulative_cost(entry)
+            try:
+                from .notify import dispatch_journal_entry
+                dispatch_journal_entry(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("notify dispatch failed; continuing")
             return None
 
         planner_cost_usd = usd_for_tokens(
@@ -1276,6 +1309,35 @@ class LifeSupervisor:
             verdict.output_tokens,
             price_lookup=price_for,
         )
+
+        if verdict.error:
+            self._emit({
+                "type": "life.planner.error",
+                "cycle": self._planning_cycles,
+                "error": verdict.error,
+                "raw_text": verdict.raw_text,
+            })
+            self._emit_status(f"planner error: {verdict.error}; retry later")
+            entry = JournalEntry.new(
+                kind="planner_error",
+                title=f"planner cycle #{self._planning_cycles}",
+                summary=f"{verdict.error}: {verdict.reason}",
+                tags=["life", "planner"],
+                extra={
+                    "agent_layer": "planner",
+                    "error": verdict.error,
+                    "reason": verdict.reason,
+                    "raw_text": verdict.raw_text,
+                },
+            )
+            self.memory.journal.append(entry)
+            self._inject_cumulative_cost(entry)
+            try:
+                from .notify import dispatch_journal_entry
+                dispatch_journal_entry(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("notify dispatch failed; continuing")
+            return None
 
         if verdict.project_done:
             self._emit({
@@ -1312,6 +1374,36 @@ class LifeSupervisor:
             except Exception:  # noqa: BLE001
                 log.exception("notify dispatch failed; continuing")
             return False
+
+        if not verdict.new_tasks:
+            self._emit({
+                "type": "life.planner.error",
+                "cycle": self._planning_cycles,
+                "error": "planner produced no tasks",
+                "raw_text": verdict.raw_text,
+            })
+            self._emit_status("planner error: produced no tasks; retry later")
+            entry = JournalEntry.new(
+                kind="planner_error",
+                title=f"planner cycle #{self._planning_cycles}",
+                summary=verdict.reason or "planner produced no tasks",
+                tags=["life", "planner"],
+                cost_usd=planner_cost_usd,
+                extra={
+                    "agent_layer": "planner",
+                    "error": "planner produced no tasks",
+                    "reason": verdict.reason,
+                    "raw_text": verdict.raw_text,
+                },
+            )
+            self.memory.journal.append(entry)
+            self._inject_cumulative_cost(entry)
+            try:
+                from .notify import dispatch_journal_entry
+                dispatch_journal_entry(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("notify dispatch failed; continuing")
+            return None
 
         try:
             existing_items = self.memory.backlog.all()
@@ -1404,12 +1496,12 @@ class LifeSupervisor:
             "enqueued_tasks": len(added_titles),
             "skipped_duplicate_tasks": len(skipped_titles),
             "enqueued_titles": added_titles,
-                "skipped_duplicate_titles": skipped_titles,
-                "input_tokens": verdict.input_tokens,
-                "cached_input_tokens": verdict.cached_input_tokens,
-                "output_tokens": verdict.output_tokens,
-                "cost_usd": planner_cost_usd,
-            })
+            "skipped_duplicate_titles": skipped_titles,
+            "input_tokens": verdict.input_tokens,
+            "cached_input_tokens": verdict.cached_input_tokens,
+            "output_tokens": verdict.output_tokens,
+            "cost_usd": planner_cost_usd,
+        })
         self.memory.journal.append(entry)
         self._inject_cumulative_cost(entry)
         try:

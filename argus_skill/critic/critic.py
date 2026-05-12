@@ -23,7 +23,7 @@ continuous improvement without human intervention.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from ..core.models import RunnerOptions
 from ..core.ports import RunnerBackend
@@ -123,7 +123,9 @@ class PlannerVerdict:
     new_tasks: list[TaskSpec] = field(default_factory=list)
     raw_text: str = ""
     input_tokens: int = 0
+    cached_input_tokens: int = 0
     output_tokens: int = 0
+    error: str = ""
 
 
 _PLANNER_SYSTEM_PREAMBLE = (
@@ -323,21 +325,8 @@ class Critic:
         output_tokens = int(getattr(result, "output_tokens", 0) or 0)
         text = "\n".join(result.agent_messages or [])
         parsed = parse_planner_text(text)
-        if parsed is None:
-            return PlannerVerdict(
-                project_done=True,
-                reason="planner returned unparseable output; defaulting to done",
-                new_tasks=[],
-                raw_text=text,
-                input_tokens=input_tokens,
-                cached_input_tokens=cached_input_tokens,
-                output_tokens=output_tokens,
-            )
-        return PlannerVerdict(
-            project_done=parsed.project_done,
-            reason=parsed.reason,
-            new_tasks=parsed.new_tasks,
-            raw_text=parsed.raw_text,
+        return replace(
+            parsed,
             input_tokens=input_tokens,
             cached_input_tokens=cached_input_tokens,
             output_tokens=output_tokens,
@@ -488,20 +477,29 @@ def parse_critic_text(text: str) -> CriticVerdict | None:
     )
 
 
-def parse_planner_text(text: str) -> PlannerVerdict | None:
+def parse_planner_text(text: str) -> PlannerVerdict:
     """Parse a planner JSON verdict out of an agent message.
 
-    Returns ``None`` on unparseable output; the supervisor treats that
-    as "project done" (safe fallback to avoid spinning forever).
+    Malformed or inconsistent output returns a retryable error verdict.
     """
     if not text:
-        return None
+        return PlannerVerdict(
+            project_done=False,
+            reason="planner returned empty output; will retry later",
+            raw_text=text,
+            error="empty planner output",
+        )
     found = _load_json_object_with_schema(
         text,
         required_keys=("project_done", "reason", "new_tasks"),
     )
     if found is None:
-        return None
+        return PlannerVerdict(
+            project_done=False,
+            reason="planner returned unparseable output; will retry later",
+            raw_text=text,
+            error="unparseable planner output",
+        )
     data, blob = found
     project_done = _parse_json_bool(data.get("project_done", True), True)
     reason = str(data.get("reason", ""))
@@ -520,15 +518,22 @@ def parse_planner_text(text: str) -> PlannerVerdict | None:
         # Inconsistent: project_done=True but tasks listed → honor done.
         new_tasks = []
     if not project_done and not new_tasks:
-        # Inconsistent: not done but no tasks → treat as done.
-        project_done = True
+        # Inconsistent: not done but no tasks → retry later, don't mark done.
         if not reason:
             reason = "planner said not done but produced no concrete tasks"
+        return PlannerVerdict(
+            project_done=False,
+            reason=reason,
+            new_tasks=[],
+            raw_text=blob,
+            error="planner said not done but produced no concrete tasks",
+        )
     return PlannerVerdict(
         project_done=project_done,
         reason=reason,
         new_tasks=new_tasks,
         raw_text=blob,
+        cached_input_tokens=0,
     )
 
 
