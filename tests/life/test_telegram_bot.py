@@ -96,6 +96,24 @@ class TestCommandRouter:
         assert cfg["objective"] == "持续优化项目"
 
     @patch("argus_skill.life.telegram_bot._send_message")
+    def test_start_rejects_empty_objective(self, mock_send: MagicMock, life_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "codex")
+        router = self._make_router(life_dir)
+        router.dispatch("/start")
+        reply = mock_send.call_args[0][2]
+        assert "non-empty --objective" in reply
+        assert not (life_dir / "continuous.json").exists()
+
+    @patch("argus_skill.life.telegram_bot._send_message")
+    def test_start_rejects_memory_backend(self, mock_send: MagicMock, life_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "memory")
+        router = self._make_router(life_dir)
+        router.dispatch("/start 持续优化项目")
+        reply = mock_send.call_args[0][2]
+        assert "cannot plan" in reply
+        assert not (life_dir / "continuous.json").exists()
+
+    @patch("argus_skill.life.telegram_bot._send_message")
     def test_stop(self, mock_send: MagicMock, life_dir: Path) -> None:
         # First enable
         (life_dir / "continuous.json").write_text(
@@ -184,6 +202,137 @@ class TestPoller:
     def test_user_filter_is_optional(self) -> None:
         p = TelegramPoller(life_dir=Path("/tmp"), token="abc", chat_id="123")
         assert p._message_allowed({"chat": {"id": "123"}, "from": {"id": "999"}})
+
+    def test_poll_loop_processes_updates_and_resumes_from_offset(
+        self,
+        life_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from argus_skill.life import telegram_bot as tg
+        from argus_skill.life.memory import LifeMemory
+
+        mem = LifeMemory.open(life_dir)
+        mem.init()
+        (life_dir / "telegram.offset").write_text("5", encoding="utf-8")
+
+        first_batch = [
+            {
+                "update_id": 5,
+                "message": {
+                    "chat": {"id": "123"},
+                    "from": {"id": "456"},
+                    "text": "/add first task: build the first thing",
+                },
+            },
+            {
+                "update_id": 6,
+                "message": {
+                    "chat": {"id": "999"},
+                    "from": {"id": "456"},
+                    "text": "/add ignored chat: do not persist",
+                },
+            },
+            {
+                "update_id": 7,
+                "message": {
+                    "chat": {"id": "123"},
+                    "from": {"id": "000"},
+                    "text": "/nudge ignored user",
+                },
+            },
+            {
+                "update_id": 8,
+                "message": {
+                    "chat": {"id": "123"},
+                    "from": {"id": "456"},
+                    "text": "/nudge keep going",
+                },
+            },
+        ]
+        second_batch = [
+            {
+                "update_id": 9,
+                "message": {
+                    "chat": {"id": "123"},
+                    "from": {"id": "456"},
+                    "text": "/add second task: keep going",
+                },
+            },
+        ]
+        calls_first: list[dict[str, object]] = []
+        calls_second: list[dict[str, object]] = []
+        written_offsets: list[int] = []
+
+        real_write_offset = tg._write_offset
+
+        def fake_api_first(token: str, method: str, payload: dict[str, object] | None = None, *, timeout: float = 35) -> dict[str, object] | None:
+            calls_first.append({
+                "token": token,
+                "method": method,
+                "payload": dict(payload or {}),
+                "timeout": timeout,
+            })
+            if method == "getUpdates":
+                offset = int((payload or {}).get("offset", 0))
+                if offset == 5:
+                    return {"ok": True, "result": first_batch}
+                return None
+            if method == "sendMessage":
+                return {"ok": True, "result": {}}
+            return {"ok": False, "result": []}
+
+        def fake_api_second(token: str, method: str, payload: dict[str, object] | None = None, *, timeout: float = 35) -> dict[str, object] | None:
+            calls_second.append({
+                "token": token,
+                "method": method,
+                "payload": dict(payload or {}),
+                "timeout": timeout,
+            })
+            if method == "getUpdates":
+                offset = int((payload or {}).get("offset", 0))
+                if offset == 9:
+                    return {"ok": True, "result": second_batch}
+                return None
+            if method == "sendMessage":
+                return {"ok": True, "result": {}}
+            return {"ok": False, "result": []}
+
+        def record_write_offset(life_dir_arg: Path, offset: int) -> None:
+            written_offsets.append(offset)
+            real_write_offset(life_dir_arg, offset)
+
+        monkeypatch.setattr(tg, "_write_offset", record_write_offset)
+
+        def run_once(api_func) -> None:
+            monkeypatch.setattr(tg, "_api_call", api_func)
+            poller = TelegramPoller(
+                life_dir=life_dir,
+                token="token",
+                chat_id="123",
+                user_id="456",
+            )
+            poller._stop.wait = lambda timeout=None: poller._stop.set() or True  # type: ignore[method-assign]
+            poller._poll_loop()
+
+        run_once(fake_api_first)
+        first_backlog = LifeMemory.open(life_dir).backlog.pending()
+        first_inbox = json.loads((life_dir / "inbox.jsonl").read_text().strip())
+        first_offset = (life_dir / "telegram.offset").read_text().strip()
+
+        run_once(fake_api_second)
+        second_backlog = LifeMemory.open(life_dir).backlog.pending()
+        second_offset = (life_dir / "telegram.offset").read_text().strip()
+
+        assert [call["payload"]["offset"] for call in calls_first if call["method"] == "getUpdates"][:1] == [5]
+        assert [call["payload"]["offset"] for call in calls_second if call["method"] == "getUpdates"][:1] == [9]
+        assert len(first_backlog) == 1
+        assert first_backlog[0].objective == "build the first thing"
+        assert first_inbox["text"] == "keep going"
+        assert len(second_backlog) == 2
+        assert second_backlog[1].objective == "keep going"
+        assert written_offsets == sorted(written_offsets)
+        assert first_offset == "9"
+        assert second_offset == "10"
 
 
 # ---------------------------------------------------------------------------

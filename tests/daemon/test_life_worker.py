@@ -230,6 +230,62 @@ def test_write_continuous_config_atomic(tmp_path: Path) -> None:
     assert (tmp_path / "continuous.json").exists()
 
 
+def test_life_worker_hot_reload_rejects_memory_continuous(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+
+    LifeMemory.open(tmp_path).init()
+    write_continuous_config(tmp_path, enabled=False, objective="initial objective")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+
+    seen: dict[str, Any] = {"runs": 0, "continuous": []}
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            seen["runs"] += 1
+            if self.config.continuous_config_provider is not None:
+                enabled, objective = self.config.continuous_config_provider()
+                self.config.continuous = enabled
+                if objective:
+                    self.config.continuous_objective = objective
+            seen["continuous"].append(
+                (self.config.continuous, self.config.continuous_objective)
+            )
+            if seen["runs"] == 1:
+                write_continuous_config(
+                    tmp_path,
+                    enabled=True,
+                    objective="manual flip",
+                )
+                return {"stopped_by": "backlog_empty"}
+            self.config.stop_event.set()
+            return {"stopped_by": "backlog_empty"}
+
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+
+    worker = LifeWorker(
+        LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.01)
+    )
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    rc = worker.run_forever()
+    data = json.loads((tmp_path / "continuous.json").read_text())
+
+    assert rc == 0
+    assert seen["runs"] == 2
+    assert seen["continuous"][0][0] is False
+    assert seen["continuous"][1][0] is False
+    assert data["enabled"] is False
+    assert data["objective"] == "manual flip"
+    assert "done_reason" not in data
+
+
 def test_no_pid_file_means_status_dead(tmp_path: Path) -> None:
     pid_path = tmp_path / "daemon.pid"
     assert not pid_path.exists()

@@ -339,3 +339,35 @@ def test_config_cmd_rejects_bad_key(capsys: pytest.CaptureFixture[str]) -> None:
     _life_repl._config_cmd(["badkey=1"], chat_state)
     out = capsys.readouterr().out
     assert "unknown" in out.lower()
+
+
+def test_config_cmd_rejects_continuous_without_objective(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    chat_state: dict[str, Any] = {
+        "backend": "codex",
+        "continuous_objective": "",
+        "config": dict(_life_repl._CONFIG_DEFAULTS),
+    }
+    _life_repl._config_cmd(["continuous=true"], chat_state, life_dir=tmp_path)
+    out = capsys.readouterr().out
+    assert "non-empty --objective" in out
+    assert chat_state["config"]["continuous"] is False
+    assert not (tmp_path / "continuous.json").exists()
+
+
+def test_config_cmd_rejects_continuous_on_memory_backend(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    chat_state: dict[str, Any] = {
+        "backend": "memory",
+        "continuous_objective": "keep going",
+        "config": dict(_life_repl._CONFIG_DEFAULTS),
+    }
+    _life_repl._config_cmd(["continuous=true"], chat_state, life_dir=tmp_path)
+    out = capsys.readouterr().out
+    assert "cannot plan" in out
+    assert chat_state["config"]["continuous"] is False
+    assert not (tmp_path / "continuous.json").exists()

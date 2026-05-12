@@ -42,6 +42,7 @@ DEFAULT_NOTIFY_KINDS = frozenset({
     "auth_failure",
     "planner_cycle",
     "planner_done",
+    "phase_change",
 })
 
 
@@ -141,6 +142,7 @@ _KIND_LABELS: dict[str, tuple[str, str]] = {
     "auth_failure":      ("🔐", "认证失败"),
     "planner_cycle":     ("📋", "规划完成"),
     "planner_done":      ("🏁", "项目完成"),
+    "phase_change":      ("🔄", "层级切换"),
 }
 
 _LAYER_LABELS: dict[str, str] = {
@@ -197,6 +199,8 @@ def _format_telegram_message(payload: dict[str, Any]) -> str:
     # Kind-specific details
     if kind == "mission_started":
         pass  # objective line above is sufficient
+    elif kind == "phase_change":
+        pass  # layer line + objective is sufficient
     elif kind in ("mission_complete", "mission_failed", "mission_iterated"):
         _format_mission_details(lines, extra, summary)
     elif kind == "planner_cycle":

@@ -155,17 +155,8 @@ def _continuous_contract_error(
     objective: str,
     backend: str,
 ) -> str:
-    objective = objective.strip()
-    if objective and not continuous:
-        return "--objective requires --continuous"
-    if continuous and not objective:
-        return "--continuous requires a non-empty --objective"
-    if continuous and backend == "memory":
-        return (
-            "--continuous requires a planning-capable life backend; "
-            "ARGUS_SKILL_LIFE_BACKEND=memory cannot plan"
-        )
-    return ""
+    from ..daemon.life_worker import continuous_mode_error
+    return continuous_mode_error(backend, continuous, objective)
 
 
 

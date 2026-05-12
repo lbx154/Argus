@@ -829,16 +829,10 @@ def _continuous_session_error(
     continuous: bool,
     objective: str,
 ) -> str:
-    objective = objective.strip()
-    if objective and not continuous:
-        return "argus-skill: --objective requires --continuous"
-    if continuous and not objective:
-        return "argus-skill: --continuous requires a non-empty --objective"
-    if continuous and backend == "memory":
-        return (
-            "argus-skill: continuous mode requires a planning-capable backend; "
-            "ARGUS_SKILL_LIFE_BACKEND=memory cannot plan"
-        )
+    from ..daemon.life_worker import continuous_mode_error
+    error = continuous_mode_error(backend, continuous, objective)
+    if error:
+        return f"argus-skill: {error}"
     return ""
 
 
@@ -881,6 +875,7 @@ def _config_cmd(tokens: list[str], chat_state: dict[str, Any],
                 print(f"  {k:20s} = {v}")
         print("\n  usage: /config cycles=10 budget=50 daily_cap=300")
         return
+    sync_continuous = False
     for tok in tokens:
         if "=" not in tok:
             print(f"  skip: {tok!r} — expected key=value")
@@ -903,7 +898,18 @@ def _config_cmd(tokens: list[str], chat_state: dict[str, Any],
         except ValueError:
             print(f"  bad value for {key}: {val!r}")
             continue
+        if key == "continuous" and parsed:
+            backend = str(chat_state.get("backend", "") or "codex")
+            current_objective = str(
+                chat_state.get("continuous_objective", "") or ""
+            )
+            error = _continuous_session_error(backend, True, current_objective)
+            if error:
+                print(error)
+                continue
         cfg[key] = parsed
+        if key == "continuous":
+            sync_continuous = True
         if isinstance(parsed, float):
             print(f"  {key} = ${parsed:.2f}")
         elif isinstance(parsed, bool):
@@ -911,10 +917,7 @@ def _config_cmd(tokens: list[str], chat_state: dict[str, Any],
         else:
             print(f"  {key} = {parsed}")
     # Persist continuous config to disk so daemon can hot-reload.
-    if life_dir is not None and any(
-        "continuous" in t.split("=", 1)[0].strip().lower()
-        for t in tokens if "=" in t
-    ):
+    if life_dir is not None and sync_continuous:
         from ..daemon.life_worker import write_continuous_config
         write_continuous_config(
             life_dir,

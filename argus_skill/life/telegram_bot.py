@@ -302,9 +302,22 @@ class _CommandRouter:
         self._reply("\n".join(lines))
 
     def _cmd_start(self, arg: str) -> None:
-        from ..daemon.life_worker import read_continuous_config, write_continuous_config
+        from ..daemon.life_worker import (
+            continuous_mode_error,
+            read_continuous_config,
+            read_daemon_status,
+            write_continuous_config,
+        )
         _, current_obj = read_continuous_config(self.life_dir)
         objective = arg.strip() or current_obj
+        backend = (
+            read_daemon_status(self.life_dir).backend
+            or os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
+        )
+        error = continuous_mode_error(backend, True, objective)
+        if error:
+            self._reply(f"❌ {error}")
+            return
         write_continuous_config(self.life_dir, enabled=True, objective=objective)
         self._reply(
             f"▶️ 持续模式已开启\n"

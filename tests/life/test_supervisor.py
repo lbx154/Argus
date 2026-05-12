@@ -639,6 +639,28 @@ def test_auth_failure_stops_supervisor(tmp_path: Path) -> None:
 # continuous mode + planner
 # ---------------------------------------------------------------------------
 
+def test_continuous_mode_without_planner_stops_without_project_done(
+    tmp_path: Path,
+) -> None:
+    sup, sink, runner, mem = _mk_sup(tmp_path)
+    sup.config.continuous = True
+    sup.config.continuous_objective = "optimize the project"
+    mem.backlog.add(BacklogItem.new(
+        title="initial", objective="do stuff", iterate=False,
+    ))
+
+    summary = sup.run()
+
+    assert summary["stopped_by"] == "planner_unavailable"
+    assert len(runner.calls) == 1
+    assert all(entry.kind != "planner_done" for entry in mem.journal.all())
+    assert not any(
+        event.get("type") == "life.planner.verdict"
+        and event.get("project_done")
+        for event in sink.events
+    )
+
+
 def test_continuous_mode_calls_planner_when_backlog_empty(tmp_path: Path) -> None:
     """In continuous mode, when the backlog empties after a mission, the
     supervisor should call the planner (via critic_runner) to generate

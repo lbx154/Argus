@@ -173,6 +173,7 @@ class _CostTrackingSink:
         *,
         engineer_model: str,
         reviewer_model: str,
+        on_phase_change: Any = None,  # Callable[[str, dict], None] | None
     ) -> None:
         self.downstream = downstream
         self.engineer_model = engineer_model
@@ -181,6 +182,9 @@ class _CostTrackingSink:
         self.engineer_output_tokens = 0
         self.reviewer_input_tokens = 0
         self.reviewer_output_tokens = 0
+        self._on_phase_change = on_phase_change
+        self._reviewer_notified = False
+        self._engineer_round_count = 0
 
     def handle_event(self, event: dict[str, Any]) -> None:
         try:
@@ -188,9 +192,21 @@ class _CostTrackingSink:
             if kind == "round.main.completed":
                 self.engineer_input_tokens += int(event.get("input_tokens", 0) or 0)
                 self.engineer_output_tokens += int(event.get("output_tokens", 0) or 0)
+                self._engineer_round_count += 1
             elif kind == "round.review.completed":
                 self.reviewer_input_tokens += int(event.get("input_tokens", 0) or 0)
                 self.reviewer_output_tokens += int(event.get("output_tokens", 0) or 0)
+                # Notify on first reviewer round per mission
+                if not self._reviewer_notified and self._on_phase_change:
+                    self._reviewer_notified = True
+                    try:
+                        self._on_phase_change("reviewer", {
+                            "round_index": event.get("round_index", 0),
+                            "status": event.get("status", ""),
+                            "engineer_rounds": self._engineer_round_count,
+                        })
+                    except Exception:  # noqa: BLE001
+                        log.debug("phase change callback failed", exc_info=True)
         except Exception:  # noqa: BLE001
             log.debug("cost-tracking sink ignored malformed event", exc_info=True)
         # Always forward.
@@ -402,12 +418,14 @@ class LifeSupervisor:
                 # Backlog empty — continuous mode: ask planner for more
                 if self.config.continuous and self.config.continuous_objective:
                     planned = self._plan_next_work()
-                    if planned:
+                    if planned is True:
                         continue  # new items in backlog, loop around
-                    else:
+                    if planned is False:
                         self._emit_status("planner: project done")
                         stopped_by = "project_done"
                         break
+                    stopped_by = "planner_unavailable"
+                    break
                 # Non-continuous: sleep then re-check (so user-added
                 # items via the file get picked up). Sleep is bounded
                 # by the stop_event so a Ctrl-C shuts us down quickly.
@@ -555,10 +573,33 @@ class LifeSupervisor:
         except Exception:  # noqa: BLE001
             log.debug("mission_started notify failed; non-critical")
 
+        # Phase-change callback: notifies Telegram when reviewer starts
+        def _phase_cb(layer: str, info: dict[str, Any]) -> None:
+            try:
+                from .notify import dispatch_journal_entry
+                entry = JournalEntry.new(
+                    kind="phase_change",
+                    title=item.title,
+                    summary=f"round {info.get('round_index', '?')}: {layer} 开始评审",
+                    tags=["life", "phase"],
+                    extra={
+                        "item_id": item.id,
+                        "objective": item.objective,
+                        "agent_layer": layer,
+                        "engineer_rounds": info.get("engineer_rounds", 0),
+                    },
+                )
+                # Don't journal phase changes — just notify
+                self._inject_cumulative_cost(entry)
+                dispatch_journal_entry(entry)
+            except Exception:  # noqa: BLE001
+                log.debug("phase_change notify failed; non-critical")
+
         cost_sink = _CostTrackingSink(
             self.sink,
             engineer_model=self.engineer_model,
             reviewer_model=self.reviewer_model,
+            on_phase_change=_phase_cb,
         )
 
         outcome: Any = None
@@ -871,6 +912,27 @@ class LifeSupervisor:
                 break
         original = item.original_objective or item.objective
 
+        # Notify: critic layer starting
+        try:
+            from .notify import dispatch_journal_entry
+            critic_start = JournalEntry.new(
+                kind="phase_change",
+                title=item.title,
+                summary=f"迭代 {cycles_done + 1}/{cycles_max}: 评审员开始评估",
+                tags=["life", "phase"],
+                extra={
+                    "item_id": item.id,
+                    "objective": item.objective,
+                    "agent_layer": "critic",
+                    "iteration_cycle": cycles_done + 1,
+                    "iteration_max": cycles_max,
+                },
+            )
+            self._inject_cumulative_cost(critic_start)
+            dispatch_journal_entry(critic_start)
+        except Exception:  # noqa: BLE001
+            log.debug("critic phase_change notify failed; non-critical")
+
         try:
             from ..critic import (
                 Critic,
@@ -1036,15 +1098,16 @@ class LifeSupervisor:
     # Planner — continuous improvement mode
     # ------------------------------------------------------------------
 
-    def _plan_next_work(self) -> bool:
+    def _plan_next_work(self) -> bool | None:
         """Call the critic-as-planner to generate new backlog items.
 
         Returns ``True`` if new work was added (caller should loop),
-        ``False`` if the planner declares the project done.
+        ``False`` if the planner declares the project done, and
+        ``None`` when the planner is unavailable or fails.
         """
         if self.critic_runner is None:
             self._emit_status("planner: no critic runner wired; stopping")
-            return False
+            return None
 
         self._planning_cycles += 1
         self._emit({
@@ -1074,7 +1137,7 @@ class LifeSupervisor:
                 "cycle": self._planning_cycles,
                 "error": f"{type(exc).__name__}: {exc}",
             })
-            return False
+            return None
 
         planner_cost_usd = _usd_for_tokens(
             self.reviewer_model,

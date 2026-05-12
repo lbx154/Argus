@@ -80,6 +80,17 @@ def test_main_rejects_continuous_on_memory_backend(
     assert "cannot plan" in err
 
 
+def test_main_rejects_continuous_on_memory_backend_for_daemon(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "memory")
+    rc = main(["--daemon", "--continuous", "--objective", "hardening objective"])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "cannot plan" in err
+
+
 def test_main_seeds_repl_continuous_flags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

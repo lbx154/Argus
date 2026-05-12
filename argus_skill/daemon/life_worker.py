@@ -44,6 +44,7 @@ __all__ = [
     "LifeWorker",
     "DaemonStatus",
     "ContinuousConfigState",
+    "continuous_mode_error",
     "read_daemon_status",
     "stop_daemon",
     "spawn_detached_daemon",
@@ -92,6 +93,22 @@ class ContinuousConfigState:
     done_reason: str = ""
     done_at: str = ""
 
+
+def continuous_mode_error(backend: str, enabled: bool, objective: str) -> str:
+    """Return the public error string for an invalid continuous-mode request."""
+    backend = backend.strip().lower()
+    objective = objective.strip()
+    if objective and not enabled:
+        return "--objective requires --continuous"
+    if enabled and not objective:
+        return "--continuous requires a non-empty --objective"
+    if enabled and backend == "memory":
+        return (
+            "--continuous requires a planning-capable life backend; "
+            "ARGUS_SKILL_LIFE_BACKEND=memory cannot plan"
+        )
+    return ""
+
 def _continuous_config_path(life_dir: Path) -> Path:
     return life_dir / "continuous.json"
 
@@ -137,6 +154,10 @@ def write_continuous_config(
 
     Uses write-to-temp + ``os.replace`` for atomicity.
     """
+    objective = objective.strip()
+    if enabled and not objective:
+        log.warning("refusing to write invalid continuous config to %s", life_dir)
+        return
     life_dir.mkdir(parents=True, exist_ok=True)
     path = _continuous_config_path(life_dir)
     tmp = path.with_suffix(f".{os.getpid()}.tmp")
@@ -224,7 +245,16 @@ class LifeWorker:
         # so the REPL can enable/disable continuous mode while the daemon
         # is running — no daemon restart needed.
         def _continuous_provider() -> tuple[bool, str]:
-            return read_continuous_config(cfg.life_dir)
+            enabled, objective = read_continuous_config(cfg.life_dir)
+            if continuous_mode_error(cfg.backend, enabled, objective):
+                if enabled:
+                    write_continuous_config(
+                        cfg.life_dir,
+                        enabled=False,
+                        objective=objective,
+                    )
+                return False, objective
+            return enabled, objective
 
         # Seed continuous config from disk (or CLI flags).
         init_continuous, init_objective = _continuous_provider()
@@ -292,6 +322,12 @@ class LifeWorker:
                         enabled=False,
                         objective=sup.config.continuous_objective,
                         done_reason="planner declared project done",
+                    )
+                elif summary.get("stopped_by") == "planner_unavailable":
+                    write_continuous_config(
+                        cfg.life_dir,
+                        enabled=False,
+                        objective=sup.config.continuous_objective,
                     )
             except Exception:  # noqa: BLE001
                 log.exception("daemon: drain pass raised; sleeping and retrying")
