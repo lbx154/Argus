@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python-quality-gates:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.13"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dev dependencies
+        run: python -m pip install -e '.[dev]'
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Run lint
+        run: ruff check .
+
+      - name: Run type check
+        run: mypy argus_skill tests
+
+      - name: Run bytecode check
+        run: python -m compileall -q argus_skill tests
+
+      - name: Run CLI smoke check
+        run: python -m argus_skill --help >/dev/null

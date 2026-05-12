@@ -66,3 +66,21 @@ def test_evidence_requirement_still_present() -> None:
     prompt = _build_prompt()
     assert "CONCRETE EVIDENCE" in prompt
     assert "bare assertion" in prompt
+
+
+def test_rule_8_structural_spec_adherence_present() -> None:
+    """Rule 8: reviewer must reject unjustified structural deviations
+    (file paths, framework choice, package layout) even when the work
+    is functionally correct.
+
+    Regression guard for the codex demo where the spec asked for
+    `tracker.py` + pytest and the engineer produced an
+    `expense_tracker/` package with unittest, and the reviewer accepted
+    it without flagging the deviation.
+    """
+    prompt = _build_prompt()
+    assert "Spec adherence" in prompt
+    assert "STRUCTURAL CONSTRAINTS" in prompt
+    assert "pytest" in prompt and "unittest" in prompt
+    assert "Functional correctness alone is NOT sufficient" in prompt
+

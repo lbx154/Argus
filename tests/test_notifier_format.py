@@ -1,21 +1,13 @@
-"""Tests for the friendly Telegram event formatter + verbose toggle.
+"""Tests for ``cli.event_format`` — pure event-string rendering.
 
-These tests are pure (no network) — we only call ``format_event_message``
-and ``TelegramNotifier.set_verbose`` directly.
+Provenance: split out from the Telegram-era ``test_notifier_format.py``
+when the Telegram integration was retired. Only the pure formatter
+helpers remain; tests for ``TelegramNotifier`` / verbose-toggle were
+deleted along with that subsystem.
 """
 from __future__ import annotations
 
-from argus_skill.telegram.notifier import (
-    _USER_FACING_EVENTS,
-    _VERBOSE_EVENTS,
-    TelegramConfig,
-    TelegramNotifier,
-    format_event_message,
-)
-
-
-def _cfg() -> TelegramConfig:
-    return TelegramConfig(bot_token="dummy", chat_id="0")
+from argus_skill.cli.event_format import format_event_message
 
 
 def test_format_known_event_uses_icon_and_drops_brackets() -> None:
@@ -55,31 +47,6 @@ def test_format_short_event_caps_at_300_for_non_completion() -> None:
     assert msg.startswith("🏃 ")
 
 
-def test_default_config_subscribes_to_user_facing_only() -> None:
-    cfg = _cfg()
-    assert cfg.notify_event_types == _USER_FACING_EVENTS
-    # Internal events are NOT in the default subscription set.
-    assert "round.start" not in cfg.notify_event_types
-    assert "match.info" not in cfg.notify_event_types
-
-
-def test_set_verbose_true_expands_subscription() -> None:
-    notifier = TelegramNotifier(_cfg())
-    assert "round.start" not in notifier.config.notify_event_types
-    notifier.set_verbose(True)
-    assert notifier.config.verbose is True
-    assert notifier.config.notify_event_types == _VERBOSE_EVENTS
-    assert "round.start" in notifier.config.notify_event_types
-
-
-def test_set_verbose_false_restores_minimal() -> None:
-    notifier = TelegramNotifier(_cfg())
-    notifier.set_verbose(True)
-    notifier.set_verbose(False)
-    assert notifier.config.verbose is False
-    assert notifier.config.notify_event_types == _USER_FACING_EVENTS
-
-
 # ---------------------------------------------------------------------------
 # Rich payload renderers (LoopEngine + SkillLoopRunner mission events)
 # ---------------------------------------------------------------------------
@@ -89,11 +56,11 @@ def test_format_loop_started_shows_objective_and_max_rounds() -> None:
     msg = format_event_message({
         "type": "loop.started",
         "objective": "build a CLI",
-        "max_rounds": 20,
+        "max_rounds": 500,
         "plan_mode": "auto",
     })
     assert msg.startswith("🚀 ")
-    assert "max_rounds=20" in msg
+    assert "max_rounds=500" in msg
     assert "plan_mode=auto" in msg
     assert "build a CLI" in msg
 
@@ -246,27 +213,6 @@ def test_format_final_report_ready_shows_path() -> None:
     })
     assert "/tmp/x/final.md" in msg
     assert "main-agent" in msg
-
-
-def test_user_facing_set_includes_mission_lifecycle() -> None:
-    # Quiet-mode users should still see the mission-level verdicts.
-    for kind in (
-        "mission.started", "mission.completed", "mission.error",
-        "round.review.completed", "plan.completed",
-        "loop.completed", "final.report.ready", "round.control.injected",
-    ):
-        assert kind in _USER_FACING_EVENTS, f"{kind} should be user-facing"
-
-
-def test_internal_set_includes_per_round_noise() -> None:
-    # Verbose-only events stay hidden by default.
-    for kind in (
-        "round.started", "round.main.completed",
-        "round.checks.completed", "round.watchdog.checked",
-        "match.info", "scientist.start",
-    ):
-        assert kind in _VERBOSE_EVENTS
-        assert kind not in _USER_FACING_EVENTS, f"{kind} should be verbose-only"
 
 
 def test_format_command_ack_show_kind_wraps_in_fence() -> None:

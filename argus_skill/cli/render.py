@@ -12,9 +12,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from ..telegram.notifier import format_event_message, _trunc
+from .event_format import _trunc, format_event_message
 from .theme import BOX, Theme
-
 
 # ── per-event-type coloring ───────────────────────────────────────────────
 

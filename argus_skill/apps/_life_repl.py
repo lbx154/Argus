@@ -34,7 +34,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, Callable, ClassVar
 
 from ..core.ports import EventSink
 from ..life import BacklogItem, JournalEntry, LifeMemory
@@ -64,13 +64,14 @@ class LifeStderrSink:
 
     def __init__(self, *, quiet: bool = False) -> None:
         self.quiet = quiet
+        self._render: Callable[..., str] | None = None
+        self._theme: Any = None
         try:
             from ..cli import default_theme, render_event_for_terminal
             self._render = render_event_for_terminal
             self._theme = default_theme()
         except Exception:  # noqa: BLE001
-            self._render = None
-            self._theme = None
+            pass
 
     def _allowed(self, event_type: str) -> bool:  # noqa: ARG002
         return True
@@ -119,6 +120,9 @@ class LifeStderrSink:
         --output-format stream-json`` produces dozens per second and
         echoing them all would defeat the point of having a renderer.
         """
+        return
+
+    def close(self) -> None:
         return
 
 
@@ -794,17 +798,48 @@ def _add_only(
 
 
 def _backend_cmd(tokens: list[str], chat_state: dict[str, Any]) -> None:
+    from ..daemon.life_worker import ContinuousConfigState
+
     if not tokens:
         print(f"backend: {chat_state['backend']}  (memory or codex)")
         return
     new = tokens[0].lower()
     if new in {"codex", "memory"}:
+        state = chat_state.get("continuous_state")
+        if isinstance(state, ContinuousConfigState):
+            continuous = state.enabled
+            objective = state.objective if state.enabled else ""
+        else:
+            continuous = bool(chat_state.get("config", {}).get("continuous", False))
+            objective = str(chat_state.get("continuous_objective", "") or "")
+        error = _continuous_session_error(new, continuous, objective)
+        if error:
+            print(error)
+            return
         chat_state["backend"] = new
         print(f"backend: {new}")
         return
     print(
         f"backend {new!r} is not available. Use `codex` or `memory`."
     )
+
+
+def _continuous_session_error(
+    backend: str,
+    continuous: bool,
+    objective: str,
+) -> str:
+    objective = objective.strip()
+    if objective and not continuous:
+        return "argus-skill: --objective requires --continuous"
+    if continuous and not objective:
+        return "argus-skill: --continuous requires a non-empty --objective"
+    if continuous and backend == "memory":
+        return (
+            "argus-skill: continuous mode requires a planning-capable backend; "
+            "ARGUS_SKILL_LIFE_BACKEND=memory cannot plan"
+        )
+    return ""
 
 
 _CONFIG_DEFAULTS: dict[str, Any] = {
@@ -1187,6 +1222,8 @@ def _run_cmd(
 
 def _status_cmd(mem: LifeMemory, chat_state: dict[str, Any] | None = None) -> None:
     """Lightweight status print (mirrors `argus-skill life status` output)."""
+    from ..daemon.life_worker import ContinuousConfigState, read_continuous_state
+
     identity = mem.identity.read().strip()
     if identity:
         first = identity.splitlines()[0][:80]
@@ -1206,6 +1243,18 @@ def _status_cmd(mem: LifeMemory, chat_state: dict[str, Any] | None = None) -> No
         for e in last:
             ts_str = datetime.fromtimestamp(e.ts).strftime("%Y-%m-%d %H:%M:%S")
             print(f"  [{ts_str}] {e.kind} — {e.title}")
+    cont = None
+    if chat_state is not None:
+        cont = chat_state.get("continuous_state")
+    if not isinstance(cont, ContinuousConfigState):
+        cont = read_continuous_state(mem.root)
+    print(f"continuous: {'on' if cont.enabled else 'off'}")
+    if cont.objective:
+        print(f"  objective: {cont.objective}")
+    if cont.done_reason:
+        print(f"  done_reason: {cont.done_reason}")
+    if cont.done_at:
+        print(f"  done_at: {cont.done_at}")
     if chat_state is not None:
         started = chat_state.get("session_started_s")
         if started is not None:
@@ -1237,7 +1286,7 @@ def _status_cmd(mem: LifeMemory, chat_state: dict[str, Any] | None = None) -> No
                   f"backend {ds.backend or '?'})")
         else:
             print("daemon : not running   (start with `argus-skill --daemon`)")
-            tid = chat_state.get("last_thread_id")
+            tid = chat_state.get("last_thread_id") if chat_state is not None else None
             if tid:
                 print(f"codex  : resuming session {tid[:12]}…  (/reset to drop)")
 
@@ -1353,6 +1402,51 @@ def _skills_cmd(mem: LifeMemory, tokens: list[str]) -> None:
     print(f"unknown /skills subcommand: {op}  (try ls | promote)")
 
 
+def _seed_chat_state(args: argparse.Namespace, mem: LifeMemory, *, theme: Any) -> tuple[dict[str, Any], str | None]:
+    from ..daemon.life_worker import ContinuousConfigState, read_continuous_state
+
+    backend_default = getattr(args, "backend", None) or os.environ.get(
+        "ARGUS_SKILL_LIFE_BACKEND",
+        "codex",
+    )
+    disk_state = read_continuous_state(mem.root)
+    cli_continuous = bool(getattr(args, "continuous", False))
+    cli_objective = str(getattr(args, "objective", "") or "").strip()
+    disk_objective = disk_state.objective.strip()
+    continuous = cli_continuous or disk_state.enabled
+    objective = cli_objective or (disk_objective if disk_state.enabled else "")
+    error = _continuous_session_error(backend_default, continuous, objective)
+    if error:
+        return {}, error
+
+    chat_state: dict[str, Any] = {
+        "backend": backend_default,
+        "theme": theme,
+        # Codex CLI session id of the most recent mission. Reused as
+        # ``resume_thread_id`` on the next mission so the codex CLI does
+        # NOT spin up a fresh session for every prompt. Cleared by /reset.
+        "last_thread_id": None,
+        # Wall-clock timing — populated as missions run so /status and the
+        # post-mission footer can report uptime / per-mission elapsed.
+        "session_started_s": time.monotonic(),
+        "mission_count": 0,
+        "total_elapsed_s": 0.0,
+        "last_elapsed_s": None,
+        # Session-wide iteration/budget defaults. Changed via /config.
+        # REPL-local only — does not affect the background daemon.
+        "config": dict(_CONFIG_DEFAULTS),
+        "continuous_objective": objective or disk_objective,
+    }
+    chat_state["config"]["continuous"] = continuous
+    chat_state["continuous_state"] = ContinuousConfigState(
+        enabled=continuous,
+        objective=objective or disk_objective,
+        done_reason="" if continuous else disk_state.done_reason,
+        done_at="" if continuous else disk_state.done_at,
+    )
+    return chat_state, None
+
+
 def run_life_chat_loop(args: argparse.Namespace) -> int:
     """Drive the unified ``argus-skill`` REPL.
 
@@ -1365,6 +1459,14 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
     mem = LifeMemory.open(root)
     state = mem.init()
     created = [k for k, v in state.items() if v]
+    theme = None  # populated in the locked body
+
+    # Fail fast before we take the singleton lock if the requested
+    # session cannot ever enter continuous mode.
+    chat_state, error = _seed_chat_state(args, mem, theme=theme)
+    if error:
+        sys.stderr.write(error + "\n")
+        return 2
 
     # Singleton guard: two argus-skill REPLs running against the same
     # life-dir would race on backlog.jsonl rewrites and corrupt journal
@@ -1388,7 +1490,7 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        return _run_life_chat_loop_locked(args, mem, created)
+        return _run_life_chat_loop_locked(args, mem, created, chat_state=chat_state)
     finally:
         try:
             repl_lock.release()
@@ -1400,6 +1502,8 @@ def _run_life_chat_loop_locked(
     args: argparse.Namespace,
     mem: LifeMemory,
     created: list[str],
+    *,
+    chat_state: dict[str, Any],
 ) -> int:
     """The interactive REPL body. Split out so the singleton lock in
     :func:`run_life_chat_loop` cleanly wraps the entire loop with
@@ -1420,24 +1524,8 @@ def _run_life_chat_loop_locked(
     # been removed; ``--verbose`` and ``--quiet`` flags are accepted but
     # ignored (kept for backward compat in scripts).
 
-    backend_default = os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
-    chat_state: dict[str, Any] = {
-        "backend": backend_default,
-        "theme": theme,
-        # Codex CLI session id of the most recent mission. Reused as
-        # ``resume_thread_id`` on the next mission so the codex CLI does
-        # NOT spin up a fresh session for every prompt. Cleared by /reset.
-        "last_thread_id": None,
-        # Wall-clock timing — populated as missions run so /status and the
-        # post-mission footer can report uptime / per-mission elapsed.
-        "session_started_s": time.monotonic(),
-        "mission_count": 0,
-        "total_elapsed_s": 0.0,
-        "last_elapsed_s": None,
-        # Session-wide iteration/budget defaults. Changed via /config.
-        # REPL-local only — does not affect the background daemon.
-        "config": dict(_CONFIG_DEFAULTS),
-    }
+    backend_default = chat_state["backend"]
+    chat_state["theme"] = theme
 
     # ── Auto-spawn 7×24 daemon ────────────────────────────────────
     # Lifetime-agent positioning means the daemon is the default. We

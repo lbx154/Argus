@@ -39,10 +39,55 @@ Launch::
 Ablation env vars:
   ``ARGUS_SKILL_HARBOR_NO_SKILL=1``    — skip matcher+distill (reviewer-only)
   ``ARGUS_SKILL_HARBOR_NO_REVIEWER=1`` — skip reviewer entirely (max_rounds=1)
-  ``ARGUS_SKILL_HARBOR_REVIEWER_GATE=1`` — restore legacy "reviewer says continue
-                                          → fire R2" behaviour (default off:
-                                          R2 fires only on objective R1 failure)
+  ``ARGUS_SKILL_HARBOR_SKIP_CLEAN_REVIEWER=1`` — skip reviewer on clean-exit
+                                          rounds (v3 optimisation, OFF by
+                                          default — v12 runs reviewer on every
+                                          round).
+  ``ARGUS_SKILL_HARBOR_REVIEWER_GATE=1`` — reserved / legacy.
+  ``ARGUS_SKILL_HARBOR_CHECKS_CMD``    — newline-separated shell commands to
+                                          run inside the container after each
+                                          engineer round. Their (cmd, exit_code,
+                                          tail) tuple is fed to the reviewer as
+                                          ``CheckResult``-shaped acceptance
+                                          evidence. Empty / unset → reviewer
+                                          stays blind (legacy v3 behaviour).
+                                          Example: ``pytest /tests/ -x --tb=short``.
+  ``ARGUS_SKILL_HARBOR_CHECKS_TIMEOUT`` — per-check timeout in seconds (default
+                                          60). The whole batch is bounded by
+                                          this × number-of-commands.
+  ``ARGUS_SKILL_HARBOR_RUNTIME_PROBE=0`` — disable the v12 phase-4 runtime
+                                          probe (default ON). The probe is a
+                                          single ``bash -c`` that snapshots
+                                          ``ls /app`` + ``ss -tlnp`` + ``ps -ef`` +
+                                          heads of ``/app/output*`` so the
+                                          reviewer can compare engineer prose
+                                          against actual container state.
+  ``ARGUS_SKILL_HARBOR_V12_VERIFIER=0`` — disable the v12 phase-4 official
+                                          verifier auto-run (default ON). When
+                                          ON we exec ``bash /tests/test.sh``
+                                          after each round (only if the file
+                                          exists — self-skips on non-TB
+                                          datasets) and surface it to the
+                                          reviewer with "ground truth, trust
+                                          this and not the engineer" framing.
   Combine the first two to fall back to plain bare-mini behaviour (sanity).
+
+Defaults (post-v12 restoration 2026-05-22):
+  scientist = gpt-5.4 @ effort=high       — rich playbooks
+  reviewer  = gpt-5.4 @ effort=medium     — reads evidence carefully
+  CHECKS_CMD = (unset)                    — v12 used raw-evidence path, not
+                                            CHECKS_CMD. Set this for extra
+                                            user-defined acceptance smokes.
+  RUNTIME_PROBE = ON                      — independent container snapshot
+  V12_VERIFIER  = ON                      — bash /tests/test.sh ground truth
+  SKIP_CLEAN_REVIEWER = OFF               — reviewer runs every round (v12)
+  Reviewer verdict "continue" → R2 retry (v12 behaviour).
+These reproduce the v12 fullbench run (TB v2, 2026-05-06, reward 0.5955).
+Note: v12 cost tracking was broken — $0.139/trial was undercounted.
+Full cost tracking (2026-05-22): engineer (all sessions) + scientist + reviewer
+  tokens are summed and priced via LiteLLM in run(), then set on context so
+  harbor's single-session fallback is bypassed.
+Override any env var for ablations.
 """
 from __future__ import annotations
 
@@ -82,10 +127,63 @@ log = logging.getLogger(__name__)
 # --- env-var-driven knobs --------------------------------------------------
 
 _DEFAULT_DISTILL_BUDGET = 120.0          # seconds, host-side matcher+distill cap
-_DEFAULT_REVIEWER_BUDGET = 60.0          # seconds, per reviewer call
+# Reviewer budget — empirical: gpt-5.4 @ reasoning_effort=medium can take
+# 100–150 s on TB v2 fix-tasks (see benchmarks/results/tb2-ablation-2026-05-10/
+# RESULTS.md, finding 1: 6/6 reviewer calls timed out at 60 s and silently
+# degraded to "continue"). 180 s gives the reviewer room to actually answer.
+# Callers that need the old budget can still set ARGUS_SKILL_HARBOR_REVIEWER_BUDGET=60.
+_DEFAULT_REVIEWER_BUDGET = 180.0         # seconds, per reviewer call
 _DEFAULT_ROUND_TIMEOUT = 600             # seconds, per in-container engineer call
 _DEFAULT_MAX_ROUNDS = 2
 _AUGMENTED_MAX_CHARS = 24 * 1024
+# v4 priority 1 (reviewer-sees-checks): per-check default timeout for the
+# in-container acceptance commands defined via ARGUS_SKILL_HARBOR_CHECKS_CMD.
+# Single ``pytest -x`` smokes typically finish in 5-30 s; ``make test`` runs
+# can take longer. 60 s is the safe default and can be raised via
+# ARGUS_SKILL_HARBOR_CHECKS_TIMEOUT.
+_DEFAULT_CHECKS_TIMEOUT = 60
+# Length of the per-check output tail we surface to the reviewer. Mirrors
+# argus_skill.engineer.checks._tail_text's 1800-char cap so the prompt size
+# is bounded across N checks.
+_CHECK_OUTPUT_TAIL_CHARS = 1800
+
+# --- v12 phase-4 evidence pipeline -----------------------------------------
+#
+# In v12 (benchmarks/results/tb2-fullbench-2026-05-06-v12, reward 0.5955,
+# $0.139/trial — the best TB v2 result on record) every reviewer call saw a
+# "Raw verification evidence:" block with three sub-sections grounded in
+# real container state, not just the engineer's prose:
+#
+#   1. engineer self-report (verbatim)  — the engineer's last agent_message
+#   2. runtime probe                    — independent ls/ss/ps/head snapshot
+#                                         of /app, taken AFTER the engineer
+#                                         finished, so we can spot prose
+#                                         that disagrees with reality
+#   3. official verifier                — bash /tests/test.sh exit + stdout
+#                                         tail, framed as "ground truth ...
+#                                         trust this and not the engineer".
+#
+# The original code for this was a working-tree change at v12 runtime that
+# never got committed, then was lost in subsequent refactors. We restore
+# it here, hardcoded for TB v2 (verifier path is TB-specific; self-skips
+# when /tests/test.sh is absent so non-TB datasets are unaffected).
+_V12_VERIFIER_CMD = "bash /tests/test.sh"
+_V12_VERIFIER_TIMEOUT_SEC = 600
+_V12_VERIFIER_TAIL_CHARS = 1800
+_V12_RUNTIME_PROBE_CMD = (
+    "set +e; "
+    "echo '== /app contents =='; ls -la /app 2>/dev/null | head -60 || true; "
+    "echo '== listening tcp ports =='; "
+    "(ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || true) | head -30; "
+    "echo '== recent processes =='; ps -ef 2>/dev/null | tail -25 || true; "
+    "echo '== /app output files =='; "
+    "for f in /app/output.* /app/result.* /app/answer.* /app/*.toml /app/*.json; do "
+    "  [ -f \"$f\" ] && { echo \"--- $f ---\"; head -c 800 \"$f\"; echo; }; "
+    "done 2>/dev/null || true"
+)
+_V12_RUNTIME_PROBE_TIMEOUT_SEC = 30
+_V12_RUNTIME_PROBE_MAX_LINES = 80
+_V12_ENGINEER_SELF_REPORT_MAX_CHARS = 4000
 
 
 def _bool_env(name: str, default: bool = False) -> bool:
@@ -113,6 +211,209 @@ def _int_env(name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         return default
+
+
+def _compute_model_cost_usd(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    cached_tokens: int = 0,
+) -> float | None:
+    """Compute USD cost via LiteLLM pricing. Returns None when model is unknown."""
+    try:
+        import litellm  # type: ignore[import-untyped]
+    except ImportError:
+        return None
+    pricing: dict[str, Any] | None = None
+    for key in (model, model.split("/", 1)[-1]):
+        entry = litellm.model_cost.get(key)
+        if entry:
+            pricing = entry
+            break
+    if pricing is None:
+        return None
+    input_rate = pricing.get("input_cost_per_token") or 0.0
+    output_rate = pricing.get("output_cost_per_token") or 0.0
+    cache_rate = pricing.get("cache_read_input_token_cost", input_rate)
+    if cache_rate is None:
+        cache_rate = input_rate
+    uncached = max(0, input_tokens - cached_tokens)
+    return uncached * input_rate + cached_tokens * cache_rate + output_tokens * output_rate
+
+
+def _sum_all_session_tokens(sessions_dir: Path) -> dict:
+    """Read ALL codex session JSONLs and sum token counts across all sessions.
+
+    Returns dict with total_input, total_output, total_cached, total_cost_usd
+    (the last one only if LiteLLM is available), plus per-session breakdown.
+    """
+    result: dict = {
+        "total_input": 0,
+        "total_output": 0,
+        "total_cached": 0,
+        "sessions": [],
+    }
+    if not sessions_dir.exists():
+        return result
+    for jsonl_file in sorted(sessions_dir.rglob("*.jsonl")):
+        try:
+            last_usage: dict | None = None
+            with open(jsonl_file) as fh:
+                for line in fh:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        event = json.loads(stripped)
+                    except json.JSONDecodeError:
+                        continue
+                    if event.get("type") != "event_msg":
+                        continue
+                    payload = event.get("payload", {})
+                    if not isinstance(payload, dict) or payload.get("type") != "token_count":
+                        continue
+                    info = payload.get("info")
+                    if not isinstance(info, dict):
+                        continue
+                    usage = info.get("total_token_usage")
+                    if isinstance(usage, dict):
+                        last_usage = usage
+            if last_usage:
+                inp = last_usage.get("input_tokens", 0) or 0
+                out = last_usage.get("output_tokens", 0) or 0
+                cached = last_usage.get("cached_input_tokens", 0) or 0
+                result["total_input"] += inp
+                result["total_output"] += out
+                result["total_cached"] += cached
+                result["sessions"].append({
+                    "file": jsonl_file.name,
+                    "input": inp,
+                    "output": out,
+                    "cached": cached,
+                })
+        except Exception:
+            log.debug("failed to read session %s", jsonl_file, exc_info=True)
+    return result
+
+
+# v4 priority 1: parse newline-separated check commands into a list. We strip
+# blanks and ``#``-prefixed comment lines so users can document individual
+# checks inline. Order matters — checks are surfaced to the reviewer in the
+# order they're listed.
+def _parse_checks_commands(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    commands: list[str] = []
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        commands.append(stripped)
+    return commands
+
+
+def _tail_check_output(text: str, max_chars: int = _CHECK_OUTPUT_TAIL_CHARS) -> str:
+    """Mirror ``argus_skill.engineer.checks._tail_text`` so the reviewer sees
+    the same shape regardless of who produced the CheckResult."""
+    if text is None:
+        return ""
+    if len(text) <= max_chars:
+        return text.strip()
+    return text[-max_chars:].strip()
+
+
+def _exec_output_text(result: Any) -> str:
+    """Extract the most useful output text from a Harbor exec result."""
+    if result is None:
+        return ""
+    if isinstance(result, dict):
+        getter = result.get
+    else:
+        getter = lambda key: getattr(result, key, None)
+
+    chunks: list[str] = []
+    for key in ("stdout", "output", "combined_output", "text", "stderr"):
+        value = getter(key)
+        if value is None:
+            continue
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", errors="replace")
+        text = str(value).strip()
+        if text and text not in chunks:
+            chunks.append(text)
+    return "\n".join(chunks)
+
+
+def _indent_block(text: str, prefix: str = "    ") -> str:
+    """Indent every non-empty line in ``text`` with ``prefix``.
+
+    Used to format multi-line subsections of the v12 ``Raw verification
+    evidence:`` block so the reviewer prompt mirrors the v12 trace shape.
+    """
+    if not text:
+        return ""
+    return "\n".join(prefix + line if line else "" for line in text.splitlines())
+
+
+def _format_v12_evidence(
+    *,
+    engineer_self_report: str,
+    runtime_probe: str | None,
+    verifier_check: dict | None,
+) -> str:
+    """Render the v12 phase-4 ``Raw verification evidence:`` payload.
+
+    Produces three subsections matching the v12 trace exactly:
+
+      - engineer self-report (verbatim)
+      - runtime probe (independent post-round container state ...)
+      - official verifier (PASS/FAIL, exit=N, cmd: ...) — "ground truth,
+        trust this and not the engineer"
+
+    Any subsection without data is omitted so an in-progress dataset
+    that lacks ``/tests/test.sh`` (no verifier) or where the runtime
+    probe failed still produces a useful reviewer prompt.
+
+    Returns an empty string when there is literally nothing to surface.
+    """
+    sections: list[str] = []
+
+    sr = (engineer_self_report or "").strip()
+    if sr:
+        if len(sr) > _V12_ENGINEER_SELF_REPORT_MAX_CHARS:
+            sr = sr[-_V12_ENGINEER_SELF_REPORT_MAX_CHARS:].lstrip()
+            sr = "<...truncated...>\n" + sr
+        sections.append(
+            "- engineer self-report (verbatim):\n" + _indent_block(sr)
+        )
+
+    if runtime_probe:
+        sections.append(
+            "- runtime probe (independent post-round container state — "
+            "compare against engineer self-report; if they disagree, "
+            "trust this):\n" + _indent_block(runtime_probe)
+        )
+
+    if verifier_check:
+        cmd = verifier_check.get("command") or _V12_VERIFIER_CMD
+        exit_code = verifier_check.get("exit_code")
+        status = "PASS" if verifier_check.get("passed") else "FAIL"
+        header = (
+            f"- official verifier ({status}, exit={exit_code}, cmd: {cmd}) "
+            "— this is the **ground truth** from the task's official "
+            "tests. When this disagrees with the engineer's self-report, "
+            "trust this and not the engineer."
+        )
+        tail = (verifier_check.get("output_tail") or "").strip()
+        if tail:
+            sections.append(
+                f"{header}\n    verifier stdout (tail):\n"
+                + _indent_block(tail)
+            )
+        else:
+            sections.append(header)
+
+    return "\n".join(sections)
 
 
 # --- structured per-trial decision log ------------------------------------
@@ -228,6 +529,9 @@ class _HostPrep:
     skill_store: Any = None    # argus_skill.skills.store.SkillStore | None
     distiller: Any = None      # argus_skill.scientist.distiller.Distiller | None
     scientist_model: str = ""
+    # Split scientist token counts for accurate cost computation.
+    scientist_input_tokens: int = 0
+    scientist_output_tokens: int = 0
 
 
 def _do_host_prep(instruction: str) -> _HostPrep:
@@ -258,6 +562,8 @@ def _do_host_prep(instruction: str) -> _HostPrep:
     match_tokens = 0
     fallback_reason: str | None = None
     scientist_tokens = 0
+    scientist_input_tokens = 0
+    scientist_output_tokens = 0
     skill_text = ""
     distilled_skill: Any = None  # populated when we save_distilled below
     distiller_obj: Any = None    # reused for revise/promote_lesson hooks
@@ -277,6 +583,15 @@ def _do_host_prep(instruction: str) -> _HostPrep:
             distiller_obj = deps["Distiller"](backend)
             cfg = deps["DistillerConfig"](
                 model=scientist_model,
+                # v3-efficiency: distill's value is KNOWLEDGE TRANSFER from the
+                # strong scientist model down to the weaker engineer. We keep
+                # the strong model (gpt-5.4) for that, but drop reasoning
+                # v12 baseline: scientist runs at effort=high to produce a
+                # rich playbook the engineer can lean on. The earlier
+                # "effort=low" optimisation traded ~0.10 reward for ~60-80%
+                # distill-cost reduction — the wrong trade given how cheap
+                # the scientist call is relative to the engineer rounds.
+                # Override per-trial with ARGUS_SKILL_HARBOR_SCIENTIST_EFFORT.
                 reasoning_effort=os.environ.get("ARGUS_SKILL_HARBOR_SCIENTIST_EFFORT", "high"),
                 skip_git_repo_check=True,
                 full_auto=True,
@@ -287,18 +602,31 @@ def _do_host_prep(instruction: str) -> _HostPrep:
                     config=cfg,
                 )
             scientist_tokens = result.input_tokens + result.output_tokens
+            scientist_input_tokens = result.input_tokens
+            scientist_output_tokens = result.output_tokens
             try:
                 distilled_skill = store.save_distilled(
                     task_description=instruction,
                     raw_distill_output=result.last_agent_message,
                     scientist_model=scientist_model,
                 )
-                skill_text = distilled_skill.render()
             except Exception as exc:
-                # Parse failure — keep the raw distill output as the skill text.
-                log.warning("save_distilled failed: %s", exc)
+                # Genuine parse failure — keep the raw distill text as fallback.
+                log.warning("save_distilled raised: %s", exc)
                 fallback_reason = f"parse_failure:{type(exc).__name__}"
                 skill_text = result.last_agent_message
+            else:
+                if distilled_skill is None:
+                    # SkillStore.save_distilled returns None when the quality
+                    # gate rejects the distilled skill (see SkillStore tests).
+                    # Don't call .render() on None — that's the bug surfaced
+                    # by tb2-ablation-2026-05-10 A2_full. Use the raw distill
+                    # output as a hint, but record the truthful reason.
+                    log.info("save_distilled rejected by quality gate; using raw text")
+                    fallback_reason = "skill_gate_rejected"
+                    skill_text = result.last_agent_message
+                else:
+                    skill_text = distilled_skill.render()
         except Exception as exc:
             fallback_reason = f"distill_exception:{type(exc).__name__}"
             log.warning("distill failed: %s", exc)
@@ -337,6 +665,8 @@ def _do_host_prep(instruction: str) -> _HostPrep:
         skill_store=store,
         distiller=distiller_obj,
         scientist_model=scientist_model,
+        scientist_input_tokens=scientist_input_tokens,
+        scientist_output_tokens=scientist_output_tokens,
     )
 
 
@@ -399,16 +729,36 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
 
         # ---- Phase 3: multi-round engineer (+ optional reviewer) loop ----
         no_reviewer = _bool_env("ARGUS_SKILL_HARBOR_NO_REVIEWER")
-        # v7: Reviewer-as-gate is OFF by default. Reviewer now runs as a
-        # diagnostic logger only; R2 fires on objective failure of R1
-        # (timeout / non-zero exit / empty output), not on a reviewer
-        # disagreement with the engineer's prose. Set
-        # ARGUS_SKILL_HARBOR_REVIEWER_GATE=1 to restore old gating behavior.
+        # v12-restoration: reviewer runs on EVERY round by default (v12
+        # behaviour).  Its verdict ("continue" / "done") drives the R2
+        # retry decision.  Set ARGUS_SKILL_HARBOR_SKIP_CLEAN_REVIEWER=1
+        # to re-enable the v3 optimisation that skipped reviewer on
+        # clean-exit R1 rounds.
+        skip_clean_reviewer = _bool_env(
+            "ARGUS_SKILL_HARBOR_SKIP_CLEAN_REVIEWER"
+        )
         reviewer_gate = _bool_env("ARGUS_SKILL_HARBOR_REVIEWER_GATE")
         max_rounds = 1 if no_reviewer else _int_env(
             "ARGUS_SKILL_HARBOR_MAX_ROUNDS", _DEFAULT_MAX_ROUNDS
         )
         round_timeout = _int_env("ARGUS_SKILL_HARBOR_ROUND_TIMEOUT", _DEFAULT_ROUND_TIMEOUT)
+
+        # v4 priority 1: parse acceptance-check configuration once per
+        # trial. Unset / blank → legacy v3 behaviour (reviewer sees no
+        # checks). Each command is run inside the container after the
+        # engineer round and before the reviewer call.
+        checks_commands = _parse_checks_commands(
+            os.environ.get("ARGUS_SKILL_HARBOR_CHECKS_CMD")
+        )
+        checks_timeout = _int_env(
+            "ARGUS_SKILL_HARBOR_CHECKS_TIMEOUT", _DEFAULT_CHECKS_TIMEOUT
+        )
+        if checks_commands:
+            self.logger.info(
+                "argus-skill acceptance checks configured: %d command(s), "
+                "timeout=%ds each",
+                len(checks_commands), checks_timeout,
+            )
 
         rounds_summary: list[dict] = []
         last_review_feedback: str | None = None
@@ -416,6 +766,9 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
         last_round_failure: str | None = None
         last_thread_id: str | None = None
         run_error: str | None = None
+        # Accumulate reviewer tokens across rounds for full cost tracking.
+        total_reviewer_input_tokens = 0
+        total_reviewer_output_tokens = 0
 
         try:
             for round_idx in range(1, max_rounds + 1):
@@ -498,16 +851,13 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                     f" error={round_error}" if round_error else "",
                 )
 
-                # v7 round-loop policy:
-                #   * R1=clean (exit 0 + non-empty output) → break, trust the
-                #     engineer like skill-cap-phaseA does (single-shot).
+                # v3 round-loop policy:
+                #   * R1=clean (exit 0 + non-empty output) → reviewer runs
+                #     and decides: "done" → break, "continue" → R2.
                 #   * R1=objective failure (timeout, non-zero exit, empty
-                #     output) → fire R2 with retry context. This is exactly
-                #     where retries pay off; reviewer-disagreement does not
-                #     correlate with verifier outcome.
-                #   * Reviewer is OPTIONAL and DIAGNOSTIC only by default.
-                #     Set ARGUS_SKILL_HARBOR_REVIEWER_GATE=1 to restore the
-                #     old "reviewer says continue → fire R2" behavior.
+                #     output) → fire R2 with retry context.
+                #   * Set SKIP_CLEAN_REVIEWER=1 to revert to the v3
+                #     optimisation that skipped reviewer on clean rounds.
                 round_record: dict = {
                     "round": round_idx,
                     "engineer_exit": exit_code,
@@ -529,16 +879,117 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                 else:
                     failure_mode = None
 
-                # Diagnostic reviewer pass: log the verdict so we can study
-                # how often reviewer & verifier agree, but DO NOT gate on it
-                # unless the user explicitly opted into the legacy gate.
+                # v12-restoration: reviewer runs on EVERY round by
+                # default (matching v12 baseline).  The reviewer's
+                # "continue" verdict drives the R2 retry decision.
+                # Set SKIP_CLEAN_REVIEWER=1 to re-enable the old v3
+                # optimisation that skipped reviewer on clean-exit
+                # rounds.
                 review_decision: dict | None = None
                 run_reviewer = (
                     not no_reviewer
                     and last_msg.strip()
                     and not round_error
+                    and not (
+                        skip_clean_reviewer
+                        and failure_mode is None
+                    )
                 )
                 if run_reviewer:
+                    # v4 priority 1: collect acceptance checks INSIDE the
+                    # container before handing the reviewer a verdict.
+                    # checks_commands is parsed once per trial so empty /
+                    # unset env var → checks=[] (legacy v3 behaviour).
+                    round_checks: list[dict] = []
+                    if checks_commands:
+                        checks_t0 = time.time()
+                        try:
+                            round_checks = await self._collect_checks(
+                                environment=environment,
+                                env=env,
+                                commands=checks_commands,
+                                timeout_sec=checks_timeout,
+                            )
+                            self.logger.info(
+                                "round %d acceptance checks: %d/%d passed in %.1fs",
+                                round_idx,
+                                sum(1 for c in round_checks if c.get("passed")),
+                                len(round_checks),
+                                time.time() - checks_t0,
+                            )
+                        except Exception as exc:  # pragma: no cover - defensive
+                            self.logger.warning(
+                                "round %d _collect_checks raised %s: %s",
+                                round_idx, type(exc).__name__, exc,
+                            )
+                    round_record["checks"] = [
+                        {
+                            "command": c.get("command"),
+                            "exit_code": c.get("exit_code"),
+                            "passed": c.get("passed"),
+                            "elapsed_s": c.get("elapsed_s"),
+                        }
+                        for c in round_checks
+                    ]
+
+                    # v12 phase-4: collect richer "Raw verification
+                    # evidence" — runtime probe + official verifier — so
+                    # the reviewer sees something grounded in container
+                    # state, not just the engineer's prose. Each
+                    # collector self-skips on absence/error so non-TB
+                    # datasets (no /tests/test.sh) degrade gracefully to
+                    # "engineer self-report only".
+                    runtime_probe: str | None = None
+                    if _bool_env(
+                        "ARGUS_SKILL_HARBOR_RUNTIME_PROBE", default=True
+                    ):
+                        try:
+                            runtime_probe = await self._collect_runtime_probe(
+                                environment=environment, env=env
+                            )
+                        except Exception as exc:  # pragma: no cover - defensive
+                            self.logger.warning(
+                                "round %d runtime probe raised %s: %s",
+                                round_idx, type(exc).__name__, exc,
+                            )
+
+                    verifier_check: dict | None = None
+                    if _bool_env(
+                        "ARGUS_SKILL_HARBOR_V12_VERIFIER", default=True
+                    ):
+                        try:
+                            verifier_check = await self._collect_v12_verifier(
+                                environment=environment, env=env
+                            )
+                            if verifier_check is not None:
+                                self.logger.info(
+                                    "round %d v12 verifier: %s exit=%s in %.1fs",
+                                    round_idx,
+                                    "PASS" if verifier_check.get("passed") else "FAIL",
+                                    verifier_check.get("exit_code"),
+                                    verifier_check.get("elapsed_s") or 0.0,
+                                )
+                        except Exception as exc:  # pragma: no cover - defensive
+                            self.logger.warning(
+                                "round %d v12 verifier raised %s: %s",
+                                round_idx, type(exc).__name__, exc,
+                            )
+
+                    raw_evidence = _format_v12_evidence(
+                        engineer_self_report=last_msg,
+                        runtime_probe=runtime_probe,
+                        verifier_check=verifier_check,
+                    )
+                    round_record["v12_evidence"] = {
+                        "runtime_probe_present": bool(runtime_probe),
+                        "verifier_present": verifier_check is not None,
+                        "verifier_passed": (
+                            bool(verifier_check.get("passed"))
+                            if verifier_check is not None
+                            else None
+                        ),
+                    }
+
                     try:
                         review_decision = await self._run_reviewer_on_host(
                             instruction=instruction,
@@ -546,11 +997,15 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                             round_idx=round_idx,
                             thread_id=last_thread_id,
                             engineer_exit_code=exit_code,
+                            checks=round_checks,
+                            raw_evidence=raw_evidence,
                         )
                         round_record["review_status"] = review_decision.get("status")
                         round_record["review_confidence"] = review_decision.get(
                             "confidence"
                         )
+                        total_reviewer_input_tokens += review_decision.get("input_tokens", 0)
+                        total_reviewer_output_tokens += review_decision.get("output_tokens", 0)
                     except Exception as exc:  # pragma: no cover - defensive
                         self.logger.warning(
                             "round %d reviewer raised %s: %s — ignoring",
@@ -558,7 +1013,10 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                         )
                         round_record["review_status"] = "reviewer_error"
                 else:
-                    round_record["review_status"] = "skipped"
+                    round_record["review_status"] = (
+                        "skipped_clean_r1" if failure_mode is None else "skipped"
+                    )
+                    round_record["checks"] = []
 
                 rounds_summary.append(round_record)
 
@@ -570,10 +1028,9 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
 
                 # Decide whether to retry.
                 if failure_mode is None:
-                    # R1 completed cleanly. Trust it (sc-A parity).
-                    if reviewer_gate and review_decision is not None:
-                        # Legacy gate: reviewer disagreement still triggers
-                        # another round.
+                    # R1 completed cleanly.  v12 behaviour: if
+                    # reviewer ran and said "continue", do R2.
+                    if review_decision is not None:
                         status = review_decision.get("status")
                         if status == "continue" and round_idx < max_rounds:
                             last_review_feedback = (
@@ -583,6 +1040,10 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                             )
                             last_round_summary = last_msg or last_round_summary
                             last_round_failure = None
+                            self.logger.info(
+                                "round %d clean but reviewer said continue — retrying",
+                                round_idx,
+                            )
                             continue
                     break
 
@@ -609,6 +1070,66 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
         finally:
             with contextlib.suppress(Exception):
                 await self._cleanup_container(environment, env)
+
+            # ---- Full cost tracking ----
+            # Aggregate engineer cost from ALL codex session JSONLs (R1+R2+...),
+            # then add scientist + reviewer tokens.  Set on `context` so harbor
+            # uses our total instead of its single-session fallback.
+            reviewer_model = os.environ.get("ARGUS_SKILL_HARBOR_REVIEWER_MODEL", "gpt-5.4")
+            scientist_model_name = prep.scientist_model or "gpt-5.4"
+            cost_breakdown: dict[str, Any] = {}
+            with contextlib.suppress(Exception):
+                sessions_dir = self.logs_dir / "sessions"
+                eng = _sum_all_session_tokens(sessions_dir)
+                eng_cost = _compute_model_cost_usd(
+                    self.model_name or model,
+                    eng["total_input"], eng["total_output"], eng["total_cached"],
+                )
+                sci_cost = _compute_model_cost_usd(
+                    scientist_model_name,
+                    prep.scientist_input_tokens, prep.scientist_output_tokens,
+                )
+                rev_cost = _compute_model_cost_usd(
+                    reviewer_model,
+                    total_reviewer_input_tokens, total_reviewer_output_tokens,
+                )
+                total_input = (
+                    eng["total_input"]
+                    + prep.scientist_input_tokens
+                    + total_reviewer_input_tokens
+                )
+                total_output = (
+                    eng["total_output"]
+                    + prep.scientist_output_tokens
+                    + total_reviewer_output_tokens
+                )
+                total_cost = sum(c for c in (eng_cost, sci_cost, rev_cost) if c is not None)
+
+                context.cost_usd = total_cost or None
+                context.n_input_tokens = total_input
+                context.n_output_tokens = total_output
+                context.n_cache_tokens = eng["total_cached"]
+
+                cost_breakdown = {
+                    "engineer_input": eng["total_input"],
+                    "engineer_output": eng["total_output"],
+                    "engineer_cached": eng["total_cached"],
+                    "engineer_sessions": len(eng["sessions"]),
+                    "engineer_cost_usd": eng_cost,
+                    "scientist_input": prep.scientist_input_tokens,
+                    "scientist_output": prep.scientist_output_tokens,
+                    "scientist_cost_usd": sci_cost,
+                    "reviewer_input": total_reviewer_input_tokens,
+                    "reviewer_output": total_reviewer_output_tokens,
+                    "reviewer_cost_usd": rev_cost,
+                    "total_cost_usd": total_cost,
+                }
+                self.logger.info(
+                    "full cost: eng=$%.4f (%d sess) sci=$%.4f rev=$%.4f total=$%.4f",
+                    eng_cost or 0, len(eng["sessions"]),
+                    sci_cost or 0, rev_cost or 0, total_cost,
+                )
+
             with contextlib.suppress(Exception):
                 _write_decision({
                     "ts": datetime.now(timezone.utc).isoformat(),
@@ -626,8 +1147,22 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                     "rounds": rounds_summary,
                     "no_reviewer": no_reviewer,
                     "reviewer_gate": reviewer_gate,
+                    "skip_clean_reviewer": skip_clean_reviewer,
+                    "checks_commands": list(checks_commands),
+                    "checks_timeout_s": checks_timeout,
                     "run_error": run_error,
+                    "cost_breakdown": cost_breakdown,
                 })
+
+    # ----------------------------------------------------------------------
+    # Cost tracking: override harbor's single-session fallback
+    # ----------------------------------------------------------------------
+
+    def populate_context_post_run(self, context: "AgentContext") -> None:
+        """No-op: we set context.cost_usd etc. in run() with full multi-session
+        + scientist + reviewer totals.  Harbor calls this fallback only when
+        context.is_empty(), which won't be True if run() succeeded."""
+        pass
 
     # ----------------------------------------------------------------------
     # Phase helpers (mostly mirroring Harbor's stock Codex.run)
@@ -776,6 +1311,8 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
         round_idx: int,
         thread_id: str | None,
         engineer_exit_code: int,
+        checks: list[dict] | None = None,
+        raw_evidence: str = "",
     ) -> dict:
         """Run argus-skill's reviewer on the host. Returns a JSON-friendly dict.
 
@@ -787,6 +1324,18 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
         ``main_error`` so a non-zero exit becomes an explicit signal
         (otherwise the reviewer only sees the last agent message and
         cannot tell whether the engineer crashed mid-task).
+
+        ``checks`` is the v4 priority-1 addition: serialised
+        ``CheckResult``-shaped dicts produced by ``_collect_checks``. We
+        accept dicts (not the dataclass) so the payload survives the
+        ``asyncio.to_thread`` hop without forcing every caller to import
+        argus-skill's models.
+
+        ``raw_evidence`` is the v12 phase-4 addition: the rendered
+        "Raw verification evidence:" block (engineer self-report +
+        runtime probe + official verifier with "ground truth, trust
+        this" framing). Empty string → legacy v3 behaviour (acceptance
+        check section only).
         """
         budget = _float_env("ARGUS_SKILL_HARBOR_REVIEWER_BUDGET", _DEFAULT_REVIEWER_BUDGET)
         main_error = (
@@ -803,6 +1352,8 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                     round_idx=round_idx,
                     thread_id=thread_id,
                     main_error=main_error,
+                    checks_data=list(checks or []),
+                    raw_evidence=raw_evidence,
                 ),
                 timeout=budget,
             )
@@ -813,6 +1364,214 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
             self.logger.warning("reviewer round %d raised: %s", round_idx, exc)
             return {"status": "continue", "reason": f"reviewer error: {exc}"}
         return decision
+
+    async def _collect_checks(
+        self,
+        *,
+        environment: BaseEnvironment,
+        env: dict[str, str],
+        commands: list[str],
+        timeout_sec: int,
+    ) -> list[dict]:
+        """Run user-configured acceptance check commands inside the container.
+
+        v4 priority-1 plumbing for "reviewer-sees-verifier". Each command
+        runs as the agent user with a per-command timeout; we capture the
+        combined stdout+stderr tail and exit code, never raise. The
+        returned dicts are CheckResult-shaped (``command``, ``exit_code``,
+        ``passed``, ``output_tail``) so the worker thread inside
+        ``_invoke_reviewer`` can rehydrate them as ``CheckResult`` for
+        ``Reviewer.evaluate``.
+
+        On any per-command exception (timeout, shell error) we still emit
+        a ``CheckResult``-shaped dict with ``exit_code = -1`` and the
+        exception text in the tail — silent skipping would let the
+        reviewer think "no acceptance checks configured" and reverse the
+        whole point of this hook.
+        """
+        if not commands:
+            return []
+        results: list[dict] = []
+        for cmd in commands:
+            t0 = time.time()
+            try:
+                # ``2>&1`` merges stderr into stdout so a single tail
+                # captures both. ``set -o pipefail`` is unnecessary here:
+                # we only run one command per check (no pipes downstream).
+                result = await environment.exec(
+                    command=f"{cmd} 2>&1",
+                    env=env,
+                    timeout_sec=timeout_sec,
+                )
+                stdout = _exec_output_text(result)
+                exit_code = int(result.return_code)
+                results.append(
+                    {
+                        "command": cmd,
+                        "exit_code": exit_code,
+                        "passed": exit_code == 0,
+                        "output_tail": _tail_check_output(stdout),
+                        "elapsed_s": round(time.time() - t0, 2),
+                    }
+                )
+            except RuntimeError as exc:
+                # Harbor's docker exec raises RuntimeError on timeout
+                # (e.g. "Command timed out after 60 seconds"). Surface
+                # the timeout to the reviewer as a hard FAIL, not a
+                # silent skip.
+                self.logger.warning(
+                    "acceptance check %r raised RuntimeError (likely timeout): %s",
+                    cmd, exc,
+                )
+                results.append(
+                    {
+                        "command": cmd,
+                        "exit_code": -1,
+                        "passed": False,
+                        "output_tail": _tail_check_output(
+                            f"<check failed: RuntimeError: {exc}>"
+                        ),
+                        "elapsed_s": round(time.time() - t0, 2),
+                    }
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                self.logger.warning(
+                    "acceptance check %r raised %s: %s",
+                    cmd, type(exc).__name__, exc,
+                )
+                results.append(
+                    {
+                        "command": cmd,
+                        "exit_code": -1,
+                        "passed": False,
+                        "output_tail": _tail_check_output(
+                            f"<check failed: {type(exc).__name__}: {exc}>"
+                        ),
+                        "elapsed_s": round(time.time() - t0, 2),
+                    }
+                )
+        return results
+
+    async def _collect_runtime_probe(
+        self,
+        *,
+        environment: BaseEnvironment,
+        env: dict[str, str],
+        timeout_sec: int = _V12_RUNTIME_PROBE_TIMEOUT_SEC,
+    ) -> str | None:
+        """v12 phase-4: independent post-round container snapshot.
+
+        Runs the canonical ``ls -la /app`` + ``ss -tlnp`` + ``ps -ef`` +
+        ``head /app/output*`` probe inside the container, capped at
+        ``_V12_RUNTIME_PROBE_MAX_LINES`` lines so the reviewer prompt
+        stays bounded. Returns ``None`` on any failure (we surface
+        runtime-probe absence to the reviewer as "no probe data" rather
+        than fail the whole reviewer call — engineer self-report +
+        verifier are still strong enough on their own).
+        """
+        try:
+            result = await environment.exec(
+                command=f"bash -c {shlex.quote(_V12_RUNTIME_PROBE_CMD)}",
+                env=env,
+                timeout_sec=timeout_sec,
+            )
+            stdout = (result.stdout or "").strip()
+            if not stdout:
+                return None
+            lines = stdout.splitlines()
+            if len(lines) > _V12_RUNTIME_PROBE_MAX_LINES:
+                truncated = _V12_RUNTIME_PROBE_MAX_LINES
+                kept = lines[:truncated]
+                kept.append(
+                    f"<... {len(lines) - truncated} more probe lines truncated ...>"
+                )
+                lines = kept
+            return "\n".join(lines)
+        except Exception as exc:  # pragma: no cover - defensive
+            self.logger.warning(
+                "runtime probe failed (%s: %s) — reviewer will see "
+                "engineer self-report + verifier only",
+                type(exc).__name__, exc,
+            )
+            return None
+
+    async def _collect_v12_verifier(
+        self,
+        *,
+        environment: BaseEnvironment,
+        env: dict[str, str],
+        timeout_sec: int = _V12_VERIFIER_TIMEOUT_SEC,
+    ) -> dict | None:
+        """v12 phase-4: run the TB v2 official verifier (``bash /tests/test.sh``).
+
+        Self-skips when ``/tests/test.sh`` is absent (non-TB datasets,
+        which is fine — those use their own evidence path). Returns a
+        CheckResult-shaped dict, or ``None`` if the script doesn't
+        exist.
+        """
+        try:
+            # Probe existence first so non-TB-v2 datasets don't end up
+            # with a noisy "FAIL exit=127" verifier entry.
+            probe = await environment.exec(
+                command="test -f /tests/test.sh && echo exists || echo missing",
+                env=env,
+                timeout_sec=10,
+            )
+            if _exec_output_text(probe).strip() != "exists":
+                return None
+        except Exception as exc:  # pragma: no cover - defensive
+            self.logger.warning(
+                "v12 verifier presence probe raised %s: %s — skipping",
+                type(exc).__name__, exc,
+            )
+            return None
+
+        t0 = time.time()
+        try:
+            result = await environment.exec(
+                command=f"{_V12_VERIFIER_CMD} 2>&1",
+                env=env,
+                timeout_sec=timeout_sec,
+            )
+            stdout = _exec_output_text(result)
+            exit_code = int(result.return_code)
+            return {
+                "command": _V12_VERIFIER_CMD,
+                "exit_code": exit_code,
+                "passed": exit_code == 0,
+                "output_tail": _tail_check_output(
+                    stdout, max_chars=_V12_VERIFIER_TAIL_CHARS
+                ),
+                "elapsed_s": round(time.time() - t0, 2),
+            }
+        except RuntimeError as exc:
+            self.logger.warning(
+                "v12 verifier raised RuntimeError (likely timeout): %s", exc
+            )
+            return {
+                "command": _V12_VERIFIER_CMD,
+                "exit_code": -1,
+                "passed": False,
+                "output_tail": _tail_check_output(
+                    f"<verifier failed: RuntimeError: {exc}>",
+                    max_chars=_V12_VERIFIER_TAIL_CHARS,
+                ),
+                "elapsed_s": round(time.time() - t0, 2),
+            }
+        except Exception as exc:  # pragma: no cover - defensive
+            self.logger.warning(
+                "v12 verifier raised %s: %s", type(exc).__name__, exc
+            )
+            return {
+                "command": _V12_VERIFIER_CMD,
+                "exit_code": -1,
+                "passed": False,
+                "output_tail": _tail_check_output(
+                    f"<verifier failed: {type(exc).__name__}: {exc}>",
+                    max_chars=_V12_VERIFIER_TAIL_CHARS,
+                ),
+                "elapsed_s": round(time.time() - t0, 2),
+            }
 
     async def _cleanup_container(
         self, environment: BaseEnvironment, env: dict[str, str]
@@ -910,12 +1669,31 @@ def _invoke_reviewer(
     round_idx: int,
     thread_id: str | None,
     main_error: str | None = None,
+    checks_data: list[dict] | None = None,
+    raw_evidence: str = "",
 ) -> dict:
-    """Pure-sync wrapper around Reviewer.evaluate. Called via to_thread."""
+    """Pure-sync wrapper around Reviewer.evaluate. Called via to_thread.
+
+    ``checks_data`` is a list of CheckResult-shaped dicts (see
+    ``_collect_checks``). We rehydrate them into ``CheckResult`` here —
+    inside the worker thread — because the dataclass module is imported
+    lazily via ``_import_argus_skill``.
+
+    ``raw_evidence`` is the v12 phase-4 "Raw verification evidence:"
+    payload — already-rendered text (engineer self-report + runtime
+    probe + official verifier framing). Empty → legacy v3 behaviour.
+    """
     deps = _import_argus_skill()
     backend = deps["CodexRunnerBackend"](backend="codex")
     reviewer = deps["Reviewer"](backend)
     cfg = deps["ReviewerConfig"](
+        # v12 baseline: reviewer = gpt-5.4 @ medium effort. The earlier
+        # "cheap mini at low effort" tweak silently broke acceptance —
+        # mini @ low can't read engineer evidence carefully enough to
+        # tell false-positives from real `done`, and the cost saving
+        # is dwarfed by the wasted engineer rounds we then spend
+        # re-doing rejected work. Override for ablations via
+        # ARGUS_SKILL_HARBOR_REVIEWER_MODEL / _EFFORT.
         model=os.environ.get("ARGUS_SKILL_HARBOR_REVIEWER_MODEL", "gpt-5.4"),
         reasoning_effort=os.environ.get(
             "ARGUS_SKILL_HARBOR_REVIEWER_EFFORT", "medium"
@@ -923,6 +1701,23 @@ def _invoke_reviewer(
         skip_git_repo_check=True,
         full_auto=True,
     )
+    check_cls = deps["CheckResult"]
+    checks: list = []
+    for entry in checks_data or []:
+        try:
+            checks.append(
+                check_cls(
+                    command=str(entry.get("command", "")),
+                    exit_code=int(entry.get("exit_code", -1)),
+                    passed=bool(entry.get("passed", False)),
+                    output_tail=str(entry.get("output_tail", "")),
+                )
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning(
+                "could not rehydrate CheckResult from %r: %s — skipping",
+                entry, exc,
+            )
     decision = reviewer.evaluate(
         objective=instruction,
         operator_messages=None,
@@ -930,14 +1725,17 @@ def _invoke_reviewer(
         session_id=thread_id,
         main_summary=last_msg,
         main_error=main_error,
-        checks=[],
+        checks=checks,
         config=cfg,
+        raw_evidence=raw_evidence,
     )
     return {
         "status": decision.status,
         "confidence": decision.confidence,
         "reason": decision.reason,
         "next_action": decision.next_action,
+        "input_tokens": getattr(decision, "input_tokens", 0) or 0,
+        "output_tokens": getattr(decision, "output_tokens", 0) or 0,
     }
 
 

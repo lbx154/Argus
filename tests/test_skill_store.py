@@ -78,7 +78,9 @@ def test_save_distilled_extracts_name_and_description(tmp_path: Path) -> None:
         task_description="set up an nginx site",
         raw_distill_output=raw,
         scientist_model="gpt-5.4",
+        enforce_quality_gate=False,
     )
+    assert skill is not None
     assert skill.name == "Provision NGINX site"
     assert skill.description == "Serve a static site with nginx."
     assert skill.category == "nginx"

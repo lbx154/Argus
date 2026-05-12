@@ -29,10 +29,14 @@ from __future__ import annotations
 from .memory import (
     Backlog,
     BacklogItem,
+    GlobalMemory,
     IdentityCard,
     Journal,
     JournalEntry,
     LifeMemory,
+    MemoryBundle,
+    ProjectCard,
+    ProjectMemory,
 )
 
 # supervisor is imported lazily so a partial install / import-time failure
@@ -41,10 +45,14 @@ from .memory import (
 __all__ = [
     "Backlog",
     "BacklogItem",
+    "GlobalMemory",
     "IdentityCard",
     "Journal",
     "JournalEntry",
     "LifeMemory",
+    "MemoryBundle",
+    "ProjectCard",
+    "ProjectMemory",
 ]
 
 

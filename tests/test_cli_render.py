@@ -9,7 +9,6 @@ from __future__ import annotations
 from argus_skill.cli.render import render_event_for_terminal, render_welcome_banner
 from argus_skill.cli.theme import BOX, Theme
 
-
 _PLAIN = Theme(enabled=False, width=80)
 _ANSI = Theme(enabled=True, width=80)
 

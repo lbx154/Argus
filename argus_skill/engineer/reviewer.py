@@ -15,8 +15,9 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
-from ..core.models import CheckResult, ReviewDecision, RunnerOptions
+from ..core.models import CheckResult, ReviewDecision, ReviewStatus, RunnerOptions
 from ..core.ports import RunnerBackend
 from .checks import summarize_checks
 
@@ -53,6 +54,10 @@ class Reviewer:
         checks: list[CheckResult],
         config: ReviewerConfig,
         planner_review_instruction: str = "",
+        active_skill_id: str | None = None,
+        engineer_reasoning_summary: str = "",
+        prev_review_summary: str = "",
+        raw_evidence: str = "",
     ) -> ReviewDecision:
         prompt = self._build_prompt(
             objective=objective,
@@ -63,6 +68,10 @@ class Reviewer:
             main_summary=main_summary,
             main_error=main_error,
             checks=checks,
+            active_skill_id=active_skill_id,
+            engineer_reasoning_summary=engineer_reasoning_summary,
+            prev_review_summary=prev_review_summary,
+            raw_evidence=raw_evidence,
         )
         result = self.runner.run_exec(
             prompt=prompt,
@@ -78,6 +87,8 @@ class Reviewer:
             ),
             run_label="reviewer",
         )
+        rev_in = int(getattr(result, "input_tokens", 0) or 0)
+        rev_out = int(getattr(result, "output_tokens", 0) or 0)
         if not result.agent_messages:
             return ReviewDecision(
                 status="continue",
@@ -85,6 +96,8 @@ class Reviewer:
                 reason=f"Reviewer returned empty output. exit={result.exit_code}",
                 next_action="Continue implementation and provide concrete completed work.",
                 round_summary_markdown="# Review Summary\n\n- Reviewer returned empty output.\n",
+                input_tokens=rev_in,
+                output_tokens=rev_out,
             )
         parsed = _find_decision_in_messages(result.agent_messages)
         if parsed is None:
@@ -94,7 +107,15 @@ class Reviewer:
                 reason="Reviewer output was not valid JSON.",
                 next_action="Continue implementation and include clear completion evidence.",
                 round_summary_markdown="# Review Summary\n\n- Reviewer output was not valid JSON.\n",
+                input_tokens=rev_in,
+                output_tokens=rev_out,
             )
+        # Phase-2 instrumentation: cost-tracking sinks (e.g. LifeSupervisor's
+        # _CostTrackingSink) read these fields off ``round.review.completed``
+        # events. If we don't propagate them every iteration budget enforcement
+        # silently breaks and the journal shows ``cost_usd=$0.0000``.
+        parsed.input_tokens = rev_in
+        parsed.output_tokens = rev_out
         return _coerce_decision_against_main_summary(parsed, main_summary=main_summary)
 
     def _build_prompt(
@@ -108,6 +129,10 @@ class Reviewer:
         main_summary: str,
         main_error: str | None,
         checks: list[CheckResult],
+        active_skill_id: str | None = None,
+        engineer_reasoning_summary: str = "",
+        prev_review_summary: str = "",
+        raw_evidence: str = "",
     ) -> str:
         error_text = main_error or "none"
         check_text = summarize_checks(checks)
@@ -116,9 +141,33 @@ class Reviewer:
             if operator_messages
             else "- none"
         )
+        shared_context_block = _format_engineer_shared_context(
+            skill_used=active_skill_id,
+            engineer_reasoning_summary=engineer_reasoning_summary,
+            prev_review_summary=prev_review_summary,
+        )
+        # v12 phase-4: when callers (e.g. harbor_adapter) collect richer
+        # post-round evidence (engineer self-report verbatim, runtime probe,
+        # official verifier output with "ground truth, trust this" framing),
+        # they pass it as ``raw_evidence``. We append it after the
+        # acceptance-check section so the reviewer always has the strongest
+        # signal grounded in actual container state, not just the
+        # engineer's prose. Empty string → legacy v3 behaviour.
+        evidence_block = (
+            f"\nRaw verification evidence:\n{raw_evidence.rstrip()}\n"
+            if raw_evidence.strip()
+            else ""
+        )
         return (
             "You are the reviewer sub-agent for an argus-skill autoloop run.\n"
             "Decide whether the objective is fully complete.\n\n"
+            "**You have shell access via your tools.** When the main agent's\n"
+            "summary is missing verbatim verification output (pytest, ruff,\n"
+            "mypy, file listing, etc.), do NOT default to `continue` —\n"
+            "instead re-run the relevant commands yourself in the working\n"
+            "directory and use *your own* output as ground truth. Only\n"
+            "after you have ground truth do you decide. This costs 1 extra\n"
+            "command but saves an entire engineer round.\n\n"
             "Return valid JSON matching the provided schema.\n"
             "Do not wrap the response in markdown fences.\n\n"
             "**Length constraints (strictly enforce):**\n"
@@ -177,7 +226,23 @@ class Reviewer:
             "   a short placeholder or empty note.\n"
             "7) If status is `done`, `completion_summary_markdown` must quote\n"
             "   the concrete evidence (command + output) that establishes\n"
-            "   success. No evidence → not done.\n\n"
+            "   success. No evidence → not done.\n"
+            "8) Spec adherence: when the operator's request specifies CONCRETE\n"
+            "   STRUCTURAL CONSTRAINTS — exact file paths, module/package\n"
+            "   names, framework choice (e.g. `pytest` vs `unittest`),\n"
+            "   API signatures, return-type contracts, count of test cases,\n"
+            "   directory layout — the produced artifacts MUST match those\n"
+            "   constraints unless the agent explicitly justified the\n"
+            "   deviation in its summary AND the deviation is materially\n"
+            "   equivalent. Any unjustified structural deviation → `continue`\n"
+            "   with `next_action` naming the deviation (e.g. `the request\n"
+            "   asked for tracker.py + pytest tests, but the agent built an\n"
+            "   expense_tracker/ package using unittest. Either restructure\n"
+            "   to match the spec or justify the deviation in the summary`).\n"
+            "   Functional correctness alone is NOT sufficient when the\n"
+            "   operator gave a precise structural contract. This rule\n"
+            "   protects users who rely on exact paths/frameworks for\n"
+            "   downstream tooling.\n\n"
             f"Objective:\n{objective}\n\n"
             "Operator message history (source of truth for user instructions):\n"
             f"{operator_text}\n\n"
@@ -185,12 +250,49 @@ class Reviewer:
             f"{planner_review_instruction or 'none'}\n\n"
             f"Round: {round_index}\n"
             f"Session ID: {session_id or 'none'}\n"
+            f"{shared_context_block}"
             f"Main agent fatal error: {error_text}\n\n"
             "Main agent last summary:\n"
             f"{main_summary}\n\n"
             "Acceptance check results:\n"
             f"{check_text}\n"
+            f"{evidence_block}"
         )
+
+
+_MAX_SHARED_CTX_CHARS = 2000
+
+
+def _format_engineer_shared_context(
+    *,
+    skill_used: str | None,
+    engineer_reasoning_summary: str,
+    prev_review_summary: str,
+) -> str:
+    """Render the read-only shared context block injected into reviewer prompts.
+
+    Mirrors :func:`argus_skill.mission.reviewer._format_shared_context`
+    so the two reviewer surfaces stay aligned.
+    """
+    skill = (skill_used or "").strip()
+    reasoning = (engineer_reasoning_summary or "").strip()
+    prev = (prev_review_summary or "").strip()
+    if not skill and not reasoning and not prev:
+        return ""
+    parts = ["Shared read-only context (do NOT modify; advisory only):"]
+    if skill:
+        parts.append(f"- skill_used: {skill}")
+    if reasoning:
+        if len(reasoning) > _MAX_SHARED_CTX_CHARS:
+            reasoning = reasoning[:_MAX_SHARED_CTX_CHARS].rstrip() + "..."
+        indented = "\n".join("    " + line for line in reasoning.splitlines())
+        parts.append("- engineer_reasoning_summary:\n" + indented)
+    if prev:
+        if len(prev) > _MAX_SHARED_CTX_CHARS:
+            prev = prev[:_MAX_SHARED_CTX_CHARS].rstrip() + "..."
+        indented = "\n".join("    " + line for line in prev.splitlines())
+        parts.append("- previous_review_summary:\n" + indented)
+    return "\n".join(parts) + "\n\n"
 
 
 # ---------------------------------------------------------------------------
@@ -237,18 +339,22 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
     round_summary_markdown = _parse_round_summary(parsed)
     reason = _parse_reason(parsed, round_summary_markdown=round_summary_markdown)
     next_action = _parse_next_action(parsed, status=status)
-    completion_summary_markdown = _parse_optional_text(parsed.get("completion_summary_markdown"))
-    if any(
-        item is None
-        for item in [
-            confidence,
-            reason,
-            next_action,
-            round_summary_markdown,
-            completion_summary_markdown,
-        ]
+    completion_summary_markdown = _parse_optional_text(
+        parsed.get("completion_summary_markdown")
+    )
+    if (
+        confidence is None
+        or reason is None
+        or next_action is None
+        or round_summary_markdown is None
+        or completion_summary_markdown is None
     ):
         return None
+    assert confidence is not None
+    assert reason is not None
+    assert next_action is not None
+    assert round_summary_markdown is not None
+    assert completion_summary_markdown is not None
     return ReviewDecision(
         status=status,
         confidence=confidence,
@@ -269,14 +375,14 @@ def _load_json(text: str) -> dict | None:
     return value
 
 
-def _parse_status(parsed: dict) -> str | None:
+def _parse_status(parsed: dict) -> ReviewStatus | None:
     for key in ("status", "decision", "action"):
         value = parsed.get(key)
         if not isinstance(value, str):
             continue
         normalized = value.strip().lower()
         if normalized in {"done", "continue", "blocked"}:
-            return normalized
+            return cast(ReviewStatus, normalized)
     return None
 
 
@@ -406,6 +512,8 @@ def _coerce_decision_against_main_summary(
                 or "# Review Summary\n\n- Main summary was a generic acknowledgment without concrete execution evidence.\n"
             ),
             completion_summary_markdown="",
+            input_tokens=decision.input_tokens,
+            output_tokens=decision.output_tokens,
         )
     return decision
 

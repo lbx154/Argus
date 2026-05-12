@@ -8,12 +8,12 @@ engineer prompt is prepended with the advisory block and an
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
+from typing import Any, cast
 
 from argus_skill.core.models import RunnerResult
 from argus_skill.engineer.failed_tool_ledger import FailedToolLedger
-from argus_skill.engineer.reviewer import Reviewer, ReviewerConfig
+from argus_skill.engineer.reviewer import ReviewerConfig
 from argus_skill.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
@@ -52,12 +52,12 @@ class _ContinueReviewer:
 
 
 def _make_supervised(rec: _RecordingEngineer) -> SupervisedEngineer:
-    se = SupervisedEngineer.__new__(SupervisedEngineer)
-    se.engineer_runner = rec  # type: ignore[attr-defined]
-    se.engineer_config = EngineerConfig(model="stub")  # type: ignore[attr-defined]
-    se.reviewer = _ContinueReviewer()  # type: ignore[attr-defined]
-    se.reviewer_config = ReviewerConfig(model="stub")  # type: ignore[attr-defined]
-    return se
+    se = cast(Any, SupervisedEngineer.__new__(SupervisedEngineer))
+    se.engineer_runner = rec
+    se.engineer_config = EngineerConfig(model="stub")
+    se.reviewer = _ContinueReviewer()
+    se.reviewer_config = ReviewerConfig(model="stub")
+    return cast(SupervisedEngineer, se)
 
 
 def test_advisory_injected_into_round_prompt_when_ledger_has_pending(tmp_path: Path) -> None:

@@ -23,7 +23,6 @@ continuous improvement without human intervention.
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass, field
 
 from ..core.models import RunnerOptions
@@ -55,6 +54,8 @@ class CriticVerdict:
     reason: str
     improvements: list[Improvement] = field(default_factory=list)
     raw_text: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 _CRITIC_SYSTEM_PREAMBLE = (
@@ -120,6 +121,8 @@ class PlannerVerdict:
     reason: str
     new_tasks: list[TaskSpec] = field(default_factory=list)
     raw_text: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 _PLANNER_SYSTEM_PREAMBLE = (
@@ -218,6 +221,8 @@ class Critic:
             ),
             run_label=f"critic.cycle{cycles_done + 1}",
         )
+        input_tokens = int(getattr(result, "input_tokens", 0) or 0)
+        output_tokens = int(getattr(result, "output_tokens", 0) or 0)
         text = "\n".join(result.agent_messages or [])
         parsed = parse_critic_text(text)
         if parsed is None:
@@ -229,12 +234,16 @@ class Critic:
                 reason="critic returned unparseable output; defaulting to stop",
                 improvements=[],
                 raw_text=text,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
             )
         return CriticVerdict(
             stop=parsed.stop,
             reason=parsed.reason,
             improvements=parsed.improvements,
             raw_text=text,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
 
     # ------------------------------------------------------------------
@@ -305,6 +314,8 @@ class Critic:
             ),
             run_label=f"planner.cycle{planning_cycle}",
         )
+        input_tokens = int(getattr(result, "input_tokens", 0) or 0)
+        output_tokens = int(getattr(result, "output_tokens", 0) or 0)
         text = "\n".join(result.agent_messages or [])
         parsed = parse_planner_text(text)
         if parsed is None:
@@ -313,8 +324,17 @@ class Critic:
                 reason="planner returned unparseable output; defaulting to done",
                 new_tasks=[],
                 raw_text=text,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
             )
-        return parsed
+        return PlannerVerdict(
+            project_done=parsed.project_done,
+            reason=parsed.reason,
+            new_tasks=parsed.new_tasks,
+            raw_text=parsed.raw_text,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
 
     @staticmethod
     def _build_planner_prompt(
@@ -345,7 +365,73 @@ class Critic:
 # Parser
 # ---------------------------------------------------------------------------
 
-_JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
+def _iter_json_objects(text: str):
+    """Yield balanced top-level JSON object substrings from ``text``."""
+    start: int | None = None
+    depth = 0
+    in_string = False
+    escaped = False
+    for idx, ch in enumerate(text):
+        if start is None:
+            if ch == "{":
+                start = idx
+                depth = 1
+                in_string = False
+                escaped = False
+            continue
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                yield text[start:idx + 1]
+                start = None
+
+
+def _load_json_object_with_schema(
+    text: str,
+    *,
+    required_keys: tuple[str, ...],
+) -> tuple[dict, str] | None:
+    for blob in _iter_json_objects(text):
+        try:
+            data = json.loads(blob)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        if all(key in data for key in required_keys):
+            return data, blob
+    return None
+
+
+def _parse_json_bool(value: object, default: bool) -> bool:
+    """Coerce JSON-ish boolean payloads from model output.
+
+    The parser is intentionally tolerant of quoted booleans because LLM
+    output often serializes them as strings.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized == "true":
+            return True
+        if normalized == "false":
+            return False
+    if value is None:
+        return default
+    return bool(value)
 
 
 def parse_critic_text(text: str) -> CriticVerdict | None:
@@ -358,17 +444,14 @@ def parse_critic_text(text: str) -> CriticVerdict | None:
     """
     if not text:
         return None
-    m = _JSON_BLOCK_RE.search(text)
-    if not m:
+    found = _load_json_object_with_schema(
+        text,
+        required_keys=("stop", "reason", "improvements"),
+    )
+    if found is None:
         return None
-    blob = m.group(0)
-    try:
-        data = json.loads(blob)
-    except (TypeError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    stop = bool(data.get("stop", True))
+    data, blob = found
+    stop = _parse_json_bool(data.get("stop", True), True)
     reason = str(data.get("reason", ""))
     improvements_raw = data.get("improvements") or []
     improvements: list[Improvement] = []
@@ -406,17 +489,14 @@ def parse_planner_text(text: str) -> PlannerVerdict | None:
     """
     if not text:
         return None
-    m = _JSON_BLOCK_RE.search(text)
-    if not m:
+    found = _load_json_object_with_schema(
+        text,
+        required_keys=("project_done", "reason", "new_tasks"),
+    )
+    if found is None:
         return None
-    blob = m.group(0)
-    try:
-        data = json.loads(blob)
-    except (TypeError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    project_done = bool(data.get("project_done", True))
+    data, blob = found
+    project_done = _parse_json_bool(data.get("project_done", True), True)
     reason = str(data.get("reason", ""))
     tasks_raw = data.get("new_tasks") or []
     new_tasks: list[TaskSpec] = []

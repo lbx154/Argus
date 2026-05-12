@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -9,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from argus_skill.apps import _life_repl
+from argus_skill.daemon.life_worker import write_continuous_config
 from argus_skill.life.memory import BacklogItem, LifeMemory
 
 
@@ -23,7 +25,9 @@ def test_add_only_default_priority(mem: LifeMemory, capsys: pytest.CaptureFixtur
     assert item.max_cost_usd == 30.0
     assert item.iteration_max_cycles == 6
     assert item.iteration_budget_usd == 30.0
-    assert mem.backlog.next_pending().id == item.id
+    head = mem.backlog.next_pending()
+    assert head is not None
+    assert head.id == item.id
     out = capsys.readouterr().out
     assert "do the dishes" in out
 
@@ -43,6 +47,7 @@ def test_free_text_runs_just_typed_objective_not_older_pending(
 
     def fake_invoke(**kwargs: Any) -> dict[str, Any]:
         head = kwargs["mem"].backlog.next_pending()
+        assert head is not None
         captured["head_id"] = head.id if head else None
         captured["head_obj"] = head.objective if head else None
         return {"missions_run": 1, "total_cost_usd": 0.0}
@@ -68,6 +73,7 @@ def test_free_text_beats_aggressive_priority_zero_pending(mem: LifeMemory) -> No
 
     def fake_invoke(**kwargs: Any) -> dict[str, Any]:
         head = kwargs["mem"].backlog.next_pending()
+        assert head is not None
         captured["head_obj"] = head.objective if head else None
         return {"missions_run": 1, "total_cost_usd": 0.0}
 
@@ -180,6 +186,65 @@ def test_parse_add_flags_budget_dollar_sign() -> None:
     )
     assert budget == 50.0
     assert body.strip() == "fix the bug"
+
+
+def test_seed_chat_state_merges_cli_and_disk_continuous(tmp_path: Path) -> None:
+    mem = LifeMemory.open(tmp_path)
+    mem.init()
+    write_continuous_config(
+        tmp_path,
+        enabled=True,
+        objective="disk objective",
+        done_reason="planner declared project done",
+    )
+
+    chat_state, error = _life_repl._seed_chat_state(
+        argparse.Namespace(
+            backend="codex",
+            continuous=False,
+            objective="",
+        ),
+        mem,
+        theme=None,
+    )
+
+    assert error is None
+    assert chat_state["config"]["continuous"] is True
+    assert chat_state["continuous_objective"] == "disk objective"
+    state = chat_state["continuous_state"]
+    assert state.enabled is True
+    assert state.objective == "disk objective"
+    assert state.done_reason == ""
+    assert state.done_at == ""
+
+
+def test_backend_cmd_ignores_historical_continuous_objective(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    mem = LifeMemory.open(tmp_path)
+    mem.init()
+    write_continuous_config(
+        tmp_path,
+        enabled=False,
+        objective="historical objective",
+        done_reason="planner declared project done",
+    )
+
+    chat_state, error = _life_repl._seed_chat_state(
+        argparse.Namespace(
+            backend="codex",
+            continuous=False,
+            objective="",
+        ),
+        mem,
+        theme=None,
+    )
+
+    assert error is None
+    _life_repl._backend_cmd(["memory"], chat_state)
+    out = capsys.readouterr().out
+    assert "backend: memory" in out
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: I001
 """Build the README demo for ``argus-skill``.
 
 Writes ``docs/demo.cast`` (asciinema v2). When ``svg-term-cli`` is on
@@ -21,7 +22,6 @@ Run::
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -126,7 +126,7 @@ def main() -> int:
         mission_status="running",
         plan_mode="auto",
         auto_follow_up=False,
-        max_rounds=20,
+        max_rounds=500,
         objective="在 /tmp/argus-test-palette 用 Python 实现 hex↔rgb 调色板 CLI; ≥6 个 pytest 用例必须全过",
         state_dir="/home/u/.argus-skill/mission-state",
         daemon_pid=1974513,
@@ -135,8 +135,8 @@ def main() -> int:
 
     # 4. Engineer / reviewer round-loop events — fed through the actual renderer.
     EVENT_SCRIPT: list[tuple[dict, float]] = [
-        ({"type": "loop.started", "max_rounds": 20,
-          "text": "loop started — max_rounds=20, plan_mode=auto"}, 0.4),
+        ({"type": "loop.started", "max_rounds": 500,
+          "text": "loop started — max_rounds=500, plan_mode=auto"}, 0.4),
         ({"type": "match.info",
           "text": "querying matcher (gpt-5.4-mini) against 3/3 candidates"}, 0.5),
         ({"type": "match.info",
@@ -194,7 +194,7 @@ def main() -> int:
     type_out("/status", per=0.05)
     line("", 0.3)
     status_text = (
-        "mission mission_20260505T085108Z   done   round 2/20   phase=idle\n"
+        "mission mission_20260505T085108Z   done   round 2/500   phase=idle\n"
         "   objective: 在 /tmp/argus-test-palette 用 Python 实现 hex↔rgb 调色板 CLI\n"
         "   plan_mode: auto\n"
         "   last review: ✅ done — all checks passed; coverage is sufficient.\n"

@@ -15,13 +15,25 @@ from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
 
 SKILL_MD = (
     "## Title\nWrite a hello message\n\n"
-    "## Description\nGenerate a greeting for the user.\n\n"
+    "## Description\nGenerate a friendly greeting for any user-facing context — "
+    "this is the canonical playbook for any interaction where the agent should "
+    "respond with a short, well-formed acknowledgement message rather than "
+    "running tools or modifying files.\n\n"
     "## Category\nhello\n\n"
-    "## When to use\n- user asks to say hi\n- user requests a greeting\n\n"
-    "## When NOT to use\n- user wants production code\n\n"
-    "## How to solve\n- Read the task.\n- Print a greeting.\n\n"
-    "## Examples\n- 'say hi' → 'hello world'\n\n"
-    "## Response shape\n- Reply inline.\n"
+    "## When to use\n- user asks to say hi or greet someone\n"
+    "- user requests a friendly reply\n"
+    "- the live objective is purely conversational and no work is required\n\n"
+    "## When NOT to use\n- user wants production code or files modified\n"
+    "- the task description references writing tests or shipping a CLI\n"
+    "- the operator asks for analysis, debugging, or refactoring\n\n"
+    "## How to solve\n- Read the task and identify the desired tone.\n"
+    "- Compose a one-line greeting that answers without filler.\n"
+    "- Do not run shell commands or open editors.\n\n"
+    "## Examples\n- 'say hi' → reply with 'hello world'\n"
+    "- 'greet the user politely' → reply with 'Hi there — happy to help!'\n"
+    "- 'wave back at me' → reply with a single short greeting line\n\n"
+    "## Response shape\n- Reply inline with the greeting only.\n"
+    "- No code blocks, no tool invocations.\n"
 )
 
 

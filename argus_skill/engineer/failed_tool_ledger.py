@@ -27,7 +27,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable
 
-
 _DEFAULT_NUDGE_THRESHOLD = 2
 _DEFAULT_MAX_ERR_LEN = 600
 
@@ -129,7 +128,7 @@ class FailedToolLedger:
             parts.append(f"- **{tool}** failed {n}× this mission.")
             if last.detail:
                 parts.append(f"    last attempt: `{last.detail}`")
-            parts.append(f"    last error:")
+            parts.append("    last error:")
             parts.append("    ```")
             for line in last.error.splitlines()[:8] or [""]:
                 parts.append(f"    {line}")

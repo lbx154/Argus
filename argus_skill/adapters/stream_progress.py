@@ -9,7 +9,7 @@ one structured event per line — ``thread.started``, ``item.completed``
 We tap that callback here to surface live progress in the chat REPL.
 The raw stream lines are also forwarded as-is to the sink so the audit
 log keeps everything; the cooked ``engineer.progress`` events are what
-``chat_app`` renders in concise mode.
+the unified REPL renders in concise mode.
 
 Design choice: mirror ArgusBot's own event ingestion (see
 ``codex_autoloop/codex_runner.py::_consume_codex_event``) — we only

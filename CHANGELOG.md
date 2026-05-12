@@ -1,0 +1,155 @@
+# Changelog
+
+All notable changes to this project are documented here. The format is
+loosely [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
+the project adheres to semantic versioning once it leaves 0.x.
+
+## [Unreleased]
+
+### Changed
+- **Always-verbose, no toggle**: removed `verbose`/`quiet` runtime
+  toggles and the `/verbose` `/quiet` slash commands. The 7×24
+  lifetime-agent positioning means operators want to see every event
+  the engine emits — `LifeStderrSink` no longer filters by
+  `_USER_FACING_EVENTS` / `_VERBOSE_EVENTS` and prints everything that
+  isn't on the in-life silence list. The slash commands now print a
+  one-line note explaining the toggle was removed.
+- **Memory placeholder removed from user surfaces**: `--backend
+  memory`, `/backend memory`, the banner hint, and the "or run
+  `/backend memory`" fallback strings in error messages are gone.
+  Codex is the only production backend the REPL exposes. The
+  `_MemoryRunner` class is preserved as a programmatic test-only API
+  so the existing 500 tests still pass.
+- **Single 7×24 entry point**: `argus-skill` is now the only command.
+  The `run` and `list-skills` subcommands were removed — they
+  fragmented the lifetime-agent positioning. Use the REPL for both
+  one-shot tasks (`/add` then `/done`) and the persistent skill
+  cache (`/skills ls`).
+- **Daemon auto-spawned on REPL launch**: the cockpit now silently
+  spawns a detached background worker unless `--no-daemon` is passed
+  or one is already alive. The banner reports `daemon auto-spawned
+  (pid X)` when this happens.
+- **24h-friendly defaults**: `ARGUS_SKILL_DAILY_CAP_USD` raised from
+  $5 to $50, `ARGUS_SKILL_PER_MISSION_CAP_USD` from $1 to $1.5. Env
+  overrides still win.
+
+### Added
+- **Logout-survival probe**: `argus-skill --status` now reports the
+  user's `loginctl Linger` state on Linux, and warns operators that
+  the daemon may be killed at logout if linger is off (with the
+  exact `loginctl enable-linger` command to fix it). README has a
+  new "Will the daemon survive when I close the terminal / SSH / sleep?"
+  section explaining the detach mechanism (double-fork + setsid +
+  SIGHUP ignored) and the one OS-level caveat that remains.
+- **Daemon ignores SIGHUP** — belt-and-suspenders alongside the
+  existing `setsid`, so an over-eager process supervisor cannot
+  bring the 7×24 worker down with a stray SIGHUP.
+- **Iteration loop** — after a successful mission the supervisor
+  hands the artefact to a new Critic agent. If the critic finds
+  concrete operator-visible improvements, the same backlog item is
+  re-armed with a polished objective for another cycle, capped by
+  ``iteration_max_cycles`` (default 3) and ``iteration_budget_usd``
+  (default $2). Anti-vanity prompt rules reject rename/comment-polish
+  busywork. New REPL surface: `/add --once` opts a single item out;
+  `/stop <id>` disables iteration on an in-flight item; `/add
+  --cycles=N --budget=$X` overrides the limits per item. Banner row
+  shows `iterate on  default 3 cycles · $2 budget`.
+- **Critic agent** (`argus_skill.critic.Critic`) — stateless one-shot
+  critic with a tolerant JSON parser; safe-stops on unparseable
+  output instead of looping.
+- **Journal rotation** — when `journal.jsonl` exceeds 50 MiB the
+  next append rotates it to `journal.jsonl.1` so a 24/7 daemon
+  cannot fill its disk.
+- **Codex auth-failure detection** — known stderr patterns
+  (`Unauthorized`, `expired token`, etc.) emit a daemon-level
+  warning so an overnight token expiry surfaces instead of looping
+  silently on failed missions.
+
+### Fixed
+- **Codex backend cost reporting**: `_sum_token_counts` now reads the
+  `usage` field on `turn.completed` events (codex-cli ≥0.121 format),
+  in addition to the older top-level / nested-content shapes. Mission
+  journal entries previously reported `cost_usd=$0.0000` for every
+  codex run regardless of real token consumption.
+- **Multi-line piped stdin fragmenting into multiple missions**: when
+  stdin is not a TTY (heredoc, `< script.txt`, pipe), the REPL now
+  coalesces consecutive non-blank lines into a single logical message.
+  Blank lines and slash-command lines (e.g. `/exit`) act as boundaries.
+  Previously a 12-line task spec produced 4+ separate missions because
+  each line was dispatched individually.
+- **`argus-skill --status` hid `running` items**: orphan `running`
+  backlog items (left over from a killed REPL/daemon) appeared in no
+  status bucket. The status line now reports `running ⚠` and
+  `skipped` counts, with a hint that orphans will be reaped on the
+  next worker startup.
+
+### Changed
+- **Reviewer rule 8 (structural spec adherence)**: the reviewer prompt
+  now explicitly requires that produced artifacts match the operator's
+  structural constraints (file paths, framework choice such as pytest
+  vs unittest, package layout, API shape, test count). Unjustified
+  deviations must result in `continue`, not `done`, even when the
+  work is functionally correct.
+
+## [Earlier in this milestone]
+  - `argus-skill --daemon` spawns a detached background worker
+    (POSIX double-fork) that drains the backlog forever. Survives
+    REPL exit, logout, terminal close.
+  - `argus-skill --daemon-fg` runs the same worker in the foreground
+    (for systemd / debugging).
+  - `argus-skill --daemon-stop` sends SIGTERM and waits for graceful
+    exit.
+  - `argus-skill --status` prints daemon liveness + backlog summary
+    + recent journal without entering the REPL.
+  - REPL banner shows `⚡ daemon: pid X · up Yh` when a worker is
+    running. The lifetime-agent positioning is now observable, not
+    aspirational.
+  - Daemon and REPL coexist via separate PID locks (`daemon.pid` vs
+    `repl.pid`) and the atomic `Backlog.claim_next()` state machine.
+    Re-execution is impossible.
+  - systemd unit example shipped in README.
+- `argus-skill --version` flag.
+- `[project.optional-dependencies] codex` extra: `pip install
+  'argus-skill[codex]'` now installs ArgusBot from upstream in one step.
+- REPL banner preflight: when `backend=codex`, a launch-time warning is
+  printed if ArgusBot is missing or the `codex` binary is not on
+  `$PATH`. Avoids mid-mission surprise crashes.
+- `CONTRIBUTING.md` and `CHANGELOG.md`.
+- Backlog state-machine seal (`IllegalStateTransition`,
+  `Backlog.claim_next()`, `Backlog.reap_orphans()`) — terminal items can
+  never re-execute, and a process crash leaves them as `failed` instead
+  of silently re-running on the next launch.
+- Per-life-dir singleton lock (`<state>/repl.pid`). A second
+  `argus-skill` invocation against the same state dir exits 2 with a
+  clear message instead of corrupting `backlog.jsonl`.
+- Free-text input typed at the prompt jumps to head of backlog
+  (priority computed from existing items) instead of competing with
+  older queued missions.
+- Memory-backend lifecycle events now include `round_index`, `status`,
+  `reason`, `confidence` so the UI renders `Round 1` / `review ✅ done`
+  instead of `?` placeholders.
+
+### Changed
+- Default `--max-rounds` for `argus-skill run` aligned with the REPL
+  (3 → 20). Single source of truth.
+- PyPI classifier: Alpha → Beta.
+- README "Status" section rewritten to describe the actual product
+  surface (memory + codex backends, REPL-first).
+
+### Removed
+- `argus-skill base64` subcommand and `argus_skill.encoding` module.
+  Demo cruft that leaked into the public CLI; deleted.
+- `argus_skill/core/{supervisor,bus,daemon_client}.py` (~810 LOC) plus
+  their dedicated tests (~530 LOC). Phase-1 scaffolding never wired
+  into the REPL; resurrectable from git history if needed.
+- `apps/{chat,daemon,go,life,mission,up}_app.py` — replaced by the
+  single unified REPL.
+- README "Base64 helper" section.
+- Stale `pip install -e /path/to/ArgusBot` instructions across source
+  error messages — replaced with `pip install 'argus-skill[codex]'`.
+
+## [0.1.0]
+
+Initial public release. Supervised skill-driven coding agent: matcher →
+distiller → engineer → reviewer loop with a markdown skill cache and
+optional codex backend.

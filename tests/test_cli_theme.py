@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import os
 from unittest import mock
 
 from argus_skill.cli.theme import BOX, Theme
-
 
 # ── color toggling ────────────────────────────────────────────────────────
 

@@ -7,9 +7,12 @@ import time
 from pathlib import Path
 
 from argus_skill.daemon.life_worker import (
+    ContinuousConfigState,
     DaemonStatus,
     LifeWorker,
     LifeWorkerConfig,
+    _DaemonSink,
+    read_continuous_state,
     read_daemon_status,
     stop_daemon,
 )
@@ -103,6 +106,16 @@ def test_life_worker_drains_multiple_missions(tmp_path: Path) -> None:
     assert not t.is_alive()
 
 
+def test_daemon_sink_counts_life_mission_completed() -> None:
+    cfg = LifeWorkerConfig(life_dir=Path("/tmp"), backend="memory")
+    worker = LifeWorker(cfg)
+    sink = _DaemonSink(worker)
+
+    sink.handle_event({"type": "life.mission.completed"})
+
+    assert worker._missions_completed == 1
+
+
 def test_format_short_duration() -> None:
     from argus_skill.apps.cli import _format_short_duration
     assert _format_short_duration(0) == "0s"
@@ -154,6 +167,13 @@ def test_write_continuous_config_done_reason(tmp_path: Path) -> None:
     assert data["enabled"] is False
     assert data["done_reason"] == "planner said done"
     assert "done_at" in data
+    state = read_continuous_state(tmp_path)
+    assert state == ContinuousConfigState(
+        enabled=False,
+        objective="optimize everything",
+        done_reason="planner said done",
+        done_at=state.done_at,
+    )
 
 
 def test_read_continuous_config_malformed(tmp_path: Path) -> None:

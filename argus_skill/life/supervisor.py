@@ -366,6 +366,7 @@ class LifeSupervisor:
                 self.memory.journal.append(entry)
             except Exception:  # noqa: BLE001
                 log.exception("life supervisor: failed to journal orphan %s", it.id)
+            self._inject_cumulative_cost(entry)
             try:
                 from .notify import dispatch_journal_entry
                 dispatch_journal_entry(entry)
@@ -462,6 +463,7 @@ class LifeSupervisor:
                 tags=["budget"],
             )
             self.memory.journal.append(entry)
+            self._inject_cumulative_cost(entry)
             try:
                 from .notify import dispatch_journal_entry
                 dispatch_journal_entry(entry)
@@ -670,6 +672,7 @@ class LifeSupervisor:
             },
         )
         self.memory.journal.append(entry)
+        self._inject_cumulative_cost(entry)
         try:
             from .notify import dispatch_journal_entry
             dispatch_journal_entry(entry)
@@ -974,6 +977,19 @@ class LifeSupervisor:
                 lines.append(f"- {e.kind}: {e.summary}")
         return "\n".join(lines[-3:])
 
+    def _inject_cumulative_cost(self, entry: Any) -> None:
+        """Stamp ``cumulative_cost_usd`` onto ``entry.extra`` after it has
+        been appended to the journal (so the current entry is included)."""
+        try:
+            cumul = self.memory.journal.total_cost_since(0)
+            extra = getattr(entry, "extra", None)
+            if extra is None:
+                entry.extra = {"cumulative_cost_usd": round(cumul, 2)}
+            else:
+                extra["cumulative_cost_usd"] = round(cumul, 2)
+        except Exception:  # noqa: BLE001
+            pass
+
     # ------------------------------------------------------------------
     # Hot-reload continuous config
     # ------------------------------------------------------------------
@@ -1069,6 +1085,7 @@ class LifeSupervisor:
                 cost_usd=planner_cost_usd,
             )
             self.memory.journal.append(entry)
+            self._inject_cumulative_cost(entry)
             try:
                 from .notify import dispatch_journal_entry
                 dispatch_journal_entry(entry)
@@ -1104,6 +1121,7 @@ class LifeSupervisor:
             cost_usd=planner_cost_usd,
         )
         self.memory.journal.append(entry)
+        self._inject_cumulative_cost(entry)
         try:
             from .notify import dispatch_journal_entry
             dispatch_journal_entry(entry)

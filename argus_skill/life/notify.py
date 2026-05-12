@@ -163,8 +163,16 @@ def _format_telegram_message(payload: dict[str, Any]) -> str:
     if summary:
         s = summary if len(summary) <= 300 else summary[:297] + "…"
         lines.append(f"\n{s}")
+
+    # Cost: show both this-event and cumulative
+    cumul = (extra.get("cumulative_cost_usd") if isinstance(extra, dict) else None)
+    cost_parts: list[str] = []
     if cost is not None:
-        lines.append(f"\n💵 ${float(cost):.2f}")
+        cost_parts.append(f"本次 ${float(cost):.2f}")
+    if cumul is not None:
+        cost_parts.append(f"累计 ${float(cumul):.2f}")
+    if cost_parts:
+        lines.append(f"\n💵 {' · '.join(cost_parts)}")
 
     # Iteration / rounds info from extra
     if isinstance(extra, dict):

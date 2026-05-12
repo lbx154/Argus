@@ -5,15 +5,15 @@ The daemon side stays untouched — it emits raw structured events to
 JSONL outbox; only this layer turns them into pretty terminal output.
 """
 
-from .theme import Theme, default_theme
-from .render import render_event_for_terminal, render_welcome_banner
 from .branding import (
-    LOGO_FULL,
     LOGO_COMPACT,
+    LOGO_FULL,
     TAGLINE,
     render_logo,
     render_startup_banner,
 )
+from .render import render_event_for_terminal, render_welcome_banner
+from .theme import Theme, default_theme
 
 __all__ = [
     "Theme",

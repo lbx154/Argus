@@ -12,7 +12,6 @@ import shutil
 import sys
 from dataclasses import dataclass
 
-
 # ── ANSI escape codes ──────────────────────────────────────────────────────
 
 _RESET = "\x1b[0m"
@@ -206,10 +205,6 @@ class Theme:
             )
             top = top_line
         bot = BOX["bl"] + h * (body_w + 2) + BOX["br"]
-        body = [
-            BOX["v"] + " " + ln + " " * (body_w - len(ln) + 1) + BOX["v"]
-            for ln in clipped
-        ]
         return "\n".join(
             [self.dim(top)] + [self.dim(BOX["v"]) + " " + ln + " " * (body_w - len(ln) + 1) + self.dim(BOX["v"])
                               for ln in clipped] + [self.dim(bot)]

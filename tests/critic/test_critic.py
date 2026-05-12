@@ -13,7 +13,6 @@ from argus_skill.critic import (
     CriticVerdict,
     Improvement,
     PlannerVerdict,
-    TaskSpec,
     parse_critic_text,
     parse_planner_text,
     render_iteration_objective,
@@ -34,6 +33,14 @@ def test_parse_stop_true_clears_improvements():
 
 def test_parse_stop_false_with_no_improvements_flips_to_stop():
     txt = '{"stop": false, "reason": "", "improvements": []}'
+    v = parse_critic_text(txt)
+    assert v is not None
+    assert v.stop is True
+    assert "no concrete" in v.reason.lower()
+
+
+def test_parse_stop_false_string_with_no_improvements_flips_to_stop():
+    txt = '{"stop": "false", "reason": "", "improvements": []}'
     v = parse_critic_text(txt)
     assert v is not None
     assert v.stop is True
@@ -82,6 +89,21 @@ def test_parse_handles_markdown_fences_and_prose():
     v = parse_critic_text(txt)
     assert v is not None
     assert v.stop is True
+
+
+def test_parse_critic_text_ignores_brace_heavy_prose() -> None:
+    txt = (
+        "note: {this is not the verdict}\n"
+        "```text\nbrace-y prose {still not verdict}\n```\n"
+        '{"stop": false, "reason": "needs one more pass", "improvements": '
+        '[{"title": "add edge-case test", "rationale": "brace noise hid the JSON", '
+        '"acceptance": "pytest -q tests/critic/test_critic.py"}]}\n'
+        "postscript: {ignore this too}\n"
+    )
+    v = parse_critic_text(txt)
+    assert v is not None
+    assert v.stop is False
+    assert v.improvements[0].title == "add edge-case test"
 
 
 def test_parse_returns_none_for_empty():
@@ -215,7 +237,7 @@ def test_evaluate_passes_run_label_to_runner():
             run_label=run_label,
         )
 
-    runner.run_exec = strict_run_exec  # type: ignore[method-assign]
+    runner.run_exec = strict_run_exec
     Critic(runner).evaluate(
         original_objective="x",
         latest_completion_summary="y",
@@ -232,7 +254,7 @@ def test_evaluate_passes_run_label_to_runner():
 def test_critic_verdict_dataclass_is_frozen():
     v = CriticVerdict(stop=True, reason="x")
     try:
-        v.stop = False  # type: ignore[misc]
+        v.stop = False
     except Exception:
         return
     raise AssertionError("CriticVerdict should be frozen")
@@ -249,6 +271,14 @@ def test_parse_planner_project_done():
     assert v.project_done is True
     assert v.reason == "everything is clean"
     assert v.new_tasks == []
+
+
+def test_parse_planner_project_done_string_false():
+    text = '{"project_done": "false", "reason": "needs work", "new_tasks": [{"title": "fix tests", "objective": "run pytest and fix failures"}]}'
+    v = parse_planner_text(text)
+    assert v is not None
+    assert v.project_done is False
+    assert len(v.new_tasks) == 1
 
 
 def test_parse_planner_new_tasks():
@@ -309,10 +339,23 @@ def test_parse_planner_tolerates_markdown_fences():
     assert len(v.new_tasks) == 1
 
 
+def test_parse_planner_text_ignores_brace_heavy_prose() -> None:
+    txt = (
+        "planner notes: {not the verdict}\n"
+        '{"project_done": false, "reason": "needs one task", "new_tasks": '
+        '[{"title": "tighten budget", "objective": "add a cache for remaining_today"}]}\n'
+        "afterword {still prose}\n"
+    )
+    v = parse_planner_text(txt)
+    assert v is not None
+    assert v.project_done is False
+    assert v.new_tasks[0].title == "tighten budget"
+
+
 def test_planner_verdict_dataclass_is_frozen():
     v = PlannerVerdict(project_done=True, reason="done")
     try:
-        v.project_done = False  # type: ignore[misc]
+        v.project_done = False
     except Exception:
         return
     raise AssertionError("PlannerVerdict should be frozen")

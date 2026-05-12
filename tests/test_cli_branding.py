@@ -11,7 +11,6 @@ from argus_skill.cli.branding import (
 )
 from argus_skill.cli.theme import Theme
 
-
 _PLAIN = Theme(enabled=False, width=100)
 
 
@@ -73,7 +72,7 @@ def test_banner_mission_block_renders_id_status_objective() -> None:
         mission_id="mission_abc",
         mission_status="running",
         plan_mode="auto",
-        max_rounds=20,
+        max_rounds=500,
         objective="在 /tmp/foo 实现 X",
         state_dir="/home/u/.argus-skill/mission-state",
         daemon_pid=4242,
@@ -81,7 +80,7 @@ def test_banner_mission_block_renders_id_status_objective() -> None:
     assert "mission_abc" in out
     assert "running" in out
     assert "auto" in out
-    assert "max_rounds=20" in out
+    assert "max_rounds=500" in out
     assert "在 /tmp/foo 实现 X" in out
     assert "/home/u/.argus-skill/mission-state" in out
     assert "pid=4242" in out
@@ -204,4 +203,3 @@ def test_banner_auto_follow_up_off_uses_green_when_colored() -> None:
     # Off → green (32). On → yellow (33).
     assert "\x1b[1m\x1b[32m" in out_off  # bold green
     assert "\x1b[33m" in out_on            # yellow somewhere
-

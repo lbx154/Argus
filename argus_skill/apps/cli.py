@@ -149,10 +149,39 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _continuous_contract_error(
+    *,
+    continuous: bool,
+    objective: str,
+    backend: str,
+) -> str:
+    objective = objective.strip()
+    if objective and not continuous:
+        return "--objective requires --continuous"
+    if continuous and not objective:
+        return "--continuous requires a non-empty --objective"
+    if continuous and backend == "memory":
+        return (
+            "--continuous requires a planning-capable life backend; "
+            "ARGUS_SKILL_LIFE_BACKEND=memory cannot plan"
+        )
+    return ""
+
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    args.skill_stats = bool(args.skill_stats or args.skill_stats_json)
+    backend_default = os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
+    continuous_error = _continuous_contract_error(
+        continuous=bool(args.continuous),
+        objective=str(getattr(args, "objective", "") or ""),
+        backend=backend_default,
+    )
+    if continuous_error:
+        sys.stderr.write(f"argus-skill: {continuous_error}\n")
+        return 2
 
     # ---- mutual exclusion -----------------------------------------
     # Action-style flags pick exactly one mission; --no-daemon and
@@ -210,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
     repl_args = argparse.Namespace(
         life_dir=args.life_dir,
         color=None,
+        backend=backend_default,
         scientist_model=os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4"),
         engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL",
                                       "gpt-5.4-mini"),
@@ -220,6 +250,8 @@ def main(argv: list[str] | None = None) -> int:
         check=[],
         workdir=None,
         no_daemon=bool(args.no_daemon),
+        continuous=bool(args.continuous),
+        objective=str(getattr(args, "objective", "") or ""),
     )
     return run_life_chat_loop(repl_args)
 
@@ -237,9 +269,13 @@ def _resolve_life_dir(args: argparse.Namespace) -> Path:
 
 def _build_worker_config(args: argparse.Namespace):
     from ..daemon.life_worker import LifeWorkerConfig
+    backend = getattr(args, "backend", None) or os.environ.get(
+        "ARGUS_SKILL_LIFE_BACKEND",
+        "codex",
+    )
     return LifeWorkerConfig(
         life_dir=_resolve_life_dir(args),
-        backend=os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex"),
+        backend=backend,
         engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini"),
         reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.4"),
         scientist_model=os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4"),
@@ -253,6 +289,15 @@ def _build_worker_config(args: argparse.Namespace):
 
 def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
     from ..daemon.life_worker import run_foreground, spawn_detached_daemon
+    backend_default = os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
+    continuous_error = _continuous_contract_error(
+        continuous=bool(getattr(args, "continuous", False)),
+        objective=str(getattr(args, "objective", "") or ""),
+        backend=backend_default,
+    )
+    if continuous_error:
+        sys.stderr.write(f"argus-skill: {continuous_error}\n")
+        return 2
     cfg = _build_worker_config(args)
     if foreground:
         return run_foreground(cfg)
@@ -336,7 +381,7 @@ def _cmd_skill_compact(args: argparse.Namespace) -> int:
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
-    from ..daemon.life_worker import read_daemon_status
+    from ..daemon.life_worker import read_continuous_state, read_daemon_status
     from ..life.memory import LifeMemory
     life_dir = _resolve_life_dir(args)
     status = read_daemon_status(life_dir)
@@ -363,11 +408,25 @@ def _cmd_status(args: argparse.Namespace) -> int:
     if skipped:
         parts.append(f"{skipped} skipped")
     print(f"  backlog  : {' · '.join(parts)}")
+    # Total cost from journal
+    try:
+        total_cost = mem.journal.total_cost_since(0)
+        print(f"  cost     : ${total_cost:.2f} total")
+    except Exception:  # noqa: BLE001
+        pass
     if running and not (status.alive and status.pid is not None):
         print(
             "             ↳ orphan running items will be reaped to `failed` "
             "when a worker (REPL or --daemon) next starts."
         )
+    cont = read_continuous_state(life_dir)
+    print(f"  continuous: {'on' if cont.enabled else 'off'}")
+    if cont.objective:
+        print(f"    objective: {cont.objective}")
+    if cont.done_reason:
+        print(f"    done_reason: {cont.done_reason}")
+    if cont.done_at:
+        print(f"    done_at: {cont.done_at}")
     if journal_tail:
         print("  recent   :")
         for entry in journal_tail:

@@ -47,7 +47,7 @@ class SkillLoopConfig:
     engineer_reasoning_effort: str | None = None
     reviewer_reasoning_effort: str = "medium"
     matcher_reasoning_effort: str | None = None
-    max_rounds: int = 3
+    max_rounds: int = 500
     check_commands: list[str] = field(default_factory=list)
     check_timeout_seconds: int = 600
     no_progress_threshold: int = 2
@@ -139,12 +139,30 @@ class SkillLoop:
     # ------------------------------------------------------------------
 
     def run(self, task: str, *, workdir: Path | None = None, seed_thread_id: str | None = None,
-            failed_tool_ledger: Any | None = None) -> LoopOutcome:
+            failed_tool_ledger: Any | None = None,
+            objective_for_skill: str | None = None) -> LoopOutcome:
+        """Run one mission end-to-end.
+
+        ``task`` is the *full* prompt the engineer sees (typically a long
+        string with prelude, identity card, and live objective). It is
+        the right thing to feed to the engineer because round prompts are
+        meant to carry full context.
+
+        ``objective_for_skill`` is the *clean* operator objective, with
+        no prelude / boilerplate / identity-card prefix. It is what the
+        skill matcher, the distiller, and ``task_history`` should see —
+        otherwise we end up indexing skills under "### Memory context"
+        boilerplate (literally happened, see commit history).
+        Falls back to ``task`` when not supplied for back-compat.
+        """
         workdir = Path(workdir) if workdir else Path.cwd()
-        self._emit({"type": "loop.start", "text": f"task: {task[:120]}"})
+        skill_task = (objective_for_skill or task).strip() or task
+        self._emit({"type": "loop.start", "text": f"task: {skill_task[:120]}"})
 
         # Step 1: matcher
-        matched, _ = self.skill_store.find_relevant(task, on_event=self.on_event)
+        matched, matcher_tokens = self.skill_store.find_relevant(
+            skill_task, on_event=self.on_event,
+        )
         skill: Skill | None = matched[0] if matched else None
         skill_distilled = False
 
@@ -153,7 +171,7 @@ class SkillLoop:
             self._emit({"type": "scientist.start", "text": "no high-fit skill — distilling"})
             try:
                 distill_result = self.distiller.distill(
-                    task_description=task,
+                    task_description=skill_task,
                     config=DistillerConfig(
                         model=self.config.scientist_model,
                         reasoning_effort=self.config.scientist_reasoning_effort,
@@ -165,11 +183,12 @@ class SkillLoop:
                 )
                 if distill_result.last_agent_message.strip():
                     skill = self.skill_store.save_distilled(
-                        task_description=task,
+                        task_description=skill_task,
                         raw_distill_output=distill_result.last_agent_message,
                         scientist_model=self.config.scientist_model,
+                        on_event=self.on_event,
                     )
-                    skill_distilled = True
+                    skill_distilled = skill is not None
             except Exception as exc:
                 log.warning("scientist distill failed (%s: %s); proceeding without skill",
                             type(exc).__name__, exc)
@@ -211,7 +230,7 @@ class SkillLoop:
                 trajectory = self._summarize_trajectory(rounds)
                 self.skill_store.writeback_from_trajectory(
                     skill=skill,
-                    task_description=task,
+                    task_description=skill_task,
                     successful_trajectory=trajectory,
                     distiller=self.distiller if self.config.skill_revise_on_writeback else None,
                     scientist_model=self.config.scientist_model,
@@ -235,6 +254,22 @@ class SkillLoop:
             workdir=str(workdir),
             last_thread_id=last_thread_id,
         )
+        # Effectiveness telemetry — one structured event per mission so
+        # operators can compute hit-rate, mean-rounds-with-skill, and
+        # mean-rounds-without-skill from events.jsonl alone.
+        try:
+            self._emit({
+                "type": "skill.outcome",
+                "skill_name": skill_name or "",
+                "skill_hit": bool(skill_name) and not skill_distilled,
+                "skill_distilled": bool(skill_distilled),
+                "matcher_tokens": int(matcher_tokens or 0),
+                "rounds": int(len(rounds)),
+                "status": str(status),
+                "success": bool(status == "done"),
+            })
+        except Exception:  # noqa: BLE001
+            log.debug("skill.outcome emit failed", exc_info=True)
         self._emit({
             "type": "loop.done",
             "text": f"status={status} rounds={len(rounds)} reason={reason[:80]}",
@@ -279,9 +314,18 @@ class SkillLoop:
             )
         sections.append(
             "## Required output\n"
-            "Make concrete progress: read files, run commands, edit code\n"
-            "as needed. End with a brief summary of what you did and what\n"
-            "evidence proves it (commands run, tests passed, files changed)."
+            "Make concrete progress: read files, run commands, edit code as\n"
+            "needed.\n\n"
+            "End your response with a fenced markdown section titled\n"
+            "**`## Verification (verbatim)`** containing the *literal stdout*\n"
+            "of every acceptance command you ran this round — pytest summary\n"
+            "line, ruff result, mypy result, coverage table, `ls` output,\n"
+            "etc. Quote the actual lines, not paraphrases. Use a fenced\n"
+            "code block. The reviewer is text-only and must see the real\n"
+            "command output to judge completion; without it the round will\n"
+            "be marked `continue` and burn another cycle.\n\n"
+            "Below the verification block, add a short `## Summary`\n"
+            "section (≤8 bullets) describing what you changed."
         )
         return "\n\n".join(sections)
 

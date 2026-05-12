@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Protocol
 
 from ..core.models import (
     CheckResult,
@@ -52,11 +52,15 @@ class EngineerConfig:
 @dataclass
 class SupervisedConfig:
     """Knobs for the round-loop control."""
-    max_rounds: int = 3
+    max_rounds: int = 500
     check_commands: list[str] = field(default_factory=list)
     check_timeout_seconds: int = 600
     no_progress_threshold: int = 2  # consecutive rounds with no engineer message before bailing
     session_id: str | None = None
+
+
+class _AdvisoryLedger(Protocol):
+    def render_advisory(self) -> str: ...
 
 
 class SupervisedEngineer:
@@ -88,7 +92,7 @@ class SupervisedEngineer:
         workdir: Path,
         on_event: Callable[[dict], None] | None = None,
         seed_thread_id: str | None = None,
-        failed_tool_ledger: "object | None" = None,
+        failed_tool_ledger: _AdvisoryLedger | None = None,
     ) -> tuple[LoopStatus, list[RoundRecord], str, str, str | None]:
         """Run the supervised loop.
 
@@ -154,6 +158,24 @@ class SupervisedEngineer:
             engineer_message = engineer_result.last_agent_message or ""
             last_engineer_message = engineer_message or last_engineer_message
 
+            # Phase-2 instrumentation: emit ``round.main.completed`` so the
+            # supervisor's _CostTrackingSink can fold engineer-side token
+            # counts into the iteration budget. Without this event the
+            # cost sink only ever sees the reviewer half (and silently
+            # under-charges) — leading to ``cost_usd=$0`` in the journal
+            # when reviewer tokens were also missing pre-fix.
+            if on_event:
+                on_event({
+                    "type": "round.main.completed",
+                    "round_index": round_index,
+                    "session_id": current_thread_id,
+                    "exit_code": getattr(engineer_result, "exit_code", 0),
+                    "fatal_error": getattr(engineer_result, "fatal_error", None),
+                    "last_message": engineer_message,
+                    "input_tokens": int(getattr(engineer_result, "input_tokens", 0) or 0),
+                    "output_tokens": int(getattr(engineer_result, "output_tokens", 0) or 0),
+                })
+
             if not engineer_message.strip():
                 no_progress_streak += 1
             else:
@@ -172,6 +194,16 @@ class SupervisedEngineer:
                         "text": f"checks: {sum(1 for c in checks_results if c.passed)}/{len(checks_results)} pass",
                     })
 
+            prev_round = rounds[-1] if rounds else None
+            prev_review = getattr(prev_round, "review", None) if prev_round else None
+            prev_review_summary = ""
+            if prev_review is not None:
+                prev_review_summary = (
+                    getattr(prev_review, "round_summary_markdown", "")
+                    or getattr(prev_review, "reason", "")
+                    or ""
+                )
+
             review = self.reviewer.evaluate(
                 objective=objective,
                 round_index=round_index,
@@ -180,12 +212,23 @@ class SupervisedEngineer:
                 main_error=engineer_result.fatal_error,
                 checks=checks_results,
                 config=self.reviewer_config,
+                engineer_reasoning_summary=engineer_message or "",
+                prev_review_summary=prev_review_summary,
             )
             if on_event:
                 on_event({
-                    "type": "review.done",
-                    "round": round_index,
-                    "text": f"review: {review.status} (conf={review.confidence:.2f})",
+                    "type": "round.review.completed",
+                    "round_index": round_index,
+                    "status": review.status,
+                    "confidence": review.confidence,
+                    "reason": review.reason,
+                    "next_action": review.next_action,
+                    "round_summary_markdown": getattr(review, "round_summary_markdown", "") or "",
+                    "completion_summary_markdown": getattr(review, "completion_summary_markdown", "") or "",
+                    "failure_cause": getattr(review, "failure_cause", "") or "",
+                    "input_tokens": int(getattr(review, "input_tokens", 0) or 0),
+                    "output_tokens": int(getattr(review, "output_tokens", 0) or 0),
+                    "text": f"review: {review.status} (conf={review.confidence:.2f}) — {review.reason}",
                 })
             rounds.append(RoundRecord(
                 round_index=round_index,

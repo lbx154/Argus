@@ -15,7 +15,6 @@ from argus_skill.life.memory import (
     LifeMemory,
 )
 
-
 # ---------- Journal --------------------------------------------------------
 
 def test_journal_append_and_read(tmp_path: Path) -> None:
@@ -37,6 +36,43 @@ def test_journal_tail(tmp_path: Path) -> None:
         j.append(JournalEntry.new(kind="x", title=f"t{i}", summary="..."))
     tail = j.tail(3)
     assert [e.title for e in tail] == ["t7", "t8", "t9"]
+    assert j.tail(0) == []
+
+
+def test_journal_tail_preserves_rotated_history_in_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Journal, "ROTATE_BYTES", 256)
+    j = Journal(tmp_path / "journal.jsonl")
+    j.append(
+        JournalEntry.new(
+            kind="x",
+            title="old",
+            summary="o" * 300,
+            cost_usd=2.0,
+        )
+    )
+    j.append(JournalEntry.new(kind="x", title="mid", summary="m", cost_usd=3.0))
+    j.append(JournalEntry.new(kind="x", title="new", summary="n", cost_usd=5.0))
+
+    assert (tmp_path / "journal.jsonl.1").exists()
+    assert [e.title for e in j.tail(3)] == ["old", "mid", "new"]
+
+
+def test_journal_tail_does_not_call_read_jsonl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    j = Journal(tmp_path / "journal.jsonl")
+    for i in range(250):
+        j.append(JournalEntry.new(kind="x", title=f"t{i}", summary="..."))
+
+    def _boom(path: Path):  # noqa: ARG001
+        raise AssertionError("tail must not call _read_jsonl")
+
+    monkeypatch.setattr("argus_skill.life.memory._read_jsonl", _boom)
+
+    tail = j.tail(3)
+    assert [e.title for e in tail] == ["t247", "t248", "t249"]
 
 
 def test_journal_tolerates_partial_trailing_line(tmp_path: Path) -> None:
@@ -61,7 +97,9 @@ def test_backlog_add_pending_order(tmp_path: Path) -> None:
 
     pending = b.pending()
     assert [it.title for it in pending] == ["hi", "mid", "low"]
-    assert b.next_pending().id == hi.id
+    head = b.next_pending()
+    assert head is not None
+    assert head.id == hi.id
     # Untouched ids:
     assert {it.id for it in pending} == {low.id, hi.id, mid.id}
 
@@ -69,7 +107,9 @@ def test_backlog_add_pending_order(tmp_path: Path) -> None:
 def test_backlog_status_transitions(tmp_path: Path) -> None:
     b = Backlog(tmp_path / "backlog.jsonl")
     item = b.add(BacklogItem.new(title="t", objective="..."))
-    assert b.next_pending().id == item.id
+    head = b.next_pending()
+    assert head is not None
+    assert head.id == item.id
 
     b.mark_running(item.id)
     assert b.next_pending() is None  # running ≠ pending

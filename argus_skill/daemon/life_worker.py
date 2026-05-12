@@ -43,9 +43,11 @@ __all__ = [
     "LifeWorkerConfig",
     "LifeWorker",
     "DaemonStatus",
+    "ContinuousConfigState",
     "read_daemon_status",
     "stop_daemon",
     "spawn_detached_daemon",
+    "read_continuous_state",
     "read_continuous_config",
     "write_continuous_config",
 ]
@@ -82,8 +84,37 @@ class LifeWorkerConfig:
 # Disk-based continuous config (hot-reloadable by both daemon + REPL)
 # ---------------------------------------------------------------------------
 
+
+@dataclass(frozen=True)
+class ContinuousConfigState:
+    enabled: bool = False
+    objective: str = ""
+    done_reason: str = ""
+    done_at: str = ""
+
 def _continuous_config_path(life_dir: Path) -> Path:
     return life_dir / "continuous.json"
+
+
+def read_continuous_state(life_dir: Path) -> ContinuousConfigState:
+    """Read the full ``continuous.json`` state blob."""
+    path = _continuous_config_path(life_dir)
+    if not path.exists():
+        return ContinuousConfigState()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return ContinuousConfigState()
+        def _text(value: Any) -> str:
+            return "" if value is None else str(value)
+        return ContinuousConfigState(
+            enabled=bool(data.get("enabled", False)),
+            objective=_text(data.get("objective", "")),
+            done_reason=_text(data.get("done_reason", "")),
+            done_at=_text(data.get("done_at", "")),
+        )
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return ContinuousConfigState()
 
 
 def read_continuous_config(life_dir: Path) -> tuple[bool, str]:
@@ -91,16 +122,8 @@ def read_continuous_config(life_dir: Path) -> tuple[bool, str]:
 
     Returns ``(False, "")`` if the file is missing or malformed.
     """
-    path = _continuous_config_path(life_dir)
-    if not path.exists():
-        return False, ""
-    try:
-        data = json.loads(path.read_text())
-        enabled = bool(data.get("enabled", False))
-        objective = str(data.get("objective", ""))
-        return enabled, objective
-    except (OSError, json.JSONDecodeError, TypeError):
-        return False, ""
+    state = read_continuous_state(life_dir)
+    return state.enabled, state.objective
 
 
 def write_continuous_config(
@@ -307,7 +330,12 @@ class _DaemonSink:
 
     def handle_event(self, event: dict[str, Any]) -> None:
         kind = event.get("type") or event.get("kind") or ""
-        if kind in ("life.mission.done", "life.mission.failed", "life.mission.skipped"):
+        if kind in (
+            "life.mission.done",
+            "life.mission.completed",
+            "life.mission.failed",
+            "life.mission.skipped",
+        ):
             self._worker._missions_completed += 1
         log.debug("daemon event: %s %s", kind, event)
 

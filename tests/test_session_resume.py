@@ -23,7 +23,6 @@ from pathlib import Path
 from argus_skill import SkillLoop, SkillLoopConfig
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
 
-
 SKILL_MD = (
     "## Title\nDemo skill\n\n"
     "## Description\nA fixed playbook for the resume test.\n\n"

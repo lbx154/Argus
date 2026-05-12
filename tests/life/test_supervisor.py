@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 import pytest
 
+from argus_skill.core.models import RunnerResult
 from argus_skill.life.memory import (
     BacklogItem,
     JournalEntry,
@@ -101,6 +102,12 @@ class _RecordingSink:
     def handle_event(self, event: dict[str, Any]) -> None:
         self.events.append(event)
 
+    def handle_stream_line(self, stream: str, line: str) -> None:  # noqa: ARG002
+        return
+
+    def close(self) -> None:
+        return
+
 
 def _mk_memory(tmp_path: Path) -> LifeMemory:
     mem = LifeMemory.open(tmp_path)
@@ -161,6 +168,48 @@ def test_budget_subtracts_today_cost(tmp_path: Path) -> None:
     mem.journal.append(JournalEntry.new(kind="x", title="t", summary="s", cost_usd=2.0))
     b = LifeBudget(daily_cap_usd=5.0)
     assert b.remaining_today(mem.journal) == pytest.approx(3.0)
+
+
+def test_remaining_today_reuses_cached_history_scan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mem = _mk_memory(tmp_path)
+    rows = [{"ts": 9999999999.0, "cost_usd": 2.0}]
+    calls = {"n": 0}
+
+    def _fake_history(path):  # noqa: ARG001
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise AssertionError("remaining_today rescanned full history")
+        return rows
+
+    monkeypatch.setattr("argus_skill.life.memory._read_jsonl_history", _fake_history)
+    b = LifeBudget(daily_cap_usd=10.0)
+
+    first = b.remaining_today(mem.journal, now=1_700_000_000.0)
+    second = b.remaining_today(mem.journal, now=1_700_000_000.0)
+
+    assert first == pytest.approx(8.0)
+    assert second == pytest.approx(8.0)
+    assert calls["n"] == 1
+
+
+def test_rotation_preserves_remaining_today_across_journal_rollover(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("argus_skill.life.memory.Journal.ROTATE_BYTES", 256)
+    mem = _mk_memory(tmp_path)
+    mem.journal.append(
+        JournalEntry.new(kind="x", title="old", summary="o" * 300, cost_usd=2.0)
+    )
+    mem.journal.append(JournalEntry.new(kind="x", title="mid", summary="m", cost_usd=3.0))
+    mem.journal.append(JournalEntry.new(kind="x", title="new", summary="n", cost_usd=1.0))
+
+    assert (tmp_path / "journal.jsonl.1").exists()
+    b = LifeBudget(daily_cap_usd=10.0)
+    assert b.remaining_today(mem.journal) == pytest.approx(4.0)
 
 
 def test_budget_can_start_does_not_block_oversize_item(tmp_path: Path) -> None:
@@ -362,6 +411,69 @@ def test_prelude_threaded_into_runner(tmp_path: Path) -> None:
     prelude = runner.calls[0]["prelude_context"]
     assert "non-authoritative" in prelude.lower()
     assert "Database migration helper" in prelude
+
+
+def test_critic_journal_tail_uses_tail_not_all(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sup, _, _, mem = _mk_sup(tmp_path)
+    entries = [
+        JournalEntry.new(
+            kind="mission_complete",
+            title=f"hit-{i}",
+            summary=f"summary {i}",
+            extra={"item_id": "current"},
+        )
+        for i in range(6)
+    ]
+    tail_calls: list[int] = []
+
+    def _tail(n: int = 20):
+        tail_calls.append(n)
+        return entries
+
+    monkeypatch.setattr(mem.journal, "tail", _tail)
+    monkeypatch.setattr(
+        mem.journal,
+        "all",
+        lambda: pytest.fail("critic render must not read the full journal"),
+    )
+
+    out = sup._render_recent_journal_for_critic("current")
+
+    assert tail_calls == [6]
+    assert "summary 3" in out
+    assert "summary 5" in out
+
+
+def test_planner_journal_tail_uses_tail_not_all(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sup, _, _, mem = _mk_sup(tmp_path)
+    entries = [
+        JournalEntry.new(kind="planner_cycle", title=f"cycle-{i}", summary=f"summary {i}")
+        for i in range(20)
+    ]
+    tail_calls: list[int] = []
+
+    def _tail(n: int = 20):
+        tail_calls.append(n)
+        return entries
+
+    monkeypatch.setattr(mem.journal, "tail", _tail)
+    monkeypatch.setattr(
+        mem.journal,
+        "all",
+        lambda: pytest.fail("planner render must not read the full journal"),
+    )
+
+    out = sup._render_journal_for_planner()
+
+    assert tail_calls == [20]
+    assert "cycle-19" in out
+    assert "summary 0" in out
 
 
 def test_cost_recorded_in_journal_entry(tmp_path: Path) -> None:
@@ -631,6 +743,90 @@ def test_continuous_mode_planner_generates_new_tasks(tmp_path: Path) -> None:
     # planner_calls: 1 for planning after task one, 1 for critic evaluate
     # on task two (iterate=True by default), 1 for planning after task two
     assert planner_calls["n"] == 3
+
+
+def test_planner_budget_counts_planner_tokens(tmp_path: Path) -> None:
+    mem = _mk_memory(tmp_path)
+    mem.backlog.add(BacklogItem.new(
+        title="seed",
+        objective="do the first task",
+        iterate=False,
+    ))
+    sink = _RecordingSink()
+
+    class _TokenPlannerBackend:
+        def __init__(self) -> None:
+            self.planner_calls = 0
+            self.critic_calls = 0
+
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None, **kw):
+            if run_label.startswith("critic."):
+                self.critic_calls += 1
+                return RunnerResult(
+                    exit_code=0,
+                    agent_messages=['{"stop": true, "reason": "done", "improvements": []}'],
+                    input_tokens=0,
+                    output_tokens=0,
+                )
+
+            self.planner_calls += 1
+            if self.planner_calls == 1:
+                payload = (
+                    '{"project_done": false, "reason": "needs more work", '
+                    '"new_tasks": [{"title": "follow-up", "objective": "do task two"}]}'
+                )
+            else:
+                payload = (
+                    '{"project_done": true, "reason": "all good now", '
+                    '"new_tasks": []}'
+                )
+            return RunnerResult(
+                exit_code=0,
+                agent_messages=[payload],
+                input_tokens=750,
+                output_tokens=250,
+            )
+
+    runner = _FakeRunner(
+        engineer_in=0,
+        engineer_out=0,
+        reviewer_in=0,
+        reviewer_out=0,
+    )
+    backend = _TokenPlannerBackend()
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(per_mission_cap_usd=0.1, daily_cap_usd=0.5, max_missions=999),
+        continuous=True,
+        continuous_objective="optimize the project",
+    )
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=cfg,
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+        critic_runner=backend,
+    )
+
+    summary = sup.run()
+
+    planner_cost = (750 * 1.25 + 250 * 10.0) / 1_000_000
+    entries = mem.journal.all()
+    planner_entries = [e for e in entries if e.kind.startswith("planner")]
+
+    assert summary["stopped_by"] == "project_done"
+    assert summary["planning_cycles"] == 2
+    assert backend.planner_calls == 2
+    assert backend.critic_calls == 1
+    assert len(planner_entries) == 2
+    assert planner_entries[0].kind == "planner_cycle"
+    assert planner_entries[1].kind == "planner_done"
+    assert planner_entries[0].cost_usd == pytest.approx(planner_cost)
+    assert planner_entries[1].cost_usd == pytest.approx(planner_cost)
+    assert LifeBudget(daily_cap_usd=0.5).remaining_today(mem.journal) == pytest.approx(
+        0.5 - (planner_cost * 2)
+    )
 
 
 def test_non_continuous_mode_exits_on_empty_backlog(tmp_path: Path) -> None:

@@ -196,6 +196,26 @@ def test_token_count_extraction_handles_nested_content():
     assert (in_tok, out_tok) == (42, 7)
 
 
+def test_token_count_extraction_reads_codex_0_121_usage_field():
+    """codex-cli >=0.121 emits usage on turn.completed.
+
+    Regression test for the $0.0000 cost bug: previously _sum_token_counts
+    only inspected top-level / nested-content fields, so the usage payload
+    on turn.completed was silently ignored.
+    """
+    events = [
+        {"type": "thread.started", "thread_id": "x"},
+        {"type": "turn.started"},
+        {"type": "item.completed", "item": {"type": "agent_message", "text": "hi"}},
+        {
+            "type": "turn.completed",
+            "usage": {"input_tokens": 12944, "cached_input_tokens": 0, "output_tokens": 75},
+        },
+    ]
+    in_tok, out_tok = _sum_token_counts(events)
+    assert (in_tok, out_tok) == (12944, 75)
+
+
 def test_run_exec_forwards_watchdog_hooks(monkeypatch):
     """Watchdog hooks on argus-skill RunnerOptions must reach ArgusBot.
 

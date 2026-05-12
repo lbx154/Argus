@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["agent", "llm", "codex", "claude-code", "skills", "supervised", "reviewer", "loop"]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Environment :: Console",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
@@ -29,7 +29,14 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
+codex = [
+  # ArgusBot is the production codex backend. It is not yet on PyPI;
+  # pulled directly from github so `pip install 'argus-skill[codex]'`
+  # is one step.
+  "ArgusBot @ git+https://github.com/waltstephen/ArgusBot.git",
+]
 dev = [
+  "mypy>=1.8",
   "pytest>=7",
   "ruff>=0.4",
 ]
@@ -46,20 +53,42 @@ packages = ["argus_skill"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "argus_skill/engineer/reviewer_schema.json" = "argus_skill/engineer/reviewer_schema.json"
+"argus_skill/skills/__init__.py" = "argus_skill/skills/__init__.py"
+"argus_skill/skills/layered.py" = "argus_skill/skills/layered.py"
+"argus_skill/skills/lifecycle.py" = "argus_skill/skills/lifecycle.py"
+"argus_skill/skills/quality.py" = "argus_skill/skills/quality.py"
+"argus_skill/skills/store.py" = "argus_skill/skills/store.py"
 
 [tool.hatch.build.targets.sdist]
 include = [
-  "argus_skill",
-  "tests",
-  "docs",
+  "argus_skill/**",
+  "tests/**",
+  "docs/**",
   "README.md",
   "LICENSE",
 ]
 
+[tool.hatch.build.targets.sdist.force-include]
+"argus_skill/skills/__init__.py" = "argus_skill/skills/__init__.py"
+"argus_skill/skills/layered.py" = "argus_skill/skills/layered.py"
+"argus_skill/skills/lifecycle.py" = "argus_skill/skills/lifecycle.py"
+"argus_skill/skills/quality.py" = "argus_skill/skills/quality.py"
+"argus_skill/skills/store.py" = "argus_skill/skills/store.py"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["build", "dist", ".venv"]
+extend-exclude = [
+  "build",
+  "dist",
+  ".venv",
+  "benchmarks/swebench_pro",
+  "pyknotid-scratch",
+  "pyknotid_capability",
+]
 
 [tool.ruff.lint]
 select = ["F", "E", "I"]
@@ -81,3 +110,18 @@ testpaths = ["tests"]
 filterwarnings = [
   "ignore::DeprecationWarning",
 ]
+
+[tool.mypy]
+python_version = "3.11"
+files = [
+  "argus_skill",
+  "tests",
+]
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = ["codex_autoloop.*"]
+ignore_missing_imports = true

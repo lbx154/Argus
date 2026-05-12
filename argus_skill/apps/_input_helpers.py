@@ -14,7 +14,6 @@ import re
 import select
 import sys
 
-
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z~]")
 # Bracketed-paste markers some terminals inject around a paste burst.
 _BRACKETED_START = "\x1b[200~"
@@ -91,6 +90,13 @@ def drain_pasted_lines(timeout: float = 0.10, *, max_bytes: int = 65536) -> list
     return text.splitlines()
 
 
+def _stdin_is_tty() -> bool:
+    try:
+        return sys.stdin.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
 def read_pasted_message(prompt: str = "> ") -> str | None:
     """Read one logical message from stdin, preserving paste newlines.
 
@@ -99,9 +105,21 @@ def read_pasted_message(prompt: str = "> ") -> str | None:
     typically treat that as "ignore"). Pasted multi-line content is
     joined with ``\\n`` so code snippets, JSON blobs, etc. retain their
     structure when forwarded to the daemon / engineer.
+
+    When stdin is *not* a TTY (e.g. heredoc / piped script), select()-based
+    paste drain is unreliable because pipe buffering delivers lines in
+    bursts that don't align with terminal paste markers. In that mode we
+    instead aggregate consecutive non-empty lines into one logical message,
+    using a blank line (or a line starting with ``/``) as the boundary.
+    A leading ``/`` line is returned by itself so REPL slash-commands
+    still parse correctly when scripted.
     """
     sys.stdout.write(prompt)
     sys.stdout.flush()
+
+    if not _stdin_is_tty():
+        return _read_piped_block()
+
     try:
         first = input()
     except EOFError:
@@ -110,7 +128,49 @@ def read_pasted_message(prompt: str = "> ") -> str | None:
     if not extras:
         return first
     parts = [first, *extras]
-    # Drop pure-blank trailing lines (terminals often append one).
     while parts and parts[-1] == "":
         parts.pop()
     return "\n".join(parts)
+
+
+_piped_pushback: list[str] = []
+
+
+def _read_piped_block() -> str | None:
+    """Read one logical message from a non-TTY stdin.
+
+    Boundaries: blank line, EOF, or a slash-command line (which is
+    returned as a standalone message and the rest pushed back).
+    """
+    global _piped_pushback
+    buffer: list[str] = []
+
+    def _flush() -> str | None:
+        while buffer and buffer[-1] == "":
+            buffer.pop()
+        if not buffer:
+            return ""
+        return "\n".join(buffer)
+
+    while True:
+        if _piped_pushback:
+            line = _piped_pushback.pop(0)
+        else:
+            try:
+                line = input()
+            except EOFError:
+                if buffer:
+                    return _flush()
+                return None
+        stripped = line.strip()
+        if stripped == "":
+            if buffer:
+                return _flush()
+            continue
+        if stripped.startswith("/"):
+            if buffer:
+                # End current block; defer the slash-command to the next call.
+                _piped_pushback.insert(0, line)
+                return _flush()
+            return line
+        buffer.append(line)

@@ -8,15 +8,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+fcntl: Any = None
 try:
-    import fcntl  # type: ignore[attr-defined]
+    import fcntl as _fcntl
 except ImportError:  # pragma: no cover - Windows
-    fcntl = None
+    pass
+else:
+    fcntl = _fcntl
 
+msvcrt: Any = None
 try:
-    import msvcrt  # type: ignore[attr-defined]
+    import msvcrt as _msvcrt
 except ImportError:  # pragma: no cover - POSIX
-    msvcrt = None
+    pass
+else:
+    msvcrt = _msvcrt
 
 
 @dataclass

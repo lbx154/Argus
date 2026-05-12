@@ -1,0 +1,250 @@
+"""Skill-store compaction — merge near-duplicate playbooks.
+
+Why: as the daemon runs, near-identical skills accumulate (same family,
+slightly different framing). The matcher then has to score them all
+on every match (~14k tokens per call × N candidates). Without
+compaction the matcher cost grows linearly forever.
+
+Approach:
+
+  1. Cluster skills by ``category``, then within each category by
+     bag-of-words cosine similarity over (name, description, when_to_use).
+     Two skills join the same cluster when sim ≥ ``sim_threshold``.
+  2. For each cluster of size ≥ 2 we pick a representative (highest
+     ``version`` × ``len(task_history)`` heuristic — the most-reinforced)
+     and ``archive`` the rest via ``lifecycle.archive_skill``.
+  3. Optionally write a short ``merged-into:`` breadcrumb on the
+     representative so we can audit later.
+
+We deliberately avoid LLM-based merging in v1: it's expensive,
+non-deterministic, and the merged playbook would still need a
+quality-gate pass. Picking the strongest existing skill and
+archiving the rest already removes the matcher-cost tax and keeps the
+proven content. v2 can add a scientist-mediated "merge & rewrite"
+pass behind ``--smart``.
+"""
+from __future__ import annotations
+
+import logging
+import math
+import re
+from collections import Counter
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+log = logging.getLogger(__name__)
+
+DEFAULT_SIM_THRESHOLD = 0.55
+MIN_CLUSTER_SIZE = 2
+
+
+@dataclass
+class CompactionPlan:
+    clusters: list[list[Any]] = field(default_factory=list)
+    keep: list[Any] = field(default_factory=list)
+    archive: list[Any] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+    def render(self) -> str:
+        lines = [
+            "argus-skill — compaction plan",
+            "-" * 50,
+            f"clusters: {len(self.clusters)}    keep: {len(self.keep)}    "
+            f"archive: {len(self.archive)}",
+            "",
+        ]
+        for idx, cluster in enumerate(self.clusters, 1):
+            names = [getattr(s, "name", "?") for s in cluster]
+            keep = next(
+                (getattr(s, "name", "?") for s in cluster if s in self.keep), "?"
+            )
+            lines.append(f"cluster {idx}: {len(cluster)} skills")
+            lines.append(f"   keep    : {keep}")
+            archived = [n for n in names if n != keep]
+            for n in archived:
+                lines.append(f"   archive : {n}")
+        if self.notes:
+            lines.append("")
+            for note in self.notes:
+                lines.append(f"note: {note}")
+        return "\n".join(lines)
+
+
+def _tokenize(text: str) -> Counter:
+    text = (text or "").lower().replace("_", " ").replace("-", " ")
+    return Counter(t for t in re.findall(r"[a-z0-9]+", text) if len(t) >= 3)
+
+
+def _cosine(a: Counter, b: Counter) -> float:
+    if not a or not b:
+        return 0.0
+    common = set(a) & set(b)
+    num = sum(a[k] * b[k] for k in common)
+    if num == 0:
+        return 0.0
+    da = math.sqrt(sum(v * v for v in a.values()))
+    db = math.sqrt(sum(v * v for v in b.values()))
+    if da == 0 or db == 0:
+        return 0.0
+    return num / (da * db)
+
+
+def _skill_text(skill: Any) -> str:
+    parts = [
+        getattr(skill, "name", ""),
+        getattr(skill, "description", ""),
+        getattr(skill, "category", ""),
+    ]
+    content = getattr(skill, "content", "") or ""
+    # Pull "When to use" body to bias clustering toward usage intent
+    # rather than title trivia.
+    m = re.search(
+        r"(?ims)^\s*#{1,6}\s+When to use\s*$(.*?)(?=^\s*#{1,6}\s+\S|\Z)",
+        content,
+    )
+    if m:
+        parts.append(m.group(1))
+    return " ".join(parts)
+
+
+def _cluster(
+    skills: list[Any], sim_threshold: float
+) -> list[list[Any]]:
+    """Group skills by cosine similarity over (name, desc, when-to-use).
+
+    Earlier versions partitioned by ``category`` first, but in practice
+    the scientist invents a unique category for every new playbook, so
+    that gate prevented any clustering at all. Similarity alone now
+    governs membership; ``category`` plays no role beyond contributing
+    its tokens to the bag-of-words vector.
+    """
+    vecs = [_tokenize(_skill_text(s)) for s in skills]
+    assigned = [-1] * len(skills)
+    next_id = 0
+    for i in range(len(skills)):
+        if assigned[i] != -1:
+            continue
+        assigned[i] = next_id
+        for j in range(i + 1, len(skills)):
+            if assigned[j] != -1:
+                continue
+            if _cosine(vecs[i], vecs[j]) >= sim_threshold:
+                assigned[j] = next_id
+        next_id += 1
+    clusters: list[list[Any]] = [[] for _ in range(next_id)]
+    for idx, cid in enumerate(assigned):
+        clusters[cid].append(skills[idx])
+    return clusters
+
+
+def _representative(cluster: list[Any]) -> Any:
+    def score(s: Any) -> tuple[int, int, str]:
+        version = int(getattr(s, "version", 1) or 1)
+        history = len(getattr(s, "task_history", []) or [])
+        # Prefer (version * (1+history)) — proven skills win ties.
+        return (-(version * (1 + history)), -history, getattr(s, "name", ""))
+    return sorted(cluster, key=score)[0]
+
+
+def plan_compaction(
+    skills: list[Any], *, sim_threshold: float = DEFAULT_SIM_THRESHOLD,
+) -> CompactionPlan:
+    plan = CompactionPlan()
+    clusters = _cluster(skills, sim_threshold)
+    interesting = [c for c in clusters if len(c) >= MIN_CLUSTER_SIZE]
+    plan.clusters = interesting
+    for cluster in interesting:
+        rep = _representative(cluster)
+        plan.keep.append(rep)
+        for s in cluster:
+            if s is not rep:
+                plan.archive.append(s)
+    if not interesting:
+        plan.notes.append(
+            f"no clusters with size >= {MIN_CLUSTER_SIZE} at "
+            f"sim_threshold={sim_threshold}"
+        )
+    return plan
+
+
+def execute_plan(
+    plan: CompactionPlan, *, archive_skill_fn: Any
+) -> dict[str, Any]:
+    """Execute the plan; return a result dict with archived paths."""
+    archived: list[str] = []
+    errors: list[str] = []
+    for s in plan.archive:
+        path = getattr(s, "path", None)
+        if not path:
+            errors.append(f"{getattr(s, 'name', '?')}: no path on skill")
+            continue
+        try:
+            target = archive_skill_fn(path)
+            if target is None:
+                errors.append(f"{getattr(s, 'name', '?')}: source missing")
+            else:
+                archived.append(str(target))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{getattr(s, 'name', '?')}: {type(exc).__name__}: {exc}")
+    return {"archived": archived, "errors": errors}
+
+
+def run_compact(
+    skills_dir: Path,
+    *,
+    sim_threshold: float = DEFAULT_SIM_THRESHOLD,
+    dry_run: bool = True,
+    as_json: bool = False,
+) -> int:
+    """CLI entry point. Returns shell exit code."""
+    import json as _json
+    import sys as _sys
+
+    from ..skills.lifecycle import archive_skill
+    from ..skills.store import SkillStore
+
+    skills_dir = Path(skills_dir)
+    if not skills_dir.exists():
+        print(f"compact: skills dir not found: {skills_dir}", file=_sys.stderr)
+        return 2
+    store = SkillStore(skills_dir=skills_dir)
+    summaries = store.list_summaries()
+    skills = [store.load(s["path"]) for s in summaries]
+    plan = plan_compaction(skills, sim_threshold=sim_threshold)
+    if as_json and dry_run:
+        rendered = {
+            "clusters": [[getattr(s, "name", "?") for s in c]
+                         for c in plan.clusters],
+            "keep": [getattr(s, "name", "?") for s in plan.keep],
+            "archive": [getattr(s, "name", "?") for s in plan.archive],
+            "notes": plan.notes,
+        }
+        print(_json.dumps(rendered, ensure_ascii=False, indent=2))
+        return 0
+    print(plan.render())
+    if dry_run:
+        if plan.archive:
+            print("\n(dry-run: pass --apply to actually archive)")
+        return 0
+    if not plan.archive:
+        return 0
+    result = execute_plan(plan, archive_skill_fn=archive_skill)
+    print("\n=== applied ===")
+    print(f"archived files: {len(result['archived'])}")
+    for line in result["archived"]:
+        print(f"  -> {line}")
+    if result["errors"]:
+        print(f"errors: {len(result['errors'])}")
+        for err in result["errors"]:
+            print(f"  !! {err}")
+    return 0 if not result["errors"] else 1
+
+
+__all__ = [
+    "CompactionPlan",
+    "plan_compaction",
+    "execute_plan",
+    "run_compact",
+    "DEFAULT_SIM_THRESHOLD",
+]
