@@ -12,6 +12,8 @@ without codex or any subprocess.
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from argus_skill import SkillLoop, SkillLoopConfig, SkillStore
@@ -308,6 +310,11 @@ def _mk_skill(name: str, desc: str, category: str = "web") -> Skill:
     )
 
 
+def _fixture_skill(filename: str) -> Skill:
+    path = Path(__file__).resolve().parents[1] / "skills" / filename
+    return Skill.parse(path.read_text(), str(path))
+
+
 def test_compactor_clusters_similar_skills() -> None:
     skills = [
         _mk_skill("ping-server-1", "stand up an http /ping endpoint with health probe"),
@@ -341,3 +348,41 @@ def test_compactor_picks_proven_representative() -> None:
     assert len(plan.clusters) == 1
     assert plan.keep == [veteran]
     assert plan.archive == [rookie]
+
+
+def test_compactor_keeps_generic_cli_scaffolding_separate() -> None:
+    skills = [
+        _fixture_skill("build-python-converter-cli.md"),
+        _fixture_skill("small-python-cli-with-tests.md"),
+        _fixture_skill("answer-simple-greetings.md"),
+        _fixture_skill("handle-brief-user-greetings.md"),
+    ]
+    plan = plan_compaction(skills, sim_threshold=DEFAULT_SIM_THRESHOLD)
+    cluster_sets = [
+        {getattr(skill, "name", "?") for skill in cluster}
+        for cluster in plan.clusters
+    ]
+    assert {"Answer Simple Greetings", "Handle Brief User Greetings"} in cluster_sets
+    assert all("Small Python CLI With Tests" not in cluster for cluster in cluster_sets)
+    assert all("Build Python Converter CLI" not in cluster for cluster in cluster_sets)
+
+
+def test_skill_compact_cli_dry_run_skips_false_archive() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "argus_skill",
+            "--skill-compact",
+            "--skills-dir",
+            "skills",
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "archive : Handle Brief User Greetings" in proc.stdout
+    assert "archive : Small Python CLI With Tests" not in proc.stdout

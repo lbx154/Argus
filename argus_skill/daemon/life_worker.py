@@ -239,7 +239,20 @@ class LifeWorker:
         from ..apps._life_repl import _inbox_drainer_for
         from ..life.event_log import JsonlEventSink
 
-        sink = JsonlEventSink(_DaemonSink(self), life_dir=cfg.life_dir)
+        # Telegram live-streaming reporter (daemon thread)
+        stream_reporter = None
+        try:
+            from ..life.notify import TelegramStreamReporter
+            stream_reporter = TelegramStreamReporter(stop_event=self._stop)
+            stream_reporter.start()
+            log.info("telegram stream reporter started")
+        except Exception:  # noqa: BLE001
+            log.debug("telegram stream reporter unavailable; continuing")
+
+        sink = JsonlEventSink(
+            _DaemonSink(self, stream_reporter=stream_reporter),
+            life_dir=cfg.life_dir,
+        )
 
         # Build a config provider that reads continuous.json from disk,
         # so the REPL can enable/disable continuous mode while the daemon
@@ -370,10 +383,12 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
 
 
 class _DaemonSink:
-    """Minimal sink: counts mission completions, logs everything else."""
+    """Minimal sink: counts mission completions, forwards progress to
+    the Telegram live-streaming reporter, logs everything else."""
 
-    def __init__(self, worker: LifeWorker) -> None:
+    def __init__(self, worker: LifeWorker, stream_reporter: Any = None) -> None:
         self._worker = worker
+        self._stream_reporter = stream_reporter
 
     def handle_event(self, event: dict[str, Any]) -> None:
         kind = event.get("type") or event.get("kind") or ""
@@ -384,6 +399,12 @@ class _DaemonSink:
             "life.mission.skipped",
         ):
             self._worker._missions_completed += 1
+        # Forward to Telegram live-streaming reporter (non-blocking)
+        if self._stream_reporter is not None:
+            try:
+                self._stream_reporter.on_event(event)
+            except Exception:  # noqa: BLE001
+                pass
         log.debug("daemon event: %s %s", kind, event)
 
 

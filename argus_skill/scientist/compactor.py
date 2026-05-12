@@ -7,8 +7,8 @@ compaction the matcher cost grows linearly forever.
 
 Approach:
 
-  1. Cluster skills by ``category``, then within each category by
-     bag-of-words cosine similarity over (name, description, when_to_use).
+  1. Cluster skills by a structure-aware similarity over title intent,
+     category, description, and ``When to use``.
      Two skills join the same cluster when sim ≥ ``sim_threshold``.
   2. For each cluster of size ≥ 2 we pick a representative (highest
      ``version`` × ``len(task_history)`` heuristic — the most-reinforced)
@@ -72,8 +72,16 @@ class CompactionPlan:
 
 
 def _tokenize(text: str) -> Counter:
+    return Counter(_token_list(text))
+
+
+def _token_list(text: str) -> list[str]:
     text = (text or "").lower().replace("_", " ").replace("-", " ")
-    return Counter(t for t in re.findall(r"[a-z0-9]+", text) if len(t) >= 3)
+    return [t for t in re.findall(r"[a-z0-9]+", text) if len(t) >= 3]
+
+
+def _normalize_phrase(text: str) -> str:
+    return " ".join(_token_list(text))
 
 
 def _cosine(a: Counter, b: Counter) -> float:
@@ -108,18 +116,51 @@ def _skill_text(skill: Any) -> str:
     return " ".join(parts)
 
 
+def _section_body(content: str, heading: str) -> str:
+    pattern = (
+        rf"(?ims)^\s*#{{1,6}}\s+{re.escape(heading)}\s*$"
+        r"(.*?)"
+        rf"(?=^\s*#{{1,6}}\s+\S|\Z)"
+    )
+    m = re.search(pattern, content or "")
+    return m.group(1) if m else ""
+
+
+def _skill_profile(skill: Any) -> dict[str, Any]:
+    content = getattr(skill, "content", "") or ""
+    return {
+        "title": _tokenize(getattr(skill, "name", "")),
+        "description": _tokenize(getattr(skill, "description", "")),
+        "when_to_use": _tokenize(_section_body(content, "When to use")),
+        "category": _normalize_phrase(getattr(skill, "category", "")),
+    }
+
+
+def _pair_similarity(left: dict[str, Any], right: dict[str, Any]) -> float:
+    title = _cosine(left["title"], right["title"])
+    description = _cosine(left["description"], right["description"])
+    when_to_use = _cosine(left["when_to_use"], right["when_to_use"])
+    category = 1.0 if left["category"] and left["category"] == right["category"] else 0.0
+
+    score = (
+        0.45 * title
+        + 0.15 * description
+        + 0.15 * when_to_use
+        + 0.25 * category
+    )
+    # If the categories do not line up, the title has to carry some of
+    # the intent on its own; otherwise generic scaffolding text can drown
+    # out the real difference between two distinct skills.
+    if not category and title < 0.6:
+        score -= 0.1
+    return score
+
+
 def _cluster(
     skills: list[Any], sim_threshold: float
 ) -> list[list[Any]]:
-    """Group skills by cosine similarity over (name, desc, when-to-use).
-
-    Earlier versions partitioned by ``category`` first, but in practice
-    the scientist invents a unique category for every new playbook, so
-    that gate prevented any clustering at all. Similarity alone now
-    governs membership; ``category`` plays no role beyond contributing
-    its tokens to the bag-of-words vector.
-    """
-    vecs = [_tokenize(_skill_text(s)) for s in skills]
+    """Group skills by a structure-aware similarity over skill intent."""
+    profiles = [_skill_profile(s) for s in skills]
     assigned = [-1] * len(skills)
     next_id = 0
     for i in range(len(skills)):
@@ -129,7 +170,7 @@ def _cluster(
         for j in range(i + 1, len(skills)):
             if assigned[j] != -1:
                 continue
-            if _cosine(vecs[i], vecs[j]) >= sim_threshold:
+            if _pair_similarity(profiles[i], profiles[j]) >= sim_threshold:
                 assigned[j] = next_id
         next_id += 1
     clusters: list[list[Any]] = [[] for _ in range(next_id)]

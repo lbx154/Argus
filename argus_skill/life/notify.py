@@ -333,4 +333,239 @@ def _post_telegram(payload: dict[str, Any]) -> None:
         log.warning("telegram notify failed (%s: %s)", type(exc).__name__, exc)
 
 
-__all__ = ["dispatch_journal_entry", "DEFAULT_NOTIFY_KINDS"]
+# ---------------------------------------------------------------------------
+# Telegram live-streaming reporter
+# ---------------------------------------------------------------------------
+
+_PROGRESS_KIND_EMOJI: dict[str, str] = {
+    "agent_message": "💭",
+    "command_execution": "🔧",
+    "reasoning": "🧠",
+}
+
+
+class TelegramStreamReporter:
+    """Buffers ``engineer.progress`` events and periodically edits a
+    single live-status Telegram message.
+
+    All network I/O happens in a dedicated daemon thread to avoid
+    blocking the event pipeline.  The public API (``on_event``,
+    ``start_mission``, ``end_mission``) is thread-safe — callers just
+    enqueue lightweight objects into a ``collections.deque``.
+
+    Usage::
+
+        reporter = TelegramStreamReporter()
+        reporter.start()          # spawns the flush thread
+        reporter.on_event(event)  # call from any thread
+        reporter.stop()           # graceful shutdown
+    """
+
+    FLUSH_INTERVAL = 12  # seconds between Telegram edits
+    MAX_LINES = 6        # recent progress lines shown
+    MAX_MSG_LEN = 3800   # leave room for markup overhead
+
+    def __init__(self, *, stop_event: Any = None) -> None:
+        import collections
+        import threading as _threading
+
+        self._token = (os.environ.get("ARGUS_SKILL_TELEGRAM_BOT_TOKEN") or "").strip()
+        self._chat_id = (os.environ.get("ARGUS_SKILL_TELEGRAM_CHAT_ID") or "").strip()
+        self._stop = stop_event or _threading.Event()
+        self._buf: collections.deque[dict[str, Any]] = collections.deque(maxlen=50)
+        self._lock = _threading.Lock()
+        self._live_msg_id: int | None = None
+        self._mission_title: str = ""
+        self._mission_layer: str = ""
+        self._mission_start: float = 0.0
+        self._last_flush_text: str = ""
+        self._thread: _threading.Thread | None = None
+        self._enabled = bool(self._token and self._chat_id)
+
+    # -- public API (called from event thread) ----------------------------
+
+    def start(self) -> None:
+        if not self._enabled:
+            return
+        import threading as _threading
+        t = _threading.Thread(target=self._run, name="tg-stream", daemon=True)
+        self._thread = t
+        t.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=5)
+
+    def on_event(self, event: dict[str, Any]) -> None:
+        """Accept any event dict from the sink.  Only progress events
+        are buffered; lifecycle events update mission state."""
+        if not self._enabled:
+            return
+        etype = event.get("type", "")
+        if etype == "engineer.progress":
+            with self._lock:
+                self._buf.append(event)
+        elif etype == "life.mission.started":
+            self.start_mission(
+                title=event.get("title", ""),
+                layer="engineer",
+            )
+        elif etype in ("life.mission.completed", "life.mission.failed"):
+            self.end_mission()
+        elif etype == "life.planner.start":
+            self.start_mission(
+                title=event.get("objective", "规划中…")[:80],
+                layer="planner",
+            )
+        elif etype in ("life.planner.verdict", "life.planner.error"):
+            self.end_mission()
+
+    def start_mission(self, *, title: str, layer: str = "engineer") -> None:
+        with self._lock:
+            self._mission_title = title
+            self._mission_layer = layer
+            self._mission_start = time.time()
+            self._buf.clear()
+            self._live_msg_id = None
+            self._last_flush_text = ""
+
+    def end_mission(self) -> None:
+        msg_id = self._live_msg_id
+        with self._lock:
+            self._buf.clear()
+            self._live_msg_id = None
+            self._mission_title = ""
+            self._last_flush_text = ""
+        if msg_id:
+            self._delete_message(msg_id)
+
+    # -- background thread ------------------------------------------------
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self._flush()
+            except Exception:  # noqa: BLE001
+                log.debug("tg-stream flush error", exc_info=True)
+            self._stop.wait(timeout=self.FLUSH_INTERVAL)
+
+    def _flush(self) -> None:
+        with self._lock:
+            if not self._buf or not self._mission_title:
+                return
+            items = list(self._buf)
+            title = self._mission_title
+            layer = self._mission_layer
+            start = self._mission_start
+
+        text = self._render(items, title, layer, start)
+        if text == self._last_flush_text:
+            return  # no change — skip edit
+
+        if self._live_msg_id:
+            ok = self._edit_message(self._live_msg_id, text)
+            if not ok:
+                # Message gone / error — send a new one
+                self._live_msg_id = self._send_message(text)
+        else:
+            self._live_msg_id = self._send_message(text)
+        self._last_flush_text = text
+
+    def _render(
+        self,
+        items: list[dict[str, Any]],
+        title: str,
+        layer: str,
+        start: float,
+    ) -> str:
+        elapsed = time.time() - start if start else 0
+        mins, secs = divmod(int(elapsed), 60)
+
+        layer_label = _LAYER_LABELS.get(layer, layer)
+        header = f"⚡ <b>实时进展</b>  {mins}m{secs:02d}s"
+        lines = [header, "━━━━━━━━━━━━━━━━"]
+        lines.append(layer_label)
+        lines.append(f"📌 {_esc(title[:80])}")
+        lines.append("")
+
+        recent = items[-self.MAX_LINES:]
+        for ev in recent:
+            kind = ev.get("kind", "")
+            emoji = _PROGRESS_KIND_EMOJI.get(kind, "▸")
+            raw = ev.get("text", "")
+            # Truncate long lines
+            txt = raw if len(raw) <= 120 else raw[:117] + "…"
+            lines.append(f"{emoji} {_esc(txt)}")
+
+        body = "\n".join(lines)
+        if len(body) > self.MAX_MSG_LEN:
+            body = body[:self.MAX_MSG_LEN] + "\n…"
+        return body
+
+    # -- Telegram API helpers ---------------------------------------------
+
+    def _send_message(self, text: str) -> int | None:
+        try:
+            import urllib.request
+            url = f"https://api.telegram.org/bot{self._token}/sendMessage"
+            body = json.dumps({
+                "chat_id": self._chat_id,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+                "disable_notification": True,
+            }, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(
+                url, data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+                return data.get("result", {}).get("message_id")
+        except Exception:  # noqa: BLE001
+            log.debug("tg-stream send failed", exc_info=True)
+            return None
+
+    def _edit_message(self, msg_id: int, text: str) -> bool:
+        try:
+            import urllib.request
+            url = f"https://api.telegram.org/bot{self._token}/editMessageText"
+            body = json.dumps({
+                "chat_id": self._chat_id,
+                "message_id": msg_id,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            }, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(
+                url, data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return resp.status < 400
+        except Exception:  # noqa: BLE001
+            log.debug("tg-stream edit failed", exc_info=True)
+            return False
+
+    def _delete_message(self, msg_id: int) -> None:
+        try:
+            import urllib.request
+            url = f"https://api.telegram.org/bot{self._token}/deleteMessage"
+            body = json.dumps({
+                "chat_id": self._chat_id,
+                "message_id": msg_id,
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                url, data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=5)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+__all__ = ["dispatch_journal_entry", "DEFAULT_NOTIFY_KINDS", "TelegramStreamReporter"]

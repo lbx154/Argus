@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Sequence
 
@@ -96,6 +97,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="MSG",
         help="append a nudge message to the supervisor's inbox (the next "
              "engineer round picks it up as operator guidance)",
+    )
+    cockpit_grp.add_argument(
+        "--follow",
+        action="store_true",
+        help="stream daemon events to terminal in real-time "
+             "(like tail -f, Ctrl-C to stop)",
     )
     cockpit_grp.add_argument(
         "--init-identity",
@@ -185,6 +192,7 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.status)
         + bool(args.daemon_runbook)
         + bool(args.watch)
+        + bool(args.follow)
         + bool(args.notify)
         + bool(args.init_identity)
         + bool(args.skill_stats)
@@ -194,7 +202,7 @@ def main(argv: list[str] | None = None) -> int:
     if action_flags > 1:
         sys.stderr.write(
             "argus-skill: --daemon / --daemon-fg / --daemon-stop / --status / "
-            "--daemon-runbook / --watch / --notify / --init-identity / "
+            "--daemon-runbook / --watch / --follow / --notify / --init-identity / "
             "--skill-stats / --skill-cleanse / --skill-compact are mutually "
             "exclusive.\n"
         )
@@ -211,6 +219,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_daemon_runbook(args)
     if args.watch:
         return _cmd_watch(args)
+    if args.follow:
+        return _cmd_follow(args)
     if args.notify:
         return _cmd_notify(args)
     if args.init_identity:
@@ -304,6 +314,98 @@ def _cmd_daemon_stop(args: argparse.Namespace) -> int:
 def _cmd_watch(args: argparse.Namespace) -> int:
     from ._watch import run_watch
     return run_watch(_resolve_life_dir(args))
+
+
+def _cmd_follow(args: argparse.Namespace) -> int:
+    """Tail events.jsonl with pretty formatting — like ``tail -f``."""
+    life_dir = _resolve_life_dir(args)
+    events_path = life_dir / "events.jsonl"
+    if not events_path.exists():
+        sys.stderr.write(f"argus-skill: {events_path} not found\n")
+        return 1
+
+    _EMOJI = {
+        "agent_message": "💭",
+        "command_execution": "🔧",
+        "reasoning": "🧠",
+    }
+    _LIFECYCLE = {
+        "life.mission.started": "🚀",
+        "life.mission.completed": "✅",
+        "life.mission.failed": "❌",
+        "life.planner.start": "📋",
+        "life.planner.verdict": "📋",
+        "life.planner.error": "⚠️",
+        "life.iteration.critic": "👔",
+        "life.iteration.continued": "🔁",
+        "round.main.completed": "🏁",
+        "round.review.completed": "👨‍🏫",
+        "loop.done": "🏁",
+    }
+
+    import json as _json
+
+    # Seek to near end of file (last 8KB)
+    try:
+        fh = events_path.open("r", encoding="utf-8")
+        fh.seek(0, 2)
+        pos = fh.tell()
+        fh.seek(max(0, pos - 8192))
+        if pos > 8192:
+            fh.readline()  # skip partial line
+    except OSError as exc:
+        sys.stderr.write(f"argus-skill: cannot open {events_path}: {exc}\n")
+        return 1
+
+    print(f"argus-skill: following {events_path}  (Ctrl-C to stop)")
+    print("━" * 60)
+    try:
+        while True:
+            line = fh.readline()
+            if not line:
+                time.sleep(0.5)
+                # Check if file was rotated
+                try:
+                    if events_path.stat().st_ino != os.fstat(fh.fileno()).st_ino:
+                        fh.close()
+                        fh = events_path.open("r", encoding="utf-8")
+                except OSError:
+                    pass
+                continue
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            etype = ev.get("type", "")
+            if etype == "engineer.progress":
+                kind = ev.get("kind", "")
+                emoji = _EMOJI.get(kind, "▸")
+                text = ev.get("text", "")
+                if len(text) > 200:
+                    text = text[:197] + "…"
+                print(f"  {emoji} {text}")
+            elif etype in _LIFECYCLE:
+                emoji = _LIFECYCLE[etype]
+                # Build a useful one-liner
+                parts = [etype.split(".")[-1]]
+                for k in ("title", "item_id", "status", "success",
+                          "reason", "objective", "text"):
+                    v = ev.get(k)
+                    if v is not None:
+                        sv = str(v)
+                        if len(sv) > 80:
+                            sv = sv[:77] + "…"
+                        parts.append(f"{k}={sv}")
+                print(f"{emoji} {' · '.join(parts)}")
+            # Skip noisy internal events (stream lines etc.)
+    except KeyboardInterrupt:
+        print("\nargus-skill: stopped following")
+    finally:
+        fh.close()
+    return 0
 
 
 def _cmd_notify(args: argparse.Namespace) -> int:
