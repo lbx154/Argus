@@ -77,13 +77,13 @@ def looks_like_auth_failure(stderr_lines) -> bool:  # noqa: ANN001
 
 def _import_argusbot():
     try:
-        from codex_autoloop.codex_runner import (  # type: ignore
+        from codex_autoloop.codex_runner import (
             CodexRunner,
         )
         from codex_autoloop.codex_runner import (
             RunnerOptions as ArgusRunnerOptions,
         )
-        from codex_autoloop.runner_backend import (  # type: ignore
+        from codex_autoloop.runner_backend import (
             BACKEND_CLAUDE,
             BACKEND_CODEX,
             BACKEND_COPILOT,

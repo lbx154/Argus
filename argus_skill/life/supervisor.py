@@ -29,7 +29,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from ..core.ports import EventSink
 from .memory import (
@@ -148,6 +148,15 @@ def _price_for(model: str) -> tuple[float, float]:
     return _DEFAULT_PRICES["gpt-5.4"]
 
 
+def _usd_for_tokens(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Convert token usage into USD using the configured model price."""
+    in_price, out_price = _price_for(model)
+    return (
+        float(input_tokens) * in_price / 1_000_000
+        + float(output_tokens) * out_price / 1_000_000
+    )
+
+
 class _CostTrackingSink:
     """Wraps an ``EventSink`` to accumulate token counts.
 
@@ -189,6 +198,23 @@ class _CostTrackingSink:
             self.downstream.handle_event(event)
         except Exception:  # noqa: BLE001
             log.exception("downstream event sink raised; continuing")
+
+    def handle_stream_line(self, stream: str, line: str) -> None:  # noqa: ARG002
+        """Forward stream lines when the downstream sink supports them."""
+        try:
+            handler = getattr(self.downstream, "handle_stream_line", None)
+            if handler is not None:
+                handler(stream, line)
+        except Exception:  # noqa: BLE001
+            log.exception("downstream stream handler raised; continuing")
+
+    def close(self) -> None:
+        try:
+            closer = getattr(self.downstream, "close", None)
+            if closer is not None:
+                closer()
+        except Exception:  # noqa: BLE001
+            log.exception("downstream close raised; continuing")
 
     def total_usd(self) -> float:
         in_eng, out_eng = _price_for(self.engineer_model)
@@ -247,7 +273,7 @@ class LifeSupervisorConfig:
 
 # ----- thin protocol describing what we need from a MissionExecutor --------
 
-class _MissionRunner:
+class _MissionRunner(Protocol):
     """Structural type for the MissionExecutor we drive.
 
     We keep this loose so tests can substitute a fake without dragging
@@ -580,6 +606,11 @@ class LifeSupervisor:
             status = "done"
             stop_reason = iteration_outcome.get("stop_reason") or stop_reason
 
+        iteration_bonus_usd = 0.0
+        if iteration_outcome:
+            iteration_bonus_usd = float(iteration_outcome.get("critic_cost_usd", 0.0) or 0.0)
+            usd += iteration_bonus_usd
+
         # Update backlog row.
         if iteration_outcome and iteration_outcome.get("requeued"):
             # Item is back to ``pending``; do not mark_done. The next
@@ -842,12 +873,23 @@ class LifeSupervisor:
                 "stop_reason": f"critic error: {type(exc).__name__}",
             }
 
+        critic_cost_usd = _usd_for_tokens(
+            self.reviewer_model,
+            verdict.input_tokens,
+            verdict.output_tokens,
+        )
+        cost_so_far += critic_cost_usd
+        remaining_budget = max(0.0, budget - cost_so_far)
+
         self._emit({
             "type": "life.iteration.critic",
             "item_id": item.id,
             "stop": verdict.stop,
             "improvement_count": len(verdict.improvements),
             "reason": verdict.reason,
+            "input_tokens": verdict.input_tokens,
+            "output_tokens": verdict.output_tokens,
+            "cost_usd": critic_cost_usd,
         })
 
         if verdict.stop or not verdict.improvements:
@@ -861,6 +903,18 @@ class LifeSupervisor:
                 "requeued": False,
                 "stop_reason": verdict.reason or "critic stopped",
                 "salvaged": bool(salvage_mode),
+                "critic_cost_usd": critic_cost_usd,
+            }
+
+        if remaining_budget <= 0.0:
+            return {
+                "cycles_done": cycles_done,
+                "cost_so_far_usd": cost_so_far,
+                "requeued": False,
+                "stop_reason": (
+                    f"iteration budget exhausted (${cost_so_far:.2f}/${budget:.2f})"
+                ),
+                "critic_cost_usd": critic_cost_usd,
             }
 
         new_objective = render_iteration_objective(
@@ -872,7 +926,7 @@ class LifeSupervisor:
             self.memory.backlog.requeue_for_iteration(
                 item.id,
                 new_objective=new_objective,
-                cost_delta_usd=cycle_cost_usd,
+                cost_delta_usd=cycle_cost_usd + critic_cost_usd,
             )
         except Exception as exc:  # noqa: BLE001
             log.exception("life supervisor: requeue_for_iteration failed")
@@ -893,6 +947,7 @@ class LifeSupervisor:
                 {"title": imp.title, "acceptance": imp.acceptance}
                 for imp in verdict.improvements
             ],
+            "critic_cost_usd": critic_cost_usd,
         })
         return {
             "cycles_done": cycles_done + 1,
@@ -903,6 +958,7 @@ class LifeSupervisor:
                 {"title": imp.title, "acceptance": imp.acceptance}
                 for imp in verdict.improvements
             ],
+            "critic_cost_usd": critic_cost_usd,
         }
 
     def _render_recent_journal_for_critic(self, item_id: str) -> str:
@@ -984,12 +1040,21 @@ class LifeSupervisor:
             })
             return False
 
+        planner_cost_usd = _usd_for_tokens(
+            self.reviewer_model,
+            verdict.input_tokens,
+            verdict.output_tokens,
+        )
+
         self._emit({
             "type": "life.planner.verdict",
             "cycle": self._planning_cycles,
             "project_done": verdict.project_done,
             "reason": verdict.reason,
             "task_count": len(verdict.new_tasks),
+            "input_tokens": verdict.input_tokens,
+            "output_tokens": verdict.output_tokens,
+            "cost_usd": planner_cost_usd,
         })
 
         if verdict.project_done:
@@ -1001,8 +1066,14 @@ class LifeSupervisor:
                 title="planner declares project done",
                 summary=verdict.reason,
                 tags=["life", "planner"],
+                cost_usd=planner_cost_usd,
             )
             self.memory.journal.append(entry)
+            try:
+                from .notify import dispatch_journal_entry
+                dispatch_journal_entry(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("notify dispatch failed; continuing")
             return False
 
         # Add new tasks to the backlog.
@@ -1030,8 +1101,14 @@ class LifeSupervisor:
                 + ", ".join(t.title for t in verdict.new_tasks)
             ),
             tags=["life", "planner"],
+            cost_usd=planner_cost_usd,
         )
         self.memory.journal.append(entry)
+        try:
+            from .notify import dispatch_journal_entry
+            dispatch_journal_entry(entry)
+        except Exception:  # noqa: BLE001
+            log.exception("notify dispatch failed; continuing")
         return True
 
     def _item_iteration_cycles(self) -> int:
