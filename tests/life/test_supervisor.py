@@ -287,12 +287,11 @@ def test_tick_runs_one_mission_and_journals(tmp_path: Path) -> None:
     # Backlog row marked done.
     rows = mem.backlog.all()
     assert rows[0].status == "done"
-    # Exactly one journal entry, kind=mission_complete.
+    # Mission start is journaled before the terminal completion row.
     entries = mem.journal.all()
-    assert len(entries) == 1
-    assert entries[0].kind == "mission_complete"
-    assert entries[0].title == "do thing"
-    assert entries[0].cost_usd > 0
+    assert [entry.kind for entry in entries] == ["mission_started", "mission_complete"]
+    assert entries[1].title == "do thing"
+    assert entries[1].cost_usd > 0
     # Sink got both life events.
     types = {e.get("type") for e in sink.events}
     assert "life.mission.started" in types
@@ -316,7 +315,7 @@ def test_tick_records_failure(tmp_path: Path) -> None:
     assert rows[0].status == "failed"
     assert "ran out" in rows[0].last_error
     entries = mem.journal.all()
-    assert entries[0].kind == "mission_failed"
+    assert [entry.kind for entry in entries] == ["mission_started", "mission_failed"]
 
 
 def test_tick_records_exception_path(tmp_path: Path) -> None:
@@ -328,7 +327,7 @@ def test_tick_records_exception_path(tmp_path: Path) -> None:
     assert rows[0].status == "failed"
     assert "RuntimeError: boom" in rows[0].last_error
     entries = mem.journal.all()
-    assert entries[0].kind == "mission_failed"
+    assert [entry.kind for entry in entries] == ["mission_started", "mission_failed"]
 
 
 def test_run_processes_priority_order(tmp_path: Path) -> None:
@@ -480,7 +479,7 @@ def test_cost_recorded_in_journal_entry(tmp_path: Path) -> None:
     sup, _, _, mem = _mk_sup(tmp_path)
     mem.backlog.add(BacklogItem.new(title="t", objective="objective text"))
     sup.tick()
-    entry = mem.journal.all()[0]
+    entry = mem.journal.all()[-1]
     # Cost > 0; matches what _CostTrackingSink would compute.
     assert entry.cost_usd > 0
     assert "tokens_in=1200" in entry.summary or "tokens_in=1200;" in entry.summary

@@ -200,10 +200,15 @@ def test_iteration_loop_continues_then_stops(tmp_path: Path):
     # original_objective preserved across cycles.
     assert final.original_objective == "add base64 helper"
 
-    # Journal: one mission_iterated then one mission_complete.
+    # Journal: each mission starts with mission_started, then the
+    # requeue and final completion rows.
     kinds = _journal_kinds(mem)
-    assert kinds.count("mission_iterated") == 1
-    assert kinds.count("mission_complete") == 1
+    assert kinds == [
+        "mission_started",
+        "mission_iterated",
+        "mission_started",
+        "mission_complete",
+    ]
 
     # Critic events emitted with both verdicts.
     critic_events = _events_of(sink, "life.iteration.critic")
@@ -251,7 +256,12 @@ def test_iteration_loop_respects_cycle_ceiling(tmp_path: Path):
     assert final.status == "done"
     assert final.iteration_cycles_done == 1
     kinds = _journal_kinds(mem)
-    assert kinds == ["mission_iterated", "mission_complete"]
+    assert kinds == [
+        "mission_started",
+        "mission_iterated",
+        "mission_started",
+        "mission_complete",
+    ]
 
 
 def test_iteration_disabled_skips_critic_entirely(tmp_path: Path):
@@ -309,11 +319,17 @@ def test_iteration_budget_counts_critic_tokens(tmp_path: Path) -> None:
 
     critic_cost = (1_000 * 1.25 + 500 * 10.0) / 1_000_000
     entries = mem.journal.all()
-    assert len(entries) == 2
-    assert entries[0].kind == "mission_iterated"
-    assert entries[1].kind == "mission_complete"
-    assert entries[0].cost_usd == pytest.approx(critic_cost)
+    assert len(entries) == 4
+    assert [entry.kind for entry in entries] == [
+        "mission_started",
+        "mission_iterated",
+        "mission_started",
+        "mission_complete",
+    ]
+    assert entries[0].cost_usd == 0.0
     assert entries[1].cost_usd == pytest.approx(critic_cost)
+    assert entries[2].cost_usd == 0.0
+    assert entries[3].cost_usd == pytest.approx(critic_cost)
     assert mem.backlog.all()[0].iteration_cost_usd == pytest.approx(critic_cost)
     assert LifeBudget(daily_cap_usd=1.0).remaining_today(mem.journal) == pytest.approx(
         1.0 - (critic_cost * 2)
@@ -356,4 +372,4 @@ def test_critic_unparseable_output_safely_finalizes(tmp_path: Path):
     assert len(runner.calls) == 1
     assert critic.calls == 1
     assert mem.backlog.all()[0].status == "done"
-    assert _journal_kinds(mem) == ["mission_complete"]
+    assert _journal_kinds(mem) == ["mission_started", "mission_complete"]

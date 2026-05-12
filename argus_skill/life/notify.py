@@ -33,6 +33,7 @@ log = logging.getLogger(__name__)
 
 # Journal entry kinds that warrant operator escalation.
 DEFAULT_NOTIFY_KINDS = frozenset({
+    "mission_started",
     "mission_complete",
     "mission_failed",
     "mission_iterated",
@@ -131,6 +132,7 @@ def _run_cmd(payload: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 _KIND_LABELS: dict[str, tuple[str, str]] = {
+    "mission_started":   ("🚀", "开始任务"),
     "mission_complete":  ("✅", "任务完成"),
     "mission_failed":    ("❌", "任务失败"),
     "mission_iterated":  ("🔁", "任务迭代中"),
@@ -139,6 +141,13 @@ _KIND_LABELS: dict[str, tuple[str, str]] = {
     "auth_failure":      ("🔐", "认证失败"),
     "planner_cycle":     ("📋", "规划完成"),
     "planner_done":      ("🏁", "项目完成"),
+}
+
+_LAYER_LABELS: dict[str, str] = {
+    "engineer": "👷 工程师 (L1)",
+    "reviewer": "👨‍🏫 审查员 (L2)",
+    "critic":   "👔 评审员 (L3)",
+    "planner":  "🧠 规划师 (L4)",
 }
 
 # HTML-escape helper
@@ -167,6 +176,12 @@ def _format_telegram_message(payload: dict[str, Any]) -> str:
 
     # Header
     lines = [f"{emoji} <b>{label}</b>  {ts_str}", "━━━━━━━━━━━━━━━━"]
+
+    # Agent layer
+    layer = extra.get("agent_layer", "")
+    layer_label = _LAYER_LABELS.get(layer, "")
+    if layer_label:
+        lines.append(layer_label)
 
     # Task title
     if title:

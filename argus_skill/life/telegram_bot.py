@@ -108,7 +108,15 @@ _HELP_TEXT = """🤖 <b>argus-skill 命令列表</b>
 /start [目标] — 开启持续模式
 /stop — 暂停持续模式
 /nudge <code>文本</code> — 向当前任务注入指令
-/help — 显示此帮助"""
+/help — 显示此帮助
+
+直接发文字 → 自动添加为任务
+
+<b>🏗️ 四层 Agent 架构</b>
+L1 👷 工程师 — 编码执行任务
+L2 👨‍🏫 审查员 — 代码审查与修复
+L3 👔 评审员 — 评估质量并决定迭代
+L4 🧠 规划师 — 分析项目并规划新任务"""
 
 
 class _CommandRouter:
@@ -158,6 +166,36 @@ class _CommandRouter:
             self._cmd_add(text)
 
     # -- individual commands -----------------------------------------------
+
+    _LAYER_LABELS = {
+        "engineer": "👷 工程师 (L1)",
+        "reviewer": "👨‍🏫 审查员 (L2)",
+        "critic":   "👔 评审员 (L3)",
+        "planner":  "🧠 规划师 (L4)",
+    }
+
+    def _detect_active_layer(self, mem: Any) -> str:
+        """Infer the active agent layer from the most recent journal entry."""
+        try:
+            entries = mem.journal.tail(3)
+            for e in reversed(entries):
+                extra = getattr(e, "extra", None) or {}
+                if isinstance(extra, dict):
+                    layer = extra.get("agent_layer", "")
+                    label = self._LAYER_LABELS.get(layer, "")
+                    if label:
+                        return label
+                # Fallback: infer from kind
+                kind = getattr(e, "kind", "")
+                if kind in ("mission_started",):
+                    return self._LAYER_LABELS["engineer"]
+                if kind in ("mission_iterated",):
+                    return self._LAYER_LABELS["critic"]
+                if kind in ("planner_cycle", "planner_done"):
+                    return self._LAYER_LABELS["planner"]
+        except Exception:  # noqa: BLE001
+            pass
+        return ""
 
     def _cmd_add(self, arg: str) -> None:
         if not arg:
@@ -224,10 +262,21 @@ class _CommandRouter:
         else:
             lines.append("⏸️ 持续模式: 关闭")
 
-        # Current task
+        # Current task + active layer
         if current_task:
             lines.append(f"\n🔧 <b>当前任务:</b> {_esc(current_task.title[:60])}")
             lines.append(f"🎯 {_esc(current_task.objective[:150])}")
+            # Determine active layer from most recent journal entry
+            active_layer = self._detect_active_layer(mem)
+            if active_layer:
+                lines.append(f"🏗️ 当前层级: {active_layer}")
+        else:
+            # No running task — check if planner is active
+            active_layer = self._detect_active_layer(mem)
+            if active_layer:
+                lines.append(f"\n🏗️ 当前层级: {active_layer}")
+            else:
+                lines.append("\n💤 空闲中")
 
         # Backlog
         lines.append(f"\n📋 待办 {pending} · 运行中 {running} · 完成 {done} · 失败 {failed}")
@@ -300,17 +349,34 @@ class TelegramPoller:
         life_dir: Path,
         token: str | None = None,
         chat_id: str | None = None,
+        user_id: str | None = None,
         stop_event: threading.Event | None = None,
     ) -> None:
         self.life_dir = life_dir
         self.token = (token or os.environ.get("ARGUS_SKILL_TELEGRAM_BOT_TOKEN") or "").strip()
         self.chat_id = (chat_id or os.environ.get("ARGUS_SKILL_TELEGRAM_CHAT_ID") or "").strip()
+        self.user_id = (user_id or os.environ.get("ARGUS_SKILL_TELEGRAM_USER_ID") or "").strip()
         self._stop = stop_event or threading.Event()
         self._thread: threading.Thread | None = None
 
     @property
     def enabled(self) -> bool:
         return bool(self.token and self.chat_id)
+
+    def _message_allowed(self, msg: dict[str, Any]) -> bool:
+        chat = msg.get("chat")
+        if not isinstance(chat, dict):
+            return False
+        msg_chat_id = str(chat.get("id", ""))
+        if msg_chat_id != self.chat_id:
+            return False
+        if not self.user_id:
+            return True
+        sender = msg.get("from")
+        if not isinstance(sender, dict):
+            return False
+        sender_id = str(sender.get("id", ""))
+        return sender_id == self.user_id
 
     def start(self) -> None:
         if not self.enabled:
@@ -360,11 +426,10 @@ class TelegramPoller:
                     _write_offset(self.life_dir, offset)
 
                     msg = update.get("message") or {}
-                    msg_chat_id = str(msg.get("chat", {}).get("id", ""))
                     text = (msg.get("text") or "").strip()
 
-                    if msg_chat_id != self.chat_id:
-                        log.debug("telegram: ignoring msg from chat %s", msg_chat_id)
+                    if not self._message_allowed(msg):
+                        log.debug("telegram: ignoring unauthorized message")
                         continue
                     if not text:
                         continue

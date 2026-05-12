@@ -5,6 +5,9 @@ import os
 import threading
 import time
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from argus_skill.daemon.life_worker import (
     ContinuousConfigState,
@@ -114,6 +117,42 @@ def test_daemon_sink_counts_life_mission_completed() -> None:
     sink.handle_event({"type": "life.mission.completed"})
 
     assert worker._missions_completed == 1
+
+
+def test_life_worker_continues_when_telegram_poller_start_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.1)
+    LifeMemory.open(tmp_path).init()
+
+    started = False
+
+    def _boom(_self: object) -> None:
+        nonlocal started
+        started = True
+        raise RuntimeError("telegram poller startup failed")
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            self.config.stop_event.set()
+            return {}
+
+    monkeypatch.setenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", "123")
+    monkeypatch.setattr("argus_skill.life.telegram_bot.TelegramPoller.start", _boom)
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+
+    worker = LifeWorker(cfg)
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    rc = worker.run_forever()
+
+    assert started is True
+    assert rc == 0
 
 
 def test_format_short_duration() -> None:

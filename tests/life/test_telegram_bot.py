@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from argus_skill.life.telegram_bot import TelegramPoller, _CommandRouter
 
 # ---------------------------------------------------------------------------
 # _CommandRouter tests
@@ -25,8 +26,7 @@ def life_dir(tmp_path: Path) -> Path:
 
 
 class TestCommandRouter:
-    def _make_router(self, life_dir: Path) -> "router":
-        from argus_skill.life.telegram_bot import _CommandRouter
+    def _make_router(self, life_dir: Path) -> _CommandRouter:
         return _CommandRouter(
             life_dir=life_dir, token="fake-token", chat_id="12345",
         )
@@ -155,15 +155,35 @@ class TestOffset:
 
 class TestPoller:
     def test_disabled_without_env(self) -> None:
-        from argus_skill.life.telegram_bot import TelegramPoller
         with patch.dict("os.environ", {}, clear=True):
             p = TelegramPoller(life_dir=Path("/tmp"), token="", chat_id="")
             assert not p.enabled
 
     def test_enabled_with_config(self) -> None:
-        from argus_skill.life.telegram_bot import TelegramPoller
         p = TelegramPoller(life_dir=Path("/tmp"), token="abc", chat_id="123")
         assert p.enabled
+
+    def test_allows_matching_sender(self) -> None:
+        p = TelegramPoller(
+            life_dir=Path("/tmp"),
+            token="abc",
+            chat_id="123",
+            user_id="456",
+        )
+        assert p._message_allowed({"chat": {"id": "123"}, "from": {"id": "456"}})
+
+    def test_rejects_mismatched_sender(self) -> None:
+        p = TelegramPoller(
+            life_dir=Path("/tmp"),
+            token="abc",
+            chat_id="123",
+            user_id="456",
+        )
+        assert not p._message_allowed({"chat": {"id": "123"}, "from": {"id": "999"}})
+
+    def test_user_filter_is_optional(self) -> None:
+        p = TelegramPoller(life_dir=Path("/tmp"), token="abc", chat_id="123")
+        assert p._message_allowed({"chat": {"id": "123"}, "from": {"id": "999"}})
 
 
 # ---------------------------------------------------------------------------

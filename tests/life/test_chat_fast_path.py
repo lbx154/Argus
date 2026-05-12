@@ -364,12 +364,15 @@ def test_supervisor_skips_critic_for_chat_outcome(tmp_path: Path) -> None:
     types = [e.get("type") for e in sink.events]
     assert "life.iteration.critic" not in types
 
-    # Backlog row marked done, single mission_complete journal entry,
+    # Backlog row marked done, mission_started then mission_complete,
     # no requeue.
     rows = mem.backlog.all()
     assert rows[0].id == item.id
     assert rows[0].status == "done"
-    assert mem.journal.all()[0].kind == "mission_complete"
+    assert [entry.kind for entry in mem.journal.all()] == [
+        "mission_started",
+        "mission_complete",
+    ]
 
 
 def test_supervisor_still_runs_critic_for_non_chat_outcome(tmp_path: Path) -> None:

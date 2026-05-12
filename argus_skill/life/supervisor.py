@@ -535,6 +535,25 @@ class LifeSupervisor:
             "title": item.title,
             "missions_started": self._missions_started,
         })
+        # Notify: mission starting (engineer layer)
+        try:
+            start_entry = JournalEntry.new(
+                kind="mission_started",
+                title=item.title,
+                summary=f"objective={item.objective[:200]}",
+                tags=list(item.tags) + ["life"],
+                extra={
+                    "item_id": item.id,
+                    "objective": item.objective,
+                    "agent_layer": "engineer",
+                },
+            )
+            self.memory.journal.append(start_entry)
+            self._inject_cumulative_cost(start_entry)
+            from .notify import dispatch_journal_entry
+            dispatch_journal_entry(start_entry)
+        except Exception:  # noqa: BLE001
+            log.debug("mission_started notify failed; non-critical")
 
         cost_sink = _CostTrackingSink(
             self.sink,
@@ -661,6 +680,7 @@ class LifeSupervisor:
             extra={
                 "item_id": item.id,
                 "objective": item.objective,
+                "agent_layer": "critic" if iteration_outcome and iteration_outcome.get("requeued") else "engineer",
                 "engineer_model": self.engineer_model,
                 "reviewer_model": self.reviewer_model,
                 "input_tokens": cost_sink.total_input_tokens(),
@@ -1083,6 +1103,7 @@ class LifeSupervisor:
                 summary=verdict.reason,
                 tags=["life", "planner"],
                 cost_usd=planner_cost_usd,
+                extra={"agent_layer": "planner"},
             )
             self.memory.journal.append(entry)
             self._inject_cumulative_cost(entry)
@@ -1119,6 +1140,10 @@ class LifeSupervisor:
             ),
             tags=["life", "planner"],
             cost_usd=planner_cost_usd,
+            extra={
+                "agent_layer": "planner",
+                "objective": self.config.continuous_objective[:200],
+            },
         )
         self.memory.journal.append(entry)
         self._inject_cumulative_cost(entry)
