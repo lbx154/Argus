@@ -357,6 +357,7 @@ class BacklogItem:
     iteration_cycles_done: int = 0
     iteration_cost_usd: float = 0.0
     original_objective: str = ""
+    orphan_retries: int = 0
 
     @classmethod
     def new(
@@ -416,6 +417,7 @@ class BacklogItem:
             iteration_cycles_done=int(row.get("iteration_cycles_done", 0)),
             iteration_cost_usd=float(row.get("iteration_cost_usd", 0.0)),
             original_objective=str(row.get("original_objective", objective)),
+            orphan_retries=int(row.get("orphan_retries", 0)),
         )
 
 
@@ -492,20 +494,34 @@ class Backlog:
         self._save(items)
         return head
 
-    def reap_orphans(self, *, error: str = "orphaned: previous process did not finish") -> list[BacklogItem]:
-        """Mark every ``running`` item as ``failed`` and return them.
+    def reap_orphans(
+        self,
+        *,
+        max_retries: int = 3,
+        error: str = "orphaned: previous process did not finish",
+    ) -> list[BacklogItem]:
+        """Recover items left ``running`` by a crashed process.
 
-        Called on supervisor startup. We never auto-requeue — if a user
-        wants to retry a crashed mission they must re-add it explicitly
-        (so we cannot accidentally loop on a poison-pill objective).
+        Items with fewer than *max_retries* orphan recoveries are reset
+        to ``pending`` so the next supervisor pass retries them. Items
+        that have already been orphaned *max_retries* times are marked
+        ``failed`` to prevent poison-pill loops.
+
+        Returns the list of affected items (both re-queued and failed).
         """
         items = self._load()
         reaped: list[BacklogItem] = []
         for it in items:
             if it.status == "running":
-                it.status = "failed"
-                it.finished_ts = time.time()
-                if not it.last_error:
+                it.orphan_retries += 1
+                if it.orphan_retries > max_retries:
+                    it.status = "failed"
+                    it.finished_ts = time.time()
+                    if not it.last_error:
+                        it.last_error = f"{error} (exceeded {max_retries} retries)"
+                else:
+                    it.status = "pending"
+                    it.started_ts = None
                     it.last_error = error
                 reaped.append(it)
         if reaped:

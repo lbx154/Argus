@@ -506,16 +506,18 @@ def test_supervisor_startup_reaps_orphaned_running(tmp_path: Path) -> None:
         config=LifeSupervisorConfig(poll_interval_seconds=0.01),
     )
 
-    # Reaper ran in __init__: item is failed, an orphan event was emitted,
-    # and a journal entry was written.
-    assert mem.backlog.all()[0].status == "failed"
-    assert any(e.get("type") == "life.mission.orphaned" for e in sink.events)
+    # Reaper ran in __init__: item is re-queued to pending (first retry),
+    # an orphan recovery event was emitted, and a journal entry was written.
+    assert mem.backlog.all()[0].status == "pending"
+    assert mem.backlog.all()[0].orphan_retries == 1
     kinds = {e.kind for e in mem.journal.all()}
-    assert "mission_orphaned" in kinds
+    assert "mission_requeued" in kinds
 
-    # And — most importantly — the runner is NOT invoked for it.
-    assert sup.tick() is None
-    assert runner.calls == []
+    # The item is now pending again — tick() WILL pick it up and execute it.
+    # This is the desired behavior: daemon restart recovers the task.
+    result = sup.tick()
+    assert result is not None
+    assert len(runner.calls) == 1
 
 
 def test_completed_mission_cannot_be_re_executed_by_supervisor(tmp_path: Path) -> None:

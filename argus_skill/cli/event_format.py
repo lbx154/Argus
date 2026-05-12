@@ -1,11 +1,6 @@
 """Pure event-formatting helpers for argus-skill.
 
-Provenance: extracted unchanged from the now-deleted
-``argus_skill/telegram/notifier.py``. Telegram itself is gone; the
-event-renderer dispatch table it shipped is genuinely useful for the
-local terminal renderer (``cli/render.py``) and the tests, so we keep
-just the pure formatting code here.
-
+The terminal renderer and tests share these pure formatters.
 No I/O, no Telegram, no logging. Inputs are plain dicts; outputs are
 plain strings.
 """

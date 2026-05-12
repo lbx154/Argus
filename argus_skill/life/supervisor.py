@@ -354,13 +354,11 @@ class LifeSupervisor:
         self._reap_orphans_on_startup()
 
     def _reap_orphans_on_startup(self) -> None:
-        """Mark any item left ``running`` by a previous crashed process
-        as ``failed`` so it can never silently re-execute.
+        """Recover items left ``running`` by a crashed process.
 
-        Recovery policy is intentionally **non-automatic**: we journal
-        the orphan and stop. The user decides whether to re-add. This
-        prevents poison-pill items from looping a freshly-started
-        supervisor into the same crash.
+        Items are reset to ``pending`` (up to 3 retries) so they resume
+        automatically after a daemon restart. Items that keep crashing
+        are marked ``failed`` to prevent poison-pill loops.
         """
         try:
             reaped = self.memory.backlog.reap_orphans()
@@ -368,14 +366,27 @@ class LifeSupervisor:
             log.exception("life supervisor: orphan reaper failed")
             return
         for it in reaped:
-            entry = JournalEntry.new(
-                kind="mission_orphaned",
-                title=f"orphaned at startup: {it.title}",
-                summary=(
+            requeued = it.status == "pending"
+            if requeued:
+                kind = "mission_requeued"
+                title = f"recovered after restart: {it.title}"
+                summary = (
                     f"item_id={it.id} "
-                    f"started_ts={it.started_ts} "
+                    f"retry={it.orphan_retries}/3 "
+                    f"will resume automatically"
+                )
+            else:
+                kind = "mission_orphaned"
+                title = f"orphaned (max retries): {it.title}"
+                summary = (
+                    f"item_id={it.id} "
+                    f"retries={it.orphan_retries} "
                     f"err={it.last_error}"
-                ),
+                )
+            entry = JournalEntry.new(
+                kind=kind,
+                title=title,
+                summary=summary,
                 tags=list(it.tags) + ["life", "orphan"],
             )
             try:

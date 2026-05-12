@@ -125,15 +125,30 @@ def test_claim_then_complete_then_no_resurrect(mem: LifeMemory) -> None:
 # Orphan reaper
 # ---------------------------------------------------------------------------
 
-def test_reap_orphans_marks_running_as_failed(mem: LifeMemory) -> None:
+def test_reap_orphans_requeues_on_first_retry(mem: LifeMemory) -> None:
     item = mem.backlog.add(BacklogItem.new(title="t", objective="o"))
     mem.backlog.mark_running(item.id)
 
     reaped = mem.backlog.reap_orphans()
     assert len(reaped) == 1
     assert reaped[0].id == item.id
-    assert reaped[0].status == "failed"
+    assert reaped[0].status == "pending"  # re-queued, not failed
+    assert reaped[0].orphan_retries == 1
     assert "orphan" in reaped[0].last_error.lower()
+
+
+def test_reap_orphans_fails_after_max_retries(mem: LifeMemory) -> None:
+    item = mem.backlog.add(BacklogItem.new(title="t", objective="o"))
+    # Simulate 3 prior orphan recoveries
+    for _ in range(3):
+        mem.backlog.mark_running(item.id)
+        reaped = mem.backlog.reap_orphans()
+        assert reaped[0].status == "pending"
+    # 4th time → exceeds max_retries=3 → failed
+    mem.backlog.mark_running(item.id)
+    reaped = mem.backlog.reap_orphans()
+    assert reaped[0].status == "failed"
+    assert reaped[0].orphan_retries == 4
 
 
 def test_reap_orphans_does_not_touch_pending_or_terminal(mem: LifeMemory) -> None:
@@ -150,13 +165,23 @@ def test_reap_orphans_does_not_touch_pending_or_terminal(mem: LifeMemory) -> Non
     assert statuses[f.id] == "failed"
 
 
-def test_reap_orphans_does_not_auto_requeue(mem: LifeMemory) -> None:
-    """A reaped orphan must NOT come back as pending — that would let
-    a poison-pill objective loop a freshly-restarted supervisor."""
+def test_reap_orphans_requeues_but_respects_max_retries(mem: LifeMemory) -> None:
+    """Orphaned items are re-queued up to max_retries times, then failed.
+    A failed item cannot be flipped back to pending (poison-pill protection)."""
     item = mem.backlog.add(BacklogItem.new(title="t", objective="poison"))
     mem.backlog.mark_running(item.id)
     mem.backlog.reap_orphans()
-    # And the standard seal applies — cannot be flipped back to pending.
+    # First reap → pending (retry 1)
+    assert mem.backlog.next_pending() is not None
+    # Exhaust retries
+    for _ in range(2):
+        mem.backlog.mark_running(item.id)
+        mem.backlog.reap_orphans()
+    # retry 3 → still pending
+    assert mem.backlog.next_pending() is not None
+    # retry 4 → failed (exceeded max_retries=3)
+    mem.backlog.mark_running(item.id)
+    mem.backlog.reap_orphans()
+    assert mem.backlog.next_pending() is None
     with pytest.raises(IllegalStateTransition):
         mem.backlog.update(item.id, status="pending")
-    assert mem.backlog.next_pending() is None

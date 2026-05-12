@@ -1,8 +1,9 @@
 # Architecture
 
-> **Status note:** `argus-skill` now exposes a unified REPL plus a
-> detached life worker. Older one-shot command paths and the previous
-> split control/telegram adapter layout were removed from the live tree.
+> **Status note:** `argus-skill` now exposes a unified REPL, detached
+> life worker, and optional Telegram poller. The map below covers the
+> live tree; historical upstream paths are called out only for
+> provenance.
 
 `argus-skill` is a thin GLUE layer over the current core / scientist /
 engineer / life stack. This doc maps the live files to their upstream
@@ -30,11 +31,11 @@ origin or notes when a module is new in this repo.
 | `argus_skill/adapters/stream_progress.py` | new | Live-output plumbing shared by backends. |
 | `argus_skill/critic/critic.py` | new | Critic + planner for iteration / continuous mode. |
 | `argus_skill/daemon/token_lock.py` | ArgusBot/codex_autoloop/token_lock.py | Process lock helper, vendored verbatim. |
-| `argus_skill/daemon/bus.py` | ArgusBot/codex_autoloop/daemon_bus.py | JSONL command bus, vendored verbatim. |
 | `argus_skill/daemon/life_worker.py` | new | Detached life worker around `LifeSupervisor`. |
 | `argus_skill/life/memory.py` | new | Persistent memory primitives. |
 | `argus_skill/life/event_log.py` | new | Event JSONL writer / rotator. |
 | `argus_skill/life/notify.py` | new | Best-effort journal notifications. |
+| `argus_skill/life/telegram_bot.py` | new | Optional Telegram inbound command bridge. |
 | `argus_skill/life/router.py` | new | Event routing helpers. |
 | `argus_skill/life/supervisor.py` | new | Mission scheduler and iteration loop. |
 | `argus_skill/apps/cli.py` | new | CLI entry point and one-shot action dispatcher. |
@@ -54,12 +55,14 @@ origin or notes when a module is new in this repo.
 ## Layout Notes
 
 The current tree is intentionally flatter than the historical one. The
-daemon, REPL, and CLI all share the same life-memory state and the same
-current `apps/cli.py` entry point. Historical split modules are kept
-out of the live tree so the docs stay aligned with the repository.
-Continuous mode is coordinated through `continuous.json` via
+daemon, REPL, and Telegram poller all share the same life-memory state
+and the same current `apps/cli.py` entry point. The live tree still
+includes `life/telegram_bot.py` for inbound command handling, while the
+older split control modules remain historical only. Continuous mode is
+coordinated through `continuous.json` via
 `read_continuous_state()` / `write_continuous_config()`, and the CLI
-`--status` command reports that file alongside daemon and backlog state.
+`--status` command reports that file alongside daemon and backlog
+state.
 
 ## How a task flows through the loop
 

@@ -116,6 +116,9 @@ Honoured env vars:
 | `ARGUS_SKILL_RUNNER_BACKEND` | subprocess backend: `codex` / `claude` / `copilot` | `codex` |
 | `ARGUS_SKILL_RUNNER_BIN` | path to the CLI binary used by the runner adapter | resolved on `$PATH` |
 | `ARGUS_SKILL_RUNNER_EXTRA_ARGS` | shell-quoted args appended to every runner call | empty |
+| `ARGUS_SKILL_TELEGRAM_BOT_TOKEN` | optional Telegram bot token for inbound control | unset |
+| `ARGUS_SKILL_TELEGRAM_CHAT_ID` | Telegram chat id accepted by the poller | unset |
+| `ARGUS_SKILL_TELEGRAM_USER_ID` | optional Telegram sender id filter | unset |
 
 Requires ArgusBot to be importable (`pip install -e ../ArgusBot`).
 
@@ -123,9 +126,29 @@ Requires ArgusBot to be importable (`pip install -e ../ArgusBot`).
 missions, but continuous mode requires the planning-capable `codex`
 backend.
 
-Continuous mode is validated up front: pair `--continuous` with a
-non-empty `--objective`, and do not expect `memory` to enter planner
-mode.
+Continuous mode is validated up front: `--objective` must be paired
+with `--continuous`, `--continuous` requires a non-empty objective, and
+`memory` cannot enter planner mode.
+
+### Telegram bridge (optional)
+
+If `ARGUS_SKILL_TELEGRAM_BOT_TOKEN` and `ARGUS_SKILL_TELEGRAM_CHAT_ID`
+are set, the daemon starts a long-polling Telegram command bridge.
+`ARGUS_SKILL_TELEGRAM_USER_ID` is optional; when present, only that
+Telegram sender is accepted.
+
+Supported inbound commands:
+
+* `/add <title>: <objective>` - add a backlog item.
+* `/status` - report daemon, backlog, cost, and continuous state.
+* `/backlog` - list pending tasks.
+* `/start [objective]` - enable continuous mode.
+* `/stop` - disable continuous mode.
+* `/nudge <text>` - inject operator guidance into the next round.
+* `/help` - show the command list.
+
+`/start` follows the same guardrails as the CLI: the objective must be
+non-empty, and the `memory` backend cannot plan.
 
 ### Option B — custom backend (full control)
 
@@ -346,7 +369,6 @@ argus_skill/
 │   └── critic.py         # critic + planner logic for iteration / continuous mode
 ├── daemon/
 │   ├── token_lock.py    # vendored verbatim from ArgusBot (single-process token guard)
-│   ├── bus.py           # vendored verbatim from ArgusBot (JsonlCommandBus + status helpers)
 │   └── life_worker.py   # 7×24 background worker around LifeSupervisor (NEW)
 ├── apps/
 │   ├── cli.py           # `argus-skill` entry point, one-shot actions, REPL fallback
@@ -364,6 +386,7 @@ argus_skill/
 ├── life/
 │   ├── event_log.py
 │   ├── memory.py
+│   ├── telegram_bot.py  # optional Telegram inbound command bridge
 │   ├── notify.py
 │   ├── router.py
 │   └── supervisor.py
@@ -408,9 +431,10 @@ v0.1. End-to-end working with two backends:
 
 The unified REPL is the primary entry point. Historical one-shot modes
 were removed during the consolidation into `apps/cli.py` and
-`apps/_life_repl.py`. Cross-process safety is provided by a per-life-dir
-singleton lock (`<state>/repl.pid`) and a state-machine seal that makes
-terminal backlog items unrunnable.
+`apps/_life_repl.py`. The detached daemon and Telegram poller share the
+same life-memory state. Cross-process safety is provided by a
+per-life-dir singleton lock (`<state>/repl.pid`) and a state-machine
+seal that makes terminal backlog items unrunnable.
 
 ## License
 
