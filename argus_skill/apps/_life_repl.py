@@ -826,17 +826,17 @@ _CONFIG_TYPES: dict[str, type] = {
 }
 
 
-def _config_cmd(tokens: list[str], chat_state: dict[str, Any]) -> None:
+def _config_cmd(tokens: list[str], chat_state: dict[str, Any],
+                life_dir: Path | None = None) -> None:
     """``/config [key=value ...]`` — view or change REPL-session defaults.
 
     These defaults apply to free-text input and ``/add``/``/run`` when
-    the corresponding flag is not explicitly provided. Changes are
-    session-local (this REPL process only — the background daemon uses
-    its own config from env vars / CLI flags).
+    the corresponding flag is not explicitly provided. The ``continuous``
+    key is also persisted to disk so the background daemon picks it up.
     """
     cfg = chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))
     if not tokens:
-        print("session config (REPL-local, does not affect daemon):")
+        print("session config (continuous syncs to daemon, others are REPL-local):")
         for k, v in cfg.items():
             if isinstance(v, float):
                 print(f"  {k:20s} = ${v:.2f}" if k != "iterate" else f"  {k:20s} = {v}")
@@ -875,6 +875,18 @@ def _config_cmd(tokens: list[str], chat_state: dict[str, Any]) -> None:
             print(f"  {key} = {'on' if parsed else 'off'}")
         else:
             print(f"  {key} = {parsed}")
+    # Persist continuous config to disk so daemon can hot-reload.
+    if life_dir is not None and any(
+        "continuous" in t.split("=", 1)[0].strip().lower()
+        for t in tokens if "=" in t
+    ):
+        from ..daemon.life_worker import write_continuous_config
+        write_continuous_config(
+            life_dir,
+            enabled=cfg.get("continuous", False),
+            objective=chat_state.get("continuous_objective", ""),
+        )
+        print("  (synced to daemon — takes effect within seconds)")
 
 
 def _identity_cmd(mem: LifeMemory, tokens: list[str], rest_text: str) -> None:
@@ -997,6 +1009,14 @@ def _free_text_cmd(
         msg = (
             f"🔄 continuous mode on backend={chat_state['backend']} "
             f"(Ctrl-C to stop)..."
+        )
+        # Persist objective to disk so daemon can pick it up.
+        chat_state["continuous_objective"] = body
+        from ..daemon.life_worker import write_continuous_config
+        write_continuous_config(
+            mem.root,
+            enabled=True,
+            objective=body,
         )
     else:
         msg = f"running on backend={chat_state['backend']} (Ctrl-C to stop)..."
@@ -1653,7 +1673,7 @@ def _run_life_chat_loop_locked(
             _backend_cmd(rest, chat_state)
             continue
         if cmd == "/config":
-            _config_cmd(rest, chat_state)
+            _config_cmd(rest, chat_state, life_dir=mem.root)
             continue
         if cmd in ("/verbose", "/quiet"):
             print(theme.gray(

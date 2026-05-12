@@ -238,6 +238,11 @@ class LifeSupervisorConfig:
     # budget / stop_event fires.
     continuous: bool = False
     continuous_objective: str = ""
+    # Optional callback returning ``(enabled, objective)`` — the
+    # supervisor calls it each iteration to hot-reload from disk or
+    # elsewhere. When ``None``, the static ``continuous`` /
+    # ``continuous_objective`` fields are used unchanged.
+    continuous_config_provider: Any = None  # Callable[[], tuple[bool, str]] | None
 
 
 # ----- thin protocol describing what we need from a MissionExecutor --------
@@ -357,6 +362,8 @@ class LifeSupervisor:
         results: list[dict[str, Any]] = []
         stopped_by: str = ""
         while True:
+            # Hot-reload continuous config from provider (disk, etc.)
+            self._reload_continuous_config()
             stop_reason = self._maybe_stop()
             if stop_reason:
                 if stop_reason != "__silent_stop__":
@@ -901,7 +908,7 @@ class LifeSupervisor:
     def _render_recent_journal_for_critic(self, item_id: str) -> str:
         """A tiny tail of journal entries for the current item, plain text."""
         try:
-            entries = self.memory.journal.all()[-6:]
+            entries = self.memory.journal.tail(6)
         except Exception:  # noqa: BLE001
             return ""
         lines: list[str] = []
@@ -910,6 +917,28 @@ class LifeSupervisor:
             if isinstance(extra, dict) and extra.get("item_id") == item_id:
                 lines.append(f"- {e.kind}: {e.summary}")
         return "\n".join(lines[-3:])
+
+    # ------------------------------------------------------------------
+    # Hot-reload continuous config
+    # ------------------------------------------------------------------
+
+    def _reload_continuous_config(self) -> None:
+        """Update ``self.config.continuous`` from the config provider.
+
+        Called at the top of every ``run()`` iteration so that changes
+        from the REPL (written to disk) take effect within seconds even
+        when the supervisor is in a long continuous run.
+        """
+        provider = self.config.continuous_config_provider
+        if provider is None:
+            return
+        try:
+            enabled, objective = provider()
+            self.config.continuous = enabled
+            if objective:
+                self.config.continuous_objective = objective
+        except Exception:  # noqa: BLE001
+            log.debug("continuous config provider raised; keeping current values")
 
     # ------------------------------------------------------------------
     # Planner — continuous improvement mode
@@ -1016,7 +1045,7 @@ class LifeSupervisor:
     def _render_journal_for_planner(self) -> str:
         """Render recent journal entries for the planner's context."""
         try:
-            entries = self.memory.journal.all()[-20:]
+            entries = self.memory.journal.tail(20)
         except Exception:  # noqa: BLE001
             return ""
         lines: list[str] = []
