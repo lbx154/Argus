@@ -184,6 +184,84 @@ def test_webhook_uses_env_url_and_posts_json(tmp_path: Path, monkeypatch) -> Non
     assert body["kind"] == "mission_failed"
 
 
+def test_telegram_command_parser_hides_shell_noise() -> None:
+    assert (
+        notify._parse_command(
+            "/bin/bash -lc \"find /home -maxdepth 3 -type f "
+            "-name 'validate_results.py' 2>/dev/null | sed -n '1,120p'\""
+        )
+        == "🔎 查找 validate_results.py"
+    )
+    assert "git status --short" in notify._parse_command(
+        "/bin/bash -lc 'git -C /home/argustest/argus-skill status --short'"
+    )
+    assert notify._parse_command(
+        "sed -n '1,10p' a.py && sed -n '1,20p' b.py"
+    ) == "📖 读取了 2 个文件"
+    assert notify._parse_command("python -m pytest tests/foo.py") == (
+        "🧪 pytest tests/foo.py"
+    )
+
+
+def test_telegram_progress_summary_includes_command_result() -> None:
+    lines = notify._summarize_progress([
+        {
+            "kind": "agent_message",
+            "text": "I found the target repo and I am running the focused checks.",
+        },
+        {
+            "kind": "command_execution",
+            "text": "/bin/bash -lc 'pytest -q tests/foo.py'",
+            "status": "completed",
+            "exit_code": 0,
+            "output_excerpt": "1 passed in 0.10s",
+        },
+    ])
+    assert lines[0].startswith("💭 I found the target repo")
+    assert lines[1] == "✅ 🧪 pytest -q tests/foo.py — 1 passed in 0.10s"
+
+
+def test_telegram_stream_reporter_keeps_final_summary(monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", "chat")
+
+    reporter = notify.TelegramStreamReporter()
+    sent: list[str] = []
+    edited: list[tuple[int, str]] = []
+    deleted: list[int] = []
+
+    reporter._send_message = lambda text: sent.append(text) or 42
+    reporter._edit_message = lambda msg_id, text: edited.append((msg_id, text)) or True
+    reporter._delete_message = lambda msg_id: deleted.append(msg_id)
+
+    reporter.start_mission(title="Readable Telegram trace", layer="engineer")
+    reporter.on_event({
+        "type": "engineer.progress",
+        "kind": "agent_message",
+        "text": "first partial",
+        "replace": True,
+        "message_id": "m1",
+    })
+    reporter.on_event({
+        "type": "engineer.progress",
+        "kind": "agent_message",
+        "text": "final complete",
+        "replace": True,
+        "message_id": "m1",
+    })
+
+    reporter._flush()
+    assert sent
+    assert "final complete" in sent[-1]
+    assert "first partial" not in sent[-1]
+
+    reporter.end_mission(status="done")
+    assert not deleted
+    assert edited
+    assert "已完成" in edited[-1][1]
+    assert "完整日志：argus-skill --follow" in edited[-1][1]
+
+
 # ---- inbox drainer -----------------------------------------------------
 
 

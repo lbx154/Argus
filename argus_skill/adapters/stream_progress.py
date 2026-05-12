@@ -172,7 +172,8 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
     delta_buffers: dict[tuple[str, str], str] = {}
 
     def _emit_progress(*, kind: str, text: str, replace: bool = False,
-                       message_id: str | None = None) -> None:
+                       message_id: str | None = None,
+                       extra: dict[str, Any] | None = None) -> None:
         if not text:
             return
         payload: dict[str, Any] = {
@@ -180,6 +181,14 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
             "kind": kind,
             "text": _truncate(text),
         }
+        if extra:
+            for key, value in extra.items():
+                if value is None or value == "":
+                    continue
+                if isinstance(value, str):
+                    payload[key] = _truncate(value, 360)
+                else:
+                    payload[key] = value
         if replace:
             payload["replace"] = True
         if message_id:
@@ -244,7 +253,17 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
             text = _extract_text(item)
             if not text:
                 return
-            _emit_progress(kind=kind, text=text)
+            extra: dict[str, Any] = {}
+            status = item.get("status")
+            exit_code = item.get("exit_code")
+            if status is not None:
+                extra["status"] = status
+            if exit_code is not None:
+                extra["exit_code"] = exit_code
+            output_excerpt = _extract_output_excerpt(item)
+            if output_excerpt:
+                extra["output_excerpt"] = output_excerpt
+            _emit_progress(kind=kind, text=text, extra=extra)
             return
 
         # Claude dialect: {"type": "assistant", "message": {"content": [...]}}
@@ -344,6 +363,21 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
             return
 
     return cb
+
+
+def _extract_output_excerpt(item: dict[str, Any]) -> str:
+    raw = (
+        item.get("aggregated_output")
+        or item.get("output")
+        or item.get("error")
+        or ""
+    )
+    if not isinstance(raw, str):
+        raw = str(raw)
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    return _truncate(" | ".join(lines[:3]), 360)
 
 
 __all__ = ["make_stream_progress_callback"]

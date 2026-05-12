@@ -598,6 +598,12 @@ class LifeSupervisor:
         # Phase-change callback: notifies Telegram when reviewer starts
         def _phase_cb(layer: str, info: dict[str, Any]) -> None:
             try:
+                self._emit({
+                    "type": "life.phase.started",
+                    "item_id": item.id,
+                    "agent_layer": layer,
+                    "round_index": info.get("round_index", 0),
+                })
                 from .notify import dispatch_journal_entry
                 entry = JournalEntry.new(
                     kind="phase_change",
@@ -985,6 +991,13 @@ class LifeSupervisor:
 
         # Notify: critic layer starting
         try:
+            self._emit({
+                "type": "life.phase.started",
+                "item_id": item.id,
+                "agent_layer": "critic",
+                "iteration_cycle": cycles_done + 1,
+                "iteration_max": cycles_max,
+            })
             from .notify import dispatch_journal_entry
             critic_start = JournalEntry.new(
                 kind="phase_change",

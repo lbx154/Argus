@@ -108,6 +108,29 @@ def test_non_item_completed_lines_do_not_emit() -> None:
     assert sink.events == []
 
 
+def test_command_execution_progress_carries_existing_result_metadata() -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    line = json.dumps({
+        "type": "item.completed",
+        "item": {
+            "id": "item_0",
+            "type": "command_execution",
+            "command": "pytest -q tests/foo.py",
+            "status": "failed",
+            "exit_code": 1,
+            "aggregated_output": "FAILED tests/foo.py::test_x\nassert 1 == 2",
+        },
+    })
+
+    cb("main.stdout", line)
+
+    assert sink.events[-1]["kind"] == "command_execution"
+    assert sink.events[-1]["status"] == "failed"
+    assert sink.events[-1]["exit_code"] == 1
+    assert "FAILED tests/foo.py::test_x" in sink.events[-1]["output_excerpt"]
+
+
 # ---------------------------------------------------------------------------
 # Copilot dialect — incremental message_delta + final assistant.message
 # ---------------------------------------------------------------------------

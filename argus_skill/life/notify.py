@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -346,22 +347,89 @@ _PROGRESS_KIND_EMOJI: dict[str, str] = {
 
 def _parse_command(raw: str) -> str:
     """Turn a raw shell command into a short, readable description."""
-    import re
+    cmd = _strip_shell_wrapper(raw)
+    steps = _split_shell_steps(cmd)
+    parsed_steps = [
+        p for p in (_parse_simple_command(step) for step in steps) if p
+    ]
+    if len(parsed_steps) > 1:
+        if all(p.startswith("📖") for p in parsed_steps):
+            return f"📖 读取了 {len(parsed_steps)} 个文件"
+        preview = " → ".join(parsed_steps[:3])
+        if len(parsed_steps) > 3:
+            preview += " → …"
+        return f"🔧 执行 {len(parsed_steps)} 步：{_truncate_display(preview, 160)}"
+    if parsed_steps:
+        return parsed_steps[0]
+    return _parse_simple_command(cmd) or "🔧 执行 shell 脚本"
 
-    # Strip /bin/bash -lc wrapper
-    m = re.search(r'/bin/(?:ba)?sh\s+-\w*c\s+["\'](.+)', raw, re.DOTALL)
-    cmd = m.group(1).rstrip("'\"") if m else raw
+
+def _strip_shell_wrapper(raw: str) -> str:
+    """Peel the common ``/bin/bash -lc '...'`` wrapper without executing it."""
+    cmd = (raw or "").strip()
+    try:
+        parts = shlex.split(cmd)
+    except ValueError:
+        parts = []
+    if len(parts) >= 3:
+        exe = parts[0].rsplit("/", 1)[-1]
+        flags = parts[1]
+        if exe in {"bash", "sh", "zsh"} and flags.startswith("-") and "c" in flags:
+            return parts[2].strip()
+
+    m = re.match(r"/bin/(?:ba)?sh\s+-\w*c\s+(['\"])(.*)\1\s*$", cmd, re.DOTALL)
+    if m:
+        return m.group(2).strip()
+    return cmd
+
+
+def _split_shell_steps(cmd: str) -> list[str]:
+    """Split simple command chains while leaving shell scripts intact."""
+    cmd = (cmd or "").strip()
+    if not cmd:
+        return []
+    if re.search(r"\b(for|while|until|if|case)\b.*\b(do|then|in)\b", cmd, re.DOTALL):
+        return [cmd]
+    return [
+        part.strip()
+        for part in re.split(r"\s*(?:&&|\n)\s*", cmd)
+        if part.strip()
+    ]
+
+
+def _parse_simple_command(cmd: str) -> str:
+    cmd = (cmd or "").strip()
+    if not cmd:
+        return ""
+    if cmd.startswith(("printf ", "echo ___BEGIN___COMMAND_DONE_MARKER")):
+        return ""
+    if cmd.startswith("cd "):
+        return f"📂 进入 {_short_path(cmd[3:].strip())}"
+    if re.search(r"\b(for|while|until|if|case)\b.*\b(do|then|in)\b", cmd, re.DOTALL):
+        return "🔧 执行 shell 脚本"
+
+    # nl -ba FILE | sed -n 'N,Mp' → 📖 reading numbered FILE:N-M
+    m = re.match(r"nl\s+-ba\s+(.+?)\s*\|\s*sed\s+-n\s+'?(\d+),(\d+)p'?", cmd)
+    if m:
+        path = _short_path(m.group(1).strip().strip("'\""))
+        return f"📖 读取 {path}:{m.group(2)}-{m.group(3)}"
 
     # sed -n 'N,Mp' FILE → 📖 reading FILE:N-M
     m = re.match(r"sed\s+-n\s+'?(\d+),(\d+)p'?\s+(.+)", cmd)
     if m:
-        path = _short_path(m.group(3).strip().strip("'\""))
+        path = _short_path(_drop_shell_tail(m.group(3)))
         return f"📖 读取 {path}:{m.group(1)}-{m.group(2)}"
 
     # cat FILE → 📖 reading FILE
     m = re.match(r"cat\s+(.+)", cmd)
     if m:
-        return f"📖 读取 {_short_path(m.group(1).strip())}"
+        return f"📖 读取 {_short_path(_drop_shell_tail(m.group(1)))}"
+
+    # rg --files PATH → 📁 listing files
+    if re.match(r"rg\s+--files\b", cmd):
+        parts = _safe_split(cmd)
+        path = next((p for p in parts[2:] if not p.startswith("-")), "")
+        return f"📁 列文件 {_short_path(path)}" if path else "📁 列文件"
 
     # rg / grep → 🔍 searching PATTERN
     if cmd.startswith(("rg ", "grep ")):
@@ -375,35 +443,90 @@ def _parse_command(raw: str) -> str:
             pat = next((p for p in parts[1:] if not p.startswith("-")), "…")[:50]
         return f"🔍 搜索 {pat}"
 
+    # find ... -name/-path PATTERN → 🔎 locating files/dirs
+    if cmd.startswith("find "):
+        m = re.search(r"\s-(?:i)?name\s+(['\"]?)([^'\"\s|]+)\1", cmd)
+        if not m:
+            m = re.search(r"\s-path\s+(['\"]?)([^'\"\s|]+)\1", cmd)
+        if m:
+            return f"🔎 查找 {m.group(2)}"
+        roots = " ".join(_safe_split(cmd)[1:3])
+        return f"🔎 查找文件 {_truncate_display(roots, 70)}"
+
+    # ls PATH → 📂 listing directory
+    if cmd.startswith("ls "):
+        parts = [p for p in _safe_split(cmd)[1:] if not p.startswith("-")]
+        path = _short_path(parts[-1]) if parts else "."
+        return f"📂 列目录 {path}"
+
     # python / python3 → 🐍 running python script
-    if cmd.startswith(("python", "python3")):
+    if re.match(r"(?:python|python3)\b", cmd):
         # Try to extract the module/script or first meaningful line
         if "<<" in cmd:
             return "🐍 执行 Python 脚本"
-        m2 = re.match(r"python3?\s+(?:-\w+\s+)*(.+)", cmd)
-        return f"🐍 执行 {_short_path(m2.group(1)[:60])}" if m2 else "🐍 执行 Python"
+        parts = _safe_split(cmd)
+        if len(parts) >= 3 and parts[1] == "-m" and parts[2] == "pytest":
+            rest = " ".join(parts[3:])
+            return f"🧪 pytest {_truncate_display(rest, 80)}".rstrip()
+        if len(parts) >= 3 and parts[1] == "-m":
+            rest = " ".join(parts[2:])
+            return f"🐍 python -m {_truncate_display(rest, 80)}"
+        target = " ".join(parts[1:]) if len(parts) > 1 else ""
+        return f"🐍 执行 {_short_path(_truncate_display(target, 80))}" if target else "🐍 执行 Python"
 
     # git commands
     if cmd.startswith("git "):
-        return f"📦 {cmd[:60]}"
+        parts = _safe_split(cmd)
+        if len(parts) >= 4 and parts[1] == "-C":
+            repo = _short_path(parts[2])
+            subcmd = " ".join(parts[3:])
+            return f"📦 git {_truncate_display(subcmd, 70)} ({repo})"
+        return f"📦 {_truncate_display(cmd, 90)}"
 
-    # npm/pip/make/pytest
-    for tool in ("npm", "pip", "make", "pytest", "ruff", "mypy"):
+    # npm/pip/make/pytest/etc.
+    if cmd.startswith("pytest "):
+        return f"🧪 {_truncate_display(cmd, 90)}"
+    for tool in ("npm", "pip", "make", "ruff", "mypy"):
         if cmd.startswith(tool):
-            return f"🔧 {cmd[:60]}"
+            return f"🔧 {_truncate_display(cmd, 90)}"
 
     # Generic: just truncate
-    short = cmd if len(cmd) <= 60 else cmd[:57] + "…"
+    short = _truncate_display(cmd, 90)
     return f"▸ {short}"
+
+
+def _safe_split(cmd: str) -> list[str]:
+    try:
+        return shlex.split(cmd)
+    except ValueError:
+        return cmd.split()
+
+
+def _drop_shell_tail(text: str) -> str:
+    text = text.strip().strip("'\"")
+    text = re.split(r"\s+(?:2?>|1>|&>|\|)\s*", text, maxsplit=1)[0].strip()
+    return text.strip().strip("'\"")
+
+
+def _truncate_display(text: str, limit: int) -> str:
+    text = " ".join((text or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: max(1, limit - 1)].rstrip() + "…"
 
 
 def _short_path(path: str) -> str:
     """Strip common prefixes to make paths readable."""
-    import re
+    path = path.strip().strip("'\"")
+    m = re.match(r"^/home/[^/]+/([^/]+)$", path)
+    if m:
+        return m.group(1)
     # Remove /home/<user>/<project>/ prefix
-    path = re.sub(r'^/home/[^/]+/[^/]+/', '', path.strip().strip("'\""))
+    path = re.sub(r'^/home/[^/]+/[^/]+/', '', path)
     # Remove leading ./ or ./
     path = re.sub(r'^\./', '', path)
+    if len(path) > 90:
+        path = path[:30].rstrip("/") + "…/" + path[-55:].lstrip("/")
     return path
 
 
@@ -435,26 +558,68 @@ def _summarize_progress(items: list[dict[str, Any]]) -> list[str]:
         if kind == "agent_message":
             _flush_reads()
             # Agent thinking — the most valuable content
-            msg = text if len(text) <= 150 else text[:147] + "…"
+            msg = _truncate_display(text, 320)
             actions.append(f"💭 {msg}")
         elif kind == "reasoning":
-            _flush_reads()
-            msg = text if len(text) <= 100 else text[:97] + "…"
-            actions.append(f"🧠 {msg}")
+            # Keep raw reasoning out of Telegram by default; agent messages
+            # already provide operator-facing intent without scratchpad noise.
+            if os.environ.get("ARGUS_SKILL_TELEGRAM_SHOW_REASONING", "").lower() in (
+                "1", "true", "yes", "on",
+            ):
+                _flush_reads()
+                msg = _truncate_display(text, 160)
+                actions.append(f"🧠 {msg}")
         elif kind == "command_execution":
             parsed = _parse_command(text)
+            parsed = _annotate_progress_result(parsed, ev)
             if parsed.startswith("📖"):
                 pending_reads.append(parsed)
             else:
                 _flush_reads()
                 actions.append(parsed)
+        elif kind == "file_change":
+            _flush_reads()
+            actions.append(_annotate_progress_result(
+                f"📝 {_truncate_display(text, 120)}", ev,
+            ))
+        elif kind == "tool_result":
+            _flush_reads()
+            actions.append(f"📤 {_truncate_display(text, 160)}")
+        elif kind == "phase":
+            _flush_reads()
+            actions.append(f"🔄 {_truncate_display(text, 120)}")
         else:
             _flush_reads()
-            short = text if len(text) <= 80 else text[:77] + "…"
+            short = _truncate_display(text, 120)
             actions.append(f"▸ {short}")
 
     _flush_reads()
-    return actions
+    deduped: list[str] = []
+    for action in actions:
+        if not deduped or deduped[-1] != action:
+            deduped.append(action)
+    return deduped
+
+
+def _annotate_progress_result(line: str, ev: dict[str, Any]) -> str:
+    status = str(ev.get("status") or "").lower()
+    exit_code = ev.get("exit_code")
+    failed = status == "failed" or (
+        isinstance(exit_code, int) and exit_code not in (0, None)
+    )
+    succeeded = (
+        status in {"completed", "succeeded", "success"}
+        or (isinstance(exit_code, int) and exit_code == 0)
+    )
+    if failed:
+        line = "❌ " + line
+    elif succeeded:
+        line = "✅ " + line
+
+    excerpt = str(ev.get("output_excerpt") or "").strip()
+    if excerpt:
+        line += f" — {_truncate_display(excerpt, 140)}"
+    return line
 
 
 class TelegramStreamReporter:
@@ -475,7 +640,7 @@ class TelegramStreamReporter:
     """
 
     FLUSH_INTERVAL = 12  # seconds between Telegram edits
-    MAX_LINES = 6        # recent progress lines shown
+    MAX_LINES = 10       # recent progress lines shown
     MAX_MSG_LEN = 3800   # leave room for markup overhead
 
     def __init__(self, *, stop_event: Any = None) -> None:
@@ -485,12 +650,13 @@ class TelegramStreamReporter:
         self._token = (os.environ.get("ARGUS_SKILL_TELEGRAM_BOT_TOKEN") or "").strip()
         self._chat_id = (os.environ.get("ARGUS_SKILL_TELEGRAM_CHAT_ID") or "").strip()
         self._stop = stop_event or _threading.Event()
-        self._buf: collections.deque[dict[str, Any]] = collections.deque(maxlen=50)
+        self._buf: collections.deque[dict[str, Any]] = collections.deque(maxlen=160)
         self._lock = _threading.Lock()
         self._live_msg_id: int | None = None
         self._mission_title: str = ""
         self._mission_layer: str = ""
         self._mission_start: float = 0.0
+        self._event_count: int = 0
         self._last_flush_text: str = ""
         self._thread: _threading.Thread | None = None
         self._enabled = bool(self._token and self._chat_id)
@@ -518,40 +684,87 @@ class TelegramStreamReporter:
         etype = event.get("type", "")
         if etype == "engineer.progress":
             with self._lock:
-                self._buf.append(event)
+                self._event_count += 1
+                self._append_progress_locked(event)
         elif etype == "life.mission.started":
             self.start_mission(
                 title=event.get("title", ""),
                 layer="engineer",
             )
         elif etype in ("life.mission.completed", "life.mission.failed"):
-            self.end_mission()
+            status = "failed" if etype.endswith(".failed") else "done"
+            self.end_mission(status=status)
+        elif etype == "life.phase.started":
+            layer = str(event.get("agent_layer") or event.get("layer") or "")
+            with self._lock:
+                if layer:
+                    self._mission_layer = layer
+                    label = _LAYER_LABELS.get(layer, layer)
+                    self._event_count += 1
+                    self._buf.append({
+                        "type": "engineer.progress",
+                        "kind": "phase",
+                        "text": f"进入 {label}",
+                    })
         elif etype == "life.planner.start":
             self.start_mission(
                 title=event.get("objective", "规划中…")[:80],
                 layer="planner",
             )
         elif etype in ("life.planner.verdict", "life.planner.error"):
-            self.end_mission()
+            status = "failed" if etype.endswith(".error") else "done"
+            self.end_mission(status=status)
 
     def start_mission(self, *, title: str, layer: str = "engineer") -> None:
         with self._lock:
             self._mission_title = title
             self._mission_layer = layer
             self._mission_start = time.time()
+            self._event_count = 0
             self._buf.clear()
             self._live_msg_id = None
             self._last_flush_text = ""
 
-    def end_mission(self) -> None:
-        msg_id = self._live_msg_id
+    def end_mission(self, *, status: str = "done") -> None:
         with self._lock:
+            msg_id = self._live_msg_id
+            items = list(self._buf)
+            title = self._mission_title
+            layer = self._mission_layer
+            start = self._mission_start
+            event_count = self._event_count
             self._buf.clear()
             self._live_msg_id = None
             self._mission_title = ""
+            self._mission_layer = ""
+            self._mission_start = 0.0
+            self._event_count = 0
             self._last_flush_text = ""
+        if not title or not items:
+            return
+        text = self._render(
+            items, title, layer, start,
+            status=status,
+            event_count=event_count,
+        )
         if msg_id:
-            self._delete_message(msg_id)
+            ok = self._edit_message(msg_id, text)
+            if not ok:
+                self._send_message(text)
+        else:
+            self._send_message(text)
+
+    def _append_progress_locked(self, event: dict[str, Any]) -> None:
+        message_id = event.get("message_id")
+        if event.get("replace") and message_id:
+            for idx, old in enumerate(self._buf):
+                if (
+                    old.get("message_id") == message_id
+                    and old.get("kind") == event.get("kind")
+                ):
+                    self._buf[idx] = event
+                    return
+        self._buf.append(event)
 
     # -- background thread ------------------------------------------------
 
@@ -571,8 +784,13 @@ class TelegramStreamReporter:
             title = self._mission_title
             layer = self._mission_layer
             start = self._mission_start
+            event_count = self._event_count
 
-        text = self._render(items, title, layer, start)
+        text = self._render(
+            items, title, layer, start,
+            status="running",
+            event_count=event_count,
+        )
         if text == self._last_flush_text:
             return  # no change — skip edit
 
@@ -591,21 +809,43 @@ class TelegramStreamReporter:
         title: str,
         layer: str,
         start: float,
+        *,
+        status: str,
+        event_count: int,
     ) -> str:
         elapsed = time.time() - start if start else 0
         mins, secs = divmod(int(elapsed), 60)
 
         layer_label = _LAYER_LABELS.get(layer, layer)
-        header = f"⚡ <b>实时进展</b>  {mins}m{secs:02d}s"
+        if status == "running":
+            header = f"⚡ <b>实时进展</b> · 运行中  {mins}m{secs:02d}s"
+        elif status == "failed":
+            header = f"❌ <b>任务进展摘要</b> · 已失败  {mins}m{secs:02d}s"
+        else:
+            header = f"✅ <b>任务进展摘要</b> · 已完成  {mins}m{secs:02d}s"
         lines = [header, "━━━━━━━━━━━━━━━━"]
-        lines.append(layer_label)
+        if layer_label:
+            lines.append(f"当前层级：{layer_label}")
         lines.append(f"📌 {_esc(title[:80])}")
         lines.append("")
 
         # Intelligently summarize recent activity
         actions = _summarize_progress(items)
-        for a in actions[-self.MAX_LINES:]:
+        visible = actions[-self.MAX_LINES:]
+        hidden_actions = max(0, len(actions) - len(visible))
+        if not visible:
+            lines.append("暂无可展示的实时事件…")
+        for a in visible:
             lines.append(_esc(a))
+        lines.append("")
+        hidden_events = max(0, event_count - len(items))
+        parts = [f"显示最近 {len(visible)} 条"]
+        if event_count:
+            parts.append(f"已捕获 {event_count} 条进展")
+        if hidden_actions or hidden_events:
+            parts.append(f"隐藏约 {hidden_actions + hidden_events} 条")
+        parts.append("完整日志：argus-skill --follow")
+        lines.append("📚 " + " · ".join(parts))
 
         body = "\n".join(lines)
         if len(body) > self.MAX_MSG_LEN:
