@@ -195,7 +195,9 @@ def _format_telegram_message(payload: dict[str, Any]) -> str:
         lines.append(f"🎯 {obj_text}")
 
     # Kind-specific details
-    if kind in ("mission_complete", "mission_failed", "mission_iterated"):
+    if kind == "mission_started":
+        pass  # objective line above is sufficient
+    elif kind in ("mission_complete", "mission_failed", "mission_iterated"):
         _format_mission_details(lines, extra, summary)
     elif kind == "planner_cycle":
         _format_planner_details(lines, summary)
