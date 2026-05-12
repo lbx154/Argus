@@ -190,6 +190,9 @@ class CodexRunnerBackend:
         run_label: str,
         resume_thread_id: str | None = None,
     ) -> RunnerResult:
+        # Reset per-call: the flag is checked AFTER this call completes,
+        # so stale True from a previous call cannot stick across missions.
+        self._auth_failure_detected = False
         argus_options = self._translate_options(options)
         try:
             argus_result = self._argus_runner.run_exec(
@@ -214,12 +217,18 @@ class CodexRunnerBackend:
         # 7×24 survivability: codex auth tokens expire silently. Detect
         # the well-known stderr patterns and log a warning so the daemon
         # surfaces it instead of looping over failing missions all night.
-        if looks_like_auth_failure(getattr(argus_result, "stderr_lines", None)):
+        # Only flag auth failure when the run actually FAILED — Azure
+        # backends sometimes emit transient 401 warnings in stderr even
+        # when the run succeeds (rate-limit retries, etc.).
+        if (
+            argus_result.exit_code != 0
+            and looks_like_auth_failure(getattr(argus_result, "stderr_lines", None))
+        ):
             self._auth_failure_detected = True
             log.warning(
                 "codex backend reported auth-related stderr "
-                "(run_label=%s) — run `codex login` to refresh credentials",
-                run_label,
+                "(run_label=%s, exit_code=%d) — run `codex login` to refresh credentials",
+                run_label, argus_result.exit_code,
             )
 
         return self._translate_result(argus_result)
