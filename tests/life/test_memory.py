@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import json
+import multiprocessing as mp
+import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -156,6 +159,114 @@ def test_backlog_remove(tmp_path: Path) -> None:
     assert [it.title for it in b.all()] == ["b"]
     assert b.remove("nope") is False
     _ = bb  # silence
+
+
+def _backlog_add_worker(
+    path: str,
+    ready: Any,
+    start: Any,
+    results: Any,
+    *,
+    title: str,
+    objective: str,
+    delay: float = 0.0,
+) -> None:
+    try:
+        ready.put(("ready", "add", title))
+        start.wait()
+        if delay:
+            time.sleep(delay)
+        item = BacklogItem.new(title=title, objective=objective)
+        backlog = Backlog(Path(path))
+        out = backlog.add(item)
+        results.put(("ok", "add", title, out.id))
+    except Exception as exc:  # noqa: BLE001
+        results.put(("err", "add", title, type(exc).__name__, str(exc)))
+
+
+def _backlog_claim_worker(
+    path: str,
+    ready: Any,
+    start: Any,
+    results: Any,
+    *,
+    name: str,
+) -> None:
+    try:
+        ready.put(("ready", "claim", name))
+        start.wait()
+        backlog = Backlog(Path(path))
+        claimed = backlog.claim_next()
+        results.put(
+            (
+                "ok",
+                "claim",
+                name,
+                None if claimed is None else claimed.id,
+                None if claimed is None else claimed.status,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        results.put(("err", "claim", name, type(exc).__name__, str(exc)))
+
+
+def test_backlog_add_and_claim_are_process_safe(tmp_path: Path) -> None:
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    seed = backlog.add(BacklogItem.new(title="seed", objective="claim me"))
+
+    ctx = mp.get_context("spawn")
+    ready = ctx.Queue()
+    start = ctx.Event()
+    results = ctx.Queue()
+    processes = [
+        ctx.Process(
+            target=_backlog_add_worker,
+            args=(str(backlog.path), ready, start, results),
+            kwargs={"title": "add-a", "objective": "one", "delay": 0.2},
+        ),
+        ctx.Process(
+            target=_backlog_add_worker,
+            args=(str(backlog.path), ready, start, results),
+            kwargs={"title": "add-b", "objective": "two", "delay": 0.2},
+        ),
+        ctx.Process(
+            target=_backlog_claim_worker,
+            args=(str(backlog.path), ready, start, results),
+            kwargs={"name": "claim-a"},
+        ),
+        ctx.Process(
+            target=_backlog_claim_worker,
+            args=(str(backlog.path), ready, start, results),
+            kwargs={"name": "claim-b"},
+        ),
+    ]
+
+    for proc in processes:
+        proc.start()
+
+    ready_messages = [ready.get(timeout=10) for _ in processes]
+    assert len(ready_messages) == 4
+    start.set()
+
+    for proc in processes:
+        proc.join(timeout=10)
+        assert proc.exitcode == 0
+
+    outcomes = [results.get(timeout=10) for _ in processes]
+    assert not any(item[0] == "err" for item in outcomes)
+
+    add_ids = [item[3] for item in outcomes if item[0] == "ok" and item[1] == "add"]
+    claim_ids = [item[3] for item in outcomes if item[0] == "ok" and item[1] == "claim" and item[3] is not None]
+    assert len(add_ids) == 2
+    assert len(claim_ids) == 1
+
+    rows = backlog.all()
+    assert len(rows) == 3
+    statuses = {row.title: row.status for row in rows}
+    assert statuses["seed"] == "running"
+    assert statuses["add-a"] == "pending"
+    assert statuses["add-b"] == "pending"
+    assert seed.id in {row.id for row in rows}
 
 
 # ---------- IdentityCard ---------------------------------------------------

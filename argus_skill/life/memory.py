@@ -25,11 +25,19 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
+
+fcntl: Any
+try:  # pragma: no cover - platform-specific import
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback
+    fcntl = None
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -169,15 +177,31 @@ def _path_signature(path: Path) -> tuple[int, int, int, int] | None:
 def _atomic_rewrite_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
     """Replace ``path`` atomically with the given rows.
 
-    We write to a sibling ``.tmp`` then ``os.replace``. Survives crashes
-    in the middle of a status update.
+    We write to a unique sibling temp file then ``os.replace``. Survives
+    crashes in the middle of a status update and avoids filename
+    collisions when multiple processes rewrite the same backlog.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as fh:
-        for row in rows:
-            fh.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
-    os.replace(tmp, path)
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f"{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as fh:
+            tmp_path = Path(fh.name)
+            for row in rows:
+                fh.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -430,6 +454,7 @@ class Backlog:
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
+        self._lock_path = self.path.parent / f"{self.path.name}.lock"
 
     # --- io ---
     def _load(self) -> list[BacklogItem]:
@@ -438,40 +463,67 @@ class Backlog:
     def _save(self, items: Iterable[BacklogItem]) -> None:
         _atomic_rewrite_jsonl(self.path, (it.to_jsonable() for it in items))
 
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        """Serialize backlog read-modify-write operations across processes."""
+        self._lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock_path.open("a+b") as fh:
+            if fcntl is not None:  # POSIX
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            else:  # pragma: no cover - Windows fallback
+                import msvcrt
+
+                lock = getattr(msvcrt, "locking")
+                lk_lock = getattr(msvcrt, "LK_LOCK")
+                lk_unlock = getattr(msvcrt, "LK_UNLCK")
+                fh.seek(0)
+                lock(fh.fileno(), lk_lock, 1)
+                try:
+                    yield
+                finally:
+                    fh.seek(0)
+                    lock(fh.fileno(), lk_unlock, 1)
+
     # --- write ---
     def add(self, item: BacklogItem) -> BacklogItem:
-        items = self._load()
-        items.append(item)
-        self._save(items)
+        with self._locked():
+            items = self._load()
+            items.append(item)
+            self._save(items)
         return item
 
     def update(self, item_id: str, **fields: Any) -> BacklogItem | None:
-        items = self._load()
-        out: BacklogItem | None = None
-        for it in items:
-            if it.id == item_id:
-                if "status" in fields:
-                    new_status = fields["status"]
-                    if new_status not in _BACKLOG_STATUSES:
-                        new_status = "pending"
-                        fields["status"] = "pending"
-                    if (
-                        it.status in _TERMINAL_STATUSES
-                        and new_status not in _TERMINAL_STATUSES
-                    ):
-                        raise IllegalStateTransition(
-                            f"backlog item {item_id} is in terminal state "
-                            f"{it.status!r}; refusing transition to "
-                            f"{new_status!r}. Enqueue a new item instead."
-                        )
-                for k, v in fields.items():
-                    if hasattr(it, k):
-                        setattr(it, k, v)
-                out = it
-                break
-        if out is not None:
-            self._save(items)
-        return out
+        with self._locked():
+            items = self._load()
+            out: BacklogItem | None = None
+            for it in items:
+                if it.id == item_id:
+                    if "status" in fields:
+                        new_status = fields["status"]
+                        if new_status not in _BACKLOG_STATUSES:
+                            new_status = "pending"
+                            fields["status"] = "pending"
+                        if (
+                            it.status in _TERMINAL_STATUSES
+                            and new_status not in _TERMINAL_STATUSES
+                        ):
+                            raise IllegalStateTransition(
+                                f"backlog item {item_id} is in terminal state "
+                                f"{it.status!r}; refusing transition to "
+                                f"{new_status!r}. Enqueue a new item instead."
+                            )
+                    for k, v in fields.items():
+                        if hasattr(it, k):
+                            setattr(it, k, v)
+                    out = it
+                    break
+            if out is not None:
+                self._save(items)
+            return out
 
     def claim_next(self) -> BacklogItem | None:
         """Atomically pick the head pending item and flip it to ``running``.
@@ -483,16 +535,17 @@ class Backlog:
         pending. We rewrite the file under the same lock that ``_save``
         already uses, so two concurrent callers cannot both win.
         """
-        items = self._load()
-        pending = [it for it in items if it.status == "pending"]
-        if not pending:
-            return None
-        pending.sort(key=lambda it: (it.priority, it.ts))
-        head = pending[0]
-        head.status = "running"
-        head.started_ts = time.time()
-        self._save(items)
-        return head
+        with self._locked():
+            items = self._load()
+            pending = [it for it in items if it.status == "pending"]
+            if not pending:
+                return None
+            pending.sort(key=lambda it: (it.priority, it.ts))
+            head = pending[0]
+            head.status = "running"
+            head.started_ts = time.time()
+            self._save(items)
+            return head
 
     def reap_orphans(
         self,
@@ -509,24 +562,25 @@ class Backlog:
 
         Returns the list of affected items (both re-queued and failed).
         """
-        items = self._load()
-        reaped: list[BacklogItem] = []
-        for it in items:
-            if it.status == "running":
-                it.orphan_retries += 1
-                if it.orphan_retries > max_retries:
-                    it.status = "failed"
-                    it.finished_ts = time.time()
-                    if not it.last_error:
-                        it.last_error = f"{error} (exceeded {max_retries} retries)"
-                else:
-                    it.status = "pending"
-                    it.started_ts = None
-                    it.last_error = error
-                reaped.append(it)
-        if reaped:
-            self._save(items)
-        return reaped
+        with self._locked():
+            items = self._load()
+            reaped: list[BacklogItem] = []
+            for it in items:
+                if it.status == "running":
+                    it.orphan_retries += 1
+                    if it.orphan_retries > max_retries:
+                        it.status = "failed"
+                        it.finished_ts = time.time()
+                        if not it.last_error:
+                            it.last_error = f"{error} (exceeded {max_retries} retries)"
+                    else:
+                        it.status = "pending"
+                        it.started_ts = None
+                        it.last_error = error
+                    reaped.append(it)
+            if reaped:
+                self._save(items)
+            return reaped
 
     def mark_running(self, item_id: str) -> BacklogItem | None:
         return self.update(item_id, status="running", started_ts=time.time())
@@ -549,26 +603,27 @@ class Backlog:
         objective. Increments ``iteration_cycles_done`` and accumulates
         ``iteration_cost_usd``.
         """
-        items = self._load()
-        out: BacklogItem | None = None
-        for it in items:
-            if it.id == item_id:
-                if it.status not in {"running", "pending"}:
-                    return None
-                it.status = "pending"
-                it.objective = new_objective.strip() or it.objective
-                it.iteration_cycles_done += 1
-                it.iteration_cost_usd = round(
-                    it.iteration_cost_usd + max(0.0, float(cost_delta_usd)), 6
-                )
-                it.started_ts = None
-                it.finished_ts = None
-                it.last_error = ""
-                out = it
-                break
-        if out is not None:
-            self._save(items)
-        return out
+        with self._locked():
+            items = self._load()
+            out: BacklogItem | None = None
+            for it in items:
+                if it.id == item_id:
+                    if it.status not in {"running", "pending"}:
+                        return None
+                    it.status = "pending"
+                    it.objective = new_objective.strip() or it.objective
+                    it.iteration_cycles_done += 1
+                    it.iteration_cost_usd = round(
+                        it.iteration_cost_usd + max(0.0, float(cost_delta_usd)), 6
+                    )
+                    it.started_ts = None
+                    it.finished_ts = None
+                    it.last_error = ""
+                    out = it
+                    break
+            if out is not None:
+                self._save(items)
+            return out
 
     def stop_iteration(
         self, item_id: str, *, reason: str = "stopped by operator"
@@ -580,21 +635,22 @@ class Backlog:
         supervisor will check ``iterate`` after the current cycle and
         finalize naturally.
         """
-        items = self._load()
-        out: BacklogItem | None = None
-        for it in items:
-            if it.id == item_id:
-                it.iterate = False
-                if it.status == "pending":
-                    it.status = "done"
-                    it.finished_ts = time.time()
-                    if not it.notes:
-                        it.notes = reason
-                out = it
-                break
-        if out is not None:
-            self._save(items)
-        return out
+        with self._locked():
+            items = self._load()
+            out: BacklogItem | None = None
+            for it in items:
+                if it.id == item_id:
+                    it.iterate = False
+                    if it.status == "pending":
+                        it.status = "done"
+                        it.finished_ts = time.time()
+                        if not it.notes:
+                            it.notes = reason
+                    out = it
+                    break
+            if out is not None:
+                self._save(items)
+            return out
 
     def mark_failed(self, item_id: str, *, error: str = "") -> BacklogItem | None:
         return self.update(
@@ -602,12 +658,13 @@ class Backlog:
         )
 
     def remove(self, item_id: str) -> bool:
-        items = self._load()
-        new = [it for it in items if it.id != item_id]
-        if len(new) == len(items):
-            return False
-        self._save(new)
-        return True
+        with self._locked():
+            items = self._load()
+            new = [it for it in items if it.id != item_id]
+            if len(new) == len(items):
+                return False
+            self._save(new)
+            return True
 
     # --- read ---
     def all(self) -> list[BacklogItem]:

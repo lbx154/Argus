@@ -282,6 +282,26 @@ class _CodexSkillLoopRunner:
         self._next_seed_thread_id: str | None = seed_thread_id
         self.last_thread_id: str | None = seed_thread_id
 
+    def stream_to(self, sink: EventSink):
+        """Context manager: temporarily route stream lines to *sink*.
+
+        Use this when calling ``backend.run_exec()`` directly (critic /
+        planner) outside the normal ``execute()`` path so that streaming
+        events still flow through the trampoline to the event sink.
+        """
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _ctx():
+            prev = self._current_sink
+            self._current_sink = sink
+            try:
+                yield
+            finally:
+                self._current_sink = prev
+
+        return _ctx()
+
     def execute(
         self,
         *,

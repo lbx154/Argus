@@ -26,8 +26,10 @@ agent is doing one thing, then the next, like a person.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -155,6 +157,16 @@ def _usd_for_tokens(model: str, input_tokens: int, output_tokens: int) -> float:
         float(input_tokens) * in_price / 1_000_000
         + float(output_tokens) * out_price / 1_000_000
     )
+
+
+def _normalize_planner_text(text: str) -> str:
+    """Normalize planner task text for duplicate detection."""
+    normalized = unicodedata.normalize("NFKC", str(text))
+    return re.sub(r"\s+", " ", normalized).strip().casefold()
+
+
+def _planner_task_signature(title: str, objective: str) -> tuple[str, str]:
+    return (_normalize_planner_text(title), _normalize_planner_text(objective))
 
 
 class _CostTrackingSink:
@@ -1016,15 +1028,24 @@ class LifeSupervisor:
                 render_iteration_objective,
             )
             critic = Critic(self.critic_runner)
-            verdict = critic.evaluate(
-                original_objective=original,
-                latest_completion_summary=latest,
-                cycles_done=cycles_done,
-                cycles_max=cycles_max,
-                budget_remaining_usd=remaining_budget,
-                journal_tail=self._render_recent_journal_for_critic(item.id),
-                config=CriticConfig(model=self.reviewer_model),
-            )
+            # Enable streaming so critic output flows through the event sink
+            ctx = getattr(self.runner, "stream_to", None)
+            stream_ctx = ctx(self.sink) if ctx else None
+            if stream_ctx:
+                stream_ctx.__enter__()
+            try:
+                verdict = critic.evaluate(
+                    original_objective=original,
+                    latest_completion_summary=latest,
+                    cycles_done=cycles_done,
+                    cycles_max=cycles_max,
+                    budget_remaining_usd=remaining_budget,
+                    journal_tail=self._render_recent_journal_for_critic(item.id),
+                    config=CriticConfig(model=self.reviewer_model),
+                )
+            finally:
+                if stream_ctx:
+                    stream_ctx.__exit__(None, None, None)
         except Exception as exc:  # noqa: BLE001
             log.exception("life supervisor: critic raised; finalizing as done")
             return {
@@ -1236,13 +1257,22 @@ class LifeSupervisor:
             from ..critic import Critic, CriticConfig
 
             critic = Critic(self.critic_runner)
-            verdict = critic.plan_next(
-                continuous_objective=self.config.continuous_objective,
-                journal_tail=journal_tail,
-                budget_remaining_usd=remaining,
-                planning_cycle=self._planning_cycles - 1,
-                config=CriticConfig(model=self.reviewer_model),
-            )
+            # Enable streaming so planner output flows through the event sink
+            ctx = getattr(self.runner, "stream_to", None)
+            stream_ctx = ctx(self.sink) if ctx else None
+            if stream_ctx:
+                stream_ctx.__enter__()
+            try:
+                verdict = critic.plan_next(
+                    continuous_objective=self.config.continuous_objective,
+                    journal_tail=journal_tail,
+                    budget_remaining_usd=remaining,
+                    planning_cycle=self._planning_cycles - 1,
+                    config=CriticConfig(model=self.reviewer_model),
+                )
+            finally:
+                if stream_ctx:
+                    stream_ctx.__exit__(None, None, None)
         except Exception as exc:  # noqa: BLE001
             log.exception("life supervisor: planner raised; stopping")
             self._emit({
@@ -1258,18 +1288,21 @@ class LifeSupervisor:
             verdict.output_tokens,
         )
 
-        self._emit({
-            "type": "life.planner.verdict",
-            "cycle": self._planning_cycles,
-            "project_done": verdict.project_done,
-            "reason": verdict.reason,
-            "task_count": len(verdict.new_tasks),
-            "input_tokens": verdict.input_tokens,
-            "output_tokens": verdict.output_tokens,
-            "cost_usd": planner_cost_usd,
-        })
-
         if verdict.project_done:
+            self._emit({
+                "type": "life.planner.verdict",
+                "cycle": self._planning_cycles,
+                "project_done": verdict.project_done,
+                "reason": verdict.reason,
+                "task_count": len(verdict.new_tasks),
+                "enqueued_tasks": 0,
+                "skipped_duplicate_tasks": 0,
+                "enqueued_titles": [],
+                "skipped_duplicate_titles": [],
+                "input_tokens": verdict.input_tokens,
+                "output_tokens": verdict.output_tokens,
+                "cost_usd": planner_cost_usd,
+            })
             self._emit_status(
                 f"planner: project done — {verdict.reason}"
             )
@@ -1290,8 +1323,40 @@ class LifeSupervisor:
                 log.exception("notify dispatch failed; continuing")
             return False
 
+        try:
+            existing_items = self.memory.backlog.all()
+        except Exception:  # noqa: BLE001
+            log.exception("life supervisor: failed to inspect backlog before planning")
+            existing_items = []
+
+        seen_signatures: dict[tuple[str, str], BacklogItem] = {}
+        for existing in existing_items:
+            if existing.status not in {"pending", "running"}:
+                continue
+            seen_signatures.setdefault(
+                _planner_task_signature(existing.title, existing.objective),
+                existing,
+            )
+
+        added_titles: list[str] = []
+        skipped_titles: list[str] = []
+
         # Add new tasks to the backlog.
         for task in verdict.new_tasks:
+            signature = _planner_task_signature(task.title, task.objective)
+            duplicate_item = seen_signatures.get(signature)
+            if duplicate_item is not None:
+                skipped_titles.append(task.title)
+                self._emit({
+                    "type": "life.planner.task_skipped",
+                    "cycle": self._planning_cycles,
+                    "title": task.title,
+                    "objective": task.objective,
+                    "matched_item_id": duplicate_item.id,
+                    "matched_status": duplicate_item.status,
+                    "reason": "duplicate pending/running task",
+                })
+                continue
             item = BacklogItem.new(
                 title=task.title,
                 objective=task.objective,
@@ -1301,26 +1366,59 @@ class LifeSupervisor:
                 iteration_budget_usd=self._item_iteration_budget(),
             )
             self.memory.backlog.add(item)
+            seen_signatures[signature] = item
+            added_titles.append(item.title)
             self._emit({
                 "type": "life.planner.task_added",
                 "item_id": item.id,
                 "title": item.title,
             })
 
+        summary_parts = [
+            f"proposed {len(verdict.new_tasks)} task(s)",
+            (
+                "enqueued "
+                f"{len(added_titles)} task(s): "
+                + (", ".join(added_titles) if added_titles else "(none)")
+            ),
+        ]
+        if skipped_titles:
+            summary_parts.append(
+                "skipped "
+                f"{len(skipped_titles)} duplicate(s): "
+                + ", ".join(skipped_titles)
+            )
+
         entry = JournalEntry.new(
             kind="planner_cycle",
             title=f"planner cycle #{self._planning_cycles}",
-            summary=(
-                f"generated {len(verdict.new_tasks)} task(s): "
-                + ", ".join(t.title for t in verdict.new_tasks)
-            ),
+            summary="; ".join(summary_parts),
             tags=["life", "planner"],
             cost_usd=planner_cost_usd,
             extra={
                 "agent_layer": "planner",
                 "objective": self.config.continuous_objective[:200],
+                "proposed_tasks": len(verdict.new_tasks),
+                "enqueued_tasks": len(added_titles),
+                "skipped_duplicate_tasks": len(skipped_titles),
+                "enqueued_titles": added_titles,
+                "skipped_duplicate_titles": skipped_titles,
             },
         )
+        self._emit({
+            "type": "life.planner.verdict",
+            "cycle": self._planning_cycles,
+            "project_done": verdict.project_done,
+            "reason": verdict.reason,
+            "task_count": len(verdict.new_tasks),
+            "enqueued_tasks": len(added_titles),
+            "skipped_duplicate_tasks": len(skipped_titles),
+            "enqueued_titles": added_titles,
+            "skipped_duplicate_titles": skipped_titles,
+            "input_tokens": verdict.input_tokens,
+            "output_tokens": verdict.output_tokens,
+            "cost_usd": planner_cost_usd,
+        })
         self.memory.journal.append(entry)
         self._inject_cumulative_cost(entry)
         try:

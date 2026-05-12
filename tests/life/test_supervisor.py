@@ -768,6 +768,82 @@ def test_continuous_mode_planner_generates_new_tasks(tmp_path: Path) -> None:
     assert planner_calls["n"] == 3
 
 
+def test_continuous_mode_planner_skips_duplicate_tasks(tmp_path: Path) -> None:
+    """Planner cycles should not enqueue tasks that are already pending
+    or running; they should still enqueue genuinely new work."""
+
+    class _PlannerBackend:
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None, **kw):
+            payload = (
+                '{"project_done": false, "reason": "needs more work", '
+                '"new_tasks": ['
+                '{"title": "  RUNNING TASK  ", "objective": "ship unique stuff"}, '
+                '{"title": "Unique follow-up", "objective": "document the result"}'
+                ']}'
+            )
+
+            class _Result:
+                agent_messages = [payload]
+                input_tokens = 123
+                output_tokens = 45
+
+            return _Result()
+
+    mem = _mk_memory(tmp_path)
+    sink = _RecordingSink()
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_FakeRunner(),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(max_missions=999, daily_cap_usd=999.0),
+            continuous=True,
+            continuous_objective="optimize the project",
+        ),
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+        critic_runner=_PlannerBackend(),
+    )
+
+    pending_item = mem.backlog.add(BacklogItem.new(
+        title="pending task",
+        objective="write docs",
+        iterate=False,
+    ))
+    running_item = mem.backlog.add(BacklogItem.new(
+        title="running task",
+        objective="ship unique stuff",
+        iterate=False,
+    ))
+    mem.backlog.update(running_item.id, status="running", started_ts=1.0)
+
+    before_count = len(mem.backlog.all())
+    planned = sup._plan_next_work()
+
+    assert planned is True
+    assert len(mem.backlog.all()) == before_count + 1
+
+    rows = {item.title: item for item in mem.backlog.all()}
+    assert rows[pending_item.title].status == "pending"
+    assert rows[running_item.title].status == "running"
+    assert rows["Unique follow-up"].status == "pending"
+    assert "RUNNING TASK" not in {item.title for item in mem.backlog.all()}
+
+    planner_events = [e for e in sink.events if e.get("type", "").startswith("life.planner")]
+    assert any(e.get("type") == "life.planner.task_added" for e in planner_events)
+    skipped = [e for e in planner_events if e.get("type") == "life.planner.task_skipped"]
+    assert len(skipped) == 1
+    assert skipped[0]["matched_item_id"] == running_item.id
+    verdict = next(e for e in planner_events if e.get("type") == "life.planner.verdict")
+    assert verdict["skipped_duplicate_tasks"] == 1
+    assert verdict["enqueued_tasks"] == 1
+
+    entry = mem.journal.all()[-1]
+    assert entry.kind == "planner_cycle"
+    assert "skipped 1 duplicate(s): RUNNING TASK" in entry.summary
+    assert "enqueued 1 task(s): Unique follow-up" in entry.summary
+
+
 def test_planner_budget_counts_planner_tokens(tmp_path: Path) -> None:
     mem = _mk_memory(tmp_path)
     mem.backlog.add(BacklogItem.new(
