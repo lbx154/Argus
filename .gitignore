@@ -17,7 +17,7 @@ env/
 htmlcov/
 
 # user state
-skills/
+/skills/
 .argus-skill/
 
 # scratch

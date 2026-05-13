@@ -114,10 +114,14 @@ def test_known_bugs_documents_current_exempt_result_bundles() -> None:
         for match in re.finditer(r"^- `([^`]+/?)`$", docs, re.MULTILINE)
         if match.group(1).startswith("benchmarks/results/")
     }
-    live = {
-        str(child.relative_to(repo_root))
-        for child in sorted(results_root.iterdir())
-        if child.is_dir() and (child / "EXEMPT.md").exists()
-    }
+    live = (
+        {
+            str(child.relative_to(repo_root))
+            for child in sorted(results_root.iterdir())
+            if child.is_dir() and (child / "EXEMPT.md").exists()
+        }
+        if results_root.exists()
+        else set()
+    )
 
     assert documented == live
