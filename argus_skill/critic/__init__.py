@@ -6,8 +6,10 @@ verdict is ``done``, the supervisor hands the produced artefacts to a
 :class:`Improvement` records. If the list is non-empty AND the item's
 iteration budget / cycle ceiling has not yet been reached, the
 supervisor requeues the item with a polished objective derived from
-those improvements. If the list is empty, the item is finalized as
-truly done — we do not iterate forever for the sake of iterating.
+those improvements. Low-impact or unevidenced suggestions are filtered
+out before they can burn another round. If the list is empty, the item
+is finalized as truly done and continuous mode hands control back to the
+planner for the next valuable mission.
 
 The :meth:`Critic.plan_next` method extends the critic into a
 *planner* role for continuous 24/7 project improvement.

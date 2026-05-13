@@ -588,6 +588,9 @@ def _summarize_progress(items: list[dict[str, Any]]) -> list[str]:
         elif kind == "phase":
             _flush_reads()
             actions.append(f"🔄 {_truncate_display(text, 120)}")
+        elif kind == "lifecycle":
+            _flush_reads()
+            actions.append(_truncate_display(text, 220))
         else:
             _flush_reads()
             short = _truncate_display(text, 120)
@@ -622,9 +625,157 @@ def _annotate_progress_result(line: str, ev: dict[str, Any]) -> str:
     return line
 
 
+def _event_round(event: dict[str, Any]) -> str:
+    value = event.get("round_index", event.get("round", "?"))
+    return str(value if value not in (None, "") else "?")
+
+
+def _event_int(event: dict[str, Any], *keys: str) -> int | None:
+    for key in keys:
+        value = event.get(key)
+        if isinstance(value, bool) or value in (None, ""):
+            continue
+        if isinstance(value, int):
+            parsed = value
+        elif isinstance(value, str) and value.isdecimal():
+            parsed = int(value)
+        else:
+            continue
+        if parsed > 0:
+            return parsed
+    return None
+
+
+def _event_round_number(event: dict[str, Any]) -> int | None:
+    return _event_int(event, "round_index", "round")
+
+
+def _event_round_max(event: dict[str, Any]) -> int | None:
+    return _event_int(event, "round_max", "max_rounds")
+
+
+def _round_progress_label(current: int | None, max_rounds: int | None) -> str:
+    if current is None:
+        return "?"
+    if max_rounds:
+        return f"{current}/{max_rounds}"
+    return str(current)
+
+
+def _format_confidence(value: Any) -> str:
+    if isinstance(value, (int, float)):
+        return f"{float(value):.2f}"
+    return ""
+
+
+def _l2_icon(status: str) -> str:
+    normalized = status.lower()
+    if normalized in {"done", "pass", "passed", "success"}:
+        return "✅"
+    if normalized in {"continue", "needs_changes", "retry"}:
+        return "🔁"
+    if normalized in {"blocked", "failed", "error"}:
+        return "⛔"
+    return "👨‍🏫"
+
+
+def _format_review_verdict(event: dict[str, Any]) -> str:
+    status = str(event.get("status") or "?")
+    parts = [
+        f"{_l2_icon(status)} L2 审查员 · verdict={status}",
+        f"engineer round {_event_round(event)}",
+    ]
+    confidence = _format_confidence(event.get("confidence"))
+    if confidence:
+        parts.append(f"conf={confidence}")
+    reason = str(event.get("reason") or "").strip()
+    if reason:
+        parts.append(f"reason={_truncate_display(reason, 120)}")
+    next_action = str(event.get("next_action") or "").strip()
+    if next_action:
+        parts.append(f"next={_truncate_display(next_action, 120)}")
+    return " · ".join(parts)
+
+
+def _format_critic_verdict(event: dict[str, Any]) -> str:
+    stop = bool(event.get("stop"))
+    count = int(event.get("improvement_count") or 0)
+    raw_count = int(event.get("raw_improvement_count") or count)
+    dropped = int(event.get("dropped_low_value_count") or 0)
+    verdict = "stop" if stop else "continue"
+    parts = [
+        ("✅" if stop else "🔁") + f" L3 评审员 · verdict={verdict}",
+    ]
+    if not stop:
+        parts.append(f"high-value improvements={count}")
+    elif raw_count:
+        parts.append(f"accepted={count}/{raw_count}")
+    if dropped:
+        parts.append(f"dropped low-value={dropped}")
+    reason = str(event.get("reason") or "").strip()
+    if reason:
+        parts.append(f"reason={_truncate_display(reason, 160)}")
+    return " · ".join(parts)
+
+
+def _format_iteration_continued(event: dict[str, Any]) -> str:
+    cycle = event.get("cycles_done", "?")
+    max_cycle = event.get("cycles_max", "?")
+    improvements = event.get("improvements") or []
+    titles: list[str] = []
+    if isinstance(improvements, list):
+        for improvement in improvements[:2]:
+            if isinstance(improvement, dict):
+                title = str(improvement.get("title") or "").strip()
+                if title:
+                    titles.append(_truncate_display(title, 60))
+    suffix = f" · {', '.join(titles)}" if titles else ""
+    return f"🔁 L3 已重排 · mission iteration {cycle}/{max_cycle}{suffix}"
+
+
+_PRE_ENGINEER_PROGRESS_TYPES = frozenset({
+    "loop.start",
+    "match.info",
+    "scientist.start",
+    "distill.start",
+    "distill.done",
+    "skill.distill.warnings",
+})
+
+
+def _format_pre_engineer_progress(event: dict[str, Any]) -> str:
+    etype = str(event.get("type") or "")
+    text = str(event.get("text") or "")
+    if etype == "loop.start":
+        body = text
+        for prefix in ("task:", "chat:"):
+            if body.startswith(prefix):
+                body = body[len(prefix):].strip()
+                break
+        if body:
+            return f"🟢 开始处理：{_truncate_display(body, 120)}"
+        return "🟢 开始处理"
+    if etype == "match.info":
+        if "querying matcher" in text:
+            return "🧭 正在匹配可复用技能"
+        picked = re.search(r"matcher picked:\s*([^()]+)", text)
+        if picked:
+            return f"🧭 匹配到技能：{_truncate_display(picked.group(1).strip(), 90)}"
+        if "no high-fit" in text:
+            return "🧭 没有合适技能，正在准备临时执行策略"
+        return f"🧭 {_truncate_display(text, 180)}" if text else ""
+    if etype in {"scientist.start", "distill.start"}:
+        return "🧪 正在准备临时执行策略"
+    if etype == "distill.done":
+        return "🧪 临时执行策略准备完成"
+    if etype == "skill.distill.warnings":
+        return "🧪 临时执行策略已生成，有轻微质量提示"
+    return ""
+
+
 class TelegramStreamReporter:
-    """Buffers ``engineer.progress`` events and periodically edits a
-    single live-status Telegram message.
+    """Buffers ``engineer.progress`` events and sends readable Telegram
+    messages as separate progress cards.
 
     All network I/O happens in a dedicated daemon thread to avoid
     blocking the event pipeline.  The public API (``on_event``,
@@ -639,8 +790,8 @@ class TelegramStreamReporter:
         reporter.stop()           # graceful shutdown
     """
 
-    FLUSH_INTERVAL = 12  # seconds between Telegram edits
-    MAX_LINES = 10       # recent progress lines shown
+    FLUSH_INTERVAL = 12  # seconds between fallback progress flushes
+    MIN_FLUSH_INTERVAL = 1.5  # coalesce bursty replacement events
     MAX_MSG_LEN = 3800   # leave room for markup overhead
 
     def __init__(self, *, stop_event: Any = None) -> None:
@@ -651,13 +802,13 @@ class TelegramStreamReporter:
         self._chat_id = (os.environ.get("ARGUS_SKILL_TELEGRAM_CHAT_ID") or "").strip()
         self._stop = stop_event or _threading.Event()
         self._buf: collections.deque[dict[str, Any]] = collections.deque(maxlen=160)
+        self._poke = _threading.Event()
         self._lock = _threading.Lock()
-        self._live_msg_id: int | None = None
         self._mission_title: str = ""
         self._mission_layer: str = ""
         self._mission_start: float = 0.0
         self._event_count: int = 0
-        self._last_flush_text: str = ""
+        self._last_flush_monotonic: float = 0.0
         self._thread: _threading.Thread | None = None
         self._enabled = bool(self._token and self._chat_id)
 
@@ -673,6 +824,7 @@ class TelegramStreamReporter:
 
     def stop(self) -> None:
         self._stop.set()
+        self._poke.set()
         if self._thread:
             self._thread.join(timeout=5)
 
@@ -686,6 +838,7 @@ class TelegramStreamReporter:
             with self._lock:
                 self._event_count += 1
                 self._append_progress_locked(event)
+            self._request_flush()
         elif etype == "life.mission.started":
             self.start_mission(
                 title=event.get("title", ""),
@@ -694,18 +847,78 @@ class TelegramStreamReporter:
         elif etype in ("life.mission.completed", "life.mission.failed"):
             status = "failed" if etype.endswith(".failed") else "done"
             self.end_mission(status=status)
+        elif etype in _PRE_ENGINEER_PROGRESS_TYPES:
+            text = _format_pre_engineer_progress(event)
+            should_flush = False
+            if text:
+                with self._lock:
+                    if self._mission_title:
+                        self._event_count += 1
+                        self._buf.append({"kind": "lifecycle", "text": text})
+                        should_flush = True
+            if should_flush:
+                self._request_flush()
         elif etype == "life.phase.started":
             layer = str(event.get("agent_layer") or event.get("layer") or "")
+            card = ""
             with self._lock:
                 if layer:
                     self._mission_layer = layer
                     label = _LAYER_LABELS.get(layer, layer)
-                    self._event_count += 1
-                    self._buf.append({
-                        "type": "engineer.progress",
-                        "kind": "phase",
-                        "text": f"进入 {label}",
-                    })
+                    card = f"🔄 <b>层级切换</b>\n当前：{_esc(label)}"
+            if card:
+                self._send_message(card)
+            self._request_flush()
+        elif etype == "round.start":
+            round_number = _event_round_number(event)
+            round_max = _event_round_max(event)
+            round_label = _round_progress_label(round_number, round_max)
+            raw_text = str(event.get("text") or "")
+            with self._lock:
+                self._mission_layer = "engineer"
+                card = self._format_round_start_card_locked(round_label, raw_text)
+            self._send_message(card)
+            self._request_flush()
+        elif etype == "round.main.completed":
+            failed = bool(event.get("fatal_error")) or (
+                isinstance(event.get("exit_code"), int)
+                and event.get("exit_code") not in (0, None)
+            )
+            round_number = _event_round_number(event)
+            round_max = _event_round_max(event)
+            round_label = _round_progress_label(round_number, round_max)
+            with self._lock:
+                self._mission_layer = "engineer"
+                card = self._format_round_completed_card_locked(event, round_label, failed)
+            self._send_message(card)
+            self._request_flush()
+        elif etype == "round.review.started":
+            round_number = _event_round_number(event)
+            round_max = _event_round_max(event)
+            round_label = _round_progress_label(round_number, round_max)
+            with self._lock:
+                self._mission_layer = "reviewer"
+                card = self._format_review_started_card_locked(round_label)
+            self._send_message(card)
+            self._request_flush()
+        elif etype == "round.review.completed":
+            with self._lock:
+                self._mission_layer = "reviewer"
+                card = self._format_review_card_locked(event)
+            self._send_message(card)
+            self._request_flush()
+        elif etype == "life.iteration.critic":
+            text = _format_critic_verdict(event)
+            with self._lock:
+                if self._mission_title:
+                    self._mission_layer = "critic"
+            self._send_message(_esc(text))
+        elif etype == "life.iteration.continued":
+            text = _format_iteration_continued(event)
+            with self._lock:
+                if self._mission_title:
+                    self._mission_layer = "critic"
+            self._send_message(_esc(text))
         elif etype == "life.planner.start":
             self.start_mission(
                 title=event.get("objective", "规划中…")[:80],
@@ -722,37 +935,74 @@ class TelegramStreamReporter:
             self._mission_start = time.time()
             self._event_count = 0
             self._buf.clear()
-            self._live_msg_id = None
-            self._last_flush_text = ""
+        self._request_flush()
 
     def end_mission(self, *, status: str = "done") -> None:
         with self._lock:
-            msg_id = self._live_msg_id
             items = list(self._buf)
+            self._buf.clear()
             title = self._mission_title
             layer = self._mission_layer
             start = self._mission_start
             event_count = self._event_count
-            self._buf.clear()
-            self._live_msg_id = None
             self._mission_title = ""
             self._mission_layer = ""
             self._mission_start = 0.0
             self._event_count = 0
-            self._last_flush_text = ""
-        if not title or not items:
+        if not title:
             return
-        text = self._render(
-            items, title, layer, start,
+        self._send_progress_cards(items, title=title, layer=layer, start=start)
+        self._send_message(self._format_mission_status_card(
+            title=title,
+            layer=layer,
+            start=start,
             status=status,
             event_count=event_count,
-        )
-        if msg_id:
-            ok = self._edit_message(msg_id, text)
-            if not ok:
-                self._send_message(text)
-        else:
-            self._send_message(text)
+        ))
+
+    def _format_round_start_card_locked(self, round_label: str, raw_text: str) -> str:
+        suffix = " · resume" if "resuming" in raw_text else ""
+        lines = [
+            f"👷 <b>L1 工程师 Round {_esc(round_label)} 开始{suffix}</b>",
+            f"📌 {_esc(self._mission_title[:100])}",
+        ]
+        return "\n".join(lines)
+
+    def _format_round_completed_card_locked(
+        self,
+        event: dict[str, Any],
+        round_label: str,
+        failed: bool,
+    ) -> str:
+        status = "失败" if failed else "完成"
+        icon = "❌" if failed else "✅"
+        lines = [
+            f"{icon} <b>L1 工程师 Round {_esc(round_label)} {status}</b>",
+        ]
+        fatal_error = str(event.get("fatal_error") or "").strip()
+        if fatal_error:
+            lines.append(f"error：{_esc(_truncate_display(fatal_error, 220))}")
+        return "\n".join(lines)
+
+    def _format_review_started_card_locked(self, round_label: str) -> str:
+        return f"👨‍🏫 <b>L2 审查 Round {_esc(round_label)} 开始</b>"
+
+    def _format_review_card_locked(self, event: dict[str, Any]) -> str:
+        round_label = _round_progress_label(_event_round_number(event), _event_round_max(event))
+        status = str(event.get("status") or "?")
+        lines = [
+            f"{_l2_icon(status)} <b>L2 审查 Round {_esc(round_label)}：{_esc(status)}</b>",
+        ]
+        confidence = _format_confidence(event.get("confidence"))
+        if confidence:
+            lines.append(f"confidence：{_esc(confidence)}")
+        reason = str(event.get("reason") or "").strip()
+        if reason:
+            lines.append(f"reason：{_esc(_truncate_display(reason, 220))}")
+        next_action = str(event.get("next_action") or "").strip()
+        if next_action:
+            lines.append(f"next：{_esc(_truncate_display(next_action, 220))}")
+        return "\n".join(lines)
 
     def _append_progress_locked(self, event: dict[str, Any]) -> None:
         message_id = event.get("message_id")
@@ -770,87 +1020,101 @@ class TelegramStreamReporter:
 
     def _run(self) -> None:
         while not self._stop.is_set():
+            signalled = self._poke.wait(timeout=self.FLUSH_INTERVAL)
+            self._poke.clear()
+            if self._stop.is_set():
+                break
+            if signalled:
+                elapsed = time.monotonic() - self._last_flush_monotonic
+                if elapsed < self.MIN_FLUSH_INTERVAL:
+                    self._stop.wait(timeout=self.MIN_FLUSH_INTERVAL - elapsed)
+                    if self._stop.is_set():
+                        break
             try:
                 self._flush()
             except Exception:  # noqa: BLE001
                 log.debug("tg-stream flush error", exc_info=True)
-            self._stop.wait(timeout=self.FLUSH_INTERVAL)
+
+    def _request_flush(self) -> None:
+        if self._enabled:
+            self._poke.set()
 
     def _flush(self) -> None:
         with self._lock:
             if not self._buf or not self._mission_title:
                 return
             items = list(self._buf)
+            self._buf.clear()
             title = self._mission_title
             layer = self._mission_layer
             start = self._mission_start
-            event_count = self._event_count
 
-        text = self._render(
-            items, title, layer, start,
-            status="running",
-            event_count=event_count,
-        )
-        if text == self._last_flush_text:
-            return  # no change — skip edit
+        self._send_progress_cards(items, title=title, layer=layer, start=start)
+        self._last_flush_monotonic = time.monotonic()
 
-        if self._live_msg_id:
-            ok = self._edit_message(self._live_msg_id, text)
-            if not ok:
-                # Message gone / error — send a new one
-                self._live_msg_id = self._send_message(text)
-        else:
-            self._live_msg_id = self._send_message(text)
-        self._last_flush_text = text
-
-    def _render(
+    def _send_progress_cards(
         self,
         items: list[dict[str, Any]],
+        *,
         title: str,
         layer: str,
         start: float,
+    ) -> None:
+        actions = _summarize_progress(items)
+        for action in actions:
+            self._send_message(self._format_progress_card(
+                action,
+                title=title,
+                layer=layer,
+                start=start,
+            ))
+
+    def _format_progress_card(
+        self,
+        action: str,
         *,
+        title: str,
+        layer: str,
+        start: float,
+    ) -> str:
+        elapsed = time.time() - start if start else 0
+        mins, secs = divmod(int(elapsed), 60)
+        layer_label = _LAYER_LABELS.get(layer, layer)
+        lines = [f"🧾 <b>实时动作</b> · {mins}m{secs:02d}s"]
+        if layer_label:
+            lines.append(f"当前层级：{layer_label}")
+        lines.append(f"📌 {_esc(title[:80])}")
+        lines.append("")
+        lines.append(_esc(action))
+        body = "\n".join(lines)
+        if len(body) > self.MAX_MSG_LEN:
+            body = body[:self.MAX_MSG_LEN] + "\n…"
+        return body
+
+    def _format_mission_status_card(
+        self,
+        *,
+        title: str,
+        layer: str,
+        start: float,
         status: str,
         event_count: int,
     ) -> str:
         elapsed = time.time() - start if start else 0
         mins, secs = divmod(int(elapsed), 60)
-
         layer_label = _LAYER_LABELS.get(layer, layer)
-        if status == "running":
-            header = f"⚡ <b>实时进展</b> · 运行中  {mins}m{secs:02d}s"
-        elif status == "failed":
-            header = f"❌ <b>任务进展摘要</b> · 已失败  {mins}m{secs:02d}s"
+        if status == "failed":
+            header = f"❌ <b>任务已失败</b> · {mins}m{secs:02d}s"
         else:
-            header = f"✅ <b>任务进展摘要</b> · 已完成  {mins}m{secs:02d}s"
-        lines = [header, "━━━━━━━━━━━━━━━━"]
+            header = f"✅ <b>任务已完成</b> · {mins}m{secs:02d}s"
+        lines = [header]
         if layer_label:
-            lines.append(f"当前层级：{layer_label}")
+            lines.append(f"结束层级：{layer_label}")
         lines.append(f"📌 {_esc(title[:80])}")
-        lines.append("")
-
-        # Intelligently summarize recent activity
-        actions = _summarize_progress(items)
-        visible = actions[-self.MAX_LINES:]
-        hidden_actions = max(0, len(actions) - len(visible))
-        if not visible:
-            lines.append("暂无可展示的实时事件…")
-        for a in visible:
-            lines.append(_esc(a))
-        lines.append("")
-        hidden_events = max(0, event_count - len(items))
-        parts = [f"显示最近 {len(visible)} 条"]
         if event_count:
-            parts.append(f"已捕获 {event_count} 条进展")
-        if hidden_actions or hidden_events:
-            parts.append(f"隐藏约 {hidden_actions + hidden_events} 条")
-        parts.append("完整日志：argus-skill --follow")
-        lines.append("📚 " + " · ".join(parts))
-
-        body = "\n".join(lines)
-        if len(body) > self.MAX_MSG_LEN:
-            body = body[:self.MAX_MSG_LEN] + "\n…"
-        return body
+            lines.append(f"已分散发送 {event_count} 条实时进展")
+        lines.append("完整日志：argus-skill --follow")
+        return "\n".join(lines)
 
     # -- Telegram API helpers ---------------------------------------------
 

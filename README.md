@@ -16,9 +16,9 @@ skill reuse and [ArgusBot](../ArgusBot)'s *vertical* reviewer-loop supervision.
 ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝      ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝
 ```
 
-<p><img src="docs/demo.svg" alt="argus-skill REPL demo — branded banner, round dividers, status box, /show review" width="900"></p>
+<p><img src="docs/demo.svg" alt="argus-skill 7x24 daemon demo — planner creates high-impact work, engineer fixes it, Telegram reports progress" width="900"></p>
 
-<sub>Replay on your own terminal: <code>asciinema play docs/demo.cast</code></sub>
+<sub>Replay on your own terminal: <code>asciinema play docs/demo.cast</code>. Rebuild with <code>python docs/build_demo.py</code>.</sub>
 
 </div>
 
@@ -51,47 +51,119 @@ task → skill matcher → distill new skill if no high-fit match
 These two layers are orthogonal and multiplicative: the matcher cuts the
 search-space cost; the reviewer-loop cuts the failure cost.
 
-## Quick demo (no LLM required)
+## Get started in 5 minutes
 
-The repo ships an in-memory deterministic backend that scripts canned
-responses, so you can smoke-test the whole loop end-to-end without an
+### 1. Run the no-key local demo
+
+The repo ships an in-memory deterministic backend, so anyone can
+smoke-test the cockpit, backlog, daemon, and event surfaces without an
 API key:
 
 ```bash
-pip install -e .
+git clone https://github.com/lbx154/argus-skill.git
+cd argus-skill
+python -m venv .venv && . .venv/bin/activate
+pip install -e ".[dev]"
 
-# Single 7×24 entry — drops you into the REPL cockpit.
-# A background daemon is auto-spawned; the iteration loop is on.
-ARGUS_SKILL_LIFE_BACKEND=memory argus-skill
+# Deterministic, no network, safe to run anywhere.
+ARGUS_SKILL_LIFE_BACKEND=memory argus-skill --no-daemon
 ```
 
-Add `--no-daemon` if you only want the REPL smoke and do not want the
-background worker to auto-spawn.
+In the REPL, type a task such as `ship me a base64 helper`; use
+`/status`, `/backlog`, `/journal`, and `/exit` to inspect the state.
 
-In the REPL, free text becomes a mission immediately. Slash commands
-manage the state — `/help` lists them all. The cockpit shows live
-daemon health, backlog count, and the iteration banner so you know
-the agent will keep polishing the artefact after the first
-"reviewer says done":
+### 2. Start the real 7×24 agent
+
+Use this on a server, dev box, or cloud VM with a working `codex`
+binary. The daemon survives terminal logout and drains the current
+project backlog in the background:
+
+```bash
+export ARGUS_SKILL_LIFE_BACKEND=codex
+export ARGUS_SKILL_RUNNER_BIN="$(command -v codex)"
+export ARGUS_SKILL_PER_MISSION_CAP_USD=30
+export ARGUS_SKILL_DAILY_CAP_USD=180
+
+argus-skill --init-identity
+argus-skill --daemon --continuous \
+  --objective "Keep this repo production-ready: keep tests green, docs accurate, and operator UX reliable."
+
+argus-skill --status
+argus-skill --watch   # live cockpit
+argus-skill --follow  # pretty event tail
+```
+
+Stop it cleanly with `argus-skill --daemon-stop`.
+
+### 3. Optional: control it from Telegram
+
+Create a bot with BotFather, get your chat id, then start the daemon
+with:
+
+```bash
+export ARGUS_SKILL_TELEGRAM_BOT_TOKEN="123:abc"
+export ARGUS_SKILL_TELEGRAM_CHAT_ID="123456789"
+argus-skill --daemon
+```
+
+Plain Telegram text is natural: if a task is running, it becomes live
+operator guidance for the next engineer round; if idle, it becomes a
+new mission with an immediate acknowledgement and progress cards. Use
+`/status`, `/backlog`, `/nudge`, `/stop <id>`, and `/help` for explicit
+control.
+
+## Recommended use case: remote repo hardening
+
+The strongest fit is leaving argus-skill on a repo overnight or during
+work breaks:
+
+1. L4 planner inspects tests, docs, runtime behavior, TODOs, and
+   operator surfaces.
+2. It queues only evidenced high-impact work (`impact_score >= 4`):
+   correctness, reliability, integration, security, performance, or
+   operator UX.
+3. L1 engineer implements; L2 reviewer verifies; L3 critic rejects
+   low-value polish and either asks for one more high-impact pass or
+   hands control back to L4.
+4. You watch from `--watch`, `--follow`, or Telegram, and can nudge it
+   without interrupting an in-flight LLM call.
 
 ```text
-argus › ship me a base64 helper
-▶ mission start — ship me a base64 helper
-🔁 engineer round 1   …   🧑‍⚖️ review: done (conf=0.94)
-🔁 critic verdict: continue — missing url-safe variant
-🔁 engineer round 1   …   🧑‍⚖️ review: done (conf=0.97)
-🔁 critic verdict: stop — objective fully satisfied
-■ mission complete  ·  iter=1/3  ·  cost=$0.0042
+Telegram: "修一下 --follow 看不出当前任务的问题，并加回归"
+argus: 收到，我会把这当作一个新任务来做。
+argus: 🧭 正在匹配可复用技能
+argus: 🧾 实时动作 · 读 formatter 和 subprocess tests
+argus: ✅ 任务已完成 · --follow now shows title + objective on start/complete
 ```
 
-To skip the polish pass on a single item: `/add --once <objective>`.
+To skip the polish pass on a single item, use `/add --once <objective>`
+or `argus-skill --notify "<guidance>"` to nudge the current work.
+
+### One-shot CLI actions
+
+These top-level flags run their action and exit instead of dropping
+into the REPL:
+
+* `--status` - print the current project daemon, backlog, and inbox
+  summary.
+* `--watch` - open the live read-only cockpit for the current project.
+* `--follow` - tail the project event log with the pretty renderer.
+* `--notify MSG` - append a nudge to the project inbox.
+* `--init-identity` - seed the global identity card (and current
+  project scaffold on first run).
+* `--skill-stats` / `--skill-stats-json` - print the skill effectiveness
+  report as text or JSON.
+* `--skill-cleanse` / `--skill-compact` - run the skill maintenance
+  helpers; add `--apply` to mutate disk instead of dry-run.
+* `--daemon-runbook` - print the safe upgrade / restart checklist.
 
 ## Real usage (with codex / claude-code)
 
 Drive a real CLI by setting the env vars and running the unified entry
 point. The REPL handles the rest — auto-spawning the daemon,
 distilling skills, supervising the engineer, and iterating on the
-artefact until the critic stops.
+artefact until the critic's value gate says local polish is no longer
+worth another round.
 
 ### Option A — `ARGUS_SKILL_LIFE_BACKEND=codex` (zero code)
 
@@ -120,7 +192,7 @@ Honoured env vars:
 | `ARGUS_SKILL_TELEGRAM_CHAT_ID` | Telegram chat id accepted by the poller | unset |
 | `ARGUS_SKILL_TELEGRAM_USER_ID` | optional Telegram sender id filter | unset |
 
-Requires ArgusBot to be importable (`pip install -e ../ArgusBot`).
+Requires the codex extra (`pip install 'argus-skill[codex]'`).
 
 `memory` is the deterministic smoke backend; it can run single-shot
 missions, but continuous mode requires the planning-capable `codex`
@@ -139,13 +211,35 @@ Telegram sender is accepted.
 
 Supported inbound commands:
 
-* `/add <title>: <objective>` - add a backlog item.
-* `/status` - report daemon, backlog, cost, and continuous state.
-* `/backlog` - list pending tasks.
-* `/start [objective]` - enable continuous mode.
-* `/stop` - disable continuous mode.
-* `/nudge <text>` - inject operator guidance into the next round.
 * `/help` - show the command list.
+* `/status` - summary of daemon, continuous mode, current work, backlog/history, inbox, and budget/cost.
+* `/config [key=val ...]` - view/change session defaults.
+* `/identity` - view the identity card.
+* `/identity set <text>` - update the identity card with one message.
+* `/project` - view the project card.
+* `/project set <text>` - update the project card with one message.
+* `/backend [codex|memory]` - show or change the backend.
+* `/reset` - drop the codex session.
+* `/skills [ls|promote <name>]` - list global skills or promote a project skill.
+* `/backlog [all]` - list pending (or all) items.
+* `/add <text> [--once] [--cycles=N] [--budget=$X]` - enqueue a mission.
+* `/done <id>` / `/skip <id>` / `/rm <id>` - change item status.
+* `/stop <id>` - disable iteration on an item; finalizes a pending item as done when applicable.
+* `/start [objective]` - start continuous mode.
+* `/continuous start|stop [objective]` - control continuous mode explicitly.
+* `/journal [N]` - tail the recent journal.
+* `/note <text>` - append a manual journal note.
+* `/nudge <text>` - send live operator guidance.
+* `/run [opts]` - drain the backlog.
+
+Plain Telegram text is responsive: while a daemon mission is running it
+is injected as a live nudge for the next engineer round / mission
+prompt, with an immediate acknowledgement. When idle, plain text becomes
+a new mission with a natural "received, I will work on it" reply. The
+daemon streams pre-engineer progress too (skill matching, temporary
+strategy distillation, file reads, tests), so Telegram does not look
+silent while it prepares the run. Use `/add` explicitly whenever you
+want to queue parallel follow-up work.
 
 `/start` follows the same guardrails as the CLI: the objective must be
 non-empty, and the `memory` backend cannot plan.
@@ -193,10 +287,12 @@ CLI, or anything else — only the wrapper changes.
 
 `argus-skill` (with no subcommand) drops into the **unified REPL**: a
 single foreground process that owns the supervisor, the per-project
-backlog, the journal, the layered skill cache, and the reviewer
-calibration log. Free text becomes a mission immediately; slash
-commands manage the state. The older one-shot modes are historical and
-no longer part of the live interface.
+backlog, the journal, the layered skill cache, and the per-project
+process state. Free text becomes a mission immediately; slash
+commands manage the state. Top-level one-shot flags still exist for
+status, cockpit, daemon, and skill-admin actions, while the old ad-hoc
+`run` / `list-skills` modes were removed during the consolidation into
+`apps/cli.py` and `apps/_life_repl.py`.
 
 ```bash
 ARGUS_SKILL_LIFE_BACKEND=codex argus-skill
@@ -213,7 +309,7 @@ argus › /journal 5             # tail recent journal entries
 argus › /backlog               # see what's queued (other terminals can /add)
 argus › /skills ls             # global skill library
 argus › /skills promote my-fix # move a project skill to global
-argus › /correct <mid> disagree "missed the null-path edge case"
+argus › /nudge keep the null-path edge case in mind
 argus › /exit                  # bye
 ```
 
@@ -224,16 +320,14 @@ The persistent state lives under `~/.argus-skill/`:
 | `identity.md`, `journal.jsonl` | global (cross-project) |
 | `skills/` | global skill library |
 | `skills/_archive/` | retired skills |
-| `reviewer/lessons.jsonl` | reviewer calibration (`/correct` writes here) |
 | `projects/<fingerprint>/project.md` | per-project card |
 | `projects/<fingerprint>/memory.jsonl` | per-project memory journal |
 | `projects/<fingerprint>/backlog.jsonl` | per-project backlog |
+| `projects/<fingerprint>/skills/` | per-project skill cache |
 | `projects/<fingerprint>/continuous.json` | per-project continuous-mode state |
 | `projects/<fingerprint>/events.jsonl` | per-project event log / watch feed |
 | `projects/<fingerprint>/inbox.jsonl` | per-project operator nudge queue |
 | `projects/<fingerprint>/daemon.pid` / `daemon.status.json` / `repl.pid` | per-project process state |
-| `projects/<fingerprint>/skills/` | per-project skill cache |
-| `projects/<fingerprint>/missions/` | per-project mission records |
 
 Run `argus-skill --status` to inspect the current project backlog, the
 project-local daemon state, and the shared global journal without
@@ -255,8 +349,8 @@ argus-skill --daemon-fg       # run in the foreground (for systemd / debugging)
 
 The daemon and the REPL coexist safely:
 
-* They use **separate PID locks** (`<state>/repl.pid` vs
-  `<state>/daemon.pid`) — neither blocks the other.
+* They use **separate PID locks** (`<project-root>/repl.pid` vs
+  `<project-root>/daemon.pid`) — neither blocks the other.
 * They share the **same atomic state machine**: every mission goes
   through `Backlog.claim_next()` (an atomic `pending → running` CAS on
   the JSONL file). Two workers cannot pick the same mission, even
@@ -264,6 +358,9 @@ The daemon and the REPL coexist safely:
 * They share the **same continuous-state file** (`continuous.json`):
   `argus-skill --status` reports whether continuous mode is enabled,
   which objective is active, and any recorded `done_reason` / `done_at`.
+* Continuous mode optimizes for sustained high-value work: L3 rejects
+  low-impact polish loops, then L4 searches wider project value horizons
+  and queues the next evidenced, high-impact mission.
 * If a worker dies hard, the next process startup reaps any stuck
   `running` items and marks them `failed` — re-execution is impossible
   because terminal states are sealed (`IllegalStateTransition`).
@@ -313,8 +410,9 @@ restart-on-crash + boot-on-reboot are handled by the OS — see
 [Running under systemd](#running-under-systemd) below.
 
 A typical workflow: leave the daemon running on a small server, drop
-into the REPL from your laptop to inspect / `/add` / `/correct`, walk
-away. The daemon keeps draining.
+into the REPL from your laptop to inspect `/status`, `/backlog`, or
+`/journal`, add or nudge work, then walk away. The daemon keeps
+draining.
 
 ### Running under systemd
 
@@ -381,11 +479,14 @@ argus_skill/
 ├── apps/
 │   ├── cli.py           # `argus-skill` entry point, one-shot actions, REPL fallback
 │   ├── _life_repl.py    # the unified REPL surface
+│   ├── _life_actions.py # shared non-interactive backlog / config / status helpers
+│   ├── _inbox.py       # shared inbox queue / drain / event formatting helpers
 │   ├── _skill_stats.py
 │   ├── _skill_cleanse.py
 │   ├── _watch.py
 │   ├── _init_identity.py
-│   └── _input_helpers.py
+│   ├── _input_helpers.py
+│   └── _target_paths.py # shared life-dir / project-root resolution helpers
 ├── cli/
 │   ├── branding.py
 │   ├── event_format.py
@@ -394,6 +495,7 @@ argus_skill/
 ├── life/
 │   ├── event_log.py
 │   ├── memory.py
+│   ├── status.py       # shared backlog / continuous-state selectors
 │   ├── telegram_bot.py  # optional Telegram inbound command bridge
 │   ├── notify.py
 │   ├── router.py
@@ -418,8 +520,10 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-The default suite runs in <1s and uses only the in-memory backend. The
-end-to-end smoke test (`tests/test_loop_smoke.py`) exercises:
+The default suite includes parser contracts, docs contracts, installed-
+wheel smoke checks, and in-memory backend coverage. Run `pytest -q`
+for the full gate. The end-to-end smoke test (`tests/test_loop_smoke.py`)
+exercises:
 
 * matcher miss → distill → 2 rounds (continue → done) → skill writeback
 * second-run cache hit (matcher returns high-fit, no redistill)
@@ -437,14 +541,26 @@ v0.1. End-to-end working with two backends:
   through `CodexRunnerBackend`. Requires a working `codex` binary on
   `$PATH`.
 
-The unified REPL is the primary entry point. Historical one-shot modes
-were removed during the consolidation into `apps/cli.py` and
-`apps/_life_repl.py`. The detached daemon and Telegram poller share the
-same split memory state: global identity/journal live at the shared
-root, while backlog, project memory, events, and process locks live
-under `projects/<fingerprint>/`. Cross-process safety is provided by a
-per-project singleton lock (`projects/<fingerprint>/repl.pid`) and a
-state-machine seal that makes terminal backlog items unrunnable.
+The unified REPL is the primary entry point. Top-level one-shot flags
+still exist for status, cockpit, daemon, and skill-admin actions, while
+the old ad-hoc `run` / `list-skills` modes were removed during the
+consolidation into `apps/cli.py` and `apps/_life_repl.py`. The detached
+daemon and Telegram poller share the same split memory state: global
+identity/journal live at the shared root, while backlog, project
+memory, events, and process locks live under `projects/<fingerprint>/`.
+Cross-process safety is provided by a per-project singleton lock
+(`projects/<fingerprint>/repl.pid`) and a state-machine seal that makes
+terminal backlog items unrunnable.
+
+Shared helper modules now used by `apps/cli.py`, `apps/_life_repl.py`,
+`apps/_watch.py`, and `life/telegram_bot.py`:
+
+* `apps/_inbox.py` — inbox queue, drain, count, and event formatting.
+* `apps/_life_actions.py` — backlog mutations, config helpers, status
+  change renderers, and shared `/run` plumbing.
+* `apps/_target_paths.py` — global/project life-root resolution.
+* `life/status.py` — backlog-status selection and continuous-state
+  description helpers.
 
 ## License
 

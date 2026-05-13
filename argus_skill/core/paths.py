@@ -4,33 +4,33 @@ Single source of truth for everything under ``~/.argus-skill/``. All
 runtime code that needs to read or write any agent state MUST go
 through these helpers — never hard-code paths elsewhere.
 
-Directory layout (Phase 0–2 target, see plan.md §2.3)::
+Current runtime layout::
 
     ~/.argus-skill/
     ├─ identity.md
     ├─ journal.jsonl
-    ├─ bus/
-    │   ├─ commands.jsonl
-    │   ├─ commands.jsonl.offset
-    │   ├─ outbox.jsonl
-    │   ├─ status.json
-    │   └─ daemon.pid
     ├─ skills/
-    │   └─ *.md
-    ├─ reviewer/
-    │   └─ lessons.jsonl
+    │   └─ *_archive/
     └─ projects/
         └─ <fingerprint>/
             ├─ project.md
             ├─ memory.jsonl
             ├─ backlog.jsonl
             ├─ skills/
-            │   └─ *.md
-            └─ missions/
-                └─ <mission_id>/
-                    ├─ mission.json
-                    ├─ rounds.jsonl
-                    └─ result.json
+            ├─ continuous.json
+            ├─ events.jsonl
+            ├─ inbox.jsonl
+            ├─ daemon.pid
+            ├─ daemon.status.json
+            └─ repl.pid
+
+Legacy compatibility helpers kept for older tests / tooling:
+
+* ``bus/commands.jsonl`` / ``bus/outbox.jsonl`` / ``bus/status.json``
+  / ``bus/daemon.pid`` — bus-era queue state, retained only for
+  historical callers.
+* ``projects/<fingerprint>/missions/<mission_id>/`` — historical
+  mission-record helper, no longer part of the live REPL surface.
 
 Environment overrides:
 
@@ -44,6 +44,7 @@ Environment overrides:
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 __all__ = [
@@ -65,8 +66,35 @@ __all__ = [
     "project_skills_root",
     "project_missions_root",
     "mission_root",
+    "PathResolutionError",
+    "resolve_runtime_path",
     "ensure_dir",
 ]
+
+_PATH_PLACEHOLDER_RE = re.compile(
+    r"\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|(?P<bare>[A-Za-z_][A-Za-z0-9_]*))"
+)
+
+
+class PathResolutionError(ValueError):
+    """Raised when a runtime path contains an unresolved shell placeholder."""
+
+
+def resolve_runtime_path(raw: str | Path, *, context: str) -> Path:
+    """Expand shell variables and ``~`` in a runtime path.
+
+    ``os.path.expandvars`` runs before ``expanduser`` so callers can pass
+    shell-style placeholders such as ``$TMPDIR``. Any placeholder that
+    still cannot be resolved is rejected with :class:`PathResolutionError`.
+    """
+    text = os.fspath(raw)
+    for match in _PATH_PLACEHOLDER_RE.finditer(text):
+        name = match.group("braced") or match.group("bare")
+        if not os.environ.get(name):
+            raise PathResolutionError(
+                f"{context}: unresolved placeholder {match.group(0)!r}"
+            )
+    return Path(os.path.expandvars(text)).expanduser()
 
 
 def global_root() -> Path:
@@ -83,10 +111,10 @@ def global_root() -> Path:
     """
     raw = os.environ.get("ARGUS_SKILL_HOME")
     if raw:
-        return Path(raw).expanduser()
+        return resolve_runtime_path(raw, context="ARGUS_SKILL_HOME")
     legacy = os.environ.get("ARGUS_SKILL_LIFE_DIR")
     if legacy:
-        legacy_path = Path(legacy).expanduser()
+        legacy_path = resolve_runtime_path(legacy, context="ARGUS_SKILL_LIFE_DIR")
         # If the user pointed ARGUS_SKILL_LIFE_DIR at ``…/life`` we
         # treat its parent as the global root, otherwise we treat the
         # value itself as the new root.

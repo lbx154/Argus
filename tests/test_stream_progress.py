@@ -8,8 +8,9 @@ become structured ``engineer.progress`` events. These tests cover:
 * Engineer-role and ``main``-role stdout JSON ``item.completed`` events
   emit ``engineer.progress`` (LoopEngine uses ``main`` as the
   run_label; the legacy SkillLoop uses ``engineer``).
-* Other roles (matcher / reviewer / distiller) do NOT emit progress —
-  their stdout is protocol traffic.
+* User-visible hierarchy roles (reviewer / critic / planner) emit
+  progress, but matcher / distiller do NOT — their stdout is protocol
+  traffic.
 * Stderr is never converted to progress events.
 """
 from __future__ import annotations
@@ -68,16 +69,27 @@ def test_engineer_stdout_still_works() -> None:
                for e in sink.events)
 
 
-def test_reviewer_and_matcher_stdout_do_not_emit_progress() -> None:
-    """Protocol agents' JSON output must not become user-visible progress."""
+def test_reviewer_critic_and_planner_stdout_emit_layered_progress() -> None:
+    """All operator-visible L1-L4 roles should stream to follow/Telegram."""
     sink = _RecordingSink()
     cb = make_stream_progress_callback(sink)
     cb("reviewer.stdout", _item_completed_line("{\"status\":\"done\"}"))
+    cb("critic.cycle1.stdout", _item_completed_line("{\"stop\":true}"))
+    cb("planner.cycle1.stdout", _item_completed_line("{\"project_done\":false}"))
+
+    layers = [e.get("agent_layer") for e in sink.events]
+    assert layers == ["reviewer", "critic", "planner"]
+
+
+def test_matcher_and_distiller_stdout_do_not_emit_progress() -> None:
+    """Protocol/maintenance agents' JSON output must stay hidden."""
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
     cb("matcher.stdout", _item_completed_line("[]"))
     cb("distiller.stdout", _item_completed_line("## Title"))
 
     # Stream lines forwarded for audit
-    assert len(sink.streams) == 3
+    assert len(sink.streams) == 2
     # No progress events
     assert sink.events == []
 

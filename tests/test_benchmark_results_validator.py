@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from benchmarks.validate_results import (
@@ -74,6 +75,26 @@ def test_validate_experiment_dir_allows_explicit_exemption(tmp_path: Path) -> No
     assert validate_experiment_dir(exp) == []
 
 
+def test_validate_results_root_visits_all_top_level_dirs(tmp_path: Path) -> None:
+    results_root = tmp_path / "results"
+    _make_complete_experiment(results_root)
+
+    incomplete = results_root / "tb2-broken-2026-05-10"
+    _write_file(incomplete / "PLAN.md")
+    _write_file(incomplete / "RESULTS.md")
+    _write_file(incomplete / "run-ablation.sh", "#!/usr/bin/env bash\n")
+
+    exempt = results_root / "tb2-legacy-2026-05-10"
+    _write_file(exempt / "EXEMPT.md", "legacy partial bundle\n")
+
+    issues = validate_results_root(results_root)
+    assert any(
+        issue.path == incomplete and issue.message == "missing required file: BUILD_INFO.md"
+        for issue in issues
+    )
+    assert not any(issue.path == exempt for issue in issues)
+
+
 def test_validate_current_results_tree(tmp_path: Path) -> None:
     results_root = Path("benchmarks/results")
     if not results_root.exists():
@@ -81,3 +102,22 @@ def test_validate_current_results_tree(tmp_path: Path) -> None:
         _make_complete_experiment(results_root)
     issues = validate_results_root(results_root)
     assert issues == []
+
+
+def test_known_bugs_documents_current_exempt_result_bundles() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    docs = (repo_root / "docs" / "KNOWN_BUGS.md").read_text(encoding="utf-8")
+    results_root = repo_root / "benchmarks" / "results"
+
+    documented = {
+        match.group(1).rstrip("/")
+        for match in re.finditer(r"^- `([^`]+/?)`$", docs, re.MULTILINE)
+        if match.group(1).startswith("benchmarks/results/")
+    }
+    live = {
+        str(child.relative_to(repo_root))
+        for child in sorted(results_root.iterdir())
+        if child.is_dir() and (child / "EXEMPT.md").exists()
+    }
+
+    assert documented == live

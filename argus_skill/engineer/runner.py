@@ -141,6 +141,7 @@ class SupervisedEngineer:
                 on_event({
                     "type": "round.start",
                     "round": round_index,
+                    "round_max": supervised_config.max_rounds,
                     "text": f"engineer round {round_index}"
                             + (" (resuming codex session)" if current_thread_id else ""),
                 })
@@ -168,6 +169,7 @@ class SupervisedEngineer:
                 on_event({
                     "type": "round.main.completed",
                     "round_index": round_index,
+                    "round_max": supervised_config.max_rounds,
                     "session_id": current_thread_id,
                     "exit_code": getattr(engineer_result, "exit_code", 0),
                     "fatal_error": getattr(engineer_result, "fatal_error", None),
@@ -207,6 +209,13 @@ class SupervisedEngineer:
                     or ""
                 )
 
+            if on_event:
+                on_event({
+                    "type": "round.review.started",
+                    "round_index": round_index,
+                    "round_max": supervised_config.max_rounds,
+                    "session_id": supervised_config.session_id,
+                })
             review = self.reviewer.evaluate(
                 objective=objective,
                 round_index=round_index,
@@ -222,6 +231,7 @@ class SupervisedEngineer:
                 on_event({
                     "type": "round.review.completed",
                     "round_index": round_index,
+                    "round_max": supervised_config.max_rounds,
                     "status": review.status,
                     "confidence": review.confidence,
                     "reason": review.reason,

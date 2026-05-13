@@ -96,137 +96,127 @@ THEME = Theme(enabled=True, width=96)
 
 
 def main() -> int:
-    # 1. Shell prompt → user types `argus-skill`
+    # 1. Shell prompt → user starts the 7x24 daemon for a real repo.
     emit(PROMPT_HOST, 0.5)
-    type_out("argus-skill", per=0.05)
+    type_out("export ARGUS_SKILL_LIFE_BACKEND=codex ARGUS_SKILL_RUNNER_BIN=$(which codex)", per=0.018)
     line("", 0.3)
-
-    # 2. Objective prompt
-    line(s("🎯 mission objective", "cyan", "bold")
-         + s(" (single line or paste multi-line; Ctrl-C to abort):", "grey"))
-    emit("> ", 0.4)
+    emit(PROMPT_HOST, 0.2)
     type_out(
-        "在 /tmp/argus-test-palette 用 Python 实现 hex↔rgb 调色板 CLI; "
-        "≥6 个 pytest 用例必须全过",
+        'argus-skill --daemon --continuous --objective "Keep this repo production-ready: '
+        'tests green, docs accurate, cockpit and Telegram UX reliable."',
         per=0.018,
     )
-    line("", 0.4)
-    line(s("📝 collected 1 line into objective", "grey"))
-
-    line(s("✅ mission mission_20260505T085108Z", "green") +
-         s("   spawning daemon (log: …/daemon.log) …", "grey"))
+    line("", 0.3)
+    line("argus-skill: daemon started (pid 3479643, life_dir=~/.argus-skill/projects/07197071cf43).")
+    line(s("Tip: close SSH; the daemon keeps draining. Watch it from terminal or Telegram.", "grey"))
     _pause(0.5)
 
-    # 3. Branded startup banner — straight from the real renderer.
+    # 2. Branded startup banner — straight from the real renderer.
     banner = render_startup_banner(
         theme=THEME,
         version="0.1.0",
-        mode="mission",
-        mission_id="mission_20260505T085108Z",
-        mission_status="running",
+        mode="life",
+        mission_id="project_07197071cf43",
+        mission_status="continuous",
         plan_mode="auto",
-        auto_follow_up=False,
+        auto_follow_up=True,
         max_rounds=500,
-        objective="在 /tmp/argus-test-palette 用 Python 实现 hex↔rgb 调色板 CLI; ≥6 个 pytest 用例必须全过",
-        state_dir="/home/u/.argus-skill/mission-state",
-        daemon_pid=1974513,
+        objective="Keep this repo production-ready: tests green, docs accurate, cockpit and Telegram UX reliable.",
+        state_dir="/home/u/.argus-skill/projects/07197071cf43",
+        daemon_pid=3479643,
     )
     block(banner.replace("\n", "\r\n"), dt_after=0.8)
 
-    # 4. Engineer / reviewer round-loop events — fed through the actual renderer.
+    # 3. A high-value remote use case: operator nudges from Telegram,
+    # planner creates an operator-UX task, engineer/reviewer/critic close it.
+    block(
+        s("Telegram", "cyan", "bold")
+        + "  you: 修一下 --follow 看不出当前任务的问题，并加回归\r\n"
+        + "argus: 收到，我会把这当作一个新任务来做。\r\n"
+        + "       中间如果在匹配技能、读代码或跑测试，我也会发进展。",
+        dt_after=0.8,
+    )
+
+    emit(PROMPT_HOST, 0.4)
+    type_out("argus-skill --follow", per=0.04)
+    line("", 0.2)
+    line("argus-skill: following ~/.argus-skill/projects/07197071cf43/events.jsonl  (Ctrl-C to stop)")
+
+    line(s("📋 L4 planner", "cyan", "bold")
+         + " queued high-impact task: "
+         + s("Render mission title and objective in --follow lifecycle lines", "bold"))
+    line("   impact: 4/5 · area=operator_ux · evidence=live tail is ambiguous across missions")
+    _pause(0.6)
+
     EVENT_SCRIPT: list[tuple[dict, float]] = [
         ({"type": "loop.started", "max_rounds": 500,
-          "text": "loop started — max_rounds=500, plan_mode=auto"}, 0.4),
+          "text": "loop started — max_rounds=500, plan_mode=auto"}, 0.3),
         ({"type": "match.info",
-          "text": "querying matcher (gpt-5.4-mini) against 3/3 candidates"}, 0.5),
+          "text": "querying matcher (gpt-5.4-mini) against 8/29 candidates"}, 0.4),
         ({"type": "match.info",
-          "text": "matcher: no high-fit match — will distill"}, 0.4),
-        ({"type": "distill.start",
-          "text": "distilling skill via gpt-5.4"}, 0.6),
-        ({"type": "distill.done",
-          "text": "distilled (5275 chars, 0 tok)"}, 0.5),
+          "text": "matcher picked: Live Operator Surface Enrichment (14,765 tok)"}, 0.4),
         ({"type": "round.started", "round_index": 1,
-          "text": "round 1 starting…"}, 0.4),
+          "text": "engineer round 1 (resuming codex session)"}, 0.4),
+        ({"type": "engineer.progress",
+          "text": "I’m reading the --follow formatter and subprocess tests before changing only the rendering path."}, 0.5),
+        ({"type": "engineer.progress",
+          "text": "Read argus_skill/apps/cli.py and tests/daemon/test_cli_lifecycle_subprocess.py"}, 0.4),
         ({"type": "round.main.completed", "round_index": 1,
-          "summary": "Implemented palette.py + 6 pytest cases.",
+          "summary": "--follow now includes task context on start and completion.",
           "text": "round 1: main agent finished\n"
-                  "   ↳ Added hex_to_rgb / rgb_to_hex with input validation; 6 tests pass."}, 0.7),
+                  "   ↳ Added mission title/objective rendering and subprocess regression."}, 0.6),
         ({"type": "round.checks.completed", "round_index": 1,
-          "checks": [{"name": "pytest -q", "passed": True, "exit": 0}]}, 0.5),
+          "checks": [{"name": "pytest -q tests/daemon/test_cli_lifecycle_subprocess.py -k follow", "passed": True, "exit": 0},
+                     {"name": "ruff check . && mypy .", "passed": True, "exit": 0}]}, 0.5),
         ({"type": "round.review.completed", "round_index": 1,
-          "status": "continue",
-          "reason": "looks good, but no test for non-hex input.",
-          "next_action": "add a malformed-input test"}, 0.6),
-        ({"type": "plan.completed", "round_index": 1,
-          "plan_mode": "auto", "follow_up_required": True,
-          "main_instruction": "add malformed-input test",
-          "review_instruction": "verify ValueError is raised on bad hex",
-          "next_explore": "negative-rgb edge cases"}, 0.5),
-        ({"type": "round.started", "round_index": 2,
-          "text": "round 2 starting…"}, 0.5),
-        ({"type": "round.main.completed", "round_index": 2,
-          "summary": "Added malformed-hex test; 7 tests pass.",
-          "text": "round 2: main agent finished\n"
-                  "   ↳ Added 'invalid_hex' test; pytest -q → 7 passed."}, 0.7),
-        ({"type": "round.review.completed", "round_index": 2,
           "status": "done",
-          "reason": "all checks passed; coverage is sufficient."}, 0.5),
-        ({"type": "plan.completed", "round_index": 2,
+          "reason": "real subprocess follow test proves start and completion lines show title + objective."}, 0.6),
+        ({"type": "plan.completed", "round_index": 1,
           "plan_mode": "auto", "follow_up_required": False}, 0.4),
-        ({"type": "final.report.ready",
-          "path": "/home/u/.argus-skill/.../loop_state/final_report.md",
-          "generated_by": "main-agent"}, 0.4),
         ({"type": "loop.completed", "success": True,
           "text": "loop done — success\n"
-                  "   ↳ Reviewer marked done, checks passed, planner did not require a follow-up phase."}, 0.5),
-        ({"type": "mission.completed",
-          "text": "mission mission_20260505T085108Z: success=True rounds=2 reason=Reviewer marked done."}, 0.4),
-        ({"type": "mission.idle",
-          "text": "mission idle — daemon is alive; type /run, /show, or /exit"}, 0.6),
+                  "   ↳ Operator can now understand live mission context from --follow or Telegram."}, 0.5),
     ]
 
     for evt, dt in EVENT_SCRIPT:
         block(render_event_for_terminal(evt, theme=THEME).replace("\n", "\r\n"),
               dt_after=dt)
 
-    # 5. Show interactive: user types /status, then /show review, then /exit.
+    block(
+        "argus: ✅ 任务已完成 · --follow 现在会显示任务标题和 objective\r\n"
+        "       已验证：pytest follow tests、ruff、mypy、full pytest",
+        dt_after=0.8,
+    )
+
+    # 4. Wake-up status: the daemon has kept useful state.
     emit(PROMPT_REPL, 0.6)
     type_out("/status", per=0.05)
     line("", 0.3)
     status_text = (
-        "mission mission_20260505T085108Z   done   round 2/500   phase=idle\n"
-        "   objective: 在 /tmp/argus-test-palette 用 Python 实现 hex↔rgb 调色板 CLI\n"
-        "   plan_mode: auto\n"
-        "   last review: ✅ done — all checks passed; coverage is sufficient.\n"
-        "   last plan: round 2 plan (auto) (no more follow-up)\n"
-        "   last main: Added 'invalid_hex' test; pytest -q → 7 passed.\n"
-        "   recent:\n"
-        "     12:35:01 round 2 main agent finished\n"
-        "     12:35:02 review ✅ done\n"
-        "     12:35:03 mission completed"
+        "daemon   : alive (pid 3479643, backend codex)\n"
+        "budget   : per-mission $30.00 · daily $180.00 · remaining $172.53\n"
+        "active   : 0 pending · 0 running\n"
+        "history  : 51 done\n"
+        "continuous: off — planner declared project done\n"
+        "recent   : Make watch mode stream and terminate cleanly off-TTY ✅"
     )
     block(render_event_for_terminal({"type": "status.report", "text": status_text},
                                     theme=THEME).replace("\n", "\r\n"),
           dt_after=0.7)
 
     emit(PROMPT_REPL, 0.4)
-    type_out("/show review", per=0.05)
-    line("", 0.3)
-    show_text = (
-        "── round_2_summary ──\n"
-        "verdict: done\n"
-        "reason: all checks passed; coverage is sufficient.\n"
-        "evidence: pytest -q → 7 passed; cli_examples → both correct."
+    type_out("/help", per=0.04)
+    line("", 0.2)
+    block(
+        "Useful commands: /add, /status, /backlog, /journal, /nudge, /stop, /skills, /exit\r\n"
+        "One-shot cockpit: argus-skill --watch | --follow | --notify MSG | --daemon-stop",
+        dt_after=0.6,
     )
-    block(render_event_for_terminal(
-        {"type": "command.ack", "show_kind": "review", "text": show_text},
-        theme=THEME).replace("\n", "\r\n"),
-        dt_after=0.7)
 
     emit(PROMPT_REPL, 0.4)
     type_out("/exit", per=0.05)
     line("", 0.3)
-    line(s("bye — daemon (pid=1974513) keeps running", "grey"), 0.2)
+    line(s("bye — daemon (pid=3479643) keeps running", "grey"), 0.2)
     line("")
     line(PROMPT_HOST, 0.4)
 

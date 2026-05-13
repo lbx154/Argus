@@ -97,17 +97,23 @@ def test_round_main_completed_emitted_with_engineer_tokens(tmp_path: Path) -> No
     )
 
     main_evts = [e for e in events if e.get("type") == "round.main.completed"]
+    round_start_evts = [e for e in events if e.get("type") == "round.start"]
+    review_start_evts = [e for e in events if e.get("type") == "round.review.started"]
     review_evts = [e for e in events if e.get("type") == "round.review.completed"]
 
+    assert round_start_evts[0]["round_max"] == 1
     assert len(main_evts) == 1, (
         "expected exactly one round.main.completed per engineer round; got: "
         + repr([e.get("type") for e in events])
     )
+    assert main_evts[0]["round_max"] == 1
     assert main_evts[0]["input_tokens"] == 12000
     assert main_evts[0]["cached_input_tokens"] == 1200
     assert main_evts[0]["output_tokens"] == 345
 
+    assert review_start_evts[0]["round_max"] == 1
     assert len(review_evts) == 1
+    assert review_evts[0]["round_max"] == 1
     assert review_evts[0]["input_tokens"] == 200
     assert review_evts[0]["output_tokens"] == 50
 

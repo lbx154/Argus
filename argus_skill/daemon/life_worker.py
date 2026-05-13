@@ -21,13 +21,16 @@ CAS pending→running on the on-disk JSONL file.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import signal
+import subprocess
 import sys
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,9 +49,12 @@ __all__ = [
     "DaemonStatus",
     "ContinuousConfigState",
     "continuous_mode_error",
+    "format_budget_status",
+    "resolve_effective_budget",
     "read_daemon_status",
     "stop_daemon",
     "spawn_detached_daemon",
+    "run_handoff_child",
     "read_continuous_state",
     "read_continuous_config",
     "write_continuous_config",
@@ -85,6 +91,15 @@ class LifeWorkerConfig:
     continuous_objective: str = ""
 
 
+_HANDOFF_CONFIG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_CONFIG"
+_HANDOFF_READY_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_READY"
+_HANDOFF_TOKEN_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_TOKEN"
+_HANDOFF_GEN_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_GEN"
+_SOURCE_SIGNATURE_ENV = "ARGUS_SKILL_DAEMON_SOURCE_SIGNATURE"
+_TEST_SOURCE_SIGNATURE_FILE_ENV = "ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE"
+_TEST_ALLOW_MEMORY_CONTINUOUS_ENV = "ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS"
+
+
 # ---------------------------------------------------------------------------
 # Disk-based continuous config (hot-reloadable by both daemon + REPL)
 # ---------------------------------------------------------------------------
@@ -106,7 +121,8 @@ def continuous_mode_error(backend: str, enabled: bool, objective: str) -> str:
         return "--objective requires --continuous"
     if enabled and not objective:
         return "--continuous requires a non-empty --objective"
-    if enabled and backend == "memory":
+    allow_memory_continuous = _truthy_env(_TEST_ALLOW_MEMORY_CONTINUOUS_ENV, "0")
+    if enabled and backend == "memory" and not allow_memory_continuous:
         return (
             "--continuous requires a planning-capable life backend; "
             "ARGUS_SKILL_LIFE_BACKEND=memory cannot plan"
@@ -178,6 +194,284 @@ def write_continuous_config(
     except OSError:
         log.warning("failed to write continuous config to %s", path)
 
+
+# ---------------------------------------------------------------------------
+# Blue/green self-handoff
+# ---------------------------------------------------------------------------
+
+def _truthy_env(name: str, default: str = "1") -> bool:
+    return os.environ.get(name, default).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _auto_handoff_enabled() -> bool:
+    return _truthy_env("ARGUS_SKILL_DAEMON_AUTO_RESTART", "0")
+
+
+def _handoff_min_interval_seconds() -> float:
+    try:
+        return max(0.0, float(os.environ.get("ARGUS_SKILL_DAEMON_HANDOFF_MIN_S", "60")))
+    except ValueError:
+        return 60.0
+
+
+def _handoff_generation() -> int:
+    try:
+        return max(0, int(os.environ.get(_HANDOFF_GEN_ENV, "0")))
+    except ValueError:
+        return 0
+
+
+def _handoff_max_generations() -> int:
+    try:
+        return max(1, int(os.environ.get("ARGUS_SKILL_DAEMON_HANDOFF_MAX_GEN", "10")))
+    except ValueError:
+        return 10
+
+
+def _source_signature() -> str:
+    """Content hash of runtime files that require a daemon restart."""
+    test_signature_path = os.environ.get(_TEST_SOURCE_SIGNATURE_FILE_ENV, "").strip()
+    if test_signature_path:
+        try:
+            return Path(test_signature_path).expanduser().read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+    package_root = Path(__file__).resolve().parents[1]
+    repo_root = package_root.parent
+    paths: list[Path] = sorted(package_root.rglob("*.py"))
+    pyproject = repo_root / "pyproject.toml"
+    if pyproject.exists():
+        paths.append(pyproject)
+    digest = hashlib.sha256()
+    for path in paths:
+        parts = set(path.parts)
+        if "__pycache__" in parts or ".git" in parts:
+            continue
+        try:
+            rel = path.relative_to(repo_root)
+            data = path.read_bytes()
+        except OSError:
+            continue
+        digest.update(str(rel).encode("utf-8", "surrogateescape"))
+        digest.update(b"\0")
+        digest.update(data)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
+    return {
+        "life_dir": str(config.life_dir),
+        "global_root": str(config.global_root) if config.global_root is not None else "",
+        "project_fingerprint": config.project_fingerprint,
+        "project_label": config.project_label,
+        "backend": config.backend,
+        "engineer_model": config.engineer_model,
+        "reviewer_model": config.reviewer_model,
+        "scientist_model": config.scientist_model,
+        "per_mission_cap_usd": config.per_mission_cap_usd,
+        "daily_cap_usd": config.daily_cap_usd,
+        "poll_interval": config.poll_interval,
+        "log_path": str(config.log_path) if config.log_path is not None else "",
+        "continuous": config.continuous,
+        "continuous_objective": config.continuous_objective,
+    }
+
+
+def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
+    log_path = str(data.get("log_path") or "")
+    global_root = str(data.get("global_root") or "")
+    return LifeWorkerConfig(
+        life_dir=Path(str(data["life_dir"])).expanduser(),
+        global_root=Path(global_root).expanduser() if global_root else None,
+        project_fingerprint=str(data.get("project_fingerprint") or ""),
+        project_label=str(data.get("project_label") or ""),
+        backend=str(data.get("backend") or "codex"),
+        engineer_model=str(data.get("engineer_model") or "gpt-5.4-mini"),
+        reviewer_model=str(data.get("reviewer_model") or "gpt-5.4"),
+        scientist_model=str(data.get("scientist_model") or "gpt-5.4"),
+        per_mission_cap_usd=float(data.get("per_mission_cap_usd") or 30.0),
+        daily_cap_usd=float(data.get("daily_cap_usd") or 180.0),
+        poll_interval=float(data.get("poll_interval") or 5.0),
+        log_path=Path(log_path).expanduser() if log_path else None,
+        continuous=bool(data.get("continuous")),
+        continuous_objective=str(data.get("continuous_objective") or ""),
+    )
+
+
+def _handoff_ready_path(life_dir: Path) -> Path:
+    return life_dir / "daemon.handoff.json"
+
+
+def _handoff_config_path(life_dir: Path, token: str) -> Path:
+    return life_dir / f"daemon.handoff.{token}.json"
+
+
+def _spawn_handoff_candidate(
+    config: LifeWorkerConfig,
+    *,
+    source_signature: str,
+    reason: str,
+    standby_timeout: float = 30.0,
+) -> bool:
+    """Start a fresh interpreter and wait until it reaches standby."""
+    token = uuid.uuid4().hex
+    config.life_dir.mkdir(parents=True, exist_ok=True)
+    ready_path = _handoff_ready_path(config.life_dir)
+    config_path = _handoff_config_path(config.life_dir, token)
+    ready_path.unlink(missing_ok=True)
+    payload = {
+        "token": token,
+        "reason": reason,
+        "source_signature": source_signature,
+        "config": _config_payload(config),
+    }
+    try:
+        config_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        log.exception("daemon handoff: failed to write config")
+        return False
+    log_path = _daemon_log_path(config.life_dir, config.log_path)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    env = os.environ.copy()
+    env[_HANDOFF_CONFIG_ENV] = str(config_path)
+    env[_HANDOFF_READY_ENV] = str(ready_path)
+    env[_HANDOFF_TOKEN_ENV] = token
+    env[_SOURCE_SIGNATURE_ENV] = source_signature
+    env[_HANDOFF_GEN_ENV] = str(_handoff_generation() + 1)
+    cmd = [
+        sys.executable,
+        "-c",
+        (
+            "from argus_skill.daemon.life_worker import run_handoff_child; "
+            "raise SystemExit(run_handoff_child())"
+        ),
+    ]
+    try:
+        with log_path.open("ab") as log_fh:
+            proc = subprocess.Popen(  # noqa: S603
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=log_fh,
+                stderr=subprocess.STDOUT,
+                cwd="/",
+                env=env,
+                start_new_session=True,
+                close_fds=True,
+            )
+    except OSError:
+        log.exception("daemon handoff: failed to spawn candidate")
+        config_path.unlink(missing_ok=True)
+        return False
+
+    deadline = time.monotonic() + standby_timeout
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            log.warning("daemon handoff: candidate exited early rc=%s", proc.returncode)
+            config_path.unlink(missing_ok=True)
+            return False
+        try:
+            data = json.loads(ready_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            time.sleep(0.1)
+            continue
+        if data.get("token") == token and data.get("state") == "standby":
+            return True
+        time.sleep(0.1)
+    log.warning("daemon handoff: candidate did not reach standby in %.1fs", standby_timeout)
+    try:
+        proc.terminate()
+    except OSError:
+        pass
+    config_path.unlink(missing_ok=True)
+    ready_path.unlink(missing_ok=True)
+    return False
+
+
+def _acquire_daemon_lock_with_timeout(pid_path: Path, timeout: float) -> Any:
+    deadline = time.monotonic() + timeout
+    last_exc: DaemonAlreadyRunning | None = None
+    while True:
+        try:
+            return acquire_global_daemon_lock(pid_path=pid_path)
+        except DaemonAlreadyRunning as exc:
+            last_exc = exc
+            if time.monotonic() >= deadline:
+                raise last_exc
+            time.sleep(0.1)
+
+
+def run_handoff_child() -> int:
+    """Entrypoint for a blue/green handoff candidate."""
+    config_env = os.environ.get(_HANDOFF_CONFIG_ENV, "")
+    ready_env = os.environ.get(_HANDOFF_READY_ENV, "")
+    token = os.environ.get(_HANDOFF_TOKEN_ENV, "")
+    if not config_env or not ready_env or not token:
+        sys.stderr.write("argus-skill handoff: missing handoff environment\n")
+        return 2
+    config_path = Path(config_env).expanduser()
+    ready_path = Path(ready_env).expanduser()
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+        config = _config_from_payload(payload["config"])
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        sys.stderr.write(f"argus-skill handoff: invalid config: {exc}\n")
+        return 2
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        force=True,
+    )
+    worker = LifeWorker(config)
+    try:
+        ready_path.write_text(
+            json.dumps({
+                "token": token,
+                "state": "standby",
+                "pid": os.getpid(),
+                "ts": time.time(),
+            }),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        sys.stderr.write(f"argus-skill handoff: failed to write standby file: {exc}\n")
+        return 2
+
+    pid_path = _daemon_pid_path(config.life_dir)
+    status_path = _daemon_status_path(config.life_dir)
+    try:
+        lock = _acquire_daemon_lock_with_timeout(pid_path, timeout=60.0)
+    except DaemonAlreadyRunning as exc:
+        log.error("handoff candidate could not acquire daemon lock (pid=%s)", exc.pid)
+        return 2
+
+    started_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        status_path.write_text(
+            json.dumps(_daemon_status_payload(config, started_at_iso=started_iso))
+        )
+        ready_path.unlink(missing_ok=True)
+        config_path.unlink(missing_ok=True)
+    except OSError:
+        log.exception("handoff candidate: failed to publish active status")
+
+    try:
+        return worker.run_forever()
+    finally:
+        lock.release()
+        try:
+            status_path.unlink()
+        except OSError:
+            pass
+
+
 # ---------------------------------------------------------------------------
 # Worker
 # ---------------------------------------------------------------------------
@@ -197,6 +491,12 @@ class LifeWorker:
         self._stop = threading.Event()
         self._started_at: float | None = None
         self._missions_completed = 0
+        self._source_signature = (
+            os.environ.get(_SOURCE_SIGNATURE_ENV)
+            or (_source_signature() if _auto_handoff_enabled() else "")
+        )
+        self._failed_handoff_signature = ""
+        self._last_handoff_attempt_at = 0.0
 
     # -- signal handling ------------------------------------------------
 
@@ -311,6 +611,8 @@ class LifeWorker:
             continuous=init_continuous,
             continuous_objective=init_objective,
             continuous_config_provider=_continuous_provider,
+            planner_runtime_context_provider=self._planner_runtime_context,
+            planner_restart_handler=self._planner_restart_handler,
         )
         sup = LifeSupervisor(
             memory=mem,
@@ -344,6 +646,17 @@ class LifeWorker:
         while not self._stop.is_set():
             try:
                 summary = sup.run()
+                test_signature_path = os.environ.get(
+                    _TEST_SOURCE_SIGNATURE_FILE_ENV, ""
+                ).strip()
+                if test_signature_path and self._source_signature:
+                    current_signature = _source_signature()
+                    if current_signature and current_signature != self._source_signature:
+                        self._maybe_handoff_after_source_change(
+                            planner_reason=(
+                                "test-controlled source signature changed"
+                            )
+                        )
                 # When planner declares project done, persist to disk
                 # so we don't re-plan the same objective next loop.
                 if summary.get("stopped_by") == "project_done":
@@ -369,6 +682,65 @@ class LifeWorker:
         )
         return 0
 
+    def _planner_runtime_context(self) -> str:
+        if not _auto_handoff_enabled() or not self._source_signature:
+            return ""
+        current = _source_signature()
+        if not current or current == self._source_signature:
+            return ""
+        if current == self._failed_handoff_signature:
+            return (
+                "Runtime source changed since daemon start, but the latest "
+                "blue/green handoff attempt for this signature failed. Set "
+                "restart_daemon=false unless new evidence shows retrying is necessary."
+            )
+        return (
+            "Runtime source changed since daemon start. A blue/green daemon "
+            "handoff is available if and only if a fresh daemon process is "
+            "needed to load or validate the new code. Set restart_daemon=true "
+            "for daemon/CLI/lifecycle changes, substantial runtime refactors, "
+            "or verification that requires the installed daemon to restart; "
+            "otherwise set restart_daemon=false."
+        )
+
+    def _planner_restart_handler(self, reason: str) -> bool:
+        return self._maybe_handoff_after_source_change(
+            planner_reason=reason or "planner requested daemon restart",
+        )
+
+    def _maybe_handoff_after_source_change(self, *, planner_reason: str) -> bool:
+        if not _auto_handoff_enabled() or not self._source_signature:
+            return False
+        current = _source_signature()
+        if not current or current == self._source_signature:
+            return False
+        if current == self._failed_handoff_signature:
+            return False
+        min_interval = _handoff_min_interval_seconds()
+        now = time.monotonic()
+        if (
+            self._last_handoff_attempt_at
+            and now - self._last_handoff_attempt_at < min_interval
+        ):
+            return False
+        self._last_handoff_attempt_at = now
+        if _handoff_generation() >= _handoff_max_generations():
+            log.warning("daemon handoff disabled: generation cap reached")
+            return False
+        if _spawn_handoff_candidate(
+            self.config,
+            source_signature=current,
+            reason=planner_reason,
+        ):
+            log.info(
+                "daemon handoff candidate ready; stopping incumbent (planner_reason=%s)",
+                planner_reason,
+            )
+            self._stop.set()
+            return True
+        self._failed_handoff_signature = current
+        log.warning("daemon handoff failed for signature=%s; incumbent continues", current)
+        return False
 
 def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     """Build the argparse-shaped namespace ``build_life_runner`` expects."""
@@ -440,6 +812,17 @@ def _daemon_log_path(life_dir: Path, override: Path | None = None) -> Path:
     return override if override is not None else life_dir / "daemon.log"
 
 
+def _daemon_status_payload(config: LifeWorkerConfig, *, started_at_iso: str) -> dict[str, Any]:
+    return {
+        "pid": os.getpid(),
+        "started_at_iso": started_at_iso,
+        "backend": config.backend,
+        "life_dir": str(config.life_dir),
+        "per_mission_cap_usd": config.per_mission_cap_usd,
+        "daily_cap_usd": config.daily_cap_usd,
+    }
+
+
 @dataclass
 class DaemonStatus:
     alive: bool
@@ -448,7 +831,54 @@ class DaemonStatus:
     uptime_seconds: float | None
     life_dir: Path
     backend: str | None = None
+    per_mission_cap_usd: float | None = None
+    daily_cap_usd: float | None = None
     pid_path: Path | None = None
+
+
+def _daemon_budget_from_env() -> LifeBudget:
+    return LifeBudget(
+        per_mission_cap_usd=float(
+            os.environ.get("ARGUS_SKILL_PER_MISSION_CAP_USD", "30.0")
+        ),
+        daily_cap_usd=float(
+            os.environ.get("ARGUS_SKILL_DAILY_CAP_USD", "180.0")
+        ),
+    )
+
+
+def resolve_effective_budget(status: Any | None = None) -> LifeBudget:
+    """Return the live budget caps for operator surfaces.
+
+    When the daemon has published caps in its status sidecar, use those
+    exact values. Otherwise fall back to the current env/default caps so
+    stopped-daemon status commands still show what a new launch would
+    enforce.
+    """
+    alive = bool(getattr(status, "alive", False))
+    per_mission = getattr(status, "per_mission_cap_usd", None)
+    daily = getattr(status, "daily_cap_usd", None)
+    try:
+        if alive and per_mission is not None and daily is not None:
+            return LifeBudget(
+                per_mission_cap_usd=float(per_mission),
+                daily_cap_usd=float(daily),
+            )
+    except (TypeError, ValueError):
+        pass
+    return _daemon_budget_from_env()
+
+
+def format_budget_status(journal: Any, *, status: Any | None = None) -> str:
+    budget = resolve_effective_budget(status)
+    remaining = budget.remaining_today(journal)
+    tail = " (paused)" if remaining <= 0 else ""
+    return (
+        "budget   : "
+        f"per-mission ${budget.per_mission_cap_usd:.2f} · "
+        f"daily ${budget.daily_cap_usd:.2f} · "
+        f"remaining ${remaining:.2f}{tail}"
+    )
 
 
 def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
@@ -480,13 +910,21 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
     alive = _process_alive(pid)
     started_iso: str | None = None
     backend: str | None = None
+    per_mission_cap_usd: float | None = None
+    daily_cap_usd: float | None = None
     uptime: float | None = None
     sidecar = _daemon_status_path(life_dir)
     if sidecar.exists():
         try:
-            data = json.loads(sidecar.read_text())
+            data = json.loads(sidecar.read_text(encoding="utf-8"))
             started_iso = data.get("started_at_iso")
             backend = data.get("backend")
+            raw_per_mission = data.get("per_mission_cap_usd")
+            raw_daily = data.get("daily_cap_usd")
+            if raw_per_mission is not None:
+                per_mission_cap_usd = float(raw_per_mission)
+            if raw_daily is not None:
+                daily_cap_usd = float(raw_daily)
             if started_iso:
                 started_dt = datetime.fromisoformat(started_iso)
                 uptime = (datetime.now(timezone.utc) - started_dt).total_seconds()
@@ -499,6 +937,8 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
         uptime_seconds=uptime,
         life_dir=life_dir,
         backend=backend,
+        per_mission_cap_usd=per_mission_cap_usd,
+        daily_cap_usd=daily_cap_usd,
         pid_path=pid_path,
     )
 
@@ -659,12 +1099,9 @@ def spawn_detached_daemon(config: LifeWorkerConfig) -> int:
     # started + which backend we're on.
     started_iso = datetime.now(timezone.utc).isoformat()
     try:
-        status_path.write_text(json.dumps({
-            "pid": os.getpid(),
-            "started_at_iso": started_iso,
-            "backend": config.backend,
-            "life_dir": str(config.life_dir),
-        }))
+        status_path.write_text(
+            json.dumps(_daemon_status_payload(config, started_at_iso=started_iso))
+        )
     except OSError:
         log.exception("daemon: failed to write status sidecar")
 
@@ -713,12 +1150,9 @@ def run_foreground(config: LifeWorkerConfig) -> int:
 
     started_iso = datetime.now(timezone.utc).isoformat()
     try:
-        status_path.write_text(json.dumps({
-            "pid": os.getpid(),
-            "started_at_iso": started_iso,
-            "backend": config.backend,
-            "life_dir": str(config.life_dir),
-        }))
+        status_path.write_text(
+            json.dumps(_daemon_status_payload(config, started_at_iso=started_iso))
+        )
     except OSError:
         log.exception("daemon-fg: failed to write status sidecar")
 

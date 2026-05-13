@@ -26,11 +26,13 @@ agent is doing one thing, then the next, like a person.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
 import time
 import unicodedata
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
 
 from ..core.ports import EventSink
@@ -149,6 +151,10 @@ def _planner_task_signature(title: str, objective: str) -> tuple[str, str]:
     return (_normalize_planner_text(title), _normalize_planner_text(objective))
 
 
+_PLANNER_DEDUP_STATUSES = {"pending", "running", "done"}
+_FOLLOWUP_CRITIC_MIN_IMPACT_SCORE = 5
+
+
 class _CostTrackingSink:
     """Wraps an ``EventSink`` to accumulate token counts.
 
@@ -190,23 +196,23 @@ class _CostTrackingSink:
                 )
                 self.engineer_output_tokens += int(event.get("output_tokens", 0) or 0)
                 self._engineer_round_count += 1
+            elif kind == "round.review.started":
+                if not self._reviewer_notified and self._on_phase_change:
+                    self._reviewer_notified = True
+                    try:
+                        self._on_phase_change("reviewer", {
+                            "round_index": event.get("round_index", 0),
+                            "status": "started",
+                            "engineer_rounds": self._engineer_round_count,
+                        })
+                    except Exception:  # noqa: BLE001
+                        log.debug("phase change callback failed", exc_info=True)
             elif kind == "round.review.completed":
                 self.reviewer_input_tokens += int(event.get("input_tokens", 0) or 0)
                 self.reviewer_cached_input_tokens += int(
                     event.get("cached_input_tokens", 0) or 0
                 )
                 self.reviewer_output_tokens += int(event.get("output_tokens", 0) or 0)
-                # Notify on first reviewer round per mission
-                if not self._reviewer_notified and self._on_phase_change:
-                    self._reviewer_notified = True
-                    try:
-                        self._on_phase_change("reviewer", {
-                            "round_index": event.get("round_index", 0),
-                            "status": event.get("status", ""),
-                            "engineer_rounds": self._engineer_round_count,
-                        })
-                    except Exception:  # noqa: BLE001
-                        log.debug("phase change callback failed", exc_info=True)
         except Exception:  # noqa: BLE001
             log.debug("cost-tracking sink ignored malformed event", exc_info=True)
         # Always forward.
@@ -296,6 +302,17 @@ class LifeSupervisorConfig:
     # elsewhere. When ``None``, the static ``continuous`` /
     # ``continuous_objective`` fields are used unchanged.
     continuous_config_provider: Any = None  # Callable[[], tuple[bool, str]] | None
+    # Optional callback consulted immediately before each continuous
+    # planner cycle. Return a non-empty stop reason to let the host
+    # process defer planning and yield control, e.g. for daemon handoff.
+    planner_cycle_gate: Any = None  # Callable[[], str] | None
+    # Optional context injected into the planner prompt. The daemon uses
+    # this to tell L4 that runtime source changed without making another
+    # agent call.
+    planner_runtime_context_provider: Any = None  # Callable[[], str] | None
+    # Optional handler invoked only when the planner verdict explicitly
+    # requests a daemon restart. Return True when the host is yielding.
+    planner_restart_handler: Any = None  # Callable[[str], bool] | None
 
 
 # ----- thin protocol describing what we need from a MissionExecutor --------
@@ -418,6 +435,41 @@ class LifeSupervisor:
                 "error": it.last_error,
             })
 
+    @staticmethod
+    def _safe_mode_enabled() -> bool:
+        return os.environ.get("ARGUS_SKILL_SAFE_MODE", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    def _project_workdir(self) -> Path:
+        project_root = getattr(self.memory, "project_root", None)
+        if project_root:
+            return Path(project_root)
+        project = getattr(self.memory, "project", None)
+        if project is not None:
+            root = getattr(project, "root", None)
+            if root:
+                return Path(root)
+        root = getattr(self.memory, "root", None)
+        if root:
+            return Path(root)
+        return Path.cwd()
+
+    def _critic_config(self):
+        from ..critic import CriticConfig
+
+        safe_mode = self._safe_mode_enabled()
+        return CriticConfig(
+            model=self.reviewer_model,
+            working_dir=str(self._project_workdir()),
+            skip_git_repo_check=True,
+            full_auto=safe_mode,
+            dangerous_yolo=not safe_mode,
+        )
+
     # ------------------------------------------------------------------
     # Public driving methods
     # ------------------------------------------------------------------
@@ -439,7 +491,20 @@ class LifeSupervisor:
             if outcome is None:
                 # Backlog empty — continuous mode: ask planner for more
                 if self.config.continuous and self.config.continuous_objective:
+                    gate_reason = self._planner_cycle_gate_reason()
+                    if gate_reason:
+                        self._emit({
+                            "type": "life.planner.deferred",
+                            "reason": gate_reason,
+                            "agent_layer": "planner",
+                        })
+                        self._emit_status(gate_reason)
+                        stopped_by = gate_reason
+                        break
                     planned = self._plan_next_work()
+                    if planned == "daemon_handoff":
+                        stopped_by = "daemon_handoff"
+                        break
                     if planned is True:
                         continue  # new items in backlog, loop around
                     if planned is False:
@@ -480,6 +545,38 @@ class LifeSupervisor:
             "results": results,
             "stopped_by": stopped_by,
         }
+
+    def _planner_cycle_gate_reason(self) -> str:
+        gate = self.config.planner_cycle_gate
+        if gate is None:
+            return ""
+        try:
+            reason = gate()
+        except Exception:  # noqa: BLE001
+            log.exception("planner cycle gate raised; continuing with planner")
+            return ""
+        return str(reason or "").strip()
+
+    def _planner_runtime_context(self) -> str:
+        provider = self.config.planner_runtime_context_provider
+        if provider is None:
+            return ""
+        try:
+            context = provider()
+        except Exception:  # noqa: BLE001
+            log.exception("planner runtime context provider raised; continuing")
+            return ""
+        return str(context or "").strip()
+
+    def _handle_planner_restart(self, reason: str) -> bool:
+        handler = self.config.planner_restart_handler
+        if handler is None:
+            return False
+        try:
+            return bool(handler(reason))
+        except Exception:  # noqa: BLE001
+            log.exception("planner restart handler raised; continuing")
+            return False
 
     def tick(self) -> dict[str, Any] | None:
         """Process at most one backlog item. Returns its result dict or
@@ -1022,7 +1119,6 @@ class LifeSupervisor:
         try:
             from ..critic import (
                 Critic,
-                CriticConfig,
                 render_iteration_objective,
             )
             critic = Critic(self.critic_runner)
@@ -1039,7 +1135,7 @@ class LifeSupervisor:
                     cycles_max=cycles_max,
                     budget_remaining_usd=remaining_budget,
                     journal_tail=self._render_recent_journal_for_critic(item.id),
-                    config=CriticConfig(model=self.reviewer_model),
+                    config=self._critic_config(),
                 )
             finally:
                 if stream_ctx:
@@ -1062,6 +1158,25 @@ class LifeSupervisor:
         )
         cost_so_far += critic_cost_usd
         remaining_budget = max(0.0, budget - cost_so_far)
+        raw_improvements = list(verdict.improvements)
+        value_gate_min_score = (
+            _FOLLOWUP_CRITIC_MIN_IMPACT_SCORE
+            if cycles_done >= 1
+            else 4
+        )
+        valuable_improvements = [
+            imp
+            for imp in raw_improvements
+            if int(getattr(imp, "impact_score", 0) or 0) >= value_gate_min_score
+        ]
+        dropped_low_value_count = len(raw_improvements) - len(valuable_improvements)
+        effective_stop = bool(verdict.stop) or not valuable_improvements
+        effective_reason = verdict.reason
+        if not bool(verdict.stop) and not valuable_improvements:
+            effective_reason = (
+                f"critic improvements below impact gate "
+                f"({value_gate_min_score}/5); handing control back to planner"
+            )
 
         # Notify: critic layer completed with cost
         try:
@@ -1070,7 +1185,7 @@ class LifeSupervisor:
                 kind="phase_change",
                 title=item.title,
                 summary=(
-                    f"评审员完成: {'停止迭代' if verdict.stop else f'{len(verdict.improvements)}项改进'}"
+                    f"评审员完成: {'停止迭代' if effective_stop else f'{len(valuable_improvements)}项高价值改进'}"
                     f", ${critic_cost_usd:.4f}"
                 ),
                 tags=["life", "phase"],
@@ -1080,9 +1195,12 @@ class LifeSupervisor:
                     "objective": item.objective,
                     "agent_layer": "critic",
                     "phase_status": "completed",
-                    "stop": verdict.stop,
-                    "improvement_count": len(verdict.improvements),
-                    "reason": verdict.reason,
+                    "stop": effective_stop,
+                    "improvement_count": len(valuable_improvements),
+                    "raw_improvement_count": len(raw_improvements),
+                    "dropped_low_value_count": dropped_low_value_count,
+                    "value_gate_min_score": value_gate_min_score,
+                    "reason": effective_reason,
                     "input_tokens": verdict.input_tokens,
                     "cached_input_tokens": verdict.cached_input_tokens,
                     "output_tokens": verdict.output_tokens,
@@ -1098,16 +1216,19 @@ class LifeSupervisor:
         self._emit({
             "type": "life.iteration.critic",
             "item_id": item.id,
-            "stop": verdict.stop,
-            "improvement_count": len(verdict.improvements),
-            "reason": verdict.reason,
+            "stop": effective_stop,
+            "improvement_count": len(valuable_improvements),
+            "raw_improvement_count": len(raw_improvements),
+            "dropped_low_value_count": dropped_low_value_count,
+            "value_gate_min_score": value_gate_min_score,
+            "reason": effective_reason,
             "input_tokens": verdict.input_tokens,
             "cached_input_tokens": verdict.cached_input_tokens,
             "output_tokens": verdict.output_tokens,
             "cost_usd": critic_cost_usd,
         })
 
-        if verdict.stop or not verdict.improvements:
+        if effective_stop:
             # Salvage path: the engineer hit max_rounds without a `done`
             # verdict, but the critic — looking at journal evidence —
             # decided no further work is needed. Promote the mission to
@@ -1116,7 +1237,7 @@ class LifeSupervisor:
                 "cycles_done": cycles_done,
                 "cost_so_far_usd": cost_so_far,
                 "requeued": False,
-                "stop_reason": verdict.reason or "critic stopped",
+                "stop_reason": effective_reason or "critic stopped",
                 "salvaged": bool(salvage_mode),
                 "critic_cost_usd": critic_cost_usd,
             }
@@ -1135,7 +1256,7 @@ class LifeSupervisor:
         new_objective = render_iteration_objective(
             original_objective=original,
             cycles_done=cycles_done,
-            improvements=verdict.improvements,
+            improvements=valuable_improvements,
         )
         try:
             self.memory.backlog.requeue_for_iteration(
@@ -1159,8 +1280,14 @@ class LifeSupervisor:
             "cost_so_far_usd": cost_so_far,
             "budget_usd": budget,
             "improvements": [
-                {"title": imp.title, "acceptance": imp.acceptance}
-                for imp in verdict.improvements
+                {
+                    "title": imp.title,
+                    "acceptance": imp.acceptance,
+                    "impact_score": getattr(imp, "impact_score", 0),
+                    "impact_area": getattr(imp, "impact_area", ""),
+                    "evidence": getattr(imp, "evidence", ""),
+                }
+                for imp in valuable_improvements
             ],
             "critic_cost_usd": critic_cost_usd,
         })
@@ -1168,10 +1295,16 @@ class LifeSupervisor:
             "cycles_done": cycles_done + 1,
             "cost_so_far_usd": cost_so_far,
             "requeued": True,
-            "improvement_count": len(verdict.improvements),
+            "improvement_count": len(valuable_improvements),
             "improvements": [
-                {"title": imp.title, "acceptance": imp.acceptance}
-                for imp in verdict.improvements
+                {
+                    "title": imp.title,
+                    "acceptance": imp.acceptance,
+                    "impact_score": getattr(imp, "impact_score", 0),
+                    "impact_area": getattr(imp, "impact_area", ""),
+                    "evidence": getattr(imp, "evidence", ""),
+                }
+                for imp in valuable_improvements
             ],
             "critic_cost_usd": critic_cost_usd,
         }
@@ -1234,12 +1367,13 @@ class LifeSupervisor:
     # Planner — continuous improvement mode
     # ------------------------------------------------------------------
 
-    def _plan_next_work(self) -> bool | None:
+    def _plan_next_work(self) -> bool | None | str:
         """Call the critic-as-planner to generate new backlog items.
 
         Returns ``True`` if new work was added (caller should loop),
         ``False`` if the planner declares the project done, and
-        ``None`` when the planner fails and should be retried later.
+        ``"daemon_handoff"`` if the planner asked the host to restart,
+        and ``None`` when the planner fails and should be retried later.
         """
         if self.critic_runner is None:
             self._emit_status("planner error: no critic runner wired; retry later")
@@ -1270,7 +1404,7 @@ class LifeSupervisor:
         remaining = self.config.budget.remaining_today(self.memory.journal)
 
         try:
-            from ..critic import Critic, CriticConfig
+            from ..critic import Critic
 
             critic = Critic(self.critic_runner)
             # Enable streaming so planner output flows through the event sink
@@ -1284,7 +1418,8 @@ class LifeSupervisor:
                     journal_tail=journal_tail,
                     budget_remaining_usd=remaining,
                     planning_cycle=self._planning_cycles - 1,
-                    config=CriticConfig(model=self.reviewer_model),
+                    runtime_change_summary=self._planner_runtime_context(),
+                    config=self._critic_config(),
                 )
             finally:
                 if stream_ctx:
@@ -1367,6 +1502,8 @@ class LifeSupervisor:
                 "cached_input_tokens": verdict.cached_input_tokens,
                 "output_tokens": verdict.output_tokens,
                 "cost_usd": planner_cost_usd,
+                "restart_daemon": verdict.restart_daemon,
+                "restart_reason": verdict.restart_reason,
             })
             self._emit_status(
                 f"planner: project done — {verdict.reason}"
@@ -1377,7 +1514,11 @@ class LifeSupervisor:
                 summary=verdict.reason,
                 tags=["life", "planner"],
                 cost_usd=planner_cost_usd,
-                extra={"agent_layer": "planner"},
+                extra={
+                    "agent_layer": "planner",
+                    "restart_daemon": verdict.restart_daemon,
+                    "restart_reason": verdict.restart_reason,
+                },
             )
             self.memory.journal.append(entry)
             self._inject_cumulative_cost(entry)
@@ -1386,7 +1527,62 @@ class LifeSupervisor:
                 dispatch_journal_entry(entry)
             except Exception:  # noqa: BLE001
                 log.exception("notify dispatch failed; continuing")
+            if verdict.restart_daemon and self._handle_planner_restart(
+                verdict.restart_reason
+            ):
+                self._emit_status("daemon_handoff")
+                return "daemon_handoff"
             return False
+
+        if verdict.restart_daemon and not verdict.new_tasks:
+            restart_reason = verdict.restart_reason or verdict.reason
+            self._emit({
+                "type": "life.planner.verdict",
+                "cycle": self._planning_cycles,
+                "project_done": verdict.project_done,
+                "reason": verdict.reason,
+                "task_count": 0,
+                "enqueued_tasks": 0,
+                "skipped_duplicate_tasks": 0,
+                "enqueued_titles": [],
+                "skipped_duplicate_titles": [],
+                "input_tokens": verdict.input_tokens,
+                "cached_input_tokens": verdict.cached_input_tokens,
+                "output_tokens": verdict.output_tokens,
+                "cost_usd": planner_cost_usd,
+                "restart_daemon": True,
+                "restart_reason": restart_reason,
+            })
+            entry = JournalEntry.new(
+                kind="planner_cycle",
+                title=f"planner cycle #{self._planning_cycles}",
+                summary=f"planner requested daemon restart: {restart_reason}",
+                tags=["life", "planner"],
+                cost_usd=planner_cost_usd,
+                extra={
+                    "agent_layer": "planner",
+                    "objective": self.config.continuous_objective[:200],
+                    "proposed_tasks": 0,
+                    "enqueued_tasks": 0,
+                    "skipped_duplicate_tasks": 0,
+                    "enqueued_titles": [],
+                    "skipped_duplicate_titles": [],
+                    "restart_daemon": True,
+                    "restart_reason": restart_reason,
+                },
+            )
+            self.memory.journal.append(entry)
+            self._inject_cumulative_cost(entry)
+            try:
+                from .notify import dispatch_journal_entry
+                dispatch_journal_entry(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("notify dispatch failed; continuing")
+            if self._handle_planner_restart(restart_reason):
+                self._emit_status("daemon_handoff")
+                return "daemon_handoff"
+            self._emit_status("planner requested daemon restart but host did not restart")
+            return None
 
         if not verdict.new_tasks:
             self._emit({
@@ -1426,15 +1622,17 @@ class LifeSupervisor:
 
         seen_signatures: dict[tuple[str, str], BacklogItem] = {}
         for existing in existing_items:
-            if existing.status not in {"pending", "running"}:
+            if existing.status not in _PLANNER_DEDUP_STATUSES:
                 continue
-            seen_signatures.setdefault(
-                _planner_task_signature(existing.title, existing.objective),
-                existing,
-            )
+            signature = _planner_task_signature(existing.title, existing.objective)
+            if existing.status in {"pending", "running"}:
+                seen_signatures[signature] = existing
+            elif signature not in seen_signatures:
+                seen_signatures[signature] = existing
 
         added_titles: list[str] = []
         skipped_titles: list[str] = []
+        added_impact_scores: list[int] = []
 
         # Add new tasks to the backlog.
         for task in verdict.new_tasks:
@@ -1442,14 +1640,22 @@ class LifeSupervisor:
             duplicate_item = seen_signatures.get(signature)
             if duplicate_item is not None:
                 skipped_titles.append(task.title)
+                duplicate_reason = (
+                    "duplicate completed task"
+                    if duplicate_item.status == "done"
+                    else "duplicate pending/running task"
+                )
                 self._emit({
                     "type": "life.planner.task_skipped",
                     "cycle": self._planning_cycles,
                     "title": task.title,
                     "objective": task.objective,
+                    "impact_score": task.impact_score,
+                    "impact_area": task.impact_area,
+                    "evidence": task.evidence,
                     "matched_item_id": duplicate_item.id,
                     "matched_status": duplicate_item.status,
-                    "reason": "duplicate pending/running task",
+                    "reason": duplicate_reason,
                 })
                 continue
             item = BacklogItem.new(
@@ -1463,10 +1669,13 @@ class LifeSupervisor:
             self.memory.backlog.add(item)
             seen_signatures[signature] = item
             added_titles.append(item.title)
+            added_impact_scores.append(task.impact_score)
             self._emit({
                 "type": "life.planner.task_added",
                 "item_id": item.id,
                 "title": item.title,
+                "impact_score": task.impact_score,
+                "impact_area": task.impact_area,
             })
 
         summary_parts = [
@@ -1497,7 +1706,10 @@ class LifeSupervisor:
                 "enqueued_tasks": len(added_titles),
                 "skipped_duplicate_tasks": len(skipped_titles),
                 "enqueued_titles": added_titles,
+                "enqueued_impact_scores": added_impact_scores,
                 "skipped_duplicate_titles": skipped_titles,
+                "restart_daemon": verdict.restart_daemon,
+                "restart_reason": verdict.restart_reason,
             },
         )
         self._emit({
@@ -1509,11 +1721,14 @@ class LifeSupervisor:
             "enqueued_tasks": len(added_titles),
             "skipped_duplicate_tasks": len(skipped_titles),
             "enqueued_titles": added_titles,
+            "enqueued_impact_scores": added_impact_scores,
             "skipped_duplicate_titles": skipped_titles,
             "input_tokens": verdict.input_tokens,
             "cached_input_tokens": verdict.cached_input_tokens,
             "output_tokens": verdict.output_tokens,
             "cost_usd": planner_cost_usd,
+            "restart_daemon": verdict.restart_daemon,
+            "restart_reason": verdict.restart_reason,
         })
         self.memory.journal.append(entry)
         self._inject_cumulative_cost(entry)
@@ -1522,11 +1737,16 @@ class LifeSupervisor:
             dispatch_journal_entry(entry)
         except Exception:  # noqa: BLE001
             log.exception("notify dispatch failed; continuing")
+        if verdict.restart_daemon and self._handle_planner_restart(
+            verdict.restart_reason
+        ):
+            self._emit_status("daemon_handoff")
+            return "daemon_handoff"
         return True
 
     def _item_iteration_cycles(self) -> int:
         """Default iteration cycles for planner-generated tasks."""
-        return 6
+        return 1
 
     def _item_iteration_budget(self) -> float:
         """Default iteration budget for planner-generated tasks."""

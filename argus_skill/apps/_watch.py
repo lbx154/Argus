@@ -20,12 +20,18 @@ the existing on-disk state.
 from __future__ import annotations
 
 import json
+import signal
 import sys
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, Sequence
+
+from ..daemon.life_worker import read_continuous_state, read_daemon_status, resolve_effective_budget
+from ..life.status import describe_continuous_state, select_current_running_item
+from ._inbox import count_pending_inbox_messages, format_inbox_event
 
 
 def _path_signature(path: Path) -> tuple[int, int, int, int] | None:
@@ -59,6 +65,68 @@ def _read_jsonl_since(path: Path, offset: int) -> tuple[list[dict[str, Any]], in
         except (UnicodeDecodeError, json.JSONDecodeError):
             continue
     return rows, new_offset
+
+
+def _clean_text(text: str, *, limit: int = 120) -> str:
+    text = " ".join(str(text or "").split())
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return text[: max(1, limit - 1)].rstrip() + "…"
+
+
+def _read_backlog_rows(backlog_path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    try:
+        with backlog_path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except OSError:
+        return []
+    return rows
+
+
+def _select_current_backlog_row(rows: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
+    proxies = [SimpleNamespace(**row) for row in rows if isinstance(row, dict)]
+    current = select_current_running_item(proxies)
+    if current is None:
+        return None
+    return dict(vars(current))
+
+
+def _mission_context_lines(
+    *,
+    mission: _MissionState,
+    current_row: dict[str, Any] | None,
+    continuous: Any,
+) -> list[tuple[str, str]]:
+    cont = describe_continuous_state(continuous)
+    current_id = _clean_text(str((current_row or {}).get("id", "")), limit=18) or "-"
+    current_title = _clean_text(str((current_row or {}).get("title", "")), limit=60) or "-"
+    current_objective = _clean_text(
+        str((current_row or {}).get("objective", "")),
+        limit=120,
+    ) or "-"
+    return [
+        ("status", mission.status),
+        ("item", current_id),
+        ("title", current_title),
+        ("objective", current_objective),
+        ("continuous", "on" if cont.enabled else ("done" if cont.is_completed else "off")),
+        ("continuous objective", _clean_text(cont.objective, limit=120) or "-"),
+        ("done_reason", _clean_text(cont.done_reason, limit=120) or "-"),
+        ("done_at", cont.done_at or "-"),
+        ("rounds", str(mission.rounds)),
+        ("tokens_in", f"{mission.tokens_in:,}"),
+        ("tokens_out", f"{mission.tokens_out:,}"),
+    ]
 
 
 @dataclass
@@ -124,6 +192,33 @@ class _PathTail:
             return []
         rows, self.offset = _read_jsonl_since(path, self.offset)
         return rows
+
+
+@dataclass
+class _BudgetLineCache:
+    """Cache the rendered budget line until its inputs change."""
+
+    signature: tuple[tuple[int, int, int, int] | None, float, float] | None = None
+    line: str = ""
+
+    def render(self, *, journal_path: Path, journal: Any, status: Any) -> str:
+        budget = resolve_effective_budget(status)
+        signature = (
+            _path_signature(journal_path),
+            budget.per_mission_cap_usd,
+            budget.daily_cap_usd,
+        )
+        if signature != self.signature:
+            self.signature = signature
+            remaining = budget.remaining_today(journal)
+            tail = " (paused)" if remaining <= 0 else ""
+            self.line = (
+                "budget   : "
+                f"per-mission ${budget.per_mission_cap_usd:.2f} · "
+                f"daily ${budget.daily_cap_usd:.2f} · "
+                f"remaining ${remaining:.2f}{tail}"
+            )
+        return self.line
 
 
 @dataclass
@@ -206,14 +301,13 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
     events_path = project_root / "events.jsonl"
     journal_path = global_root / "journal.jsonl"
     backlog_path = project_root / "backlog.jsonl"
-    status_path = project_root / "daemon.status.json"
 
     console = Console()
     refresh = max(1, int(refresh_hz))
 
     layout = Layout()
     layout.split_column(
-        Layout(name="header", size=1),
+        Layout(name="header", size=4),
         Layout(name="top", size=14),
         Layout(name="bottom"),
     )
@@ -222,11 +316,13 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
 
     state = _WatchState(events_path=events_path, roll_path=project_root / "events.jsonl.1")
 
-    def _read_status() -> dict[str, Any]:
-        try:
-            return json.loads(status_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {}
+    journal = getattr(bundle, "journal", None)
+    if journal is None:
+        from ..life.memory import GlobalMemory
+
+        journal = GlobalMemory.open(global_root).journal
+    budget_cache = _BudgetLineCache()
+    plain_console = None if sys.stdout.isatty() else Console(force_terminal=False, color_system=None)
 
     def _read_journal_tail(n: int = 10) -> list[dict[str, Any]]:
         try:
@@ -246,32 +342,20 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
                 continue
         return rows
 
-    def _read_backlog() -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
-        try:
-            with backlog_path.open("r", encoding="utf-8") as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        rows.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
-        except OSError:
-            return []
-        return rows
-
     def _mission_panel() -> Panel:
         mission = state.mission
+        rows = _read_backlog_rows(backlog_path)
+        current_row = _select_current_backlog_row(rows)
+        continuous = read_continuous_state(project_root)
         body = Table.grid(padding=(0, 1))
         body.add_column(style="bold cyan")
         body.add_column()
-        body.add_row("status", mission.status)
-        body.add_row("item", mission.item_id or "-")
-        body.add_row("rounds", str(mission.rounds))
-        body.add_row("tokens_in", f"{mission.tokens_in:,}")
-        body.add_row("tokens_out", f"{mission.tokens_out:,}")
+        for label, value in _mission_context_lines(
+            mission=mission,
+            current_row=current_row,
+            continuous=continuous,
+        ):
+            body.add_row(label, value)
         return Panel(body, title="Current mission", border_style="cyan")
 
     def _events_panel() -> Panel:
@@ -286,7 +370,8 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
             except (TypeError, ValueError):
                 ts_s = "?"
             t = str(ev.get("type", "?"))[:24]
-            text = (ev.get("text") or ev.get("title") or ev.get("reason") or "")
+            inbox_text = format_inbox_event(ev) if isinstance(ev, dict) else None
+            text = inbox_text or (ev.get("text") or ev.get("title") or ev.get("reason") or "")
             text = str(text)[:120].replace("\n", " ")
             tbl.add_row(ts_s, t, text)
         return Panel(tbl, title="Events (latest)", border_style="yellow")
@@ -310,7 +395,7 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
         return Panel(tbl, title="Journal (latest)", border_style="magenta")
 
     def _backlog_panel() -> Panel:
-        rows = _read_backlog()
+        rows = _read_backlog_rows(backlog_path)
         pending = [r for r in rows if r.get("status") == "pending"]
         running = [r for r in rows if r.get("status") == "running"]
         tbl = Table.grid(padding=(0, 1))
@@ -331,26 +416,58 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
         layout["events"].update(_events_panel())
         layout["journal"].update(_journal_panel())
         layout["backlog"].update(_backlog_panel())
-        st = _read_status()
-        alive = st.get("alive", False)
-        pid = st.get("pid", "-")
-        backend = st.get("backend", "-")
+        st = read_daemon_status(project_root)
+        alive = st.alive
+        pid = st.pid if st.alive and st.pid is not None else "-"
+        backend = st.backend if st.alive and st.backend else "-"
+        inbox_pending = count_pending_inbox_messages(project_root)
+        budget_line = budget_cache.render(journal_path=journal_path, journal=journal, status=st)
         header = Text.from_markup(
-            f"[bold]argus-skill watch[/bold]  [cyan]global[/cyan]={global_root}  "
+            f"[bold]argus-skill watch[/bold]  [cyan]global[/cyan]={global_root}\n"
             f"[cyan]project[/cyan]={project_root}  "
             f"[cyan]daemon[/cyan]={'[green]alive[/green]' if alive else '[red]down[/red]'}  "
-            f"pid={pid}  backend={backend}  [dim](Ctrl-C to exit)[/dim]"
+            f"pid={pid}  backend={backend}\n"
+            f"{budget_line}\n"
+            f"[cyan]inbox[/cyan]={inbox_pending} pending  [dim](Ctrl-C to exit)[/dim]"
         )
         layout["header"].update(header)
         return layout
 
+    def _print_snapshot() -> None:
+        if plain_console is None:
+            return
+        with plain_console.capture() as capture:
+            plain_console.print(_render())
+        sys.stdout.write(capture.get())
+        sys.stdout.flush()
+
+    def _raise_keyboard_interrupt(_signum: int, _frame: Any) -> None:
+        raise KeyboardInterrupt
+
+    previous_handlers: dict[int, Any] = {}
     try:
-        with Live(_render(), refresh_per_second=refresh, console=console, screen=False) as live:
+        for signum in (signal.SIGINT, getattr(signal, "SIGTERM", None)):
+            if signum is None:
+                continue
+            previous_handlers[int(signum)] = signal.getsignal(signum)
+            signal.signal(signum, _raise_keyboard_interrupt)
+        if plain_console is None:
+            with Live(_render(), refresh_per_second=refresh, console=console, screen=False) as live:
+                while True:
+                    time.sleep(1.0 / refresh)
+                    live.update(_render())
+        else:
             while True:
+                _print_snapshot()
                 time.sleep(1.0 / refresh)
-                live.update(_render())
     except KeyboardInterrupt:
         return 0
+    finally:
+        for signum, previous in previous_handlers.items():
+            try:
+                signal.signal(signum, previous)
+            except Exception:  # noqa: BLE001
+                pass
 
 
 __all__ = ["run_watch"]

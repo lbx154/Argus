@@ -11,10 +11,13 @@ Three storage shapes:
   changes; the file is small (tens-to-hundreds of items).
 - ``IdentityCard``: a single ``identity.md`` markdown file the user
   edits freely. We just read it.
+- ``ProjectCard``: a per-project ``project.md`` markdown file that
+  captures repo-specific conventions and red lines.
 
-The :class:`LifeMemory` facade bundles all three plus a small retrieval
-helper that returns the most-relevant N journal entries for a new
-objective via word-overlap (keyword Jaccard). Recency is a tiebreaker.
+The :class:`LifeMemory` facade bundles the global files plus a small
+retrieval helper that returns the most-relevant N journal entries for a
+new objective via word-overlap (keyword Jaccard). Recency is a
+tiebreaker.
 
 This module has **no LLM dependency** so it's testable and importable
 in any environment (we use it from the CLI even when the API key is
@@ -51,7 +54,9 @@ def default_life_dir() -> Path:
     """
     raw = os.environ.get("ARGUS_SKILL_LIFE_DIR")
     if raw:
-        return Path(raw).expanduser()
+        from ..core.paths import resolve_runtime_path
+
+        return resolve_runtime_path(raw, context="ARGUS_SKILL_LIFE_DIR")
     return Path.home() / ".argus-skill" / "life"
 
 
@@ -747,6 +752,28 @@ mission. -->
 _DEFAULT_PROJECT_CARD = """\
 # {label}
 
+(Edit me — this is the per-project card for {label}. Capture repo
+conventions, folder layout, "always do X / never touch Y" rules,
+contact points for the team, and any project-specific gotchas. The
+agent reads this before every mission targeting this project.)
+
+## Project label
+- `{label}`
+
+## Conventions
+-
+-
+-
+
+## Red lines
+-
+-
+-
+"""
+
+_LEGACY_PROJECT_CARD = """\
+# {label}
+
 (Edit me — this is the per-project identity card. Capture conventions,
 folder layout, "always do X / never touch Y" rules, contact points for
 the team, etc. The agent reads this before every mission targeting
@@ -799,12 +826,18 @@ class ProjectCard:
         return self.path.read_text(encoding="utf-8")
 
     def ensure_default(self) -> bool:
-        if self.path.exists():
-            return False
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         rendered = _DEFAULT_PROJECT_CARD.format(label=self.label or "this project")
-        self.path.write_text(rendered, encoding="utf-8")
-        return True
+        if not self.path.exists():
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(rendered, encoding="utf-8")
+            return True
+
+        existing = self.read()
+        legacy = _LEGACY_PROJECT_CARD.format(label=self.label or "this project")
+        if existing == legacy:
+            self.path.write_text(rendered, encoding="utf-8")
+            return True
+        return False
 
 
 # ---------------------------------------------------------------------------

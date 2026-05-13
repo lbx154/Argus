@@ -15,6 +15,7 @@ we can deterministically assert:
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -132,6 +133,32 @@ def _journal_kinds(mem: LifeMemory) -> list[str]:
     return [e.kind for e in mem.journal.all()]
 
 
+def _continue_payload(
+    title: str,
+    *,
+    reason: str = "high-impact follow-up",
+    rationale: str = "operator-visible value",
+    acceptance: str = "pytest -q",
+    impact_score: int = 4,
+    impact_area: str = "correctness",
+    evidence: str = "missing high-value verification",
+) -> str:
+    return json.dumps({
+        "stop": False,
+        "reason": reason,
+        "improvements": [
+            {
+                "title": title,
+                "rationale": rationale,
+                "acceptance": acceptance,
+                "impact_score": impact_score,
+                "impact_area": impact_area,
+                "evidence": evidence,
+            }
+        ],
+    })
+
+
 def _build_supervisor(
     *,
     mem: LifeMemory,
@@ -174,10 +201,13 @@ def test_iteration_loop_continues_then_stops(tmp_path: Path):
     sink = _RecordingSink()
     critic = _ScriptedCriticBackend([
         # Cycle 1: critic wants one more polish pass.
-        '{"stop": false, "reason": "missing url-safe variant", '
-        '"improvements": [{"title": "add urlsafe_b64", '
-        '"rationale": "URL-safe encoding is a core operator need", '
-        '"acceptance": "new function urlsafe_b64encode covered by pytest"}]}',
+        _continue_payload(
+            "add urlsafe_b64",
+            reason="missing url-safe variant",
+            rationale="URL-safe encoding is a core operator need",
+            acceptance="new function urlsafe_b64encode covered by pytest",
+            evidence="operator-facing base64 helper lacks URL-safe variant",
+        ),
         # Cycle 2: now done.
         '{"stop": true, "reason": "objective fully satisfied", '
         '"improvements": []}',
@@ -240,9 +270,12 @@ def test_iteration_loop_respects_cycle_ceiling(tmp_path: Path):
     sink = _RecordingSink()
     # Critic ALWAYS wants one more polish pass.
     forever_continue = (
-        '{"stop": false, "reason": "more polish", '
-        '"improvements": [{"title": "polish-' + str(i) + '", '
-        '"rationale": "x", "acceptance": "y"}]}'
+        _continue_payload(
+            f"polish-{i}",
+            reason="more high-impact polish",
+            impact_score=4,
+            evidence="simulated high-impact follow-up",
+        )
         for i in range(10)
     )
     critic = _ScriptedCriticBackend(list(forever_continue))
@@ -264,6 +297,37 @@ def test_iteration_loop_respects_cycle_ceiling(tmp_path: Path):
     ]
 
 
+def test_iteration_loop_rejects_low_value_polish(tmp_path: Path):
+    mem = LifeMemory.open(tmp_path)
+    mem.init()
+    mem.backlog.add(BacklogItem.new(
+        title="small cleanup",
+        objective="ship useful behavior",
+        iterate=True,
+        iteration_max_cycles=3,
+        iteration_budget_usd=10.0,
+    ))
+    sink = _RecordingSink()
+    critic = _ScriptedCriticBackend([
+        _continue_payload(
+            "rename helper for clarity",
+            reason="minor cleanup",
+            impact_score=2,
+            evidence="would be cleaner",
+        )
+    ])
+    sup, runner = _build_supervisor(mem=mem, sink=sink, critic=critic)
+    sup.run()
+
+    assert len(runner.calls) == 1
+    final = mem.backlog.all()[0]
+    assert final.status == "done"
+    assert final.iteration_cycles_done == 0
+    critic_events = _events_of(sink, "life.iteration.critic")
+    assert critic_events[0]["stop"] is True
+    assert "impact gate" in critic_events[0]["reason"]
+
+
 def test_iteration_disabled_skips_critic_entirely(tmp_path: Path):
     mem = LifeMemory.open(tmp_path)
     mem.init()
@@ -274,8 +338,7 @@ def test_iteration_disabled_skips_critic_entirely(tmp_path: Path):
     ))
     sink = _RecordingSink()
     critic = _ScriptedCriticBackend([
-        '{"stop": false, "reason": "wants more", '
-        '"improvements": [{"title": "polish", "acceptance": "x"}]}'
+        _continue_payload("polish", reason="wants more")
     ])
     sup, runner = _build_supervisor(mem=mem, sink=sink, critic=critic)
     sup.run()
@@ -300,10 +363,17 @@ def test_iteration_budget_counts_critic_tokens(tmp_path: Path) -> None:
     sink = _RecordingSink()
     critic = _ScriptedCriticBackend(
         [
-            '{"stop": false, "reason": "needs one more polish pass", '
-            '"improvements": [{"title": "tighten docs", '
-            '"rationale": "operator-visible detail", '
-            '"acceptance": "pytest -q tests/life/test_iteration_loop.py::test_iteration_budget_counts_critic_tokens"}]}',
+            _continue_payload(
+                "tighten docs",
+                reason="needs one more polish pass",
+                rationale="operator-visible detail",
+                acceptance=(
+                    "pytest -q "
+                    "tests/life/test_iteration_loop.py::"
+                    "test_iteration_budget_counts_critic_tokens"
+                ),
+                evidence="documented behavior is part of the user-facing contract",
+            ),
             '{"stop": true, "reason": "objective fully satisfied", "improvements": []}',
         ],
         input_tokens=1_000,

@@ -133,7 +133,37 @@ def test_project_memory_init_seeds_project_card(isolated_home: Path) -> None:
         "backlog": True,
     }
     card_text = proj.project_card.path.read_text(encoding="utf-8")
-    assert "my-project" in card_text
+    assert "# my-project" in card_text
+    assert "## Project label" in card_text
+    assert "## Conventions" in card_text
+    assert "## Red lines" in card_text
+    assert card_text.strip()
+
+
+def test_project_memory_init_upgrades_legacy_blank_card(isolated_home: Path) -> None:
+    proj = ProjectMemory.open("abc123abc123", label="my-project")
+    legacy = """\
+# my-project
+
+(Edit me — this is the per-project identity card. Capture conventions,
+folder layout, "always do X / never touch Y" rules, contact points for
+the team, etc. The agent reads this before every mission targeting
+this project.)
+
+## Conventions
+
+## Red lines
+"""
+    proj.project_card.path.parent.mkdir(parents=True, exist_ok=True)
+    proj.project_card.path.write_text(legacy, encoding="utf-8")
+
+    created = proj.init()
+    assert created["project_card"] is True
+    card_text = proj.project_card.path.read_text(encoding="utf-8")
+    assert "## Project label" in card_text
+    assert "## Conventions" in card_text
+    assert "## Red lines" in card_text
+    assert card_text.startswith("# my-project\n")
 
 
 def test_project_memory_init_idempotent(isolated_home: Path) -> None:
@@ -236,6 +266,10 @@ def test_memory_bundle_init_creates_both(
     created = bundle.init()
     assert created["global"]["identity"] is True
     assert created["project"]["project_card"] is True
+    card_text = bundle.project.project_card.path.read_text(encoding="utf-8")
+    assert f"# {bundle.project.label}" in card_text
+    assert "## Conventions" in card_text
+    assert "## Red lines" in card_text
     # idempotent
     assert bundle.init()["global"] == {"identity": False, "journal": False}
 

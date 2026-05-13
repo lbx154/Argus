@@ -42,14 +42,8 @@ class ValidationIssue:
 
 
 def iter_experiment_dirs(results_root: Path) -> list[Path]:
-    """Return result directories that participate in the TSV schema gate."""
-    dirs: list[Path] = []
-    for child in sorted(results_root.iterdir()):
-        if not child.is_dir():
-            continue
-        if (child / "summary.tsv").exists() or (child / "EXEMPT.md").exists():
-            dirs.append(child)
-    return dirs
+    """Return all top-level result directories."""
+    return [child for child in sorted(results_root.iterdir()) if child.is_dir()]
 
 
 def validate_experiment_dir(exp_dir: Path) -> list[ValidationIssue]:

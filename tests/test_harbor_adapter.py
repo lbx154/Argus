@@ -11,12 +11,13 @@ import importlib.util
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 
 
 @pytest.fixture(scope="module")
-def adapter():
+def adapter() -> ModuleType:
     """Load benchmarks/harbor_adapter as a module without installing harbor."""
     repo_root = Path(__file__).resolve().parent.parent
     src = repo_root / "benchmarks" / "harbor_adapter.py"
@@ -379,22 +380,31 @@ def test_tail_check_output_truncates_to_cap(adapter):
     assert adapter._tail_check_output(None) == ""
 
 
-def test_invoke_reviewer_passes_checks_through_to_reviewer(adapter, monkeypatch):
+def test_invoke_reviewer_passes_checks_through_to_reviewer(
+    adapter: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The bug RC1 fixes: ``_invoke_reviewer`` used to hardcode
     ``checks=[]``. Verify that a non-empty ``checks_data`` actually
     reaches ``Reviewer.evaluate`` as a list of CheckResult-shaped
     objects."""
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     class _StubCheckResult:
-        def __init__(self, *, command, exit_code, passed, output_tail):
+        def __init__(
+            self,
+            *,
+            command: str,
+            exit_code: int,
+            passed: bool,
+            output_tail: str,
+        ) -> None:
             self.command = command
             self.exit_code = exit_code
             self.passed = passed
             self.output_tail = output_tail
 
     class _StubReviewerCfg:
-        def __init__(self, **_kwargs):
+        def __init__(self, **_kwargs: Any) -> None:
             pass
 
     class _StubDecision:
@@ -404,10 +414,10 @@ def test_invoke_reviewer_passes_checks_through_to_reviewer(adapter, monkeypatch)
         next_action = ""
 
     class _StubReviewer:
-        def __init__(self, _backend):
+        def __init__(self, _backend: Any) -> None:
             pass
 
-        def evaluate(self, **kwargs):
+        def evaluate(self, **kwargs: Any) -> _StubDecision:
             captured["kwargs"] = kwargs
             return _StubDecision()
 
@@ -454,13 +464,15 @@ def test_invoke_reviewer_passes_checks_through_to_reviewer(adapter, monkeypatch)
     assert forwarded[1].exit_code == 1
 
 
-def test_invoke_reviewer_with_empty_checks_data_passes_empty_list(adapter, monkeypatch):
+def test_invoke_reviewer_with_empty_checks_data_passes_empty_list(
+    adapter: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Backwards-compat: legacy callers (or unconfigured CHECKS_CMD) pass
     no checks → reviewer must still be invoked, with checks=[]."""
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     class _Stub:
-        def __init__(self, *a, **kw):
+        def __init__(self, *a: Any, **kw: Any) -> None:
             pass
 
     class _StubDecision:
@@ -470,10 +482,10 @@ def test_invoke_reviewer_with_empty_checks_data_passes_empty_list(adapter, monke
         next_action = ""
 
     class _StubReviewer:
-        def __init__(self, _backend):
+        def __init__(self, _backend: Any) -> None:
             pass
 
-        def evaluate(self, **kwargs):
+        def evaluate(self, **kwargs: Any) -> _StubDecision:
             captured["kwargs"] = kwargs
             return _StubDecision()
 
@@ -500,21 +512,29 @@ def test_invoke_reviewer_with_empty_checks_data_passes_empty_list(adapter, monke
     assert captured["kwargs"]["checks"] == []
 
 
-def test_collect_checks_runs_each_command_and_captures_result(adapter):
+def test_collect_checks_runs_each_command_and_captures_result(
+    adapter: ModuleType,
+) -> None:
     """``_collect_checks`` must run each command via ``environment.exec``
     in order, never raise on non-zero exit, and produce a CheckResult-
     shaped dict per command."""
     import asyncio as _asyncio
 
-    calls: list[dict] = []
+    calls: list[dict[str, Any]] = []
 
     class _FakeExecResult:
-        def __init__(self, return_code, stdout):
+        def __init__(self, return_code: int, stdout: str) -> None:
             self.return_code = return_code
             self.stdout = stdout
 
     class _FakeEnvironment:
-        async def exec(self, *, command, env, timeout_sec):
+        async def exec(
+            self,
+            *,
+            command: str,
+            env: dict[str, str],
+            timeout_sec: int,
+        ) -> _FakeExecResult:
             calls.append({"command": command, "env": env, "timeout_sec": timeout_sec})
             if "pytest" in command:
                 return _FakeExecResult(0, "5 passed")
@@ -551,11 +571,21 @@ def test_collect_checks_runs_each_command_and_captures_result(adapter):
         assert entry["env"] == {"FOO": "bar"}
 
 
-def test_collect_checks_preserves_alternate_output_fields(adapter):
+def test_collect_checks_preserves_alternate_output_fields(
+    adapter: ModuleType,
+) -> None:
     import asyncio as _asyncio
 
     class _FakeExecResult:
-        def __init__(self, return_code, *, stdout="", stderr="", output="", combined_output=""):
+        def __init__(
+            self,
+            return_code: int,
+            *,
+            stdout: str = "",
+            stderr: str = "",
+            output: str = "",
+            combined_output: str = "",
+        ) -> None:
             self.return_code = return_code
             self.stdout = stdout
             self.stderr = stderr
@@ -563,7 +593,13 @@ def test_collect_checks_preserves_alternate_output_fields(adapter):
             self.combined_output = combined_output
 
     class _FakeEnvironment:
-        async def exec(self, *, command, env, timeout_sec):
+        async def exec(
+            self,
+            *,
+            command: str,
+            env: dict[str, str],
+            timeout_sec: int,
+        ) -> _FakeExecResult:
             if "pytest" in command:
                 return _FakeExecResult(0, output="5 passed in 0.42s")
             if "ruff" in command:
@@ -591,7 +627,9 @@ def test_collect_checks_preserves_alternate_output_fields(adapter):
     assert out[1]["output_tail"] == "1 error"
 
 
-def test_collect_checks_with_no_commands_returns_empty(adapter):
+def test_collect_checks_with_no_commands_returns_empty(
+    adapter: ModuleType,
+) -> None:
     import asyncio as _asyncio
 
     inst = adapter.ArgusSkillCodex.__new__(adapter.ArgusSkillCodex)
@@ -609,14 +647,22 @@ def test_collect_checks_with_no_commands_returns_empty(adapter):
     assert out == []
 
 
-def test_collect_checks_per_command_timeout_becomes_failed_check(adapter):
+def test_collect_checks_per_command_timeout_becomes_failed_check(
+    adapter: ModuleType,
+) -> None:
     """A RuntimeError from harbor's docker exec (typically a per-command
     timeout) must NOT abort the whole batch — it must be recorded as a
     failed CheckResult so the reviewer sees the timeout, not silence."""
     import asyncio as _asyncio
 
     class _FakeEnvironment:
-        async def exec(self, *, command, env, timeout_sec):  # noqa: ARG002
+        async def exec(
+            self,
+            *,
+            command: str,
+            env: dict[str, str],
+            timeout_sec: int,
+        ) -> Any:  # noqa: ARG002
             raise RuntimeError("Command timed out after 60 seconds")
 
     inst = adapter.ArgusSkillCodex.__new__(adapter.ArgusSkillCodex)
@@ -637,11 +683,21 @@ def test_collect_checks_per_command_timeout_becomes_failed_check(adapter):
     assert "RuntimeError" in out[0]["output_tail"]
 
 
-def test_collect_v12_verifier_preserves_alternate_output_fields(adapter):
+def test_collect_v12_verifier_preserves_alternate_output_fields(
+    adapter: ModuleType,
+) -> None:
     import asyncio as _asyncio
 
     class _FakeExecResult:
-        def __init__(self, return_code, *, stdout="", stderr="", output="", combined_output=""):
+        def __init__(
+            self,
+            return_code: int,
+            *,
+            stdout: str = "",
+            stderr: str = "",
+            output: str = "",
+            combined_output: str = "",
+        ) -> None:
             self.return_code = return_code
             self.stdout = stdout
             self.stderr = stderr
@@ -649,7 +705,13 @@ def test_collect_v12_verifier_preserves_alternate_output_fields(adapter):
             self.combined_output = combined_output
 
     class _FakeEnvironment:
-        async def exec(self, *, command, env, timeout_sec):
+        async def exec(
+            self,
+            *,
+            command: str,
+            env: dict[str, str],
+            timeout_sec: int,
+        ) -> _FakeExecResult:
             if command.startswith("test -f /tests/test.sh"):
                 return _FakeExecResult(0, output="exists")
             if command.startswith("bash /tests/test.sh"):
@@ -673,7 +735,9 @@ def test_collect_v12_verifier_preserves_alternate_output_fields(adapter):
     assert out["output_tail"] == "FAILED test_outputs.py::test_x"
 
 
-def test_default_checks_timeout_is_documented_constant(adapter):
+def test_default_checks_timeout_is_documented_constant(
+    adapter: ModuleType,
+) -> None:
     """Default per-check timeout is the documented constant. If tests
     elsewhere rely on the exact value, this is the canary."""
     assert adapter._DEFAULT_CHECKS_TIMEOUT == 60
@@ -682,7 +746,7 @@ def test_default_checks_timeout_is_documented_constant(adapter):
 # --- v12 phase-4 raw-evidence helpers --------------------------------------
 
 
-def test_format_v12_evidence_full_payload(adapter):
+def test_format_v12_evidence_full_payload(adapter: ModuleType) -> None:
     """All three sections (engineer self-report + runtime probe + official
     verifier) get rendered with v12-faithful headers + indentation."""
     out = adapter._format_v12_evidence(
@@ -708,7 +772,9 @@ def test_format_v12_evidence_full_payload(adapter):
     assert "    3 passed in 0.42s" in out
 
 
-def test_format_v12_evidence_missing_verifier_self_skips(adapter):
+def test_format_v12_evidence_missing_verifier_self_skips(
+    adapter: ModuleType,
+) -> None:
     """Non-TB datasets: no /tests/test.sh → verifier_check=None → only
     engineer self-report + runtime probe sections rendered."""
     out = adapter._format_v12_evidence(
@@ -722,7 +788,7 @@ def test_format_v12_evidence_missing_verifier_self_skips(adapter):
     assert "ground truth" not in out
 
 
-def test_format_v12_evidence_failure_framing(adapter):
+def test_format_v12_evidence_failure_framing(adapter: ModuleType) -> None:
     """FAIL verifier renders with exit_code and FAIL label, preserving the
     "trust this not the engineer" admonition so the reviewer recognises
     engineer self-report disagreement as the failure signal it is."""
@@ -744,7 +810,9 @@ def test_format_v12_evidence_failure_framing(adapter):
     assert "all tests pass" in out
 
 
-def test_format_v12_evidence_empty_inputs_yield_empty_string(adapter):
+def test_format_v12_evidence_empty_inputs_yield_empty_string(
+    adapter: ModuleType,
+) -> None:
     """Nothing to surface → empty string (caller can skip the entire
     'Raw verification evidence' section in the prompt)."""
     out = adapter._format_v12_evidence(
@@ -755,7 +823,9 @@ def test_format_v12_evidence_empty_inputs_yield_empty_string(adapter):
     assert out == ""
 
 
-def test_format_v12_evidence_caps_huge_engineer_message(adapter):
+def test_format_v12_evidence_caps_huge_engineer_message(
+    adapter: ModuleType,
+) -> None:
     """Engineer messages exceeding ``_V12_ENGINEER_SELF_REPORT_MAX_CHARS``
     get tail-truncated so a chatty engineer can't blow up the reviewer
     prompt."""

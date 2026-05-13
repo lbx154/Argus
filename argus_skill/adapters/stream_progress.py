@@ -171,7 +171,8 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
     # but instance-scoped.
     delta_buffers: dict[tuple[str, str], str] = {}
 
-    def _emit_progress(*, kind: str, text: str, replace: bool = False,
+    def _emit_progress(*, kind: str, text: str, actor: str = "main",
+                       replace: bool = False,
                        message_id: str | None = None,
                        extra: dict[str, Any] | None = None) -> None:
         if not text:
@@ -180,6 +181,8 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
             "type": "engineer.progress",
             "kind": kind,
             "text": _truncate(text),
+            "actor": actor,
+            "agent_layer": _agent_layer_for_actor(actor),
         }
         if extra:
             for key, value in extra.items():
@@ -207,15 +210,10 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
             sink.handle_stream_line(stream, line)
         except Exception:  # noqa: BLE001 — never let logging crash the runner
             pass
-        # Only the engineer's stdout is interesting for "what is the
-        # main agent doing" — matcher/reviewer/scientist/distiller also
-        # emit JSON on stdout, but it's protocol traffic (their
-        # structured decision output), not work the user wants to watch
-        # live. ArgusBot's LoopEngine labels the main agent run as
-        # ``main`` (so streams arrive as ``main.stdout``); the legacy
-        # SkillLoop labels it ``engineer`` (``engineer.stdout``).
-        # ``main-final-report`` and ``main-pptx-report`` are codex
-        # follow-ups for report generation — useful to surface too.
+        # Surface the four operator-visible hierarchy layers:
+        #   L1 engineer/main, L2 reviewer, L3 critic, L4 planner.
+        # Keep matcher/scientist/distiller hidden because their stdout is
+        # protocol traffic or skill-maintenance noise, not live work.
         is_stdout = stream == "stdout" or stream.endswith(".stdout")
         if not is_stdout:
             return
@@ -224,8 +222,12 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
         if role and not (
             role == "engineer"
             or role == "main"
+            or role == "reviewer"
             or role.startswith("engineer")
             or role.startswith("main")
+            or role.startswith("reviewer")
+            or role.startswith("critic")
+            or role.startswith("planner")
         ):
             return
         line = line.strip()
@@ -263,7 +265,7 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
             output_excerpt = _extract_output_excerpt(item)
             if output_excerpt:
                 extra["output_excerpt"] = output_excerpt
-            _emit_progress(kind=kind, text=text, extra=extra)
+            _emit_progress(kind=kind, text=text, actor=actor, extra=extra)
             return
 
         # Claude dialect: {"type": "assistant", "message": {"content": [...]}}
@@ -272,7 +274,7 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
             if isinstance(message, dict):
                 text = _extract_text(message)
                 if text:
-                    _emit_progress(kind="agent_message", text=text)
+                    _emit_progress(kind="agent_message", text=text, actor=actor)
             return
 
         # Copilot dialect: incremental ``assistant.message_delta`` events
@@ -295,6 +297,7 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
             _emit_progress(
                 kind="agent_message",
                 text=current.strip(),
+                actor=actor,
                 replace=True,
                 message_id=mid.strip(),
             )
@@ -318,6 +321,7 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
             _emit_progress(
                 kind="agent_message",
                 text=text,
+                actor=actor,
                 replace=True,
                 message_id=mid.strip() if isinstance(mid, str) else None,
             )
@@ -338,7 +342,7 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
                         args = str(args)
                 text = (str(name) + (": " + str(args) if args else "")).strip()
                 if text:
-                    _emit_progress(kind="tool_use", text=text)
+                    _emit_progress(kind="tool_use", text=text, actor=actor)
             return
 
         if et == "tool.result":
@@ -352,7 +356,7 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
                         content = str(content)
                 text = str(content).strip()
                 if text:
-                    _emit_progress(kind="tool_result", text=text)
+                    _emit_progress(kind="tool_result", text=text, actor=actor)
             return
 
         # Copilot end-of-turn signal. Clear actor buffers so the next
@@ -363,6 +367,17 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
             return
 
     return cb
+
+
+def _agent_layer_for_actor(actor: str) -> str:
+    actor = (actor or "").lower()
+    if actor.startswith("reviewer"):
+        return "reviewer"
+    if actor.startswith("critic"):
+        return "critic"
+    if actor.startswith("planner"):
+        return "planner"
+    return "engineer"
 
 
 def _extract_output_excerpt(item: dict[str, Any]) -> str:

@@ -36,13 +36,36 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Protocol
 
+from ..core import paths as core_paths
+from ..core.models import RunnerResult
 from ..core.ports import EventSink
-from ..life import BacklogItem, JournalEntry, LifeMemory, MemoryBundle
+from ..life import BacklogItem, LifeMemory, MemoryBundle
 from ..life.supervisor import (
     LifeBudget,
     LifeSupervisor,
     LifeSupervisorConfig,
 )
+from ._life_actions import (
+    _continuous_session_error as _shared_continuous_session_error,
+)
+from ._life_actions import (
+    add_backlog_item,
+    append_note,
+    format_added_item,
+    format_backlog_list,
+    format_journal_tail,
+    format_status_change,
+    parse_add_flags,
+    render_backend_cmd,
+    render_config_cmd,
+    render_identity_cmd,
+    render_project_cmd,
+    render_reset_cmd,
+    render_run_command,
+    render_skills_cmd,
+    stop_iteration,
+)
+from ._target_paths import resolve_life_root
 
 log = logging.getLogger(__name__)
 
@@ -71,13 +94,23 @@ class _SplitMemory(_CommonMemory, Protocol):
     def render_prelude(self, *, objective: str) -> str: ...
 
 
-def _resolve_global_root(args: argparse.Namespace) -> Path:
-    from ..core import paths as core_paths
+def _memory_project_root(mem: Any) -> Path:
+    project = getattr(mem, "project", None)
+    root = getattr(project, "root", None)
+    if root is not None:
+        return Path(root)
+    return Path(getattr(mem, "root"))
 
-    life_dir_arg = getattr(args, "life_dir", None)
-    if life_dir_arg:
-        return Path(life_dir_arg).expanduser()
-    return core_paths.global_root()
+
+def _memory_global_root(mem: Any) -> Path:
+    root = getattr(mem, "global_root", None)
+    if root is not None:
+        return Path(root)
+    return _memory_project_root(mem)
+
+
+def _resolve_global_root(args: argparse.Namespace) -> Path:
+    return resolve_life_root(getattr(args, "life_dir", None))
 
 # ---------------------------------------------------------------------------
 # Sink (event rendering)
@@ -246,6 +279,80 @@ class _MemoryRunner:
         return _Outcome(success=True, status="success", rounds=1)
 
 
+_TEST_DAEMON_PLANNER_SCRIPT_ENV = "ARGUS_SKILL_DAEMON_TEST_PLANNER_SCRIPT"
+
+
+class _ScriptedPlannerBackend:
+    """Test-only planner backend for daemon continuous-mode integration."""
+
+    def __init__(self, *, planner: list[dict[str, Any]], critic: list[dict[str, Any]]) -> None:
+        self._planner = list(planner)
+        self._critic = list(critic)
+
+    @classmethod
+    def from_env(cls) -> "_ScriptedPlannerBackend | None":
+        raw_path = os.environ.get(_TEST_DAEMON_PLANNER_SCRIPT_ENV, "").strip()
+        if not raw_path:
+            return None
+        path = Path(raw_path).expanduser()
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            raise SystemExit(
+                f"argus-skill: failed to read scripted planner backend: {exc}"
+            ) from exc
+        if not isinstance(data, dict):
+            raise SystemExit(
+                "argus-skill: scripted planner backend must be a JSON object"
+            )
+        planner = data.get("planner", [])
+        critic = data.get("critic", [])
+        if not isinstance(planner, list) or not isinstance(critic, list):
+            raise SystemExit(
+                "argus-skill: scripted planner backend requires planner/critic arrays"
+            )
+        return cls(planner=planner, critic=critic)
+
+    def _pop(self, queue: list[dict[str, Any]], *, kind: str, run_label: str) -> dict[str, Any]:
+        if not queue:
+            raise RuntimeError(
+                f"argus-skill: scripted planner backend exhausted for {kind} ({run_label})"
+            )
+        payload = queue.pop(0)
+        if not isinstance(payload, dict):
+            raise RuntimeError(
+                f"argus-skill: scripted planner backend entry for {kind} must be an object"
+            )
+        delay_seconds = payload.get("delay_seconds", 0)
+        try:
+            delay = float(delay_seconds)
+        except (TypeError, ValueError):
+            delay = 0.0
+        if delay > 0:
+            time.sleep(delay)
+        return payload
+
+    def run_exec(
+        self,
+        *,
+        prompt,
+        options,
+        run_label,
+        resume_thread_id=None,
+        **kw,
+    ) -> RunnerResult:  # noqa: ANN001, D417
+        del prompt, options, resume_thread_id, kw
+        if str(run_label).startswith("planner."):
+            payload = self._pop(self._planner, kind="planner", run_label=str(run_label))
+        elif str(run_label).startswith("critic."):
+            payload = self._pop(self._critic, kind="critic", run_label=str(run_label))
+        else:
+            raise RuntimeError(
+                f"argus-skill: scripted planner backend cannot handle {run_label!r}"
+            )
+        return RunnerResult(exit_code=0, agent_messages=[json.dumps(payload, ensure_ascii=False)])
+
+
 class _CodexSkillLoopRunner:
     """Runs each mission through a fresh ``SkillLoop`` (codex backend).
 
@@ -267,7 +374,7 @@ class _CodexSkillLoopRunner:
         except ImportError as exc:  # pragma: no cover — depends on optional install
             raise SystemExit(
                 f"Codex backend requested but ArgusBot is unavailable: {exc}.\n"
-                "Install it: `pip install 'argus-skill[codex]'`."
+                "Install the codex extra: `pip install 'argus-skill[codex]'`."
             ) from exc
         # Per-call sink swap: backend is built once, but the sink rotates
         # for every execute(). A trampoline callback dispatches to the
@@ -596,37 +703,14 @@ def _inbox_drainer_for(life_dir: Path):
     callable returns one message (or ``None``) and advances a tiny
     offset file so the same line is never replayed twice.
     """
-    inbox_path = Path(life_dir) / "inbox.jsonl"
-    offset_path = Path(life_dir) / "inbox.offset"
+    from ._inbox import drain_inbox_messages
 
     def _drain_one() -> str | None:
         try:
-            if not inbox_path.exists():
-                return None
-            try:
-                offset = int(offset_path.read_text().strip() or "0")
-            except (OSError, ValueError):
-                offset = 0
-            with inbox_path.open("rb") as fh:
-                fh.seek(offset)
-                raw = fh.readline()
-                if not raw:
-                    return None
-                new_offset = fh.tell()
-            try:
-                offset_path.write_text(str(new_offset), encoding="utf-8")
-            except OSError:
-                return None
-            try:
-                obj = json.loads(raw.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                return None
-            text = obj.get("text") if isinstance(obj, dict) else None
-            if not isinstance(text, str) or not text.strip():
-                return None
-            return text.strip()
+            messages = drain_inbox_messages(life_dir, limit=1)
         except Exception:  # noqa: BLE001
             return None
+        return messages[0] if messages else None
 
     return _drain_one
 
@@ -634,7 +718,11 @@ def _inbox_drainer_for(life_dir: Path):
 def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = None):
     """Return a ``_MissionRunner``-shaped adapter for the requested backend."""
     if args.backend == "memory":
-        return _MemoryRunner()
+        runner = _MemoryRunner()
+        scripted_backend = _ScriptedPlannerBackend.from_env()
+        if scripted_backend is not None:
+            runner.backend = scripted_backend
+        return runner
     if args.backend == "codex":
         return _CodexSkillLoopRunner(args, seed_thread_id=seed_thread_id)
     raise SystemExit(f"unknown backend: {args.backend}")
@@ -679,7 +767,8 @@ def run_life_supervisor(
         from ..life.event_log import JsonlEventSink
 
         stderr_sink = LifeStderrSink(quiet=quiet)
-        sink = JsonlEventSink(stderr_sink, life_dir=mem.project.root)
+        project_root = _memory_project_root(mem)
+        sink = JsonlEventSink(stderr_sink, life_dir=project_root)
         cfg = LifeSupervisorConfig(
             budget=LifeBudget(
                 per_mission_cap_usd=per_mission_cap_usd,
@@ -688,7 +777,7 @@ def run_life_supervisor(
             ),
             poll_interval_seconds=2.0,
             stop_event=stop_event,
-            user_inbox=_inbox_drainer_for(mem.project.root),
+            user_inbox=_inbox_drainer_for(project_root),
             runtime_context=runtime_context,
             continuous=continuous,
             continuous_objective=continuous_objective,
@@ -728,7 +817,7 @@ def _invoke_supervisor(
     ns.scientist_model = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4")
     ns.skills_dir = os.environ.get(
         "ARGUS_SKILL_SKILLS_DIR",
-        str(mem.global_root / "skills"),
+        str(_memory_global_root(mem) / "skills"),
     )
     ns.workdir = os.environ.get("ARGUS_SKILL_WORKDIR")
     # Life-mode default: 500 engineer rounds. The earlier low cap was
@@ -782,38 +871,12 @@ def _parse_add_flags(
     default_cycles: int = 6,
     default_budget: float = 30.0,
 ) -> tuple[bool, int, float, str]:
-    """Strip ``--once`` / ``--cycles=N`` / ``--budget=$X`` from an /add body.
-
-    Returns ``(iterate, max_cycles, budget_usd, remaining_text)``. Defaults
-    come from the caller (typically session config); the hardcoded fallbacks
-    match the long-run positioning: iterate=True with 6 cycles and $30
-    budget so the lifetime agent can actually finish a sizeable polish pass.
-    """
-    iterate = default_iterate
-    max_cycles = default_cycles
-    budget = default_budget
-    tokens = text.split()
-    keep: list[str] = []
-    for tok in tokens:
-        low = tok.lower()
-        if low == "--once":
-            iterate = False
-            continue
-        if low.startswith("--cycles="):
-            try:
-                max_cycles = max(1, int(low.split("=", 1)[1]))
-            except ValueError:
-                pass
-            continue
-        if low.startswith("--budget="):
-            raw = low.split("=", 1)[1].lstrip("$")
-            try:
-                budget = max(0.0, float(raw))
-            except ValueError:
-                pass
-            continue
-        keep.append(tok)
-    return iterate, max_cycles, budget, " ".join(keep).strip()
+    return parse_add_flags(
+        text,
+        default_iterate=default_iterate,
+        default_cycles=default_cycles,
+        default_budget=default_budget,
+    )
 
 
 def _add_only(
@@ -825,55 +888,20 @@ def _add_only(
     iteration_max_cycles: int = 6,
     iteration_budget_usd: float = 30.0,
 ) -> BacklogItem:
-    text = text.strip()
-    title = text.splitlines()[0][:60].strip() or "(untitled)"
-    item = mem.backlog.add(BacklogItem.new(
-        title=title,
-        objective=text,
+    item = add_backlog_item(
+        mem,
+        text,
         priority=priority,
-        max_cost_usd=30.0,
-        tags=[],
         iterate=iterate,
         iteration_max_cycles=iteration_max_cycles,
         iteration_budget_usd=iteration_budget_usd,
-    ))
-    iter_blurb = (
-        f", iter≤{item.iteration_max_cycles} ${item.iteration_budget_usd:.1f}"
-        if item.iterate else ", once"
     )
-    print(
-        f"added {item.id}: {item.title}  "
-        f"(priority={item.priority}, max_cost=${item.max_cost_usd:.2f}{iter_blurb})",
-        flush=True,
-    )
+    print(format_added_item(item), flush=True)
     return item
 
 
 def _backend_cmd(tokens: list[str], chat_state: dict[str, Any]) -> None:
-    from ..daemon.life_worker import ContinuousConfigState
-
-    if not tokens:
-        print(f"backend: {chat_state['backend']}  (memory or codex)")
-        return
-    new = tokens[0].lower()
-    if new in {"codex", "memory"}:
-        state = chat_state.get("continuous_state")
-        if isinstance(state, ContinuousConfigState):
-            continuous = state.enabled
-            objective = state.objective if state.enabled else ""
-        else:
-            continuous = bool(chat_state.get("config", {}).get("continuous", False))
-            objective = str(chat_state.get("continuous_objective", "") or "")
-        error = _continuous_session_error(new, continuous, objective)
-        if error:
-            print(error)
-            return
-        chat_state["backend"] = new
-        print(f"backend: {new}")
-        return
-    print(
-        f"backend {new!r} is not available. Use `codex` or `memory`."
-    )
+    print(render_backend_cmd(tokens, chat_state))
 
 
 def _continuous_session_error(
@@ -881,11 +909,7 @@ def _continuous_session_error(
     continuous: bool,
     objective: str,
 ) -> str:
-    from ..daemon.life_worker import continuous_mode_error
-    error = continuous_mode_error(backend, continuous, objective)
-    if error:
-        return f"argus-skill: {error}"
-    return ""
+    return _shared_continuous_session_error(backend, continuous, objective)
 
 
 _CONFIG_DEFAULTS: dict[str, Any] = {
@@ -915,77 +939,12 @@ def _config_cmd(tokens: list[str], chat_state: dict[str, Any],
     the corresponding flag is not explicitly provided. The ``continuous``
     key is also persisted to disk so the background daemon picks it up.
     """
-    cfg = chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))
-    if not tokens:
-        print("session config (continuous syncs to daemon, others are REPL-local):")
-        for k, v in cfg.items():
-            if isinstance(v, float):
-                print(f"  {k:20s} = ${v:.2f}" if k != "iterate" else f"  {k:20s} = {v}")
-            elif isinstance(v, bool):
-                print(f"  {k:20s} = {'on' if v else 'off'}")
-            else:
-                print(f"  {k:20s} = {v}")
-        print("\n  usage: /config cycles=10 budget=50 daily_cap=300")
-        return
-    sync_continuous = False
-    for tok in tokens:
-        if "=" not in tok:
-            print(f"  skip: {tok!r} — expected key=value")
-            continue
-        key, _, val = tok.partition("=")
-        key = key.strip().lower().replace("-", "_")
-        if key not in _CONFIG_DEFAULTS:
-            print(f"  unknown key: {key!r}  "
-                  f"(valid: {', '.join(sorted(_CONFIG_DEFAULTS))})")
-            continue
-        expected = _CONFIG_TYPES[key]
-        try:
-            val = val.strip().lstrip("$")
-            if expected is bool:
-                parsed: Any = val.lower() in {"true", "on", "yes", "1"}
-            elif expected is int:
-                parsed = max(1, int(val))
-            else:
-                parsed = max(0.0, float(val))
-        except ValueError:
-            print(f"  bad value for {key}: {val!r}")
-            continue
-        if key == "continuous" and parsed:
-            backend = str(chat_state.get("backend", "") or "codex")
-            current_objective = str(
-                chat_state.get("continuous_objective", "") or ""
-            )
-            error = _continuous_session_error(backend, True, current_objective)
-            if error:
-                print(error)
-                continue
-        cfg[key] = parsed
-        if key == "continuous":
-            sync_continuous = True
-        if isinstance(parsed, float):
-            print(f"  {key} = ${parsed:.2f}")
-        elif isinstance(parsed, bool):
-            print(f"  {key} = {'on' if parsed else 'off'}")
-        else:
-            print(f"  {key} = {parsed}")
-    # Persist continuous config to disk so daemon can hot-reload.
-    if life_dir is not None and sync_continuous:
-        from ..daemon.life_worker import write_continuous_config
-        write_continuous_config(
-            life_dir,
-            enabled=cfg.get("continuous", False),
-            objective=chat_state.get("continuous_objective", ""),
-        )
-        print("  (synced to daemon — takes effect within seconds)")
+    print(render_config_cmd(tokens, chat_state, life_dir=life_dir))
 
 
 def _identity_cmd(mem: _CommonMemory, tokens: list[str], rest_text: str) -> None:
     if not tokens:
-        text = mem.identity.read().strip()
-        if not text:
-            print("(identity empty — try /identity edit)")
-        else:
-            print(text)
+        print(render_identity_cmd(mem, tokens, rest_text, empty_hint="edit"))
         return
     sub = tokens[0].lower()
     if sub == "edit":
@@ -1004,52 +963,88 @@ def _identity_cmd(mem: _CommonMemory, tokens: list[str], rest_text: str) -> None
         mem.identity.path.write_text(new_text, encoding="utf-8")
         print(f"identity card updated ({len(lines)} lines)")
         return
-    if sub == "set":
-        body = rest_text[len("set"):].lstrip() if rest_text.lower().startswith("set") else ""
-        if not body:
-            print("usage: /identity set <text>")
+    print(render_identity_cmd(mem, tokens, rest_text))
+
+
+def _project_cmd(mem: _CommonMemory, tokens: list[str], rest_text: str) -> None:
+    print(render_project_cmd(mem, tokens, rest_text))
+
+
+def _continuous_cmd(
+    mem: _SplitMemory,
+    arg_text: str,
+    chat_state: dict[str, Any],
+) -> None:
+    from ..daemon.life_worker import (
+        ContinuousConfigState,
+        continuous_mode_error,
+        read_continuous_config,
+        read_continuous_state,
+        write_continuous_config,
+    )
+
+    tokens = shlex.split(arg_text) if arg_text.strip() else []
+    sub = tokens[0].lower() if tokens else "status"
+    backend = str(chat_state.get("backend", "") or "codex")
+
+    state = chat_state.get("continuous_state")
+    if isinstance(state, ContinuousConfigState):
+        current_objective = state.objective
+    else:
+        _, current_objective = read_continuous_config(mem.project.root)
+
+    if sub in {"start", "on", "enable"}:
+        objective = " ".join(tokens[1:]).strip() or current_objective
+        error = continuous_mode_error(backend, True, objective)
+        if error:
+            print(error)
             return
-        mem.identity.path.write_text(body.rstrip() + "\n", encoding="utf-8")
-        print("identity card updated")
+        write_continuous_config(mem.project.root, enabled=True, objective=objective)
+        updated = read_continuous_state(mem.project.root)
+        chat_state["continuous_state"] = updated
+        chat_state["continuous_objective"] = updated.objective
+        chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))["continuous"] = True
+        print(
+            f"continuous: on\n"
+            f"objective: {updated.objective or '(none)'}"
+        )
         return
-    print(f"unknown /identity subcommand: {sub}")
+
+    if sub in {"stop", "off", "pause"}:
+        objective = " ".join(tokens[1:]).strip() or current_objective
+        write_continuous_config(mem.project.root, enabled=False, objective=objective)
+        updated = read_continuous_state(mem.project.root)
+        chat_state["continuous_state"] = updated
+        chat_state["continuous_objective"] = updated.objective
+        chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))["continuous"] = False
+        print(
+            f"continuous: off\n"
+            f"objective: {updated.objective or '(none)'}"
+        )
+        return
+
+    enabled, objective = read_continuous_config(mem.project.root)
+    chat_state["continuous_state"] = ContinuousConfigState(
+        enabled=enabled,
+        objective=objective,
+    )
+    chat_state["continuous_objective"] = objective
+    print(
+        f"continuous: {'on' if enabled else 'off'}\n"
+        f"objective: {objective or '(none)'}"
+    )
 
 
 def _backlog_list_cmd(mem: _CommonMemory, *, include_all: bool) -> None:
-    items = mem.backlog.all() if include_all else [
-        i for i in mem.backlog.all() if i.status == "pending"
-    ]
-    if not items:
-        print("(backlog is empty)")
-        return
-    for it in items:
-        print(
-            f"  {it.status:<8}  {it.id}  "
-            f"p={it.priority:<4}  cap=${it.max_cost_usd:.2f}  "
-            f"{it.title}"
-        )
+    print(format_backlog_list(mem, include_all=include_all))
 
 
 def _status_change_cmd(mem: _CommonMemory, cmd: str, item_id: str) -> None:
-    if cmd == "/done":
-        ok = mem.backlog.mark_done(item_id) is not None
-    elif cmd == "/skip":
-        ok = mem.backlog.update(item_id, status="skipped") is not None
-    else:  # /rm
-        ok = mem.backlog.remove(item_id)
-    print(f"{cmd[1:]}: {item_id}  {'ok' if ok else '(not found)'}")
+    print(format_status_change(mem, cmd, item_id))
 
 
 def _journal_tail_cmd(mem: _CommonMemory, n: int) -> None:
-    entries = mem.journal.tail(n)
-    if not entries:
-        print("(journal is empty)")
-        return
-    for e in entries:
-        ts = datetime.fromtimestamp(e.ts).strftime("%Y-%m-%d %H:%M:%S")
-        print(f"  [{ts}] {e.kind:<14} {e.title}")
-        if e.summary:
-            print(f"      {e.summary}")
+    print(format_journal_tail(mem, n))
 
 
 def _free_text_cmd(
@@ -1214,70 +1209,16 @@ def _run_cmd(
     opts: list[str],
     chat_state: dict[str, Any],
 ) -> None:
-    cfg = chat_state.get("config", {})
-    p = argparse.ArgumentParser(prog="/run", add_help=False)
-    p.add_argument("--once", action="store_true")
-    p.add_argument(
-        "--backend",
-        choices=("codex",),
-        default=chat_state["backend"],
-    )
-    p.add_argument("--max-missions", type=int,
-                   default=int(cfg.get("cycles", 6)))
-    p.add_argument("--per-mission-cap-usd", type=float,
-                   default=float(cfg.get("per_mission_cap", 30.0)))
-    p.add_argument("--daily-cap-usd", type=float,
-                   default=float(cfg.get("daily_cap", 180.0)))
-    p.add_argument("--quiet", action="store_true")
-    try:
-        run_args = p.parse_args(opts)
-    except SystemExit:
+    output = render_run_command(mem, opts, chat_state)
+    if not output:
         return
-
-    print(
-        f"/run: backend={run_args.backend}  "
-        f"max_missions={'1 (once)' if run_args.once else run_args.max_missions}  "
-        f"per_mission_cap=${run_args.per_mission_cap_usd:.2f}  "
-        f"daily_cap=${run_args.daily_cap_usd:.2f}",
-        flush=True,
-    )
-    print("       (foreground; Ctrl-C requests graceful stop)", flush=True)
-
-    # If user overrode backend on /run, we still resume only when it matches
-    # the chat_state backend (where the thread was originally created).
-    use_seed = run_args.backend == chat_state["backend"]
-    seed = chat_state.get("last_thread_id") if use_seed else None
-    theme = chat_state.get("theme")
-    if seed and not run_args.quiet:
-        note = f"resuming codex session {seed[:12]}…"
-        print(theme.gray(note) if theme else note)
-    t0 = time.monotonic()
-    summary, last_tid = _invoke_supervisor(
-        mem=mem,
-        backend=run_args.backend,
-        once=run_args.once,
-        max_missions=run_args.max_missions,
-        per_mission_cap_usd=run_args.per_mission_cap_usd,
-        daily_cap_usd=run_args.daily_cap_usd,
-        quiet=run_args.quiet,
-        seed_thread_id=seed,
-    )
-    elapsed = time.monotonic() - t0
-    if last_tid and use_seed:
-        chat_state["last_thread_id"] = last_tid
-    chat_state["last_elapsed_s"] = elapsed
-    chat_state["total_elapsed_s"] = chat_state.get("total_elapsed_s", 0.0) + elapsed
-    if isinstance(summary, dict):
-        summary.setdefault("elapsed_s", round(elapsed, 3))
-    print("\n--- /run summary ---")
-    print(json.dumps(summary, indent=2, default=str))
-    footer = f"⏱  /run elapsed {_format_elapsed(elapsed)}"
-    print(theme.dim(footer) if theme else footer)
+    print(output)
 
 
 def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> None:
     """Lightweight status print (mirrors `argus-skill life status` output)."""
     from ..daemon.life_worker import ContinuousConfigState, read_continuous_state
+    from ._inbox import count_pending_inbox_messages
 
     identity = mem.identity.read().strip()
     if identity:
@@ -1304,6 +1245,7 @@ def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> 
     if not isinstance(cont, ContinuousConfigState):
         cont = read_continuous_state(mem.project.root)
     print(f"continuous: {'on' if cont.enabled else 'off'}")
+    print(f"inbox   : {count_pending_inbox_messages(mem.project.root)} pending")
     if cont.objective:
         print(f"  objective: {cont.objective}")
     if cont.done_reason:
@@ -1357,6 +1299,10 @@ def _render_help(theme) -> str:  # noqa: ANN001
         ("/config [key=val ...]", "view/change session defaults "
                                   "(cycles, budget, continuous, daily_cap)"),
         ("/identity [edit|set …]", "view or update the identity card"),
+        ("/project [set …]", "view or update the project card"),
+        ("/start [objective]", "enable continuous mode "
+                              "(alias of /continuous start)"),
+        ("/continuous start|stop [objective]", "control continuous mode"),
         ("/backlog [all]", "list pending (or all) items"),
         ("/add <text> [--once] [--cycles=N] [--budget=$X]",
             "enqueue a mission (iterates by default until critic stops)"),
@@ -1406,55 +1352,7 @@ def _render_help(theme) -> str:  # noqa: ANN001
 def _skills_cmd(mem: _CommonMemory, tokens: list[str]) -> None:
     """``/skills [ls|promote <name>]`` — inspect or promote a skill
     from the current project layer to the global layer."""
-    op = (tokens[0].lower() if tokens else "ls")
-    if op in ("ls", "list"):
-        from ..core import paths as core_paths
-        from ..skills.store import SkillStore
-
-        global_store = SkillStore(core_paths.skills_global_root())
-        rows = global_store.list_summaries()
-        if not rows:
-            print("(no global skills)")
-            return
-        for s in rows:
-            print(f"- {s['name']}  ({s.get('category') or '-'})  "
-                  f"{s['description']}")
-        return
-    if op == "promote":
-        if len(tokens) < 2:
-            print("usage: /skills promote <name>")
-            return
-        name = tokens[1]
-        from ..core import paths as core_paths
-        from ..core.project import project_fingerprint
-        from ..skills.layered import LayeredSkillStore
-
-        try:
-            fp = project_fingerprint(Path.cwd()).fingerprint
-        except Exception as exc:  # noqa: BLE001
-            print(f"could not compute project fingerprint: {exc}")
-            return
-        layered = LayeredSkillStore(
-            project_dir=core_paths.project_skills_root(fp),
-            global_dir=core_paths.skills_global_root(),
-        )
-        # Find the project skill by name.
-        target = None
-        for s in layered.project.list_summaries():
-            if s["name"].casefold() == name.casefold():
-                target = layered.project.load(s["path"])
-                break
-        if target is None:
-            print(f"no project skill named {name!r} to promote")
-            return
-        try:
-            promoted = layered.promote_to_global(target)
-        except Exception as exc:  # noqa: BLE001
-            print(f"promote failed: {exc}")
-            return
-        print(f"promoted {promoted.name} → global ({promoted.path})")
-        return
-    print(f"unknown /skills subcommand: {op}  (try ls | promote)")
+    print(render_skills_cmd(Path.cwd(), tokens))
 
 
 def _seed_chat_state(
@@ -1480,11 +1378,22 @@ def _seed_chat_state(
     cli_continuous = bool(getattr(args, "continuous", False))
     cli_objective = str(getattr(args, "objective", "") or "").strip()
     disk_objective = disk_state.objective.strip()
-    continuous = cli_continuous or disk_state.enabled
-    objective = cli_objective or (disk_objective if disk_state.enabled else "")
-    error = _continuous_session_error(backend_default, continuous, objective)
-    if error:
-        return {}, error
+    if cli_objective and not cli_continuous:
+        error = _continuous_session_error(backend_default, False, cli_objective)
+        if error:
+            return {}, error
+
+    if cli_continuous:
+        continuous = True
+        objective = cli_objective
+        error = _continuous_session_error(backend_default, continuous, objective)
+        if error:
+            return {}, error
+    else:
+        objective = disk_objective if disk_state.enabled else ""
+        continuous = disk_state.enabled
+        if continuous and _continuous_session_error(backend_default, True, objective):
+            continuous = False
 
     chat_state: dict[str, Any] = {
         "backend": backend_default,
@@ -1521,8 +1430,12 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
     Free text becomes a backlog item AND runs immediately on the
     current default backend.
     """
-    global_root = _resolve_global_root(args)
-    mem: MemoryBundle = MemoryBundle.for_cwd(Path.cwd(), global_root=global_root)
+    try:
+        global_root = _resolve_global_root(args)
+        mem: MemoryBundle = MemoryBundle.for_cwd(Path.cwd(), global_root=global_root)
+    except core_paths.PathResolutionError as exc:
+        sys.stderr.write(f"argus-skill: {exc}\n")
+        return 2
     state = mem.init()
     created: list[str] = []
     for scope, rows in state.items():
@@ -1531,8 +1444,8 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
                 created.append(f"{scope}.{name}")
     theme = None  # populated in the locked body
 
-    # Fail fast before we take the singleton lock if the requested
-    # session cannot ever enter continuous mode.
+    # Fail fast before we take the singleton lock if the current run
+    # explicitly requests continuous mode that the backend cannot satisfy.
     chat_state, error = _seed_chat_state(args, mem, theme=theme)
     if error:
         sys.stderr.write(error + "\n")
@@ -1744,8 +1657,17 @@ def _run_life_chat_loop_locked(
         if cmd == "/status":
             _status_cmd(mem, chat_state)
             continue
+        if cmd == "/start":
+            _continuous_cmd(mem, f"start {rest_text}".strip(), chat_state)
+            continue
+        if cmd == "/continuous":
+            _continuous_cmd(mem, rest_text, chat_state)
+            continue
         if cmd == "/identity":
             _identity_cmd(mem, rest, rest_text)
+            continue
+        if cmd == "/project":
+            _project_cmd(mem, rest, rest_text)
             continue
         if cmd == "/backlog":
             include_all = bool(rest) and rest[0].lower() == "all"
@@ -1780,14 +1702,7 @@ def _run_life_chat_loop_locked(
             if not rest:
                 print(theme.gray("usage: /stop <item_id>"))
                 continue
-            stopped = mem.backlog.stop_iteration(rest[0])
-            if stopped is None:
-                print(theme.red(f"/stop: no item with id {rest[0]!r}"))
-            else:
-                print(
-                    f"iteration disabled for {stopped.id}: {stopped.title}  "
-                    f"(status={stopped.status})"
-                )
+            print(stop_iteration(mem, rest[0]))
             continue
         if cmd in ("/done", "/skip", "/rm"):
             if not rest:
@@ -1809,25 +1724,15 @@ def _run_life_chat_loop_locked(
             if not rest_text:
                 print(theme.gray("usage: /note <text>"))
                 continue
-            entry = JournalEntry.new(
-                kind="user_note",
-                title="manual note",
-                summary=rest_text,
-                tags=[],
-            )
-            mem.journal.append(entry)
-            print(theme.gray(f"note appended (id={entry.id})"))
+            print(theme.gray(append_note(mem, rest_text)))
             continue
         if cmd in ("/nudge", "/inject", "/notify"):
             if not rest_text:
                 print(theme.gray("usage: /nudge <message>  (one line, "
                                  "spliced into the next engineer round)"))
                 continue
-            inbox = mem.project.root / "inbox.jsonl"
-            inbox.parent.mkdir(parents=True, exist_ok=True)
-            record = {"ts": time.time(), "text": rest_text}
-            with inbox.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+            from ._inbox import queue_inbox_message
+            queue_inbox_message(mem.project.root, rest_text, source="repl.nudge")
             print(theme.gray(
                 f"nudge queued ({len(rest_text)} chars) → next mission round "
                 f"will see it as operator guidance"
@@ -1846,13 +1751,7 @@ def _run_life_chat_loop_locked(
             ))
             continue
         if cmd == "/reset":
-            old = chat_state.get("last_thread_id")
-            chat_state["last_thread_id"] = None
-            if old:
-                print(theme.gray(f"reset: dropped codex session {old[:12]}…  "
-                                 "next mission will start fresh"))
-            else:
-                print(theme.gray("reset: no active codex session"))
+            print(theme.gray(render_reset_cmd(chat_state)))
             continue
         if cmd == "/run":
             _run_cmd(mem, rest, chat_state)

@@ -6,6 +6,7 @@ entries / budget gating without spinning up codex.
 """
 from __future__ import annotations
 
+import json
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -113,6 +114,23 @@ def _mk_memory(tmp_path: Path) -> LifeMemory:
     mem = LifeMemory.open(tmp_path)
     mem.init()
     return mem
+
+
+def _planner_task(
+    title: str,
+    objective: str,
+    *,
+    impact_score: int = 4,
+    impact_area: str = "reliability",
+    evidence: str = "planner identified a high-value gap",
+) -> dict[str, object]:
+    return {
+        "title": title,
+        "objective": objective,
+        "impact_score": impact_score,
+        "impact_area": impact_area,
+        "evidence": evidence,
+    }
 
 
 # ---------- _price_for / _CostTrackingSink --------------------------------
@@ -672,9 +690,10 @@ def test_continuous_mode_without_planner_stops_without_project_done(
 
     summary = sup.run()
 
-    assert summary["stopped_by"] == "planner_unavailable"
+    assert summary["stopped_by"] == "planner_error"
     assert len(runner.calls) == 1
     assert all(entry.kind != "planner_done" for entry in mem.journal.all())
+    assert any(entry.kind == "planner_error" for entry in mem.journal.all())
     assert not any(
         event.get("type") == "life.planner.verdict"
         and event.get("project_done")
@@ -729,6 +748,163 @@ def test_continuous_mode_calls_planner_when_backlog_empty(tmp_path: Path) -> Non
     assert len(planner_events) >= 2  # start + verdict
 
 
+def test_continuous_mode_planner_cycle_gate_can_defer_planning(
+    tmp_path: Path,
+) -> None:
+    mem = _mk_memory(tmp_path)
+    sink = _RecordingSink()
+    runner = _FakeRunner()
+    gate_calls = 0
+
+    def _gate() -> str:
+        nonlocal gate_calls
+        gate_calls += 1
+        return "daemon_handoff"
+
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(max_missions=999, daily_cap_usd=999.0),
+        continuous=True,
+        continuous_objective="optimize the project",
+        planner_cycle_gate=_gate,
+    )
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=cfg,
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+        critic_runner=None,
+    )
+
+    summary = sup.run()
+
+    assert summary["stopped_by"] == "daemon_handoff"
+    assert summary["planning_cycles"] == 0
+    assert gate_calls == 1
+    assert runner.calls == []
+    assert any(
+        event.get("type") == "life.planner.deferred"
+        and event.get("reason") == "daemon_handoff"
+        for event in sink.events
+    )
+
+
+def test_continuous_mode_planner_can_request_daemon_handoff(
+    tmp_path: Path,
+) -> None:
+    mem = _mk_memory(tmp_path)
+    sink = _RecordingSink()
+    runner = _FakeRunner()
+    restart_reasons: list[str] = []
+
+    def _restart(reason: str) -> bool:
+        restart_reasons.append(reason)
+        return True
+
+    class _FakePlannerRunner:
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None, **kw):
+            assert "Runtime source changed since daemon start" in prompt
+
+            class _Result:
+                agent_messages = [
+                    (
+                        '{"project_done": false, "reason": "fresh daemon needed", '
+                        '"restart_daemon": true, '
+                        '"restart_reason": "daemon lifecycle code changed", '
+                        '"new_tasks": []}'
+                    )
+                ]
+
+            return _Result()
+
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(max_missions=999, daily_cap_usd=999.0),
+        continuous=True,
+        continuous_objective="optimize the project",
+        planner_runtime_context_provider=lambda: (
+            "Runtime source changed since daemon start."
+        ),
+        planner_restart_handler=_restart,
+    )
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=cfg,
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+        critic_runner=_FakePlannerRunner(),
+    )
+
+    summary = sup.run()
+
+    assert summary["stopped_by"] == "daemon_handoff"
+    assert summary["planning_cycles"] == 1
+    assert restart_reasons == ["daemon lifecycle code changed"]
+    assert runner.calls == []
+    verdict = next(e for e in sink.events if e.get("type") == "life.planner.verdict")
+    assert verdict["restart_daemon"] is True
+    assert verdict["restart_reason"] == "daemon lifecycle code changed"
+
+
+def test_continuous_mode_planner_receives_full_execution_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_SAFE_MODE", raising=False)
+
+    runner = _FakeRunner(response_factory=lambda obj, pre: _FakeOutcome())
+    mem = _mk_memory(tmp_path)
+    mem.backlog.add(BacklogItem.new(
+        title="initial", objective="do stuff", iterate=False,
+    ))
+    sink = _RecordingSink()
+
+    class _RecordingPlannerRunner:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None, **kw):
+            self.calls.append({
+                "prompt": prompt,
+                "options": options,
+                "run_label": run_label,
+                "resume_thread_id": resume_thread_id,
+            })
+
+            class _Result:
+                agent_messages = ['{"project_done": true, "reason": "all done", "new_tasks": []}']
+
+            return _Result()
+
+    critic = _RecordingPlannerRunner()
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(max_missions=999, daily_cap_usd=999.0),
+        continuous=True,
+        continuous_objective="optimize the project",
+    )
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=cfg,
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+        critic_runner=critic,
+    )
+
+    summary = sup.run()
+
+    assert summary["stopped_by"] == "project_done"
+    assert len(critic.calls) == 1
+    forwarded = critic.calls[0]["options"]
+    assert forwarded.working_dir == str(tmp_path)
+    assert forwarded.skip_git_repo_check is True
+    assert forwarded.full_auto is False
+    assert forwarded.dangerous_yolo is True
+
+
 def test_continuous_mode_planner_generates_new_tasks(tmp_path: Path) -> None:
     """When the planner says not done and provides tasks, those tasks
     are added to the backlog and executed."""
@@ -752,10 +928,11 @@ def test_continuous_mode_planner_generates_new_tasks(tmp_path: Path) -> None:
         def run_exec(self, *, prompt, options, run_label, resume_thread_id=None, **kw):
             planner_calls["n"] += 1
             if planner_calls["n"] == 1:
-                payload = (
-                    '{"project_done": false, "reason": "needs more work", '
-                    '"new_tasks": [{"title": "fix tests", "objective": "task two"}]}'
-                )
+                payload = json.dumps({
+                    "project_done": False,
+                    "reason": "needs more work",
+                    "new_tasks": [_planner_task("fix tests", "task two")],
+                })
             else:
                 payload = '{"project_done": true, "reason": "all good now", "new_tasks": []}'
 
@@ -787,19 +964,95 @@ def test_continuous_mode_planner_generates_new_tasks(tmp_path: Path) -> None:
     assert planner_calls["n"] == 3
 
 
+def test_continuous_mode_planner_malformed_payload_is_retryable(
+    tmp_path: Path,
+) -> None:
+    runner = _FakeRunner(response_factory=lambda obj, pre: _FakeOutcome())
+    mem = _mk_memory(tmp_path)
+    mem.backlog.add(BacklogItem.new(
+        title="initial", objective="do stuff", iterate=False,
+    ))
+    sink = _RecordingSink()
+
+    class _BadPlannerRunner:
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None, **kw):
+            class _Result:
+                agent_messages = ["definitely not json"]
+                input_tokens = 91
+                cached_input_tokens = 9
+                output_tokens = 4
+            return _Result()
+
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(max_missions=999, daily_cap_usd=999.0),
+            continuous=True,
+            continuous_objective="optimize the project",
+        ),
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+        critic_runner=_BadPlannerRunner(),
+    )
+
+    summary = sup.run()
+
+    assert summary["stopped_by"] == "planner_error"
+    assert all(entry.kind != "planner_done" for entry in mem.journal.all())
+    assert any(entry.kind == "planner_error" for entry in mem.journal.all())
+
+
+def test_continuous_mode_planner_backend_exception_is_retryable(
+    tmp_path: Path,
+) -> None:
+    runner = _FakeRunner(response_factory=lambda obj, pre: _FakeOutcome())
+    mem = _mk_memory(tmp_path)
+    mem.backlog.add(BacklogItem.new(
+        title="initial", objective="do stuff", iterate=False,
+    ))
+    sink = _RecordingSink()
+
+    class _BoomPlannerRunner:
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None, **kw):
+            raise RuntimeError("planner exploded")
+
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(max_missions=999, daily_cap_usd=999.0),
+            continuous=True,
+            continuous_objective="optimize the project",
+        ),
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+        critic_runner=_BoomPlannerRunner(),
+    )
+
+    summary = sup.run()
+
+    assert summary["stopped_by"] == "planner_error"
+    assert all(entry.kind != "planner_done" for entry in mem.journal.all())
+    assert any(entry.kind == "planner_error" for entry in mem.journal.all())
+
+
 def test_continuous_mode_planner_skips_duplicate_tasks(tmp_path: Path) -> None:
     """Planner cycles should not enqueue tasks that are already pending
     or running; they should still enqueue genuinely new work."""
 
     class _PlannerBackend:
         def run_exec(self, *, prompt, options, run_label, resume_thread_id=None, **kw):
-            payload = (
-                '{"project_done": false, "reason": "needs more work", '
-                '"new_tasks": ['
-                '{"title": "  RUNNING TASK  ", "objective": "ship unique stuff"}, '
-                '{"title": "Unique follow-up", "objective": "document the result"}'
-                ']}'
-            )
+            payload = json.dumps({
+                "project_done": False,
+                "reason": "needs more work",
+                "new_tasks": [
+                    _planner_task("  RUNNING TASK  ", "ship unique stuff"),
+                    _planner_task("Unique follow-up", "document the result"),
+                ],
+            })
 
             class _Result:
                 agent_messages = [payload]
@@ -863,6 +1116,98 @@ def test_continuous_mode_planner_skips_duplicate_tasks(tmp_path: Path) -> None:
     assert "enqueued 1 task(s): Unique follow-up" in entry.summary
 
 
+def test_continuous_mode_planner_skips_completed_duplicate_tasks(tmp_path: Path) -> None:
+    """Planner cycles should skip tasks that already finished and still
+    enqueue genuinely new work."""
+
+    class _PlannerBackend:
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None, **kw):
+            payload = json.dumps({
+                "project_done": False,
+                "reason": "needs more work",
+                "new_tasks": [
+                    _planner_task("  FINISHED TASK  ", "ship unique stuff"),
+                    _planner_task("Unique follow-up", "document the result"),
+                ],
+            })
+
+            class _Result:
+                agent_messages = [payload]
+                input_tokens = 123
+                output_tokens = 45
+
+            return _Result()
+
+    mem = _mk_memory(tmp_path)
+    sink = _RecordingSink()
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_FakeRunner(),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(max_missions=999, daily_cap_usd=999.0),
+            continuous=True,
+            continuous_objective="optimize the project",
+        ),
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+        critic_runner=_PlannerBackend(),
+    )
+
+    finished_item = mem.backlog.add(BacklogItem.new(
+        title="finished task",
+        objective="ship unique stuff",
+        iterate=False,
+    ))
+    mem.backlog.mark_done(finished_item.id)
+
+    before_count = len(mem.backlog.all())
+    planned = sup._plan_next_work()
+
+    assert planned is True
+    assert len(mem.backlog.all()) == before_count + 1
+
+    rows = {item.title: item for item in mem.backlog.all()}
+    assert rows[finished_item.title].status == "done"
+    assert rows["Unique follow-up"].status == "pending"
+
+    planner_events = [e for e in sink.events if e.get("type", "").startswith("life.planner")]
+    skipped = [e for e in planner_events if e.get("type") == "life.planner.task_skipped"]
+    assert len(skipped) == 1
+    assert skipped[0]["matched_item_id"] == finished_item.id
+    assert skipped[0]["matched_status"] == "done"
+    assert skipped[0]["reason"] == "duplicate completed task"
+    verdict = next(e for e in planner_events if e.get("type") == "life.planner.verdict")
+    assert verdict["skipped_duplicate_tasks"] == 1
+    assert verdict["enqueued_tasks"] == 1
+
+    entry = mem.journal.all()[-1]
+    assert entry.kind == "planner_cycle"
+    assert "skipped 1 duplicate(s): FINISHED TASK" in entry.summary
+    assert "enqueued 1 task(s): Unique follow-up" in entry.summary
+
+
+def test_manual_rerun_of_completed_task_is_still_allowed(tmp_path: Path) -> None:
+    mem = _mk_memory(tmp_path)
+    finished = mem.backlog.add(BacklogItem.new(
+        title="finished task",
+        objective="ship unique stuff",
+        iterate=False,
+    ))
+    mem.backlog.mark_done(finished.id)
+
+    rerun = mem.backlog.add(BacklogItem.new(
+        title="finished task",
+        objective="ship unique stuff",
+        iterate=False,
+    ))
+
+    assert rerun.id != finished.id
+    items = [item for item in mem.backlog.all() if item.title == "finished task"]
+    assert len(items) == 2
+    assert {item.status for item in items} == {"done", "pending"}
+
+
 def test_planner_budget_counts_planner_tokens(tmp_path: Path) -> None:
     mem = _mk_memory(tmp_path)
     mem.backlog.add(BacklogItem.new(
@@ -890,10 +1235,11 @@ def test_planner_budget_counts_planner_tokens(tmp_path: Path) -> None:
 
             self.planner_calls += 1
             if self.planner_calls == 1:
-                payload = (
-                    '{"project_done": false, "reason": "needs more work", '
-                    '"new_tasks": [{"title": "follow-up", "objective": "do task two"}]}'
-                )
+                payload = json.dumps({
+                    "project_done": False,
+                    "reason": "needs more work",
+                    "new_tasks": [_planner_task("follow-up", "do task two")],
+                })
             else:
                 payload = (
                     '{"project_done": true, "reason": "all good now", '

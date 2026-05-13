@@ -6,6 +6,9 @@ integration test.
 """
 from __future__ import annotations
 
+import json
+from typing import Any, cast
+
 from argus_skill.core.models import RunnerOptions, RunnerResult
 from argus_skill.critic import (
     Critic,
@@ -17,6 +20,42 @@ from argus_skill.critic import (
     parse_planner_text,
     render_iteration_objective,
 )
+
+
+def _impact_improvement(
+    title: str = "add property test",
+    *,
+    rationale: str = "covers neg amounts",
+    acceptance: str = "pytest passes",
+    impact_score: int = 4,
+    impact_area: str = "correctness",
+    evidence: str = "missing edge-case coverage",
+) -> dict[str, object]:
+    return {
+        "title": title,
+        "rationale": rationale,
+        "acceptance": acceptance,
+        "impact_score": impact_score,
+        "impact_area": impact_area,
+        "evidence": evidence,
+    }
+
+
+def _impact_task(
+    title: str = "fix tests",
+    objective: str = "run pytest and fix failures",
+    *,
+    impact_score: int = 4,
+    impact_area: str = "reliability",
+    evidence: str = "test suite currently lacks this verification",
+) -> dict[str, object]:
+    return {
+        "title": title,
+        "objective": objective,
+        "impact_score": impact_score,
+        "impact_area": impact_area,
+        "evidence": evidence,
+    }
 
 # ---------------------------------------------------------------------------
 # parse_critic_text
@@ -48,9 +87,12 @@ def test_parse_stop_false_string_with_no_improvements_flips_to_stop():
 
 
 def test_parse_continue_with_valid_improvement():
-    txt = (
-        '{"stop": false, "reason": "missing edge cases", '
-        '"improvements": [{"title": "add property test", "rationale": "covers neg amounts", "acceptance": "pytest passes"}]}'
+    txt = json.dumps(
+        {
+            "stop": False,
+            "reason": "missing edge cases",
+            "improvements": [_impact_improvement()],
+        }
     )
     v = parse_critic_text(txt)
     assert v is not None
@@ -59,21 +101,54 @@ def test_parse_continue_with_valid_improvement():
     imp = v.improvements[0]
     assert imp.title == "add property test"
     assert imp.acceptance == "pytest passes"
+    assert imp.impact_score == 4
+    assert imp.evidence == "missing edge-case coverage"
 
 
 def test_parse_drops_improvement_missing_acceptance():
-    txt = '{"stop": false, "reason": "x", "improvements": [{"title": "polish", "rationale": "y"}]}'
+    txt = json.dumps({
+        "stop": False,
+        "reason": "x",
+        "improvements": [{
+            "title": "polish",
+            "rationale": "y",
+            "impact_score": 4,
+            "impact_area": "correctness",
+            "evidence": "missing acceptance should reject this",
+        }],
+    })
     v = parse_critic_text(txt)
     assert v is not None
     # No valid improvements → flipped to stop
     assert v.stop is True
 
 
+def test_parse_drops_low_impact_improvement():
+    txt = json.dumps({
+        "stop": False,
+        "reason": "tiny cleanup",
+        "improvements": [
+            _impact_improvement(
+                "rename local variable",
+                impact_score=2,
+                evidence="would be cleaner",
+            )
+        ],
+    })
+    v = parse_critic_text(txt)
+    assert v is not None
+    assert v.stop is True
+    assert "impact gate" in v.reason
+
+
 def test_parse_caps_improvements_at_three():
-    body = ",".join(
-        '{"title": "t%d", "acceptance": "a%d"}' % (i, i) for i in range(5)
-    )
-    txt = '{"stop": false, "reason": "r", "improvements": [' + body + "]}"
+    txt = json.dumps({
+        "stop": False,
+        "reason": "r",
+        "improvements": [
+            _impact_improvement(f"t{i}", acceptance=f"a{i}") for i in range(5)
+        ],
+    })
     v = parse_critic_text(txt)
     assert v is not None
     assert v.stop is False
@@ -95,9 +170,19 @@ def test_parse_critic_text_ignores_brace_heavy_prose() -> None:
     txt = (
         "note: {this is not the verdict}\n"
         "```text\nbrace-y prose {still not verdict}\n```\n"
-        '{"stop": false, "reason": "needs one more pass", "improvements": '
-        '[{"title": "add edge-case test", "rationale": "brace noise hid the JSON", '
-        '"acceptance": "pytest -q tests/critic/test_critic.py"}]}\n'
+        + json.dumps({
+            "stop": False,
+            "reason": "needs one more pass",
+            "improvements": [
+                _impact_improvement(
+                    "add edge-case test",
+                    rationale="brace noise hid the JSON",
+                    acceptance="pytest -q tests/critic/test_critic.py",
+                    evidence="parser needs brace-heavy regression coverage",
+                )
+            ],
+        })
+        + "\n"
         "postscript: {ignore this too}\n"
     )
     v = parse_critic_text(txt)
@@ -129,8 +214,22 @@ def test_render_no_improvements_returns_original():
 
 def test_render_includes_polish_pass_framing():
     imps = [
-        Improvement(title="add tests", rationale="coverage low", acceptance="pytest"),
-        Improvement(title="handle err", rationale="", acceptance="raises ValueError"),
+        Improvement(
+            title="add tests",
+            rationale="coverage low",
+            acceptance="pytest",
+            impact_score=4,
+            impact_area="correctness",
+            evidence="missing branch coverage",
+        ),
+        Improvement(
+            title="handle err",
+            rationale="",
+            acceptance="raises ValueError",
+            impact_score=5,
+            impact_area="reliability",
+            evidence="invalid input can crash",
+        ),
     ]
     out = render_iteration_objective(
         original_objective="build calculator",
@@ -141,6 +240,8 @@ def test_render_includes_polish_pass_framing():
     assert "DO NOT rewrite from scratch" in out
     assert "build calculator" in out
     assert "1. add tests" in out
+    assert "impact: 4/5" in out
+    assert "evidence: missing branch coverage" in out
     assert "2. handle err" in out
     assert "acceptance: pytest" in out
 
@@ -157,7 +258,14 @@ class _FakeRunner:
         self.message = message
         self.calls: list[tuple[str, RunnerOptions]] = []
 
-    def run_exec(self, *, prompt, resume_thread_id, options, run_label=""):
+    def run_exec(
+        self,
+        *,
+        prompt: str,
+        options: RunnerOptions,
+        run_label: str,
+        resume_thread_id: str | None = None,
+    ) -> RunnerResult:
         self.calls.append((prompt, options))
         return RunnerResult(
             exit_code=0,
@@ -183,6 +291,8 @@ def test_evaluate_parses_runner_output():
     sent_prompt, _ = runner.calls[0]
     assert "add base64 helper" in sent_prompt
     assert "0/3" in sent_prompt or "cycle 0" in sent_prompt
+    assert "impact_score" in sent_prompt
+    assert "planner should find the next valuable mission" in sent_prompt
 
 
 def test_evaluate_safe_stop_on_unparseable_output():
@@ -200,7 +310,14 @@ def test_evaluate_safe_stop_on_unparseable_output():
 
 def test_evaluate_passes_config_to_runner():
     runner = _FakeRunner('{"stop": true, "reason": "ok", "improvements": []}')
-    cfg = CriticConfig(model="o4-mini", reasoning_effort="low")
+    cfg = CriticConfig(
+        model="o4-mini",
+        reasoning_effort="low",
+        working_dir="/tmp/evaluate",
+        skip_git_repo_check=False,
+        full_auto=True,
+        dangerous_yolo=False,
+    )
     Critic(runner).evaluate(
         original_objective="x",
         latest_completion_summary="y",
@@ -212,9 +329,45 @@ def test_evaluate_passes_config_to_runner():
     _, opts = runner.calls[0]
     assert opts.model == "o4-mini"
     assert opts.reasoning_effort == "low"
+    assert opts.working_dir == "/tmp/evaluate"
+    assert opts.skip_git_repo_check is False
+    assert opts.full_auto is True
+    assert opts.dangerous_yolo is False
 
 
-def test_evaluate_passes_run_label_to_runner():
+def test_plan_next_passes_config_to_runner():
+    runner = _FakeRunner('{"project_done": true, "reason": "ok", "new_tasks": []}')
+    cfg = CriticConfig(
+        model="o4-mini",
+        reasoning_effort="low",
+        working_dir="/tmp/planner",
+        skip_git_repo_check=True,
+        full_auto=False,
+        dangerous_yolo=True,
+    )
+    verdict = Critic(runner).plan_next(
+        continuous_objective="keep going",
+        journal_tail="recent history",
+        budget_remaining_usd=1.0,
+        planning_cycle=2,
+        runtime_change_summary="Runtime source changed since daemon start.",
+        config=cfg,
+    )
+    _, opts = runner.calls[0]
+    assert opts.model == "o4-mini"
+    assert opts.reasoning_effort == "low"
+    assert opts.working_dir == "/tmp/planner"
+    assert opts.skip_git_repo_check is True
+    assert opts.full_auto is False
+    assert opts.dangerous_yolo is True
+    assert verdict.project_done is True
+    sent_prompt, _ = runner.calls[0]
+    assert "Runtime source changed since daemon start." in sent_prompt
+    assert "continuous high-value discovery" in sent_prompt
+    assert "iteration is cheap" not in sent_prompt
+
+
+def test_evaluate_passes_run_label_to_runner() -> None:
     """Regression: CodexRunnerBackend.run_exec REQUIRES run_label kwarg.
 
     Before this fix the critic crashed with
@@ -227,7 +380,13 @@ def test_evaluate_passes_run_label_to_runner():
     captured: dict = {}
     real_run_exec = runner.run_exec
 
-    def strict_run_exec(*, prompt, resume_thread_id, options, run_label):
+    def strict_run_exec(
+        *,
+        prompt: str,
+        options: RunnerOptions,
+        run_label: str,
+        resume_thread_id: str | None = None,
+    ) -> RunnerResult:
         # Mirror the real backend signature: run_label is REQUIRED kw-only.
         captured["run_label"] = run_label
         return real_run_exec(
@@ -237,7 +396,7 @@ def test_evaluate_passes_run_label_to_runner():
             run_label=run_label,
         )
 
-    runner.run_exec = strict_run_exec
+    cast(Any, runner).run_exec = strict_run_exec
     Critic(runner).evaluate(
         original_objective="x",
         latest_completion_summary="y",
@@ -274,7 +433,11 @@ def test_parse_planner_project_done():
 
 
 def test_parse_planner_project_done_string_false():
-    text = '{"project_done": "false", "reason": "needs work", "new_tasks": [{"title": "fix tests", "objective": "run pytest and fix failures"}]}'
+    text = json.dumps({
+        "project_done": "false",
+        "reason": "needs work",
+        "new_tasks": [_impact_task()],
+    })
     v = parse_planner_text(text)
     assert v is not None
     assert v.project_done is False
@@ -282,24 +445,37 @@ def test_parse_planner_project_done_string_false():
 
 
 def test_parse_planner_new_tasks():
-    text = (
-        '{"project_done": false, "reason": "needs work", '
-        '"new_tasks": [{"title": "fix tests", "objective": "run pytest and fix failures"}]}'
-    )
+    text = json.dumps({
+        "project_done": False,
+        "reason": "needs work",
+        "new_tasks": [_impact_task()],
+    })
     v = parse_planner_text(text)
     assert v is not None
     assert v.project_done is False
     assert len(v.new_tasks) == 1
     assert v.new_tasks[0].title == "fix tests"
     assert "pytest" in v.new_tasks[0].objective
+    assert v.new_tasks[0].impact_score == 4
+
+
+def test_parse_planner_restart_request_without_tasks():
+    text = (
+        '{"project_done": false, "reason": "needs fresh daemon", '
+        '"restart_daemon": true, '
+        '"restart_reason": "daemon lifecycle code changed", '
+        '"new_tasks": []}'
+    )
+    v = parse_planner_text(text)
+    assert v.project_done is False
+    assert v.restart_daemon is True
+    assert v.restart_reason == "daemon lifecycle code changed"
+    assert v.new_tasks == []
+    assert not v.error
 
 
 def test_parse_planner_caps_at_3_tasks():
-    tasks = [
-        {"title": f"task{i}", "objective": f"do thing {i}"}
-        for i in range(5)
-    ]
-    import json
+    tasks = [_impact_task(f"task{i}", f"do thing {i}") for i in range(5)]
     text = json.dumps({"project_done": False, "reason": "lots to do", "new_tasks": tasks})
     v = parse_planner_text(text)
     assert v is not None
@@ -308,10 +484,11 @@ def test_parse_planner_caps_at_3_tasks():
 
 def test_parse_planner_inconsistent_done_with_tasks():
     """project_done=True but tasks listed → honor done, discard tasks."""
-    text = (
-        '{"project_done": true, "reason": "done", '
-        '"new_tasks": [{"title": "x", "objective": "y"}]}'
-    )
+    text = json.dumps({
+        "project_done": True,
+        "reason": "done",
+        "new_tasks": [_impact_task("x", "y")],
+    })
     v = parse_planner_text(text)
     assert v is not None
     assert v.project_done is True
@@ -325,6 +502,25 @@ def test_parse_planner_inconsistent_not_done_no_tasks():
     assert v.project_done is False
     assert v.error
     assert "no concrete tasks" in v.error
+
+
+def test_parse_planner_rejects_only_low_impact_tasks():
+    text = json.dumps({
+        "project_done": False,
+        "reason": "minor cleanup",
+        "new_tasks": [
+            _impact_task(
+                "rename helper",
+                "rename a helper for clarity",
+                impact_score=2,
+                evidence="would be cleaner",
+            )
+        ],
+    })
+    v = parse_planner_text(text)
+    assert v.project_done is False
+    assert v.new_tasks == []
+    assert v.error == "planner produced no high-impact tasks"
 
 
 def test_parse_planner_empty_input():
@@ -344,7 +540,11 @@ def test_parse_planner_malformed_json_returns_error():
 
 
 def test_parse_planner_tolerates_markdown_fences():
-    text = '```json\n{"project_done": false, "reason": "more work", "new_tasks": [{"title": "a", "objective": "b"}]}\n```'
+    text = "```json\n" + json.dumps({
+        "project_done": False,
+        "reason": "more work",
+        "new_tasks": [_impact_task("a", "b")],
+    }) + "\n```"
     v = parse_planner_text(text)
     assert v.project_done is False
     assert len(v.new_tasks) == 1
@@ -353,8 +553,18 @@ def test_parse_planner_tolerates_markdown_fences():
 def test_parse_planner_text_ignores_brace_heavy_prose() -> None:
     txt = (
         "planner notes: {not the verdict}\n"
-        '{"project_done": false, "reason": "needs one task", "new_tasks": '
-        '[{"title": "tighten budget", "objective": "add a cache for remaining_today"}]}\n'
+        + json.dumps({
+            "project_done": False,
+            "reason": "needs one task",
+            "new_tasks": [
+                _impact_task(
+                    "tighten budget",
+                    "add a cache for remaining_today",
+                    evidence="remaining budget scan is on a hot path",
+                )
+            ],
+        })
+        + "\n"
         "afterword {still prose}\n"
     )
     v = parse_planner_text(txt)

@@ -462,6 +462,34 @@ def _build_engineer_cli_flags(model: str, effort: str) -> str:
     return f"-c model_reasoning_effort={effort}"
 
 
+def _format_verifier_raw_evidence(
+    *,
+    expected_to_pass: list[str],
+    failing: list[str] | None,
+) -> str:
+    """Render verifier output into reviewer prompt evidence."""
+    if failing is None:
+        lines = [
+            "- official verifier (unavailable): did not run inside container.",
+        ]
+        if expected_to_pass:
+            lines.append("  Expected acceptance set (unverified):")
+            lines.extend(f"  - {name}" for name in expected_to_pass)
+        return "\n".join(lines)
+
+    status = "PASS" if not failing else "FAIL"
+    lines = [f"- official verifier ({status}, ground truth):"]
+    if failing:
+        lines.append("  Still failing:")
+        lines.extend(f"  - {name}" for name in failing)
+    elif expected_to_pass:
+        lines.append("  Expected acceptance set:")
+        lines.extend(f"  - {name}" for name in expected_to_pass)
+    else:
+        lines.append("  All tests passed.")
+    return "\n".join(lines)
+
+
 def _bool_promote_env() -> bool:
     """Auto-promote reviewer skill_gap lessons into the matched skill."""
     return os.environ.get("ARGUS_SKILL_AUTO_PROMOTE_LESSON", "").strip().lower() in (
@@ -582,7 +610,12 @@ async def _run_mission_engine_in_container(
     """Construct and run a MissionLoopEngine instance against *environment*."""
     # Imports are lazy so the module stays importable even without
     # codex_autoloop installed (e.g. in CI for unit tests).
-    from argus_skill.adapters.codex_backend import CodexRunnerBackend  # noqa: F401  # ensure package importable
+    from codex_autoloop.core.state_store import LoopStateStore
+    from codex_autoloop.models import CodexRunResult
+
+    from argus_skill.adapters.codex_backend import (
+        CodexRunnerBackend,  # noqa: F401  # ensure package importable
+    )
     from argus_skill.mission.engine import MissionLoopConfig, MissionLoopEngine
     from argus_skill.mission.reviewer import MissionReviewer
     from argus_skill.runners.container import (
@@ -590,10 +623,6 @@ async def _run_mission_engine_in_container(
         ContainerCodexRunnerConfig,
         ContainerReviewerBackend,
     )
-    from codex_autoloop.core.state_store import LoopStateStore
-    from codex_autoloop.models import CodexRunResult
-
-    # Reuse harbor_adapter's JSONL parsers (same codex output format).
     from benchmarks.harbor_adapter import (
         _AUGMENTED_MAX_CHARS,
         _extract_thread_id_from_jsonl,
@@ -714,7 +743,6 @@ async def _run_mission_engine_in_container(
 
         class _VerifierInjectingReviewer:
             def evaluate(self, **kwargs):
-                ctx = dict(kwargs.get("verification_context") or {})
                 try:
                     fut = asyncio.run_coroutine_threadsafe(
                         _verifier.run_and_get_failing(), loop
@@ -723,25 +751,14 @@ async def _run_mission_engine_in_container(
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("[verifier] error: %s", exc)
                     failing = None
-                if failing is None:
-                    ctx["acceptance_tests"] = (
-                        list(_verifier.expected_to_pass)
-                        if _verifier.expected_to_pass
-                        else []
-                    )
-                    ctx["notes"] = (
-                        (ctx.get("notes") or "")
-                        + " in-container verifier did not run; "
-                        "treating expected acceptance set as unverified."
-                    ).strip()
-                else:
-                    ctx["acceptance_tests"] = failing
-                    if not failing:
-                        ctx["notes"] = (
-                            (ctx.get("notes") or "")
-                            + " in-container verifier reports ALL acceptance tests PASS."
-                        ).strip()
-                kwargs["verification_context"] = ctx
+                raw_evidence = _format_verifier_raw_evidence(
+                    expected_to_pass=list(_verifier.expected_to_pass),
+                    failing=failing,
+                )
+                existing_raw = str(kwargs.get("raw_evidence") or "").strip()
+                if existing_raw:
+                    raw_evidence = f"{existing_raw}\n\n{raw_evidence}"
+                kwargs["raw_evidence"] = raw_evidence
                 return _inner_reviewer.evaluate(**kwargs)
 
         reviewer = _VerifierInjectingReviewer()  # type: ignore[assignment]

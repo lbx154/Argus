@@ -32,8 +32,12 @@ origin or notes when a module is new in this repo.
 | `argus_skill/critic/critic.py` | new | Critic + planner for iteration / continuous mode. |
 | `argus_skill/daemon/token_lock.py` | ArgusBot/codex_autoloop/token_lock.py | Process lock helper, vendored verbatim. |
 | `argus_skill/daemon/life_worker.py` | new | Detached life worker around `LifeSupervisor`. |
+| `argus_skill/apps/_inbox.py` | new | Shared inbox queue / drain / event formatting helpers. |
+| `argus_skill/apps/_life_actions.py` | new | Shared non-interactive backlog, config, status, and `/run` helpers. |
+| `argus_skill/apps/_target_paths.py` | new | Shared life-dir / project-root resolution helpers. |
 | `argus_skill/life/memory.py` | new | Persistent memory primitives. |
 | `argus_skill/life/event_log.py` | new | Event JSONL writer / rotator. |
+| `argus_skill/life/status.py` | new | Shared backlog-status selectors and continuous-state description helpers. |
 | `argus_skill/life/notify.py` | new | Best-effort journal notifications. |
 | `argus_skill/life/telegram_bot.py` | new | Optional Telegram inbound command bridge. |
 | `argus_skill/life/router.py` | new | Event routing helpers. |
@@ -64,6 +68,13 @@ Continuous mode is coordinated through each project's `continuous.json`
 via `read_continuous_state()` / `write_continuous_config()`, and the
 CLI `--status` command reports the current project state alongside the
 shared global journal.
+
+The current `apps/cli.py`, `apps/_life_repl.py`, `apps/_watch.py`, and
+`life/telegram_bot.py` surfaces now share the helper modules above:
+`apps/_inbox.py` handles inbox queueing and draining, `apps/_life_actions.py`
+holds the reusable backlog/config/status/run helpers, `apps/_target_paths.py`
+keeps life-root resolution consistent, and `life/status.py` centralizes the
+running-item and continuous-state selectors.
 
 ## How a task flows through the loop
 

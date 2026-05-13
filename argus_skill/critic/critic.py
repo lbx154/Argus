@@ -10,9 +10,11 @@ to either:
 * return an empty list AND ``stop=True`` if the artefact is
   genuinely done — no fluff, no nitpicking.
 
-The prompt is engineered to reject vanity edits (rename, comment, tiny
-refactor) unless the operator explicitly asked for them; the goal is
-real value delivery on each cycle, not iteration theatre.
+The prompt and parser are engineered to reject vanity edits (rename,
+comment, tiny refactor) unless the operator explicitly asked for them.
+The goal is sustained high-value work: L3 stops low-value local polish
+so L4 can find the next valuable mission instead of burning tokens on
+iteration theatre.
 
 The :meth:`Critic.plan_next` method extends the critic into a
 *planner* role: after all currently queued work is finished, the
@@ -28,11 +30,15 @@ from dataclasses import dataclass, field, replace
 from ..core.models import RunnerOptions
 from ..core.ports import RunnerBackend
 
+MIN_CRITIC_IMPACT_SCORE = 4
+MIN_PLANNER_IMPACT_SCORE = 4
+
 
 @dataclass
 class CriticConfig:
     model: str | None = None
     reasoning_effort: str | None = None
+    working_dir: str | None = None
     extra_args: list[str] = field(default_factory=list)
     skip_git_repo_check: bool = True
     full_auto: bool = False
@@ -46,6 +52,9 @@ class Improvement:
     title: str
     rationale: str
     acceptance: str  # how the operator would verify the improvement landed
+    impact_score: int = 0  # 0-5; parser accepts only high-value proposals
+    impact_area: str = ""
+    evidence: str = ""
 
 
 @dataclass(frozen=True)
@@ -64,7 +73,9 @@ _CRITIC_SYSTEM_PREAMBLE = (
     "An engineer just produced an artefact and the reviewer accepted "
     "it as `done`. Your job: decide whether one more polishing cycle "
     "would deliver real, operator-visible value, or whether further "
-    "iteration is iteration theatre.\n\n"
+    "iteration is iteration theatre. `stop=true` does NOT mean the "
+    "daemon stops working; it means this local artifact is done and the "
+    "L4 planner should find the next valuable mission.\n\n"
     "Output a JSON object with this exact shape:\n"
     "{\n"
     '  "stop": <true|false>,\n'
@@ -72,6 +83,9 @@ _CRITIC_SYSTEM_PREAMBLE = (
     '  "improvements": [\n'
     "    {\n"
     '      "title":      "<short imperative, e.g. add property-based tests for amount validation>",\n'
+    '      "impact_score": <0-5 integer>,\n'
+    '      "impact_area": "<correctness|security|operator_ux|performance|reliability|integration|requirement_gap>",\n'
+    '      "evidence":   "<specific signal showing this is worth another agent round>",\n'
     '      "rationale":  "<why this matters to the operator, 1-2 sentences>",\n'
     '      "acceptance": "<what the engineer must show next round to prove it landed>"\n'
     "    }\n"
@@ -84,8 +98,8 @@ _CRITIC_SYSTEM_PREAMBLE = (
     "   - any further work would be cosmetic (rename, doc polish, "
     "trivial refactor) and the operator did NOT ask for that.\n"
     "   When `stop=true`, `improvements` MUST be `[]`.\n"
-    "2) `stop=false` is allowed ONLY when at least one improvement is\n"
-    "   GENUINELY VALUABLE — examples:\n"
+    "2) `stop=false` is allowed ONLY when at least one improvement has\n"
+    f"   `impact_score >= {MIN_CRITIC_IMPACT_SCORE}` and is GENUINELY VALUABLE — examples:\n"
     "   * missing edge cases the test suite does not exercise;\n"
     "   * obvious correctness gap (race, off-by-one, leak, security);\n"
     "   * a feature the operator asked for that is incomplete;\n"
@@ -97,12 +111,16 @@ _CRITIC_SYSTEM_PREAMBLE = (
     "   30-line file into more files, adding logging just to add\n"
     "   logging, or any change whose acceptance criterion is itself\n"
     "   subjective. Those are vanity. Vanity ⇒ `stop=true`.\n"
-    "4) Each improvement's `acceptance` must be testable: a command\n"
+    "4) Each improvement must include concrete `evidence`: failing or\n"
+    "   missing coverage, observed runtime risk, user-visible gap,\n"
+    "   documented requirement gap, production-like smoke failure, etc.\n"
+    "   If the evidence is only \"would be cleaner\", stop instead.\n"
+    "5) Each improvement's `acceptance` must be testable: a command\n"
     "   the engineer can run, an output that must be present, a\n"
     "   measurable property. If you cannot write an acceptance line,\n"
     "   it is not a real improvement; do not list it.\n"
-    "5) Cap improvements at 3. Quality over quantity.\n"
-    "6) Output JSON ONLY. No prose around it. No markdown fences.\n"
+    "6) Cap improvements at 3. Quality over quantity.\n"
+    "7) Output JSON ONLY. No prose around it. No markdown fences.\n"
 )
 
 
@@ -112,6 +130,9 @@ class TaskSpec:
 
     title: str
     objective: str  # full actionable description for the engineer
+    impact_score: int = 0  # 0-5; parser accepts only high-value work
+    impact_area: str = ""
+    evidence: str = ""
 
 
 @dataclass(frozen=True)
@@ -121,6 +142,8 @@ class PlannerVerdict:
     project_done: bool
     reason: str
     new_tasks: list[TaskSpec] = field(default_factory=list)
+    restart_daemon: bool = False
+    restart_reason: str = ""
     raw_text: str = ""
     input_tokens: int = 0
     cached_input_tokens: int = 0
@@ -132,8 +155,10 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "You are the Planner agent (经理+总监) in a 7×24 supervised coding loop.\n"
     "The engineering team has completed all currently queued tasks.\n"
     "Your job: inspect the project, assess progress toward the\n"
-    "operator's goal, and either declare the project done or queue\n"
-    "the next batch of high-impact improvements.\n\n"
+    "operator's goal, and keep the daemon busy with the next batch of\n"
+    "high-impact work. If local polish is exhausted, broaden the search\n"
+    "to correctness, reliability, integration, operator UX, performance,\n"
+    "security, and production-like verification before declaring done.\n\n"
     "You HAVE shell access. USE IT to:\n"
     "- Read the project structure (`find`, `ls`, `tree`)\n"
     "- Run tests (`pytest -q`), linters (`ruff check`), type checkers\n"
@@ -145,38 +170,58 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "{\n"
     '  "project_done": <true|false>,\n'
     '  "reason": "<one sentence justification>",\n'
+    '  "restart_daemon": <true|false>,\n'
+    '  "restart_reason": "<why a fresh daemon is needed, or empty string>",\n'
     '  "new_tasks": [\n'
     "    {\n"
     '      "title": "<short imperative title>",\n'
+    '      "impact_score": <0-5 integer>,\n'
+    '      "impact_area": "<correctness|security|operator_ux|performance|reliability|integration|requirement_gap|discovery>",\n'
+    '      "evidence": "<specific signal or hypothesis proving this is worth a mission>",\n'
     '      "objective": "<detailed, actionable objective with '
     "acceptance criteria>\"\n"
     "    }\n"
     "  ]\n"
     "}\n\n"
     "Rules:\n"
-    "1) `project_done=true` ONLY when:\n"
+    "1) Your default job is continuous high-value discovery: keep looking\n"
+    "   for useful work, not busywork. `project_done=true` is allowed ONLY\n"
+    "   when:\n"
     "   - The operator's goal is FULLY satisfied, AND\n"
     "   - Tests pass, linters are clean, docs are accurate, AND\n"
-    "   - You genuinely cannot find a concrete improvement worth an\n"
-    "     engineer's time. Be STRICT: prefer finding more work.\n"
+    "   - You inspected the major value horizons above and cannot find a\n"
+    f"     task with `impact_score >= {MIN_PLANNER_IMPACT_SCORE}`.\n"
     "   When `project_done=true`, `new_tasks` MUST be `[]`.\n"
-    "2) `project_done=false` when there is ANY concrete improvement\n"
-    "   that would move the project closer to the operator's goal.\n"
-    "   Prefer `false` when in doubt — iteration is cheap.\n"
+    "2) `project_done=false` when there is ANY concrete high-impact task\n"
+    "   that would move the project closer to the operator's goal. Do not\n"
+    "   queue cosmetic work just to stay busy; instead search a wider\n"
+    "   value horizon or queue a bounded discovery/verification task with\n"
+    "   a plausible high-impact hypothesis.\n"
     "3) Each task's `objective` must be ACTIONABLE: the engineer\n"
     "   should be able to start working immediately with no\n"
     "   clarification. Include:\n"
     "   - What to change and where in the code\n"
     "   - Concrete acceptance criteria (commands to run, expected output)\n"
     "   - Any constraints or gotchas\n"
-    "4) Order tasks by impact: most important first.\n"
-    "5) Cap at 3 tasks per planning cycle. Quality over quantity.\n"
-    "6) NEVER repeat work already completed (check the journal below).\n"
-    "7) NEVER propose vanity work (renames, comment polish, trivial\n"
+    f"4) Every task must have `impact_score >= {MIN_PLANNER_IMPACT_SCORE}` and\n"
+    "   concrete `evidence`. Lower-score work is rejected by the host.\n"
+    "5) Order tasks by impact: most important first.\n"
+    "6) Cap at 3 tasks per planning cycle. Quality over quantity.\n"
+    "7) NEVER repeat work already completed (check the journal below).\n"
+    "8) NEVER propose vanity work (renames, comment polish, trivial\n"
     "   refactors) unless the operator explicitly asked for it.\n"
-    "8) Each task should be independently completable in one mission\n"
+    "9) Each task should be independently completable in one mission\n"
     "   (not multi-step dependencies).\n"
-    "9) Output JSON ONLY. No prose around it. No markdown fences.\n"
+    "10) Set `restart_daemon=true` ONLY when the prompt says runtime\n"
+    "   source changed AND a fresh daemon is needed for the next step —\n"
+    "   for example daemon/CLI/lifecycle code changed, a large runtime\n"
+    "   refactor landed, or verification requires the installed daemon\n"
+    "   process to reload new code. Otherwise set it false.\n"
+    "11) `restart_daemon=true` is not a substitute for useful work: if\n"
+    "   new tasks are still needed after restart, include them too. If\n"
+    "   restart itself is the next verification step, `new_tasks` may be []\n"
+    "   with `project_done=false`.\n"
+    "12) Output JSON ONLY. No prose around it. No markdown fences.\n"
 )
 
 
@@ -217,6 +262,7 @@ class Critic:
             options=RunnerOptions(
                 model=cfg.model,
                 reasoning_effort=cfg.reasoning_effort,
+                working_dir=cfg.working_dir,
                 dangerous_yolo=cfg.dangerous_yolo,
                 full_auto=cfg.full_auto,
                 skip_git_repo_check=cfg.skip_git_repo_check,
@@ -263,10 +309,14 @@ class Critic:
         budget_remaining_usd: float,
         journal_tail: str,
     ) -> str:
+        min_impact_score = 5 if cycles_done >= 1 else MIN_CRITIC_IMPACT_SCORE
         budget_line = (
             f"You are at iteration cycle {cycles_done}/{cycles_max}. "
             f"Remaining budget: ${budget_remaining_usd:.2f}. "
-            "If budget is low, prefer fewer / higher-impact improvements."
+            f"This cycle requires impact_score >= {min_impact_score}; "
+            "later polish rounds must clear a higher bar than the first pass. "
+            "If budget is low, prefer stopping this artifact so the planner "
+            "can find a higher-impact mission."
         )
         return (
             _CRITIC_SYSTEM_PREAMBLE
@@ -292,6 +342,7 @@ class Critic:
         journal_tail: str = "",
         budget_remaining_usd: float = 0.0,
         planning_cycle: int = 0,
+        runtime_change_summary: str = "",
         config: CriticConfig | None = None,
     ) -> PlannerVerdict:
         """Inspect the project and generate the next batch of tasks.
@@ -306,6 +357,7 @@ class Critic:
             journal_tail=journal_tail,
             budget_remaining_usd=budget_remaining_usd,
             planning_cycle=planning_cycle,
+            runtime_change_summary=runtime_change_summary,
         )
         result = self.runner.run_exec(
             prompt=prompt,
@@ -313,6 +365,7 @@ class Critic:
             options=RunnerOptions(
                 model=cfg.model,
                 reasoning_effort=cfg.reasoning_effort or "high",
+                working_dir=cfg.working_dir,
                 dangerous_yolo=cfg.dangerous_yolo,
                 full_auto=cfg.full_auto,
                 skip_git_repo_check=cfg.skip_git_repo_check,
@@ -339,11 +392,14 @@ class Critic:
         journal_tail: str,
         budget_remaining_usd: float,
         planning_cycle: int,
+        runtime_change_summary: str = "",
     ) -> str:
         budget_line = (
             f"This is planning cycle #{planning_cycle + 1}. "
             f"Remaining budget: ${budget_remaining_usd:.2f}. "
-            "If budget is low, prioritize the single highest-impact task."
+            "If budget is low, prioritize the single highest-impact task. "
+            "Keep searching for valuable work; do not spend tokens on "
+            "low-value polish just to keep the loop busy."
         )
         return (
             _PLANNER_SYSTEM_PREAMBLE
@@ -351,6 +407,11 @@ class Critic:
             + continuous_objective.strip()
             + "\n\nJournal of completed work (most recent last):\n"
             + (journal_tail.strip() or "(no completed work yet — this is the first cycle)")
+            + "\n\nRuntime source-change signal:\n"
+            + (
+                runtime_change_summary.strip()
+                or "No runtime source changes have been detected since daemon start; set restart_daemon=false."
+            )
             + "\n\n"
             + budget_line
             + "\n\nInspect the project now and return the JSON verdict.\n"
@@ -430,6 +491,23 @@ def _parse_json_bool(value: object, default: bool) -> bool:
     return bool(value)
 
 
+def _parse_impact_score(value: object) -> int:
+    """Coerce model-provided impact scores into the bounded 0-5 scale."""
+    try:
+        if isinstance(value, int | float):
+            score = int(value)
+        elif isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return 0
+            score = int(float(value))  # tolerate "4" and "4.0"
+        else:
+            return 0
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(5, score))
+
+
 def parse_critic_text(text: str) -> CriticVerdict | None:
     """Parse the JSON verdict out of an agent message.
 
@@ -451,18 +529,36 @@ def parse_critic_text(text: str) -> CriticVerdict | None:
     reason = str(data.get("reason", ""))
     improvements_raw = data.get("improvements") or []
     improvements: list[Improvement] = []
+    raw_improvement_count = len(improvements_raw) if isinstance(improvements_raw, list) else 0
     if isinstance(improvements_raw, list):
-        for entry in improvements_raw[:3]:
+        for entry in improvements_raw:
             if not isinstance(entry, dict):
                 continue
             title = str(entry.get("title", "")).strip()
             rationale = str(entry.get("rationale", "")).strip()
             acceptance = str(entry.get("acceptance", "")).strip()
-            if not title or not acceptance:
+            impact_score = _parse_impact_score(entry.get("impact_score"))
+            impact_area = str(entry.get("impact_area", "")).strip()
+            evidence = str(entry.get("evidence", "")).strip()
+            if (
+                not title
+                or not acceptance
+                or impact_score < MIN_CRITIC_IMPACT_SCORE
+                or not evidence
+            ):
                 continue
             improvements.append(
-                Improvement(title=title, rationale=rationale, acceptance=acceptance)
+                Improvement(
+                    title=title,
+                    rationale=rationale,
+                    acceptance=acceptance,
+                    impact_score=impact_score,
+                    impact_area=impact_area,
+                    evidence=evidence,
+                )
             )
+            if len(improvements) >= 3:
+                break
     if stop and improvements:
         # Inconsistent — operator-facing rule: stop=True ⇒ no improvements.
         # Honor stop and discard.
@@ -470,7 +566,9 @@ def parse_critic_text(text: str) -> CriticVerdict | None:
     if not stop and not improvements:
         # Inconsistent the other way — defensively treat as stop.
         stop = True
-        if not reason:
+        if raw_improvement_count:
+            reason = "critic improvements did not meet the high-impact gate"
+        elif not reason:
             reason = "critic flagged continue but produced no concrete improvements"
     return CriticVerdict(
         stop=stop, reason=reason, improvements=improvements, raw_text=blob
@@ -503,22 +601,50 @@ def parse_planner_text(text: str) -> PlannerVerdict:
     data, blob = found
     project_done = _parse_json_bool(data.get("project_done", True), True)
     reason = str(data.get("reason", ""))
+    restart_daemon = _parse_json_bool(data.get("restart_daemon", False), False)
+    restart_reason = str(data.get("restart_reason", "")).strip()
+    if restart_daemon and not restart_reason:
+        restart_reason = reason or "planner requested daemon restart"
     tasks_raw = data.get("new_tasks") or []
     new_tasks: list[TaskSpec] = []
+    raw_task_count = len(tasks_raw) if isinstance(tasks_raw, list) else 0
     if isinstance(tasks_raw, list):
-        for entry in tasks_raw[:3]:
+        for entry in tasks_raw:
             if not isinstance(entry, dict):
                 continue
             title = str(entry.get("title", "")).strip()
             objective = str(entry.get("objective", "")).strip()
-            if not title or not objective:
+            impact_score = _parse_impact_score(entry.get("impact_score"))
+            impact_area = str(entry.get("impact_area", "")).strip()
+            evidence = str(entry.get("evidence", "")).strip()
+            if (
+                not title
+                or not objective
+                or impact_score < MIN_PLANNER_IMPACT_SCORE
+                or not evidence
+            ):
                 continue
-            new_tasks.append(TaskSpec(title=title, objective=objective))
+            new_tasks.append(
+                TaskSpec(
+                    title=title,
+                    objective=objective,
+                    impact_score=impact_score,
+                    impact_area=impact_area,
+                    evidence=evidence,
+                )
+            )
+            if len(new_tasks) >= 3:
+                break
     if project_done and new_tasks:
         # Inconsistent: project_done=True but tasks listed → honor done.
         new_tasks = []
-    if not project_done and not new_tasks:
+    if not project_done and not new_tasks and not restart_daemon:
         # Inconsistent: not done but no tasks → retry later, don't mark done.
+        if raw_task_count:
+            reason = "planner proposed only low-impact or unevidenced tasks"
+            error = "planner produced no high-impact tasks"
+        else:
+            error = "planner said not done but produced no concrete tasks"
         if not reason:
             reason = "planner said not done but produced no concrete tasks"
         return PlannerVerdict(
@@ -526,12 +652,14 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             reason=reason,
             new_tasks=[],
             raw_text=blob,
-            error="planner said not done but produced no concrete tasks",
+            error=error,
         )
     return PlannerVerdict(
         project_done=project_done,
         reason=reason,
         new_tasks=new_tasks,
+        restart_daemon=restart_daemon,
+        restart_reason=restart_reason,
         raw_text=blob,
         cached_input_tokens=0,
     )
@@ -559,6 +687,11 @@ def render_iteration_objective(
     bullets = []
     for i, imp in enumerate(improvements, 1):
         line = f"{i}. {imp.title}"
+        line += f"\n   impact: {imp.impact_score}/5"
+        if imp.impact_area:
+            line += f" ({imp.impact_area})"
+        if imp.evidence:
+            line += f"\n   evidence: {imp.evidence}"
         if imp.rationale:
             line += f"\n   why: {imp.rationale}"
         line += f"\n   acceptance: {imp.acceptance}"

@@ -143,11 +143,20 @@ def _make_argus_result(
     )
 
 
-def test_run_exec_translates_options_and_result(monkeypatch):
+def test_run_exec_translates_options_and_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     backend = CodexRunnerBackend(backend="codex")
     captured: dict[str, Any] = {}
 
-    def fake_run_exec(self, *, prompt, resume_thread_id, options, run_label):
+    def fake_run_exec(
+        self: Any,
+        *,
+        prompt: Any,
+        resume_thread_id: Any,
+        options: Any,
+        run_label: str,
+    ) -> CodexRunResult:
         captured["prompt"] = prompt
         captured["resume_thread_id"] = resume_thread_id
         captured["options"] = options
@@ -218,10 +227,17 @@ def test_run_exec_translates_options_and_result(monkeypatch):
     assert result.output_tokens == 75
 
 
-def test_run_exec_handles_file_not_found(monkeypatch):
+def test_run_exec_handles_file_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
     backend = CodexRunnerBackend(backend="codex")
 
-    def boom(self, *, prompt, resume_thread_id, options, run_label):
+    def boom(
+        self: Any,
+        *,
+        prompt: Any,
+        resume_thread_id: Any,
+        options: Any,
+        run_label: str,
+    ) -> None:
         raise FileNotFoundError("codex: not found")
 
     monkeypatch.setattr(
@@ -239,10 +255,19 @@ def test_run_exec_handles_file_not_found(monkeypatch):
     assert result.agent_messages == []
 
 
-def test_run_exec_handles_generic_exception(monkeypatch):
+def test_run_exec_handles_generic_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     backend = CodexRunnerBackend(backend="codex")
 
-    def boom(self, *, prompt, resume_thread_id, options, run_label):
+    def boom(
+        self: Any,
+        *,
+        prompt: Any,
+        resume_thread_id: Any,
+        options: Any,
+        run_label: str,
+    ) -> None:
         raise RuntimeError("subprocess died")
 
     monkeypatch.setattr(
@@ -322,7 +347,9 @@ def test_token_count_extraction_reads_codex_0_121_usage_field():
     assert (in_tok, cached_tok, out_tok) == (12944, 1234, 75)
 
 
-def test_run_exec_forwards_watchdog_hooks(monkeypatch):
+def test_run_exec_forwards_watchdog_hooks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Watchdog hooks on argus-skill RunnerOptions must reach ArgusBot.
 
     A MissionDaemon-driven supervisor passes ``external_interrupt_reason_provider``
@@ -333,7 +360,14 @@ def test_run_exec_forwards_watchdog_hooks(monkeypatch):
     backend = CodexRunnerBackend(backend="codex")
     captured: dict[str, Any] = {}
 
-    def fake_run_exec(self, *, prompt, resume_thread_id, options, run_label):
+    def fake_run_exec(
+        self: Any,
+        *,
+        prompt: Any,
+        resume_thread_id: Any,
+        options: Any,
+        run_label: str,
+    ) -> CodexRunResult:
         captured["options"] = options
         return _make_argus_result(agent_messages=["ok"])
 
@@ -347,7 +381,7 @@ def test_run_exec_forwards_watchdog_hooks(monkeypatch):
         interrupt_calls.append(None)
         return None
 
-    def inactivity_callback(snapshot) -> str | None:  # noqa: ARG001
+    def inactivity_callback(snapshot: Any) -> str | None:  # noqa: ARG001
         return None
 
     options = RunnerOptions(

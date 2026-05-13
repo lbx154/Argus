@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -143,6 +146,88 @@ def test_free_text_beats_aggressive_priority_zero_pending(mem: LifeMemory) -> No
     assert captured["head_obj"] == "right now please"
 
 
+def test_repl_help_matches_documented_command_surface(tmp_path: Path) -> None:
+    repo = Path(__file__).resolve().parents[2]
+    env = os.environ.copy()
+    env.update({
+        "ARGUS_SKILL_LIFE_BACKEND": "memory",
+    })
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "argus_skill",
+            "--no-daemon",
+            "--life-dir",
+            str(tmp_path),
+        ],
+        cwd=repo,
+        env=env,
+        input="/help\n/exit\n",
+        text=True,
+        capture_output=True,
+        timeout=120,
+        check=True,
+    )
+    out = result.stdout + result.stderr
+    for fragment in (
+        "/help",
+        "/status",
+        "/config [key=val ...]",
+        "/identity [edit|set",
+        "/project [set",
+        "/backlog [all]",
+        "/add <text> [--once] [--cycles=N] [--budget=$X]",
+        "/done|/skip|/rm <id>",
+        "/stop <id>",
+        "/journal [N]",
+        "/note <text>",
+        "/nudge <text>",
+        "/run [opts]",
+        "/skills [ls|promote <name>]",
+        "/reset",
+        "/backend",
+        "/exit  /quit  :q",
+    ):
+        assert fragment in out
+    assert "/correct" not in out
+
+
+def test_project_cmd_reads_and_updates_project_card(
+    mem: LifeMemory, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mem.identity.path.write_text("identity: initial\n", encoding="utf-8")
+    (mem.root / "project.md").write_text("project: initial\n", encoding="utf-8")
+
+    _life_repl._project_cmd(mem, [], "")
+    out = capsys.readouterr().out
+    assert "project: initial" in out
+
+    _life_repl._project_cmd(mem, ["set"], "set project: updated")
+    out = capsys.readouterr().out
+    assert "project card updated" in out
+    assert (mem.root / "project.md").read_text(encoding="utf-8") == "project: updated\n"
+    assert mem.identity.read() == "identity: initial\n"
+
+
+def test_repl_startup_preserves_custom_project_card_byte_for_byte(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+    bundle = MemoryBundle.for_cwd(repo)
+    custom = "# custom\n\n## Project label\n- keep me\n"
+    bundle.project.project_card.path.parent.mkdir(parents=True, exist_ok=True)
+    bundle.project.project_card.path.write_text(custom, encoding="utf-8")
+
+    created = bundle.init()
+
+    assert created["project"]["project_card"] is False
+    assert bundle.project.project_card.path.read_text(encoding="utf-8") == custom
+
+
 # ---------------------------------------------------------------------------
 # Singleton lock
 # ---------------------------------------------------------------------------
@@ -258,7 +343,9 @@ def test_parse_add_flags_budget_dollar_sign() -> None:
     assert body.strip() == "fix the bug"
 
 
-def test_seed_chat_state_merges_cli_and_disk_continuous(tmp_path: Path) -> None:
+def test_seed_chat_state_downgrades_inherited_continuous_for_memory_backend(
+    tmp_path: Path,
+) -> None:
     mem = LifeMemory.open(tmp_path)
     mem.init()
     write_continuous_config(
@@ -270,7 +357,7 @@ def test_seed_chat_state_merges_cli_and_disk_continuous(tmp_path: Path) -> None:
 
     chat_state, error = _life_repl._seed_chat_state(
         argparse.Namespace(
-            backend="codex",
+            backend="memory",
             continuous=False,
             objective="",
         ),
@@ -279,13 +366,34 @@ def test_seed_chat_state_merges_cli_and_disk_continuous(tmp_path: Path) -> None:
     )
 
     assert error is None
-    assert chat_state["config"]["continuous"] is True
+    assert chat_state["config"]["continuous"] is False
     assert chat_state["continuous_objective"] == "disk objective"
     state = chat_state["continuous_state"]
-    assert state.enabled is True
+    assert state.enabled is False
     assert state.objective == "disk objective"
-    assert state.done_reason == ""
-    assert state.done_at == ""
+    assert state.done_reason == "planner declared project done"
+    assert state.done_at
+
+
+def test_seed_chat_state_rejects_explicit_continuous_for_memory_backend(
+    tmp_path: Path,
+) -> None:
+    mem = LifeMemory.open(tmp_path)
+    mem.init()
+
+    chat_state, error = _life_repl._seed_chat_state(
+        argparse.Namespace(
+            backend="memory",
+            continuous=True,
+            objective="hardening objective",
+        ),
+        mem,
+        theme=None,
+    )
+
+    assert chat_state == {}
+    assert error is not None
+    assert "cannot plan" in error
 
 
 def test_backend_cmd_ignores_historical_continuous_objective(

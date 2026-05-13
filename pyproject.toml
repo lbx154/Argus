@@ -26,7 +26,9 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Topic :: Software Development",
 ]
-dependencies = []
+dependencies = [
+  "rich>=13.7",
+]
 
 [project.optional-dependencies]
 codex = [
@@ -36,6 +38,7 @@ codex = [
   "ArgusBot @ git+https://github.com/waltstephen/ArgusBot.git",
 ]
 dev = [
+  "build>=1",
   "mypy>=1.8",
   "pytest>=7",
   "ruff>=0.4",
@@ -113,6 +116,7 @@ filterwarnings = [
 
 [tool.mypy]
 python_version = "3.11"
+exclude = '''^(?:benchmarks|build|dist|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.venv|pyknotid-scratch|pyknotid_capability)(?:/|$)'''
 files = [
   "argus_skill",
   "tests",

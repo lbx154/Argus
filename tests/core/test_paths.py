@@ -24,6 +24,23 @@ def test_argus_skill_home_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert paths.global_root() == tmp_path / "alt"
 
 
+def test_argus_skill_home_expands_shell_placeholders(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "expanded"))
+    monkeypatch.setenv("ARGUS_SKILL_HOME", "$TMPDIR")
+    assert paths.global_root() == tmp_path / "expanded"
+
+
+def test_argus_skill_home_rejects_unresolved_placeholders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TMPDIR", raising=False)
+    monkeypatch.setenv("ARGUS_SKILL_HOME", "$TMPDIR")
+    with pytest.raises(paths.PathResolutionError):
+        paths.global_root()
+
+
 def test_legacy_life_dir_pointing_at_life_subdir(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
