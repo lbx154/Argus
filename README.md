@@ -1,11 +1,12 @@
-<div align="center">
+<h1 align="center">argus-skill</h1>
 
-# argus-skill
+<p align="center"><strong>Supervised skill-driven coding agent.</strong></p>
 
-**Supervised skill-driven coding agent.**
-
-A merge of [skill-agent](https://github.com/lbx154/skill-agent)'s *horizontal*
-skill reuse and [ArgusBot](../ArgusBot)'s *vertical* reviewer-loop supervision.
+<p align="center">
+A merge of <a href="https://github.com/lbx154/skill-agent">skill-agent</a>'s
+<em>horizontal</em> skill reuse and <a href="../ArgusBot">ArgusBot</a>'s
+<em>vertical</em> reviewer-loop supervision.
+</p>
 
 ```text
  █████╗ ██████╗  ██████╗ ██╗   ██╗███████╗      ███████╗██╗  ██╗██╗██╗     ██╗
@@ -16,11 +17,9 @@ skill reuse and [ArgusBot](../ArgusBot)'s *vertical* reviewer-loop supervision.
 ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝      ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝
 ```
 
-<p><img src="docs/demo.svg" alt="argus-skill 7x24 daemon demo — planner creates high-impact work, engineer fixes it, Telegram reports progress" width="900"></p>
+<p align="center"><img src="docs/demo.svg" alt="argus-skill 7x24 daemon demo — planner creates high-impact work, engineer fixes it, Telegram reports progress" width="900"></p>
 
-<sub>Replay on your own terminal: <code>asciinema play docs/demo.cast</code>. Rebuild with <code>python docs/build_demo.py</code>.</sub>
-
-</div>
+<p align="center"><sub>Replay on your own terminal: <code>asciinema play docs/demo.cast</code>. Rebuild with <code>python docs/build_demo.py</code>.</sub></p>
 
 ## What it is
 
