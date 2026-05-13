@@ -1,0 +1,81 @@
+TB v2 prompt-only self pilot
+============================
+
+Goal
+----
+Compare two conditions on matched Terminal-Bench v2 prompts:
+
+1. Direct Codex: you operate Codex CLI yourself.
+2. argus-skill: you give the same style of prompt to argus-skill and only
+   inspect/nudge when needed.
+
+Primary measurement:
+
+  human_interactions_per_solved_task
+  active_touch_minutes_per_solved_task
+
+Generate prompts
+----------------
+From the repo root:
+
+  python benchmarks/prompt_only_tb2/extract_tb2_prompts.py --download
+
+This downloads terminal-bench@2.0 through Harbor into /tmp and writes:
+
+  benchmarks/prompt_only_tb2/generated/tb2_prompt_only_all.jsonl
+  benchmarks/prompt_only_tb2/generated/self_pilot_assignment.csv
+  benchmarks/prompt_only_tb2/generated/self_pilot_prompts.txt
+  benchmarks/prompt_only_tb2/generated/results_template.csv
+
+The generated directory is gitignored because it contains copied official task
+prompts. Regenerate it whenever needed.
+
+Protocol
+--------
+For each row in self_pilot_assignment.csv:
+
+1. Start from a fresh task environment for that task. For Harbor this is:
+
+     harbor task start-env \
+       -p /tmp/argus-skill-tb2-prompt-only/terminal-bench/<task_id>
+
+   The prompt-only files are not a standalone repo; the TB environment still
+   provides the /app files and services.
+2. Read only the generated prompt text for that task.
+3. Do not inspect verifier internals, solution files, or previous trajectories.
+4. Run the assigned condition:
+   - Direct Codex: paste the prompt into Codex CLI and drive it manually.
+   - argus-skill: enqueue the prompt in argus-skill and supervise via --follow,
+     --watch, Telegram, or /nudge only when needed.
+5. Fill one row in results_template.csv.
+
+Human-interaction counting
+--------------------------
+Count only developer actions, not automatic argus-skill reviewer/critic rounds.
+
+Count as human interactions:
+
+- prompts or follow-up messages sent to Codex
+- argus-skill nudges, Telegram messages, /notify, /stop
+- manual shell commands used to inspect or repair the task outside the agent
+- explicit status checks such as /status, --watch, --follow
+- final manual rescue edits
+
+Do not count:
+
+- automatic engineer/reviewer/critic/planner turns
+- automatic tests run by the tool
+- passive waiting time
+
+Suggested columns
+-----------------
+Use results_template.csv. The important columns are:
+
+  condition, task_id, solved, accepted, wall_minutes, active_touch_minutes,
+  human_messages, nudges, status_checks, manual_commands, manual_rescue,
+  cost_usd, notes
+
+Quick-start subset
+------------------
+If you want a short first run, use pairs p01-p03 only: 3 direct Codex tasks and
+3 argus-skill tasks. If that looks useful, run p04-p06 as the second batch.

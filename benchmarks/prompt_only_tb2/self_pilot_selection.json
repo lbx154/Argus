@@ -1,0 +1,48 @@
+{
+  "dataset": "terminal-bench@2.0",
+  "source": "Harbor registry",
+  "purpose": "Prompt-only self pilot comparing direct Codex CLI against argus-skill.",
+  "notes": [
+    "Use the generated instruction text only as the task prompt.",
+    "Do not inspect verifier internals or solutions while running the task.",
+    "One developer should not run the exact same task in both conditions; use matched pairs instead."
+  ],
+  "pairs": [
+    {
+      "pair_id": "p01-security-medium",
+      "codex_task_id": "openssl-selfsigned-cert",
+      "argus_task_id": "vulnerable-secret",
+      "rationale": "Medium security tasks with short expert estimates."
+    },
+    {
+      "pair_id": "p02-data-processing-medium",
+      "codex_task_id": "multi-source-data-merger",
+      "argus_task_id": "regex-log",
+      "rationale": "Medium data-processing tasks with file/transformation objectives."
+    },
+    {
+      "pair_id": "p03-software-medium",
+      "codex_task_id": "kv-store-grpc",
+      "argus_task_id": "polyglot-c-py",
+      "rationale": "Medium software-engineering tasks with concrete artifacts."
+    },
+    {
+      "pair_id": "p04-debugging-medium",
+      "codex_task_id": "sqlite-db-truncate",
+      "argus_task_id": "custom-memory-heap-crash",
+      "rationale": "Medium debugging/recovery tasks that require investigation."
+    },
+    {
+      "pair_id": "p05-system-medium",
+      "codex_task_id": "nginx-request-logging",
+      "argus_task_id": "sqlite-with-gcov",
+      "rationale": "Medium system/setup tasks with observable final state."
+    },
+    {
+      "pair_id": "p06-build-medium",
+      "codex_task_id": "build-pmars",
+      "argus_task_id": "build-cython-ext",
+      "rationale": "Medium build/debug tasks that historically exercise agent iteration."
+    }
+  ]
+}
