@@ -79,16 +79,25 @@ Cost accounting
 ---------------
 The runner records:
 
-  cost_usd, cost_source, cost_model, input_tokens, cached_input_tokens, output_tokens
+  cost_usd, reported_cost_usd, cost_source, cost_model, pricing_source,
+  input_tokens, cached_input_tokens, output_tokens, model_token_stats
 
 For Codex baseline rows, the runner passes `--json` to `codex exec` by default
-and parses the JSONL usage events. If Codex reports a dollar cost, that value is
-used. Otherwise the runner estimates USD from token counts and the configured
-model price table.
+and parses the JSONL usage events. `cost_usd` is always computed with the same
+`argus_skill.core.pricing.usd_for_tokens` helper that argus-skill uses. If Codex
+also reports its own dollar cost, that is stored separately as
+`reported_cost_usd` and is not used as the comparable headline cost.
 
 For argus-skill rows, the runner reads argus-skill's local event/journal files
-under the run root and uses the `life.mission.completed` / journal cost. If that
-is missing, it falls back to token-based estimation.
+under the run root, aggregates token usage by model, and computes USD with the
+same argus-skill pricing helper. Argus's own mission/journal cost is kept as
+`reported_cost_usd` so you can compare the runner's model-by-model aggregation
+against argus-skill's native total.
+
+`model_token_stats` is a compact JSON object keyed by model name. Each model has
+input/cached/output tokens, USD, and the layers that used that model. Direct
+Codex usually has one model entry; argus-skill may have separate engineer,
+reviewer, scientist/distiller, critic, and planner entries.
 
 If you use a non-default Codex model, pass it explicitly so the estimate is
 interpretable:
@@ -176,8 +185,9 @@ Suggested columns
 Use results_template.csv. The important columns are:
 
   condition, task_id, run_root, needs_human, wall_minutes, cost_usd,
-  cost_source, input_tokens, output_tokens, human_messages, nudges,
-  status_checks, manual_commands, manual_rescue, solved, accepted, notes
+  reported_cost_usd, cost_source, input_tokens, output_tokens,
+  model_token_stats, human_messages, nudges, status_checks, manual_commands,
+  manual_rescue, solved, accepted, notes
 
 Quick-start subset
 ------------------

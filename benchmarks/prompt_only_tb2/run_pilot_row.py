@@ -213,9 +213,78 @@ def _reported_cost_usd(events: list[dict[str, Any]]) -> float:
     return last_total or last_cost
 
 
+def _empty_usage() -> dict[str, Any]:
+    return {
+        "input_tokens": 0,
+        "cached_input_tokens": 0,
+        "output_tokens": 0,
+        "cost_usd": 0.0,
+        "layers": [],
+    }
+
+
+def _add_usage(
+    stats: dict[str, dict[str, Any]],
+    *,
+    model: str,
+    input_tokens: int,
+    cached_input_tokens: int,
+    output_tokens: int,
+    layer: str,
+) -> None:
+    if input_tokens <= 0 and cached_input_tokens <= 0 and output_tokens <= 0:
+        return
+    row = stats.setdefault(model, _empty_usage())
+    row["input_tokens"] += max(0, int(input_tokens))
+    row["cached_input_tokens"] += max(0, int(cached_input_tokens))
+    row["output_tokens"] += max(0, int(output_tokens))
+    layers = set(row.get("layers", []))
+    layers.add(layer)
+    row["layers"] = sorted(layers)
+
+
+def _finalize_usage(stats: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for model, row in sorted(stats.items()):
+        finalized = dict(row)
+        finalized["cost_usd"] = usd_for_tokens(
+            model,
+            int(row.get("input_tokens", 0) or 0),
+            int(row.get("cached_input_tokens", 0) or 0),
+            int(row.get("output_tokens", 0) or 0),
+        )
+        finalized["layers"] = sorted(set(finalized.get("layers", [])))
+        out[model] = finalized
+    return out
+
+
+def _usage_totals(stats: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "cost_usd": sum(float(row.get("cost_usd", 0.0) or 0.0) for row in stats.values()),
+        "input_tokens": sum(int(row.get("input_tokens", 0) or 0) for row in stats.values()),
+        "cached_input_tokens": sum(
+            int(row.get("cached_input_tokens", 0) or 0) for row in stats.values()
+        ),
+        "output_tokens": sum(int(row.get("output_tokens", 0) or 0) for row in stats.values()),
+    }
+
+
+def _usage_json(stats: dict[str, dict[str, Any]]) -> str:
+    return json.dumps(stats, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _model_from_events(events: list[dict[str, Any]], fallback: str) -> str:
+    for event in events:
+        for payload in _nested_dicts(event):
+            model = payload.get("model") or payload.get("model_name")
+            if isinstance(model, str) and model.strip():
+                return model.strip()
+    return fallback
+
+
 def _cost_model_for(args: argparse.Namespace, row: dict[str, str]) -> str:
     if row["condition"] == "argus":
-        return os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini")
+        return "multiple"
     return (
         args.cost_model
         or args.codex_model
@@ -225,26 +294,48 @@ def _cost_model_for(args: argparse.Namespace, row: dict[str, str]) -> str:
     )
 
 
+def _argus_model_defaults() -> dict[str, str]:
+    engineer = os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini")
+    reviewer = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.4")
+    scientist = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4")
+    matcher = os.environ.get("ARGUS_SKILL_MATCHER_MODEL", engineer)
+    return {
+        "engineer": engineer,
+        "reviewer": reviewer,
+        "critic": reviewer,
+        "planner": reviewer,
+        "matcher": matcher,
+        "scientist": scientist,
+        "distiller": scientist,
+    }
+
+
 def _codex_cost_from_logs(stdout_path: Path, *, model: str) -> dict[str, Any]:
     events = _jsonl_objects(stdout_path)
+    model = _model_from_events(events, model)
     input_tokens, cached_input_tokens, output_tokens = _sum_token_counts(events)
     reported = _reported_cost_usd(events)
-    if reported > 0:
-        cost_usd = reported
-        source = "codex_json_reported"
-    elif input_tokens or output_tokens:
-        cost_usd = usd_for_tokens(model, input_tokens, cached_input_tokens, output_tokens)
-        source = "codex_json_estimated_from_tokens"
-    else:
-        cost_usd = 0.0
-        source = "codex_json_no_usage"
+    model_stats: dict[str, dict[str, Any]] = {}
+    _add_usage(
+        model_stats,
+        model=model,
+        input_tokens=input_tokens,
+        cached_input_tokens=cached_input_tokens,
+        output_tokens=output_tokens,
+        layer="codex",
+    )
+    model_stats = _finalize_usage(model_stats)
+    totals = _usage_totals(model_stats)
+    source = "argus_pricing_codex_json_tokens" if model_stats else "codex_json_no_usage"
     return {
-        "cost_usd": cost_usd,
+        "cost_usd": totals["cost_usd"],
+        "reported_cost_usd": reported,
         "cost_source": source,
-        "cost_model": model,
-        "input_tokens": input_tokens,
-        "cached_input_tokens": cached_input_tokens,
-        "output_tokens": output_tokens,
+        "cost_model": model if model_stats else "",
+        "input_tokens": totals["input_tokens"],
+        "cached_input_tokens": totals["cached_input_tokens"],
+        "output_tokens": totals["output_tokens"],
+        "model_token_stats": model_stats,
     }
 
 
@@ -264,54 +355,108 @@ def _argus_journal_rows(run_root: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _argus_cost_from_logs(run_root: Path, *, model: str) -> dict[str, Any]:
+def _argus_cost_from_logs(run_root: Path) -> dict[str, Any]:
     events = _argus_events(run_root)
+    models = _argus_model_defaults()
     mission_costs = [
         _coerce_float(event.get("cost_usd"))
         for event in events
         if event.get("type") == "life.mission.completed"
     ]
-    cost_usd = sum(value for value in mission_costs if value > 0)
-    cost_source = "argus_event_log"
-
-    input_tokens = 0
-    cached_input_tokens = 0
-    output_tokens = 0
+    reported_cost_usd = sum(value for value in mission_costs if value > 0)
+    model_stats: dict[str, dict[str, Any]] = {}
     for event in events:
-        if event.get("type") not in {"round.main.completed", "round.review.completed"}:
+        etype = str(event.get("type") or "")
+        if etype == "round.main.completed":
+            _add_usage(
+                model_stats,
+                model=models["engineer"],
+                input_tokens=_coerce_int(event.get("input_tokens")),
+                cached_input_tokens=_coerce_int(event.get("cached_input_tokens")),
+                output_tokens=_coerce_int(event.get("output_tokens")),
+                layer="engineer",
+            )
             continue
-        input_tokens += _coerce_int(event.get("input_tokens"))
-        cached_input_tokens += _coerce_int(event.get("cached_input_tokens"))
-        output_tokens += _coerce_int(event.get("output_tokens"))
+        if etype == "round.review.completed":
+            _add_usage(
+                model_stats,
+                model=models["reviewer"],
+                input_tokens=_coerce_int(event.get("input_tokens")),
+                cached_input_tokens=_coerce_int(event.get("cached_input_tokens")),
+                output_tokens=_coerce_int(event.get("output_tokens")),
+                layer="reviewer",
+            )
+            continue
+        if etype == "life.iteration.critic":
+            _add_usage(
+                model_stats,
+                model=models["critic"],
+                input_tokens=_coerce_int(event.get("input_tokens")),
+                cached_input_tokens=_coerce_int(event.get("cached_input_tokens")),
+                output_tokens=_coerce_int(event.get("output_tokens")),
+                layer="critic",
+            )
+            continue
+        if etype.startswith("life.planner."):
+            _add_usage(
+                model_stats,
+                model=models["planner"],
+                input_tokens=_coerce_int(event.get("input_tokens")),
+                cached_input_tokens=_coerce_int(event.get("cached_input_tokens")),
+                output_tokens=_coerce_int(event.get("output_tokens")),
+                layer="planner",
+            )
+            continue
+        if etype == "skill.outcome":
+            _add_usage(
+                model_stats,
+                model=models["matcher"],
+                input_tokens=_coerce_int(event.get("matcher_input_tokens")),
+                cached_input_tokens=_coerce_int(event.get("matcher_cached_input_tokens")),
+                output_tokens=_coerce_int(event.get("matcher_output_tokens")),
+                layer="matcher",
+            )
+            _add_usage(
+                model_stats,
+                model=models["distiller"],
+                input_tokens=_coerce_int(event.get("distiller_input_tokens")),
+                cached_input_tokens=_coerce_int(event.get("distiller_cached_input_tokens")),
+                output_tokens=_coerce_int(event.get("distiller_output_tokens")),
+                layer="distiller",
+            )
 
-    if cost_usd <= 0:
-        journal_rows = _argus_journal_rows(run_root)
-        mission_rows = [
-            row for row in journal_rows
-            if row.get("kind") in {"mission_complete", "mission_failed", "mission_iterated"}
-        ]
-        cost_usd = sum(_coerce_float(row.get("cost_usd")) for row in mission_rows)
-        if cost_usd > 0:
-            cost_source = "argus_journal"
-        if input_tokens == 0 and output_tokens == 0:
-            for row in mission_rows:
-                extra = row.get("extra") if isinstance(row.get("extra"), dict) else {}
-                input_tokens += _coerce_int(extra.get("input_tokens"))
-                output_tokens += _coerce_int(extra.get("output_tokens"))
+    journal_rows = _argus_journal_rows(run_root)
+    mission_rows = [
+        row for row in journal_rows
+        if row.get("kind") in {"mission_complete", "mission_failed", "mission_iterated"}
+    ]
+    journal_cost = sum(_coerce_float(row.get("cost_usd")) for row in mission_rows)
+    reported_cost_usd = reported_cost_usd or journal_cost
+    if not model_stats:
+        for row in mission_rows:
+            extra = row.get("extra") if isinstance(row.get("extra"), dict) else {}
+            _add_usage(
+                model_stats,
+                model=str(extra.get("engineer_model") or models["engineer"]),
+                input_tokens=_coerce_int(extra.get("input_tokens")),
+                cached_input_tokens=_coerce_int(extra.get("cached_input_tokens")),
+                output_tokens=_coerce_int(extra.get("output_tokens")),
+                layer="mission_total",
+            )
 
-    if cost_usd <= 0 and (input_tokens or output_tokens):
-        cost_usd = usd_for_tokens(model, input_tokens, cached_input_tokens, output_tokens)
-        cost_source = "argus_estimated_from_tokens"
-    elif cost_usd <= 0:
-        cost_source = "argus_no_usage"
+    model_stats = _finalize_usage(model_stats)
+    totals = _usage_totals(model_stats)
+    cost_source = "argus_pricing_event_tokens" if model_stats else "argus_no_usage"
 
     return {
-        "cost_usd": cost_usd,
+        "cost_usd": totals["cost_usd"],
+        "reported_cost_usd": reported_cost_usd,
         "cost_source": cost_source,
-        "cost_model": model,
-        "input_tokens": input_tokens,
-        "cached_input_tokens": cached_input_tokens,
-        "output_tokens": output_tokens,
+        "cost_model": "multiple" if len(model_stats) > 1 else next(iter(model_stats), ""),
+        "input_tokens": totals["input_tokens"],
+        "cached_input_tokens": totals["cached_input_tokens"],
+        "output_tokens": totals["output_tokens"],
+        "model_token_stats": model_stats,
     }
 
 
@@ -326,14 +471,16 @@ def _cost_from_logs(
     if row["condition"] == "codex":
         return _codex_cost_from_logs(stdout_path, model=model)
     if row["condition"] == "argus":
-        return _argus_cost_from_logs(run_root, model=model)
+        return _argus_cost_from_logs(run_root)
     return {
         "cost_usd": 0.0,
+        "reported_cost_usd": 0.0,
         "cost_source": "unknown_condition",
         "cost_model": model,
         "input_tokens": 0,
         "cached_input_tokens": 0,
         "output_tokens": 0,
+        "model_token_stats": {},
     }
 
 
@@ -549,6 +696,7 @@ def main(argv: list[str] | None = None) -> int:
         "timeout_seconds": timeout_seconds,
         "codex_json": bool(args.codex_json),
         "cost_model": _cost_model_for(args, row),
+        "pricing_source": "argus_skill.core.pricing.usd_for_tokens",
         "codex_version": _version([args.codex_bin, "--version"]),
         "argus_version": _version([sys.executable, "-m", "argus_skill", "--version"]),
         "docker_version": _version(["docker", "--version"]),
@@ -612,11 +760,14 @@ def main(argv: list[str] | None = None) -> int:
         "ended_at": ended,
         "wall_minutes": f"{wall_seconds / 60.0:.2f}",
         "cost_usd": f"{float(cost['cost_usd']):.6f}",
+        "reported_cost_usd": f"{float(cost.get('reported_cost_usd', 0.0)):.6f}",
         "cost_source": cost["cost_source"],
         "cost_model": cost["cost_model"],
+        "pricing_source": "argus_skill.core.pricing.usd_for_tokens",
         "input_tokens": cost["input_tokens"],
         "cached_input_tokens": cost["cached_input_tokens"],
         "output_tokens": cost["output_tokens"],
+        "model_token_stats": _usage_json(cost["model_token_stats"]),
         "exit_code": exit_code,
         "timed_out": timed_out,
         "needs_human": needs_human,
@@ -640,6 +791,8 @@ def main(argv: list[str] | None = None) -> int:
         f"cost    : ${float(cost['cost_usd']):.6f} "
         f"({cost['cost_source']}, model={cost['cost_model']})"
     )
+    if float(cost.get("reported_cost_usd", 0.0)) > 0:
+        print(f"reported: ${float(cost['reported_cost_usd']):.6f}")
     print(f"needs_human={str(needs_human).lower()} exit_code={exit_code} timed_out={timed_out}")
     return 1 if needs_human else 0
 
