@@ -3,10 +3,10 @@ TB v2 prompt-only self pilot
 
 Goal
 ----
-Compare two conditions on matched Terminal-Bench v2 prompts:
+Compare two interactive conditions on matched Terminal-Bench v2 prompts:
 
-1. Direct Codex: you operate Codex CLI yourself.
-2. argus-skill: you give the same style of prompt to argus-skill and only
+1. Direct Codex REPL: you operate Codex CLI yourself.
+2. argus-skill REPL: you give the same style of prompt to argus-skill and only
    inspect/nudge when needed.
 
 Primary measurement:
@@ -32,6 +32,10 @@ prompts. Regenerate it whenever needed.
 
 Protocol
 --------
+Use REPLs, not one-shot commands. A one-shot CLI run hides the supervision loop
+and makes "human interaction" ambiguous; the REPL makes every developer action
+explicit and countable.
+
 For each row in self_pilot_assignment.csv:
 
 1. Start from a fresh task environment for that task. For Harbor this is:
@@ -44,10 +48,16 @@ For each row in self_pilot_assignment.csv:
 2. Read only the generated prompt text for that task.
 3. Do not inspect verifier internals, solution files, or previous trajectories.
 4. Run the assigned condition:
-   - Direct Codex: paste the prompt into Codex CLI and drive it manually.
-   - argus-skill: enqueue the prompt in argus-skill and supervise via --follow,
-     --watch, Telegram, or /nudge only when needed.
+   - Direct Codex REPL: start an interactive Codex session, paste the prompt,
+     then drive Codex manually until you stop or solve it.
+   - argus-skill REPL: start `argus-skill`, paste the prompt as the mission,
+     and use `/status`, `/backlog`, `/journal`, `/nudge`, or `/stop` only when
+     you would naturally intervene.
 5. Fill one row in results_template.csv.
+
+For the first self-test, prefer the foreground REPL over Telegram so the trace is
+easy to count. Telegram can be a later condition once the basic Codex-vs-Argus
+comparison is working.
 
 Human-interaction counting
 --------------------------
@@ -56,9 +66,9 @@ Count only developer actions, not automatic argus-skill reviewer/critic rounds.
 Count as human interactions:
 
 - prompts or follow-up messages sent to Codex
-- argus-skill nudges, Telegram messages, /notify, /stop
+- argus-skill free-text messages, /nudge, /stop, or other intervention commands
 - manual shell commands used to inspect or repair the task outside the agent
-- explicit status checks such as /status, --watch, --follow
+- explicit status checks such as /status, /backlog, /journal, --watch, --follow
 - final manual rescue edits
 
 Do not count:
@@ -66,6 +76,16 @@ Do not count:
 - automatic engineer/reviewer/critic/planner turns
 - automatic tests run by the tool
 - passive waiting time
+
+Counting convention
+-------------------
+The initial task prompt is assignment overhead. Record it in `human_messages`,
+but compute the headline "interventions after assignment" separately as:
+
+  human_messages + nudges + status_checks + manual_commands - 1
+
+This keeps both conditions comparable: each starts with one prompt, then differs
+in how much follow-up supervision it needs.
 
 Suggested columns
 -----------------
