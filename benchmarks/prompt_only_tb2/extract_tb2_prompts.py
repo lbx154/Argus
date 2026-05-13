@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import shutil
 import subprocess
 import tomllib
@@ -14,6 +15,7 @@ DEFAULT_DOWNLOAD_DIR = Path("/tmp/argus-skill-tb2-prompt-only")
 DEFAULT_TASKS_ROOT = DEFAULT_DOWNLOAD_DIR / "terminal-bench"
 OUT_DIR = Path(__file__).resolve().parent / "generated"
 SELECTION_PATH = Path(__file__).resolve().parent / "self_pilot_selection.json"
+_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
 def _run(cmd: list[str]) -> None:
@@ -85,6 +87,16 @@ def _load_selection() -> dict[str, Any]:
     return json.loads(SELECTION_PATH.read_text(encoding="utf-8"))
 
 
+def _safe_filename(value: str) -> str:
+    safe = _SAFE_FILENAME_RE.sub("-", value).strip(".-")
+    return safe or "task"
+
+
+def _prompt_relpath(row: dict[str, Any]) -> str:
+    task = _safe_filename(str(row["task_id"]))
+    return f"prompts/{int(row['order']):03d}-{row['condition']}-{task}.txt"
+
+
 def _selected_rows(selection: dict[str, Any], tasks: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     order = 1
@@ -99,14 +111,16 @@ def _selected_rows(selection: dict[str, Any], tasks: dict[str, dict[str, Any]]) 
                 "pair_id": pair["pair_id"],
                 "condition": condition,
                 "task_id": task_id,
-                "workspace": f"/app/{condition}",
-                "other_workspace": "/app/argus" if condition == "codex" else "/app/codex",
+                "workspace": f"./{condition}",
+                "other_workspace": "./argus" if condition == "codex" else "./codex",
                 "difficulty": task["difficulty"],
                 "category": task["category"],
                 "expert_time_estimate_min": task["expert_time_estimate_min"],
+                "agent_timeout_sec": task["agent_timeout_sec"],
                 "docker_image": task["docker_image"],
                 "rationale": pair["rationale"],
             })
+            rows[-1]["prompt_file"] = _prompt_relpath(rows[-1])
             order += 1
     return rows
 
@@ -114,20 +128,55 @@ def _selected_rows(selection: dict[str, Any], tasks: dict[str, dict[str, Any]]) 
 def _condition_prompt(row: dict[str, Any], task_prompt: str) -> str:
     workspace = row["workspace"]
     other_workspace = row["other_workspace"]
+    container_prefix = f"tb2-{row['condition']}-{_safe_filename(str(row['task_id']))}"
     return (
-        "## Pilot isolation rules\n\n"
-        f"You are running the `{row['condition']}` condition for this study.\n\n"
-        f"- Create and work inside `{workspace}/`.\n"
+        "## Pilot setup and isolation rules\n\n"
+        f"You are running the `{row['condition']}` condition for this study from a "
+        "local pilot root directory. The Terminal-Bench task repository is not "
+        "checked out yet; set it up yourself from Docker. Do not use Harbor.\n\n"
+        f"- Docker image: `{row['docker_image']}`\n"
+        f"- Host condition directory for notes/exports: `{workspace}/`\n"
+        f"- Forbidden sibling directory: `{other_workspace}/`\n\n"
+        "Before solving:\n"
+        f"1. Create `{workspace}/` under the current directory for this condition's "
+        f"notes, logs, and final exported files. Do not read from `{other_workspace}/`.\n"
+        f"2. Pull `{row['docker_image']}` yourself.\n"
+        "3. Start a condition-specific container from that image. Use a unique "
+        f"container name beginning with `{container_prefix}-`.\n"
+        "4. Keep `/app` as the task root inside the container. Do not rewrite `/app` "
+        "paths in commands, tests, code, or report files; the original task prompt's "
+        "`/app/...` paths refer to the container's `/app/...`.\n"
+        "5. Run task commands inside that container, for example with "
+        "`docker exec -w /app <container> ...`.\n"
+        f"6. When finished, copy the container's `/app` directory to `{workspace}/app` "
+        f"so the result can be inspected from the pilot root, and keep any extra "
+        f"notes or logs under `{workspace}/`.\n\n"
+        "Isolation rules:\n"
         f"- Do not read from, copy from, or write to `{other_workspace}/`.\n"
-        "- If the task prompt mentions an absolute `/app/...` output path, place the "
-        f"corresponding deliverable under `{workspace}/...` instead. For example, "
-        f"`/app/results.txt` becomes `{workspace}/results.txt`.\n"
-        "- You may read original input files from `/app/` when they are provided by the "
-        "task environment, but copy any files you need to modify into your workspace first.\n"
-        "- Keep all generated code, logs, recovered files, and final answers in your "
-        "condition workspace so the other condition cannot accidentally reuse them.\n\n"
+        "- Do not inspect or copy any container created for the other condition.\n"
+        "- If Docker is unavailable, the image cannot be pulled, or setup needs a "
+        "human decision, stop and clearly state what human action is needed.\n\n"
         "## Original task prompt\n\n"
         f"{task_prompt}"
+    )
+
+
+def _format_prompt_entry(row: dict[str, Any], task: dict[str, Any]) -> str:
+    return (
+        f"Order: {row['order']}\n"
+        f"Condition: {row['condition']}\n"
+        f"Pair: {row['pair_id']}\n"
+        f"Task: {row['task_id']}\n"
+        f"Difficulty: {task['difficulty']}\n"
+        f"Category: {task['category']}\n"
+        f"Expert estimate min: {task['expert_time_estimate_min']}\n"
+        f"Agent timeout sec: {task['agent_timeout_sec']}\n"
+        f"Docker image: {task['docker_image']}\n"
+        f"Workspace: {row['workspace']}\n"
+        f"Forbidden sibling workspace: {row['other_workspace']}\n"
+        f"Prompt file: {row['prompt_file']}\n"
+        "\nPrompt:\n"
+        f"{_condition_prompt(row, task['prompt'])}"
     )
 
 
@@ -151,19 +200,16 @@ def _write_prompt_pack(path: Path, selected: list[dict[str, Any]], tasks: dict[s
         fh.write("============================\n\n")
         for row in selected:
             task = tasks[row["task_id"]]
-            fh.write(f"Order: {row['order']}\n")
-            fh.write(f"Condition: {row['condition']}\n")
-            fh.write(f"Pair: {row['pair_id']}\n")
-            fh.write(f"Task: {row['task_id']}\n")
-            fh.write(f"Difficulty: {task['difficulty']}\n")
-            fh.write(f"Category: {task['category']}\n")
-            fh.write(f"Expert estimate min: {task['expert_time_estimate_min']}\n")
-            fh.write(f"Docker image: {task['docker_image']}\n")
-            fh.write(f"Workspace: {row['workspace']}\n")
-            fh.write(f"Forbidden sibling workspace: {row['other_workspace']}\n")
-            fh.write("\nPrompt:\n")
-            fh.write(_condition_prompt(row, task["prompt"]))
+            fh.write(_format_prompt_entry(row, task))
             fh.write("\n\n" + "-" * 80 + "\n\n")
+
+
+def _write_prompt_files(out_dir: Path, selected: list[dict[str, Any]], tasks: dict[str, dict[str, Any]]) -> None:
+    for row in selected:
+        task = tasks[row["task_id"]]
+        path = out_dir / row["prompt_file"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_format_prompt_entry(row, task) + "\n", encoding="utf-8")
 
 
 def _write_results_template(path: Path, selected: list[dict[str, Any]]) -> None:
@@ -173,6 +219,8 @@ def _write_results_template(path: Path, selected: list[dict[str, Any]]) -> None:
         "condition",
         "task_id",
         "workspace",
+        "prompt_file",
+        "agent_timeout_sec",
         "started_at",
         "ended_at",
         "solved",
@@ -247,14 +295,17 @@ def main(argv: list[str] | None = None) -> int:
             "condition",
             "task_id",
             "workspace",
+            "prompt_file",
             "difficulty",
             "category",
             "expert_time_estimate_min",
+            "agent_timeout_sec",
             "docker_image",
             "rationale",
         ],
     )
     _write_prompt_pack(out_dir / "self_pilot_prompts.txt", selected, tasks)
+    _write_prompt_files(out_dir, selected, tasks)
     _write_results_template(out_dir / "results_template.csv", selected)
 
     print(f"loaded {len(tasks)} tasks from {tasks_root}")

@@ -3,16 +3,24 @@ TB v2 prompt-only self pilot
 
 Goal
 ----
-Compare two interactive conditions on hard Terminal-Bench v2 prompts:
+Compare two conditions on hard Terminal-Bench v2 prompts:
 
-1. Direct Codex REPL: you operate Codex CLI yourself.
-2. argus-skill REPL: you give the same prompt to argus-skill and only
-   inspect/nudge when needed.
+1. Direct Codex: the automated runner sends the task to Codex; manual fallback
+   uses the Codex REPL.
+2. argus-skill: the automated runner sends the task through the argus-skill
+   REPL; manual fallback uses `/status`, `/journal`, `/nudge`, or `/stop` only
+   when needed.
 
 Primary measurement:
 
-  human_interactions_per_solved_task
-  active_touch_minutes_per_solved_task
+  zero_touch_success_rate
+  needs_human_rate
+  wall_minutes_per_task
+
+Manual follow-up measurement, when the runner flags `needs_human=true`:
+
+  human_interactions_after_assignment
+  active_touch_minutes_after_assignment
 
 Generate prompts
 ----------------
@@ -25,57 +33,92 @@ This downloads terminal-bench@2.0 through Harbor into /tmp and writes:
   benchmarks/prompt_only_tb2/generated/tb2_prompt_only_all.jsonl
   benchmarks/prompt_only_tb2/generated/self_pilot_assignment.csv
   benchmarks/prompt_only_tb2/generated/self_pilot_prompts.txt
+  benchmarks/prompt_only_tb2/generated/prompts/*.txt
   benchmarks/prompt_only_tb2/generated/results_template.csv
 
 The generated directory is gitignored because it contains copied official task
 prompts. Regenerate it whenever needed.
 
 The default self-pilot selection uses hard tasks only. Each selected hard task is
-run in both conditions, but the generated prompt forces Codex to work under
-`/app/codex/` and argus-skill under `/app/argus/`.
+run in both conditions. The prompt tells the agent to pull the task Docker image
+itself, create either `./codex/` or `./argus/` under the current pilot root, run
+the task inside its own Docker container, and export final `/app` contents back
+under that condition directory.
+
+Automated first pass
+--------------------
+Use the runner when you want "send the task, record the trace, only bother me if
+it gets stuck":
+
+  python benchmarks/prompt_only_tb2/run_pilot_row.py --order 3
+
+The runner:
+
+1. Reads the exact per-row prompt from `generated/prompts/`.
+2. Creates a fresh run root under `benchmarks/prompt_only_tb2/runs/`.
+3. Sends the prompt automatically:
+   - Codex rows use `codex exec --cd <run_root>`.
+   - Argus rows use the argus-skill REPL with piped input and then `/exit`.
+4. Captures `stdout.log`, `stderr.log`, `prompt.txt`, `metadata.json`, and
+   `result.json` under the run root.
+5. Appends a row to `generated/pilot_runs.csv`.
+
+The runner exits non-zero and records `needs_human=true` if the run times out,
+the process exits non-zero, the output explicitly asks for human action, or the
+condition directory was not exported.
+
+Useful variants:
+
+  python benchmarks/prompt_only_tb2/run_pilot_row.py --order 3 --dry-run
+  python benchmarks/prompt_only_tb2/run_pilot_row.py --order 4 --timeout-minutes 180
+
+This automated mode measures zero-touch behavior. It does not count rich manual
+REPL interventions because the runner intentionally avoids intervening.
 
 Protocol
 --------
-Use REPLs, not one-shot commands. A one-shot CLI run hides the supervision loop
-and makes "human interaction" ambiguous; the REPL makes every developer action
+Use manual REPLs when `needs_human=true`, or when you specifically want to study
+interactive intervention behavior. The manual REPL makes every developer action
 explicit and countable.
 
 For each row in self_pilot_assignment.csv:
 
-1. Start from a fresh task environment for that task. For Harbor this is:
+1. Start from a fresh pilot root for that task, for example:
 
-     harbor task start-env \
-       -p /tmp/argus-skill-tb2-prompt-only/terminal-bench/<task_id>
+     mkdir -p ~/tb2-pilot/fix-code-vulnerability
+     cd ~/tb2-pilot/fix-code-vulnerability
 
-   The prompt-only files are not a standalone repo; the TB environment still
-   provides the /app files and services.
-2. Read only the generated prompt text for that task.
+2. Read only the generated prompt text for that row.
 3. Do not inspect verifier internals, solution files, or previous trajectories.
-4. Run the assigned condition:
+4. Run the assigned condition from the fresh pilot root:
    - Direct Codex REPL: start an interactive Codex session, paste the prompt,
-     then drive Codex manually until you stop or solve it.
+      then drive Codex manually until you stop or solve it.
    - argus-skill REPL: start `argus-skill`, paste the prompt as the mission,
      and use `/status`, `/backlog`, `/journal`, `/nudge`, or `/stop` only when
      you would naturally intervene.
 5. Fill one row in results_template.csv.
 
-For the first self-test, prefer the foreground REPL over Telegram so the trace is
-easy to count. Telegram can be a later condition once the basic Codex-vs-Argus
-comparison is working.
+For the first self-test, prefer the automated runner. Use the foreground REPL
+only for rows that need manual follow-up. Telegram can be a later condition once
+the basic Codex-vs-Argus comparison is working.
 
 Isolation and scoring
 ---------------------
-The generated prompts deliberately rewrite final deliverables into
-condition-specific directories:
+The generated prompts deliberately separate host-side artifacts into
+condition-specific directories under the pilot root:
 
-- Codex condition: `/app/codex/`
-- argus-skill condition: `/app/argus/`
+- Codex condition: `./codex/`
+- argus-skill condition: `./argus/`
 
 This prevents the second run from accidentally copying the first run's files.
-It also means the prompt-only pilot is not a drop-in official TB verifier run:
-the official verifier usually expects files directly under `/app`. For this
-self-test, score by human inspection or by condition-aware checks. If you later
-want official verifier scores, run a separate non-isolated TB harness experiment.
+Inside the condition's Docker container, `/app` remains the real task root and
+the original prompt's `/app/...` paths should not be rewritten. At the end, the
+agent exports the container's `/app` tree to `./codex/app` or `./argus/app` for
+inspection.
+
+For this self-test, score by human inspection or by condition-aware checks over
+the exported app directory. If you later want official verifier scores, run a
+separate TB harness experiment.
 
 Human-interaction counting
 --------------------------
@@ -83,7 +126,7 @@ Count only developer actions, not automatic argus-skill reviewer/critic rounds.
 
 Count as human interactions:
 
-- prompts or follow-up messages sent to Codex
+- prompts or follow-up messages sent to Codex after the runner's initial prompt
 - argus-skill free-text messages, /nudge, /stop, or other intervention commands
 - manual shell commands used to inspect or repair the task outside the agent
 - explicit status checks such as /status, /backlog, /journal, --watch, --follow
@@ -97,8 +140,8 @@ Do not count:
 
 Counting convention
 -------------------
-The initial task prompt is assignment overhead. Record it in `human_messages`,
-but compute the headline "interventions after assignment" separately as:
+The runner records the initial task prompt as `human_messages=1`. Compute
+"interventions after assignment" separately as:
 
   human_messages + nudges + status_checks + manual_commands - 1
 
@@ -109,9 +152,8 @@ Suggested columns
 -----------------
 Use results_template.csv. The important columns are:
 
-  condition, task_id, solved, accepted, wall_minutes, active_touch_minutes,
-  human_messages, nudges, status_checks, manual_commands, manual_rescue,
-  cost_usd, notes
+  condition, task_id, run_root, needs_human, wall_minutes, human_messages,
+  nudges, status_checks, manual_commands, manual_rescue, solved, accepted, notes
 
 Quick-start subset
 ------------------

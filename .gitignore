@@ -23,6 +23,7 @@ htmlcov/
 # scratch
 benchmarks/results/
 benchmarks/prompt_only_tb2/generated/
+benchmarks/prompt_only_tb2/runs/
 
 # editor
 .idea/
