@@ -197,22 +197,6 @@ def _sum_token_counts(events: list[dict[str, Any]]) -> tuple[int, int, int]:
     return last_in, last_cached, last_out
 
 
-def _reported_cost_usd(events: list[dict[str, Any]]) -> float:
-    last_total = 0.0
-    last_cost = 0.0
-    for event in events:
-        for payload in _nested_dicts(event):
-            for key in ("total_cost_usd", "cost_usd", "estimated_cost_usd"):
-                value = _coerce_float(payload.get(key))
-                if value <= 0:
-                    continue
-                if key == "total_cost_usd":
-                    last_total = value
-                else:
-                    last_cost = value
-    return last_total or last_cost
-
-
 def _empty_usage() -> dict[str, Any]:
     return {
         "input_tokens": 0,
@@ -314,7 +298,6 @@ def _codex_cost_from_logs(stdout_path: Path, *, model: str) -> dict[str, Any]:
     events = _jsonl_objects(stdout_path)
     model = _model_from_events(events, model)
     input_tokens, cached_input_tokens, output_tokens = _sum_token_counts(events)
-    reported = _reported_cost_usd(events)
     model_stats: dict[str, dict[str, Any]] = {}
     _add_usage(
         model_stats,
@@ -329,7 +312,6 @@ def _codex_cost_from_logs(stdout_path: Path, *, model: str) -> dict[str, Any]:
     source = "argus_pricing_codex_json_tokens" if model_stats else "codex_json_no_usage"
     return {
         "cost_usd": totals["cost_usd"],
-        "reported_cost_usd": reported,
         "cost_source": source,
         "cost_model": model if model_stats else "",
         "input_tokens": totals["input_tokens"],
@@ -358,12 +340,6 @@ def _argus_journal_rows(run_root: Path) -> list[dict[str, Any]]:
 def _argus_cost_from_logs(run_root: Path) -> dict[str, Any]:
     events = _argus_events(run_root)
     models = _argus_model_defaults()
-    mission_costs = [
-        _coerce_float(event.get("cost_usd"))
-        for event in events
-        if event.get("type") == "life.mission.completed"
-    ]
-    reported_cost_usd = sum(value for value in mission_costs if value > 0)
     model_stats: dict[str, dict[str, Any]] = {}
     for event in events:
         etype = str(event.get("type") or "")
@@ -430,8 +406,6 @@ def _argus_cost_from_logs(run_root: Path) -> dict[str, Any]:
         row for row in journal_rows
         if row.get("kind") in {"mission_complete", "mission_failed", "mission_iterated"}
     ]
-    journal_cost = sum(_coerce_float(row.get("cost_usd")) for row in mission_rows)
-    reported_cost_usd = reported_cost_usd or journal_cost
     if not model_stats:
         for row in mission_rows:
             extra = row.get("extra") if isinstance(row.get("extra"), dict) else {}
@@ -450,7 +424,6 @@ def _argus_cost_from_logs(run_root: Path) -> dict[str, Any]:
 
     return {
         "cost_usd": totals["cost_usd"],
-        "reported_cost_usd": reported_cost_usd,
         "cost_source": cost_source,
         "cost_model": "multiple" if len(model_stats) > 1 else next(iter(model_stats), ""),
         "input_tokens": totals["input_tokens"],
@@ -474,7 +447,6 @@ def _cost_from_logs(
         return _argus_cost_from_logs(run_root)
     return {
         "cost_usd": 0.0,
-        "reported_cost_usd": 0.0,
         "cost_source": "unknown_condition",
         "cost_model": model,
         "input_tokens": 0,
@@ -760,7 +732,6 @@ def main(argv: list[str] | None = None) -> int:
         "ended_at": ended,
         "wall_minutes": f"{wall_seconds / 60.0:.2f}",
         "cost_usd": f"{float(cost['cost_usd']):.6f}",
-        "reported_cost_usd": f"{float(cost.get('reported_cost_usd', 0.0)):.6f}",
         "cost_source": cost["cost_source"],
         "cost_model": cost["cost_model"],
         "pricing_source": "argus_skill.core.pricing.usd_for_tokens",
@@ -791,8 +762,6 @@ def main(argv: list[str] | None = None) -> int:
         f"cost    : ${float(cost['cost_usd']):.6f} "
         f"({cost['cost_source']}, model={cost['cost_model']})"
     )
-    if float(cost.get("reported_cost_usd", 0.0)) > 0:
-        print(f"reported: ${float(cost['reported_cost_usd']):.6f}")
     print(f"needs_human={str(needs_human).lower()} exit_code={exit_code} timed_out={timed_out}")
     return 1 if needs_human else 0
 

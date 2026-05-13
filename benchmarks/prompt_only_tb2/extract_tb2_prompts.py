@@ -228,7 +228,6 @@ def _write_results_template(path: Path, selected: list[dict[str, Any]]) -> None:
         "wall_minutes",
         "active_touch_minutes",
         "cost_usd",
-        "reported_cost_usd",
         "cost_source",
         "cost_model",
         "pricing_source",
