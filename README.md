@@ -289,10 +289,8 @@ CLI, or anything else — only the wrapper changes.
 single foreground process that owns the supervisor, the per-project
 backlog, the journal, the layered skill cache, and the per-project
 process state. Free text becomes a mission immediately; slash
-commands manage the state. Top-level one-shot flags still exist for
-status, cockpit, daemon, and skill-admin actions, while the old ad-hoc
-`run` / `list-skills` modes were removed during the consolidation into
-`apps/cli.py` and `apps/_life_repl.py`.
+commands manage the state. Top-level one-shot flags cover status,
+cockpit, daemon, and skill-admin actions.
 
 ```bash
 ARGUS_SKILL_LIFE_BACKEND=codex argus-skill
@@ -542,9 +540,7 @@ v0.1. End-to-end working with two backends:
   `$PATH`.
 
 The unified REPL is the primary entry point. Top-level one-shot flags
-still exist for status, cockpit, daemon, and skill-admin actions, while
-the old ad-hoc `run` / `list-skills` modes were removed during the
-consolidation into `apps/cli.py` and `apps/_life_repl.py`. The detached
+cover status, cockpit, daemon, and skill-admin actions. The detached
 daemon and Telegram poller share the same split memory state: global
 identity/journal live at the shared root, while backlog, project
 memory, events, and process locks live under `projects/<fingerprint>/`.

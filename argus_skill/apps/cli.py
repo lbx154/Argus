@@ -10,10 +10,8 @@ one entry point — ``argus-skill`` — which:
 
 Top-level flags control daemon lifecycle and read-only operator help
 (``--daemon``, ``--daemon-fg``, ``--daemon-stop``, ``--status``,
-``--daemon-runbook``, ``--no-daemon``). There are no other subcommands
-— earlier ad-hoc ``run`` / ``list-skills`` modes were removed because
-they fragmented the mental model and competed with the backlog-driven
-workflow.
+``--daemon-runbook``, ``--no-daemon``). There are no subcommands; the
+REPL and backlog are the single workflow.
 """
 from __future__ import annotations
 
