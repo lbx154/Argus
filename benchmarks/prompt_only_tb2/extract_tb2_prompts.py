@@ -99,6 +99,8 @@ def _selected_rows(selection: dict[str, Any], tasks: dict[str, dict[str, Any]]) 
                 "pair_id": pair["pair_id"],
                 "condition": condition,
                 "task_id": task_id,
+                "workspace": f"/app/{condition}",
+                "other_workspace": "/app/argus" if condition == "codex" else "/app/codex",
                 "difficulty": task["difficulty"],
                 "category": task["category"],
                 "expert_time_estimate_min": task["expert_time_estimate_min"],
@@ -107,6 +109,26 @@ def _selected_rows(selection: dict[str, Any], tasks: dict[str, dict[str, Any]]) 
             })
             order += 1
     return rows
+
+
+def _condition_prompt(row: dict[str, Any], task_prompt: str) -> str:
+    workspace = row["workspace"]
+    other_workspace = row["other_workspace"]
+    return (
+        "## Pilot isolation rules\n\n"
+        f"You are running the `{row['condition']}` condition for this study.\n\n"
+        f"- Create and work inside `{workspace}/`.\n"
+        f"- Do not read from, copy from, or write to `{other_workspace}/`.\n"
+        "- If the task prompt mentions an absolute `/app/...` output path, place the "
+        f"corresponding deliverable under `{workspace}/...` instead. For example, "
+        f"`/app/results.txt` becomes `{workspace}/results.txt`.\n"
+        "- You may read original input files from `/app/` when they are provided by the "
+        "task environment, but copy any files you need to modify into your workspace first.\n"
+        "- Keep all generated code, logs, recovered files, and final answers in your "
+        "condition workspace so the other condition cannot accidentally reuse them.\n\n"
+        "## Original task prompt\n\n"
+        f"{task_prompt}"
+    )
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -137,8 +159,10 @@ def _write_prompt_pack(path: Path, selected: list[dict[str, Any]], tasks: dict[s
             fh.write(f"Category: {task['category']}\n")
             fh.write(f"Expert estimate min: {task['expert_time_estimate_min']}\n")
             fh.write(f"Docker image: {task['docker_image']}\n")
+            fh.write(f"Workspace: {row['workspace']}\n")
+            fh.write(f"Forbidden sibling workspace: {row['other_workspace']}\n")
             fh.write("\nPrompt:\n")
-            fh.write(task["prompt"])
+            fh.write(_condition_prompt(row, task["prompt"]))
             fh.write("\n\n" + "-" * 80 + "\n\n")
 
 
@@ -148,6 +172,7 @@ def _write_results_template(path: Path, selected: list[dict[str, Any]]) -> None:
         "pair_id",
         "condition",
         "task_id",
+        "workspace",
         "started_at",
         "ended_at",
         "solved",
@@ -221,6 +246,7 @@ def main(argv: list[str] | None = None) -> int:
             "pair_id",
             "condition",
             "task_id",
+            "workspace",
             "difficulty",
             "category",
             "expert_time_estimate_min",

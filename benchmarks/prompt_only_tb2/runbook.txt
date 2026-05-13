@@ -3,10 +3,10 @@ TB v2 prompt-only self pilot
 
 Goal
 ----
-Compare two interactive conditions on matched Terminal-Bench v2 prompts:
+Compare two interactive conditions on hard Terminal-Bench v2 prompts:
 
 1. Direct Codex REPL: you operate Codex CLI yourself.
-2. argus-skill REPL: you give the same style of prompt to argus-skill and only
+2. argus-skill REPL: you give the same prompt to argus-skill and only
    inspect/nudge when needed.
 
 Primary measurement:
@@ -29,6 +29,10 @@ This downloads terminal-bench@2.0 through Harbor into /tmp and writes:
 
 The generated directory is gitignored because it contains copied official task
 prompts. Regenerate it whenever needed.
+
+The default self-pilot selection uses hard tasks only. Each selected hard task is
+run in both conditions, but the generated prompt forces Codex to work under
+`/app/codex/` and argus-skill under `/app/argus/`.
 
 Protocol
 --------
@@ -58,6 +62,20 @@ For each row in self_pilot_assignment.csv:
 For the first self-test, prefer the foreground REPL over Telegram so the trace is
 easy to count. Telegram can be a later condition once the basic Codex-vs-Argus
 comparison is working.
+
+Isolation and scoring
+---------------------
+The generated prompts deliberately rewrite final deliverables into
+condition-specific directories:
+
+- Codex condition: `/app/codex/`
+- argus-skill condition: `/app/argus/`
+
+This prevents the second run from accidentally copying the first run's files.
+It also means the prompt-only pilot is not a drop-in official TB verifier run:
+the official verifier usually expects files directly under `/app`. For this
+self-test, score by human inspection or by condition-aware checks. If you later
+want official verifier scores, run a separate non-isolated TB harness experiment.
 
 Human-interaction counting
 --------------------------
@@ -97,5 +115,6 @@ Use results_template.csv. The important columns are:
 
 Quick-start subset
 ------------------
-If you want a short first run, use pairs p01-p03 only: 3 direct Codex tasks and
-3 argus-skill tasks. If that looks useful, run p04-p06 as the second batch.
+If you want a short first run, use pairs p01-p02 only: 2 hard tasks under Direct
+Codex and the same 2 hard tasks under argus-skill. If that looks useful, run
+p03-p06 as the second batch.
