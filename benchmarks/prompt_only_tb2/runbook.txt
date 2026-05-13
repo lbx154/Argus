@@ -60,7 +60,7 @@ The runner:
    - Codex rows use `codex exec --cd <run_root>`.
    - Argus rows use the argus-skill REPL with piped input and then `/exit`.
 4. Captures `stdout.log`, `stderr.log`, `prompt.txt`, `metadata.json`, and
-   `result.json` under the run root.
+   `result.json` under the run root, including cost/token fields when available.
 5. Appends a row to `generated/pilot_runs.csv`.
 
 The runner exits non-zero and records `needs_human=true` if the run times out,
@@ -74,6 +74,29 @@ Useful variants:
 
 This automated mode measures zero-touch behavior. It does not count rich manual
 REPL interventions because the runner intentionally avoids intervening.
+
+Cost accounting
+---------------
+The runner records:
+
+  cost_usd, cost_source, cost_model, input_tokens, cached_input_tokens, output_tokens
+
+For Codex baseline rows, the runner passes `--json` to `codex exec` by default
+and parses the JSONL usage events. If Codex reports a dollar cost, that value is
+used. Otherwise the runner estimates USD from token counts and the configured
+model price table.
+
+For argus-skill rows, the runner reads argus-skill's local event/journal files
+under the run root and uses the `life.mission.completed` / journal cost. If that
+is missing, it falls back to token-based estimation.
+
+If you use a non-default Codex model, pass it explicitly so the estimate is
+interpretable:
+
+  python benchmarks/prompt_only_tb2/run_pilot_row.py --order 3 --codex-model gpt-5.4
+
+If you need to keep Codex stdout human-readable instead of JSONL, pass
+`--no-codex-json`; cost may be unavailable for that row.
 
 Protocol
 --------
@@ -152,8 +175,9 @@ Suggested columns
 -----------------
 Use results_template.csv. The important columns are:
 
-  condition, task_id, run_root, needs_human, wall_minutes, human_messages,
-  nudges, status_checks, manual_commands, manual_rescue, solved, accepted, notes
+  condition, task_id, run_root, needs_human, wall_minutes, cost_usd,
+  cost_source, input_tokens, output_tokens, human_messages, nudges,
+  status_checks, manual_commands, manual_rescue, solved, accepted, notes
 
 Quick-start subset
 ------------------

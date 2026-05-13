@@ -16,6 +16,11 @@ from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BASE_DIR.parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from argus_skill.core.pricing import usd_for_tokens
+
 GENERATED_DIR = BASE_DIR / "generated"
 RUNS_DIR = BASE_DIR / "runs"
 ASSIGNMENT_PATH = GENERATED_DIR / "self_pilot_assignment.csv"
@@ -110,6 +115,228 @@ def _version(cmd: list[str]) -> str:
     return " ".join(proc.stdout.strip().split())[:300]
 
 
+def _coerce_int(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(float(value.strip()))
+        except ValueError:
+            return 0
+    return 0
+
+
+def _coerce_float(value: Any) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip().replace("$", "").replace(",", "")
+        try:
+            return float(text)
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def _jsonl_objects(path: Path) -> list[dict[str, Any]]:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    rows: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("{"):
+            continue
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            rows.append(payload)
+    return rows
+
+
+def _nested_dicts(event: dict[str, Any]) -> list[dict[str, Any]]:
+    out = [event]
+    for key in ("usage", "content", "msg", "message"):
+        value = event.get(key)
+        if isinstance(value, dict):
+            out.append(value)
+            nested_usage = value.get("usage")
+            if isinstance(nested_usage, dict):
+                out.append(nested_usage)
+    return out
+
+
+def _sum_token_counts(events: list[dict[str, Any]]) -> tuple[int, int, int]:
+    """Return the last non-zero cumulative token triple from Codex JSONL events."""
+    last_in = 0
+    last_cached = 0
+    last_out = 0
+    for event in events:
+        in_tok = 0
+        cached_tok = 0
+        out_tok = 0
+        for payload in _nested_dicts(event):
+            in_tok = in_tok or _coerce_int(payload.get("input_tokens"))
+            cached_tok = cached_tok or _coerce_int(payload.get("cached_input_tokens"))
+            out_tok = out_tok or _coerce_int(payload.get("output_tokens"))
+        if in_tok > 0:
+            last_in = in_tok
+        if cached_tok > 0:
+            last_cached = cached_tok
+        if out_tok > 0:
+            last_out = out_tok
+    return last_in, last_cached, last_out
+
+
+def _reported_cost_usd(events: list[dict[str, Any]]) -> float:
+    last_total = 0.0
+    last_cost = 0.0
+    for event in events:
+        for payload in _nested_dicts(event):
+            for key in ("total_cost_usd", "cost_usd", "estimated_cost_usd"):
+                value = _coerce_float(payload.get(key))
+                if value <= 0:
+                    continue
+                if key == "total_cost_usd":
+                    last_total = value
+                else:
+                    last_cost = value
+    return last_total or last_cost
+
+
+def _cost_model_for(args: argparse.Namespace, row: dict[str, str]) -> str:
+    if row["condition"] == "argus":
+        return os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini")
+    return (
+        args.cost_model
+        or args.codex_model
+        or os.environ.get("CODEX_MODEL", "")
+        or os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "")
+        or "gpt-5.4-mini"
+    )
+
+
+def _codex_cost_from_logs(stdout_path: Path, *, model: str) -> dict[str, Any]:
+    events = _jsonl_objects(stdout_path)
+    input_tokens, cached_input_tokens, output_tokens = _sum_token_counts(events)
+    reported = _reported_cost_usd(events)
+    if reported > 0:
+        cost_usd = reported
+        source = "codex_json_reported"
+    elif input_tokens or output_tokens:
+        cost_usd = usd_for_tokens(model, input_tokens, cached_input_tokens, output_tokens)
+        source = "codex_json_estimated_from_tokens"
+    else:
+        cost_usd = 0.0
+        source = "codex_json_no_usage"
+    return {
+        "cost_usd": cost_usd,
+        "cost_source": source,
+        "cost_model": model,
+        "input_tokens": input_tokens,
+        "cached_input_tokens": cached_input_tokens,
+        "output_tokens": output_tokens,
+    }
+
+
+def _argus_events(run_root: Path) -> list[dict[str, Any]]:
+    root = run_root / ".argus-skill"
+    events: list[dict[str, Any]] = []
+    for path in sorted(root.glob("**/events.jsonl")) + sorted(root.glob("**/events.jsonl.1")):
+        events.extend(_jsonl_objects(path))
+    return events
+
+
+def _argus_journal_rows(run_root: Path) -> list[dict[str, Any]]:
+    root = run_root / ".argus-skill"
+    rows: list[dict[str, Any]] = []
+    for path in sorted(root.glob("**/journal.jsonl")) + sorted(root.glob("**/journal.jsonl.1")):
+        rows.extend(_jsonl_objects(path))
+    return rows
+
+
+def _argus_cost_from_logs(run_root: Path, *, model: str) -> dict[str, Any]:
+    events = _argus_events(run_root)
+    mission_costs = [
+        _coerce_float(event.get("cost_usd"))
+        for event in events
+        if event.get("type") == "life.mission.completed"
+    ]
+    cost_usd = sum(value for value in mission_costs if value > 0)
+    cost_source = "argus_event_log"
+
+    input_tokens = 0
+    cached_input_tokens = 0
+    output_tokens = 0
+    for event in events:
+        if event.get("type") not in {"round.main.completed", "round.review.completed"}:
+            continue
+        input_tokens += _coerce_int(event.get("input_tokens"))
+        cached_input_tokens += _coerce_int(event.get("cached_input_tokens"))
+        output_tokens += _coerce_int(event.get("output_tokens"))
+
+    if cost_usd <= 0:
+        journal_rows = _argus_journal_rows(run_root)
+        mission_rows = [
+            row for row in journal_rows
+            if row.get("kind") in {"mission_complete", "mission_failed", "mission_iterated"}
+        ]
+        cost_usd = sum(_coerce_float(row.get("cost_usd")) for row in mission_rows)
+        if cost_usd > 0:
+            cost_source = "argus_journal"
+        if input_tokens == 0 and output_tokens == 0:
+            for row in mission_rows:
+                extra = row.get("extra") if isinstance(row.get("extra"), dict) else {}
+                input_tokens += _coerce_int(extra.get("input_tokens"))
+                output_tokens += _coerce_int(extra.get("output_tokens"))
+
+    if cost_usd <= 0 and (input_tokens or output_tokens):
+        cost_usd = usd_for_tokens(model, input_tokens, cached_input_tokens, output_tokens)
+        cost_source = "argus_estimated_from_tokens"
+    elif cost_usd <= 0:
+        cost_source = "argus_no_usage"
+
+    return {
+        "cost_usd": cost_usd,
+        "cost_source": cost_source,
+        "cost_model": model,
+        "input_tokens": input_tokens,
+        "cached_input_tokens": cached_input_tokens,
+        "output_tokens": output_tokens,
+    }
+
+
+def _cost_from_logs(
+    row: dict[str, str],
+    *,
+    args: argparse.Namespace,
+    run_root: Path,
+    stdout_path: Path,
+) -> dict[str, Any]:
+    model = _cost_model_for(args, row)
+    if row["condition"] == "codex":
+        return _codex_cost_from_logs(stdout_path, model=model)
+    if row["condition"] == "argus":
+        return _argus_cost_from_logs(run_root, model=model)
+    return {
+        "cost_usd": 0.0,
+        "cost_source": "unknown_condition",
+        "cost_model": model,
+        "input_tokens": 0,
+        "cached_input_tokens": 0,
+        "output_tokens": 0,
+    }
+
+
 def _prompt_with_runner_context(prompt: str, *, run_id: str, run_root: Path) -> str:
     return (
         "## Automated pilot runner context\n\n"
@@ -132,6 +359,8 @@ def _codex_command(args: argparse.Namespace, run_root: Path) -> list[str]:
         "--cd",
         str(run_root),
     ]
+    if args.codex_json:
+        cmd.append("--json")
     if args.codex_model:
         cmd.extend(["--model", args.codex_model])
     for extra in args.codex_extra_arg or []:
@@ -257,6 +486,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--codex-sandbox", default="danger-full-access")
     parser.add_argument("--codex-model", default=os.environ.get("CODEX_MODEL", ""))
     parser.add_argument(
+        "--cost-model",
+        default=os.environ.get("TB2_PILOT_COST_MODEL", ""),
+        help="Model used for USD estimation when the runner reports tokens but no cost.",
+    )
+    parser.add_argument(
+        "--no-codex-json",
+        action="store_false",
+        dest="codex_json",
+        help="Do not pass --json to `codex exec` (cost may be unavailable).",
+    )
+    parser.set_defaults(codex_json=True)
+    parser.add_argument(
         "--codex-extra-arg",
         action="append",
         default=[],
@@ -306,6 +547,8 @@ def main(argv: list[str] | None = None) -> int:
         "prompt_sha256": prompt_sha,
         "command": cmd,
         "timeout_seconds": timeout_seconds,
+        "codex_json": bool(args.codex_json),
+        "cost_model": _cost_model_for(args, row),
         "codex_version": _version([args.codex_bin, "--version"]),
         "argus_version": _version([sys.executable, "-m", "argus_skill", "--version"]),
         "docker_version": _version(["docker", "--version"]),
@@ -341,6 +584,7 @@ def main(argv: list[str] | None = None) -> int:
             pass
     workspace = row.get("workspace", "").removeprefix("./")
     workspace_exists = bool(workspace) and (run_root / workspace).exists()
+    cost = _cost_from_logs(row, args=args, run_root=run_root, stdout_path=stdout_path)
     human_hint = _human_request_hint(combined_tail)
     needs_human = timed_out or exit_code != 0 or human_hint or not workspace_exists
     notes = []
@@ -367,6 +611,12 @@ def main(argv: list[str] | None = None) -> int:
         "started_at": started,
         "ended_at": ended,
         "wall_minutes": f"{wall_seconds / 60.0:.2f}",
+        "cost_usd": f"{float(cost['cost_usd']):.6f}",
+        "cost_source": cost["cost_source"],
+        "cost_model": cost["cost_model"],
+        "input_tokens": cost["input_tokens"],
+        "cached_input_tokens": cost["cached_input_tokens"],
+        "output_tokens": cost["output_tokens"],
         "exit_code": exit_code,
         "timed_out": timed_out,
         "needs_human": needs_human,
@@ -386,6 +636,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"result  : {run_root / 'result.json'}")
     print(f"logs    : {stdout_path} ; {stderr_path}")
     print(f"csv     : {args.results_csv}")
+    print(
+        f"cost    : ${float(cost['cost_usd']):.6f} "
+        f"({cost['cost_source']}, model={cost['cost_model']})"
+    )
     print(f"needs_human={str(needs_human).lower()} exit_code={exit_code} timed_out={timed_out}")
     return 1 if needs_human else 0
 
