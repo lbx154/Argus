@@ -12,14 +12,18 @@ Public surface kept identical: ``Reviewer.evaluate(...) -> ReviewDecision``,
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
+from importlib import resources
 from pathlib import Path
 from typing import cast
 
 from ..core.models import CheckResult, ReviewDecision, ReviewStatus, RunnerOptions
 from ..core.ports import RunnerBackend
 from .checks import summarize_checks
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -33,6 +37,25 @@ class ReviewerConfig:
 
 
 SCHEMA_PATH = str(Path(__file__).with_name("reviewer_schema.json"))
+_REVIEWER_ENGINEER_HANDOFF_SKILL = "reviewer-engineer-handoff.md"
+_REVIEWER_ENGINEER_HANDOFF_FALLBACK = """# Reviewer-to-engineer handoff
+
+When validation fails, your `next_action` is the engineer's next prompt. The
+engineer may be a smaller model, so convert logs into a concise repair brief:
+name failed commands, exit codes, issue codes, exact paths, ordered fixes, and
+the command that proves completion. Do not paste raw logs wholesale.
+"""
+
+
+def _load_reviewer_engineer_handoff_skill() -> str:
+    try:
+        skill_path = resources.files("argus_skill.builtin_skills").joinpath(
+            _REVIEWER_ENGINEER_HANDOFF_SKILL
+        )
+        text = skill_path.read_text(encoding="utf-8").strip()
+    except (FileNotFoundError, ModuleNotFoundError, OSError):
+        return _REVIEWER_ENGINEER_HANDOFF_FALLBACK.strip()
+    return text or _REVIEWER_ENGINEER_HANDOFF_FALLBACK.strip()
 
 
 class Reviewer:
@@ -73,20 +96,33 @@ class Reviewer:
             prev_review_summary=prev_review_summary,
             raw_evidence=raw_evidence,
         )
-        result = self.runner.run_exec(
-            prompt=prompt,
-            resume_thread_id=None,
-            options=RunnerOptions(
-                model=config.model,
-                reasoning_effort=config.reasoning_effort,
-                dangerous_yolo=config.dangerous_yolo,
-                full_auto=config.full_auto,
-                skip_git_repo_check=config.skip_git_repo_check,
-                extra_args=list(config.extra_args) if config.extra_args else None,
-                output_schema_path=self.schema_path,
-            ),
-            run_label="reviewer",
-        )
+        try:
+            result = self.runner.run_exec(
+                prompt=prompt,
+                resume_thread_id=None,
+                options=RunnerOptions(
+                    model=config.model,
+                    reasoning_effort=config.reasoning_effort,
+                    dangerous_yolo=config.dangerous_yolo,
+                    full_auto=config.full_auto,
+                    skip_git_repo_check=config.skip_git_repo_check,
+                    extra_args=list(config.extra_args) if config.extra_args else None,
+                    output_schema_path=self.schema_path,
+                ),
+                run_label="reviewer",
+            )
+        except Exception as exc:  # noqa: BLE001
+            msg = f"Reviewer runner raised {type(exc).__name__}: {exc}"
+            log.exception("reviewer runner raised")
+            return ReviewDecision(
+                status="blocked",
+                confidence=0.0,
+                reason=msg,
+                next_action="Resolve the reviewer runner failure before retrying.",
+                round_summary_markdown=f"# Review Summary\n\n- {msg}\n",
+                completion_summary_markdown="",
+                failure_cause="environmental",
+            )
         rev_in = int(getattr(result, "input_tokens", 0) or 0)
         rev_cached = int(getattr(result, "cached_input_tokens", 0) or 0)
         rev_out = int(getattr(result, "output_tokens", 0) or 0)
@@ -140,6 +176,7 @@ class Reviewer:
     ) -> str:
         error_text = main_error or "none"
         check_text = summarize_checks(checks)
+        handoff_skill = _load_reviewer_engineer_handoff_skill()
         operator_text = (
             "\n".join(f"- {line}" for line in operator_messages)
             if operator_messages
@@ -174,6 +211,8 @@ class Reviewer:
             "command but saves an entire engineer round.\n\n"
             "Return valid JSON matching the provided schema.\n"
             "Do not wrap the response in markdown fences.\n\n"
+            "Reviewer-to-engineer handoff skill:\n"
+            f"{handoff_skill}\n\n"
             "**Length constraints (strictly enforce):**\n"
             "- Keep `round_summary_markdown` concise (under 2000 characters)\n"
             "- Keep `completion_summary_markdown` under 1500 characters\n"
@@ -208,6 +247,16 @@ class Reviewer:
             "   round verifying than declare premature `done`. The agent has no\n"
             "   ground-truth signal — your job is to demand evidence. But once\n"
             "   the evidence is in front of you (rule 1a), stop.\n"
+            "2a) Acceptance-check failures override all self-report. If any\n"
+            "   check in `Acceptance check results` is `[FAIL]`, choose\n"
+            "   `continue` even if the main agent claims success. Your\n"
+            "   `next_action` is the only repair prompt the engineer receives,\n"
+            "   so professionally distill the failed command, exit code,\n"
+            "   concrete issue codes/paths/messages, likely root cause, ordered\n"
+            "   repair steps, and exact rerun command. Do NOT paste the raw\n"
+            "   output tail wholesale. For `validate-*` commands, summarize the\n"
+            "   validator issues into exact repair instructions rather than\n"
+            "   saying only \"rerun validation\".\n"
             "3) When `continue`, `next_action` must be a concrete instruction\n"
             "   that asks for SPECIFIC verification commands (e.g.,\n"
             "   `run pytest -xvs and paste the full output`,\n"
@@ -246,7 +295,23 @@ class Reviewer:
             "   Functional correctness alone is NOT sufficient when the\n"
             "   operator gave a precise structural contract. This rule\n"
             "   protects users who rely on exact paths/frameworks for\n"
-            "   downstream tooling.\n\n"
+            "   downstream tooling.\n"
+            "9) Final-submission scope: ONLY when the Objective metadata says\n"
+            "   `planner_scope: final_submission` or `Task scope: final_submission`,\n"
+            "   choose `done` only if the evidence includes the command\n"
+            "   `python -m argus_skill.skills.pipeline_contracts validate-full-emnlp\n"
+            "   --project-root .` with a zero-exit/success result, plus submission\n"
+            "   assurance showing PASS or an explicitly accepted WARN with no hard\n"
+            "   blockers. `validate-pipeline`, `validate-manifest`, a pilot run,\n"
+            "   or an underlength draft is NOT enough for final submission. For\n"
+            "   positive paper objectives, do not accept a negative-result pivot\n"
+            "   or a baseline-only win: the proposed contribution must have a\n"
+            "   structured X-Y-Z-W paper_contribution claim and beat the strongest\n"
+            "   nontrivial baseline on the declared metric with statistical support.\n"
+            "   For\n"
+            "   `planner_scope: bounded` or absent scope metadata, do not require\n"
+            "   this project-final gate; judge the bounded task by its own\n"
+            "   acceptance criteria.\n\n"
             f"Objective:\n{objective}\n\n"
             "Operator message history (source of truth for user instructions):\n"
             f"{operator_text}\n\n"
@@ -258,7 +323,7 @@ class Reviewer:
             f"Main agent fatal error: {error_text}\n\n"
             "Main agent last summary:\n"
             f"{main_summary}\n\n"
-            "Acceptance check results:\n"
+            "Acceptance check results (reviewer-only evidence; summarize into `next_action`, do not paste raw output wholesale):\n"
             f"{check_text}\n"
             f"{evidence_block}"
         )

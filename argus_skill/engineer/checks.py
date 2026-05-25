@@ -4,6 +4,8 @@ import subprocess
 
 from ..core.models import CheckResult
 
+CHECK_OUTPUT_TAIL_CHARS = 8000
+
 
 def run_checks(
     commands: list[str],
@@ -27,7 +29,7 @@ def run_checks(
                 command=command,
                 exit_code=completed.returncode,
                 passed=completed.returncode == 0,
-                output_tail=_tail_text(merged, max_chars=1800),
+                output_tail=_tail_text(merged, max_chars=CHECK_OUTPUT_TAIL_CHARS),
             )
         )
     return results

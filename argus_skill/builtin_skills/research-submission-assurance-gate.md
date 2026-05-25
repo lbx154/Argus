@@ -1,0 +1,199 @@
+---
+name: Research Submission Assurance Gate
+description: Decide whether a research draft can be called EMNLP/ACL submission-ready by checking experiment integrity, result-to-claim support, paper claims, citations, prose quality, layout, adversarial rejection arguments, and package completeness.
+category: research-audit
+version: 1
+scientist_model: gpt-5.4
+created_at: 2026-05-23T00:00:00+00:00
+---
+
+## Title
+Research Submission Assurance Gate
+
+## Description
+Run the final high-strictness gate before a paper is described as EMNLP-ready. This adapts ARIS experiment-audit, result-to-claim, paper-claim-audit, citation-audit, kill-argument, paper-quality calibration, and MIT-licensed `AI-Research-SKILLs` rigor/prose workflow concepts into a single argus-skill assurance contract.
+
+## When to use
+- A draft exists under `paper/` and the operator asks whether it is ready, submission-quality, conference-ready, or safe to polish.
+- `research/NARRATIVE_REPORT.md`, experiment artifacts, and a claims-evidence table exist.
+- The pipeline is about to report success after paper drafting or revision.
+
+## When NOT to use
+- There are no raw experiment artifacts yet; run or plan experiments first.
+- The operator only asks for a quick writing pass and explicitly does not want a readiness judgment.
+- A prior assurance report already blocks on missing evidence and nothing has changed.
+
+## Required inputs
+- `research/PIPELINE_STATE.json`
+- `research/NARRATIVE_REPORT.md`
+- `research/CLAIMS_TO_TEST.md`
+- `experiments/BENCHMARK_PROVENANCE.md`
+- `experiments/**/manifest.json`, raw results, logs, and verifier outputs
+- `paper/main.tex` and `paper/main.pdf` when LaTeX is available
+- `paper/artifacts/claims_evidence.tsv` or `paper/CLAIMS_EVIDENCE_AUDIT.tsv`
+- `paper/ARTIFACT_MANIFEST.json` with canonical sources, generated artifacts, SHA-256 digests, TSV column schemas, and source links for manuscripts/reports/figures
+- `paper/PAGE_BUDGET.md`, `paper/TEMPLATE_SOURCE.md`, and a thick `paper/style_ref/STYLE_PROFILE.md`
+- `paper/main.log`, rendered `paper/main.pdf`, and extracted layout/page evidence sufficient to prove the `research.md` formatting preflight: no unresolved references/citations, no `[?]`, no `Overfull \hbox > 5pt`, body visibly fills the EMNLP long-paper budget (Conclusion not before page 7 and References not before page 8 when PDF text can be extracted), conclusion by page 8, Limitations/Ethical Considerations present after the conclusion, References before Appendix, anonymous author block, no placeholders, no `% UNVERIFIED` bibliography entries unless explicitly accepted by the operator, at least 35 verified BibTeX entries, at least 30 unique cited keys, at least two rendered References pages when PDF text can be extracted, every figure labeled/referenced, every table caption a numerical headline, at least one figure/table on each of pages 4--7, at least one paired-significance table, and complete reproducibility appendix
+- `research/LITERATURE_GROUNDING.json` with at least 10 recent high-quality papers, 3 classic anchor papers, and recorded news/trend discovery signals
+- `research/IDEA_PROVENANCE.json` proving the selected idea was derived from surveyed papers, benchmarks, trend signals, and code sources rather than agent brainstorming
+- `research/CODE_REUSE_PLAN.json` recording official paper-code/open-source repository search, license/terms, attribution, and reuse/adapt/reject decisions
+- `paper/style_ref/EXEMPLAR.json` with `exemplar_schema_version: 2`, at least two excellent open-access paper exemplars, local downloaded PDFs under `paper/style_ref/exemplars/`, text extracts, PDF SHA-256 digests, license/storage-policy metadata, and structural-style-only/no-prose-copy attestations
+- `paper/PAPER_DRAFT_REPORT.json` declaring `target_venue: "EMNLP"`, `paper_scope: "long-paper"`, `main_content_pages`, `official_acl_template: true`, and `submission_quality_self_assessment`
+- `paper/figures/IMAGE2_FIGURES.json` proving Figure 1, teaser, overall, or the core conceptual/method/framework/system overview was generated through image-2 / codex-image2 and that `paper/main.tex` includes the manifest's raster `output_path`; data plots and secondary TikZ/pgfplots diagrams may be script/vector generated, but they must not replace the core overview. **Self-drawn overview replacements are hard blockers:** matplotlib/FancyBboxPatch, TikZ node graphs, SVG/PIL/HTML canvases, cleaned PDFs, screenshots, Inkscape/manual vector output, or generic raster mockups are not acceptable substitutes.
+- `paper/FORMAT_PREFLIGHT.md` plus a clean `python -m argus_skill.skills.pipeline_contracts validate-research-md-format --project-root .` run proving the dedicated `research.md` format preflight passed
+- `paper/ACADEMIC_LANGUAGE_REVIEW.json` and `paper/ACADEMIC_LANGUAGE_REVIEW.md` produced by `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`, with fresh source hashes, quoted evidence spans, score at least 4/5, and `needs_revision: false`
+- `paper/LAYOUT_REVIEW.json` and `paper/LAYOUT_REVIEW.md` produced by `python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write`, with rendered page snapshots, fresh hashes, score at least 4/5, and `needs_revision: false`
+- Published-positive metadata and local PDF/text exemplar evidence from official sources when available. For EMNLP 2025, use the official awards page metadata for `Infini-gram mini: Exact n-gram Search at the Internet Scale with FM-Index` and the outstanding-paper list as positive quality-signal sources. Download open-access PDFs only as redistributable artifacts or local research-cache references according to their license/terms; do not copy paper prose.
+
+## Assurance layers
+Use the 6-state verdict schema `PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLICABLE` for every layer.
+
+1. **experiment integrity**
+   - Check that evaluation uses real ground truth or a documented oracle, not another model's output as hidden ground truth.
+   - Verify task pairing, seeds, model IDs, metrics, filtering, and failed-run handling match the experiment plan.
+   - Verify that full-run task counts are unique semantic tasks, not repeated pilot rows with changed IDs. Inspect benchmark JSONL/records for duplicate prompts/specs/gold answers and suffix-copy patterns such as `_r2`, `_copy`, `_dup`, or equivalent relabeling.
+   - Hard blockers: phantom result rows, missing raw artifacts for reported numbers, unpaired baselines, silent dropped failures, or benchmark scale inflated by duplicate/relabelled episodes.
+
+2. **result-to-claim**
+   - Map every intended claim to raw evidence.
+   - Verdicts per claim: `supported`, `weak`, `rejected`, `missing`, or `contradicted`.
+   - Hard blockers: any strong comparative or numeric claim with `missing` or `contradicted` evidence.
+
+3. **paper-claim audit**
+   - Cold-read `paper/main.tex` against raw TSV/JSONL artifacts.
+   - Check every number, percentage, comparison, superlative, figure caption, table caption, and scope phrase.
+   - Run `python -m argus_skill.skills.pipeline_contracts validate-manifest --project-root .` and treat digest drift, TSV schema mismatch, unknown generated sources, source cycles, or missing manifest entries as paper-claim audit failures.
+   - Hard blockers: unsupported SOTA/generalization language, mismatched numbers, stale manuscript copies relative to canonical tables, or pilot results written as full-benchmark conclusions.
+
+4. **idea provenance and code reuse**
+   - Run `python -m argus_skill.skills.pipeline_contracts validate-idea-provenance --project-root .` and `validate-code-reuse`.
+   - Check that the final idea comes from surveyed papers, benchmark gaps, trend sources, and/or code sources--not from free-form agent brainstorming.
+   - Check that official paper code, benchmark repositories, Papers with Code links, GitHub project pages, dataset repos, and relevant libraries were searched before implementation.
+   - Confirm any reused/adapted code has license/terms, attribution, and a clear reuse decision; incompatible code must be rejected, not pasted.
+   - Hard blockers: missing `research/IDEA_PROVENANCE.json`, `agent_generated` ideas, fewer than 3 literature-derived candidates, selected ideas without paper-derived sources, missing `research/CODE_REUSE_PLAN.json`, no repository/code search, or reused code without license/attribution.
+
+5. **literature and exemplar grounding**
+   - Run `python -m argus_skill.skills.pipeline_contracts validate-grounding --project-root .` and `validate-exemplar`.
+   - Check that recent high-quality papers, classic anchors, and trend/news signals all exist before accepting related-work or motivation framing.
+   - Trend/news signals do not need paper/benchmark/code backing merely to be recorded. However, any technical paper claim inspired by a trend must still be supported by surveyed papers/code/benchmarks or local experiment artifacts.
+   - Confirm Paper Exemplar PDF Learning ran: at least two PDFs are downloaded locally, text extracts exist, `pdf_sha256` matches, one exemplar is a recent best/outstanding/award paper when available, and `paper/style_ref/STYLE_PROFILE.md` is thick enough to cover abstract shape, section/page allocation, figure/table inventory, related-work shape, evaluation layout, formatting/layout lessons, writing lessons, transfer plan, and no-prose-copy policy.
+   - Confirm the exemplar is used only for structure and no prose, claims, examples, terminology, bibliography text, or figure design were copied.
+   - Hard blockers: missing `research/LITERATURE_GROUNDING.json`, fewer than 10 recent papers, fewer than 3 classic anchors, missing trend-source metadata, missing `paper/style_ref/EXEMPLAR.json`, URL-only exemplar metadata without local PDFs/text/hash/profile evidence, copied exemplar prose, or trend-only technical claims without evidence.
+
+6. **citation audit**
+   - Verify each `\cite{}` exists in the bibliography and is context-appropriate when web/local metadata are available.
+   - Final-ready papers need bibliography depth, not just citation validity: at least 35 verified BibTeX entries, at least 30 unique cited keys in the paper source, and at least two rendered References pages before the Appendix when PDF text extraction is available.
+   - If web access is unavailable, mark citation checks `BLOCKED` or `WARN` with exact missing verification steps; do not fabricate metadata.
+   - Hard blockers: invented citations, citation keys with no bibliography entry, too few verified/cited references, or claims that depend on unverifiable related work.
+
+7. **kill-argument**
+   - Write the strongest concise rejection memo against the paper.
+   - Adjudicate which points are already answered, which require writing fixes, and which require new experiments.
+   - Hard blockers: a still-valid rejection that can be fixed within the current evidence but remains unaddressed.
+
+8. **paper-quality calibration**
+   - Write `paper/PAPER_QUALITY_CALIBRATION.md` and `paper/PAPER_QUALITY_CALIBRATION.json`.
+   - Compare the candidate against the negative fresh-demo pilot pattern by failure signals, not by path: `baseline_not_beaten`, `synthetic_only_benchmark`, `underpowered_pilot` (fewer than 240 scored main tasks/episodes), `parser_or_schema_confound`, and `draft_self_reports_not_submission_quality`.
+   - Extract only quality signals from positive exemplars such as EMNLP 2025 award papers: clear problem relevance, nontrivial contribution, public/resource-scale validation, strong baselines, and claim scope that matches measurement.
+   - Confirm that benchmark selection was part of the literature survey: the project should cite recent/frontier, widely used public benchmarks and official repos considered for the domain before claiming that a synthetic benchmark is appropriate.
+   - Hard blockers: PASS/WARN while matching a hard negative pattern, failing to beat a nontrivial baseline for a comparative claim, synthetic-only pilot evidence presented as EMNLP-ready, any final claim based on fewer than 240 unique semantic scored main tasks/episodes, duplicated benchmark expansion, missing frontier/public benchmark survey, or unresolved parser/schema confounds.
+
+9. **research.md format preflight**
+   - Invoke the EMNLP Format Preflight skill after the final compile and before model/vision review.
+   - Run `python -m argus_skill.skills.pipeline_contracts validate-research-md-format --project-root .`; treat every issue as a blocking package defect.
+   - Check `paper/FORMAT_PREFLIGHT.md` for the compile command, page count, conclusion page, figure/table inventory, bibliography status, fixes applied, and exact final validator result.
+   - Hard blockers: missing or stale preflight, non-anonymous review author block, visibly underfilled main body, references after appendix, too few verified/cited references or too-short rendered References section, missing Limitations/Ethical Considerations, no reproducibility appendix, `[?]`, undefined references/citations, `Overfull \hbox > 5pt`, placeholders, `% UNVERIFIED`, unreferenced figures, excessive body figures, missing numerical table captions, missing paired-significance evidence, or missing `research.md` table-style tokens.
+
+10. **academic-language review**
+   - Run `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write` after prose stabilizes, then run `python -m argus_skill.skills.pipeline_contracts validate-academic-language-review --project-root .`.
+   - Check `paper/ACADEMIC_LANGUAGE_REVIEW.json` for `score_1_to_5 >= 4`, `verdict: PASS`, `needs_revision: false`, no blocking issues, fresh hashes for all transitive LaTeX sources, model-backed review method, and quoted evidence spans from current source.
+   - Hard blockers: missing or stale academic-language review, heuristic-only self-score, score below threshold, active revision directives, generic LLM-boilerplate opening, uncalibrated hype, missing What/Why/So-What contribution framing, claims not aligned to evidence, chronological related-work dump, or absent limitation scope.
+
+11. **layout aesthetic review**
+   - Run `python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write` after the final PDF compile, then run `python -m argus_skill.skills.pipeline_contracts validate-layout-review --project-root .`.
+   - Check `paper/LAYOUT_REVIEW.json` for `score_1_to_5 >= 4`, `verdict: PASS`, `needs_revision: false`, no blocking issues, fresh PDF/page snapshot hashes, and a vision-based review method.
+   - Hard blockers: missing or stale layout review, heuristic-only self-score, score below threshold, active revision directives, float/table dump pages, unreadable tiny table fonts, awkward whitespace, table/body overlap, `Overfull \hbox > 5pt`, more than five body figures, multiple `figure*` floats, square `1024x1024` conceptual figures, or image/caption layout that would make a reviewer reject the paper before reading.
+
+12. **submission package**
+   - Check official ACL/EMNLP style usage, anonymity, page budget, compile status, figures/tables existence, artifact manifest, and reproducibility notes.
+   - Run `validate-image2-figures`, `validate-research-md-format`, `validate-academic-language-review`, `validate-layout-review`, `validate-paper-contract`, and the final `validate-full-emnlp` gate; block if the draft is a pilot/short/workshop scope, has fewer than 240 unique semantic scored main benchmark tasks/episodes, duplicates/relabels pilot episodes to inflate benchmark scale, lacks a literature-grounded survey of frontier/public benchmarks, is outside the 7.5--8 page EMNLP long-paper range, lacks official ACL style, lacks a core image-2 conceptual figure, lacks a passing format preflight, lacks a passing academic-language review, lacks a passing visual layout review, or has no submission-stage ready/done state.
+   - Enforce the full `research.md` preflight checklist before any `PASS`: no undefined references/citation warnings, no `[?]`, no `Overfull \hbox > 5pt`, body conclusion at or before page 8, Limitations and Ethical Considerations present, References before Appendix, at least 35 verified BibTeX entries, at least 30 unique cited keys, at least two rendered References pages when PDF text extraction is available, every figure labeled and referenced, every table caption with a numerical headline, no placeholders, anonymous `Anonymous EMNLP Submission` author block, no `% UNVERIFIED` bibliography entries unless the operator has been told, at least one figure/table on each of pages 4--7, at least one paired-significance table when applicable, and complete reproducibility appendix.
+   - Enforce table/figure style readiness: tables use `\footnotesize`, `\tabcolsep=3-4pt`, `\arraystretch=1.15`, light-gray header, soft peach "ours" row, alternating row tint, and bold winning values; conceptual figures are adaptive/landscape page-width image-2 raster assets, preferably `1536x1024 or 1920x1080`, with no weird fonts, tiny text, heavy gradients, photorealism, or snake_case/code labels, and no self-drawn matplotlib/TikZ/SVG/PIL/HTML/PDF redraw substitution for the core overview.
+   - Verify that `paper/submission/` copies, if present, are listed in `paper/ARTIFACT_MANIFEST.json` and have fresh digests after the final copy step.
+   - Environment blockers such as missing LaTeX or web access should be recorded as `BLOCKED`, not hidden behind a success-shaped fallback.
+
+## Outputs
+Write `paper/SUBMISSION_ASSURANCE.md` for humans and `paper/SUBMISSION_ASSURANCE.json` for machine checks.
+
+The JSON must follow this shape:
+
+```json
+{
+  "verdict": "FAIL",
+  "blocking_issues": [
+    {"layer": "paper_claim_audit", "issue": "unsupported numeric claim", "required_fix": "remove or cite result row"}
+  ],
+  "layers": {
+    "experiment_integrity": {"verdict": "PASS", "evidence": ["experiments/run/manifest.json"]},
+    "result_to_claim": {"verdict": "WARN", "evidence": ["paper/artifacts/claims_evidence.tsv"]},
+    "paper_claim_audit": {"verdict": "FAIL", "evidence": ["paper/main.tex"]},
+    "idea_provenance_and_code_reuse": {"verdict": "PASS", "evidence": ["research/IDEA_PROVENANCE.json", "research/CODE_REUSE_PLAN.json"]},
+    "literature_and_exemplar_grounding": {"verdict": "PASS", "evidence": ["research/LITERATURE_GROUNDING.json", "paper/style_ref/EXEMPLAR.json"]},
+    "citation_audit": {"verdict": "BLOCKED", "evidence": ["paper/references.bib"]},
+    "kill_argument": {"verdict": "WARN", "evidence": ["paper/KILL_ARGUMENT.md"]},
+    "paper_quality_calibration": {"verdict": "FAIL", "evidence": ["paper/PAPER_QUALITY_CALIBRATION.json"]},
+    "research_md_format_preflight": {"verdict": "FAIL", "evidence": ["paper/FORMAT_PREFLIGHT.md"]},
+    "academic_language_review": {"verdict": "FAIL", "evidence": ["paper/ACADEMIC_LANGUAGE_REVIEW.json"]},
+    "layout_aesthetic_review": {"verdict": "FAIL", "evidence": ["paper/LAYOUT_REVIEW.json"]},
+    "submission_package": {"verdict": "PASS", "evidence": ["paper/main.pdf"]}
+  },
+  "next_action": "revise_paper | run_more_experiments | verify_citations | ready_to_submit | pivot"
+}
+```
+
+The calibration JSON must include explicit machine-checkable signals:
+
+```json
+{
+  "verdict": "FAIL",
+  "quality_signals": {
+    "uses_public_benchmark": false,
+    "beats_nontrivial_baseline": false,
+    "n_tasks_meets_threshold": false,
+    "parser_schema_confound_cleared": false,
+    "submission_quality_self_assessment": "pilot"
+  },
+  "negative_case_regressions": [
+    {
+      "case_id": "negative:fresh-demo-pilot-pattern",
+      "matched": true,
+      "hard_failure": true,
+      "signals": ["baseline_not_beaten", "synthetic_only_benchmark", "parser_or_schema_confound"]
+    }
+  ],
+  "quality_signals_from_positive_examples": [
+    {
+      "case_id": "positive:emnlp2025-best-infini-gram-mini",
+      "signals_used": ["clear_problem_with_broad_relevance", "scale_or_resource_evidence"],
+      "source_url": "https://2025.emnlp.org/program/awards/"
+    }
+  ],
+  "blocking_issues": [
+    {"issue": "pilot evidence does not beat baseline", "required_fix": "pivot or run stronger validation"}
+  ]
+}
+```
+
+## Decision rules
+- Overall `PASS`: all hard layers pass and `blocking_issues` is empty.
+- Overall `WARN`: no hard blocker remains, but caveats such as pilot scale or environment-limited citation verification are explicit.
+- Overall `FAIL`: the draft makes claims that the evidence does not support or has fixable paper defects.
+- Overall `BLOCKED`: required external resources are unavailable; record exact unblock steps.
+- Overall `ERROR`: the audit could not complete because required files are malformed.
+- Never emit `PASS` or `WARN` if `validate-manifest` reports any issue. Stale generated artifacts are evidence-integrity blockers, not formatting warnings.
+- Never emit `PASS` or `WARN` if `validate-grounding`, `validate-idea-provenance`, `validate-code-reuse`, `validate-exemplar`, `validate-image2-figures`, `validate-research-md-format`, `validate-academic-language-review`, `validate-layout-review`, `validate-paper-contract`, or `validate-full-emnlp` reports any issue. A project without literature/news/classic grounding, a literature-derived idea, a license-aware code survey, downloaded/thick top-paper exemplar learning, image-2 conceptual figure, passing `research.md` format preflight, passing academic-language review, passing visual layout review, complete EMNLP long-paper scope, and submission-stage readiness is not submission-ready.
+
+## Response shape
+- State the overall verdict and the highest-severity blocker.
+- List the exact artifact paths written.
+- If not `PASS`, name the next stage: revision, more experiments, citation verification, or pivot.

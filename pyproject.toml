@@ -56,6 +56,7 @@ packages = ["argus_skill"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "argus_skill/engineer/reviewer_schema.json" = "argus_skill/engineer/reviewer_schema.json"
+"argus_skill/builtin_skills" = "argus_skill/builtin_skills"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -76,6 +77,8 @@ extend-exclude = [
   "build",
   "dist",
   ".venv",
+  "argus/app",
+  "codex/app",
   "benchmarks/swebench_pro",
   "pyknotid-scratch",
   "pyknotid_capability",
@@ -104,7 +107,7 @@ filterwarnings = [
 
 [tool.mypy]
 python_version = "3.11"
-exclude = '''^(?:benchmarks|build|dist|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.venv|pyknotid-scratch|pyknotid_capability)(?:/|$)'''
+exclude = '''^(?:benchmarks|build|dist|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.venv|argus/app|codex/app|pyknotid-scratch|pyknotid_capability)(?:/|$)'''
 files = [
   "argus_skill",
   "tests",

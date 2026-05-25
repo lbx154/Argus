@@ -19,7 +19,7 @@ the engineer in front of you.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Protocol
 
@@ -37,6 +37,33 @@ from .checks import all_checks_passed, run_checks
 from .reviewer import Reviewer, ReviewerConfig
 
 log = logging.getLogger(__name__)
+
+_POISONED_SESSION_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
+    "empty output",
+    "empty-output",
+    "no output",
+    "no-output",
+    "out of room",
+    "context window",
+    "clear earlier history",
+    "start a new thread",
+    "start new thread",
+    "no rollout found for thread id",
+)
+
+def _fatal_error_looks_like_poisoned_session(fatal_error: str | None) -> bool:
+    if not fatal_error:
+        return False
+    low = str(fatal_error).strip().casefold()
+    return any(pattern in low for pattern in _POISONED_SESSION_FATAL_ERROR_PATTERNS)
+
+
+def should_clear_thread_id_after_outcome(*, status: str, fatal_error: str | None) -> bool:
+    """Return True when the carried Codex thread id should be cleared."""
+    return (
+        str(status).strip().casefold() == "no_progress"
+        or _fatal_error_looks_like_poisoned_session(fatal_error)
+    )
 
 
 @dataclass
@@ -154,8 +181,8 @@ class SupervisedEngineer:
             # Capture thread_id so the next round (and the next mission,
             # via the return value) can resume the same codex session.
             new_tid = getattr(engineer_result, "thread_id", None)
-            if new_tid:
-                current_thread_id = new_tid
+            fatal_error = getattr(engineer_result, "fatal_error", None)
+            round_thread_id = new_tid or current_thread_id
             engineer_message = engineer_result.last_agent_message or ""
             last_engineer_message = engineer_message or last_engineer_message
 
@@ -170,7 +197,7 @@ class SupervisedEngineer:
                     "type": "round.main.completed",
                     "round_index": round_index,
                     "round_max": supervised_config.max_rounds,
-                    "session_id": current_thread_id,
+                    "session_id": round_thread_id,
                     "exit_code": getattr(engineer_result, "exit_code", 0),
                     "fatal_error": getattr(engineer_result, "fatal_error", None),
                     "last_message": engineer_message,
@@ -179,7 +206,13 @@ class SupervisedEngineer:
                         getattr(engineer_result, "cached_input_tokens", 0) or 0
                     ),
                     "output_tokens": int(getattr(engineer_result, "output_tokens", 0) or 0),
+                    "usage_scope": "delta",
                 })
+
+            if should_clear_thread_id_after_outcome(status="", fatal_error=fatal_error):
+                current_thread_id = None
+            elif new_tid:
+                current_thread_id = new_tid
 
             if not engineer_message.strip():
                 no_progress_streak += 1
@@ -191,6 +224,7 @@ class SupervisedEngineer:
                 checks_results = run_checks(
                     supervised_config.check_commands,
                     timeout_seconds=supervised_config.check_timeout_seconds,
+                    cwd=str(workdir),
                 )
                 if on_event:
                     on_event({
@@ -198,7 +232,6 @@ class SupervisedEngineer:
                         "round": round_index,
                         "text": f"checks: {sum(1 for c in checks_results if c.passed)}/{len(checks_results)} pass",
                     })
-
             prev_round = rounds[-1] if rounds else None
             prev_review = getattr(prev_round, "review", None) if prev_round else None
             prev_review_summary = ""
@@ -216,17 +249,31 @@ class SupervisedEngineer:
                     "round_max": supervised_config.max_rounds,
                     "session_id": supervised_config.session_id,
                 })
-            review = self.reviewer.evaluate(
-                objective=objective,
-                round_index=round_index,
-                session_id=supervised_config.session_id,
-                main_summary=engineer_message or "(no message)",
-                main_error=engineer_result.fatal_error,
-                checks=checks_results,
-                config=self.reviewer_config,
-                engineer_reasoning_summary=engineer_message or "",
-                prev_review_summary=prev_review_summary,
-            )
+            try:
+                review = self.reviewer.evaluate(
+                    objective=objective,
+                    round_index=round_index,
+                    session_id=supervised_config.session_id,
+                    main_summary=engineer_message or "(no message)",
+                    main_error=engineer_result.fatal_error,
+                    checks=checks_results,
+                    config=self.reviewer_config,
+                    engineer_reasoning_summary=engineer_message or "",
+                    prev_review_summary=prev_review_summary,
+                )
+            except Exception as exc:  # noqa: BLE001
+                msg = f"reviewer raised {type(exc).__name__}: {exc}"
+                log.exception("reviewer raised during supervised round")
+                review = ReviewDecision(
+                    status="blocked",
+                    confidence=0.0,
+                    reason=msg,
+                    next_action="Resolve the reviewer runner failure before retrying.",
+                    round_summary_markdown=f"# Review Summary\n\n- {msg}\n",
+                    completion_summary_markdown="",
+                    failure_cause="environmental",
+                )
+            review = _coerce_review_for_failed_checks(review, checks_results)
             if on_event:
                 on_event({
                     "type": "round.review.completed",
@@ -244,6 +291,7 @@ class SupervisedEngineer:
                         getattr(review, "cached_input_tokens", 0) or 0
                     ),
                     "output_tokens": int(getattr(review, "output_tokens", 0) or 0),
+                    "usage_scope": "delta",
                     "text": f"review: {review.status} (conf={review.confidence:.2f}) — {review.reason}",
                 })
             rounds.append(RoundRecord(
@@ -264,7 +312,18 @@ class SupervisedEngineer:
                 max_rounds=supervised_config.max_rounds,
             )
             if terminal_status is not None:
-                return terminal_status, rounds, last_engineer_message, reason, current_thread_id
+                return (
+                    terminal_status,
+                    rounds,
+                    last_engineer_message,
+                    reason,
+                    None
+                    if should_clear_thread_id_after_outcome(
+                        status=terminal_status,
+                        fatal_error=fatal_error,
+                    )
+                    else current_thread_id,
+                )
 
             last_next_action = review.next_action
 
@@ -284,20 +343,29 @@ class SupervisedEngineer:
         run_label: str,
         resume_thread_id: str | None = None,
     ) -> RunnerResult:
-        return self.engineer_runner.run_exec(
-            prompt=prompt,
-            options=RunnerOptions(
-                model=self.engineer_config.model,
-                reasoning_effort=self.engineer_config.reasoning_effort,
-                extra_args=self.engineer_config.extra_args,
-                full_auto=self.engineer_config.full_auto,
-                skip_git_repo_check=self.engineer_config.skip_git_repo_check,
-                dangerous_yolo=self.engineer_config.dangerous_yolo,
-                working_dir=str(workdir),
-            ),
-            run_label=run_label,
-            resume_thread_id=resume_thread_id,
-        )
+        try:
+            return self.engineer_runner.run_exec(
+                prompt=prompt,
+                options=RunnerOptions(
+                    model=self.engineer_config.model,
+                    reasoning_effort=self.engineer_config.reasoning_effort,
+                    extra_args=self.engineer_config.extra_args,
+                    full_auto=self.engineer_config.full_auto,
+                    skip_git_repo_check=self.engineer_config.skip_git_repo_check,
+                    dangerous_yolo=self.engineer_config.dangerous_yolo,
+                    working_dir=str(workdir),
+                ),
+                run_label=run_label,
+                resume_thread_id=resume_thread_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            msg = f"engineer runner raised {type(exc).__name__}: {exc}"
+            log.exception("engineer runner raised during %s", run_label)
+            return RunnerResult(
+                exit_code=-1,
+                fatal_error=msg,
+                stderr_lines=[msg],
+            )
 
     @staticmethod
     def _classify(
@@ -331,9 +399,50 @@ class SupervisedEngineer:
         return None, ""
 
 
+def _fallback_failed_check_handoff(checks: list[CheckResult]) -> str:
+    failed = [check for check in checks if not check.passed]
+    if not failed:
+        return ""
+
+    lines: list[str] = [
+        "The acceptance checks still fail. Convert the validator blockers into concrete fixes, "
+        "then rerun the exact failed command before claiming completion.",
+    ]
+    for index, check in enumerate(failed, start=1):
+        lines.append(f"{index}. `{check.command}` exited {check.exit_code}.")
+    return "\n".join(lines)
+
+
+def _coerce_review_for_failed_checks(
+    review: ReviewDecision,
+    checks: list[CheckResult],
+) -> ReviewDecision:
+    failed = [check for check in checks if not check.passed]
+    if not failed:
+        return review
+
+    next_action = (review.next_action or "").strip()
+    if review.status != "done":
+        return replace(review, next_action=next_action or _fallback_failed_check_handoff(failed))
+
+    if not next_action or next_action.casefold().startswith("no further action"):
+        next_action = _fallback_failed_check_handoff(failed)
+    failed_commands = ", ".join(f"`{check.command}` exited {check.exit_code}" for check in failed)
+    return replace(
+        review,
+        status="continue",
+        reason=(
+            "Acceptance checks failed after the engineer turn, so the task cannot be done: "
+            f"{failed_commands}."
+        ),
+        next_action=next_action,
+    )
+
+
 __all__ = [
     "EngineerConfig",
     "SupervisedConfig",
     "SupervisedEngineer",
     "LoopOutcome",
+    "should_clear_thread_id_after_outcome",
 ]
