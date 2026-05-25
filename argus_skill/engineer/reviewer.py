@@ -15,12 +15,12 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from importlib import resources
 from pathlib import Path
 from typing import cast
 
 from ..core.models import CheckResult, ReviewDecision, ReviewStatus, RunnerOptions
 from ..core.ports import RunnerBackend
+from ..skills.role_context import format_role_context, load_builtin_skill_text
 from .checks import summarize_checks
 
 log = logging.getLogger(__name__)
@@ -37,7 +37,15 @@ class ReviewerConfig:
 
 
 SCHEMA_PATH = str(Path(__file__).with_name("reviewer_schema.json"))
+_REVIEWER_ROLE_SKILL = "argus-reviewer-role.md"
 _REVIEWER_ENGINEER_HANDOFF_SKILL = "reviewer-engineer-handoff.md"
+_ACADEMIC_PAPER_REVIEW_SKILL = "academic-paper-peer-review-benchmark.md"
+_REVIEWER_ROLE_FALLBACK = """# Argus Reviewer Role
+
+The Reviewer is argus-skill's evidence gate. Decide done/continue/blocked from
+concrete artifacts and checks, and turn failures into concise engineer
+next_action instructions.
+"""
 _REVIEWER_ENGINEER_HANDOFF_FALLBACK = """# Reviewer-to-engineer handoff
 
 When validation fails, your `next_action` is the engineer's next prompt. The
@@ -45,17 +53,105 @@ engineer may be a smaller model, so convert logs into a concise repair brief:
 name failed commands, exit codes, issue codes, exact paths, ordered fixes, and
 the command that proves completion. Do not paste raw logs wholesale.
 """
+_ACADEMIC_PAPER_REVIEW_FALLBACK = """# Academic paper peer-review benchmark
+
+Use for nearly complete EMNLP/ACL paper tasks. Simulate a strict reviewer:
+score contribution, claim-evidence alignment, experiment integrity, benchmark
+quality, literature/citations, reproducibility, writing, format/layout, and the
+strongest rejection argument. Any remaining major actionable reviewer objection
+means `continue`, not `done`.
+"""
 
 
 def _load_reviewer_engineer_handoff_skill() -> str:
-    try:
-        skill_path = resources.files("argus_skill.builtin_skills").joinpath(
-            _REVIEWER_ENGINEER_HANDOFF_SKILL
-        )
-        text = skill_path.read_text(encoding="utf-8").strip()
-    except (FileNotFoundError, ModuleNotFoundError, OSError):
-        return _REVIEWER_ENGINEER_HANDOFF_FALLBACK.strip()
-    return text or _REVIEWER_ENGINEER_HANDOFF_FALLBACK.strip()
+    return load_builtin_skill_text(
+        _REVIEWER_ENGINEER_HANDOFF_SKILL, _REVIEWER_ENGINEER_HANDOFF_FALLBACK
+    )
+
+
+def _load_academic_paper_review_skill() -> str:
+    return load_builtin_skill_text(
+        _ACADEMIC_PAPER_REVIEW_SKILL, _ACADEMIC_PAPER_REVIEW_FALLBACK
+    )
+
+
+def _format_academic_paper_review_skill_block(
+    *,
+    objective: str,
+    operator_messages: list[str],
+    planner_review_instruction: str,
+    main_summary: str,
+    active_skill_id: str | None,
+    check_text: str,
+    raw_evidence: str,
+) -> str:
+    if not _should_include_academic_paper_review_skill(
+        objective=objective,
+        operator_messages=operator_messages,
+        planner_review_instruction=planner_review_instruction,
+        main_summary=main_summary,
+        active_skill_id=active_skill_id,
+        check_text=check_text,
+        raw_evidence=raw_evidence,
+    ):
+        return ""
+    skill = _load_academic_paper_review_skill()
+    return (
+        "Academic-paper peer review benchmark skill "
+        "(apply only to near-complete academic paper scopes):\n"
+        f"{skill}\n\n"
+    )
+
+
+def _should_include_academic_paper_review_skill(
+    *,
+    objective: str,
+    operator_messages: list[str],
+    planner_review_instruction: str,
+    main_summary: str,
+    active_skill_id: str | None,
+    check_text: str,
+    raw_evidence: str,
+) -> bool:
+    context = "\n".join(
+        [
+            objective,
+            "\n".join(operator_messages),
+            planner_review_instruction,
+            main_summary,
+            active_skill_id or "",
+            check_text,
+            raw_evidence,
+        ]
+    ).lower()
+    paper_markers = (
+        "paper/main.tex",
+        "paper/main.pdf",
+        "main.pdf",
+        "manuscript",
+        "academic paper",
+        "paper draft",
+        "emnlp",
+        "acl",
+        "latex",
+    )
+    complete_markers = (
+        "final_submission",
+        "submission-ready",
+        "publication quality",
+        "validate-full-emnlp",
+        "submission_assurance",
+        "paper_draft_report",
+        "format_preflight",
+        "academic_language_review",
+        "layout_review",
+        "references.bib",
+        "compiled pdf",
+        "main.pdf",
+    )
+    return any(marker in context for marker in paper_markers) and any(
+        marker in context for marker in complete_markers
+    )
 
 
 class Reviewer:
@@ -176,7 +272,21 @@ class Reviewer:
     ) -> str:
         error_text = main_error or "none"
         check_text = summarize_checks(checks)
+        reviewer_role_context = format_role_context(
+            "Argus reviewer role skill",
+            _REVIEWER_ROLE_SKILL,
+            _REVIEWER_ROLE_FALLBACK,
+        )
         handoff_skill = _load_reviewer_engineer_handoff_skill()
+        paper_review_skill_block = _format_academic_paper_review_skill_block(
+            objective=objective,
+            operator_messages=operator_messages,
+            planner_review_instruction=planner_review_instruction,
+            main_summary=main_summary,
+            active_skill_id=active_skill_id,
+            check_text=check_text,
+            raw_evidence=raw_evidence,
+        )
         operator_text = (
             "\n".join(f"- {line}" for line in operator_messages)
             if operator_messages
@@ -211,8 +321,10 @@ class Reviewer:
             "command but saves an entire engineer round.\n\n"
             "Return valid JSON matching the provided schema.\n"
             "Do not wrap the response in markdown fences.\n\n"
+            f"{reviewer_role_context}"
             "Reviewer-to-engineer handoff skill:\n"
             f"{handoff_skill}\n\n"
+            f"{paper_review_skill_block}"
             "**Length constraints (strictly enforce):**\n"
             "- Keep `round_summary_markdown` concise (under 2000 characters)\n"
             "- Keep `completion_summary_markdown` under 1500 characters\n"

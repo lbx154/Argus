@@ -6,6 +6,40 @@ the whole pipeline.
 """
 from __future__ import annotations
 
+from ..skills.role_context import format_role_context
+
+_ENGINEER_ROLE_SKILL = "argus-engineer-role.md"
+_SCIENTIST_ROLE_SKILL = "argus-scientist-role.md"
+_ENGINEER_ROLE_FALLBACK = """# Argus Engineer Role
+
+The Engineer is argus-skill's execution arm: follow the task and active skill,
+modify files or answer inline as requested, run concrete verification, and
+report evidence for the Reviewer.
+"""
+_SCIENTIST_ROLE_FALLBACK = """# Argus Scientist Role
+
+The Scientist is argus-skill's skill-memory role: match skills conservatively,
+distill reusable capability playbooks, and revise skills from evidence without
+hard-coding one task's solution. Distilled skills are written for gpt-5.4-mini,
+a relatively small engineer model, so they must be explicit and executable.
+"""
+
+
+def _engineer_role_context() -> str:
+    return format_role_context(
+        "Argus engineer role skill",
+        _ENGINEER_ROLE_SKILL,
+        _ENGINEER_ROLE_FALLBACK,
+    )
+
+
+def _scientist_role_context() -> str:
+    return format_role_context(
+        "Argus scientist role skill",
+        _SCIENTIST_ROLE_SKILL,
+        _SCIENTIST_ROLE_FALLBACK,
+    )
+
 
 class Prompts:
 
@@ -21,6 +55,8 @@ class Prompts:
             for s in summaries
         )
         return (
+            _scientist_role_context()
+            +
             "You are a skill matcher. Given a task and a list of available "
             "skills, decide which (if any) actually fit. A WRONG skill is "
             "worse than NO skill — it will steer the engineer down the "
@@ -67,8 +103,13 @@ class Prompts:
         consulted by future task matching.
         """
         return (
+            _scientist_role_context()
+            +
             "You are a senior engineer compiling a CAPABILITY playbook for "
-            "a less-experienced engineer. The playbook will be CACHED and "
+            "`gpt-5.4-mini`, a relatively small engineer model. The playbook "
+            "must be explicit enough for that smaller model to execute without "
+            "guessing: include ordering, anti-conditions, exact artifacts, "
+            "validation commands, and common failure modes. It will be CACHED and "
             "REUSED for many future tasks of the same kind, so you must "
             "resist every instinct toward task-specific hardcoding.\n\n"
             f"## Incoming task (one example of the category)\n{task_description}\n\n"
@@ -201,7 +242,12 @@ class Prompts:
         ))
 
         return (
+            _scientist_role_context()
+            +
             "You are a senior engineer revising a CAPABILITY playbook. "
+            "The target reader is `gpt-5.4-mini`, a relatively small engineer "
+            "model, so revisions must make the playbook more explicit and "
+            "operational rather than relying on senior-model inference. "
             "The playbook is CACHED and REUSED for many future tasks of "
             "the same kind, so any edit must broaden capability, not "
             "narrow it to the specific incoming example.\n\n"
@@ -263,6 +309,8 @@ class Prompts:
                 "with all build/test dependencies installed.\n\n"
             )
             return (
+                _engineer_role_context()
+                +
                 "A distilled skill guide has been installed at AGENTS.md in "
                 "the repository root. Read it first as a reference playbook, "
                 "then complete the task below.\n\n"
@@ -364,6 +412,8 @@ class Prompts:
                 )
 
         return (
+            _engineer_role_context()
+            +
             "You are an interactive coding agent (think codex / "
             "claude-code). A skill guide has been installed at AGENTS.md "
             "in the current working directory — read it first as a "
@@ -427,8 +477,12 @@ class Prompts:
         patch: str,
     ) -> str:
         return (
+            _scientist_role_context()
+            +
             "You are an expert software engineer. A small model tried to solve a task "
-            "using a skill guide but failed. Analyze why and produce an improved skill.\n\n"
+            "using a skill guide but failed. That small model is usually "
+            "`gpt-5.4-mini`; analyze why the guidance was not explicit enough "
+            "for that target and produce an improved skill.\n\n"
             f"## Task\n{task_description}\n\n"
             f"## Skill that was used\n{skill_content}\n\n"
             f"## Small model's output/patch\n```\n{patch[:3000]}\n```\n\n"
@@ -450,8 +504,10 @@ class Prompts:
         user_feedback: str,
     ) -> str:
         return (
+            _scientist_role_context()
+            +
             "You are the scientist model in a skill-driven agent. A small engineer "
-            "model answered a user's task using the skill guide below, but the USER "
+            "model (usually `gpt-5.4-mini`) answered a user's task using the skill guide below, but the USER "
             "was not satisfied with the answer. Your job is to produce an IMPROVED "
             "version of the skill so future runs on similar tasks do better.\n\n"
             f"## Task\n{task_description}\n\n"

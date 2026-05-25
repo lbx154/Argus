@@ -29,9 +29,27 @@ from dataclasses import dataclass, field, replace
 
 from ..core.models import RunnerOptions
 from ..core.ports import RunnerBackend
+from ..skills.role_context import format_role_context
 
 MIN_CRITIC_IMPACT_SCORE = 4
 MIN_PLANNER_IMPACT_SCORE = 4
+TASK_SCOPE_BOUNDED = "bounded"
+TASK_SCOPE_FINAL_SUBMISSION = "final_submission"
+_TASK_SCOPES = {TASK_SCOPE_BOUNDED, TASK_SCOPE_FINAL_SUBMISSION}
+_CRITIC_ROLE_SKILL = "argus-critic-role.md"
+_PLANNER_ROLE_SKILL = "argus-planner-role.md"
+_CRITIC_ROLE_FALLBACK = """# Argus Critic Role
+
+The Critic is argus-skill's post-review quality filter. Continue only for
+operator-visible high-impact improvements; stop local iteration for vanity or
+cosmetic work.
+"""
+_PLANNER_ROLE_FALLBACK = """# Argus Planner Role
+
+The Planner is argus-skill's manager/director. Inspect project state and queue
+the next high-impact bounded missions, reserving final_submission for the
+whole-project readiness gate.
+"""
 
 
 @dataclass
@@ -120,7 +138,18 @@ _CRITIC_SYSTEM_PREAMBLE = (
     "   measurable property. If you cannot write an acceptance line,\n"
     "   it is not a real improvement; do not list it.\n"
     "6) Cap improvements at 3. Quality over quantity.\n"
-    "7) Output JSON ONLY. No prose around it. No markdown fences.\n"
+    "7) If the original objective or metadata says `planner_scope: final_submission`\n"
+    "   or `Task scope: final_submission`, `stop=true` is allowed ONLY when the\n"
+    "   latest evidence quotes `python -m argus_skill.skills.pipeline_contracts\n"
+    "   validate-full-emnlp --project-root .` exiting 0 and the submission\n"
+    "   assurance has no hard blockers. A passing `validate-pipeline`,\n"
+    "   manifest check, pilot run, underlength draft, missing strong baseline,\n"
+    "   missing ablation, negative-result pivot for a positive paper objective,\n"
+    "   baseline-only win that does not support the proposed contribution, or\n"
+    "   failed/missing full gate is a high-impact\n"
+    "   `requirement_gap` and must yield `stop=false`. Do NOT apply this\n"
+    "   rule to `planner_scope: bounded` or unscoped bounded subtasks.\n"
+    "8) Output JSON ONLY. No prose around it. No markdown fences.\n"
 )
 
 
@@ -133,6 +162,7 @@ class TaskSpec:
     impact_score: int = 0  # 0-5; parser accepts only high-value work
     impact_area: str = ""
     evidence: str = ""
+    scope: str = TASK_SCOPE_BOUNDED
 
 
 @dataclass(frozen=True)
@@ -165,6 +195,9 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "- Read key source files and documentation\n"
     "- Check for TODO/FIXME/HACK comments\n"
     "- Assess code quality and architecture\n"
+    "- Decide whether the current agent architecture itself is blocking the\n"
+    "  operator's goal; if so, propose a self-architecture mission that changes\n"
+    "  daemon/reviewer/critic/planner/tooling code and verifies the new behavior\n"
     "- Verify end-to-end workflows work\n\n"
     "Output a JSON object with this exact shape:\n"
     "{\n"
@@ -178,6 +211,7 @@ _PLANNER_SYSTEM_PREAMBLE = (
     '      "impact_score": <0-5 integer>,\n'
     '      "impact_area": "<correctness|security|operator_ux|performance|reliability|integration|requirement_gap|discovery>",\n'
     '      "evidence": "<specific signal or hypothesis proving this is worth a mission>",\n'
+    '      "scope": "<bounded|final_submission>",\n'
     '      "objective": "<detailed, actionable objective with '
     "acceptance criteria>\"\n"
     "    }\n"
@@ -203,25 +237,49 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "   - What to change and where in the code\n"
     "   - Concrete acceptance criteria (commands to run, expected output)\n"
     "   - Any constraints or gotchas\n"
-    f"4) Every task must have `impact_score >= {MIN_PLANNER_IMPACT_SCORE}` and\n"
+    "4) Every task MUST set `scope`:\n"
+    "   - `bounded` for literature, experiment scale-up, baselines, ablations,\n"
+    "     paper drafting, assurance, revision, tooling, and other independently\n"
+    "     completable subtasks, even when they mention EMNLP or submission.\n"
+    "   - `final_submission` ONLY for the single project-final readiness task\n"
+    "     whose acceptance is proving the whole EMNLP/ACL submission package.\n"
+    "     That objective must require verbatim success for\n"
+    "     `python -m argus_skill.skills.pipeline_contracts validate-full-emnlp\n"
+    "     --project-root .` before anyone may declare it done.\n"
+    f"5) Every task must have `impact_score >= {MIN_PLANNER_IMPACT_SCORE}` and\n"
     "   concrete `evidence`. Lower-score work is rejected by the host.\n"
-    "5) Order tasks by impact: most important first.\n"
-    "6) Cap at 3 tasks per planning cycle. Quality over quantity.\n"
-    "7) NEVER repeat work already completed (check the journal below).\n"
-    "8) NEVER propose vanity work (renames, comment polish, trivial\n"
+    "6) For an operator goal that asks for a full EMNLP/ACL paper or\n"
+    "   submission-ready package, `project_done=true` requires journal evidence\n"
+    "   that `validate-full-emnlp --project-root .` exited 0. If the full gate\n"
+    "   is missing or failing, set `project_done=false` and queue bounded blocker\n"
+    "   tasks, or a `final_submission` task only when the package appears ready\n"
+    "   and just needs final proof. `validate-pipeline` alone is never enough.\n"
+    "   For positive paper objectives, a negative-result pivot or a baseline-only\n"
+    "   win is not project_done; require a structured X-Y-Z-W paper_contribution\n"
+    "   claim where the proposed artifact/protocol beats the strongest nontrivial\n"
+    "   baseline with statistical support.\n"
+    "7) Order tasks by impact: most important first.\n"
+    "8) Cap at 3 tasks per planning cycle. Quality over quantity.\n"
+    "9) NEVER repeat work already completed (check the journal below).\n"
+    "10) NEVER propose vanity work (renames, comment polish, trivial\n"
     "   refactors) unless the operator explicitly asked for it.\n"
-    "9) Each task should be independently completable in one mission\n"
+    "11) Each task should be independently completable in one mission\n"
     "   (not multi-step dependencies).\n"
-    "10) Set `restart_daemon=true` ONLY when the prompt says runtime\n"
+    "12) Set `restart_daemon=true` ONLY when the prompt says runtime\n"
     "   source changed AND a fresh daemon is needed for the next step —\n"
     "   for example daemon/CLI/lifecycle code changed, a large runtime\n"
     "   refactor landed, or verification requires the installed daemon\n"
     "   process to reload new code. Otherwise set it false.\n"
-    "11) `restart_daemon=true` is not a substitute for useful work: if\n"
+    "13) `restart_daemon=true` is not a substitute for useful work: if\n"
     "   new tasks are still needed after restart, include them too. If\n"
     "   restart itself is the next verification step, `new_tasks` may be []\n"
     "   with `project_done=false`.\n"
-    "12) Output JSON ONLY. No prose around it. No markdown fences.\n"
+    "14) Self-architecture is allowed when the current harness/reviewer/\n"
+    "   critic/planner/tooling structure is measurably preventing progress.\n"
+    "   Such tasks must include observed evidence, tests or smoke checks, and\n"
+    "   acceptance criteria proving the agent now handles the blocked class of\n"
+    "   tasks. Do NOT self-modify for cosmetic architecture preferences.\n"
+    "15) Output JSON ONLY. No prose around it. No markdown fences.\n"
 )
 
 
@@ -319,7 +377,12 @@ class Critic:
             "can find a higher-impact mission."
         )
         return (
-            _CRITIC_SYSTEM_PREAMBLE
+            format_role_context(
+                "Argus critic role skill",
+                _CRITIC_ROLE_SKILL,
+                _CRITIC_ROLE_FALLBACK,
+            )
+            + _CRITIC_SYSTEM_PREAMBLE
             + "\n\nOriginal operator objective:\n"
             + original_objective.strip()
             + "\n\nLatest reviewer-accepted completion summary:\n"
@@ -359,24 +422,50 @@ class Critic:
             planning_cycle=planning_cycle,
             runtime_change_summary=runtime_change_summary,
         )
-        result = self.runner.run_exec(
-            prompt=prompt,
-            resume_thread_id=None,
-            options=RunnerOptions(
-                model=cfg.model,
-                reasoning_effort=cfg.reasoning_effort or "high",
-                working_dir=cfg.working_dir,
-                dangerous_yolo=cfg.dangerous_yolo,
-                full_auto=cfg.full_auto,
-                skip_git_repo_check=cfg.skip_git_repo_check,
-                extra_args=list(cfg.extra_args) if cfg.extra_args else None,
-            ),
-            run_label=f"planner.cycle{planning_cycle}",
-        )
+        try:
+            result = self.runner.run_exec(
+                prompt=prompt,
+                resume_thread_id=None,
+                options=RunnerOptions(
+                    model=cfg.model,
+                    reasoning_effort=cfg.reasoning_effort or "high",
+                    working_dir=cfg.working_dir,
+                    dangerous_yolo=cfg.dangerous_yolo,
+                    full_auto=cfg.full_auto,
+                    skip_git_repo_check=cfg.skip_git_repo_check,
+                    extra_args=list(cfg.extra_args) if cfg.extra_args else None,
+                ),
+                run_label=f"planner.cycle{planning_cycle}",
+            )
+        except Exception as exc:  # noqa: BLE001
+            exc_text = f"{type(exc).__name__}: {exc}"
+            return PlannerVerdict(
+                project_done=False,
+                reason="planner backend raised; will retry later",
+                new_tasks=[],
+                raw_text=exc_text,
+                error=exc_text,
+            )
         input_tokens = int(getattr(result, "input_tokens", 0) or 0)
         cached_input_tokens = int(getattr(result, "cached_input_tokens", 0) or 0)
         output_tokens = int(getattr(result, "output_tokens", 0) or 0)
-        text = "\n".join(result.agent_messages or [])
+        text = "\n".join(getattr(result, "agent_messages", None) or [])
+        if not text and int(getattr(result, "exit_code", 0) or 0) != 0:
+            stderr_tail = "\n".join(
+                str(line) for line in (getattr(result, "stderr_lines", None) or [])[-20:]
+            )
+            fatal = str(getattr(result, "fatal_error", "") or "").strip()
+            details = "\n".join(part for part in (fatal, stderr_tail) if part).strip()
+            return PlannerVerdict(
+                project_done=False,
+                reason="planner backend failed before producing output; will retry later",
+                new_tasks=[],
+                raw_text=details,
+                error=f"planner backend exit {getattr(result, 'exit_code', 'unknown')}",
+                input_tokens=input_tokens,
+                cached_input_tokens=cached_input_tokens,
+                output_tokens=output_tokens,
+            )
         parsed = parse_planner_text(text)
         return replace(
             parsed,
@@ -402,7 +491,12 @@ class Critic:
             "low-value polish just to keep the loop busy."
         )
         return (
-            _PLANNER_SYSTEM_PREAMBLE
+            format_role_context(
+                "Argus planner role skill",
+                _PLANNER_ROLE_SKILL,
+                _PLANNER_ROLE_FALLBACK,
+            )
+            + _PLANNER_SYSTEM_PREAMBLE
             + "\n\nOperator's continuous goal:\n"
             + continuous_objective.strip()
             + "\n\nJournal of completed work (most recent last):\n"
@@ -506,6 +600,13 @@ def _parse_impact_score(value: object) -> int:
     except (TypeError, ValueError):
         return 0
     return max(0, min(5, score))
+
+
+def _parse_task_scope(value: object) -> str:
+    scope = str(value or TASK_SCOPE_BOUNDED).strip().lower().replace("-", "_")
+    if scope not in _TASK_SCOPES:
+        return TASK_SCOPE_BOUNDED
+    return scope
 
 
 def parse_critic_text(text: str) -> CriticVerdict | None:
@@ -617,6 +718,7 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             impact_score = _parse_impact_score(entry.get("impact_score"))
             impact_area = str(entry.get("impact_area", "")).strip()
             evidence = str(entry.get("evidence", "")).strip()
+            scope = _parse_task_scope(entry.get("scope"))
             if (
                 not title
                 or not objective
@@ -631,13 +733,19 @@ def parse_planner_text(text: str) -> PlannerVerdict:
                     impact_score=impact_score,
                     impact_area=impact_area,
                     evidence=evidence,
+                    scope=scope,
                 )
             )
             if len(new_tasks) >= 3:
                 break
-    if project_done and new_tasks:
-        # Inconsistent: project_done=True but tasks listed → honor done.
-        new_tasks = []
+    if project_done and tasks_raw:
+        return PlannerVerdict(
+            project_done=False,
+            reason="planner said project_done=true but returned tasks",
+            new_tasks=[],
+            raw_text=blob,
+            error="planner claimed project_done=true with tasks",
+        )
     if not project_done and not new_tasks and not restart_daemon:
         # Inconsistent: not done but no tasks → retry later, don't mark done.
         if raw_task_count:

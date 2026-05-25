@@ -48,14 +48,18 @@ def _impact_task(
     impact_score: int = 4,
     impact_area: str = "reliability",
     evidence: str = "test suite currently lacks this verification",
+    scope: str | None = None,
 ) -> dict[str, object]:
-    return {
+    task = {
         "title": title,
         "objective": objective,
         "impact_score": impact_score,
         "impact_area": impact_area,
         "evidence": evidence,
     }
+    if scope is not None:
+        task["scope"] = scope
+    return task
 
 # ---------------------------------------------------------------------------
 # parse_critic_text
@@ -292,6 +296,9 @@ def test_evaluate_parses_runner_output():
     assert "add base64 helper" in sent_prompt
     assert "0/3" in sent_prompt or "cycle 0" in sent_prompt
     assert "impact_score" in sent_prompt
+    assert "Argus critic role skill" in sent_prompt
+    assert "Argus Critic Role" in sent_prompt
+    assert "post-review quality filter" in sent_prompt
     assert "planner should find the next valuable mission" in sent_prompt
 
 
@@ -364,7 +371,40 @@ def test_plan_next_passes_config_to_runner():
     sent_prompt, _ = runner.calls[0]
     assert "Runtime source changed since daemon start." in sent_prompt
     assert "continuous high-value discovery" in sent_prompt
+    assert "Argus planner role skill" in sent_prompt
+    assert "Argus Planner Role" in sent_prompt
+    assert "manager/director" in sent_prompt
     assert "iteration is cheap" not in sent_prompt
+    assert '"scope": "<bounded|final_submission>"' in sent_prompt
+    assert "validate-full-emnlp --project-root ." in sent_prompt
+    assert "paper_contribution" in sent_prompt
+    assert "negative-result pivot" in sent_prompt
+
+
+def test_plan_next_returns_error_verdict_on_runner_exception():
+    class _BoomRunner(_FakeRunner):
+        def run_exec(
+            self,
+            *,
+            prompt: str,
+            options: RunnerOptions,
+            run_label: str,
+            resume_thread_id: str | None = None,
+        ) -> RunnerResult:
+            raise RuntimeError("planner backend exploded")
+
+    verdict = Critic(_BoomRunner("unused")).plan_next(
+        continuous_objective="keep going",
+        journal_tail="recent history",
+        budget_remaining_usd=1.0,
+        planning_cycle=0,
+        runtime_change_summary="",
+    )
+
+    assert verdict.project_done is False
+    assert verdict.error
+    assert "planner backend exploded" in verdict.error
+    assert "RuntimeError" in verdict.raw_text
 
 
 def test_evaluate_passes_run_label_to_runner() -> None:
@@ -457,6 +497,46 @@ def test_parse_planner_new_tasks():
     assert v.new_tasks[0].title == "fix tests"
     assert "pytest" in v.new_tasks[0].objective
     assert v.new_tasks[0].impact_score == 4
+    assert v.new_tasks[0].scope == "bounded"
+
+
+def test_parse_planner_preserves_final_submission_scope():
+    text = json.dumps({
+        "project_done": False,
+        "reason": "needs final proof",
+        "new_tasks": [
+            _impact_task(
+                "prove readiness",
+                "run validate-full-emnlp and fix blockers",
+                impact_score=5,
+                impact_area="requirement_gap",
+                evidence="all bounded blockers appear resolved",
+                scope="final_submission",
+            )
+        ],
+    })
+    v = parse_planner_text(text)
+    assert v is not None
+    assert v.project_done is False
+    assert v.new_tasks[0].scope == "final_submission"
+
+
+def test_critic_prompt_has_scoped_final_submission_gate() -> None:
+    runner = _FakeRunner('{"stop": true, "reason": "ok", "improvements": []}')
+    Critic(runner).evaluate(
+        original_objective=(
+            "## Backlog item metadata\n- planner_scope: final_submission\n\n"
+            "Prepare the EMNLP submission package"
+        ),
+        latest_completion_summary="validate-pipeline passed",
+        cycles_done=0,
+        cycles_max=6,
+        budget_remaining_usd=10.0,
+    )
+    sent_prompt, _ = runner.calls[0]
+    assert "planner_scope: final_submission" in sent_prompt
+    assert "validate-full-emnlp --project-root ." in sent_prompt
+    assert "Do NOT apply this" in sent_prompt
 
 
 def test_parse_planner_restart_request_without_tasks():
@@ -483,7 +563,7 @@ def test_parse_planner_caps_at_3_tasks():
 
 
 def test_parse_planner_inconsistent_done_with_tasks():
-    """project_done=True but tasks listed → honor done, discard tasks."""
+    """project_done=True but tasks listed → schema violation, retry later."""
     text = json.dumps({
         "project_done": True,
         "reason": "done",
@@ -491,8 +571,10 @@ def test_parse_planner_inconsistent_done_with_tasks():
     })
     v = parse_planner_text(text)
     assert v is not None
-    assert v.project_done is True
+    assert v.project_done is False
     assert v.new_tasks == []
+    assert v.error
+    assert "project_done=true" in v.error
 
 
 def test_parse_planner_inconsistent_not_done_no_tasks():

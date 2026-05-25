@@ -27,6 +27,12 @@ def test_seed_builtin_skills_creates_parseable_research_defaults(tmp_path: Path)
     assert "EMNLP Academic Language Review" in names
     assert "EMNLP Format Preflight" in names
     assert "Paper Exemplar PDF Learning" in names
+    assert "Academic Paper Peer Review Benchmark" in names
+    assert "Argus Engineer Role" in names
+    assert "Argus Reviewer Role" in names
+    assert "Argus Critic Role" in names
+    assert "Argus Planner Role" in names
+    assert "Argus Scientist Role" in names
 
 
 def test_seed_builtin_skills_preserves_existing_user_edits(tmp_path: Path) -> None:
@@ -352,6 +358,89 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "arraystretch=1.15",
             "1536x1024 or 1920x1080",
             "FORMAT_PREFLIGHT.md",
+        ),
+        "academic-paper-peer-review-benchmark.md": (
+            "Overfull \\hbox > 5pt",
+            "validate-full-emnlp",
+            "pages 4--7",
+            "paired-significance",
+            "tabcolsep=3-4pt",
+            "arraystretch=1.15",
+            "image-2/codex-image2",
+        ),
+    }
+
+    for filename, required_tokens in required_by_skill.items():
+        text = (skills_dir / filename).read_text(encoding="utf-8")
+        for required in required_tokens:
+            assert required in text, f"{filename} missing {required!r}"
+
+
+def test_academic_peer_review_benchmark_skill_sets_reviewer_standard(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    seed_builtin_skills(skills_dir)
+    text = (skills_dir / "academic-paper-peer-review-benchmark.md").read_text(
+        encoding="utf-8"
+    )
+
+    for required in (
+        "Simulate a strict EMNLP/ACL-style program-committee reviewer",
+        "ARIS-style paper audit loops",
+        "Auto Research Pipeline final contract",
+        "Strong Accept",
+        "Weak Reject",
+        "240 unique semantic scored main tasks/episodes",
+        "duplicated benchmark expansion",
+        "selected benchmark sources/components",
+        "at least 2 independent sources",
+        "35 verified BibTeX entries",
+        "30 unique cited keys",
+        "self-drawn substitutes",
+        "gpt-5.4",
+        "next_action",
+    ):
+        assert required in text
+
+
+def test_argus_role_identity_skills_cover_agent_contracts(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    seed_builtin_skills(skills_dir)
+
+    required_by_skill = {
+        "argus-engineer-role.md": (
+            "execution arm",
+            "Reviewer decides",
+            "concrete verification",
+            "validate-full-emnlp",
+        ),
+        "argus-reviewer-role.md": (
+            "evidence gate",
+            "done",
+            "continue",
+            "blocked",
+            "Academic Paper Peer Review Benchmark",
+        ),
+        "argus-critic-role.md": (
+            "post-review quality filter",
+            "operator-visible value",
+            "vanity",
+            "impact score",
+        ),
+        "argus-planner-role.md": (
+            "manager/director",
+            "bounded",
+            "final_submission",
+            "restart_daemon",
+        ),
+        "argus-scientist-role.md": (
+            "skill-memory researcher",
+            "Match skills conservatively",
+            "Distill capability-level guidance",
+            "gpt-5.4-mini",
+            "relatively small engineer model",
+            "coverage check",
         ),
     }
 

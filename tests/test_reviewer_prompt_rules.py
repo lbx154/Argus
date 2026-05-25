@@ -68,6 +68,15 @@ def test_evidence_requirement_still_present() -> None:
     assert "bare assertion" in prompt
 
 
+def test_reviewer_role_skill_is_injected() -> None:
+    prompt = _build_prompt()
+
+    assert "Argus reviewer role skill" in prompt
+    assert "Argus Reviewer Role" in prompt
+    assert "evidence gate" in prompt
+    assert "done" in prompt and "continue" in prompt and "blocked" in prompt
+
+
 def test_rule_8_structural_spec_adherence_present() -> None:
     """Rule 8: reviewer must reject unjustified structural deviations
     (file paths, framework choice, package layout) even when the work
@@ -84,3 +93,53 @@ def test_rule_8_structural_spec_adherence_present() -> None:
     assert "pytest" in prompt and "unittest" in prompt
     assert "Functional correctness alone is NOT sufficient" in prompt
 
+
+def test_final_submission_scope_requires_full_emnlp_gate() -> None:
+    prompt = _build_prompt()
+    assert "Final-submission scope" in prompt
+    assert "planner_scope: final_submission" in prompt
+    assert "validate-full-emnlp" in prompt
+    assert "paper_contribution" in prompt
+    assert "negative-result pivot" in prompt
+    assert "validate-pipeline" in prompt
+    assert "bounded" in prompt
+
+
+def test_academic_peer_review_skill_injected_for_complete_paper_scope() -> None:
+    rev = Reviewer(_StubRunner())
+    prompt = rev._build_prompt(
+        objective=(
+            "planner_scope: final_submission\n"
+            "Finish the EMNLP academic paper in paper/main.tex."
+        ),
+        operator_messages=[
+            "If paper/main.pdf is complete, simulate a reviewer before accepting."
+        ],
+        planner_review_instruction="Judge whether the manuscript is publication quality.",
+        round_index=3,
+        session_id="paper-review-test",
+        main_summary=(
+            "Compiled PDF at paper/main.pdf and ran validate-full-emnlp, "
+            "but some reviewer-facing blockers may remain."
+        ),
+        main_error=None,
+        checks=[],
+        active_skill_id="auto-research-pipeline.md",
+    )
+
+    assert "Academic-paper peer review benchmark skill" in prompt
+    assert "Simulate a strict EMNLP/ACL-style program-committee reviewer" in prompt
+    assert "Strong Accept" in prompt
+    assert "Weak Reject" in prompt
+    assert "240 unique semantic scored main tasks/episodes" in prompt
+    assert "selected benchmark sources/components" in prompt
+    assert "image-2/codex-image2" in prompt
+    assert "35 verified BibTeX entries" in prompt
+    assert "next_action" in prompt
+
+
+def test_academic_peer_review_skill_not_injected_for_generic_code_task() -> None:
+    prompt = _build_prompt()
+
+    assert "Academic-paper peer review benchmark skill" not in prompt
+    assert "Simulate a strict EMNLP/ACL-style program-committee reviewer" not in prompt
