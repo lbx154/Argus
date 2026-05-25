@@ -29,10 +29,11 @@ Execute the experiment plan for an agent-science paper. This is the argus-skill-
    - Read `research/EXPERIMENT_PLAN.md` if present.
    - If absent, reconstruct the minimum run matrix from the operator objective and write a short plan before running.
    - Treat benchmark choice as part of literature review, not an implementation afterthought. Survey recent/frontier and widely used benchmark sources before creating local tasks; for agent papers, prefer common sources such as ToolBench/ToolEval, WebArena/MiniWoB++/Mind2Web-style web tasks, GAIA-style assistant tasks, AgentBench/ALFWorld, MultiAgentBench, SWE-bench, LoCoMo, or an ACL Anthology benchmark matching the domain.
+   - For a full-paper claim, do not rely on a single benchmark source. Select a diversified benchmark mix whenever feasible: target 3+ independent real/frontier benchmark suites or task sources, with 2 independent selected sources as the hard minimum. Use the mix to test different failure modes and show that the method works beyond one dataset or synthetic generator.
    - Refuse to treat synthetic tasks as a full EMNLP benchmark unless the plan explains why public benchmarks are infeasible and cites the surveyed benchmark papers/repos that were considered.
    - Require the full-paper run matrix to reach at least 240 unique semantic scored main tasks/episodes (240/250 scale). A 50/60-task synthetic run is a smoke/pilot only and must queue a scale-up or public-benchmark validation run before final EMNLP readiness.
    - Hard prohibition: do not copy, duplicate, relabel, suffix, shuffle, or otherwise rename the same pilot episodes to inflate the benchmark size. Repeated tasks with new IDs such as `_r2`, `_copy`, `_dup`, or equivalent renaming are experiment-integrity failures, not scale-up.
-   - Write or update `experiments/BENCHMARK_PROVENANCE.md` with benchmark URL, paper/citation, version/date, split/filtering, unique task count, license/access notes, surveyed benchmark alternatives, and whether the run is a pilot or full benchmark.
+   - Write or update `experiments/BENCHMARK_PROVENANCE.md` and, when possible, `experiments/BENCHMARK_PROVENANCE.json` with a **Selected benchmark sources** table/list. For every selected benchmark/component, record name, URL/repo, paper/citation/DOI, version/date, split/filtering, unique task count contributed, license/access notes, why it is practical/frontier for the claim, surveyed benchmark alternatives, and whether the run is a pilot or full benchmark.
 
 2. Preflight the environment:
    - Record Python version, relevant env vars without secrets, git commit or working-tree summary, and available benchmark scripts.
@@ -49,7 +50,7 @@ Execute the experiment plan for an agent-science paper. This is the argus-skill-
 4. Run in stages:
    - Start with a smoke run that is cheap and fast.
    - Only launch full baselines/ablations after smoke passes.
-   - The full run must report `n_tasks >= 240` unique semantic tasks for the main overall split in the canonical results table. Use deterministic synthetic construction from `research.md`, a documented public benchmark split, or a hybrid; do not relabel, duplicate, or suffix-copy an under-240 pilot as full evidence.
+   - The full run must report `n_tasks >= 240` unique semantic tasks for the main overall split in the canonical results table. Use documented splits from multiple real/frontier benchmarks when feasible, or a hybrid with documented source components; do not relabel, duplicate, or suffix-copy an under-240 pilot as full evidence.
    - For any command that may exceed 60 seconds or 5 model/API calls, run it as a background process and write `pid`, `stdout.log`, `stderr.log`, `status.json`, and `progress.jsonl`.
    - For short commands, capture full stdout/stderr into the run directory.
    - The experiment worker must append a progress JSON line before and after every trial/model call, flush/fsync after every line, and atomically update `status.json`.

@@ -415,6 +415,88 @@ def test_synthetic_benchmark_survey_can_name_frontier_sources(tmp_path: Path) ->
     assert "missing_benchmark_literature_survey" not in {issue.code for issue in issues}
 
 
+def test_full_benchmark_requires_multiple_selected_sources(tmp_path: Path) -> None:
+    _write_json(
+        tmp_path / "experiments" / "BENCHMARK_PROVENANCE.json",
+        {
+            "uses_public_benchmark": True,
+            "benchmark_type": "public",
+            "task_count": 240,
+            "selected_benchmarks": [
+                {
+                    "name": "ToolBench",
+                    "url": "https://github.com/OpenBMB/ToolBench",
+                    "task_count": 240,
+                }
+            ],
+        },
+    )
+
+    issues = detect_quality_blockers(tmp_path)
+
+    assert "insufficient_selected_benchmark_sources" in {issue.code for issue in issues}
+
+
+def test_selected_benchmark_sources_need_source_pointers(tmp_path: Path) -> None:
+    _write_json(
+        tmp_path / "experiments" / "BENCHMARK_PROVENANCE.json",
+        {
+            "uses_public_benchmark": True,
+            "benchmark_type": "hybrid",
+            "task_count": 240,
+            "selected_benchmarks": [
+                {"name": "ToolBench", "task_count": 120},
+                {"name": "WebArena", "task_count": 120},
+            ],
+        },
+    )
+
+    issues = detect_quality_blockers(tmp_path)
+
+    assert "incomplete_selected_benchmark_sources" in {issue.code for issue in issues}
+
+
+def test_multi_source_benchmark_provenance_passes_source_gate(tmp_path: Path) -> None:
+    _write_json(
+        tmp_path / "experiments" / "BENCHMARK_PROVENANCE.json",
+        {
+            "uses_public_benchmark": True,
+            "benchmark_type": "hybrid",
+            "task_count": 240,
+            "selected_benchmarks": [
+                {
+                    "name": "ToolBench",
+                    "url": "https://github.com/OpenBMB/ToolBench",
+                    "paper": "ToolLLM",
+                    "version": "official repo snapshot",
+                    "license": "recorded in benchmark repo",
+                    "split": "sampled tool-use tasks",
+                    "task_count": 120,
+                    "rationale": "frontier practical tool-use coverage",
+                },
+                {
+                    "name": "WebArena",
+                    "url": "https://webarena.dev/",
+                    "paper": "WebArena",
+                    "version": "official site snapshot",
+                    "license": "recorded in benchmark repo",
+                    "split": "sampled web-agent tasks",
+                    "task_count": 120,
+                    "rationale": "realistic web task coverage",
+                },
+            ],
+        },
+    )
+
+    issues = detect_quality_blockers(tmp_path)
+    source_issue_codes = {
+        "insufficient_selected_benchmark_sources",
+        "incomplete_selected_benchmark_sources",
+    }
+
+    assert source_issue_codes.isdisjoint({issue.code for issue in issues})
+
+
 def test_ready_quality_calibration_cannot_keep_blocking_issues(tmp_path: Path) -> None:
     _write_valid_quality_calibration(tmp_path, proposed_protocol="skillcycle")
     path = tmp_path / "paper" / "PAPER_QUALITY_CALIBRATION.json"

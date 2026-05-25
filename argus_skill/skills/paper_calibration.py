@@ -44,6 +44,8 @@ QUALITY_CALIBRATION_VERDICTS = (
 READY_VERDICTS = {"PASS", "WARN"}
 MIN_PAPER_TASKS = 240
 PAPER_TASK_SCALE_TARGET = "240/250"
+MIN_SELECTED_BENCHMARK_SOURCES = 2
+RECOMMENDED_SELECTED_BENCHMARK_SOURCES = 3
 BENCHMARK_TASK_COUNT_FIELDS = {
     "task_count",
     "n_tasks",
@@ -94,6 +96,53 @@ BENCHMARK_SURVEY_JSON_FIELDS = (
     "frontier_benchmark_survey",
     "benchmark_sources_considered",
 )
+SELECTED_BENCHMARK_JSON_FIELDS = (
+    "selected_benchmarks",
+    "selected_benchmark_sources",
+    "benchmark_sources",
+    "evaluation_benchmarks",
+    "benchmark_mix",
+    "benchmark_components",
+    "public_benchmarks",
+    "source_benchmarks",
+)
+BENCHMARK_SOURCE_NAME_FIELDS = (
+    "name",
+    "benchmark",
+    "benchmark_name",
+    "dataset",
+    "suite",
+    "source",
+    "title",
+    "id",
+)
+BENCHMARK_SOURCE_POINTER_FIELDS = (
+    "url",
+    "source_url",
+    "repo",
+    "repository",
+    "paper",
+    "paper_url",
+    "citation",
+    "doi",
+)
+BENCHMARK_SOURCE_DETAIL_FIELDS = (
+    "license",
+    "version",
+    "retrieved_on",
+    "task_count",
+    "split",
+    "rationale",
+)
+BENCHMARK_SOURCE_POINTER_MARKERS = (
+    "http://",
+    "https://",
+    "doi:",
+    "arxiv",
+    "acl anthology",
+    "github.com",
+    "papers with code",
+)
 FRONTIER_BENCHMARK_TEXT_MARKERS = (
     "toolbench",
     "tooleval",
@@ -110,6 +159,20 @@ FRONTIER_BENCHMARK_TEXT_MARKERS = (
     "surveyed benchmark",
     "benchmark alternatives",
     "public benchmark survey",
+)
+SELECTED_BENCHMARK_TEXT_MARKERS = (
+    "selected benchmark",
+    "selected benchmarks",
+    "selected benchmark sources",
+    "benchmark source table",
+    "benchmark mix",
+    "evaluation benchmark mix",
+    "public benchmark components",
+)
+SELECTED_BENCHMARK_COUNT_RE = re.compile(
+    r"\b(?:selected benchmark sources?|selected benchmarks?|benchmark sources?|"
+    r"benchmark components?|benchmark suites?)\b\D{0,40}(\d{1,3})",
+    re.I,
 )
 COPY_EXPANSION_SUFFIX_RE = re.compile(
     r"(?:[_-](?:r|rep|repeat|copy|dup|duplicate)\d*)+$",
@@ -1113,6 +1176,41 @@ def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
                     )
                 )
         task_counts = _benchmark_task_counts(json_payload)
+        if _requires_multi_source_benchmark(task_counts, json_payload):
+            selected_sources = _selected_benchmark_sources(json_payload)
+            unique_source_count = len(
+                {_benchmark_source_identity(source) for source in selected_sources}
+                - {None}
+            )
+            if unique_source_count < MIN_SELECTED_BENCHMARK_SOURCES:
+                issues.append(
+                    CalibrationIssue(
+                        "insufficient_selected_benchmark_sources",
+                        str(BENCHMARK_PROVENANCE_JSON_PATH),
+                        (
+                            "full-paper benchmark provenance must list at least "
+                            f"{MIN_SELECTED_BENCHMARK_SOURCES} independent selected "
+                            "benchmark sources/components, with 3+ preferred when "
+                            "feasible; single-source evidence is not enough to claim "
+                            "broad method effectiveness"
+                        ),
+                    )
+                )
+            elif not all(
+                _benchmark_source_has_pointer(source) for source in selected_sources
+            ):
+                issues.append(
+                    CalibrationIssue(
+                        "incomplete_selected_benchmark_sources",
+                        str(BENCHMARK_PROVENANCE_JSON_PATH),
+                        (
+                            "each selected benchmark source must include provenance "
+                            "such as URL/repo, paper/citation/DOI, version/date, "
+                            "license/access notes, split/filtering, task count, and "
+                            "selection rationale"
+                        ),
+                    )
+                )
         if task_counts and max(task_counts) < MIN_PAPER_TASKS:
             issues.append(
                 CalibrationIssue(
@@ -1204,6 +1302,22 @@ def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
                 ),
             )
         )
+    if _requires_multi_source_benchmark(task_counts, raw_text):
+        selected_source_count = _text_selected_benchmark_source_count(raw_text)
+        if selected_source_count < MIN_SELECTED_BENCHMARK_SOURCES:
+            issues.append(
+                CalibrationIssue(
+                    "insufficient_selected_benchmark_sources",
+                    str(BENCHMARK_PROVENANCE_MD_PATH),
+                    (
+                        "full-paper benchmark provenance must include a selected "
+                        "benchmark source table/list with at least "
+                        f"{MIN_SELECTED_BENCHMARK_SOURCES} independent real/frontier "
+                        "benchmark sources or components; single-source evidence is "
+                        "not enough to claim broad method effectiveness"
+                    ),
+                )
+            )
     return issues
 
 
@@ -1240,6 +1354,140 @@ def _json_benchmark_survey_present(payload: dict[str, Any]) -> bool:
 
 def _text_benchmark_survey_present(text: str) -> bool:
     return any(marker in text for marker in FRONTIER_BENCHMARK_TEXT_MARKERS)
+
+
+def _requires_multi_source_benchmark(
+    task_counts: list[int],
+    provenance: dict[str, Any] | str,
+) -> bool:
+    if task_counts and max(task_counts) >= MIN_PAPER_TASKS:
+        return True
+    if isinstance(provenance, dict):
+        stage_text = json.dumps(provenance, ensure_ascii=False).lower()
+    else:
+        stage_text = provenance.lower()
+    final_markers = (
+        "full benchmark",
+        "final benchmark",
+        "main benchmark",
+        "main split",
+        "full-paper",
+        "full paper",
+        "emnlp-ready",
+        "submission-ready",
+        "final_submission",
+    )
+    return any(marker in stage_text for marker in final_markers)
+
+
+def _selected_benchmark_sources(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
+    for field in SELECTED_BENCHMARK_JSON_FIELDS:
+        sources.extend(_benchmark_source_entries(payload.get(field)))
+    if not sources and _looks_like_benchmark_source(payload):
+        sources.append(payload)
+    return sources
+
+
+def _benchmark_source_entries(value: object) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        sources: list[dict[str, Any]] = []
+        for item in value:
+            sources.extend(_benchmark_source_entries(item))
+        return sources
+    if isinstance(value, dict):
+        if _looks_like_benchmark_source(value):
+            return [value]
+        sources = []
+        for name, nested in value.items():
+            if isinstance(nested, dict):
+                merged = {"name": str(name), **nested}
+            else:
+                merged = {"name": str(name), "source": nested}
+            sources.extend(_benchmark_source_entries(merged))
+        return sources
+    if _nonempty_string(value):
+        return [{"name": str(value).strip()}]
+    return []
+
+
+def _looks_like_benchmark_source(value: dict[str, Any]) -> bool:
+    keys = {str(key).lower().replace("-", "_") for key in value}
+    return bool(keys & set(BENCHMARK_SOURCE_NAME_FIELDS)) or bool(
+        keys & set(BENCHMARK_SOURCE_POINTER_FIELDS)
+    )
+
+
+def _benchmark_source_identity(source: dict[str, Any]) -> str | None:
+    for field in BENCHMARK_SOURCE_NAME_FIELDS + BENCHMARK_SOURCE_POINTER_FIELDS:
+        value = source.get(field)
+        if _nonempty_string(value):
+            return _normalize_source_identity(str(value))
+    serialized = json.dumps(source, sort_keys=True, ensure_ascii=False)
+    if serialized == "{}":
+        return None
+    return _normalize_source_identity(serialized)
+
+
+def _normalize_source_identity(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip().lower())
+
+
+def _benchmark_source_has_pointer(source: dict[str, Any]) -> bool:
+    for field in BENCHMARK_SOURCE_POINTER_FIELDS:
+        value = source.get(field)
+        if _nonempty_string(value):
+            return True
+    return any(
+        marker in json.dumps(source, ensure_ascii=False).lower()
+        for marker in BENCHMARK_SOURCE_POINTER_MARKERS
+    )
+
+
+def _text_selected_benchmark_source_count(raw_text: str) -> int:
+    text = raw_text.lower()
+    if not any(marker in text for marker in SELECTED_BENCHMARK_TEXT_MARKERS):
+        return 0
+    explicit_counts = [
+        count
+        for match in SELECTED_BENCHMARK_COUNT_RE.findall(raw_text)
+        for count in [_int_or_none(match)]
+        if count is not None
+    ]
+    if explicit_counts:
+        return max(explicit_counts)
+    selected_section = _selected_benchmark_text_section(raw_text)
+    source_identities: set[str] = set()
+    for marker in FRONTIER_BENCHMARK_TEXT_MARKERS:
+        if marker in selected_section.lower():
+            source_identities.add(marker)
+    for line in selected_section.splitlines():
+        normalized = line.strip().lower()
+        if not normalized.startswith(("-", "*", "|")):
+            continue
+        if any(skip in normalized for skip in ("reject", "infeasible", "alternative")):
+            continue
+        if any(marker in normalized for marker in BENCHMARK_SOURCE_POINTER_MARKERS):
+            source_identities.add(_normalize_source_identity(normalized))
+    return len(source_identities)
+
+
+def _selected_benchmark_text_section(raw_text: str) -> str:
+    lines = raw_text.splitlines()
+    start_index: int | None = None
+    for index, line in enumerate(lines):
+        normalized = line.strip().lower()
+        if any(marker in normalized for marker in SELECTED_BENCHMARK_TEXT_MARKERS):
+            start_index = index
+            break
+    if start_index is None:
+        return raw_text
+    section_lines: list[str] = []
+    for line in lines[start_index:]:
+        if section_lines and line.lstrip().startswith("#"):
+            break
+        section_lines.append(line)
+    return "\n".join(section_lines)
 
 
 def _actual_results_task_counts(rows: list[dict[str, str]]) -> list[int]:
