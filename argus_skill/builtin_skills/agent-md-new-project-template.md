@@ -62,7 +62,7 @@ Use the repository's existing conventions if they are already present; otherwise
 | Research | `research/RESEARCH_BRIEF.md`, `research/LITERATURE_REVIEW.md`, `research/LIT_MATRIX.tsv`, `research/LITERATURE_GROUNDING.json`, `research/IDEA_PROVENANCE.json`, `research/CODE_REUSE_PLAN.json`, `research/EXPERIMENT_PLAN.md` |
 | Experiments | benchmark source/provenance files, run manifests, `status.json`, `progress.jsonl`, raw result JSON/TSV, logs, STOP-file contract |
 | Paper | `paper/main.tex`, `paper/main.pdf`, verified BibTeX, `paper/PAGE_BUDGET.md`, `paper/TEMPLATE_SOURCE.md`, `paper/ARTIFACT_MANIFEST.json`, `paper/FORMAT_PREFLIGHT.md` |
-| Style references | `paper/style_ref/exemplars/<slug>/paper.pdf`, extracted text, `paper/style_ref/EXEMPLAR.json`, `paper/style_ref/STYLE_PROFILE.md`, `paper/style_ref/SOURCES.md` |
+| Style references | `paper/style_ref/exemplars/<slug>/paper.pdf`, extracted text, `paper/style_ref/EXEMPLAR.json`, `paper/style_ref/STYLE_PROFILE.md`, `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md`, `paper/style_ref/STRUCTURE_CONFORMANCE.md`, `paper/style_ref/STRUCTURE_CONFORMANCE.json`, `paper/style_ref/SOURCES.md` |
 | Local Argus skills | `argus_builtin_skills/*.md` exported from `/home/argustest/argus-skill/argus_skill/builtin_skills/` |
 | Reviews | `paper/ACADEMIC_LANGUAGE_REVIEW.json`, `paper/LAYOUT_REVIEW.json`, `paper/PAPER_QUALITY_CALIBRATION.json`, `paper/SUBMISSION_ASSURANCE.md`, `paper/SUBMISSION_ASSURANCE.json` |
 
