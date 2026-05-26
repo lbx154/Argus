@@ -31,6 +31,8 @@ Analyze completed runs and generate figure/table artifacts for a paper. This ada
 2. Validate before computing:
    - Check that compared rows use the same dataset/task split and compatible metrics.
    - Flag missing seeds, missing baselines, duplicate run ids, partial runs, and failed verifier outputs.
+   - For final EMNLP analysis, run `python -m argus_skill.skills.pipeline_contracts validate-full-scale-evidence --project-root .` before generating paper-facing claims. If it reports `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, or `pilot_pdf_without_full_scale_evidence`, keep the analysis labeled pilot/diagnostic and do not mark analysis, narrative, draft, assurance, or submission stages ready.
+   - Do not treat `benchmarks/full/tasks.jsonl`, `benchmarks/full/manifest.json`, or a declared `status.json task_count` as executed evidence. Final analysis needs completed raw scored rows per required method/baseline condition.
    - Keep negative and failed runs in the analysis unless the plan explicitly excludes them.
 
 3. Create an analysis script:
@@ -57,7 +59,7 @@ Analyze completed runs and generate figure/table artifacts for a paper. This ada
 5. Statistical discipline:
    - For multiple seeds, report mean and dispersion.
    - For single-run pilots or any run with fewer than 240 scored main tasks/episodes, label them as pilot evidence, not conclusive proof; this label does not make them acceptable final EMNLP evidence.
-   - For final EMNLP analysis, the canonical results table must include an overall main split with `n_tasks >= 240` before claims can be treated as full-paper evidence.
+   - For final EMNLP analysis, the canonical results table must include an overall main split with `n_tasks >= 240` for every required condition before claims can be treated as full-paper evidence.
    - Avoid significance language unless the appropriate test was actually computed.
 
 6. Write `paper/RESULTS_REPORT.md`:

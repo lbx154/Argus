@@ -36,6 +36,9 @@ This is a clean-slate project. Do not inherit titles, claims, datasets, benchmar
 - Prefer `/home/argustest/miniconda3/bin/python` for Argus validation commands.
 - Final EMNLP completion requires this exact command to exit 0 and be quoted in completion evidence:
   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`
+- Full-scale experiment evidence is a prerequisite for analysis, narrative, drafting, assurance, and submission. This command must pass before any of those stages are marked ready/done:
+  `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-full-scale-evidence --project-root .`
+- Treat `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` as hard blockers.
 - `validate-pipeline`, a compiled PDF, a pilot run, or a passing review artifact alone is not final readiness.
 
 ## Operator goal
@@ -181,10 +184,12 @@ Use the repository's existing conventions if they are already present; otherwise
 ## Benchmark and experiment contract
 1. Final long-paper evidence must use unique semantic tasks/examples, not duplicated prompts, relabeling, suffixes, paraphrase inflation, or shuffled copies.
 2. A small run is pilot evidence only. For final EMNLP readiness, target the full paper scale required by the local validators; if the validator requires at least 240 unique semantic scored main tasks/episodes, do not present 50--60 tasks as complete final evidence.
-3. Use multiple independent benchmark/data sources when feasible. If synthetic tasks are used, document why, provide deterministic gold, task-family coverage, difficulty levels, leakage checks, and public or publicly releasable validation components.
-4. For agent-skill/memory projects, include at least these baselines unless the operator documents a domain-specific replacement: `no_skill`, `raw_memory`, `reflexion`, `static_skill_lib`, and the proposed method.
-5. Include ablations, failure analysis, confidence intervals or statistical significance, and enough raw logs/results to reproduce every numerical claim.
-6. Every long experiment must write `manifest.json`, `status.json`, `progress.jsonl`, logs, raw rows, and a STOP-file cancellation contract. `progress.jsonl` should expose current method, task count, total count, success/failure counts, last heartbeat, and latest artifact path so progress is visible while the daemon is running.
+3. Benchmark construction is not execution. `benchmarks/full/tasks.jsonl`, benchmark manifests, or `status.json task_count` do not satisfy final evidence unless raw completed scored rows under `experiments/**` cover every required method/baseline condition.
+4. Use multiple independent benchmark/data sources when feasible. If synthetic tasks are used, document why, provide deterministic gold, task-family coverage, difficulty levels, leakage checks, and public or publicly releasable validation components.
+5. For agent-skill/memory projects, include at least these baselines unless the operator documents a domain-specific replacement: `no_skill`, `raw_memory`, `reflexion`, `static_skill_lib`, and the proposed method. Each required condition must have at least 240 distinct scored main tasks/episodes for final-paper claims.
+6. Include ablations, failure analysis, confidence intervals or statistical significance, and enough raw logs/results to reproduce every numerical claim.
+7. Every long experiment must write `manifest.json`, `status.json`, `progress.jsonl`, logs, raw rows, and a STOP-file cancellation contract. `progress.jsonl` should expose current method, task count, total count, success/failure counts, last heartbeat, and latest artifact path so progress is visible while the daemon is running.
+8. Run `validate-full-scale-evidence` before analysis/drafting; if it fails, write only pilot diagnostics and queue the missing full-run/matrix-completion work.
 
 ## Mandatory thick exemplar learning
 1. Invoke the Paper Exemplar PDF Learning skill before drafting prose.

@@ -15,6 +15,7 @@ from argus_skill.skills.pipeline_contracts import (
     validate_code_reuse_plan,
     validate_emnlp_paper_contract,
     validate_full_emnlp_readiness,
+    validate_full_scale_experiment_evidence,
     validate_idea_provenance,
     validate_image2_figures,
     validate_layout_review,
@@ -211,6 +212,7 @@ def test_submission_assurance_contract_accepts_warn_with_environment_blocker(
     _write_valid_paper_draft_report(tmp_path)
     _write_valid_layout_review(tmp_path)
     _write_valid_academic_language_review(tmp_path)
+    _write_full_scale_experiment_run(tmp_path, methods=["no_skill"], task_count=240)
 
     assert validate_submission_assurance(tmp_path) == []
 
@@ -293,6 +295,79 @@ def test_full_emnlp_readiness_reports_underpowered_benchmark_scale(
     issues = validate_full_emnlp_readiness(tmp_path)
 
     assert "underpowered_pilot" in {issue.code for issue in issues}
+
+
+def test_full_scale_evidence_rejects_smoke_only_drafting(tmp_path: Path) -> None:
+    _write_json(
+        tmp_path / "research" / "PIPELINE_STATE.json",
+        {"current_stage": "draft", "stages": {"draft": {"status": "ready"}}},
+    )
+    _write(tmp_path / "paper" / "main.pdf", "%PDF-1.5\n")
+    _write_full_scale_experiment_run(tmp_path, methods=["no_skill"], task_count=5)
+
+    issues = validate_pipeline_state(tmp_path)
+    codes = {issue.code for issue in issues}
+
+    assert "missing_full_scale_experiment_run" in codes
+    assert "pilot_pdf_without_full_scale_evidence" in codes
+
+
+def test_full_scale_evidence_ignores_benchmark_construction_without_run(
+    tmp_path: Path,
+) -> None:
+    _write_json(
+        tmp_path / "benchmarks" / "full" / "manifest.json",
+        {"task_count": 240, "unique_semantic_tasks": 240},
+    )
+    _write(tmp_path / "paper" / "main.pdf", "%PDF-1.5\n")
+
+    issues = validate_full_scale_experiment_evidence(tmp_path)
+    codes = {issue.code for issue in issues}
+
+    assert "missing_full_scale_experiment_run" in codes
+    assert "pilot_pdf_without_full_scale_evidence" in codes
+
+
+def test_full_scale_evidence_uses_raw_rows_not_declared_task_count(
+    tmp_path: Path,
+) -> None:
+    _write_full_scale_experiment_run(
+        tmp_path,
+        methods=["no_skill"],
+        task_count=5,
+        declared_task_count=240,
+    )
+
+    issues = validate_full_scale_experiment_evidence(tmp_path)
+
+    assert "missing_full_scale_experiment_run" in {issue.code for issue in issues}
+
+
+def test_full_scale_evidence_rejects_missing_required_condition(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "research" / "BASELINE_AND_BENCHMARK_PLAN.md",
+        "Required methods: no_skill, raw_memory, reflexion, static_skill_lib, skillcycle\n",
+    )
+    _write_full_scale_experiment_run(
+        tmp_path,
+        methods=["no_skill", "raw_memory", "reflexion", "static_skill_lib"],
+        task_count=240,
+    )
+
+    issues = validate_full_scale_experiment_evidence(tmp_path)
+
+    assert "missing_baseline_condition_run" in {issue.code for issue in issues}
+
+
+def test_full_scale_evidence_accepts_complete_required_matrix(tmp_path: Path) -> None:
+    methods = ["no_skill", "raw_memory", "reflexion", "static_skill_lib", "skillcycle"]
+    _write(
+        tmp_path / "research" / "BASELINE_AND_BENCHMARK_PLAN.md",
+        "Required methods: no_skill, raw_memory, reflexion, static_skill_lib, skillcycle\n",
+    )
+    _write_full_scale_experiment_run(tmp_path, methods=methods, task_count=240)
+
+    assert validate_full_scale_experiment_evidence(tmp_path) == []
 
 
 def test_full_emnlp_readiness_accepts_complete_submission_package(
@@ -1706,9 +1781,12 @@ def _write_valid_plan_stage(root: Path) -> None:
 
 def _write_valid_full_emnlp_package(root: Path) -> None:
     _write_valid_plan_stage(root)
-    _write(root / "experiments" / "run_001" / "manifest.json", "{}\n")
-    _write(root / "experiments" / "run_001" / "status.json", "{}\n")
-    _write(root / "experiments" / "run_001" / "progress.jsonl", "{}\n")
+    full_methods = ["no_skill", "raw_memory", "reflexion", "static_skill_lib", "skillcycle"]
+    _write(
+        root / "research" / "BASELINE_AND_BENCHMARK_PLAN.md",
+        "Required methods: no_skill, raw_memory, reflexion, static_skill_lib, skillcycle\n",
+    )
+    _write_full_scale_experiment_run(root, methods=full_methods, task_count=240)
     _write(root / "paper" / "artifacts" / "claims_evidence.tsv", "claim\tevidence\n")
     _write(root / "paper" / "artifacts" / "result_to_claim.tsv", "result\tclaim\n")
     _write(root / "research" / "NARRATIVE_REPORT.md", "narrative\n")
@@ -1776,6 +1854,45 @@ def _write_valid_full_emnlp_package(root: Path) -> None:
             },
         },
     )
+
+
+def _write_full_scale_experiment_run(
+    root: Path,
+    *,
+    methods: list[str],
+    task_count: int,
+    declared_task_count: int | None = None,
+) -> None:
+    run_dir = root / "experiments" / "run_001"
+    declared_count = declared_task_count if declared_task_count is not None else task_count
+    _write_json(
+        run_dir / "manifest.json",
+        {
+            "task_count": declared_count,
+            "methods": methods,
+        },
+    )
+    _write_json(
+        run_dir / "status.json",
+        {
+            "status": "completed",
+            "task_count": declared_count,
+        },
+    )
+    rows = []
+    for method in methods:
+        for index in range(task_count):
+            rows.append(
+                json.dumps(
+                    {
+                        "method": method,
+                        "task_id": f"task-{index:03d}",
+                        "success": index % 2 == 0,
+                    }
+                )
+            )
+    _write(run_dir / "results.jsonl", "\n".join(rows) + "\n")
+    _write(run_dir / "progress.jsonl", "{}\n")
 
 
 def _write_valid_literature_grounding(

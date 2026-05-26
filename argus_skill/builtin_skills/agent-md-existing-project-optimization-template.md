@@ -36,6 +36,9 @@ The goal is a submission-quality long-paper package, not a pilot PDF, validator-
 - Prefer `/home/argustest/miniconda3/bin/python` for Argus validation commands.
 - Final EMNLP completion requires this exact command to exit 0 and be quoted in completion evidence:
   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`
+- Full-scale experiment evidence is a prerequisite for analysis, narrative, drafting, assurance, and submission. This command must pass before any of those stages are marked ready/done:
+  `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-full-scale-evidence --project-root .`
+- Treat `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` as hard blockers.
 - `validate-pipeline`, a compiled PDF, a pilot run, or a passing stale review artifact alone is not final readiness.
 
 ## Current operator goal
@@ -187,10 +190,13 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 1. Preserve valid raw results and provenance, but do not preserve weak claims, stale reviews, copied text, duplicated benchmark rows, or known-invalid benchmark framing.
 2. If the current evidence is only pilot-scale, label it as pilot evidence and queue a real scale-up run; do not pad the paper or assurance files into final readiness.
 3. If the local validator requires at least 240 unique semantic scored main tasks/episodes for final long-paper evidence, then 50--60 tasks are pilot evidence even if all methods ran successfully.
-4. Benchmark scale must come from unique semantic tasks/examples, not duplicates, relabeling, suffixes, paraphrase inflation, or shuffled copies.
-5. Benchmark/source selection must document source diversity, recency/relevance, adoption/rejection decisions, license/access status, leakage controls, and why each source tests a distinct capability.
-6. Every numeric claim must remain tied to current raw artifacts under `results/`, `experiments/`, or `paper/artifacts/`.
-7. If the method-positive thesis is rejected by evidence, queue repair/pivot tasks for method, metric, benchmark, or objective. Do not convert it into a negative-result paper unless the operator explicitly asks.
+4. Benchmark construction is not execution. `benchmarks/full/tasks.jsonl`, benchmark manifests, or `status.json task_count` do not satisfy final evidence unless raw completed scored rows under `experiments/**` cover every required method/baseline condition.
+5. Benchmark scale must come from unique semantic tasks/examples, not duplicates, relabeling, suffixes, paraphrase inflation, or shuffled copies.
+6. For agent-skill/memory projects, each required baseline/method condition such as `no_skill`, `raw_memory`, `reflexion`, `static_skill_lib`, and the proposed method must have at least 240 distinct scored main tasks/episodes, unless the operator documents a domain-specific replacement.
+7. Benchmark/source selection must document source diversity, recency/relevance, adoption/rejection decisions, license/access status, leakage controls, and why each source tests a distinct capability.
+8. Every numeric claim must remain tied to current raw artifacts under `results/`, `experiments/`, or `paper/artifacts/`.
+9. Run `validate-full-scale-evidence` before final analysis/drafting/assurance repair. If it fails, preserve valid raw evidence but queue the missing full-run or matrix-completion work and keep the PDF non-final.
+10. If the method-positive thesis is rejected by evidence, queue repair/pivot tasks for method, metric, benchmark, or objective. Do not convert it into a negative-result paper unless the operator explicitly asks.
 
 ## Existing paper repair
 1. Improve the artifact the reader/reviewer sees, not just the validator surface. Reader-facing prose must stay clear, specific, and evidence-backed.

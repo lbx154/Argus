@@ -77,6 +77,83 @@ def test_research_experiment_skill_requires_live_progress_protocol(tmp_path: Pat
         assert required in text
 
 
+def test_builtin_skills_require_full_scale_experiment_evidence_gate(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    seed_builtin_skills(skills_dir)
+
+    required_by_skill = {
+        "auto-research-pipeline.md": (
+            "validate-full-scale-evidence",
+            "Benchmark construction is not execution",
+            "missing_full_scale_experiment_run",
+            "incomplete_full_scale_experiment_run",
+            "missing_baseline_condition_run",
+            "pilot_pdf_without_full_scale_evidence",
+            "status.json",
+            "raw result rows",
+        ),
+        "agent-research-benchmark-runner.md": (
+            "validate-full-scale-evidence",
+            "Benchmark construction is not execution",
+            "status.json task_count",
+            "raw scored rows",
+            ">=240 distinct scored main tasks/episodes",
+            "missing_baseline_condition_run",
+        ),
+        "research-results-analysis-and-figures.md": (
+            "validate-full-scale-evidence",
+            "benchmarks/full/tasks.jsonl",
+            "declared `status.json task_count`",
+            "completed raw scored rows per required method/baseline condition",
+            "pilot_pdf_without_full_scale_evidence",
+        ),
+        "emnlp-paper-drafting.md": (
+            "validate-full-scale-evidence",
+            "Benchmark construction is not executed evidence",
+            "raw `experiments/**` rows",
+            "every required method/baseline condition",
+            "pilot_pdf_without_full_scale_evidence",
+        ),
+        "emnlp-academic-language-review.md": (
+            "validate-full-scale-evidence",
+            "benchmark construction",
+            "status.json task_count",
+            "every required method/baseline condition",
+            "pilot_pdf_without_full_scale_evidence",
+        ),
+        "research-submission-assurance-gate.md": (
+            "validate-full-scale-evidence",
+            "benchmark construction presented as execution",
+            "fewer than 240 distinct scored rows for any required condition",
+            "missing_baseline_condition_run",
+            "pilot_pdf_without_full_scale_evidence",
+        ),
+        "agent-md-new-project-template.md": (
+            "validate-full-scale-evidence",
+            "Benchmark construction is not execution",
+            "benchmarks/full/tasks.jsonl",
+            "status.json task_count",
+            "every required method/baseline condition",
+            "pilot_pdf_without_full_scale_evidence",
+        ),
+        "agent-md-existing-project-optimization-template.md": (
+            "validate-full-scale-evidence",
+            "Benchmark construction is not execution",
+            "benchmarks/full/tasks.jsonl",
+            "status.json task_count",
+            "every required method/baseline condition",
+            "pilot_pdf_without_full_scale_evidence",
+        ),
+    }
+
+    for filename, required_tokens in required_by_skill.items():
+        text = (skills_dir / filename).read_text(encoding="utf-8")
+        for required in required_tokens:
+            assert required in text, f"{filename} missing {required!r}"
+
+
 def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
     tmp_path: Path,
 ) -> None:
@@ -155,6 +232,12 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         assert "Experimental Setup" in text and "0.5--1" in text
         assert "Main Results" in text and "1--1.5" in text
         assert "Failure Cases" in text and "0.3--0.5" in text
+        assert "validate-full-scale-evidence" in text
+        assert "Benchmark construction is not execution" in text
+        assert "missing_full_scale_experiment_run" in text
+        assert "incomplete_full_scale_experiment_run" in text
+        assert "missing_baseline_condition_run" in text
+        assert "pilot_pdf_without_full_scale_evidence" in text
 
     for required in (
         "clean-slate project",

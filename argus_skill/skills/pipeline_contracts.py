@@ -8,6 +8,7 @@ surfaces or tests can gate progress without re-encoding the contract.
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import os
@@ -17,7 +18,7 @@ import struct
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from .academic_language_review import (
     ACADEMIC_LANGUAGE_REVIEW_JSON_PATH,
@@ -474,6 +475,76 @@ PIPELINE_STATUSES: tuple[str, ...] = (
 )
 
 SUCCESS_STATUSES = {"ready", "done"}
+MIN_FULL_SCALE_EXPERIMENT_TASKS = 240
+FULL_SCALE_GATED_STAGES = {"analysis", "narrative", "draft", "assurance", "submission"}
+FULL_SCALE_COMPLETED_STATUSES = {"complete", "completed", "done", "success", "succeeded"}
+FULL_SCALE_TASK_COUNT_FIELDS = {
+    "task_count",
+    "n_tasks",
+    "num_tasks",
+    "scored_task_count",
+    "attempted_task_count",
+    "unique_task_count",
+    "unique_semantic_tasks",
+}
+FULL_SCALE_METHOD_COLLECTION_KEYS = {
+    "methods",
+    "baselines",
+    "baseline_methods",
+    "required_baselines",
+    "primary_baselines",
+    "conditions",
+    "condition_methods",
+}
+FULL_SCALE_METHOD_FIELDS = (
+    "method",
+    "protocol",
+    "variant",
+    "condition",
+    "baseline",
+    "method_name",
+    "condition_name",
+)
+FULL_SCALE_TASK_ID_FIELDS = (
+    "task_id",
+    "episode_id",
+    "sample_id",
+    "example_id",
+    "prompt_id",
+    "case_id",
+    "instance_id",
+    "id",
+)
+FULL_SCALE_SCORED_FIELDS = (
+    "success",
+    "score",
+    "verdict",
+    "prediction",
+    "answer",
+    "output",
+    "gold_answer",
+    "failure",
+    "error",
+)
+FULL_SCALE_PROGRESS_RESULT_EVENTS = {
+    "trial_end",
+    "trial_complete",
+    "task_end",
+    "task_complete",
+    "episode_end",
+    "episode_complete",
+    "result",
+    "scored",
+}
+KNOWN_FULL_SCALE_METHODS = (
+    "no_skill",
+    "raw_memory",
+    "reflexion",
+    "static_skill_lib",
+    "phase_memory_controller",
+    "skillcycle",
+    "skillguard",
+)
 
 LITERATURE_ARTIFACT_PATTERNS: tuple[str, ...] = (
     "research/LITERATURE_REVIEW.md",
@@ -616,6 +687,15 @@ class _ManifestEntry:
     sources: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class _ExperimentRunEvidence:
+    run_dir: Path
+    completed: bool
+    declared_task_count: int | None
+    declared_methods: tuple[str, ...]
+    scored_task_counts: tuple[tuple[str, int], ...]
+
+
 def validate_pipeline_state(project_root: Path) -> list[ContractIssue]:
     """Validate ``research/PIPELINE_STATE.json`` and completed-stage artifacts."""
 
@@ -672,6 +752,7 @@ def validate_pipeline_state(project_root: Path) -> list[ContractIssue]:
     style_exemplar_checked = False
     image2_figures_checked = False
     emnlp_paper_contract_checked = False
+    full_scale_experiment_checked = False
     layout_review_checked = False
     academic_language_review_checked = False
     for stage, value in stages.items():
@@ -717,6 +798,9 @@ def validate_pipeline_state(project_root: Path) -> list[ContractIssue]:
             if stage in ARTIFACT_MANIFEST_STAGES and not manifest_checked:
                 issues.extend(validate_artifact_manifest(root))
                 manifest_checked = True
+            if stage in FULL_SCALE_GATED_STAGES and not full_scale_experiment_checked:
+                issues.extend(validate_full_scale_experiment_evidence(root))
+                full_scale_experiment_checked = True
             if stage in EMNLP_PAPER_CONTRACT_STAGES:
                 if not literature_grounding_checked:
                     issues.extend(validate_literature_grounding(root))
@@ -749,6 +833,99 @@ def validate_pipeline_state(project_root: Path) -> list[ContractIssue]:
                 issues.extend(validate_submission_readiness(root))
 
     return issues
+
+
+def validate_full_scale_experiment_evidence(project_root: Path) -> list[ContractIssue]:
+    """Validate that downstream paper stages have real full-scale run evidence."""
+
+    root = Path(project_root)
+    runs = _collect_experiment_run_evidence(root)
+    required_methods = _required_full_scale_methods(root, runs)
+    full_counts_by_method: dict[str, int] = {}
+    incomplete_full_runs: list[_ExperimentRunEvidence] = []
+    max_scored_tasks = 0
+
+    for run in runs:
+        scored_counts = dict(run.scored_task_counts)
+        run_max_scored = max(scored_counts.values(), default=0)
+        max_scored_tasks = max(max_scored_tasks, run_max_scored)
+        if (
+            run.declared_task_count is not None
+            and run.declared_task_count >= MIN_FULL_SCALE_EXPERIMENT_TASKS
+            and not run.completed
+        ):
+            incomplete_full_runs.append(run)
+        if not run.completed:
+            continue
+        for method, count in scored_counts.items():
+            if count < MIN_FULL_SCALE_EXPERIMENT_TASKS:
+                continue
+            full_counts_by_method[method] = max(count, full_counts_by_method.get(method, 0))
+
+    issues: list[ContractIssue] = []
+    if incomplete_full_runs and not full_counts_by_method:
+        paths = ", ".join(
+            _project_relative_path(root, run.run_dir) for run in incomplete_full_runs[:3]
+        )
+        issues.append(
+            ContractIssue(
+                "incomplete_full_scale_experiment_run",
+                "experiments/",
+                (
+                    "a >=240-task experiment run was declared but is not completed; "
+                    f"finish or rerun it before analysis/drafting ({paths})"
+                ),
+            )
+        )
+
+    if not full_counts_by_method:
+        issues.append(
+            ContractIssue(
+                "missing_full_scale_experiment_run",
+                "experiments/",
+                (
+                    "analysis/drafting/submission requires a completed experiment run with "
+                    f">={MIN_FULL_SCALE_EXPERIMENT_TASKS} distinct scored tasks per condition; "
+                    f"the largest completed per-condition evidence set has {max_scored_tasks}"
+                ),
+            )
+        )
+    elif required_methods:
+        missing_methods = [
+            method
+            for method in required_methods
+            if full_counts_by_method.get(method, 0) < MIN_FULL_SCALE_EXPERIMENT_TASKS
+        ]
+        if missing_methods:
+            present = ", ".join(
+                f"{method}={count}" for method, count in sorted(full_counts_by_method.items())
+            )
+            issues.append(
+                ContractIssue(
+                    "missing_baseline_condition_run",
+                    "research/BASELINE_AND_BENCHMARK_PLAN.md",
+                    (
+                        "the required full baseline/method matrix is incomplete; missing "
+                        f">={MIN_FULL_SCALE_EXPERIMENT_TASKS} scored tasks for "
+                        f"{', '.join(missing_methods)}"
+                        + (f" (present full conditions: {present})" if present else "")
+                    ),
+                )
+            )
+
+    if (root / PAPER_MAIN_PDF_PATH).is_file() and issues:
+        issues.append(
+            ContractIssue(
+                "pilot_pdf_without_full_scale_evidence",
+                str(PAPER_MAIN_PDF_PATH),
+                (
+                    "paper/main.pdf exists before the required full-scale experiment matrix "
+                    "is complete; treat it as a non-final pilot artifact, not a submission paper"
+                ),
+            )
+        )
+
+    return _dedupe_contract_issues(issues)
 
 
 def validate_artifact_manifest(project_root: Path) -> list[ContractIssue]:
@@ -3334,6 +3511,7 @@ def validate_submission_assurance(project_root: Path) -> list[ContractIssue]:
         issues.extend(validate_academic_language_review(root))
         issues.extend(_contract_issues(detect_quality_blockers(root)))
         issues.extend(validate_artifact_manifest(root))
+        issues.extend(validate_full_scale_experiment_evidence(root))
 
     return issues
 
@@ -3383,6 +3561,7 @@ def validate_full_emnlp_readiness(project_root: Path) -> list[ContractIssue]:
     issues.extend(_contract_issues(detect_quality_blockers(root)))
     issues.extend(validate_submission_readiness(root))
     issues.extend(validate_artifact_manifest(root))
+    issues.extend(validate_full_scale_experiment_evidence(root))
 
     state = _try_read_json_object(root / PIPELINE_STATE_PATH)
     stages = state.get("stages") if isinstance(state, dict) else None
@@ -5433,6 +5612,254 @@ def _float_or_none(value: object) -> float | None:
         return None
 
 
+def _collect_experiment_run_evidence(root: Path) -> list[_ExperimentRunEvidence]:
+    experiments_dir = root / "experiments"
+    if not experiments_dir.is_dir():
+        return []
+
+    run_dirs: set[Path] = set()
+    for name in ("status.json", "manifest.json"):
+        for path in experiments_dir.glob(f"**/{name}"):
+            if path.is_file():
+                run_dirs.add(path.parent)
+    runs: list[_ExperimentRunEvidence] = []
+    for run_dir in sorted(run_dirs):
+        metadata = [
+            payload
+            for payload in (
+                _try_read_json_object(run_dir / "status.json"),
+                _try_read_json_object(run_dir / "manifest.json"),
+                _try_read_json_object(run_dir / "summary.json"),
+            )
+            if payload is not None
+        ]
+        declared_methods = _declared_methods_from_payloads(metadata)
+        scored_task_counts = _scored_task_counts_by_method(run_dir, declared_methods)
+        runs.append(
+            _ExperimentRunEvidence(
+                run_dir=run_dir,
+                completed=_experiment_run_completed(metadata),
+                declared_task_count=_declared_task_count(metadata),
+                declared_methods=tuple(sorted(declared_methods)),
+                scored_task_counts=tuple(sorted(scored_task_counts.items())),
+            )
+        )
+    return runs
+
+
+def _experiment_run_completed(metadata: Sequence[Mapping[str, object]]) -> bool:
+    for payload in metadata:
+        for key in ("status", "state", "phase", "result", "verdict"):
+            value = _lower_text(payload.get(key))
+            if value in FULL_SCALE_COMPLETED_STATUSES:
+                return True
+        exit_code = _int_or_none(payload.get("exit_code"))
+        if exit_code == 0:
+            return True
+    return False
+
+
+def _declared_task_count(metadata: Sequence[Mapping[str, object]]) -> int | None:
+    counts: list[int] = []
+    for payload in metadata:
+        counts.extend(_task_counts_from_object(payload))
+    return max(counts, default=None)
+
+
+def _task_counts_from_object(value: object) -> list[int]:
+    counts: list[int] = []
+    if isinstance(value, Mapping):
+        for raw_key, raw_value in value.items():
+            key = str(raw_key).strip().lower()
+            if key in FULL_SCALE_TASK_COUNT_FIELDS:
+                count = _int_or_none(raw_value)
+                if count is not None:
+                    counts.append(count)
+            counts.extend(_task_counts_from_object(raw_value))
+    elif isinstance(value, list):
+        for item in value:
+            counts.extend(_task_counts_from_object(item))
+    return counts
+
+
+def _declared_methods_from_payloads(metadata: Sequence[Mapping[str, object]]) -> set[str]:
+    methods: set[str] = set()
+    for payload in metadata:
+        methods.update(_declared_methods_from_object(payload, in_method_collection=False))
+    return methods
+
+
+def _declared_methods_from_object(value: object, *, in_method_collection: bool) -> set[str]:
+    methods: set[str] = set()
+    if isinstance(value, Mapping):
+        for raw_key, raw_value in value.items():
+            key = str(raw_key).strip().lower()
+            if key in FULL_SCALE_METHOD_COLLECTION_KEYS:
+                methods.update(_declared_methods_from_object(raw_value, in_method_collection=True))
+            elif key in FULL_SCALE_METHOD_FIELDS:
+                methods.update(_method_names_from_value(raw_value))
+            elif in_method_collection and key in {"name", "id", "method"}:
+                methods.update(_method_names_from_value(raw_value))
+            elif isinstance(raw_value, (Mapping, list)):
+                methods.update(
+                    _declared_methods_from_object(
+                        raw_value,
+                        in_method_collection=in_method_collection,
+                    )
+                )
+    elif isinstance(value, list):
+        for item in value:
+            if isinstance(item, str) and in_method_collection:
+                method = _normalize_method_name(item)
+                if method:
+                    methods.add(method)
+            else:
+                methods.update(
+                    _declared_methods_from_object(item, in_method_collection=in_method_collection)
+                )
+    elif isinstance(value, str) and in_method_collection:
+        method = _normalize_method_name(value)
+        if method:
+            methods.add(method)
+    return methods
+
+
+def _method_names_from_value(value: object) -> set[str]:
+    if isinstance(value, str):
+        method = _normalize_method_name(value)
+        return {method} if method else set()
+    if isinstance(value, list):
+        methods: set[str] = set()
+        for item in value:
+            methods.update(_method_names_from_value(item))
+        return methods
+    if isinstance(value, Mapping):
+        for key in ("method", "name", "id", "condition", "baseline"):
+            if key in value:
+                return _method_names_from_value(value[key])
+    return set()
+
+
+def _scored_task_counts_by_method(run_dir: Path, declared_methods: set[str]) -> dict[str, int]:
+    tasks_by_method: dict[str, set[str]] = {}
+    for path in sorted({*run_dir.glob("**/results*.jsonl"), *run_dir.glob("**/progress*.jsonl")}):
+        _accumulate_jsonl_method_tasks(path, declared_methods, tasks_by_method)
+    for path in sorted(run_dir.glob("**/results*.tsv")):
+        _accumulate_tsv_method_tasks(path, declared_methods, tasks_by_method)
+    for path in sorted(run_dir.glob("**/result.json")):
+        payload = _try_read_json_object(path)
+        if payload is not None:
+            _accumulate_record_method_task(payload, declared_methods, tasks_by_method)
+    return {method: len(tasks) for method, tasks in tasks_by_method.items()}
+
+
+def _accumulate_jsonl_method_tasks(
+    path: Path,
+    declared_methods: set[str],
+    tasks_by_method: dict[str, set[str]],
+) -> None:
+    try:
+        raw_lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in raw_lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            continue
+        _accumulate_record_method_task(payload, declared_methods, tasks_by_method)
+
+
+def _accumulate_tsv_method_tasks(
+    path: Path,
+    declared_methods: set[str],
+    tasks_by_method: dict[str, set[str]],
+) -> None:
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle, delimiter="\t")
+            for row in reader:
+                _accumulate_record_method_task(row, declared_methods, tasks_by_method)
+    except (OSError, csv.Error):
+        return
+
+
+def _accumulate_record_method_task(
+    payload: object,
+    declared_methods: set[str],
+    tasks_by_method: dict[str, set[str]],
+) -> None:
+    if not isinstance(payload, Mapping):
+        return
+    event = _lower_text(payload.get("event") or payload.get("type"))
+    if event and "start" in event and event not in FULL_SCALE_PROGRESS_RESULT_EVENTS:
+        return
+    if event and event not in FULL_SCALE_PROGRESS_RESULT_EVENTS and not _record_has_scored_value(payload):
+        return
+    if not event and not _record_has_scored_value(payload):
+        return
+
+    method = _record_method(payload)
+    if method is None and len(declared_methods) == 1:
+        method = next(iter(declared_methods))
+    task_id = _record_task_id(payload)
+    if method is None or task_id is None:
+        return
+    tasks_by_method.setdefault(method, set()).add(task_id)
+
+
+def _record_has_scored_value(payload: Mapping[str, object]) -> bool:
+    if any(field in payload for field in FULL_SCALE_SCORED_FIELDS):
+        return True
+    metrics = payload.get("metrics")
+    return isinstance(metrics, Mapping) and bool(metrics)
+
+
+def _record_method(payload: Mapping[str, object]) -> str | None:
+    for field in FULL_SCALE_METHOD_FIELDS:
+        if field in payload:
+            method = _normalize_method_name(payload[field])
+            if method:
+                return method
+    return None
+
+
+def _record_task_id(payload: Mapping[str, object]) -> str | None:
+    for field in FULL_SCALE_TASK_ID_FIELDS:
+        if field in payload:
+            raw_task_id = payload[field]
+            if isinstance(raw_task_id, (str, int)) and str(raw_task_id).strip():
+                return str(raw_task_id).strip()
+    return None
+
+
+def _normalize_method_name(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
+    return normalized or None
+
+
+def _required_full_scale_methods(root: Path, runs: Sequence[_ExperimentRunEvidence]) -> list[str]:
+    required = {method for run in runs for method in run.declared_methods}
+    for path in (
+        root / "research" / "BASELINE_AND_BENCHMARK_PLAN.md",
+        root / "research" / "EXPERIMENT_PLAN.md",
+        root / "paper" / "RESULTS_REPORT.md",
+    ):
+        try:
+            text = path.read_text(encoding="utf-8").lower()
+        except OSError:
+            continue
+        for method in KNOWN_FULL_SCALE_METHODS:
+            if re.search(rf"(?<![a-z0-9]){re.escape(method)}(?![a-z0-9])", text):
+                required.add(method)
+    return sorted(required)
+
+
 def _collect_manifest_entries(
     root: Path,
     raw_entries: object,
@@ -5784,6 +6211,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ("validate-research-md-format", "validate strict research.md EMNLP format preflight"),
         ("validate-layout-review", "validate final paper layout/aesthetic review score"),
         ("validate-academic-language-review", "validate final academic-language review score"),
+        ("validate-full-scale-evidence", "validate completed full-scale experiment matrix evidence"),
         ("validate-submission", "validate submission readiness gates"),
         ("validate-full-emnlp", "validate complete EMNLP long-paper readiness"),
     ):
@@ -5823,6 +6251,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         issues = validate_layout_review(project_root)
     elif args.command == "validate-academic-language-review":
         issues = validate_academic_language_review(project_root)
+    elif args.command == "validate-full-scale-evidence":
+        issues = validate_full_scale_experiment_evidence(project_root)
     elif args.command == "validate-submission":
         issues = validate_submission_readiness(project_root)
     else:

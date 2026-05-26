@@ -22,6 +22,7 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
 - Experiment evidence is missing; run analysis or benchmarks first.
 - The paper is only a pilot note and should not be polished into a fake long paper.
 - The task is purely visual layout; use the layout review after language changes are done.
+- `python -m argus_skill.skills.pipeline_contracts validate-full-scale-evidence --project-root .` reports `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, or `pilot_pdf_without_full_scale_evidence`; fix/run the full evidence matrix before final prose polish.
 
 ## How to solve
 1. Read the evidence before editing prose:
@@ -31,6 +32,7 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - `paper/RESULTS_REPORT.md`
    - `paper/artifacts/result_to_claim.tsv`
    - `paper/PAPER_QUALITY_CALIBRATION.json`
+   - Run `python -m argus_skill.skills.pipeline_contracts validate-full-scale-evidence --project-root .` for any final EMNLP/ACL paper. Do not accept benchmark construction, `benchmarks/full/manifest.json`, or `status.json task_count` as execution evidence; final language must be grounded in raw completed scored `experiments/**` rows for every required method/baseline condition.
 
 2. Rebuild the paper story:
    - Write one thesis sentence in the form: "X is better for Y in Z because W."
