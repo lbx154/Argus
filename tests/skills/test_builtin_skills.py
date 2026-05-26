@@ -33,6 +33,8 @@ def test_seed_builtin_skills_creates_parseable_research_defaults(tmp_path: Path)
     assert "Argus Critic Role" in names
     assert "Argus Planner Role" in names
     assert "Argus Scientist Role" in names
+    assert "AGENTS.md New Project Template" in names
+    assert "AGENTS.md Existing Project Optimization Template" in names
 
 
 def test_seed_builtin_skills_preserves_existing_user_edits(tmp_path: Path) -> None:
@@ -73,6 +75,43 @@ def test_research_experiment_skill_requires_live_progress_protocol(tmp_path: Pat
         "early-stop",
     ):
         assert required in text
+
+
+def test_agent_md_templates_are_neutral_and_seeded(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    seed_builtin_skills(skills_dir)
+    new_project = (skills_dir / "agent-md-new-project-template.md").read_text(
+        encoding="utf-8"
+    )
+    repair_project = (
+        skills_dir / "agent-md-existing-project-optimization-template.md"
+    ).read_text(encoding="utf-8")
+
+    for text in (new_project, repair_project):
+        assert "Copy-ready `AGENTS.md`" in text
+        assert "v7" not in text
+        assert "v8" not in text
+        assert "v9" not in text
+        assert "Mind2Web" not in text
+        assert "SWE-bench" not in text
+        assert "BoundaryTrap" not in text
+        assert "operator" in text
+
+    for required in (
+        "clean-slate project",
+        "Allowed starting inputs",
+        "Do not copy a previous project",
+        "must not contain a specific project title",
+    ):
+        assert required in new_project
+
+    for required in (
+        "existing project",
+        "Canonical state",
+        "freshness chains synchronized",
+        "Do not restart from scratch",
+    ):
+        assert required in repair_project
 
 
 def test_emnlp_paper_skill_requires_official_template_page_budget_and_style_ref(
