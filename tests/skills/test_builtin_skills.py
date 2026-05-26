@@ -136,6 +136,14 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         assert "ARGUS_SKILL_IMAGE_MODEL=gpt-image-2" in text
         assert "generation_provenance_path" in text
         assert "output_sha256" in text
+        assert "General style" in text
+        assert "Pinned content" in text
+        assert "SPELL EXACTLY" in text
+        assert "Layout variant" in text
+        assert "Negative prompt / Avoid" in text
+        assert "6--20 layout variants" in text
+        assert "Figma-style block diagram" in text
+        assert "rounded cards" in text
 
     for required in (
         "clean-slate project",
@@ -217,6 +225,9 @@ def test_emnlp_paper_skill_requires_official_template_page_budget_and_style_ref(
         "Distribute citations by claim/topic/paragraph",
         "research/LIT_MATRIX.tsv",
         "citation pile",
+        "single thin prompt",
+        "draw method overview",
+        "6--20 image-2 layout variants",
     ):
         assert required in text
 

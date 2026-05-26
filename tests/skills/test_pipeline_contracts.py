@@ -540,7 +540,7 @@ def test_style_exemplar_rejects_pdf_hash_mismatch(tmp_path: Path) -> None:
 def test_image2_figures_require_conceptual_image2_but_allow_secondary_tikz(
     tmp_path: Path,
 ) -> None:
-    _write(tmp_path / "paper" / "figures" / "system.prompt.txt", "draw system figure\n")
+    _write(tmp_path / "paper" / "figures" / "system.prompt.txt", _valid_image2_teaser_prompt())
     _write_bytes(tmp_path / "paper" / "figures" / "system.png", _png_bytes(1536, 1024))
     _write_json(
         tmp_path / "paper" / "figures" / "system.review.json",
@@ -579,8 +579,47 @@ def test_image2_figures_require_conceptual_image2_but_allow_secondary_tikz(
     assert validate_image2_figures(tmp_path) == []
 
 
+def test_image2_figures_reject_thin_freehand_teaser_prompt(tmp_path: Path) -> None:
+    _write(tmp_path / "paper" / "figures" / "method.prompt.txt", "draw method overview\n")
+    _write_bytes(tmp_path / "paper" / "figures" / "method.png", _png_bytes(1536, 1024))
+    _write_json(
+        tmp_path / "paper" / "figures" / "method.review.json",
+        {"score_1_to_5": 4, "keep_or_regenerate": "keep"},
+    )
+    _write_image2_provenance(
+        tmp_path,
+        "paper/figures/method.prompt.txt",
+        "paper/figures/method.png",
+        "paper/figures/method.provenance.json",
+    )
+    _write_json(
+        tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json",
+        {
+            "figures": [
+                {
+                    "figure_id": "method-overview",
+                    "figure_type": "teaser",
+                    "source": "raster",
+                    "generator": "codex-image2",
+                    "model": "image-2",
+                    "prompt_path": "paper/figures/method.prompt.txt",
+                    "output_path": "paper/figures/method.png",
+                    "generation_provenance_path": "paper/figures/method.provenance.json",
+                    "review_path": "paper/figures/method.review.json",
+                    "requested_size": "1536x1024",
+                }
+            ]
+        },
+    )
+
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "thin_image2_teaser_prompt" in codes
+    assert "incomplete_image2_teaser_prompt_scaffold" in codes
+
+
 def test_image2_figures_reject_square_1024_conceptual_figure(tmp_path: Path) -> None:
-    _write(tmp_path / "paper" / "figures" / "system.prompt.txt", "draw system figure\n")
+    _write(tmp_path / "paper" / "figures" / "system.prompt.txt", _valid_image2_teaser_prompt())
     _write_bytes(tmp_path / "paper" / "figures" / "system.png", _png_bytes(1024, 1024))
     _write_json(
         tmp_path / "paper" / "figures" / "system.review.json",
@@ -754,7 +793,7 @@ def test_image2_figures_accept_body_conceptual_png_output(tmp_path: Path) -> Non
 
 
 def test_image2_figures_reject_cropped_or_resaved_image2_output(tmp_path: Path) -> None:
-    _write(tmp_path / "paper" / "figures" / "method.prompt.txt", "draw method overview\n")
+    _write(tmp_path / "paper" / "figures" / "method.prompt.txt", _valid_image2_teaser_prompt())
     _write_bytes(tmp_path / "paper" / "figures" / "method.png", _png_bytes(1343, 564))
     _write_json(
         tmp_path / "paper" / "figures" / "method.review.json",
@@ -828,7 +867,10 @@ def test_image2_figures_reject_pil_generated_output_mislabeled_as_image2(
 def test_image2_figures_reject_named_matplotlib_overview_renderer(
     tmp_path: Path,
 ) -> None:
-    _write(tmp_path / "paper" / "figures" / "method_overview.prompt.txt", "draw method overview\n")
+    _write(
+        tmp_path / "paper" / "figures" / "method_overview.prompt.txt",
+        _valid_image2_teaser_prompt(),
+    )
     _write_bytes(tmp_path / "paper" / "figures" / "method_overview.png", _png_bytes(1536, 1024))
     _write_json(
         tmp_path / "paper" / "figures" / "method_overview.review.json",
@@ -1855,7 +1897,7 @@ def _style_blueprint_text() -> str:
 
 
 def _write_valid_image2_figures(root: Path) -> None:
-    _write(root / "paper" / "figures" / "method.prompt.txt", "draw method overview\n")
+    _write(root / "paper" / "figures" / "method.prompt.txt", _valid_image2_teaser_prompt())
     _write_bytes(root / "paper" / "figures" / "method.png", _png_bytes(1536, 1024))
     _write_json(
         root / "paper" / "figures" / "method.review.json",
@@ -1886,6 +1928,33 @@ def _write_valid_image2_figures(root: Path) -> None:
             ]
         },
     )
+
+
+def _valid_image2_teaser_prompt() -> str:
+    return """Use case: scientific-educational.
+Asset type: Figure 1 teaser / conceptual overview for an EMNLP/ACL academic manuscript.
+
+General style:
+- EMNLP/ACL paper method figure, full-width page-width landscape, 1536x1024.
+- Clean Figma-style block diagram with rounded cards, neat alignment, soft pastel fills, thin dark-gray borders, and compact information density.
+- Polished manuscript figure, not a dashboard, poster, screenshot, or whiteboard sketch.
+- Large readable labels, short phrases, balanced hierarchy, no snake_case identifiers in visible text.
+- Flat vector-like raster rendering on a warm white background (#fbfaf7).
+
+Pinned content that must appear exactly:
+- Title: "SkillCycle Teaser"
+- Stage labels: "Task stream", "Skill proposal", "Verifier gate", "Reusable skill card", "Answer with evidence".
+- Outcome chips: "reject bad replay", "admit checked skill", "traceable result".
+- SPELL EXACTLY the quoted labels above; do not invent extra terminology.
+
+Layout variant: horizontal swimlane with a central verifier gate. Three clean swimlanes show input, admission, and final answer. Use one large central card for the verifier and small output cards on the right.
+
+Negative prompt / Avoid:
+- no tiny unreadable text, no paragraphs, no code snippets, no raw paths, no watermark
+- no photorealism, no heavy gradients, no glassmorphism, no logo wall
+- no messy Excalidraw look, no arbitrary blobs, no decorative clutter
+- no inconsistent terminology between figure and paper
+"""
 
 
 def _write_image2_provenance(root: Path, prompt_path: str, output_path: str, provenance_path: str) -> None:

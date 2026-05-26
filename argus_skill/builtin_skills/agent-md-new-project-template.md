@@ -134,6 +134,33 @@ Use the repository's existing conventions if they are already present; otherwise
          --out paper/figures/method_overview.review.json
 
    A helper such as `code/generate_image2_figure.py` must then write `paper/figures/IMAGE2_FIGURES.json` with `figure_id`, `figure_type`, `model` or `generator_model`, `prompt_path`, `output_path`, `output_sha256`, `sidecar_path`, `inspect_path`, `review_path`, `generation_provenance_path`, width, and height. `generation_provenance_path` may point at the image sidecar if that JSON records `prompt_path`, `output_path`, and `output_sha256`. Never crop, downsample, resave, PDF-wrap, or locally redraw the accepted raster after this provenance is written.
+6. Do not let the model freehand a one-paragraph image prompt. Before calling image-2, write `paper/figures/method_overview.prompt.txt` from this teaser scaffold, then generate 6--20 layout variants by changing only the `Layout variant` block; keep the best reviewed raster and record the selected `prompt_variant_id` in provenance or the manifest:
+
+       Use case: scientific-educational
+       Asset type: Figure 1 teaser / conceptual overview for an EMNLP/ACL academic manuscript
+
+       General style:
+       - EMNLP/ACL paper method figure, full-width page-width landscape, 1536x1024 or 1920x1080.
+       - Clean Figma-style block diagram: rounded cards, neat alignment, soft pastel fills, thin dark-gray borders, compact information density.
+       - Polished manuscript figure, not a dashboard, poster, screenshot, marketing graphic, or whiteboard sketch.
+       - Large readable labels, short phrases, balanced hierarchy, no snake_case identifiers in visible text.
+       - Flat vector-like raster rendering on a warm white background (#fbfaf7).
+
+       Pinned content that must appear exactly:
+       - Title: "<short human-readable method/system name>"
+       - Stage labels: "<input/source>", "<core mechanism>", "<verification/gating step>", "<output/result>".
+       - Outcome chips: "<main benefit>", "<main evidence object>", "<failure avoided>".
+       - SPELL EXACTLY the quoted labels above; do not invent extra terminology.
+
+       Layout variant: choose one and name it, e.g. horizontal swimlanes, central hero composition, sankey funnel, exploded-view, layered architecture stack, pipeline plus gallery, hub-and-spoke, four-panel A/B/C/D, or polished Figma wireframe.
+
+       Negative prompt / Avoid:
+       - no tiny unreadable text, no paragraphs, no code snippets, no raw paths, no watermark
+       - no photorealism, no heavy gradients, no glassmorphism, no logo wall
+       - no messy Excalidraw look, no arbitrary blobs, no decorative clutter
+       - no inconsistent terminology between figure and paper
+
+   A prompt that lacks `General style`, `Pinned content`, exact spelling instructions, `Layout variant`, and `Negative prompt / Avoid` is a blocker even if the image API call succeeds.
 
 ## Role model
 - Planner: decomposes the paper into gated research tasks and chooses the next blocker with the highest reviewer value.

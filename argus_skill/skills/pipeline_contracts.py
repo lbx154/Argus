@@ -93,8 +93,72 @@ MAX_CONCEPTUAL_FIGURE_ASPECT_RATIO = 2.6
 MIN_CONCEPTUAL_FIGURE_PIXEL_WIDTH = 1200
 MIN_CONCEPTUAL_FIGURE_PIXEL_HEIGHT = 768
 MIN_IMAGE_REVIEW_SCORE = 4.0
+MIN_IMAGE2_TEASER_PROMPT_CHARS = 900
 MIN_LAYOUT_REVIEW_SCORE = 4.0
 IMAGE2_RASTER_OUTPUT_SUFFIXES = {".png", ".jpg", ".jpeg"}
+IMAGE2_TEASER_PROMPT_REQUIRED_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "academic_teaser_intent",
+        (
+            "figure 1",
+            "teaser",
+            "full-width",
+            "page-width",
+            "emnlp",
+            "acl",
+            "academic manuscript",
+            "paper figure",
+        ),
+    ),
+    (
+        "polished_figma_style",
+        (
+            "figma",
+            "rounded card",
+            "rounded cards",
+            "pastel",
+            "soft color",
+            "clean block",
+            "flat vector",
+            "manuscript figure",
+        ),
+    ),
+    (
+        "pinned_exact_text",
+        (
+            "pinned content",
+            "spell exactly",
+            "label exactly",
+            "labels exactly",
+            "must appear exactly",
+            "must appear verbatim",
+        ),
+    ),
+    (
+        "negative_prompt",
+        (
+            "negative",
+            "avoid:",
+            "do not include",
+            "no watermark",
+            "no photorealism",
+            "no tiny unreadable text",
+        ),
+    ),
+    (
+        "layout_variant",
+        (
+            "layout variant",
+            "variant-specific layout",
+            "swimlane",
+            "hub-and-spoke",
+            "multi-panel",
+            "dashboard",
+            "pipeline plus gallery",
+            "figma wireframe",
+        ),
+    ),
+)
 LOCAL_RENDERER_SCAN_WINDOW_CHARS = 5_000
 MAX_LOCAL_RENDERER_SOURCE_BYTES = 2_000_000
 LOCAL_RENDERER_SOURCE_SUFFIXES = {
@@ -4053,9 +4117,60 @@ def _validate_conceptual_image2_figure(
                 )
 
     issues.extend(_validate_image2_output_integrity(root, entry, entry_path))
+    issues.extend(_validate_image2_teaser_prompt_quality(root, entry, entry_path))
     issues.extend(_validate_image_review(root, entry, entry_path))
     issues.extend(_validate_image2_generation_provenance(root, entry, entry_path))
     issues.extend(_detect_local_conceptual_figure_generation(root, entry, entry_path))
+    return issues
+
+
+def _validate_image2_teaser_prompt_quality(
+    root: Path,
+    entry: dict[str, Any],
+    entry_path: str,
+) -> list[ContractIssue]:
+    prompt_path = _normalize_manifest_path(entry.get("prompt_path"))
+    prompt_file = _optional_manifest_file(root, prompt_path)
+    if prompt_path is None or prompt_file is None or not prompt_file.is_file():
+        return []
+
+    try:
+        prompt = prompt_file.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        prompt = prompt_file.read_text(encoding="utf-8", errors="replace")
+    stripped = prompt.strip()
+    normalized = re.sub(r"\s+", " ", stripped.lower())
+
+    issues: list[ContractIssue] = []
+    if len(stripped) < MIN_IMAGE2_TEASER_PROMPT_CHARS:
+        issues.append(
+            ContractIssue(
+                "thin_image2_teaser_prompt",
+                _project_relative_path(root, prompt_file),
+                (
+                    "image-2 Figure 1/teaser prompts must use the full teaser scaffold "
+                    "with style, pinned-content, negative-prompt, and layout-variant blocks; "
+                    f"found only {len(stripped)} characters"
+                ),
+            )
+        )
+
+    missing_groups = [
+        group_name
+        for group_name, tokens in IMAGE2_TEASER_PROMPT_REQUIRED_GROUPS
+        if not any(token in normalized for token in tokens)
+    ]
+    if missing_groups:
+        issues.append(
+            ContractIssue(
+                "incomplete_image2_teaser_prompt_scaffold",
+                _project_relative_path(root, prompt_file),
+                (
+                    "image-2 Figure 1/teaser prompt is missing scaffold blocks: "
+                    + ", ".join(missing_groups)
+                ),
+            )
+        )
     return issues
 
 
