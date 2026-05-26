@@ -373,6 +373,8 @@ def test_plan_next_passes_config_to_runner():
     assert "continuous high-value discovery" in sent_prompt
     assert "Argus planner role skill" in sent_prompt
     assert "Argus Planner Role" in sent_prompt
+    assert "Validator toolbelt (planner)" in sent_prompt
+    assert "validate-full-scale-evidence --project-root ." in sent_prompt
     assert "manager/director" in sent_prompt
     assert "iteration is cheap" not in sent_prompt
     assert '"scope": "<bounded|final_submission>"' in sent_prompt
@@ -535,6 +537,8 @@ def test_critic_prompt_has_scoped_final_submission_gate() -> None:
     )
     sent_prompt, _ = runner.calls[0]
     assert "planner_scope: final_submission" in sent_prompt
+    assert "Validator toolbelt (critic)" in sent_prompt
+    assert "validate-academic-language-review --project-root ." in sent_prompt
     assert "validate-full-emnlp --project-root ." in sent_prompt
     assert "Do NOT apply this" in sent_prompt
 

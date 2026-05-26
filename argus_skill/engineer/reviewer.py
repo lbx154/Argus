@@ -287,6 +287,9 @@ class Reviewer:
             check_text=check_text,
             raw_evidence=raw_evidence,
         )
+        from ..tools.validator_toolbelt import format_validator_toolbelt_for_role
+
+        validator_toolbelt = format_validator_toolbelt_for_role("reviewer")
         operator_text = (
             "\n".join(f"- {line}" for line in operator_messages)
             if operator_messages
@@ -325,6 +328,7 @@ class Reviewer:
             "Reviewer-to-engineer handoff skill:\n"
             f"{handoff_skill}\n\n"
             f"{paper_review_skill_block}"
+            f"{validator_toolbelt}\n\n"
             "**Length constraints (strictly enforce):**\n"
             "- Keep `round_summary_markdown` concise (under 2000 characters)\n"
             "- Keep `completion_summary_markdown` under 1500 characters\n"

@@ -105,6 +105,16 @@ def test_final_submission_scope_requires_full_emnlp_gate() -> None:
     assert "bounded" in prompt
 
 
+def test_reviewer_prompt_includes_validator_toolbelt() -> None:
+    prompt = _build_prompt()
+
+    assert "Validator toolbelt (reviewer)" in prompt
+    assert "python -m argus_skill.tools.validator_toolbelt list --role reviewer" in prompt
+    assert "validate-academic-language-review --project-root ." in prompt
+    assert "validate-full-emnlp --project-root ." in prompt
+    assert "not substitutes for final readiness" in prompt
+
+
 def test_academic_peer_review_skill_injected_for_complete_paper_scope() -> None:
     rev = Reviewer(_StubRunner())
     prompt = rev._build_prompt(

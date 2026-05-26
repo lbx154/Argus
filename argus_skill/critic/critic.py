@@ -376,12 +376,16 @@ class Critic:
             "If budget is low, prefer stopping this artifact so the planner "
             "can find a higher-impact mission."
         )
+        from ..tools.validator_toolbelt import format_validator_toolbelt_for_role
+
         return (
             format_role_context(
                 "Argus critic role skill",
                 _CRITIC_ROLE_SKILL,
                 _CRITIC_ROLE_FALLBACK,
             )
+            + format_validator_toolbelt_for_role("critic")
+            + "\n\n"
             + _CRITIC_SYSTEM_PREAMBLE
             + "\n\nOriginal operator objective:\n"
             + original_objective.strip()
@@ -490,12 +494,16 @@ class Critic:
             "Keep searching for valuable work; do not spend tokens on "
             "low-value polish just to keep the loop busy."
         )
+        from ..tools.validator_toolbelt import format_validator_toolbelt_for_role
+
         return (
             format_role_context(
                 "Argus planner role skill",
                 _PLANNER_ROLE_SKILL,
                 _PLANNER_ROLE_FALLBACK,
             )
+            + format_validator_toolbelt_for_role("planner")
+            + "\n\n"
             + _PLANNER_SYSTEM_PREAMBLE
             + "\n\nOperator's continuous goal:\n"
             + continuous_objective.strip()

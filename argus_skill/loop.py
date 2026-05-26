@@ -336,6 +336,11 @@ class SkillLoop:
                 "## Operator guidance (injected since last round)\n"
                 + "\n\n".join(extra_guidance)
             )
+        from .tools.validator_toolbelt import format_validator_toolbelt_for_role
+
+        validator_toolbelt = format_validator_toolbelt_for_role("engineer")
+        if validator_toolbelt:
+            sections.append(validator_toolbelt)
         sections.append(
             "## Required output\n"
             "Make concrete progress: read files, run commands, edit code as\n"
