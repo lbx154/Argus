@@ -255,7 +255,10 @@ def test_backend_failure_retries_without_poisoned_resume_thread(tmp_path: Path) 
         CannedResponse(
             message="",
             thread_id="poison-backend-thread",
-            fatal_error="stream disconnected before completion: response.failed event received",
+            fatal_error=(
+                "Reconnecting... 100/100 "
+                "(stream disconnected before completion: response.failed event received)"
+            ),
         ),
     )
     backend.queue(

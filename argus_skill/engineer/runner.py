@@ -57,9 +57,6 @@ _POISONED_SESSION_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
 
 
 _BACKEND_FAILURE_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
-    "response.failed",
-    "response failed",
-    "stream disconnected",
     "too many requests",
     "429",
     "rate limit",
@@ -139,6 +136,8 @@ def fatal_error_looks_like_backend_failure(fatal_error: str | None) -> bool:
     low = str(fatal_error).strip().casefold()
     if fatal_error_looks_like_recoverable_reconnect(fatal_error):
         return False
+    if _fatal_error_looks_like_exhausted_reconnect(fatal_error):
+        return True
     return any(pattern in low for pattern in _BACKEND_FAILURE_FATAL_ERROR_PATTERNS)
 
 
@@ -159,6 +158,18 @@ def fatal_error_looks_like_recoverable_reconnect(fatal_error: str | None) -> boo
     attempt = int(match.group(1))
     limit = int(match.group(2))
     return attempt < limit
+
+
+def _fatal_error_looks_like_exhausted_reconnect(fatal_error: str | None) -> bool:
+    if not fatal_error:
+        return False
+    low = str(fatal_error).strip().casefold()
+    match = _RECOVERABLE_RECONNECT_RE.search(low)
+    if not match:
+        return False
+    attempt = int(match.group(1))
+    limit = int(match.group(2))
+    return attempt >= limit
 
 
 def _env_int(name: str, default: int, *, minimum: int = 0) -> int:

@@ -280,6 +280,9 @@ def test_recoverable_reconnect_predicates_do_not_clear_thread() -> None:
         "Reconnecting... 100/100 "
         "(stream disconnected before completion: response.failed event received)"
     )
+    plain_disconnect = "stream disconnected before completion: response.failed event received"
+    assert not fatal_error_looks_like_backend_failure(plain_disconnect)
+    assert not should_clear_thread_id_after_outcome(status="", fatal_error=plain_disconnect)
 
 
 def test_backend_failure_skips_reviewer_retries_fresh_session(tmp_path: Path) -> None:
@@ -287,7 +290,10 @@ def test_backend_failure_skips_reviewer_retries_fresh_session(tmp_path: Path) ->
         RunnerResult(
             exit_code=0,
             thread_id="poison-thread",
-            fatal_error="stream disconnected before completion: response.failed event received",
+            fatal_error=(
+                "Reconnecting... 100/100 "
+                "(stream disconnected before completion: response.failed event received)"
+            ),
         ),
         RunnerResult(
             exit_code=0,
@@ -336,7 +342,10 @@ def test_repeated_backend_failures_escalate_to_error_without_reviewer(tmp_path: 
         ),
         RunnerResult(
             exit_code=0,
-            fatal_error="stream disconnected before completion: response.failed event received",
+            fatal_error=(
+                "Reconnecting... 100/100 "
+                "(stream disconnected before completion: response.failed event received)"
+            ),
             thread_id="bad-2",
         ),
     ])
