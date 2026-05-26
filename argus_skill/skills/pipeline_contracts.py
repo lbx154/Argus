@@ -53,6 +53,7 @@ IDEA_PROVENANCE_JSON_PATH = Path("research/IDEA_PROVENANCE.json")
 CODE_REUSE_PLAN_JSON_PATH = Path("research/CODE_REUSE_PLAN.json")
 STYLE_EXEMPLAR_JSON_PATH = Path("paper/style_ref/EXEMPLAR.json")
 STYLE_PROFILE_PATH = Path("paper/style_ref/STYLE_PROFILE.md")
+STYLE_STRUCTURE_BLUEPRINT_PATH = Path("paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md")
 IMAGE2_FIGURES_JSON_PATH = Path("paper/figures/IMAGE2_FIGURES.json")
 LAYOUT_REVIEW_JSON_PATH = Path("paper/LAYOUT_REVIEW.json")
 ACADEMIC_LANGUAGE_REVIEW_PATH = ACADEMIC_LANGUAGE_REVIEW_JSON_PATH
@@ -72,6 +73,7 @@ MIN_STYLE_EXEMPLARS = 2
 MIN_STYLE_EXEMPLAR_PDF_BYTES = 4096
 MIN_STYLE_EXEMPLAR_TEXT_CHARS = 4000
 MIN_STYLE_PROFILE_CHARS = 1800
+MIN_STYLE_BLUEPRINT_CHARS = 1200
 RECENT_PAPER_YEAR_CUTOFF = 2023
 MIN_MAIN_CONTENT_PAGES = 7.5
 MAX_MAIN_CONTENT_PAGES = 8.0
@@ -269,6 +271,24 @@ STYLE_PROFILE_REQUIRED_TOPICS: dict[str, tuple[str, ...]] = {
     "writing_lessons": ("writing lessons", "prose lessons", "paper-writing lessons"),
     "transfer_plan": ("transfer plan", "apply to our paper", "how to apply"),
     "no_prose_copy_policy": ("no prose copy", "no-prose-copy", "structural style only"),
+}
+STYLE_BLUEPRINT_REQUIRED_TOPICS: dict[str, tuple[str, ...]] = {
+    "section_order": ("section order", "section-by-section", "paper scaffold"),
+    "page_budget": ("page budget", "page allocation", "section/page allocation"),
+    "paragraph_roles": ("paragraph role", "paragraph-level", "paragraph plan"),
+    "figure_table_plan": ("figure/table plan", "figure placement", "table placement"),
+    "related_work_grouping": (
+        "related-work grouping",
+        "related work grouping",
+        "method family",
+    ),
+    "evaluation_sequence": ("evaluation sequence", "evaluation layout", "results flow"),
+    "local_evidence_mapping": (
+        "local evidence mapping",
+        "evidence mapping",
+        "claims-evidence",
+    ),
+    "no_prose_copy_policy": ("no prose copy", "structural style only", "do not copy prose"),
 }
 AWARD_STYLE_EXEMPLAR_TOKENS = ("best", "award", "outstanding", "distinguished")
 
@@ -1079,6 +1099,7 @@ def validate_style_exemplar(project_root: Path) -> list[ContractIssue]:
                 "include at least one recent best/outstanding/award paper exemplar for top-conference calibration",
             )
         )
+    issues.extend(_validate_style_structure_blueprint(root))
     return _dedupe_contract_issues(issues)
 
 
@@ -3789,6 +3810,73 @@ def _validate_style_exemplar_profile(
                 "style_exemplar_profile_has_placeholder",
                 normalized or entry_path,
                 "structural_profile must not contain TODO/TBD/placeholder markers",
+            )
+        )
+    return issues
+
+
+def _validate_style_structure_blueprint(root: Path) -> list[ContractIssue]:
+    """Validate the project-specific outline derived from exemplar structure."""
+
+    path = root / STYLE_STRUCTURE_BLUEPRINT_PATH
+    if not path.exists():
+        return [
+            ContractIssue(
+                "missing_style_structure_blueprint",
+                str(STYLE_STRUCTURE_BLUEPRINT_PATH),
+                "write a project-specific paper structure blueprint from the exemplar profile before drafting prose",
+            )
+        ]
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return [
+            ContractIssue(
+                "style_structure_blueprint_not_utf8",
+                str(STYLE_STRUCTURE_BLUEPRINT_PATH),
+                "paper structure blueprint must be UTF-8 text",
+            )
+        ]
+    except OSError as exc:
+        return [
+            ContractIssue(
+                "style_structure_blueprint_unreadable",
+                str(STYLE_STRUCTURE_BLUEPRINT_PATH),
+                f"paper structure blueprint could not be read: {exc}",
+            )
+        ]
+
+    stripped = text.strip()
+    issues: list[ContractIssue] = []
+    if len(stripped) < MIN_STYLE_BLUEPRINT_CHARS:
+        issues.append(
+            ContractIssue(
+                "style_structure_blueprint_too_thin",
+                str(STYLE_STRUCTURE_BLUEPRINT_PATH),
+                f"paper structure blueprint must be thick enough to guide drafting ({MIN_STYLE_BLUEPRINT_CHARS}+ chars)",
+            )
+        )
+    lowered = stripped.lower()
+    missing_topics = [
+        topic
+        for topic, alternatives in STYLE_BLUEPRINT_REQUIRED_TOPICS.items()
+        if not any(alternative in lowered for alternative in alternatives)
+    ]
+    if missing_topics:
+        issues.append(
+            ContractIssue(
+                "style_structure_blueprint_missing_topics",
+                str(STYLE_STRUCTURE_BLUEPRINT_PATH),
+                "paper structure blueprint is missing required topics: "
+                + ", ".join(missing_topics),
+            )
+        )
+    if re.search(r"\b(?:todo|tbd|placeholder)\b", lowered):
+        issues.append(
+            ContractIssue(
+                "style_structure_blueprint_has_placeholder",
+                str(STYLE_STRUCTURE_BLUEPRINT_PATH),
+                "paper structure blueprint must not contain TODO/TBD/placeholder markers",
             )
         )
     return issues

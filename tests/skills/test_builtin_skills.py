@@ -110,6 +110,8 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         assert "actual generated image-2 raster" in text
         assert "Paper Exemplar PDF Learning" in text
         assert "validate-exemplar" in text
+        assert "PAPER_STRUCTURE_BLUEPRINT.md" in text
+        assert "section order, page budget, paragraph roles" in text
         assert "validate-research-md-format" in text
         assert "ACADEMIC_LANGUAGE_REVIEW.json" in text
         assert "LAYOUT_REVIEW.json" in text
@@ -186,6 +188,9 @@ def test_emnlp_paper_skill_requires_official_template_page_budget_and_style_ref(
         "local_pdf",
         "pdf_sha256",
         "text_extract",
+        "paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md",
+        "Use this blueprint as the paper organizer",
+        "instead of writing freehand LaTeX",
         "paper/figures/IMAGE2_FIGURES.json",
         "paper/ACADEMIC_LANGUAGE_REVIEW.json",
         "paper/FORMAT_PREFLIGHT.md",
@@ -285,6 +290,8 @@ def test_auto_research_pipeline_skill_requires_state_machine_gates(
         "Paper Exemplar PDF Learning",
         "local exemplar PDFs/text extracts",
         "paper/style_ref/EXEMPLAR.json",
+        "paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md",
+        "concrete paper organizer before prose",
         "paper/figures/IMAGE2_FIGURES.json",
         "paper/ACADEMIC_LANGUAGE_REVIEW.json",
         "paper/FORMAT_PREFLIGHT.md",
@@ -385,9 +392,12 @@ def test_paper_exemplar_skill_requires_pdf_text_hash_and_thick_profile(
         "at least two",
         "best/outstanding/award paper",
         "STYLE_PROFILE.md",
+        "PAPER_STRUCTURE_BLUEPRINT.md",
         "Abstract shape",
         "Section/page allocation",
         "Figure/table inventory",
+        "section order, page budget, paragraph roles",
+        "paper organizer",
         "No prose copy policy",
         "validate-exemplar",
     ):

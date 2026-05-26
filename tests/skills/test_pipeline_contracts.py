@@ -516,6 +516,15 @@ def test_style_exemplar_rejects_url_only_exemplar(tmp_path: Path) -> None:
     assert "style_exemplar_profile_too_thin" in codes
 
 
+def test_style_exemplar_requires_structure_blueprint(tmp_path: Path) -> None:
+    _write_valid_style_exemplar(tmp_path)
+    (tmp_path / "paper" / "style_ref" / "PAPER_STRUCTURE_BLUEPRINT.md").unlink()
+
+    codes = {issue.code for issue in validate_style_exemplar(tmp_path)}
+
+    assert "missing_style_structure_blueprint" in codes
+
+
 def test_style_exemplar_rejects_pdf_hash_mismatch(tmp_path: Path) -> None:
     _write_valid_style_exemplar(tmp_path)
     path = tmp_path / "paper" / "style_ref" / "EXEMPLAR.json"
@@ -1711,6 +1720,10 @@ def _write_valid_code_reuse_plan(root: Path) -> None:
 def _write_valid_style_exemplar(root: Path) -> None:
     profile = _style_profile_text()
     _write(root / "paper" / "style_ref" / "STYLE_PROFILE.md", profile)
+    _write(
+        root / "paper" / "style_ref" / "PAPER_STRUCTURE_BLUEPRINT.md",
+        _style_blueprint_text(),
+    )
     exemplars = []
     for slug, title, venue, year, source_type, award_status in (
         (
@@ -1806,6 +1819,39 @@ def _style_profile_text() -> str:
         "claims, figure design, bibliography text, or sentence templates from exemplars.",
     ]
     return "\n\n".join(sections) + "\n" + ("Structural evidence note. " * 120)
+
+
+def _style_blueprint_text() -> str:
+    sections = [
+        "# Paper structure blueprint from exemplars",
+        "## Section order\n"
+        "Introduction, Related Work, Method, Benchmark, Experiments, Analysis, "
+        "Conclusion, Limitations, Ethics, and Reproducibility are ordered to match "
+        "top-conference paper flow while using only local project evidence.",
+        "## Page budget\n"
+        "The page allocation reserves one page for introduction, one for related work, "
+        "one and a half for method, one for benchmark provenance, two for experiments "
+        "and analysis, and half a page for conclusion plus limitations hooks.",
+        "## Paragraph roles\n"
+        "Each paragraph has a planned role: problem, gap, method mechanism, benchmark "
+        "definition, main result, ablation explanation, failure analysis, and scope.",
+        "## Figure/table plan\n"
+        "Use one image-2 overview figure, compact result tables, an ablation table, and "
+        "a failure-analysis visual placed where the evidence is discussed.",
+        "## Related-work grouping\n"
+        "Related work is grouped by method family, benchmark gap, and failure mode, with "
+        "citations next to the specific claim they support.",
+        "## Evaluation sequence\n"
+        "Evaluation sequence moves from setup to baselines, main comparison, ablations, "
+        "confidence intervals, robustness, and qualitative error analysis.",
+        "## Local evidence mapping\n"
+        "Every section maps claims to claims-evidence rows, result tables, benchmark "
+        "provenance, and generated artifacts before prose is written.",
+        "## No prose copy policy\n"
+        "This plan uses structural style only. Do not copy prose, examples, terminology, "
+        "claims, figure design, bibliography text, or sentence templates from exemplars.",
+    ]
+    return "\n\n".join(sections) + "\n" + ("Blueprint evidence mapping note. " * 80)
 
 
 def _write_valid_image2_figures(root: Path) -> None:

@@ -26,6 +26,7 @@ Use real top-conference papers as formatting and structure references before wri
   - `paper.txt`: extracted UTF-8 text from the PDF using `pdftotext`, `pypdf`, `pdfminer.six`, or another reliable extractor.
   - JSON metadata in `EXEMPLAR.json`: `title`, `url`, `venue`, `year`, `source_type`, `award_status` when applicable, `open_access: true`, `license`, `pdf_storage_policy`, `usage: "structural_style_only"`, `no_prose_copy: true`, `local_pdf`, `pdf_sha256`, `text_extract`, and `structural_profile`.
 - `paper/style_ref/STYLE_PROFILE.md`: a thick structural profile, not a one-line note.
+- `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md`: a project-specific outline that maps exemplar structure to this paper before prose is written.
 - `paper/style_ref/SOURCES.md`: source URLs, PDF URLs, access date, license/terms notes, and extraction commands.
 
 ## Exemplar selection contract
@@ -60,6 +61,8 @@ Accepted `pdf_storage_policy` values:
 8. **Transfer plan**: how those structural lessons will change this paper.
 9. **No prose copy policy**: explicit statement that the exemplar is for structure only.
 
+`paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` must turn the profile into a concrete writing scaffold for this project: section order, page budget, paragraph roles, figure/table plan, related-work grouping, evaluation sequence, local evidence mapping, and a no-prose-copy policy. This blueprint is the paper organizer; do not let the agent improvise body sections from memory.
+
 ## Procedure
 1. Find official sources first: ACL Anthology paper page, official EMNLP/ACL awards page, arXiv only when conference PDF metadata is unavailable.
 2. Download the PDF into `paper/style_ref/exemplars/<slug>/paper.pdf`.
@@ -67,17 +70,20 @@ Accepted `pdf_storage_policy` values:
 4. Compute `sha256sum paper/style_ref/exemplars/<slug>/paper.pdf` and record it as `pdf_sha256`.
 5. Write or update `paper/style_ref/EXEMPLAR.json`.
 6. Read the PDFs/text extracts and write `paper/style_ref/STYLE_PROFILE.md` from structural observations only.
-7. Run:
+7. Write `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` by adapting those structural observations to this project's thesis, evidence, figures, tables, and section/page plan.
+8. Run:
    - `python -m argus_skill.skills.pipeline_contracts validate-exemplar --project-root .`
-8. If validation fails, fix the missing PDF/text/hash/profile evidence before paper drafting continues.
+9. If validation fails, fix the missing PDF/text/hash/profile/blueprint evidence before paper drafting continues.
 
 ## Hard rules
 - Never treat an ACL Anthology URL as enough. The PDF and text extract must exist locally.
 - Never copy exemplar prose, examples, claims, terminology, figure design, bibliography text, or sentence templates.
 - Never use exemplar structure to justify unsupported claims in the new paper.
+- Never start body prose until the structure blueprint exists and maps exemplar lessons to local evidence; otherwise the draft will regress into freehand filler.
 - If web access is unavailable, write `paper/style_ref/TODO.md` and mark the draft blocked; do not claim EMNLP-ready status.
 
 ## Response shape
 - Name the downloaded exemplar PDFs and text extracts.
+- Name the structure blueprint and the exemplar-derived section/page decisions it imposes.
 - State whether `validate-exemplar` passed.
 - If blocked, list the exact missing artifacts or license/source issues.

@@ -47,9 +47,10 @@ Write a paper draft from local evidence. This adapts ARIS paper-writing/paper-pl
    - Download each exemplar PDF into `paper/style_ref/exemplars/<slug>/paper.pdf`, extract UTF-8 text into `paper/style_ref/exemplars/<slug>/paper.txt` with `pdftotext`, `pypdf`, `pdfminer.six`, or equivalent, and record the PDF SHA-256.
    - Every project must have `paper/style_ref/EXEMPLAR.json` with `exemplar_schema_version: 2`, at least two exemplars, and for each exemplar: `title`, `url`, `venue`, `year`, `source_type`, `award_status` when applicable, `open_access: true`, `license`, `pdf_storage_policy`, `usage: "structural_style_only"`, `no_prose_copy: true`, `local_pdf`, `pdf_sha256`, `text_extract`, and `structural_profile`.
    - Write a thick `paper/style_ref/STYLE_PROFILE.md`, not a one-line note. It must cover abstract shape, section/page allocation, figure/table inventory, related-work shape, evaluation layout, formatting/layout lessons, writing lessons, transfer plan, and no-prose-copy policy.
+   - Write `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` before body prose. It must turn the downloaded exemplars into this paper's section order, page budget, paragraph roles, figure/table plan, related-work grouping, evaluation sequence, and local evidence mapping. Use this blueprint as the paper organizer instead of improvising filler paragraphs.
    - Never copy prose, claims, examples, terminology, figure design, or bibliography text from the style reference. Use it only as a structural scaffold.
    - Record source URLs and BibTeX/metadata in `paper/style_ref/SOURCES.md`.
-   - Run `python -m argus_skill.skills.pipeline_contracts validate-exemplar --project-root .` before writing the paper body. If web is unavailable, create `paper/style_ref/TODO.md` listing the missing style-reference fetch and continue only as a blocked draft; do not mark the draft or submission assurance ready until `validate-exemplar` passes.
+   - Run `python -m argus_skill.skills.pipeline_contracts validate-exemplar --project-root .` before writing the paper body. If web is unavailable, create `paper/style_ref/TODO.md` listing the missing style-reference fetch and continue only as a blocked draft; do not mark the draft or submission assurance ready until `validate-exemplar` passes, including the structure-blueprint check.
 
    Standard starter citation targets for memory / agent-skills / hallucination papers (not a complete bibliography). Use this list only when the project topic matches those families; unrelated domains need their own literature-derived targets:
    - **Tool-use and agent loops:** `yao2023react` (ReAct), `shinn2023reflexion` (Reflexion), `madaan2023selfrefine` (SELF-REFINE), `schick2023toolformer` (Toolformer), `qin2023toolllm` (ToolLLM), `li2023apibank` (API-Bank), `patil2023gorilla` (Gorilla), `shen2023hugginggpt` (HuggingGPT), `karpas2022mrkl` (MRKL Systems).
@@ -73,10 +74,12 @@ Write a paper draft from local evidence. This adapts ARIS paper-writing/paper-pl
 4. Create the paper scaffold:
    - Prefer `paper/main.tex`, `paper/sections/*.tex`, `paper/figures/`, `paper/artifacts/`, and `paper/references.bib`.
    - Use the official ACL/EMNLP template. Only fall back to a minimal LaTeX article when the official style cannot be downloaded, and mark that as a blocking formatting TODO in `paper/PAPER_DRAFT_REPORT.md`.
+   - Read `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` and instantiate its section/page plan. If it is missing, too thin, or not mapped to local evidence, return to Paper Exemplar PDF Learning instead of writing freehand LaTeX.
    - Keep references separate from the main page count. Use real BibTeX from ACL Anthology/DBLP/CrossRef when possible; otherwise leave `[VERIFY_CITATION]` markers and mark the draft as not submission-ready. Do not stop with a token bibliography: expand related work until the final reference section is at least 35 verified entries / 30 unique cited keys and renders across at least two reference pages.
    - Put References before any Appendix material, matching ACL/EMNLP submission order. Do not hide appendix content before the bibliography to inflate the main page count.
 
 5. Draft the outline before prose:
+   - Start from `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md`; each planned section should state its paragraph roles, evidence source, expected figure/table, and which exemplar structural lesson it follows. Do not borrow exemplar sentences.
    - Title and abstract.
    - Introduction with problem, gap, contribution, and evidence preview. The gap and contribution must cite `research/IDEA_PROVENANCE.json`; do not present agent brainstorming as novelty.
    - Use a paper thesis before drafting: "X is better for Y in Z because W." The contribution sentence must be concrete: "We propose X. We show X improves Y by Z because W."
