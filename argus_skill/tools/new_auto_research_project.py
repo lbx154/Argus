@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -245,6 +246,12 @@ def create_project(config: LaunchConfig) -> LaunchResult:
     agents_path.write_text(agents_md, encoding="utf-8")
     seed_builtin_skills(skills_dir, overwrite=True)
     seed_starter_code(project_dir, overwrite=True)
+    seed_research_bootstrap(
+        project_dir,
+        project_name=project_name,
+        objective=_continuous_objective_from_agents(agents_md),
+        overwrite=True,
+    )
     git_commit = init_git(project_dir, project_name) if config.init_git else None
     daemon_output = ""
     status_output = ""
@@ -301,6 +308,137 @@ def seed_starter_code(project_dir: Path, *, overwrite: bool = True) -> dict[Path
     return result
 
 
+def seed_research_bootstrap(
+    project_dir: Path,
+    *,
+    project_name: str,
+    objective: str,
+    overwrite: bool = True,
+) -> dict[Path, bool]:
+    """Write the initial auto-research ledger without claiming readiness.
+
+    The launcher always seeds starter helper code, so daemon empty-directory
+    preflight cannot reliably infer that the research ledger is missing. Keep
+    this bootstrap deterministic and conservative: it gives the first Engineer
+    stable files to extend, while all downstream stages remain non-successful
+    until real literature, benchmark, run, and paper artifacts exist.
+    """
+    files = _research_bootstrap_files(project_name=project_name, objective=objective)
+    result: dict[Path, bool] = {}
+    for relative_name, text in files.items():
+        target = project_dir / relative_name
+        if target.exists() and not overwrite:
+            result[target] = False
+            continue
+        old = target.read_text(encoding="utf-8") if target.exists() else None
+        if old == text:
+            result[target] = False
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        result[target] = True
+    return result
+
+
+def _research_bootstrap_files(*, project_name: str, objective: str) -> dict[str, str]:
+    pipeline_state = {
+        "current_stage": "literature",
+        "objective": objective,
+        "target_venue": "EMNLP",
+        "paper_scope": "long-paper",
+        "stages": {
+            "brief": {
+                "status": "done",
+                "artifact": "research/RESEARCH_BRIEF.md",
+                "notes": "Launcher seed only; revise after literature/source discovery.",
+            },
+            "literature": {
+                "status": "pending",
+                "artifact": "research/LITERATURE_GROUNDING.json",
+            },
+            "novelty": {
+                "status": "missing",
+                "artifact": "research/IDEA_PROVENANCE.json",
+            },
+            "plan": {
+                "status": "missing",
+                "artifact": "research/EXPERIMENT_PLAN.md",
+            },
+            "benchmark": {
+                "status": "missing",
+                "artifact": "experiments/BENCHMARK_PROVENANCE.md",
+            },
+            "run": {"status": "missing"},
+            "analysis": {"status": "missing"},
+            "narrative": {"status": "missing"},
+            "draft": {"status": "missing"},
+            "assurance": {"status": "missing"},
+            "revision": {"status": "missing"},
+            "submission": {"status": "missing"},
+        },
+        "last_gate": {
+            "verdict": "pending",
+            "reason": (
+                "official launcher seed only; final readiness requires completed "
+                "literature grounding, full-scale evidence, paper reviews, and "
+                "validate-full-emnlp exit 0"
+            ),
+        },
+    }
+    gate = (
+        "PYTHONPATH=/home/argustest/argus-skill "
+        "/home/argustest/miniconda3/bin/python -m "
+        "argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root ."
+    )
+    return {
+        "research/PIPELINE_STATE.json": json.dumps(
+            pipeline_state,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        "research/RESEARCH_BRIEF.md": (
+            "# Research Brief\n\n"
+            f"- Project: `{project_name}`\n"
+            f"- Primary goal: {objective}\n"
+            "- Target venue/scope: EMNLP/ACL long paper, 7.5-8 main-content pages.\n"
+            "- Current stage: literature/source discovery.\n\n"
+            "This is the official launcher seed. The next agent must replace this "
+            "brief with a literature-grounded problem statement before selecting "
+            "the final thesis, benchmark, or paper story.\n\n"
+            f"Final gate: `{gate}`\n"
+        ),
+        "research/EXPERIMENT_PLAN.md": (
+            "# Experiment Plan\n\n"
+            "Seed scaffold only. Do not mark the plan stage ready until "
+            "`research/LITERATURE_GROUNDING.json`, `research/IDEA_PROVENANCE.json`, "
+            "`research/CODE_REUSE_PLAN.json`, `research/BASELINE_AND_BENCHMARK_PLAN.md`, "
+            "and `experiments/BENCHMARK_PROVENANCE.md` contain source-backed content.\n\n"
+            "Required evidence target: at least 240 distinct scored main benchmark "
+            "tasks or episodes for every required method/baseline condition, with "
+            "raw rows under `experiments/**` and status/progress artifacts.\n"
+        ),
+        "research/CLAIMS_TO_TEST.md": (
+            "# Claims To Test\n\n"
+            "Seed scaffold only. Add claims after the literature and benchmark "
+            "plan identify the method, baselines, expected effects, ablations, "
+            "robustness checks, and failure cases.\n"
+        ),
+        "research/GO_NO_GO.md": (
+            "# Go / No-Go\n\n"
+            "Initial decision: no-go for drafting. Advance only after the full "
+            "benchmark matrix has completed and `validate-full-scale-evidence` "
+            "passes on current experiment artifacts.\n"
+        ),
+        "experiments/BENCHMARK_PROVENANCE.md": (
+            "# Benchmark Provenance\n\n"
+            "Seed scaffold only. Record surveyed benchmark papers, repositories, "
+            "licenses/access constraints, selected sources, sampling/adaptation "
+            "logic, and the final task schema before running experiments.\n"
+        ),
+    }
+
+
 def iter_starter_code_templates() -> list[tuple[str, str]]:
     """Return deterministic starter-code templates bundled with this package."""
     package_root = resources.files(STARTER_CODE_TEMPLATE_PACKAGE)
@@ -320,6 +458,8 @@ def init_git(project_dir: Path, project_name: str) -> str:
             "AGENTS.md",
             DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
             DEFAULT_PROJECT_CODE_DIR,
+            "research",
+            "experiments",
         ],
         cwd=project_dir,
     )

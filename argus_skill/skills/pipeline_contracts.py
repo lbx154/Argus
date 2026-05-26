@@ -5095,7 +5095,7 @@ def validate_full_emnlp_readiness(project_root: Path) -> list[ContractIssue]:
     issues = validate_pipeline_state(root)
     if isinstance(stages, dict):
         for stage in FULL_EMNLP_REQUIRED_STAGES:
-            issues.extend(_missing_artifact_issues(root, stage))
+            issues.extend(_missing_artifact_issues(root, stage, final_gate=True))
 
     issues.extend(validate_literature_grounding(root))
     issues.extend(validate_idea_provenance(root))
@@ -8305,16 +8305,28 @@ def _write_json_object(path: Path, value: dict[str, Any]) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _missing_artifact_issues(root: Path, stage: str) -> list[ContractIssue]:
+def _missing_artifact_issues(
+    root: Path,
+    stage: str,
+    *,
+    final_gate: bool = False,
+) -> list[ContractIssue]:
     issues: list[ContractIssue] = []
     for pattern in REQUIRED_ARTIFACT_PATTERNS.get(stage, ()):
         if _artifact_exists(root, pattern):
             continue
+        if final_gate:
+            message = (
+                "final EMNLP readiness requires this stage artifact; generate "
+                "it from current upstream evidence before rerunning the full gate"
+            )
+        else:
+            message = f"stage {stage!r} is ready/done but required artifact is missing"
         issues.append(
             ContractIssue(
                 "missing_stage_artifact",
                 pattern,
-                f"stage {stage!r} is ready/done but required artifact is missing",
+                message,
             )
         )
     return issues

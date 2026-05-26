@@ -287,6 +287,11 @@ def test_full_emnlp_readiness_rejects_plan_only_pipeline_pass(
     assert "missing_stage_artifact" in codes
     assert "missing_submission_assurance" in codes
     assert "submission_stage_not_successful" in codes
+    assert all(
+        "final EMNLP readiness requires this stage artifact" in issue.message
+        for issue in issues
+        if issue.code == "missing_stage_artifact"
+    )
 
 
 def test_full_emnlp_readiness_without_pipeline_state_does_not_emit_stage_artifact_noise(

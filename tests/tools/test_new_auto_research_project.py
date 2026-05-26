@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import py_compile
 from pathlib import Path
 
@@ -77,6 +78,21 @@ def test_create_project_without_daemon_exports_template_and_skills(tmp_path: Pat
     assert "generate_image_2 import main" in compat_generate_image.read_text(encoding="utf-8")
     for path in (llm, generate_image_2, compat_generate_image):
         py_compile.compile(str(path), doraise=True)
+
+    pipeline_state = json.loads(
+        (result.project_dir / "research" / "PIPELINE_STATE.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert pipeline_state["current_stage"] == "literature"
+    assert pipeline_state["stages"]["brief"]["status"] == "done"
+    assert pipeline_state["stages"]["literature"]["status"] == "pending"
+    assert pipeline_state["stages"]["submission"]["status"] == "missing"
+    assert (result.project_dir / "research" / "RESEARCH_BRIEF.md").exists()
+    assert (result.project_dir / "research" / "EXPERIMENT_PLAN.md").exists()
+    assert (result.project_dir / "research" / "CLAIMS_TO_TEST.md").exists()
+    assert (result.project_dir / "research" / "GO_NO_GO.md").exists()
+    assert (result.project_dir / "experiments" / "BENCHMARK_PROVENANCE.md").exists()
 
 
 def test_next_version_uses_highest_existing_workspace(tmp_path: Path) -> None:
