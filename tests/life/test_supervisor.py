@@ -1351,6 +1351,22 @@ def test_emnlp_project_done_without_full_gate_enqueues_final_submission_task(
 
     runner = _FakeRunner(response_factory=factory)
     mem = _mk_memory(tmp_path)
+    mem.journal.append(
+        JournalEntry.new(
+            kind="mission_started",
+            title="Prior final-proof attempt",
+            summary=(
+                "objective=Acceptance requires `validate-full-emnlp --project-root .` "
+                "exits 0 before project_done."
+            ),
+            extra={
+                "objective": (
+                    "Acceptance requires `validate-full-emnlp --project-root .` "
+                    "exits 0 before project_done."
+                )
+            },
+        )
+    )
     sink = _RecordingSink()
     planner_calls = {"n": 0}
 

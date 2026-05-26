@@ -233,18 +233,18 @@ def _text_has_full_emnlp_gate_success(text: str) -> bool:
     normalized = _normalize_planner_text(text)
     if "validate-full-emnlp" not in normalized:
         return False
-    success_markers = (
-        "exit 0",
-        "exited 0",
-        "exited with code 0",
-        "returncode 0",
-        "return code 0",
-        "status 0",
-        "status=0",
-        "passed",
-        "success",
+    gate = r"validate-full-emnlp"
+    zero_exit = (
+        r"(?:exit(?:ed|s)?(?:\s+with\s+code)?\s*0|"
+        r"return\s*code\s*0|returncode\s*0|status\s*[=:]?\s*0)"
     )
-    return any(marker in normalized for marker in success_markers)
+    success_word = r"(?:pass(?:ed|es)?|succeed(?:ed|s)?)"
+    patterns = (
+        rf"{gate}.{{0,240}}{zero_exit}",
+        rf"{zero_exit}.{{0,240}}{gate}",
+        rf"{gate}.{{0,120}}{success_word}",
+    )
+    return any(re.search(pattern, normalized) for pattern in patterns)
 
 
 def _entry_task_signature(entry: JournalEntry) -> tuple[str, str] | None:
@@ -1492,20 +1492,14 @@ class LifeSupervisor:
         except Exception:  # noqa: BLE001
             return False
         for entry in entries:
+            if getattr(entry, "kind", "") != "mission_complete":
+                continue
             extra = getattr(entry, "extra", {}) or {}
             chunks = [
-                str(getattr(entry, "kind", "") or ""),
-                str(getattr(entry, "title", "") or ""),
                 str(getattr(entry, "summary", "") or ""),
-                " ".join(str(tag) for tag in getattr(entry, "tags", []) or []),
             ]
             if isinstance(extra, dict):
-                for key in (
-                    "completion_summary",
-                    "objective",
-                    "stop_reason",
-                    "failure_reason",
-                ):
+                for key in ("completion_summary", "verification_summary"):
                     value = extra.get(key)
                     if value:
                         chunks.append(str(value))
