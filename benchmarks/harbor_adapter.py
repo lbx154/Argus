@@ -127,7 +127,11 @@ except Exception as exc:  # pragma: no cover
     _HarborCodex = object  # type: ignore[misc,assignment]
     BaseEnvironment = object  # type: ignore[misc,assignment]
     AgentContext = object  # type: ignore[misc,assignment]
-    EnvironmentPaths = None  # type: ignore[assignment]
+
+    class _FallbackEnvironmentPaths:
+        agent_dir = Path("/agent")
+
+    EnvironmentPaths = _FallbackEnvironmentPaths  # type: ignore[assignment]
 
 
 log = logging.getLogger(__name__)
@@ -785,6 +789,13 @@ def _do_host_prep(instruction: str) -> _HostPrep:
 class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
     """Harbor's Codex agent + host-side skill cache + reviewer-gated round loop."""
 
+    _REMOTE_CODEX_HOME = getattr(_HarborCodex, "_REMOTE_CODEX_HOME", Path("/tmp/codex-home"))
+    _REMOTE_CODEX_SECRETS_DIR = getattr(
+        _HarborCodex,
+        "_REMOTE_CODEX_SECRETS_DIR",
+        Path("/tmp/codex-home/secrets"),
+    )
+
     @staticmethod
     def name() -> str:  # type: ignore[override]
         return "argus-skill-codex"
@@ -795,12 +806,6 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
         environment: BaseEnvironment,
         context: AgentContext,
     ) -> None:
-        if not _HARBOR_OK:  # pragma: no cover
-            raise RuntimeError(
-                "Harbor is not importable inside ArgusSkillCodex. "
-                f"Underlying import error:\n{_HARBOR_IMPORT_ERROR}"
-            )
-
         if not self.model_name:
             raise ValueError("Model name is required")
         model = self.model_name.split("/")[-1]

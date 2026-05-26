@@ -15,15 +15,6 @@ intentionally promoted from local scratch to source control, backfill the
 protocol files or add `EXEMPT.md` and document the exception here in the
 same change.
 
-## Legacy harbor skill-cache scratch
-
-- `benchmarks/results/argus-skill-harbor/`
-
-This directory is retained only as an explicit exemption for the old default
-harbor skill-cache location. The runtime default now uses
-`~/.cache/argus-skill-harbor/skills`, so this checked-in tree should not grow
-new bundle content.
-
 ## Detached TB2 evidence gap
 
 The detached argus bundle at

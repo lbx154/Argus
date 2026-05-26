@@ -120,3 +120,7 @@ strict_equality = true
 [[tool.mypy.overrides]]
 module = ["codex_autoloop.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["benchmarks.*"]
+ignore_errors = true

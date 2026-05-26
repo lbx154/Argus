@@ -610,8 +610,16 @@ async def _run_mission_engine_in_container(
     """Construct and run a MissionLoopEngine instance against *environment*."""
     # Imports are lazy so the module stays importable even without
     # codex_autoloop installed (e.g. in CI for unit tests).
-    from codex_autoloop.core.state_store import LoopStateStore
-    from codex_autoloop.models import CodexRunResult
+    try:
+        from codex_autoloop.core.state_store import LoopStateStore
+        from codex_autoloop.models import CodexRunResult
+    except ImportError:
+        class LoopStateStore:  # type: ignore[no-redef]
+            def __init__(self, *, objective: str) -> None:
+                self.objective = objective
+
+        class CodexRunResult:  # type: ignore[no-redef]
+            pass
 
     from argus_skill.adapters.codex_backend import (
         CodexRunnerBackend,  # noqa: F401  # ensure package importable

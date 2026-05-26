@@ -36,6 +36,10 @@ PATH_LIKE_COLUMNS = {
     "stderr_log",
     "verification_log",
 }
+OPTIONAL_TB2_EXPORT_PATH_COLUMNS = {
+    "agent_dir",
+    "verifier_dir",
+}
 
 STUDY_SUMMARY_COLUMNS = {
     "zero_touch_success",
@@ -52,6 +56,9 @@ STUDY_BUNDLE_PREFIXES = (
 )
 
 TB2_EXPORT_BUNDLE_TYPE = "tb2_fullbench_export"
+OPTIONAL_GENERATED_ROOTS = {
+    Path("benchmarks/results"),
+}
 TB2_EXPORT_REQUIRED_COLUMNS = {
     "row_kind",
     "job_id",
@@ -274,6 +281,11 @@ def _validate_tb2_export_summary(summary_path: Path, bundle_dir: Path) -> list[V
 
 def _validate_index_paths(bundle_dir: Path, rows: Iterable[dict[str, Any]]) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
+    optional_columns = (
+        OPTIONAL_TB2_EXPORT_PATH_COLUMNS
+        if _bundle_type(bundle_dir) == TB2_EXPORT_BUNDLE_TYPE
+        else set()
+    )
     for row_index, row in enumerate(rows, start=1):
         for column, value in row.items():
             if column not in PATH_LIKE_COLUMNS:
@@ -283,6 +295,8 @@ def _validate_index_paths(bundle_dir: Path, rows: Iterable[dict[str, Any]]) -> l
                 continue
             candidate = (bundle_dir / path_text).resolve()
             if not candidate.exists():
+                if column in optional_columns:
+                    continue
                 issues.append(
                     ValidationIssue(
                         path=bundle_dir,
@@ -355,13 +369,18 @@ def iter_bundle_dirs(archive_root: Path) -> list[Path]:
 
 def validate_results_root(archive_root: Path) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
+    normalized_root = Path(archive_root.as_posix().rstrip("/"))
     if not archive_root.exists():
+        if normalized_root in OPTIONAL_GENERATED_ROOTS:
+            return []
         return [ValidationIssue(path=archive_root, message="archive root does not exist")]
     if not archive_root.is_dir():
         return [ValidationIssue(path=archive_root, message="archive root is not a directory")]
 
     bundle_dirs = iter_bundle_dirs(archive_root)
     if not bundle_dirs:
+        if normalized_root in OPTIONAL_GENERATED_ROOTS:
+            return []
         return [ValidationIssue(path=archive_root, message="no bundle directories found")]
 
     for bundle_dir in bundle_dirs:

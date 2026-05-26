@@ -331,9 +331,67 @@ def _mk_skill(name: str, desc: str, category: str = "web") -> Skill:
     )
 
 
-def _fixture_skill(filename: str) -> Skill:
-    path = Path(__file__).resolve().parents[1] / "skills" / filename
-    return Skill.parse(path.read_text(), str(path))
+def _fixture_skill(
+    name: str,
+    desc: str,
+    *,
+    category: str,
+    when: list[str],
+) -> Skill:
+    content = (
+        f"---\nname: {name}\ndescription: {desc}\ncategory: {category}\n---\n\n"
+        f"# {name}\n\n"
+        f"## Description\n{desc}\n\n"
+        "## When to use\n"
+        + "\n".join(f"- {line}" for line in when)
+        + "\n"
+    )
+    return Skill.parse(content, f"/tmp/{name}.md")
+
+
+def _write_compactor_fixture_skills(skills_dir: Path) -> None:
+    fixtures = [
+        _fixture_skill(
+            "Build Python Converter CLI",
+            "Create a Python command line converter with file input and output.",
+            category="data-conversion",
+            when=[
+                "the user asks for a converter command",
+                "the task needs argparse flags and file IO",
+            ],
+        ),
+        _fixture_skill(
+            "Small Python CLI With Tests",
+            "Implement a compact Python CLI and cover it with pytest.",
+            category="testing",
+            when=[
+                "the user asks for a small command line tool",
+                "the task needs unit tests around CLI behavior",
+            ],
+        ),
+        _fixture_skill(
+            "Answer Simple Greetings",
+            "Reply briefly to simple greetings and social openings.",
+            category="conversation",
+            when=[
+                "the user only says hello",
+                "the user makes a brief social greeting",
+            ],
+        ),
+        _fixture_skill(
+            "Handle Brief User Greetings",
+            "Respond concisely to short greetings and lightweight social openings.",
+            category="conversation",
+            when=[
+                "the user only says hi or hello",
+                "the user makes a short social greeting",
+            ],
+        ),
+    ]
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    for skill in fixtures:
+        path = skills_dir / f"{skill.name.lower().replace(' ', '-')}.md"
+        path.write_text(skill.render(), encoding="utf-8")
 
 
 def test_compactor_clusters_similar_skills() -> None:
@@ -373,10 +431,42 @@ def test_compactor_picks_proven_representative() -> None:
 
 def test_compactor_keeps_generic_cli_scaffolding_separate() -> None:
     skills = [
-        _fixture_skill("build-python-converter-cli.md"),
-        _fixture_skill("small-python-cli-with-tests.md"),
-        _fixture_skill("answer-simple-greetings.md"),
-        _fixture_skill("handle-brief-user-greetings.md"),
+        _fixture_skill(
+            "Build Python Converter CLI",
+            "Create a Python command line converter with file input and output.",
+            category="data-conversion",
+            when=[
+                "the user asks for a converter command",
+                "the task needs argparse flags and file IO",
+            ],
+        ),
+        _fixture_skill(
+            "Small Python CLI With Tests",
+            "Implement a compact Python CLI and cover it with pytest.",
+            category="testing",
+            when=[
+                "the user asks for a small command line tool",
+                "the task needs unit tests around CLI behavior",
+            ],
+        ),
+        _fixture_skill(
+            "Answer Simple Greetings",
+            "Reply briefly to simple greetings and social openings.",
+            category="conversation",
+            when=[
+                "the user only says hello",
+                "the user makes a brief social greeting",
+            ],
+        ),
+        _fixture_skill(
+            "Handle Brief User Greetings",
+            "Respond concisely to short greetings and lightweight social openings.",
+            category="conversation",
+            when=[
+                "the user only says hi or hello",
+                "the user makes a short social greeting",
+            ],
+        ),
     ]
     plan = plan_compaction(skills, sim_threshold=DEFAULT_SIM_THRESHOLD)
     cluster_sets = [
@@ -388,8 +478,10 @@ def test_compactor_keeps_generic_cli_scaffolding_separate() -> None:
     assert all("Build Python Converter CLI" not in cluster for cluster in cluster_sets)
 
 
-def test_skill_compact_cli_dry_run_skips_false_archive() -> None:
+def test_skill_compact_cli_dry_run_skips_false_archive(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
+    skills_dir = tmp_path / "skills"
+    _write_compactor_fixture_skills(skills_dir)
     proc = subprocess.run(
         [
             sys.executable,
@@ -397,7 +489,7 @@ def test_skill_compact_cli_dry_run_skips_false_archive() -> None:
             "argus_skill",
             "--skill-compact",
             "--skills-dir",
-            "skills",
+            str(skills_dir),
         ],
         cwd=repo_root,
         capture_output=True,

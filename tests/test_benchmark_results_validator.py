@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 from benchmarks.validate_results import (
@@ -267,21 +268,25 @@ def test_validate_current_archive_tree(tmp_path: Path) -> None:
 def test_known_bugs_documents_current_exempt_result_bundles() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     docs = (repo_root / "docs" / "KNOWN_BUGS.md").read_text(encoding="utf-8")
-    roots = [repo_root / "benchmarks" / "results", repo_root / "benchmarks" / "evidence"]
 
     documented = {
         match.group(1).rstrip("/")
         for match in re.finditer(r"^- `([^`]+/?)`$", docs, re.MULTILINE)
         if match.group(1).startswith(("benchmarks/results/", "benchmarks/evidence/"))
     }
-    live: set[str] = set()
-    for root in roots:
-        if not root.exists():
-            continue
-        live.update(
-            str(child.relative_to(repo_root))
-            for child in sorted(root.iterdir())
-            if child.is_dir() and (child / "EXEMPT.md").exists()
-        )
+    completed = subprocess.run(
+        ["git", "ls-files", "benchmarks/results", "benchmarks/evidence"],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    tracked = completed.stdout.splitlines() if completed.returncode == 0 else []
+    live = {
+        str((repo_root / path).parent.relative_to(repo_root))
+        for path in tracked
+        if path.endswith("/EXEMPT.md")
+        and path.startswith(("benchmarks/results/", "benchmarks/evidence/"))
+    }
 
     assert documented == live

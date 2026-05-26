@@ -3317,27 +3317,47 @@ def _extract_pdf_text_pages(pdf_path: Path) -> list[str] | None:
 
 
 def _pdf_page_count(pdf_path: Path) -> int | None:
-    if not pdf_path.is_file() or shutil.which("pdfinfo") is None:
+    if not pdf_path.is_file():
         return None
+    if shutil.which("pdfinfo") is not None:
+        try:
+            completed = subprocess.run(
+                ["pdfinfo", pdf_path.as_posix()],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            completed = None
+        if completed is not None and completed.returncode == 0:
+            match = re.search(r"(?m)^Pages:\s*(\d+)\s*$", completed.stdout)
+            if match is not None:
+                try:
+                    return int(match.group(1))
+                except ValueError:
+                    pass
+    return _pdf_page_count_from_bytes(pdf_path)
+
+
+def _pdf_page_count_from_bytes(pdf_path: Path) -> int | None:
     try:
-        completed = subprocess.run(
-            ["pdfinfo", pdf_path.as_posix()],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+        data = pdf_path.read_bytes()
+    except OSError:
         return None
-    if completed.returncode != 0:
+    if not data.startswith(b"%PDF-"):
         return None
-    match = re.search(r"(?m)^Pages:\s*(\d+)\s*$", completed.stdout)
-    if match is None:
-        return None
-    try:
-        return int(match.group(1))
-    except ValueError:
-        return None
+    count_matches = re.findall(rb"/Type\s*/Pages\b[^>]*?/Count\s+(\d+)", data)
+    counts: list[int] = []
+    for raw in count_matches:
+        try:
+            counts.append(int(raw))
+        except ValueError:
+            continue
+    if counts:
+        return max(counts)
+    page_markers = re.findall(rb"/Type\s*/Page\b", data)
+    return len(page_markers) if page_markers else None
 
 
 def _validate_research_md_pdf_text(pages: list[str]) -> list[ContractIssue]:
