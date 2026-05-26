@@ -30,6 +30,7 @@ from ._target_paths import resolve_life_root
 
 def build_parser() -> argparse.ArgumentParser:
     from .. import __version__
+    from ..skills.builtins import DEFAULT_PROJECT_BUILTIN_SKILLS_DIR
 
     parser = argparse.ArgumentParser(
         prog="argus-skill",
@@ -139,10 +140,20 @@ def build_parser() -> argparse.ArgumentParser:
              "ones; pass --apply to actually archive (otherwise dry-run)",
     )
     skills_grp.add_argument(
+        "--export-builtin-skills",
+        nargs="?",
+        const=DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
+        default=None,
+        metavar="DIR",
+        help="copy packaged built-in skill markdown into DIR for a project "
+             "(default: ./argus_builtin_skills; preserves existing files)",
+    )
+    skills_grp.add_argument(
         "--apply",
         action="store_true",
         help="with --skill-compact / --skill-cleanse: actually mutate disk "
-             "(default is dry-run)",
+             "(default is dry-run); with --export-builtin-skills: replace "
+             "existing copied built-in files",
     )
     skills_grp.add_argument(
         "--sim-threshold",
@@ -589,13 +600,14 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.skill_stats)
         + bool(args.skill_cleanse)
         + bool(args.skill_compact)
+        + bool(args.export_builtin_skills is not None)
     )
     if action_flags > 1:
         sys.stderr.write(
             "argus-skill: --daemon / --daemon-fg / --daemon-stop / --status / "
             "--daemon-runbook / --watch / --follow / --notify / --init-identity / "
-            "--skill-stats / --skill-cleanse / --skill-compact are mutually "
-            "exclusive.\n"
+            "--skill-stats / --skill-cleanse / --skill-compact / "
+            "--export-builtin-skills are mutually exclusive.\n"
         )
         return 2
     if args.daemon:
@@ -626,6 +638,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_skill_cleanse(args))
     if args.skill_compact:
         return _run_with_path_resolution_errors(lambda: _cmd_skill_compact(args))
+    if args.export_builtin_skills is not None:
+        return _run_with_path_resolution_errors(
+            lambda: _cmd_export_builtin_skills(args)
+        )
 
     # Default path: drop into the unified life REPL. The REPL itself
     # auto-spawns a background daemon (unless ``--no-daemon`` was given
@@ -873,6 +889,41 @@ def _cmd_skill_compact(args: argparse.Namespace) -> int:
         sim_threshold=threshold,
         dry_run=not bool(args.apply),
     )
+
+
+def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
+    from ..skills.builtins import (
+        DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
+        builtin_skill_source_path,
+        seed_builtin_skills,
+    )
+
+    raw_target = args.export_builtin_skills or DEFAULT_PROJECT_BUILTIN_SKILLS_DIR
+    target = core_paths.resolve_runtime_path(
+        raw_target,
+        context="--export-builtin-skills",
+    )
+    if not target.is_absolute():
+        target = Path.cwd() / target
+    result = seed_builtin_skills(target, overwrite=bool(args.apply))
+    written = sum(1 for changed in result.values() if changed)
+    skipped = len(result) - written
+    source_path = builtin_skill_source_path()
+    source = (
+        str(source_path)
+        if source_path.exists()
+        else "package resource argus_skill.builtin_skills"
+    )
+    action = "created/replaced" if args.apply else "created"
+    print(f"argus-skill: exported built-in skills to {target}")
+    print(f"  source : {source}")
+    print(
+        f"  files  : {written} {action}, {skipped} preserved, "
+        f"{len(result)} total"
+    )
+    if skipped and not args.apply:
+        print("  hint   : pass --apply to replace existing copied built-in skill files")
+    return 0
 
 
 def _cmd_status(args: argparse.Namespace) -> int:

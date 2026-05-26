@@ -18,6 +18,12 @@ from typing import Iterable
 from .store import Skill
 
 _BUILTIN_PACKAGE = "argus_skill.builtin_skills"
+DEFAULT_PROJECT_BUILTIN_SKILLS_DIR = "argus_builtin_skills"
+
+
+def builtin_skill_source_path() -> Path:
+    """Return the filesystem path for bundled skill markdown when available."""
+    return Path(__file__).resolve().parents[1] / "builtin_skills"
 
 
 def iter_builtin_skill_texts() -> Iterable[tuple[str, str]]:
@@ -78,4 +84,3 @@ def _atomic_write_text(path: Path, text: str) -> None:
                 tmp.unlink()
             except OSError:
                 pass
-

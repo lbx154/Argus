@@ -48,6 +48,7 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
 
 4. Fix related work and positioning:
    - Group related work by method, benchmark, or failure mode; do not write a chronological list.
+   - Cite papers next to the claim or paragraph that discusses them. Do not stack all citations in one dense paragraph, one mega-sentence, a caption, or a detached bibliography dump.
    - Each group should end with the exact gap this paper addresses.
    - Use only verified citations. If a citation cannot be verified, mark it as blocked instead of inventing metadata.
 

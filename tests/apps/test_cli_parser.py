@@ -6,6 +6,8 @@ re-introduce them.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from argus_skill.apps.cli import build_parser, main
@@ -53,6 +55,36 @@ def test_parser_daemon_flags_present():
         # Each flag flips its own bool; nothing else.
         attr = flag.lstrip("-").replace("-", "_")
         assert getattr(args, attr) is True
+
+
+def test_parser_export_builtin_skills_flag_present():
+    p = build_parser()
+    assert (
+        p.parse_args(["--export-builtin-skills"]).export_builtin_skills
+        == "argus_builtin_skills"
+    )
+    assert (
+        p.parse_args(
+            ["--export-builtin-skills", "project_skills"],
+        ).export_builtin_skills
+        == "project_skills"
+    )
+
+
+def test_main_exports_builtin_skills(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    target = tmp_path / "project" / "argus_builtin_skills"
+
+    rc = main(["--export-builtin-skills", str(target)])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert (target / "auto-research-pipeline.md").exists()
+    assert (target / "emnlp-paper-drafting.md").exists()
+    assert "exported built-in skills" in out
+    assert str(target) in out
 
 
 def test_main_rejects_objective_without_continuous(capsys: pytest.CaptureFixture[str]) -> None:

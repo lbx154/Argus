@@ -100,6 +100,10 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         assert "EMNLP/ACL long-paper" in text
         assert "/home/argustest/research.md" in text
         assert "/home/argustest/argus-skill" in text
+        assert "/home/argustest/argus-skill/argus_skill/builtin_skills/" in text
+        assert "argus_skill.builtin_skills" in text
+        assert "--export-builtin-skills ./argus_builtin_skills" in text
+        assert "argus_builtin_skills/*.md" in text
         assert "/home/argustest/miniconda3/bin/python" in text
         assert "validate-full-emnlp" in text
         assert "image-2/codex-image2" in text
@@ -114,6 +118,13 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         assert "Review artifacts, calibration files, and readiness reports are evidence" in text
         assert "operator" in text
         assert "operator's most recent explicit instruction wins" in text
+        assert "Starter targets for memory, agent-skill, and hallucination papers" in text
+        assert "literature matrix" in text
+        assert "Semantic Scholar" in text
+        assert "liu2023agentbench" in text
+        assert "do not dump all citations into one dense paragraph" in text or (
+            "do not concentrate all citations in one giant paragraph" in text
+        )
 
     for required in (
         "clean-slate project",
@@ -189,6 +200,9 @@ def test_emnlp_paper_skill_requires_official_template_page_budget_and_style_ref(
         "Never copy prose",
         "validator worksheet",
         "normal EMNLP abstract",
+        "Distribute citations by claim/topic/paragraph",
+        "research/LIT_MATRIX.tsv",
+        "citation pile",
     ):
         assert required in text
 
@@ -296,6 +310,8 @@ def test_auto_research_pipeline_skill_requires_state_machine_gates(
         "defensive caveat lists",
         "must not be called EMNLP-ready",
         "unrelated domains need their own literature-derived retrieval targets",
+        "Citation placement is part of paper quality",
+        "one giant related-work paragraph",
     ):
         assert required in text
 
@@ -346,6 +362,8 @@ def test_submission_assurance_gate_skill_requires_audit_layers(
         "paired-significance table when comparative binary outcomes",
         "review artifacts as evidence, not targets",
         "never a `WARN` for final EMNLP readiness",
+        "citation dumping",
+        "each paragraph should cite the papers it actually discusses",
     ):
         assert required in text
 

@@ -83,8 +83,10 @@ Use the 6-state verdict schema `PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLI
 6. **citation audit**
    - Verify each `\cite{}` exists in the bibliography and is context-appropriate when web/local metadata are available.
    - Final-ready papers need bibliography depth, not just citation validity: at least 35 verified BibTeX entries, at least 30 unique cited keys in the paper source, and at least two rendered References pages before the Appendix when PDF text extraction is available.
+   - Check citation distribution, not only counts: related-work citations should be grouped by method family, benchmark gap, failure mode, or claim topic, and each paragraph should cite the papers it actually discusses.
+   - Treat citation dumping as a paper-quality blocker: one dense paragraph of all prior work, a mega-sentence of keys, citations hidden in captions, or unsupported prose followed by a citation pile is not acceptable.
    - If web access is unavailable, mark citation checks `BLOCKED` or `WARN` with exact missing verification steps; do not fabricate metadata.
-   - Hard blockers: invented citations, citation keys with no bibliography entry, too few verified/cited references, or claims that depend on unverifiable related work.
+   - Hard blockers: invented citations, citation keys with no bibliography entry, too few verified/cited references, citation dumping, or claims that depend on unverifiable related work.
 
 7. **kill-argument**
    - Write the strongest concise rejection memo against the paper.

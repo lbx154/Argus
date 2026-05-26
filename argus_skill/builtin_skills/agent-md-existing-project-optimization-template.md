@@ -29,7 +29,10 @@ The goal is a submission-quality long-paper package, not a pilot PDF, validator-
 
 ## Binding playbooks and validators
 - Read and follow `/home/argustest/research.md` before changing the thesis, benchmark, method name, metric, paper narrative, figure/table design, or final preflight.
-- Use `/home/argustest/argus-skill` as the local source for built-in skills and validation commands.
+- Use `/home/argustest/argus-skill` as the local Argus source tree. Built-in skill markdown lives at `/home/argustest/argus-skill/argus_skill/builtin_skills/` and as the Python package resource `argus_skill.builtin_skills`.
+- If this workspace does not already have local copies, export the built-in skills so the daemon can read them directly:
+  `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill --export-builtin-skills ./argus_builtin_skills`
+- Read `./argus_builtin_skills/*.md` first when invoking built-in paper/research skills. If the local copy is absent or stale, fall back to `/home/argustest/argus-skill/argus_skill/builtin_skills/`. Do not copy the whole Argus repository, global memory, model caches, or capability vault into this project.
 - Prefer `/home/argustest/miniconda3/bin/python` for Argus validation commands.
 - Final EMNLP completion requires this exact command to exit 0 and be quoted in completion evidence:
   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`
@@ -103,6 +106,18 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 7. Use official ACL/EMNLP review style, anonymous author block, 7.5--8.0 pages of main content, conclusion by the end of page 8, Limitations and Ethical Considerations after Conclusion, References before Appendix, and a reproducibility appendix.
 8. Run `validate-research-md-format` after the final compile and before academic-language/layout review. Update `paper/FORMAT_PREFLIGHT.md` with compile status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final validator result.
 9. Do not tolerate undefined refs/citations, rendered `[?]`, `Overfull \hbox > 5pt`, placeholders, `% UNVERIFIED`, code-like display labels, missing numerical table captions, or stale PDF/log/preflight facts.
+
+## Citation and related-work repair
+1. Verify bibliography metadata through Semantic Scholar, arXiv, CrossRef, ACL Anthology, DBLP, or official project pages; never invent BibTeX to clear a warning.
+2. Keep references separated by claim/topic/section. Each related-work paragraph must cite the papers it actually discusses; do not concentrate all citations in one giant paragraph, one mega-sentence, a caption, or a detached bibliography block.
+3. Maintain or repair a literature matrix with topic, paper key, verified source, claim supported, and intended paper section before editing related work.
+4. Starter targets for memory, agent-skill, and hallucination papers are retrieval targets only:
+   - Tool-use and agent loops: `yao2023react`, `shinn2023reflexion`, `madaan2023selfrefine`, `schick2023toolformer`, `qin2023toolllm`, `li2023apibank`, `patil2023gorilla`, `shen2023hugginggpt`, `karpas2022mrkl`.
+   - Memory, skills, and long-horizon agents: `wang2024voyager`, `zhao2024expel`, `packer2023memgpt`, `park2023generativeagents`, `xu2025amem`, `zhong2024memorybank`, `wang2023longmem`.
+   - Self-evolution and process supervision: `qi2024webrl`, `li2025webevolver`, `wang2025mobileagente`, `tang2025sage`, `zhang2025skillrl`, `lightman2023letsverify`, `zelikman2022star`.
+   - Evaluation, hallucination, and multi-agent surveys: `zheng2023judging`, `ji2023survey`, `huang2025hallucination`, `guo2024llmmas`, `manakul2023selfcheckgpt`, `lin2022truthfulqa`.
+   - Agent benchmarks and validation environments: `liu2023agentbench`, `zhou2023webarena`, `mialon2023gaia`, `maharana2024locomo`, `shridhar2020alfworld`.
+5. Add domain-specific EMNLP/ACL papers, benchmark papers, dataset papers, and official repos from the literature survey until the final paper clears the bibliography-depth gate. Unrelated domains need their own topic-specific starter list.
 
 ## Figure repair
 1. Use image-2/codex-image2 for core conceptual figure repair.

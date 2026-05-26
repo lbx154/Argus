@@ -58,6 +58,8 @@ Write a paper draft from local evidence. This adapts ARIS paper-writing/paper-pl
    - **Evaluation, hallucination, and multi-agent surveys:** `zheng2023judging` (LLM-as-a-judge / MT-Bench), `ji2023survey` (hallucination survey), `huang2025hallucination` (hallucination survey), `guo2024llmmas` (LLM multi-agent survey), `manakul2023selfcheckgpt` (SelfCheckGPT), `lin2022truthfulqa` (TruthfulQA).
    - **Agent benchmarks:** `liu2023agentbench` (AgentBench), `zhou2023webarena` (WebArena), `mialon2023gaia` (GAIA), `maharana2024locomo` (LoCoMo), `jimenez2024swebench` (SWE-bench), `shridhar2020alfworld` (ALFWorld).
    - Treat these as search targets only. Fetch verified BibTeX from Semantic Scholar, arXiv, CrossRef, ACL Anthology, DBLP, or official project pages; never write BibTeX from memory. Add topic-specific EMNLP/ACL papers and benchmark/source papers until the final paper has at least 35 verified entries and 30 unique cited keys.
+   - Distribute citations by claim/topic/paragraph. Each related-work paragraph should cite the specific papers it discusses and end with the gap for this paper. Do not concentrate citations into one giant paragraph, one mega-sentence, a table caption, or a bibliography-only dump.
+   - Keep a `research/LIT_MATRIX.tsv` or equivalent with topic, verified source, BibTeX key, claim supported, and intended paper section so reference placement is auditable instead of clustered at the end.
 
 3. Build the claims-evidence matrix first:
    - Read `research/NARRATIVE_REPORT.md`, `research/CLAIMS_TO_TEST.md`, `paper/artifacts/claims_evidence.tsv`, and result reports.
@@ -81,6 +83,7 @@ Write a paper draft from local evidence. This adapts ARIS paper-writing/paper-pl
    - Abstract should be about five evidence-backed sentences: problem, gap, method, result, implication. Avoid generic openings such as "Large language models have achieved remarkable success" or "In recent years..."
    - The abstract is reader-facing prose, not a validator worksheet: do not mention Appendix Figure/Table, `\ref{}` layout artifacts, raw artifact paths, review gates, evidence spans, or internal provenance files. Do not open with the headline number before the problem/gap.
    - Related work with verified citations where possible. Organize it by method family, benchmark gap, or failure mode, not as a chronological list. Placeholders are allowed only in early drafts and must be listed in `paper/PAPER_DRAFT_REPORT.md`.
+   - Place citations adjacent to the claim they support; do not write a paragraph of unsupported claims followed by a citation pile.
    - Method/system section describing the agent/runtime.
    - Benchmark provenance section: benchmark name, source URL, version/date, license or access notes, task count, filtering/sampling rules, and why it is appropriate for EMNLP agent evaluation. Final long-paper evidence needs at least 240 scored main tasks/episodes; 50/60-task evidence is a pilot and must trigger a scale-up/public-validation plan instead of final-ready prose.
    - Experiment setup with tasks, baselines, metrics, budget, and model routes.
