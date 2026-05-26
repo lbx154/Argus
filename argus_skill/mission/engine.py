@@ -10,7 +10,9 @@ from ..engineer.checks import run_checks
 from ..engineer.reviewer import ReviewerConfig
 from ..engineer.runner import (
     backend_failure_review_decision,
+    daemon_stop_review_decision,
     fatal_error_looks_like_backend_failure,
+    fatal_error_looks_like_daemon_stop_request,
     should_clear_thread_id_after_outcome,
 )
 
@@ -120,6 +122,45 @@ class MissionLoopEngine:
                 last_thread_id = None
             else:
                 last_thread_id = round_thread_id
+
+            if fatal_error_looks_like_daemon_stop_request(engineer_result.fatal_error):
+                review = daemon_stop_review_decision(
+                    fatal_error=engineer_result.fatal_error,
+                    exit_code=engineer_result.exit_code,
+                )
+                if self.event_sink is not None:
+                    self.event_sink({
+                        "type": "round.review.completed",
+                        "round_index": round_index,
+                        "session_id": self.config.mission_id or None,
+                        "status": review.status,
+                        "confidence": review.confidence,
+                        "reason": review.reason,
+                        "next_action": review.next_action,
+                        "input_tokens": 0,
+                        "cached_input_tokens": 0,
+                        "output_tokens": 0,
+                        "usage_scope": "delta",
+                        "review_skipped": True,
+                        "failure_cause": review.failure_cause,
+                    })
+                rounds.append(
+                    MissionRoundRecord(
+                        round_index=round_index,
+                        main_exit_code=engineer_result.exit_code,
+                        main_turn_completed=bool(engineer_result.agent_messages),
+                        main_turn_failed=True,
+                        thread_id=last_thread_id,
+                        review=review,
+                    )
+                )
+                return MissionLoopResult(
+                    status="error",
+                    rounds=rounds,
+                    final_message=final_message,
+                    reason=review.reason,
+                    last_thread_id=None,
+                )
 
             if fatal_error_looks_like_backend_failure(engineer_result.fatal_error):
                 backend_failure_streak += 1

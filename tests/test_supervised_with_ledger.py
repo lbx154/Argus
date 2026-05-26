@@ -22,6 +22,7 @@ from argus_skill.engineer.runner import (
     _EffectiveProgressWatchdog,
     _is_effective_codex_session_line,
     fatal_error_looks_like_backend_failure,
+    fatal_error_looks_like_daemon_stop_request,
     fatal_error_looks_like_recoverable_reconnect,
     should_clear_thread_id_after_outcome,
 )
@@ -283,6 +284,10 @@ def test_recoverable_reconnect_predicates_do_not_clear_thread() -> None:
     plain_disconnect = "stream disconnected before completion: response.failed event received"
     assert not fatal_error_looks_like_backend_failure(plain_disconnect)
     assert not should_clear_thread_id_after_outcome(status="", fatal_error=plain_disconnect)
+    daemon_stop = "External interrupt: daemon stop requested"
+    assert fatal_error_looks_like_daemon_stop_request(daemon_stop)
+    assert not fatal_error_looks_like_backend_failure(daemon_stop)
+    assert not should_clear_thread_id_after_outcome(status="error", fatal_error=daemon_stop)
 
 
 def test_backend_failure_skips_reviewer_retries_fresh_session(tmp_path: Path) -> None:
@@ -331,6 +336,46 @@ def test_backend_failure_skips_reviewer_retries_fresh_session(tmp_path: Path) ->
     skipped = [event for event in events if event.get("review_skipped")]
     assert len(skipped) == 1
     assert skipped[0]["failure_cause"] == "environmental"
+
+
+def test_daemon_stop_interrupt_skips_reviewer_without_backend_retry(tmp_path: Path) -> None:
+    engineer = _ScriptedEngineer([
+        RunnerResult(
+            exit_code=0,
+            thread_id="interrupted-thread",
+            fatal_error="External interrupt: daemon stop requested",
+        ),
+    ])
+    reviewer = _DoneReviewer()
+    se = cast(Any, SupervisedEngineer.__new__(SupervisedEngineer))
+    se.engineer_runner = engineer
+    se.engineer_config = EngineerConfig(model="stub")
+    se.reviewer = reviewer
+    se.reviewer_config = ReviewerConfig(model="stub")
+
+    events: list[dict] = []
+    status, rounds, _, reason, last_thread_id = cast(SupervisedEngineer, se).run(
+        objective="demo",
+        engineer_prompt_builder=lambda na: f"BASE\nNEXT={na or ''}",
+        supervised_config=SupervisedConfig(
+            max_rounds=3,
+            backend_failure_threshold=2,
+            backend_failure_backoff_seconds=0,
+        ),
+        workdir=tmp_path,
+        on_event=events.append,
+        seed_thread_id="seed-thread",
+    )
+
+    assert status == "error"
+    assert len(rounds) == 1
+    assert reviewer.calls == []
+    assert last_thread_id is None
+    assert "daemon shutdown was requested" in reason
+    assert engineer.calls[0]["resume_thread_id"] == "seed-thread"
+    skipped = [event for event in events if event.get("review_skipped")]
+    assert len(skipped) == 1
+    assert skipped[0]["failure_cause"] == "operator_interrupt"
 
 
 def test_repeated_backend_failures_escalate_to_error_without_reviewer(tmp_path: Path) -> None:

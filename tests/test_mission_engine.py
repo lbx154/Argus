@@ -218,6 +218,42 @@ def test_mission_engine_backend_failure_skips_reviewer_and_retries_fresh() -> No
     assert skipped[0]["status"] == "continue"
 
 
+def test_mission_engine_daemon_stop_interrupt_skips_reviewer_without_backend_retry() -> None:
+    runner = _ScriptedRunner([
+        RunnerResult(
+            exit_code=0,
+            thread_id="interrupted-thread",
+            fatal_error="External interrupt: daemon stop requested",
+        ),
+    ])
+    reviewer = _DoneReviewer()
+    events: list[dict[str, Any]] = []
+    engine = MissionLoopEngine(
+        runner=runner,
+        reviewer=reviewer,
+        planner=None,
+        config=MissionLoopConfig(
+            objective="demo",
+            max_rounds=3,
+            mission_id="mission-1",
+            backend_failure_backoff_seconds=0,
+        ),
+        state_store=object(),
+        event_sink=events.append,
+    )
+
+    result = engine.run()
+
+    assert result.status == "error"
+    assert len(result.rounds) == 1
+    assert reviewer.calls == []
+    assert result.last_thread_id is None
+    assert "daemon shutdown was requested" in result.reason
+    skipped = [event for event in events if event.get("review_skipped")]
+    assert len(skipped) == 1
+    assert skipped[0]["failure_cause"] == "operator_interrupt"
+
+
 def test_mission_engine_repeated_backend_failures_escalate_to_error() -> None:
     runner = _ScriptedRunner([
         RunnerResult(

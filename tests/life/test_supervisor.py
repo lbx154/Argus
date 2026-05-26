@@ -156,6 +156,10 @@ def test_session_poison_classifier_clears_no_progress_and_empty_output() -> None
     )
     assert not should_clear_thread_id_after_outcome(
         status="error",
+        fatal_error="External interrupt: daemon stop requested",
+    )
+    assert not should_clear_thread_id_after_outcome(
+        status="error",
         fatal_error="stream disconnected before completion: response.failed event received",
     )
     assert should_clear_thread_id_after_outcome(

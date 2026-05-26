@@ -70,12 +70,11 @@ _BACKEND_FAILURE_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
     "connection closed",
     "connection aborted",
     "network error",
-    "external interrupt",
     "effective progress timeout",
-    "daemon stop requested",
 )
 
 _RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
+_DAEMON_STOP_INTERRUPT_RE = re.compile(r"^external interrupt:\s*daemon stop requested\b")
 
 _EFFECTIVE_PROGRESS_TIMEOUT_ENV = "ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS"
 _EFFECTIVE_PROGRESS_CHECK_INTERVAL_ENV = (
@@ -170,6 +169,14 @@ def _fatal_error_looks_like_exhausted_reconnect(fatal_error: str | None) -> bool
     attempt = int(match.group(1))
     limit = int(match.group(2))
     return attempt >= limit
+
+
+def fatal_error_looks_like_daemon_stop_request(fatal_error: str | None) -> bool:
+    """Return True for intentional daemon shutdown interrupts."""
+    if not fatal_error:
+        return False
+    low = str(fatal_error).strip().casefold()
+    return bool(_DAEMON_STOP_INTERRUPT_RE.search(low))
 
 
 def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
@@ -713,6 +720,46 @@ class SupervisedEngineer:
             elif new_tid:
                 current_thread_id = new_tid
 
+            if fatal_error_looks_like_daemon_stop_request(fatal_error):
+                review = daemon_stop_review_decision(
+                    fatal_error=fatal_error,
+                    exit_code=getattr(engineer_result, "exit_code", 0),
+                )
+                if on_event:
+                    on_event({
+                        "type": "round.review.completed",
+                        "round_index": round_index,
+                        "round_max": supervised_config.max_rounds,
+                        "status": review.status,
+                        "confidence": review.confidence,
+                        "reason": review.reason,
+                        "next_action": review.next_action,
+                        "round_summary_markdown": review.round_summary_markdown,
+                        "completion_summary_markdown": review.completion_summary_markdown,
+                        "failure_cause": review.failure_cause,
+                        "input_tokens": 0,
+                        "cached_input_tokens": 0,
+                        "output_tokens": 0,
+                        "usage_scope": "delta",
+                        "review_skipped": True,
+                        "text": "review: skipped (daemon stop requested)",
+                    })
+                rounds.append(RoundRecord(
+                    round_index=round_index,
+                    engineer_message=engineer_message,
+                    engineer_exit_code=engineer_result.exit_code,
+                    checks=[],
+                    review=review,
+                    fatal_error=engineer_result.fatal_error,
+                ))
+                return (
+                    "error",
+                    rounds,
+                    last_engineer_message,
+                    review.reason,
+                    None,
+                )
+
             if fatal_error_looks_like_backend_failure(fatal_error):
                 backend_failure_streak += 1
                 no_progress_streak = 0
@@ -1023,6 +1070,33 @@ def backend_failure_review_decision(
     )
 
 
+def daemon_stop_review_decision(
+    *,
+    fatal_error: str | None,
+    exit_code: int,
+) -> ReviewDecision:
+    error_text = str(fatal_error or f"exit={exit_code}").strip()
+    return ReviewDecision(
+        status="blocked",
+        confidence=0.0,
+        reason=(
+            "Engineer interrupted because daemon shutdown was requested; "
+            f"no backend retry was attempted. error={error_text}"
+        ),
+        next_action=(
+            "Restart the daemon when ready; the continuous planner will choose "
+            "the next concrete task from the persisted project state."
+        ),
+        round_summary_markdown=(
+            "# Review Summary\n\n"
+            "- Reviewer skipped because daemon shutdown was requested.\n"
+            f"- Error: {error_text}\n"
+        ),
+        completion_summary_markdown="",
+        failure_cause="operator_interrupt",
+    )
+
+
 def _fallback_failed_check_handoff(checks: list[CheckResult]) -> str:
     failed = [check for check in checks if not check.passed]
     if not failed:
@@ -1069,7 +1143,9 @@ __all__ = [
     "SupervisedEngineer",
     "LoopOutcome",
     "backend_failure_review_decision",
+    "daemon_stop_review_decision",
     "fatal_error_looks_like_backend_failure",
+    "fatal_error_looks_like_daemon_stop_request",
     "fatal_error_looks_like_recoverable_reconnect",
     "should_clear_thread_id_after_outcome",
 ]
