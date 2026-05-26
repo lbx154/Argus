@@ -23,6 +23,7 @@ from argus_skill.engineer.runner import (
     _is_effective_codex_session_line,
     fatal_error_looks_like_backend_failure,
     fatal_error_looks_like_daemon_stop_request,
+    fatal_error_looks_like_effective_progress_timeout,
     fatal_error_looks_like_recoverable_reconnect,
     should_clear_thread_id_after_outcome,
 )
@@ -46,6 +47,26 @@ class _RecordingEngineer:
 class _ExplodingEngineer:
     def run_exec(self, **kwargs):  # noqa: D401, ANN001
         raise RuntimeError("codex subprocess disappeared")
+
+
+class _SwallowingInterruptEngineer:
+    """Simulates a backend that stops on the provider but reports success."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def run_exec(self, **kwargs):  # noqa: D401, ANN001
+        self.calls.append(kwargs)
+        options = kwargs["options"]
+        time.sleep(1.1)
+        reason = options.external_interrupt_reason_provider()
+        assert reason is not None
+        return RunnerResult(
+            exit_code=0,
+            agent_messages=["I am about to write the artifacts."],
+            thread_id="stale-thread",
+            fatal_error=None,
+        )
 
 
 class _ScriptedEngineer:
@@ -288,6 +309,98 @@ def test_recoverable_reconnect_predicates_do_not_clear_thread() -> None:
     assert fatal_error_looks_like_daemon_stop_request(daemon_stop)
     assert not fatal_error_looks_like_backend_failure(daemon_stop)
     assert not should_clear_thread_id_after_outcome(status="error", fatal_error=daemon_stop)
+
+
+def test_effective_progress_timeout_is_no_progress_not_backend_failure() -> None:
+    message = (
+        "effective progress timeout: no non-token Codex session events "
+        "or project file changes for 903s (limit 900s)"
+    )
+
+    assert fatal_error_looks_like_effective_progress_timeout(message)
+    assert not fatal_error_looks_like_backend_failure(message)
+    assert should_clear_thread_id_after_outcome(status="", fatal_error=message)
+
+
+def test_effective_progress_timeout_clears_thread_and_counts_no_progress(
+    tmp_path: Path,
+) -> None:
+    timeout = (
+        "effective progress timeout: no non-token Codex session events "
+        "or project file changes for 903s (limit 900s)"
+    )
+    engineer = _ScriptedEngineer([
+        RunnerResult(
+            exit_code=-1,
+            thread_id="stale-1",
+            fatal_error=timeout,
+            agent_messages=["I am about to write the artifacts."],
+        ),
+        RunnerResult(
+            exit_code=-1,
+            thread_id="stale-2",
+            fatal_error=timeout,
+            agent_messages=["I am still preparing the write."],
+        ),
+    ])
+    reviewer = _ContinueReviewer()
+    se = cast(Any, SupervisedEngineer.__new__(SupervisedEngineer))
+    se.engineer_runner = engineer
+    se.engineer_config = EngineerConfig(model="stub")
+    se.reviewer = reviewer
+    se.reviewer_config = ReviewerConfig(model="stub")
+
+    events: list[dict] = []
+    status, rounds, _, reason, last_thread_id = cast(SupervisedEngineer, se).run(
+        objective="demo",
+        engineer_prompt_builder=lambda na: f"BASE\nNEXT={na or ''}",
+        supervised_config=SupervisedConfig(
+            max_rounds=3,
+            no_progress_threshold=2,
+            backend_failure_threshold=2,
+            backend_failure_backoff_seconds=0,
+        ),
+        workdir=tmp_path,
+        on_event=events.append,
+        seed_thread_id="seed-thread",
+    )
+
+    assert status == "no_progress"
+    assert len(rounds) == 2
+    assert len(reviewer.calls) == 2
+    assert "no effective output for 2 consecutive rounds" in reason
+    assert engineer.calls[0]["resume_thread_id"] == "seed-thread"
+    assert engineer.calls[1]["resume_thread_id"] is None
+    assert last_thread_id is None
+    assert not any(event.get("review_skipped") for event in events)
+
+
+def test_run_engineer_preserves_swallowed_effective_progress_timeout(
+    tmp_path: Path,
+) -> None:
+    se = cast(Any, SupervisedEngineer.__new__(SupervisedEngineer))
+    se.engineer_runner = _SwallowingInterruptEngineer()
+    se.engineer_config = EngineerConfig(model="stub")
+
+    events: list[dict] = []
+    result = cast(SupervisedEngineer, se)._run_engineer(
+        prompt="demo",
+        workdir=tmp_path,
+        run_label="engineer-r1",
+        supervised_config=SupervisedConfig(
+            effective_progress_timeout_seconds=1,
+            effective_progress_check_interval_seconds=1,
+        ),
+        on_event=events.append,
+    )
+
+    assert result.exit_code == -1
+    assert fatal_error_looks_like_effective_progress_timeout(result.fatal_error)
+    assert result.last_agent_message == "I am about to write the artifacts."
+    assert any(
+        event.get("type") == "round.watchdog.effective_progress_timeout"
+        for event in events
+    )
 
 
 def test_backend_failure_skips_reviewer_retries_fresh_session(tmp_path: Path) -> None:

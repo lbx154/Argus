@@ -70,9 +70,9 @@ _BACKEND_FAILURE_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
     "connection closed",
     "connection aborted",
     "network error",
-    "effective progress timeout",
 )
 
+_EFFECTIVE_PROGRESS_TIMEOUT_MARKER = "effective progress timeout"
 _RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
 _DAEMON_STOP_INTERRUPT_RE = re.compile(r"^external interrupt:\s*daemon stop requested\b")
 
@@ -171,6 +171,13 @@ def _fatal_error_looks_like_exhausted_reconnect(fatal_error: str | None) -> bool
     return attempt >= limit
 
 
+def fatal_error_looks_like_effective_progress_timeout(fatal_error: str | None) -> bool:
+    """Return True when the semantic-progress watchdog stopped a stale turn."""
+    if not fatal_error:
+        return False
+    return _EFFECTIVE_PROGRESS_TIMEOUT_MARKER in str(fatal_error).strip().casefold()
+
+
 def fatal_error_looks_like_daemon_stop_request(fatal_error: str | None) -> bool:
     """Return True for intentional daemon shutdown interrupts."""
     if not fatal_error:
@@ -206,6 +213,7 @@ def should_clear_thread_id_after_outcome(*, status: str, fatal_error: str | None
     return (
         str(status).strip().casefold() == "no_progress"
         or _fatal_error_looks_like_poisoned_session(fatal_error)
+        or fatal_error_looks_like_effective_progress_timeout(fatal_error)
         or fatal_error_looks_like_backend_failure(fatal_error)
     )
 
@@ -215,6 +223,10 @@ def _runner_result_has_successful_work_signal(
     *,
     engineer_message: str,
 ) -> bool:
+    if fatal_error_looks_like_effective_progress_timeout(
+        getattr(result, "fatal_error", None)
+    ):
+        return False
     if engineer_message.strip():
         return True
     if fatal_error_looks_like_backend_failure(getattr(result, "fatal_error", None)):
@@ -373,6 +385,9 @@ class _EffectiveProgressWatchdog:
             f"(limit {self.timeout_seconds}s)"
         )
         self._emit_interrupted_event(idle_seconds)
+        return self._interrupt_reason
+
+    def current_interrupt_reason(self) -> str | None:
         return self._interrupt_reason
 
     def _refresh_effective_progress(self) -> None:
@@ -962,6 +977,7 @@ class SupervisedEngineer:
         on_event: Callable[[dict], None] | None = None,
     ) -> RunnerResult:
         effective_progress_provider: Callable[[], str | None] | None = None
+        effective_progress_watchdog: _EffectiveProgressWatchdog | None = None
         hard_idle_seconds = 0
         if supervised_config is not None:
             timeout_seconds = int(
@@ -969,7 +985,7 @@ class SupervisedEngineer:
             )
             hard_idle_seconds = int(supervised_config.runner_hard_idle_seconds or 0)
             if timeout_seconds > 0:
-                effective_progress_provider = _EffectiveProgressWatchdog(
+                effective_progress_watchdog = _EffectiveProgressWatchdog(
                     workdir=workdir,
                     timeout_seconds=timeout_seconds,
                     check_interval_seconds=(
@@ -977,9 +993,10 @@ class SupervisedEngineer:
                     ),
                     on_event=on_event,
                     run_label=run_label,
-                ).interrupt_reason
+                )
+                effective_progress_provider = effective_progress_watchdog.interrupt_reason
         try:
-            return self.engineer_runner.run_exec(
+            result = self.engineer_runner.run_exec(
                 prompt=prompt,
                 options=RunnerOptions(
                     model=self.engineer_config.model,
@@ -995,6 +1012,21 @@ class SupervisedEngineer:
                 run_label=run_label,
                 resume_thread_id=resume_thread_id,
             )
+            if (
+                effective_progress_watchdog is not None
+                and effective_progress_watchdog.current_interrupt_reason()
+                and not getattr(result, "fatal_error", None)
+            ):
+                return replace(
+                    result,
+                    exit_code=(
+                        int(getattr(result, "exit_code", 0) or 0)
+                        if int(getattr(result, "exit_code", 0) or 0) != 0
+                        else -1
+                    ),
+                    fatal_error=effective_progress_watchdog.current_interrupt_reason(),
+                )
+            return result
         except Exception as exc:  # noqa: BLE001
             msg = f"engineer runner raised {type(exc).__name__}: {exc}"
             log.exception("engineer runner raised during %s", run_label)
@@ -1021,7 +1053,8 @@ class SupervisedEngineer:
         if no_progress_streak >= no_progress_threshold:
             return (
                 "no_progress",
-                f"Engineer produced no output for {no_progress_streak} consecutive rounds.",
+                "Engineer produced no effective output for "
+                f"{no_progress_streak} consecutive rounds.",
             )
         # done but checks failed — treat as continue (reviewer was wrong /
         # checks discovered residual gap).
@@ -1146,6 +1179,7 @@ __all__ = [
     "daemon_stop_review_decision",
     "fatal_error_looks_like_backend_failure",
     "fatal_error_looks_like_daemon_stop_request",
+    "fatal_error_looks_like_effective_progress_timeout",
     "fatal_error_looks_like_recoverable_reconnect",
     "should_clear_thread_id_after_outcome",
 ]
