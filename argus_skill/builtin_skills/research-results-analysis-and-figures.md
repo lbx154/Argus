@@ -11,7 +11,7 @@ created_at: 2026-05-23T00:00:00+00:00
 Research Results Analysis And Figures
 
 ## Description
-Analyze completed runs and generate figure/table artifacts for a paper. This adapts ARIS paper-figure/analyze-results ideas to argus-skill: the agent must derive every figure from local raw data and preserve scripts for reproducibility.
+Analyze completed runs and generate figure/table artifacts for a paper. This adapts ARIS paper-figure/analyze-results ideas to argus-skill: the agent must derive data figures and tables from local raw data, while conceptual overview figures must come from documented image-2 prompt/provenance artifacts rather than fabricated data or local redraws.
 
 ## When to use
 - The objective asks for plots, tables, result analysis, failure taxonomy, or paper figures.
@@ -55,7 +55,7 @@ Analyze completed runs and generate figure/table artifacts for a paper. This ada
 
 5. Statistical discipline:
    - For multiple seeds, report mean and dispersion.
-   - For single-run pilots or any run with fewer than 240 scored main tasks/episodes, label them as pilot evidence, not conclusive proof.
+   - For single-run pilots or any run with fewer than 240 scored main tasks/episodes, label them as pilot evidence, not conclusive proof; this label does not make them acceptable final EMNLP evidence.
    - For final EMNLP analysis, the canonical results table must include an overall main split with `n_tasks >= 240` before claims can be treated as full-paper evidence.
    - Avoid significance language unless the appropriate test was actually computed.
 

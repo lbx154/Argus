@@ -15,6 +15,7 @@ AGENTS.md New Project Template
 ## When NOT to use
 - Do not use this to continue or repair an existing project with valuable artifacts, tests, user edits, or a partially accepted direction. Use the existing-project optimization template instead.
 - Do not fill it with copied claims, benchmark choices, result numbers, figures, or generated artifacts from another project.
+- Direction rule: the operator's most recent explicit instruction wins. Use this template when the operator rejects the current direction or asks for a fresh start. If raw data, logs, or evidence from an older project should remain usable, list them as allowed inputs; do not preserve the older thesis, architecture, benchmark framing, or paper story by default.
 
 ## Copy-ready `AGENTS.md`
 
@@ -22,7 +23,7 @@ AGENTS.md New Project Template
 # AGENTS.md
 
 ## Project contract
-This is a clean-slate project. Build the project from the explicit operator goal, local evidence, and documented external sources. Do not inherit titles, claims, datasets, benchmark episodes, generators, figures, review artifacts, or result numbers from any prior project unless they are listed in **Allowed starting inputs** below with source, license/access status, and a reason they are appropriate.
+This is a clean-slate project. Build the project from the explicit operator goal, local evidence, and documented external sources. Do not inherit titles, claims, datasets, benchmark episodes, generators, figures, review artifacts, result numbers, architecture, thesis, or paper story from any prior project unless they are listed in **Allowed starting inputs** below with source, license/access status, and a reason they are appropriate.
 
 ## Operator goal
 - Primary goal: [write the concrete deliverable in one sentence]

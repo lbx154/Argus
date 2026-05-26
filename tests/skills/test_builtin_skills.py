@@ -96,11 +96,13 @@ def test_agent_md_templates_are_neutral_and_seeded(tmp_path: Path) -> None:
         assert "SWE-bench" not in text
         assert "BoundaryTrap" not in text
         assert "operator" in text
+        assert "operator's most recent explicit instruction wins" in text
 
     for required in (
         "clean-slate project",
         "Allowed starting inputs",
         "Do not copy a previous project",
+        "do not preserve the older thesis",
         "must not contain a specific project title",
     ):
         assert required in new_project
@@ -110,6 +112,7 @@ def test_agent_md_templates_are_neutral_and_seeded(tmp_path: Path) -> None:
         "Canonical state",
         "freshness chains synchronized",
         "Do not restart from scratch",
+        "raw data may still be selectively listed",
     ):
         assert required in repair_project
 
@@ -251,6 +254,8 @@ def test_auto_research_pipeline_skill_requires_state_machine_gates(
         "nontrivial baselines",
         "ablations/failure analysis",
         "defensive caveat lists",
+        "must not be called EMNLP-ready",
+        "unrelated domains need their own literature-derived retrieval targets",
     ):
         assert required in text
 
@@ -298,6 +303,9 @@ def test_submission_assurance_gate_skill_requires_audit_layers(
         "result-first or validator-shaped abstract",
         "long-paper",
         "PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLICABLE",
+        "paired-significance table when comparative binary outcomes",
+        "review artifacts as evidence, not targets",
+        "never a `WARN` for final EMNLP readiness",
     ):
         assert required in text
 
@@ -364,6 +372,8 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "tabcolsep=3-4pt",
             "arraystretch=1.15",
             "1536x1024 or 1920x1080",
+            "derive data figures and tables from local raw data",
+            "does not make them acceptable final EMNLP evidence",
         ),
         "paper-review-revision-loop.md": (
             "Anonymous EMNLP Submission",
@@ -372,6 +382,8 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "paired-significance table",
             "tabcolsep=3-4pt",
             "1536x1024 or 1920x1080",
+            "Prompt, provenance, generation-setting",
+            "do not regenerate an already accepted image merely to refresh metadata",
         ),
         "claims-evidence-audit.md": (
             "Overfull \\hbox > 5pt",
@@ -410,6 +422,7 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "tabcolsep=3-4pt",
             "arraystretch=1.15",
             "image-2/codex-image2",
+            "review artifacts, calibration files, and readiness reports as evidence",
         ),
     }
 
@@ -465,6 +478,8 @@ def test_argus_role_identity_skills_cover_agent_contracts(tmp_path: Path) -> Non
             "continue",
             "blocked",
             "Academic Paper Peer Review Benchmark",
+            "short, deterministic shell checks",
+            "bounded paper tasks",
         ),
         "argus-critic-role.md": (
             "post-review quality filter",

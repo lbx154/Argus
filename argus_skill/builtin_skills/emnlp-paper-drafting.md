@@ -51,7 +51,7 @@ Write a paper draft from local evidence. This adapts ARIS paper-writing/paper-pl
    - Record source URLs and BibTeX/metadata in `paper/style_ref/SOURCES.md`.
    - Run `python -m argus_skill.skills.pipeline_contracts validate-exemplar --project-root .` before writing the paper body. If web is unavailable, create `paper/style_ref/TODO.md` listing the missing style-reference fetch and continue only as a blocked draft; do not mark the draft or submission assurance ready until `validate-exemplar` passes.
 
-   Standard starter citation targets for memory / agent-skills / hallucination papers (not a complete bibliography):
+   Standard starter citation targets for memory / agent-skills / hallucination papers (not a complete bibliography). Use this list only when the project topic matches those families; unrelated domains need their own literature-derived targets:
    - **Tool-use and agent loops:** `yao2023react` (ReAct), `shinn2023reflexion` (Reflexion), `madaan2023selfrefine` (SELF-REFINE), `schick2023toolformer` (Toolformer), `qin2023toolllm` (ToolLLM), `li2023apibank` (API-Bank), `patil2023gorilla` (Gorilla), `shen2023hugginggpt` (HuggingGPT), `karpas2022mrkl` (MRKL Systems).
    - **Memory, skills, and long-horizon agents:** `wang2024voyager` (Voyager), `zhao2024expel` (ExpeL), `packer2023memgpt` (MemGPT), `park2023generativeagents` (Generative Agents), `xu2025amem` (A-Mem), `zhong2024memorybank` (MemoryBank), `wang2023longmem` (LongMem).
    - **Self-evolution, process supervision, and skill learning:** `qi2024webrl` (WebRL), `li2025webevolver` (WebEvolver), `wang2025mobileagente` (Mobile-Agent-E), `tang2025sage` (SAGE), `zhang2025skillrl` (SkillRL), `lightman2023letsverify` (Let's Verify Step by Step), `zelikman2022star` (STaR).

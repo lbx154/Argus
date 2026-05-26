@@ -15,6 +15,7 @@ AGENTS.md Existing Project Optimization Template
 ## When NOT to use
 - Do not use this when the operator explicitly rejected the current direction and asked for a clean-slate project. Use the new-project template instead.
 - Do not use it to preserve a bad prototype merely because artifacts exist; if the core thesis/architecture is invalid, document the rejection and ask for or create a clean-slate reset contract.
+- Direction rule: the operator's most recent explicit instruction wins. Prefer this template when the operator asks to continue, rescue, repair, or optimize the current project, or when current artifacts remain authoritative. Switch to a clean-slate contract only when the operator rejects the current direction or the audit proves the thesis/architecture must be abandoned; raw data may still be selectively listed as allowed input for the new project.
 
 ## Copy-ready `AGENTS.md`
 
@@ -22,7 +23,7 @@ AGENTS.md Existing Project Optimization Template
 # AGENTS.md
 
 ## Project contract
-This is an existing project. Improve the current project while preserving useful source, evidence, tests, logs, and operator-approved decisions. Do not erase history, overwrite user work, or restart from scratch unless the operator explicitly says the current direction is rejected.
+This is an existing project. Improve the current project while preserving useful source, evidence, tests, logs, and operator-approved decisions. Do not erase history, overwrite user work, or restart from scratch unless the operator explicitly says the current direction is rejected. If a restart is required, stop preserving architectural assumptions and create a clean-slate contract that lists only the raw evidence or artifacts still allowed to carry over.
 
 ## Current operator goal
 - Primary goal: [write the current improvement objective]

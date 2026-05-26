@@ -32,6 +32,7 @@ This skill is not a copyediting pass. It is a calibrated reject/accept simulatio
 - Do not reward a PDF merely for existing. A PDF with weak evidence, copied benchmarks, stale artifacts, or underfilled body pages is a reject.
 - Every weakness must include a concrete fix. The reviewer handoff should be professional and short enough for a smaller engineer model to execute.
 - Separate paper-quality issues from environment blockers. Missing web/LaTeX access can be `blocked`; weak experiments, stale manifests, bad prose, and format failures are `continue`.
+- Treat review artifacts, calibration files, and readiness reports as evidence, not optimization targets. A paper passes only when the manuscript, raw artifacts, generated figures/tables, and validators independently satisfy the underlying condition.
 
 ## Required input artifacts to inspect or demand
 - Manuscript: `paper/main.tex`, section files, `paper/main.pdf`, and `paper/main.log`.
@@ -73,6 +74,7 @@ Score each dimension 1--5. Most plausible drafts should land in the 2--4 range; 
 
 6. **Writing quality and reviewer readability**
    - Abstract and introduction should quickly answer What, Why, So What, and why now.
+   - The abstract must read like a normal EMNLP abstract: problem/gap first, method/result/implication after; no Appendix Figure/Table references, raw artifact paths, evidence-span quotes, validator vocabulary, or repeated defensive caveats.
    - The method should be re-implementable from the description.
    - Results should lead with supported takeaways, then caveats and failure analysis.
    - Limitations and ethics should be honest and specific, not boilerplate.
