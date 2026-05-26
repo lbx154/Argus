@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 
 from ..core.models import RunnerOptions
 from ..core.ports import RunnerBackend
@@ -38,6 +39,7 @@ TASK_SCOPE_FINAL_SUBMISSION = "final_submission"
 _TASK_SCOPES = {TASK_SCOPE_BOUNDED, TASK_SCOPE_FINAL_SUBMISSION}
 _CRITIC_ROLE_SKILL = "argus-critic-role.md"
 _PLANNER_ROLE_SKILL = "argus-planner-role.md"
+PLANNER_SCHEMA_PATH = str(Path(__file__).with_name("planner_schema.json"))
 _CRITIC_ROLE_FALLBACK = """# Argus Critic Role
 
 The Critic is argus-skill's post-review quality filter. Continue only for
@@ -451,6 +453,7 @@ class Critic:
                 options=RunnerOptions(
                     model=cfg.model,
                     reasoning_effort=cfg.reasoning_effort or "high",
+                    output_schema_path=PLANNER_SCHEMA_PATH,
                     working_dir=cfg.working_dir,
                     dangerous_yolo=cfg.dangerous_yolo,
                     full_auto=cfg.full_auto,

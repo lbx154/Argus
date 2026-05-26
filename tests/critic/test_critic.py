@@ -363,6 +363,8 @@ def test_plan_next_passes_config_to_runner():
     _, opts = runner.calls[0]
     assert opts.model == "o4-mini"
     assert opts.reasoning_effort == "low"
+    assert opts.output_schema_path is not None
+    assert opts.output_schema_path.endswith("planner_schema.json")
     assert opts.working_dir == "/tmp/planner"
     assert opts.skip_git_repo_check is True
     assert opts.full_auto is False

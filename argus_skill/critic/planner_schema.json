@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project_done",
+    "reason",
+    "restart_daemon",
+    "restart_reason",
+    "new_tasks"
+  ],
+  "properties": {
+    "project_done": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "restart_daemon": {
+      "type": "boolean"
+    },
+    "restart_reason": {
+      "type": "string"
+    },
+    "new_tasks": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "impact_score",
+          "impact_area",
+          "evidence",
+          "scope",
+          "objective"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "impact_score": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "impact_area": {
+            "type": "string",
+            "enum": [
+              "correctness",
+              "security",
+              "operator_ux",
+              "performance",
+              "reliability",
+              "integration",
+              "requirement_gap",
+              "discovery"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "bounded",
+              "final_submission"
+            ]
+          },
+          "objective": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}
