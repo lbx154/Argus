@@ -105,6 +105,8 @@ def test_emnlp_paper_skill_requires_official_template_page_budget_and_style_ref(
         "paper_scope: \"long-paper\"",
         "Benchmark provenance",
         "Never copy prose",
+        "validator worksheet",
+        "normal EMNLP abstract",
     ):
         assert required in text
 
@@ -209,6 +211,7 @@ def test_auto_research_pipeline_skill_requires_state_machine_gates(
         "small pilot is never sufficient final evidence",
         "nontrivial baselines",
         "ablations/failure analysis",
+        "defensive caveat lists",
     ):
         assert required in text
 
@@ -253,6 +256,7 @@ def test_submission_assurance_gate_skill_requires_audit_layers(
         "validate-full-emnlp",
         "validate-research-md-format",
         "validate-academic-language-review",
+        "result-first or validator-shaped abstract",
         "long-paper",
         "PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLICABLE",
     ):
@@ -398,6 +402,7 @@ def test_academic_peer_review_benchmark_skill_sets_reviewer_standard(
         "35 verified BibTeX entries",
         "30 unique cited keys",
         "self-drawn substitutes",
+        "validator vocabulary",
         "gpt-5.4",
         "next_action",
     ):

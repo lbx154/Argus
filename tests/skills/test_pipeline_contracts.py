@@ -5,6 +5,7 @@ import json
 import struct
 from pathlib import Path
 
+from argus_skill.skills.academic_language_review import generate_academic_language_review
 from argus_skill.skills.pipeline_contracts import (
     _validate_research_md_pdf_text,
     _validate_research_md_reference_depth,
@@ -536,6 +537,12 @@ def test_image2_figures_require_conceptual_image2_but_allow_secondary_tikz(
         tmp_path / "paper" / "figures" / "system.review.json",
         {"score_1_to_5": 4, "keep_or_regenerate": "keep"},
     )
+    _write_image2_provenance(
+        tmp_path,
+        "paper/figures/system.prompt.txt",
+        "paper/figures/system.png",
+        "paper/figures/system.provenance.json",
+    )
     _write_json(
         tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json",
         {
@@ -548,6 +555,7 @@ def test_image2_figures_require_conceptual_image2_but_allow_secondary_tikz(
                     "model": "image-2",
                     "prompt_path": "paper/figures/system.prompt.txt",
                     "output_path": "paper/figures/system.png",
+                    "generation_provenance_path": "paper/figures/system.provenance.json",
                     "review_path": "paper/figures/system.review.json",
                 },
                 {
@@ -569,6 +577,12 @@ def test_image2_figures_reject_square_1024_conceptual_figure(tmp_path: Path) -> 
         tmp_path / "paper" / "figures" / "system.review.json",
         {"score_1_to_5": 4, "keep_or_regenerate": "keep"},
     )
+    _write_image2_provenance(
+        tmp_path,
+        "paper/figures/system.prompt.txt",
+        "paper/figures/system.png",
+        "paper/figures/system.provenance.json",
+    )
     _write_json(
         tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json",
         {
@@ -581,6 +595,7 @@ def test_image2_figures_reject_square_1024_conceptual_figure(tmp_path: Path) -> 
                     "model": "image-2",
                     "prompt_path": "paper/figures/system.prompt.txt",
                     "output_path": "paper/figures/system.png",
+                    "generation_provenance_path": "paper/figures/system.provenance.json",
                     "review_path": "paper/figures/system.review.json",
                     "requested_size": "1024x1024",
                 }
@@ -614,6 +629,34 @@ def test_image2_figures_reject_raster_conceptual_non_image2(tmp_path: Path) -> N
 
     assert "conceptual_figure_not_image2" in {issue.code for issue in issues}
     assert "missing_image2_conceptual_figure" in {issue.code for issue in issues}
+
+
+def test_image2_figures_reject_body_overview_when_manifest_has_no_image2(
+    tmp_path: Path,
+) -> None:
+    _write_json(
+        tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json",
+        {
+            "figures": [
+                {
+                    "figure_id": "method-overview",
+                    "figure_type": "method",
+                    "source": "pil",
+                    "generator": "local-pil-blocked",
+                    "output_path": "paper/figures/method.png",
+                }
+            ]
+        },
+    )
+    _write_main_tex_with_figures(
+        tmp_path,
+        [("figures/method.png", "fig:overview", "Overview of our method and verifier pipeline.")],
+    )
+
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "missing_image2_conceptual_figure" in codes
+    assert "conceptual_body_figure_not_image2" in codes
 
 
 def test_image2_figures_reject_self_drawn_teaser_or_overall_manifest(tmp_path: Path) -> None:
@@ -699,6 +742,130 @@ def test_image2_figures_accept_body_conceptual_png_output(tmp_path: Path) -> Non
     )
 
     assert validate_image2_figures(tmp_path) == []
+
+
+def test_image2_figures_reject_cropped_or_resaved_image2_output(tmp_path: Path) -> None:
+    _write(tmp_path / "paper" / "figures" / "method.prompt.txt", "draw method overview\n")
+    _write_bytes(tmp_path / "paper" / "figures" / "method.png", _png_bytes(1343, 564))
+    _write_json(
+        tmp_path / "paper" / "figures" / "method.review.json",
+        {"score_1_to_5": 4, "keep_or_regenerate": "keep", "image": {"width": 1536, "height": 1024}},
+    )
+    _write_json(
+        tmp_path / "paper" / "figures" / "method.sidecar.json",
+        {
+            "model": "image-2",
+            "generator": "codex-image2",
+            "prompt_path": "paper/figures/method.prompt.txt",
+            "output_path": "paper/figures/method.png",
+            "output_sha256": hashlib.sha256((tmp_path / "paper" / "figures" / "method.png").read_bytes()).hexdigest(),
+            "image": {"width": 1536, "height": 1024},
+            "requested_size": "1536x1024",
+        },
+    )
+    _write_json(
+        tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json",
+        {
+            "figures": [
+                {
+                    "figure_id": "method-overview",
+                    "figure_type": "method",
+                    "source": "raster",
+                    "generator": "codex-image2",
+                    "model": "image-2",
+                    "prompt_path": "paper/figures/method.prompt.txt",
+                    "output_path": "paper/figures/method.png",
+                    "generation_provenance_path": "paper/figures/method.sidecar.json",
+                    "review_path": "paper/figures/method.review.json",
+                    "sidecar_path": "paper/figures/method.sidecar.json",
+                    "requested_size": "1536x1024",
+                }
+            ]
+        },
+    )
+
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "low_resolution_image2_conceptual_output" in codes
+    assert "image2_output_dimensions_mismatch_requested_size" in codes
+    assert "image2_recorded_dimensions_mismatch_output" in codes
+
+
+def test_image2_figures_reject_pil_generated_output_mislabeled_as_image2(
+    tmp_path: Path,
+) -> None:
+    _write_valid_image2_figures(tmp_path)
+    _write(
+        tmp_path / "code" / "generate_figures.py",
+        "\n".join(
+            [
+                "from pathlib import Path",
+                "from PIL import Image, ImageDraw",
+                "out = Path('paper/figures/method.png')",
+                "img = Image.new('RGB', (1536, 1024), 'white')",
+                "draw = ImageDraw.Draw(img)",
+                "draw.rectangle((10, 10, 100, 100))",
+                "img.save(out)",
+            ]
+        )
+        + "\n",
+    )
+
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "local_conceptual_figure_generation_detected" in codes
+
+
+def test_image2_figures_reject_named_matplotlib_overview_renderer(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path / "paper" / "figures" / "method_overview.prompt.txt", "draw method overview\n")
+    _write_bytes(tmp_path / "paper" / "figures" / "method_overview.png", _png_bytes(1536, 1024))
+    _write_json(
+        tmp_path / "paper" / "figures" / "method_overview.review.json",
+        {"score_1_to_5": 4, "keep_or_regenerate": "keep"},
+    )
+    _write_image2_provenance(
+        tmp_path,
+        "paper/figures/method_overview.prompt.txt",
+        "paper/figures/method_overview.png",
+        "paper/figures/method_overview.provenance.json",
+    )
+    _write_json(
+        tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json",
+        {
+            "figures": [
+                {
+                    "figure_id": "method-overview",
+                    "figure_type": "method",
+                    "source": "raster",
+                    "generator": "codex-image2",
+                    "model": "image-2",
+                    "prompt_path": "paper/figures/method_overview.prompt.txt",
+                    "output_path": "paper/figures/method_overview.png",
+                    "generation_provenance_path": "paper/figures/method_overview.provenance.json",
+                    "review_path": "paper/figures/method_overview.review.json",
+                    "requested_size": "1536x1024",
+                }
+            ]
+        },
+    )
+    _write(
+        tmp_path / "code" / "make_paper.py",
+        "\n".join(
+            [
+                "def render_method_overview(path):",
+                "    import matplotlib.pyplot as plt",
+                "    fig = plt.figure()",
+                "    fig.savefig(path)",
+            ]
+        )
+        + "\n",
+    )
+
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "local_conceptual_figure_generation_detected" in codes
 
 
 def test_image2_figures_allow_data_plot_pdf_when_image2_conceptual_in_body(tmp_path: Path) -> None:
@@ -1175,6 +1342,72 @@ def test_academic_language_review_rejects_generic_opening_even_with_pass_json(
     assert "academic_language_generic_llm_success_opening" in codes
 
 
+def test_academic_language_review_rejects_validator_shaped_abstract_even_with_pass_json(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    text = (tmp_path / "paper" / "main.tex").read_text(encoding="utf-8")
+    bad_abstract = (
+        "\\begin{abstract}"
+        "240/240 boundary-transfer episodes beat 84/240 baselines under controlled "
+        "synthetic benchmark-scoped conditions, which is not causal proof. "
+        "Appendix Figure~\\ref{fig:method} and the validator evidence span document "
+        "the claim. We propose Boundary Skill Transfer for agent benchmark failures. "
+        "The method improves verified completion by 65 points through persisted "
+        "boundary rules. This result suggests targeted skill memory can reduce "
+        "repeated planning failures."
+        "\\end{abstract}"
+    )
+    _write(
+        tmp_path / "paper" / "main.tex",
+        text.replace(
+            "\\begin{abstract}A complete EMNLP-style long paper.\\end{abstract}",
+            bad_abstract,
+        ),
+    )
+    _write_valid_academic_language_review(tmp_path)
+
+    codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
+    assert "academic_language_result_first_abstract" in codes
+    assert "academic_language_abstract_references_layout_artifact" in codes
+    assert "academic_language_abstract_mentions_internal_review_artifact" in codes
+    assert "academic_language_over_defensive_abstract" in codes
+
+
+def test_heuristic_academic_language_review_flags_validator_shaped_abstract(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    text = (tmp_path / "paper" / "main.tex").read_text(encoding="utf-8")
+    bad_abstract = (
+        "\\begin{abstract}"
+        "% evidence: paper/artifacts/result_to_claim.tsv\n"
+        "240/240 boundary-transfer episodes beat 84/240 baselines under controlled "
+        "synthetic benchmark-scoped conditions, which is not causal proof. "
+        "Appendix Figure~\\ref{fig:method} and the validator evidence span document "
+        "the claim. We propose Boundary Skill Transfer for agent benchmark failures. "
+        "The method improves verified completion by 65 points through persisted "
+        "boundary rules. This result suggests targeted skill memory can reduce "
+        "repeated planning failures."
+        "\\end{abstract}"
+    )
+    _write(
+        tmp_path / "paper" / "main.tex",
+        text.replace(
+            "\\begin{abstract}A complete EMNLP-style long paper.\\end{abstract}",
+            bad_abstract,
+        ),
+    )
+
+    review = generate_academic_language_review(tmp_path, review_mode="heuristic", write=False)
+
+    codes = {issue["code"] for issue in review["issues"]}
+    assert "abstract_contains_internal_evidence_comment" in codes
+    assert "result_first_abstract" in codes
+    assert "over_defensive_abstract" in codes
+    assert review["needs_revision"] is True
+
+
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -1582,6 +1815,12 @@ def _write_valid_image2_figures(root: Path) -> None:
         root / "paper" / "figures" / "method.review.json",
         {"score_1_to_5": 4, "keep_or_regenerate": "keep"},
     )
+    _write_image2_provenance(
+        root,
+        "paper/figures/method.prompt.txt",
+        "paper/figures/method.png",
+        "paper/figures/method.provenance.json",
+    )
     _write_json(
         root / "paper" / "figures" / "IMAGE2_FIGURES.json",
         {
@@ -1594,10 +1833,26 @@ def _write_valid_image2_figures(root: Path) -> None:
                     "model": "image-2",
                     "prompt_path": "paper/figures/method.prompt.txt",
                     "output_path": "paper/figures/method.png",
+                    "generation_provenance_path": "paper/figures/method.provenance.json",
                     "review_path": "paper/figures/method.review.json",
                     "requested_size": "1536x1024",
                 }
             ]
+        },
+    )
+
+
+def _write_image2_provenance(root: Path, prompt_path: str, output_path: str, provenance_path: str) -> None:
+    output = root / output_path
+    _write_json(
+        root / provenance_path,
+        {
+            "generator": "codex-image2",
+            "model": "image-2",
+            "tool": "codex-image2",
+            "prompt_path": prompt_path,
+            "output_path": output_path,
+            "output_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
         },
     )
 

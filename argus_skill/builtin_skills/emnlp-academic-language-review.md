@@ -40,6 +40,9 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
 
 3. Fix the abstract and introduction:
    - Abstract should be about five evidence-backed sentences: problem, gap, method, result, implication.
+   - Keep the abstract reader-facing. Do not satisfy evidence alignment by inserting appendix/figure/table references, raw artifact paths, validator/review-gate vocabulary, evidence-span quotes, or `% evidence:` comments inside the abstract environment.
+   - Do not start the abstract with a numeric win. The first sentence should establish the concrete problem or evaluation gap; the result should come after the method is named.
+   - Calibrate without sounding defensive: one scoped phrase is fine, but repeated "controlled/synthetic/benchmark-scoped/not causal proof" caveats belong in limitations or discussion.
    - Do not open with generic phrases such as "Large language models have achieved remarkable success" or "In recent years..."
    - Introduction should move from concrete problem to literature gap, method insight, quantified result, and contribution list.
 
@@ -64,7 +67,7 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - Run `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`.
    - Then run `python -m argus_skill.skills.pipeline_contracts validate-academic-language-review --project-root .`.
    - The review must write `paper/ACADEMIC_LANGUAGE_REVIEW.json`, `paper/ACADEMIC_LANGUAGE_REVIEW.md`, and history.
-   - Passing requires a model-backed review, fresh hashes for all LaTeX sources included by `paper/main.tex`, score at least 4/5, evidence spans quoted from the source, no failed required checks, and no active revision directives.
+   - Passing requires a model-backed review, fresh hashes for all LaTeX sources included by `paper/main.tex`, score at least 4/5, evidence spans quoted from the source, no failed required checks, and no active revision directives. Evidence spans are review artifacts, not prose: do not paste them into the paper to appease the gate.
 
 8. Iterate:
    - Apply `revision_directives` exactly: rewrite abstract, tighten contribution sentence, calibrate claims, reorganize related work, add evidence sentences, replace hype language, or add limitation scope.

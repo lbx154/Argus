@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import struct
@@ -23,6 +24,7 @@ from .academic_language_review import (
     GENERIC_OPENING_PATTERNS,
     MIN_ACADEMIC_LANGUAGE_SCORE,
     collect_latex_source_paths,
+    find_reader_hostile_abstract_issues,
 )
 from .academic_language_review import (
     ALLOWED_DIRECTIVE_ACTIONS as ALLOWED_ACADEMIC_LANGUAGE_ACTIONS,
@@ -86,9 +88,61 @@ MIN_FINAL_UNIQUE_CITATION_KEYS = 30
 MIN_RENDERED_REFERENCE_PAGES = 2
 MIN_CONCEPTUAL_FIGURE_ASPECT_RATIO = 1.2
 MAX_CONCEPTUAL_FIGURE_ASPECT_RATIO = 2.6
+MIN_CONCEPTUAL_FIGURE_PIXEL_WIDTH = 1200
+MIN_CONCEPTUAL_FIGURE_PIXEL_HEIGHT = 768
 MIN_IMAGE_REVIEW_SCORE = 4.0
 MIN_LAYOUT_REVIEW_SCORE = 4.0
 IMAGE2_RASTER_OUTPUT_SUFFIXES = {".png", ".jpg", ".jpeg"}
+LOCAL_RENDERER_SCAN_WINDOW_CHARS = 5_000
+MAX_LOCAL_RENDERER_SOURCE_BYTES = 2_000_000
+LOCAL_RENDERER_SOURCE_SUFFIXES = {
+    ".py",
+    ".ipynb",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".mjs",
+    ".cjs",
+    ".r",
+    ".jl",
+    ".sh",
+    ".html",
+    ".svg",
+}
+LOCAL_RENDERER_EXCLUDED_DIRS = {
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+}
+LOCAL_CONCEPTUAL_RENDER_TOKENS: tuple[tuple[str, str], ...] = (
+    ("imagedraw", "PIL/ImageDraw"),
+    ("image.new(", "PIL/Image.new"),
+    ("imagefont", "PIL/ImageFont"),
+    ("from pil import", "PIL"),
+    ("import pil", "PIL"),
+    ("matplotlib", "matplotlib"),
+    ("pyplot", "matplotlib/pyplot"),
+    ("plt.", "matplotlib/pyplot"),
+    ("fig.savefig", "matplotlib savefig"),
+    ("patches.", "matplotlib patches"),
+    ("fancybboxpatch", "matplotlib/FancyBboxPatch"),
+    ("svgwrite", "SVG writer"),
+    ("<svg", "inline SVG"),
+    ("tikzpicture", "TikZ"),
+    ("graphviz", "Graphviz"),
+    ("networkx", "NetworkX graph drawing"),
+)
 LATEX_GRAPHICS_SUFFIXES = ("", ".png", ".jpg", ".jpeg", ".pdf", ".eps")
 CONCEPTUAL_IMAGE_FIGURE_TYPES = {
     "conceptual",
@@ -1084,8 +1138,7 @@ def validate_image2_figures(project_root: Path) -> list[ContractIssue]:
                 "at least one conceptual/method/system paper figure must be generated with image-2",
             )
         )
-    else:
-        issues.extend(_validate_body_image2_conceptual_figure_usage(root, raw_figures=raw_figures))
+    issues.extend(_validate_body_image2_conceptual_figure_usage(root, raw_figures=raw_figures))
     return _dedupe_contract_issues(issues)
 
 
@@ -1615,13 +1668,13 @@ def _validate_body_image2_conceptual_figure_usage(
     if not figure_entries:
         return []
 
-    image2_outputs = _image2_conceptual_output_paths(root, figure_entries)
-    if not image2_outputs:
-        return []
-
     expanded_body = body_tex if body_tex is not None else _expanded_latex_body(root)
     if not expanded_body.strip():
         return []
+
+    image2_outputs = _image2_conceptual_output_paths(root, figure_entries)
+    if not image2_outputs:
+        return _validate_body_conceptual_figures_without_image2(expanded_body)
 
     figure_envs = _extract_latex_figure_environments(expanded_body)
     included_paths: set[str] = set()
@@ -1660,6 +1713,25 @@ def _validate_body_image2_conceptual_figure_usage(
                 f"body figure {index + 1} appears to be a method/framework/overview figure "
                 f"but includes {includes}; include the image-2 raster output_path instead ({outputs}) "
                 "rather than a matplotlib/TikZ/PDF/vector redraw",
+            )
+        )
+    return issues
+
+
+def _validate_body_conceptual_figures_without_image2(body_tex: str) -> list[ContractIssue]:
+    issues: list[ContractIssue] = []
+    for index, environment in enumerate(_extract_latex_figure_environments(body_tex)):
+        include_args = _extract_latex_command_arguments(environment, "includegraphics")
+        if not _body_figure_looks_conceptual(index, environment, include_args):
+            continue
+        includes = ", ".join(arg.strip() for arg in include_args if arg.strip()) or "no includegraphics"
+        issues.append(
+            ContractIssue(
+                "conceptual_body_figure_not_image2",
+                str(PAPER_MAIN_TEX_PATH),
+                f"body figure {index + 1} appears to be a method/framework/overview figure "
+                f"but includes {includes} and no valid image-2 conceptual raster output exists; "
+                "regenerate the overview through image-2/codex-image2 instead of using a local redraw",
             )
         )
     return issues
@@ -2891,7 +2963,8 @@ def _academic_static_source_issues(root: Path) -> list[ContractIssue]:
     main_path = root / PAPER_MAIN_TEX_PATH
     if not main_path.is_file():
         return []
-    text = _strip_latex_comments_for_contract(main_path.read_text(encoding="utf-8", errors="replace"))
+    raw_text = main_path.read_text(encoding="utf-8", errors="replace")
+    text = _strip_latex_comments_for_contract(raw_text)
     opening = _latex_to_plain_for_contract(text)[:1800]
     issues: list[ContractIssue] = []
     for code, pattern in GENERIC_OPENING_PATTERNS:
@@ -2906,6 +2979,14 @@ def _academic_static_source_issues(root: Path) -> list[ContractIssue]:
                     ),
                 )
             )
+    for code, message in find_reader_hostile_abstract_issues(raw_text):
+        issues.append(
+            ContractIssue(
+                f"academic_language_{code}",
+                str(PAPER_MAIN_TEX_PATH),
+                f"{message}; rerun academic-language revision",
+            )
+        )
     return issues
 
 
@@ -3883,7 +3964,10 @@ def _validate_conceptual_image2_figure(
                     )
                 )
 
+    issues.extend(_validate_image2_output_integrity(root, entry, entry_path))
     issues.extend(_validate_image_review(root, entry, entry_path))
+    issues.extend(_validate_image2_generation_provenance(root, entry, entry_path))
+    issues.extend(_detect_local_conceptual_figure_generation(root, entry, entry_path))
     return issues
 
 
@@ -3908,6 +3992,11 @@ def _figure_requested_size(root: Path, entry: dict[str, Any]) -> tuple[int, int]
 
 
 def _figure_dimensions(root: Path, entry: dict[str, Any]) -> tuple[int, int] | None:
+    output = _optional_manifest_file(root, entry.get("output_path"))
+    if output is not None and output.is_file():
+        dimensions = _image_file_dimensions(output)
+        if dimensions is not None:
+            return dimensions
     direct = _dimensions_from_mapping(entry)
     if direct is not None:
         return direct
@@ -3932,10 +4021,105 @@ def _figure_dimensions(root: Path, entry: dict[str, Any]) -> tuple[int, int] | N
                 direct = _dimensions_from_mapping(image)
                 if direct is not None:
                     return direct
-    output = _optional_manifest_file(root, entry.get("output_path"))
-    if output is not None and output.is_file():
-        return _image_file_dimensions(output)
     return None
+
+
+def _validate_image2_output_integrity(
+    root: Path,
+    entry: dict[str, Any],
+    entry_path: str,
+) -> list[ContractIssue]:
+    output_path = _normalize_manifest_path(entry.get("output_path"))
+    output = _optional_manifest_file(root, output_path)
+    if output_path is None or output is None or not output.is_file():
+        return []
+
+    actual_dimensions = _image_file_dimensions(output)
+    if actual_dimensions is None:
+        return []
+
+    issues: list[ContractIssue] = []
+    width, height = actual_dimensions
+    if width < MIN_CONCEPTUAL_FIGURE_PIXEL_WIDTH or height < MIN_CONCEPTUAL_FIGURE_PIXEL_HEIGHT:
+        issues.append(
+            ContractIssue(
+                "low_resolution_image2_conceptual_output",
+                _project_relative_path(root, output),
+                (
+                    f"image-2 conceptual output is only {width}x{height}; preserve a real "
+                    "page-width image-2 raster instead of a cropped/downsampled/local redraw"
+                ),
+            )
+        )
+
+    requested_size = _figure_requested_size(root, entry)
+    if requested_size is not None and actual_dimensions != requested_size:
+        issues.append(
+            ContractIssue(
+                "image2_output_dimensions_mismatch_requested_size",
+                entry_path,
+                (
+                    f"manifest/provenance requested {requested_size[0]}x{requested_size[1]} "
+                    f"but output_path is {width}x{height}; do not crop, resave, or replace the "
+                    "generated image-2 raster after provenance is written"
+                ),
+            )
+        )
+
+    for source, recorded_dimensions in _recorded_image2_dimensions(root, entry):
+        if recorded_dimensions == actual_dimensions:
+            continue
+        issues.append(
+            ContractIssue(
+                "image2_recorded_dimensions_mismatch_output",
+                source,
+                (
+                    f"recorded dimensions {recorded_dimensions[0]}x{recorded_dimensions[1]} "
+                    f"do not match output_path {output_path} ({width}x{height}); refresh the "
+                    "image-2 artifact/sidecars together instead of relabeling a local replacement"
+                ),
+            )
+        )
+    return issues
+
+
+def _recorded_image2_dimensions(root: Path, entry: dict[str, Any]) -> list[tuple[str, tuple[int, int]]]:
+    records: list[tuple[str, tuple[int, int]]] = []
+    direct = _dimensions_from_mapping(entry)
+    if direct is not None:
+        records.append(("IMAGE2_FIGURES.json entry", direct))
+
+    dimensions = entry.get("dimensions")
+    if isinstance(dimensions, dict):
+        direct = _dimensions_from_mapping(dimensions)
+        if direct is not None:
+            records.append(("IMAGE2_FIGURES.json entry dimensions", direct))
+
+    seen_paths: set[Path] = set()
+    for field in (
+        "sidecar_path",
+        "generation_provenance_path",
+        "provenance_path",
+        "review_path",
+        "inspect_path",
+    ):
+        resolved = _optional_manifest_file(root, entry.get(field))
+        if resolved is None or not resolved.is_file() or resolved in seen_paths:
+            continue
+        seen_paths.add(resolved)
+        if resolved.suffix.lower() != ".json":
+            continue
+        payload = _try_read_json_object(resolved)
+        if payload is None:
+            continue
+        direct = _dimensions_from_mapping(payload)
+        if direct is None:
+            image = payload.get("image")
+            if isinstance(image, dict):
+                direct = _dimensions_from_mapping(image)
+        if direct is not None:
+            records.append((_project_relative_path(root, resolved), direct))
+    return records
 
 
 def _dimensions_from_mapping(payload: dict[str, Any]) -> tuple[int, int] | None:
@@ -4054,6 +4238,271 @@ def _validate_image_review(
             )
         )
     return issues
+
+
+def _validate_image2_generation_provenance(
+    root: Path,
+    entry: dict[str, Any],
+    entry_path: str,
+) -> list[ContractIssue]:
+    raw_path = entry.get("generation_provenance_path") or entry.get("provenance_path")
+    provenance_path = _optional_manifest_file(root, raw_path)
+    if provenance_path is None:
+        return [
+            ContractIssue(
+                "missing_image2_generation_provenance",
+                entry_path,
+                "image-2 conceptual figures must include generation_provenance_path/provenance_path",
+            )
+        ]
+    if not provenance_path.is_file():
+        return [
+            ContractIssue(
+                "missing_image2_generation_provenance_file",
+                _project_relative_path(root, provenance_path),
+                "image-2 generation provenance file is missing",
+            )
+        ]
+
+    provenance = _try_read_json_object(provenance_path)
+    if provenance is None:
+        return [
+            ContractIssue(
+                "invalid_image2_generation_provenance_json",
+                _project_relative_path(root, provenance_path),
+                "image-2 generation provenance must be a valid JSON object",
+            )
+        ]
+
+    issues: list[ContractIssue] = []
+    provenance_text = " ".join(
+        str(provenance.get(field, ""))
+        for field in ("model", "generator", "generator_model", "renderer", "tool", "backend", "provider")
+    ).lower()
+    if not any(token in provenance_text for token in ("image-2", "codex-image2", "gpt-image-2")):
+        issues.append(
+            ContractIssue(
+                "image2_generation_provenance_not_image2",
+                _project_relative_path(root, provenance_path),
+                "generation provenance must identify image-2/codex-image2 as the model or tool",
+            )
+        )
+
+    for field in ("prompt_path", "output_path"):
+        expected = _normalize_manifest_path(entry.get(field))
+        actual = _normalize_manifest_path(provenance.get(field))
+        if actual is None:
+            issues.append(
+                ContractIssue(
+                    f"missing_image2_provenance_{field}",
+                    _project_relative_path(root, provenance_path),
+                    f"generation provenance must record {field}",
+                )
+            )
+        elif expected is not None and actual != expected:
+            issues.append(
+                ContractIssue(
+                    f"mismatched_image2_provenance_{field}",
+                    _project_relative_path(root, provenance_path),
+                    f"generation provenance {field}={actual!r} does not match manifest {expected!r}",
+                )
+            )
+
+    output_sha = _lower_text(provenance.get("output_sha256"))
+    output_file = _optional_manifest_file(root, entry.get("output_path"))
+    if not output_sha:
+        issues.append(
+            ContractIssue(
+                "missing_image2_provenance_output_sha256",
+                _project_relative_path(root, provenance_path),
+                "generation provenance must record output_sha256 for the generated raster",
+            )
+        )
+    elif not _is_sha256_hex(output_sha):
+        issues.append(
+            ContractIssue(
+                "invalid_image2_provenance_output_sha256",
+                _project_relative_path(root, provenance_path),
+                "generation provenance output_sha256 must be a lowercase SHA-256 hex digest",
+            )
+        )
+    elif output_file is not None and output_file.is_file() and _sha256_file(output_file) != output_sha:
+        issues.append(
+            ContractIssue(
+                "mismatched_image2_provenance_output_sha256",
+                _project_relative_path(root, provenance_path),
+                "generation provenance output_sha256 does not match the raster output_path",
+            )
+        )
+
+    for file_field, hash_field in (
+        ("prompt_path", "prompt_sha256"),
+        ("output_path", "output_sha256"),
+        ("review_path", "review_sha256"),
+    ):
+        issues.extend(
+            _validate_optional_manifest_file_hash(
+                root,
+                entry,
+                entry_path,
+                file_field=file_field,
+                hash_field=hash_field,
+                code_prefix="image2_figure",
+            )
+        )
+    return issues
+
+
+def _validate_optional_manifest_file_hash(
+    root: Path,
+    entry: dict[str, Any],
+    entry_path: str,
+    *,
+    file_field: str,
+    hash_field: str,
+    code_prefix: str,
+) -> list[ContractIssue]:
+    expected = _lower_text(entry.get(hash_field))
+    if not expected:
+        return []
+    if not _is_sha256_hex(expected):
+        return [
+            ContractIssue(
+                f"{code_prefix}_invalid_{hash_field}",
+                entry_path,
+                f"{hash_field} must be a lowercase SHA-256 hex digest",
+            )
+        ]
+    resolved = _optional_manifest_file(root, entry.get(file_field))
+    if resolved is None or not resolved.is_file():
+        return []
+    actual = _sha256_file(resolved)
+    if actual != expected:
+        return [
+            ContractIssue(
+                f"{code_prefix}_mismatched_{hash_field}",
+                entry_path,
+                f"{hash_field} does not match {file_field}",
+            )
+        ]
+    return []
+
+
+def _detect_local_conceptual_figure_generation(
+    root: Path,
+    entry: dict[str, Any],
+    entry_path: str,
+) -> list[ContractIssue]:
+    output_path = _normalize_manifest_path(entry.get("output_path"))
+    if output_path is None:
+        return []
+
+    output = Path(output_path)
+    needles = {output_path.lower(), output.name.lower()}
+    if output_path.startswith("paper/"):
+        needles.add(output_path.removeprefix("paper/").lower())
+
+    for source_path in _iter_local_renderer_source_files(root):
+        try:
+            raw = source_path.read_bytes()
+        except OSError:
+            continue
+        if len(raw) > MAX_LOCAL_RENDERER_SOURCE_BYTES:
+            continue
+        text = raw.decode("utf-8", errors="ignore").lower()
+        renderer = _local_renderer_near_any_needle(text, needles)
+        if renderer is None:
+            renderer = _local_renderer_named_for_conceptual_output(text, output_path, entry)
+        if renderer is None:
+            continue
+        return [
+            ContractIssue(
+                "local_conceptual_figure_generation_detected",
+                _project_relative_path(root, source_path),
+                f"{_project_relative_path(root, source_path)} references {output_path!r} near "
+                f"{renderer} rendering code; Figure 1/overview must be a real image-2 raster, "
+                "not a local PIL/matplotlib/TikZ/SVG/HTML redraw mislabeled as image-2",
+            )
+        ]
+    return []
+
+
+def _local_renderer_named_for_conceptual_output(
+    text: str,
+    output_path: str,
+    entry: dict[str, Any],
+) -> str | None:
+    aliases = _conceptual_renderer_aliases(output_path, entry)
+    if not aliases:
+        return None
+    for alias in aliases:
+        pattern = re.compile(
+            rf"\bdef\s+(?:render|draw|make|generate|create)_[a-z0-9_]*{re.escape(alias)}[a-z0-9_]*\s*\("
+        )
+        for match in pattern.finditer(text):
+            next_function = text.find("\ndef ", match.end())
+            end = next_function if next_function != -1 else match.start() + LOCAL_RENDERER_SCAN_WINDOW_CHARS
+            renderer = _local_renderer_label(text[match.start() : end])
+            if renderer is not None:
+                return renderer
+    return None
+
+
+def _conceptual_renderer_aliases(output_path: str, entry: dict[str, Any]) -> set[str]:
+    raw_aliases = {
+        Path(output_path).stem,
+        _lower_text(entry.get("figure_id", "")).replace("-", "_"),
+        _lower_text(entry.get("name", "")).replace("-", "_"),
+    }
+    aliases: set[str] = set()
+    for alias in raw_aliases:
+        normalized = re.sub(r"[^a-z0-9_]+", "_", alias.strip().lower()).strip("_")
+        if len(normalized) >= 6:
+            aliases.add(normalized)
+    return aliases
+
+
+def _iter_local_renderer_source_files(root: Path) -> list[Path]:
+    root_resolved = root.resolve()
+    files: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root_resolved):
+        dirnames[:] = [
+            dirname
+            for dirname in dirnames
+            if dirname not in LOCAL_RENDERER_EXCLUDED_DIRS and not dirname.startswith(".tmp")
+        ]
+        directory = Path(dirpath)
+        for filename in filenames:
+            path = directory / filename
+            if path.suffix.lower() in LOCAL_RENDERER_SOURCE_SUFFIXES:
+                files.append(path)
+    return files
+
+
+def _local_renderer_near_any_needle(text: str, needles: set[str]) -> str | None:
+    for needle in needles:
+        start = 0
+        while True:
+            index = text.find(needle, start)
+            if index == -1:
+                break
+            window = text[
+                max(0, index - LOCAL_RENDERER_SCAN_WINDOW_CHARS) : index
+                + len(needle)
+                + LOCAL_RENDERER_SCAN_WINDOW_CHARS
+            ]
+            renderer = _local_renderer_label(window)
+            if renderer is not None:
+                return renderer
+            start = index + len(needle)
+    return None
+
+
+def _local_renderer_label(text: str) -> str | None:
+    for token, label in LOCAL_CONCEPTUAL_RENDER_TOKENS:
+        if token in text:
+            return label
+    return None
 
 
 def _image_review_score(review: dict[str, Any]) -> float | None:

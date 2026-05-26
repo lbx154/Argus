@@ -89,6 +89,58 @@ HYPE_PATTERNS: tuple[tuple[str, str], ...] = (
     ("unsupported_significant_language", r"\bsignificant(?:ly)? improves?\b"),
 )
 
+ABSTRACT_READER_HOSTILE_PATTERNS: tuple[tuple[str, str, str], ...] = (
+    (
+        "abstract_references_layout_artifact",
+        r"(?:\\(?:ref|autoref|cref)\s*\{|\b(?:appendix|supplement(?:ary)?)\s+"
+        r"(?:figure|table|section)\b|\b(?:figure|table)\s*\d+[a-z]?\b)",
+        "abstract should not refer to appendix/figure/table layout artifacts; it must stand alone",
+    ),
+    (
+        "abstract_mentions_internal_review_artifact",
+        r"\b(?:validator|validation gate|review gate|academic[- ]language review|"
+        r"evidence span|revision directive|source snapshot|artifact manifest|"
+        r"result_to_claim|paper quality calibration)\b|"
+        r"(?:paper|experiments|results|bench|research)/[A-Za-z0-9_.\-/]+",
+        "abstract contains validator/artifact vocabulary instead of reader-facing paper prose",
+    ),
+)
+
+ABSTRACT_CAVEAT_PATTERNS: tuple[str, ...] = (
+    r"\bcontrolled\b",
+    r"\bsynthetic\b",
+    r"\bbenchmark[- ]scoped\b",
+    r"\bnot\s+(?:a\s+)?causal\b",
+    r"\bnot\s+proof\b",
+    r"\bdoes\s+not\s+establish\b",
+    r"\blimited\s+to\b",
+    r"\bonly\s+shows\b",
+    r"\bcaveat\b",
+    r"\blimitation\b",
+)
+
+ABSTRACT_PROBLEM_TERMS: tuple[str, ...] = (
+    "challenge",
+    "failure",
+    "fails",
+    "gap",
+    "bottleneck",
+    "limitation",
+    "open question",
+    "unclear",
+    "difficulty",
+    "difficult",
+    "benchmark gap",
+    "evaluation gap",
+)
+
+ABSTRACT_RESULT_FIRST_PATTERN = (
+    r"\b(?:achiev\w*|beat\w*|outperform\w*|improv\w*|increase\w*|reduce\w*|"
+    r"score\w*|raise\w*|recover\w*|yield\w*|win\w*)\b|"
+    r"\b\d+(?:\.\d+)?\s*(?:%|points?|pp)?\b|"
+    r"\b\d+\s*/\s*\d+\b|p\s*[<=>]\s*0?\.\d+"
+)
+
 SECTION_SYNONYMS: dict[str, tuple[str, ...]] = {
     "introduction": ("introduction",),
     "related_work": ("related work", "background", "prior work"),
@@ -410,6 +462,19 @@ def _deterministic_assessment(tex_text: str) -> dict[str, Any]:
                     action="rewrite_abstract",
                 )
             )
+        for code, message, penalty, score_cap in _abstract_quality_issue_specs(abstract):
+            score_penalty += penalty
+            section_scores["abstract"] = min(section_scores["abstract"], score_cap)
+            required_checks["five_sentence_abstract_or_equivalent"] = False
+            issues.append(
+                _issue(
+                    code,
+                    "major",
+                    message,
+                    hard_gate=True,
+                    action="rewrite_abstract",
+                )
+            )
 
     for section_key, synonyms in SECTION_SYNONYMS.items():
         if _has_section(section_titles, synonyms):
@@ -436,13 +501,7 @@ def _deterministic_assessment(tex_text: str) -> dict[str, Any]:
         )
 
     contribution_context = " ".join([abstract_plain, _section_text(tex_text, "introduction")])
-    contribution_lower = contribution_context.lower()
-    if (
-        "we propose" not in contribution_lower
-        or "we show" not in contribution_lower
-        or "improv" not in contribution_lower
-        or not any(character.isdigit() for character in contribution_context)
-    ):
+    if not _has_reader_facing_contribution(contribution_context):
         score_penalty += 0.8
         section_scores["contribution_framing"] = min(section_scores["contribution_framing"], 3.0)
         required_checks["clear_problem_gap_contribution"] = False
@@ -450,7 +509,11 @@ def _deterministic_assessment(tex_text: str) -> dict[str, Any]:
             _issue(
                 "missing_evidence_backed_contribution_sentence",
                 "major",
-                "paper needs 'We propose X. We show X improves Y by Z because W.' framing",
+                (
+                    "paper needs a reader-facing contribution sentence or paragraph that "
+                    "names the method, task/context, measured effect, and mechanism; do "
+                    "not force literal formula prose"
+                ),
                 hard_gate=True,
                 action="tighten_contribution_sentence",
             )
@@ -598,7 +661,13 @@ def _review_prompt(
         "Reject papers that read like generic agent output: template LLM openings, "
         "unsupported hype, vague claims, weak contribution framing, experiment dumps "
         "without a What/Why/So-What story, ungrouped related work, or claims not tied "
-        "to evidence. Use a strict ACL/EMNLP reviewer standard. Return strict JSON only "
+        "to evidence. Evidence spans are reviewer-internal audit artifacts: do not ask "
+        "authors to paste source paths, appendix/figure references, validation-gate "
+        "vocabulary, or evidence quotes into the abstract to satisfy this review. Reject "
+        "a paper whose abstract reads like a validator checklist, starts with a numeric "
+        "result before the problem/gap, or spends its scarce space on defensive caveats "
+        "instead of problem, method, result, and implication. Use a strict ACL/EMNLP "
+        "reviewer standard. Return strict JSON only "
         "with keys: score_1_to_5 (number), section_scores object containing exactly "
         f"{list(SECTION_SCORE_KEYS)}, required_checks object containing exactly "
         f"{list(REQUIRED_CHECK_KEYS)}, evidence_spans list with at least one entry for "
@@ -801,7 +870,7 @@ def _normalize_action(value: object) -> str | None:
 
 def _expected_effect(action: str) -> str:
     effects = {
-        "rewrite_abstract": "state problem, gap, method, result, and implication clearly",
+        "rewrite_abstract": "write a natural reader-facing abstract with problem, gap, method, result, and implication",
         "rewrite_introduction": "replace generic setup with problem-specific motivation",
         "tighten_contribution_sentence": "make the positive contribution and mechanism explicit",
         "calibrate_claim": "align claims with measured evidence and uncertainty",
@@ -969,6 +1038,119 @@ def _normalize_title(value: str) -> str:
 
 def _sentence_count(text: str) -> int:
     return len([part for part in re.split(r"(?<=[.!?])\s+", text.strip()) if part.strip()])
+
+
+def find_reader_hostile_abstract_issues(tex_text: str) -> list[tuple[str, str]]:
+    """Return abstract-quality issues that remain invalid even if review JSON says PASS."""
+
+    abstract = _extract_environment(tex_text, "abstract")
+    return [
+        (code, message)
+        for code, message, _penalty, _cap in _abstract_quality_issue_specs(abstract)
+    ]
+
+
+def _abstract_quality_issue_specs(abstract: str) -> list[tuple[str, str, float, float]]:
+    if not abstract.strip():
+        return []
+
+    issues: list[tuple[str, str, float, float]] = []
+    abstract_without_comments = _strip_latex_comments(abstract)
+    abstract_plain = _latex_to_plain_text(abstract)
+
+    if re.search(r"(?m)%\s*(?:evidence|artifact|validator|review|gate|source)\s*:", abstract, re.I):
+        issues.append(
+            (
+                "abstract_contains_internal_evidence_comment",
+                (
+                    "abstract environment contains internal evidence/review comments; "
+                    "store evidence in audit artifacts or comments outside the abstract"
+                ),
+                0.6,
+                3.2,
+            )
+        )
+
+    for code, pattern, message in ABSTRACT_READER_HOSTILE_PATTERNS:
+        if re.search(pattern, abstract_without_comments, re.I):
+            issues.append((code, message, 0.8, 3.0))
+
+    if _abstract_starts_with_result(abstract_plain):
+        issues.append(
+            (
+                "result_first_abstract",
+                (
+                    "abstract opens with a numeric/result claim before establishing the "
+                    "problem or evaluation gap"
+                ),
+                0.7,
+                3.2,
+            )
+        )
+
+    caveat_hits = [
+        pattern
+        for pattern in ABSTRACT_CAVEAT_PATTERNS
+        if re.search(pattern, abstract_plain, re.I)
+    ]
+    if len(caveat_hits) >= 2:
+        issues.append(
+            (
+                "over_defensive_abstract",
+                (
+                    "abstract overuses scope/caveat language; move most limitations to "
+                    "discussion and keep the abstract focused on the supported contribution"
+                ),
+                0.6,
+                3.3,
+            )
+        )
+
+    return issues
+
+
+def _abstract_starts_with_result(abstract_plain: str) -> bool:
+    first = _first_sentence(abstract_plain).lower()
+    if not first:
+        return False
+    has_result_signal = bool(re.search(ABSTRACT_RESULT_FIRST_PATTERN, first, re.I))
+    has_problem_signal = any(term in first for term in ABSTRACT_PROBLEM_TERMS)
+    return has_result_signal and not has_problem_signal
+
+
+def _first_sentence(text: str) -> str:
+    parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text.strip()) if part.strip()]
+    return parts[0] if parts else ""
+
+
+def _has_reader_facing_contribution(text: str) -> bool:
+    lower = text.lower()
+    has_method_or_artifact = bool(
+        re.search(
+            r"\b(?:we|this paper|our|the paper)\b.{0,100}"
+            r"\b(?:propos\w*|introduc\w*|present\w*|develop\w*|study|"
+            r"evaluate\w*|report\w*)\b",
+            lower,
+            re.S,
+        )
+        or re.search(
+            r"\b(?:method|approach|system|framework|protocol|benchmark|skill|agent)\b",
+            lower,
+        )
+    )
+    has_measured_effect = bool(
+        _has_quantified_claim(text)
+        or re.search(
+            r"\b(?:show\w*|find\w*|demonstrat\w*|achiev\w*|improv\w*|"
+            r"increas\w*|reduc\w*|outperform\w*|beat\w*|recover\w*|"
+            r"rais\w*|yield\w*)\b.{0,120}"
+            r"(?:\d+(?:\.\d+)?\s*(?:%|points?|pp)?|\d+\s*/\s*\d+|p\s*[<=>]\s*0?\.\d+)",
+            lower,
+            re.S,
+        )
+    )
+    has_mechanism = bool(re.search(r"\b(?:because|by|via|through|using|with|under|from)\b", lower))
+    return has_method_or_artifact and has_measured_effect and has_mechanism
 
 
 def _opening_text(plain: str) -> str:
