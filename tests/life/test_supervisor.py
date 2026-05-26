@@ -781,6 +781,88 @@ def test_project_workdir_prefers_configured_worktree_over_memory_root(
     assert sup._planner_workdir() == override
 
 
+def test_full_scale_evidence_precondition_blocks_premature_downstream_task(
+    tmp_path: Path,
+) -> None:
+    runner = _FakeRunner()
+    mem = _mk_memory(tmp_path / "memory")
+    sink = _RecordingSink()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    item = mem.backlog.add(BacklogItem.new(
+        title="Turn the evidence into an EMNLP paper package",
+        objective=(
+            "Start only after `python -m argus_skill.skills.pipeline_contracts "
+            "validate-full-scale-evidence --project-root .` exits 0. "
+            "Then draft the manuscript, reviews, and submission assurance."
+        ),
+        iterate=False,
+    ))
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=LifeSupervisorConfig(
+            project_worktree=repo,
+            budget=LifeBudget(daily_cap_usd=999.0),
+        ),
+    )
+
+    outcome = sup.tick()
+
+    assert outcome is not None
+    assert outcome["status"] == "precondition_blocked"
+    assert runner.calls == []
+    blocked = next(row for row in mem.backlog.all() if row.id == item.id)
+    assert blocked.status == "failed"
+    assert "validate-full-scale-evidence" in blocked.last_error
+    assert "missing_full_scale_experiment_run" in blocked.last_error
+    entry = mem.journal.all()[-1]
+    assert entry.kind == "mission_failed"
+    assert entry.extra["terminal_status"] == "precondition_blocked"
+    assert entry.extra["precondition"] == "validate-full-scale-evidence"
+    assert any(
+        event.get("type") == "life.mission.precondition_blocked"
+        and event.get("item_id") == item.id
+        for event in sink.events
+    )
+
+
+def test_full_scale_evidence_acceptance_task_still_runs_when_gate_is_red(
+    tmp_path: Path,
+) -> None:
+    runner = _FakeRunner()
+    mem = _mk_memory(tmp_path / "memory")
+    sink = _RecordingSink()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    mem.backlog.add(BacklogItem.new(
+        title="Complete the full-scale EMNLP evidence gate",
+        objective=(
+            "Build or repair the experiment matrix, then run "
+            "`python -m argus_skill.skills.pipeline_contracts "
+            "validate-full-scale-evidence --project-root .`; acceptance requires "
+            "that command to exit 0 before stopping."
+        ),
+        iterate=False,
+    ))
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=LifeSupervisorConfig(
+            project_worktree=repo,
+            budget=LifeBudget(daily_cap_usd=999.0),
+        ),
+    )
+
+    outcome = sup.tick()
+
+    assert outcome is not None
+    assert outcome["status"] == "success"
+    assert len(runner.calls) == 1
+
+
 # ---------------------------------------------------------------------------
 # auth failure pauses current drain pass without killing daemon
 # ---------------------------------------------------------------------------

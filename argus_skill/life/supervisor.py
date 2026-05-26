@@ -161,6 +161,10 @@ _PLANNER_SCOPE_FINAL_SUBMISSION = "final_submission"
 _FULL_EMNLP_GATE_COMMAND = (
     "python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root ."
 )
+_FULL_SCALE_EVIDENCE_GATE_COMMAND = (
+    "python -m argus_skill.skills.pipeline_contracts "
+    "validate-full-scale-evidence --project-root ."
+)
 _PLANNER_GATE_CONTEXT_MAX_ISSUES = 24
 _PLANNER_GATE_CONTEXT_MAX_CHARS = 6000
 _EMNLP_BOOTSTRAP_GATE_CODES = {
@@ -358,6 +362,59 @@ def _planner_emnlp_stage_hints(issues: list[Any]) -> str:
     if not hints:
         return ""
     return "Automatic stage route hints:\n" + "\n".join(hints)
+
+
+def _backlog_item_requires_full_scale_evidence_precondition(
+    item: BacklogItem,
+) -> bool:
+    """Return true for downstream tasks explicitly gated on full-scale evidence.
+
+    This intentionally looks for hard start preconditions, not ordinary
+    acceptance criteria such as "run validate-full-scale-evidence before
+    stopping." Evidence-building tasks must remain runnable while the gate is
+    red.
+    """
+    text = _normalize_planner_text(f"{item.title}\n{item.objective}")
+    if "validate-full-scale-evidence" not in text:
+        return False
+    start_gate = any(
+        marker in text
+        for marker in (
+            "start only after",
+            "only start after",
+            "must start only after",
+            "do not start until",
+            "do not begin until",
+            "wait until",
+        )
+    )
+    success_gate = any(
+        marker in text
+        for marker in (
+            "exits 0",
+            "exit 0",
+            "returns 0",
+            "passes",
+            "passed",
+            "is green",
+            "succeeds",
+        )
+    )
+    downstream = any(
+        word in text
+        for word in (
+            "paper",
+            "draft",
+            "manuscript",
+            "submission",
+            "assurance",
+            "review",
+            "narrative",
+            "analysis",
+            "package",
+        )
+    )
+    return start_gate and success_gate and downstream
 
 
 def _text_has_full_emnlp_gate_success(text: str) -> bool:
@@ -797,6 +854,85 @@ class LifeSupervisor:
         if root:
             return Path(root)
         return Path.cwd()
+
+    def _full_scale_evidence_precondition_reason(
+        self,
+        item: BacklogItem,
+    ) -> str:
+        if not _backlog_item_requires_full_scale_evidence_precondition(item):
+            return ""
+        root = self._project_workdir()
+        try:
+            from ..skills.pipeline_contracts import validate_full_scale_experiment_evidence
+
+            issues = validate_full_scale_experiment_evidence(root)
+        except Exception as exc:  # noqa: BLE001
+            return (
+                "deferred precondition could not be verified: "
+                f"`{_FULL_SCALE_EVIDENCE_GATE_COMMAND}` raised "
+                f"{type(exc).__name__}: {exc}; repair the evidence gate before "
+                "starting downstream paper/package work"
+            )
+        if not issues:
+            return ""
+        first = "; ".join(
+            f"{getattr(issue, 'code', 'issue')} at {getattr(issue, 'path', '?')}"
+            for issue in issues[:4]
+        )
+        return (
+            "deferred precondition unmet: "
+            f"`{_FULL_SCALE_EVIDENCE_GATE_COMMAND}` still reports "
+            f"{len(issues)} issue(s)"
+            + (f" ({first})" if first else "")
+            + "; complete or collect the full-scale evidence matrix before "
+            "starting downstream paper/package work"
+        )
+
+    def _block_unmet_backlog_preconditions(
+        self,
+        item: BacklogItem,
+    ) -> dict[str, Any] | None:
+        reason = self._full_scale_evidence_precondition_reason(item)
+        if not reason:
+            return None
+        marked = self.memory.backlog.mark_failed(item.id, error=reason)
+        if marked is None:
+            return {"status": "claim_lost", "item_id": item.id}
+        entry = JournalEntry.new(
+            kind="mission_failed",
+            title=item.title,
+            summary=f"status=precondition_blocked; rounds=0; reason={reason}",
+            tags=list(item.tags) + ["life", "precondition"],
+            extra={
+                "item_id": item.id,
+                "objective": item.objective,
+                "terminal_status": "precondition_blocked",
+                "failure_reason": reason,
+                "precondition": "validate-full-scale-evidence",
+                "agent_layer": "supervisor",
+            },
+        )
+        self.memory.journal.append(entry)
+        self._inject_cumulative_cost(entry)
+        self._emit_status(f"precondition block: {item.title}")
+        self._emit({
+            "type": "life.mission.precondition_blocked",
+            "item_id": item.id,
+            "title": item.title,
+            "reason": reason,
+            "precondition": "validate-full-scale-evidence",
+        })
+        try:
+            from .notify import dispatch_journal_entry
+            dispatch_journal_entry(entry)
+        except Exception:  # noqa: BLE001
+            log.exception("notify dispatch failed; continuing")
+        return {
+            "success": False,
+            "status": "precondition_blocked",
+            "item_id": item.id,
+            "reason": reason,
+        }
 
     def _planner_workdir(self) -> Path:
         configured = self._configured_worktree()
@@ -1246,6 +1382,10 @@ class LifeSupervisor:
         item = self.memory.backlog.next_pending()
         if item is None:
             return None
+
+        precondition_block = self._block_unmet_backlog_preconditions(item)
+        if precondition_block is not None:
+            return precondition_block
 
         ok, reason = self.config.budget.can_start(
             item=item, journal=self.memory.journal

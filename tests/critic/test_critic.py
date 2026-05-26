@@ -385,6 +385,7 @@ def test_plan_next_passes_config_to_runner():
     assert "negative-result pivot" in sent_prompt
     assert "long-horizon paper optimization" in sent_prompt
     assert "prefer\n   1 broad task over 3 microtasks" in sent_prompt
+    assert "host will refuse premature gated downstream tasks" in sent_prompt
 
 
 def test_plan_next_returns_error_verdict_on_runner_exception():
