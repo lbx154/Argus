@@ -16,9 +16,11 @@ REPL and backlog are the single workflow.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -511,6 +513,183 @@ def _format_telemetry_status_lines(event: dict[str, Any] | None) -> list[str]:
     if event.get("scan_truncated"):
         scan_bits.append("truncated")
     lines.append(f"    scan     : {' · '.join(scan_bits)}")
+    return lines
+
+
+def _read_recent_jsonl_events(
+    path: Path,
+    *,
+    limit: int = 80,
+    max_bytes: int = 256 * 1024,
+) -> list[dict[str, Any]]:
+    """Read a bounded JSONL tail without scanning the whole event log."""
+    if limit <= 0:
+        return []
+    rows: deque[dict[str, Any]] = deque(maxlen=limit)
+    try:
+        with path.open("rb") as fh:
+            size = fh.seek(0, os.SEEK_END)
+            start = max(0, size - max(1, int(max_bytes)))
+            fh.seek(start)
+            raw = fh.read()
+    except OSError:
+        return []
+    if start:
+        _, sep, raw = raw.partition(b"\n")
+        if not sep:
+            return []
+    for raw_line in raw.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if isinstance(event, dict):
+            rows.append(event)
+    return list(rows)
+
+
+def _read_recent_project_events(life_dir: Path, *, limit: int = 80) -> list[dict[str, Any]]:
+    events = _read_recent_jsonl_events(life_dir / "events.jsonl", limit=limit)
+    if events:
+        return events
+    return _read_recent_jsonl_events(life_dir / "events.jsonl.1", limit=limit)
+
+
+def _activity_layer_from_event(event: dict[str, Any]) -> str | None:
+    layer = event.get("agent_layer")
+    if isinstance(layer, str) and layer:
+        return layer
+    etype = str(event.get("type") or "")
+    if etype.startswith("life.planner."):
+        return "planner"
+    if etype in {"life.iteration.critic", "life.iteration.continued"}:
+        return "critic"
+    if etype in {"round.review.started", "round.review.completed"}:
+        return "reviewer"
+    if etype in {
+        "life.mission.started",
+        "loop.start",
+        "round.start",
+        "round.main.completed",
+        "loop.done",
+    }:
+        return "engineer"
+    return None
+
+
+def _latest_activity_event(events: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        etype = str(event.get("type") or "")
+        if etype == "life.telemetry":
+            continue
+        if etype.startswith("life.") or etype in {
+            "engineer.progress",
+            "loop.start",
+            "round.start",
+            "round.main.completed",
+            "round.review.started",
+            "round.review.completed",
+            "match.info",
+        }:
+            return event
+    return None
+
+
+def _looks_like_agent_process(proc: dict[str, Any]) -> bool:
+    cmd = str(proc.get("cmd") or proc.get("argv0") or "").lower()
+    return "codex exec" in cmd or "@openai/codex" in cmd
+
+
+def _format_activity_process_bits(processes: Sequence[dict[str, Any]], *, limit: int = 3) -> str:
+    bits: list[str] = []
+    for proc in processes[:limit]:
+        cmd = str(proc.get("cmd") or proc.get("argv0") or "").strip()
+        if cmd:
+            bits.append(_clean_follow_text(cmd, limit=90))
+    if len(processes) > len(bits):
+        bits.append(f"+{len(processes) - len(bits)} more")
+    return " · ".join(bits)
+
+
+def _format_activity_event(event: dict[str, Any]) -> str:
+    etype = str(event.get("type") or "event")
+    kind = str(event.get("kind") or "")
+    actor = str(event.get("actor") or "")
+    status = str(event.get("status") or "")
+    label = kind or etype
+    if actor:
+        label = f"{actor} {label}"
+    if status:
+        label = f"{label} {status}"
+    text = (
+        event.get("text")
+        or event.get("title")
+        or event.get("reason")
+        or event.get("objective")
+        or event.get("error")
+        or ""
+    )
+    if text:
+        return _clean_follow_text(f"{label} · {text}", limit=160)
+    return _clean_follow_text(label, limit=160)
+
+
+def _format_daemon_activity_status_lines(
+    status: Any,
+    *,
+    life_dir: Path,
+    telemetry_event: dict[str, Any] | None,
+) -> list[str]:
+    """Expose planner/critic subprocess activity that mission telemetry cannot see."""
+    if not (getattr(status, "alive", False) and getattr(status, "pid", None) is not None):
+        return []
+    if telemetry_event and bool(telemetry_event.get("running")):
+        return []
+
+    recent_events = _read_recent_project_events(life_dir)
+    latest_event = _latest_activity_event(recent_events)
+    try:
+        from ..life.telemetry import collect_descendant_processes
+
+        proc_snapshot = collect_descendant_processes(int(status.pid), limit=12)
+    except Exception:  # noqa: BLE001
+        proc_snapshot = {"processes": [], "process_count": 0, "processes_truncated": 0}
+    raw_processes = proc_snapshot.get("processes") or []
+    processes = raw_processes if isinstance(raw_processes, list) else []
+    agent_processes = [
+        proc for proc in processes
+        if isinstance(proc, dict) and _looks_like_agent_process(proc)
+    ]
+    if not agent_processes:
+        return []
+
+    layer = None
+    for event in reversed(recent_events):
+        layer = _activity_layer_from_event(event)
+        if layer:
+            break
+    layer = layer or "agent"
+
+    state_bits = [
+        f"{layer} active",
+        f"{len(agent_processes)} agent process(es)",
+    ]
+    if latest_event is not None:
+        state_bits.append(
+            f"last event {_format_short_duration(_telemetry_age(latest_event))} ago"
+        )
+    if proc_snapshot.get("processes_truncated"):
+        state_bits.append(f"+{int(proc_snapshot.get('processes_truncated') or 0)} hidden")
+
+    lines = [f"    state    : {' · '.join(state_bits)}"]
+    procs = _format_activity_process_bits(agent_processes)
+    if procs:
+        lines.append(f"    proc     : {procs}")
+    if latest_event is not None:
+        lines.append(f"    last     : {_format_activity_event(latest_event)}")
     return lines
 
 
@@ -1154,14 +1333,23 @@ def _cmd_status(args: argparse.Namespace) -> int:
         )
     try:
         from ..life.telemetry import read_latest_telemetry
-        telemetry_lines = _format_telemetry_status_lines(
-            read_latest_telemetry(bundle.project.root)
-        )
+        telemetry_event = read_latest_telemetry(bundle.project.root)
+        telemetry_lines = _format_telemetry_status_lines(telemetry_event)
     except Exception:  # noqa: BLE001
+        telemetry_event = None
         telemetry_lines = []
     if telemetry_lines:
         print("  telemetry:")
         for line in telemetry_lines:
+            print(line)
+    activity_lines = _format_daemon_activity_status_lines(
+        status,
+        life_dir=bundle.project.root,
+        telemetry_event=telemetry_event,
+    )
+    if activity_lines:
+        print("  activity :")
+        for line in activity_lines:
             print(line)
     print(f"  inbox    : {count_pending_inbox_messages(bundle.project.root)} pending")
     history_parts = [part for part in (

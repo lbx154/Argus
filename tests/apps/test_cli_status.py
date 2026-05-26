@@ -4,6 +4,7 @@ from __future__ import annotations
 import getpass
 import json
 import subprocess
+import time
 from argparse import Namespace
 from pathlib import Path
 
@@ -188,6 +189,61 @@ def test_status_shows_latest_mission_telemetry(
     assert "state    : running · mission 2m 5s" in out
     assert "proc     : python run_eval.py" in out
     assert "artifacts: results/run.jsonl +3 lines" in out
+
+
+def test_status_shows_planner_activity_when_backlog_and_telemetry_are_idle(
+    monkeypatch: pytest.MonkeyPatch,
+    project_with_history: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    life_root, repo = project_with_history
+    project_root = MemoryBundle.for_cwd(repo, global_root=life_root).project.root
+    (project_root / "events.jsonl").write_text(
+        json.dumps({
+            "type": "engineer.progress",
+            "kind": "command_execution",
+            "actor": "planner.cycle0",
+            "agent_layer": "planner",
+            "status": "completed",
+            "text": "pytest -q",
+            "ts": time.time() - 3,
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "argus_skill.daemon.life_worker.read_daemon_status",
+        lambda life_dir: Namespace(
+            alive=True,
+            pid=4321,
+            uptime_seconds=12.0,
+            backend="memory",
+            per_mission_cap_usd=9.0,
+            daily_cap_usd=50.0,
+        ),
+    )
+    monkeypatch.setattr("argus_skill.apps.cli._check_logout_survival", lambda status: None)
+    monkeypatch.setattr(
+        "argus_skill.life.telemetry.collect_descendant_processes",
+        lambda pid, limit=12: {
+            "processes": [
+                {"pid": 5001, "cmd": "node /usr/bin/codex exec --json -m gpt-5.4 -"},
+                {"pid": 5002, "cmd": "codex exec --json -m gpt-5.4 -"},
+            ],
+            "process_count": 2,
+            "processes_truncated": 0,
+        },
+    )
+
+    rc = _cmd_status(Namespace(life_dir=str(life_root)))
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "active   : 0 pending · 0 running" in out
+    assert "activity :" in out
+    assert "state    : planner active · 2 agent process(es)" in out
+    assert "last event" in out
+    assert "last     : planner.cycle0 command_execution completed · pytest -q" in out
 
 
 def test_follow_heartbeat_includes_latest_telemetry(
