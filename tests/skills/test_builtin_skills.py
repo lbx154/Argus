@@ -73,6 +73,9 @@ def test_research_experiment_skill_requires_live_progress_protocol(tmp_path: Pat
         "STOP",
         "flush/fsync",
         "background process",
+        "Completed-run handoff is mandatory",
+        "validate-full-scale-evidence",
+        "token-only waiting",
         "early-stop",
     ):
         assert required in text

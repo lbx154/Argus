@@ -63,6 +63,7 @@ Execute the experiment plan for an agent-science paper. This is the argus-skill-
    - Check for `STOP` before each expensive call and at least every 30 seconds; on cancellation write `run_cancelled`, set status to `cancelled`, and exit 130.
    - Implement early-stop invariants: stop if repeated validator failures, auth/model errors, unpaired conditions, broken metrics, model mismatch, or budget overrun show the experiment no longer matches the plan.
    - Do not block the agent while a long experiment runs. After launch, verify the PID and first progress events, then continue independent paper/analysis work or answer operator guidance while monitoring the run.
+   - Completed-run handoff is mandatory: if a background run reaches `completed`, `failed`, `cancelled`, or its PID exits while the mission is still active, collect it in the same mission before waiting, finishing, or relying on the planner. Read `status.json`, tail logs, count raw rows, write/update `RUN_REPORT.md`, run `validate-full-scale-evidence`, update `research/PIPELINE_STATE.json`, and either advance to analysis or mark `pivot`/`rejected` when the result invalidates the paper-positive thesis. Do not leave a completed run uncollected with only token-only waiting or watchdog heartbeats.
 
 5. Preserve raw evidence:
    - Never summarize over missing logs; keep raw command output.
@@ -75,7 +76,7 @@ Execute the experiment plan for an agent-science paper. This is the argus-skill-
 
 6. Resume and collect:
    - Inspect existing `experiments/*/status.json` and `pid` before launching duplicates.
-   - If a background run completed, collect outputs and update status.
+   - If a background run completed, collect outputs and update status in the same mission before doing any unrelated work.
    - If still running, record exact resume instructions and continue with independent analysis or paper work.
    - If the user reports the experiment design is wrong, create the `STOP` file, wait for `run_cancelled` or terminate the recorded PID, and revise the plan before relaunching.
 
