@@ -27,8 +27,10 @@ from argus_skill.life.supervisor import (
     LifeSupervisor,
     LifeSupervisorConfig,
     _CostTrackingSink,
+    _planner_emnlp_stage_hints,
     _price_for,
 )
+from argus_skill.skills.pipeline_contracts import ContractIssue
 
 # ---------- helpers --------------------------------------------------------
 
@@ -1310,6 +1312,43 @@ def test_continuous_mode_planner_receives_emnlp_gate_snapshot(
     assert "Automatic EMNLP final gate snapshot" in critic.calls[0]["prompt"]
     assert "missing_pipeline_state" in critic.calls[0]["prompt"]
     assert "this snapshot is not a PASS" in critic.calls[0]["prompt"]
+
+
+def test_emnlp_gate_stage_hints_route_downstream_after_evidence() -> None:
+    hint = _planner_emnlp_stage_hints([
+        ContractIssue(
+            "missing_stage_artifact",
+            "paper/main.tex",
+            "final EMNLP readiness requires this stage artifact",
+        ),
+        ContractIssue(
+            "missing_submission_assurance",
+            "paper/SUBMISSION_ASSURANCE.json",
+            "submission assurance has not been written",
+        ),
+    ])
+
+    assert "full-scale evidence is not currently a final-gate blocker" in hint
+    assert "analysis/narrative/draft/review/submission artifacts" in hint
+    assert "instead of relaunching duplicate benchmarks" in hint
+
+
+def test_emnlp_gate_stage_hints_prioritize_full_scale_evidence() -> None:
+    hint = _planner_emnlp_stage_hints([
+        ContractIssue(
+            "missing_full_scale_experiment_run",
+            "experiments/",
+            "no completed full-scale experiment run found",
+        ),
+        ContractIssue(
+            "missing_stage_artifact",
+            "paper/main.tex",
+            "final EMNLP readiness requires this stage artifact",
+        ),
+    ])
+
+    assert "complete or collect the full-scale evidence matrix" in hint
+    assert "full-scale evidence is not currently a final-gate blocker" not in hint
 
 
 def test_continuous_mode_planner_refusal_falls_back_to_emnlp_gate_task(

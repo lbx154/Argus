@@ -163,6 +163,62 @@ _FULL_EMNLP_GATE_COMMAND = (
 )
 _PLANNER_GATE_CONTEXT_MAX_ISSUES = 24
 _PLANNER_GATE_CONTEXT_MAX_CHARS = 6000
+_EMNLP_BOOTSTRAP_GATE_CODES = {
+    "missing_pipeline_state",
+    "missing_literature_grounding",
+    "missing_idea_provenance",
+    "missing_code_reuse_plan",
+}
+_EMNLP_FULL_SCALE_GATE_CODES = {
+    "missing_full_scale_experiment_run",
+    "missing_baseline_condition_run",
+    "incomplete_full_scale_experiment_run",
+    "underpowered_pilot",
+    "pilot_pdf_without_full_scale_evidence",
+}
+_EMNLP_DOWNSTREAM_PACKAGE_CODES = {
+    "missing_stage_artifact",
+    "missing_submission_assurance",
+    "missing_style_exemplar",
+    "missing_paper_draft_report_json",
+    "missing_layout_review",
+    "missing_academic_language_review",
+    "missing_claim_graph",
+    "missing_image2_figures_manifest",
+    "missing_figure_table_style_guide",
+}
+_EMNLP_MANIFEST_FRESHNESS_GATE_CODES = {
+    "artifact_stale_vs_inputs",
+    "artifact_modified_after_freshness_recorded",
+    "artifact_digest_mismatch",
+    "artifact_freshness_missing_required_input",
+    "missing_required_artifact_freshness_record",
+    "unknown_generated_artifact_source",
+    "generated_artifact_without_canonical_source",
+    "generated_artifact_missing_sources",
+    "invalid_artifact_manifest_entry",
+}
+_EMNLP_CITATION_GATE_CODES = {
+    "citation_command_dumping",
+    "placeholder_bibtex_author_others",
+    "rendered_placeholder_reference_authors",
+}
+_EMNLP_DOWNSTREAM_PATH_PREFIXES = (
+    "paper/",
+    "research/NARRATIVE_REPORT",
+    "research/CLAIM",
+    "research/result",
+    "research/results",
+)
+_EMNLP_DOWNSTREAM_PATH_NAMES = {
+    "paper/main.tex",
+    "paper/main.pdf",
+    "paper/RESULTS_REPORT.md",
+    "paper/SUBMISSION_ASSURANCE.json",
+    "paper/CLAIM_GRAPH.json",
+    "paper/ARTIFACT_MANIFEST.json",
+    "paper/ARTIFACT_FRESHNESS.json",
+}
 _OPEN_ENDED_OBJECTIVE_MARKERS = (
     "open-ended",
     "self-improvement",
@@ -230,6 +286,78 @@ def _objective_is_paper_long_horizon(objective: str) -> bool:
         return True
     tokens = set(re.findall(r"[a-z0-9]+", normalized))
     return bool(tokens & _PAPER_LONG_HORIZON_OBJECTIVE_WORDS)
+
+
+def _emnlp_issue_paths(issues: list[Any]) -> set[str]:
+    return {str(getattr(issue, "path", "") or "") for issue in issues}
+
+
+def _has_emnlp_downstream_package_gap(
+    issue_codes: set[str],
+    issue_paths: set[str],
+) -> bool:
+    if issue_codes & _EMNLP_DOWNSTREAM_PACKAGE_CODES:
+        return True
+    return any(
+        path in _EMNLP_DOWNSTREAM_PATH_NAMES
+        or path.startswith(_EMNLP_DOWNSTREAM_PATH_PREFIXES)
+        for path in issue_paths
+    )
+
+
+def _planner_emnlp_stage_hints(issues: list[Any]) -> str:
+    """Return compact stage-routing hints for final-gate issue snapshots."""
+    if not issues:
+        return ""
+    issue_codes = {str(getattr(issue, "code", "") or "") for issue in issues}
+    issue_paths = _emnlp_issue_paths(issues)
+    hints: list[str] = []
+
+    if issue_codes & _EMNLP_BOOTSTRAP_GATE_CODES:
+        hints.append(
+            "- stage route: bootstrap literature grounding, idea provenance, "
+            "code-reuse plan, and PIPELINE_STATE before benchmark execution or paper polish."
+        )
+    if issue_codes & _EMNLP_FULL_SCALE_GATE_CODES:
+        hints.append(
+            "- stage route: complete or collect the full-scale evidence matrix before "
+            "analysis, narrative, drafting, reviews, or submission assurance."
+        )
+    elif _has_emnlp_downstream_package_gap(issue_codes, issue_paths):
+        hints.append(
+            "- stage route: full-scale evidence is not currently a final-gate blocker; "
+            "collect completed runs, then build analysis/narrative/draft/review/"
+            "submission artifacts from current evidence instead of relaunching duplicate benchmarks."
+        )
+    if issue_codes & _EMNLP_MANIFEST_FRESHNESS_GATE_CODES:
+        hints.append(
+            "- stage route: regenerate stale generated artifacts from current upstream "
+            "inputs or refresh manifest/freshness records with canonical source links; "
+            "do not hand-edit only the readiness JSON."
+        )
+    if issue_codes & _EMNLP_CITATION_GATE_CODES:
+        hints.append(
+            "- stage route: repair bibliography sources and rendered citation placement "
+            "in the drafting/format-preflight skills before final assurance."
+        )
+    if any(
+        code in issue_codes
+        for code in (
+            "underlength_emnlp_paper",
+            "rendered_main_body_underfilled",
+            "missing_midpaper_visual_pages",
+            "missing_main_content_pages",
+        )
+    ):
+        hints.append(
+            "- stage route: treat short or underfilled PDFs as evidence/analysis/structure "
+            "blockers first; add supported analyses, failure studies, or claim downgrades "
+            "before cosmetic layout edits."
+        )
+
+    if not hints:
+        return ""
+    return "Automatic stage route hints:\n" + "\n".join(hints)
 
 
 def _text_has_full_emnlp_gate_success(text: str) -> bool:
@@ -932,8 +1060,11 @@ class LifeSupervisor:
             f"{len(counts)} distinct code(s).",
             "- highest-frequency blockers: "
             + ", ".join(f"{code}={count}" for code, count in counts.most_common(8)),
-            "- first blocking issues:",
         ]
+        stage_hints = _planner_emnlp_stage_hints(issues)
+        if stage_hints:
+            lines.extend(stage_hints.splitlines())
+        lines.append("- first blocking issues:")
         for issue in issues[:_PLANNER_GATE_CONTEXT_MAX_ISSUES]:
             message = issue.message.replace("\n", " ").strip()
             lines.append(f"  - {issue.code}\t{issue.path}\t{message}")
@@ -970,22 +1101,20 @@ class LifeSupervisor:
 
         counts = Counter(issue.code for issue in issues)
         issue_codes = {issue.code for issue in issues}
-        if {
-            "missing_pipeline_state",
-            "missing_literature_grounding",
-            "missing_idea_provenance",
-            "missing_code_reuse_plan",
-        } & issue_codes:
+        issue_paths = _emnlp_issue_paths(issues)
+        stage_hints = _planner_emnlp_stage_hints(issues)
+        if _EMNLP_BOOTSTRAP_GATE_CODES & issue_codes:
             title = "Bootstrap the grounded EMNLP research pipeline"
             impact_area = "discovery"
-        elif {
-            "missing_full_scale_experiment_run",
-            "missing_baseline_condition_run",
-            "incomplete_full_scale_experiment_run",
-            "underpowered_pilot",
-        } & issue_codes:
+        elif _EMNLP_FULL_SCALE_GATE_CODES & issue_codes:
             title = "Complete the full-scale EMNLP evidence gate"
             impact_area = "requirement_gap"
+        elif _has_emnlp_downstream_package_gap(issue_codes, issue_paths):
+            title = "Build the evidence-backed EMNLP paper package"
+            impact_area = "integration"
+        elif _EMNLP_MANIFEST_FRESHNESS_GATE_CODES & issue_codes:
+            title = "Regenerate EMNLP manifest and freshness artifacts"
+            impact_area = "integration"
         elif any(
             code.startswith(("layout_", "academic_language_", "citation_", "artifact_"))
             or "paper" in code
@@ -1014,6 +1143,14 @@ class LifeSupervisor:
             f"`{_FULL_EMNLP_GATE_COMMAND}` and repair the highest-impact blockers "
             "from current sources rather than hand-editing readiness artifacts. "
             f"Current blocker summary: {top_counts}. First issues: {first_issues}. "
+            + (
+                "Stage route hints: "
+                + " ".join(stage_hints.split())
+                + " "
+                if stage_hints
+                else ""
+            )
+            +
             "Acceptance requires rerunning the narrow validators for modified "
             "artifacts plus the final gate, with clear progress toward exit 0; "
             "do not declare submission readiness unless the exact final gate passes."
