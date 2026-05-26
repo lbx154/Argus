@@ -37,8 +37,9 @@ from pathlib import Path
 from typing import Any
 
 from ..core import paths as core_paths
+from ..core.bootstrap import inspect_project_bootstrap
 from ..core.daemon_lock import DaemonAlreadyRunning, acquire_global_daemon_lock
-from ..life.memory import GlobalMemory, LifeMemory, MemoryBundle, ProjectMemory
+from ..life.memory import BacklogItem, GlobalMemory, LifeMemory, MemoryBundle, ProjectMemory
 from ..life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 
 log = logging.getLogger(__name__)
@@ -85,8 +86,11 @@ class LifeWorkerConfig:
     scientist_model: str = "gpt-5.4"
     per_mission_cap_usd: float = 30.0
     daily_cap_usd: float = 180.0
+    planner_task_iteration_max_cycles: int = 6
+    planner_task_iteration_budget_usd: float = 30.0
     poll_interval: float = 5.0
     log_path: Path | None = None  # defaults to <life_dir>/daemon.log
+    project_workdir: Path | None = None
     continuous: bool = False
     continuous_objective: str = ""
 
@@ -276,8 +280,11 @@ def _config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
         "scientist_model": config.scientist_model,
         "per_mission_cap_usd": config.per_mission_cap_usd,
         "daily_cap_usd": config.daily_cap_usd,
+        "planner_task_iteration_max_cycles": config.planner_task_iteration_max_cycles,
+        "planner_task_iteration_budget_usd": config.planner_task_iteration_budget_usd,
         "poll_interval": config.poll_interval,
         "log_path": str(config.log_path) if config.log_path is not None else "",
+        "project_workdir": str(config.project_workdir) if config.project_workdir is not None else "",
         "continuous": config.continuous,
         "continuous_objective": config.continuous_objective,
     }
@@ -286,9 +293,11 @@ def _config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
 def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
     log_path = str(data.get("log_path") or "")
     global_root = str(data.get("global_root") or "")
+    project_workdir = str(data.get("project_workdir") or "")
     return LifeWorkerConfig(
         life_dir=Path(str(data["life_dir"])).expanduser(),
         global_root=Path(global_root).expanduser() if global_root else None,
+        project_workdir=Path(project_workdir).expanduser() if project_workdir else None,
         project_fingerprint=str(data.get("project_fingerprint") or ""),
         project_label=str(data.get("project_label") or ""),
         backend=str(data.get("backend") or "codex"),
@@ -297,6 +306,12 @@ def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         scientist_model=str(data.get("scientist_model") or "gpt-5.4"),
         per_mission_cap_usd=float(data.get("per_mission_cap_usd") or 30.0),
         daily_cap_usd=float(data.get("daily_cap_usd") or 180.0),
+        planner_task_iteration_max_cycles=int(
+            data.get("planner_task_iteration_max_cycles") or 6
+        ),
+        planner_task_iteration_budget_usd=float(
+            data.get("planner_task_iteration_budget_usd") or 30.0
+        ),
         poll_interval=float(data.get("poll_interval") or 5.0),
         log_path=Path(log_path).expanduser() if log_path else None,
         continuous=bool(data.get("continuous")),
@@ -520,6 +535,60 @@ class LifeWorker:
             # missing. Ignoring is a no-op on Windows anyway.
             pass
 
+    def _seed_bootstrap_task(
+        self,
+        memory: Any,
+        sink: Any,
+        preflight: Any,
+    ) -> bool:
+        """Enqueue the bootstrap backlog item once per empty project root."""
+        title = "bootstrap empty project root"
+        try:
+            existing = [
+                item
+                for item in memory.backlog.all()
+                if str(getattr(item, "title", "")) == title
+                and str(getattr(item, "status", "")) in {"pending", "running"}
+            ]
+        except Exception:  # noqa: BLE001
+            log.exception("daemon: bootstrap preflight failed to inspect backlog")
+            existing = []
+
+        event = {
+            "type": "life.project.bootstrap_required",
+            "project_root": str(preflight.project_root),
+            "missing_artifacts": list(preflight.missing_artifacts),
+            "event_text": preflight.event_text,
+            "objective": preflight.bootstrap_objective,
+            "bootstrap_title": title,
+            "queued": not existing,
+        }
+        try:
+            sink.handle_event(event)
+        except Exception:  # noqa: BLE001
+            log.exception("daemon: bootstrap preflight event sink failed")
+
+        if existing:
+            return False
+
+        try:
+            item = BacklogItem.new(
+                title=title,
+                objective=preflight.bootstrap_objective,
+                priority=0,
+                max_cost_usd=5.0,
+                tags=["bootstrap", "project"],
+                notes=preflight.event_text,
+                iterate=False,
+                iteration_max_cycles=1,
+                iteration_budget_usd=5.0,
+            )
+            memory.backlog.add(item)
+            return True
+        except Exception:  # noqa: BLE001
+            log.exception("daemon: failed to enqueue bootstrap backlog item")
+            return False
+
     # -- main loop ------------------------------------------------------
 
     def run_forever(self) -> int:
@@ -536,7 +605,11 @@ class LifeWorker:
                 label=cfg.project_label or cfg.project_fingerprint,
                 global_root=cfg.global_root,
             )
-            mem = MemoryBundle(global_mem=global_mem, project=project_mem)
+            mem = MemoryBundle(
+                global_mem=global_mem,
+                project=project_mem,
+                project_worktree=cfg.project_workdir,
+            )
             runtime_root = mem.project.root
         else:
             mem = LifeMemory.open(cfg.life_dir)
@@ -547,6 +620,7 @@ class LifeWorker:
         # keeps daemon.life_worker free of CLI-only deps until needed.
         from ..apps._life_repl import LifeStderrSink, build_life_runner
         ns = _runner_namespace(cfg)
+        ns.stop_event = self._stop
         runner = build_life_runner(ns)
 
         # Continuous drain: each LifeSupervisor.run() drains until the
@@ -571,9 +645,19 @@ class LifeWorker:
             life_dir=runtime_root,
         )
 
+        if cfg.project_workdir is not None:
+            bootstrap_preflight = inspect_project_bootstrap(
+                cfg.project_workdir,
+                objective_hint=cfg.continuous_objective,
+            )
+            if bootstrap_preflight.should_bootstrap:
+                self._seed_bootstrap_task(mem, sink, bootstrap_preflight)
+
         # Build a config provider that reads continuous.json from disk,
         # so the REPL can enable/disable continuous mode while the daemon
         # is running — no daemon restart needed.
+        from ..life.telemetry import telemetry_interval_from_env
+
         def _continuous_provider() -> tuple[bool, str]:
             enabled, objective = read_continuous_config(runtime_root)
             if continuous_mode_error(cfg.backend, enabled, objective):
@@ -605,14 +689,21 @@ class LifeWorker:
                 # Soft cap per drain pass; we re-loop forever anyway.
                 max_missions=64,
             ),
+            planner_task_iteration_max_cycles=cfg.planner_task_iteration_max_cycles,
+            planner_task_iteration_budget_usd=cfg.planner_task_iteration_budget_usd,
             poll_interval_seconds=2.0,
+            project_worktree=cfg.project_workdir,
             stop_event=self._stop,
             user_inbox=_inbox_drainer_for(runtime_root),
+            runtime_context=_worker_runtime_context(cfg),
             continuous=init_continuous,
             continuous_objective=init_objective,
             continuous_config_provider=_continuous_provider,
             planner_runtime_context_provider=self._planner_runtime_context,
             planner_restart_handler=self._planner_restart_handler,
+            post_mission_hook=self._post_mission_hook,
+            telemetry_dir=runtime_root,
+            telemetry_interval_seconds=telemetry_interval_from_env(),
         )
         sup = LifeSupervisor(
             memory=mem,
@@ -708,6 +799,24 @@ class LifeWorker:
             planner_reason=reason or "planner requested daemon restart",
         )
 
+    def _post_mission_hook(self, outcome: dict[str, Any]) -> str:
+        """Trigger blue/green reload after self-architecture changes.
+
+        Engineers may legitimately modify daemon/reviewer/planner/tooling code
+        while solving a research mission. The incumbent process cannot import
+        those runtime changes, so check at every mission boundary and hand off
+        to a fresh daemon as soon as the new process can stand by.
+        """
+        del outcome
+        if self._maybe_handoff_after_source_change(
+            planner_reason=(
+                "runtime source changed after mission completion; "
+                "blue/green reload needed for self-architecture update"
+            )
+        ):
+            return "daemon_handoff"
+        return ""
+
     def _maybe_handoff_after_source_change(self, *, planner_reason: str) -> bool:
         if not _auto_handoff_enabled() or not self._source_signature:
             return False
@@ -759,7 +868,11 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
         "ARGUS_SKILL_SKILLS_DIR",
         str(default_skills_dir),
     )
-    ns.workdir = os.environ.get("ARGUS_SKILL_WORKDIR")
+    ns.workdir = (
+        str(cfg.project_workdir)
+        if cfg.project_workdir is not None
+        else os.environ.get("ARGUS_SKILL_WORKDIR")
+    )
     ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "500"))
     ns.plan_mode = os.environ.get("ARGUS_SKILL_PLAN_MODE", "auto")
     ns.plan_model = os.environ.get("ARGUS_SKILL_PLAN_MODEL")
@@ -768,6 +881,26 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     ns.verbose = False
     ns.quiet = True
     return ns
+
+
+def _worker_runtime_context(cfg: LifeWorkerConfig) -> str:
+    """Return static context injected into daemon-driven missions."""
+    from ..life.research_profile import render_research_profile_context
+
+    research_context = render_research_profile_context()
+    if not research_context:
+        return ""
+    runtime_context = (
+        "## Runtime info\n"
+        f"- Life backend: {cfg.backend}\n"
+        f"- Runner backend: {cfg.backend}\n"
+        f"- Engineer model: {cfg.engineer_model}\n"
+        f"- Reviewer model: {cfg.reviewer_model}\n"
+        "- Mode: continuous daemon\n"
+        f"- Per-mission budget cap: ${cfg.per_mission_cap_usd:.2f}\n"
+        f"- Daily budget cap: ${cfg.daily_cap_usd:.2f}\n"
+    )
+    return runtime_context + "\n---\n\n" + research_context
 
 
 class _DaemonSink:

@@ -1,0 +1,4 @@
+Trial count-dataset-tokens__X8BCadM failed: Docker compose command failed for environment count-dataset-tokens. Command: docker compose --project-name count-dataset-tokens__x8bcadm --project-directory /home/argustest/.cache/harbor/tasks/V8M9GUmT67TmSKo9FQTdoC/count-dataset-tokens/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network count-dataset-tokens__x8bcadm_default  Creating
+ Network count-dataset-tokens__x8bcadm_default  Error
+failed to create network count-dataset-tokens__x8bcadm_default: Error response from daemon: all predefined address pools have been fully subnetted
+. Stderr: None. 

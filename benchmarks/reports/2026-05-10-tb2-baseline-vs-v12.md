@@ -1,8 +1,10 @@
 # TB v2 — argus-skill v12 vs codex-bare baselines (2026-05-10 comparison)
 
 > **Setup**: This is a retrospective comparison written 2026-05-10 against
-> three TB v2 89-task runs that have been archived under `benchmarks/results/`.
-> No fresh experiments were run for this comparison — all three runs use the
+> three TB v2 89-task runs that were historically archived in the scratch-era
+> `benchmarks/results/` tree. Checked-in evidence now lives under
+> `benchmarks/evidence/`; no fresh experiments were run for this comparison —
+> all three runs use the
 > exact same `terminal-bench@2.0` dataset commit (`69671fbaac6d67a7ef0dfec016cc38a64ef7a77c`)
 > and the same Azure OpenAI endpoint, so they are directly comparable.
 
@@ -99,7 +101,7 @@ Scientist + Reviewer pool (`gpt-5.4`, from host rollouts):
 This document supersedes the cost claims in:
 - `docs/RETROSPECTIVE-v12-vs-current.md` (originally said `$18.79 / $0.21 per trial`)
 - `EXPERIMENTS.md` v12 row (originally said `$18.79`)
-- `benchmarks/results/tb2-ablation-2026-05-10-v4-pri2/FINDINGS-2026-05-10.md` §5
+- `benchmarks/evidence/prompt-only-tb2-smoke-20260515T1435Z/RESULTS.md` (archive-bundle contract example)
 
 Sources of the prior error:
 1. **Engineer double-counting**: scanning per-round transcript files (`argus-skill-round-1.txt`, `…-2.txt`) summed cumulative HTTP usage twice, since codex CLI's running totals carry forward across rounds. **Fix**: read `result.json` `agent_result.*`, which is HTTP-level metered and aggregated by codex once.
@@ -116,6 +118,5 @@ Net effect: corrected v12 total $18.79 → **$12.35**; per-trial $0.211 → **$0
 
 ## Files
 
-- `/home/argustest/argus-skill/benchmarks/results/tb2-bare-large-2026-05-01/` — bare-large, archived from `/tmp/`.
-- `/home/argustest/argus-skill/benchmarks/results/tb2-bare-mini-2026-05-02/` — bare-mini, archived from `~/skill-agent/`.
-- `/home/argustest/argus-skill/benchmarks/results/tb2-fullbench-2026-05-06-v12/` — v12 treatment (already in repo).
+- `/home/argustest/argus-skill/benchmarks/evidence/prompt-only-tb2-smoke-20260515T1435Z/` — checked-in prompt-only smoke evidence bundle.
+- `/home/argustest/argus-skill/benchmarks/reports/data/2026-05-07-pilot55/` — pilot55 report data bundle (already in repo).

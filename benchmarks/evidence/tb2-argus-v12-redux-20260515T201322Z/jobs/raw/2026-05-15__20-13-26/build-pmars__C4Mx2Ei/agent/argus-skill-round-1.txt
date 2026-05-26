@@ -1,0 +1,15 @@
+WARNING: proceeding, even though we could not update PATH: Refusing to create helper binaries under temporary dir "/tmp" (codex_home: AbsolutePathBuf("/tmp/codex-home"))
+Reading additional input from stdin...
+{"type":"thread.started","thread_id":"019e2d69-6b3e-7041-9f9e-ead3fb0951c7"}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 2/5 (stream disconnected before completion: failed to build websocket URL: relative URL without a base)"}
+{"type":"error","message":"Reconnecting... 3/5 (stream disconnected before completion: failed to build websocket URL: relative URL without a base)"}
+{"type":"error","message":"Reconnecting... 4/5 (stream disconnected before completion: failed to build websocket URL: relative URL without a base)"}
+{"type":"error","message":"Reconnecting... 5/5 (stream disconnected before completion: failed to build websocket URL: relative URL without a base)"}
+{"type":"error","message":"Reconnecting... 1/5 (stream disconnected before completion: builder error)"}
+{"type":"error","message":"Reconnecting... 2/5 (stream disconnected before completion: builder error)"}
+{"type":"error","message":"Reconnecting... 3/5 (stream disconnected before completion: builder error)"}
+{"type":"error","message":"Reconnecting... 4/5 (stream disconnected before completion: builder error)"}
+{"type":"error","message":"Reconnecting... 5/5 (stream disconnected before completion: builder error)"}
+{"type":"error","message":"stream disconnected before completion: builder error"}
+{"type":"turn.failed","error":{"message":"stream disconnected before completion: builder error"}}

@@ -1,0 +1,86 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 6,
+            "passed": 2,
+            "failed": 4,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1778877870.6348934,
+            "stop": 1778878401.9508646
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_compare_golden_vs_my_sql_query_correctness",
+                "status": "passed",
+                "duration": 531.0441094571725,
+                "start": 1778877870.83374,
+                "stop": 1778878401.8799918,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_check_for_db_modifications",
+                "status": "passed",
+                "duration": 0.03868940006941557,
+                "start": 1778878401.8813,
+                "stop": 1778878401.920265,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_compare_golden_vs_solution_runtime",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.0009858012199401855,
+                "start": 1778878401.9204752,
+                "stop": 1778878401.9414,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_compare_golden_vs_solution_runtime():\n        \"\"\"\n        Compare the runtime of the golden query and the solution query.\n        \"\"\"\n        assert DB_PATH.exists(), f\"DB not found at {DB_PATH}\"\n        assert GOLDEN_SQL_PATH.exists(), f\"Golden SQL not found at {GOLDEN_SQL_PATH}\"\n>       assert SOL_SQL_PATH.exists(), f\"Solution SQL not found at {SOL_SQL_PATH}\"\nE       AssertionError: Solution SQL not found at /app/sol.sql\nE       assert False\nE        +  where False = exists()\nE        +    where exists = PosixPath('/app/sol.sql').exists\n\n/tests/test_outputs.py:88: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            },
+            {
+                "name": "test_outputs.py::test_outputs_match_exactly",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.00037905480712652206,
+                "start": 1778878401.9415634,
+                "stop": 1778878401.9446352,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_outputs_match_exactly():\n        \"\"\"Asserts the optimized query output matches the golden query EXACTLY:\n        - same column names (case and order)\n        - same number of rows\n        - same row values in the same order\n        \"\"\"\n        assert DB_PATH.exists(), f\"DB not found at {DB_PATH}\"\n        assert GOLDEN_SQL_PATH.exists(), f\"Golden SQL not found at {GOLDEN_SQL_PATH}\"\n>       assert SOL_SQL_PATH.exists(), f\"Solution SQL not found at {SOL_SQL_PATH}\"\nE       AssertionError: Solution SQL not found at /app/sol.sql\nE       assert False\nE        +  where False = exists()\nE        +    where exists = PosixPath('/app/sol.sql').exists\n\n/tests/test_outputs.py:156: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            },
+            {
+                "name": "test_outputs.py::test_solution_contains_single_sql_query",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.000338883139193058,
+                "start": 1778878401.9447742,
+                "stop": 1778878401.9475417,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_solution_contains_single_sql_query():\n        \"\"\"\n        Verify that the solution file contains exactly one valid SQL SELECT statement\n        terminated by a semicolon, as required by the task specification.\n    \n        If we allow multiple sql queries, then the agent can reward hack.\n        It can modify the database, create temporary tables, and delete them\n        during execution and make sure the final hash is the same.\n        \"\"\"\n>       assert SOL_SQL_PATH.exists(), f\"Solution SQL not found at {SOL_SQL_PATH}\"\nE       AssertionError: Solution SQL not found at /app/sol.sql\nE       assert False\nE        +  where False = exists()\nE        +    where exists = PosixPath('/app/sol.sql').exists\n\n/tests/test_outputs.py:187: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            },
+            {
+                "name": "test_outputs.py::test_solution_is_small",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.0003194538876414299,
+                "start": 1778878401.9476602,
+                "stop": 1778878401.9503486,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_solution_is_small():\n        \"\"\"\n        Verify that the solution file is small.\n        \"\"\"\n>       assert SOL_SQL_PATH.exists(), f\"Solution SQL not found at {SOL_SQL_PATH}\"\nE       AssertionError: Solution SQL not found at /app/sol.sql\nE       assert False\nE        +  where False = exists()\nE        +    where exists = PosixPath('/app/sol.sql').exists\n\n/tests/test_outputs.py:237: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            }
+        ]
+    }
+}

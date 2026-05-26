@@ -443,3 +443,42 @@ def test_critic_unparseable_output_safely_finalizes(tmp_path: Path):
     assert critic.calls == 1
     assert mem.backlog.all()[0].status == "done"
     assert _journal_kinds(mem) == ["mission_started", "mission_complete"]
+
+
+def test_supervisor_tick_exception_marks_running_item_failed(tmp_path: Path):
+    mem = LifeMemory.open(tmp_path)
+    mem.init()
+    item = mem.backlog.add(BacklogItem.new(
+        title="fragile",
+        objective="do fragile work",
+        iterate=False,
+    ))
+    sink = _RecordingSink()
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(per_mission_cap_usd=10.0, daily_cap_usd=100.0),
+        poll_interval_seconds=0.0,
+    )
+
+    class _ExplodingAfterClaimSupervisor(LifeSupervisor):
+        def tick(self) -> dict[str, Any] | None:
+            claimed = self.memory.backlog.claim_next()
+            assert claimed is not None
+            raise RuntimeError("post-claim crash")
+
+    sup = _ExplodingAfterClaimSupervisor(
+        memory=mem,
+        runner=_FakeMissionRunner(),
+        sink=sink,
+        config=cfg,
+    )
+
+    summary = sup.run()
+
+    final = next(it for it in mem.backlog.all() if it.id == item.id)
+    assert summary["stopped_by"] == "supervisor_error"
+    assert final.status == "failed"
+    assert "RuntimeError: post-claim crash" in final.last_error
+    assert _journal_kinds(mem) == ["mission_failed"]
+    supervisor_errors = _events_of(sink, "life.supervisor.error")
+    assert supervisor_errors
+    assert supervisor_errors[0]["recovered_item_ids"] == [item.id]

@@ -1,0 +1,4 @@
+Trial financial-document-processor__CpcBseg failed: Docker compose command failed for environment financial-document-processor. Command: docker compose --project-name financial-document-processor__cpcbseg --project-directory /home/argustest/.cache/harbor/tasks/T9eC49XFCYopUM2bDKgar3/financial-document-processor/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network financial-document-processor__cpcbseg_default  Creating
+ Network financial-document-processor__cpcbseg_default  Error
+failed to create network financial-document-processor__cpcbseg_default: Error response from daemon: all predefined address pools have been fully subnetted
+. Stderr: None. 

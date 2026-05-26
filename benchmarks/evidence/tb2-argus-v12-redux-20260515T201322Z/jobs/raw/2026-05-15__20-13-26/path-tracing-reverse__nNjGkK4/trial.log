@@ -1,0 +1,4 @@
+Trial path-tracing-reverse__nNjGkK4 failed: Docker compose command failed for environment path-tracing-reverse. Command: docker compose --project-name path-tracing-reverse__nnjgkk4 --project-directory /home/argustest/.cache/harbor/tasks/5CV2XfZKatcdbEk2ctQQAF/path-tracing-reverse/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network path-tracing-reverse__nnjgkk4_default  Creating
+ Network path-tracing-reverse__nnjgkk4_default  Error
+failed to create network path-tracing-reverse__nnjgkk4_default: Error response from daemon: all predefined address pools have been fully subnetted
+. Stderr: None. 

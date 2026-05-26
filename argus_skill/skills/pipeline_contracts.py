@@ -20,6 +20,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from ._review_contract_constants import (
+    ACADEMIC_LANGUAGE_REVIEW_GENERATED_BY,
+    ACADEMIC_LANGUAGE_REVIEW_HISTORY_PATH,
+    ALLOWED_REVIEW_ENDPOINTS,
+    LAYOUT_REVIEW_GENERATED_BY,
+    LAYOUT_REVIEW_HISTORY_PATH,
+    MIN_RAW_REVIEW_TEXT_CHARS,
+    REVIEW_INPUT_SHA256_FIELD,
+    REVIEW_PROMPT_SHA256_FIELD,
+)
 from .academic_language_review import (
     ACADEMIC_LANGUAGE_REVIEW_JSON_PATH,
     GENERIC_OPENING_PATTERNS,
@@ -45,6 +55,12 @@ from .paper_calibration import (
     detect_quality_blockers,
     validate_quality_calibration_file,
 )
+from .pipeline_policy import (
+    DEFAULT_VALIDATION_ISSUE_PREFIXES,
+    VALIDATION_FAILURE_CLASSES,
+    VALIDATION_PRIORITY_EXPECTED_ORDER,
+    VALIDATION_REPAIR_MODE_REQUIRED_TOKENS,
+)
 
 PIPELINE_STATE_PATH = Path("research/PIPELINE_STATE.json")
 SUBMISSION_ASSURANCE_JSON_PATH = Path("paper/SUBMISSION_ASSURANCE.json")
@@ -53,6 +69,7 @@ LITERATURE_GROUNDING_JSON_PATH = Path("research/LITERATURE_GROUNDING.json")
 IDEA_PROVENANCE_JSON_PATH = Path("research/IDEA_PROVENANCE.json")
 CODE_REUSE_PLAN_JSON_PATH = Path("research/CODE_REUSE_PLAN.json")
 STYLE_EXEMPLAR_JSON_PATH = Path("paper/style_ref/EXEMPLAR.json")
+STYLE_EXEMPLAR_SUITABILITY_JSON_PATH = Path("paper/style_ref/EXEMPLAR_SUITABILITY.json")
 STYLE_PROFILE_PATH = Path("paper/style_ref/STYLE_PROFILE.md")
 STYLE_STRUCTURE_BLUEPRINT_PATH = Path("paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md")
 STYLE_STRUCTURE_CONFORMANCE_PATH = Path("paper/style_ref/STRUCTURE_CONFORMANCE.md")
@@ -60,6 +77,11 @@ STYLE_STRUCTURE_CONFORMANCE_JSON_PATH = Path("paper/style_ref/STRUCTURE_CONFORMA
 IMAGE2_FIGURES_JSON_PATH = Path("paper/figures/IMAGE2_FIGURES.json")
 LAYOUT_REVIEW_JSON_PATH = Path("paper/LAYOUT_REVIEW.json")
 ACADEMIC_LANGUAGE_REVIEW_PATH = ACADEMIC_LANGUAGE_REVIEW_JSON_PATH
+CLAIM_GRAPH_JSON_PATH = Path("paper/CLAIM_GRAPH.json")
+EVIDENCE_GAPS_JSON_PATH = Path("paper/EVIDENCE_GAPS.json")
+FIGURE_TABLE_STYLE_GUIDE_JSON_PATH = Path("paper/FIGURE_TABLE_STYLE_GUIDE.json")
+VALIDATION_PRIORITY_POLICY_JSON_PATH = Path("paper/VALIDATION_PRIORITY_POLICY.json")
+ARTIFACT_FRESHNESS_JSON_PATH = Path("paper/ARTIFACT_FRESHNESS.json")
 CLAIMS_EVIDENCE_AUDIT_JSON_PATH = Path("paper/CLAIMS_EVIDENCE_AUDIT.json")
 RESULT_TO_CLAIM_TSV_PATH = Path("paper/artifacts/result_to_claim.tsv")
 RESULTS_TABLE_TSV_PATH = Path("paper/artifacts/results_table.tsv")
@@ -78,6 +100,8 @@ MIN_STYLE_EXEMPLAR_TEXT_CHARS = 4000
 MIN_STYLE_PROFILE_CHARS = 1800
 MIN_STYLE_BLUEPRINT_CHARS = 1200
 MIN_STYLE_CONFORMANCE_CHARS = 900
+MIN_CLAIM_GRAPH_CLAIMS = 2
+MIN_STYLE_GUIDE_FLOATS = 2
 RECENT_PAPER_YEAR_CUTOFF = 2023
 MIN_MAIN_CONTENT_PAGES = 7.5
 MAX_MAIN_CONTENT_PAGES = 8.0
@@ -92,6 +116,8 @@ MIN_RENDERED_REFERENCES_PAGE_FOR_FULL_BODY = 8
 MIN_FINAL_BIBLIOGRAPHY_ENTRIES = 35
 MIN_FINAL_UNIQUE_CITATION_KEYS = 30
 MIN_RENDERED_REFERENCE_PAGES = 2
+MAX_CITATION_KEYS_PER_COMMAND = 8
+MAX_CITATION_KEYS_PER_PARAGRAPH = 16
 MIN_CONCEPTUAL_FIGURE_ASPECT_RATIO = 1.2
 MAX_CONCEPTUAL_FIGURE_ASPECT_RATIO = 2.6
 MIN_CONCEPTUAL_FIGURE_PIXEL_WIDTH = 1200
@@ -213,6 +239,8 @@ LOCAL_CONCEPTUAL_RENDER_TOKENS: tuple[tuple[str, str], ...] = (
     ("graphviz", "Graphviz"),
     ("networkx", "NetworkX graph drawing"),
 )
+IMAGE2_MANUAL_REVIEW_METHOD_TOKENS = ("manual", "human_only", "human-only", "visual check", "visual_check")
+IMAGE2_MODEL_REVIEW_METHOD_TOKENS = ("vision", "model", "llm", "image_review", "hybrid")
 LATEX_GRAPHICS_SUFFIXES = ("", ".png", ".jpg", ".jpeg", ".pdf", ".eps")
 CONCEPTUAL_IMAGE_FIGURE_TYPES = {
     "conceptual",
@@ -364,6 +392,39 @@ STYLE_CONFORMANCE_REQUIRED_TOPICS: dict[str, tuple[str, ...]] = {
     "evidence_source": ("evidence source", "evidence mapping", "artifact source"),
     "deviation_rationale": ("deviation rationale", "justified deviation", "why this differs"),
     "no_prose_copy_policy": ("no prose copy", "structural style only", "do not copy prose"),
+}
+EXEMPLAR_SUITABILITY_DIMENSIONS: tuple[str, ...] = (
+    "task_type",
+    "method_family",
+    "experiment_shape",
+    "figure_table_density",
+    "related_work_shape",
+    "page_rhythm",
+)
+CLAIM_STATUSES = {"supported", "weak", "rejected", "missing"}
+UNSUPPORTED_CLAIM_STATUSES = {"weak", "rejected", "missing"}
+FLOAT_LOCATIONS = {"body", "appendix"}
+FLOAT_TYPES = {"figure", "table"}
+FRESHNESS_ALWAYS_REQUIRED_PATHS: tuple[Path, ...] = (
+    CLAIM_GRAPH_JSON_PATH,
+    FIGURE_TABLE_STYLE_GUIDE_JSON_PATH,
+    VALIDATION_PRIORITY_POLICY_JSON_PATH,
+    PAPER_MAIN_TEX_PATH,
+    PAPER_MAIN_PDF_PATH,
+    LAYOUT_REVIEW_JSON_PATH,
+    ACADEMIC_LANGUAGE_REVIEW_PATH,
+)
+FRESHNESS_REQUIRED_INPUTS: dict[Path, tuple[Path, ...]] = {
+    PAPER_MAIN_TEX_PATH: (
+        CLAIM_GRAPH_JSON_PATH,
+        STYLE_STRUCTURE_BLUEPRINT_PATH,
+        FIGURE_TABLE_STYLE_GUIDE_JSON_PATH,
+        RESULT_TO_CLAIM_TSV_PATH,
+        RESULTS_TABLE_TSV_PATH,
+    ),
+    PAPER_MAIN_PDF_PATH: (PAPER_MAIN_TEX_PATH,),
+    LAYOUT_REVIEW_JSON_PATH: (PAPER_MAIN_PDF_PATH,),
+    ACADEMIC_LANGUAGE_REVIEW_PATH: (PAPER_MAIN_TEX_PATH, PAPER_MAIN_PDF_PATH),
 }
 STANDARD_STRUCTURE_SECTION_TOKENS = {
     "abstract",
@@ -1431,7 +1492,774 @@ def validate_style_exemplar(project_root: Path) -> list[ContractIssue]:
                 "include at least one recent best/outstanding/award paper exemplar for top-conference calibration",
             )
         )
+    issues.extend(validate_exemplar_suitability(root))
     issues.extend(_validate_style_structure_blueprint(root))
+    return _dedupe_contract_issues(issues)
+
+
+def validate_exemplar_suitability(project_root: Path) -> list[ContractIssue]:
+    """Validate that the locked primary exemplar is suitable for this paper."""
+
+    root = Path(project_root)
+    path = root / STYLE_EXEMPLAR_SUITABILITY_JSON_PATH
+    if not path.exists():
+        return [
+            ContractIssue(
+                "missing_exemplar_suitability",
+                str(STYLE_EXEMPLAR_SUITABILITY_JSON_PATH),
+                "write EXEMPLAR_SUITABILITY.json before locking a primary exemplar or drafting prose",
+            )
+        ]
+
+    try:
+        payload = _read_json_object(path)
+    except ValueError as exc:
+        return [
+            ContractIssue(
+                "invalid_exemplar_suitability_json",
+                str(STYLE_EXEMPLAR_SUITABILITY_JSON_PATH),
+                str(exc),
+            )
+        ]
+
+    issues: list[ContractIssue] = []
+    if payload.get("suitability_schema_version", payload.get("schema_version")) != 1:
+        issues.append(
+            ContractIssue(
+                "invalid_exemplar_suitability_schema_version",
+                str(STYLE_EXEMPLAR_SUITABILITY_JSON_PATH),
+                "EXEMPLAR_SUITABILITY.json must use suitability_schema_version: 1",
+            )
+        )
+    if str(payload.get("verdict", "")).upper() != "PASS":
+        issues.append(
+            ContractIssue(
+                "exemplar_suitability_not_pass",
+                str(STYLE_EXEMPLAR_SUITABILITY_JSON_PATH),
+                "primary exemplar suitability must be PASS before the structure lock can guide drafting",
+            )
+        )
+    if payload.get("no_prose_copy_attestation") is not True:
+        issues.append(
+            ContractIssue(
+                "missing_exemplar_suitability_no_copy_attestation",
+                str(STYLE_EXEMPLAR_SUITABILITY_JSON_PATH),
+                "attest that suitability is for structural/layout transfer only, not prose copying",
+            )
+        )
+
+    primary_slug = _primary_exemplar_slug(payload.get("primary_exemplar"))
+    if not primary_slug:
+        issues.append(
+            ContractIssue(
+                "missing_primary_exemplar",
+                str(STYLE_EXEMPLAR_SUITABILITY_JSON_PATH),
+                "name the primary exemplar slug selected for the structure lock",
+            )
+        )
+
+    exemplar_slugs = _style_exemplar_slugs(root)
+    if primary_slug and exemplar_slugs and primary_slug not in exemplar_slugs:
+        issues.append(
+            ContractIssue(
+                "primary_exemplar_not_in_exemplar_json",
+                str(STYLE_EXEMPLAR_SUITABILITY_JSON_PATH),
+                f"primary exemplar {primary_slug!r} must match a downloaded exemplar in EXEMPLAR.json",
+            )
+        )
+
+    raw_candidates = payload.get("candidate_exemplars", payload.get("candidates"))
+    if not isinstance(raw_candidates, list) or not raw_candidates:
+        issues.append(
+            ContractIssue(
+                "missing_exemplar_suitability_candidates",
+                str(STYLE_EXEMPLAR_SUITABILITY_JSON_PATH),
+                "record candidate_exemplars with suitability dimensions before selecting a primary exemplar",
+            )
+        )
+        return _dedupe_contract_issues(issues)
+
+    candidate_slugs: set[str] = set()
+    for index, candidate in enumerate(raw_candidates):
+        entry_path = f"{STYLE_EXEMPLAR_SUITABILITY_JSON_PATH}:candidate_exemplars[{index}]"
+        if not isinstance(candidate, dict):
+            issues.append(
+                ContractIssue(
+                    "invalid_exemplar_suitability_candidate",
+                    entry_path,
+                    "candidate exemplar suitability entries must be objects",
+                )
+            )
+            continue
+        slug = _lower_slug(candidate.get("slug", candidate.get("id", candidate.get("exemplar_slug"))))
+        if not slug:
+            issues.append(
+                ContractIssue(
+                    "missing_exemplar_suitability_slug",
+                    entry_path,
+                    "each candidate exemplar must name the downloaded exemplar slug",
+                )
+            )
+        else:
+            candidate_slugs.add(slug)
+            if exemplar_slugs and slug not in exemplar_slugs:
+                issues.append(
+                    ContractIssue(
+                        "candidate_exemplar_not_in_exemplar_json",
+                        entry_path,
+                        f"candidate exemplar {slug!r} is not listed in EXEMPLAR.json",
+                    )
+                )
+        dimensions = candidate.get("suitability", candidate.get("dimensions"))
+        if not isinstance(dimensions, dict):
+            issues.append(
+                ContractIssue(
+                    "missing_exemplar_suitability_dimensions",
+                    entry_path,
+                    "each candidate must include a suitability/dimensions object",
+                )
+            )
+            continue
+        for dimension in EXEMPLAR_SUITABILITY_DIMENSIONS:
+            if not _suitability_dimension_passes(dimensions.get(dimension)):
+                issues.append(
+                    ContractIssue(
+                        "weak_exemplar_suitability_dimension",
+                        f"{entry_path}:suitability.{dimension}",
+                        (
+                            "exemplar suitability must justify task type, method family, experiment "
+                            "shape, figure/table density, related-work shape, and page rhythm"
+                        ),
+                    )
+                )
+
+    if primary_slug and candidate_slugs and primary_slug not in candidate_slugs:
+        issues.append(
+            ContractIssue(
+                "primary_exemplar_not_in_suitability_candidates",
+                str(STYLE_EXEMPLAR_SUITABILITY_JSON_PATH),
+                f"primary exemplar {primary_slug!r} must appear in candidate_exemplars",
+            )
+        )
+    return _dedupe_contract_issues(issues)
+
+
+def validate_claim_graph(project_root: Path) -> list[ContractIssue]:
+    """Validate the paper's claim-to-evidence graph against the manuscript."""
+
+    root = Path(project_root)
+    path = root / CLAIM_GRAPH_JSON_PATH
+    if not path.exists():
+        return [
+            ContractIssue(
+                "missing_claim_graph",
+                str(CLAIM_GRAPH_JSON_PATH),
+                "write CLAIM_GRAPH.json so every major paper claim is tied to local evidence",
+            )
+        ]
+
+    try:
+        payload = _read_json_object(path)
+    except ValueError as exc:
+        return [ContractIssue("invalid_claim_graph_json", str(CLAIM_GRAPH_JSON_PATH), str(exc))]
+
+    issues: list[ContractIssue] = []
+    if payload.get("claim_graph_schema_version", payload.get("schema_version")) != 1:
+        issues.append(
+            ContractIssue(
+                "invalid_claim_graph_schema_version",
+                str(CLAIM_GRAPH_JSON_PATH),
+                "CLAIM_GRAPH.json must use claim_graph_schema_version: 1",
+            )
+        )
+    raw_claims = payload.get("claims")
+    if not isinstance(raw_claims, list) or len(raw_claims) < MIN_CLAIM_GRAPH_CLAIMS:
+        issues.append(
+            ContractIssue(
+                "too_few_claim_graph_claims",
+                str(CLAIM_GRAPH_JSON_PATH),
+                f"claim graph must contain at least {MIN_CLAIM_GRAPH_CLAIMS} major paper claims",
+            )
+        )
+        return _dedupe_contract_issues(issues)
+
+    body_tex = _latex_before_references_and_appendix(_expanded_latex_body(root))
+    section_keys = {_section_title_key(title) for title in _latex_top_level_section_titles(body_tex)}
+    body_labels = _body_float_labels(body_tex)
+    citation_keys = _extract_latex_citation_keys(body_tex)
+    evidence_gap_ids = _evidence_gap_ids(root)
+
+    for index, raw_claim in enumerate(raw_claims):
+        entry_path = f"{CLAIM_GRAPH_JSON_PATH}:claims[{index}]"
+        if not isinstance(raw_claim, dict):
+            issues.append(ContractIssue("invalid_claim_graph_claim", entry_path, "claim entries must be objects"))
+            continue
+        claim_id = str(raw_claim.get("id", "")).strip()
+        claim_text = str(raw_claim.get("claim", raw_claim.get("text", ""))).strip()
+        section = str(raw_claim.get("section", "")).strip()
+        status = _lower_text(raw_claim.get("status", ""))
+        if not claim_id:
+            issues.append(ContractIssue("missing_claim_graph_claim_id", entry_path, "each claim must have an id"))
+        if len(claim_text) < 20:
+            issues.append(
+                ContractIssue(
+                    "claim_graph_claim_too_thin",
+                    entry_path,
+                    "each claim must state the reader-facing claim, not just a label",
+                )
+            )
+        if status not in CLAIM_STATUSES:
+            issues.append(
+                ContractIssue(
+                    "invalid_claim_graph_status",
+                    entry_path,
+                    "claim status must be supported, weak, rejected, or missing",
+                )
+            )
+        if not section:
+            issues.append(
+                ContractIssue(
+                    "missing_claim_graph_section",
+                    entry_path,
+                    "each claim must name the manuscript section where it appears or is planned",
+                )
+            )
+        elif section_keys and _section_title_key(section) not in section_keys:
+            issues.append(
+                ContractIssue(
+                    "claim_graph_section_not_in_main_tex",
+                    entry_path,
+                    f"claim section {section!r} is not a top-level section in paper/main.tex",
+                )
+            )
+
+        evidence_sources = _string_list(raw_claim.get("evidence_sources", raw_claim.get("evidence")))
+        result_artifacts = _string_list(raw_claim.get("result_artifacts", raw_claim.get("artifacts")))
+        float_labels = _string_list(raw_claim.get("figure_or_table", raw_claim.get("figures_tables")))
+        citations = _string_list(raw_claim.get("citations", raw_claim.get("citation_keys")))
+
+        if status == "supported":
+            if not evidence_sources:
+                issues.append(
+                    ContractIssue(
+                        "supported_claim_missing_evidence_sources",
+                        entry_path,
+                        "supported claims must list local evidence_sources",
+                    )
+                )
+            if not result_artifacts:
+                issues.append(
+                    ContractIssue(
+                        "supported_claim_missing_result_artifacts",
+                        entry_path,
+                        "supported claims must list result_artifacts generated from experiments/analysis",
+                    )
+                )
+            if body_labels and not float_labels:
+                issues.append(
+                    ContractIssue(
+                        "supported_claim_missing_figure_or_table",
+                        entry_path,
+                        "major supported claims must name the figure/table label that carries the evidence",
+                    )
+                )
+            if citation_keys and not citations:
+                issues.append(
+                    ContractIssue(
+                        "supported_claim_missing_citations",
+                        entry_path,
+                        "supported paper claims must list adjacent citation keys used in main.tex",
+                    )
+                )
+        elif status in UNSUPPORTED_CLAIM_STATUSES:
+            if not _claim_has_fallback(raw_claim):
+                issues.append(
+                    ContractIssue(
+                        "unsupported_claim_missing_fallback",
+                        entry_path,
+                        "weak/rejected/missing claims must provide revised_claim, fallback, or evidence_gap_id",
+                    )
+                )
+            if claim_text and _claim_text_appears_in_body(claim_text, body_tex):
+                issues.append(
+                    ContractIssue(
+                        "unsupported_claim_in_main_body",
+                        entry_path,
+                        "weak/rejected/missing claim text still appears in the main body; soften or remove it",
+                    )
+                )
+            gap_id = str(raw_claim.get("evidence_gap_id", "")).strip()
+            if gap_id and evidence_gap_ids is not None and gap_id not in evidence_gap_ids:
+                issues.append(
+                    ContractIssue(
+                        "claim_graph_unknown_evidence_gap",
+                        entry_path,
+                        f"evidence_gap_id {gap_id!r} is not present in EVIDENCE_GAPS.json",
+                    )
+                )
+
+        for source in evidence_sources + result_artifacts:
+            if not _path_exists_or_manifested(root, source):
+                issues.append(
+                    ContractIssue(
+                        "claim_graph_unknown_evidence_source",
+                        entry_path,
+                        f"claim evidence source {source!r} must exist or appear in ARTIFACT_MANIFEST.json",
+                    )
+                )
+        for label in float_labels:
+            if body_labels and label not in body_labels:
+                issues.append(
+                    ContractIssue(
+                        "claim_graph_unknown_figure_or_table",
+                        entry_path,
+                        f"claim references figure/table label {label!r}, which is not in the main body",
+                    )
+                )
+        for key in citations:
+            if citation_keys and key not in citation_keys:
+                issues.append(
+                    ContractIssue(
+                        "claim_graph_uncited_citation_key",
+                        entry_path,
+                        f"claim citation key {key!r} is not cited in paper/main.tex",
+                    )
+                )
+
+    return _dedupe_contract_issues(issues)
+
+
+def validate_figure_table_style_guide(project_root: Path) -> list[ContractIssue]:
+    """Validate that figure/table visual rules are tied to actual manuscript floats."""
+
+    root = Path(project_root)
+    path = root / FIGURE_TABLE_STYLE_GUIDE_JSON_PATH
+    if not path.exists():
+        return [
+            ContractIssue(
+                "missing_figure_table_style_guide",
+                str(FIGURE_TABLE_STYLE_GUIDE_JSON_PATH),
+                "write FIGURE_TABLE_STYLE_GUIDE.json to control figure/table readability and body-vs-appendix budget",
+            )
+        ]
+
+    try:
+        payload = _read_json_object(path)
+    except ValueError as exc:
+        return [
+            ContractIssue(
+                "invalid_figure_table_style_guide_json",
+                str(FIGURE_TABLE_STYLE_GUIDE_JSON_PATH),
+                str(exc),
+            )
+        ]
+
+    issues: list[ContractIssue] = []
+    if payload.get("style_guide_schema_version", payload.get("schema_version")) != 1:
+        issues.append(
+            ContractIssue(
+                "invalid_figure_table_style_guide_schema_version",
+                str(FIGURE_TABLE_STYLE_GUIDE_JSON_PATH),
+                "FIGURE_TABLE_STYLE_GUIDE.json must use style_guide_schema_version: 1",
+            )
+        )
+    if str(payload.get("verdict", "")).upper() != "PASS":
+        issues.append(
+            ContractIssue(
+                "figure_table_style_guide_not_pass",
+                str(FIGURE_TABLE_STYLE_GUIDE_JSON_PATH),
+                "figure/table style guide must be PASS before final paper readiness",
+            )
+        )
+    for key in ("figure_rules", "table_rules", "body_appendix_policy"):
+        if not _nonempty_contract_value(payload.get(key)):
+            issues.append(
+                ContractIssue(
+                    "missing_figure_table_style_guide_rule",
+                    str(FIGURE_TABLE_STYLE_GUIDE_JSON_PATH),
+                    f"{key} must describe concrete visual/readability constraints",
+                )
+            )
+
+    raw_inventory = payload.get("float_inventory", payload.get("floats"))
+    if not isinstance(raw_inventory, list) or len(raw_inventory) < MIN_STYLE_GUIDE_FLOATS:
+        issues.append(
+            ContractIssue(
+                "too_few_figure_table_style_floats",
+                str(FIGURE_TABLE_STYLE_GUIDE_JSON_PATH),
+                f"float_inventory must cover at least {MIN_STYLE_GUIDE_FLOATS} body figures/tables",
+            )
+        )
+        return _dedupe_contract_issues(issues)
+
+    body_tex = _latex_before_references_and_appendix(_expanded_latex_body(root))
+    body_labels = _body_float_labels(body_tex)
+    inventory_labels: set[str] = set()
+    for index, raw_float in enumerate(raw_inventory):
+        entry_path = f"{FIGURE_TABLE_STYLE_GUIDE_JSON_PATH}:float_inventory[{index}]"
+        if not isinstance(raw_float, dict):
+            issues.append(ContractIssue("invalid_float_inventory_entry", entry_path, "float entries must be objects"))
+            continue
+        label = str(raw_float.get("label", raw_float.get("id", ""))).strip()
+        if not label:
+            issues.append(
+                ContractIssue(
+                    "missing_float_inventory_label",
+                    entry_path,
+                    "each float inventory entry must name the LaTeX label/id",
+                )
+            )
+        else:
+            inventory_labels.add(label)
+        float_type = _lower_text(raw_float.get("type", raw_float.get("float_type")))
+        if float_type not in FLOAT_TYPES:
+            issues.append(
+                ContractIssue(
+                    "invalid_float_inventory_type",
+                    entry_path,
+                    "float type must be figure or table",
+                )
+            )
+        location = _lower_text(raw_float.get("body_or_appendix", raw_float.get("location")))
+        if location not in FLOAT_LOCATIONS:
+            issues.append(
+                ContractIssue(
+                    "invalid_float_inventory_location",
+                    entry_path,
+                    "body_or_appendix must be body or appendix",
+                )
+            )
+        if not _nonempty_contract_value(raw_float.get("target_section")):
+            issues.append(
+                ContractIssue(
+                    "missing_float_inventory_target_section",
+                    entry_path,
+                    "each float must name the paper section it supports",
+                )
+            )
+        for key in ("source_artifact", "style_decision", "readability_check"):
+            if not _nonempty_contract_value(raw_float.get(key)):
+                issues.append(
+                    ContractIssue(
+                        "missing_float_inventory_style_field",
+                        entry_path,
+                        f"float inventory entry must include {key}",
+                    )
+                )
+        source = str(raw_float.get("source_artifact", "")).strip()
+        if source and not _path_exists_or_manifested(root, source):
+            issues.append(
+                ContractIssue(
+                    "float_inventory_unknown_source_artifact",
+                    entry_path,
+                    f"float source_artifact {source!r} must exist or appear in ARTIFACT_MANIFEST.json",
+                )
+            )
+        if body_labels and location == "body" and label and label not in body_labels:
+            issues.append(
+                ContractIssue(
+                    "float_inventory_label_not_in_body",
+                    entry_path,
+                    f"body float {label!r} is not present before references/appendix in paper/main.tex",
+                )
+            )
+
+    for label in sorted(body_labels - inventory_labels):
+        issues.append(
+            ContractIssue(
+                "body_float_missing_from_style_guide",
+                str(FIGURE_TABLE_STYLE_GUIDE_JSON_PATH),
+                f"body figure/table label {label!r} is missing from float_inventory",
+            )
+        )
+    return _dedupe_contract_issues(issues)
+
+
+def validate_validation_priority_policy(project_root: Path) -> list[ContractIssue]:
+    """Validate the repair routing and priority policy used after gates fail."""
+
+    root = Path(project_root)
+    path = root / VALIDATION_PRIORITY_POLICY_JSON_PATH
+    if not path.exists():
+        return [
+            ContractIssue(
+                "missing_validation_priority_policy",
+                str(VALIDATION_PRIORITY_POLICY_JSON_PATH),
+                "write VALIDATION_PRIORITY_POLICY.json so daemons repair blockers in a stable order",
+            )
+        ]
+
+    try:
+        payload = _read_json_object(path)
+    except ValueError as exc:
+        return [
+            ContractIssue(
+                "invalid_validation_priority_policy_json",
+                str(VALIDATION_PRIORITY_POLICY_JSON_PATH),
+                str(exc),
+            )
+        ]
+
+    issues: list[ContractIssue] = []
+    if payload.get("priority_policy_schema_version", payload.get("schema_version")) != 1:
+        issues.append(
+            ContractIssue(
+                "invalid_validation_priority_policy_schema_version",
+                str(VALIDATION_PRIORITY_POLICY_JSON_PATH),
+                "VALIDATION_PRIORITY_POLICY.json must use priority_policy_schema_version: 1",
+            )
+        )
+
+    raw_order = payload.get("priority_order")
+    order = [str(item).strip() for item in raw_order] if isinstance(raw_order, list) else []
+    if not order:
+        issues.append(
+            ContractIssue(
+                "missing_validation_priority_order",
+                str(VALIDATION_PRIORITY_POLICY_JSON_PATH),
+                "priority_order must list failure classes from highest to lowest repair priority",
+            )
+        )
+    else:
+        missing = [failure_class for failure_class in VALIDATION_PRIORITY_EXPECTED_ORDER if failure_class not in order]
+        if missing:
+            issues.append(
+                ContractIssue(
+                    "incomplete_validation_priority_order",
+                    str(VALIDATION_PRIORITY_POLICY_JSON_PATH),
+                    "priority_order is missing failure classes: " + ", ".join(missing),
+                )
+            )
+
+    routing = payload.get("failure_routing")
+    if not isinstance(routing, dict):
+        issues.append(
+            ContractIssue(
+                "missing_validation_failure_routing",
+                str(VALIDATION_PRIORITY_POLICY_JSON_PATH),
+                "failure_routing must map each failure class to issue prefixes and repair mode",
+            )
+        )
+        return _dedupe_contract_issues(issues)
+
+    for failure_class in VALIDATION_FAILURE_CLASSES:
+        entry = routing.get(failure_class)
+        entry_path = f"{VALIDATION_PRIORITY_POLICY_JSON_PATH}:failure_routing.{failure_class}"
+        if not isinstance(entry, dict):
+            issues.append(
+                ContractIssue(
+                    "missing_validation_failure_route",
+                    entry_path,
+                    f"failure_routing must define route {failure_class!r}",
+                )
+            )
+            continue
+        prefixes = _string_list(entry.get("issue_code_prefixes", entry.get("prefixes")))
+        if not prefixes:
+            issues.append(
+                ContractIssue(
+                    "validation_failure_route_missing_prefixes",
+                    entry_path,
+                    "each failure route must list issue_code_prefixes",
+                )
+            )
+        repair_mode = str(entry.get("repair_mode", entry.get("owner", ""))).strip()
+        if len(repair_mode) < 5:
+            issues.append(
+                ContractIssue(
+                    "validation_failure_route_missing_repair_mode",
+                    entry_path,
+                    "each failure route must name a concrete repair mode/owner",
+                )
+            )
+        required_tokens = VALIDATION_REPAIR_MODE_REQUIRED_TOKENS.get(failure_class)
+        if required_tokens and not any(token in repair_mode.lower() for token in required_tokens):
+            issues.append(
+                ContractIssue(
+                    "validation_failure_route_bad_repair_mode",
+                    entry_path,
+                    (
+                        f"failure route {failure_class!r} must route to a concrete repair mode "
+                        "that mentions one of: " + ", ".join(required_tokens)
+                    ),
+                )
+            )
+
+    reset_policy = payload.get("reset_policy")
+    if not isinstance(reset_policy, dict):
+        issues.append(
+            ContractIssue(
+                "missing_validation_reset_policy",
+                str(VALIDATION_PRIORITY_POLICY_JSON_PATH),
+                "reset_policy must define when to stop micro-patching and reset skeleton/floats",
+            )
+        )
+    else:
+        rounds = _int_or_none(reset_policy.get("max_non_improving_rounds"))
+        if rounds is None or rounds < 1 or rounds > 3:
+            issues.append(
+                ContractIssue(
+                    "invalid_validation_reset_policy_rounds",
+                    str(VALIDATION_PRIORITY_POLICY_JSON_PATH),
+                    "reset_policy.max_non_improving_rounds must be 1, 2, or 3",
+                )
+            )
+        actions = _string_list(reset_policy.get("actions", reset_policy.get("reset_actions")))
+        if not actions:
+            issues.append(
+                ContractIssue(
+                    "missing_validation_reset_policy_actions",
+                    str(VALIDATION_PRIORITY_POLICY_JSON_PATH),
+                    "reset_policy must list reset actions such as skeleton reset or float rebalance",
+                )
+            )
+    return _dedupe_contract_issues(issues)
+
+
+def validate_artifact_freshness(project_root: Path) -> list[ContractIssue]:
+    """Validate input-hash freshness for generated paper artifacts."""
+
+    root = Path(project_root)
+    path = root / ARTIFACT_FRESHNESS_JSON_PATH
+    if not path.exists():
+        return [
+            ContractIssue(
+                "missing_artifact_freshness",
+                str(ARTIFACT_FRESHNESS_JSON_PATH),
+                "write ARTIFACT_FRESHNESS.json with input hashes for generated paper artifacts",
+            )
+        ]
+
+    try:
+        payload = _read_json_object(path)
+    except ValueError as exc:
+        return [
+            ContractIssue(
+                "invalid_artifact_freshness_json",
+                str(ARTIFACT_FRESHNESS_JSON_PATH),
+                str(exc),
+            )
+        ]
+
+    issues: list[ContractIssue] = []
+    if payload.get("freshness_schema_version", payload.get("schema_version")) != 1:
+        issues.append(
+            ContractIssue(
+                "invalid_artifact_freshness_schema_version",
+                str(ARTIFACT_FRESHNESS_JSON_PATH),
+                "ARTIFACT_FRESHNESS.json must use freshness_schema_version: 1",
+            )
+        )
+
+    raw_records = payload.get("records", payload.get("artifacts"))
+    if not isinstance(raw_records, list) or not raw_records:
+        issues.append(
+            ContractIssue(
+                "missing_artifact_freshness_records",
+                str(ARTIFACT_FRESHNESS_JSON_PATH),
+                "freshness records must list generated paper artifacts and their input hashes",
+            )
+        )
+        return _dedupe_contract_issues(issues)
+
+    records_by_path: dict[str, dict[str, Any]] = {}
+    for index, raw_record in enumerate(raw_records):
+        entry_path = f"{ARTIFACT_FRESHNESS_JSON_PATH}:records[{index}]"
+        if not isinstance(raw_record, dict):
+            issues.append(
+                ContractIssue("invalid_artifact_freshness_record", entry_path, "freshness records must be objects")
+            )
+            continue
+        normalized = _normalize_manifest_path(raw_record.get("path"))
+        if normalized is None:
+            issues.append(
+                ContractIssue(
+                    "invalid_artifact_freshness_path",
+                    entry_path,
+                    "freshness record path must be a POSIX relative project path",
+                )
+            )
+            continue
+        if normalized in records_by_path:
+            issues.append(
+                ContractIssue(
+                    "duplicate_artifact_freshness_record",
+                    entry_path,
+                    f"freshness has duplicate records for {normalized!r}",
+                )
+            )
+        records_by_path[normalized] = raw_record
+        resolved = _resolve_manifest_path(root, normalized)
+        if resolved is None or not resolved.exists():
+            issues.append(
+                ContractIssue(
+                    "missing_artifact_freshness_artifact",
+                    normalized,
+                    "freshness record refers to a missing artifact",
+                )
+            )
+            continue
+        if resolved.is_file() and resolved.suffix.lower() != ".pdf":
+            expected_sha = _lower_text(raw_record.get("sha256"))
+            if not _is_sha256_hex(expected_sha):
+                issues.append(
+                    ContractIssue(
+                        "invalid_artifact_freshness_sha256",
+                        normalized,
+                        "non-PDF freshness records must include the artifact sha256",
+                    )
+                )
+            elif _sha256_file(resolved) != expected_sha:
+                issues.append(
+                    ContractIssue(
+                        "artifact_modified_after_freshness_recorded",
+                        normalized,
+                        "artifact sha256 no longer matches ARTIFACT_FRESHNESS.json; refresh downstream records",
+                    )
+                )
+        issues.extend(_validate_freshness_inputs(root, raw_record, normalized))
+
+    for required in _required_freshness_paths(root):
+        if required.as_posix() not in records_by_path:
+            issues.append(
+                ContractIssue(
+                    "missing_required_artifact_freshness_record",
+                    str(ARTIFACT_FRESHNESS_JSON_PATH),
+                    f"freshness records must cover generated artifact {required.as_posix()!r}",
+                )
+            )
+
+    for artifact, required_inputs in FRESHNESS_REQUIRED_INPUTS.items():
+        artifact_path = artifact.as_posix()
+        if artifact_path not in records_by_path:
+            continue
+        actual_inputs = {
+            normalized
+            for normalized, _ in _freshness_input_records(records_by_path[artifact_path].get("inputs"))
+        }
+        for required_input in required_inputs:
+            if not (root / required_input).exists():
+                continue
+            if required_input.as_posix() not in actual_inputs:
+                issues.append(
+                    ContractIssue(
+                        "artifact_freshness_missing_required_input",
+                        artifact_path,
+                        f"{artifact_path} freshness must include input {required_input.as_posix()}",
+                    )
+                )
+    return _dedupe_contract_issues(issues)
+
+
+def validate_paper_quality_contracts(project_root: Path) -> list[ContractIssue]:
+    """Validate paper-specific quality contracts added above the legacy gates."""
+
+    root = Path(project_root)
+    issues: list[ContractIssue] = []
+    issues.extend(validate_claim_graph(root))
+    issues.extend(validate_figure_table_style_guide(root))
+    issues.extend(validate_validation_priority_policy(root))
+    issues.extend(validate_artifact_freshness(root))
     return _dedupe_contract_issues(issues)
 
 
@@ -1568,6 +2396,8 @@ def validate_emnlp_paper_contract(project_root: Path) -> list[ContractIssue]:
                 f"main content exceeds the {MAX_MAIN_CONTENT_PAGES}-page EMNLP long-paper limit",
             )
         )
+    if pages is not None:
+        issues.extend(_validate_rendered_pdf_page_budget(root, pages))
 
     if payload.get("official_acl_template") is not True:
         issues.append(
@@ -1577,6 +2407,7 @@ def validate_emnlp_paper_contract(project_root: Path) -> list[ContractIssue]:
                 "official_acl_template must be true",
             )
         )
+    issues.extend(_validate_acl_template_authenticity(root))
 
     assessment = payload.get("submission_quality_self_assessment")
     if assessment != "ready":
@@ -1603,7 +2434,7 @@ def validate_paper_format(project_root: Path) -> list[ContractIssue]:
     pdf_path = root / PAPER_MAIN_PDF_PATH
     log_path = root / PAPER_MAIN_LOG_PATH
     report_path = root / PAPER_DRAFT_REPORT_JSON_PATH
-    report = _try_read_json_object(report_path)
+    report = _try_read_json_object(report_path) or {}
     allowed_labels = _paper_allowed_code_labels(report)
 
     if not tex_path.is_file():
@@ -1651,7 +2482,7 @@ def validate_research_md_format_preflight(project_root: Path) -> list[ContractIs
     if not tex_path.is_file():
         return _dedupe_contract_issues(issues)
 
-    report = _try_read_json_object(root / PAPER_DRAFT_REPORT_JSON_PATH)
+    report = _try_read_json_object(root / PAPER_DRAFT_REPORT_JSON_PATH) or {}
     source_texts, missing_sources = _load_transitive_latex_sources(root)
     for rel_path in missing_sources:
         issues.append(
@@ -1673,6 +2504,7 @@ def validate_research_md_format_preflight(project_root: Path) -> list[ContractIs
     issues.extend(_validate_research_md_required_sections(combined_tex))
     issues.extend(_validate_research_md_placeholders(stripped_tex_sources))
     issues.extend(_validate_research_md_bibliography_markers(bib_sources))
+    issues.extend(_validate_research_md_citation_hygiene(root, bib_sources, body_tex))
     issues.extend(_validate_research_md_figure_contract(body_tex))
     if (root / IMAGE2_FIGURES_JSON_PATH).is_file():
         issues.extend(_validate_body_image2_conceptual_figure_usage(root, body_tex=body_tex))
@@ -1779,6 +2611,78 @@ def _validate_research_md_acl_review_source(tex_text: str) -> list[ContractIssue
     ]
 
 
+def _validate_acl_template_authenticity(root: Path) -> list[ContractIssue]:
+    issues: list[ContractIssue] = []
+    local_acl = root / "paper" / "acl.sty"
+    if local_acl.is_file():
+        text = local_acl.read_text(encoding="utf-8", errors="replace")
+        stripped = _strip_latex_comments(text)
+        official_markers = (
+            r"\\twocolumn",
+            r"\\AtBeginDocument",
+            r"\\ProvidesPackage\s*\{\s*acl\s*\}",
+            r"\\newif\\ifacl@finalcopy",
+            r"\\def\\aclpaperid",
+        )
+        marker_count = sum(1 for pattern in official_markers if re.search(pattern, stripped))
+        if (
+            "minimal ACL compatibility layer" in text
+            or "compatibility layer" in text.lower()
+            or len(text) < 5000
+            or marker_count < 3
+        ):
+            issues.append(
+                ContractIssue(
+                    "fake_or_minimal_acl_style",
+                    "paper/acl.sty",
+                    (
+                        "local paper/acl.sty is too small or lacks official ACL style machinery; "
+                        "do not shadow the real ACL/EMNLP template with a compatibility shim"
+                    ),
+                )
+            )
+
+    log_path = root / PAPER_MAIN_LOG_PATH
+    if log_path.is_file():
+        log_text = log_path.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"(?i)minimal ACL compatibility layer|compatibility layer", log_text):
+            issues.append(
+                ContractIssue(
+                    "fake_acl_style_loaded",
+                    str(PAPER_MAIN_LOG_PATH),
+                    "LaTeX log shows a minimal/fake ACL compatibility layer was loaded",
+                )
+            )
+    return issues
+
+
+def _validate_rendered_pdf_page_budget(root: Path, reported_main_pages: float) -> list[ContractIssue]:
+    pdf_path = root / PAPER_MAIN_PDF_PATH
+    if not pdf_path.is_file():
+        return []
+    page_count = _pdf_page_count(pdf_path)
+    if page_count is None:
+        return [
+            ContractIssue(
+                "rendered_pdf_page_count_unavailable",
+                str(PAPER_MAIN_PDF_PATH),
+                "could not derive rendered PDF page count with pdfinfo; rerun a real LaTeX build",
+            )
+        ]
+    if page_count < int(MIN_MAIN_CONTENT_PAGES):
+        return [
+            ContractIssue(
+                "rendered_pdf_underlength",
+                str(PAPER_MAIN_PDF_PATH),
+                (
+                    f"rendered PDF has only {page_count} page(s), but the draft report "
+                    f"claims {reported_main_pages:g} main-content pages"
+                ),
+            )
+        ]
+    return []
+
+
 def _validate_research_md_anonymous_author(tex_text: str, report: dict[str, Any]) -> list[ContractIssue]:
     phase = str(report.get("submission_phase", report.get("phase", "review"))).strip().lower()
     if phase in {"camera_ready", "camera-ready", "final", "accepted"}:
@@ -1883,6 +2787,100 @@ def _validate_research_md_bibliography_markers(bib_sources: dict[str, str]) -> l
     return issues
 
 
+def _validate_research_md_citation_hygiene(
+    root: Path,
+    bib_sources: dict[str, str],
+    tex_text: str,
+) -> list[ContractIssue]:
+    issues: list[ContractIssue] = []
+
+    for rel_path, text in bib_sources.items():
+        for entry_type, key, body in _iter_bibtex_entries(text):
+            author = _bibtex_field_value(body, "author")
+            if author is not None and re.search(r"\b(?:and\s+others|et\s+al\.?)\b", author, re.I):
+                issues.append(
+                    ContractIssue(
+                        "placeholder_bibtex_author_others",
+                        rel_path,
+                        (
+                            f"BibTeX entry {key!r} uses abbreviated author metadata "
+                            f"({entry_type}); final references need verified full author lists, "
+                            "not 'and others' or 'et al.' placeholders"
+                        ),
+                    )
+                )
+
+    bbl_path = root / "paper" / "main.bbl"
+    if bbl_path.is_file():
+        bbl_text = bbl_path.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"\band\s+\d+\s+others\b", bbl_text, re.I):
+            issues.append(
+                ContractIssue(
+                    "rendered_placeholder_reference_authors",
+                    "paper/main.bbl",
+                    "rendered bibliography contains placeholder author text such as 'and 1 others'; regenerate verified BibTeX with complete author metadata",
+                )
+            )
+
+    stripped = _strip_latex_comments(tex_text)
+    for command_index, keys in enumerate(_iter_latex_citation_command_keys(stripped), start=1):
+        if len(keys) > MAX_CITATION_KEYS_PER_COMMAND:
+            issues.append(
+                ContractIssue(
+                    "citation_command_dumping",
+                    str(PAPER_MAIN_TEX_PATH),
+                    (
+                        f"citation command {command_index} cites {len(keys)} keys; "
+                        f"use at most {MAX_CITATION_KEYS_PER_COMMAND} closely related papers per command"
+                    ),
+                )
+            )
+
+    paragraph_source = re.sub(
+        r"\\(?:section|subsection|subsubsection)\*?\s*\{[^{}]*\}",
+        "\n\n",
+        stripped,
+    )
+    for paragraph_index, paragraph in enumerate(re.split(r"\n\s*\n", paragraph_source), start=1):
+        paragraph_keys = _extract_latex_citation_keys(paragraph)
+        if len(paragraph_keys) > MAX_CITATION_KEYS_PER_PARAGRAPH:
+            issues.append(
+                ContractIssue(
+                    "citation_paragraph_dumping",
+                    str(PAPER_MAIN_TEX_PATH),
+                    (
+                        f"paragraph {paragraph_index} cites {len(paragraph_keys)} unique keys; distribute related-work "
+                        "citations by claim/topic instead of using one dense bibliography dump"
+                    ),
+                )
+            )
+    return issues
+
+
+def _iter_bibtex_entries(text: str) -> list[tuple[str, str, str]]:
+    matches = list(re.finditer(r"@\s*([a-zA-Z]+)\s*\{\s*([^,\s{}]+)\s*,", text))
+    entries: list[tuple[str, str, str]] = []
+    for index, match in enumerate(matches):
+        entry_type = match.group(1).lower()
+        if entry_type in {"comment", "preamble", "string"}:
+            continue
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        entries.append((entry_type, match.group(2), text[match.end() : end]))
+    return entries
+
+
+def _bibtex_field_value(entry_body: str, field: str) -> str | None:
+    match = re.search(
+        rf"\b{re.escape(field)}\s*=\s*(?:\{{(?P<braced>.*?)\}}|\"(?P<quoted>.*?)\")\s*,?",
+        entry_body,
+        re.I | re.S,
+    )
+    if match is None:
+        return None
+    value = match.group("braced") if match.group("braced") is not None else match.group("quoted")
+    return re.sub(r"\s+", " ", value or "").strip()
+
+
 def _validate_research_md_reference_depth(
     bib_sources: dict[str, str],
     tex_text: str,
@@ -1948,16 +2946,26 @@ def _count_bibtex_entries(text: str) -> int:
 
 def _extract_latex_citation_keys(tex_text: str) -> set[str]:
     keys: set[str] = set()
+    for command_keys in _iter_latex_citation_command_keys(_strip_latex_comments(tex_text)):
+        keys.update(command_keys)
+    return keys
+
+
+def _iter_latex_citation_command_keys(tex_text: str) -> list[list[str]]:
+    commands: list[list[str]] = []
     pattern = re.compile(
         r"\\(?:[Cc]ite(?:t|p|alp|alt|author|year|yearpar|poss)?|citeNP|newcite)"
         r"\*?(?:\s*\[[^\]]*\]){0,2}\s*\{([^{}]+)\}"
     )
-    for match in pattern.finditer(_strip_latex_comments(tex_text)):
-        for raw_key in match.group(1).split(","):
-            key = raw_key.strip()
-            if key and key != "*":
-                keys.add(key)
-    return keys
+    for match in pattern.finditer(tex_text):
+        keys = [
+            raw_key.strip()
+            for raw_key in match.group(1).split(",")
+            if raw_key.strip() and raw_key.strip() != "*"
+        ]
+        if keys:
+            commands.append(keys)
+    return commands
 
 
 def _rendered_reference_page_count(pages: list[str]) -> int | None:
@@ -2308,6 +3316,30 @@ def _extract_pdf_text_pages(pdf_path: Path) -> list[str] | None:
     return completed.stdout.split("\f")
 
 
+def _pdf_page_count(pdf_path: Path) -> int | None:
+    if not pdf_path.is_file() or shutil.which("pdfinfo") is None:
+        return None
+    try:
+        completed = subprocess.run(
+            ["pdfinfo", pdf_path.as_posix()],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    match = re.search(r"(?m)^Pages:\s*(\d+)\s*$", completed.stdout)
+    if match is None:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
 def _validate_research_md_pdf_text(pages: list[str]) -> list[ContractIssue]:
     issues: list[ContractIssue] = []
     all_text = "\n".join(pages)
@@ -2357,6 +3389,16 @@ def _validate_research_md_pdf_text(pages: list[str]) -> list[ContractIssue]:
                 ),
             )
         )
+    if references_page is not None:
+        reference_page_text = pages[references_page - 1]
+        if re.search(r"\b(?:Conclusion|Limitations|Ethical Considerations|Ethics)\b", reference_page_text):
+            issues.append(
+                ContractIssue(
+                    "references_share_page_with_body_sections",
+                    str(PAPER_MAIN_PDF_PATH),
+                    "References render on the same page as conclusion, limitations, or ethics text; force a clean bibliography break before references",
+                )
+            )
 
     if len(pages) >= max(RESEARCH_MD_VISUAL_PAGES):
         visual_pages = {
@@ -2633,6 +3675,24 @@ def validate_layout_review(project_root: Path) -> list[ContractIssue]:
                 "layout review schema_version must be 1",
             )
         )
+    issues.extend(
+        _validate_review_generated_by(
+            payload,
+            expected=LAYOUT_REVIEW_GENERATED_BY,
+            artifact_path=LAYOUT_REVIEW_JSON_PATH,
+            issue_code="layout_review_not_skill_generated",
+            message="layout review must be generated by the paper_layout_review skill",
+        )
+    )
+    issues.extend(
+        _validate_review_policy_flag(
+            payload,
+            flag="pass_requires_vision",
+            artifact_path=LAYOUT_REVIEW_JSON_PATH,
+            issue_code="layout_review_missing_vision_policy",
+            message="layout review policy must record pass_requires_vision=true",
+        )
+    )
 
     review_method = payload.get("review_method")
     if not isinstance(review_method, str) or not review_method.strip():
@@ -2724,6 +3784,7 @@ def validate_layout_review(project_root: Path) -> list[ContractIssue]:
             )
         )
 
+    layout_pdf_page_count: int | None = None
     pdf_path = _normalize_manifest_path(payload.get("pdf_path"))
     if pdf_path is None:
         issues.append(
@@ -2745,8 +3806,24 @@ def validate_layout_review(project_root: Path) -> list[ContractIssue]:
             )
         else:
             issues.extend(_validate_layout_review_hash(payload, "pdf_sha256", resolved_pdf, pdf_path))
+            layout_pdf_page_count = _pdf_page_count(resolved_pdf)
+            if layout_pdf_page_count is None:
+                issues.append(
+                    ContractIssue(
+                        "layout_review_pdf_page_count_unavailable",
+                        pdf_path,
+                        "could not derive PDF page count with pdfinfo; rerun layout review from a valid PDF",
+                    )
+                )
 
-    issues.extend(_validate_layout_review_snapshots(root, payload.get("page_snapshots")))
+    snapshot_pages, snapshot_issues = _validate_layout_review_snapshots(
+        root,
+        payload.get("page_snapshots"),
+    )
+    issues.extend(snapshot_issues)
+    issues.extend(_validate_layout_review_page_coverage(snapshot_pages, layout_pdf_page_count))
+    issues.extend(_validate_layout_vision_payload(payload, snapshot_pages))
+    issues.extend(_validate_layout_review_history(root, payload))
     issues.extend(_validate_layout_review_directives(payload))
     return _dedupe_contract_issues(issues)
 
@@ -2778,9 +3855,12 @@ def _validate_layout_review_hash(
     return []
 
 
-def _validate_layout_review_snapshots(root: Path, raw_snapshots: object) -> list[ContractIssue]:
+def _validate_layout_review_snapshots(
+    root: Path,
+    raw_snapshots: object,
+) -> tuple[set[int], list[ContractIssue]]:
     if not isinstance(raw_snapshots, list) or not raw_snapshots:
-        return [
+        return set(), [
             ContractIssue(
                 "missing_layout_review_snapshots",
                 str(LAYOUT_REVIEW_JSON_PATH),
@@ -2788,6 +3868,7 @@ def _validate_layout_review_snapshots(root: Path, raw_snapshots: object) -> list
             )
         ]
     issues: list[ContractIssue] = []
+    snapshot_pages: set[int] = set()
     for index, raw_snapshot in enumerate(raw_snapshots):
         entry_path = f"{LAYOUT_REVIEW_JSON_PATH}:page_snapshots[{index}]"
         if not isinstance(raw_snapshot, dict):
@@ -2799,6 +3880,25 @@ def _validate_layout_review_snapshots(root: Path, raw_snapshots: object) -> list
                 )
             )
             continue
+        page_number = _int_or_none(raw_snapshot.get("page"))
+        if page_number is None or page_number < 1:
+            issues.append(
+                ContractIssue(
+                    "invalid_layout_review_snapshot_page",
+                    entry_path,
+                    "page snapshot must include a positive page number",
+                )
+            )
+        elif page_number in snapshot_pages:
+            issues.append(
+                ContractIssue(
+                    "duplicate_layout_review_snapshot_page",
+                    entry_path,
+                    f"page {page_number} is listed more than once",
+                )
+            )
+        else:
+            snapshot_pages.add(page_number)
         rel_path = _normalize_manifest_path(raw_snapshot.get("path"))
         if rel_path is None:
             issues.append(
@@ -2838,7 +3938,257 @@ def _validate_layout_review_snapshots(root: Path, raw_snapshots: object) -> list
                     "page snapshot hash does not match the current file",
                 )
             )
+    if snapshot_pages:
+        expected_pages = set(range(1, max(snapshot_pages) + 1))
+        if snapshot_pages != expected_pages:
+            missing = sorted(expected_pages - snapshot_pages)
+            issues.append(
+                ContractIssue(
+                    "incomplete_layout_review_snapshot_sequence",
+                    str(LAYOUT_REVIEW_JSON_PATH),
+                    f"layout review snapshots must be contiguous from page 1; missing pages {missing}",
+                )
+            )
+    return snapshot_pages, issues
+
+
+def _validate_layout_review_page_coverage(
+    snapshot_pages: set[int],
+    pdf_page_count: int | None,
+) -> list[ContractIssue]:
+    if pdf_page_count is None or not snapshot_pages:
+        return []
+    expected_pages = set(range(1, pdf_page_count + 1))
+    if snapshot_pages == expected_pages:
+        return []
+    return [
+        ContractIssue(
+            "incomplete_layout_review_snapshot_coverage",
+            str(LAYOUT_REVIEW_JSON_PATH),
+            (
+                "layout review snapshots must cover every rendered PDF page; "
+                f"expected pages 1-{pdf_page_count}, got {sorted(snapshot_pages)}"
+            ),
+        )
+    ]
+
+
+def _validate_layout_vision_payload(
+    payload: dict[str, Any],
+    snapshot_pages: set[int],
+) -> list[ContractIssue]:
+    issues = _validate_nested_review_payload(
+        payload,
+        field="vision_review",
+        artifact_path=LAYOUT_REVIEW_JSON_PATH,
+        issue_prefix="layout_review_vision",
+        reviewer_label="vision review",
+    )
+    vision_review = payload.get("vision_review")
+    if not isinstance(vision_review, dict):
+        return issues
+    reviewed_pages = _int_list_or_none(vision_review.get("reviewed_pages"))
+    if reviewed_pages is None:
+        issues.append(
+            ContractIssue(
+                "missing_layout_review_vision_pages",
+                str(LAYOUT_REVIEW_JSON_PATH),
+                "vision_review must record reviewed_pages from the rendered snapshots",
+            )
+        )
+    elif set(reviewed_pages) != snapshot_pages:
+        issues.append(
+            ContractIssue(
+                "layout_review_vision_page_mismatch",
+                str(LAYOUT_REVIEW_JSON_PATH),
+                (
+                    "vision_review.reviewed_pages must match hashed page_snapshots; "
+                    f"got {reviewed_pages}, snapshots {sorted(snapshot_pages)}"
+                ),
+            )
+        )
     return issues
+
+
+def _validate_review_generated_by(
+    payload: dict[str, Any],
+    *,
+    expected: str,
+    artifact_path: Path,
+    issue_code: str,
+    message: str,
+) -> list[ContractIssue]:
+    if payload.get("generated_by") == expected:
+        return []
+    return [
+        ContractIssue(
+            issue_code,
+            str(artifact_path),
+            f"{message}; got generated_by={payload.get('generated_by')!r}",
+        )
+    ]
+
+
+def _validate_review_policy_flag(
+    payload: dict[str, Any],
+    *,
+    flag: str,
+    artifact_path: Path,
+    issue_code: str,
+    message: str,
+) -> list[ContractIssue]:
+    policy = payload.get("review_policy")
+    if isinstance(policy, dict) and policy.get(flag) is True:
+        return []
+    return [ContractIssue(issue_code, str(artifact_path), message)]
+
+
+def _validate_nested_review_payload(
+    payload: dict[str, Any],
+    *,
+    field: str,
+    artifact_path: Path,
+    issue_prefix: str,
+    reviewer_label: str,
+) -> list[ContractIssue]:
+    nested = payload.get(field)
+    if not isinstance(nested, dict):
+        return [
+            ContractIssue(
+                f"missing_{issue_prefix}_payload",
+                str(artifact_path),
+                f"{reviewer_label} must include the raw skill LLM/vision payload, not just PASS fields",
+            )
+        ]
+
+    issues: list[ContractIssue] = []
+    if not _is_nonempty_string(nested.get("model")):
+        issues.append(
+            ContractIssue(
+                f"missing_{issue_prefix}_model",
+                str(artifact_path),
+                f"{reviewer_label} must record the model used by the skill",
+            )
+        )
+    endpoint = nested.get("endpoint")
+    if endpoint not in ALLOWED_REVIEW_ENDPOINTS:
+        issues.append(
+            ContractIssue(
+                f"invalid_{issue_prefix}_endpoint",
+                str(artifact_path),
+                f"{reviewer_label} endpoint must be one of {sorted(ALLOWED_REVIEW_ENDPOINTS)}",
+            )
+        )
+    raw_text = nested.get("raw_review_text")
+    if not isinstance(raw_text, str) or len(raw_text.strip()) < MIN_RAW_REVIEW_TEXT_CHARS:
+        issues.append(
+            ContractIssue(
+                f"missing_{issue_prefix}_raw_text",
+                str(artifact_path),
+                f"{reviewer_label} must retain non-empty raw_review_text from the model",
+            )
+        )
+    for field_name in (REVIEW_PROMPT_SHA256_FIELD, REVIEW_INPUT_SHA256_FIELD):
+        value = nested.get(field_name)
+        if not isinstance(value, str) or not _is_sha256_hex(value):
+            issues.append(
+                ContractIssue(
+                    f"missing_{issue_prefix}_{field_name}",
+                    str(artifact_path),
+                    f"{reviewer_label} must record a valid {field_name}",
+                )
+            )
+    return issues
+
+
+def _int_list_or_none(value: object) -> list[int] | None:
+    if not isinstance(value, list):
+        return None
+    pages: list[int] = []
+    for raw_item in value:
+        page = _int_or_none(raw_item)
+        if page is None or page < 1:
+            return None
+        pages.append(page)
+    return pages
+
+
+def _validate_layout_review_history(root: Path, payload: dict[str, Any]) -> list[ContractIssue]:
+    history_entries, history_issues = _read_review_history(
+        root,
+        LAYOUT_REVIEW_HISTORY_PATH,
+        missing_code="missing_layout_review_history",
+        invalid_code="invalid_layout_review_history",
+    )
+    if history_issues:
+        return history_issues
+
+    for entry in history_entries:
+        if (
+            entry.get("iteration") == payload.get("iteration")
+            and entry.get("verdict") == payload.get("verdict")
+            and entry.get("score_1_to_5") == payload.get("score_1_to_5")
+            and entry.get("needs_revision") == payload.get("needs_revision")
+            and entry.get("pdf_sha256") == payload.get("pdf_sha256")
+        ):
+            return []
+    return [
+        ContractIssue(
+            "stale_layout_review_history",
+            str(LAYOUT_REVIEW_HISTORY_PATH),
+            "layout review history must contain a summary matching the current PDF hash and verdict",
+        )
+    ]
+
+
+def _read_review_history(
+    root: Path,
+    rel_path: Path,
+    *,
+    missing_code: str,
+    invalid_code: str,
+) -> tuple[list[dict[str, Any]], list[ContractIssue]]:
+    path = root / rel_path
+    if not path.is_file():
+        return [], [
+            ContractIssue(
+                missing_code,
+                str(rel_path),
+                "review history JSONL is missing; rerun the review skill instead of writing PASS JSON directly",
+            )
+        ]
+    entries: list[dict[str, Any]] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError as exc:
+            return [], [
+                ContractIssue(
+                    invalid_code,
+                    f"{rel_path}:{line_number}",
+                    f"review history line is not valid JSON: {exc}",
+                )
+            ]
+        if not isinstance(parsed, dict):
+            return [], [
+                ContractIssue(
+                    invalid_code,
+                    f"{rel_path}:{line_number}",
+                    "review history line must be a JSON object",
+                )
+            ]
+        entries.append(parsed)
+    if not entries:
+        return [], [
+            ContractIssue(
+                invalid_code,
+                str(rel_path),
+                "review history JSONL contains no entries",
+            )
+        ]
+    return entries, []
 
 
 def _validate_layout_review_directives(payload: dict[str, Any]) -> list[ContractIssue]:
@@ -2920,6 +4270,24 @@ def validate_academic_language_review(project_root: Path) -> list[ContractIssue]
                 "academic-language review schema_version must be 1",
             )
         )
+    issues.extend(
+        _validate_review_generated_by(
+            payload,
+            expected=ACADEMIC_LANGUAGE_REVIEW_GENERATED_BY,
+            artifact_path=ACADEMIC_LANGUAGE_REVIEW_JSON_PATH,
+            issue_code="academic_language_review_not_skill_generated",
+            message="academic-language review must be generated by the academic_language_review skill",
+        )
+    )
+    issues.extend(
+        _validate_review_policy_flag(
+            payload,
+            flag="pass_requires_model",
+            artifact_path=ACADEMIC_LANGUAGE_REVIEW_JSON_PATH,
+            issue_code="academic_language_review_missing_model_policy",
+            message="academic-language review policy must record pass_requires_model=true",
+        )
+    )
 
     review_method = payload.get("review_method")
     if not isinstance(review_method, str) or not review_method.strip():
@@ -3030,6 +4398,8 @@ def validate_academic_language_review(project_root: Path) -> list[ContractIssue]
     issues.extend(_validate_academic_section_scores(payload))
     issues.extend(_validate_academic_required_checks(payload))
     issues.extend(_validate_academic_evidence_spans(root, payload, snapshot_paths))
+    issues.extend(_validate_academic_model_payload(payload))
+    issues.extend(_validate_academic_language_history(root, payload))
     issues.extend(_validate_academic_language_directives(payload))
     issues.extend(_academic_static_source_issues(root))
     return _dedupe_contract_issues(issues)
@@ -3215,6 +4585,7 @@ def _validate_academic_evidence_spans(
         ]
     issues: list[ContractIssue] = []
     covered_sections: set[str] = set()
+    normalized_quotes: set[str] = set()
     source_cache: dict[str, str] = {}
     for index, raw_span in enumerate(raw_spans):
         entry_path = f"{ACADEMIC_LANGUAGE_REVIEW_JSON_PATH}:evidence_spans[{index}]"
@@ -3268,12 +4639,31 @@ def _validate_academic_evidence_spans(
                 )
             )
             continue
+        quote_text = str(quote).strip()
+        why_text = str(why).strip()
+        if _is_latex_boilerplate_evidence_quote(quote_text):
+            issues.append(
+                ContractIssue(
+                    "academic_language_evidence_boilerplate_quote",
+                    entry_path,
+                    "evidence span quote must cite paper prose, not LaTeX boilerplate",
+                )
+            )
+        if _is_generic_academic_evidence_reason(why_text, section):
+            issues.append(
+                ContractIssue(
+                    "generic_academic_language_evidence_reason",
+                    entry_path,
+                    "evidence span why field must explain the section-specific judgment",
+                )
+            )
+        normalized_quotes.add(_normalize_evidence_quote(quote_text))
         if source_path not in source_cache:
             source_cache[source_path] = (root / source_path).read_text(
                 encoding="utf-8",
                 errors="replace",
             )
-        if not _quote_in_source(str(quote), source_cache[source_path]):
+        if not _quote_in_source(quote_text, source_cache[source_path]):
             issues.append(
                 ContractIssue(
                     "academic_language_evidence_quote_not_found",
@@ -3281,6 +4671,14 @@ def _validate_academic_evidence_spans(
                     "evidence span quote is not present in the current reviewed source",
                 )
             )
+    if len(raw_spans) >= len(REQUIRED_ACADEMIC_SECTION_SCORES) and len(normalized_quotes) < 3:
+        issues.append(
+            ContractIssue(
+                "repetitive_academic_language_evidence_quotes",
+                str(ACADEMIC_LANGUAGE_REVIEW_JSON_PATH),
+                "model-backed review must cite at least three distinct prose evidence quotes",
+            )
+        )
     for section in REQUIRED_ACADEMIC_SECTION_SCORES:
         if section not in covered_sections:
             issues.append(
@@ -3291,6 +4689,114 @@ def _validate_academic_evidence_spans(
                 )
             )
     return issues
+
+
+def _is_latex_boilerplate_evidence_quote(quote: str) -> bool:
+    stripped = quote.strip()
+    if stripped.startswith("\\"):
+        return True
+    return bool(
+        re.fullmatch(
+            r"(?is)\s*(?:\\documentclass|\\usepackage|\\begin|\\end|\\title|\\author|"
+            r"\\maketitle|\\bibliography|\\appendix)\b.*",
+            stripped,
+        )
+    )
+
+
+def _is_generic_academic_evidence_reason(why: str, section: object) -> bool:
+    text = why.strip().lower()
+    section_text = str(section).strip().lower()
+    return text in {
+        "reviewer evidence.",
+        "reviewer evidence for this section.",
+        f"reviewer evidence for {section_text}.",
+        f"reviewer evidence for {section_text}",
+    }
+
+
+def _normalize_evidence_quote(quote: str) -> str:
+    return re.sub(r"\s+", " ", quote.strip()).lower()
+
+
+def _validate_academic_model_payload(payload: dict[str, Any]) -> list[ContractIssue]:
+    issues = _validate_nested_review_payload(
+        payload,
+        field="model_review",
+        artifact_path=ACADEMIC_LANGUAGE_REVIEW_JSON_PATH,
+        issue_prefix="academic_language_model",
+        reviewer_label="academic-language model review",
+    )
+    model_review = payload.get("model_review")
+    if not isinstance(model_review, dict):
+        return issues
+
+    if _float_or_none(model_review.get("score_1_to_5")) is None:
+        issues.append(
+            ContractIssue(
+                "missing_academic_language_model_score",
+                str(ACADEMIC_LANGUAGE_REVIEW_JSON_PATH),
+                "model_review must include numeric score_1_to_5 from the reviewer model",
+            )
+        )
+    if not isinstance(model_review.get("section_scores"), dict):
+        issues.append(
+            ContractIssue(
+                "missing_academic_language_model_section_scores",
+                str(ACADEMIC_LANGUAGE_REVIEW_JSON_PATH),
+                "model_review must include section_scores from the reviewer model",
+            )
+        )
+    if not isinstance(model_review.get("required_checks"), dict):
+        issues.append(
+            ContractIssue(
+                "missing_academic_language_model_required_checks",
+                str(ACADEMIC_LANGUAGE_REVIEW_JSON_PATH),
+                "model_review must include required_checks from the reviewer model",
+            )
+        )
+    if not isinstance(model_review.get("evidence_spans"), list) or not model_review.get("evidence_spans"):
+        issues.append(
+            ContractIssue(
+                "missing_academic_language_model_evidence_spans",
+                str(ACADEMIC_LANGUAGE_REVIEW_JSON_PATH),
+                "model_review must include evidence_spans from the reviewer model",
+            )
+        )
+    return issues
+
+
+def _validate_academic_language_history(root: Path, payload: dict[str, Any]) -> list[ContractIssue]:
+    history_entries, history_issues = _read_review_history(
+        root,
+        ACADEMIC_LANGUAGE_REVIEW_HISTORY_PATH,
+        missing_code="missing_academic_language_review_history",
+        invalid_code="invalid_academic_language_review_history",
+    )
+    if history_issues:
+        return history_issues
+
+    expected_sources = {
+        entry.get("path"): entry.get("sha256")
+        for entry in payload.get("source_snapshots", [])
+        if isinstance(entry, dict)
+    }
+    for entry in history_entries:
+        if (
+            entry.get("iteration") == payload.get("iteration")
+            and entry.get("verdict") == payload.get("verdict")
+            and entry.get("score_1_to_5") == payload.get("score_1_to_5")
+            and entry.get("needs_revision") == payload.get("needs_revision")
+            and entry.get("source_sha256") == expected_sources
+        ):
+            return []
+    return [
+        ContractIssue(
+            "stale_academic_language_review_history",
+            str(ACADEMIC_LANGUAGE_REVIEW_HISTORY_PATH),
+            "academic-language review history must match current source hashes and verdict",
+        )
+    ]
 
 
 def _validate_academic_language_directives(payload: dict[str, Any]) -> list[ContractIssue]:
@@ -3546,9 +5052,12 @@ def validate_full_emnlp_readiness(project_root: Path) -> list[ContractIssue]:
     """Validate final EMNLP readiness without trusting stage self-reporting."""
 
     root = Path(project_root)
+    state = _try_read_json_object(root / PIPELINE_STATE_PATH)
+    stages = state.get("stages") if isinstance(state, dict) else None
     issues = validate_pipeline_state(root)
-    for stage in FULL_EMNLP_REQUIRED_STAGES:
-        issues.extend(_missing_artifact_issues(root, stage))
+    if isinstance(stages, dict):
+        for stage in FULL_EMNLP_REQUIRED_STAGES:
+            issues.extend(_missing_artifact_issues(root, stage))
 
     issues.extend(validate_literature_grounding(root))
     issues.extend(validate_idea_provenance(root))
@@ -3558,13 +5067,12 @@ def validate_full_emnlp_readiness(project_root: Path) -> list[ContractIssue]:
     issues.extend(validate_emnlp_paper_contract(root))
     issues.extend(validate_layout_review(root))
     issues.extend(validate_academic_language_review(root))
+    issues.extend(validate_paper_quality_contracts(root))
     issues.extend(_contract_issues(detect_quality_blockers(root)))
     issues.extend(validate_submission_readiness(root))
     issues.extend(validate_artifact_manifest(root))
     issues.extend(validate_full_scale_experiment_evidence(root))
 
-    state = _try_read_json_object(root / PIPELINE_STATE_PATH)
-    stages = state.get("stages") if isinstance(state, dict) else None
     submission = stages.get("submission") if isinstance(stages, dict) else None
     submission_status = submission.get("status") if isinstance(submission, dict) else None
     if submission_status not in SUCCESS_STATUSES:
@@ -3576,7 +5084,7 @@ def validate_full_emnlp_readiness(project_root: Path) -> list[ContractIssue]:
             )
         )
 
-    return _dedupe_contract_issues(issues)
+    return _order_issues_by_validation_policy(root, _dedupe_contract_issues(issues))
 
 
 def _contract_issues(issues: list[Any]) -> list[ContractIssue]:
@@ -4201,6 +5709,292 @@ def _looks_like_real_evidence_source(source: str) -> bool:
     if re.search(r"\b(?:todo|tbd|placeholder|none|n/a)\b", lowered):
         return False
     return bool(re.search(r"(?:^|/)(?:results|experiments|paper|research|bench|code|data)/", source))
+
+
+def _primary_exemplar_slug(value: Any) -> str:
+    if isinstance(value, str):
+        return _lower_slug(value)
+    if isinstance(value, dict):
+        for key in ("slug", "id", "exemplar_slug", "name"):
+            slug = _lower_slug(value.get(key))
+            if slug:
+                return slug
+    return ""
+
+
+def _lower_slug(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    normalized = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
+    return normalized
+
+
+def _style_exemplar_slugs(root: Path) -> set[str]:
+    payload = _try_read_json_object(root / STYLE_EXEMPLAR_JSON_PATH)
+    if not isinstance(payload, dict):
+        return set()
+    raw_exemplars = payload.get("exemplars")
+    exemplars = raw_exemplars if isinstance(raw_exemplars, list) else [payload]
+    slugs: set[str] = set()
+    for raw_entry in exemplars:
+        if not isinstance(raw_entry, dict):
+            continue
+        for key in ("slug", "id", "exemplar_slug"):
+            slug = _lower_slug(raw_entry.get(key))
+            if slug:
+                slugs.add(slug)
+        local_pdf = _normalize_manifest_path(raw_entry.get("local_pdf"))
+        if local_pdf:
+            parts = Path(local_pdf).parts
+            if "exemplars" in parts:
+                index = parts.index("exemplars")
+                if index + 1 < len(parts):
+                    slugs.add(_lower_slug(parts[index + 1]))
+    return slugs
+
+
+def _suitability_dimension_passes(value: Any) -> bool:
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        return len(value.strip()) >= 20 and not re.search(r"\b(?:todo|tbd|placeholder)\b", lowered)
+    if not isinstance(value, dict):
+        return False
+    rationale = str(
+        value.get(
+            "rationale",
+            value.get("justification", value.get("evidence", value.get("notes", ""))),
+        )
+    ).strip()
+    if len(rationale) < 20 or re.search(r"\b(?:todo|tbd|placeholder)\b", rationale.lower()):
+        return False
+    if value.get("matches_project") is False or value.get("match") is False:
+        return False
+    score = _float_or_none(value.get("score", value.get("fit_score")))
+    return score is None or score >= 3.0
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, list):
+        strings: list[str] = []
+        for item in value:
+            if isinstance(item, str) and item.strip():
+                strings.append(item.strip())
+            elif isinstance(item, dict):
+                for key in ("path", "label", "id", "key", "citation_key"):
+                    raw = item.get(key)
+                    if isinstance(raw, str) and raw.strip():
+                        strings.append(raw.strip())
+                        break
+        return strings
+    return []
+
+
+def _evidence_gap_ids(root: Path) -> set[str] | None:
+    path = root / EVIDENCE_GAPS_JSON_PATH
+    if not path.exists():
+        return None
+    payload = _try_read_json_object(path)
+    if not isinstance(payload, dict):
+        return set()
+    raw_gaps = payload.get("gaps", payload.get("evidence_gaps"))
+    if not isinstance(raw_gaps, list):
+        return set()
+    gap_ids: set[str] = set()
+    for raw_gap in raw_gaps:
+        if isinstance(raw_gap, dict):
+            gap_id = str(raw_gap.get("id", raw_gap.get("gap_id", ""))).strip()
+            if gap_id:
+                gap_ids.add(gap_id)
+    return gap_ids
+
+
+def _claim_has_fallback(claim: dict[str, Any]) -> bool:
+    for key in ("revised_claim", "fallback", "fallback_action", "evidence_gap_id"):
+        if isinstance(claim.get(key), str) and str(claim[key]).strip():
+            return True
+    return False
+
+
+def _claim_text_appears_in_body(claim_text: str, body_tex: str) -> bool:
+    normalized_claim = _normalize_claim_text(claim_text)
+    if len(normalized_claim) < 24:
+        return False
+    normalized_body = _normalize_claim_text(body_tex)
+    return normalized_claim in normalized_body
+
+
+def _normalize_claim_text(value: str) -> str:
+    return re.sub(r"\s+", " ", _plain_latex_text(value).lower()).strip()
+
+
+def _path_exists_or_manifested(root: Path, value: str) -> bool:
+    normalized = _normalize_manifest_path(value)
+    if normalized is None:
+        return False
+    resolved = _resolve_manifest_path(root, normalized)
+    if resolved is not None and resolved.exists():
+        return True
+    return normalized in _manifest_path_set(root)
+
+
+def _manifest_path_set(root: Path) -> set[str]:
+    manifest = _try_read_json_object(root / ARTIFACT_MANIFEST_PATH)
+    if not isinstance(manifest, dict):
+        return set()
+    paths: set[str] = set()
+    for section in ("canonical_sources", "generated_artifacts"):
+        raw_entries = manifest.get(section)
+        if not isinstance(raw_entries, list):
+            continue
+        for raw_entry in raw_entries:
+            if not isinstance(raw_entry, dict):
+                continue
+            normalized = _normalize_manifest_path(raw_entry.get("path"))
+            if normalized:
+                paths.add(normalized)
+    return paths
+
+
+def _nonempty_contract_value(value: Any) -> bool:
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        return len(value.strip()) >= 8 and not re.search(r"\b(?:todo|tbd|placeholder)\b", lowered)
+    if isinstance(value, (list, tuple, dict)):
+        return bool(value)
+    return value is not None
+
+
+def _body_float_labels(body_tex: str) -> set[str]:
+    labels: set[str] = set()
+    for environment in [*_extract_latex_figure_environments(body_tex), *_extract_latex_table_environments(body_tex)]:
+        labels.update(_latex_label_arguments(environment))
+    return labels
+
+
+def _extract_latex_table_environments(text: str) -> list[str]:
+    pattern = re.compile(
+        r"\\begin\s*\{\s*(table\*?|longtable)\s*\}(.*?)\\end\s*\{\s*\1\s*\}",
+        re.S,
+    )
+    return [match.group(2) for match in pattern.finditer(text)]
+
+
+def _required_freshness_paths(root: Path) -> set[Path]:
+    required = {path for path in FRESHNESS_ALWAYS_REQUIRED_PATHS if (root / path).exists()}
+    manifest = _try_read_json_object(root / ARTIFACT_MANIFEST_PATH)
+    raw_generated = manifest.get("generated_artifacts") if isinstance(manifest, dict) else None
+    if isinstance(raw_generated, list):
+        for raw_entry in raw_generated:
+            if not isinstance(raw_entry, dict):
+                continue
+            normalized = _normalize_manifest_path(raw_entry.get("path"))
+            if normalized and (root / normalized).exists():
+                required.add(Path(normalized))
+    return required
+
+
+def _freshness_input_records(raw_inputs: Any) -> list[tuple[str, str]]:
+    if not isinstance(raw_inputs, list):
+        return []
+    records: list[tuple[str, str]] = []
+    for raw_input in raw_inputs:
+        if isinstance(raw_input, str):
+            normalized = _normalize_manifest_path(raw_input)
+            if normalized:
+                records.append((normalized, ""))
+            continue
+        if not isinstance(raw_input, dict):
+            continue
+        normalized = _normalize_manifest_path(raw_input.get("path", raw_input.get("input_path")))
+        if normalized is None:
+            continue
+        sha256 = _lower_text(raw_input.get("sha256", raw_input.get("input_sha256")))
+        records.append((normalized, sha256))
+    return records
+
+
+def _validate_freshness_inputs(root: Path, record: dict[str, Any], artifact_path: str) -> list[ContractIssue]:
+    role = _lower_text(record.get("role", "generated"))
+    input_records = _freshness_input_records(record.get("inputs", record.get("generated_from")))
+    if not input_records and role != "canonical":
+        return [
+            ContractIssue(
+                "artifact_freshness_missing_inputs",
+                artifact_path,
+                "generated freshness records must list inputs with sha256 values",
+            )
+        ]
+    issues: list[ContractIssue] = []
+    seen_inputs: set[str] = set()
+    for input_path, expected_sha in input_records:
+        if input_path in seen_inputs:
+            issues.append(
+                ContractIssue(
+                    "duplicate_artifact_freshness_input",
+                    artifact_path,
+                    f"freshness input {input_path!r} is listed more than once",
+                )
+            )
+        seen_inputs.add(input_path)
+        resolved = _resolve_manifest_path(root, input_path)
+        if resolved is None or not resolved.is_file():
+            issues.append(
+                ContractIssue(
+                    "missing_artifact_freshness_input",
+                    artifact_path,
+                    f"freshness input {input_path!r} is missing",
+                )
+            )
+            continue
+        if not _is_sha256_hex(expected_sha):
+            issues.append(
+                ContractIssue(
+                    "artifact_freshness_input_missing_sha256",
+                    artifact_path,
+                    f"freshness input {input_path!r} must record its sha256 at generation time",
+                )
+            )
+            continue
+        if _sha256_file(resolved) != expected_sha:
+            issues.append(
+                ContractIssue(
+                    "artifact_stale_vs_inputs",
+                    artifact_path,
+                    f"freshness input {input_path!r} has changed; regenerate {artifact_path}",
+                )
+            )
+    return issues
+
+
+def _order_issues_by_validation_policy(root: Path, issues: list[ContractIssue]) -> list[ContractIssue]:
+    policy = _try_read_json_object(root / VALIDATION_PRIORITY_POLICY_JSON_PATH)
+    if not isinstance(policy, dict):
+        return issues
+    raw_order = policy.get("priority_order")
+    order = [str(item).strip() for item in raw_order] if isinstance(raw_order, list) else []
+    routing = policy.get("failure_routing")
+    if not order or not isinstance(routing, dict):
+        return issues
+
+    prefixes_by_class: dict[str, tuple[str, ...]] = {}
+    for failure_class in order:
+        route = routing.get(failure_class)
+        prefixes = _string_list(route.get("issue_code_prefixes")) if isinstance(route, dict) else []
+        if not prefixes:
+            prefixes = list(DEFAULT_VALIDATION_ISSUE_PREFIXES.get(failure_class, ()))
+        prefixes_by_class[failure_class] = tuple(prefixes)
+    rank_by_class = {failure_class: index for index, failure_class in enumerate(order)}
+
+    def sort_key(indexed_issue: tuple[int, ContractIssue]) -> tuple[int, int]:
+        index, issue = indexed_issue
+        for failure_class, prefixes in prefixes_by_class.items():
+            if any(issue.code.startswith(prefix) for prefix in prefixes):
+                return rank_by_class.get(failure_class, len(order)), index
+        return len(order), index
+
+    return [issue for _, issue in sorted(enumerate(issues), key=sort_key)]
 
 
 def _has_significance_language(text: str) -> bool:
@@ -4904,6 +6698,7 @@ def _validate_conceptual_image2_figure(
 
     issues.extend(_validate_image2_output_integrity(root, entry, entry_path))
     issues.extend(_validate_image2_teaser_prompt_quality(root, entry, entry_path))
+    issues.extend(_validate_image2_sidecar_evidence(root, entry, entry_path))
     issues.extend(_validate_image_review(root, entry, entry_path))
     issues.extend(_validate_image2_generation_provenance(root, entry, entry_path))
     issues.extend(_detect_local_conceptual_figure_generation(root, entry, entry_path))
@@ -5111,6 +6906,277 @@ def _recorded_image2_dimensions(root: Path, entry: dict[str, Any]) -> list[tuple
     return records
 
 
+def _validate_image2_sidecar_evidence(
+    root: Path,
+    entry: dict[str, Any],
+    entry_path: str,
+) -> list[ContractIssue]:
+    issues: list[ContractIssue] = []
+    output_file = _optional_manifest_file(root, entry.get("output_path"))
+    prompt_file = _optional_manifest_file(root, entry.get("prompt_path"))
+
+    sidecar_path = _optional_manifest_file(root, entry.get("sidecar_path"))
+    if sidecar_path is None:
+        issues.append(
+            ContractIssue(
+                "missing_image2_sidecar_path",
+                entry_path,
+                "image-2 conceptual figures must record the raw generation sidecar_path from the image tool",
+            )
+        )
+    elif not sidecar_path.is_file():
+        issues.append(
+            ContractIssue(
+                "missing_image2_sidecar_file",
+                _project_relative_path(root, sidecar_path),
+                "image-2 generation sidecar_path file is missing",
+            )
+        )
+    else:
+        sidecar = _try_read_json_object(sidecar_path)
+        if sidecar is None:
+            issues.append(
+                ContractIssue(
+                    "invalid_image2_sidecar_json",
+                    _project_relative_path(root, sidecar_path),
+                    "image-2 generation sidecar must be valid JSON",
+                )
+            )
+        else:
+            issues.extend(
+                _validate_image2_generation_sidecar_payload(
+                    root,
+                    sidecar,
+                    _project_relative_path(root, sidecar_path),
+                    prompt_file=prompt_file,
+                    output_file=output_file,
+                )
+            )
+
+    inspect_path = _optional_manifest_file(root, entry.get("inspect_path"))
+    if inspect_path is None:
+        issues.append(
+            ContractIssue(
+                "missing_image2_inspect_path",
+                entry_path,
+                "image-2 conceptual figures must record an inspect_path sidecar for the accepted raster",
+            )
+        )
+    elif not inspect_path.is_file():
+        issues.append(
+            ContractIssue(
+                "missing_image2_inspect_file",
+                _project_relative_path(root, inspect_path),
+                "image-2 inspect_path file is missing",
+            )
+        )
+    else:
+        inspect = _try_read_json_object(inspect_path)
+        if inspect is None:
+            issues.append(
+                ContractIssue(
+                    "invalid_image2_inspect_json",
+                    _project_relative_path(root, inspect_path),
+                    "image-2 inspect sidecar must be valid JSON",
+                )
+            )
+        else:
+            issues.extend(
+                _validate_image2_inspect_payload(
+                    inspect,
+                    _project_relative_path(root, inspect_path),
+                    output_file=output_file,
+                )
+            )
+    return issues
+
+
+def _validate_image2_generation_sidecar_payload(
+    root: Path,
+    payload: dict[str, Any],
+    source_path: str,
+    *,
+    prompt_file: Path | None,
+    output_file: Path | None,
+) -> list[ContractIssue]:
+    issues: list[ContractIssue] = []
+    sidecar_text = _image2_payload_identity_text(payload)
+    if not any(token in sidecar_text for token in ("image-2", "codex-image2", "gpt-image-2")):
+        issues.append(
+            ContractIssue(
+                "image2_sidecar_not_image2",
+                source_path,
+                "image-2 generation sidecar must identify image-2/codex-image2/gpt-image-2 as the model or generator",
+            )
+        )
+
+    raw_api = payload.get("api")
+    api: dict[str, Any] = raw_api if isinstance(raw_api, dict) else {}
+    endpoint = str(api.get("endpoint") or payload.get("endpoint") or "").lower()
+    tool_text = " ".join(
+        str(payload.get(field, ""))
+        for field in ("tool", "generated_by", "generator", "renderer", "backend")
+    ).lower()
+    if "image_tool" not in tool_text and "images/generations" not in endpoint:
+        issues.append(
+            ContractIssue(
+                "missing_image2_tool_api_evidence",
+                source_path,
+                "generation sidecar must come from the Argus image tool or record an /images/generations API endpoint",
+            )
+        )
+    if payload.get("created_at_unix") is None and payload.get("created_at") is None:
+        issues.append(
+            ContractIssue(
+                "missing_image2_sidecar_created_at",
+                source_path,
+                "generation sidecar must record created_at_unix or created_at",
+            )
+        )
+
+    prompt_sha = _lower_text(payload.get("prompt_sha256"))
+    if not prompt_sha:
+        issues.append(
+            ContractIssue(
+                "missing_image2_sidecar_prompt_sha256",
+                source_path,
+                "generation sidecar must record prompt_sha256",
+            )
+        )
+    elif not _is_sha256_hex(prompt_sha):
+        issues.append(
+            ContractIssue(
+                "invalid_image2_sidecar_prompt_sha256",
+                source_path,
+                "generation sidecar prompt_sha256 must be a lowercase SHA-256 hex digest",
+            )
+        )
+    elif prompt_file is not None and prompt_file.is_file() and _sha256_text_file(prompt_file) != prompt_sha:
+        issues.append(
+            ContractIssue(
+                "mismatched_image2_sidecar_prompt_sha256",
+                source_path,
+                "generation sidecar prompt_sha256 does not match prompt_path",
+            )
+        )
+
+    output_sha = _image_payload_sha256(payload)
+    if not output_sha:
+        issues.append(
+            ContractIssue(
+                "missing_image2_sidecar_output_sha256",
+                source_path,
+                "generation sidecar must record the accepted raster SHA-256",
+            )
+        )
+    elif not _is_sha256_hex(output_sha):
+        issues.append(
+            ContractIssue(
+                "invalid_image2_sidecar_output_sha256",
+                source_path,
+                "generation sidecar output SHA-256 must be a lowercase hex digest",
+            )
+        )
+    elif output_file is not None and output_file.is_file() and _sha256_file(output_file) != output_sha:
+        issues.append(
+            ContractIssue(
+                "mismatched_image2_sidecar_output_sha256",
+                source_path,
+                "generation sidecar output SHA-256 does not match output_path",
+            )
+        )
+    return issues
+
+
+def _validate_image2_inspect_payload(
+    payload: dict[str, Any],
+    source_path: str,
+    *,
+    output_file: Path | None,
+) -> list[ContractIssue]:
+    issues: list[ContractIssue] = []
+    inspect_sha = _image_payload_sha256(payload)
+    if not inspect_sha:
+        issues.append(
+            ContractIssue(
+                "missing_image2_inspect_sha256",
+                source_path,
+                "inspect sidecar must record the accepted raster SHA-256",
+            )
+        )
+    elif not _is_sha256_hex(inspect_sha):
+        issues.append(
+            ContractIssue(
+                "invalid_image2_inspect_sha256",
+                source_path,
+                "inspect sidecar SHA-256 must be a lowercase hex digest",
+            )
+        )
+    elif output_file is not None and output_file.is_file() and _sha256_file(output_file) != inspect_sha:
+        issues.append(
+            ContractIssue(
+                "mismatched_image2_inspect_sha256",
+                source_path,
+                "inspect sidecar SHA-256 does not match output_path",
+            )
+        )
+
+    if output_file is not None and output_file.is_file():
+        actual_dimensions = _image_file_dimensions(output_file)
+        recorded_dimensions = _dimensions_from_mapping(payload)
+        if recorded_dimensions is None:
+            image = payload.get("image")
+            if isinstance(image, dict):
+                recorded_dimensions = _dimensions_from_mapping(image)
+        if actual_dimensions is not None and recorded_dimensions != actual_dimensions:
+            issues.append(
+                ContractIssue(
+                    "mismatched_image2_inspect_dimensions",
+                    source_path,
+                    "inspect sidecar dimensions must match the accepted output_path raster",
+                )
+            )
+    return issues
+
+
+def _image2_payload_identity_text(payload: dict[str, Any]) -> str:
+    raw_api = payload.get("api")
+    api: dict[str, Any] = raw_api if isinstance(raw_api, dict) else {}
+    return " ".join(
+        str(value)
+        for value in (
+            payload.get("model"),
+            payload.get("generator"),
+            payload.get("generator_model"),
+            payload.get("renderer"),
+            payload.get("tool"),
+            payload.get("backend"),
+            payload.get("provider"),
+            api.get("provider"),
+            api.get("wire_api"),
+            api.get("endpoint"),
+        )
+    ).lower()
+
+
+def _image_payload_sha256(payload: dict[str, Any]) -> str:
+    for field in ("output_sha256", "sha256"):
+        value = _lower_text(payload.get(field))
+        if value:
+            return value
+    image = payload.get("image")
+    if isinstance(image, dict):
+        for field in ("output_sha256", "sha256"):
+            value = _lower_text(image.get(field))
+            if value:
+                return value
+    return ""
+
+
+def _sha256_text_file(path: Path) -> str:
+    return hashlib.sha256(path.read_text(encoding="utf-8", errors="replace").encode("utf-8")).hexdigest()
+
+
 def _dimensions_from_mapping(payload: dict[str, Any]) -> tuple[int, int] | None:
     width = _int_or_none(payload.get("width"))
     height = _int_or_none(payload.get("height"))
@@ -5226,7 +7292,46 @@ def _validate_image_review(
                 "image review requested regeneration, so the figure is not final-ready",
             )
         )
+    issues.extend(_validate_image_review_model_evidence(root, review_path, review))
     return issues
+
+
+def _validate_image_review_model_evidence(
+    root: Path,
+    review_path: Path,
+    review: dict[str, Any],
+) -> list[ContractIssue]:
+    source_path = _project_relative_path(root, review_path)
+    review_method = _lower_text(review.get("review_method"))
+    if review_method and any(token in review_method for token in IMAGE2_MANUAL_REVIEW_METHOD_TOKENS):
+        return [
+            ContractIssue(
+                "manual_image_review_not_allowed",
+                source_path,
+                "image-2 figure review_path records a manual-only visual check; use the image_review model route and keep its review sidecar",
+            )
+        ]
+
+    model = _lower_text(review.get("model"))
+    endpoint = _lower_text(review.get("endpoint"))
+    vision_review = review.get("vision_review")
+    if isinstance(vision_review, dict):
+        model = model or _lower_text(vision_review.get("model"))
+        endpoint = endpoint or _lower_text(vision_review.get("endpoint"))
+
+    has_model_review = bool(model and endpoint)
+    if not has_model_review and review_method:
+        has_model_review = any(token in review_method for token in IMAGE2_MODEL_REVIEW_METHOD_TOKENS)
+
+    if not has_model_review:
+        return [
+            ContractIssue(
+                "image_review_not_model_backed",
+                source_path,
+                "image-2 figure review_path must be backed by the image_review/vision model route, not only local score fields",
+            )
+        ]
+    return []
 
 
 def _validate_image2_generation_provenance(
@@ -6116,14 +8221,6 @@ def _is_sha256_hex(value: str) -> bool:
     return len(value) == 64 and all(character in "0123456789abcdef" for character in value)
 
 
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _read_tsv_header(path: Path) -> list[str]:
     with path.open("r", encoding="utf-8", newline="") as handle:
         first_line = handle.readline()
@@ -6205,7 +8302,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         ("validate-idea-provenance", "validate literature-derived idea provenance"),
         ("validate-code-reuse", "validate external source-code survey and reuse plan"),
         ("validate-exemplar", "validate paper/style_ref/EXEMPLAR.json"),
+        ("validate-exemplar-suitability", "validate primary exemplar suitability before structure lock"),
         ("validate-image2-figures", "validate paper/figures/IMAGE2_FIGURES.json"),
+        ("validate-claim-graph", "validate paper/CLAIM_GRAPH.json evidence bindings"),
+        ("validate-figure-table-style", "validate figure/table style guide and float inventory"),
+        ("validate-validation-priority", "validate failure routing and reset policy"),
+        ("validate-artifact-freshness", "validate generated artifact input-hash freshness"),
+        ("validate-paper-quality-contracts", "validate paper quality contracts above legacy gates"),
         ("validate-paper-contract", "validate full EMNLP long-paper draft contract"),
         ("validate-paper-format", "validate LaTeX/PDF reviewability and formatting evidence"),
         ("validate-research-md-format", "validate strict research.md EMNLP format preflight"),
@@ -6239,8 +8342,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         issues = validate_code_reuse_plan(project_root)
     elif args.command == "validate-exemplar":
         issues = validate_style_exemplar(project_root)
+    elif args.command == "validate-exemplar-suitability":
+        issues = validate_exemplar_suitability(project_root)
     elif args.command == "validate-image2-figures":
         issues = validate_image2_figures(project_root)
+    elif args.command == "validate-claim-graph":
+        issues = validate_claim_graph(project_root)
+    elif args.command == "validate-figure-table-style":
+        issues = validate_figure_table_style_guide(project_root)
+    elif args.command == "validate-validation-priority":
+        issues = validate_validation_priority_policy(project_root)
+    elif args.command == "validate-artifact-freshness":
+        issues = validate_artifact_freshness(project_root)
+    elif args.command == "validate-paper-quality-contracts":
+        issues = validate_paper_quality_contracts(project_root)
     elif args.command == "validate-paper-contract":
         issues = validate_emnlp_paper_contract(project_root)
     elif args.command == "validate-paper-format":

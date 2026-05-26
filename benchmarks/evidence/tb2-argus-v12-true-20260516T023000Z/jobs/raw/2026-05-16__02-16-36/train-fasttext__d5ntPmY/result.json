@@ -1,0 +1,107 @@
+{
+  "agent_execution": {
+    "finished_at": "2026-05-16T02:20:13.753406Z",
+    "started_at": "2026-05-16T02:17:12.134111Z"
+  },
+  "agent_info": {
+    "model_info": {
+      "name": "gpt-5.4-mini",
+      "provider": "openai"
+    },
+    "name": "argus-skill-codex",
+    "version": "0.130.0"
+  },
+  "agent_result": {
+    "cost_usd": 0.0384837,
+    "metadata": null,
+    "n_cache_tokens": 15616,
+    "n_input_tokens": 54074,
+    "n_output_tokens": 1882,
+    "rollout_details": null
+  },
+  "agent_setup": {
+    "finished_at": "2026-05-16T02:17:12.134061Z",
+    "started_at": "2026-05-16T02:16:52.876991Z"
+  },
+  "config": {
+    "agent": {
+      "env": {},
+      "import_path": "benchmarks.harbor_adapter:ArgusSkillCodex",
+      "kwargs": {
+        "reasoning_effort": "high"
+      },
+      "max_timeout_sec": null,
+      "model_name": "openai/gpt-5.4-mini",
+      "name": null,
+      "override_setup_timeout_sec": null,
+      "override_timeout_sec": null
+    },
+    "agent_setup_timeout_multiplier": 3.0,
+    "agent_timeout_multiplier": null,
+    "artifacts": [],
+    "environment": {
+      "delete": true,
+      "env": {},
+      "force_build": false,
+      "import_path": null,
+      "kwargs": {},
+      "mounts_json": null,
+      "override_cpus": null,
+      "override_gpus": null,
+      "override_memory_mb": null,
+      "override_storage_mb": null,
+      "suppress_override_warnings": false,
+      "type": "docker"
+    },
+    "environment_build_timeout_multiplier": null,
+    "job_id": "57f31fc2-8f18-41cc-bd36-12fa04a50057",
+    "task": {
+      "download_dir": null,
+      "git_commit_id": "69671fbaac6d67a7ef0dfec016cc38a64ef7a77c",
+      "git_url": "https://github.com/laude-institute/terminal-bench-2.git",
+      "name": null,
+      "overwrite": false,
+      "path": "train-fasttext",
+      "ref": null,
+      "source": "terminal-bench"
+    },
+    "timeout_multiplier": 1.0,
+    "trial_name": "train-fasttext__d5ntPmY",
+    "trials_dir": "/home/argustest/argus-skill/experiments/tb2-argus-v12-true-20260516T023000Z/jobs/2026-05-16__02-16-36",
+    "verifier": {
+      "disable": false,
+      "env": {},
+      "max_timeout_sec": null,
+      "override_timeout_sec": null
+    },
+    "verifier_timeout_multiplier": null
+  },
+  "environment_setup": {
+    "finished_at": "2026-05-16T02:16:52.876976Z",
+    "started_at": "2026-05-16T02:16:51.404076Z"
+  },
+  "exception_info": null,
+  "finished_at": "2026-05-16T02:20:34.328670Z",
+  "id": "2a236bf9-8f69-4820-a851-f4f9939d70af",
+  "source": "terminal-bench",
+  "started_at": "2026-05-16T02:16:51.393492Z",
+  "step_results": null,
+  "task_checksum": "fe83ab1fc447e909ed3f48d61ff42abfd29b3168c63c3efcdea9c5014c27b2f7",
+  "task_id": {
+    "git_commit_id": "69671fbaac6d67a7ef0dfec016cc38a64ef7a77c",
+    "git_url": "https://github.com/laude-institute/terminal-bench-2.git",
+    "path": "train-fasttext"
+  },
+  "task_name": "train-fasttext",
+  "trial_name": "train-fasttext__d5ntPmY",
+  "trial_uri": "file:///home/argustest/argus-skill/experiments/tb2-argus-v12-true-20260516T023000Z/jobs/2026-05-16__02-16-36/train-fasttext__d5ntPmY",
+  "verifier": {
+    "finished_at": "2026-05-16T02:20:22.495094Z",
+    "started_at": "2026-05-16T02:20:13.861133Z"
+  },
+  "verifier_result": {
+    "rewards": {
+      "reward": 0.0
+    }
+  }
+}

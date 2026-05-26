@@ -47,6 +47,14 @@ task → skill matcher → distill new skill if no high-fit match
   structured `{done, continue, blocked}` verdict. On `continue` the
   reviewer's `next_action` is fed back into the next engineer round.
 
+* **Research-paper defaults** (adapted from ARIS workflow concepts):
+  first-time initialization seeds built-in skills for research planning,
+  full auto-research orchestration, benchmark execution, result
+  analysis/figures, EMNLP-style paper drafting, submission assurance gates,
+  paper-quality calibration against positive/negative examples, paper revision
+  loops, and claims-evidence audits. These land in
+  `~/.argus-skill/skills/` and are never overwritten if you edit them.
+
 These two layers are orthogonal and multiplicative: the matcher cuts the
 search-space cost; the reviewer-loop cuts the failure cost.
 
@@ -315,8 +323,9 @@ The persistent state lives under `~/.argus-skill/`:
 | Path | Scope |
 | --- | --- |
 | `identity.md`, `journal.jsonl` | global (cross-project) |
-| `skills/` | global skill library |
+| `skills/` | global skill library, seeded with built-in research/paper skills |
 | `skills/_archive/` | retired skills |
+| `capabilities/model_api.json` | private model/image API grant (0600, outside repo) |
 | `projects/<fingerprint>/project.md` | per-project card |
 | `projects/<fingerprint>/memory.jsonl` | per-project memory journal |
 | `projects/<fingerprint>/backlog.jsonl` | per-project backlog |
@@ -329,6 +338,40 @@ The persistent state lives under `~/.argus-skill/`:
 Run `argus-skill --status` to inspect the current project backlog, the
 project-local daemon state, and the shared global journal without
 entering the REPL.
+
+### Unified model / image API config
+
+Text-model and `gpt-image-2` access is centralized in one private vault file:
+`~/.argus-skill/capabilities/model_api.json`. The file is route-based, so
+`engineer`, `reviewer`, `scientist`, `image`, and `image_review` can each use
+different URLs, API keys, providers, wire APIs, and models. It is outside the
+repository, written with mode `0600`, and is the only place tool subprocesses
+load raw API keys from.
+
+```bash
+# One-time import from environment variables and/or Codex config.
+export OPENAI_API_KEY="<your key>"
+export OPENAI_BASE_URL="https://ai4m6.openai.azure.com/openai/v1/"
+export ARGUS_SKILL_IMAGE_MODEL="gpt-image-2"
+export ARGUS_SKILL_IMAGE_REVIEW_MODEL="gpt-5.4"
+argus-skill --init-model-api
+unset OPENAI_API_KEY
+
+# Secret-free status check.
+argus-skill --model-api-status
+```
+
+If you keep provider settings in a project-local `.codex/config.toml`, point the
+importer at it once:
+
+```bash
+ARGUS_SKILL_CODEX_CONFIG=.codex/config.toml argus-skill --init-model-api
+```
+
+For split endpoints, set route-specific variables before import, e.g.
+`ARGUS_SKILL_IMAGE_BASE_URL`, `ARGUS_SKILL_IMAGE_API_KEY`,
+`ARGUS_SKILL_ENGINEER_BASE_URL`, and `ARGUS_SKILL_ENGINEER_API_KEY`. See
+`docs/API_CONFIG.md`.
 
 ### Background daemon (real 7×24)
 

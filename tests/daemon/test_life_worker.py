@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 import argus_skill.daemon.life_worker as life_worker_mod
+from argus_skill.core.bootstrap import inspect_project_bootstrap
 from argus_skill.daemon.life_worker import (
     ContinuousConfigState,
     DaemonStatus,
@@ -20,12 +21,48 @@ from argus_skill.daemon.life_worker import (
     _config_payload,
     _DaemonSink,
     _runner_namespace,
+    _worker_runtime_context,
     read_continuous_state,
     read_daemon_status,
     resolve_effective_budget,
     stop_daemon,
 )
 from argus_skill.life.memory import BacklogItem, LifeMemory
+
+_ENV_VARS_TO_CLEAR = (
+    "ARGUS_SKILL_DAILY_CAP_USD",
+    "ARGUS_SKILL_DAEMON_AUTO_RESTART",
+    "ARGUS_SKILL_DAEMON_HANDOFF_CONFIG",
+    "ARGUS_SKILL_DAEMON_HANDOFF_GEN",
+    "ARGUS_SKILL_DAEMON_HANDOFF_MAX_GEN",
+    "ARGUS_SKILL_DAEMON_HANDOFF_MIN_S",
+    "ARGUS_SKILL_DAEMON_HANDOFF_READY",
+    "ARGUS_SKILL_DAEMON_HANDOFF_TOKEN",
+    "ARGUS_SKILL_DAEMON_SOURCE_SIGNATURE",
+    "ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE",
+    "ARGUS_SKILL_ENGINEER_MODEL",
+    "ARGUS_SKILL_HOME",
+    "ARGUS_SKILL_LIFE_BACKEND",
+    "ARGUS_SKILL_MAX_ROUNDS",
+    "ARGUS_SKILL_PER_MISSION_CAP_USD",
+    "ARGUS_SKILL_PLAN_MODE",
+    "ARGUS_SKILL_PLAN_MODEL",
+    "ARGUS_SKILL_RESEARCH_PROFILE",
+    "ARGUS_SKILL_RESEARCH_PROFILE_PATH",
+    "ARGUS_SKILL_REVIEWER_MODEL",
+    "ARGUS_SKILL_SCIENTIST_MODEL",
+    "ARGUS_SKILL_SKILLS_DIR",
+    "ARGUS_SKILL_TELEGRAM_BOT_TOKEN",
+    "ARGUS_SKILL_TELEGRAM_CHAT_ID",
+    "ARGUS_SKILL_TELEGRAM_USER_ID",
+    "ARGUS_SKILL_WORKDIR",
+)
+
+
+@pytest.fixture(autouse=True)
+def _clear_ambient_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in _ENV_VARS_TO_CLEAR:
+        monkeypatch.delenv(name, raising=False)
 
 
 def test_read_daemon_status_returns_not_alive_on_missing_pid(tmp_path: Path) -> None:
@@ -34,6 +71,130 @@ def test_read_daemon_status_returns_not_alive_on_missing_pid(tmp_path: Path) -> 
     assert status.alive is False
     assert status.pid is None
     assert status.life_dir == tmp_path
+
+
+def test_inspect_project_bootstrap_detects_empty_repo(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "empty-repo"
+    repo_dir.mkdir()
+
+    preflight = inspect_project_bootstrap(repo_dir)
+
+    assert preflight.should_bootstrap is True
+    assert preflight.missing_artifacts == (".git", "build manifest", "README*", "source files")
+    assert "pyproject.toml" in preflight.bootstrap_objective
+    assert "README.md" in preflight.bootstrap_objective
+    assert f"src/{repo_dir.name.replace('-', '_')}/__init__.py" in preflight.bootstrap_objective
+    assert "uninitialized project root" in preflight.event_text
+
+
+def test_inspect_project_bootstrap_detects_research_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_dir = tmp_path / "empty-repo"
+    repo_dir.mkdir()
+    monkeypatch.setenv("ARGUS_SKILL_RESEARCH_PROFILE", "emnlp2026-tierharness")
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
+
+    preflight = inspect_project_bootstrap(repo_dir)
+
+    assert preflight.should_bootstrap is True
+    assert "research bootstrap mission" in preflight.bootstrap_objective.lower()
+    assert "research/PIPELINE_STATE.json" in preflight.bootstrap_objective
+    assert "research/RESEARCH_BRIEF.md" in preflight.bootstrap_objective
+    assert "research/GO_NO_GO.md" in preflight.bootstrap_objective
+    assert "research bootstrap requested" in preflight.event_text
+    assert "pyproject.toml" not in preflight.bootstrap_objective
+
+
+def test_inspect_project_bootstrap_detects_research_objective_hint(
+    tmp_path: Path,
+) -> None:
+    repo_dir = tmp_path / "empty-repo"
+    repo_dir.mkdir()
+
+    preflight = inspect_project_bootstrap(
+        repo_dir,
+        objective_hint="EMNLP auto-research bootstrap mission",
+    )
+
+    assert preflight.should_bootstrap is True
+    assert "research bootstrap mission" in preflight.bootstrap_objective.lower()
+    assert "research/EXPERIMENT_PLAN.md" in preflight.bootstrap_objective
+    assert "research bootstrap requested" in preflight.event_text
+
+
+def test_inspect_project_bootstrap_heals_partial_research_seed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_dir = tmp_path / "empty-repo"
+    repo_dir.mkdir()
+    monkeypatch.setenv("ARGUS_SKILL_RESEARCH_PROFILE", "emnlp2026-tierharness")
+    (repo_dir / "research" / "PIPELINE_STATE.json").parent.mkdir(parents=True, exist_ok=True)
+    (repo_dir / "research" / "PIPELINE_STATE.json").write_text(
+        "{\n  \"current_stage\": \"plan\"\n}\n",
+        encoding="utf-8",
+    )
+
+    preflight = inspect_project_bootstrap(repo_dir)
+
+    assert preflight.should_bootstrap is True
+    assert "research bootstrap mission" in preflight.bootstrap_objective.lower()
+    assert "research/PIPELINE_STATE.json" not in preflight.missing_artifacts
+    assert "research/EXPERIMENT_PLAN.md" in preflight.missing_artifacts
+    assert "research bootstrap requested" in preflight.event_text
+    assert "missing research artifacts" in preflight.event_text
+
+
+def test_inspect_project_bootstrap_treats_research_seed_as_initialized(
+    tmp_path: Path,
+) -> None:
+    repo_dir = tmp_path / "empty-repo"
+    repo_dir.mkdir()
+    for rel_path in (
+        "research/PIPELINE_STATE.json",
+        "research/RESEARCH_BRIEF.md",
+        "research/EXPERIMENT_PLAN.md",
+        "research/CLAIMS_TO_TEST.md",
+        "research/GO_NO_GO.md",
+        "experiments/BENCHMARK_PROVENANCE.md",
+    ):
+        path = repo_dir / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("seed\n", encoding="utf-8")
+
+    preflight = inspect_project_bootstrap(repo_dir)
+
+    assert preflight.should_bootstrap is False
+    assert preflight.bootstrap_objective == ""
+    assert preflight.event_text == ""
+
+
+def test_inspect_project_bootstrap_leaves_complete_research_seed_alone(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_dir = tmp_path / "empty-repo"
+    repo_dir.mkdir()
+    monkeypatch.setenv("ARGUS_SKILL_RESEARCH_PROFILE", "emnlp2026-tierharness")
+    for rel_path in (
+        "research/PIPELINE_STATE.json",
+        "research/RESEARCH_BRIEF.md",
+        "research/EXPERIMENT_PLAN.md",
+        "research/CLAIMS_TO_TEST.md",
+        "research/GO_NO_GO.md",
+        "experiments/BENCHMARK_PROVENANCE.md",
+    ):
+        path = repo_dir / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("seed\n", encoding="utf-8")
+
+    preflight = inspect_project_bootstrap(repo_dir)
+
+    assert preflight.should_bootstrap is False
+    assert preflight.bootstrap_objective == ""
+    assert preflight.event_text == ""
 
 
 def test_read_daemon_status_detects_stale_pid(tmp_path: Path) -> None:
@@ -124,9 +285,7 @@ def test_life_worker_drains_backlog_and_stops_on_signal(tmp_path: Path) -> None:
     assert items and items[0].status == "done"
 
     worker._stop.set()
-    t.join(timeout=3.0)
-    assert not t.is_alive()
-    assert rc_holder.get("rc") == 0
+    _wait_for_thread_stop(t, timeout=10.0)
 
 
 def test_life_worker_drains_multiple_missions(tmp_path: Path) -> None:
@@ -156,8 +315,7 @@ def test_life_worker_drains_multiple_missions(tmp_path: Path) -> None:
     assert all(it.status == "done" for it in mem.backlog.all())
 
     worker._stop.set()
-    t.join(timeout=3.0)
-    assert not t.is_alive()
+    _wait_for_thread_stop(t, timeout=10.0)
 
 
 def test_daemon_sink_counts_life_mission_completed() -> None:
@@ -206,6 +364,41 @@ def test_life_worker_continues_when_telegram_poller_start_fails(
     assert rc == 0
 
 
+def test_life_worker_wires_stop_event_to_codex_runner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = LifeWorkerConfig(life_dir=tmp_path, backend="codex", poll_interval=0.1)
+    LifeMemory.open(tmp_path).init()
+    captured: dict[str, Any] = {}
+
+    def fake_build_life_runner(ns: Any) -> object:
+        captured["stop_event"] = getattr(ns, "stop_event", None)
+        return object()
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            self.config.stop_event.set()
+            return {}
+
+    monkeypatch.setattr(
+        "argus_skill.apps._life_repl.build_life_runner",
+        fake_build_life_runner,
+    )
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+
+    worker = LifeWorker(cfg)
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    rc = worker.run_forever()
+
+    assert captured["stop_event"] is worker._stop
+    assert rc == 0
+
+
 def test_format_short_duration() -> None:
     from argus_skill.apps.cli import _format_short_duration
     assert _format_short_duration(0) == "0s"
@@ -234,7 +427,11 @@ def test_runner_namespace_uses_global_skills_root(
         monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / skills_env))
 
     ns = _runner_namespace(
-        LifeWorkerConfig(life_dir=tmp_path / "life", backend="memory")
+        LifeWorkerConfig(
+            life_dir=tmp_path / "life",
+            backend="memory",
+            project_workdir=tmp_path / "repo",
+        )
     )
 
     expected_path = (
@@ -243,12 +440,14 @@ def test_runner_namespace_uses_global_skills_root(
         else tmp_path / expected
     )
     assert ns.skills_dir == str(expected_path)
+    assert ns.workdir == str(tmp_path / "repo")
 
 
 def test_handoff_config_payload_round_trips(tmp_path: Path) -> None:
     cfg = LifeWorkerConfig(
         life_dir=tmp_path / "project",
         global_root=tmp_path / "global",
+        project_workdir=tmp_path / "repo",
         project_fingerprint="abc123",
         project_label="demo",
         backend="codex",
@@ -306,6 +505,7 @@ def test_life_worker_handoff_stops_after_planner_request(
     spawned: dict[str, object] = {}
 
     monkeypatch.setenv("ARGUS_SKILL_DAEMON_AUTO_RESTART", "1")
+    monkeypatch.delenv(life_worker_mod._SOURCE_SIGNATURE_ENV, raising=False)
     monkeypatch.setattr(life_worker_mod, "_source_signature", lambda: next(signatures))
 
     def _fake_spawn(
@@ -349,6 +549,103 @@ def test_life_worker_planner_runtime_context_reports_source_change(
     assert "Runtime source changed" in context
     assert "restart_daemon=true" in context
     assert not worker._stop.is_set()
+
+
+def test_life_worker_post_mission_hook_handoffs_on_source_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    signatures = iter(["old", "new"])
+    spawned: dict[str, object] = {}
+
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_AUTO_RESTART", "1")
+    monkeypatch.delenv(life_worker_mod._SOURCE_SIGNATURE_ENV, raising=False)
+    monkeypatch.setattr(life_worker_mod, "_source_signature", lambda: next(signatures))
+
+    def _fake_spawn(
+        config: LifeWorkerConfig,
+        *,
+        source_signature: str,
+        reason: str,
+    ) -> bool:
+        spawned["config"] = config
+        spawned["source_signature"] = source_signature
+        spawned["reason"] = reason
+        return True
+
+    monkeypatch.setattr(life_worker_mod, "_spawn_handoff_candidate", _fake_spawn)
+
+    cfg = LifeWorkerConfig(life_dir=tmp_path, backend="memory")
+    worker = LifeWorker(cfg)
+
+    assert worker._post_mission_hook({"status": "done"}) == "daemon_handoff"
+    assert worker._stop.is_set()
+    assert spawned == {
+        "config": cfg,
+        "source_signature": "new",
+        "reason": (
+            "runtime source changed after mission completion; "
+            "blue/green reload needed for self-architecture update"
+        ),
+    }
+
+
+def test_life_worker_post_mission_hook_noops_without_source_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spawn_called = False
+
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_AUTO_RESTART", "1")
+    monkeypatch.delenv(life_worker_mod._SOURCE_SIGNATURE_ENV, raising=False)
+    monkeypatch.setattr(life_worker_mod, "_source_signature", lambda: "same")
+
+    def _fake_spawn(*_args: object, **_kwargs: object) -> bool:
+        nonlocal spawn_called
+        spawn_called = True
+        return True
+
+    monkeypatch.setattr(life_worker_mod, "_spawn_handoff_candidate", _fake_spawn)
+
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
+
+    assert worker._post_mission_hook({"status": "done"}) == ""
+    assert not worker._stop.is_set()
+    assert spawn_called is False
+
+
+def test_worker_runtime_context_includes_research_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_RESEARCH_PROFILE", "emnlp2026-tierharness")
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
+    cfg = LifeWorkerConfig(
+        life_dir=tmp_path,
+        backend="codex",
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4-mini",
+        per_mission_cap_usd=5.0,
+        daily_cap_usd=20.0,
+    )
+
+    context = _worker_runtime_context(cfg)
+
+    assert "Runtime info" in context
+    assert "Engineer model: gpt-5.4-mini" in context
+    assert "profile_name: emnlp2026-tierharness" in context
+    assert "profile_sha256:" in context
+
+
+def test_worker_runtime_context_empty_without_research_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
+    cfg = LifeWorkerConfig(life_dir=tmp_path, backend="memory")
+
+    assert _worker_runtime_context(cfg) == ""
 
 
 def test_handoff_source_signature_reads_test_override_file(
@@ -542,6 +839,60 @@ def test_life_worker_hot_reload_rejects_memory_continuous(
     assert "done_reason" not in data
 
 
+def test_life_worker_retries_planning_after_planner_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    LifeMemory.open(tmp_path).init()
+    write_continuous_config(
+        tmp_path,
+        enabled=True,
+        objective="keep going",
+    )
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+
+    seen: dict[str, Any] = {"runs": 0, "continuous": []}
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            seen["runs"] += 1
+            if self.config.continuous_config_provider is not None:
+                enabled, objective = self.config.continuous_config_provider()
+                self.config.continuous = enabled
+                if objective:
+                    self.config.continuous_objective = objective
+            seen["continuous"].append(
+                (self.config.continuous, self.config.continuous_objective)
+            )
+            if seen["runs"] == 1:
+                return {"stopped_by": "planner_error"}
+            self.config.stop_event.set()
+            return {"stopped_by": "backlog_empty"}
+
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+
+    worker = LifeWorker(
+        LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.01)
+    )
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    rc = worker.run_forever()
+    state = read_continuous_state(tmp_path)
+
+    assert rc == 0
+    assert seen["runs"] == 2
+    assert seen["continuous"][0][0] is True
+    assert seen["continuous"][1][0] is True
+    assert state.enabled is True
+    assert state.objective == "keep going"
+    assert state.done_reason == ""
+
+
 def test_continuous_mode_error_allows_memory_backend_only_in_tests(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -560,3 +911,11 @@ def test_no_pid_file_means_status_dead(tmp_path: Path) -> None:
     assert read_daemon_status(tmp_path).alive is False
     if pid_path.exists():  # pragma: no cover
         os.unlink(pid_path)
+
+
+def _wait_for_thread_stop(thread: threading.Thread, *, timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not thread.is_alive():
+            return
+        time.sleep(0.05)

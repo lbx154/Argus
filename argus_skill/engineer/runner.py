@@ -18,7 +18,11 @@ the engineer in front of you.
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
+import re
+import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Protocol
@@ -51,6 +55,72 @@ _POISONED_SESSION_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
     "no rollout found for thread id",
 )
 
+
+_BACKEND_FAILURE_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
+    "response.failed",
+    "response failed",
+    "stream disconnected",
+    "too many requests",
+    "429",
+    "rate limit",
+    "rate-limit",
+    "forced restart after hard idle timeout",
+    "hard idle timeout",
+    "service unavailable",
+    "gateway timeout",
+    "bad gateway",
+    "connection reset",
+    "connection closed",
+    "connection aborted",
+    "network error",
+    "external interrupt",
+    "effective progress timeout",
+    "daemon stop requested",
+)
+
+_RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
+
+_EFFECTIVE_PROGRESS_TIMEOUT_ENV = "ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS"
+_EFFECTIVE_PROGRESS_CHECK_INTERVAL_ENV = (
+    "ARGUS_SKILL_EFFECTIVE_PROGRESS_CHECK_INTERVAL_SECONDS"
+)
+_RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
+_EFFECTIVE_PROGRESS_DEFAULT_TIMEOUT_SECONDS = 15 * 60
+_EFFECTIVE_PROGRESS_DEFAULT_CHECK_INTERVAL_SECONDS = 30.0
+_EFFECTIVE_PROGRESS_WAITING_EVENT_INTERVAL_SECONDS = 120.0
+_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 900
+_CODEX_SESSION_EVENT_IGNORED_PAYLOAD_TYPES = {"token_count"}
+_PROJECT_PROGRESS_IGNORE_DIRS = {
+    ".git",
+    ".hg",
+    ".svn",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "node_modules",
+}
+_PROJECT_PROGRESS_MAX_FILES = 5000
+_PROJECT_PROGRESS_SCAN_BUDGET_SECONDS = 0.35
+
+_SUCCESS_ITEM_STATUSES: tuple[str, ...] = (
+    "completed",
+    "succeeded",
+    "success",
+    "ok",
+    "applied",
+)
+_FAILED_ITEM_STATUSES: tuple[str, ...] = (
+    "failed",
+    "error",
+    "cancelled",
+    "canceled",
+)
+
+
 def _fatal_error_looks_like_poisoned_session(fatal_error: str | None) -> bool:
     if not fatal_error:
         return False
@@ -58,12 +128,121 @@ def _fatal_error_looks_like_poisoned_session(fatal_error: str | None) -> bool:
     return any(pattern in low for pattern in _POISONED_SESSION_FATAL_ERROR_PATTERNS)
 
 
+def fatal_error_looks_like_backend_failure(fatal_error: str | None) -> bool:
+    """Return True for Codex/backend transport failures only.
+
+    The match is intentionally restricted to ``RunnerResult.fatal_error``;
+    do not call this on model prose, check output, or command stderr.
+    """
+    if not fatal_error:
+        return False
+    low = str(fatal_error).strip().casefold()
+    if fatal_error_looks_like_recoverable_reconnect(fatal_error):
+        return False
+    return any(pattern in low for pattern in _BACKEND_FAILURE_FATAL_ERROR_PATTERNS)
+
+
+def fatal_error_looks_like_recoverable_reconnect(fatal_error: str | None) -> bool:
+    """Return True for Codex CLI reconnect progress notices.
+
+    Codex emits messages such as
+    ``Reconnecting... 1/100 (stream disconnected before completion: ...)``
+    while it is trying to recover the stream. That is a live reconnect
+    status, not a completed backend failure.
+    """
+    if not fatal_error:
+        return False
+    low = str(fatal_error).strip().casefold()
+    match = _RECOVERABLE_RECONNECT_RE.search(low)
+    if not match:
+        return False
+    attempt = int(match.group(1))
+    limit = int(match.group(2))
+    return attempt < limit
+
+
+def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(minimum, value)
+
+
+def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return max(minimum, value)
+
+
 def should_clear_thread_id_after_outcome(*, status: str, fatal_error: str | None) -> bool:
     """Return True when the carried Codex thread id should be cleared."""
     return (
         str(status).strip().casefold() == "no_progress"
         or _fatal_error_looks_like_poisoned_session(fatal_error)
+        or fatal_error_looks_like_backend_failure(fatal_error)
     )
+
+
+def _runner_result_has_successful_work_signal(
+    result: RunnerResult,
+    *,
+    engineer_message: str,
+) -> bool:
+    if engineer_message.strip():
+        return True
+    if fatal_error_looks_like_backend_failure(getattr(result, "fatal_error", None)):
+        return False
+
+    for raw in getattr(result, "stdout_lines", []) or []:
+        event = _parse_json_event(raw)
+        if event is not None and _event_has_successful_work_signal(event):
+            return True
+    return False
+
+
+def _parse_json_event(raw: object) -> dict | None:
+    text = str(raw or "").strip()
+    if not text or text[0] not in "{[":
+        return None
+    try:
+        event = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    return event if isinstance(event, dict) else None
+
+
+def _event_has_successful_work_signal(event: dict) -> bool:
+    event_type = str(event.get("type") or "").strip()
+    if event_type == "item.completed":
+        item = event.get("item") or {}
+        if not isinstance(item, dict):
+            return False
+        kind = str(item.get("type") or "").strip()
+        status = str(item.get("status") or "").strip().casefold()
+        exit_code = item.get("exit_code")
+        if kind == "agent_message":
+            return bool(str(item.get("text") or "").strip())
+        if status in _FAILED_ITEM_STATUSES:
+            return False
+        if kind == "command_execution":
+            return exit_code == 0 or status in _SUCCESS_ITEM_STATUSES
+        if kind in {"file_change", "tool_use"}:
+            return status in _SUCCESS_ITEM_STATUSES or bool(item.get("changes"))
+        return False
+    if event_type in {"tool.result", "assistant.message"}:
+        data = event.get("data") or {}
+        if isinstance(data, dict):
+            return bool(str(data.get("content") or data.get("output") or "").strip())
+    return False
 
 
 @dataclass
@@ -83,11 +262,317 @@ class SupervisedConfig:
     check_commands: list[str] = field(default_factory=list)
     check_timeout_seconds: int = 600
     no_progress_threshold: int = 2  # consecutive rounds with no engineer message before bailing
+    backend_failure_threshold: int = 2
+    backend_failure_backoff_seconds: float = 15.0
     session_id: str | None = None
+    # Kill a live Codex subprocess if it keeps emitting heartbeat/token
+    # noise but makes no effective progress. Effective progress means
+    # either a non-token Codex session event or a project file change.
+    # Set ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS=0 to disable.
+    effective_progress_timeout_seconds: int = field(
+        default_factory=lambda: _env_int(
+            _EFFECTIVE_PROGRESS_TIMEOUT_ENV,
+            _EFFECTIVE_PROGRESS_DEFAULT_TIMEOUT_SECONDS,
+        )
+    )
+    effective_progress_check_interval_seconds: float = field(
+        default_factory=lambda: _env_float(
+            _EFFECTIVE_PROGRESS_CHECK_INTERVAL_ENV,
+            _EFFECTIVE_PROGRESS_DEFAULT_CHECK_INTERVAL_SECONDS,
+            minimum=1.0,
+        )
+    )
+    runner_hard_idle_seconds: int = field(
+        default_factory=lambda: _env_int(
+            _RUNNER_HARD_IDLE_ENV,
+            _RUNNER_DEFAULT_HARD_IDLE_SECONDS,
+        )
+    )
 
 
 class _AdvisoryLedger(Protocol):
     def render_advisory(self) -> str: ...
+
+
+class _EffectiveProgressWatchdog:
+    """Detect live-but-stale Codex turns.
+
+    Codex can keep a subprocess alive by writing token-count heartbeats
+    after the last real tool/message event. The lower-level idle watcher
+    sees those heartbeats as stdout activity, so this watchdog looks at
+    semantic progress instead.
+    """
+
+    def __init__(
+        self,
+        *,
+        workdir: Path,
+        timeout_seconds: int,
+        check_interval_seconds: float,
+        on_event: Callable[[dict], None] | None = None,
+        run_label: str | None = None,
+        now: float | None = None,
+    ) -> None:
+        self.workdir = Path(workdir).expanduser().resolve()
+        self.timeout_seconds = max(0, int(timeout_seconds or 0))
+        self.check_interval_seconds = max(1.0, float(check_interval_seconds or 1.0))
+        self.on_event = on_event
+        self.run_label = run_label
+        self.started_at = time.time() if now is None else float(now)
+        self.last_effective_progress_at = self.started_at
+        self._last_check_at = 0.0
+        self._interrupt_reason: str | None = None
+        self._interrupted_event_sent = False
+        self._last_waiting_event_at = 0.0
+        self._project_signature = self._latest_project_signature()
+        self._session_root = _codex_sessions_root()
+        self._session_offsets = self._initial_session_offsets()
+        self._relevant_sessions: set[Path] = set()
+
+    def interrupt_reason(self) -> str | None:
+        if self.timeout_seconds <= 0:
+            return None
+        if self._interrupt_reason:
+            return self._interrupt_reason
+        now = time.monotonic()
+        if now - self._last_check_at < self.check_interval_seconds:
+            return None
+        self._last_check_at = now
+        try:
+            self._refresh_effective_progress()
+        except Exception:  # noqa: BLE001 - watchdog must never crash a runner
+            log.debug("effective progress watchdog check failed", exc_info=True)
+            return None
+
+        idle_seconds = time.time() - self.last_effective_progress_at
+        if idle_seconds < self.timeout_seconds:
+            self._emit_waiting_event(idle_seconds)
+            return None
+
+        self._interrupt_reason = (
+            "effective progress timeout: no non-token Codex session events "
+            f"or project file changes for {int(idle_seconds)}s "
+            f"(limit {self.timeout_seconds}s)"
+        )
+        self._emit_interrupted_event(idle_seconds)
+        return self._interrupt_reason
+
+    def _refresh_effective_progress(self) -> None:
+        if self._project_changed():
+            self._mark_effective_progress()
+        if self._session_progressed():
+            self._mark_effective_progress()
+
+    def _mark_effective_progress(self) -> None:
+        self.last_effective_progress_at = time.time()
+
+    def _emit_interrupted_event(self, idle_seconds: float) -> None:
+        if self._interrupted_event_sent or self.on_event is None:
+            return
+        self._interrupted_event_sent = True
+        try:
+            self.on_event({
+                "type": "round.watchdog.effective_progress_timeout",
+                "run_label": self.run_label,
+                "idle_seconds": round(idle_seconds, 1),
+                "limit_seconds": self.timeout_seconds,
+                "text": self._interrupt_reason,
+            })
+        except Exception:  # noqa: BLE001
+            log.debug("effective progress watchdog event failed", exc_info=True)
+
+    def _emit_waiting_event(self, idle_seconds: float) -> None:
+        if self.on_event is None:
+            return
+        if idle_seconds < _EFFECTIVE_PROGRESS_WAITING_EVENT_INTERVAL_SECONDS:
+            return
+        now = time.time()
+        if (
+            self._last_waiting_event_at
+            and now - self._last_waiting_event_at
+            < _EFFECTIVE_PROGRESS_WAITING_EVENT_INTERVAL_SECONDS
+        ):
+            return
+        self._last_waiting_event_at = now
+        try:
+            self.on_event({
+                "type": "round.watchdog.waiting",
+                "run_label": self.run_label,
+                "idle_seconds": round(idle_seconds, 1),
+                "limit_seconds": self.timeout_seconds,
+                "text": (
+                    "engineer turn is still alive but has no non-token Codex "
+                    f"session events or project file changes for {int(idle_seconds)}s "
+                    f"(limit {self.timeout_seconds}s)"
+                ),
+            })
+        except Exception:  # noqa: BLE001
+            log.debug("effective progress watchdog waiting event failed", exc_info=True)
+
+    def _project_changed(self) -> bool:
+        signature = self._latest_project_signature()
+        if signature is None:
+            return False
+        previous = self._project_signature
+        self._project_signature = signature
+        if previous is None:
+            return signature[0] >= self.started_at - 1.0
+        return signature != previous and signature[0] >= self.started_at - 1.0
+
+    def _latest_project_signature(self) -> tuple[float, int, str] | None:
+        started = time.monotonic()
+        newest: tuple[float, int, str] | None = None
+        scanned = 0
+        try:
+            walker = os.walk(self.workdir, topdown=True)
+        except OSError:
+            return None
+        for dirpath, dirnames, filenames in walker:
+            dirnames[:] = [
+                name for name in dirnames
+                if name not in _PROJECT_PROGRESS_IGNORE_DIRS
+            ]
+            for filename in filenames:
+                if scanned >= _PROJECT_PROGRESS_MAX_FILES:
+                    return newest
+                if time.monotonic() - started > _PROJECT_PROGRESS_SCAN_BUDGET_SECONDS:
+                    return newest
+                path = Path(dirpath) / filename
+                scanned += 1
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                candidate = (float(stat.st_mtime), int(stat.st_size), str(path))
+                if newest is None or candidate > newest:
+                    newest = candidate
+        return newest
+
+    def _initial_session_offsets(self) -> dict[Path, int]:
+        offsets: dict[Path, int] = {}
+        root = self._session_root
+        if root is None:
+            return offsets
+        try:
+            paths = list(root.rglob("*.jsonl"))
+        except OSError:
+            return offsets
+        for path in paths:
+            try:
+                offsets[path] = path.stat().st_size
+            except OSError:
+                continue
+        return offsets
+
+    def _session_progressed(self) -> bool:
+        root = self._session_root
+        if root is None:
+            return False
+        progressed = False
+        try:
+            paths = list(root.rglob("*.jsonl"))
+        except OSError:
+            return False
+        for path in paths:
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            previous_offset = self._session_offsets.get(path)
+            if previous_offset is None:
+                previous_offset = 0
+            if stat.st_size < previous_offset:
+                previous_offset = 0
+            if stat.st_size == previous_offset:
+                self._session_offsets[path] = stat.st_size
+                continue
+            if not self._session_relevant(path):
+                self._session_offsets[path] = stat.st_size
+                continue
+            if self._read_effective_session_events(path, previous_offset):
+                progressed = True
+            self._session_offsets[path] = stat.st_size
+        return progressed
+
+    def _session_relevant(self, path: Path) -> bool:
+        if path in self._relevant_sessions:
+            return True
+        if _session_cwd_matches(path, self.workdir):
+            self._relevant_sessions.add(path)
+            return True
+        return False
+
+    def _read_effective_session_events(self, path: Path, offset: int) -> bool:
+        try:
+            with path.open("r", encoding="utf-8", errors="replace") as fh:
+                fh.seek(max(0, offset))
+                for line in fh:
+                    if _is_effective_codex_session_line(line):
+                        return True
+        except OSError:
+            return False
+        return False
+
+
+def _codex_sessions_root() -> Path | None:
+    raw_home = os.environ.get("CODEX_HOME")
+    root = Path(raw_home).expanduser() if raw_home else Path.home() / ".codex"
+    sessions = root / "sessions"
+    return sessions if sessions.is_dir() else None
+
+
+def _session_cwd_matches(path: Path, workdir: Path) -> bool:
+    """Return True when a Codex rollout belongs to this project workdir."""
+    target = Path(workdir).expanduser().resolve()
+    bytes_read = 0
+    max_bytes = 256 * 1024
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                bytes_read += len(line.encode("utf-8", errors="ignore"))
+                if bytes_read > max_bytes:
+                    return False
+                try:
+                    event = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                if str(event.get("type") or "") != "session_meta":
+                    continue
+                payload = event.get("payload")
+                if not isinstance(payload, dict):
+                    payload = event
+                raw_cwd = payload.get("cwd")
+                if not isinstance(raw_cwd, str) or not raw_cwd.strip():
+                    return False
+                try:
+                    return Path(raw_cwd).expanduser().resolve() == target
+                except OSError:
+                    return False
+    except OSError:
+        return False
+    return False
+
+
+def _is_effective_codex_session_line(line: str) -> bool:
+    text = line.strip()
+    if not text:
+        return False
+    try:
+        event = json.loads(text)
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(event, dict):
+        return False
+    if str(event.get("type") or "") == "token_count":
+        return False
+    payload = event.get("payload")
+    if isinstance(payload, dict):
+        payload_type = str(payload.get("type") or "")
+        if payload_type in _CODEX_SESSION_EVENT_IGNORED_PAYLOAD_TYPES:
+            return False
+    return True
 
 
 class SupervisedEngineer:
@@ -141,6 +626,7 @@ class SupervisedEngineer:
         last_engineer_message = ""
         last_next_action: str | None = None
         no_progress_streak = 0
+        backend_failure_streak = 0
         current_thread_id: str | None = seed_thread_id
 
         for round_index in range(1, supervised_config.max_rounds + 1):
@@ -177,6 +663,8 @@ class SupervisedEngineer:
                 workdir=workdir,
                 run_label=f"engineer-r{round_index}",
                 resume_thread_id=current_thread_id,
+                supervised_config=supervised_config,
+                on_event=on_event,
             )
             # Capture thread_id so the next round (and the next mission,
             # via the return value) can resume the same codex session.
@@ -214,7 +702,77 @@ class SupervisedEngineer:
             elif new_tid:
                 current_thread_id = new_tid
 
-            if not engineer_message.strip():
+            if fatal_error_looks_like_backend_failure(fatal_error):
+                backend_failure_streak += 1
+                no_progress_streak = 0
+                review = backend_failure_review_decision(
+                    fatal_error=fatal_error,
+                    exit_code=getattr(engineer_result, "exit_code", 0),
+                    streak=backend_failure_streak,
+                    threshold=supervised_config.backend_failure_threshold,
+                )
+                if on_event:
+                    on_event({
+                        "type": "round.review.completed",
+                        "round_index": round_index,
+                        "round_max": supervised_config.max_rounds,
+                        "status": review.status,
+                        "confidence": review.confidence,
+                        "reason": review.reason,
+                        "next_action": review.next_action,
+                        "round_summary_markdown": review.round_summary_markdown,
+                        "completion_summary_markdown": review.completion_summary_markdown,
+                        "failure_cause": review.failure_cause,
+                        "input_tokens": 0,
+                        "cached_input_tokens": 0,
+                        "output_tokens": 0,
+                        "usage_scope": "delta",
+                        "review_skipped": True,
+                        "text": (
+                            "review: skipped (backend failure) — "
+                            f"{review.reason}"
+                        ),
+                    })
+                rounds.append(RoundRecord(
+                    round_index=round_index,
+                    engineer_message=engineer_message,
+                    engineer_exit_code=engineer_result.exit_code,
+                    checks=[],
+                    review=review,
+                    fatal_error=engineer_result.fatal_error,
+                ))
+                threshold = max(1, int(supervised_config.backend_failure_threshold or 1))
+                if backend_failure_streak >= threshold or round_index >= supervised_config.max_rounds:
+                    return (
+                        "error",
+                        rounds,
+                        last_engineer_message,
+                        review.reason,
+                        None,
+                    )
+                backoff_seconds = max(
+                    0.0, float(supervised_config.backend_failure_backoff_seconds or 0.0)
+                )
+                if backoff_seconds:
+                    if on_event:
+                        on_event({
+                            "type": "round.backend_failure.backoff",
+                            "round_index": round_index,
+                            "round_max": supervised_config.max_rounds,
+                            "seconds": backoff_seconds,
+                            "text": (
+                                "backend failure; retrying in a fresh Codex session "
+                                f"after {backoff_seconds:.1f}s"
+                            ),
+                        })
+                    time.sleep(backoff_seconds)
+                last_next_action = review.next_action
+                continue
+
+            backend_failure_streak = 0
+            if not _runner_result_has_successful_work_signal(
+                engineer_result, engineer_message=engineer_message
+            ):
                 no_progress_streak += 1
             else:
                 no_progress_streak = 0
@@ -342,7 +900,26 @@ class SupervisedEngineer:
         workdir: Path,
         run_label: str,
         resume_thread_id: str | None = None,
+        supervised_config: SupervisedConfig | None = None,
+        on_event: Callable[[dict], None] | None = None,
     ) -> RunnerResult:
+        effective_progress_provider: Callable[[], str | None] | None = None
+        hard_idle_seconds = 0
+        if supervised_config is not None:
+            timeout_seconds = int(
+                supervised_config.effective_progress_timeout_seconds or 0
+            )
+            hard_idle_seconds = int(supervised_config.runner_hard_idle_seconds or 0)
+            if timeout_seconds > 0:
+                effective_progress_provider = _EffectiveProgressWatchdog(
+                    workdir=workdir,
+                    timeout_seconds=timeout_seconds,
+                    check_interval_seconds=(
+                        supervised_config.effective_progress_check_interval_seconds
+                    ),
+                    on_event=on_event,
+                    run_label=run_label,
+                ).interrupt_reason
         try:
             return self.engineer_runner.run_exec(
                 prompt=prompt,
@@ -354,6 +931,8 @@ class SupervisedEngineer:
                     skip_git_repo_check=self.engineer_config.skip_git_repo_check,
                     dangerous_yolo=self.engineer_config.dangerous_yolo,
                     working_dir=str(workdir),
+                    external_interrupt_reason_provider=effective_progress_provider,
+                    watchdog_hard_idle_seconds=hard_idle_seconds,
                 ),
                 run_label=run_label,
                 resume_thread_id=resume_thread_id,
@@ -397,6 +976,40 @@ class SupervisedEngineer:
                 len(checks_results),
             )
         return None, ""
+
+
+def backend_failure_review_decision(
+    *,
+    fatal_error: str | None,
+    exit_code: int,
+    streak: int,
+    threshold: int,
+) -> ReviewDecision:
+    error_text = str(fatal_error or f"exit={exit_code}").strip()
+    threshold = max(1, int(threshold or 1))
+    retry_text = (
+        "Retry in a fresh Codex session; do not resume the failed thread. "
+        "If this repeats, pause the daemon and reduce concurrent Codex load."
+    )
+    return ReviewDecision(
+        status="continue",
+        confidence=0.0,
+        reason=(
+            "Engineer backend failed before a trustworthy completed turn; "
+            f"reviewer skipped. backend_failure_streak={streak}/{threshold}; "
+            f"error={error_text}"
+        ),
+        next_action=retry_text,
+        round_summary_markdown=(
+            "# Review Summary\n\n"
+            "- Reviewer skipped because the engineer backend reported a transient "
+            "infrastructure failure.\n"
+            f"- Error: {error_text}\n"
+            f"- Consecutive backend failures: {streak}/{threshold}\n"
+        ),
+        completion_summary_markdown="",
+        failure_cause="environmental",
+    )
 
 
 def _fallback_failed_check_handoff(checks: list[CheckResult]) -> str:
@@ -444,5 +1057,8 @@ __all__ = [
     "SupervisedConfig",
     "SupervisedEngineer",
     "LoopOutcome",
+    "backend_failure_review_decision",
+    "fatal_error_looks_like_backend_failure",
+    "fatal_error_looks_like_recoverable_reconnect",
     "should_clear_thread_id_after_outcome",
 ]

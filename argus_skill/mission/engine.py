@@ -1,12 +1,18 @@
 """Compatibility wrapper for the legacy mission loop API."""
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..core.models import CheckResult, ReviewDecision, RunnerOptions, RunnerResult
 from ..engineer.checks import run_checks
 from ..engineer.reviewer import ReviewerConfig
+from ..engineer.runner import (
+    backend_failure_review_decision,
+    fatal_error_looks_like_backend_failure,
+    should_clear_thread_id_after_outcome,
+)
 
 
 @dataclass
@@ -22,6 +28,8 @@ class MissionLoopConfig:
     pending_lessons_dir: str = ""
     mission_id: str = ""
     on_skill_lesson: Any = None
+    backend_failure_threshold: int = 2
+    backend_failure_backoff_seconds: float = 15.0
 
 
 @dataclass
@@ -67,6 +75,7 @@ class MissionLoopEngine:
         final_message = ""
         reason = ""
         prev_review_summary = ""
+        backend_failure_streak = 0
         review_config = ReviewerConfig(
             model=self.config.reviewer_model or None,
             reasoning_effort=self.config.reviewer_reasoning_effort,
@@ -88,8 +97,79 @@ class MissionLoopEngine:
                 run_label=f"engineer-r{round_index}",
                 resume_thread_id=last_thread_id,
             )
-            last_thread_id = engineer_result.thread_id or last_thread_id
+            round_thread_id = engineer_result.thread_id or last_thread_id
             final_message = engineer_result.last_agent_message or final_message
+
+            if self.event_sink is not None:
+                self.event_sink({
+                    "type": "round.main.completed",
+                    "round_index": round_index,
+                    "session_id": round_thread_id,
+                    "exit_code": engineer_result.exit_code,
+                    "fatal_error": engineer_result.fatal_error,
+                    "input_tokens": engineer_result.input_tokens,
+                    "cached_input_tokens": engineer_result.cached_input_tokens,
+                    "output_tokens": engineer_result.output_tokens,
+                    "usage_scope": "delta",
+                })
+
+            if should_clear_thread_id_after_outcome(
+                status="error" if engineer_result.exit_code != 0 else "done",
+                fatal_error=engineer_result.fatal_error,
+            ):
+                last_thread_id = None
+            else:
+                last_thread_id = round_thread_id
+
+            if fatal_error_looks_like_backend_failure(engineer_result.fatal_error):
+                backend_failure_streak += 1
+                review = backend_failure_review_decision(
+                    fatal_error=engineer_result.fatal_error,
+                    exit_code=engineer_result.exit_code,
+                    streak=backend_failure_streak,
+                    threshold=self.config.backend_failure_threshold,
+                )
+                prev_review_summary = review.round_summary_markdown or review.reason or ""
+                if self.event_sink is not None:
+                    self.event_sink({
+                        "type": "round.review.completed",
+                        "round_index": round_index,
+                        "session_id": self.config.mission_id or None,
+                        "status": review.status,
+                        "confidence": review.confidence,
+                        "reason": review.reason,
+                        "next_action": review.next_action,
+                        "input_tokens": 0,
+                        "cached_input_tokens": 0,
+                        "output_tokens": 0,
+                        "usage_scope": "delta",
+                        "review_skipped": True,
+                    })
+                rounds.append(
+                    MissionRoundRecord(
+                        round_index=round_index,
+                        main_exit_code=engineer_result.exit_code,
+                        main_turn_completed=bool(engineer_result.agent_messages),
+                        main_turn_failed=True,
+                        thread_id=last_thread_id,
+                        review=review,
+                    )
+                )
+                threshold = max(1, int(self.config.backend_failure_threshold or 1))
+                if backend_failure_streak >= threshold or round_index >= self.config.max_rounds:
+                    return MissionLoopResult(
+                        status="error",
+                        rounds=rounds,
+                        final_message=final_message,
+                        reason=review.reason,
+                        last_thread_id=None,
+                    )
+                backoff_seconds = max(0.0, float(self.config.backend_failure_backoff_seconds or 0.0))
+                if backoff_seconds:
+                    time.sleep(backoff_seconds)
+                continue
+
+            backend_failure_streak = 0
 
             checks_results: list[CheckResult] = []
             if self.config.check_commands:
@@ -97,18 +177,6 @@ class MissionLoopEngine:
                     list(self.config.check_commands),
                     timeout_seconds=600,
                 )
-
-            if self.event_sink is not None:
-                self.event_sink({
-                    "type": "round.main.completed",
-                    "round_index": round_index,
-                    "session_id": last_thread_id,
-                    "exit_code": engineer_result.exit_code,
-                    "fatal_error": engineer_result.fatal_error,
-                    "input_tokens": engineer_result.input_tokens,
-                    "cached_input_tokens": engineer_result.cached_input_tokens,
-                    "output_tokens": engineer_result.output_tokens,
-                })
 
             review = self.reviewer.evaluate(
                 objective=self.config.objective,
@@ -138,6 +206,7 @@ class MissionLoopEngine:
                     "input_tokens": review.input_tokens,
                     "cached_input_tokens": review.cached_input_tokens,
                     "output_tokens": review.output_tokens,
+                    "usage_scope": "delta",
                 })
 
             if review.mission_lesson and callable(self.config.on_skill_lesson):

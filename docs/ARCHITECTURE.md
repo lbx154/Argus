@@ -21,7 +21,11 @@ origin or notes when a module is new in this repo.
 | `argus_skill/skills/layered.py` | new | Layered skill helpers. |
 | `argus_skill/skills/lifecycle.py` | new | Reinforce / distill / revise / retire dispatch. |
 | `argus_skill/skills/quality.py` | new | Skill quality helpers. |
+| `argus_skill/skills/builtins.py` | new | Seeds bundled research/paper skills into the global skill library without overwriting user edits. |
+| `argus_skill/skills/paper_calibration.py` | new | Stores paper-quality calibration metadata and detects fresh-demo-style quality blockers. |
+| `argus_skill/skills/pipeline_contracts.py` | new | Validates auto-research state, submission assurance, and calibration artifacts. |
 | `argus_skill/skills/store.py` | skill-agent/skill_agent/skill_store.py | Markdown skill cache + fit-graded matcher. |
+| `argus_skill/builtin_skills/*.md` | adapted | Argus-native research/paper playbooks adapted from ARIS workflow concepts. |
 | `argus_skill/engineer/reviewer.py` | ArgusBot/codex_autoloop/reviewer.py | Reviewer loop adapted to `RunnerBackend`. |
 | `argus_skill/engineer/checks.py` | ArgusBot/codex_autoloop/checks.py | Acceptance-check helpers. |
 | `argus_skill/engineer/reviewer_schema.json` | ArgusBot/codex_autoloop/reviewer_schema.json | Reviewer JSON schema. |
@@ -76,6 +80,15 @@ holds the reusable backlog/config/status/run helpers, `apps/_target_paths.py`
 keeps life-root resolution consistent, and `life/status.py` centralizes the
 running-item and continuous-state selectors.
 
+Global initialization seeds bundled research/paper skills into
+`~/.argus-skill/skills/`, including the auto-research orchestrator and
+submission-assurance gate. The gate includes a paper-quality calibration layer:
+local pilot failures can be kept as negative regression patterns, while official
+award metadata is used only for quality signals rather than copied prose.
+Seeding is idempotent and filename-preserving: an existing operator-edited skill
+file is left untouched, while missing bundled skills are added on the next
+startup/init.
+
 ## How a task flows through the loop
 
 1. **Match.** `SkillStore.find_relevant(task)` ranks skills by
@@ -88,6 +101,20 @@ running-item and continuous-state selectors.
    "blocked"`, otherwise keep iterating up to `max_rounds`.
 5. **Writeback (on done).** `SkillStore.writeback_from_trajectory`
    updates the skill history so the matcher sees the successful path.
+
+## Paper Evidence Hierarchy
+
+The paper workspace uses an SLM->LLM->HUMAN evidence ladder, but the ladder is
+checked in as a generated artifact package rather than left as a loose claim.
+The current local sources are:
+
+- SLM: `experiments/tb2-bare-gpt54-mini-20260515T212131Z/manifest.json`
+- LLM: `benchmarks/evidence/tb2-bare-gpt54-20260515T201322Z/summary.tsv`
+- HUMAN: `benchmarks/evidence/tb2-manual-followup-20260515T202500Z/summary.tsv`
+- Generated table: `paper/artifacts/slm_llm_human_hierarchy.tsv`
+
+That package is intentionally evidence-preserving. It describes the three tiers
+without turning the framing into a new quantitative claim.
 
 ## Tests as living docs
 

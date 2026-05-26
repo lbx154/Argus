@@ -1,0 +1,33 @@
+{
+  "bundle_root": "benchmarks/evidence/tb2-reviewer-gate-contrast-20260515T201700Z",
+  "created_at": "2026-05-15T20:22:22+00:00",
+  "evidence_type": "reviewer-off shortcut vs verifier-gated contrast",
+  "exported_from": [
+    "benchmarks/prompt_only_tb2/runs/no-review-smoke-20260513T150423Z/20260513T150423Z-o002-argus-cancel-async-tasks",
+    "benchmarks/prompt_only_tb2/runs/20260515T201700Z-o002-argus-cancel-async-tasks"
+  ],
+  "jobs": [
+    {
+      "bundle_dir": "jobs/raw/failure-reviewer-off",
+      "job_id": "failure-reviewer-off",
+      "note": "legacy runner did not emit an explicit benchmark verifier gate",
+      "result_json": "jobs/raw/failure-reviewer-off/result.json",
+      "source_run_root": "benchmarks/prompt_only_tb2/runs/no-review-smoke-20260513T150423Z/20260513T150423Z-o002-argus-cancel-async-tasks",
+      "stderr_log": "jobs/raw/failure-reviewer-off/stderr.log",
+      "stdout_log": "jobs/raw/failure-reviewer-off/stdout.log",
+      "verification_log": "jobs/raw/failure-reviewer-off/verification.log"
+    },
+    {
+      "bundle_dir": "jobs/raw/fix-verifier-gated",
+      "job_id": "fix-verifier-gated",
+      "note": "current runner emits ARGUS_SKILL_BENCHMARK_VERIFIER_GATE=1 and records zero_touch_success",
+      "result_json": "jobs/raw/fix-verifier-gated/result.json",
+      "source_run_root": "benchmarks/prompt_only_tb2/runs/20260515T201700Z-o002-argus-cancel-async-tasks",
+      "stderr_log": "jobs/raw/fix-verifier-gated/stderr.log",
+      "stdout_log": "jobs/raw/fix-verifier-gated/stdout.log",
+      "verification_log": "jobs/raw/fix-verifier-gated/verification.log"
+    }
+  ],
+  "source_mode": "prompt_only_tb2",
+  "source_task": "cancel-async-tasks"
+}

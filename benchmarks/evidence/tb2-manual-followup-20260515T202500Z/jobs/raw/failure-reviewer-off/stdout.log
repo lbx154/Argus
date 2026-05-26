@@ -1,0 +1,26 @@
+
+                              _   _ _ _
+ __ _ _ _ __ _ _  _ ______ __| |_(_) | |
+/ _` | '_/ _` | || (_-<___(_-< / / | | |
+\__,_|_| \__, |\_,_/__/   /__/_\_\_|_|_|
+         |___/
+
+  supervised skill-driven coding agent  v0.1.0
+
+  ────────────────────────────────────────────────────────────
+  mode       → life    in-process · no daemon  (start with `argus-skill --daemon` for 7×24)
+  backend    → codex   (memory or codex)
+  backlog    → 0 pending
+  iterate    → on    default 6 cycles · $30 budget · /add --once to opt out
+  verbose    → always (filter removed — every event is shown)
+  state      → /home/argustest/argus-skill/benchmarks/prompt_only_tb2/runs/no-review-smoke-20260513T150423Z/20260513T150423Z-o002-argus-cancel-async-tasks/.argus-skill/projects/07197071cf43
+  init       → created global.identity, global.journal, project.project_card, project.memory, project.backlog
+  ────────────────────────────────────────────────────────────
+
+  free text runs immediately on the backend  ·  /help for commands  ·  /exit or Ctrl-D to leave
+
+argus ›   iterate = off
+argus › added ab38357a6e1e: ## Automated pilot runner context - Pilot run id: `20260513T  (priority=-1, max_cost=$30.00, once)
+running on backend=codex (Ctrl-C to stop)...
+⏱  elapsed 1m42s
+argus ↻ › bye.

@@ -103,6 +103,8 @@ def test_final_submission_scope_requires_full_emnlp_gate() -> None:
     assert "negative-result pivot" in prompt
     assert "validate-pipeline" in prompt
     assert "bounded" in prompt
+    assert "paper_optimization_task" in prompt
+    assert "validate-research-md-format" in prompt
 
 
 def test_reviewer_prompt_includes_validator_toolbelt() -> None:

@@ -1,0 +1,4 @@
+Skipping image OS validation for alexgshaw/prove-plus-comm:20251031: docker inspect returned 1
+Trial prove-plus-comm__7BKPHiw failed: Docker compose command failed for environment prove-plus-comm. Command: docker compose --project-name prove-plus-comm__7bkphiw --project-directory /home/argustest/.cache/harbor/tasks/djEEswskd9fpNSUidkwrfM/prove-plus-comm/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+. Stderr: None. 

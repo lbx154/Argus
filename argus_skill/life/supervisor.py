@@ -31,7 +31,7 @@ import re
 import threading
 import time
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -152,7 +152,133 @@ def _planner_task_signature(title: str, objective: str) -> tuple[str, str]:
 
 
 _PLANNER_DEDUP_STATUSES = {"pending", "running", "done"}
+_PLANNER_RECENT_HISTORY_WINDOW = 20
+_PLANNER_RECENT_FAILURE_STATUS = "no_progress"
 _FOLLOWUP_CRITIC_MIN_IMPACT_SCORE = 5
+_PLANNER_SCOPE_BOUNDED = "bounded"
+_PLANNER_SCOPE_FINAL_SUBMISSION = "final_submission"
+_FULL_EMNLP_GATE_COMMAND = (
+    "python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root ."
+)
+_OPEN_ENDED_OBJECTIVE_MARKERS = (
+    "open-ended",
+    "self-improvement",
+    "ongoing",
+    "always-on",
+    "always on",
+    "7x24",
+    "7×24",
+    "24/7",
+    "perpetual",
+    "never-ending",
+    "never ending",
+)
+_PAPER_LONG_HORIZON_OBJECTIVE_SUBSTRINGS = (
+    "academic paper",
+    "camera-ready",
+    "citation",
+    "latex",
+    "long paper",
+    "main.pdf",
+    "main.tex",
+    "make_paper",
+    "manuscript",
+    "paper/",
+    "paper draft",
+    "publication-ready",
+    "submission-ready",
+    "validate-full-emnlp",
+    "正文",
+    "论文",
+    "投稿",
+)
+_PAPER_LONG_HORIZON_OBJECTIVE_WORDS = {"acl", "emnlp"}
+
+
+def _objective_is_open_ended(objective: str) -> bool:
+    normalized = _normalize_planner_text(objective)
+    return any(marker in normalized for marker in _OPEN_ENDED_OBJECTIVE_MARKERS)
+
+
+def _objective_requires_full_emnlp_gate(objective: str) -> bool:
+    raw = str(objective or "").casefold()
+    normalized = _normalize_planner_text(objective)
+    venue_marker = "emnlp" in normalized or "acl" in normalized
+    final_marker = any(
+        marker in raw
+        for marker in (
+            "submission",
+            "submit",
+            "submission-ready",
+            "camera-ready",
+            "paper",
+            "long paper",
+            "投稿",
+            "论文",
+            "投递",
+        )
+    )
+    return venue_marker and final_marker
+
+
+def _objective_is_paper_long_horizon(objective: str) -> bool:
+    normalized = _normalize_planner_text(objective)
+    if any(marker in normalized for marker in _PAPER_LONG_HORIZON_OBJECTIVE_SUBSTRINGS):
+        return True
+    tokens = set(re.findall(r"[a-z0-9]+", normalized))
+    return bool(tokens & _PAPER_LONG_HORIZON_OBJECTIVE_WORDS)
+
+
+def _text_has_full_emnlp_gate_success(text: str) -> bool:
+    normalized = _normalize_planner_text(text)
+    if "validate-full-emnlp" not in normalized:
+        return False
+    success_markers = (
+        "exit 0",
+        "exited 0",
+        "exited with code 0",
+        "returncode 0",
+        "return code 0",
+        "status 0",
+        "status=0",
+        "passed",
+        "success",
+    )
+    return any(marker in normalized for marker in success_markers)
+
+
+def _entry_task_signature(entry: JournalEntry) -> tuple[str, str] | None:
+    extra = getattr(entry, "extra", {}) or {}
+    signature = extra.get("planner_task_signature")
+    title = ""
+    objective = ""
+    if isinstance(signature, dict):
+        title = str(signature.get("title", "") or "")
+        objective = str(signature.get("objective", "") or "")
+    elif isinstance(signature, (list, tuple)) and len(signature) >= 2:
+        title = str(signature[0] or "")
+        objective = str(signature[1] or "")
+    else:
+        title = str(extra.get("title") or entry.title or "")
+        objective = str(extra.get("objective") or "")
+    normalized_title = _normalize_planner_text(title)
+    normalized_objective = _normalize_planner_text(objective)
+    if not normalized_title and not normalized_objective:
+        return None
+    return normalized_title, normalized_objective
+
+
+def _is_recent_no_progress_failure(entry: JournalEntry) -> bool:
+    if entry.kind != "mission_failed":
+        return False
+    extra = getattr(entry, "extra", {}) or {}
+    terminal_status = str(
+        extra.get("terminal_status")
+        or extra.get("status")
+        or extra.get("failure_status")
+        or ""
+    ).strip().casefold()
+    return terminal_status == _PLANNER_RECENT_FAILURE_STATUS
 
 
 class _CostTrackingSink:
@@ -185,16 +311,21 @@ class _CostTrackingSink:
         self._engineer_round_count = 0
         self.engineer_cached_input_tokens = 0
         self.reviewer_cached_input_tokens = 0
+        self._cumulative_usage_baselines: dict[
+            tuple[str, str], tuple[int, int, int]
+        ] = {}
 
     def handle_event(self, event: dict[str, Any]) -> None:
         try:
             kind = event.get("type") if isinstance(event, dict) else None
             if kind == "round.main.completed":
-                self.engineer_input_tokens += int(event.get("input_tokens", 0) or 0)
-                self.engineer_cached_input_tokens += int(
-                    event.get("cached_input_tokens", 0) or 0
+                in_tok, cached_tok, out_tok = self._usage_delta(
+                    event,
+                    layer="engineer",
                 )
-                self.engineer_output_tokens += int(event.get("output_tokens", 0) or 0)
+                self.engineer_input_tokens += in_tok
+                self.engineer_cached_input_tokens += cached_tok
+                self.engineer_output_tokens += out_tok
                 self._engineer_round_count += 1
             elif kind == "round.review.started":
                 if not self._reviewer_notified and self._on_phase_change:
@@ -208,11 +339,13 @@ class _CostTrackingSink:
                     except Exception:  # noqa: BLE001
                         log.debug("phase change callback failed", exc_info=True)
             elif kind == "round.review.completed":
-                self.reviewer_input_tokens += int(event.get("input_tokens", 0) or 0)
-                self.reviewer_cached_input_tokens += int(
-                    event.get("cached_input_tokens", 0) or 0
+                in_tok, cached_tok, out_tok = self._usage_delta(
+                    event,
+                    layer="reviewer",
                 )
-                self.reviewer_output_tokens += int(event.get("output_tokens", 0) or 0)
+                self.reviewer_input_tokens += in_tok
+                self.reviewer_cached_input_tokens += cached_tok
+                self.reviewer_output_tokens += out_tok
         except Exception:  # noqa: BLE001
             log.debug("cost-tracking sink ignored malformed event", exc_info=True)
         # Always forward.
@@ -265,6 +398,48 @@ class _CostTrackingSink:
     def total_output_tokens(self) -> int:
         return self.engineer_output_tokens + self.reviewer_output_tokens
 
+    def _usage_delta(
+        self,
+        event: dict[str, Any],
+        *,
+        layer: str,
+    ) -> tuple[int, int, int]:
+        raw = (
+            int(event.get("input_tokens", 0) or 0),
+            int(event.get("cached_input_tokens", 0) or 0),
+            int(event.get("output_tokens", 0) or 0),
+        )
+        if str(event.get("usage_scope") or "delta").lower() != "cumulative":
+            return raw
+
+        session_id = str(
+            event.get("session_id")
+            or event.get("thread_id")
+            or event.get("actor")
+            or "__global__"
+        )
+        key = (layer, session_id)
+        previous = self._cumulative_usage_baselines.get(key)
+        self._cumulative_usage_baselines[key] = raw
+        if previous is None:
+            return raw
+        delta = (
+            raw[0] - previous[0],
+            raw[1] - previous[1],
+            raw[2] - previous[2],
+        )
+        if any(value < 0 for value in delta):
+            log.debug(
+                "cumulative usage decreased; treating current event as fresh delta "
+                "(layer=%s, session_id=%s, previous=%s, current=%s)",
+                layer,
+                session_id,
+                previous,
+                raw,
+            )
+            return raw
+        return delta
+
 
 # ---------------------------------------------------------------------------
 # Supervisor
@@ -276,6 +451,10 @@ class LifeSupervisorConfig:
 
     budget: LifeBudget = field(default_factory=LifeBudget)
     poll_interval_seconds: float = 5.0
+    # The real repository worktree for this project. When present, the
+    # supervisor should run engineer / planner work there instead of in
+    # the life metadata directory.
+    project_worktree: Path | None = None
     # Highest-level kill switch — the supervisor checks this between
     # missions. The CLI sets it on SIGTERM/SIGINT.
     stop_event: threading.Event | None = None
@@ -289,6 +468,11 @@ class LifeSupervisorConfig:
     # the agent knows its own backend, models, and budget constraints.
     # Set by the REPL / daemon worker; empty string disables injection.
     runtime_context: str = ""
+    # Defaults for tasks generated by the continuous planner. Manual backlog
+    # items already use the BacklogItem defaults; keep planner-generated work
+    # equally capable instead of cutting it off after one local polish cycle.
+    planner_task_iteration_max_cycles: int = 6
+    planner_task_iteration_budget_usd: float = 30.0
     # --- Continuous improvement mode -----------------------------------
     # When enabled, the supervisor does not exit when the backlog is
     # empty. Instead it invokes the critic-as-planner to inspect the
@@ -313,6 +497,16 @@ class LifeSupervisorConfig:
     # Optional handler invoked only when the planner verdict explicitly
     # requests a daemon restart. Return True when the host is yielding.
     planner_restart_handler: Any = None  # Callable[[str], bool] | None
+    # Optional mission-boundary hook. The host may use this to perform
+    # process-level actions that are only safe between missions (for example
+    # blue/green handoff after the agent modifies its own daemon/runtime
+    # architecture). Return a non-empty stop reason to end this drain pass.
+    post_mission_hook: Any = None  # Callable[[dict[str, Any]], str] | None
+    # Optional runtime directory for mission telemetry. When set, the
+    # supervisor starts a daemon-owned heartbeat around runner.execute()
+    # so long-running shell experiments still show process/artifact progress.
+    telemetry_dir: Path | None = None
+    telemetry_interval_seconds: float = 10.0
 
 
 # ----- thin protocol describing what we need from a MissionExecutor --------
@@ -444,7 +638,42 @@ class LifeSupervisor:
             "on",
         }
 
+    def _configured_worktree(self) -> Path | None:
+        configured = getattr(self.config, "project_worktree", None)
+        if configured is not None:
+            return Path(configured).expanduser()
+        memory_worktree = getattr(self.memory, "project_worktree", None)
+        if memory_worktree is not None:
+            return Path(memory_worktree).expanduser()
+        return None
+
     def _project_workdir(self) -> Path:
+        configured = self._configured_worktree()
+        if configured is not None:
+            return configured
+        env_workdir = os.environ.get("ARGUS_SKILL_WORKDIR", "").strip()
+        if env_workdir:
+            return Path(env_workdir).expanduser()
+        project_root = getattr(self.memory, "project_root", None)
+        if project_root:
+            return Path(project_root)
+        project = getattr(self.memory, "project", None)
+        if project is not None:
+            root = getattr(project, "root", None)
+            if root:
+                return Path(root)
+        root = getattr(self.memory, "root", None)
+        if root:
+            return Path(root)
+        return Path.cwd()
+
+    def _planner_workdir(self) -> Path:
+        configured = self._configured_worktree()
+        if configured is not None:
+            return configured
+        env_workdir = os.environ.get("ARGUS_SKILL_WORKDIR", "").strip()
+        if env_workdir:
+            return Path(env_workdir).expanduser()
         project_root = getattr(self.memory, "project_root", None)
         if project_root:
             return Path(project_root)
@@ -464,7 +693,7 @@ class LifeSupervisor:
         safe_mode = self._safe_mode_enabled()
         return CriticConfig(
             model=self.reviewer_model,
-            working_dir=str(self._project_workdir()),
+            working_dir=str(self._planner_workdir()),
             skip_git_repo_check=True,
             full_auto=safe_mode,
             dangerous_yolo=not safe_mode,
@@ -487,7 +716,25 @@ class LifeSupervisor:
                     self._emit_status(stop_reason)
                 stopped_by = stop_reason
                 break
-            outcome = self.tick()
+            try:
+                outcome = self.tick()
+            except Exception as exc:  # noqa: BLE001
+                err = f"{type(exc).__name__}: {exc}"
+                log.exception("life supervisor: tick raised")
+                recovered = self._fail_running_items_after_supervisor_error(err)
+                self._emit({
+                    "type": "life.supervisor.error",
+                    "error": err,
+                    "recovered_item_ids": recovered,
+                })
+                results.append({
+                    "success": False,
+                    "status": "supervisor_error",
+                    "reason": err,
+                    "recovered_item_ids": recovered,
+                })
+                stopped_by = "supervisor_error"
+                break
             if outcome is None:
                 # Backlog empty — continuous mode: ask planner for more
                 if self.config.continuous and self.config.continuous_objective:
@@ -504,6 +751,9 @@ class LifeSupervisor:
                     planned = self._plan_next_work()
                     if planned == "daemon_handoff":
                         stopped_by = "daemon_handoff"
+                        break
+                    if planned == "planner_retry":
+                        stopped_by = "planner_retry"
                         break
                     if planned is True:
                         continue  # new items in backlog, loop around
@@ -532,6 +782,17 @@ class LifeSupervisor:
             if outcome.get("auth_failure"):
                 stopped_by = "auth_failure"
                 break
+            post_mission_stop = self._post_mission_hook(outcome)
+            if post_mission_stop:
+                self._emit({
+                    "type": "life.post_mission.stop",
+                    "reason": post_mission_stop,
+                    "item_id": outcome.get("item_id"),
+                    "status": outcome.get("status"),
+                })
+                self._emit_status(post_mission_stop)
+                stopped_by = post_mission_stop
+                break
             # Stop conditions that ``tick`` signals via the result dict
             # (budget pause leaves the item PENDING on purpose so a
             # later supervisor run can retry — but for THIS run we must
@@ -545,6 +806,64 @@ class LifeSupervisor:
             "results": results,
             "stopped_by": stopped_by,
         }
+
+    def _fail_running_items_after_supervisor_error(self, error: str) -> list[str]:
+        """Best-effort cleanup when an unexpected supervisor error escapes.
+
+        ``_run_one`` normally finalizes its claimed item, but this guard
+        prevents a bug outside that narrow try/except from leaving durable
+        ``running`` rows forever.
+        """
+        try:
+            items = self.memory.backlog.all()
+        except Exception:  # noqa: BLE001
+            log.exception("life supervisor: failed to inspect backlog after error")
+            return []
+
+        recovered: list[str] = []
+        for item in items:
+            if getattr(item, "status", "") != "running":
+                continue
+            item_id = str(getattr(item, "id", "") or "")
+            if not item_id:
+                continue
+            title = str(getattr(item, "title", "") or "running mission")
+            objective = str(getattr(item, "objective", "") or "")
+            failure_reason = f"supervisor error: {error}"
+            try:
+                self.memory.backlog.mark_failed(item_id, error=failure_reason)
+            except Exception:  # noqa: BLE001
+                log.exception("life supervisor: failed to mark running item failed: %s", item_id)
+                continue
+            recovered.append(item_id)
+            entry = JournalEntry.new(
+                kind="mission_failed",
+                title=title,
+                summary=f"status=supervisor_error; rounds=0; exc={error}",
+                tags=list(getattr(item, "tags", []) or []) + ["life"],
+                extra={
+                    "item_id": item_id,
+                    "objective": objective,
+                    "terminal_status": "supervisor_error",
+                    "failure_reason": failure_reason,
+                    "agent_layer": "supervisor",
+                },
+            )
+            try:
+                self.memory.journal.append(entry)
+                self._inject_cumulative_cost(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("life supervisor: failed to journal supervisor error")
+            self._emit({
+                "type": "life.mission.completed",
+                "item_id": item_id,
+                "success": False,
+                "status": "supervisor_error",
+                "rounds": 0,
+                "cost_usd": 0.0,
+                "journal_entry_id": entry.id,
+            })
+        return recovered
 
     def _planner_cycle_gate_reason(self) -> str:
         gate = self.config.planner_cycle_gate
@@ -568,6 +887,23 @@ class LifeSupervisor:
             return ""
         return str(context or "").strip()
 
+    def _recent_no_progress_failures(self) -> dict[tuple[str, str], JournalEntry]:
+        """Return recent failed task signatures quarantined from replanning."""
+        try:
+            recent_entries = self.memory.journal.tail(_PLANNER_RECENT_HISTORY_WINDOW)
+        except Exception:  # noqa: BLE001
+            log.exception("life supervisor: failed to read recent journal for planner")
+            return {}
+        matches: dict[tuple[str, str], JournalEntry] = {}
+        for entry in reversed(recent_entries):
+            if not _is_recent_no_progress_failure(entry):
+                continue
+            signature = _entry_task_signature(entry)
+            if signature is None or signature in matches:
+                continue
+            matches[signature] = entry
+        return matches
+
     def _handle_planner_restart(self, reason: str) -> bool:
         handler = self.config.planner_restart_handler
         if handler is None:
@@ -577,6 +913,16 @@ class LifeSupervisor:
         except Exception:  # noqa: BLE001
             log.exception("planner restart handler raised; continuing")
             return False
+
+    def _post_mission_hook(self, outcome: dict[str, Any]) -> str:
+        hook = self.config.post_mission_hook
+        if hook is None:
+            return ""
+        try:
+            return str(hook(outcome) or "").strip()
+        except Exception:  # noqa: BLE001
+            log.exception("post mission hook raised; continuing")
+            return ""
 
     def tick(self) -> dict[str, Any] | None:
         """Process at most one backlog item. Returns its result dict or
@@ -631,6 +977,9 @@ class LifeSupervisor:
 
     def _run_one(self, item: BacklogItem) -> dict[str, Any]:
         prelude = self.memory.render_prelude(objective=item.objective)
+        item_metadata = self._render_backlog_item_metadata(item)
+        if item_metadata:
+            prelude = item_metadata + "\n---\n\n" + prelude if prelude else item_metadata
         # Inject runtime context (backend, models, budget) so the agent
         # knows its own environment. Placed before operator nudges so
         # nudges can override if needed.
@@ -730,6 +1079,22 @@ class LifeSupervisor:
             on_phase_change=_phase_cb,
         )
 
+        telemetry_monitor: Any = None
+        if self.config.telemetry_dir is not None:
+            try:
+                from .telemetry import MissionTelemetryMonitor
+                telemetry_monitor = MissionTelemetryMonitor(
+                    life_dir=self.config.telemetry_dir,
+                    workdir=self._project_workdir(),
+                    item_id=item.id,
+                    title=item.title,
+                    interval_seconds=self.config.telemetry_interval_seconds,
+                    stop_event=self.config.stop_event,
+                )
+                telemetry_monitor.start()
+            except Exception:  # noqa: BLE001
+                log.exception("life supervisor: failed to start telemetry monitor")
+
         outcome: Any = None
         exc_str: str | None = None
         t0 = time.time()
@@ -742,6 +1107,12 @@ class LifeSupervisor:
         except Exception as exc:  # noqa: BLE001
             exc_str = f"{type(exc).__name__}: {exc}"
             log.exception("life supervisor: mission raised")
+        finally:
+            if telemetry_monitor is not None:
+                try:
+                    telemetry_monitor.stop()
+                except Exception:  # noqa: BLE001
+                    log.exception("life supervisor: failed to stop telemetry monitor")
         elapsed = time.time() - t0
 
         success = bool(getattr(outcome, "success", False)) if outcome else False
@@ -797,8 +1168,11 @@ class LifeSupervisor:
             log.debug("layer completion notify failed; non-critical")
 
         # Auth failure: the codex backend detected an expired/invalid
-        # token. Stop the supervisor so we don't loop over failing
-        # missions all night. The operator needs to run `codex login`.
+        # token. Stop this drain pass so we do not immediately continue
+        # with stale credentials, but do not signal the daemon's global
+        # stop_event. A 7x24 worker should stay alive so it can recover
+        # after credentials are refreshed, and transient provider errors
+        # should not kill the supervising process.
         auth_failure = bool(getattr(outcome, "auth_failure", False))
         if auth_failure:
             self._emit({
@@ -806,12 +1180,10 @@ class LifeSupervisor:
                 "item_id": item.id,
                 "text": (
                     "⚠️  codex authentication failed — run `codex login` "
-                    "to refresh credentials, then restart the REPL/daemon."
+                    "to refresh credentials if this persists; the daemon "
+                    "will keep polling."
                 ),
             })
-            ev = self.config.stop_event
-            if ev is not None:
-                ev.set()
 
         # ---- iteration loop: should we requeue for another polish cycle?
         # Trigger on `success` (mission marked done) AND on `max_rounds`
@@ -895,6 +1267,15 @@ class LifeSupervisor:
             extra={
                 "item_id": item.id,
                 "objective": item.objective,
+                "planner_task_signature": {
+                    "title": _normalize_planner_text(item.title),
+                    "objective": _normalize_planner_text(item.objective),
+                }
+                if kind == "mission_failed"
+                else {},
+                "terminal_status": status if kind == "mission_failed" else "",
+                "stop_reason": (stop_reason or err) if kind == "mission_failed" else "",
+                "failure_reason": err if kind == "mission_failed" else "",
                 "agent_layer": "critic" if iteration_outcome and iteration_outcome.get("requeued") else "engineer",
                 "engineer_model": self.engineer_model,
                 "reviewer_model": self.reviewer_model,
@@ -903,6 +1284,7 @@ class LifeSupervisor:
                 "matched_skill": str(getattr(outcome, "matched_skill_name", "") or ""),
                 "skill_distilled": bool(getattr(outcome, "skill_distilled", False)),
                 "had_follow_up": bool(getattr(outcome, "had_follow_up", False)),
+                "completion_summary": self._completion_evidence_from_outcome(outcome),
                 "iteration": iteration_outcome or {},
             },
         )
@@ -1014,6 +1396,123 @@ class LifeSupervisor:
     def _emit_status(self, text: str) -> None:
         self._emit({"type": "life.status", "text": text})
 
+    def _planner_task_tags(self, task: Any) -> list[str]:
+        scope = self._normalize_planner_scope(getattr(task, "scope", ""))
+        return ["planner", f"scope:{scope}"]
+
+    @staticmethod
+    def _normalize_planner_scope(scope: object) -> str:
+        normalized = str(scope or _PLANNER_SCOPE_BOUNDED).strip().lower().replace("-", "_")
+        if normalized == _PLANNER_SCOPE_FINAL_SUBMISSION:
+            return _PLANNER_SCOPE_FINAL_SUBMISSION
+        return _PLANNER_SCOPE_BOUNDED
+
+    @staticmethod
+    def _planner_scope_from_item(item: BacklogItem) -> str:
+        for tag in item.tags:
+            normalized = str(tag).strip().lower().replace("-", "_")
+            if normalized in {
+                f"scope:{_PLANNER_SCOPE_FINAL_SUBMISSION}",
+                f"planner_scope:{_PLANNER_SCOPE_FINAL_SUBMISSION}",
+            }:
+                return _PLANNER_SCOPE_FINAL_SUBMISSION
+            if normalized in {
+                f"scope:{_PLANNER_SCOPE_BOUNDED}",
+                f"planner_scope:{_PLANNER_SCOPE_BOUNDED}",
+            }:
+                return _PLANNER_SCOPE_BOUNDED
+        return ""
+
+    def _render_backlog_item_metadata(self, item: BacklogItem) -> str:
+        scope = self._planner_scope_from_item(item)
+        if not scope and not item.tags:
+            return ""
+        paper_context = "\n".join((
+            str(getattr(item, "title", "") or ""),
+            str(getattr(item, "objective", "") or ""),
+            str(getattr(self.config, "continuous_objective", "") or ""),
+        ))
+        is_paper_long_horizon = (
+            _objective_is_paper_long_horizon(paper_context)
+            or _objective_requires_full_emnlp_gate(paper_context)
+        )
+        lines = ["## Backlog item metadata"]
+        if scope:
+            lines.append(f"- planner_scope: {scope}")
+        if item.tags:
+            lines.append("- tags: " + ", ".join(item.tags))
+        if scope == _PLANNER_SCOPE_FINAL_SUBMISSION:
+            lines.append(
+                f"- final_submission_gate: `{_FULL_EMNLP_GATE_COMMAND}` must exit 0 "
+                "before this item can be marked done."
+            )
+        elif scope == _PLANNER_SCOPE_BOUNDED:
+            if is_paper_long_horizon:
+                lines.append(
+                    "- paper_optimization_task: this is a bounded mission, but it is "
+                    "part of a long-horizon paper/submission objective. First satisfy "
+                    "the named acceptance criteria, then continue through adjacent "
+                    "paper blockers while budget allows; do not mark done only because "
+                    "one narrow check passed if `validate-research-md-format` or "
+                    "`validate-full-emnlp` still reports addressable manuscript, "
+                    "evidence, review, layout, figure/table, citation, manifest, or "
+                    "assurance blockers. Full-gate success is required only for "
+                    "`final_submission`, but fresh validator evidence or an exact "
+                    "blocker list is required here."
+                )
+            else:
+                lines.append(
+                    "- bounded_task: judge this item against its own acceptance criteria; "
+                    "do not require the project-final EMNLP gate unless the objective "
+                    "explicitly asks for it."
+                )
+        return "\n".join(lines)
+
+    def _objective_with_item_scope_context(
+        self,
+        item: BacklogItem,
+        objective: str,
+    ) -> str:
+        metadata = self._render_backlog_item_metadata(item)
+        if not metadata:
+            return objective
+        return f"{metadata}\n\nOriginal operator objective:\n{objective.strip()}"
+
+    @staticmethod
+    def _completion_evidence_from_outcome(outcome: Any) -> str:
+        for attr in ("final_message", "completion_summary_markdown", "stop_reason"):
+            value = getattr(outcome, attr, "") or ""
+            if value:
+                return str(value)[:4000]
+        return ""
+
+    def _journal_has_full_emnlp_gate_success(self) -> bool:
+        try:
+            entries = self.memory.journal.tail(50)
+        except Exception:  # noqa: BLE001
+            return False
+        for entry in entries:
+            extra = getattr(entry, "extra", {}) or {}
+            chunks = [
+                str(getattr(entry, "kind", "") or ""),
+                str(getattr(entry, "title", "") or ""),
+                str(getattr(entry, "summary", "") or ""),
+                " ".join(str(tag) for tag in getattr(entry, "tags", []) or []),
+            ]
+            if isinstance(extra, dict):
+                for key in (
+                    "completion_summary",
+                    "objective",
+                    "stop_reason",
+                    "failure_reason",
+                ):
+                    value = extra.get(key)
+                    if value:
+                        chunks.append(str(value))
+            if _text_has_full_emnlp_gate_success("\n".join(chunks)):
+                return True
+        return False
+
     # ------------------------------------------------------------------
     # Iteration loop
     # ------------------------------------------------------------------
@@ -1085,6 +1584,7 @@ class LifeSupervisor:
                 latest = str(v)
                 break
         original = item.original_objective or item.objective
+        critic_original = self._objective_with_item_scope_context(item, original)
 
         # Notify: critic layer starting
         try:
@@ -1129,7 +1629,7 @@ class LifeSupervisor:
                 stream_ctx.__enter__()
             try:
                 verdict = critic.evaluate(
-                    original_objective=original,
+                    original_objective=critic_original,
                     latest_completion_summary=latest,
                     cycles_done=cycles_done,
                     cycles_max=cycles_max,
@@ -1487,6 +1987,94 @@ class LifeSupervisor:
                 log.exception("notify dispatch failed; continuing")
             return None
 
+        if (
+            verdict.project_done
+            and _objective_requires_full_emnlp_gate(self.config.continuous_objective)
+            and not self._journal_has_full_emnlp_gate_success()
+        ):
+            from ..critic import TaskSpec
+
+            verdict = replace(
+                verdict,
+                project_done=False,
+                reason=(
+                    "full EMNLP readiness gate is required before project_done; "
+                    "queueing final submission proof"
+                ),
+                new_tasks=[
+                    TaskSpec(
+                        title="Prove EMNLP submission readiness",
+                        objective=(
+                            "Project-final task. Scope: final_submission. "
+                            "Run the full EMNLP readiness gate and fix every blocker "
+                            "until it passes. Acceptance requires verbatim output showing "
+                            f"`{_FULL_EMNLP_GATE_COMMAND}` exits 0, plus "
+                            "paper/SUBMISSION_ASSURANCE.json with PASS or accepted WARN "
+                            "and no hard blockers. Do not declare done based only on "
+                            "validate-pipeline, validate-manifest, a pilot run, or an "
+                            "underlength draft; if the gate fails, inspect the reported "
+                            "blockers and repair experiments, baselines, ablations, paper "
+                            "contract, assurance, manifest, or submission state as needed."
+                        ),
+                        impact_score=5,
+                        impact_area="requirement_gap",
+                        evidence=(
+                            "Planner attempted project_done without journal evidence "
+                            "that validate-full-emnlp exited 0."
+                        ),
+                        scope=_PLANNER_SCOPE_FINAL_SUBMISSION,
+                    )
+                ],
+            )
+
+        if verdict.project_done and _objective_is_open_ended(self.config.continuous_objective):
+            self._emit({
+                "type": "life.planner.verdict",
+                "cycle": self._planning_cycles,
+                "project_done": verdict.project_done,
+                "reason": verdict.reason,
+                "task_count": len(verdict.new_tasks),
+                "enqueued_tasks": 0,
+                "skipped_duplicate_tasks": 0,
+                "enqueued_titles": [],
+                "skipped_duplicate_titles": [],
+                "input_tokens": verdict.input_tokens,
+                "cached_input_tokens": verdict.cached_input_tokens,
+                "output_tokens": verdict.output_tokens,
+                "cost_usd": planner_cost_usd,
+                "restart_daemon": verdict.restart_daemon,
+                "restart_reason": verdict.restart_reason,
+                "open_ended_objective": True,
+            })
+            self._emit_status(
+                "planner: project done — continuing later for open-ended objective"
+            )
+            entry = JournalEntry.new(
+                kind="planner_retry",
+                title="planner suggests continuing",
+                summary=(
+                    f"project_done=true; continuing later for open-ended objective: "
+                    f"{verdict.reason}"
+                ),
+                tags=["life", "planner"],
+                cost_usd=planner_cost_usd,
+                extra={
+                    "agent_layer": "planner",
+                    "open_ended_objective": True,
+                    "restart_daemon": verdict.restart_daemon,
+                    "restart_reason": verdict.restart_reason,
+                    "reason": verdict.reason,
+                },
+            )
+            self.memory.journal.append(entry)
+            self._inject_cumulative_cost(entry)
+            try:
+                from .notify import dispatch_journal_entry
+                dispatch_journal_entry(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("notify dispatch failed; continuing")
+            return "planner_retry"
+
         if verdict.project_done:
             self._emit({
                 "type": "life.planner.verdict",
@@ -1630,8 +2218,10 @@ class LifeSupervisor:
             elif signature not in seen_signatures:
                 seen_signatures[signature] = existing
 
+        recent_failures = self._recent_no_progress_failures()
         added_titles: list[str] = []
-        skipped_titles: list[str] = []
+        skipped_duplicate_titles: list[str] = []
+        skipped_recent_failure_titles: list[str] = []
         added_impact_scores: list[int] = []
 
         # Add new tasks to the backlog.
@@ -1639,7 +2229,7 @@ class LifeSupervisor:
             signature = _planner_task_signature(task.title, task.objective)
             duplicate_item = seen_signatures.get(signature)
             if duplicate_item is not None:
-                skipped_titles.append(task.title)
+                skipped_duplicate_titles.append(task.title)
                 duplicate_reason = (
                     "duplicate completed task"
                     if duplicate_item.status == "done"
@@ -1658,10 +2248,40 @@ class LifeSupervisor:
                     "reason": duplicate_reason,
                 })
                 continue
+            recent_failure = recent_failures.get(signature)
+            if recent_failure is not None:
+                skipped_recent_failure_titles.append(task.title)
+                failure_extra = getattr(recent_failure, "extra", {}) or {}
+                failure_signature = _entry_task_signature(recent_failure)
+                self._emit({
+                    "type": "life.planner.task_skipped",
+                    "cycle": self._planning_cycles,
+                    "title": task.title,
+                    "objective": task.objective,
+                    "impact_score": task.impact_score,
+                    "impact_area": task.impact_area,
+                    "evidence": task.evidence,
+                    "matched_item_id": failure_extra.get("item_id"),
+                    "matched_title": recent_failure.title,
+                    "matched_status": failure_extra.get("terminal_status") or failure_extra.get("status"),
+                    "matched_stop_reason": failure_extra.get("stop_reason") or failure_extra.get("failure_reason"),
+                    "matched_signature": (
+                        {
+                            "title": failure_signature[0],
+                            "objective": failure_signature[1],
+                        }
+                        if failure_signature is not None
+                        else None
+                    ),
+                    "skip_category": "recent_no_progress_failure",
+                    "reason": "recent no_progress failure",
+                })
+                continue
             item = BacklogItem.new(
                 title=task.title,
                 objective=task.objective,
                 priority=100,
+                tags=self._planner_task_tags(task),
                 iterate=True,
                 iteration_max_cycles=self._item_iteration_cycles(),
                 iteration_budget_usd=self._item_iteration_budget(),
@@ -1686,11 +2306,17 @@ class LifeSupervisor:
                 + (", ".join(added_titles) if added_titles else "(none)")
             ),
         ]
-        if skipped_titles:
+        if skipped_duplicate_titles:
             summary_parts.append(
                 "skipped "
-                f"{len(skipped_titles)} duplicate(s): "
-                + ", ".join(skipped_titles)
+                f"{len(skipped_duplicate_titles)} duplicate(s): "
+                + ", ".join(skipped_duplicate_titles)
+            )
+        if skipped_recent_failure_titles:
+            summary_parts.append(
+                "quarantined "
+                f"{len(skipped_recent_failure_titles)} recent no_progress repeat(s): "
+                + ", ".join(skipped_recent_failure_titles)
             )
 
         entry = JournalEntry.new(
@@ -1704,10 +2330,12 @@ class LifeSupervisor:
                 "objective": self.config.continuous_objective[:200],
                 "proposed_tasks": len(verdict.new_tasks),
                 "enqueued_tasks": len(added_titles),
-                "skipped_duplicate_tasks": len(skipped_titles),
+                "skipped_duplicate_tasks": len(skipped_duplicate_titles),
+                "skipped_recent_failure_tasks": len(skipped_recent_failure_titles),
                 "enqueued_titles": added_titles,
                 "enqueued_impact_scores": added_impact_scores,
-                "skipped_duplicate_titles": skipped_titles,
+                "skipped_duplicate_titles": skipped_duplicate_titles,
+                "skipped_recent_failure_titles": skipped_recent_failure_titles,
                 "restart_daemon": verdict.restart_daemon,
                 "restart_reason": verdict.restart_reason,
             },
@@ -1719,10 +2347,12 @@ class LifeSupervisor:
             "reason": verdict.reason,
             "task_count": len(verdict.new_tasks),
             "enqueued_tasks": len(added_titles),
-            "skipped_duplicate_tasks": len(skipped_titles),
+            "skipped_duplicate_tasks": len(skipped_duplicate_titles),
+            "skipped_recent_failure_tasks": len(skipped_recent_failure_titles),
             "enqueued_titles": added_titles,
             "enqueued_impact_scores": added_impact_scores,
-            "skipped_duplicate_titles": skipped_titles,
+            "skipped_duplicate_titles": skipped_duplicate_titles,
+            "skipped_recent_failure_titles": skipped_recent_failure_titles,
             "input_tokens": verdict.input_tokens,
             "cached_input_tokens": verdict.cached_input_tokens,
             "output_tokens": verdict.output_tokens,
@@ -1746,11 +2376,17 @@ class LifeSupervisor:
 
     def _item_iteration_cycles(self) -> int:
         """Default iteration cycles for planner-generated tasks."""
-        return 1
+        try:
+            return max(1, int(self.config.planner_task_iteration_max_cycles))
+        except (TypeError, ValueError):
+            return 6
 
     def _item_iteration_budget(self) -> float:
         """Default iteration budget for planner-generated tasks."""
-        return 30.0
+        try:
+            return max(0.0, float(self.config.planner_task_iteration_budget_usd))
+        except (TypeError, ValueError):
+            return 30.0
 
     def _render_journal_for_planner(self) -> str:
         """Render recent journal entries for the planner's context."""
@@ -1762,5 +2398,11 @@ class LifeSupervisor:
         for e in entries:
             from datetime import datetime
             ts = datetime.fromtimestamp(e.ts).strftime("%m-%d %H:%M")
-            lines.append(f"- [{ts}] {e.kind}: {e.title} — {e.summary}")
+            line = f"- [{ts}] {e.kind}: {e.title} — {e.summary}"
+            extra = getattr(e, "extra", {}) or {}
+            if isinstance(extra, dict):
+                evidence = str(extra.get("completion_summary") or "")
+                if "validate-full-emnlp" in evidence:
+                    line += f" | evidence: {evidence[:500]}"
+            lines.append(line)
         return "\n".join(lines) or "(empty)"

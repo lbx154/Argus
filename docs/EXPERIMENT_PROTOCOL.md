@@ -8,25 +8,41 @@
 
 ## 1. 实验目录结构（强制）
 
-每次实验必须创建 `benchmarks/results/<bench-name>-<YYYY-MM-DD>-<tag>/`，下面**必须**包含：
+每次实验必须创建一个可验证的证据 bundle。活跃试跑留在忽略的 scratch 目录里（例如 `benchmarks/prompt_only_tb2/runs/` 或旧式 `benchmarks/results/`），但提交级证据必须整理到 `benchmarks/evidence/<bundle-name>/`，下面**必须**包含：
 
 | 文件 | 内容 | 必填 |
 |---|---|---|
 | `PLAN.md` | 跑之前写：研究问题、设计、对照变量、预期、风险 | ✅ |
 | `BUILD_INFO.md` | 跑那一刻的 `git rev-parse HEAD`、`git status --short`、Python/codex CLI 版本、所有 `ARGUS_SKILL_*` 环境变量、模型版本、`reasoning_effort` | ✅ |
-| `run-*.sh` | 完整可重放的启动脚本（含所有 env、`set -uo pipefail`、`tee` 到 log） | ✅ |
+| `manifest.json` 或 `run-*.sh` | 记录导出命令、源 run root、bundle 名称和关键环境信息 | ✅ |
 | `*.log` / `driver.stdout.log` | 全量 stdout/stderr，**不要 grep 过滤**后再存 | ✅ |
-| `aggregate.py` | 把原始日志转成 `summary.tsv` 的脚本（含 token / cost / wall / reward） | ✅ |
-| `summary.tsv` | 一行一个 trial，列至少包含：cond, task, reward, wall_s, eng_in_tok, eng_cached_in_tok, eng_out_tok, rev_in_tok, rev_cached_in_tok, rev_out_tok, sci_tokens, model_eng, model_rev, model_sci, cost_usd | ✅ |
+| `summary.tsv` | 一行一个 trial，或一行一个 condition 的归档汇总；必须是可复查的制表符表格 | ✅ |
 | `RESULTS.md` | 跑完写：实测结果表、解读、caveats、与基线对照 | ✅ |
-| `<cond>/<task>/jobs/...` | harbor 原始 jobs 目录（含 agent transcript）**不删** | ✅ |
+| `logs/` | 保留导出/汇总/验证时的 stdout/stderr 或其他审计日志 | ✅ |
+| `jobs/index.tsv` | 从 logical job id 到 bundle-local 原始 artifact 路径的索引 | ✅ |
+
+Live runs must also follow [`docs/LIVE_EXPERIMENT_PROTOCOL.md`](LIVE_EXPERIMENT_PROTOCOL.md):
+write `status.json`, `progress.jsonl`, `stdout.log`, `stderr.log`, `pid`, and
+support a `STOP` file before any long or expensive run starts. Any experiment
+with more than 5 model/API calls or expected runtime above roughly 60 seconds
+must stream per-trial progress and be launchable in the background.
+
+If the run set includes human review or rescue annotations, follow
+[`docs/USER_STUDY_PROTOCOL.md`](/home/argustest/argus-skill/docs/USER_STUDY_PROTOCOL.md)
+for the counting rubric before writing `summary.tsv`.
 
 Legacy experiment directories that cannot be faithfully reconstructed must
 include an `EXEMPT.md` file explaining the omission. The validator below
 skips directories carrying that marker:
 
+The harbor skill-cache default is **not** an experiment bundle. When
+`ARGUS_SKILL_HARBOR_SKILLS_DIR` is unset, `benchmarks/harbor_adapter.py`
+stores cached skills under `~/.cache/argus-skill-harbor/skills` so the
+repository tree never gains a validator-visible top-level directory under
+`benchmarks/results/`.
+
 ```bash
-python -m benchmarks.validate_results benchmarks/results
+python -m benchmarks.validate_results benchmarks/evidence
 ```
 
 `BUILD_INFO.md` 模板：
@@ -90,13 +106,13 @@ gpt-5.4-mini:  in=$0.25 cached=$0.025 out=$2.00  per Mtok
 | Reviewer | host | `<trial>/agent/argus-skill-reviewer-N.txt`（同上）+ `~/.codex/sessions/YYYY/MM/DD/` |
 | Scientist | host | `~/.codex/sessions/YYYY/MM/DD/` |
 
-**`~/.codex/sessions/` 必须保留**至少到 `aggregate.py` 跑完。建议跑完实验立刻 `rsync` 一份这个目录的当天子目录到结果目录下：
+**`~/.codex/sessions/` 必须保留**至少到归档汇总和 `validate_results` 跑完。建议跑完实验立刻 `rsync` 一份这个目录的当天子目录到 bundle 的 `logs/` 或外部存储里：
 ```bash
 mkdir -p "$EXP_DIR/codex_rollouts"
 cp -r ~/.codex/sessions/$(date -u +%Y/%m/%d) "$EXP_DIR/codex_rollouts/"
 ```
 
-### 3.2 `aggregate.py` 必须做这三件事
+### 3.2 汇总逻辑必须做这三件事
 
 1. 用 `docs/PRICING.md` 的官方定价（**$1.25/$10、$0.25/$2，cached = 1/10**），不是 `(1.25, 5.0)` 之类错的版本
 2. 减去 `cached_input_tokens` 部分（v12 实测 engineer cache 命中率 95%，不减就高估 3-4×）
@@ -143,7 +159,7 @@ cp -r ~/.codex/sessions/$(date -u +%Y/%m/%d) "$EXP_DIR/codex_rollouts/"
 ## 6. 数据保留
 
 实验结束 30 天内**不删任何东西**：
-- `benchmarks/results/<exp>/jobs/` 全留（每 trial 大约 50-200MB）
+- `benchmarks/evidence/<exp>/jobs/` 全留（只保留 transcript、manifest、summary；不要把整棵 scratch workspace 原样塞进 bundle）
 - `~/.codex/sessions/<date>/` 全留
 - 这俩都至少备份一份到结果目录（git LFS 或 rsync 到外部存储）
 
@@ -154,7 +170,7 @@ cp -r ~/.codex/sessions/$(date -u +%Y/%m/%d) "$EXP_DIR/codex_rollouts/"
 ## 7. 文档同步
 
 实验结束**当天**必须更新：
-- `EXPERIMENTS.md`：追加一行（日期、目录、bench、状态、headline reward+cost）
+- `EXPERIMENTS.md`：追加一行（日期、bundle 目录、bench、状态、headline reward+cost）
 - 如果发现了 bug：在 `docs/KNOWN_BUGS.md` 记一笔（这个文件可能还不存在，需要的话建）
 - 如果颠覆了某个之前的结论：在该结论原文档里加 superseded-by 链接
 
@@ -163,9 +179,9 @@ cp -r ~/.codex/sessions/$(date -u +%Y/%m/%d) "$EXP_DIR/codex_rollouts/"
 ## TL;DR
 
 每次开跑前自问：
-1. PLAN.md / BUILD_INFO.md / run-*.sh 全写好了？
+1. PLAN.md / BUILD_INFO.md / manifest.json 或 run-*.sh 全写好了？
 2. git SHA 锁死、没脏改？
-3. aggregate.py 用的是 docs/PRICING.md 的官方价 + cached 折扣 + scientist 兜底？
+3. 汇总逻辑用的是 docs/PRICING.md 的官方价 + cached 折扣 + scientist 兜底？
 4. baseline 也一起跑？n ≥ 3？
 5. RESULTS.md 模板那 7 个问题能答上？
 

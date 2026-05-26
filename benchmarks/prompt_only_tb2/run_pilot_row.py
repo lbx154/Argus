@@ -20,12 +20,16 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from argus_skill.core.pricing import usd_for_tokens
+from benchmarks.prompt_only_tb2.summarize_runs import _normalized_zero_touch_success
 
 GENERATED_DIR = BASE_DIR / "generated"
 RUNS_DIR = BASE_DIR / "runs"
 ASSIGNMENT_PATH = GENERATED_DIR / "self_pilot_assignment.csv"
 RUNS_CSV_PATH = GENERATED_DIR / "pilot_runs.csv"
 _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+_BRACKETED_PASTE_START = "\x1b[200~"
+_BRACKETED_PASTE_END = "\x1b[201~"
+DEFAULT_CODEX_BASELINE_MODEL = "gpt-5.4"
 
 
 def _safe_filename(value: str) -> str:
@@ -227,6 +231,44 @@ def _add_usage(
     row["layers"] = sorted(layers)
 
 
+def _event_usage_delta(
+    event: dict[str, Any],
+    *,
+    layer: str,
+    baselines: dict[tuple[str, str], tuple[int, int, int]],
+    input_key: str = "input_tokens",
+    cached_key: str = "cached_input_tokens",
+    output_key: str = "output_tokens",
+) -> tuple[int, int, int]:
+    raw = (
+        _coerce_int(event.get(input_key)),
+        _coerce_int(event.get(cached_key)),
+        _coerce_int(event.get(output_key)),
+    )
+    if str(event.get("usage_scope") or "delta").lower() != "cumulative":
+        return raw
+
+    session_id = str(
+        event.get("session_id")
+        or event.get("thread_id")
+        or event.get("actor")
+        or "__global__"
+    )
+    key = (layer, session_id)
+    previous = baselines.get(key)
+    baselines[key] = raw
+    if previous is None:
+        return raw
+    delta = (
+        raw[0] - previous[0],
+        raw[1] - previous[1],
+        raw[2] - previous[2],
+    )
+    if any(value < 0 for value in delta):
+        return raw
+    return delta
+
+
 def _finalize_usage(stats: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     for model, row in sorted(stats.items()):
@@ -274,15 +316,55 @@ def _cost_model_for(args: argparse.Namespace, row: dict[str, str]) -> str:
         or args.codex_model
         or os.environ.get("CODEX_MODEL", "")
         or os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "")
-        or "gpt-5.4-mini"
+        or DEFAULT_CODEX_BASELINE_MODEL
     )
 
 
-def _argus_model_defaults() -> dict[str, str]:
-    engineer = os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini")
-    reviewer = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.4")
-    scientist = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4")
-    matcher = os.environ.get("ARGUS_SKILL_MATCHER_MODEL", engineer)
+def _assigned_model_for_row(
+    args: argparse.Namespace,
+    row: dict[str, str],
+    *,
+    env: dict[str, str],
+) -> str:
+    if row["condition"] == "argus":
+        return env.get("ARGUS_SKILL_ENGINEER_MODEL", "")
+    return args.codex_model or env.get("CODEX_MODEL", "") or DEFAULT_CODEX_BASELINE_MODEL
+
+
+def _actual_model_from_stats(cost: dict[str, Any], fallback: str) -> str:
+    model_stats = cost.get("model_token_stats")
+    if isinstance(model_stats, dict) and model_stats:
+        names = sorted(str(name) for name in model_stats if str(name).strip())
+        if len(names) == 1:
+            return names[0]
+        if names:
+            return "multiple"
+    cost_model = str(cost.get("cost_model") or "").strip()
+    return cost_model or fallback
+
+
+def _human_interactions_after_assignment(row: dict[str, Any]) -> int:
+    human_messages = _coerce_int(row.get("human_messages"))
+    nudges = _coerce_int(row.get("nudges"))
+    status_checks = _coerce_int(row.get("status_checks"))
+    manual_commands = _coerce_int(row.get("manual_commands"))
+    return max(0, human_messages + nudges + status_checks + manual_commands - 1)
+
+
+def _intervention_severity(needs_human: bool, manual_rescue: str) -> str:
+    if manual_rescue.strip():
+        return "manual_rescue"
+    if needs_human:
+        return "needs_human"
+    return "zero_touch"
+
+
+def _argus_model_defaults(env: dict[str, str] | None = None) -> dict[str, str]:
+    source = env or os.environ
+    engineer = source.get("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini")
+    reviewer = source.get("ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.4")
+    scientist = source.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4")
+    matcher = source.get("ARGUS_SKILL_MATCHER_MODEL", engineer)
     return {
         "engineer": engineer,
         "reviewer": reviewer,
@@ -313,6 +395,7 @@ def _codex_cost_from_logs(stdout_path: Path, *, model: str) -> dict[str, Any]:
     return {
         "cost_usd": totals["cost_usd"],
         "cost_source": source,
+        "cost_scope": "turn_delta",
         "cost_model": model if model_stats else "",
         "input_tokens": totals["input_tokens"],
         "cached_input_tokens": totals["cached_input_tokens"],
@@ -337,49 +420,70 @@ def _argus_journal_rows(run_root: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _argus_cost_from_logs(run_root: Path) -> dict[str, Any]:
+def _argus_cost_from_logs(run_root: Path, *, env: dict[str, str] | None = None) -> dict[str, Any]:
     events = _argus_events(run_root)
-    models = _argus_model_defaults()
+    models = _argus_model_defaults(env)
     model_stats: dict[str, dict[str, Any]] = {}
+    usage_baselines: dict[tuple[str, str], tuple[int, int, int]] = {}
     for event in events:
         etype = str(event.get("type") or "")
         if etype == "round.main.completed":
+            input_tokens, cached_input_tokens, output_tokens = _event_usage_delta(
+                event,
+                layer="engineer",
+                baselines=usage_baselines,
+            )
             _add_usage(
                 model_stats,
                 model=models["engineer"],
-                input_tokens=_coerce_int(event.get("input_tokens")),
-                cached_input_tokens=_coerce_int(event.get("cached_input_tokens")),
-                output_tokens=_coerce_int(event.get("output_tokens")),
+                input_tokens=input_tokens,
+                cached_input_tokens=cached_input_tokens,
+                output_tokens=output_tokens,
                 layer="engineer",
             )
             continue
         if etype == "round.review.completed":
+            input_tokens, cached_input_tokens, output_tokens = _event_usage_delta(
+                event,
+                layer="reviewer",
+                baselines=usage_baselines,
+            )
             _add_usage(
                 model_stats,
                 model=models["reviewer"],
-                input_tokens=_coerce_int(event.get("input_tokens")),
-                cached_input_tokens=_coerce_int(event.get("cached_input_tokens")),
-                output_tokens=_coerce_int(event.get("output_tokens")),
+                input_tokens=input_tokens,
+                cached_input_tokens=cached_input_tokens,
+                output_tokens=output_tokens,
                 layer="reviewer",
             )
             continue
         if etype == "life.iteration.critic":
+            input_tokens, cached_input_tokens, output_tokens = _event_usage_delta(
+                event,
+                layer="critic",
+                baselines=usage_baselines,
+            )
             _add_usage(
                 model_stats,
                 model=models["critic"],
-                input_tokens=_coerce_int(event.get("input_tokens")),
-                cached_input_tokens=_coerce_int(event.get("cached_input_tokens")),
-                output_tokens=_coerce_int(event.get("output_tokens")),
+                input_tokens=input_tokens,
+                cached_input_tokens=cached_input_tokens,
+                output_tokens=output_tokens,
                 layer="critic",
             )
             continue
         if etype.startswith("life.planner."):
+            input_tokens, cached_input_tokens, output_tokens = _event_usage_delta(
+                event,
+                layer="planner",
+                baselines=usage_baselines,
+            )
             _add_usage(
                 model_stats,
                 model=models["planner"],
-                input_tokens=_coerce_int(event.get("input_tokens")),
-                cached_input_tokens=_coerce_int(event.get("cached_input_tokens")),
-                output_tokens=_coerce_int(event.get("output_tokens")),
+                input_tokens=input_tokens,
+                cached_input_tokens=cached_input_tokens,
+                output_tokens=output_tokens,
                 layer="planner",
             )
             continue
@@ -408,7 +512,8 @@ def _argus_cost_from_logs(run_root: Path) -> dict[str, Any]:
     ]
     if not model_stats:
         for row in mission_rows:
-            extra = row.get("extra") if isinstance(row.get("extra"), dict) else {}
+            extra_value = row.get("extra")
+            extra = extra_value if isinstance(extra_value, dict) else {}
             _add_usage(
                 model_stats,
                 model=str(extra.get("engineer_model") or models["engineer"]),
@@ -425,6 +530,7 @@ def _argus_cost_from_logs(run_root: Path) -> dict[str, Any]:
     return {
         "cost_usd": totals["cost_usd"],
         "cost_source": cost_source,
+        "cost_scope": "task_event_delta",
         "cost_model": "multiple" if len(model_stats) > 1 else next(iter(model_stats), ""),
         "input_tokens": totals["input_tokens"],
         "cached_input_tokens": totals["cached_input_tokens"],
@@ -439,15 +545,17 @@ def _cost_from_logs(
     args: argparse.Namespace,
     run_root: Path,
     stdout_path: Path,
+    env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     model = _cost_model_for(args, row)
     if row["condition"] == "codex":
         return _codex_cost_from_logs(stdout_path, model=model)
     if row["condition"] == "argus":
-        return _argus_cost_from_logs(run_root)
+        return _argus_cost_from_logs(run_root, env=env)
     return {
         "cost_usd": 0.0,
         "cost_source": "unknown_condition",
+        "cost_scope": "unknown",
         "cost_model": model,
         "input_tokens": 0,
         "cached_input_tokens": 0,
@@ -501,6 +609,16 @@ def _argus_command(args: argparse.Namespace, run_root: Path) -> list[str]:
     return cmd
 
 
+def _argus_stdin(prompt: str) -> str:
+    # Preserve prompt blank lines as one REPL message; otherwise piped stdin's
+    # blank-line block parsing splits one benchmark assignment into missions.
+    return (
+        "/config iterate=false\n"
+        f"{_BRACKETED_PASTE_START}{prompt}{_BRACKETED_PASTE_END}\n"
+        "/exit\n"
+    )
+
+
 def _command_for_row(args: argparse.Namespace, row: dict[str, str], run_root: Path) -> list[str]:
     if row["condition"] == "codex":
         return _codex_command(args, run_root)
@@ -515,6 +633,17 @@ def _env_for_row(row: dict[str, str], run_root: Path) -> dict[str, str]:
     if row["condition"] == "argus":
         env["ARGUS_SKILL_LIFE_BACKEND"] = "codex"
         env["ARGUS_SKILL_WORKDIR"] = str(run_root)
+        env["ARGUS_SKILL_BENCHMARK_MODE"] = "1"
+        env["ARGUS_SKILL_BENCHMARK_VERIFIER_GATE"] = "1"
+        env.pop("ARGUS_SKILL_NO_REVIEWER", None)
+        env.setdefault("ARGUS_SKILL_BENCHMARK_TERSE", "1")
+        env.setdefault("ARGUS_SKILL_DISTILL_ON_MISS", "0")
+        env.setdefault("ARGUS_SKILL_SKILL_WRITEBACK", "0")
+        engineer_model = env.setdefault("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini")
+        env.setdefault("ARGUS_SKILL_REVIEWER_MODEL", engineer_model)
+        env.setdefault("ARGUS_SKILL_SCIENTIST_MODEL", engineer_model)
+        env.setdefault("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "low")
+        env.setdefault("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "low")
         existing = env.get("PYTHONPATH")
         env["PYTHONPATH"] = (
             str(REPO_ROOT) if not existing else f"{REPO_ROOT}{os.pathsep}{existing}"
@@ -603,7 +732,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--codex-bin", default=shutil.which("codex") or "codex")
     parser.add_argument("--codex-sandbox", default="danger-full-access")
-    parser.add_argument("--codex-model", default=os.environ.get("CODEX_MODEL", ""))
+    parser.add_argument(
+        "--codex-model",
+        default=os.environ.get("CODEX_MODEL") or DEFAULT_CODEX_BASELINE_MODEL,
+        help=(
+            "Model for direct Codex baseline rows. Defaults to gpt-5.4 so the "
+            "baseline is not accidentally run with the cheaper mini model."
+        ),
+    )
     parser.add_argument(
         "--cost-model",
         default=os.environ.get("TB2_PILOT_COST_MODEL", ""),
@@ -641,7 +777,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     prompt_source, base_prompt = _read_prompt(args.generated_dir, row)
     run_id = _run_id(row)
-    run_root = args.run_root or args.runs_dir / run_id
+    run_root = (args.run_root or args.runs_dir / run_id).resolve()
     run_root.mkdir(parents=True, exist_ok=False)
     prompt = _prompt_with_runner_context(base_prompt, run_id=run_id, run_root=run_root)
     prompt_sha = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
@@ -652,11 +788,12 @@ def main(argv: list[str] | None = None) -> int:
     env = _env_for_row(row, run_root)
     stdin_text = prompt
     if row["condition"] == "argus":
-        stdin_text = f"{prompt}\n\n/exit\n"
+        stdin_text = _argus_stdin(prompt)
     timeout_seconds = _default_timeout_seconds(row, args.timeout_minutes)
 
     stdout_path = run_root / "stdout.log"
     stderr_path = run_root / "stderr.log"
+    assigned_model = _assigned_model_for_row(args, row, env=env)
     metadata = {
         "run_id": run_id,
         "row": row,
@@ -668,7 +805,25 @@ def main(argv: list[str] | None = None) -> int:
         "timeout_seconds": timeout_seconds,
         "codex_json": bool(args.codex_json),
         "cost_model": _cost_model_for(args, row),
+        "assigned_model": assigned_model,
         "pricing_source": "argus_skill.core.pricing.usd_for_tokens",
+        "argus_benchmark_mode": env.get("ARGUS_SKILL_BENCHMARK_MODE", ""),
+        "argus_benchmark_verifier_gate": env.get(
+            "ARGUS_SKILL_BENCHMARK_VERIFIER_GATE", ""
+        ),
+        "argus_engineer_model": env.get("ARGUS_SKILL_ENGINEER_MODEL", ""),
+        "argus_reviewer_model": env.get("ARGUS_SKILL_REVIEWER_MODEL", ""),
+        "argus_scientist_model": env.get("ARGUS_SKILL_SCIENTIST_MODEL", ""),
+        "argus_distill_on_miss": env.get("ARGUS_SKILL_DISTILL_ON_MISS", ""),
+        "argus_no_reviewer": env.get("ARGUS_SKILL_NO_REVIEWER", ""),
+        "argus_benchmark_terse": env.get("ARGUS_SKILL_BENCHMARK_TERSE", ""),
+        "argus_engineer_reasoning_effort": env.get(
+            "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", ""
+        ),
+        "argus_reviewer_reasoning_effort": env.get(
+            "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", ""
+        ),
+        "argus_skill_writeback": env.get("ARGUS_SKILL_SKILL_WRITEBACK", ""),
         "codex_version": _version([args.codex_bin, "--version"]),
         "argus_version": _version([sys.executable, "-m", "argus_skill", "--version"]),
         "docker_version": _version(["docker", "--version"]),
@@ -704,7 +859,13 @@ def main(argv: list[str] | None = None) -> int:
             pass
     workspace = row.get("workspace", "").removeprefix("./")
     workspace_exists = bool(workspace) and (run_root / workspace).exists()
-    cost = _cost_from_logs(row, args=args, run_root=run_root, stdout_path=stdout_path)
+    cost = _cost_from_logs(
+        row,
+        args=args,
+        run_root=run_root,
+        stdout_path=stdout_path,
+        env=env,
+    )
     human_hint = _human_request_hint(combined_tail)
     needs_human = timed_out or exit_code != 0 or human_hint or not workspace_exists
     notes = []
@@ -733,8 +894,27 @@ def main(argv: list[str] | None = None) -> int:
         "wall_minutes": f"{wall_seconds / 60.0:.2f}",
         "cost_usd": f"{float(cost['cost_usd']):.6f}",
         "cost_source": cost["cost_source"],
+        "cost_scope": cost["cost_scope"],
         "cost_model": cost["cost_model"],
         "pricing_source": "argus_skill.core.pricing.usd_for_tokens",
+        "argus_benchmark_mode": env.get("ARGUS_SKILL_BENCHMARK_MODE", ""),
+        "argus_benchmark_verifier_gate": env.get(
+            "ARGUS_SKILL_BENCHMARK_VERIFIER_GATE", ""
+        ),
+        "argus_engineer_model": env.get("ARGUS_SKILL_ENGINEER_MODEL", ""),
+        "argus_reviewer_model": env.get("ARGUS_SKILL_REVIEWER_MODEL", ""),
+        "argus_scientist_model": env.get("ARGUS_SKILL_SCIENTIST_MODEL", ""),
+        "argus_distill_on_miss": env.get("ARGUS_SKILL_DISTILL_ON_MISS", ""),
+        "argus_no_reviewer": env.get("ARGUS_SKILL_NO_REVIEWER", ""),
+        "argus_benchmark_terse": env.get("ARGUS_SKILL_BENCHMARK_TERSE", ""),
+        "argus_engineer_reasoning_effort": env.get(
+            "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", ""
+        ),
+        "argus_reviewer_reasoning_effort": env.get(
+            "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", ""
+        ),
+        "argus_skill_writeback": env.get("ARGUS_SKILL_SKILL_WRITEBACK", ""),
+        "assigned_model": assigned_model,
         "input_tokens": cost["input_tokens"],
         "cached_input_tokens": cost["cached_input_tokens"],
         "output_tokens": cost["output_tokens"],
@@ -747,10 +927,62 @@ def main(argv: list[str] | None = None) -> int:
         "status_checks": 0,
         "manual_commands": 0,
         "manual_rescue": "",
+        "human_interactions_after_assignment": 0,
+        "active_touch_minutes_after_assignment": 0.0,
+        "zero_touch_success": _normalized_zero_touch_success(
+            {
+                "needs_human": needs_human,
+                "zero_touch_success": not needs_human,
+                "human_interactions_after_assignment": 0,
+                "manual_commands": 0,
+                "nudges": 0,
+                "status_checks": 0,
+                "manual_rescue": "",
+            }
+        ),
+        "intervention_severity": _intervention_severity(
+            needs_human,
+            "",
+        ),
+        "actual_model": _actual_model_from_stats(cost, assigned_model),
+        "model_drift": False,
+        "model_drift_reason": "",
         "stdout_log": str(stdout_path),
         "stderr_log": str(stderr_path),
         "notes": "; ".join(notes),
     }
+    actual_model = result["actual_model"]
+    model_drift = bool(actual_model and assigned_model and actual_model != assigned_model)
+    if model_drift:
+        drift_reason = f"assigned model {assigned_model!r} drifted to {actual_model!r}"
+        notes.append(drift_reason)
+        result["model_drift"] = True
+        result["model_drift_reason"] = drift_reason
+        result["needs_human"] = True
+        result["zero_touch_success"] = _normalized_zero_touch_success(
+            {
+                **result,
+                "needs_human": True,
+                "zero_touch_success": False,
+            }
+        )
+        result["intervention_severity"] = "model_drift"
+        result["notes"] = "; ".join(notes)
+        _write_json(run_root / "result.json", result)
+        _append_csv(args.results_csv, result)
+        print(f"run_root: {run_root}")
+        print(f"result  : {run_root / 'result.json'}")
+        print(f"logs    : {stdout_path} ; {stderr_path}")
+        print(f"csv     : {args.results_csv}")
+        print(
+            f"cost    : ${float(cost['cost_usd']):.6f} "
+            f"({cost['cost_source']}, model={cost['cost_model']})"
+        )
+        print(
+            f"needs_human={str(needs_human).lower()} exit_code={exit_code} "
+            f"timed_out={timed_out} model_drift=true"
+        )
+        return 2
     _write_json(run_root / "result.json", result)
     _append_csv(args.results_csv, result)
 

@@ -15,10 +15,12 @@ from typing import Any, Callable
 import pytest
 
 from argus_skill.core.models import RunnerResult
+from argus_skill.engineer.runner import should_clear_thread_id_after_outcome
 from argus_skill.life.memory import (
     BacklogItem,
     JournalEntry,
     LifeMemory,
+    MemoryBundle,
 )
 from argus_skill.life.supervisor import (
     LifeBudget,
@@ -36,6 +38,7 @@ class _FakeOutcome:
     status: str = "success"
     stop_reason: str = ""
     rounds: int = 1
+    final_message: str = ""
     matched_skill_name: str | None = None
     skill_distilled: bool = False
     had_follow_up: bool = False
@@ -123,14 +126,34 @@ def _planner_task(
     impact_score: int = 4,
     impact_area: str = "reliability",
     evidence: str = "planner identified a high-value gap",
+    scope: str | None = None,
 ) -> dict[str, object]:
-    return {
+    task = {
         "title": title,
         "objective": objective,
         "impact_score": impact_score,
         "impact_area": impact_area,
         "evidence": evidence,
     }
+    if scope is not None:
+        task["scope"] = scope
+    return task
+
+
+def test_session_poison_classifier_clears_no_progress_and_empty_output() -> None:
+    assert should_clear_thread_id_after_outcome(status="no_progress", fatal_error=None)
+    assert should_clear_thread_id_after_outcome(
+        status="done",
+        fatal_error=(
+            "Codex ran out of room in the model's context window. "
+            "Start a new thread or clear earlier history before retrying."
+        ),
+    )
+    assert not should_clear_thread_id_after_outcome(status="done", fatal_error=None)
+    assert not should_clear_thread_id_after_outcome(
+        status="error",
+        fatal_error="runner binary not found: codex",
+    )
 
 
 # ---------- _price_for / _CostTrackingSink --------------------------------
@@ -182,6 +205,32 @@ def test_cost_tracking_sink_aggregates_and_forwards() -> None:
         + (50 * 10.0)
     ) / 1_000_000
     assert s.total_usd() == pytest.approx(expected)
+
+
+def test_cost_tracking_sink_diffs_explicit_cumulative_events() -> None:
+    inner = _RecordingSink()
+    s = _CostTrackingSink(inner, engineer_model="gpt-5.4-mini", reviewer_model="gpt-5.4")
+    s.handle_event({
+        "type": "round.main.completed",
+        "session_id": "thread-1",
+        "input_tokens": 1000,
+        "cached_input_tokens": 400,
+        "output_tokens": 100,
+        "usage_scope": "cumulative",
+    })
+    s.handle_event({
+        "type": "round.main.completed",
+        "session_id": "thread-1",
+        "input_tokens": 1250,
+        "cached_input_tokens": 500,
+        "output_tokens": 130,
+        "usage_scope": "cumulative",
+    })
+
+    assert len(inner.events) == 2
+    assert s.engineer_input_tokens == 1250
+    assert s.engineer_cached_input_tokens == 500
+    assert s.engineer_output_tokens == 130
 
 
 def test_cost_sink_tolerates_malformed_event() -> None:
@@ -512,6 +561,47 @@ def test_planner_journal_tail_uses_tail_not_all(
     assert "summary 0" in out
 
 
+def test_planner_journal_context_is_project_scoped(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    repo_a = tmp_path / "repo-a"
+    repo_b = tmp_path / "repo-b"
+    repo_a.mkdir()
+    repo_b.mkdir()
+    bundle_a = MemoryBundle.for_cwd(repo_a, global_root=home)
+    bundle_b = MemoryBundle.for_cwd(repo_b, global_root=home)
+    bundle_a.init()
+    bundle_b.init()
+
+    bundle_b.journal.append(
+        JournalEntry.new(
+            kind="mission_complete",
+            title="stale beta success",
+            summary="wrong workspace",
+        )
+    )
+    bundle_a.journal.append(
+        JournalEntry.new(
+            kind="mission_failed",
+            title="fresh alpha blocker",
+            summary="right workspace",
+        )
+    )
+
+    sup = LifeSupervisor(
+        memory=bundle_a,
+        runner=_FakeRunner(),
+        sink=_RecordingSink(),
+        config=LifeSupervisorConfig(),
+    )
+
+    out = sup._render_journal_for_planner()
+
+    assert "fresh alpha blocker" in out
+    assert "right workspace" in out
+    assert "stale beta success" not in out
+    assert "wrong workspace" not in out
+
+
 def test_cost_recorded_in_journal_entry(tmp_path: Path) -> None:
     sup, _, _, mem = _mk_sup(tmp_path)
     mem.backlog.add(BacklogItem.new(title="t", objective="objective text"))
@@ -631,14 +721,57 @@ def test_runtime_context_empty_no_injection(tmp_path: Path) -> None:
     assert "Runtime info" not in prelude
 
 
+def test_project_workdir_prefers_env_workdir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _FakeRunner()
+    mem = _mk_memory(tmp_path / "memory")
+    sink = _RecordingSink()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("ARGUS_SKILL_WORKDIR", str(repo))
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=LifeSupervisorConfig(),
+    )
+
+    assert sup._project_workdir() == repo
+
+
+def test_project_workdir_prefers_configured_worktree_over_memory_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _FakeRunner()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    bundle = MemoryBundle.for_cwd(repo, global_root=tmp_path / "life")
+    sink = _RecordingSink()
+    override = tmp_path / "override"
+    override.mkdir()
+    monkeypatch.setenv("ARGUS_SKILL_WORKDIR", str(tmp_path / "env"))
+    sup = LifeSupervisor(
+        memory=bundle,
+        runner=runner,
+        sink=sink,
+        config=LifeSupervisorConfig(project_worktree=override),
+    )
+
+    assert sup._project_workdir() == override
+    assert sup._planner_workdir() == override
+
+
 # ---------------------------------------------------------------------------
-# auth failure stops supervisor
+# auth failure pauses current drain pass without killing daemon
 # ---------------------------------------------------------------------------
 
-def test_auth_failure_stops_supervisor(tmp_path: Path) -> None:
+def test_auth_failure_pauses_supervisor_without_setting_stop_event(tmp_path: Path) -> None:
     """When the runner returns an outcome with ``auth_failure=True``, the
-    supervisor must stop and include ``stopped_by='auth_failure'`` in
-    the summary."""
+    supervisor stops the current drain pass and reports the issue, but it
+    must not set the daemon stop_event."""
 
     @dataclass
     class _AuthFailOutcome(_FakeOutcome):
@@ -668,7 +801,7 @@ def test_auth_failure_stops_supervisor(tmp_path: Path) -> None:
     summary = sup.run()
     assert summary["stopped_by"] == "auth_failure"
     assert len(runner.calls) == 1  # only 1 mission ran, then stopped
-    assert stop_event.is_set()
+    assert not stop_event.is_set()
     # Check that a life.auth_failure event was emitted
     auth_events = [e for e in sink.events if e.get("type") == "life.auth_failure"]
     assert len(auth_events) == 1
@@ -697,6 +830,159 @@ def test_continuous_mode_without_planner_stops_without_project_done(
     assert not any(
         event.get("type") == "life.planner.verdict"
         and event.get("project_done")
+        for event in sink.events
+    )
+
+
+def test_continuous_mode_planner_backend_exception_is_retryable(
+    tmp_path: Path,
+) -> None:
+    mem = _mk_memory(tmp_path)
+    sink = _RecordingSink()
+    runner = _FakeRunner()
+
+    class _BadPlannerRunner:
+        def run_exec(self, **kwargs: Any) -> Any:  # noqa: ANN401
+            del kwargs
+
+            class _Result:
+                input_tokens = 1
+                cached_input_tokens = 0
+                output_tokens = 1
+                agent_messages = [
+                    json.dumps(
+                        {
+                            "project_done": True,
+                            "reason": "done",
+                            "new_tasks": [
+                                _planner_task(
+                                    "bad follow-up",
+                                    "should not be accepted",
+                                )
+                            ],
+                        }
+                    )
+                ]
+
+            return _Result()
+
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(max_missions=999, daily_cap_usd=999.0),
+        continuous=True,
+        continuous_objective="optimize the project",
+    )
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=cfg,
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+        critic_runner=_BadPlannerRunner(),
+    )
+
+    summary = sup.run()
+
+    assert summary["stopped_by"] == "planner_error"
+    assert runner.calls == []
+    assert all(entry.kind != "planner_done" for entry in mem.journal.all())
+    assert any(entry.kind == "planner_error" for entry in mem.journal.all())
+    assert any(
+        event.get("type") == "life.planner.error"
+        for event in sink.events
+    )
+
+
+def test_continuous_mode_planner_schema_violation_is_retryable(
+    tmp_path: Path,
+) -> None:
+    mem = _mk_memory(tmp_path)
+    sink = _RecordingSink()
+    runner = _FakeRunner()
+
+    class _BoomPlannerRunner:
+        def run_exec(self, **kwargs: Any) -> Any:  # noqa: ANN401
+            del kwargs
+            raise RuntimeError("planner backend exploded")
+
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(max_missions=999, daily_cap_usd=999.0),
+        continuous=True,
+        continuous_objective="optimize the project",
+    )
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=cfg,
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+        critic_runner=_BoomPlannerRunner(),
+    )
+
+    summary = sup.run()
+
+    assert summary["stopped_by"] == "planner_error"
+    assert runner.calls == []
+    assert all(entry.kind != "planner_done" for entry in mem.journal.all())
+    assert any(entry.kind == "planner_error" for entry in mem.journal.all())
+    assert any(
+        event.get("type") == "life.planner.error"
+        for event in sink.events
+    )
+
+
+def test_continuous_mode_open_ended_project_done_stays_enabled(
+    tmp_path: Path,
+) -> None:
+    mem = _mk_memory(tmp_path)
+    sink = _RecordingSink()
+    runner = _FakeRunner()
+
+    class _PlannerRunner:
+        def run_exec(self, **kwargs: Any) -> Any:  # noqa: ANN401
+            del kwargs
+
+            class _Result:
+                input_tokens = 11
+                cached_input_tokens = 0
+                output_tokens = 7
+                agent_messages = [
+                    json.dumps(
+                        {
+                            "project_done": True,
+                            "reason": "self-improvement goal is complete for now",
+                            "new_tasks": [],
+                        }
+                    )
+                ]
+
+            return _Result()
+
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(max_missions=999, daily_cap_usd=999.0),
+        continuous=True,
+        continuous_objective="open-ended self-improvement goal",
+    )
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=cfg,
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+        critic_runner=_PlannerRunner(),
+    )
+
+    summary = sup.run()
+
+    assert summary["stopped_by"] == "planner_retry"
+    assert runner.calls == []
+    assert all(entry.kind != "planner_done" for entry in mem.journal.all())
+    assert any(entry.kind == "planner_retry" for entry in mem.journal.all())
+    assert any(
+        event.get("type") == "life.planner.verdict"
+        and event.get("open_ended_objective") is True
         for event in sink.events
     )
 
@@ -785,6 +1071,46 @@ def test_continuous_mode_planner_cycle_gate_can_defer_planning(
     assert runner.calls == []
     assert any(
         event.get("type") == "life.planner.deferred"
+        and event.get("reason") == "daemon_handoff"
+        for event in sink.events
+    )
+
+
+def test_post_mission_hook_can_trigger_daemon_handoff_between_missions(
+    tmp_path: Path,
+) -> None:
+    mem = _mk_memory(tmp_path)
+    mem.backlog.add(BacklogItem.new(title="self-arch", objective="modify runtime"))
+    mem.backlog.add(BacklogItem.new(title="next", objective="use new runtime"))
+    sink = _RecordingSink()
+    runner = _FakeRunner()
+    hook_outcomes: list[dict[str, Any]] = []
+
+    def _hook(outcome: dict[str, Any]) -> str:
+        hook_outcomes.append(outcome)
+        return "daemon_handoff"
+
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(max_missions=999, daily_cap_usd=999.0),
+        post_mission_hook=_hook,
+    )
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=cfg,
+    )
+
+    summary = sup.run()
+
+    assert summary["stopped_by"] == "daemon_handoff"
+    assert len(runner.calls) == 1
+    rows = mem.backlog.all()
+    assert rows[0].status == "done"
+    assert rows[1].status == "pending"
+    assert hook_outcomes and hook_outcomes[0]["title"] == "self-arch"
+    assert any(
+        event.get("type") == "life.post_mission.stop"
         and event.get("reason") == "daemon_handoff"
         for event in sink.events
     )
@@ -959,8 +1285,108 @@ def test_continuous_mode_planner_generates_new_tasks(tmp_path: Path) -> None:
     assert len(missions_run) == 2  # first task + planner-generated task
     assert missions_run[0] == "task one"
     assert missions_run[1] == "task two"
+    planned = next(item for item in mem.backlog.all() if item.objective == "task two")
+    assert planned.iteration_max_cycles == 6
+    assert planned.iteration_budget_usd == pytest.approx(30.0)
+    assert planned.tags == ["planner", "scope:bounded"]
+    assert "- planner_scope: bounded" in runner.calls[1]["prelude_context"]
+    assert "bounded_task" in runner.calls[1]["prelude_context"]
     # planner_calls: 1 for planning after task one, 1 for critic evaluate
     # on task two (iterate=True by default), 1 for planning after task two
+    assert planner_calls["n"] == 3
+
+
+def test_bounded_paper_task_metadata_uses_long_horizon_contract(tmp_path: Path) -> None:
+    sup = LifeSupervisor(
+        memory=_mk_memory(tmp_path),
+        runner=_FakeRunner(),
+        sink=_RecordingSink(),
+        config=LifeSupervisorConfig(
+            continuous=True,
+            continuous_objective="完成 EMNLP submission-ready paper",
+        ),
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+    )
+    item = BacklogItem.new(
+        title="Repair manuscript flow",
+        objective="Fix paper/main.tex body length and citation flow.",
+        tags=["planner", "scope:bounded"],
+    )
+
+    metadata = sup._render_backlog_item_metadata(item)
+
+    assert "- planner_scope: bounded" in metadata
+    assert "paper_optimization_task" in metadata
+    assert "validate-research-md-format" in metadata
+    assert "validate-full-emnlp" in metadata
+    assert "one narrow check passed" in metadata
+
+
+def test_emnlp_project_done_without_full_gate_enqueues_final_submission_task(
+    tmp_path: Path,
+) -> None:
+    def factory(obj: str, pre: str) -> _FakeOutcome:  # noqa: ARG001
+        outcome = _FakeOutcome()
+        outcome.final_message = (
+            "python -m argus_skill.skills.pipeline_contracts "
+            "validate-full-emnlp --project-root .\nexit 0\nsuccess"
+        )
+        return outcome
+
+    runner = _FakeRunner(response_factory=factory)
+    mem = _mk_memory(tmp_path)
+    sink = _RecordingSink()
+    planner_calls = {"n": 0}
+
+    class _FakePlannerRunner:
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None, **kw):  # noqa: ARG002
+            planner_calls["n"] += 1
+            if run_label.startswith("critic."):
+                payload = '{"stop": true, "reason": "full gate passed", "improvements": []}'
+            else:
+                payload = json.dumps({
+                    "project_done": True,
+                    "reason": "all good now",
+                    "new_tasks": [],
+                })
+
+            class _Result:
+                agent_messages = [payload]
+
+            return _Result()
+
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(max_missions=999, daily_cap_usd=999.0),
+        continuous=True,
+        continuous_objective="完成 EMNLP 投稿实验并生成 submission-ready paper",
+    )
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=cfg,
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+        critic_runner=_FakePlannerRunner(),
+    )
+
+    summary = sup.run()
+
+    assert summary["stopped_by"] == "project_done"
+    assert len(runner.calls) == 1
+    assert "Scope: final_submission" in runner.calls[0]["objective"]
+    assert "validate-full-emnlp --project-root ." in runner.calls[0]["objective"]
+    assert "validate-pipeline" in runner.calls[0]["objective"]
+    final_item = next(
+        item
+        for item in mem.backlog.all()
+        if item.title == "Prove EMNLP submission readiness"
+    )
+    assert final_item.tags == ["planner", "scope:final_submission"]
+    assert "- planner_scope: final_submission" in runner.calls[0]["prelude_context"]
+    assert "final_submission_gate" in runner.calls[0]["prelude_context"]
+    assert mem.journal.all()[-1].kind == "planner_done"
     assert planner_calls["n"] == 3
 
 
@@ -1004,7 +1430,7 @@ def test_continuous_mode_planner_malformed_payload_is_retryable(
     assert any(entry.kind == "planner_error" for entry in mem.journal.all())
 
 
-def test_continuous_mode_planner_backend_exception_is_retryable(
+def test_continuous_mode_planner_backend_exception_after_mission_is_retryable(
     tmp_path: Path,
 ) -> None:
     runner = _FakeRunner(response_factory=lambda obj, pre: _FakeOutcome())
@@ -1206,6 +1632,150 @@ def test_manual_rerun_of_completed_task_is_still_allowed(tmp_path: Path) -> None
     items = [item for item in mem.backlog.all() if item.title == "finished task"]
     assert len(items) == 2
     assert {item.status for item in items} == {"done", "pending"}
+
+
+def test_continuous_mode_planner_quarantines_recent_no_progress_repeat(
+    tmp_path: Path,
+) -> None:
+    class _PlannerBackend:
+        def __init__(self) -> None:
+            self.planner_calls = 0
+            self.critic_calls = 0
+
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None, **kw):  # noqa: ARG002
+            if run_label.startswith("critic."):
+                self.critic_calls += 1
+                return RunnerResult(
+                    exit_code=0,
+                    agent_messages=['{"stop": true, "reason": "done", "improvements": []}'],
+                    input_tokens=0,
+                    output_tokens=0,
+                )
+
+            self.planner_calls += 1
+            if self.planner_calls == 1:
+                payload = json.dumps({
+                    "project_done": False,
+                    "reason": "needs more work",
+                    "new_tasks": [
+                        _planner_task("Repeat task", "write report"),
+                        _planner_task("Repeat task", "write report v2"),
+                    ],
+                })
+            else:
+                payload = json.dumps({
+                    "project_done": True,
+                    "reason": "all good now",
+                    "new_tasks": [],
+                })
+
+            return RunnerResult(
+                exit_code=0,
+                agent_messages=[payload],
+                input_tokens=123,
+                output_tokens=45,
+            )
+
+    runner = _FakeRunner(
+        response_factory=lambda objective, prelude: (  # noqa: ARG005
+            _FakeOutcome(success=False, status="no_progress", stop_reason="stalled", rounds=2)
+            if objective == "write report"
+            else _FakeOutcome(success=True, status="done", stop_reason="", rounds=1)
+        )
+    )
+    mem = _mk_memory(tmp_path)
+    sink = _RecordingSink()
+    planner_backend = _PlannerBackend()
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(max_missions=999, daily_cap_usd=999.0),
+            continuous=True,
+            continuous_objective="optimize the project",
+        ),
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+        critic_runner=planner_backend,
+    )
+
+    mem.backlog.add(BacklogItem.new(
+        title="Repeat task",
+        objective="write report",
+        iterate=False,
+    ))
+
+    summary = sup.run()
+
+    entries = mem.journal.all()
+    failed = next(entry for entry in entries if entry.kind == "mission_failed")
+    planned = next(entry for entry in entries if entry.kind == "planner_cycle")
+    planner_events = [event for event in sink.events if event.get("type", "").startswith("life.planner")]
+    skipped = [event for event in planner_events if event.get("type") == "life.planner.task_skipped"]
+
+    assert summary["stopped_by"] == "project_done"
+    assert summary["planning_cycles"] == 2
+    assert planner_backend.planner_calls == 2
+    assert planner_backend.critic_calls == 1
+    assert [call["objective"] for call in runner.calls] == ["write report", "write report v2"]
+    assert failed.extra["planner_task_signature"] == {
+        "title": "repeat task",
+        "objective": "write report",
+    }
+    assert failed.extra["terminal_status"] == "no_progress"
+    assert failed.extra["stop_reason"] == "stalled"
+    assert len(skipped) == 1
+    assert skipped[0]["reason"] == "recent no_progress failure"
+    assert skipped[0]["skip_category"] == "recent_no_progress_failure"
+    assert skipped[0]["matched_item_id"] == failed.extra["item_id"]
+    assert skipped[0]["matched_title"] == "Repeat task"
+    assert skipped[0]["matched_status"] == "no_progress"
+    assert skipped[0]["matched_stop_reason"] == "stalled"
+    assert skipped[0]["matched_signature"] == {
+        "title": "repeat task",
+        "objective": "write report",
+    }
+    assert planned.extra["skipped_recent_failure_tasks"] == 1
+    assert planned.extra["skipped_recent_failure_titles"] == ["Repeat task"]
+    assert "quarantined 1 recent no_progress repeat(s): Repeat task" in planned.summary
+    assert any(item.objective == "write report v2" and item.status == "done" for item in mem.backlog.all())
+    assert sum(1 for item in mem.backlog.all() if item.title == "Repeat task" and item.objective == "write report") == 1
+
+
+def test_manual_backlog_rerun_is_not_blocked_by_recent_no_progress_failure(
+    tmp_path: Path,
+) -> None:
+    mem = _mk_memory(tmp_path)
+    mem.journal.append(
+        JournalEntry.new(
+            kind="mission_failed",
+            title="Repeat task",
+            summary="status=no_progress; reason=stalled",
+            extra={
+                "item_id": "mission-123",
+                "objective": "write report",
+                "planner_task_signature": {
+                    "title": "repeat task",
+                    "objective": "write report",
+                },
+                "terminal_status": "no_progress",
+                "stop_reason": "stalled",
+                "failure_reason": "stalled",
+            },
+        )
+    )
+
+    rerun = mem.backlog.add(BacklogItem.new(
+        title="Repeat task",
+        objective="write report",
+        iterate=False,
+    ))
+
+    assert rerun.status == "pending"
+    assert rerun.title == "Repeat task"
+    assert rerun.objective == "write report"
+    assert len([item for item in mem.backlog.all() if item.title == "Repeat task"]) == 1
 
 
 def test_planner_budget_counts_planner_tokens(tmp_path: Path) -> None:

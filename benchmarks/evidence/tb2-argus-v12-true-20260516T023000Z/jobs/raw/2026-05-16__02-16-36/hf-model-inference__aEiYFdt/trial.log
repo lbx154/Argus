@@ -1,0 +1,4 @@
+Skipping image OS validation for alexgshaw/hf-model-inference:20251031: docker inspect returned 1
+Trial hf-model-inference__aEiYFdt failed: Docker compose command failed for environment hf-model-inference. Command: docker compose --project-name hf-model-inference__aeiyfdt --project-directory /home/argustest/.cache/harbor/tasks/DcF3L5bfEpwdBkhfr3hgHe/hf-model-inference/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+. Stderr: None. 

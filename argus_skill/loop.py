@@ -22,6 +22,7 @@ End-to-end shape:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -34,6 +35,27 @@ from .scientist.distiller import Distiller, DistillerConfig
 from .skills.store import Skill, SkillStore
 
 log = logging.getLogger(__name__)
+
+_PAPER_OBJECTIVE_SUBSTRINGS = (
+    "academic paper",
+    "camera-ready",
+    "citation",
+    "latex",
+    "long paper",
+    "main.pdf",
+    "main.tex",
+    "make_paper",
+    "manuscript",
+    "paper/",
+    "paper draft",
+    "publication-ready",
+    "submission-ready",
+    "validate-full-emnlp",
+    "正文",
+    "论文",
+    "投稿",
+)
+_PAPER_OBJECTIVE_WORDS = {"acl", "emnlp"}
 
 
 @dataclass
@@ -51,6 +73,8 @@ class SkillLoopConfig:
     check_commands: list[str] = field(default_factory=list)
     check_timeout_seconds: int = 600
     no_progress_threshold: int = 2
+    backend_failure_threshold: int = 2
+    backend_failure_backoff_seconds: float = 15.0
     skill_writeback: bool = True
     distill_on_miss: bool = True
     # When True, the writeback also calls the scientist to revise the
@@ -226,6 +250,8 @@ class SkillLoop:
                 check_commands=list(self.config.check_commands),
                 check_timeout_seconds=self.config.check_timeout_seconds,
                 no_progress_threshold=self.config.no_progress_threshold,
+                backend_failure_threshold=self.config.backend_failure_threshold,
+                backend_failure_backoff_seconds=self.config.backend_failure_backoff_seconds,
                 session_id=self.config.session_id,
             ),
             workdir=workdir,
@@ -324,6 +350,29 @@ class SkillLoop:
         if skill_text:
             sections.append("## Skill playbook (read first)\n" + skill_text)
         sections.append("## Task\n" + task)
+        if SkillLoop._looks_like_paper_objective(task):
+            sections.append(
+                "## Long-horizon paper execution contract\n"
+                "This is not a one-file bounded patch. Treat the engineer as the\n"
+                "owner of the paper trajectory for this mission.\n\n"
+                "- Read `AGENTS.md` and the relevant built-in paper skills before\n"
+                "  choosing the scope of work.\n"
+                "- Run or inspect `python -m argus_skill.skills.pipeline_contracts\n"
+                "  validate-full-emnlp --project-root .` early when feasible; use\n"
+                "  the failures as the roadmap. If it is too expensive, run the\n"
+                "  narrower reported validators and explain why.\n"
+                "- Fix multiple adjacent blockers in one mission when budget allows:\n"
+                "  evidence, `paper/main.tex`, body/page flow, citations, figures,\n"
+                "  tables, reviews, assurance, manifest freshness, and submission\n"
+                "  state.\n"
+                "- Do not stop after one narrow check passes if obvious paper-quality\n"
+                "  blockers remain and are addressable in this mission.\n"
+                "- For underfilled papers, improve reader-facing prose, evidence\n"
+                "  integration, and figure/table placement toward 7.5-8 main-content\n"
+                "  pages; do not pad with artifact bookkeeping.\n"
+                "- If the full gate still fails, end with the exact remaining blockers\n"
+                "  and the next concrete command."
+            )
         if next_action:
             sections.append(
                 "## Reviewer guidance from prior round\n"
@@ -357,6 +406,14 @@ class SkillLoop:
             "section (≤8 bullets) describing what you changed."
         )
         return "\n\n".join(sections)
+
+    @staticmethod
+    def _looks_like_paper_objective(text: str) -> bool:
+        normalized = str(text or "").casefold()
+        if any(marker in normalized for marker in _PAPER_OBJECTIVE_SUBSTRINGS):
+            return True
+        tokens = set(re.findall(r"[a-z0-9]+", normalized))
+        return bool(tokens & _PAPER_OBJECTIVE_WORDS)
 
     def _collect_extra_guidance(self) -> list[str]:
         if self.extra_guidance_provider is None:

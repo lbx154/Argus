@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -21,10 +20,19 @@ from argus_skill.tools.image_tool import (
     _require_route,
 )
 
+from ._review_contract_constants import (
+    ACADEMIC_LANGUAGE_REVIEW_GENERATED_BY,
+    ACADEMIC_LANGUAGE_REVIEW_HISTORY_PATH,
+    REVIEW_INPUT_SHA256_FIELD,
+    REVIEW_PROMPT_SHA256_FIELD,
+    review_sha256_file,
+    review_sha256_json,
+    review_sha256_text,
+)
+
 PAPER_MAIN_TEX_PATH = Path("paper/main.tex")
 ACADEMIC_LANGUAGE_REVIEW_JSON_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW.json")
 ACADEMIC_LANGUAGE_REVIEW_MD_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW.md")
-ACADEMIC_LANGUAGE_REVIEW_HISTORY_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW_history.jsonl")
 MIN_ACADEMIC_LANGUAGE_SCORE = 4.0
 DEFAULT_TIMEOUT_SECONDS = 500.0
 MAX_SOURCE_FILES = 120
@@ -171,7 +179,7 @@ def generate_academic_language_review(
     iteration = iteration or _next_iteration(root)
     source_paths, missing_sources = collect_latex_source_paths(root)
     source_snapshots = [
-        {"path": rel_path, "sha256": _sha256_file(root / rel_path)}
+        {"path": rel_path, "sha256": review_sha256_file(root / rel_path)}
         for rel_path in source_paths
         if (root / rel_path).is_file()
     ]
@@ -291,7 +299,7 @@ def generate_academic_language_review(
     directives = [] if verdict == "PASS" else _revision_directives(issues, model_review)
     result: dict[str, Any] = {
         "schema_version": 1,
-        "generated_by": "argus_skill.skills.academic_language_review",
+        "generated_by": ACADEMIC_LANGUAGE_REVIEW_GENERATED_BY,
         "created_at": datetime.now(UTC).isoformat(),
         "iteration": iteration,
         "review_method": review_method,
@@ -377,7 +385,12 @@ def _latex_child_paths(text: str, *, current_rel: str) -> list[str]:
                 if child.suffix == "":
                     child = child.with_suffix(".bib")
                 children.append((current_parent / child).as_posix())
-    return [_normalize_rel_path(path) for path in children if _normalize_rel_path(path) is not None]
+    normalized_children: list[str] = []
+    for path in children:
+        normalized = _normalize_rel_path(path)
+        if normalized is not None:
+            normalized_children.append(normalized)
+    return normalized_children
 
 
 def _safe_project_path(root_resolved: Path, rel_path: str) -> Path | None:
@@ -619,6 +632,7 @@ def _run_model_review(
         deterministic=deterministic,
         threshold=threshold,
     )
+    prompt_sha256 = review_sha256_text(prompt)
     endpoint = "/responses"
     try:
         data = _json_request(
@@ -646,6 +660,18 @@ def _run_model_review(
     parsed["model"] = route.model
     parsed["endpoint"] = endpoint
     parsed["reviewed_root"] = str(root)
+    parsed[REVIEW_PROMPT_SHA256_FIELD] = prompt_sha256
+    parsed[REVIEW_INPUT_SHA256_FIELD] = review_sha256_json(
+        {
+            "deterministic": deterministic,
+            "prompt_sha256": prompt_sha256,
+            "source_sha256": {
+                path: review_sha256_text(text)
+                for path, text in sorted(source_text_by_path.items())
+            },
+            "threshold": threshold,
+        }
+    )
     return parsed
 
 
@@ -1269,10 +1295,18 @@ def _append_history(root: Path, path: Path, result: dict[str, Any]) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     summary = {
         "created_at": result.get("created_at"),
+        "generated_by": result.get("generated_by"),
         "iteration": result.get("iteration"),
+        "review_method": result.get("review_method"),
         "verdict": result.get("verdict"),
         "score_1_to_5": result.get("score_1_to_5"),
         "needs_revision": result.get("needs_revision"),
+        "model": (result.get("model_review") or {}).get("model")
+        if isinstance(result.get("model_review"), dict)
+        else None,
+        "endpoint": (result.get("model_review") or {}).get("endpoint")
+        if isinstance(result.get("model_review"), dict)
+        else None,
         "source_sha256": {
             entry.get("path"): entry.get("sha256")
             for entry in result.get("source_snapshots", [])
@@ -1300,14 +1334,6 @@ def _write_text(path: Path, value: str) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(value, encoding="utf-8")
     os.replace(tmp, path)
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _float_or_none(value: object) -> float | None:

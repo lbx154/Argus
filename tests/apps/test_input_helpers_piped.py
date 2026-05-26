@@ -109,6 +109,24 @@ def test_piped_slash_command_after_block_pushes_back(monkeypatch):
     assert cmd == "/quit"
 
 
+def test_piped_bracketed_paste_preserves_blank_lines_and_slashes(monkeypatch):
+    script = (
+        "\x1b[200~## Heading\n"
+        "\n"
+        "body line\n"
+        "/literal-not-command\n"
+        "\n"
+        "tail\x1b[201~\n"
+        "/exit\n"
+    )
+    _drive(monkeypatch, script)
+
+    body = ih.read_pasted_message("> ")
+    cmd = ih.read_pasted_message("> ")
+    assert body == "## Heading\n\nbody line\n/literal-not-command\n\ntail"
+    assert cmd == "/exit"
+
+
 def test_piped_eof_with_no_input_returns_none(monkeypatch):
     _drive(monkeypatch, "")
     assert ih.read_pasted_message("> ") is None

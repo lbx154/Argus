@@ -8,9 +8,11 @@ host-prep ablation flags.
 from __future__ import annotations
 
 import importlib.util
+import json
+import shlex
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
@@ -199,6 +201,69 @@ def test_compute_model_cost_usd_applies_cached_discount(adapter, monkeypatch):
     assert cost == 29.0
 
 
+def test_sum_all_session_tokens_accumulates_token_counts(adapter, tmp_path: Path) -> None:
+    sessions = tmp_path / "sessions"
+    first = sessions / "2026" / "05" / "15" / "rollout-a.jsonl"
+    first.parent.mkdir(parents=True, exist_ok=True)
+    first.write_text(
+        "\n".join(
+            [
+                json.dumps({"type": "session_meta", "payload": {"id": "session-a"}}),
+                json.dumps(
+                    {
+                        "type": "event_msg",
+                        "payload": {
+                            "type": "token_count",
+                            "info": {
+                                "total_token_usage": {
+                                    "input_tokens": 11,
+                                    "cached_input_tokens": 3,
+                                    "output_tokens": 7,
+                                }
+                            },
+                        },
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    second = sessions / "2026" / "05" / "15" / "rollout-b.jsonl"
+    second.parent.mkdir(parents=True, exist_ok=True)
+    second.write_text(
+        "\n".join(
+            [
+                json.dumps({"type": "session_meta", "payload": {"id": "session-b"}}),
+                json.dumps(
+                    {
+                        "type": "event_msg",
+                        "payload": {
+                            "type": "token_count",
+                            "info": {
+                                "total_token_usage": {
+                                    "input_tokens": 13,
+                                    "cached_input_tokens": 5,
+                                    "output_tokens": 9,
+                                }
+                            },
+                        },
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    usage = adapter._sum_all_session_tokens(sessions)
+
+    assert usage["total_input"] == 24
+    assert usage["total_cached"] == 8
+    assert usage["total_output"] == 16
+    assert len(usage["sessions"]) == 2
+
+
 def test_no_skill_ablation_skips_host_prep(adapter, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HARBOR_NO_SKILL", "1")
     prep = adapter._do_host_prep("any task")
@@ -206,6 +271,58 @@ def test_no_skill_ablation_skips_host_prep(adapter, monkeypatch):
     assert prep.skill_text == ""
     assert prep.fallback_reason == "no_skill_ablation"
     assert prep.scientist_tokens == 0
+
+
+def test_prepare_container_writes_concrete_openai_base_url(
+    adapter: ModuleType,
+) -> None:
+    import asyncio as _asyncio
+    import logging
+
+    calls: list[tuple[str, dict[str, str]]] = []
+
+    class _FakeEnvironment:
+        default_user = None
+
+    async def _fake_exec_as_agent(
+        environment: Any,  # noqa: ARG001
+        *,
+        command: str,
+        env: dict[str, str],
+    ) -> None:
+        calls.append((command, dict(env)))
+
+    async def _fake_exec_as_root(
+        environment: Any,  # noqa: ARG001
+        *,
+        command: str,
+    ) -> None:
+        raise AssertionError(f"unexpected root command: {command}")
+
+    inst = adapter.ArgusSkillCodex.__new__(adapter.ArgusSkillCodex)
+    inst.logger = logging.getLogger("test")
+    inst.exec_as_agent = _fake_exec_as_agent
+    inst.exec_as_root = _fake_exec_as_root
+    inst._resolve_auth_json_path = lambda: None
+    inst._get_env = lambda name: {
+        "OPENAI_API_KEY": "secret",
+        "OPENAI_BASE_URL": "https://example.invalid/openai/v1",
+    }.get(name)
+    inst._build_register_skills_command = lambda: ""
+    inst._build_register_mcp_servers_command = lambda: ""
+
+    env, setup_command = _asyncio.get_event_loop().run_until_complete(
+        inst._prepare_container(_FakeEnvironment())
+    )
+
+    assert env["OPENAI_BASE_URL"] == "https://example.invalid/openai/v1/"
+    assert 'model_provider = "codex"' in setup_command
+    assert 'base_url = "https://example.invalid/openai/v1/"' in setup_command
+    assert 'wire_api = "responses"' in setup_command
+    assert "codex login --with-api-key" in setup_command
+    assert calls
+    assert calls[0][0].startswith('mkdir -p "$CODEX_HOME" ')
+    assert calls[0][1]["CODEX_HOME"] == inst._REMOTE_CODEX_HOME.as_posix()
 
 
 # --- distill-on-miss save_distilled None-branch -----------------------------
@@ -246,6 +363,22 @@ class _StubStoreGateAccept(_StubMatchEmpty):
 class _StubStoreParseError(_StubMatchEmpty):
     def save_distilled(self, **_kwargs):
         raise ValueError("could not parse")
+
+
+class _StubStoreCaptureSkillsDir(_StubMatchEmpty):
+    seen_dirs: list[Path] = []
+
+    class _Skill:
+        name = "stub-skill"
+
+        def render(self):
+            return "## Stub skill body"
+
+    def __init__(self, skills_dir, **_kwargs):
+        type(self).seen_dirs.append(Path(skills_dir))
+
+    def find_relevant(self, _instruction):
+        return [self._Skill()], 0
 
 
 class _StubDistillResult:
@@ -333,6 +466,32 @@ def test_save_distilled_real_exception_records_parse_failure(
     assert prep.skill_text == "raw distill output text"
 
 
+def test_do_host_prep_default_skills_dir_stays_outside_results_tree(
+    adapter, monkeypatch, tmp_path
+) -> None:
+    deps = {
+        "CodexRunnerBackend": _StubBackend,
+        "Reviewer": object,
+        "ReviewerConfig": object,
+        "Distiller": _StubDistiller,
+        "DistillerConfig": _StubDistillerCfg,
+        "Skill": object,
+        "SkillStore": _StubStoreCaptureSkillsDir,
+    }
+    monkeypatch.setattr(adapter, "_import_argus_skill", lambda: deps)
+    monkeypatch.delenv("ARGUS_SKILL_HARBOR_SKILLS_DIR", raising=False)
+    monkeypatch.setattr(adapter.Path, "home", lambda: tmp_path)
+
+    _StubStoreCaptureSkillsDir.seen_dirs.clear()
+
+    prep = adapter._do_host_prep("any task")
+    expected = tmp_path / ".cache" / "argus-skill-harbor" / "skills"
+
+    assert _StubStoreCaptureSkillsDir.seen_dirs == [expected]
+    assert prep.skill_used is True
+    assert "benchmarks/results" not in str(expected)
+
+
 # --- reviewer budget default ------------------------------------------------
 
 
@@ -341,6 +500,36 @@ def test_reviewer_budget_default_is_at_least_120s(adapter):
     empirically too tight for gpt-5.4 @ medium effort (6/6 timeouts).
     Don't let it silently regress below 120 s without re-validation."""
     assert adapter._DEFAULT_REVIEWER_BUDGET >= 120.0
+
+
+def test_verifier_pass_short_circuit_decision_is_reviewer_shaped(adapter):
+    decision = adapter._verifier_pass_short_circuit_decision(
+        {"passed": True, "exit_code": 0}
+    )
+
+    assert decision["status"] == "done"
+    assert decision["confidence"] == 1.0
+    assert decision["source"] == "verifier_pass_short_circuit"
+    assert decision["input_tokens"] == 0
+    assert adapter._verifier_pass_short_circuit_decision({"passed": False}) is None
+    assert adapter._verifier_pass_short_circuit_decision(None) is None
+
+
+def test_reviewer_gate_controls_continue_retry(adapter):
+    decision = {"status": "continue"}
+
+    assert adapter._should_retry_after_review(
+        decision, reviewer_gate=True, round_idx=1, max_rounds=2
+    )
+    assert not adapter._should_retry_after_review(
+        decision, reviewer_gate=False, round_idx=1, max_rounds=2
+    )
+    assert not adapter._should_retry_after_review(
+        decision, reviewer_gate=True, round_idx=2, max_rounds=2
+    )
+    assert not adapter._should_retry_after_review(
+        {"status": "done"}, reviewer_gate=True, round_idx=1, max_rounds=2
+    )
 
 
 # --- v4 priority 1: reviewer-sees-acceptance-checks plumbing ----------------
@@ -735,6 +924,97 @@ def test_collect_v12_verifier_preserves_alternate_output_fields(
     assert out["output_tail"] == "FAILED test_outputs.py::test_x"
 
 
+def test_collect_v12_verifier_uses_terminal_bench_reward_file(
+    adapter: ModuleType,
+) -> None:
+    import asyncio as _asyncio
+
+    class _FakeExecResult:
+        def __init__(self, return_code: int, *, output: str = "") -> None:
+            self.return_code = return_code
+            self.output = output
+
+    class _FakeEnvironment:
+        async def exec(
+            self,
+            *,
+            command: str,
+            env: dict[str, str],
+            timeout_sec: int,
+        ) -> _FakeExecResult:
+            if command.startswith("test -f /tests/test.sh"):
+                return _FakeExecResult(0, output="exists")
+            if command.startswith("bash /tests/test.sh"):
+                return _FakeExecResult(
+                    0,
+                    output="pytest failed\n__ARGUS_TB_REWARD__=0\n",
+                )
+            raise RuntimeError(f"unexpected command: {command}")
+
+    inst = adapter.ArgusSkillCodex.__new__(adapter.ArgusSkillCodex)
+    import logging
+    inst.logger = logging.getLogger("test")
+
+    out = _asyncio.get_event_loop().run_until_complete(
+        inst._collect_v12_verifier(
+            environment=_FakeEnvironment(),
+            env={},
+            timeout_sec=30,
+        )
+    )
+
+    assert out is not None
+    assert out["exit_code"] == 0
+    assert out["reward"] == "0"
+    assert out["reward_source"] == "reward.txt"
+    assert out["missing_reward"] is False
+    assert out["passed"] is False
+
+
+def test_collect_v12_verifier_marks_missing_reward_artifact_as_fail(
+    adapter: ModuleType,
+) -> None:
+    import asyncio as _asyncio
+
+    class _FakeExecResult:
+        def __init__(self, return_code: int, *, output: str = "") -> None:
+            self.return_code = return_code
+            self.output = output
+
+    class _FakeEnvironment:
+        async def exec(
+            self,
+            *,
+            command: str,
+            env: dict[str, str],
+            timeout_sec: int,
+        ) -> _FakeExecResult:
+            if command.startswith("test -f /tests/test.sh"):
+                return _FakeExecResult(0, output="exists")
+            if command.startswith("bash /tests/test.sh"):
+                return _FakeExecResult(0, output="pytest passed\n")
+            raise RuntimeError(f"unexpected command: {command}")
+
+    inst = adapter.ArgusSkillCodex.__new__(adapter.ArgusSkillCodex)
+    import logging
+    inst.logger = logging.getLogger("test")
+
+    out = _asyncio.get_event_loop().run_until_complete(
+        inst._collect_v12_verifier(
+            environment=_FakeEnvironment(),
+            env={},
+            timeout_sec=30,
+        )
+    )
+
+    assert out is not None
+    assert out["exit_code"] == 0
+    assert out["reward"] is None
+    assert out["reward_source"] == "missing_reward_artifact"
+    assert out["missing_reward"] is True
+    assert out["passed"] is False
+
+
 def test_default_checks_timeout_is_documented_constant(
     adapter: ModuleType,
 ) -> None:
@@ -870,3 +1150,225 @@ def test_v12_constants_match_v12_baseline(adapter):
     assert "ss -tlnp" in adapter._V12_RUNTIME_PROBE_CMD
     assert "ps -ef" in adapter._V12_RUNTIME_PROBE_CMD
     assert "/app/output.*" in adapter._V12_RUNTIME_PROBE_CMD
+
+
+def _build_v12_round_runner_test(
+    adapter: ModuleType,
+    *,
+    verifier_return_code: int,
+    verifier_output: str,
+    reviewer_status: str,
+    expected_verifier_passed: bool,
+    expected_reviewer_status: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio as _asyncio
+    import logging
+
+    decision_log = tmp_path / "decisions.jsonl"
+    agent_dir = tmp_path / "agent"
+    monkeypatch.setattr(
+        adapter,
+        "EnvironmentPaths",
+        SimpleNamespace(agent_dir=agent_dir),
+    )
+    monkeypatch.setenv("ARGUS_SKILL_HARBOR_V12_VERIFIER", "1")
+    monkeypatch.setenv("ARGUS_SKILL_HARBOR_REVIEWER_GATE", "1")
+    monkeypatch.setenv("ARGUS_SKILL_HARBOR_VERIFIER_PASS_SHORT_CIRCUIT", "0")
+    monkeypatch.setenv("ARGUS_SKILL_HARBOR_RUNTIME_PROBE", "0")
+    monkeypatch.setenv("ARGUS_SKILL_HARBOR_MAX_ROUNDS", "1")
+    monkeypatch.setenv("ARGUS_SKILL_HARBOR_DECISIONS_LOG", str(decision_log))
+    monkeypatch.delenv("ARGUS_SKILL_HARBOR_NO_REVIEWER", raising=False)
+
+    captured: dict[str, Any] = {}
+
+    class _FakeExecResult:
+        def __init__(
+            self,
+            return_code: int,
+            *,
+            output: str = "",
+            stdout: str = "",
+            stderr: str = "",
+        ) -> None:
+            self.return_code = return_code
+            self.output = output
+            self.stdout = stdout
+            self.stderr = stderr
+
+    class _FakeEnvironment:
+        default_user = None
+
+        async def exec(
+            self,
+            *,
+            command: str,
+            env: dict[str, str],
+            timeout_sec: int,
+        ) -> _FakeExecResult:
+            if command.startswith("test -f /tests/test.sh"):
+                return _FakeExecResult(0, output="exists")
+            if command.startswith("bash /tests/test.sh"):
+                return _FakeExecResult(verifier_return_code, output=verifier_output)
+            raise AssertionError(f"unexpected command: {command}")
+
+    async def _fake_exec_as_agent(
+        _environment: Any,
+        *,
+        command: str,
+        env: dict[str, str],  # noqa: ARG001
+    ) -> None:
+        if "printf '%s\\n'" in command and ">>" in command:
+            tokens = shlex.split(command)
+            body = tokens[2]
+            target = Path(tokens[-1].strip("'"))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            existing = target.read_text(encoding="utf-8") if target.exists() else ""
+            target.write_text(existing + body + "\n", encoding="utf-8")
+            return
+        if command.startswith("mkdir -p "):
+            return
+        raise AssertionError(f"unexpected agent command: {command}")
+
+    async def _fake_prepare_container(_environment: Any) -> tuple[dict[str, str], str]:
+        return {"CODEX_HOME": "/tmp/codex"}, ""
+
+    async def _fake_run_codex_in_container(
+        *,
+        environment: Any,  # noqa: ARG001
+        env: dict[str, str],  # noqa: ARG001
+        cli_flags_arg: str,  # noqa: ARG001
+        model: str,  # noqa: ARG001
+        prompt: str,  # noqa: ARG001
+        round_idx: int,  # noqa: ARG001
+        round_timeout: int,  # noqa: ARG001
+        resume_session_id: str | None,  # noqa: ARG002
+    ) -> tuple[str, int]:
+        round_log = agent_dir / f"argus-skill-round-{round_idx}.txt"
+        round_log.parent.mkdir(parents=True, exist_ok=True)
+        round_log.write_text(
+            "\n".join(
+                [
+                    '{"type":"thread.started","thread_id":"thr_v12"}',
+                    '{"type":"item.completed","item":{"type":"agent_message","text":"engineer says done"}}',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        codex_log = agent_dir / "codex.txt"
+        codex_log.write_text(round_log.read_text(encoding="utf-8"), encoding="utf-8")
+        return (
+            round_log.read_text(encoding="utf-8"),
+            0,
+        )
+
+    class _StubReviewerConfig:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+    class _StubReviewer:
+        def __init__(self, _backend: Any) -> None:
+            pass
+
+        def evaluate(self, **kwargs: Any) -> Any:
+            captured["reviewer_kwargs"] = kwargs
+            return SimpleNamespace(
+                status=reviewer_status,
+                confidence=0.5,
+                reason="verifier gate test",
+                next_action=(
+                    "retry"
+                    if reviewer_status == "continue"
+                    else ""
+                ),
+                input_tokens=0,
+                cached_input_tokens=0,
+                output_tokens=0,
+                source="test",
+            )
+
+    deps = {
+        "CodexRunnerBackend": lambda *a, **kw: object(),
+        "Reviewer": _StubReviewer,
+        "ReviewerConfig": _StubReviewerConfig,
+        "CheckResult": object,
+        "Distiller": object,
+        "DistillerConfig": object,
+        "Skill": object,
+        "SkillStore": object,
+    }
+    monkeypatch.setattr(adapter, "_import_argus_skill", lambda: deps)
+
+    inst = adapter.ArgusSkillCodex.__new__(adapter.ArgusSkillCodex)
+    inst.logger = logging.getLogger("test")
+    inst.model_name = "openai/gpt-5.4"
+    inst.build_cli_flags = lambda: ""
+    inst.exec_as_agent = _fake_exec_as_agent
+    inst._prepare_container = _fake_prepare_container
+    inst._run_codex_in_container = _fake_run_codex_in_container
+
+    context = SimpleNamespace(
+        cost_usd=None,
+        n_input_tokens=0,
+        n_output_tokens=0,
+        n_cache_tokens=0,
+    )
+
+    _asyncio.get_event_loop().run_until_complete(
+        inst.run(
+            instruction="verify the official verifier path",
+            environment=_FakeEnvironment(),
+            context=context,
+        )
+    )
+
+    round_kwargs = captured["reviewer_kwargs"]
+    assert "- official verifier" in round_kwargs["raw_evidence"]
+    assert round_kwargs["raw_evidence"].count("bash /tests/test.sh") == 1
+
+    assert decision_log.exists()
+    lines = [json.loads(line) for line in decision_log.read_text().splitlines()]
+    assert len(lines) == 1
+    round_record = lines[0]["rounds"][0]
+    assert round_record["v12_evidence"]["verifier_present"] is True
+    assert round_record["v12_evidence"]["verifier_passed"] is expected_verifier_passed
+    assert "- official verifier" in round_record["raw_evidence"]
+    assert round_record["review_status"] == expected_reviewer_status
+
+    round_log = agent_dir / "argus-skill-round-1.txt"
+    assert round_log.exists()
+    transcript = round_log.read_text(encoding="utf-8")
+    assert "- official verifier" in transcript
+    assert "bash /tests/test.sh" in transcript
+
+
+def test_run_records_v12_verifier_pass_and_raw_evidence(
+    adapter: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _build_v12_round_runner_test(
+        adapter,
+        verifier_return_code=0,
+        verifier_output="pytest passed\n__ARGUS_TB_REWARD__=1\n",
+        reviewer_status="done",
+        expected_verifier_passed=True,
+        expected_reviewer_status="done",
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+
+
+def test_run_records_v12_verifier_fail_and_continue_reviewer(
+    adapter: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _build_v12_round_runner_test(
+        adapter,
+        verifier_return_code=0,
+        verifier_output="pytest failed\n__ARGUS_TB_REWARD__=0\n",
+        reviewer_status="continue",
+        expected_verifier_passed=False,
+        expected_reviewer_status="continue",
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )

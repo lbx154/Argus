@@ -1,0 +1,4 @@
+Skipping image OS validation for alexgshaw/fix-ocaml-gc:20251031: docker inspect returned 1
+Trial fix-ocaml-gc__3DpffFv failed: Docker compose command failed for environment fix-ocaml-gc. Command: docker compose --project-name fix-ocaml-gc__3dpfffv --project-directory /home/argustest/.cache/harbor/tasks/dXxv47w6VWWtstSMMiefPe/fix-ocaml-gc/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+. Stderr: None. 

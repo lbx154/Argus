@@ -727,8 +727,8 @@ def _validate_paper_contribution(
             )
         )
     else:
-        artifact_path = statistical_support.get("artifact_path")
-        if not _nonempty_string(artifact_path):
+        raw_artifact_path = statistical_support.get("artifact_path")
+        if not _nonempty_string(raw_artifact_path):
             issues.append(
                 CalibrationIssue(
                     "missing_statistical_support_artifact",
@@ -736,13 +736,15 @@ def _validate_paper_contribution(
                     "paper_contribution.statistical_support.artifact_path is required",
                 )
             )
-        elif verdict in READY_VERDICTS and not (root / artifact_path).exists():
-            issues.append(
-                CalibrationIssue(
-                    "missing_statistical_support_artifact",
-                    artifact_path,
-                    "headline statistical support artifact does not exist",
-                )
+        else:
+            artifact_path = str(raw_artifact_path)
+            if verdict in READY_VERDICTS and not (root / artifact_path).exists():
+                issues.append(
+                    CalibrationIssue(
+                        "missing_statistical_support_artifact",
+                        artifact_path,
+                        "headline statistical support artifact does not exist",
+                    )
             )
 
     return issues
@@ -1230,11 +1232,11 @@ def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
         return []
     raw_text = path.read_text(encoding="utf-8", errors="replace")
     text = raw_text.lower()
-    issues: list[CalibrationIssue] = []
+    text_issues: list[CalibrationIssue] = []
     if "synthetic" in text and (
         "no public benchmark" in text or "pilot" in text or "not as a public benchmark" in text
     ):
-        issues.append(
+        text_issues.append(
             CalibrationIssue(
                 "synthetic_only_benchmark",
                 str(BENCHMARK_PROVENANCE_MD_PATH),
@@ -1242,7 +1244,7 @@ def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
             )
         )
         if not _text_benchmark_survey_present(text):
-            issues.append(
+            text_issues.append(
                 CalibrationIssue(
                     "missing_benchmark_literature_survey",
                     str(BENCHMARK_PROVENANCE_MD_PATH),
@@ -1252,8 +1254,8 @@ def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
                     ),
                 )
             )
-    task_counts: list[int] = []
-    planned_counts: list[int] = []
+    text_task_counts: list[int] = []
+    text_planned_counts: list[int] = []
     for line in raw_text.splitlines():
         line_counts = [
             count
@@ -1264,12 +1266,12 @@ def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
         if not line_counts:
             continue
         if _planned_only_task_count_line(line):
-            planned_counts.extend(line_counts)
+            text_planned_counts.extend(line_counts)
         else:
-            task_counts.extend(line_counts)
-    task_counts = [count for count in task_counts if count is not None]
-    if planned_counts and not task_counts:
-        issues.append(
+            text_task_counts.extend(line_counts)
+    text_task_counts = [count for count in text_task_counts if count is not None]
+    if text_planned_counts and not text_task_counts:
+        text_issues.append(
             CalibrationIssue(
                 "planned_benchmark_scale_only",
                 str(BENCHMARK_PROVENANCE_MD_PATH),
@@ -1279,33 +1281,33 @@ def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
                 ),
             )
         )
-        if max(planned_counts) < MIN_PAPER_TASKS:
-            issues.append(
+        if max(text_planned_counts) < MIN_PAPER_TASKS:
+            text_issues.append(
                 CalibrationIssue(
                     "underpowered_pilot",
                     str(BENCHMARK_PROVENANCE_MD_PATH),
                     (
-                        f"benchmark provenance only plans at most {max(planned_counts)} "
+                        f"benchmark provenance only plans at most {max(text_planned_counts)} "
                         f"tasks, below the required {MIN_PAPER_TASKS} "
                         f"({PAPER_TASK_SCALE_TARGET} scale)"
                     ),
                 )
             )
-    if task_counts and max(task_counts) < MIN_PAPER_TASKS:
-        issues.append(
+    if text_task_counts and max(text_task_counts) < MIN_PAPER_TASKS:
+        text_issues.append(
             CalibrationIssue(
                 "underpowered_pilot",
                 str(BENCHMARK_PROVENANCE_MD_PATH),
                 (
-                    f"benchmark provenance reports at most {max(task_counts)} scored tasks, "
+                    f"benchmark provenance reports at most {max(text_task_counts)} scored tasks, "
                     f"below the required {MIN_PAPER_TASKS} ({PAPER_TASK_SCALE_TARGET} scale)"
                 ),
             )
         )
-    if _requires_multi_source_benchmark(task_counts, raw_text):
+    if _requires_multi_source_benchmark(text_task_counts, raw_text):
         selected_source_count = _text_selected_benchmark_source_count(raw_text)
         if selected_source_count < MIN_SELECTED_BENCHMARK_SOURCES:
-            issues.append(
+            text_issues.append(
                 CalibrationIssue(
                     "insufficient_selected_benchmark_sources",
                     str(BENCHMARK_PROVENANCE_MD_PATH),
@@ -1318,7 +1320,7 @@ def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
                     ),
                 )
             )
-    return issues
+    return text_issues
 
 
 def _benchmark_task_counts(payload: object) -> list[int]:
@@ -1568,8 +1570,11 @@ def _duplicate_expansion_issue(
     path: Path,
     records: list[dict[str, Any]],
 ) -> CalibrationIssue | None:
-    identifiers = [_record_identifier(record) for record in records]
-    identifiers = [identifier for identifier in identifiers if identifier is not None]
+    identifiers: list[str] = []
+    for record in records:
+        identifier = _record_identifier(record)
+        if identifier is not None:
+            identifiers.append(identifier)
     if identifiers:
         normalized_ids = [_normalized_record_identifier(identifier) for identifier in identifiers]
         unique_ids = len(set(normalized_ids))

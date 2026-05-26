@@ -1,0 +1,9 @@
+Skipping image OS validation for alexgshaw/mteb-retrieve:20251031: docker inspect returned 1
+Trial mteb-retrieve__3JoPtb2 failed: Docker compose command failed for environment mteb-retrieve. Command: docker compose --project-name mteb-retrieve__3joptb2 --project-directory /home/argustest/.cache/harbor/tasks/J63TLMqMZcCeiRe8KAiy5T/mteb-retrieve/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+ 7bb3f3185069 Pulling fs layer 
+ 420d334c0bc9 Pulling fs layer 
+ main Pulled 
+ Network mteb-retrieve__3joptb2_default  Creating
+ Network mteb-retrieve__3joptb2_default  Error
+failed to create network mteb-retrieve__3joptb2_default: Error response from daemon: all predefined address pools have been fully subnetted
+. Stderr: None. 

@@ -195,7 +195,7 @@ def render_run_command(
         seed_thread_id=seed,
     )
     elapsed = time.monotonic() - t0
-    if last_tid and use_seed:
+    if use_seed:
         chat_state["last_thread_id"] = last_tid
     chat_state["last_elapsed_s"] = elapsed
     chat_state["total_elapsed_s"] = chat_state.get("total_elapsed_s", 0.0) + elapsed

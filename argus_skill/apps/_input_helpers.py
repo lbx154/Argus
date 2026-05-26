@@ -145,6 +145,30 @@ def _read_piped_block() -> str | None:
     global _piped_pushback
     buffer: list[str] = []
 
+    def _read_bracketed_block(first_line: str) -> str:
+        text = first_line
+        while _BRACKETED_END not in text:
+            try:
+                text += "\n" + input()
+            except EOFError:
+                break
+
+        start = text.find(_BRACKETED_START)
+        if start >= 0:
+            text = text[start + len(_BRACKETED_START):]
+
+        end = text.find(_BRACKETED_END)
+        if end >= 0:
+            body = text[:end]
+            rest = text[end + len(_BRACKETED_END):]
+            pushback = [line for line in rest.splitlines() if line.strip()]
+            if pushback:
+                _piped_pushback[:0] = pushback
+        else:
+            body = text
+
+        return _ANSI_RE.sub("", body)
+
     def _flush() -> str | None:
         while buffer and buffer[-1] == "":
             buffer.pop()
@@ -162,6 +186,11 @@ def _read_piped_block() -> str | None:
                 if buffer:
                     return _flush()
                 return None
+        if _BRACKETED_START in line:
+            if buffer:
+                _piped_pushback.insert(0, line)
+                return _flush()
+            return _read_bracketed_block(line)
         stripped = line.strip()
         if stripped == "":
             if buffer:

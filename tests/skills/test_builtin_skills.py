@@ -24,6 +24,7 @@ def test_seed_builtin_skills_creates_parseable_research_defaults(tmp_path: Path)
     assert "Research Brief To Experiment Plan" in names
     assert "Auto Research Pipeline" in names
     assert "Research Submission Assurance Gate" in names
+    assert "EMNLP Paper Skill Router" in names
     assert "EMNLP Academic Language Review" in names
     assert "EMNLP Format Preflight" in names
     assert "Paper Exemplar PDF Learning" in names
@@ -300,6 +301,7 @@ def test_emnlp_paper_skill_requires_official_template_page_budget_and_style_ref(
         "paper/TEMPLATE_SOURCE.md",
         "paper/style_ref/STYLE_PROFILE.md",
         "paper/style_ref/EXEMPLAR.json",
+        "paper/style_ref/EXEMPLAR_SUITABILITY.json",
         "Paper Exemplar PDF Learning",
         "local_pdf",
         "pdf_sha256",
@@ -313,6 +315,15 @@ def test_emnlp_paper_skill_requires_official_template_page_budget_and_style_ref(
         "unmapped",
         "Use this blueprint as the paper organizer",
         "instead of writing freehand LaTeX",
+        "primary exemplar's skeleton",
+        "paper/CLAIM_GRAPH.json",
+        "paper/EVIDENCE_GAPS.json",
+        "Drafting and experimentation are allowed to interleave",
+        "paper/FIGURE_TABLE_STYLE_GUIDE.json",
+        "paper/ARTIFACT_FRESHNESS.json",
+        "paper/VALIDATION_PRIORITY_POLICY.json",
+        "validate-claim-graph",
+        "validate-paper-quality-contracts",
         "paper/figures/IMAGE2_FIGURES.json",
         "paper/ACADEMIC_LANGUAGE_REVIEW.json",
         "paper/FORMAT_PREFLIGHT.md",
@@ -517,12 +528,17 @@ def test_paper_exemplar_skill_requires_pdf_text_hash_and_thick_profile(
         "at least two",
         "best/outstanding/award paper",
         "STYLE_PROFILE.md",
+        "EXEMPLAR_SUITABILITY.json",
+        "primary_exemplar",
+        "task type, method family, experiment shape",
+        "page rhythm",
         "PAPER_STRUCTURE_BLUEPRINT.md",
         "Abstract shape",
         "Section/page allocation",
         "Figure/table inventory",
         "section order, page budget, paragraph roles",
         "paper organizer",
+        "primary exemplar skeleton",
         "No prose copy policy",
         "validate-exemplar",
     ):

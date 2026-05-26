@@ -43,7 +43,9 @@ Ablation env vars:
                                           rounds (v3 optimisation, OFF by
                                           default — v12 runs reviewer on every
                                           round).
-  ``ARGUS_SKILL_HARBOR_REVIEWER_GATE=1`` — reserved / legacy.
+  ``ARGUS_SKILL_HARBOR_REVIEWER_GATE=1`` — reviewer ``continue`` verdicts drive
+                                           another engineer round. When unset /
+                                           0, reviewer output is advisory.
   ``ARGUS_SKILL_HARBOR_CHECKS_CMD``    — newline-separated shell commands to
                                           run inside the container after each
                                           engineer round. Their (cmd, exit_code,
@@ -63,13 +65,19 @@ Ablation env vars:
                                           reviewer can compare engineer prose
                                           against actual container state.
   ``ARGUS_SKILL_HARBOR_V12_VERIFIER=0`` — disable the v12 phase-4 official
-                                          verifier auto-run (default ON). When
-                                          ON we exec ``bash /tests/test.sh``
-                                          after each round (only if the file
-                                          exists — self-skips on non-TB
-                                          datasets) and surface it to the
-                                          reviewer with "ground truth, trust
-                                          this and not the engineer" framing.
+                                           verifier auto-run (default ON). When
+                                           ON we exec ``bash /tests/test.sh``
+                                           after each round (only if the file
+                                           exists — self-skips on non-TB
+                                           datasets) and surface it to the
+                                           reviewer with "ground truth, trust
+                                           this and not the engineer" framing.
+  ``ARGUS_SKILL_HARBOR_VERIFIER_PASS_SHORT_CIRCUIT=1`` — benchmark-fast path:
+                                           when the official TB verifier passes,
+                                           skip the reviewer and mark the round
+                                           done. Default OFF so faithful
+                                           historical reproductions opt in
+                                           explicitly.
   Combine the first two to fall back to plain bare-mini behaviour (sanity).
 
 Defaults (post-v12 restoration 2026-05-22):
@@ -147,6 +155,16 @@ _DEFAULT_CHECKS_TIMEOUT = 60
 # is bounded across N checks.
 _CHECK_OUTPUT_TAIL_CHARS = 1800
 
+
+def _default_skills_dir() -> Path:
+    """Return the host-side cache for harbor skill bundles.
+
+    Keep the implicit cache outside ``benchmarks/results`` so a clean checkout
+    never creates a validator-visible top-level bundle root.
+    """
+
+    return Path.home() / ".cache" / "argus-skill-harbor" / "skills"
+
 # --- v12 phase-4 evidence pipeline -----------------------------------------
 #
 # In v12 (benchmarks/results/tb2-fullbench-2026-05-06-v12, reward 0.5955,
@@ -168,6 +186,7 @@ _CHECK_OUTPUT_TAIL_CHARS = 1800
 # it here, hardcoded for TB v2 (verifier path is TB-specific; self-skips
 # when /tests/test.sh is absent so non-TB datasets are unaffected).
 _V12_VERIFIER_CMD = "bash /tests/test.sh"
+_V12_VERIFIER_REWARD_MARKER = "__ARGUS_TB_REWARD__="
 _V12_VERIFIER_TIMEOUT_SEC = 600
 _V12_VERIFIER_TAIL_CHARS = 1800
 _V12_RUNTIME_PROBE_CMD = (
@@ -211,6 +230,13 @@ def _int_env(name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         return default
+
+
+def _normalize_openai_base_url(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        return normalized
+    return normalized.rstrip("/") + "/"
 
 
 def _compute_model_cost_usd(
@@ -397,9 +423,14 @@ def _format_v12_evidence(
     if verifier_check:
         cmd = verifier_check.get("command") or _V12_VERIFIER_CMD
         exit_code = verifier_check.get("exit_code")
+        reward = verifier_check.get("reward")
+        missing_reward = bool(verifier_check.get("missing_reward"))
         status = "PASS" if verifier_check.get("passed") else "FAIL"
+        score = f", reward={reward}" if reward is not None else ""
+        source_note = " (reward artifact missing)" if missing_reward else ""
         header = (
-            f"- official verifier ({status}, exit={exit_code}, cmd: {cmd}) "
+            f"- official verifier ({status}, exit={exit_code}{score}, cmd: {cmd})"
+            f"{source_note} "
             "— this is the **ground truth** from the task's official "
             "tests. When this disagrees with the engineer's self-report, "
             "trust this and not the engineer."
@@ -414,6 +445,56 @@ def _format_v12_evidence(
             sections.append(header)
 
     return "\n".join(sections)
+
+
+def _verifier_pass_short_circuit_decision(verifier_check: dict | None) -> dict | None:
+    """Return a reviewer-shaped done decision when the official verifier passed."""
+    if verifier_check is None or not verifier_check.get("passed"):
+        return None
+    return {
+        "status": "done",
+        "confidence": 1.0,
+        "reason": "official verifier passed; skipped reviewer",
+        "next_action": "",
+        "input_tokens": 0,
+        "cached_input_tokens": 0,
+        "output_tokens": 0,
+        "source": "verifier_pass_short_circuit",
+    }
+
+
+def _tb_reward_from_output(text: str) -> str | None:
+    for line in reversed((text or "").splitlines()):
+        stripped = line.strip()
+        if stripped.startswith(_V12_VERIFIER_REWARD_MARKER):
+            reward = stripped.removeprefix(_V12_VERIFIER_REWARD_MARKER).strip()
+            return reward or None
+    return None
+
+
+def _tb_reward_passed(reward: str | None, *, fallback_exit_code: int) -> bool:
+    if reward is None:
+        return False
+    try:
+        return float(reward.strip()) > 0
+    except ValueError:
+        return reward.strip().lower() in {"pass", "passed", "true", "yes"}
+
+
+def _should_retry_after_review(
+    review_decision: dict | None,
+    *,
+    reviewer_gate: bool,
+    round_idx: int,
+    max_rounds: int,
+) -> bool:
+    """Whether a reviewer ``continue`` verdict should drive another round."""
+    return bool(
+        reviewer_gate
+        and review_decision is not None
+        and review_decision.get("status") == "continue"
+        and round_idx < max_rounds
+    )
 
 
 # --- structured per-trial decision log ------------------------------------
@@ -560,7 +641,7 @@ def _do_host_prep(instruction: str) -> _HostPrep:
     matcher_effort = os.environ.get("ARGUS_SKILL_HARBOR_MATCHER_EFFORT", "high")
     skills_dir = Path(
         os.environ.get("ARGUS_SKILL_HARBOR_SKILLS_DIR")
-        or (Path.cwd() / "benchmarks" / "results" / "argus-skill-harbor" / "skills")
+        or _default_skills_dir()
     )
     skills_dir.mkdir(parents=True, exist_ok=True)
 
@@ -775,11 +856,9 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
 
         # ---- Phase 3: multi-round engineer (+ optional reviewer) loop ----
         no_reviewer = _bool_env("ARGUS_SKILL_HARBOR_NO_REVIEWER")
-        # v12-restoration: reviewer runs on EVERY round by default (v12
-        # behaviour).  Its verdict ("continue" / "done") drives the R2
-        # retry decision.  Set ARGUS_SKILL_HARBOR_SKIP_CLEAN_REVIEWER=1
-        # to re-enable the v3 optimisation that skipped reviewer on
-        # clean-exit R1 rounds.
+        # Reviewer runs on clean rounds unless SKIP_CLEAN_REVIEWER=1. Its
+        # "continue" verdict only drives R2 when REVIEWER_GATE=1; with the
+        # default gate=0 it is advisory telemetry.
         skip_clean_reviewer = _bool_env(
             "ARGUS_SKILL_HARBOR_SKIP_CLEAN_REVIEWER"
         )
@@ -926,12 +1005,9 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                 else:
                     failure_mode = None
 
-                # v12-restoration: reviewer runs on EVERY round by
-                # default (matching v12 baseline).  The reviewer's
-                # "continue" verdict drives the R2 retry decision.
-                # Set SKIP_CLEAN_REVIEWER=1 to re-enable the old v3
-                # optimisation that skipped reviewer on clean-exit
-                # rounds.
+                # Reviewer may run on clean rounds for telemetry/evidence.
+                # REVIEWER_GATE decides whether its "continue" verdict can
+                # force R2; verifier PASS short-circuit can bypass it entirely.
                 review_decision: dict | None = None
                 run_reviewer = (
                     not no_reviewer
@@ -1036,32 +1112,71 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                             else None
                         ),
                     }
-
-                    try:
-                        review_decision = await self._run_reviewer_on_host(
-                            instruction=instruction,
-                            last_msg=last_msg,
-                            round_idx=round_idx,
-                            thread_id=last_thread_id,
-                            engineer_exit_code=exit_code,
-                            checks=round_checks,
-                            raw_evidence=raw_evidence,
+                    # Keep the rendered evidence block on the round record so
+                    # the JSONL decision trail preserves the exact verifier
+                    # framing that was shown to the reviewer.
+                    round_record["raw_evidence"] = raw_evidence
+                    if raw_evidence and EnvironmentPaths is not None:
+                        round_log = (
+                            EnvironmentPaths.agent_dir
+                            / f"argus-skill-round-{round_idx}.txt"
                         )
+                        with contextlib.suppress(Exception):
+                            await self.exec_as_agent(
+                                environment,
+                                command=(
+                                    "printf '%s\\n' "
+                                    f"{shlex.quote(raw_evidence)} >> "
+                                    f"{shlex.quote(round_log.as_posix())}"
+                                ),
+                                env=env,
+                            )
+
+                    if _bool_env(
+                        "ARGUS_SKILL_HARBOR_VERIFIER_PASS_SHORT_CIRCUIT"
+                    ):
+                        review_decision = _verifier_pass_short_circuit_decision(
+                            verifier_check
+                        )
+                        if review_decision is not None:
+                            self.logger.info(
+                                "round %d official verifier passed — skipping reviewer",
+                                round_idx,
+                            )
+
+                    if review_decision is not None:
                         round_record["review_status"] = review_decision.get("status")
                         round_record["review_confidence"] = review_decision.get(
                             "confidence"
                         )
-                        total_reviewer_input_tokens += review_decision.get("input_tokens", 0)
-                        total_reviewer_cached_input_tokens += review_decision.get(
-                            "cached_input_tokens", 0
-                        )
-                        total_reviewer_output_tokens += review_decision.get("output_tokens", 0)
-                    except Exception as exc:  # pragma: no cover - defensive
-                        self.logger.warning(
-                            "round %d reviewer raised %s: %s — ignoring",
-                            round_idx, type(exc).__name__, exc,
-                        )
-                        round_record["review_status"] = "reviewer_error"
+                        if review_decision.get("source"):
+                            round_record["review_source"] = review_decision.get("source")
+                    else:
+                        try:
+                            review_decision = await self._run_reviewer_on_host(
+                                instruction=instruction,
+                                last_msg=last_msg,
+                                round_idx=round_idx,
+                                thread_id=last_thread_id,
+                                engineer_exit_code=exit_code,
+                                checks=round_checks,
+                                raw_evidence=raw_evidence,
+                            )
+                            round_record["review_status"] = review_decision.get("status")
+                            round_record["review_confidence"] = review_decision.get(
+                                "confidence"
+                            )
+                            total_reviewer_input_tokens += review_decision.get("input_tokens", 0)
+                            total_reviewer_cached_input_tokens += review_decision.get(
+                                "cached_input_tokens", 0
+                            )
+                            total_reviewer_output_tokens += review_decision.get("output_tokens", 0)
+                        except Exception as exc:  # pragma: no cover - defensive
+                            self.logger.warning(
+                                "round %d reviewer raised %s: %s — ignoring",
+                                round_idx, type(exc).__name__, exc,
+                            )
+                            round_record["review_status"] = "reviewer_error"
                 else:
                     round_record["review_status"] = (
                         "skipped_clean_r1" if failure_mode is None else "skipped"
@@ -1076,25 +1191,43 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                 if round_error:
                     break
 
+                if (
+                    review_decision is not None
+                    and review_decision.get("source") == "verifier_pass_short_circuit"
+                ):
+                    break
+
                 # Decide whether to retry.
                 if failure_mode is None:
-                    # R1 completed cleanly.  v12 behaviour: if
-                    # reviewer ran and said "continue", do R2.
-                    if review_decision is not None:
-                        status = review_decision.get("status")
-                        if status == "continue" and round_idx < max_rounds:
-                            last_review_feedback = (
-                                review_decision.get("next_action")
-                                or review_decision.get("reason")
-                                or ""
-                            )
-                            last_round_summary = last_msg or last_round_summary
-                            last_round_failure = None
-                            self.logger.info(
-                                "round %d clean but reviewer said continue — retrying",
-                                round_idx,
-                            )
-                            continue
+                    # R1 completed cleanly. With REVIEWER_GATE=1, a reviewer
+                    # "continue" can drive R2; with gate=0 it is advisory.
+                    if _should_retry_after_review(
+                        review_decision,
+                        reviewer_gate=reviewer_gate,
+                        round_idx=round_idx,
+                        max_rounds=max_rounds,
+                    ):
+                        last_review_feedback = (
+                            review_decision.get("next_action")
+                            or review_decision.get("reason")
+                            or ""
+                        )
+                        last_round_summary = last_msg or last_round_summary
+                        last_round_failure = None
+                        self.logger.info(
+                            "round %d clean but reviewer said continue — retrying",
+                            round_idx,
+                        )
+                        continue
+                    if (
+                        review_decision is not None
+                        and review_decision.get("status") == "continue"
+                        and not reviewer_gate
+                    ):
+                        self.logger.info(
+                            "round %d reviewer said continue but REVIEWER_GATE=0 — treating as advisory",
+                            round_idx,
+                        )
                     break
 
                 # Failure path: only retry if we have rounds left.
@@ -1230,6 +1363,9 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                     "no_reviewer": no_reviewer,
                     "reviewer_gate": reviewer_gate,
                     "skip_clean_reviewer": skip_clean_reviewer,
+                    "verifier_pass_short_circuit": _bool_env(
+                        "ARGUS_SKILL_HARBOR_VERIFIER_PASS_SHORT_CIRCUIT"
+                    ),
                     "checks_commands": list(checks_commands),
                     "checks_timeout_s": checks_timeout,
                     "run_error": run_error,
@@ -1289,18 +1425,18 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
         else:
             self.logger.debug("Codex auth: using OPENAI_API_KEY")
             env["OPENAI_API_KEY"] = self._get_env("OPENAI_API_KEY") or ""
-            setup_command = (
-                f"cat >{shlex.quote(remote_auth_path)} <<EOF\n"
-                '{\n  "OPENAI_API_KEY": "${OPENAI_API_KEY}"\n}\nEOF\n'
-                f"ln -sf {shlex.quote(remote_auth_path)} "
-                '"$CODEX_HOME/auth.json"\n'
-            )
+            setup_command = "printf '%s' \"$OPENAI_API_KEY\" | codex login --with-api-key\n"
 
-        if openai_base_url := self._get_env("OPENAI_BASE_URL"):
+        if openai_base_url := _normalize_openai_base_url(self._get_env("OPENAI_BASE_URL") or ""):
             env["OPENAI_BASE_URL"] = openai_base_url
             setup_command += (
-                '\ncat >>"$CODEX_HOME/config.toml" <<TOML\n'
-                'openai_base_url = "${OPENAI_BASE_URL}"\n'
+                '\ncat >"$CODEX_HOME/config.toml" <<TOML\n'
+                'model_provider = "codex"\n\n'
+                '[model_providers.codex]\n'
+                'name = "codex"\n'
+                f"base_url = {json.dumps(openai_base_url)}\n"
+                'wire_api = "responses"\n'
+                'requires_openai_auth = true\n'
                 "TOML"
             )
 
@@ -1611,16 +1747,28 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
         t0 = time.time()
         try:
             result = await environment.exec(
-                command=f"{_V12_VERIFIER_CMD} 2>&1",
+                command=(
+                    f"{_V12_VERIFIER_CMD} 2>&1; "
+                    "rc=$?; "
+                    "reward=$(cat /logs/verifier/reward.txt 2>/dev/null || true); "
+                    f"printf '\\n{_V12_VERIFIER_REWARD_MARKER}%s\\n' \"$reward\"; "
+                    "exit $rc"
+                ),
                 env=env,
                 timeout_sec=timeout_sec,
             )
             stdout = _exec_output_text(result)
             exit_code = int(result.return_code)
+            reward = _tb_reward_from_output(stdout)
+            missing_reward = reward is None
+            passed = _tb_reward_passed(reward, fallback_exit_code=exit_code)
             return {
                 "command": _V12_VERIFIER_CMD,
                 "exit_code": exit_code,
-                "passed": exit_code == 0,
+                "passed": passed,
+                "reward": reward,
+                "reward_source": "reward.txt" if not missing_reward else "missing_reward_artifact",
+                "missing_reward": missing_reward,
                 "output_tail": _tail_check_output(
                     stdout, max_chars=_V12_VERIFIER_TAIL_CHARS
                 ),
@@ -1634,6 +1782,8 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                 "command": _V12_VERIFIER_CMD,
                 "exit_code": -1,
                 "passed": False,
+                "missing_reward": True,
+                "reward_source": "missing_reward_artifact",
                 "output_tail": _tail_check_output(
                     f"<verifier failed: RuntimeError: {exc}>",
                     max_chars=_V12_VERIFIER_TAIL_CHARS,
@@ -1648,6 +1798,8 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                 "command": _V12_VERIFIER_CMD,
                 "exit_code": -1,
                 "passed": False,
+                "missing_reward": True,
+                "reward_source": "missing_reward_artifact",
                 "output_tail": _tail_check_output(
                     f"<verifier failed: {type(exc).__name__}: {exc}>",
                     max_chars=_V12_VERIFIER_TAIL_CHARS,

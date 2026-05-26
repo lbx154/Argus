@@ -57,7 +57,7 @@ The runner:
 1. Reads the exact per-row prompt from `generated/prompts/`.
 2. Creates a fresh run root under `benchmarks/prompt_only_tb2/runs/`.
 3. Sends the prompt automatically:
-   - Codex rows use `codex exec --cd <run_root>`.
+   - Codex rows use `codex exec --model gpt-5.4 --cd <run_root>`.
    - Argus rows use the argus-skill REPL with piped input and then `/exit`.
 4. Captures `stdout.log`, `stderr.log`, `prompt.txt`, `metadata.json`, and
    `result.json` under the run root, including cost/token fields when available.
@@ -72,8 +72,29 @@ Useful variants:
   python benchmarks/prompt_only_tb2/run_pilot_row.py --order 3 --dry-run
   python benchmarks/prompt_only_tb2/run_pilot_row.py --order 4 --timeout-minutes 180
 
+Fast user-study mode (recommended for the 2026-05 pilot) uses Codex `gpt-5.4`
+as the direct baseline and the runner's default argus lean env: reviewer off,
+distillation/writeback off, terse output, and mini/low reasoning. Run the
+selected rows, then summarize the latest attempt per row:
+
+  for i in $(seq 1 12); do
+    python benchmarks/prompt_only_tb2/run_pilot_row.py --order "$i" --timeout-minutes 180 || true
+  done
+  python benchmarks/prompt_only_tb2/verify_runs.py \
+    --runs-dir benchmarks/prompt_only_tb2/runs \
+    --out benchmarks/prompt_only_tb2/runs/verification_summary.csv
+  python benchmarks/prompt_only_tb2/summarize_runs.py
+
+If a historical smoke run was accidentally executed with direct Codex mini,
+summarize it under the intended Codex baseline price without modifying the raw
+artifacts:
+
+  python benchmarks/prompt_only_tb2/summarize_runs.py --reprice-codex-model gpt-5.4
+
 This automated mode measures zero-touch behavior. It does not count rich manual
-REPL interventions because the runner intentionally avoids intervening.
+REPL interventions because the runner intentionally avoids intervening. The
+argus condition uses an explicit benchmark verifier gate instead of the legacy
+reviewer-off shortcut, so the row metadata records the gate directly.
 
 Cost accounting
 ---------------
@@ -82,25 +103,32 @@ The runner records:
   cost_usd, cost_source, cost_model, pricing_source, input_tokens,
   cached_input_tokens, output_tokens, model_token_stats
 
-For Codex baseline rows, the runner passes `--json` to `codex exec` by default
-and parses the JSONL usage events. `cost_usd` is always computed with the same
-`argus_skill.core.pricing.usd_for_tokens` helper that argus-skill uses. Codex's
-own dollar estimate is intentionally ignored; tokens are re-priced with the
-argus-skill table so the baseline and argus-skill conditions use the same metric.
+For Codex baseline rows, the runner passes `--model gpt-5.4 --json` to
+`codex exec` by default and parses the JSONL usage events. `cost_usd` is always
+computed with the same `argus_skill.core.pricing.usd_for_tokens` helper that
+argus-skill uses. Codex's own dollar estimate is intentionally ignored; tokens
+are re-priced with the argus-skill table so the baseline and argus-skill
+conditions use the same metric.
 
 For argus-skill rows, the runner reads argus-skill's local event/journal files
 under the run root, aggregates token usage by model, and computes USD with the
 same argus-skill pricing helper.
+
+Verification reads Terminal-Bench's `/logs/verifier/reward.txt`, not just the
+`bash /tests/test.sh` process exit code. The verifier script prefers still-live
+task containers because service tasks may depend on running processes that are
+not represented by the exported `/app` snapshot. If the live container is gone,
+it falls back to overlaying the exported app snapshot onto a fresh task image.
 
 `model_token_stats` is a compact JSON object keyed by model name. Each model has
 input/cached/output tokens, USD, and the layers that used that model. Direct
 Codex usually has one model entry; argus-skill may have separate engineer,
 reviewer, scientist/distiller, critic, and planner entries.
 
-If you use a non-default Codex model, pass it explicitly so the estimate is
-interpretable:
+If you intentionally use a non-default Codex model, pass it explicitly so the
+estimate is interpretable:
 
-  python benchmarks/prompt_only_tb2/run_pilot_row.py --order 3 --codex-model gpt-5.4
+  python benchmarks/prompt_only_tb2/run_pilot_row.py --order 3 --codex-model gpt-5.4-mini
 
 If you need to keep Codex stdout human-readable instead of JSONL, pass
 `--no-codex-json`; cost may be unavailable for that row.
@@ -146,6 +174,26 @@ the original prompt's `/app/...` paths should not be rewritten. At the end, the
 agent exports the container's `/app` tree to `./codex/app` or `./argus/app` for
 inspection.
 
+Baseline isolation rules for any pilot run:
+
+- Use a fresh pilot root for each task and condition. Do not reuse another
+  pilot's working directory, exports, logs, or cached answers.
+- Keep pilot identities separate from production identities. Use named users,
+  least-privilege roles, and time-bounded access; do not reuse production admin
+  accounts or shared credentials.
+- Keep data scoped and minimized. Prefer synthetic or masked data, or a tightly
+  scoped export that has an explicit retention and deletion owner. Do not copy
+  unrestricted production datasets into the pilot.
+- Default to deny on network access. Only allow the minimum approved ingress and
+  egress paths needed for the task, and do not let the pilot write back to
+  production systems unless the task explicitly requires and authorizes that.
+- Keep secrets out of prompts, logs, and exported artifacts. Use per-pilot
+  credentials and delete them, along with snapshots and temporary storage, when
+  the pilot ends.
+- Give every pilot an expiration and teardown plan up front. The owner should
+  know when the environment will be destroyed and who is responsible for
+  cleanup.
+
 For this self-test, score by human inspection or by condition-aware checks over
 the exported app directory. If you later want official verifier scores, run a
 separate TB harness experiment.
@@ -161,6 +209,7 @@ Count as human interactions:
 - manual shell commands used to inspect or repair the task outside the agent
 - explicit status checks such as /status, /backlog, /journal, --watch, --follow
 - final manual rescue edits
+- manual follow-up annotations that record a failed or successful rescue outcome
 
 Do not count:
 
@@ -184,7 +233,16 @@ Use results_template.csv. The important columns are:
 
   condition, task_id, run_root, needs_human, wall_minutes, cost_usd,
   cost_source, input_tokens, output_tokens, model_token_stats, human_messages,
-  nudges, status_checks, manual_commands, manual_rescue, solved, accepted, notes
+  nudges, status_checks, manual_commands, manual_rescue, zero_touch_success,
+  human_interactions_after_assignment, active_touch_minutes_after_assignment,
+  intervention_severity, argus_benchmark_verifier_gate, assigned_model,
+  actual_model, model_drift,
+  solved, accepted, notes
+
+Treat blank manual-only fields as unknown, not zero. Measured counts should be
+numeric zeros when nothing happened, while `manual_rescue` remains blank until a
+human records an actual rescue outcome. Use `manual_rescue=failed` for a rescue
+attempt that did not recover the task, and do not count it toward rescue_rate.
 
 Quick-start subset
 ------------------

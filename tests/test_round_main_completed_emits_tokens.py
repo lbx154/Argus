@@ -124,19 +124,34 @@ def test_round_main_completed_emitted_with_engineer_tokens(tmp_path: Path) -> No
 
 
 class _StubReviewerRunner:
-    def __init__(self, agent_messages, in_tok=999, out_tok=11) -> None:
+    def __init__(
+        self,
+        agent_messages,
+        in_tok=999,
+        out_tok=11,
+        exit_code=0,
+        fatal_error=None,
+    ) -> None:
         self.agent_messages = agent_messages
         self._in = in_tok
         self._out = out_tok
+        self._exit_code = exit_code
+        self._fatal_error = fatal_error
 
     def run_exec(self, **kwargs):  # noqa: D401
         return RunnerResult(
-            exit_code=0,
+            exit_code=self._exit_code,
             agent_messages=list(self.agent_messages),
+            fatal_error=self._fatal_error,
             input_tokens=self._in,
             cached_input_tokens=self._in // 10,
             output_tokens=self._out,
         )
+
+
+class _ExplodingReviewerRunner:
+    def run_exec(self, **kwargs):  # noqa: D401, ANN001
+        raise RuntimeError("reviewer subprocess disappeared")
 
 
 def test_reviewer_propagates_tokens_on_empty_messages() -> None:
@@ -153,6 +168,32 @@ def test_reviewer_propagates_tokens_on_empty_messages() -> None:
     )
     assert decision.input_tokens == 42
     assert decision.cached_input_tokens == 4
+    assert decision.output_tokens == 7
+
+
+def test_reviewer_empty_backend_failure_is_environmental_continue() -> None:
+    runner = _StubReviewerRunner(
+        agent_messages=[],
+        in_tok=42,
+        out_tok=7,
+        exit_code=0,
+        fatal_error="stream disconnected before completion: response.failed event received",
+    )
+    rev = Reviewer(runner)
+    decision = rev.evaluate(
+        objective="demo",
+        round_index=1,
+        session_id=None,
+        main_summary="engineer backend recovered",
+        main_error=None,
+        checks=[],
+        config=ReviewerConfig(model="stub"),
+    )
+
+    assert decision.status == "continue"
+    assert decision.failure_cause == "environmental"
+    assert "response.failed" in decision.reason
+    assert decision.input_tokens == 42
     assert decision.output_tokens == 7
 
 
@@ -198,3 +239,20 @@ def test_reviewer_propagates_tokens_on_valid_json() -> None:
     assert decision.input_tokens == 77
     assert decision.cached_input_tokens == 7
     assert decision.output_tokens == 9
+
+
+def test_reviewer_runner_exception_returns_blocked_decision() -> None:
+    rev = Reviewer(_ExplodingReviewerRunner())
+    decision = rev.evaluate(
+        objective="demo",
+        round_index=1,
+        session_id=None,
+        main_summary="engineer summary",
+        main_error=None,
+        checks=[],
+        config=ReviewerConfig(model="stub"),
+    )
+
+    assert decision.status == "blocked"
+    assert "RuntimeError: reviewer subprocess disappeared" in decision.reason
+    assert decision.failure_cause == "environmental"

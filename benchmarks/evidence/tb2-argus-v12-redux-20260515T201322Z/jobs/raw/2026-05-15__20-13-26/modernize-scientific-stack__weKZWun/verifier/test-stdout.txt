@@ -1,0 +1,75 @@
+Hit:1 http://deb.debian.org/debian bookworm InRelease
+Hit:2 http://deb.debian.org/debian bookworm-updates InRelease
+Hit:3 http://deb.debian.org/debian-security bookworm-security InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (7.88.1-10+deb12u14).
+0 upgraded, 0 newly installed, 0 to remove and 31 not upgraded.
+downloading uv 0.9.5 x86_64-unknown-linux-gnu
+no checksums to verify
+installing to /root/.local/bin
+  uv
+  uvx
+everything's installed!
+
+To add $HOME/.local/bin to your PATH, either restart your shell or run:
+
+    source $HOME/.local/bin/env (sh, bash, zsh)
+    source $HOME/.local/bin/env.fish (fish)
+Downloading pillow (6.8MiB)
+Downloading fonttools (4.7MiB)
+Downloading pandas (11.7MiB)
+Downloading pygments (1.2MiB)
+Downloading matplotlib (8.3MiB)
+Downloading numpy (15.9MiB)
+Downloading kiwisolver (1.4MiB)
+Downloading scipy (34.0MiB)
+ Downloading kiwisolver
+ Downloading pygments
+ Downloading pillow
+ Downloading fonttools
+ Downloading matplotlib
+ Downloading numpy
+ Downloading scipy
+ Downloading pandas
+Installed 20 packages in 3.00s
+============================= test session starts ==============================
+platform linux -- Python 3.13.7, pytest-8.4.1, pluggy-1.6.0
+rootdir: /tests
+plugins: json-ctrf-0.3.5
+collected 2 items
+
+../tests/test_outputs.py FF                                              [100%]
+
+=================================== FAILURES ===================================
+__________________________ test_modernized_code_runs ___________________________
+
+    def test_modernized_code_runs():
+        """Test that the modernized code runs and produces correct output"""
+        # Check required files exist
+        script_path = Path("/app/analyze_climate_modern.py")
+>       assert script_path.exists(), "Required file /app/analyze_climate_modern.py not found"
+E       AssertionError: Required file /app/analyze_climate_modern.py not found
+E       assert False
+E        +  where False = exists()
+E        +    where exists = PosixPath('/app/analyze_climate_modern.py').exists
+
+/tests/test_outputs.py:15: AssertionError
+_________________________ test_dependency_file_exists __________________________
+
+    def test_dependency_file_exists():
+        """Test that a dependency file was created"""
+        dep_files = ["/app/requirements.txt", "/app/pyproject.toml"]
+>       assert any(Path(f).exists() for f in dep_files), \
+            "Must create either requirements.txt or pyproject.toml in /app/"
+E       AssertionError: Must create either requirements.txt or pyproject.toml in /app/
+E       assert False
+E        +  where False = any(<generator object test_dependency_file_exists.<locals>.<genexpr> at 0x7865553ba330>)
+
+/tests/test_outputs.py:49: AssertionError
+=========================== short test summary info ============================
+FAILED ../tests/test_outputs.py::test_modernized_code_runs - AssertionError: ...
+FAILED ../tests/test_outputs.py::test_dependency_file_exists - AssertionError...
+============================== 2 failed in 0.07s ===============================

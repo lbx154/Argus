@@ -1,0 +1,104 @@
+{
+    "id": "7fed5aa2-17b8-4a8c-aafd-73b67fed21c7",
+    "task_name": "break-filter-js-from-html",
+    "trial_name": "break-filter-js-from-html__hR9hXEU",
+    "trial_uri": "file:///home/argustest/argus-skill/experiments/tb2-bare-gpt54-20260515T201322Z/jobs/2026-05-15__20-13-26/break-filter-js-from-html__hR9hXEU",
+    "task_id": {
+        "git_url": "https://github.com/laude-institute/terminal-bench-2.git",
+        "git_commit_id": "69671fbaac6d67a7ef0dfec016cc38a64ef7a77c",
+        "path": "break-filter-js-from-html"
+    },
+    "source": "terminal-bench",
+    "task_checksum": "b33421492e86b07de2a01bc2205f7e7d2fdc36446a84787265d99e5e138fdaaa",
+    "config": {
+        "task": {
+            "path": "break-filter-js-from-html",
+            "git_url": "https://github.com/laude-institute/terminal-bench-2.git",
+            "git_commit_id": "69671fbaac6d67a7ef0dfec016cc38a64ef7a77c",
+            "name": null,
+            "ref": null,
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench"
+        },
+        "trial_name": "break-filter-js-from-html__hR9hXEU",
+        "trials_dir": "/home/argustest/argus-skill/experiments/tb2-bare-gpt54-20260515T201322Z/jobs/2026-05-15__20-13-26",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": 3.0,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": "oracle",
+            "import_path": null,
+            "model_name": null,
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "kwargs": {
+                "reasoning_effort": "high"
+            },
+            "env": {}
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "suppress_override_warnings": false,
+            "mounts_json": null,
+            "env": {},
+            "kwargs": {}
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "job_id": "255c1902-7f3d-4a2c-854e-6a4b1f6d3455"
+    },
+    "agent_info": {
+        "name": "oracle",
+        "version": "1.0.0",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-05-15T20:13:31.798030Z",
+    "finished_at": "2026-05-15T20:15:52.663191Z",
+    "environment_setup": {
+        "started_at": "2026-05-15T20:13:31.906333Z",
+        "finished_at": "2026-05-15T20:14:58.909871Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-05-15T20:14:58.909885Z",
+        "finished_at": "2026-05-15T20:14:58.909915Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-05-15T20:14:58.909955Z",
+        "finished_at": "2026-05-15T20:14:59.816129Z"
+    },
+    "verifier": {
+        "started_at": "2026-05-15T20:14:59.913640Z",
+        "finished_at": "2026-05-15T20:15:23.869415Z"
+    },
+    "step_results": null
+}

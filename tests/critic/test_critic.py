@@ -381,6 +381,8 @@ def test_plan_next_passes_config_to_runner():
     assert "validate-full-emnlp --project-root ." in sent_prompt
     assert "paper_contribution" in sent_prompt
     assert "negative-result pivot" in sent_prompt
+    assert "long-horizon paper optimization" in sent_prompt
+    assert "prefer\n   1 broad task over 3 microtasks" in sent_prompt
 
 
 def test_plan_next_returns_error_verdict_on_runner_exception():
@@ -541,6 +543,7 @@ def test_critic_prompt_has_scoped_final_submission_gate() -> None:
     assert "validate-academic-language-review --project-root ." in sent_prompt
     assert "validate-full-emnlp --project-root ." in sent_prompt
     assert "Do NOT apply this" in sent_prompt
+    assert "paper_optimization_task" in sent_prompt
 
 
 def test_parse_planner_restart_request_without_tasks():

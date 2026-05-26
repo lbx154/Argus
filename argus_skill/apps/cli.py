@@ -115,6 +115,19 @@ def build_parser() -> argparse.ArgumentParser:
              "(never overwrites an existing card)",
     )
 
+    capability_grp = parser.add_argument_group("capability config")
+    capability_grp.add_argument(
+        "--model-api-status",
+        action="store_true",
+        help="print the unified model/image API capability status without secrets",
+    )
+    capability_grp.add_argument(
+        "--init-model-api",
+        action="store_true",
+        help="import OPENAI_* / Codex config into the private capability vault "
+             "(~/.argus-skill/capabilities/model_api.json, mode 0600)",
+    )
+
     skills_grp = parser.add_argument_group("skill admin")
     skills_grp.add_argument(
         "--skill-stats",
@@ -381,6 +394,126 @@ def _format_follow_command(event: dict) -> str:
     return _annotate_progress_result(parsed, event_for_render)
 
 
+def _format_bytes(value: Any) -> str:
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        amount = 0.0
+    sign = "+" if amount > 0 else "-" if amount < 0 else ""
+    amount = abs(amount)
+    units = ("B", "KiB", "MiB", "GiB")
+    unit = units[0]
+    for unit in units:
+        if amount < 1024 or unit == units[-1]:
+            break
+        amount /= 1024
+    if unit == "B":
+        body = f"{int(amount)} {unit}"
+    else:
+        body = f"{amount:.1f} {unit}"
+    return f"{sign}{body}" if sign else body
+
+
+def _telemetry_age(event: dict[str, Any], *, now: float | None = None) -> float:
+    now = time.time() if now is None else now
+    try:
+        ts = float(event.get("ts") or 0.0)
+    except (TypeError, ValueError):
+        ts = 0.0
+    return max(0.0, now - ts) if ts > 0 else 0.0
+
+
+def _format_telemetry_process_bits(event: dict[str, Any], *, limit: int = 2) -> str:
+    raw_processes = event.get("processes") or []
+    processes = raw_processes if isinstance(raw_processes, list) else []
+    bits: list[str] = []
+    for proc in processes[:limit]:
+        if not isinstance(proc, dict):
+            continue
+        cmd = str(proc.get("cmd") or proc.get("argv0") or "").strip()
+        if cmd:
+            bits.append(_clean_follow_text(cmd, limit=90))
+    truncated = int(event.get("processes_truncated") or 0)
+    total = int(event.get("process_count") or len(processes))
+    if truncated:
+        bits.append(f"+{truncated} more")
+    if not bits and total:
+        bits.append(f"{total} descendant process(es)")
+    return " · ".join(bits)
+
+
+def _format_telemetry_file_bits(event: dict[str, Any], *, limit: int = 3) -> str:
+    raw_files = event.get("files") or []
+    files = raw_files if isinstance(raw_files, list) else []
+    bits: list[str] = []
+    for item in files[:limit]:
+        if not isinstance(item, dict):
+            continue
+        path = _clean_follow_text(str(item.get("path") or "?"), limit=70)
+        if item.get("new_lines") is not None:
+            detail = f"+{int(item.get('new_lines') or 0)} lines"
+        elif item.get("size_delta") not in (None, 0):
+            detail = _format_bytes(item.get("size_delta"))
+        else:
+            detail = _format_bytes(item.get("size"))
+        bits.append(f"{path} {detail}")
+    changed = int(event.get("files_changed") or len(files))
+    if changed > len(bits):
+        bits.append(f"+{changed - len(bits)} files")
+    return " · ".join(bits)
+
+
+def _format_telemetry_inline(event: dict[str, Any] | None) -> str:
+    if not event:
+        return ""
+    age = _telemetry_age(event)
+    if age > 120:
+        return f"telemetry stale ({_format_short_duration(age)} old)"
+    running = bool(event.get("running"))
+    run_for = _format_short_duration(float(event.get("running_seconds") or 0.0))
+    state = f"telemetry {'running' if running else 'idle'}"
+    bits = [state, f"updated {_format_short_duration(age)} ago"]
+    if running:
+        bits.append(f"mission {run_for}")
+    procs = _format_telemetry_process_bits(event, limit=1)
+    if procs:
+        bits.append(f"proc: {procs}")
+    files = _format_telemetry_file_bits(event, limit=2)
+    if files:
+        bits.append(f"artifacts: {files}")
+    return " · ".join(bits)
+
+
+def _format_telemetry_status_lines(event: dict[str, Any] | None) -> list[str]:
+    if not event:
+        return []
+    age = _telemetry_age(event)
+    running = bool(event.get("running"))
+    run_for = _format_short_duration(float(event.get("running_seconds") or 0.0))
+    seq = event.get("seq", "?")
+    if running:
+        state = f"running · mission {run_for} · updated {_format_short_duration(age)} ago · seq {seq}"
+    else:
+        state = f"idle · last mission {run_for} · updated {_format_short_duration(age)} ago · seq {seq}"
+    lines = [f"    state    : {state}"]
+    if event.get("item_id"):
+        lines.append(f"    item     : {event.get('item_id')}")
+    procs = _format_telemetry_process_bits(event, limit=3)
+    if procs:
+        lines.append(f"    proc     : {procs}")
+    files = _format_telemetry_file_bits(event, limit=4)
+    if files:
+        lines.append(f"    artifacts: {files}")
+    scan_bits = [
+        f"{int(event.get('scanned_files') or 0)} files",
+        f"{int(event.get('scan_ms') or 0)} ms",
+    ]
+    if event.get("scan_truncated"):
+        scan_bits.append("truncated")
+    lines.append(f"    scan     : {' · '.join(scan_bits)}")
+    return lines
+
+
 def _format_follow_planner_task_added(event: dict) -> str:
     bits = ["added"]
     if event.get("item_id"):
@@ -393,15 +526,27 @@ def _format_follow_planner_task_added(event: dict) -> str:
 
 
 def _format_follow_planner_task_skipped(event: dict) -> str:
-    bits = ["skipped duplicate"]
+    skip_category = str(event.get("skip_category") or "")
+    if skip_category == "recent_no_progress_failure":
+        bits = ["quarantined recent no-progress failure"]
+    else:
+        bits = ["skipped duplicate"]
     if event.get("title"):
         bits.append(f"title={_clean_follow_text(str(event['title']), limit=90)}")
     if event.get("objective"):
         bits.append(f"objective={_clean_follow_text(str(event['objective']), limit=120)}")
     if event.get("matched_item_id"):
         bits.append(f"matched_item_id={event['matched_item_id']}")
+    if event.get("matched_title"):
+        bits.append(f"matched_title={_clean_follow_text(str(event['matched_title']), limit=90)}")
     if event.get("matched_status"):
         bits.append(f"matched_status={event['matched_status']}")
+    if event.get("matched_stop_reason"):
+        bits.append(
+            f"matched_stop_reason={_clean_follow_text(str(event['matched_stop_reason']), limit=120)}"
+        )
+    if event.get("skip_category"):
+        bits.append(f"skip_category={event['skip_category']}")
     reason = _clean_follow_text(str(event.get("reason") or ""), limit=140)
     if reason:
         bits.append(f"reason={reason}")
@@ -446,6 +591,10 @@ def _format_follow_event(
                 return None
             return f"  [{label}] 🧠 {_clean_follow_text(text, limit=180)}"
         return f"  [{label}] ▸ {_clean_follow_text(text, limit=160)}"
+
+    if etype == "life.telemetry":
+        inline = _format_telemetry_inline(event)
+        return f"  📡 {inline}" if inline else None
 
     if etype == "life.mission.started":
         bits = ["started", *_format_follow_mission_context(event, mission_context=mission_context)]
@@ -563,10 +712,17 @@ def _format_follow_heartbeat(events_path: Path, current_layer: str, idle_seconds
         state = "daemon not running"
     else:
         state = "daemon state unknown"
+    telemetry = ""
+    try:
+        from ..life.telemetry import read_latest_telemetry
+        telemetry = _format_telemetry_inline(read_latest_telemetry(events_path.parent))
+    except Exception:  # noqa: BLE001
+        telemetry = ""
+    tail = telemetry or "normal during LLM calls"
     return (
         f"  ⏳ [{_follow_layer_label(current_layer)}] waiting "
         f"{_format_short_duration(idle_seconds)} without new events · {state} · "
-        "normal during LLM calls"
+        f"{tail}"
     )
 
 
@@ -597,6 +753,8 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.follow)
         + bool(args.notify)
         + bool(args.init_identity)
+        + bool(args.model_api_status)
+        + bool(args.init_model_api)
         + bool(args.skill_stats)
         + bool(args.skill_cleanse)
         + bool(args.skill_compact)
@@ -606,8 +764,9 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(
             "argus-skill: --daemon / --daemon-fg / --daemon-stop / --status / "
             "--daemon-runbook / --watch / --follow / --notify / --init-identity / "
-            "--skill-stats / --skill-cleanse / --skill-compact / "
-            "--export-builtin-skills are mutually exclusive.\n"
+            "--model-api-status / --init-model-api / --skill-stats / "
+            "--skill-cleanse / --skill-compact / --export-builtin-skills are "
+            "mutually exclusive.\n"
         )
         return 2
     if args.daemon:
@@ -632,6 +791,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_notify(args))
     if args.init_identity:
         return _run_with_path_resolution_errors(lambda: _cmd_init_identity(args))
+    if args.model_api_status:
+        return _run_with_path_resolution_errors(lambda: _cmd_model_api_status(args))
+    if args.init_model_api:
+        return _run_with_path_resolution_errors(lambda: _cmd_init_model_api(args))
     if args.skill_stats:
         return _run_with_path_resolution_errors(lambda: _cmd_skill_stats(args))
     if args.skill_cleanse:
@@ -687,6 +850,7 @@ def _build_worker_config(args: argparse.Namespace):
     return LifeWorkerConfig(
         life_dir=bundle.project.root,
         global_root=bundle.global_root,
+        project_workdir=Path.cwd(),
         project_fingerprint=bundle.project.fingerprint,
         project_label=bundle.project.label,
         backend=backend,
@@ -695,6 +859,8 @@ def _build_worker_config(args: argparse.Namespace):
         scientist_model=os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4"),
         per_mission_cap_usd=float(os.environ.get("ARGUS_SKILL_PER_MISSION_CAP_USD", "30.0")),
         daily_cap_usd=float(os.environ.get("ARGUS_SKILL_DAILY_CAP_USD", "180.0")),
+        planner_task_iteration_max_cycles=int(os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "6")),
+        planner_task_iteration_budget_usd=float(os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_BUDGET_USD", "30.0")),
         poll_interval=float(os.environ.get("ARGUS_SKILL_DAEMON_POLL_S", "5.0")),
         continuous=getattr(args, "continuous", False),
         continuous_objective=getattr(args, "objective", ""),
@@ -847,6 +1013,31 @@ def _cmd_init_identity(args: argparse.Namespace) -> int:
     return run_init_identity(_resolve_global_root(args))
 
 
+def _model_api_env(args: argparse.Namespace) -> dict[str, str]:
+    env = os.environ.copy()
+    env["ARGUS_SKILL_CAPABILITY_VAULT"] = str(
+        _resolve_global_root(args) / "capabilities" / "model_api.json"
+    )
+    return env
+
+
+def _cmd_model_api_status(args: argparse.Namespace) -> int:
+    import json
+
+    from ..tools.capability_vault import status_payload
+
+    print(json.dumps(status_payload(_model_api_env(args)), indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_init_model_api(args: argparse.Namespace) -> int:
+    from ..tools.capability_vault import bootstrap_model_api_vault
+
+    path = bootstrap_model_api_vault(_model_api_env(args))
+    print(f"argus-skill: model API capability saved at {path} (0600, secret not printed)")
+    return 0
+
+
 def _resolve_skills_dir(args: argparse.Namespace) -> Path:
     if getattr(args, "skills_dir", None):
         return core_paths.resolve_runtime_path(args.skills_dir, context="--skills-dir")
@@ -961,6 +1152,17 @@ def _cmd_status(args: argparse.Namespace) -> int:
             f"    objective: "
             f"{_clean_follow_text(str(getattr(current_running, 'objective', '')), limit=120)}"
         )
+    try:
+        from ..life.telemetry import read_latest_telemetry
+        telemetry_lines = _format_telemetry_status_lines(
+            read_latest_telemetry(bundle.project.root)
+        )
+    except Exception:  # noqa: BLE001
+        telemetry_lines = []
+    if telemetry_lines:
+        print("  telemetry:")
+        for line in telemetry_lines:
+            print(line)
     print(f"  inbox    : {count_pending_inbox_messages(bundle.project.root)} pending")
     history_parts = [part for part in (
         f"{done} done" if done else "",

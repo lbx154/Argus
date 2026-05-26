@@ -15,6 +15,7 @@ Execute the experiment plan for an agent-science paper. This is the argus-skill-
 
 ## When to use
 - The objective asks to run benchmarks, pilots, ablations, baseline comparisons, or agent research experiments.
+- A paper/layout/review gate reports underfilled body, early References, missing full-scale evidence, missing baseline condition, weak ablation, weak failure analysis, or `next_action: run_more_experiments`.
 - `research/EXPERIMENT_PLAN.md` or a similar plan exists.
 - The repository has `benchmarks/`, `experiments/`, scripts, or tests that can produce measurable results.
 - Long runs need to continue while the daemon moves on to other paper or analysis work.

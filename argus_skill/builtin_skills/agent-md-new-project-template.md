@@ -33,13 +33,36 @@ This is a clean-slate project. Do not inherit titles, claims, datasets, benchmar
 - At project setup, copy the built-in skill markdown into this workspace so the daemon can read it directly:
   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill --export-builtin-skills ./argus_builtin_skills`
 - Read `./argus_builtin_skills/*.md` first when invoking built-in paper/research skills. If the local copy is absent or stale, fall back to `/home/argustest/argus-skill/argus_skill/builtin_skills/`. Do not copy the whole Argus repository, global memory, model caches, or capability vault into this project.
+- When ownership is unclear, read `./argus_builtin_skills/emnlp-paper-skill-router.md` first, then load the specific skill it routes to.
 - Prefer `/home/argustest/miniconda3/bin/python` for Argus validation commands.
 - Final EMNLP completion requires this exact command to exit 0 and be quoted in completion evidence:
   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`
 - Full-scale experiment evidence is a prerequisite for analysis, narrative, drafting, assurance, and submission. This command must pass before any of those stages are marked ready/done:
   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-full-scale-evidence --project-root .`
 - Treat `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` as hard blockers.
+- Before final academic/layout review, the paper-quality contracts must pass:
+  `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-paper-quality-contracts --project-root .`
+- The required paper-quality contract artifacts are `paper/style_ref/EXEMPLAR_SUITABILITY.json`, `paper/CLAIM_GRAPH.json`, `paper/EVIDENCE_GAPS.json`, `paper/FIGURE_TABLE_STYLE_GUIDE.json`, `paper/VALIDATION_PRIORITY_POLICY.json`, and `paper/ARTIFACT_FRESHNESS.json`.
 - `validate-pipeline`, a compiled PDF, a pilot run, or a passing review artifact alone is not final readiness.
+
+## Skill route
+Before each planner or engineer round, classify the current blocker and load only the router plus the focused skill(s) below. Do not skim all skills as a substitute for doing the routed work. If ownership is unclear, read `argus_builtin_skills/emnlp-paper-skill-router.md` first and follow its target skill.
+
+| Current blocker / task | Read this skill first | Use it to decide or produce |
+| --- | --- | --- |
+| Stage order, readiness state, pivots, or "what next?" | `argus_builtin_skills/auto-research-pipeline.md` | `research/PIPELINE_STATE.json`, stage gates, when to move backward from paper drafting to experiments |
+| Research brief, literature grounding, novelty, source discovery, idea choice | `argus_builtin_skills/research-brief-to-experiment-plan.md` | `LITERATURE_GROUNDING.json`, `IDEA_PROVENANCE.json`, `CODE_REUSE_PLAN.json`, benchmark/baseline plan |
+| Benchmark implementation, full-scale runs, baselines, ablations, progress files | `argus_builtin_skills/agent-research-benchmark-runner.md` | runnable harnesses, manifests, `status.json`, `progress.jsonl`, raw scored rows, STOP-file protocol |
+| Results analysis, result tables, data figures, Figure 1 / teaser image-2 provenance | `argus_builtin_skills/research-results-analysis-and-figures.md` | `RESULTS_REPORT.md`, result-to-claim tables, paper figures/tables, `IMAGE2_FIGURES.json` |
+| Exemplar PDFs, page rhythm, structure blueprint, conformance | `argus_builtin_skills/paper-exemplar-pdf-learning.md` | exemplar PDFs/text, `STYLE_PROFILE.md`, `PAPER_STRUCTURE_BLUEPRINT.md`, structure conformance artifacts |
+| First LaTeX draft, citation placement, verified bibliography entries, paper narrative | `argus_builtin_skills/emnlp-paper-drafting.md` | `paper/main.tex`, `PAGE_BUDGET.md`, `PAPER_DRAFT_REPORT.json`, BibTeX connected to claims |
+| Short, underfilled, weird-looking, overfull, bad references/appendix/page flow | `argus_builtin_skills/emnlp-format-preflight.md` | classify whether to fix layout/prose or route back to experiments/evidence; compile and page-budget checks |
+| Weak claims, unsupported numbers, evidence gaps, stale artifacts | `argus_builtin_skills/claims-evidence-audit.md` | `CLAIM_GRAPH.json`, `EVIDENCE_GAPS.json`, claim-to-result/freshness repair plan |
+| Academic tone and model-backed prose critique after evidence is stable | `argus_builtin_skills/emnlp-academic-language-review.md` | fresh `ACADEMIC_LANGUAGE_REVIEW.json` and concrete language directives |
+| Iterative paper repair after review feedback | `argus_builtin_skills/paper-review-revision-loop.md` | source-level revisions plus validator reruns, without hand-editing stale generated outputs |
+| Final submission readiness and go/no-go | `argus_builtin_skills/research-submission-assurance-gate.md` | `SUBMISSION_ASSURANCE.json`, final PASS/FAIL/BLOCKED decision, exact final validator evidence |
+
+Routing rule: if the blocker is "paper is too short", "format looks fake", "references look bad", or "figure is wrong", first determine whether evidence/full-scale runs/claim support are missing. Missing evidence routes to benchmark execution or analysis before prose/layout polish.
 
 ## Operator goal
 - Primary paper goal: [write the target research problem and deliverable]
@@ -64,8 +87,9 @@ Use the repository's existing conventions if they are already present; otherwise
 | --- | --- |
 | Research | `research/RESEARCH_BRIEF.md`, `research/LITERATURE_REVIEW.md`, `research/LIT_MATRIX.tsv`, `research/LITERATURE_GROUNDING.json`, `research/IDEA_PROVENANCE.json`, `research/CODE_REUSE_PLAN.json`, `research/EXPERIMENT_PLAN.md` |
 | Experiments | benchmark source/provenance files, run manifests, `status.json`, `progress.jsonl`, raw result JSON/TSV, logs, STOP-file contract |
-| Paper | `paper/main.tex`, `paper/main.pdf`, verified BibTeX, `paper/PAGE_BUDGET.md`, `paper/TEMPLATE_SOURCE.md`, `paper/ARTIFACT_MANIFEST.json`, `paper/FORMAT_PREFLIGHT.md` |
-| Style references | `paper/style_ref/exemplars/<slug>/paper.pdf`, extracted text, `paper/style_ref/EXEMPLAR.json`, `paper/style_ref/STYLE_PROFILE.md`, `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md`, `paper/style_ref/STRUCTURE_CONFORMANCE.md`, `paper/style_ref/STRUCTURE_CONFORMANCE.json`, `paper/style_ref/SOURCES.md` |
+| Paper | `paper/main.tex`, `paper/main.pdf`, verified BibTeX, `paper/PAGE_BUDGET.md`, `paper/TEMPLATE_SOURCE.md`, `paper/ARTIFACT_MANIFEST.json`, `paper/FORMAT_PREFLIGHT.md`, `paper/FIGURE_TABLE_STYLE_GUIDE.json`, `paper/VALIDATION_PRIORITY_POLICY.json`, `paper/ARTIFACT_FRESHNESS.json` |
+| Style references | `paper/style_ref/exemplars/<slug>/paper.pdf`, extracted text, `paper/style_ref/EXEMPLAR.json`, `paper/style_ref/EXEMPLAR_SUITABILITY.json`, `paper/style_ref/STYLE_PROFILE.md`, `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md`, `paper/style_ref/STRUCTURE_CONFORMANCE.md`, `paper/style_ref/STRUCTURE_CONFORMANCE.json`, `paper/style_ref/SOURCES.md` |
+| Claim/evidence contracts | `paper/CLAIM_GRAPH.json`, `paper/EVIDENCE_GAPS.json`, claim-to-result tables, result-to-claim tables, and freshness hashes |
 | Local Argus skills | `argus_builtin_skills/*.md` exported from `/home/argustest/argus-skill/argus_skill/builtin_skills/` |
 | Reviews | `paper/ACADEMIC_LANGUAGE_REVIEW.json`, `paper/LAYOUT_REVIEW.json`, `paper/PAPER_QUALITY_CALIBRATION.json`, `paper/SUBMISSION_ASSURANCE.md`, `paper/SUBMISSION_ASSURANCE.json` |
 
@@ -136,32 +160,67 @@ Use the repository's existing conventions if they are already present; otherwise
          --prompt-file paper/figures/method_overview.prompt.txt \
          --out paper/figures/method_overview.review.json
 
-   A helper such as `code/generate_image2_figure.py` must then write `paper/figures/IMAGE2_FIGURES.json` with `figure_id`, `figure_type`, `model` or `generator_model`, `prompt_path`, `output_path`, `output_sha256`, `sidecar_path`, `inspect_path`, `review_path`, `generation_provenance_path`, width, and height. `generation_provenance_path` may point at the image sidecar if that JSON records `prompt_path`, `output_path`, and `output_sha256`. Never crop, downsample, resave, PDF-wrap, or locally redraw the accepted raster after this provenance is written.
+   A helper such as `code/generate_image2_figure.py` must then write `paper/figures/IMAGE2_FIGURES.json` with `figure_id`, `figure_type`, `model` or `generator_model`, `prompt_path`, `output_path`, `output_sha256`, `sidecar_path`, `inspect_path`, `review_path`, `generation_provenance_path`, width, and height. The sidecar must preserve image-tool/API evidence (`/images/generations`, model, created time, prompt SHA, output SHA, dimensions), and `review_path` must come from the `image_review` model route. `generation_provenance_path` may point at the image sidecar if that JSON records `prompt_path`, `output_path`, and `output_sha256`. Never crop, downsample, resave, PDF-wrap, locally redraw the accepted raster, or hand-fill `codex-image2` metadata around a local PNG after provenance is written.
 6. Do not let the model freehand a one-paragraph image prompt. Before calling image-2, write `paper/figures/method_overview.prompt.txt` from this teaser scaffold, then generate 6--20 layout variants by changing only the `Layout variant` block; keep the best reviewed raster and record the selected `prompt_variant_id` in provenance or the manifest:
 
        Use case: scientific-educational
-       Asset type: Figure 1 teaser / conceptual overview for an EMNLP/ACL academic manuscript
+       Asset type: Figure 1 teaser / conceptual overview for an EMNLP/ACL/NeurIPS-style academic manuscript.
 
        General style:
-       - EMNLP/ACL paper method figure, full-width page-width landscape, 1536x1024 or 1920x1080.
-       - Clean Figma-style block diagram: rounded cards, neat alignment, soft pastel fills, thin dark-gray borders, compact information density.
-       - Polished manuscript figure, not a dashboard, poster, screenshot, marketing graphic, or whiteboard sketch.
-       - Large readable labels, short phrases, balanced hierarchy, no snake_case identifiers in visible text.
-       - Flat vector-like raster rendering on a warm white background (#fbfaf7).
+       - EMNLP/ACL/NeurIPS/CS paper method figure, full-width two-column landscape, 1536x1024 or 1920x1080.
+       - Clean Figma-style block diagram / block-based Figma style with rounded cards, neat alignment, soft pastel fills, dark-gray 2px borders, and compact information density.
+       - Compact, information-rich, suitable for a PDF page-width figure; little wasted space but not crowded.
+       - Tidy rounded handwritten or friendly sans-serif feel is acceptable only if it remains crisp and readable; no messy sketch fonts.
+       - Moderate badge/icon use only when semantically useful; a few simple recognizable icons are fine, not a logo wall.
+       - No heavy shadows, no gradients, no photorealism, no glassmorphism, no messy Excalidraw look.
+       - Large readable labels, short phrases, balanced hierarchy, flat vector-like raster rendering on warm white #fbfaf7.
+
+       Style intent:
+       - Clean, dense, modular, Figma-like, mostly rounded cards, low-saturation pastel blocks.
+       - Use small badges/icons sparingly; avoid empty space while preserving alignment.
+       - It should look like a main figure in an EMNLP/ACL/NeurIPS paper, not a marketing graphic, stock illustration, dashboard screenshot, or casual whiteboard.
 
        Pinned content that must appear exactly:
        - Title: "<short human-readable method/system name>"
-       - Stage labels: "<input/source>", "<core mechanism>", "<verification/gating step>", "<output/result>".
-       - Outcome chips: "<main benefit>", "<main evidence object>", "<failure avoided>".
-       - SPELL EXACTLY the quoted labels above; do not invent extra terminology.
+       - Show: "<source/input>" -> "<parse/build/distill step>" -> "<quality/verification gate>" -> "<memory/library/model state>" -> "<agent/execution step>" -> "<output/result>" -> "<benchmark/evidence protocol>".
+       - Components/chips: "<baseline/status quo>", "<proposed method>", "<accepted item>", "<rejected item>", "<main metric/evidence>", "<failure avoided>".
+       - SPELL EXACTLY every quoted label above. Do not invent alternate terminology, code identifiers, raw artifact paths, or extra labels.
 
-       Layout variant: choose one and name it, e.g. horizontal swimlanes, central hero composition, sankey funnel, exploded-view, layered architecture stack, pipeline plus gallery, hub-and-spoke, four-panel A/B/C/D, or polished Figma wireframe.
+       Layout variant:
+       - Pick one variant ID and name it in the prompt. Swap only this block when generating variants.
+       - 01 central hero: huge central memory/wiki/library card, source factory on the left, agent/output board on the right, benchmark strip at bottom.
+       - 02 horizontal swimlanes: three clean lanes such as Build, Verify, Execute; use offset cards so it is not too rigid.
+       - 03 sankey funnel: many sources merge into distillation, narrow through gates, expand into library/state, then branch to outputs.
+       - 04 exploded entry: one accepted skill/memory/wiki entry pulled apart into Text, Visual, Recipe, Metadata plates with callout arrows.
+       - 05 layered architecture stack: bottom sources, middle reusable memory/library, top agent execution; use shelf-like overlapping slabs.
+       - 06 pipeline plus gallery: main pipeline across top, output gallery on right, compact benchmark/evidence cards along bottom.
+       - 07 modular dashboard: dense but paper-clean cards; central method card largest, side panel for domains/tasks/outputs.
+       - 08 radial hub-spoke: reusable library/state as center hub; sources feed from left arc; agent/results radiate right; evidence panel below.
+       - 09 zigzag pipeline: Z-shaped reading path with numbered step badges and compact insets.
+       - 10 research-poster dense: section headers, compact cards, mini charts, and small output thumbnails; still clean Figma and paper-friendly.
+       - 11 grayscale accent: mostly grayscale academic style with two pastel accent colors for proposed path and verification.
+       - 12 color-coded phases: peach acquisition, blue memory/library, green agent, lavender domains, yellow benchmark; overlapping phase tabs.
+       - 13 card deck: sources, skills, and outputs as tidy fanned decks; one accepted card expanded.
+       - 14 computation graph: nodes and grouped modules with thin arrows and rounded containers, like an ML systems diagram.
+       - 15 dataflow with sidebars: main flow through center, left source sidebar, right output sidebar, bottom benchmark/evidence sidebar.
+       - 16 timeline plus insets: left-to-right timeline with zoom boxes for the core mechanism and output/evidence.
+       - 17 nested containers: big containers for Offline Construction and Online Execution; nested subcards plus benchmark footer.
+       - 18 multi-panel A/B/C/D: A sources/build, B reusable state, C agent execution, D benchmark/evidence; panels overlap slightly and share arrows.
+       - 19 light blueprint: pale blue grid background, modular boxes, thin connector routes, neat badges, strong central method box.
+       - 20 polished Figma wireframe: component frames, auto-layout-like spacing, section tabs, chips, and carefully staggered components.
 
        Negative prompt / Avoid:
-       - no tiny unreadable text, no paragraphs, no code snippets, no raw paths, no watermark
-       - no photorealism, no heavy gradients, no glassmorphism, no logo wall
-       - no messy Excalidraw look, no arbitrary blobs, no decorative clutter
-       - no inconsistent terminology between figure and paper
+       - no concrete code snippets, raw paths, tiny unreadable text, character-level vertical text, or dense paragraphs
+       - no excessive logos or brand marks, no watermark
+       - no photorealistic scenes, stock photos, glassmorphism, heavy gradients, heavy shadows, texture, or arbitrary decorative blobs
+       - no messy whiteboard / Excalidraw-heavy sketch style
+       - no large empty areas, overlapping cards, squashed labels, inconsistent terminology, or extra captions that make it look like a dashboard
+
+       Figma tokens for camera-ready cleanup:
+       - Canvas 1536x1024 or 1920x1080; background #fbfaf7; stroke #1f2933 at 2px.
+       - Corner radius 10-16px; card padding 12-20px; card gap 12-24px.
+       - Pastels: acquisition #ffe2d1, parsing #fff2bd, memory/wiki #dcecff, agent #e2f7df, domains #eadfff, benchmark #fff1c9.
+       - Text sizes: title 38-52px, section headers 22-30px, card labels 16-22px, chips 12-16px.
 
    A prompt that lacks `General style`, `Pinned content`, exact spelling instructions, `Layout variant`, and `Negative prompt / Avoid` is a blocker even if the image API call succeeds.
 
@@ -196,21 +255,30 @@ Use the repository's existing conventions if they are already present; otherwise
 2. Download at least two open-access top-conference paper PDFs under `paper/style_ref/exemplars/<slug>/paper.pdf`.
 3. At least one exemplar should be a recent EMNLP/ACL best/outstanding/award paper when available; another should match the method/evaluation structure.
 4. Extract text to `paper/style_ref/exemplars/<slug>/paper.txt`, compute and record `pdf_sha256`, record license and `pdf_storage_policy`, and write `paper/style_ref/SOURCES.md`.
-5. `paper/style_ref/EXEMPLAR.json` must use `exemplar_schema_version: 2` and include `local_pdf`, `text_extract`, `pdf_sha256`, `license`, `pdf_storage_policy`, `usage: "structural_style_only"`, and `no_prose_copy: true` for every exemplar.
-6. Write a thick `paper/style_ref/STYLE_PROFILE.md` covering abstract shape, section/page allocation, figure/table inventory, related-work shape, evaluation layout, formatting/layout lessons, writing lessons, transfer plan, and no-prose-copy policy.
-7. Write `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` before prose. It must map exemplar lessons to this paper's section order, page budget, paragraph roles, figure/table plan, related-work grouping, evaluation sequence, and local evidence mapping.
-8. After drafting, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json` from the actual `paper/main.tex` section order. The JSON must use `conformance_schema_version: 1`, `verdict: "PASS"`, `no_prose_copy_attestation: true`, at least two `exemplar_lessons`, and `section_mappings` for every final top-level section before References/Appendix.
-9. Every section mapping must include `maps_to_exemplar_phase`, `evidence_sources`, `exemplar_lesson`, and a paper-specific `deviation_rationale` for nonstandard sections. The paper may adapt exemplar architecture to the current thesis, but unmapped/freehand filler sections such as `Protocol Notes`, `Track Mechanics`, `Release Detail`, `Mechanics`, or `Notes` are blockers.
-10. Run `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-exemplar --project-root .`; URL-only exemplars and missing structure blueprints are blockers. Final readiness additionally checks `STRUCTURE_CONFORMANCE`.
-11. Use exemplars only for structural style learning. Do not copy prose, examples, terminology, claims, bibliography text, figure design, or sentence templates.
+5. Before locking a primary exemplar, write `paper/style_ref/EXEMPLAR_SUITABILITY.json` scoring candidate exemplars against this project's task type, method family, experiment shape, figure/table density, related-work structure, and page rhythm. Run `validate-exemplar-suitability`; a weak exemplar match is a drafting blocker.
+6. `paper/style_ref/EXEMPLAR.json` must use `exemplar_schema_version: 2` and include `local_pdf`, `text_extract`, `pdf_sha256`, `license`, `pdf_storage_policy`, `usage: "structural_style_only"`, and `no_prose_copy: true` for every exemplar.
+7. Write a thick `paper/style_ref/STYLE_PROFILE.md` covering abstract shape, section/page allocation, figure/table inventory, related-work shape, evaluation layout, formatting/layout lessons, writing lessons, transfer plan, and no-prose-copy policy.
+8. Write `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` before prose. It must map exemplar lessons to this paper's section order, page budget, paragraph roles, figure/table plan, related-work grouping, evaluation sequence, and local evidence mapping. Draft the paper by following this exemplar-derived skeleton directly; title and section names may adapt to the current thesis, but the page rhythm and role sequence should not drift without explicit evidence.
+9. After drafting, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json` from the actual `paper/main.tex` section order. The JSON must use `conformance_schema_version: 1`, `verdict: "PASS"`, `no_prose_copy_attestation: true`, at least two `exemplar_lessons`, and `section_mappings` for every final top-level section before References/Appendix.
+10. Every section mapping must include `maps_to_exemplar_phase`, `evidence_sources`, `exemplar_lesson`, and a paper-specific `deviation_rationale` for nonstandard sections. The paper may adapt exemplar architecture to the current thesis, but unmapped/freehand filler sections such as `Protocol Notes`, `Track Mechanics`, `Release Detail`, `Mechanics`, or `Notes` are blockers.
+11. Run `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-exemplar --project-root .`; URL-only exemplars and missing structure blueprints are blockers. Final readiness additionally checks `STRUCTURE_CONFORMANCE`.
+12. Use exemplars only for structural style learning. Do not copy prose, examples, terminology, claims, bibliography text, figure design, or sentence templates.
 
 ## Paper narrative and prose contract
 1. Do not write the abstract first. Draft the abstract after the main numbers, ablations, and limitations exist.
 2. The paper must have one sentence-long contribution: "We propose X. We show X improves Y by Z because W." If X, Y, Z, and W cannot be filled from evidence, the paper is not ready.
 3. The abstract should read like a normal EMNLP abstract: problem, gap, method, result, implication. Do not expose validator names, raw paths, evidence-span bookkeeping, review mechanics, or appendix layout trivia in the abstract/body.
 4. Every numerical paper claim must trace to raw artifacts under `results/`, `experiments/`, or `paper/artifacts/`.
-5. Keep claims calibrated without turning the paper into repetitive defensive caveats. Move detailed scope limits to limitations/discussion.
-6. Never invent BibTeX. Fetch/verify references through scholarly sources or mark unresolved entries as blockers.
+5. Paper writing and experimentation may interleave. If drafting exposes weak or missing evidence, stop claiming readiness, run the needed supplement/ablation/error analysis, and then update the claim graph and paper; if the evidence remains weak, soften or remove the claim instead of cherry-picking.
+6. Keep claims calibrated without turning the paper into repetitive defensive caveats. Move detailed scope limits to limitations/discussion.
+7. Never invent BibTeX. Fetch/verify references through scholarly sources or mark unresolved entries as blockers.
+
+## Paper-quality contract files
+1. `paper/CLAIM_GRAPH.json` must bind every major claim to its section, required evidence, raw result artifact, figure/table/citation support, and allowed fallback if evidence is weak. `paper/EVIDENCE_GAPS.json` must list missing or weak evidence and the planned supplement, ablation, negative result framing, or claim downgrade.
+2. `paper/FIGURE_TABLE_STYLE_GUIDE.json` must specify the intended body/appendix float inventory, width, font/readability target, legend/caption length, color discipline, column density, information hierarchy, and whether each float belongs in the main body or appendix. Ugly, cramped, or audit-table-like floats are blockers even if the PDF compiles.
+3. `paper/VALIDATION_PRIORITY_POLICY.json` must order repair work as freshness, full-scale experiment evidence, claim evidence, and content sufficiency first; exemplar structure next; figure/table and format/layout next; academic language only after evidence and structure are stable; manifest/readiness cleanup last. It must include `experiment_evidence`, `content_sufficiency`, and `format_layout` routes. Underlength, underfilled body, missing full-scale runs, missing baselines, weak ablations, or missing failure analysis are not layout-only problems: route them to `run_more_experiments`, additional ablations/failure studies, or evidence-backed analysis before expanding prose. After repeated non-improving edits, reset the skeleton/float plan instead of looping on review JSON or cosmetic micro-edits.
+4. `paper/ARTIFACT_FRESHNESS.json` must hash/timestamp experiment outputs, result indexes, claim graph, exemplar blueprint, `paper/main.tex`, `paper/main.pdf`, review JSON, and submission assurance. Refresh it after experiments, paper source edits, figure changes, review regeneration, and manifest updates.
+5. Run `validate-paper-quality-contracts` before final academic-language and layout review. Missing, stale, or thin contract artifacts are hard blockers.
 
 ## Citation and related-work contract
 1. Use starter citation targets only when the topic matches. Treat keys as retrieval targets, not as ready BibTeX: verify each entry through Semantic Scholar, arXiv, CrossRef, ACL Anthology, DBLP, or official project pages.

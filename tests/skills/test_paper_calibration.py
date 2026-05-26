@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Sequence
 
 from argus_skill.skills.paper_calibration import (
     calibration_cases,
@@ -545,7 +546,7 @@ def _write_json(path: Path, payload: object) -> None:
     _write(path, json.dumps(payload) + "\n")
 
 
-def _write_jsonl(path: Path, payloads: list[object]) -> None:
+def _write_jsonl(path: Path, payloads: Sequence[object]) -> None:
     _write(path, "".join(json.dumps(payload) + "\n" for payload in payloads))
 
 

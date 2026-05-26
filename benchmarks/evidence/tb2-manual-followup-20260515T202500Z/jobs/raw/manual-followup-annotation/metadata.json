@@ -1,0 +1,10 @@
+{
+  "annotation_type": "manual_followup_overlay",
+  "base_job_id": "failure-reviewer-off",
+  "base_run_root": "benchmarks/prompt_only_tb2/runs/no-review-smoke-20260513T150423Z/20260513T150423Z-o002-argus-cancel-async-tasks",
+  "bundle_root": "benchmarks/evidence/tb2-manual-followup-20260515T202500Z",
+  "human_interactions_after_assignment": 2,
+  "manual_commands": 1,
+  "manual_rescue": "failed",
+  "notes": "This folder is a bundle-local annotation overlay that records a failed manual rescue outcome on the reviewer-off transcript."
+}

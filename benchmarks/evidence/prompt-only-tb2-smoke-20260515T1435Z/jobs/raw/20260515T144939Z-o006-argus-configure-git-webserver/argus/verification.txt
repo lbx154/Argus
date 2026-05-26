@@ -1,0 +1,1 @@
+configured git-over-ssh repo at /git/server and webserver on 8080; validated hello world via local push and curl

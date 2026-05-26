@@ -1,0 +1,3 @@
+condition,rows,accepted_rate,mean_reward,needs_human_rate,avg_cost_usd,avg_wall_minutes,timeouts
+argus,6,0.833,0.833,0.000,0.149376,7.14,0
+codex,6,1.000,1.000,0.167,0.084199,4.16,0

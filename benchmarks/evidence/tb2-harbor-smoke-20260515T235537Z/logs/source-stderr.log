@@ -1,0 +1,5 @@
+argus-skill prep: matched=True match_count=1 skill_used=True elapsed=2.5s
+round 1 engineer: exit=1, 5 agent_messages, 42.6s
+round 1 engineer failed (engineer exit_code=1) — retrying in round 2
+round 2 engineer: exit=1, 1 agent_messages, 11.5s
+full cost: eng=$0.0478 (2 sess) match=$0.0238 sci=$0.0000 rev=$0.2210 total=$0.2927

@@ -1,0 +1,4 @@
+Skipping image OS validation for alexgshaw/make-doom-for-mips:20251031: docker inspect returned 1
+Trial make-doom-for-mips__ajbYUK2 failed: Docker compose command failed for environment make-doom-for-mips. Command: docker compose --project-name make-doom-for-mips__ajbyuk2 --project-directory /home/argustest/.cache/harbor/tasks/2gm9aAxh3ufEHTNAcZ8qB3/make-doom-for-mips/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+. Stderr: None. 

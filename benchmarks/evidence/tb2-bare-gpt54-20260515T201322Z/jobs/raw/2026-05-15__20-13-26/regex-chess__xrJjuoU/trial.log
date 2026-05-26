@@ -1,0 +1,4 @@
+Trial regex-chess__xrJjuoU failed: Docker compose command failed for environment regex-chess. Command: docker compose --project-name regex-chess__xrjjuou --project-directory /home/argustest/.cache/harbor/tasks/XyJK3D4eSbPWgNt9Bw4RyU/regex-chess/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network regex-chess__xrjjuou_default  Creating
+ Network regex-chess__xrjjuou_default  Error
+failed to create network regex-chess__xrjjuou_default: Error response from daemon: all predefined address pools have been fully subnetted
+. Stderr: None. 

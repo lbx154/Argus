@@ -1,0 +1,4 @@
+Skipping image OS validation for alexgshaw/overfull-hbox:20251031: docker inspect returned 1
+Trial overfull-hbox__yRji6a5 failed: Docker compose command failed for environment overfull-hbox. Command: docker compose --project-name overfull-hbox__yrji6a5 --project-directory /home/argustest/.cache/harbor/tasks/ca36CXF7yAdWnRdpyfoihT/overfull-hbox/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+. Stderr: None. 

@@ -1,0 +1,149 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 11,
+            "passed": 1,
+            "failed": 10,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1778878125.5254688,
+            "stop": 1778878126.5284743
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_numpy_version",
+                "status": "passed",
+                "duration": 0.35771508421748877,
+                "start": 1778878125.547416,
+                "stop": 1778878125.9054794,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_repo_cloned",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.0005325265228748322,
+                "start": 1778878125.9057274,
+                "stop": 1778878125.922665,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_repo_cloned():\n        path = Path(\"/app/pyknotid\")\n>       assert path.exists(), f\"{path} does not exist\"\nE       AssertionError: /app/pyknotid does not exist\nE       assert False\nE        +  where False = exists()\nE        +    where exists = PosixPath('/app/pyknotid').exists\n\n/tests/test_outputs.py:33: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            },
+            {
+                "name": "test_outputs.py::test_pyknotid_core_import",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.0005492744967341423,
+                "start": 1778878125.9228513,
+                "stop": 1778878125.9255686,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_pyknotid_core_import():\n        \"\"\"Test that the main pyknotid module can be imported.\"\"\"\n        spec = importlib.util.find_spec(\"pyknotid\")\n>       assert spec is not None, \"pyknotid is not installed\"\nE       AssertionError: pyknotid is not installed\nE       assert None is not None\n\n/tests/test_outputs.py:44: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            },
+            {
+                "name": "test_outputs.py::test_chelpers_cython_extension",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.00045019201934337616,
+                "start": 1778878125.9257119,
+                "stop": 1778878125.928771,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_chelpers_cython_extension():\n        \"\"\"Test that the chelpers Cython extension module can be imported.\"\"\"\n>       spec = importlib.util.find_spec(\"pyknotid.spacecurves.chelpers\")\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n/tests/test_outputs.py:52: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nname = 'pyknotid.spacecurves.chelpers', package = None\n\n>   ???\nE   ModuleNotFoundError: No module named 'pyknotid'\n\n<frozen importlib.util>:91: ModuleNotFoundError",
+                "message": "The test failed in the call phase"
+            },
+            {
+                "name": "test_outputs.py::test_ccomplexity_cython_extension",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.00390763022005558,
+                "start": 1778878125.9289112,
+                "stop": 1778878125.935426,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_ccomplexity_cython_extension():\n        \"\"\"Test that the ccomplexity Cython extension module can be imported.\"\"\"\n>       spec = importlib.util.find_spec(\"pyknotid.spacecurves.ccomplexity\")\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n/tests/test_outputs.py:61: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nname = 'pyknotid.spacecurves.ccomplexity', package = None\n\n>   ???\nE   ModuleNotFoundError: No module named 'pyknotid'\n\n<frozen importlib.util>:91: ModuleNotFoundError",
+                "message": "The test failed in the call phase"
+            },
+            {
+                "name": "test_outputs.py::test_cinvariants_cython_extension",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.0004235440865159035,
+                "start": 1778878125.9355674,
+                "stop": 1778878125.9385371,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_cinvariants_cython_extension():\n        \"\"\"Test that the cinvariants Cython extension module can be imported.\"\"\"\n>       spec = importlib.util.find_spec(\"pyknotid.cinvariants\")\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n/tests/test_outputs.py:70: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nname = 'pyknotid.cinvariants', package = None\n\n>   ???\nE   ModuleNotFoundError: No module named 'pyknotid'\n\n<frozen importlib.util>:91: ModuleNotFoundError",
+                "message": "The test failed in the call phase"
+            },
+            {
+                "name": "test_outputs.py::test_chelpers",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.00044267158955335617,
+                "start": 1778878125.938678,
+                "stop": 1778878125.9412575,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_chelpers():\n        \"\"\"Test chelpers module cross product example with randomized inputs.\"\"\"\n>       import pyknotid.spacecurves.chelpers as ch\nE       ModuleNotFoundError: No module named 'pyknotid'\n\n/tests/test_outputs.py:84: ModuleNotFoundError",
+                "message": "The test failed in the call phase"
+            },
+            {
+                "name": "test_outputs.py::test_ccomplexity",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.0004147002473473549,
+                "start": 1778878125.9413905,
+                "stop": 1778878125.944017,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_ccomplexity():\n        \"\"\"Test ccomplexity module on computing writhe.\"\"\"\n        import numpy as np\n>       import pyknotid.spacecurves.ccomplexity as cc\nE       ModuleNotFoundError: No module named 'pyknotid'\n\n/tests/test_outputs.py:97: ModuleNotFoundError",
+                "message": "The test failed in the call phase"
+            },
+            {
+                "name": "test_outputs.py::test_cinvariants_python_vs_cython",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.0004204055294394493,
+                "start": 1778878125.9441478,
+                "stop": 1778878125.9465053,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_cinvariants_python_vs_cython():\n        \"\"\"Test that Cython cinvariants matches Python fallback implementation.\"\"\"\n>       import pyknotid.invariants as inv\nE       ModuleNotFoundError: No module named 'pyknotid'\n\n/tests/test_outputs.py:115: ModuleNotFoundError",
+                "message": "The test failed in the call phase"
+            },
+            {
+                "name": "test_outputs.py::test_example_usage",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.0003971122205257416,
+                "start": 1778878125.9466524,
+                "stop": 1778878125.9489713,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_example_usage():\n        \"\"\"Test example usage of pyknotid from readme as well as a variation\"\"\"\n>       import pyknotid.make as mk\nE       ModuleNotFoundError: No module named 'pyknotid'\n\n/tests/test_outputs.py:128: ModuleNotFoundError",
+                "message": "The test failed in the call phase"
+            },
+            {
+                "name": "test_outputs.py::test_pyknotid_repository_tests",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.5761525612324476,
+                "start": 1778878125.9491045,
+                "stop": 1778878126.528289,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_pyknotid_repository_tests():\n        \"\"\"Download and run the original pyknotid test suite.\"\"\"\n        with tempfile.TemporaryDirectory() as temp_dir:\n            git_cmd = [\n                \"git\",\n                \"clone\",\n                \"--depth\",\n                \"1\",\n                \"--branch\",\n                \"0.5.3\",\n                \"https://github.com/SPOCKnots/pyknotid.git\",\n                temp_dir,\n            ]\n            result = subprocess.run(git_cmd, capture_output=True, text=True)\n            tests_dir = os.path.join(temp_dir, \"tests\")\n    \n            # Run pytest excluding the problematic test files\n            pytest_cmd = [\n                \"python\",\n                \"-m\",\n                \"pytest\",\n                tests_dir,\n                \"--ignore\",\n                os.path.join(tests_dir, \"test_random_curves.py\"),\n                \"--ignore\",\n                os.path.join(tests_dir, \"test_catalogue.py\"),\n                \"-v\",\n            ]\n    \n            original_cwd = os.getcwd()\n            try:\n>               os.chdir(\"/app/pyknotid\")\nE               FileNotFoundError: [Errno 2] No such file or directory: '/app/pyknotid'\n\n/tests/test_outputs.py:171: FileNotFoundError",
+                "message": "The test failed in the call phase"
+            }
+        ]
+    }
+}

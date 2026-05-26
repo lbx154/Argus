@@ -1,0 +1,4 @@
+Skipping image OS validation for alexgshaw/reshard-c4-data:20251031: docker inspect returned 1
+Trial reshard-c4-data__qsuhfXn failed: Docker compose command failed for environment reshard-c4-data. Command: docker compose --project-name reshard-c4-data__qsuhfxn --project-directory /home/argustest/.cache/harbor/tasks/fDMeF8ncVH8hFRrdHUkDzM/reshard-c4-data/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+. Stderr: None. 

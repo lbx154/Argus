@@ -1,0 +1,17 @@
+source_run_root: /home/argustest/argus-skill/benchmarks/prompt_only_tb2/runs/20260515T201700Z-o002-argus-cancel-async-tasks
+job_id: fix-verifier-gated
+mode: verifier_gated
+condition: argus
+task_id: cancel-async-tasks
+argus_no_reviewer: ''
+argus_benchmark_verifier_gate: '1'
+zero_touch_success: True
+human_interactions_after_assignment: 0
+active_touch_minutes_after_assignment: 0.0
+manual_commands: 0
+manual_rescue: ''
+intervention_severity: 'zero_touch'
+exit_code: 0
+needs_human: False
+
+current runner emits ARGUS_SKILL_BENCHMARK_VERIFIER_GATE=1 and records zero_touch_success

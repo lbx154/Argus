@@ -1,0 +1,11 @@
+Recovered password: 8XDP5Q2RT9ZK7VB3BV4WW54
+
+Evidence summary:
+- Source artifact: /app/varsea/disks/sub1/subA/subAlpha/ae3f4c.dat
+- Fragment at byte offset 1048576 contains:
+  PK header, filename app/launchcode.txt, and content prefix PASSWORD=8XDP5Q2RT9Z
+- Fragment at byte offset 3145728 contains:
+  content suffix K7VB3BV4WW54\n followed by ZIP central directory records for app/launchcode.txt
+
+Reconstructed deleted file content:
+PASSWORD=8XDP5Q2RT9ZK7VB3BV4WW54

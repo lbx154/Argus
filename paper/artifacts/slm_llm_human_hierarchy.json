@@ -1,0 +1,49 @@
+{
+  "artifact_name": "slm_llm_human_hierarchy",
+  "artifact_version": 1,
+  "hierarchy_label": "SLM->LLM->HUMAN",
+  "repo_root": "/home/argustest/argus-skill",
+  "rows": [
+    {
+      "claim": "SLM->LLM->HUMAN tier 1: the small-model baseline is grounded in the tracked bare-gpt54-mini TB2 run.",
+      "evidence_1": "experiments/tb2-bare-gpt54-mini-20260515T212131Z/manifest.json",
+      "evidence_2": "experiments/tb2-bare-gpt54-mini-20260515T212131Z/status.json",
+      "evidence_3": "experiments/tb2-bare-gpt54-mini-20260515T212131Z/jobs/2026-05-15__21-21-32/cancel-async-tasks__cJwJjAt/result.json",
+      "layer_index": "1",
+      "notes": "The SLM tier is evidence-preserving but not an archive bundle; use the tracked run root for provenance and avoid inventing new quantitative claims.",
+      "row_id": "slm",
+      "source_bundle": "experiments/tb2-bare-gpt54-mini-20260515T212131Z",
+      "status": "current_evidence",
+      "tier": "SLM"
+    },
+    {
+      "claim": "SLM->LLM->HUMAN tier 2: the larger-model baseline is grounded in the archived bare-gpt54 TB2 bundle.",
+      "evidence_1": "benchmarks/evidence/tb2-bare-gpt54-20260515T201322Z/summary.tsv",
+      "evidence_2": "benchmarks/evidence/tb2-bare-gpt54-20260515T201322Z/RESULTS.md",
+      "evidence_3": "benchmarks/evidence/tb2-bare-gpt54-20260515T201322Z/jobs/index.tsv",
+      "layer_index": "2",
+      "notes": "Measured reward, wall_minutes, infra-failure kind, and missing-cause annotations are preserved; do not invent new quantitative claims.",
+      "row_id": "llm",
+      "source_bundle": "benchmarks/evidence/tb2-bare-gpt54-20260515T201322Z",
+      "status": "current_evidence",
+      "tier": "LLM"
+    },
+    {
+      "claim": "SLM->LLM->HUMAN tier 3: the human-follow-up layer is grounded in the manual-followup annotation bundle.",
+      "evidence_1": "benchmarks/evidence/tb2-manual-followup-20260515T202500Z/summary.tsv",
+      "evidence_2": "benchmarks/evidence/tb2-manual-followup-20260515T202500Z/RESULTS.md",
+      "evidence_3": "benchmarks/evidence/tb2-manual-followup-20260515T202500Z/jobs/index.tsv",
+      "layer_index": "3",
+      "notes": "This tier covers zero-touch success, human interactions after assignment, active touch minutes, manual commands, manual rescue, and intervention severity.",
+      "row_id": "human",
+      "source_bundle": "benchmarks/evidence/tb2-manual-followup-20260515T202500Z",
+      "status": "current_evidence",
+      "tier": "HUMAN"
+    }
+  ],
+  "source_bundles": {
+    "HUMAN": "benchmarks/evidence/tb2-manual-followup-20260515T202500Z",
+    "LLM": "benchmarks/evidence/tb2-bare-gpt54-20260515T201322Z",
+    "SLM": "experiments/tb2-bare-gpt54-mini-20260515T212131Z"
+  }
+}

@@ -31,6 +31,7 @@ Treat every item below as blocking for a final EMNLP-ready claim:
    - Use the official ACL/EMNLP template, preferably `\usepackage[review]{acl}` from https://github.com/acl-org/acl-style-files.
    - In review mode the author block must be anonymous, e.g. `Anonymous EMNLP Submission`. Do not add real authors unless `submission_phase` is camera-ready/final.
    - Target 7.5--8 main-content pages excluding references; do not pad pilot evidence into a long-paper shell. The final PDF should visibly use the body budget: Conclusion should not appear before page 7, and References should not begin before page 8.
+   - If the body is short or visually thin, classify it as `content_sufficiency` rather than a cosmetic layout defect unless the evidence is already complete. Require one of: more benchmark runs, missing baseline/ablation completion, robustness/public-validation analysis, failure taxonomy/error analysis, or claim downgrade. Do not accept larger fonts, looser spacing, repeated caveats, or oversized floats as a page-count fix.
 
 2. **Section order and completeness**
    - Conclusion must appear by the end of page 8.
@@ -44,13 +45,15 @@ Treat every item below as blocking for a final EMNLP-ready claim:
    - No `Overfull \hbox > 5pt`.
    - No placeholders, TODO/TBD/FIXME, `\textbf{[PLACEHOLDER]}`, `[VERIFY_CITATION]`, or `% UNVERIFIED` bibliography entries.
    - Final-ready drafts must have bibliography depth: at least 35 verified BibTeX entries, at least 30 unique cited keys in the paper source, and, when PDF text extraction is available, References must occupy at least two rendered pages before the Appendix.
+   - Reference formatting must look like a real ACL bibliography: no rendered `and 1 others`/`and N others`, no BibTeX `author={... and others}` or `et al.` placeholders, no citation commands that dump more than eight keys, and no dense related-work paragraph that functions as a bibliography pile. Fetch verified BibTeX from ACL Anthology, Semantic Scholar, arXiv, CrossRef, DBLP, or official proceedings pages and preserve capitalization with braces where needed.
+   - References must start cleanly after the body. Do not let the References heading share a rendered page or column with Conclusion, Limitations, or Ethical Considerations; insert a layout break or revise page flow.
    - No code-font/snake_case display labels in title, abstract, headings, captions, figures, or tables unless the exception is explicitly listed in `allowed_code_labels`.
 
 4. **Figures and layout**
    - Every body figure has a `\label{}` and is referenced in the text with `\ref`, `\autoref`, `\cref`, or equivalent.
    - Body figures are capped at five total; at most one may be a full-width `figure*`.
    - At least one figure or table should be visible on each of pages 4--7 so the paper does not become a wall of text.
-   - Figure 1, teaser, overall, and conceptual/method/framework/system overview figures must include the actual image-2/codex-image2 raster `output_path` in `paper/main.tex`. **Block any self-drawn overview replacement:** matplotlib/FancyBboxPatch redraws, TikZ node graphs, SVG/PIL/HTML canvases, cleaned PDF derivatives, screenshots, or manual vector replacements for the core overview are hard failures. If the figure is ugly, regenerate it through image-2 with a better prompt. These figures must be adaptive/landscape page-width assets, preferably `1536x1024 or 1920x1080`, and avoid square `1024x1024`, tiny text, heavy gradients, photorealism, weird/sketchy fonts, and code identifiers.
+   - Figure 1, teaser, overall, and conceptual/method/framework/system overview figures must include the actual image-2/codex-image2 raster `output_path` in `paper/main.tex` and pass `validate-image2-figures`. **Block any self-drawn overview replacement:** matplotlib/FancyBboxPatch redraws, TikZ node graphs, SVG/PIL/HTML canvases, cleaned PDF derivatives, screenshots, manual vector replacements, local PNGs with hand-written `codex-image2` metadata, missing `sidecar_path`/`inspect_path`, or manual-only image reviews are hard failures. If the figure is ugly, regenerate it through image-2 with a better prompt. These figures must be adaptive/landscape page-width assets, preferably `1536x1024 or 1920x1080`, and avoid square `1024x1024`, tiny text, heavy gradients, photorealism, weird/sketchy fonts, and code identifiers.
 
 5. **Tables**
    - Every table caption must state a numerical headline, not just describe contents.

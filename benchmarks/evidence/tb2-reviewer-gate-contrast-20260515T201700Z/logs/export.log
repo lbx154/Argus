@@ -1,0 +1,5 @@
+exported_at: 2026-05-15T20:22:22+00:00
+repo_commit: 8e53a8b2b1c1e34099d91551cf0e4cdff8c7c267
+failure_source: /home/argustest/argus-skill/benchmarks/prompt_only_tb2/runs/no-review-smoke-20260513T150423Z/20260513T150423Z-o002-argus-cancel-async-tasks
+fix_source: /home/argustest/argus-skill/benchmarks/prompt_only_tb2/runs/20260515T201700Z-o002-argus-cancel-async-tasks
+bundle: /home/argustest/argus-skill/benchmarks/evidence/tb2-reviewer-gate-contrast-20260515T201700Z

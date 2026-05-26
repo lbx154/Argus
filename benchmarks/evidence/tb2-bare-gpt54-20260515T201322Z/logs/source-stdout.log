@@ -1,0 +1,34 @@
+  89/89 Mean: 0.663 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1:01:51 0:00:00
+terminal-bench • oracle
+┏━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━┓
+┃ Trials ┃ Exceptions ┃  Mean ┃
+┡━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━┩
+│     63 │         27 │ 0.663 │
+└────────┴────────────┴───────┘
+
+┏━━━━━━━━┳━━━━━━━┓
+┃ Reward ┃ Count ┃
+┡━━━━━━━━╇━━━━━━━┩
+│ 1.0    │    59 │
+│ 0.0    │     4 │
+└────────┴───────┘
+
+┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┓
+┃ Exception            ┃ Count ┃
+┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━┩
+│ RuntimeError         │    24 │
+│ AgentTimeoutError    │     1 │
+│ VerifierTimeoutError │     2 │
+└──────────────────────┴───────┘
+
+Job Info
+Total runtime: 1h 1m 53s
+Results written to 
+/home/argustest/argus-skill/experiments/tb2-bare-gpt54-20260515T201322Z/jobs/202
+6-05-15__20-13-26/result.json
+Inspect results by running `harbor view 
+/home/argustest/argus-skill/experiments/tb2-bare-gpt54-20260515T201322Z/jobs`
+Share results by running `harbor upload 
+/home/argustest/argus-skill/experiments/tb2-bare-gpt54-20260515T201322Z/jobs/202
+6-05-15__20-13-26`
+

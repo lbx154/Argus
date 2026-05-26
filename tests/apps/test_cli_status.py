@@ -141,6 +141,86 @@ def test_status_shows_active_work_when_present(
     assert "budget   : per-mission $9.00 · daily $50.00 · remaining $50.00" in out
 
 
+def test_status_shows_latest_mission_telemetry(
+    monkeypatch: pytest.MonkeyPatch,
+    project_with_active_and_history: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    life_root, repo = project_with_active_and_history
+    monkeypatch.setattr(
+        "argus_skill.daemon.life_worker.read_daemon_status",
+        lambda life_dir: Namespace(
+            alive=True,
+            pid=4321,
+            uptime_seconds=12.0,
+            backend="memory",
+            per_mission_cap_usd=9.0,
+            daily_cap_usd=50.0,
+        ),
+    )
+    monkeypatch.setattr("argus_skill.apps.cli._check_logout_survival", lambda status: None)
+    project_root = MemoryBundle.for_cwd(repo, global_root=life_root).project.root
+    from argus_skill.life.telemetry import TelemetryRecorder
+
+    TelemetryRecorder(project_root).record({
+        "running": True,
+        "seq": 7,
+        "item_id": "task-telemetry",
+        "running_seconds": 125.0,
+        "processes": [{"cmd": "python run_eval.py", "pid": 1234}],
+        "process_count": 1,
+        "files": [{
+            "path": "results/run.jsonl",
+            "new_lines": 3,
+            "line_count": 24,
+            "size": 1200,
+        }],
+        "files_changed": 1,
+        "scanned_files": 5,
+        "scan_ms": 12,
+    })
+
+    rc = _cmd_status(Namespace(life_dir=str(life_root)))
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "telemetry:" in out
+    assert "state    : running · mission 2m 5s" in out
+    assert "proc     : python run_eval.py" in out
+    assert "artifacts: results/run.jsonl +3 lines" in out
+
+
+def test_follow_heartbeat_includes_latest_telemetry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus_skill.life.telemetry import TelemetryRecorder
+
+    life_dir = tmp_path / "life"
+    life_dir.mkdir()
+    events_path = life_dir / "events.jsonl"
+    events_path.write_text("", encoding="utf-8")
+    monkeypatch.setattr(cli_mod, "_daemon_alive_for_events_path", lambda path: True)
+    TelemetryRecorder(life_dir).record({
+        "running": True,
+        "seq": 3,
+        "running_seconds": 61.0,
+        "processes": [{"cmd": "python run_eval.py"}],
+        "process_count": 1,
+        "files": [{"path": "results/run.jsonl", "new_lines": 2}],
+        "files_changed": 1,
+        "scanned_files": 4,
+        "scan_ms": 8,
+    })
+
+    line = cli_mod._format_follow_heartbeat(events_path, "engineer", 22.0)
+
+    assert "daemon alive" in line
+    assert "telemetry running" in line
+    assert "proc: python run_eval.py" in line
+    assert "artifacts: results/run.jsonl +2 lines" in line
+
+
 def test_status_uses_env_caps_and_pauses_when_budget_exhausted(
     monkeypatch: pytest.MonkeyPatch,
     project_with_history: tuple[Path, Path],
@@ -148,7 +228,7 @@ def test_status_uses_env_caps_and_pauses_when_budget_exhausted(
 ) -> None:
     life_root, repo = project_with_history
     bundle = MemoryBundle.for_cwd(repo, global_root=life_root)
-    bundle.global_mem.journal.append(
+    bundle.journal.append(
         JournalEntry.new(kind="budget", title="spent", summary="daily spend", cost_usd=5.0)
     )
     monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "2.5")

@@ -1,0 +1,6 @@
+exported_at=2026-05-15T22:48:41+00:00
+source_run_root=/home/argustest/argus-skill/experiments/tb2-argus-v12-redux-20260515T201322Z
+bundle_root=/home/argustest/argus-skill/benchmarks/evidence/tb2-argus-v12-redux-20260515T201322Z
+source_jobs_root=/home/argustest/argus-skill/experiments/tb2-argus-v12-redux-20260515T201322Z/jobs
+source_trials=89
+bundle_type=tb2_fullbench_export

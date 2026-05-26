@@ -1,0 +1,42 @@
+$ docker exec tb2-codex-llm-inference-batching-scheduler-9547f45a401c <setup tests>
+
+$ docker cp /tmp/terminal-bench-2-1/tasks/llm-inference-batching-scheduler/tests tb2-codex-llm-inference-batching-scheduler-9547f45a401c:/tests
+
+$ docker exec -w /app tb2-codex-llm-inference-batching-scheduler-9547f45a401c bash /tests/test.sh
+Hit:1 http://deb.debian.org/debian bookworm InRelease
+Hit:2 http://deb.debian.org/debian bookworm-updates InRelease
+Get:3 http://deb.debian.org/debian-security bookworm-security InRelease [48.0 kB]
+Get:4 http://deb.debian.org/debian-security bookworm-security/main amd64 Packages [305 kB]
+Fetched 353 kB in 0s (1633 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (7.88.1-10+deb12u14).
+0 upgraded, 0 newly installed, 0 to remove and 26 not upgraded.
+downloading uv 0.9.5 x86_64-unknown-linux-gnu
+no checksums to verify
+installing to /root/.local/bin
+  uv
+  uvx
+everything's installed!
+============================= test session starts ==============================
+platform linux -- Python 3.13.7, pytest-8.4.1, pluggy-1.6.0
+rootdir: /tests
+plugins: json-ctrf-0.3.5
+collected 6 items
+
+../tests/test_outputs.py ......                                          [100%]
+
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED ../tests/test_outputs.py::test_output_files_exist
+PASSED ../tests/test_outputs.py::test_input_data_integrity
+PASSED ../tests/test_outputs.py::test_generate_and_schema
+PASSED ../tests/test_outputs.py::test_solution_shape_feasibility_and_batch_consistency
+PASSED ../tests/test_outputs.py::test_solution_coverage_no_duplicates
+PASSED ../tests/test_outputs.py::test_performance_thresholds
+============================== 6 passed in 0.06s ===============================
+
+$ cat /logs/verifier/reward.txt
+1

@@ -1,0 +1,156 @@
+Hit:1 http://deb.debian.org/debian bookworm InRelease
+Hit:2 http://deb.debian.org/debian bookworm-updates InRelease
+Hit:3 http://deb.debian.org/debian-security bookworm-security InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (7.88.1-10+deb12u14).
+0 upgraded, 0 newly installed, 0 to remove and 29 not upgraded.
+downloading uv 0.9.5 x86_64-unknown-linux-gnu
+no checksums to verify
+installing to /root/.local/bin
+  uv
+  uvx
+everything's installed!
+
+To add $HOME/.local/bin to your PATH, either restart your shell or run:
+
+    source $HOME/.local/bin/env (sh, bash, zsh)
+    source $HOME/.local/bin/env.fish (fish)
+Downloading pygments (1.2MiB)
+Downloading numpy (15.9MiB)
+Downloading opencv-contrib-python (65.9MiB)
+ Downloading pygments
+ Downloading opencv-contrib-python
+ Downloading numpy
+Installed 9 packages in 1.64s
+============================= test session starts ==============================
+platform linux -- Python 3.13.7, pytest-8.4.1, pluggy-1.6.0
+rootdir: /tests
+plugins: json-ctrf-0.3.5
+collected 5 items
+
+../tests/test_outputs.py ..FFF                                           [100%]
+
+=================================== FAILURES ===================================
+_______________________ test_jump_analyzer_example_video _______________________
+
+    def test_jump_analyzer_example_video():
+        """Test jump_analyzer.py against example_video.mp4 using explicit frame ranges."""
+>       _test_jump_analyzer_video(
+            "/app/example_video.mp4",
+            takeoff_range=(50, 54),
+            landing_range=(62, 64),
+        )
+
+/tests/test_outputs.py:95: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+video_path = '/app/example_video.mp4', takeoff_range = (50, 54)
+landing_range = (62, 64)
+
+    def _test_jump_analyzer_video(
+        video_path,
+        takeoff_range=None,
+        landing_range=None,
+    ):
+        """Helper for running jump_analyzer.py and validating outputs.
+    
+        Frame validation uses inclusive ranges only: provide (min_frame, max_frame)
+        for both takeoff_range and landing_range.
+        """
+    
+        # Check that the video file exists before running the test
+        video_file = Path(video_path)
+        assert video_file.exists(), f"Video file {video_path} does not exist"
+    
+        # Run jump_analyzer.py on the specified video
+        result = subprocess.run(
+            [sys.executable, "/app/jump_analyzer.py", video_path],
+            capture_output=True,
+            text=True,
+            cwd="/app",
+        )
+    
+>       assert result.returncode == 0, (
+            f"jump_analyzer.py failed with error: {result.stderr}"
+        )
+E       AssertionError: jump_analyzer.py failed with error: /root/.cache/uv/archive-v0/9OuEx4JeJIRSSmzJcGxg2/bin/python: can't open file '/app/jump_analyzer.py': [Errno 2] No such file or directory
+E         
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['/root/.cache/uv/archive-v0/9OuEx4JeJIRSSmzJcGxg2/bin/python', '/app/jump_analyzer.py', '/app/e...e-v0/9OuEx4JeJIRSSmzJcGxg2/bin/python: can't open file '/app/jump_analyzer.py': [Errno 2] No such file or directory\n").returncode
+
+/tests/test_outputs.py:35: AssertionError
+________________________ test_jump_analyzer_test_video _________________________
+
+    def test_jump_analyzer_test_video():
+        """Test jump_analyzer.py against test_video.mp4 using explicit frame ranges."""
+>       _test_jump_analyzer_video(
+            "/tests/test_video.mp4",
+            takeoff_range=(219, 223),
+            landing_range=(231, 234),
+        )
+
+/tests/test_outputs.py:104: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+video_path = '/tests/test_video.mp4', takeoff_range = (219, 223)
+landing_range = (231, 234)
+
+    def _test_jump_analyzer_video(
+        video_path,
+        takeoff_range=None,
+        landing_range=None,
+    ):
+        """Helper for running jump_analyzer.py and validating outputs.
+    
+        Frame validation uses inclusive ranges only: provide (min_frame, max_frame)
+        for both takeoff_range and landing_range.
+        """
+    
+        # Check that the video file exists before running the test
+        video_file = Path(video_path)
+        assert video_file.exists(), f"Video file {video_path} does not exist"
+    
+        # Run jump_analyzer.py on the specified video
+        result = subprocess.run(
+            [sys.executable, "/app/jump_analyzer.py", video_path],
+            capture_output=True,
+            text=True,
+            cwd="/app",
+        )
+    
+>       assert result.returncode == 0, (
+            f"jump_analyzer.py failed with error: {result.stderr}"
+        )
+E       AssertionError: jump_analyzer.py failed with error: /root/.cache/uv/archive-v0/9OuEx4JeJIRSSmzJcGxg2/bin/python: can't open file '/app/jump_analyzer.py': [Errno 2] No such file or directory
+E         
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['/root/.cache/uv/archive-v0/9OuEx4JeJIRSSmzJcGxg2/bin/python', '/app/jump_analyzer.py', '/tests...e-v0/9OuEx4JeJIRSSmzJcGxg2/bin/python: can't open file '/app/jump_analyzer.py': [Errno 2] No such file or directory\n").returncode
+
+/tests/test_outputs.py:35: AssertionError
+__________________________ test_jump_analyzer_imports __________________________
+
+    def test_jump_analyzer_imports():
+        """Ensure only allowed third-party imports are used (cv2, numpy, toml).
+    
+        Standard library imports are allowed implicitly and ignored. We parse the
+        file's AST to robustly collect imported module names.
+        """
+        analyzer_path = Path("/app/jump_analyzer.py")
+>       assert analyzer_path.exists(), "jump_analyzer.py does not exist"
+E       AssertionError: jump_analyzer.py does not exist
+E       assert False
+E        +  where False = exists()
+E        +    where exists = PosixPath('/app/jump_analyzer.py').exists
+
+/tests/test_outputs.py:118: AssertionError
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED ../tests/test_outputs.py::test_example_video_exists
+PASSED ../tests/test_outputs.py::test_test_video_exists
+FAILED ../tests/test_outputs.py::test_jump_analyzer_example_video - Assertion...
+FAILED ../tests/test_outputs.py::test_jump_analyzer_test_video - AssertionErr...
+FAILED ../tests/test_outputs.py::test_jump_analyzer_imports - AssertionError:...
+========================= 3 failed, 2 passed in 0.70s ==========================

@@ -26,8 +26,10 @@ import argparse
 import json
 import logging
 import os
+import re
 import shlex
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -39,6 +41,7 @@ from typing import Any, Callable, ClassVar, Protocol
 from ..core import paths as core_paths
 from ..core.models import RunnerResult
 from ..core.ports import EventSink
+from ..engineer.runner import should_clear_thread_id_after_outcome
 from ..life import BacklogItem, LifeMemory, MemoryBundle
 from ..life.supervisor import (
     LifeBudget,
@@ -68,6 +71,23 @@ from ._life_actions import (
 from ._target_paths import resolve_life_root
 
 log = logging.getLogger(__name__)
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
 
 
 class _CommonMemory(Protocol):
@@ -233,6 +253,271 @@ class _MemoryRunner:
     # cycle. Tests that exercise iteration substitute a real backend.
     backend: Any = None
 
+    def __init__(self) -> None:
+        self.workdir: Path | None = None
+
+    @staticmethod
+    def _looks_like_bootstrap_objective(objective: str) -> bool:
+        low = str(objective).casefold()
+        return (
+            "bootstrap this empty project root" in low
+            or "bootstrap empty project root" in low
+            or ("git init" in low and "pyproject.toml" in low and "readme.md" in low)
+        )
+
+    @staticmethod
+    def _looks_like_research_bootstrap_objective(objective: str) -> bool:
+        low = str(objective).casefold()
+        return any(
+            token in low
+            for token in (
+                "research bootstrap mission",
+                "seed a research bootstrap mission",
+                "auto-research",
+                "emnlp",
+                "research/pipeline_state.json",
+                "research/research_brief.md",
+                "research/experiment_plan.md",
+                "research/claims_to_test.md",
+                "research/go_no_go.md",
+                "experiments/benchmark_provenance.md",
+            )
+        )
+
+    @staticmethod
+    def _write_text(path: Path, text: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def _materialize_research_bootstrap_seed(self, objective: str) -> None:
+        workdir = self.workdir
+        if workdir is None:
+            return
+        root = Path(workdir).expanduser()
+        root.mkdir(parents=True, exist_ok=True)
+
+        git_dir = root / ".git"
+        if not git_dir.exists():
+            try:
+                subprocess.run(
+                    ["git", "init"],
+                    cwd=root,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+            except OSError:
+                pass
+        if not git_dir.exists():
+            git_dir.mkdir(parents=True, exist_ok=True)
+
+        title = root.name.replace("-", " ").strip() or "project"
+        state_path = root / "research" / "PIPELINE_STATE.json"
+        brief_path = root / "research" / "RESEARCH_BRIEF.md"
+        plan_path = root / "research" / "EXPERIMENT_PLAN.md"
+        claims_path = root / "research" / "CLAIMS_TO_TEST.md"
+        go_no_go_path = root / "research" / "GO_NO_GO.md"
+        benchmark_path = root / "experiments" / "BENCHMARK_PROVENANCE.md"
+
+        if not state_path.exists():
+            state = {
+                "current_stage": "plan",
+                "mission_type": "research-bootstrap",
+                "project": title,
+                "objective": objective,
+                "target_venue": "EMNLP",
+                "stages": {
+                    "brief": {
+                        "status": "done",
+                        "artifact": "research/RESEARCH_BRIEF.md",
+                    },
+                    "novelty": {"status": "pending"},
+                    "plan": {
+                        "status": "ready",
+                        "artifact": "research/EXPERIMENT_PLAN.md",
+                    },
+                    "benchmark": {
+                        "status": "ready",
+                        "artifact": "experiments/BENCHMARK_PROVENANCE.md",
+                    },
+                    "run": {"status": "missing"},
+                    "analysis": {"status": "missing"},
+                    "narrative": {"status": "missing"},
+                    "draft": {"status": "missing"},
+                    "assurance": {"status": "missing"},
+                    "revision": {"status": "missing"},
+                    "submission": {"status": "missing"},
+                },
+            }
+            self._write_text(
+                state_path,
+                json.dumps(state, indent=2, sort_keys=True) + "\n",
+            )
+        if not brief_path.exists():
+            self._write_text(
+                brief_path,
+                "\n".join(
+                    [
+                        "# Research Brief",
+                        "",
+                        f"- Project: `{root.name}`",
+                        "- Bootstrap mode: research seed",
+                        f"- Objective: {objective}",
+                        "",
+                        "This repository was initialized as a research bootstrap mission.",
+                        "The next steps are to confirm the benchmark, formalize the claims,",
+                        "and move the pipeline ledger from seed state into an executable plan.",
+                        "",
+                    ]
+                ),
+            )
+        if not plan_path.exists():
+            self._write_text(
+                plan_path,
+                "\n".join(
+                    [
+                        "# Experiment Plan",
+                        "",
+                        "## Goal",
+                        "- Turn the bootstrap objective into a testable research plan.",
+                        "",
+                        "## Immediate steps",
+                        "1. Choose or confirm the benchmark source and access rules.",
+                        "2. Rewrite the objective into falsifiable claims.",
+                        "3. Define the evaluation protocol, metrics, and acceptance criteria.",
+                        "4. Collect the artifacts needed to advance the pipeline ledger.",
+                        "",
+                        "## Risks",
+                        "- The benchmark may be underspecified.",
+                        "- Claims may be too broad for the available evidence.",
+                        "",
+                    ]
+                ),
+            )
+        if not claims_path.exists():
+            self._write_text(
+                claims_path,
+                "\n".join(
+                    [
+                        "# Claims To Test",
+                        "",
+                        "- The system can support a concrete EMNLP-style research workflow.",
+                        "- The chosen benchmark and protocol can be documented without fabrication.",
+                        "- The pipeline can produce reproducible research artifacts from an empty repo.",
+                        "",
+                        "Each claim should eventually be paired with a raw artifact path.",
+                        "",
+                    ]
+                ),
+            )
+        if not go_no_go_path.exists():
+            self._write_text(
+                go_no_go_path,
+                "\n".join(
+                    [
+                        "# Go / No-Go",
+                        "",
+                        "- Verdict: blocked",
+                        "- Reason: this is only the bootstrap seed; benchmark selection,",
+                        "  claim validation, and evidence collection are still pending.",
+                        "",
+                    ]
+                ),
+            )
+        if not benchmark_path.exists():
+            self._write_text(
+                benchmark_path,
+                "\n".join(
+                    [
+                        "# Benchmark Provenance",
+                        "",
+                        "- Status: seed placeholder",
+                        f"- Project: `{root.name}`",
+                        "- Benchmark source: to be selected",
+                        "- Access notes: to be confirmed",
+                        "- Filtering or sampling rules: to be defined",
+                        "",
+                    ]
+                ),
+            )
+
+    def _materialize_bootstrap_skeleton(self, objective: str) -> None:
+        workdir = self.workdir
+        if workdir is None:
+            return
+        if self._looks_like_research_bootstrap_objective(objective):
+            self._materialize_research_bootstrap_seed(objective)
+            return
+        if not self._looks_like_bootstrap_objective(objective):
+            return
+        root = Path(workdir).expanduser()
+        root.mkdir(parents=True, exist_ok=True)
+
+        git_dir = root / ".git"
+        if not git_dir.exists():
+            try:
+                subprocess.run(
+                    ["git", "init"],
+                    cwd=root,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+            except OSError:
+                pass
+        if not git_dir.exists():
+            git_dir.mkdir(parents=True, exist_ok=True)
+
+        package_slug = re.sub(r"[^a-z0-9]+", "_", root.name.lower()).strip("_") or "project"
+        pyproject = root / "pyproject.toml"
+        if not pyproject.exists():
+            pyproject.write_text(
+                "\n".join(
+                    [
+                        "[build-system]",
+                        'requires = ["setuptools>=68", "wheel"]',
+                        'build-backend = "setuptools.build_meta"',
+                        "",
+                        "[project]",
+                        f'name = "{package_slug.replace("_", "-")}"',
+                        'version = "0.1.0"',
+                        'description = "Bootstrap package."',
+                        'readme = "README.md"',
+                        'requires-python = ">=3.10"',
+                        "",
+                        "[tool.setuptools]",
+                        'package-dir = {"" = "src"}',
+                        "",
+                        "[tool.setuptools.packages.find]",
+                        'where = ["src"]',
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+        readme = root / "README.md"
+        if not readme.exists():
+            readme.write_text(
+                f"# {root.name}\n\nMinimal Python package bootstrap.\n",
+                encoding="utf-8",
+            )
+        package_init = root / "src" / package_slug / "__init__.py"
+        if not package_init.exists():
+            package_init.parent.mkdir(parents=True, exist_ok=True)
+            package_init.write_text(
+                f'"""{root.name} package."""\n',
+                encoding="utf-8",
+            )
+        smoke_test = root / "tests" / "test_smoke.py"
+        if not smoke_test.exists():
+            smoke_test.parent.mkdir(parents=True, exist_ok=True)
+            smoke_test.write_text(
+                "def test_package_import():\n"
+                f"    import {package_slug}\n\n"
+                f"    assert {package_slug}.__name__ == \"{package_slug}\"\n",
+                encoding="utf-8",
+            )
+
     def execute(
         self,
         *,
@@ -242,6 +527,7 @@ class _MemoryRunner:
         prelude_context: str = "",
         seed_thread_id: str | None = None,  # noqa: ARG002 — protocol parity
     ) -> _Outcome:
+        self._materialize_bootstrap_skeleton(objective)
         ack = f"(memory backend) acknowledged objective: {objective[:80]}"
         sink.handle_event({
             "type": "loop.started",
@@ -402,10 +688,24 @@ class _CodexSkillLoopRunner:
         runner_bin = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or None
         raw_extra = os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", "").strip()
         extra = shlex.split(raw_extra) if raw_extra else None
+        stop_event = getattr(args, "stop_event", None)
+
+        def _stop_reason() -> str | None:
+            if stop_event is not None and stop_event.is_set():
+                return "daemon stop requested"
+            return None
+
         self._backend = CodexRunnerBackend(
             backend=backend_name,
             runner_bin=runner_bin,
             default_extra_args=extra,
+            default_interrupt_reason_provider=_stop_reason if stop_event is not None else None,
+            default_watchdog_soft_idle_seconds=_env_int(
+                "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", 0,
+            ),
+            default_watchdog_hard_idle_seconds=_env_int(
+                "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", 900,
+            ),
             event_callback=_trampoline,
         )
         # Expose the underlying backend so the LifeSupervisor's
@@ -472,21 +772,63 @@ class _CodexSkillLoopRunner:
         # consents to autonomous execution; the sandbox only fights us
         # (`bwrap: Can't create file at /.codex: Permission denied`).
         # Operators can opt back into sandbox via ARGUS_SKILL_SAFE_MODE=1.
-        safe_mode = os.environ.get("ARGUS_SKILL_SAFE_MODE", "").strip().lower() in {
-            "1", "true", "yes", "on",
-        }
-        config = self._SkillLoopConfig(
-            scientist_model=args.scientist_model,
-            engineer_model=args.engineer_model,
-            reviewer_model=args.reviewer_model,
-            max_rounds=args.max_rounds,
-            check_commands=[],
-            skill_writeback=True,
-            distill_on_miss=True,
-            dangerous_yolo=not safe_mode,
-            full_auto=safe_mode,
-            skip_git_repo_check=True,
+        safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
+        benchmark_mode = _env_flag("ARGUS_SKILL_BENCHMARK_MODE", False)
+        benchmark_verifier_gate = _env_flag(
+            "ARGUS_SKILL_BENCHMARK_VERIFIER_GATE", False
         )
+        if benchmark_mode and (
+            benchmark_verifier_gate
+            or _env_flag("ARGUS_SKILL_NO_REVIEWER", False)
+        ):
+            return self._benchmark_direct_execute(
+                objective=objective,
+                sink=sink,
+                prelude_context=prelude_context,
+                seed_thread_id=seed_thread_id,
+                safe_mode=safe_mode,
+            )
+        config_kwargs = {
+            "scientist_model": args.scientist_model,
+            "engineer_model": args.engineer_model,
+            "reviewer_model": args.reviewer_model,
+            "engineer_reasoning_effort": getattr(
+                args, "engineer_reasoning_effort", None
+            ),
+            "reviewer_reasoning_effort": getattr(
+                args,
+                "reviewer_reasoning_effort",
+                "medium",
+            ),
+            "max_rounds": args.max_rounds,
+            "check_commands": [],
+            "skill_writeback": _env_flag(
+                "ARGUS_SKILL_SKILL_WRITEBACK",
+                default=not benchmark_mode,
+            ),
+            "distill_on_miss": _env_flag(
+                "ARGUS_SKILL_DISTILL_ON_MISS",
+                default=not benchmark_mode,
+            ),
+            "dangerous_yolo": not safe_mode,
+            "full_auto": safe_mode,
+            "skip_git_repo_check": True,
+        }
+        try:
+            from inspect import signature
+
+            sig = signature(self._SkillLoopConfig)
+            if not any(
+                param.kind == param.VAR_KEYWORD for param in sig.parameters.values()
+            ):
+                config_kwargs = {
+                    key: value
+                    for key, value in config_kwargs.items()
+                    if key in sig.parameters
+                }
+        except (TypeError, ValueError):
+            pass
+        config = self._SkillLoopConfig(**config_kwargs)
         loop = self._SkillLoop(
             skills_dir=Path(args.skills_dir),
             scientist_runner=self._backend,
@@ -519,7 +861,14 @@ class _CodexSkillLoopRunner:
             self._current_sink = None
             self._current_failure_ledger = None
         new_tid = getattr(outcome, "last_thread_id", None)
-        if new_tid:
+        if should_clear_thread_id_after_outcome(
+            status=str(getattr(outcome, "status", "")),
+            fatal_error=str(getattr(outcome, "stop_reason", "") or ""),
+        ):
+            self.last_thread_id = None
+            self._next_seed_thread_id = None
+            new_tid = None
+        elif new_tid:
             self.last_thread_id = new_tid
             self._next_seed_thread_id = new_tid
         auth_fail = getattr(self._backend, "_auth_failure_detected", False)
@@ -532,6 +881,118 @@ class _CodexSkillLoopRunner:
             rounds=outcome.round_count,
             matched_skill_name=outcome.skill_used,
             skill_distilled=outcome.skill_distilled,
+            last_thread_id=new_tid,
+            auth_failure=auth_fail,
+        )
+
+    def _benchmark_direct_execute(
+        self,
+        *,
+        objective: str,
+        sink: EventSink,
+        prelude_context: str = "",
+        seed_thread_id: str | None = None,
+        safe_mode: bool = False,
+    ) -> _Outcome:
+        """Run one prompt-only benchmark turn and leave correctness to the verifier."""
+        from ..core.models import RunnerOptions
+
+        args = self._args
+        seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
+        workdir = (
+            Path(args.workdir).expanduser() if args.workdir else Path.cwd()
+        )
+        guidance = ""
+        if _env_flag("ARGUS_SKILL_BENCHMARK_TERSE", False):
+            guidance = (
+                "## Benchmark lean-mode instructions\n"
+                "- Solve the task autonomously in one engineer turn.\n"
+                "- The official verifier will judge correctness; do not run an internal review.\n"
+                "- Minimize narration and final prose. Prefer concise progress, batched shell commands, and stop after the required artifact is produced and self-checked.\n"
+            )
+        parts = [part for part in (prelude_context, guidance, f"## Live objective\n{objective}") if part]
+        prompt = "\n---\n".join(parts)
+
+        sink.handle_event({
+            "type": "loop.start",
+            "text": f"benchmark-direct: {objective[:80]}",
+            "benchmark_mode": True,
+        })
+        sink.handle_event({
+            "type": "round.start",
+            "round": 1,
+            "round_max": 1,
+            "text": "engineer round 1 (benchmark direct)",
+        })
+
+        self._current_sink = sink
+        self._current_failure_ledger = None
+        try:
+            result = self._backend.run_exec(
+                prompt=prompt,
+                options=RunnerOptions(
+                    model=args.engineer_model,
+                    reasoning_effort=getattr(args, "engineer_reasoning_effort", None),
+                    full_auto=safe_mode,
+                    skip_git_repo_check=True,
+                    dangerous_yolo=not safe_mode,
+                    working_dir=str(workdir),
+                ),
+                run_label="benchmark-engineer-r1",
+                resume_thread_id=seed,
+            )
+        finally:
+            self._current_sink = None
+
+        last_msg = (result.last_agent_message or "").strip()
+        new_tid = getattr(result, "thread_id", None)
+        round_thread_id = new_tid or seed
+        status = "error" if getattr(result, "exit_code", 0) != 0 else "done"
+        if should_clear_thread_id_after_outcome(
+            status=status,
+            fatal_error=str(getattr(result, "fatal_error", "") or ""),
+        ):
+            self.last_thread_id = None
+            self._next_seed_thread_id = None
+            new_tid = None
+        elif new_tid:
+            self.last_thread_id = new_tid
+            self._next_seed_thread_id = new_tid
+
+        sink.handle_event({
+            "type": "round.main.completed",
+            "round_index": 1,
+            "round_max": 1,
+            "session_id": round_thread_id,
+            "exit_code": getattr(result, "exit_code", 0),
+            "fatal_error": getattr(result, "fatal_error", None),
+            "last_message": last_msg,
+            "input_tokens": int(getattr(result, "input_tokens", 0) or 0),
+            "cached_input_tokens": int(
+                getattr(result, "cached_input_tokens", 0) or 0
+            ),
+            "output_tokens": int(getattr(result, "output_tokens", 0) or 0),
+            "usage_scope": "delta",
+        })
+
+        fatal = getattr(result, "fatal_error", None)
+        success = (result.exit_code == 0) and not fatal
+        status = "done" if success else "error"
+        stop_reason = "benchmark_direct" if success else (
+            str(fatal) if fatal else f"exit={result.exit_code}"
+        )
+        auth_fail = getattr(self._backend, "_auth_failure_detected", False)
+        if auth_fail:
+            self._backend._auth_failure_detected = False
+        sink.handle_event({
+            "type": "loop.done",
+            "text": f"status={status} rounds=1 (benchmark direct)",
+        })
+        return _Outcome(
+            success=success,
+            status=status,
+            stop_reason=stop_reason,
+            rounds=1,
             last_thread_id=new_tid,
             auth_failure=auth_fail,
         )
@@ -557,9 +1018,7 @@ class _CodexSkillLoopRunner:
         from ..life.router import build_chat_prompt
 
         args = self._args
-        safe_mode = os.environ.get("ARGUS_SKILL_SAFE_MODE", "").strip().lower() in {
-            "1", "true", "yes", "on",
-        }
+        safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
         seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
 
         sink.handle_event({
@@ -599,7 +1058,16 @@ class _CodexSkillLoopRunner:
 
         last_msg = (result.last_agent_message or "").strip()
         new_tid = getattr(result, "thread_id", None)
-        if new_tid:
+        round_thread_id = new_tid or seed
+        status = "error" if getattr(result, "exit_code", 0) != 0 else "done"
+        if should_clear_thread_id_after_outcome(
+            status=status,
+            fatal_error=str(getattr(result, "fatal_error", "") or ""),
+        ):
+            self.last_thread_id = None
+            self._next_seed_thread_id = None
+            new_tid = None
+        elif new_tid:
             self.last_thread_id = new_tid
             self._next_seed_thread_id = new_tid
 
@@ -610,8 +1078,13 @@ class _CodexSkillLoopRunner:
             "type": "round.main.completed",
             "round_index": 1,
             "input_tokens": int(getattr(result, "input_tokens", 0) or 0),
+            "cached_input_tokens": int(
+                getattr(result, "cached_input_tokens", 0) or 0
+            ),
             "output_tokens": int(getattr(result, "output_tokens", 0) or 0),
+            "usage_scope": "delta",
             "last_message": last_msg,
+            "session_id": round_thread_id,
             "turn_completed": True,
         })
 
@@ -719,6 +1192,11 @@ def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = 
     """Return a ``_MissionRunner``-shaped adapter for the requested backend."""
     if args.backend == "memory":
         runner = _MemoryRunner()
+        runner.workdir = (
+            Path(args.workdir).expanduser()
+            if getattr(args, "workdir", None)
+            else Path.cwd()
+        )
         scripted_backend = _ScriptedPlannerBackend.from_env()
         if scripted_backend is not None:
             runner.backend = scripted_backend
@@ -742,6 +1220,7 @@ def run_life_supervisor(
     max_missions: int,
     per_mission_cap_usd: float,
     daily_cap_usd: float,
+    project_worktree: Path | None = None,
     quiet: bool = False,
     runtime_context: str = "",
     continuous: bool = False,
@@ -765,6 +1244,7 @@ def run_life_supervisor(
 
     try:
         from ..life.event_log import JsonlEventSink
+        from ..life.telemetry import telemetry_interval_from_env
 
         stderr_sink = LifeStderrSink(quiet=quiet)
         project_root = _memory_project_root(mem)
@@ -776,11 +1256,18 @@ def run_life_supervisor(
                 max_missions=1 if once else max_missions,
             ),
             poll_interval_seconds=2.0,
+            project_worktree=(
+                Path(project_worktree).expanduser()
+                if project_worktree is not None
+                else None
+            ),
             stop_event=stop_event,
             user_inbox=_inbox_drainer_for(project_root),
             runtime_context=runtime_context,
             continuous=continuous,
             continuous_objective=continuous_objective,
+            telemetry_dir=project_root,
+            telemetry_interval_seconds=telemetry_interval_from_env(),
         )
         sup = LifeSupervisor(
             memory=mem,
@@ -812,9 +1299,19 @@ def _invoke_supervisor(
 ) -> tuple[dict[str, Any], str | None]:
     ns = argparse.Namespace()
     ns.backend = backend
+    benchmark_mode = _env_flag("ARGUS_SKILL_BENCHMARK_MODE", False)
     ns.engineer_model = os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini")
-    ns.reviewer_model = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.4")
+    reviewer_default = ns.engineer_model if benchmark_mode else "gpt-5.4"
+    ns.reviewer_model = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL", reviewer_default)
     ns.scientist_model = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4")
+    ns.engineer_reasoning_effort = os.environ.get(
+        "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
+        "low" if benchmark_mode else None,
+    )
+    ns.reviewer_reasoning_effort = os.environ.get(
+        "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
+        "low" if benchmark_mode else "medium",
+    )
     ns.skills_dir = os.environ.get(
         "ARGUS_SKILL_SKILLS_DIR",
         str(_memory_global_root(mem) / "skills"),
@@ -835,11 +1332,19 @@ def _invoke_supervisor(
         f"- Runner backend: {runner_backend}\n"
         f"- Engineer model: {ns.engineer_model}\n"
         f"- Reviewer model: {ns.reviewer_model}\n"
+        f"- Engineer reasoning effort: {ns.engineer_reasoning_effort or '(default)'}\n"
+        f"- Reviewer reasoning effort: {ns.reviewer_reasoning_effort or '(default)'}\n"
         f"- Max rounds per mission: {ns.max_rounds}\n"
         f"- Per-mission budget cap: ${per_mission_cap_usd:.2f}\n"
         f"- Daily budget cap: ${daily_cap_usd:.2f}\n"
         f"- Mode: {mode_label}\n"
+        f"- Benchmark lean mode: {'on' if benchmark_mode else 'off'}\n"
     )
+    from ..life.research_profile import render_research_profile_context
+
+    research_context = render_research_profile_context()
+    if research_context:
+        runtime_context = runtime_context + "\n---\n\n" + research_context
 
     runner = build_life_runner(ns, seed_thread_id=seed_thread_id)
     summary = run_life_supervisor(
@@ -851,6 +1356,7 @@ def _invoke_supervisor(
         max_missions=max_missions,
         per_mission_cap_usd=per_mission_cap_usd,
         daily_cap_usd=daily_cap_usd,
+        project_worktree=getattr(mem, "project_worktree", None) or Path.cwd(),
         quiet=quiet,
         runtime_context=runtime_context,
         continuous=continuous,
@@ -1174,8 +1680,7 @@ def _invoke_and_track(
         continuous_objective=continuous_objective,
     )
     elapsed = time.monotonic() - t0
-    if last_tid:
-        chat_state["last_thread_id"] = last_tid
+    chat_state["last_thread_id"] = last_tid
     chat_state["last_elapsed_s"] = elapsed
     chat_state["total_elapsed_s"] = (
         chat_state.get("total_elapsed_s", 0.0) + elapsed

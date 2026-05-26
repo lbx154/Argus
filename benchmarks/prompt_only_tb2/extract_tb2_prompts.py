@@ -156,6 +156,25 @@ def _condition_prompt(row: dict[str, Any], task_prompt: str) -> str:
         "- Do not inspect or copy any container created for the other condition.\n"
         "- If Docker is unavailable, the image cannot be pulled, or setup needs a "
         "human decision, stop and clearly state what human action is needed.\n\n"
+        "Baseline pilot isolation rules:\n"
+        "- Use a fresh pilot root for each task and condition. Do not reuse another "
+        "pilot's working directory, exports, logs, or cached answers.\n"
+        "- Keep pilot identities separate from production identities. Use named "
+        "users, least-privilege roles, and time-bounded access; do not reuse "
+        "production admin accounts or shared credentials.\n"
+        "- Keep data scoped and minimized. Prefer synthetic or masked data, or a "
+        "tightly scoped export with an explicit retention and deletion owner. Do "
+        "not copy unrestricted production datasets into the pilot.\n"
+        "- Default to deny on network access. Only allow the minimum approved "
+        "ingress and egress paths needed for the task, and do not let the pilot "
+        "write back to production systems unless the task explicitly requires and "
+        "authorizes that.\n"
+        "- Keep secrets out of prompts, logs, and exported artifacts. Use per-pilot "
+        "credentials and delete them, along with snapshots and temporary storage, "
+        "when the pilot ends.\n"
+        "- Give every pilot an expiration and teardown plan up front. The owner "
+        "should know when the environment will be destroyed and who is responsible "
+        "for cleanup.\n\n"
         "## Original task prompt\n\n"
         f"{task_prompt}"
     )
@@ -240,6 +259,15 @@ def _write_results_template(path: Path, selected: list[dict[str, Any]]) -> None:
         "status_checks",
         "manual_commands",
         "manual_rescue",
+        "zero_touch_success",
+        "human_interactions_after_assignment",
+        "active_touch_minutes_after_assignment",
+        "intervention_severity",
+        "argus_benchmark_verifier_gate",
+        "assigned_model",
+        "actual_model",
+        "model_drift",
+        "model_drift_reason",
         "test_runs",
         "notes",
     ]

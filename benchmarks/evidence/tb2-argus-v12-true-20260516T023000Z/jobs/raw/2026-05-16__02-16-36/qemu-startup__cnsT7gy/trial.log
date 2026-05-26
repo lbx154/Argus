@@ -1,0 +1,4 @@
+Skipping image OS validation for alexgshaw/qemu-startup:20251031: docker inspect returned 1
+Trial qemu-startup__cnsT7gy failed: Docker compose command failed for environment qemu-startup. Command: docker compose --project-name qemu-startup__cnst7gy --project-directory /home/argustest/.cache/harbor/tasks/gHS2mTGhPaYTuJWpCkw4J9/qemu-startup/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+. Stderr: None. 

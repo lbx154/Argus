@@ -1,0 +1,4 @@
+Skipping image OS validation for alexgshaw/git-multibranch:20251031: docker inspect returned 1
+Trial git-multibranch__oxS4rFa failed: Docker compose command failed for environment git-multibranch. Command: docker compose --project-name git-multibranch__oxs4rfa --project-directory /home/argustest/.cache/harbor/tasks/kLfrAkLDVW7LCezLUHt4oB/git-multibranch/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+. Stderr: None. 

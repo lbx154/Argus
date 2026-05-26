@@ -1,0 +1,516 @@
+"""Create a clean-slate EMNLP auto-research project from the AGENTS template."""
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
+from importlib import resources
+from pathlib import Path
+
+from ..skills.builtins import (
+    DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
+    builtin_skill_source_path,
+    iter_builtin_skill_texts,
+    seed_builtin_skills,
+)
+
+DEFAULT_PARENT = Path("/home/argustest")
+DEFAULT_PREFIX = "agent-emnlp-auto-research-v"
+DEFAULT_TEMPLATE = "agent-md-new-project-template.md"
+DEFAULT_PROJECT_CODE_DIR = "code"
+PYTHON = Path("/home/argustest/miniconda3/bin/python")
+COPY_READY_HEADING = "## Copy-ready `AGENTS.md`"
+TRAILER = "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+
+STARTER_CODE_TEMPLATE_PACKAGE = "argus_skill.tools.project_templates.code"
+STARTER_CODE_TEMPLATE_FILES = (
+    "__init__.py",
+    "llm.py",
+    "generate_image_2.py",
+    "generate_image2_figure.py",
+)
+
+
+class LaunchError(RuntimeError):
+    """Raised when project bootstrapping cannot safely continue."""
+
+
+@dataclass(frozen=True)
+class LaunchConfig:
+    parent: Path = DEFAULT_PARENT
+    version: str | None = None
+    project_dir: Path | None = None
+    template_path: Path | None = None
+    objective: str | None = None
+    non_goals: str | None = None
+    compute_budget: str | None = None
+    start_daemon: bool = True
+    init_git: bool = True
+    dry_run: bool = False
+    overwrite_empty: bool = True
+
+
+@dataclass(frozen=True)
+class LaunchResult:
+    project_dir: Path
+    agents_path: Path
+    skills_dir: Path
+    project_name: str
+    version: str
+    daemon_started: bool
+    git_commit: str | None
+    daemon_output: str
+    status_output: str
+    dry_run: bool = False
+
+
+def extract_copy_ready_agents_md(template_text: str) -> str:
+    """Return the copy-ready AGENTS.md body from a built-in template."""
+    heading_index = template_text.find(COPY_READY_HEADING)
+    if heading_index < 0:
+        raise LaunchError(f"template is missing {COPY_READY_HEADING!r}")
+    fence_start = template_text.find("```", heading_index)
+    if fence_start < 0:
+        raise LaunchError("template is missing the opening markdown fence")
+    body_start = template_text.find("\n", fence_start)
+    if body_start < 0:
+        raise LaunchError("template opening fence is malformed")
+    body_start += 1
+    fence_end = template_text.find("\n```", body_start)
+    if fence_end < 0:
+        raise LaunchError("template is missing the closing markdown fence")
+    body = template_text[body_start:fence_end].strip()
+    if not body.startswith("# AGENTS.md"):
+        raise LaunchError("copy-ready template body must start with '# AGENTS.md'")
+    return body + "\n"
+
+
+def render_agents_md(
+    template_text: str,
+    *,
+    project_name: str,
+    version: str,
+    objective: str | None = None,
+    non_goals: str | None = None,
+    compute_budget: str | None = None,
+) -> str:
+    """Fill the project-specific fields in the copy-ready AGENTS.md template."""
+    body = extract_copy_ready_agents_md(template_text)
+    objective = objective or default_objective(project_name)
+    non_goals = non_goals or default_non_goals(project_name, version)
+    compute_budget = compute_budget or default_compute_budget()
+    replacements = {
+        "[write the target research problem and deliverable]": objective,
+        "[write what must not be optimized, copied, or claimed]": non_goals,
+        "[write limits and stop conditions]": compute_budget,
+        "| [input] | [source] | [status] | [allowed use] | [rationale] |": (
+            default_allowed_inputs_table_rows()
+        ),
+    }
+    for old, new in replacements.items():
+        body = body.replace(old, new)
+    unresolved = [
+        token
+        for token in (
+            "[write the target research problem and deliverable]",
+            "[write what must not be optimized, copied, or claimed]",
+            "[write limits and stop conditions]",
+            "| [input] | [source] | [status] | [allowed use] | [rationale] |",
+        )
+        if token in body
+    ]
+    if unresolved:
+        raise LaunchError(f"rendered AGENTS.md still has placeholders: {unresolved}")
+    return body
+
+
+def default_objective(project_name: str) -> str:
+    return (
+        f"Start {project_name} as a clean-slate EMNLP/ACL long-paper auto-research "
+        "workspace: choose an independent thesis from literature/source discovery, build "
+        "a source-backed benchmark and method, run the full-scale evidence matrix, then "
+        "write an exemplar-locked, visually polished submission package that passes the "
+        "exact final `validate-full-emnlp` gate."
+    )
+
+
+def default_non_goals(project_name: str, version: str) -> str:
+    return (
+        f"Do not copy, rename, polish, or continue any prior `agent-emnlp-auto-research-v*` "
+        f"workspace as {project_name}. Do not reuse prior titles, claims, benchmark "
+        "episodes, results, figures, paper generators, review JSON, or paper story unless "
+        "listed as allowed raw evidence with license/access status and a narrow rationale."
+    )
+
+
+def default_compute_budget() -> str:
+    return (
+        "Use API/model budget only for necessary literature, coding, image-2, review, and "
+        "experiment work. Stop or ask for operator guidance if a required capability is "
+        "unavailable, the full-scale run is impossible, or repeated repair cycles make no "
+        "validator-relevant progress."
+    )
+
+
+def default_allowed_inputs_table_rows() -> str:
+    return "\n".join(
+        [
+            "| Global research playbook | `/home/argustest/research.md` | local operator guidance | Paper-quality and research-process guidance only | Stable cross-project writing and validation policy |",
+            "| Argus source tree | `/home/argustest/argus-skill` | local source | Validators, built-in skills, helper APIs, and daemon runtime | Required toolchain for this workspace |",
+            "| Exported built-in skills | `./argus_builtin_skills/*.md` | generated local copy | Read-only local skill guidance | Keeps the daemon self-contained without copying the whole Argus repository |",
+            "| Public literature, datasets, and repositories | verified URLs/scholarly sources | source-specific license/access | Topic discovery, citations, benchmark construction, and baseline implementation | Must be recorded before use in research artifacts |",
+        ]
+    )
+
+
+def load_template_text(template_path: Path | None = None) -> str:
+    if template_path is not None:
+        return template_path.read_text(encoding="utf-8")
+    source_path = builtin_skill_source_path() / DEFAULT_TEMPLATE
+    if source_path.exists():
+        return source_path.read_text(encoding="utf-8")
+    for filename, text in iter_builtin_skill_texts():
+        if filename == DEFAULT_TEMPLATE:
+            return text
+    raise LaunchError(f"built-in template not found: {DEFAULT_TEMPLATE}")
+
+
+def normalize_version(raw: str | None) -> str:
+    if raw is None:
+        raise LaunchError("version is required when project_dir is not provided")
+    value = raw.strip()
+    match = re.fullmatch(r"(?:v)?(\d+)", value)
+    if not match:
+        match = re.fullmatch(rf"{re.escape(DEFAULT_PREFIX)}(\d+)", value)
+    if not match:
+        raise LaunchError(f"version must look like '15', 'v15', or '{DEFAULT_PREFIX}15': {raw!r}")
+    return f"v{int(match.group(1))}"
+
+
+def next_version(parent: Path, *, prefix: str = DEFAULT_PREFIX) -> str:
+    max_seen = 0
+    if parent.exists():
+        for child in parent.iterdir():
+            if not child.is_dir() or not child.name.startswith(prefix):
+                continue
+            suffix = child.name[len(prefix):]
+            if suffix.isdigit():
+                max_seen = max(max_seen, int(suffix))
+    return f"v{max_seen + 1}"
+
+
+def resolve_project(config: LaunchConfig) -> tuple[Path, str, str]:
+    parent = config.parent.expanduser().resolve()
+    if config.project_dir is not None:
+        project_dir = config.project_dir.expanduser().resolve()
+        name = project_dir.name
+        match = re.fullmatch(rf"{re.escape(DEFAULT_PREFIX)}(\d+)", name)
+        version = f"v{int(match.group(1))}" if match else normalize_version(config.version or "1")
+        return project_dir, name, version
+    version = normalize_version(config.version) if config.version else next_version(parent)
+    name = f"{DEFAULT_PREFIX}{version.removeprefix('v')}"
+    return parent / name, name, version
+
+
+def create_project(config: LaunchConfig) -> LaunchResult:
+    project_dir, project_name, version = resolve_project(config)
+    agents_path = project_dir / "AGENTS.md"
+    skills_dir = project_dir / DEFAULT_PROJECT_BUILTIN_SKILLS_DIR
+    template_text = load_template_text(config.template_path)
+    agents_md = render_agents_md(
+        template_text,
+        project_name=project_name,
+        version=version,
+        objective=config.objective,
+        non_goals=config.non_goals,
+        compute_budget=config.compute_budget,
+    )
+    if config.dry_run:
+        return LaunchResult(
+            project_dir=project_dir,
+            agents_path=agents_path,
+            skills_dir=skills_dir,
+            project_name=project_name,
+            version=version,
+            daemon_started=False,
+            git_commit=None,
+            daemon_output="",
+            status_output="",
+            dry_run=True,
+        )
+    _prepare_project_dir(project_dir, overwrite_empty=config.overwrite_empty)
+    agents_path.write_text(agents_md, encoding="utf-8")
+    seed_builtin_skills(skills_dir, overwrite=True)
+    seed_starter_code(project_dir, overwrite=True)
+    git_commit = init_git(project_dir, project_name) if config.init_git else None
+    daemon_output = ""
+    status_output = ""
+    if config.start_daemon:
+        daemon_output = start_daemon(project_dir, agents_md)
+        status_output = status(project_dir)
+    return LaunchResult(
+        project_dir=project_dir,
+        agents_path=agents_path,
+        skills_dir=skills_dir,
+        project_name=project_name,
+        version=version,
+        daemon_started=config.start_daemon,
+        git_commit=git_commit,
+        daemon_output=daemon_output,
+        status_output=status_output,
+    )
+
+
+def _prepare_project_dir(project_dir: Path, *, overwrite_empty: bool) -> None:
+    if project_dir.exists():
+        if not project_dir.is_dir():
+            raise LaunchError(f"project path exists but is not a directory: {project_dir}")
+        if any(project_dir.iterdir()):
+            raise LaunchError(
+                f"project directory is not empty: {project_dir}. "
+                "Use a new version/path; this launcher never deletes existing work."
+            )
+        if not overwrite_empty:
+            raise LaunchError(f"project directory already exists: {project_dir}")
+    else:
+        project_dir.mkdir(parents=True)
+
+
+def seed_starter_code(project_dir: Path, *, overwrite: bool = True) -> dict[Path, bool]:
+    """Write starter project helper code into ``code/`` from bundled templates.
+
+    Returns a map from written path to whether the file changed.
+    """
+    code_dir = project_dir / DEFAULT_PROJECT_CODE_DIR
+    result: dict[Path, bool] = {}
+    for relative_name, text in iter_starter_code_templates():
+        target = code_dir / relative_name
+        if target.exists() and not overwrite:
+            result[target] = False
+            continue
+        old = target.read_text(encoding="utf-8") if target.exists() else None
+        if old == text:
+            result[target] = False
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        result[target] = True
+    return result
+
+
+def iter_starter_code_templates() -> list[tuple[str, str]]:
+    """Return deterministic starter-code templates bundled with this package."""
+    package_root = resources.files(STARTER_CODE_TEMPLATE_PACKAGE)
+    templates: list[tuple[str, str]] = []
+    for filename in STARTER_CODE_TEMPLATE_FILES:
+        resource = package_root / filename
+        templates.append((filename, resource.read_text(encoding="utf-8")))
+    return templates
+
+
+def init_git(project_dir: Path, project_name: str) -> str:
+    _run(["git", "init", "--quiet"], cwd=project_dir)
+    _run(
+        [
+            "git",
+            "add",
+            "AGENTS.md",
+            DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
+            DEFAULT_PROJECT_CODE_DIR,
+        ],
+        cwd=project_dir,
+    )
+    message = f"Seed {project_name} auto-research workspace\n\n{TRAILER}"
+    _run(["git", "commit", "--quiet", "-m", message], cwd=project_dir)
+    return _run(["git", "rev-parse", "--short", "HEAD"], cwd=project_dir).strip()
+
+
+def start_daemon(project_dir: Path, agents_md: str) -> str:
+    objective = _continuous_objective_from_agents(agents_md)
+    return _run(
+        [
+            str(PYTHON if PYTHON.exists() else Path(sys.executable)),
+            "-m",
+            "argus_skill",
+            "--daemon",
+            "--continuous",
+            "--objective",
+            objective,
+        ],
+        cwd=project_dir,
+        env=_argus_env(),
+        timeout=90,
+    )
+
+
+def status(project_dir: Path) -> str:
+    return _run(
+        [
+            str(PYTHON if PYTHON.exists() else Path(sys.executable)),
+            "-m",
+            "argus_skill",
+            "--status",
+        ],
+        cwd=project_dir,
+        env=_argus_env(),
+        timeout=30,
+    )
+
+
+def _continuous_objective_from_agents(agents_md: str) -> str:
+    for line in agents_md.splitlines():
+        if line.startswith("- Primary paper goal: "):
+            return line.split(": ", 1)[1]
+    return "Start a clean-slate EMNLP/ACL long-paper auto-research project and continue until validate-full-emnlp exits 0."
+
+
+def _argus_env() -> dict[str, str]:
+    env = os.environ.copy()
+    repo_root = Path(__file__).resolve().parents[2]
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = f"{repo_root}{os.pathsep}{existing}" if existing else str(repo_root)
+    return env
+
+
+def _run(
+    cmd: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str] | None = None,
+    timeout: int = 30,
+) -> str:
+    proc = subprocess.run(
+        cmd,
+        cwd=cwd,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+    output = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        rendered = " ".join(cmd)
+        raise LaunchError(
+            f"command failed with exit {proc.returncode}: {rendered}\n{output.strip()}"
+        )
+    return output
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="new-auto-research-project",
+        description=(
+            "Create an agent-emnlp-auto-research-vN workspace from the bundled "
+            "AGENTS.md template, export built-in skills, seed starter code, "
+            "initialize git, and optionally start the Argus continuous daemon."
+        ),
+    )
+    parser.add_argument(
+        "version",
+        nargs="?",
+        help="version to create, e.g. 15 or v15; omit to pick the next available version",
+    )
+    parser.add_argument(
+        "--parent",
+        type=Path,
+        default=DEFAULT_PARENT,
+        help=f"parent directory for versioned workspaces (default: {DEFAULT_PARENT})",
+    )
+    parser.add_argument(
+        "--project-dir",
+        type=Path,
+        default=None,
+        help="explicit project directory instead of parent + version naming",
+    )
+    parser.add_argument(
+        "--template",
+        type=Path,
+        default=None,
+        help=f"AGENTS template file (default: built-in {DEFAULT_TEMPLATE})",
+    )
+    parser.add_argument(
+        "--objective",
+        default=None,
+        help="project-specific primary paper goal to place in AGENTS.md and daemon objective",
+    )
+    parser.add_argument(
+        "--non-goals",
+        default=None,
+        help="project-specific non-goals to place in AGENTS.md",
+    )
+    parser.add_argument(
+        "--compute-budget",
+        default=None,
+        help="project-specific compute/API budget and stop conditions",
+    )
+    parser.add_argument(
+        "--no-start",
+        action="store_true",
+        help="create the workspace but do not start the Argus daemon",
+    )
+    parser.add_argument(
+        "--no-git",
+        action="store_true",
+        help="skip git init/add/commit",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the resolved project path/version without creating files",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    config = LaunchConfig(
+        parent=args.parent,
+        version=args.version,
+        project_dir=args.project_dir,
+        template_path=args.template,
+        objective=args.objective,
+        non_goals=args.non_goals,
+        compute_budget=args.compute_budget,
+        start_daemon=not args.no_start,
+        init_git=not args.no_git,
+        dry_run=args.dry_run,
+    )
+    try:
+        result = create_project(config)
+    except (LaunchError, OSError, subprocess.TimeoutExpired) as exc:
+        sys.stderr.write(f"new-auto-research-project: {exc}\n")
+        return 2
+    print(format_result(result))
+    return 0
+
+
+def format_result(result: LaunchResult) -> str:
+    lines = [
+        f"project : {result.project_dir}",
+        f"version : {result.version}",
+        f"AGENTS  : {result.agents_path}",
+        f"skills  : {result.skills_dir}",
+        f"code    : {result.project_dir / DEFAULT_PROJECT_CODE_DIR}",
+    ]
+    if result.dry_run:
+        lines.append("dry-run : no files created")
+        return "\n".join(lines)
+    if result.git_commit:
+        lines.append(f"commit  : {result.git_commit}")
+    lines.append(f"daemon  : {'started' if result.daemon_started else 'not started'}")
+    if result.daemon_output.strip():
+        lines.append("")
+        lines.append(result.daemon_output.strip())
+    if result.status_output.strip():
+        lines.append("")
+        lines.append(result.status_output.strip())
+    return "\n".join(lines)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

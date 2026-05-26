@@ -1,0 +1,7 @@
+manual follow-up annotation overlay for the reviewer-off shortcut transcript
+manual_commands: 1
+human_interactions_after_assignment: 2
+active_touch_minutes_after_assignment: 6.0
+manual_rescue: failed
+intervention_severity: manual_rescue
+rescue outcome: recorded as a failed rescue attempt, so it must not be counted as a successful rescue

@@ -1,0 +1,104 @@
+{
+    "id": "4c6870a7-3b43-4b4d-9d71-1164c4c7581e",
+    "task_name": "sqlite-with-gcov",
+    "trial_name": "sqlite-with-gcov__kx6acHH",
+    "trial_uri": "file:///home/argustest/argus-skill/experiments/tb2-bare-gpt54-20260515T201322Z/jobs/2026-05-15__20-13-26/sqlite-with-gcov__kx6acHH",
+    "task_id": {
+        "git_url": "https://github.com/laude-institute/terminal-bench-2.git",
+        "git_commit_id": "69671fbaac6d67a7ef0dfec016cc38a64ef7a77c",
+        "path": "sqlite-with-gcov"
+    },
+    "source": "terminal-bench",
+    "task_checksum": "5901f1d2fc3b9b97ab1b215461175a59f0568e224b67caa6f4cbbc38f6f33a04",
+    "config": {
+        "task": {
+            "path": "sqlite-with-gcov",
+            "git_url": "https://github.com/laude-institute/terminal-bench-2.git",
+            "git_commit_id": "69671fbaac6d67a7ef0dfec016cc38a64ef7a77c",
+            "name": null,
+            "ref": null,
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench"
+        },
+        "trial_name": "sqlite-with-gcov__kx6acHH",
+        "trials_dir": "/home/argustest/argus-skill/experiments/tb2-bare-gpt54-20260515T201322Z/jobs/2026-05-15__20-13-26",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": 3.0,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": "oracle",
+            "import_path": null,
+            "model_name": null,
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "kwargs": {
+                "reasoning_effort": "high"
+            },
+            "env": {}
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "suppress_override_warnings": false,
+            "mounts_json": null,
+            "env": {},
+            "kwargs": {}
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "job_id": "255c1902-7f3d-4a2c-854e-6a4b1f6d3455"
+    },
+    "agent_info": {
+        "name": "oracle",
+        "version": "1.0.0",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-05-15T20:56:45.732570Z",
+    "finished_at": "2026-05-15T20:59:12.984369Z",
+    "environment_setup": {
+        "started_at": "2026-05-15T20:56:45.743964Z",
+        "finished_at": "2026-05-15T20:56:48.318396Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-05-15T20:56:48.318411Z",
+        "finished_at": "2026-05-15T20:56:48.318438Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-05-15T20:56:48.318480Z",
+        "finished_at": "2026-05-15T20:58:31.651973Z"
+    },
+    "verifier": {
+        "started_at": "2026-05-15T20:58:31.764005Z",
+        "finished_at": "2026-05-15T20:59:01.037508Z"
+    },
+    "step_results": null
+}

@@ -1,0 +1,4 @@
+Skipping image OS validation for alexgshaw/build-cython-ext:20251031: docker inspect returned 1
+Trial build-cython-ext__EHLPoJQ failed: Docker compose command failed for environment build-cython-ext. Command: docker compose --project-name build-cython-ext__ehlpojq --project-directory /home/argustest/.cache/harbor/tasks/GCqHhNMgC2jpcy3h8te5A7/build-cython-ext/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+. Stderr: None. 

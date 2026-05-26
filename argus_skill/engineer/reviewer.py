@@ -223,6 +223,29 @@ class Reviewer:
         rev_cached = int(getattr(result, "cached_input_tokens", 0) or 0)
         rev_out = int(getattr(result, "output_tokens", 0) or 0)
         if not result.agent_messages:
+            fatal = str(getattr(result, "fatal_error", "") or "").strip()
+            if fatal or result.exit_code != 0:
+                reason = (
+                    "Reviewer backend returned no output "
+                    f"(exit={result.exit_code}"
+                    + (f", fatal_error={fatal}" if fatal else "")
+                    + ")."
+                )
+                return ReviewDecision(
+                    status="continue",
+                    confidence=0.0,
+                    reason=reason,
+                    next_action=(
+                        "Retry the reviewer after the backend recovers; do not treat "
+                        "this as evidence that the engineer completed or failed the task."
+                    ),
+                    round_summary_markdown=f"# Review Summary\n\n- {reason}\n",
+                    completion_summary_markdown="",
+                    failure_cause="environmental",
+                    input_tokens=rev_in,
+                    cached_input_tokens=rev_cached,
+                    output_tokens=rev_out,
+                )
             return ReviewDecision(
                 status="continue",
                 confidence=0.0,
@@ -427,7 +450,12 @@ class Reviewer:
             "   For\n"
             "   `planner_scope: bounded` or absent scope metadata, do not require\n"
             "   this project-final gate; judge the bounded task by its own\n"
-            "   acceptance criteria.\n\n"
+            "   acceptance criteria. Exception: if the objective metadata says\n"
+            "   `paper_optimization_task`, require fresh validator evidence or an\n"
+            "   exact remaining-blocker list; do not accept a tiny local paper fix\n"
+            "   while addressable underfilled-body, stale-artifact, layout, citation,\n"
+            "   review, figure/table, `validate-research-md-format`, or\n"
+            "   `validate-full-emnlp` blockers remain untriaged.\n\n"
             f"Objective:\n{objective}\n\n"
             "Operator message history (source of truth for user instructions):\n"
             f"{operator_text}\n\n"

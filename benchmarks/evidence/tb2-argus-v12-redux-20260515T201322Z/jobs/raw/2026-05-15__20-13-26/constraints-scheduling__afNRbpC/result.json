@@ -1,0 +1,107 @@
+{
+    "id": "04f9eebb-983f-41ef-9635-dcc7acdacb79",
+    "task_name": "constraints-scheduling",
+    "trial_name": "constraints-scheduling__afNRbpC",
+    "trial_uri": "file:///home/argustest/argus-skill/experiments/tb2-argus-v12-redux-20260515T201322Z/jobs/2026-05-15__20-13-26/constraints-scheduling__afNRbpC",
+    "task_id": {
+        "git_url": "https://github.com/laude-institute/terminal-bench-2.git",
+        "git_commit_id": "69671fbaac6d67a7ef0dfec016cc38a64ef7a77c",
+        "path": "constraints-scheduling"
+    },
+    "source": "terminal-bench",
+    "task_checksum": "c69027b9099bb7ac63a753b310e31cfef9cc20dce2d1c6c88956c8a854d7ac16",
+    "config": {
+        "task": {
+            "path": "constraints-scheduling",
+            "git_url": "https://github.com/laude-institute/terminal-bench-2.git",
+            "git_commit_id": "69671fbaac6d67a7ef0dfec016cc38a64ef7a77c",
+            "name": null,
+            "ref": null,
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench"
+        },
+        "trial_name": "constraints-scheduling__afNRbpC",
+        "trials_dir": "/home/argustest/argus-skill/experiments/tb2-argus-v12-redux-20260515T201322Z/jobs/2026-05-15__20-13-26",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": 3.0,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "benchmarks.harbor_adapter:ArgusSkillCodex",
+            "model_name": "openai/gpt-5.4-mini",
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "kwargs": {
+                "reasoning_effort": "high"
+            },
+            "env": {}
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "suppress_override_warnings": false,
+            "mounts_json": null,
+            "env": {},
+            "kwargs": {}
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "job_id": "5c62bffa-f94d-4522-ad06-83fc8ccddb0b"
+    },
+    "agent_info": {
+        "name": "argus-skill-codex",
+        "version": "0.130.0",
+        "model_info": {
+            "name": "gpt-5.4-mini",
+            "provider": "openai"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 0,
+        "n_cache_tokens": 0,
+        "n_output_tokens": 0,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 0.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-05-15T20:53:49.158354Z",
+    "finished_at": "2026-05-15T20:56:43.938230Z",
+    "environment_setup": {
+        "started_at": "2026-05-15T20:53:49.163044Z",
+        "finished_at": "2026-05-15T20:54:33.697237Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-05-15T20:54:33.697253Z",
+        "finished_at": "2026-05-15T20:55:15.028625Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-05-15T20:55:15.028680Z",
+        "finished_at": "2026-05-15T20:56:20.928585Z"
+    },
+    "verifier": {
+        "started_at": "2026-05-15T20:56:21.097850Z",
+        "finished_at": "2026-05-15T20:56:27.909549Z"
+    },
+    "step_results": null
+}

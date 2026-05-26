@@ -1013,7 +1013,7 @@ class LifeMemory:
 # Phase 2 of the unification refactor splits the single-rooted
 # :class:`LifeMemory` into two narrower facades:
 #
-# * :class:`GlobalMemory` — agent-wide identity card and cross-project
+# * :class:`GlobalMemory` — agent-wide identity card and operator audit
 #   journal under ``~/.argus-skill/``.
 # * :class:`ProjectMemory` — per-project card, memory log, and backlog
 #   under ``~/.argus-skill/projects/<fingerprint>/``. Lazy-created on
@@ -1021,7 +1021,7 @@ class LifeMemory:
 #
 # :class:`MemoryBundle` is a thin convenience wrapper that holds one of
 # each plus a unified :meth:`render_prelude` that merges global identity,
-# project card, and the most-relevant entries from both journals.
+# project card, and relevant entries from the current project's journal.
 #
 # :class:`LifeMemory` is unchanged; existing code keeps working.
 
@@ -1070,8 +1070,16 @@ class GlobalMemory:
         )
 
     def init(self) -> dict[str, bool]:
-        """Idempotently seed the global directory; returns what was created."""
+        """Idempotently seed the global directory; returns core files created.
+
+        Bundled default skills are also seeded into ``<root>/skills`` as a
+        side effect, but the return shape stays stable for older callers that
+        expect only identity/journal booleans.
+        """
+        from ..skills.builtins import seed_builtin_skills
+
         self.root.mkdir(parents=True, exist_ok=True)
+        seed_builtin_skills(self.root / "skills")
         return {
             "identity": self.identity.ensure_default(),
             "journal": _touch_file(self.journal.path),
@@ -1174,6 +1182,7 @@ class MemoryBundle:
 
     global_mem: GlobalMemory
     project: ProjectMemory
+    project_worktree: Path | None = None
 
     @property
     def root(self) -> Path:
@@ -1209,6 +1218,7 @@ class MemoryBundle:
         from ..core.project import project_fingerprint  # local: avoid cycle
 
         identity = project_fingerprint(cwd)
+        worktree = Path(identity.cwd)
         return cls(
             global_mem=GlobalMemory.open(global_root),
             project=ProjectMemory.open(
@@ -1216,6 +1226,7 @@ class MemoryBundle:
                 label=identity.label,
                 global_root=global_root,
             ),
+            project_worktree=worktree,
         )
 
     def init(self) -> dict[str, dict[str, bool]]:
@@ -1230,15 +1241,14 @@ class MemoryBundle:
         objective: str,
         identity_chars: int = 600,
         project_chars: int = 600,
-        max_global_entries: int = 2,
         max_project_entries: int = 3,
     ) -> str:
         """Render a unified memory prelude for prompt injection.
 
         Order is: global identity → project card → relevant project
-        memories → relevant global journal entries. Project context
-        comes before global because it's strictly more specific to the
-        current run.
+        memories. Cross-project journal entries are intentionally excluded:
+        workspace prompts must not satisfy or steer the current mission with
+        artifacts from another project.
         """
         identity = self.global_mem.identity.read().strip()
         if identity_chars > 0:
@@ -1250,11 +1260,8 @@ class MemoryBundle:
         project_hits = self.project.relevant_memory_for(
             objective, max_entries=max_project_entries
         )
-        global_hits = self.global_mem.relevant_journal_for(
-            objective, max_entries=max_global_entries
-        )
 
-        if not (identity or project_card or project_hits or global_hits):
+        if not (identity or project_card or project_hits):
             return ""
 
         lines: list[str] = []
@@ -1282,27 +1289,17 @@ class MemoryBundle:
                     f"- **{ts_iso} · {entry.title}** ({entry.kind}): "
                     f"{entry.summary}"
                 )
-        if global_hits:
-            lines.append("")
-            lines.append("#### Possibly-relevant prior runs (other projects)")
-            for entry in global_hits:
-                ts_iso = time.strftime("%Y-%m-%d", time.localtime(entry.ts))
-                lines.append(
-                    f"- **{ts_iso} · {entry.title}** ({entry.kind}): "
-                    f"{entry.summary}"
-                )
         return "\n".join(lines).strip() + "\n"
 
 
 @dataclass
 class _MirroredJournal:
-    """Append to both journals while reading from the global journal.
+    """Append to both journals while reading only from the project journal.
 
     The live REPL / supervisor wants a single journal-shaped object, but
-    we still need the project-scoped memory log to stay warm for the
-    project prelude. Keeping the read side global preserves the existing
-    operator-facing history / cost views while dual-writing seeds the
-    project-scoped memory.
+    workspace isolation requires every read to be scoped to the active
+    project. The global journal remains a write-only operator audit trail;
+    planner/status/prelude/budget reads must not see other workspaces.
     """
 
     global_journal: Journal
@@ -1310,23 +1307,23 @@ class _MirroredJournal:
 
     @property
     def path(self) -> Path:
-        return self.global_journal.path
+        return self.project_journal.path
 
     def append(self, entry: JournalEntry) -> None:
         self.global_journal.append(entry)
         self.project_journal.append(entry)
 
     def all(self) -> list[JournalEntry]:
-        return self.global_journal.all()
+        return self.project_journal.all()
 
     def tail(self, n: int) -> list[JournalEntry]:
-        return self.global_journal.tail(n)
+        return self.project_journal.tail(n)
 
     def total_cost_since(self, since_ts: float) -> float:
-        return self.global_journal.total_cost_since(since_ts)
+        return self.project_journal.total_cost_since(since_ts)
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self.global_journal, name)
+        return getattr(self.project_journal, name)
 
 
 # ---------------------------------------------------------------------------

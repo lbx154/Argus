@@ -12,6 +12,38 @@ from pathlib import Path
 from argus_skill.core import project
 from argus_skill.daemon.life_worker import write_continuous_config
 
+_ENV_VARS_TO_CLEAR = (
+    "ARGUS_SKILL_DAILY_CAP_USD",
+    "ARGUS_SKILL_DAEMON_AUTO_RESTART",
+    "ARGUS_SKILL_DAEMON_HANDOFF_CONFIG",
+    "ARGUS_SKILL_DAEMON_HANDOFF_GEN",
+    "ARGUS_SKILL_DAEMON_HANDOFF_MAX_GEN",
+    "ARGUS_SKILL_DAEMON_HANDOFF_MIN_S",
+    "ARGUS_SKILL_DAEMON_HANDOFF_READY",
+    "ARGUS_SKILL_DAEMON_HANDOFF_TOKEN",
+    "ARGUS_SKILL_DAEMON_POLL_S",
+    "ARGUS_SKILL_DAEMON_SOURCE_SIGNATURE",
+    "ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE",
+    "ARGUS_SKILL_ENGINEER_MODEL",
+    "ARGUS_SKILL_HOME",
+    "ARGUS_SKILL_LIFE_BACKEND",
+    "ARGUS_SKILL_PER_MISSION_CAP_USD",
+    "ARGUS_SKILL_RESEARCH_PROFILE",
+    "ARGUS_SKILL_RESEARCH_PROFILE_PATH",
+    "ARGUS_SKILL_REVIEWER_MODEL",
+    "ARGUS_SKILL_SCIENTIST_MODEL",
+    "ARGUS_SKILL_SKILLS_DIR",
+    "ARGUS_SKILL_WORKDIR",
+)
+
+
+def _clean_env(**updates: str) -> dict[str, str]:
+    env = os.environ.copy()
+    for name in _ENV_VARS_TO_CLEAR:
+        env.pop(name, None)
+    env.update(updates)
+    return env
+
 
 def _run_cli(
     *args: str,
@@ -76,19 +108,17 @@ def test_daemon_lifecycle_via_subprocess(tmp_path: Path) -> None:
     global_root = tmp_path / "life"
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("daemon lifecycle test\n", encoding="utf-8")
     skills_dir = tmp_path / "skills"
     fingerprint = project.project_fingerprint(repo_dir).fingerprint
     project_root = global_root / "projects" / fingerprint
     pid_path = project_root / "daemon.pid"
     status_path = project_root / "daemon.status.json"
-    env = os.environ.copy()
-    env.update(
-        {
-            "ARGUS_SKILL_LIFE_BACKEND": "memory",
-            "ARGUS_SKILL_SKILLS_DIR": str(skills_dir),
-            "ARGUS_SKILL_PER_MISSION_CAP_USD": "12.5",
-            "ARGUS_SKILL_DAILY_CAP_USD": "42.25",
-        }
+    env = _clean_env(
+        ARGUS_SKILL_LIFE_BACKEND="memory",
+        ARGUS_SKILL_SKILLS_DIR=str(skills_dir),
+        ARGUS_SKILL_PER_MISSION_CAP_USD="12.5",
+        ARGUS_SKILL_DAILY_CAP_USD="42.25",
     )
 
     pid: int | None = None
@@ -140,7 +170,90 @@ def test_daemon_lifecycle_via_subprocess(tmp_path: Path) -> None:
                     pass
 
 
-def test_daemon_foreground_handoff_replaces_pid_and_cleans_sidecars(
+def test_daemon_bootstrap_preflight_records_empty_repo_objective(
+    tmp_path: Path,
+) -> None:
+    global_root = tmp_path / "life"
+    repo_dir = tmp_path / "empty-repo"
+    repo_dir.mkdir()
+    fingerprint = project.project_fingerprint(repo_dir).fingerprint
+    project_root = global_root / "projects" / fingerprint
+    pid_path = project_root / "daemon.pid"
+    backlog_path = project_root / "backlog.jsonl"
+    events_path = project_root / "events.jsonl"
+    env = _clean_env(
+        ARGUS_SKILL_LIFE_BACKEND="memory",
+        PYTHONUNBUFFERED="1",
+    )
+
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "argus_skill",
+            "--daemon-fg",
+            "--life-dir",
+            str(global_root),
+        ],
+        cwd=repo_dir,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        bootstrap_row: dict[str, object] | None = None
+        bootstrap_event: dict[str, object] | None = None
+
+        def _bootstrap_ready() -> bool:
+            nonlocal bootstrap_row, bootstrap_event
+            if backlog_path.exists():
+                for row in _read_jsonl(backlog_path):
+                    if row.get("title") == "bootstrap empty project root":
+                        bootstrap_row = row
+                        break
+            if events_path.exists():
+                for event in _read_jsonl(events_path):
+                    if event.get("type") == "life.project.bootstrap_required":
+                        bootstrap_event = event
+                        break
+            return (
+                pid_path.exists()
+                and bootstrap_row is not None
+                and bootstrap_event is not None
+            )
+
+        _wait_until(_bootstrap_ready, timeout=20.0)
+        assert bootstrap_row is not None
+        assert bootstrap_event is not None
+
+        assert "pyproject.toml" in str(bootstrap_row.get("objective", ""))
+        assert "README.md" in str(bootstrap_row.get("objective", ""))
+        assert f"src/{repo_dir.name.replace('-', '_')}/__init__.py" in str(bootstrap_row.get("objective", ""))
+        assert bootstrap_event["type"] == "life.project.bootstrap_required"
+        assert "uninitialized project root" in str(bootstrap_event.get("event_text", ""))
+        assert "pyproject.toml" in str(bootstrap_event.get("objective", ""))
+
+        proc.terminate()
+        _wait_until(lambda: proc.poll() is not None, timeout=10.0)
+    finally:
+        if proc.poll() is None:
+            try:
+                proc.terminate()
+            except OSError:
+                pass
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+            proc.wait(timeout=10)
+
+
+def test_daemon_bootstrap_materializes_repo_files_in_workdir(
     tmp_path: Path,
 ) -> None:
     global_root = tmp_path / "life"
@@ -150,20 +263,253 @@ def test_daemon_foreground_handoff_replaces_pid_and_cleans_sidecars(
     project_root = global_root / "projects" / fingerprint
     pid_path = project_root / "daemon.pid"
     status_path = project_root / "daemon.status.json"
+    project_card_path = project_root / "project.md"
+    memory_path = project_root / "memory.jsonl"
+    backlog_path = project_root / "backlog.jsonl"
+    package_init = repo_dir / "src" / "repo" / "__init__.py"
+    env = _clean_env(
+        ARGUS_SKILL_LIFE_BACKEND="memory",
+        PYTHONUNBUFFERED="1",
+    )
+
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "argus_skill",
+            "--daemon-fg",
+            "--life-dir",
+            str(global_root),
+        ],
+        cwd=repo_dir,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        _wait_until(
+            lambda: (
+                pid_path.exists()
+                and status_path.exists()
+                and (repo_dir / ".git").exists()
+                and (repo_dir / "pyproject.toml").exists()
+                and (repo_dir / "README.md").exists()
+                and package_init.exists()
+                and (repo_dir / "tests" / "test_smoke.py").exists()
+                and project_card_path.exists()
+                and memory_path.exists()
+                and backlog_path.exists()
+            ),
+            timeout=30.0,
+        )
+
+        assert project_card_path.parent == project_root
+        assert memory_path.parent == project_root
+        assert backlog_path.parent == project_root
+        assert not (project_root / "pyproject.toml").exists()
+        assert not (project_root / "README.md").exists()
+        assert not (project_root / "src").exists()
+        assert not (project_root / "tests").exists()
+        assert (repo_dir / ".git").exists()
+        assert (repo_dir / "pyproject.toml").exists()
+        assert (repo_dir / "README.md").exists()
+        assert package_init.exists()
+        assert (repo_dir / "tests" / "test_smoke.py").exists()
+    finally:
+        if proc.poll() is None:
+            try:
+                proc.terminate()
+            except OSError:
+                pass
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+            proc.wait(timeout=10)
+
+
+def test_daemon_bootstrap_materializes_research_files_in_workdir(
+    tmp_path: Path,
+) -> None:
+    global_root = tmp_path / "life"
+    repo_dir = tmp_path / "empty-repo"
+    repo_dir.mkdir()
+    fingerprint = project.project_fingerprint(repo_dir).fingerprint
+    project_root = global_root / "projects" / fingerprint
+    pid_path = project_root / "daemon.pid"
+    status_path = project_root / "daemon.status.json"
+    research_state = repo_dir / "research" / "PIPELINE_STATE.json"
+    research_brief = repo_dir / "research" / "RESEARCH_BRIEF.md"
+    research_plan = repo_dir / "research" / "EXPERIMENT_PLAN.md"
+    research_claims = repo_dir / "research" / "CLAIMS_TO_TEST.md"
+    research_go_no_go = repo_dir / "research" / "GO_NO_GO.md"
+    benchmark_provenance = repo_dir / "experiments" / "BENCHMARK_PROVENANCE.md"
+    env = _clean_env(
+        ARGUS_SKILL_LIFE_BACKEND="memory",
+        ARGUS_SKILL_RESEARCH_PROFILE="emnlp2026-tierharness",
+        PYTHONUNBUFFERED="1",
+    )
+
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "argus_skill",
+            "--daemon-fg",
+            "--life-dir",
+            str(global_root),
+        ],
+        cwd=repo_dir,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        _wait_until(
+            lambda: (
+                pid_path.exists()
+                and status_path.exists()
+                and research_state.exists()
+                and research_brief.exists()
+                and research_plan.exists()
+                and research_claims.exists()
+                and research_go_no_go.exists()
+                and benchmark_provenance.exists()
+            ),
+            timeout=30.0,
+        )
+
+        assert (repo_dir / ".git").exists()
+        assert not (repo_dir / "pyproject.toml").exists()
+        assert not (repo_dir / "README.md").exists()
+        assert not (repo_dir / "src").exists()
+        assert not (repo_dir / "tests").exists()
+        assert "research bootstrap mission" in research_state.read_text(encoding="utf-8").lower()
+        assert "research seed" in research_brief.read_text(encoding="utf-8").lower()
+        assert "benchmark source: to be selected" in benchmark_provenance.read_text(encoding="utf-8").lower()
+    finally:
+        if proc.poll() is None:
+            try:
+                proc.terminate()
+            except OSError:
+                pass
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+            proc.wait(timeout=10)
+
+
+def test_daemon_bootstrap_heals_partial_research_seed_in_workdir(
+    tmp_path: Path,
+) -> None:
+    global_root = tmp_path / "life"
+    repo_dir = tmp_path / "empty-repo"
+    repo_dir.mkdir()
+    (repo_dir / "research").mkdir(parents=True, exist_ok=True)
+    pipeline_state = repo_dir / "research" / "PIPELINE_STATE.json"
+    original_state = "{\n  \"current_stage\": \"plan\"\n}\n"
+    pipeline_state.write_text(original_state, encoding="utf-8")
+    fingerprint = project.project_fingerprint(repo_dir).fingerprint
+    project_root = global_root / "projects" / fingerprint
+    pid_path = project_root / "daemon.pid"
+    status_path = project_root / "daemon.status.json"
+    research_brief = repo_dir / "research" / "RESEARCH_BRIEF.md"
+    research_plan = repo_dir / "research" / "EXPERIMENT_PLAN.md"
+    research_claims = repo_dir / "research" / "CLAIMS_TO_TEST.md"
+    research_go_no_go = repo_dir / "research" / "GO_NO_GO.md"
+    benchmark_provenance = repo_dir / "experiments" / "BENCHMARK_PROVENANCE.md"
+    env = _clean_env(
+        ARGUS_SKILL_LIFE_BACKEND="memory",
+        ARGUS_SKILL_RESEARCH_PROFILE="emnlp2026-tierharness",
+        PYTHONUNBUFFERED="1",
+    )
+
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "argus_skill",
+            "--daemon-fg",
+            "--life-dir",
+            str(global_root),
+        ],
+        cwd=repo_dir,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        _wait_until(
+            lambda: (
+                pid_path.exists()
+                and status_path.exists()
+                and research_brief.exists()
+                and research_plan.exists()
+                and research_claims.exists()
+                and research_go_no_go.exists()
+                and benchmark_provenance.exists()
+            ),
+            timeout=30.0,
+        )
+
+        assert pipeline_state.read_text(encoding="utf-8") == original_state
+        assert (repo_dir / ".git").exists()
+        assert not (repo_dir / "pyproject.toml").exists()
+        assert not (repo_dir / "README.md").exists()
+        assert not (repo_dir / "src").exists()
+        assert not (repo_dir / "tests").exists()
+        assert "testable research plan" in research_plan.read_text(encoding="utf-8").lower()
+    finally:
+        if proc.poll() is None:
+            try:
+                proc.terminate()
+            except OSError:
+                pass
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+            proc.wait(timeout=10)
+
+
+def test_daemon_foreground_handoff_replaces_pid_and_cleans_sidecars(
+    tmp_path: Path,
+) -> None:
+    global_root = tmp_path / "life"
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("handoff lifecycle test\n", encoding="utf-8")
+    fingerprint = project.project_fingerprint(repo_dir).fingerprint
+    project_root = global_root / "projects" / fingerprint
+    pid_path = project_root / "daemon.pid"
+    status_path = project_root / "daemon.status.json"
     handoff_path = project_root / "daemon.handoff.json"
     signature_path = tmp_path / "daemon-source-signature.txt"
     signature_path.write_text("sig-1\n", encoding="utf-8")
-    env = os.environ.copy()
-    env.update(
-        {
-            "ARGUS_SKILL_LIFE_BACKEND": "memory",
-            "ARGUS_SKILL_DAEMON_AUTO_RESTART": "1",
-            "ARGUS_SKILL_DAEMON_HANDOFF_MIN_S": "0",
-            "ARGUS_SKILL_DAEMON_HANDOFF_MAX_GEN": "2",
-            "ARGUS_SKILL_DAEMON_POLL_S": "0.1",
-            "ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE": str(signature_path),
-            "PYTHONUNBUFFERED": "1",
-        }
+    env = _clean_env(
+        ARGUS_SKILL_LIFE_BACKEND="memory",
+        ARGUS_SKILL_DAEMON_AUTO_RESTART="1",
+        ARGUS_SKILL_DAEMON_HANDOFF_MIN_S="0",
+        ARGUS_SKILL_DAEMON_HANDOFF_MAX_GEN="2",
+        ARGUS_SKILL_DAEMON_POLL_S="0.1",
+        ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE=str(signature_path),
+        PYTHONUNBUFFERED="1",
     )
 
     proc = subprocess.Popen(
@@ -283,6 +629,7 @@ def test_daemon_continuous_planner_followup_work_and_project_done(
     global_root = tmp_path / "life"
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("planner lifecycle test\n", encoding="utf-8")
     fingerprint = project.project_fingerprint(repo_dir).fingerprint
     project_root = global_root / "projects" / fingerprint
     pid_path = project_root / "daemon.pid"
@@ -330,15 +677,12 @@ def test_daemon_continuous_planner_followup_work_and_project_done(
         ),
         encoding="utf-8",
     )
-    env = os.environ.copy()
-    env.update(
-        {
-            "ARGUS_SKILL_LIFE_BACKEND": "memory",
-            "ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS": "1",
-            "ARGUS_SKILL_DAEMON_POLL_S": "0.1",
-            "ARGUS_SKILL_DAEMON_TEST_PLANNER_SCRIPT": str(planner_script_path),
-            "PYTHONUNBUFFERED": "1",
-        }
+    env = _clean_env(
+        ARGUS_SKILL_LIFE_BACKEND="memory",
+        ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS="1",
+        ARGUS_SKILL_DAEMON_POLL_S="0.1",
+        ARGUS_SKILL_DAEMON_TEST_PLANNER_SCRIPT=str(planner_script_path),
+        PYTHONUNBUFFERED="1",
     )
 
     proc = subprocess.run(
@@ -426,7 +770,6 @@ def test_daemon_continuous_planner_followup_work_and_project_done(
     live_status = _run_cli("--status", "--life-dir", str(global_root), env=env, cwd=repo_dir)
     assert live_status.returncode == 0, live_status
     assert "daemon   : alive" in live_status.stdout
-    assert f"pid {pid}" in live_status.stdout
     assert "continuous: off" in live_status.stdout
     assert "done_reason: planner declared project done" in live_status.stdout
 
@@ -443,16 +786,123 @@ def test_daemon_continuous_planner_followup_work_and_project_done(
     assert "continuous: off" in final_status.stdout
 
 
+def test_daemon_continuous_open_ended_project_done_stays_on(
+    tmp_path: Path,
+) -> None:
+    global_root = tmp_path / "life"
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("open-ended planner lifecycle test\n", encoding="utf-8")
+    fingerprint = project.project_fingerprint(repo_dir).fingerprint
+    project_root = global_root / "projects" / fingerprint
+    pid_path = project_root / "daemon.pid"
+    status_path = project_root / "daemon.status.json"
+    events_path = project_root / "events.jsonl"
+    continuous_path = project_root / "continuous.json"
+    planner_script_path = tmp_path / "planner-script-open-ended.json"
+    planner_script_path.write_text(
+        json.dumps(
+            {
+                "planner": [
+                    {
+                        "project_done": True,
+                        "reason": "open-ended objective can continue later",
+                        "delay_seconds": 0.1,
+                        "new_tasks": [],
+                    },
+                    {
+                        "project_done": True,
+                        "reason": "open-ended objective can continue later",
+                        "delay_seconds": 0.1,
+                        "new_tasks": [],
+                    },
+                    {
+                        "project_done": True,
+                        "reason": "open-ended objective can continue later",
+                        "delay_seconds": 0.1,
+                        "new_tasks": [],
+                    },
+                ],
+                "critic": [],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    env = _clean_env(
+        ARGUS_SKILL_LIFE_BACKEND="memory",
+        ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS="1",
+        ARGUS_SKILL_DAEMON_POLL_S="0.1",
+        ARGUS_SKILL_DAEMON_TEST_PLANNER_SCRIPT=str(planner_script_path),
+        PYTHONUNBUFFERED="1",
+    )
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "argus_skill",
+            "--daemon",
+            "--continuous",
+            "--objective",
+            "open-ended self-improvement goal",
+            "--life-dir",
+            str(global_root),
+        ],
+        cwd=repo_dir,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, proc
+    assert "Traceback" not in (proc.stdout + proc.stderr)
+
+    _wait_until(lambda: pid_path.exists() and status_path.exists(), timeout=15.0)
+    pid = _read_pid(pid_path)
+    assert pid is not None and _pid_is_alive(pid)
+
+    def _open_ended_retry_ready() -> bool:
+        events = _read_jsonl(events_path)
+        return any(
+            event.get("type") == "life.planner.verdict"
+            and event.get("open_ended_objective") is True
+            for event in events
+        )
+
+    _wait_until(_open_ended_retry_ready, timeout=20.0)
+
+    continuous = json.loads(continuous_path.read_text(encoding="utf-8"))
+    assert continuous["enabled"] is True
+    assert continuous["objective"] == "open-ended self-improvement goal"
+    assert "done_reason" not in continuous
+
+    live_status = _run_cli("--status", "--life-dir", str(global_root), env=env, cwd=repo_dir)
+    assert live_status.returncode == 0, live_status
+    assert "daemon   : alive" in live_status.stdout
+    assert "continuous: on" in live_status.stdout
+    assert "done_reason:" not in live_status.stdout
+
+    stop = _run_cli("--daemon-stop", "--life-dir", str(global_root), env=env, cwd=repo_dir)
+    assert stop.returncode == 0, stop
+
+    _wait_until(lambda: not pid_path.exists() and not status_path.exists(), timeout=20.0)
+    _wait_until(lambda: not _pid_is_alive(pid), timeout=20.0)
+
+    final_status = _run_cli("--status", "--life-dir", str(global_root), env=env, cwd=repo_dir)
+    assert final_status.returncode == 0, final_status
+    assert "daemon   : not running" in final_status.stdout
+    assert "continuous: on" in final_status.stdout
+
+
 def test_repl_autospawn_pid_matches_status_sidecar(tmp_path: Path) -> None:
     global_root = tmp_path / "life"
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
-    env = os.environ.copy()
-    env.update(
-        {
-            "ARGUS_SKILL_LIFE_BACKEND": "memory",
-            "ARGUS_SKILL_SAFE_MODE": "1",
-        }
+    env = _clean_env(
+        ARGUS_SKILL_LIFE_BACKEND="memory",
+        ARGUS_SKILL_SAFE_MODE="1",
     )
 
     pid: int | None = None
@@ -496,12 +946,7 @@ def test_repl_inherited_continuous_downgrades_on_memory_backend(tmp_path: Path) 
     )
     before = (project_root / "continuous.json").read_text(encoding="utf-8")
 
-    env = os.environ.copy()
-    env.update(
-        {
-            "ARGUS_SKILL_LIFE_BACKEND": "memory",
-        }
-    )
+    env = _clean_env(ARGUS_SKILL_LIFE_BACKEND="memory")
     run = subprocess.run(
         [
             sys.executable,
@@ -549,12 +994,9 @@ def test_follow_waits_for_fresh_events_file(tmp_path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
-    env = os.environ.copy()
-    env.update(
-        {
-            "ARGUS_SKILL_LIFE_BACKEND": "memory",
-            "PYTHONUNBUFFERED": "1",
-        }
+    env = _clean_env(
+        ARGUS_SKILL_LIFE_BACKEND="memory",
+        PYTHONUNBUFFERED="1",
     )
 
     proc = subprocess.Popen(
@@ -627,12 +1069,9 @@ def test_follow_accepts_project_life_dir(tmp_path: Path) -> None:
     events_path = project_root / "events.jsonl"
     project_root.mkdir(parents=True)
     events_path.write_text("", encoding="utf-8")
-    env = os.environ.copy()
-    env.update(
-        {
-            "ARGUS_SKILL_LIFE_BACKEND": "memory",
-            "PYTHONUNBUFFERED": "1",
-        }
+    env = _clean_env(
+        ARGUS_SKILL_LIFE_BACKEND="memory",
+        PYTHONUNBUFFERED="1",
     )
 
     proc = subprocess.Popen(
@@ -795,6 +1234,28 @@ def test_follow_renderer_is_layered_and_compact() -> None:
         "matched_status=done · reason=duplicate completed task"
     )
 
+    quarantined = cli._format_follow_event(
+        {
+            "type": "life.planner.task_skipped",
+            "title": "Follow task",
+            "objective": "show the operator what was quarantined",
+            "matched_item_id": "task-789",
+            "matched_title": "Follow task",
+            "matched_status": "no_progress",
+            "matched_stop_reason": "stalled",
+            "skip_category": "recent_no_progress_failure",
+            "reason": "recent no_progress failure",
+        },
+        "planner",
+    )
+    assert quarantined == (
+        "⏭️ [L4 规划师] quarantined recent no-progress failure · title=Follow task · "
+        "objective=show the operator what was quarantined · matched_item_id=task-789 · "
+        "matched_title=Follow task · matched_status=no_progress · "
+        "matched_stop_reason=stalled · skip_category=recent_no_progress_failure · "
+        "reason=recent no_progress failure"
+    )
+
 
 def test_follow_renders_planner_task_added_and_skipped(tmp_path: Path) -> None:
     global_root = tmp_path / "life"
@@ -804,12 +1265,9 @@ def test_follow_renders_planner_task_added_and_skipped(tmp_path: Path) -> None:
     events_path = global_root / "projects" / fingerprint / "events.jsonl"
     events_path.parent.mkdir(parents=True, exist_ok=True)
     events_path.write_text("", encoding="utf-8")
-    env = os.environ.copy()
-    env.update(
-        {
-            "ARGUS_SKILL_LIFE_BACKEND": "memory",
-            "PYTHONUNBUFFERED": "1",
-        }
+    env = _clean_env(
+        ARGUS_SKILL_LIFE_BACKEND="memory",
+        PYTHONUNBUFFERED="1",
     )
 
     proc = subprocess.Popen(
@@ -889,18 +1347,82 @@ def test_follow_renders_planner_task_added_and_skipped(tmp_path: Path) -> None:
                 proc.communicate(timeout=10)
 
 
+def test_follow_renders_planner_task_skipped_quarantine_reason(
+    tmp_path: Path,
+) -> None:
+    global_root = tmp_path / "life"
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    fingerprint = project.project_fingerprint(repo_dir).fingerprint
+    events_path = global_root / "projects" / fingerprint / "events.jsonl"
+    events_path.parent.mkdir(parents=True, exist_ok=True)
+    events_path.write_text("", encoding="utf-8")
+    env = _clean_env(
+        ARGUS_SKILL_LIFE_BACKEND="memory",
+        PYTHONUNBUFFERED="1",
+    )
+
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "argus_skill", "--follow", "--life-dir", str(global_root)],
+        cwd=repo_dir,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        time.sleep(0.6)
+        assert proc.poll() is None
+
+        with events_path.open("a", encoding="utf-8") as fh:
+            fh.write(
+                json.dumps(
+                    {
+                        "type": "life.planner.task_skipped",
+                        "title": "Follow task",
+                        "objective": "show the operator what was quarantined",
+                        "matched_item_id": "task-789",
+                        "matched_title": "Follow task",
+                        "matched_status": "no_progress",
+                        "matched_stop_reason": "stalled",
+                        "skip_category": "recent_no_progress_failure",
+                        "reason": "recent no_progress failure",
+                    }
+                )
+                + "\n"
+            )
+
+        time.sleep(0.8)
+        proc.send_signal(signal.SIGINT)
+        stdout, stderr = proc.communicate(timeout=10)
+        output = stdout + stderr
+        assert proc.returncode == 0, proc
+        assert "⏭️ [L4 规划师] quarantined recent no-progress failure" in output
+        assert "skip_category=recent_no_progress_failure" in output
+        assert "matched_item_id=task-789" in output
+        assert "matched_status=no_progress" in output
+        assert "matched_stop_reason=stalled" in output
+        assert "skipped duplicate" not in output
+    finally:
+        if proc.poll() is None:
+            proc.send_signal(signal.SIGINT)
+            try:
+                proc.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.communicate(timeout=10)
+
+
 def test_notify_and_follow_render_inbox_guidance(tmp_path: Path) -> None:
     global_root = tmp_path / "life"
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
     fingerprint = project.project_fingerprint(repo_dir).fingerprint
     project_root = global_root / "projects" / fingerprint
-    env = os.environ.copy()
-    env.update(
-        {
-            "ARGUS_SKILL_LIFE_BACKEND": "memory",
-            "PYTHONUNBUFFERED": "1",
-        }
+    env = _clean_env(
+        ARGUS_SKILL_LIFE_BACKEND="memory",
+        PYTHONUNBUFFERED="1",
     )
 
     proc = subprocess.Popen(

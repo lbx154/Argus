@@ -260,7 +260,7 @@ class _CommandRouter:
                     return self._LAYER_LABELS["engineer"]
                 if kind in ("mission_iterated",):
                     return self._LAYER_LABELS["critic"]
-                if kind in ("planner_cycle", "planner_done"):
+                if kind in ("planner_cycle", "planner_retry", "planner_done"):
                     return self._LAYER_LABELS["planner"]
         except Exception:  # noqa: BLE001
             pass

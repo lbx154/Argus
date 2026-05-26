@@ -1,0 +1,44 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 2,
+            "passed": 0,
+            "failed": 2,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1778877992.8977213,
+            "stop": 1778877994.7889073
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_filter_blocks_xss",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.0006054779514670372,
+                "start": 1778877994.7561915,
+                "stop": 1778877994.7845168,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_filter_blocks_xss():\n        \"\"\"Test that filter.py successfully blocks various XSS attacks.\"\"\"\n    \n        # Check filter exists\n>       assert Path(\"/app/filter.py\").exists(), \"filter.py does not exist\"\nE       AssertionError: filter.py does not exist\nE       assert False\nE        +  where False = exists()\nE        +    where exists = PosixPath('/app/filter.py').exists\nE        +      where PosixPath('/app/filter.py') = Path('/app/filter.py')\n\n/tests/test_outputs.py:222: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            },
+            {
+                "name": "test_outputs.py::test_clean_html_unchanged",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.00039980560541152954,
+                "start": 1778877994.7846944,
+                "stop": 1778877994.7887578,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_clean_html_unchanged():\n        \"\"\"Test that clean HTML files without any JavaScript remain completely unchanged.\"\"\"\n    \n        filter_path = Path(\"/app/filter.py\")\n>       assert filter_path.exists(), \"filter.py does not exist\"\nE       AssertionError: filter.py does not exist\nE       assert False\nE        +  where False = exists()\nE        +    where exists = PosixPath('/app/filter.py').exists\n\n/tests/test_outputs.py:296: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            }
+        ]
+    }
+}

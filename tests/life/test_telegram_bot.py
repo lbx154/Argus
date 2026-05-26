@@ -42,6 +42,31 @@ def _offset_from_call(call: _ApiCallRecord) -> int:
     assert isinstance(offset, int)
     return offset
 
+
+@pytest.fixture(autouse=True)
+def _clear_ambient_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in (
+        "ARGUS_SKILL_DAILY_CAP_USD",
+        "ARGUS_SKILL_ENGINEER_MODEL",
+        "ARGUS_SKILL_HOME",
+        "ARGUS_SKILL_LIFE_BACKEND",
+        "ARGUS_SKILL_MAX_ROUNDS",
+        "ARGUS_SKILL_PER_MISSION_CAP_USD",
+        "ARGUS_SKILL_PLAN_MODE",
+        "ARGUS_SKILL_PLAN_MODEL",
+        "ARGUS_SKILL_RESEARCH_PROFILE",
+        "ARGUS_SKILL_RESEARCH_PROFILE_PATH",
+        "ARGUS_SKILL_REVIEWER_MODEL",
+        "ARGUS_SKILL_SCIENTIST_MODEL",
+        "ARGUS_SKILL_SKILLS_DIR",
+        "ARGUS_SKILL_TELEGRAM_BOT_TOKEN",
+        "ARGUS_SKILL_TELEGRAM_CHAT_ID",
+        "ARGUS_SKILL_TELEGRAM_USER_ID",
+        "ARGUS_SKILL_WORKDIR",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
 # ---------------------------------------------------------------------------
 # _CommandRouter tests
 # ---------------------------------------------------------------------------
@@ -269,7 +294,10 @@ class TestCommandRouter:
         self,
         mock_send: MagicMock,
         status_life_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        monkeypatch.delenv("ARGUS_SKILL_PER_MISSION_CAP_USD", raising=False)
+        monkeypatch.delenv("ARGUS_SKILL_DAILY_CAP_USD", raising=False)
         router = self._make_router(status_life_dir)
         router.dispatch("/status")
         reply = mock_send.call_args[0][2]
@@ -284,7 +312,10 @@ class TestCommandRouter:
         self,
         mock_send: MagicMock,
         status_life_dir_with_active: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        monkeypatch.delenv("ARGUS_SKILL_PER_MISSION_CAP_USD", raising=False)
+        monkeypatch.delenv("ARGUS_SKILL_DAILY_CAP_USD", raising=False)
         router = self._make_router(status_life_dir_with_active)
         router.dispatch("/status")
         reply = mock_send.call_args[0][2]

@@ -1,0 +1,4 @@
+Skipping image OS validation for alexgshaw/install-windows-3.11:20251031: docker inspect returned 1
+Trial install-windows-3.11__4S3aLDF failed: Docker compose command failed for environment install-windows-3.11. Command: docker compose --project-name install-windows-3-11__4s3aldf --project-directory /home/argustest/.cache/harbor/tasks/7s8y623XYuDhmBG6ERABwC/install-windows-3.11/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+. Stderr: None. 

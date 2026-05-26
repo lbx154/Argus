@@ -1,0 +1,4 @@
+Trial fix-git__m3YSBcu failed: Docker compose command failed for environment fix-git. Command: docker compose --project-name fix-git__m3ysbcu --project-directory /home/argustest/.cache/harbor/tasks/kzqjKVWxvHZxV5xyLNLqJi/fix-git/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network fix-git__m3ysbcu_default  Creating
+ Network fix-git__m3ysbcu_default  Error
+failed to create network fix-git__m3ysbcu_default: Error response from daemon: all predefined address pools have been fully subnetted
+. Stderr: None. 

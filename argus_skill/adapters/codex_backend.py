@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import threading
 from typing import Any
 
 from ..core.models import RunnerOptions, RunnerResult
@@ -51,6 +53,11 @@ _AUTH_FAILURE_PATTERNS: tuple[str, ...] = (
     "no api key",
     "missing credentials",
 )
+_RUNNER_SOFT_IDLE_ENV = "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS"
+_RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
+_RUNNER_DEFAULT_SOFT_IDLE_SECONDS = 0
+_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 900
+_RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
 
 
 def looks_like_auth_failure(stderr_lines) -> bool:  # noqa: ANN001
@@ -71,6 +78,17 @@ def looks_like_auth_failure(stderr_lines) -> bool:  # noqa: ANN001
             if pat in low:
                 return True
     return False
+
+
+def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(minimum, value)
 
 
 # --- ArgusBot import (lazy, with friendly error) ---------------------------
@@ -148,6 +166,9 @@ class CodexRunnerBackend:
         backend: str | None = None,
         runner_bin: str | None = None,
         default_extra_args: list[str] | None = None,
+        default_interrupt_reason_provider=None,
+        default_watchdog_soft_idle_seconds: int = 0,
+        default_watchdog_hard_idle_seconds: int = 0,
         before_exec=None,
         event_callback=None,
     ) -> None:
@@ -165,10 +186,19 @@ class CodexRunnerBackend:
             default_extra_args=default_extra_args,
             before_exec=before_exec,
         )
+        self._default_interrupt_reason_provider = default_interrupt_reason_provider
+        self._default_watchdog_soft_idle_seconds = max(
+            0, int(default_watchdog_soft_idle_seconds or 0)
+        )
+        self._default_watchdog_hard_idle_seconds = max(
+            0, int(default_watchdog_hard_idle_seconds or 0)
+        )
         # Auth failure flag: set by run_exec() when the codex CLI
         # reports auth-related stderr. Checked by the REPL runner to
         # propagate to the supervisor's stop logic.
         self._auth_failure_detected: bool = False
+        self._usage_lock = threading.Lock()
+        self._thread_usage_totals: dict[str, tuple[int, int, int]] = {}
 
     @property
     def argus_runner(self):
@@ -231,7 +261,7 @@ class CodexRunnerBackend:
                 run_label, argus_result.exit_code,
             )
 
-        return self._translate_result(argus_result)
+        return self._translate_result(argus_result, resume_thread_id=resume_thread_id)
 
     # --- helpers ----------------------------------------------------------
 
@@ -241,6 +271,18 @@ class CodexRunnerBackend:
         # add_dirs, plugin_dirs, etc.). Forward the fields argus-skill
         # exposes; the watchdog hooks are propagated when set so an
         # outer supervisor can interrupt the codex subprocess.
+        interrupt_provider = _compose_interrupt_providers(
+            self._default_interrupt_reason_provider,
+            options.external_interrupt_reason_provider,
+        )
+        soft_idle = (
+            options.watchdog_soft_idle_seconds
+            or self._default_watchdog_soft_idle_seconds
+        )
+        hard_idle = (
+            options.watchdog_hard_idle_seconds
+            or self._default_watchdog_hard_idle_seconds
+        )
         return argus_cls(
             model=options.model,
             reasoning_effort=options.reasoning_effort,
@@ -250,15 +292,24 @@ class CodexRunnerBackend:
             extra_args=list(options.extra_args) if options.extra_args else None,
             working_dir=options.working_dir,
             output_schema_path=options.output_schema_path,
-            external_interrupt_reason_provider=options.external_interrupt_reason_provider,
+            external_interrupt_reason_provider=interrupt_provider,
             inactivity_callback=options.inactivity_callback,
-            watchdog_soft_idle_seconds=options.watchdog_soft_idle_seconds,
-            watchdog_hard_idle_seconds=options.watchdog_hard_idle_seconds,
+            watchdog_soft_idle_seconds=soft_idle,
+            watchdog_hard_idle_seconds=hard_idle,
         )
 
-    def _translate_result(self, argus_result) -> RunnerResult:
-        input_tokens, cached_input_tokens, output_tokens = _sum_token_counts(
+    def _translate_result(
+        self,
+        argus_result,
+        *,
+        resume_thread_id: str | None = None,
+    ) -> RunnerResult:
+        raw_input_tokens, raw_cached_input_tokens, raw_output_tokens = _sum_token_counts(
             getattr(argus_result, "json_events", None)
+        )
+        input_tokens, cached_input_tokens, output_tokens = self._usage_delta_for_thread(
+            thread_id=argus_result.thread_id or resume_thread_id,
+            raw_totals=(raw_input_tokens, raw_cached_input_tokens, raw_output_tokens),
         )
         return RunnerResult(
             exit_code=argus_result.exit_code,
@@ -266,11 +317,44 @@ class CodexRunnerBackend:
             stdout_lines=list(argus_result.stdout_lines or []),
             stderr_lines=list(argus_result.stderr_lines or []),
             thread_id=argus_result.thread_id,
-            fatal_error=argus_result.fatal_error,
+            fatal_error=_normalize_fatal_error(argus_result.fatal_error),
             input_tokens=input_tokens,
             cached_input_tokens=cached_input_tokens,
             output_tokens=output_tokens,
         )
+
+    def _usage_delta_for_thread(
+        self,
+        *,
+        thread_id: str | None,
+        raw_totals: tuple[int, int, int],
+    ) -> tuple[int, int, int]:
+        """Convert Codex lifecycle-cumulative usage into this call's delta."""
+        if not thread_id:
+            return raw_totals
+
+        with self._usage_lock:
+            previous = self._thread_usage_totals.get(thread_id)
+            self._thread_usage_totals[thread_id] = raw_totals
+
+        if previous is None:
+            return raw_totals
+
+        deltas = (
+            raw_totals[0] - previous[0],
+            raw_totals[1] - previous[1],
+            raw_totals[2] - previous[2],
+        )
+        if any(delta < 0 for delta in deltas):
+            log.debug(
+                "codex usage totals decreased; treating current total as fresh delta "
+                "(thread_id=%s, previous=%s, current=%s)",
+                thread_id,
+                previous,
+                raw_totals,
+            )
+            return raw_totals
+        return deltas
 
 
 def _sum_token_counts(events: list[dict[str, Any]] | None) -> tuple[int, int, int]:
@@ -284,16 +368,14 @@ def _sum_token_counts(events: list[dict[str, Any]] | None) -> tuple[int, int, in
 
         {"type": "msg", "content": {..., "input_tokens": ...}}
 
-    We pick the last non-zero ``input_tokens`` / ``cached_input_tokens`` /
-    ``output_tokens`` triple rather than summing — codex emits running
-    totals, not per-event deltas. If the run produced no countable events
-    we return (0, 0, 0).
+    We pick the complete tuple from the final token-bearing event rather
+    than summing — codex emits running totals, not per-event deltas. Zero
+    is a valid value in that final tuple (for example, no cached input).
+    If the run produced no countable events we return (0, 0, 0).
     """
     if not events:
         return 0, 0, 0
-    last_in = 0
-    last_cached = 0
-    last_out = 0
+    last: tuple[int, int, int] = (0, 0, 0)
     for event in events:
         if not isinstance(event, dict):
             continue
@@ -324,13 +406,27 @@ def _sum_token_counts(events: list[dict[str, Any]] | None) -> tuple[int, int, in
                     cached_tok = _coerce_int(content.get("cached_input_tokens"))
                 if out_tok == 0:
                     out_tok = _coerce_int(content.get("output_tokens"))
-        if in_tok > 0:
-            last_in = in_tok
-        if cached_tok > 0:
-            last_cached = cached_tok
-        if out_tok > 0:
-            last_out = out_tok
-    return last_in, last_cached, last_out
+        if in_tok > 0 or cached_tok > 0 or out_tok > 0:
+            last = (in_tok, cached_tok, out_tok)
+    return last
+
+
+def _normalize_fatal_error(fatal_error: str | None) -> str | None:
+    if _looks_like_recoverable_reconnect(fatal_error):
+        return None
+    return fatal_error
+
+
+def _looks_like_recoverable_reconnect(fatal_error: str | None) -> bool:
+    if not fatal_error:
+        return False
+    low = str(fatal_error).strip().casefold()
+    match = _RECOVERABLE_RECONNECT_RE.search(low)
+    if not match:
+        return False
+    attempt = int(match.group(1))
+    limit = int(match.group(2))
+    return attempt < limit
 
 
 def _coerce_int(value: Any) -> int:
@@ -344,6 +440,23 @@ def _coerce_int(value: Any) -> int:
         except ValueError:
             return 0
     return 0
+
+
+def _compose_interrupt_providers(*providers):
+    active = [provider for provider in providers if provider is not None]
+    if not active:
+        return None
+    if len(active) == 1:
+        return active[0]
+
+    def _provider() -> str | None:
+        for provider in active:
+            reason = provider()
+            if reason:
+                return str(reason)
+        return None
+
+    return _provider
 
 
 # --- Convenience factory ---------------------------------------------------
@@ -360,6 +473,10 @@ def build_codex_backend_from_env() -> CodexRunnerBackend:
       * ``ARGUS_SKILL_RUNNER_EXTRA_ARGS`` — space-separated default args
         appended to every command (use shell-style quoting at your own
         risk; we use ``shlex.split``).
+      * ``ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS`` — stdout/stderr soft-idle
+        threshold, default disabled.
+      * ``ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS`` — stdout/stderr hard-idle
+        threshold, default 900s.
     """
     import shlex
 
@@ -371,6 +488,14 @@ def build_codex_backend_from_env() -> CodexRunnerBackend:
         backend=backend,
         runner_bin=runner_bin,
         default_extra_args=extra,
+        default_watchdog_soft_idle_seconds=_env_int(
+            _RUNNER_SOFT_IDLE_ENV,
+            _RUNNER_DEFAULT_SOFT_IDLE_SECONDS,
+        ),
+        default_watchdog_hard_idle_seconds=_env_int(
+            _RUNNER_HARD_IDLE_ENV,
+            _RUNNER_DEFAULT_HARD_IDLE_SECONDS,
+        ),
     )
 
 

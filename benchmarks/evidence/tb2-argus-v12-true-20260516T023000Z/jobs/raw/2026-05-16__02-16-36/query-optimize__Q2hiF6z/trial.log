@@ -1,0 +1,4 @@
+Skipping image OS validation for alexgshaw/query-optimize:20251031: docker inspect returned 1
+Trial query-optimize__Q2hiF6z failed: Docker compose command failed for environment query-optimize. Command: docker compose --project-name query-optimize__q2hif6z --project-directory /home/argustest/.cache/harbor/tasks/55spjFHXbhXqhkHUB3xfBL/query-optimize/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+. Stderr: None. 

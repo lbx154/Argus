@@ -274,7 +274,7 @@ def test_memory_bundle_init_creates_both(
     assert bundle.init()["global"] == {"identity": False, "journal": False}
 
 
-def test_memory_bundle_render_prelude_combines_sources(
+def test_memory_bundle_render_prelude_excludes_cross_project_journal(
     isolated_home: Path, tmp_path: Path
 ) -> None:
     bundle = MemoryBundle.for_cwd(tmp_path)
@@ -300,10 +300,37 @@ def test_memory_bundle_render_prelude_combines_sources(
     assert "Identity" in rendered
     assert "Project card" in rendered
     assert "this project" in rendered
-    # Project hits come BEFORE global hits.
-    project_pos = rendered.find("local postgres migration")
-    global_pos = rendered.find("cross-project postgres")
-    assert 0 <= project_pos < global_pos
+    assert "local postgres migration" in rendered
+    assert "cross-project postgres" not in rendered
+    assert "other projects" not in rendered
+
+
+def test_memory_bundle_journal_reads_are_project_scoped(
+    isolated_home: Path, tmp_path: Path
+) -> None:
+    bundle = MemoryBundle.for_cwd(tmp_path)
+    bundle.init()
+    bundle.global_mem.journal.append(
+        JournalEntry.new(
+            kind="mission_complete", title="global old", summary="wrong repo"
+        )
+    )
+
+    local = JournalEntry.new(
+        kind="mission_complete",
+        title="local new",
+        summary="right repo",
+        cost_usd=0.25,
+    )
+    bundle.journal.append(local)
+
+    assert [entry.title for entry in bundle.journal.all()] == ["local new"]
+    assert [entry.title for entry in bundle.journal.tail(5)] == ["local new"]
+    assert bundle.journal.path == bundle.project.memory.path
+    assert bundle.journal.total_cost_since(0) == pytest.approx(0.25)
+
+    global_titles = [entry.title for entry in bundle.global_mem.journal.tail(5)]
+    assert global_titles == ["global old", "local new"]
 
 
 def test_memory_bundle_render_prelude_empty_when_nothing_relevant(
@@ -365,6 +392,9 @@ def test_cli_status_and_prelude_are_project_scoped(
     bundle_b.project.memory.append(
         JournalEntry.new(kind="note", title="beta memory", summary="beta only")
     )
+    bundle_a.global_mem.journal.append(
+        JournalEntry.new(kind="note", title="global memory", summary="wrong workspace")
+    )
     bundle_a.backlog.add(BacklogItem.new(title="alpha backlog", objective="alpha"))
     bundle_b.backlog.add(BacklogItem.new(title="beta backlog", objective="beta"))
 
@@ -376,8 +406,10 @@ def test_cli_status_and_prelude_are_project_scoped(
     prelude_b = bundle_b.render_prelude(objective="beta objective")
     assert "Alpha project card" in prelude_a
     assert "alpha memory" in prelude_a
+    assert "beta memory" not in prelude_a
     assert "Beta project card" in prelude_b
     assert "beta memory" in prelude_b
+    assert "alpha memory" not in prelude_b
 
     monkeypatch.setattr(
         "argus_skill.daemon.life_worker.read_daemon_status",
@@ -395,9 +427,15 @@ def test_cli_status_and_prelude_are_project_scoped(
     out_a = capsys.readouterr().out
     assert rc_a == 0
     assert str(bundle_a.project.root) in out_a
+    assert "alpha only" in out_a
+    assert "beta only" not in out_a
+    assert "wrong workspace" not in out_a
 
     monkeypatch.chdir(repo_b)
     rc_b = main(["--status"])
     out_b = capsys.readouterr().out
     assert rc_b == 0
     assert str(bundle_b.project.root) in out_b
+    assert "beta only" in out_b
+    assert "alpha only" not in out_b
+    assert "wrong workspace" not in out_b

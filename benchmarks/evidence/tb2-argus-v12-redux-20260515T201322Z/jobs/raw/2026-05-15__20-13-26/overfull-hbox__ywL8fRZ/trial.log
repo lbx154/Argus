@@ -1,0 +1,217 @@
+Skipping image OS validation for alexgshaw/overfull-hbox:20251031: docker inspect returned 1
+Trial overfull-hbox__ywL8fRZ failed: Docker compose command failed for environment overfull-hbox. Command: docker compose --project-name overfull-hbox__ywl8frz --project-directory /home/argustest/.cache/harbor/tasks/ca36CXF7yAdWnRdpyfoihT/overfull-hbox/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+ 6428d45056b3 Pulling fs layer 
+ fc5170bb45f0 Pulling fs layer 
+ 26606e7b332b Pulling fs layer 
+ 63089ce69763 Pulling fs layer 
+ fc5170bb45f0 Downloading [=========>                                         ]  19.92MB/102.1MB
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 63089ce69763 Downloading [==================================================>]  2.711kB/2.711kB
+ 63089ce69763 Downloading [==================================================>]  2.711kB/2.711kB
+ fc5170bb45f0 Downloading [=====================>                             ]  43.08MB/102.1MB
+ 6428d45056b3 Download complete 
+ 26606e7b332b Download complete 
+ 63089ce69763 Download complete 
+ fc5170bb45f0 Downloading [=======================>                           ]  48.23MB/102.1MB
+ fc5170bb45f0 Downloading [=======================>                           ]  48.23MB/102.1MB
+ fc5170bb45f0 Downloading [==============================>                    ]  62.91MB/102.1MB
+ fc5170bb45f0 Downloading [===============================>                   ]  65.01MB/102.1MB
+ fc5170bb45f0 Downloading [======================================>            ]  78.64MB/102.1MB
+ fc5170bb45f0 Downloading [=========================================>         ]  84.93MB/102.1MB
+ fc5170bb45f0 Downloading [============================================>      ]  90.18MB/102.1MB
+ fc5170bb45f0 Downloading [============================================>      ]  90.18MB/102.1MB
+ fc5170bb45f0 Downloading [==============================================>    ]  95.42MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Download complete 
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Extracting 7 s
+ fc5170bb45f0 Extracting 7 s
+ fc5170bb45f0 Extracting 7 s
+ fc5170bb45f0 Extracting 7 s
+ fc5170bb45f0 Extracting 7 s
+ fc5170bb45f0 Extracting 7 s
+ fc5170bb45f0 Extracting 7 s
+ fc5170bb45f0 Extracting 7 s
+ fc5170bb45f0 Extracting 7 s
+ fc5170bb45f0 Extracting 7 s
+ fc5170bb45f0 Extracting 8 s
+ fc5170bb45f0 Extracting 8 s
+ fc5170bb45f0 Extracting 8 s
+ fc5170bb45f0 Extracting 8 s
+ fc5170bb45f0 Extracting 8 s
+ fc5170bb45f0 Extracting 8 s
+ fc5170bb45f0 Extracting 8 s
+ fc5170bb45f0 Extracting 8 s
+ fc5170bb45f0 Extracting 8 s
+ fc5170bb45f0 Extracting 8 s
+ fc5170bb45f0 Extracting 8 s
+ fc5170bb45f0 Extracting 9 s
+ fc5170bb45f0 Extracting 9 s
+ fc5170bb45f0 Extracting 9 s
+ fc5170bb45f0 Extracting 9 s
+ fc5170bb45f0 Extracting 9 s
+ fc5170bb45f0 Extracting 9 s
+ fc5170bb45f0 Extracting 9 s
+ fc5170bb45f0 Extracting 9 s
+ fc5170bb45f0 Extracting 9 s
+ fc5170bb45f0 Extracting 10 s
+ fc5170bb45f0 Extracting 10 s
+ fc5170bb45f0 Extracting 10 s
+ fc5170bb45f0 Extracting 10 s
+ fc5170bb45f0 Extracting 10 s
+ fc5170bb45f0 Extracting 10 s
+ fc5170bb45f0 Extracting 10 s
+ fc5170bb45f0 Extracting 10 s
+ fc5170bb45f0 Extracting 10 s
+ fc5170bb45f0 Extracting 10 s
+ fc5170bb45f0 Extracting 11 s
+ fc5170bb45f0 Extracting 11 s
+ fc5170bb45f0 Extracting 11 s
+ fc5170bb45f0 Extracting 11 s
+ fc5170bb45f0 Extracting 11 s
+ fc5170bb45f0 Extracting 11 s
+ fc5170bb45f0 Extracting 11 s
+ fc5170bb45f0 Extracting 11 s
+ fc5170bb45f0 Extracting 11 s
+ fc5170bb45f0 Extracting 11 s
+ fc5170bb45f0 Extracting 12 s
+ fc5170bb45f0 Extracting 12 s
+ fc5170bb45f0 Extracting 12 s
+ fc5170bb45f0 Extracting 12 s
+ fc5170bb45f0 Extracting 12 s
+ fc5170bb45f0 Extracting 12 s
+ fc5170bb45f0 Extracting 12 s
+ fc5170bb45f0 Extracting 12 s
+ fc5170bb45f0 Extracting 12 s
+ fc5170bb45f0 Extracting 12 s
+ fc5170bb45f0 Extracting 13 s
+ fc5170bb45f0 Extracting 13 s
+ fc5170bb45f0 Extracting 13 s
+ fc5170bb45f0 Extracting 13 s
+ fc5170bb45f0 Extracting 13 s
+ fc5170bb45f0 Extracting 13 s
+ fc5170bb45f0 Extracting 13 s
+ fc5170bb45f0 Extracting 13 s
+ fc5170bb45f0 Extracting 13 s
+ fc5170bb45f0 Extracting 13 s
+ fc5170bb45f0 Extracting 14 s
+ fc5170bb45f0 Extracting 14 s
+ fc5170bb45f0 Extracting 14 s
+ fc5170bb45f0 Extracting 14 s
+ fc5170bb45f0 Extracting 14 s
+ fc5170bb45f0 Extracting 14 s
+ fc5170bb45f0 Extracting 14 s
+ fc5170bb45f0 Extracting 14 s
+ fc5170bb45f0 Extracting 14 s
+ fc5170bb45f0 Extracting 14 s
+ fc5170bb45f0 Extracting 15 s
+ fc5170bb45f0 Extracting 15 s
+ fc5170bb45f0 Extracting 15 s
+ fc5170bb45f0 Extracting 15 s
+ fc5170bb45f0 Extracting 15 s
+ fc5170bb45f0 Extracting 15 s
+ fc5170bb45f0 Extracting 15 s
+ fc5170bb45f0 Extracting 15 s
+ fc5170bb45f0 Extracting 15 s
+ fc5170bb45f0 Extracting 15 s
+ fc5170bb45f0 Extracting 16 s
+ fc5170bb45f0 Extracting 16 s
+ fc5170bb45f0 Extracting 16 s
+ fc5170bb45f0 Extracting 16 s
+ fc5170bb45f0 Extracting 16 s
+ fc5170bb45f0 Extracting 16 s
+ fc5170bb45f0 Extracting 16 s
+ fc5170bb45f0 Extracting 16 s
+ fc5170bb45f0 Extracting 16 s
+ fc5170bb45f0 Extracting 16 s
+ fc5170bb45f0 Extracting 17 s
+ fc5170bb45f0 Extracting 17 s
+ fc5170bb45f0 Extracting 17 s
+ fc5170bb45f0 Extracting 17 s
+ fc5170bb45f0 Extracting 17 s
+ fc5170bb45f0 Extracting 17 s
+ fc5170bb45f0 Extracting 18 s
+ fc5170bb45f0 Extracting 18 s
+ fc5170bb45f0 Extracting 18 s
+ fc5170bb45f0 Extracting 18 s
+ fc5170bb45f0 Extracting 18 s
+ fc5170bb45f0 Extracting 18 s
+ fc5170bb45f0 Extracting 18 s
+ fc5170bb45f0 Extracting 18 s
+ fc5170bb45f0 Pull complete 
+ 26606e7b332b Pull complete 
+ 63089ce69763 Extracting 1 s
+ 63089ce69763 Pull complete 
+ 6428d45056b3 Extracting 1 s
+ 6428d45056b3 Pull complete 
+ main Pulled 
+ Network overfull-hbox__ywl8frz_default  Creating
+ Network overfull-hbox__ywl8frz_default  Error
+failed to create network overfull-hbox__ywl8frz_default: Error response from daemon: all predefined address pools have been fully subnetted
+. Stderr: None. 

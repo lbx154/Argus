@@ -1,0 +1,4 @@
+Skipping image OS validation for alexgshaw/tune-mjcf:20251031: docker inspect returned 1
+Trial tune-mjcf__RVCdYRB failed: Docker compose command failed for environment tune-mjcf. Command: docker compose --project-name tune-mjcf__rvcdyrb --project-directory /home/argustest/.cache/harbor/tasks/jWu5FXBKfqdBD9LqMa9a2N/tune-mjcf/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+. Stderr: None. 

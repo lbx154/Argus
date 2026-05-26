@@ -1,0 +1,80 @@
+{
+    "schema_version": 1,
+    "created_at": "2026-05-15T23:55:39.308303Z",
+    "harbor": {
+        "version": "0.6.3",
+        "is_editable": false
+    },
+    "invocation": [
+        "/home/argustest/miniconda3/bin/harbor",
+        "run",
+        "--dataset",
+        "terminal-bench@2.0",
+        "--agent-import-path",
+        "benchmarks.harbor_adapter:ArgusSkillCodex",
+        "--model",
+        "openai/gpt-5.4-mini",
+        "--ak",
+        "reasoning_effort=high",
+        "--include-task-name",
+        "cancel-async-tasks",
+        "--n-tasks",
+        "1",
+        "--n-concurrent",
+        "1",
+        "--agent-setup-timeout-multiplier",
+        "3",
+        "--jobs-dir",
+        "/home/argustest/argus-skill/experiments/tb2-harbor-smoke-20260515T235537Z/jobs",
+        "-y"
+    ],
+    "n_concurrent_trials": 1,
+    "retry": {
+        "max_retries": 0,
+        "exclude_exceptions": [
+            "AgentTimeoutError",
+            "VerifierOutputParseError",
+            "RewardFileNotFoundError",
+            "RewardFileEmptyError",
+            "VerifierTimeoutError"
+        ],
+        "wait_multiplier": 1.0,
+        "min_wait_sec": 1.0,
+        "max_wait_sec": 60.0
+    },
+    "trials": [
+        {
+            "task": {
+                "name": "cancel-async-tasks",
+                "type": "git",
+                "digest": "sha256:5da010fd0c9de4897fb01a099cd2711442cf616769db51e7bd0d526fe0112180",
+                "source": "terminal-bench",
+                "path": "cancel-async-tasks",
+                "git_url": "https://github.com/laude-institute/terminal-bench-2.git",
+                "git_commit_id": "69671fbaac6d67a7ef0dfec016cc38a64ef7a77c"
+            },
+            "timeout_multiplier": 1.0,
+            "agent_setup_timeout_multiplier": 3.0,
+            "agent": {
+                "import_path": "benchmarks.harbor_adapter:ArgusSkillCodex",
+                "model_name": "openai/gpt-5.4-mini",
+                "kwargs": {
+                    "reasoning_effort": "high"
+                },
+                "env": {}
+            },
+            "environment": {
+                "type": "docker",
+                "force_build": false,
+                "delete": true,
+                "suppress_override_warnings": false,
+                "env": {},
+                "kwargs": {}
+            },
+            "verifier": {
+                "env": {},
+                "disable": false
+            }
+        }
+    ]
+}

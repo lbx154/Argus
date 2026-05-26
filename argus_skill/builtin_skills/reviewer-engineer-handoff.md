@@ -37,5 +37,5 @@ Keep the handoff concise. Avoid copying stack traces or long output blocks unles
 When validation concerns an auto-research paper:
 
 - For Figure 1, teaser, overall, method overview, framework, architecture, pipeline, or schematic failures, require the paper body to include the real image-generation raster output, usually a `.png`, `.jpg`, or `.jpeg` listed in `paper/figures/IMAGE2_FIGURES.json`.
-- Explicitly reject self-drawn overview substitutes: matplotlib, FancyBboxPatch, TikZ/manual vector redraws, SVG/PIL/HTML canvas output, screenshots, cleaned PDFs, generic raster mockups, or other non-image-2 replacements.
+- Explicitly reject self-drawn overview substitutes: matplotlib, FancyBboxPatch, TikZ/manual vector redraws, SVG/PIL/HTML canvas output, screenshots, cleaned PDFs, generic raster mockups, hand-written `codex-image2` manifests without raw generation sidecars, manual-only image reviews, or other non-image-2 replacements.
 - Tell the engineer to update `paper/main.tex` and any figure-generation scripts so the body uses the image-2 artifact directly. If visual quality is the problem, instruct the engineer to write a stronger image-2 prompt and regenerate/select/review image-2 attempts, not to redraw the figure locally. Then rerun `python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`.

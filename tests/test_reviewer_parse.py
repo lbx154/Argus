@@ -3,7 +3,13 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.engineer.reviewer import parse_decision_text
+from argus_skill.core.models import CheckResult
+from argus_skill.engineer.reviewer import Reviewer, parse_decision_text
+
+
+class _UnusedRunner:
+    def run_exec(self, **kwargs):  # noqa: ANN003
+        raise AssertionError("prompt construction test should not invoke runner")
 
 
 def test_parse_clean_json() -> None:
@@ -81,3 +87,34 @@ def test_parse_rejects_out_of_range_confidence() -> None:
         "completion_summary_markdown": "",
     })
     assert parse_decision_text(payload) is None
+
+
+def test_reviewer_prompt_teaches_handoff_and_marks_checks_as_reviewer_only() -> None:
+    reviewer = Reviewer(_UnusedRunner())
+    prompt = reviewer._build_prompt(
+        objective="final_submission paper",
+        operator_messages=[],
+        planner_review_instruction="",
+        round_index=1,
+        session_id=None,
+        main_summary="engineer claims success",
+        main_error=None,
+        checks=[
+            CheckResult(
+                command="python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .",
+                exit_code=1,
+                passed=False,
+                output_tail=(
+                    "image2_conceptual_figure_not_included_in_main_tex "
+                    "paper/main.tex paper/figures/method.png"
+                ),
+            )
+        ],
+    )
+
+    assert "Reviewer-to-engineer handoff skill:" in prompt
+    assert "Treat validation output as reviewer-only evidence" in prompt
+    assert "gpt-5.4-mini" in prompt
+    assert "Acceptance check results (reviewer-only evidence" in prompt
+    assert "summarize into `next_action`, do not paste raw output wholesale" in prompt
+    assert "image2_conceptual_figure_not_included_in_main_tex" in prompt

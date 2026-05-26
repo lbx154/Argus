@@ -1,0 +1,107 @@
+{
+  "agent_execution": {
+    "finished_at": "2026-05-16T02:20:45.105616Z",
+    "started_at": "2026-05-16T02:16:54.629305Z"
+  },
+  "agent_info": {
+    "model_info": {
+      "name": "gpt-5.4-mini",
+      "provider": "openai"
+    },
+    "name": "argus-skill-codex",
+    "version": "0.130.0"
+  },
+  "agent_result": {
+    "cost_usd": 0.13473285000000002,
+    "metadata": null,
+    "n_cache_tokens": 51328,
+    "n_input_tokens": 117467,
+    "n_output_tokens": 18062,
+    "rollout_details": null
+  },
+  "agent_setup": {
+    "finished_at": "2026-05-16T02:16:54.629223Z",
+    "started_at": "2026-05-16T02:16:39.840021Z"
+  },
+  "config": {
+    "agent": {
+      "env": {},
+      "import_path": "benchmarks.harbor_adapter:ArgusSkillCodex",
+      "kwargs": {
+        "reasoning_effort": "high"
+      },
+      "max_timeout_sec": null,
+      "model_name": "openai/gpt-5.4-mini",
+      "name": null,
+      "override_setup_timeout_sec": null,
+      "override_timeout_sec": null
+    },
+    "agent_setup_timeout_multiplier": 3.0,
+    "agent_timeout_multiplier": null,
+    "artifacts": [],
+    "environment": {
+      "delete": true,
+      "env": {},
+      "force_build": false,
+      "import_path": null,
+      "kwargs": {},
+      "mounts_json": null,
+      "override_cpus": null,
+      "override_gpus": null,
+      "override_memory_mb": null,
+      "override_storage_mb": null,
+      "suppress_override_warnings": false,
+      "type": "docker"
+    },
+    "environment_build_timeout_multiplier": null,
+    "job_id": "57f31fc2-8f18-41cc-bd36-12fa04a50057",
+    "task": {
+      "download_dir": null,
+      "git_commit_id": "69671fbaac6d67a7ef0dfec016cc38a64ef7a77c",
+      "git_url": "https://github.com/laude-institute/terminal-bench-2.git",
+      "name": null,
+      "overwrite": false,
+      "path": "llm-inference-batching-scheduler",
+      "ref": null,
+      "source": "terminal-bench"
+    },
+    "timeout_multiplier": 1.0,
+    "trial_name": "llm-inference-batching-scheduler__DBxd9qM",
+    "trials_dir": "/home/argustest/argus-skill/experiments/tb2-argus-v12-true-20260516T023000Z/jobs/2026-05-16__02-16-36",
+    "verifier": {
+      "disable": false,
+      "env": {},
+      "max_timeout_sec": null,
+      "override_timeout_sec": null
+    },
+    "verifier_timeout_multiplier": null
+  },
+  "environment_setup": {
+    "finished_at": "2026-05-16T02:16:39.839993Z",
+    "started_at": "2026-05-16T02:16:38.473486Z"
+  },
+  "exception_info": null,
+  "finished_at": "2026-05-16T02:20:59.763804Z",
+  "id": "d0f61973-0a50-49d3-9a24-74af12b26a3e",
+  "source": "terminal-bench",
+  "started_at": "2026-05-16T02:16:38.411066Z",
+  "step_results": null,
+  "task_checksum": "3a08e63e0643ea5914eedeecb08cb93a1f0a10b9dc7d19d1f570004af84531c8",
+  "task_id": {
+    "git_commit_id": "69671fbaac6d67a7ef0dfec016cc38a64ef7a77c",
+    "git_url": "https://github.com/laude-institute/terminal-bench-2.git",
+    "path": "llm-inference-batching-scheduler"
+  },
+  "task_name": "llm-inference-batching-scheduler",
+  "trial_name": "llm-inference-batching-scheduler__DBxd9qM",
+  "trial_uri": "file:///home/argustest/argus-skill/experiments/tb2-argus-v12-true-20260516T023000Z/jobs/2026-05-16__02-16-36/llm-inference-batching-scheduler__DBxd9qM",
+  "verifier": {
+    "finished_at": "2026-05-16T02:20:48.516152Z",
+    "started_at": "2026-05-16T02:20:45.210426Z"
+  },
+  "verifier_result": {
+    "rewards": {
+      "reward": 0.0
+    }
+  }
+}

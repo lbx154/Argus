@@ -1,0 +1,9 @@
+Container: tb2-codex-cancel-async-tasks-20260515143528-3448301
+Date: 2026-05-15T14:37:48Z
+Checks:
+- concurrency limit respected
+- parent cancellation waits for in-flight task cleanup
+- task failure cancels sibling workers and waits for cleanup
+- invalid max_concurrent raises ValueError
+- SIGINT via asyncio.run propagates KeyboardInterrupt after cleanup
+Result: all checks passed

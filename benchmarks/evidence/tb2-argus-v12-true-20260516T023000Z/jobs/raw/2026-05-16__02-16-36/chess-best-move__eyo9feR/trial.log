@@ -1,0 +1,4 @@
+Skipping image OS validation for alexgshaw/chess-best-move:20251031: docker inspect returned 1
+Trial chess-best-move__eyo9feR failed: Docker compose command failed for environment chess-best-move. Command: docker compose --project-name chess-best-move__eyo9fer --project-directory /home/argustest/.cache/harbor/tasks/7bFmFkDrFkAzWEnmNWFgw9/chess-best-move/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+. Stderr: None. 

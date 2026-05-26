@@ -24,6 +24,33 @@ class _RecordingRunner:
         )
 
 
+class _ScriptedRunner:
+    def __init__(self, results: list[RunnerResult]) -> None:
+        self._results = list(results)
+        self.calls: list[dict[str, Any]] = []
+        self.config = SimpleNamespace(skill_name=None)
+
+    def run_exec(self, **kwargs) -> RunnerResult:
+        self.calls.append(kwargs)
+        return self._results.pop(0)
+
+
+class _DoneReviewer:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def evaluate(self, **kwargs) -> ReviewDecision:
+        self.calls.append(kwargs)
+        return ReviewDecision(
+            status="done",
+            confidence=0.99,
+            reason="clean",
+            next_action="stop",
+            round_summary_markdown="checks passed",
+            completion_summary_markdown="done",
+        )
+
+
 class _ChecksAwareReviewer:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
@@ -145,3 +172,81 @@ def test_round_two_receives_previous_review_summary() -> None:
     assert len(reviewer.calls) == 2
     assert reviewer.calls[0]["prev_review_summary"] == ""
     assert reviewer.calls[1]["prev_review_summary"] == "# round one summary"
+
+
+def test_mission_engine_backend_failure_skips_reviewer_and_retries_fresh() -> None:
+    runner = _ScriptedRunner([
+        RunnerResult(
+            exit_code=0,
+            thread_id="poison-thread",
+            fatal_error="stream disconnected before completion: response.failed event received",
+        ),
+        RunnerResult(
+            exit_code=0,
+            agent_messages=["recovered"],
+            thread_id="healthy-thread",
+        ),
+    ])
+    reviewer = _DoneReviewer()
+    events: list[dict[str, Any]] = []
+    engine = MissionLoopEngine(
+        runner=runner,
+        reviewer=reviewer,
+        planner=None,
+        config=MissionLoopConfig(
+            objective="demo",
+            max_rounds=2,
+            mission_id="mission-1",
+            backend_failure_backoff_seconds=0,
+        ),
+        state_store=object(),
+        event_sink=events.append,
+    )
+
+    result = engine.run()
+
+    assert result.status == "done"
+    assert result.last_thread_id == "healthy-thread"
+    assert len(reviewer.calls) == 1
+    assert runner.calls[0]["resume_thread_id"] is None
+    assert runner.calls[1]["resume_thread_id"] is None
+    skipped = [event for event in events if event.get("review_skipped")]
+    assert len(skipped) == 1
+    assert skipped[0]["status"] == "continue"
+
+
+def test_mission_engine_repeated_backend_failures_escalate_to_error() -> None:
+    runner = _ScriptedRunner([
+        RunnerResult(
+            exit_code=0,
+            thread_id="bad-1",
+            fatal_error="429 Too Many Requests",
+        ),
+        RunnerResult(
+            exit_code=0,
+            thread_id="bad-2",
+            fatal_error="stream disconnected before completion: response.failed event received",
+        ),
+    ])
+    reviewer = _DoneReviewer()
+    engine = MissionLoopEngine(
+        runner=runner,
+        reviewer=reviewer,
+        planner=None,
+        config=MissionLoopConfig(
+            objective="demo",
+            max_rounds=3,
+            mission_id="mission-1",
+            backend_failure_threshold=2,
+            backend_failure_backoff_seconds=0,
+        ),
+        state_store=object(),
+    )
+
+    result = engine.run()
+
+    assert result.status == "error"
+    assert len(result.rounds) == 2
+    assert reviewer.calls == []
+    assert result.last_thread_id is None
+    assert "backend_failure_streak=2/2" in result.reason

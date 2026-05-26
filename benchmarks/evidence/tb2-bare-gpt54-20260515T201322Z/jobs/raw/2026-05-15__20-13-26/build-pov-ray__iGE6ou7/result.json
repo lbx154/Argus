@@ -1,0 +1,104 @@
+{
+    "id": "c862a481-44ea-4be7-a9fe-76f0e809ab8d",
+    "task_name": "build-pov-ray",
+    "trial_name": "build-pov-ray__iGE6ou7",
+    "trial_uri": "file:///home/argustest/argus-skill/experiments/tb2-bare-gpt54-20260515T201322Z/jobs/2026-05-15__20-13-26/build-pov-ray__iGE6ou7",
+    "task_id": {
+        "git_url": "https://github.com/laude-institute/terminal-bench-2.git",
+        "git_commit_id": "69671fbaac6d67a7ef0dfec016cc38a64ef7a77c",
+        "path": "build-pov-ray"
+    },
+    "source": "terminal-bench",
+    "task_checksum": "faca0987c8afa99023a8952f31da77a9017ed01ca04de9fee03b7d3fb1d92e26",
+    "config": {
+        "task": {
+            "path": "build-pov-ray",
+            "git_url": "https://github.com/laude-institute/terminal-bench-2.git",
+            "git_commit_id": "69671fbaac6d67a7ef0dfec016cc38a64ef7a77c",
+            "name": null,
+            "ref": null,
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench"
+        },
+        "trial_name": "build-pov-ray__iGE6ou7",
+        "trials_dir": "/home/argustest/argus-skill/experiments/tb2-bare-gpt54-20260515T201322Z/jobs/2026-05-15__20-13-26",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": 3.0,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": "oracle",
+            "import_path": null,
+            "model_name": null,
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "kwargs": {
+                "reasoning_effort": "high"
+            },
+            "env": {}
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "suppress_override_warnings": false,
+            "mounts_json": null,
+            "env": {},
+            "kwargs": {}
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "job_id": "255c1902-7f3d-4a2c-854e-6a4b1f6d3455"
+    },
+    "agent_info": {
+        "name": "oracle",
+        "version": "1.0.0",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-05-15T20:28:49.794350Z",
+    "finished_at": "2026-05-15T20:34:19.357749Z",
+    "environment_setup": {
+        "started_at": "2026-05-15T20:28:49.802799Z",
+        "finished_at": "2026-05-15T20:29:30.316820Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-05-15T20:29:30.316834Z",
+        "finished_at": "2026-05-15T20:29:30.316861Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-05-15T20:29:30.316900Z",
+        "finished_at": "2026-05-15T20:32:06.957613Z"
+    },
+    "verifier": {
+        "started_at": "2026-05-15T20:32:07.057678Z",
+        "finished_at": "2026-05-15T20:33:05.641659Z"
+    },
+    "step_results": null
+}

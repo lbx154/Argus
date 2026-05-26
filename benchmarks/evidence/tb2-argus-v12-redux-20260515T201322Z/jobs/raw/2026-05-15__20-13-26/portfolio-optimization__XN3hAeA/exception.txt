@@ -1,0 +1,267 @@
+Traceback (most recent call last):
+  File "/home/argustest/miniconda3/lib/python3.13/site-packages/harbor/trial/trial.py", line 951, in run
+    await self._setup_environment()
+  File "/home/argustest/miniconda3/lib/python3.13/site-packages/harbor/trial/trial.py", line 313, in _setup_environment
+    await self._start_environment_with_retry()
+  File "/home/argustest/miniconda3/lib/python3.13/site-packages/tenacity/asyncio/__init__.py", line 193, in async_wrapped
+    return await copy(fn, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/argustest/miniconda3/lib/python3.13/site-packages/tenacity/asyncio/__init__.py", line 112, in __call__
+    do = await self.iter(retry_state=retry_state)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/argustest/miniconda3/lib/python3.13/site-packages/tenacity/asyncio/__init__.py", line 157, in iter
+    result = await action(retry_state)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/argustest/miniconda3/lib/python3.13/site-packages/tenacity/_utils.py", line 111, in inner
+    return call(*args, **kwargs)
+  File "/home/argustest/miniconda3/lib/python3.13/site-packages/tenacity/__init__.py", line 393, in <lambda>
+    self._add_action_func(lambda rs: rs.outcome.result())
+                                     ~~~~~~~~~~~~~~~~~^^
+  File "/home/argustest/miniconda3/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/home/argustest/miniconda3/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/argustest/miniconda3/lib/python3.13/site-packages/tenacity/asyncio/__init__.py", line 116, in __call__
+    result = await fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/argustest/miniconda3/lib/python3.13/site-packages/harbor/trial/trial.py", line 325, in _start_environment_with_retry
+    await asyncio.wait_for(
+    ...<4 lines>...
+    )
+  File "/home/argustest/miniconda3/lib/python3.13/asyncio/tasks.py", line 507, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "/home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker.py", line 495, in start
+    await self._run_docker_compose_command(["up", "--detach", "--wait"])
+  File "/home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker.py", line 382, in _run_docker_compose_command
+    raise RuntimeError(
+    ...<5 lines>...
+    )
+RuntimeError: Docker compose command failed for environment portfolio-optimization. Command: docker compose --project-name portfolio-optimization__xn3haea --project-directory /home/argustest/.cache/harbor/tasks/79ekQLXanbbMZMfTk3qzaF/portfolio-optimization/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+ f1f25d74b21d Pulling fs layer 
+ c88bc3cf9742 Pulling fs layer 
+ b29e92f2c753 Pulling fs layer 
+ 51c6bc14821b Pulling fs layer 
+ f5a21cbba373 Pulling fs layer 
+ 540a3b0fcf30 Pulling fs layer 
+ d14d2dd4b4ab Pulling fs layer 
+ c88bc3cf9742 Downloading [==================================================>]  1.022kB/1.022kB
+ c88bc3cf9742 Downloading [==================================================>]  1.022kB/1.022kB
+ f1f25d74b21d Downloading [==================================================>]   1.45kB/1.45kB
+ f5a21cbba373 Downloading [===============>                                   ]  8.389MB/26.65MB
+ c88bc3cf9742 Downloading [==================================================>]  1.022kB/1.022kB
+ 540a3b0fcf30 Downloading [==================================================>]     485B/485B
+ b29e92f2c753 Downloading [==================================================>]     844B/844B
+ f1f25d74b21d Downloading [==================================================>]   1.45kB/1.45kB
+ f5a21cbba373 Downloading [==================================================>]  26.65MB/26.65MB
+ c88bc3cf9742 Downloading [==================================================>]  1.022kB/1.022kB
+ b29e92f2c753 Downloading [==================================================>]     844B/844B
+ f1f25d74b21d Downloading [==================================================>]   1.45kB/1.45kB
+ f5a21cbba373 Downloading [==================================================>]  26.65MB/26.65MB
+ c88bc3cf9742 Downloading [==================================================>]  1.022kB/1.022kB
+ 540a3b0fcf30 Downloading [==================================================>]     485B/485B
+ f5a21cbba373 Downloading [==================================================>]  26.65MB/26.65MB
+ c88bc3cf9742 Downloading [==================================================>]  1.022kB/1.022kB
+ 540a3b0fcf30 Downloading [==================================================>]     485B/485B
+ b29e92f2c753 Downloading [==================================================>]     844B/844B
+ f1f25d74b21d Downloading [==================================================>]   1.45kB/1.45kB
+ 540a3b0fcf30 Downloading [==================================================>]     485B/485B
+ b29e92f2c753 Downloading [==================================================>]     844B/844B
+ d14d2dd4b4ab Downloading [==================================================>]     320B/320B
+ f1f25d74b21d Downloading [==================================================>]   1.45kB/1.45kB
+ f5a21cbba373 Downloading [==================================================>]  26.65MB/26.65MB
+ c88bc3cf9742 Downloading [==================================================>]  1.022kB/1.022kB
+ f5a21cbba373 Downloading [==================================================>]  26.65MB/26.65MB
+ c88bc3cf9742 Downloading [==================================================>]  1.022kB/1.022kB
+ 540a3b0fcf30 Downloading [==================================================>]     485B/485B
+ b29e92f2c753 Downloading [==================================================>]     844B/844B
+ d14d2dd4b4ab Downloading [==================================================>]     320B/320B
+ f1f25d74b21d Downloading [==================================================>]   1.45kB/1.45kB
+ f1f25d74b21d Downloading [==================================================>]   1.45kB/1.45kB
+ f5a21cbba373 Downloading [==================================================>]  26.65MB/26.65MB
+ c88bc3cf9742 Downloading [==================================================>]  1.022kB/1.022kB
+ 540a3b0fcf30 Downloading [==================================================>]     485B/485B
+ b29e92f2c753 Downloading [==================================================>]     844B/844B
+ d14d2dd4b4ab Downloading [==================================================>]     320B/320B
+ d14d2dd4b4ab Downloading [==================================================>]     320B/320B
+ f1f25d74b21d Downloading [==================================================>]   1.45kB/1.45kB
+ 51c6bc14821b Downloading [>                                                  ]  2.097MB/125.6MB
+ f5a21cbba373 Downloading [==================================================>]  26.65MB/26.65MB
+ c88bc3cf9742 Downloading [==================================================>]  1.022kB/1.022kB
+ 540a3b0fcf30 Downloading [==================================================>]     485B/485B
+ b29e92f2c753 Downloading [==================================================>]     844B/844B
+ d14d2dd4b4ab Downloading [==================================================>]     320B/320B
+ f1f25d74b21d Download complete 
+ 51c6bc14821b Downloading [===========>                                       ]  28.31MB/125.6MB
+ f5a21cbba373 Downloading [==================================================>]  26.65MB/26.65MB
+ c88bc3cf9742 Download complete 
+ 540a3b0fcf30 Download complete 
+ d14d2dd4b4ab Download complete 
+ 51c6bc14821b Downloading [=================>                                 ]  42.99MB/125.6MB
+ f5a21cbba373 Download complete 
+ b29e92f2c753 Download complete 
+ 51c6bc14821b Downloading [====================>                              ]  50.33MB/125.6MB
+ 51c6bc14821b Downloading [======================>                            ]  57.67MB/125.6MB
+ 51c6bc14821b Downloading [=========================>                         ]  65.01MB/125.6MB
+ 51c6bc14821b Downloading [============================>                      ]  72.35MB/125.6MB
+ 51c6bc14821b Downloading [=============================>                     ]   74.6MB/125.6MB
+ 51c6bc14821b Downloading [================================>                  ]  80.74MB/125.6MB
+ 51c6bc14821b Downloading [=================================>                 ]  84.93MB/125.6MB
+ 51c6bc14821b Downloading [=================================>                 ]  84.93MB/125.6MB
+ 51c6bc14821b Downloading [=================================>                 ]  84.93MB/125.6MB
+ 51c6bc14821b Downloading [===================================>               ]  89.58MB/125.6MB
+ 51c6bc14821b Downloading [=======================================>           ]  99.61MB/125.6MB
+ 51c6bc14821b Downloading [========================================>          ]  101.1MB/125.6MB
+ 51c6bc14821b Downloading [========================================>          ]  101.7MB/125.6MB
+ 51c6bc14821b Downloading [=========================================>         ]  104.9MB/125.6MB
+ 51c6bc14821b Downloading [=========================================>         ]  104.9MB/125.6MB
+ 51c6bc14821b Downloading [==============================================>    ]  116.4MB/125.6MB
+ 51c6bc14821b Downloading [================================================>  ]  122.7MB/125.6MB
+ 51c6bc14821b Downloading [==================================================>]  125.6MB/125.6MB
+ 51c6bc14821b Downloading [==================================================>]  125.6MB/125.6MB
+ 51c6bc14821b Download complete 
+ 51c6bc14821b Extracting 1 s
+ 51c6bc14821b Extracting 1 s
+ 51c6bc14821b Extracting 1 s
+ 51c6bc14821b Extracting 1 s
+ 51c6bc14821b Extracting 1 s
+ 51c6bc14821b Extracting 1 s
+ 51c6bc14821b Extracting 1 s
+ 51c6bc14821b Extracting 1 s
+ 51c6bc14821b Extracting 1 s
+ 51c6bc14821b Extracting 1 s
+ 51c6bc14821b Extracting 2 s
+ 51c6bc14821b Extracting 2 s
+ 51c6bc14821b Extracting 2 s
+ 51c6bc14821b Extracting 2 s
+ 51c6bc14821b Extracting 2 s
+ 51c6bc14821b Extracting 2 s
+ 51c6bc14821b Extracting 2 s
+ 51c6bc14821b Extracting 2 s
+ 51c6bc14821b Extracting 2 s
+ 51c6bc14821b Extracting 2 s
+ 51c6bc14821b Extracting 3 s
+ 51c6bc14821b Extracting 3 s
+ 51c6bc14821b Extracting 3 s
+ 51c6bc14821b Extracting 3 s
+ 51c6bc14821b Extracting 3 s
+ 51c6bc14821b Extracting 3 s
+ 51c6bc14821b Extracting 3 s
+ 51c6bc14821b Extracting 3 s
+ 51c6bc14821b Extracting 3 s
+ 51c6bc14821b Extracting 3 s
+ 51c6bc14821b Extracting 3 s
+ 51c6bc14821b Extracting 4 s
+ 51c6bc14821b Extracting 4 s
+ 51c6bc14821b Extracting 4 s
+ 51c6bc14821b Extracting 4 s
+ 51c6bc14821b Extracting 4 s
+ 51c6bc14821b Extracting 4 s
+ 51c6bc14821b Extracting 4 s
+ 51c6bc14821b Extracting 4 s
+ 51c6bc14821b Extracting 4 s
+ 51c6bc14821b Extracting 4 s
+ 51c6bc14821b Extracting 5 s
+ 51c6bc14821b Extracting 5 s
+ 51c6bc14821b Extracting 5 s
+ 51c6bc14821b Extracting 5 s
+ 51c6bc14821b Extracting 5 s
+ 51c6bc14821b Extracting 5 s
+ 51c6bc14821b Extracting 5 s
+ 51c6bc14821b Extracting 5 s
+ 51c6bc14821b Extracting 5 s
+ 51c6bc14821b Extracting 5 s
+ 51c6bc14821b Extracting 6 s
+ 51c6bc14821b Extracting 6 s
+ 51c6bc14821b Extracting 6 s
+ 51c6bc14821b Extracting 6 s
+ 51c6bc14821b Extracting 6 s
+ 51c6bc14821b Extracting 6 s
+ 51c6bc14821b Extracting 6 s
+ 51c6bc14821b Extracting 6 s
+ 51c6bc14821b Extracting 6 s
+ 51c6bc14821b Extracting 6 s
+ 51c6bc14821b Extracting 7 s
+ 51c6bc14821b Extracting 7 s
+ 51c6bc14821b Extracting 7 s
+ 51c6bc14821b Extracting 7 s
+ 51c6bc14821b Extracting 7 s
+ 51c6bc14821b Extracting 7 s
+ 51c6bc14821b Extracting 7 s
+ 51c6bc14821b Extracting 7 s
+ 51c6bc14821b Extracting 7 s
+ 51c6bc14821b Extracting 8 s
+ 51c6bc14821b Extracting 8 s
+ 51c6bc14821b Extracting 8 s
+ 51c6bc14821b Extracting 8 s
+ 51c6bc14821b Extracting 8 s
+ 51c6bc14821b Extracting 8 s
+ 51c6bc14821b Extracting 8 s
+ 51c6bc14821b Extracting 8 s
+ 51c6bc14821b Extracting 8 s
+ 51c6bc14821b Extracting 8 s
+ 51c6bc14821b Extracting 9 s
+ 51c6bc14821b Extracting 9 s
+ 51c6bc14821b Pull complete 
+ f1f25d74b21d Pull complete 
+ c88bc3cf9742 Extracting 1 s
+ c88bc3cf9742 Pull complete 
+ b29e92f2c753 Pull complete 
+ 540a3b0fcf30 Pull complete 
+ d14d2dd4b4ab Pull complete 
+ f5a21cbba373 Extracting 1 s
+ f5a21cbba373 Extracting 1 s
+ f5a21cbba373 Extracting 1 s
+ f5a21cbba373 Extracting 1 s
+ f5a21cbba373 Extracting 1 s
+ f5a21cbba373 Extracting 1 s
+ f5a21cbba373 Extracting 1 s
+ f5a21cbba373 Extracting 1 s
+ f5a21cbba373 Extracting 1 s
+ f5a21cbba373 Extracting 1 s
+ f5a21cbba373 Extracting 1 s
+ f5a21cbba373 Extracting 2 s
+ f5a21cbba373 Extracting 2 s
+ f5a21cbba373 Extracting 2 s
+ f5a21cbba373 Extracting 2 s
+ f5a21cbba373 Extracting 2 s
+ f5a21cbba373 Extracting 2 s
+ f5a21cbba373 Extracting 2 s
+ f5a21cbba373 Extracting 2 s
+ f5a21cbba373 Extracting 2 s
+ f5a21cbba373 Extracting 3 s
+ f5a21cbba373 Extracting 3 s
+ f5a21cbba373 Extracting 3 s
+ f5a21cbba373 Extracting 3 s
+ f5a21cbba373 Extracting 3 s
+ f5a21cbba373 Extracting 3 s
+ f5a21cbba373 Extracting 3 s
+ f5a21cbba373 Extracting 3 s
+ f5a21cbba373 Extracting 3 s
+ f5a21cbba373 Extracting 3 s
+ f5a21cbba373 Extracting 3 s
+ f5a21cbba373 Extracting 4 s
+ f5a21cbba373 Extracting 4 s
+ f5a21cbba373 Extracting 4 s
+ f5a21cbba373 Extracting 4 s
+ f5a21cbba373 Extracting 4 s
+ f5a21cbba373 Extracting 4 s
+ f5a21cbba373 Extracting 4 s
+ f5a21cbba373 Extracting 4 s
+ f5a21cbba373 Extracting 4 s
+ f5a21cbba373 Extracting 5 s
+ f5a21cbba373 Extracting 5 s
+ f5a21cbba373 Extracting 5 s
+ f5a21cbba373 Extracting 5 s
+ f5a21cbba373 Extracting 5 s
+ f5a21cbba373 Extracting 5 s
+ f5a21cbba373 Extracting 5 s
+ f5a21cbba373 Extracting 5 s
+ f5a21cbba373 Extracting 5 s
+ f5a21cbba373 Pull complete 
+ main Pulled 
+ Network portfolio-optimization__xn3haea_default  Creating
+ Network portfolio-optimization__xn3haea_default  Error
+failed to create network portfolio-optimization__xn3haea_default: Error response from daemon: all predefined address pools have been fully subnetted
+. Stderr: None. 

@@ -23,6 +23,11 @@ from pathlib import Path
 from argus_skill import SkillLoop, SkillLoopConfig
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
 
+_FATAL_EMPTY_OUTPUT_ERROR = (
+    "Codex ran out of room in the model's context window. "
+    "Start a new thread or clear earlier history before retrying."
+)
+
 SKILL_MD = (
     "## Title\nDemo skill\n\n"
     "## Description\nA fixed playbook for the resume test.\n\n"
@@ -66,6 +71,7 @@ def _build_loop(backend: MemoryBackend, skills_dir: Path) -> SkillLoop:
         check_commands=[],
         skill_writeback=False,
         distill_on_miss=True,
+        backend_failure_backoff_seconds=0,
     )
     return SkillLoop(
         skills_dir=skills_dir,
@@ -168,3 +174,108 @@ def test_resume_thread_id_falls_back_when_engineer_emits_no_thread(tmp_path: Pat
     assert seeds["engineer-r3"] == "sticky-1"
     # Final outcome should reflect the latest non-None thread_id.
     assert out.last_thread_id == "sticky-3"
+
+
+def test_resume_thread_id_clears_after_no_progress_mission(tmp_path: Path) -> None:
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("distiller", CannedResponse(message=SKILL_MD))
+    backend.queue("engineer-r1", CannedResponse(message="", thread_id="poison-1"))
+    backend.queue("reviewer", CannedResponse(message=_continue_review()))
+    backend.queue("engineer-r2", CannedResponse(message="", thread_id="poison-2"))
+    backend.queue("reviewer", CannedResponse(message=_continue_review()))
+
+    loop = _build_loop(backend, tmp_path / "skills1")
+    out1 = loop.run("first task", workdir=tmp_path)
+
+    assert out1.status == "no_progress"
+    assert out1.last_thread_id is None
+    r1_seeds = [tid for label, tid in backend.resume_history if label == "engineer-r1"]
+    r2_seeds = [tid for label, tid in backend.resume_history if label == "engineer-r2"]
+    assert r1_seeds == [None], r1_seeds
+    assert r2_seeds == ["poison-1"], r2_seeds
+
+    backend2 = MemoryBackend()
+    backend2.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend2.queue("distiller", CannedResponse(message=SKILL_MD))
+    backend2.queue("engineer-r1", CannedResponse(
+        message="recovered work", thread_id="tid-B1",
+    ))
+    backend2.queue("reviewer", CannedResponse(message=_done_review()))
+
+    loop2 = _build_loop(backend2, tmp_path / "skills2")
+    out2 = loop2.run("second task", workdir=tmp_path, seed_thread_id=out1.last_thread_id)
+
+    assert out2.successful
+    assert out2.last_thread_id == "tid-B1"
+    assert [tid for label, tid in backend2.resume_history if label == "engineer-r1"] == [None]
+
+
+def test_resume_thread_id_clears_after_fatal_empty_output_mission(
+    tmp_path: Path,
+) -> None:
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("distiller", CannedResponse(message=SKILL_MD))
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(message="", thread_id="fatal-1", fatal_error=_FATAL_EMPTY_OUTPUT_ERROR),
+    )
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    loop = _build_loop(backend, tmp_path / "skills")
+    out1 = loop.run("first task", workdir=tmp_path)
+
+    assert out1.successful
+    assert out1.last_thread_id is None
+    assert [tid for label, tid in backend.resume_history if label == "engineer-r1"] == [None]
+
+    backend2 = MemoryBackend()
+    backend2.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend2.queue("distiller", CannedResponse(message=SKILL_MD))
+    backend2.queue("engineer-r1", CannedResponse(
+        message="follow-up", thread_id="tid-C1",
+    ))
+    backend2.queue("reviewer", CannedResponse(message=_done_review()))
+
+    loop2 = _build_loop(backend2, tmp_path / "skills2")
+    out2 = loop2.run("second task", workdir=tmp_path, seed_thread_id=out1.last_thread_id)
+
+    assert out2.successful
+    assert out2.last_thread_id == "tid-C1"
+    assert [tid for label, tid in backend2.resume_history if label == "engineer-r1"] == [None]
+
+
+def test_backend_failure_retries_without_poisoned_resume_thread(tmp_path: Path) -> None:
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("distiller", CannedResponse(message=SKILL_MD))
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(
+            message="",
+            thread_id="poison-backend-thread",
+            fatal_error="stream disconnected before completion: response.failed event received",
+        ),
+    )
+    backend.queue(
+        "engineer-r2",
+        CannedResponse(message="recovered after backend restart", thread_id="healthy-thread"),
+    )
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    loop = _build_loop(backend, tmp_path / "skills")
+    out = loop.run("task", workdir=tmp_path, seed_thread_id="incoming-thread")
+
+    assert out.successful
+    assert out.last_thread_id == "healthy-thread"
+    engineer_seeds = [
+        tid for label, tid in backend.resume_history if label.startswith("engineer-")
+    ]
+    assert engineer_seeds == ["incoming-thread", None]
+    assert [label for label, _, _ in backend.history] == [
+        "distiller",
+        "engineer-r1",
+        "engineer-r2",
+        "reviewer",
+    ]

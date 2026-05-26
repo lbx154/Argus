@@ -7,7 +7,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -16,6 +16,41 @@ from argus_skill.apps import _life_repl
 from argus_skill.daemon.life_worker import write_continuous_config
 from argus_skill.life import MemoryBundle
 from argus_skill.life.memory import BacklogItem, LifeMemory
+
+_ENV_VARS_TO_CLEAR = (
+    "ARGUS_SKILL_DAILY_CAP_USD",
+    "ARGUS_SKILL_DAEMON_AUTO_RESTART",
+    "ARGUS_SKILL_DAEMON_HANDOFF_CONFIG",
+    "ARGUS_SKILL_DAEMON_HANDOFF_GEN",
+    "ARGUS_SKILL_DAEMON_HANDOFF_MAX_GEN",
+    "ARGUS_SKILL_DAEMON_HANDOFF_MIN_S",
+    "ARGUS_SKILL_DAEMON_HANDOFF_READY",
+    "ARGUS_SKILL_DAEMON_HANDOFF_TOKEN",
+    "ARGUS_SKILL_DAEMON_SOURCE_SIGNATURE",
+    "ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE",
+    "ARGUS_SKILL_ENGINEER_MODEL",
+    "ARGUS_SKILL_HOME",
+    "ARGUS_SKILL_LIFE_BACKEND",
+    "ARGUS_SKILL_MAX_ROUNDS",
+    "ARGUS_SKILL_PER_MISSION_CAP_USD",
+    "ARGUS_SKILL_PLAN_MODE",
+    "ARGUS_SKILL_PLAN_MODEL",
+    "ARGUS_SKILL_RESEARCH_PROFILE",
+    "ARGUS_SKILL_RESEARCH_PROFILE_PATH",
+    "ARGUS_SKILL_REVIEWER_MODEL",
+    "ARGUS_SKILL_SCIENTIST_MODEL",
+    "ARGUS_SKILL_SKILLS_DIR",
+    "ARGUS_SKILL_TELEGRAM_BOT_TOKEN",
+    "ARGUS_SKILL_TELEGRAM_CHAT_ID",
+    "ARGUS_SKILL_TELEGRAM_USER_ID",
+    "ARGUS_SKILL_WORKDIR",
+)
+
+
+@pytest.fixture(autouse=True)
+def _clear_ambient_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in _ENV_VARS_TO_CLEAR:
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture()
@@ -58,6 +93,7 @@ def test_invoke_supervisor_uses_global_skills_root(
 
     def fake_run_life_supervisor(**kwargs: Any) -> dict[str, Any]:
         captured["runtime_context"] = kwargs["runtime_context"]
+        captured["project_worktree"] = kwargs["project_worktree"]
         return {"missions_run": 0}
 
     monkeypatch.setattr(_life_repl, "build_life_runner", fake_build_life_runner)
@@ -78,8 +114,87 @@ def test_invoke_supervisor_uses_global_skills_root(
         else tmp_path / expected
     )
     assert captured["skills_dir"] == str(expected_path)
+    assert captured["project_worktree"] == repo
     assert summary == {"missions_run": 0}
     assert last_thread_id is None
+
+
+def test_invoke_supervisor_injects_research_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "root"))
+    monkeypatch.setenv("ARGUS_SKILL_RESEARCH_PROFILE", "emnlp2026-tierharness")
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "README.md").write_text("supervisor smoke\n", encoding="utf-8")
+    monkeypatch.chdir(repo)
+    bundle = MemoryBundle.for_cwd(repo)
+    captured: dict[str, Any] = {}
+
+    class DummyRunner:
+        backend: Any = None
+        last_thread_id: str | None = None
+
+    monkeypatch.setattr(
+        _life_repl,
+        "build_life_runner",
+        lambda ns, *, seed_thread_id=None: DummyRunner(),
+    )
+
+    def fake_run_life_supervisor(**kwargs: Any) -> dict[str, Any]:
+        captured["runtime_context"] = kwargs["runtime_context"]
+        captured["project_worktree"] = kwargs["project_worktree"]
+        return {"missions_run": 0}
+
+    monkeypatch.setattr(_life_repl, "run_life_supervisor", fake_run_life_supervisor)
+
+    _life_repl._invoke_supervisor(
+        mem=bundle,
+        backend="memory",
+        once=True,
+        max_missions=1,
+        per_mission_cap_usd=1.0,
+        daily_cap_usd=1.0,
+    )
+
+    assert "Runtime info" in captured["runtime_context"]
+    assert "profile_name: emnlp2026-tierharness" in captured["runtime_context"]
+    assert "Profile metadata:" in captured["runtime_context"]
+    assert captured["project_worktree"] == repo
+
+
+def test_invoke_and_track_clears_stale_thread_id_on_poisoned_outcome(
+    mem: LifeMemory,
+) -> None:
+    chat_state: dict[str, Any] = {
+        "backend": "memory",
+        "theme": None,
+        "last_thread_id": "stale-thread",
+        "last_elapsed_s": None,
+        "total_elapsed_s": 0.0,
+        "mission_count": 0,
+    }
+
+    with patch.object(
+        _life_repl,
+        "_invoke_supervisor",
+        return_value=({"missions_run": 1}, None),
+    ):
+        _life_repl._invoke_and_track(
+            mem=cast(Any, mem),
+            chat_state=chat_state,
+            once=True,
+            max_missions=1,
+            per_mission_cap_usd=1.0,
+            daily_cap_usd=1.0,
+            quiet=True,
+        )
+
+    assert chat_state["last_thread_id"] is None
+    assert chat_state["mission_count"] == 1
+    assert chat_state["last_elapsed_s"] is not None
 
 
 def test_add_only_default_priority(mem: LifeMemory, capsys: pytest.CaptureFixture[str]) -> None:
@@ -149,9 +264,9 @@ def test_free_text_beats_aggressive_priority_zero_pending(mem: LifeMemory) -> No
 def test_repl_help_matches_documented_command_surface(tmp_path: Path) -> None:
     repo = Path(__file__).resolve().parents[2]
     env = os.environ.copy()
-    env.update({
-        "ARGUS_SKILL_LIFE_BACKEND": "memory",
-    })
+    for name in _ENV_VARS_TO_CLEAR:
+        env.pop(name, None)
+    env["ARGUS_SKILL_LIFE_BACKEND"] = "memory"
     result = subprocess.run(
         [
             sys.executable,

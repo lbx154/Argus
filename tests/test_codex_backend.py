@@ -227,6 +227,41 @@ def test_run_exec_translates_options_and_result(
     assert result.output_tokens == 75
 
 
+def test_run_exec_normalizes_recoverable_reconnect_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = CodexRunnerBackend(backend="codex")
+
+    def fake_run_exec(
+        self: Any,
+        *,
+        prompt: Any,  # noqa: ARG001
+        resume_thread_id: Any,  # noqa: ARG001
+        options: Any,  # noqa: ARG001
+        run_label: str,  # noqa: ARG001
+    ) -> CodexRunResult:
+        return _make_argus_result(
+            agent_messages=["continued after reconnect"],
+            fatal_error=(
+                "Reconnecting... 1/100 "
+                "(stream disconnected before completion: response.failed event received)"
+            ),
+        )
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+
+    result = backend.run_exec(
+        prompt="demo",
+        options=RunnerOptions(model="gpt-5.4-mini"),
+        run_label="engineer-r1",
+    )
+
+    assert result.last_agent_message == "continued after reconnect"
+    assert result.fatal_error is None
+
+
 def test_run_exec_handles_file_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
     backend = CodexRunnerBackend(backend="codex")
 
@@ -301,6 +336,27 @@ def test_token_count_extraction_picks_latest_nonzero():
     ]
     in_tok, cached_tok, out_tok = _sum_token_counts(events)
     assert (in_tok, cached_tok, out_tok) == (250, 25, 80)
+
+
+def test_token_count_extraction_uses_final_usage_tuple_even_with_zero_cached():
+    events = [
+        {
+            "type": "token_count",
+            "input_tokens": 100,
+            "cached_input_tokens": 10,
+            "output_tokens": 30,
+        },
+        {
+            "type": "turn.completed",
+            "usage": {
+                "input_tokens": 150,
+                "cached_input_tokens": 0,
+                "output_tokens": 40,
+            },
+        },
+    ]
+    in_tok, cached_tok, out_tok = _sum_token_counts(events)
+    assert (in_tok, cached_tok, out_tok) == (150, 0, 40)
 
 
 def test_token_count_extraction_handles_nested_content():
@@ -400,6 +456,151 @@ def test_run_exec_forwards_watchdog_hooks(
     assert forwarded.watchdog_hard_idle_seconds == 600
 
 
+def test_run_exec_applies_default_watchdog_hooks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    default_interrupt = lambda: None
+    backend = CodexRunnerBackend(
+        backend="codex",
+        default_interrupt_reason_provider=default_interrupt,
+        default_watchdog_soft_idle_seconds=300,
+        default_watchdog_hard_idle_seconds=1800,
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_run_exec(
+        self: Any,
+        *,
+        prompt: Any,
+        resume_thread_id: Any,
+        options: Any,
+        run_label: str,
+    ) -> CodexRunResult:
+        captured["options"] = options
+        return _make_argus_result(agent_messages=["ok"])
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+
+    backend.run_exec(
+        prompt="x",
+        options=RunnerOptions(model="gpt-5.4-mini"),
+        run_label="main",
+    )
+
+    forwarded = captured["options"]
+    assert forwarded.external_interrupt_reason_provider is default_interrupt
+    assert forwarded.watchdog_soft_idle_seconds == 300
+    assert forwarded.watchdog_hard_idle_seconds == 1800
+
+
+def test_run_exec_composes_explicit_watchdog_with_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def default_interrupt() -> str | None:
+        calls.append("default")
+        return None
+
+    def explicit_interrupt() -> str | None:
+        calls.append("explicit")
+        return "stale"
+
+    backend = CodexRunnerBackend(
+        backend="codex",
+        default_interrupt_reason_provider=default_interrupt,
+        default_watchdog_soft_idle_seconds=300,
+        default_watchdog_hard_idle_seconds=1800,
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_run_exec(
+        self: Any,
+        *,
+        prompt: Any,
+        resume_thread_id: Any,
+        options: Any,
+        run_label: str,
+    ) -> CodexRunResult:
+        captured["options"] = options
+        return _make_argus_result(agent_messages=["ok"])
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+
+    backend.run_exec(
+        prompt="x",
+        options=RunnerOptions(
+            model="gpt-5.4-mini",
+            external_interrupt_reason_provider=explicit_interrupt,
+            watchdog_soft_idle_seconds=10,
+            watchdog_hard_idle_seconds=20,
+        ),
+        run_label="main",
+    )
+
+    forwarded = captured["options"]
+    assert forwarded.external_interrupt_reason_provider is not explicit_interrupt
+    assert forwarded.external_interrupt_reason_provider() == "stale"
+    assert calls == ["default", "explicit"]
+    assert forwarded.watchdog_soft_idle_seconds == 10
+    assert forwarded.watchdog_hard_idle_seconds == 20
+
+
+def test_run_exec_reports_delta_for_resumed_cumulative_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = CodexRunnerBackend(backend="codex")
+    raw_usages = [
+        {"input_tokens": 1000, "cached_input_tokens": 400, "output_tokens": 100},
+        {"input_tokens": 1250, "cached_input_tokens": 500, "output_tokens": 130},
+    ]
+
+    def fake_run_exec(
+        self: Any,
+        *,
+        prompt: Any,
+        resume_thread_id: Any,
+        options: Any,
+        run_label: str,
+    ) -> CodexRunResult:
+        usage = raw_usages.pop(0)
+        return _make_argus_result(
+            thread_id="thr-cumulative",
+            json_events=[{"type": "turn.completed", "usage": usage}],
+        )
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+
+    first = backend.run_exec(
+        prompt="first",
+        options=RunnerOptions(model="gpt-5.4-mini"),
+        run_label="engineer-r1",
+    )
+    second = backend.run_exec(
+        prompt="second",
+        options=RunnerOptions(model="gpt-5.4-mini"),
+        run_label="engineer-r2",
+        resume_thread_id="thr-cumulative",
+    )
+
+    assert (first.input_tokens, first.cached_input_tokens, first.output_tokens) == (
+        1000,
+        400,
+        100,
+    )
+    assert (second.input_tokens, second.cached_input_tokens, second.output_tokens) == (
+        250,
+        100,
+        30,
+    )
+
+
 def test_run_exec_default_watchdog_options_are_inert():
     """When the caller doesn't supply watchdog hooks the translated
     ArgusBot options must still be valid (None providers + 0 thresholds).
@@ -414,6 +615,8 @@ def test_run_exec_default_watchdog_options_are_inert():
 def test_build_codex_backend_from_env_uses_env(monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "claude")
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_EXTRA_ARGS", '-c "model_profile=fast"')
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", "120")
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", "900")
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
 
     backend = build_codex_backend_from_env()
@@ -421,6 +624,8 @@ def test_build_codex_backend_from_env_uses_env(monkeypatch):
     # ArgusBot stores backend on the inner runner.
     assert inner.backend == "claude"
     assert inner.default_extra_args == ["-c", "model_profile=fast"]
+    assert backend._default_watchdog_soft_idle_seconds == 120
+    assert backend._default_watchdog_hard_idle_seconds == 900
 
 
 def test_build_codex_backend_from_env_defaults(monkeypatch):
@@ -428,9 +633,13 @@ def test_build_codex_backend_from_env_defaults(monkeypatch):
         "ARGUS_SKILL_RUNNER_BACKEND",
         "ARGUS_SKILL_RUNNER_BIN",
         "ARGUS_SKILL_RUNNER_EXTRA_ARGS",
+        "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS",
+        "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS",
     ):
         monkeypatch.delenv(name, raising=False)
     backend = build_codex_backend_from_env()
     # ArgusBot's default is codex.
     assert backend._argus_runner.backend == "codex"
     assert backend._argus_runner.default_extra_args == []
+    assert backend._default_watchdog_soft_idle_seconds == 0
+    assert backend._default_watchdog_hard_idle_seconds == 900

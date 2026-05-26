@@ -1,0 +1,6 @@
+exported_at=2026-05-16T02:03:53+00:00
+source_run_root=/home/argustest/argus-skill/experiments/tb2-harbor-smoke-20260515T235537Z
+bundle_root=/home/argustest/argus-skill/benchmarks/evidence/tb2-harbor-smoke-20260515T235537Z
+source_jobs_root=/home/argustest/argus-skill/experiments/tb2-harbor-smoke-20260515T235537Z/jobs
+source_trials=1
+bundle_type=tb2_fullbench_export

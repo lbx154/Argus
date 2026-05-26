@@ -33,6 +33,7 @@ The goal is a submission-quality long-paper package, not a pilot PDF, validator-
 - If this workspace does not already have local copies, export the built-in skills so the daemon can read them directly:
   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill --export-builtin-skills ./argus_builtin_skills`
 - Read `./argus_builtin_skills/*.md` first when invoking built-in paper/research skills. If the local copy is absent or stale, fall back to `/home/argustest/argus-skill/argus_skill/builtin_skills/`. Do not copy the whole Argus repository, global memory, model caches, or capability vault into this project.
+- When ownership is unclear, read `./argus_builtin_skills/emnlp-paper-skill-router.md` first, then load the specific skill it routes to.
 - Prefer `/home/argustest/miniconda3/bin/python` for Argus validation commands.
 - Final EMNLP completion requires this exact command to exit 0 and be quoted in completion evidence:
   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`
@@ -128,32 +129,67 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
          --prompt-file paper/figures/method_overview.prompt.txt \
          --out paper/figures/method_overview.review.json
 
-   A helper such as `code/generate_image2_figure.py` must then write or refresh `paper/figures/IMAGE2_FIGURES.json` with `figure_id`, `figure_type`, `model` or `generator_model`, `prompt_path`, `output_path`, `output_sha256`, `sidecar_path`, `inspect_path`, `review_path`, `generation_provenance_path`, width, and height. `generation_provenance_path` may point at the image sidecar if that JSON records `prompt_path`, `output_path`, and `output_sha256`. Never crop, downsample, resave, PDF-wrap, or locally redraw the accepted raster after this provenance is written.
+   A helper such as `code/generate_image2_figure.py` must then write or refresh `paper/figures/IMAGE2_FIGURES.json` with `figure_id`, `figure_type`, `model` or `generator_model`, `prompt_path`, `output_path`, `output_sha256`, `sidecar_path`, `inspect_path`, `review_path`, `generation_provenance_path`, width, and height. The sidecar must preserve image-tool/API evidence (`/images/generations`, model, created time, prompt SHA, output SHA, dimensions), and `review_path` must come from the `image_review` model route. `generation_provenance_path` may point at the image sidecar if that JSON records `prompt_path`, `output_path`, and `output_sha256`. Never crop, downsample, resave, PDF-wrap, locally redraw the accepted raster, or hand-fill `codex-image2` metadata around a local PNG after this provenance is written.
 6. If the current Figure 1/teaser is ugly, cramped, misspelled, square, generic, or prompt-thin, do not patch it with matplotlib/TikZ/PDF/vector redraws. Regenerate through image-2 from this scaffold, generating 6--20 layout variants by changing only the `Layout variant` block; keep the best reviewed raster and record the selected `prompt_variant_id` in provenance or the manifest:
 
        Use case: scientific-educational
-       Asset type: Figure 1 teaser / conceptual overview for an EMNLP/ACL academic manuscript
+       Asset type: Figure 1 teaser / conceptual overview for an EMNLP/ACL/NeurIPS-style academic manuscript.
 
        General style:
-       - EMNLP/ACL paper method figure, full-width page-width landscape, 1536x1024 or 1920x1080.
-       - Clean Figma-style block diagram: rounded cards, neat alignment, soft pastel fills, thin dark-gray borders, compact information density.
-       - Polished manuscript figure, not a dashboard, poster, screenshot, marketing graphic, or whiteboard sketch.
-       - Large readable labels, short phrases, balanced hierarchy, no snake_case identifiers in visible text.
-       - Flat vector-like raster rendering on a warm white background (#fbfaf7).
+       - EMNLP/ACL/NeurIPS/CS paper method figure, full-width two-column landscape, 1536x1024 or 1920x1080.
+       - Clean Figma-style block diagram / block-based Figma style with rounded cards, neat alignment, soft pastel fills, dark-gray 2px borders, and compact information density.
+       - Compact, information-rich, suitable for a PDF page-width figure; little wasted space but not crowded.
+       - Tidy rounded handwritten or friendly sans-serif feel is acceptable only if it remains crisp and readable; no messy sketch fonts.
+       - Moderate badge/icon use only when semantically useful; a few simple recognizable icons are fine, not a logo wall.
+       - No heavy shadows, no gradients, no photorealism, no glassmorphism, no messy Excalidraw look.
+       - Large readable labels, short phrases, balanced hierarchy, flat vector-like raster rendering on warm white #fbfaf7.
+
+       Style intent:
+       - Clean, dense, modular, Figma-like, mostly rounded cards, low-saturation pastel blocks.
+       - Use small badges/icons sparingly; avoid empty space while preserving alignment.
+       - It should look like a main figure in an EMNLP/ACL/NeurIPS paper, not a marketing graphic, stock illustration, dashboard screenshot, or casual whiteboard.
 
        Pinned content that must appear exactly:
        - Title: "<short human-readable method/system name>"
-       - Stage labels: "<input/source>", "<core mechanism>", "<verification/gating step>", "<output/result>".
-       - Outcome chips: "<main benefit>", "<main evidence object>", "<failure avoided>".
-       - SPELL EXACTLY the quoted labels above; do not invent extra terminology.
+       - Show: "<source/input>" -> "<parse/build/distill step>" -> "<quality/verification gate>" -> "<memory/library/model state>" -> "<agent/execution step>" -> "<output/result>" -> "<benchmark/evidence protocol>".
+       - Components/chips: "<baseline/status quo>", "<proposed method>", "<accepted item>", "<rejected item>", "<main metric/evidence>", "<failure avoided>".
+       - SPELL EXACTLY every quoted label above. Do not invent alternate terminology, code identifiers, raw artifact paths, or extra labels.
 
-       Layout variant: choose one and name it, e.g. horizontal swimlanes, central hero composition, sankey funnel, exploded-view, layered architecture stack, pipeline plus gallery, hub-and-spoke, four-panel A/B/C/D, or polished Figma wireframe.
+       Layout variant:
+       - Pick one variant ID and name it in the prompt. Swap only this block when generating variants.
+       - 01 central hero: huge central memory/wiki/library card, source factory on the left, agent/output board on the right, benchmark strip at bottom.
+       - 02 horizontal swimlanes: three clean lanes such as Build, Verify, Execute; use offset cards so it is not too rigid.
+       - 03 sankey funnel: many sources merge into distillation, narrow through gates, expand into library/state, then branch to outputs.
+       - 04 exploded entry: one accepted skill/memory/wiki entry pulled apart into Text, Visual, Recipe, Metadata plates with callout arrows.
+       - 05 layered architecture stack: bottom sources, middle reusable memory/library, top agent execution; use shelf-like overlapping slabs.
+       - 06 pipeline plus gallery: main pipeline across top, output gallery on right, compact benchmark/evidence cards along bottom.
+       - 07 modular dashboard: dense but paper-clean cards; central method card largest, side panel for domains/tasks/outputs.
+       - 08 radial hub-spoke: reusable library/state as center hub; sources feed from left arc; agent/results radiate right; evidence panel below.
+       - 09 zigzag pipeline: Z-shaped reading path with numbered step badges and compact insets.
+       - 10 research-poster dense: section headers, compact cards, mini charts, and small output thumbnails; still clean Figma and paper-friendly.
+       - 11 grayscale accent: mostly grayscale academic style with two pastel accent colors for proposed path and verification.
+       - 12 color-coded phases: peach acquisition, blue memory/library, green agent, lavender domains, yellow benchmark; overlapping phase tabs.
+       - 13 card deck: sources, skills, and outputs as tidy fanned decks; one accepted card expanded.
+       - 14 computation graph: nodes and grouped modules with thin arrows and rounded containers, like an ML systems diagram.
+       - 15 dataflow with sidebars: main flow through center, left source sidebar, right output sidebar, bottom benchmark/evidence sidebar.
+       - 16 timeline plus insets: left-to-right timeline with zoom boxes for the core mechanism and output/evidence.
+       - 17 nested containers: big containers for Offline Construction and Online Execution; nested subcards plus benchmark footer.
+       - 18 multi-panel A/B/C/D: A sources/build, B reusable state, C agent execution, D benchmark/evidence; panels overlap slightly and share arrows.
+       - 19 light blueprint: pale blue grid background, modular boxes, thin connector routes, neat badges, strong central method box.
+       - 20 polished Figma wireframe: component frames, auto-layout-like spacing, section tabs, chips, and carefully staggered components.
 
        Negative prompt / Avoid:
-       - no tiny unreadable text, no paragraphs, no code snippets, no raw paths, no watermark
-       - no photorealism, no heavy gradients, no glassmorphism, no logo wall
-       - no messy Excalidraw look, no arbitrary blobs, no decorative clutter
-       - no inconsistent terminology between figure and paper
+       - no concrete code snippets, raw paths, tiny unreadable text, character-level vertical text, or dense paragraphs
+       - no excessive logos or brand marks, no watermark
+       - no photorealistic scenes, stock photos, glassmorphism, heavy gradients, heavy shadows, texture, or arbitrary decorative blobs
+       - no messy whiteboard / Excalidraw-heavy sketch style
+       - no large empty areas, overlapping cards, squashed labels, inconsistent terminology, or extra captions that make it look like a dashboard
+
+       Figma tokens for camera-ready cleanup:
+       - Canvas 1536x1024 or 1920x1080; background #fbfaf7; stroke #1f2933 at 2px.
+       - Corner radius 10-16px; card padding 12-20px; card gap 12-24px.
+       - Pastels: acquisition #ffe2d1, parsing #fff2bd, memory/wiki #dcecff, agent #e2f7df, domains #eadfff, benchmark #fff1c9.
+       - Text sizes: title 38-52px, section headers 22-30px, card labels 16-22px, chips 12-16px.
 
    A prompt that lacks `General style`, `Pinned content`, exact spelling instructions, `Layout variant`, and `Negative prompt / Avoid` is a blocker even if the image API call succeeds.
 
@@ -207,8 +243,9 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 6. Never invent BibTeX. Fetch/verify references through scholarly sources or mark unresolved entries as blockers.
 7. Use official ACL/EMNLP review style, anonymous author block, 7.5--8.0 pages of main content, conclusion by the end of page 8, Limitations and Ethical Considerations after Conclusion, References before Appendix, and a reproducibility appendix.
 8. Repair `paper/PAGE_BUDGET.md` and `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` against this reference budget, adjusting only with evidence/exemplar justification: Abstract 0.3 pages; Introduction 1 page; Related Work 0.5--0.8 pages; Method 1--1.5 pages; Experimental Setup 0.5--1 page; Main Results 1--1.5 pages; Analysis/Ablation 1 page; Failure Cases 0.3--0.5 pages; Conclusion 0.2 pages.
-9. Run `validate-research-md-format` after the final compile and before academic-language/layout review. Update `paper/FORMAT_PREFLIGHT.md` with compile status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final validator result.
-10. Do not tolerate undefined refs/citations, rendered `[?]`, `Overfull \hbox > 5pt`, placeholders, `% UNVERIFIED`, code-like display labels, missing numerical table captions, or stale PDF/log/preflight facts.
+9. If the rendered body is underfilled, references begin before page 8, or the paper feels like a thin report, do not fix it with margins, font tricks, filler, or repeated caveats. First check `validate-full-scale-evidence`, `paper/EVIDENCE_GAPS.json`, and `paper/CLAIM_GRAPH.json`; then run missing benchmark conditions, ablations, robustness slices, public-validation checks, or failure analyses. Only expand prose from fresh or already-recorded evidence. If the evidence remains insufficient, downgrade to `pilot-note`/`not_ready` or soften claims.
+10. Run `validate-research-md-format` after the final compile and before academic-language/layout review. Update `paper/FORMAT_PREFLIGHT.md` with compile status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final validator result.
+11. Do not tolerate undefined refs/citations, rendered `[?]`, `Overfull \hbox > 5pt`, placeholders, `% UNVERIFIED`, code-like display labels, missing numerical table captions, or stale PDF/log/preflight facts.
 
 ## Citation and related-work repair
 1. Verify bibliography metadata through Semantic Scholar, arXiv, CrossRef, ACL Anthology, DBLP, or official project pages; never invent BibTeX to clear a warning.

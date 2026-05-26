@@ -1,0 +1,17 @@
+▶ mission start — ## Automated pilot runner context - Pilot run id: `20260515T
+🔁 engineer round 1 (benchmark direct)
+🔧 round 1: main agent finished
+   ↳ Implemented `run_tasks` in [`/home/argustest/argus-skill/benchmarks/prompt_only_tb2/runs/20260515T201700Z-o002-argus-cancel-async-tasks/argus/app/run.py`](/home/argustest/argus-skill/benchmarks/prompt_only_tb2/runs/20260515T201700Z-o002-argus-cancel-async-tasks/argus/app/run.py).
+
+What it does:
+- Runs async task callables with a hard concurrency cap.
+- Cancels in-flight tasks on interruption or failure.
+- Awaits cancellation so each task’s `finally` cleanup can run.
+- Raises the first task error directly instead of wrapping it in an exception group.
+- Rejects `max_concurrent < 1` with `ValueError`.
+
+Checks performed in the container:
+- Verified peak concurrency stayed at `2`.
+- Verified `finally` cleanup ran after cancellation.
+- Verified task failure surfaced as `ValueError` and other tas…
+■ mission complete  ·  status=done  ·  rounds=1  ·  cost=$0.0330

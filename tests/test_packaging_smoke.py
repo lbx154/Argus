@@ -165,8 +165,14 @@ def test_built_artifacts_and_installed_cli_contract_from_sdist(
     assert "Requires-Dist: rich>=13.7" in _wheel_metadata_lines(wheel)
     assert _artifact_contains(wheel, "argus_skill/skills/__init__.py")
     assert _artifact_contains(wheel, "argus_skill/skills/store.py")
+    assert _artifact_contains(wheel, "argus_skill/skills/pipeline_policy.py")
+    assert _artifact_contains(wheel, "argus_skill/tools/project_templates/code/generate_image_2.py")
+    assert _artifact_contains(wheel, "argus_skill/builtin_skills/emnlp-paper-drafting.md")
     assert _sdist_contains(sdist, "argus_skill/skills/__init__.py")
     assert _sdist_contains(sdist, "argus_skill/skills/store.py")
+    assert _sdist_contains(sdist, "argus_skill/skills/pipeline_policy.py")
+    assert _sdist_contains(sdist, "argus_skill/tools/project_templates/code/generate_image_2.py")
+    assert _sdist_contains(sdist, "argus_skill/builtin_skills/emnlp-paper-drafting.md")
 
     venv_dir = tmp_path / "venv"
     venv.EnvBuilder(with_pip=True).create(venv_dir)
@@ -254,6 +260,7 @@ def test_installed_cli_daemon_lifecycle(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     home_dir.mkdir()
     skills_dir.mkdir()
+    (runtime_cwd / "README.md").write_text("packaging smoke\n", encoding="utf-8")
 
     env = os.environ.copy()
     env.update(
@@ -528,6 +535,7 @@ def test_installed_cli_codex_preflight_banner_without_codex_binary(
 def test_module_cli_expands_shell_placeholders_for_runtime_roots(tmp_path: Path) -> None:
     runtime_cwd = tmp_path / "runtime"
     runtime_cwd.mkdir()
+    (runtime_cwd / "README.md").write_text("placeholder smoke\n", encoding="utf-8")
     expanded_home = tmp_path / "expanded-home"
     fake_home = tmp_path / "fake-home"
     fake_home.mkdir()

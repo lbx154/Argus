@@ -24,6 +24,19 @@ htmlcov/
 benchmarks/results/
 benchmarks/prompt_only_tb2/generated/
 benchmarks/prompt_only_tb2/runs/
+.tmp_pytest/
+tmp-review-skills/
+tmp-skill-a/
+answer.txt
+/$ARGUS_SKILL_HARBOR_DECISIONS_LOG
+/$ARGUS_SKILL_HARBOR_SKILLS_DIR
+/argus/
+/codex/
+/jobs/
+/experiments/*
+!/experiments/README.md
+benchmarks/evidence/**/agent/oracle.txt
+benchmarks/evidence/**/agent/sessions/
 
 # editor
 .idea/

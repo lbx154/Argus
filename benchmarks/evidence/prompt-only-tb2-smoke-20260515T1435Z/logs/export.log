@@ -1,0 +1,52 @@
+source_run_root: /home/argustest/argus-skill/benchmarks/prompt_only_tb2/runs/smoke-20260515T1435Z
+exported_bundle: /home/argustest/argus-skill/benchmarks/evidence/prompt-only-tb2-smoke-20260515T1435Z
+git_commit: 8e53a8b2b1c1e34099d91551cf0e4cdff8c7c267
+git_status:
+## main...origin/main
+ M EXPERIMENTS.md
+ M argus_skill/adapters/codex_backend.py
+ M argus_skill/apps/_input_helpers.py
+ M argus_skill/apps/_life_repl.py
+ M argus_skill/critic/critic.py
+ M argus_skill/daemon/life_worker.py
+ M argus_skill/engineer/runner.py
+ M argus_skill/life/supervisor.py
+ M argus_skill/mission/engine.py
+ M benchmarks/harbor_adapter.py
+ M benchmarks/prompt_only_tb2/extract_tb2_prompts.py
+ M benchmarks/prompt_only_tb2/run_pilot_row.py
+ M benchmarks/prompt_only_tb2/runbook.txt
+ M benchmarks/reports/2026-05-10-tb2-baseline-vs-v12.md
+ M benchmarks/run-fullbench-v12-redux.sh
+ M benchmarks/run-fullbench-v12-true.sh
+ M benchmarks/validate_results.py
+ M docs/EXPERIMENT_PROTOCOL.md
+ M docs/KNOWN_BUGS.md
+ m pyknotid_capability
+ M pyproject.toml
+ M tests/apps/test_input_helpers_piped.py
+ M tests/apps/test_life_repl_free_text.py
+ M tests/daemon/test_life_worker.py
+ M tests/life/test_supervisor.py
+ M tests/test_benchmark_results_validator.py
+ M tests/test_codex_backend.py
+ M tests/test_harbor_adapter.py
+?? argus/
+?? argus_skill/life/research_profile.py
+?? argus_skill/tools/
+?? benchmarks/prompt_only_tb2/summarize_runs.py
+?? benchmarks/prompt_only_tb2/verify_runs.py
+?? codex/
+?? tests/life/test_research_profile.py
+?? tests/test_prompt_only_tb2_runner.py
+?? tests/tools/
+python: Python 3.13.5
+ruff: ruff 0.15.11
+mypy: mypy 2.0.0 (compiled: yes)
+source result rows: 12
+source verification rows: 12
+summary command: python -m benchmarks.prompt_only_tb2.summarize_runs --runs-dir /home/argustest/argus-skill/benchmarks/prompt_only_tb2/runs/smoke-20260515T1435Z --json-out /home/argustest/argus-skill/benchmarks/evidence/prompt-only-tb2-smoke-20260515T1435Z/logs/summary.json
+summary stdout:
+condition,rows,accepted_rate,mean_reward,needs_human_rate,avg_cost_usd,avg_wall_minutes,timeouts
+argus,6,0.833,0.833,0.000,0.149376,7.14,0
+codex,6,1.000,1.000,0.167,0.084199,4.16,0

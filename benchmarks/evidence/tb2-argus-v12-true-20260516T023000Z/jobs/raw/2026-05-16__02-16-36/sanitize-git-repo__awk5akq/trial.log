@@ -1,0 +1,4 @@
+Skipping image OS validation for alexgshaw/sanitize-git-repo:20251031: docker inspect returned 1
+Trial sanitize-git-repo__awk5akq failed: Docker compose command failed for environment sanitize-git-repo. Command: docker compose --project-name sanitize-git-repo__awk5akq --project-directory /home/argustest/.cache/harbor/tasks/WNjEws4zKtRNWJABpoU892/sanitize-git-repo/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+. Stderr: None. 

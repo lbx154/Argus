@@ -1,0 +1,4 @@
+Skipping image OS validation for alexgshaw/dna-assembly:20251031: docker inspect returned 1
+Trial dna-assembly__eYHUKjT failed: Docker compose command failed for environment dna-assembly. Command: docker compose --project-name dna-assembly__eyhukjt --project-directory /home/argustest/.cache/harbor/tasks/ArEmuSGC435pAkSA7cv8qw/dna-assembly/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+. Stderr: None. 

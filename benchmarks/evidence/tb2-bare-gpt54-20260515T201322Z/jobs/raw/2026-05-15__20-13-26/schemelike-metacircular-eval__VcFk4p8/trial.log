@@ -1,0 +1,4 @@
+Trial schemelike-metacircular-eval__VcFk4p8 failed: Docker compose command failed for environment schemelike-metacircular-eval. Command: docker compose --project-name schemelike-metacircular-eval__vcfk4p8 --project-directory /home/argustest/.cache/harbor/tasks/YkDjArg6hKdFYEmdiPrztY/schemelike-metacircular-eval/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network schemelike-metacircular-eval__vcfk4p8_default  Creating
+ Network schemelike-metacircular-eval__vcfk4p8_default  Error
+failed to create network schemelike-metacircular-eval__vcfk4p8_default: Error response from daemon: all predefined address pools have been fully subnetted
+. Stderr: None. 

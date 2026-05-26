@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import struct
 from pathlib import Path
 
@@ -11,9 +12,13 @@ from argus_skill.skills.pipeline_contracts import (
     _validate_research_md_reference_depth,
     refresh_artifact_manifest,
     validate_academic_language_review,
+    validate_artifact_freshness,
     validate_artifact_manifest,
+    validate_claim_graph,
     validate_code_reuse_plan,
     validate_emnlp_paper_contract,
+    validate_exemplar_suitability,
+    validate_figure_table_style_guide,
     validate_full_emnlp_readiness,
     validate_full_scale_experiment_evidence,
     validate_idea_provenance,
@@ -26,6 +31,7 @@ from argus_skill.skills.pipeline_contracts import (
     validate_style_exemplar,
     validate_submission_assurance,
     validate_submission_readiness,
+    validate_validation_priority_policy,
 )
 
 
@@ -283,6 +289,17 @@ def test_full_emnlp_readiness_rejects_plan_only_pipeline_pass(
     assert "submission_stage_not_successful" in codes
 
 
+def test_full_emnlp_readiness_without_pipeline_state_does_not_emit_stage_artifact_noise(
+    tmp_path: Path,
+) -> None:
+    issues = validate_full_emnlp_readiness(tmp_path)
+    codes = {issue.code for issue in issues}
+
+    assert "missing_pipeline_state" in codes
+    assert "missing_stage_artifact" not in codes
+    assert "missing_literature_grounding" in codes
+
+
 def test_full_emnlp_readiness_reports_underpowered_benchmark_scale(
     tmp_path: Path,
 ) -> None:
@@ -419,6 +436,136 @@ def test_artifact_manifest_rejects_unsafe_path(tmp_path: Path) -> None:
     issues = validate_artifact_manifest(tmp_path)
 
     assert "invalid_artifact_manifest_path" in {issue.code for issue in issues}
+
+
+def test_claim_graph_rejects_claims_for_missing_sections_and_unknown_artifacts(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_artifact_manifest(tmp_path)
+    _write_valid_claim_graph(tmp_path)
+    path = tmp_path / "paper" / "CLAIM_GRAPH.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["claims"][0]["section"] = "Audit Trail"
+    payload["claims"][0]["evidence_sources"] = ["paper/artifacts/missing.tsv"]
+    _write_json(path, payload)
+
+    codes = {issue.code for issue in validate_claim_graph(tmp_path)}
+
+    assert "claim_graph_section_not_in_main_tex" in codes
+    assert "claim_graph_unknown_evidence_source" in codes
+
+
+def test_claim_graph_rejects_weak_claim_left_in_main_body(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_artifact_manifest(tmp_path)
+    _write_valid_claim_graph(tmp_path)
+    path = tmp_path / "paper" / "CLAIM_GRAPH.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["claims"].append(
+        {
+            "id": "weak-left-in-body",
+            "claim": "The method uses a conservative routing policy.",
+            "section": "Method",
+            "status": "weak",
+            "evidence_gap_id": "gap-routing",
+            "revised_claim": "The routing policy is reported conservatively pending more evidence.",
+        }
+    )
+    _write_json(path, payload)
+    _write_json(
+        tmp_path / "paper" / "EVIDENCE_GAPS.json",
+        {"evidence_gap_schema_version": 1, "gaps": [{"id": "gap-routing"}]},
+    )
+
+    codes = {issue.code for issue in validate_claim_graph(tmp_path)}
+
+    assert "unsupported_claim_in_main_body" in codes
+
+
+def test_figure_table_style_guide_requires_inventory_to_match_body_floats(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_artifact_manifest(tmp_path)
+    _write_valid_figure_table_style_guide(tmp_path)
+    path = tmp_path / "paper" / "FIGURE_TABLE_STYLE_GUIDE.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["float_inventory"] = payload["float_inventory"][:1]
+    _write_json(path, payload)
+
+    codes = {issue.code for issue in validate_figure_table_style_guide(tmp_path)}
+
+    assert "too_few_figure_table_style_floats" in codes
+
+
+def test_artifact_freshness_rejects_changed_inputs(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_artifact_manifest(tmp_path)
+    _write_valid_claim_graph(tmp_path)
+    _write_valid_figure_table_style_guide(tmp_path)
+    _write_valid_validation_priority_policy(tmp_path)
+    _write_valid_artifact_freshness(tmp_path)
+    _write(tmp_path / "paper" / "artifacts" / "results_table.tsv", "metric\tvalue\naccuracy\t0.7\n")
+
+    codes = {issue.code for issue in validate_artifact_freshness(tmp_path)}
+
+    assert "artifact_stale_vs_inputs" in codes
+
+
+def test_validation_priority_policy_accepts_complete_failure_routing(tmp_path: Path) -> None:
+    _write_valid_validation_priority_policy(tmp_path)
+
+    assert validate_validation_priority_policy(tmp_path) == []
+
+
+def test_validation_priority_policy_requires_experiment_and_content_routes(tmp_path: Path) -> None:
+    _write_json(
+        tmp_path / "paper" / "VALIDATION_PRIORITY_POLICY.json",
+        {
+            "priority_policy_schema_version": 1,
+            "priority_order": [
+                "freshness",
+                "claim_graph",
+                "exemplar_suitability",
+                "exemplar_structure",
+                "figure_table_style",
+                "layout_vision",
+                "academic_language",
+                "artifact_manifest",
+            ],
+            "failure_routing": {
+                "freshness": {"issue_code_prefixes": ["artifact_"], "repair_mode": "refresh artifacts"},
+                "claim_graph": {"issue_code_prefixes": ["claim_"], "repair_mode": "fix claims"},
+                "exemplar_suitability": {"issue_code_prefixes": ["exemplar_"], "repair_mode": "fix exemplar"},
+                "exemplar_structure": {"issue_code_prefixes": ["style_"], "repair_mode": "fix structure"},
+                "figure_table_style": {"issue_code_prefixes": ["float_"], "repair_mode": "fix figures"},
+                "layout_vision": {"issue_code_prefixes": ["layout_"], "repair_mode": "fix layout"},
+                "academic_language": {"issue_code_prefixes": ["academic_"], "repair_mode": "fix language"},
+                "artifact_manifest": {"issue_code_prefixes": ["manifest_"], "repair_mode": "fix manifest"},
+            },
+            "reset_policy": {"max_non_improving_rounds": 2, "actions": ["reset skeleton"]},
+        },
+    )
+
+    codes = {issue.code for issue in validate_validation_priority_policy(tmp_path)}
+
+    assert "incomplete_validation_priority_order" in codes
+    assert "missing_validation_failure_route" in codes
+
+
+def test_validation_priority_policy_rejects_content_route_without_evidence_or_experiment_action(
+    tmp_path: Path,
+) -> None:
+    _write_valid_validation_priority_policy(tmp_path)
+    path = tmp_path / "paper" / "VALIDATION_PRIORITY_POLICY.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["failure_routing"]["content_sufficiency"]["repair_mode"] = "adjust margins and spacing"
+    _write_json(path, payload)
+
+    codes = {issue.code for issue in validate_validation_priority_policy(tmp_path)}
+
+    assert "validation_failure_route_bad_repair_mode" in codes
 
 
 def test_artifact_manifest_rejects_generated_source_cycles(tmp_path: Path) -> None:
@@ -600,6 +747,19 @@ def test_style_exemplar_requires_structure_blueprint(tmp_path: Path) -> None:
     assert "missing_style_structure_blueprint" in codes
 
 
+def test_exemplar_suitability_requires_primary_to_match_downloaded_exemplar(tmp_path: Path) -> None:
+    _write_valid_style_exemplar(tmp_path)
+    path = tmp_path / "paper" / "style_ref" / "EXEMPLAR_SUITABILITY.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["primary_exemplar"] = "unrelated-paper"
+    _write_json(path, payload)
+
+    codes = {issue.code for issue in validate_exemplar_suitability(tmp_path)}
+
+    assert "primary_exemplar_not_in_exemplar_json" in codes
+    assert "primary_exemplar_not_in_suitability_candidates" in codes
+
+
 def test_style_exemplar_accepts_normalized_profile_and_blueprint_headings(tmp_path: Path) -> None:
     _write_valid_style_exemplar(tmp_path)
     _write(
@@ -661,7 +821,7 @@ def test_image2_figures_require_conceptual_image2_but_allow_secondary_tikz(
     _write_bytes(tmp_path / "paper" / "figures" / "system.png", _png_bytes(1536, 1024))
     _write_json(
         tmp_path / "paper" / "figures" / "system.review.json",
-        {"score_1_to_5": 4, "keep_or_regenerate": "keep"},
+        _valid_image_review_payload(tmp_path, "paper/figures/system.png"),
     )
     _write_image2_provenance(
         tmp_path,
@@ -669,6 +829,7 @@ def test_image2_figures_require_conceptual_image2_but_allow_secondary_tikz(
         "paper/figures/system.png",
         "paper/figures/system.provenance.json",
     )
+    _write_image2_inspect(tmp_path, "paper/figures/system.png", "paper/figures/system.inspect.json")
     _write_json(
         tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json",
         {
@@ -682,6 +843,8 @@ def test_image2_figures_require_conceptual_image2_but_allow_secondary_tikz(
                     "prompt_path": "paper/figures/system.prompt.txt",
                     "output_path": "paper/figures/system.png",
                     "generation_provenance_path": "paper/figures/system.provenance.json",
+                    "sidecar_path": "paper/figures/system.provenance.json",
+                    "inspect_path": "paper/figures/system.inspect.json",
                     "review_path": "paper/figures/system.review.json",
                 },
                 {
@@ -701,7 +864,7 @@ def test_image2_figures_reject_thin_freehand_teaser_prompt(tmp_path: Path) -> No
     _write_bytes(tmp_path / "paper" / "figures" / "method.png", _png_bytes(1536, 1024))
     _write_json(
         tmp_path / "paper" / "figures" / "method.review.json",
-        {"score_1_to_5": 4, "keep_or_regenerate": "keep"},
+        _valid_image_review_payload(tmp_path, "paper/figures/method.png"),
     )
     _write_image2_provenance(
         tmp_path,
@@ -709,6 +872,7 @@ def test_image2_figures_reject_thin_freehand_teaser_prompt(tmp_path: Path) -> No
         "paper/figures/method.png",
         "paper/figures/method.provenance.json",
     )
+    _write_image2_inspect(tmp_path, "paper/figures/method.png", "paper/figures/method.inspect.json")
     _write_json(
         tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json",
         {
@@ -722,6 +886,8 @@ def test_image2_figures_reject_thin_freehand_teaser_prompt(tmp_path: Path) -> No
                     "prompt_path": "paper/figures/method.prompt.txt",
                     "output_path": "paper/figures/method.png",
                     "generation_provenance_path": "paper/figures/method.provenance.json",
+                    "sidecar_path": "paper/figures/method.provenance.json",
+                    "inspect_path": "paper/figures/method.inspect.json",
                     "review_path": "paper/figures/method.review.json",
                     "requested_size": "1536x1024",
                 }
@@ -740,7 +906,7 @@ def test_image2_figures_reject_square_1024_conceptual_figure(tmp_path: Path) -> 
     _write_bytes(tmp_path / "paper" / "figures" / "system.png", _png_bytes(1024, 1024))
     _write_json(
         tmp_path / "paper" / "figures" / "system.review.json",
-        {"score_1_to_5": 4, "keep_or_regenerate": "keep"},
+        _valid_image_review_payload(tmp_path, "paper/figures/system.png"),
     )
     _write_image2_provenance(
         tmp_path,
@@ -748,6 +914,7 @@ def test_image2_figures_reject_square_1024_conceptual_figure(tmp_path: Path) -> 
         "paper/figures/system.png",
         "paper/figures/system.provenance.json",
     )
+    _write_image2_inspect(tmp_path, "paper/figures/system.png", "paper/figures/system.inspect.json")
     _write_json(
         tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json",
         {
@@ -761,6 +928,8 @@ def test_image2_figures_reject_square_1024_conceptual_figure(tmp_path: Path) -> 
                     "prompt_path": "paper/figures/system.prompt.txt",
                     "output_path": "paper/figures/system.png",
                     "generation_provenance_path": "paper/figures/system.provenance.json",
+                    "sidecar_path": "paper/figures/system.provenance.json",
+                    "inspect_path": "paper/figures/system.inspect.json",
                     "review_path": "paper/figures/system.review.json",
                     "requested_size": "1024x1024",
                 }
@@ -773,6 +942,68 @@ def test_image2_figures_reject_square_1024_conceptual_figure(tmp_path: Path) -> 
     codes = {issue.code for issue in issues}
     assert "disallowed_square_image_request" in codes
     assert "square_conceptual_figure" in codes
+
+
+def test_image2_figures_reject_manifest_without_tool_sidecars(tmp_path: Path) -> None:
+    _write(tmp_path / "paper" / "figures" / "method.prompt.txt", _valid_image2_teaser_prompt())
+    _write_bytes(tmp_path / "paper" / "figures" / "method.png", _png_bytes(1536, 1024))
+    _write_json(
+        tmp_path / "paper" / "figures" / "method.review.json",
+        _valid_image_review_payload(tmp_path, "paper/figures/method.png"),
+    )
+    _write_json(
+        tmp_path / "paper" / "figures" / "method.provenance.json",
+        {
+            "generator": "codex-image2",
+            "model": "codex-image2",
+            "prompt_path": "paper/figures/method.prompt.txt",
+            "output_path": "paper/figures/method.png",
+            "output_sha256": hashlib.sha256((tmp_path / "paper" / "figures" / "method.png").read_bytes()).hexdigest(),
+            "requested_size": "1536x1024",
+            "width": 1536,
+            "height": 1024,
+        },
+    )
+    _write_json(
+        tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json",
+        {
+            "figures": [
+                {
+                    "figure_id": "method-overview",
+                    "figure_type": "method",
+                    "source": "raster",
+                    "generator": "codex-image2",
+                    "model": "codex-image2",
+                    "prompt_path": "paper/figures/method.prompt.txt",
+                    "output_path": "paper/figures/method.png",
+                    "generation_provenance_path": "paper/figures/method.provenance.json",
+                    "review_path": "paper/figures/method.review.json",
+                    "requested_size": "1536x1024",
+                }
+            ]
+        },
+    )
+
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "missing_image2_sidecar_path" in codes
+    assert "missing_image2_inspect_path" in codes
+
+
+def test_image2_figures_reject_manual_only_review(tmp_path: Path) -> None:
+    _write_valid_image2_figures(tmp_path)
+    _write_json(
+        tmp_path / "paper" / "figures" / "method.review.json",
+        {
+            "review_method": "manual visual check",
+            "score_1_to_5": 4.5,
+            "keep_or_regenerate": "keep",
+        },
+    )
+
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "manual_image_review_not_allowed" in codes
 
 
 def test_image2_figures_reject_raster_conceptual_non_image2(tmp_path: Path) -> None:
@@ -914,20 +1145,35 @@ def test_image2_figures_reject_cropped_or_resaved_image2_output(tmp_path: Path) 
     _write_bytes(tmp_path / "paper" / "figures" / "method.png", _png_bytes(1343, 564))
     _write_json(
         tmp_path / "paper" / "figures" / "method.review.json",
-        {"score_1_to_5": 4, "keep_or_regenerate": "keep", "image": {"width": 1536, "height": 1024}},
+        {
+            **_valid_image_review_payload(tmp_path, "paper/figures/method.png"),
+            "image": {
+                "image": "paper/figures/method.png",
+                "sha256": hashlib.sha256((tmp_path / "paper" / "figures" / "method.png").read_bytes()).hexdigest(),
+                "width": 1536,
+                "height": 1024,
+            },
+        },
     )
+    prompt_text = (tmp_path / "paper" / "figures" / "method.prompt.txt").read_text(encoding="utf-8")
+    output_sha = hashlib.sha256((tmp_path / "paper" / "figures" / "method.png").read_bytes()).hexdigest()
     _write_json(
         tmp_path / "paper" / "figures" / "method.sidecar.json",
         {
-            "model": "image-2",
+            "model": "gpt-image-2",
             "generator": "codex-image2",
+            "tool": "argus_skill.tools.image_tool.generate_image",
+            "created_at_unix": 1700000000,
             "prompt_path": "paper/figures/method.prompt.txt",
+            "prompt_sha256": hashlib.sha256(prompt_text.encode("utf-8")).hexdigest(),
             "output_path": "paper/figures/method.png",
-            "output_sha256": hashlib.sha256((tmp_path / "paper" / "figures" / "method.png").read_bytes()).hexdigest(),
-            "image": {"width": 1536, "height": 1024},
+            "output_sha256": output_sha,
+            "image": {"sha256": output_sha, "width": 1536, "height": 1024},
             "requested_size": "1536x1024",
+            "api": {"provider": "openai-compatible", "wire_api": "images", "endpoint": "/images/generations"},
         },
     )
+    _write_image2_inspect(tmp_path, "paper/figures/method.png", "paper/figures/method.inspect.json")
     _write_json(
         tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json",
         {
@@ -943,6 +1189,7 @@ def test_image2_figures_reject_cropped_or_resaved_image2_output(tmp_path: Path) 
                     "generation_provenance_path": "paper/figures/method.sidecar.json",
                     "review_path": "paper/figures/method.review.json",
                     "sidecar_path": "paper/figures/method.sidecar.json",
+                    "inspect_path": "paper/figures/method.inspect.json",
                     "requested_size": "1536x1024",
                 }
             ]
@@ -991,13 +1238,18 @@ def test_image2_figures_reject_named_matplotlib_overview_renderer(
     _write_bytes(tmp_path / "paper" / "figures" / "method_overview.png", _png_bytes(1536, 1024))
     _write_json(
         tmp_path / "paper" / "figures" / "method_overview.review.json",
-        {"score_1_to_5": 4, "keep_or_regenerate": "keep"},
+        _valid_image_review_payload(tmp_path, "paper/figures/method_overview.png"),
     )
     _write_image2_provenance(
         tmp_path,
         "paper/figures/method_overview.prompt.txt",
         "paper/figures/method_overview.png",
         "paper/figures/method_overview.provenance.json",
+    )
+    _write_image2_inspect(
+        tmp_path,
+        "paper/figures/method_overview.png",
+        "paper/figures/method_overview.inspect.json",
     )
     _write_json(
         tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json",
@@ -1012,6 +1264,8 @@ def test_image2_figures_reject_named_matplotlib_overview_renderer(
                     "prompt_path": "paper/figures/method_overview.prompt.txt",
                     "output_path": "paper/figures/method_overview.png",
                     "generation_provenance_path": "paper/figures/method_overview.provenance.json",
+                    "sidecar_path": "paper/figures/method_overview.provenance.json",
+                    "inspect_path": "paper/figures/method_overview.inspect.json",
                     "review_path": "paper/figures/method_overview.review.json",
                     "requested_size": "1536x1024",
                 }
@@ -1149,6 +1403,27 @@ def test_emnlp_paper_contract_requires_structure_conformance(tmp_path: Path) -> 
     assert "missing_style_structure_conformance_json" in codes
 
 
+def test_emnlp_paper_contract_rejects_fake_acl_template(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write(
+        tmp_path / "paper" / "acl.sty",
+        "% minimal ACL compatibility layer\n\\ProvidesPackage{acl}\n",
+    )
+
+    codes = {issue.code for issue in validate_emnlp_paper_contract(tmp_path)}
+
+    assert "fake_or_minimal_acl_style" in codes
+
+
+def test_emnlp_paper_contract_rejects_fake_acl_log(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write(tmp_path / "paper" / "main.log", "Loaded minimal ACL compatibility layer.\n")
+
+    codes = {issue.code for issue in validate_emnlp_paper_contract(tmp_path)}
+
+    assert "fake_acl_style_loaded" in codes
+
+
 def test_emnlp_paper_contract_rejects_unmapped_filler_section(tmp_path: Path) -> None:
     _write_valid_paper_draft_report(tmp_path)
     main_path = tmp_path / "paper" / "main.tex"
@@ -1283,16 +1558,59 @@ def test_research_md_format_preflight_rejects_thin_bibliography(tmp_path: Path) 
 
 def test_research_md_format_preflight_rejects_too_few_unique_citations(tmp_path: Path) -> None:
     _write_valid_paper_draft_report(tmp_path)
-    keys = _valid_reference_keys()
     main_path = tmp_path / "paper" / "main.tex"
     main_text = main_path.read_text(encoding="utf-8")
-    main_text = main_text.replace(f"\\citep{{{','.join(keys[:15])}}}", "\\citep{verifiedref01}")
-    main_text = main_text.replace(f"\\citep{{{','.join(keys[15:30])}}}", "\\citep{verifiedref02}")
+    main_text = re.sub(r"\\citep\{[^{}]+\}", r"\\citep{verifiedref01}", main_text)
     _write(main_path, main_text)
 
     issues = validate_research_md_format_preflight(tmp_path)
 
     assert "insufficient_unique_citations" in {issue.code for issue in issues}
+
+
+def test_research_md_format_preflight_rejects_placeholder_bibtex_authors(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    bib_path = tmp_path / "paper" / "references.bib"
+    bib_text = bib_path.read_text(encoding="utf-8").replace(
+        "author = {Author, Test 1}",
+        "author = {Yucheng Chen and others}",
+        1,
+    )
+    _write(bib_path, bib_text)
+
+    issues = validate_research_md_format_preflight(tmp_path)
+
+    assert "placeholder_bibtex_author_others" in {issue.code for issue in issues}
+
+
+def test_research_md_format_preflight_rejects_rendered_placeholder_authors(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write(
+        tmp_path / "paper" / "main.bbl",
+        "\\bibitem[Chen and 1 others(2024)]{badref} Chen and 1 others. Title.\n",
+    )
+
+    issues = validate_research_md_format_preflight(tmp_path)
+
+    assert "rendered_placeholder_reference_authors" in {issue.code for issue in issues}
+
+
+def test_research_md_format_preflight_rejects_citation_dumping(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    keys = _valid_reference_keys()
+    main_path = tmp_path / "paper" / "main.tex"
+    main_text = re.sub(
+        r"Prior benchmark work motivates.*?reporting protocol \\citep\{[^{}]+\}\.",
+        lambda _: f"Prior work is summarized in one place \\citep{{{','.join(keys[:30])}}}.",
+        main_path.read_text(encoding="utf-8"),
+        flags=re.S,
+    )
+    _write(main_path, main_text)
+
+    codes = {issue.code for issue in validate_research_md_format_preflight(tmp_path)}
+
+    assert "citation_command_dumping" in codes
+    assert "citation_paragraph_dumping" in codes
 
 
 def test_research_md_reference_depth_rejects_one_page_rendered_references() -> None:
@@ -1492,6 +1810,46 @@ def test_layout_review_rejects_non_visual_pass(tmp_path: Path) -> None:
     assert "layout_review_not_visual" in {issue.code for issue in validate_layout_review(tmp_path)}
 
 
+def test_layout_review_rejects_forged_generator(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_layout_review(tmp_path)
+    path = tmp_path / "paper" / "LAYOUT_REVIEW.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["generated_by"] = "code.make_paper"
+    _write_json(path, payload)
+
+    codes = {issue.code for issue in validate_layout_review(tmp_path)}
+
+    assert "layout_review_not_skill_generated" in codes
+
+
+def test_layout_review_rejects_missing_vision_payload(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_layout_review(tmp_path)
+    path = tmp_path / "paper" / "LAYOUT_REVIEW.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload.pop("vision_review")
+    _write_json(path, payload)
+
+    codes = {issue.code for issue in validate_layout_review(tmp_path)}
+
+    assert "missing_layout_review_vision_payload" in codes
+
+
+def test_layout_review_rejects_incomplete_page_snapshot_coverage(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_layout_review(tmp_path)
+    path = tmp_path / "paper" / "LAYOUT_REVIEW.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["page_snapshots"] = payload["page_snapshots"][:1]
+    payload["vision_review"]["reviewed_pages"] = [1]
+    _write_json(path, payload)
+
+    codes = {issue.code for issue in validate_layout_review(tmp_path)}
+
+    assert "incomplete_layout_review_snapshot_coverage" in codes
+
+
 def test_layout_review_rejects_forged_stale_hashes(tmp_path: Path) -> None:
     _write_valid_paper_draft_report(tmp_path)
     _write_valid_layout_review(tmp_path)
@@ -1548,6 +1906,46 @@ def test_academic_language_review_rejects_non_model_pass(tmp_path: Path) -> None
 
     codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
     assert "academic_language_review_not_model_backed" in codes
+
+
+def test_academic_language_review_rejects_forged_generator(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_academic_language_review(tmp_path)
+    path = tmp_path / "paper" / "ACADEMIC_LANGUAGE_REVIEW.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["generated_by"] = "code.make_paper"
+    _write_json(path, payload)
+
+    codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
+
+    assert "academic_language_review_not_skill_generated" in codes
+
+
+def test_academic_language_review_rejects_missing_model_payload(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_academic_language_review(tmp_path)
+    path = tmp_path / "paper" / "ACADEMIC_LANGUAGE_REVIEW.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload.pop("model_review")
+    _write_json(path, payload)
+
+    codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
+
+    assert "missing_academic_language_model_payload" in codes
+
+
+def test_academic_language_review_rejects_boilerplate_evidence_quote(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_academic_language_review(tmp_path)
+    path = tmp_path / "paper" / "ACADEMIC_LANGUAGE_REVIEW.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["evidence_spans"][0]["quote"] = "\\documentclass[11pt]{article}"
+    payload["model_review"]["evidence_spans"][0]["quote"] = "\\documentclass[11pt]{article}"
+    _write_json(path, payload)
+
+    codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
+
+    assert "academic_language_evidence_boilerplate_quote" in codes
 
 
 def test_academic_language_review_rejects_stale_source_hash(tmp_path: Path) -> None:
@@ -1673,6 +2071,85 @@ def _write_bytes(path: Path, data: bytes) -> None:
 
 def _png_bytes(width: int, height: int) -> bytes:
     return b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + struct.pack(">II", width, height)
+
+
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _minimal_pdf_bytes(page_texts: list[str]) -> bytes:
+    objects: list[bytes] = []
+    page_object_ids: list[int] = []
+    next_object_id = 4
+    for text in page_texts:
+        page_object_id = next_object_id
+        content_object_id = next_object_id + 1
+        next_object_id += 2
+        page_object_ids.append(page_object_id)
+        content = _pdf_page_content_stream(text)
+        objects.append(
+            (
+                f"{page_object_id} 0 obj\n"
+                "<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 3 0 R >> >> "
+                "/MediaBox [0 0 612 792] /Contents "
+                f"{content_object_id} 0 R >>\nendobj\n"
+            ).encode("ascii")
+        )
+        objects.append(
+            (
+                f"{content_object_id} 0 obj\n"
+                f"<< /Length {len(content)} >>\n"
+                "stream\n"
+            ).encode("ascii")
+            + content
+            + b"\nendstream\nendobj\n"
+        )
+
+    kids = " ".join(f"{object_id} 0 R" for object_id in page_object_ids)
+    header_objects = [
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        (
+            f"2 0 obj\n<< /Type /Pages /Kids [{kids}] /Count {len(page_object_ids)} >>\nendobj\n"
+        ).encode("ascii"),
+        b"3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+    ]
+    numbered_objects = header_objects + objects
+    pdf = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for obj in numbered_objects:
+        offsets.append(len(pdf))
+        pdf.extend(obj)
+    xref_offset = len(pdf)
+    pdf.extend(f"xref\n0 {len(offsets)}\n".encode("ascii"))
+    pdf.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    pdf.extend(
+        (
+            "trailer\n"
+            f"<< /Size {len(offsets)} /Root 1 0 R >>\n"
+            "startxref\n"
+            f"{xref_offset}\n"
+            "%%EOF\n"
+        ).encode("ascii")
+    )
+    return bytes(pdf)
+
+
+def _pdf_page_content_stream(text: str) -> bytes:
+    lines = [_pdf_escape_text(line) for line in text.splitlines() if line.strip()]
+    commands = ["BT", "/F1 12 Tf", "72 720 Td", "14 TL"]
+    for index, line in enumerate(lines):
+        if index:
+            commands.append("T*")
+        commands.append(f"({line}) Tj")
+    commands.append("ET")
+    return "\n".join(commands).encode("ascii")
+
+
+def _pdf_escape_text(text: str) -> str:
+    safe = "".join(char if 32 <= ord(char) < 127 else " " for char in text)
+    return safe.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -1821,6 +2298,10 @@ def _write_valid_full_emnlp_package(root: Path) -> None:
     _write_valid_layout_review(root)
     _write_valid_academic_language_review(root)
     _write_valid_artifact_manifest(root)
+    _write_valid_claim_graph(root)
+    _write_valid_figure_table_style_guide(root)
+    _write_valid_validation_priority_policy(root)
+    _write_valid_artifact_freshness(root)
     _write(root / "paper" / "SUBMISSION_ASSURANCE.md", "PASS\n")
     _write(root / "paper" / "CLAIMS_EVIDENCE_AUDIT.tsv", "claim\tevidence\n")
     _write_json(root / "paper" / "CLAIMS_EVIDENCE_AUDIT.json", {"claims": []})
@@ -2067,6 +2548,31 @@ def _write_valid_style_exemplar(root: Path) -> None:
         root / "paper" / "style_ref" / "EXEMPLAR.json",
         {"exemplar_schema_version": 2, "exemplars": exemplars},
     )
+    _write_valid_exemplar_suitability(root)
+
+
+def _write_valid_exemplar_suitability(root: Path) -> None:
+    dimensions = {
+        "task_type": {"score": 5, "rationale": "The exemplar studies language-agent evaluation with a matching empirical task shape."},
+        "method_family": {"score": 4, "rationale": "The method family uses agent control and verifier-style mechanisms similar to this paper."},
+        "experiment_shape": {"score": 5, "rationale": "The exemplar reports main results, ablations, robustness, and failure analysis in the same order."},
+        "figure_table_density": {"score": 4, "rationale": "The body uses one overview figure and compact result tables matching the planned visual density."},
+        "related_work_shape": {"score": 4, "rationale": "Related work is grouped by method gap and evaluation limitation rather than chronology."},
+        "page_rhythm": {"score": 5, "rationale": "The page rhythm keeps methods and experiments visually balanced before conclusion."},
+    }
+    _write_json(
+        root / "paper" / "style_ref" / "EXEMPLAR_SUITABILITY.json",
+        {
+            "suitability_schema_version": 1,
+            "verdict": "PASS",
+            "primary_exemplar": "emnlp-award",
+            "no_prose_copy_attestation": True,
+            "candidate_exemplars": [
+                {"slug": "emnlp-award", "role": "primary", "suitability": dimensions},
+                {"slug": "acl-evaluation", "role": "same-direction", "suitability": dimensions},
+            ],
+        },
+    )
 
 
 def _style_profile_text() -> str:
@@ -2211,7 +2717,7 @@ def _write_valid_image2_figures(root: Path) -> None:
     _write_bytes(root / "paper" / "figures" / "method.png", _png_bytes(1536, 1024))
     _write_json(
         root / "paper" / "figures" / "method.review.json",
-        {"score_1_to_5": 4, "keep_or_regenerate": "keep"},
+        _valid_image_review_payload(root, "paper/figures/method.png"),
     )
     _write_image2_provenance(
         root,
@@ -2219,6 +2725,7 @@ def _write_valid_image2_figures(root: Path) -> None:
         "paper/figures/method.png",
         "paper/figures/method.provenance.json",
     )
+    _write_image2_inspect(root, "paper/figures/method.png", "paper/figures/method.inspect.json")
     _write_json(
         root / "paper" / "figures" / "IMAGE2_FIGURES.json",
         {
@@ -2232,6 +2739,8 @@ def _write_valid_image2_figures(root: Path) -> None:
                     "prompt_path": "paper/figures/method.prompt.txt",
                     "output_path": "paper/figures/method.png",
                     "generation_provenance_path": "paper/figures/method.provenance.json",
+                    "sidecar_path": "paper/figures/method.provenance.json",
+                    "inspect_path": "paper/figures/method.inspect.json",
                     "review_path": "paper/figures/method.review.json",
                     "requested_size": "1536x1024",
                 }
@@ -2269,17 +2778,79 @@ Negative prompt / Avoid:
 
 def _write_image2_provenance(root: Path, prompt_path: str, output_path: str, provenance_path: str) -> None:
     output = root / output_path
+    prompt_text = (root / prompt_path).read_text(encoding="utf-8")
+    output_bytes = output.read_bytes()
+    width, height = _png_dimensions_from_file(output)
+    output_sha = hashlib.sha256(output_bytes).hexdigest()
     _write_json(
         root / provenance_path,
         {
             "generator": "codex-image2",
-            "model": "image-2",
-            "tool": "codex-image2",
+            "model": "gpt-image-2",
+            "tool": "argus_skill.tools.image_tool.generate_image",
+            "created_at_unix": 1700000000,
+            "duration_seconds": 1.25,
             "prompt_path": prompt_path,
+            "prompt_sha256": hashlib.sha256(prompt_text.encode("utf-8")).hexdigest(),
             "output_path": output_path,
-            "output_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
+            "output_sha256": output_sha,
+            "requested_size": f"{width}x{height}",
+            "image": {
+                "image": output_path,
+                "exists": True,
+                "bytes": len(output_bytes),
+                "sha256": output_sha,
+                "mime": "image/png",
+                "width": width,
+                "height": height,
+            },
+            "api": {
+                "provider": "openai-compatible",
+                "wire_api": "images",
+                "endpoint": "/images/generations",
+                "base_url_source": "vault",
+                "key_source": "vault",
+            },
         },
     )
+
+
+def _write_image2_inspect(root: Path, output_path: str, inspect_path: str) -> None:
+    output = root / output_path
+    output_bytes = output.read_bytes()
+    width, height = _png_dimensions_from_file(output)
+    _write_json(
+        root / inspect_path,
+        {
+            "image": output_path,
+            "exists": True,
+            "bytes": len(output_bytes),
+            "sha256": hashlib.sha256(output_bytes).hexdigest(),
+            "mime": "image/png",
+            "width": width,
+            "height": height,
+        },
+    )
+
+
+def _valid_image_review_payload(root: Path, output_path: str, *, score: float = 4.0) -> dict[str, object]:
+    output = root / output_path
+    return {
+        "model": "gpt-5.5",
+        "endpoint": "/responses",
+        "review_method": "hybrid_vision_heuristic",
+        "score_1_to_5": score,
+        "keep_or_regenerate": "keep",
+        "image": {
+            "image": output_path,
+            "sha256": hashlib.sha256(output.read_bytes()).hexdigest() if output.is_file() else "0" * 64,
+        },
+    }
+
+
+def _png_dimensions_from_file(path: Path) -> tuple[int, int]:
+    data = path.read_bytes()
+    return struct.unpack(">II", data[16:24])
 
 
 def _write_main_tex_with_figures(
@@ -2326,39 +2897,84 @@ def _write_valid_layout_review(
 ) -> None:
     pdf_path = root / "paper" / "main.pdf"
     if not pdf_path.exists():
-        _write(pdf_path, "%PDF-1.5\n")
-    page_path = root / "paper" / "layout_review" / "pages" / "page-1.png"
-    _write_bytes(page_path, _png_bytes(612, 792))
-    _write_json(
-        root / "paper" / "LAYOUT_REVIEW.json",
+        _write_bytes(pdf_path, _minimal_pdf_bytes(["Page 1"]))
+    page_count = 9
+    page_snapshots = []
+    for page_number in range(1, page_count + 1):
+        page_path = root / "paper" / "layout_review" / "pages" / f"page-{page_number}.png"
+        _write_bytes(page_path, _png_bytes(612, 792))
+        page_snapshots.append(
+            {
+                "page": page_number,
+                "path": page_path.relative_to(root).as_posix(),
+                "sha256": _sha256(page_path),
+            }
+        )
+    prompt = "Review the EMNLP layout from rendered page snapshots."
+    review_input = json.dumps(
         {
-            "schema_version": 1,
-            "generated_by": "argus_skill.skills.paper_layout_review",
-            "iteration": 1,
-            "review_method": review_method,
-            "verdict": verdict,
-            "score_1_to_5": score,
-            "threshold": 4.0,
-            "needs_revision": needs_revision,
-            "pdf_path": "paper/main.pdf",
             "pdf_sha256": _sha256(pdf_path),
-            "page_snapshots": [
-                {
-                    "page": 1,
-                    "path": "paper/layout_review/pages/page-1.png",
-                    "sha256": _sha256(page_path),
-                }
-            ],
-            "criteria_scores": {
-                "typography": 4.2,
-                "table_readability": 4.1,
-                "float_balance": 4.5,
-                "page_flow": 4.3,
-            },
-            "issues": [],
-            "blocking_issues": blocking_issues or [],
-            "revision_directives": revision_directives or [],
+            "page_snapshots": page_snapshots,
         },
+        sort_keys=True,
+    )
+    payload = {
+        "schema_version": 1,
+        "generated_by": "argus_skill.skills.paper_layout_review",
+        "iteration": 1,
+        "review_method": review_method,
+        "review_policy": {
+            "pass_requires_vision": True,
+            "minimum_score": 4.0,
+        },
+        "verdict": verdict,
+        "score_1_to_5": score,
+        "threshold": 4.0,
+        "needs_revision": needs_revision,
+        "pdf_path": "paper/main.pdf",
+        "pdf_sha256": _sha256(pdf_path),
+        "page_snapshots": page_snapshots,
+        "vision_review": {
+            "model": "gpt-5.5",
+            "endpoint": "/responses",
+            "reviewed_pages": list(range(1, page_count + 1)),
+            "raw_review_text": (
+                "The model inspected all rendered pages for EMNLP layout quality, "
+                "table readability, float balance, and page flow before passing."
+            ),
+            "prompt_sha256": _sha256_text(prompt),
+            "review_input_sha256": _sha256_text(review_input),
+        },
+        "criteria_scores": {
+            "typography": 4.2,
+            "table_readability": 4.1,
+            "float_balance": 4.5,
+            "page_flow": 4.3,
+        },
+        "issues": [],
+        "blocking_issues": blocking_issues or [],
+        "revision_directives": revision_directives or [],
+    }
+    review_path = root / "paper" / "LAYOUT_REVIEW.json"
+    _write_json(review_path, payload)
+    _write(
+        root / "paper" / "LAYOUT_REVIEW_history.jsonl",
+        json.dumps(
+            {
+                "generated_by": payload["generated_by"],
+                "iteration": 1,
+                "review_method": review_method,
+                "vision_model": "gpt-5.5",
+                "vision_endpoint": "/responses",
+                "artifact_path": "paper/LAYOUT_REVIEW.json",
+                "artifact_sha256": _sha256(review_path),
+                "verdict": verdict,
+                "score_1_to_5": score,
+                "needs_revision": needs_revision,
+                "pdf_sha256": payload["pdf_sha256"],
+            }
+        )
+        + "\n",
     )
 
 
@@ -2379,8 +2995,6 @@ def _write_valid_academic_language_review(
     references_path = root / "paper" / "references.bib"
     if not references_path.exists():
         _write(references_path, _valid_references_bibtex())
-    tex_text = main_path.read_text(encoding="utf-8")
-    quote = _first_noncommand_sentence(tex_text)
     source_paths = [main_path, references_path]
     source_snapshots = [
         {
@@ -2407,47 +3021,96 @@ def _write_valid_academic_language_review(
     }
     if required_checks:
         checks.update(required_checks)
-    _write_json(
-        root / "paper" / "ACADEMIC_LANGUAGE_REVIEW.json",
+    evidence_spans = _valid_academic_evidence_spans(section_scores)
+    prompt = "Review academic writing quality for an EMNLP long paper."
+    review_input = json.dumps(
         {
-            "schema_version": 1,
-            "generated_by": "argus_skill.skills.academic_language_review",
-            "iteration": 1,
-            "review_method": review_method,
-            "verdict": verdict,
-            "score_1_to_5": score,
-            "threshold": 4.0,
-            "needs_revision": needs_revision,
             "source_snapshots": source_snapshots,
-            "reviewed_source_count": len(source_snapshots),
             "section_scores": section_scores,
             "required_checks": checks,
-            "evidence_spans": [
-                {
-                    "section": section,
-                    "source_path": "paper/main.tex",
-                    "line": 1,
-                    "quote": quote,
-                    "why": f"Reviewer evidence for {section}.",
-                }
-                for section in section_scores
-            ],
-            "issues": [],
-            "blocking_issues": blocking_issues or [],
-            "revision_directives": revision_directives or [],
         },
+        sort_keys=True,
+    )
+    payload = {
+        "schema_version": 1,
+        "generated_by": "argus_skill.skills.academic_language_review",
+        "iteration": 1,
+        "review_method": review_method,
+        "review_policy": {
+            "pass_requires_model": True,
+            "minimum_score": 4.0,
+        },
+        "verdict": verdict,
+        "score_1_to_5": score,
+        "threshold": 4.0,
+        "needs_revision": needs_revision,
+        "source_snapshots": source_snapshots,
+        "reviewed_source_count": len(source_snapshots),
+        "section_scores": section_scores,
+        "required_checks": checks,
+        "evidence_spans": evidence_spans,
+        "model_review": {
+            "model": "gpt-5.5",
+            "endpoint": "/responses",
+            "score_1_to_5": score,
+            "section_scores": section_scores,
+            "required_checks": checks,
+            "evidence_spans": evidence_spans,
+            "raw_review_text": (
+                "The model reviewed the paper source for problem framing, evidence alignment, "
+                "related-work positioning, calibrated tone, and limitations coverage."
+            ),
+            "prompt_sha256": _sha256_text(prompt),
+            "review_input_sha256": _sha256_text(review_input),
+        },
+        "issues": [],
+        "blocking_issues": blocking_issues or [],
+        "revision_directives": revision_directives or [],
+    }
+    review_path = root / "paper" / "ACADEMIC_LANGUAGE_REVIEW.json"
+    _write_json(review_path, payload)
+    _write(
+        root / "paper" / "ACADEMIC_LANGUAGE_REVIEW_history.jsonl",
+        json.dumps(
+            {
+                "generated_by": payload["generated_by"],
+                "iteration": 1,
+                "review_method": review_method,
+                "model": "gpt-5.5",
+                "endpoint": "/responses",
+                "artifact_path": "paper/ACADEMIC_LANGUAGE_REVIEW.json",
+                "artifact_sha256": _sha256(review_path),
+                "verdict": verdict,
+                "score_1_to_5": score,
+                "needs_revision": needs_revision,
+                "source_sha256": {
+                    entry["path"]: entry["sha256"] for entry in source_snapshots
+                },
+            }
+        )
+        + "\n",
     )
 
 
-def _first_noncommand_sentence(tex_text: str) -> str:
-    for raw_line in tex_text.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("\\"):
-            continue
-        sentence = line.split(".", 1)[0].strip()
-        if sentence:
-            return sentence + "."
-    return "A complete EMNLP-style long paper."
+def _valid_academic_evidence_spans(section_scores: dict[str, float]) -> list[dict[str, object]]:
+    quote_by_section = {
+        "abstract": "A complete EMNLP-style long paper.",
+        "introduction": "This paper is formatted as a reviewable long paper with Figure~\\ref{fig:method}.",
+        "contribution_framing": "The method uses a conservative routing policy.",
+        "evidence_alignment": "Table~\\ref{tab:main} summarizes the main result.",
+        "related_work_positioning": "Prior benchmark work motivates the transfer setting",
+        "style_and_clarity": "The paper concludes within the main-page budget.",
+    }
+    return [
+        {
+            "section": section,
+            "source_path": "paper/main.tex",
+            "line": 1,
+            "quote": quote_by_section[section],
+            "why": f"The quoted prose supports the {section.replace('_', ' ')} assessment.",
+        }
+        for section in section_scores
+    ]
 
 
 def _write_valid_paper_draft_report(
@@ -2480,9 +3143,16 @@ def _write_valid_paper_draft_report(
                 "This paper is formatted as a reviewable long paper with Figure~\\ref{fig:method}.",
                 "\\section{Related Work}",
                 (
-                    "Prior work motivates the benchmark and transfer setting "
-                    f"\\citep{{{','.join(citation_keys[:15])}}}, while recent agent-memory "
-                    f"and verifier systems frame the implementation gap \\citep{{{','.join(citation_keys[15:30])}}}."
+                    "Prior benchmark work motivates the transfer setting "
+                    f"\\citep{{{','.join(citation_keys[:6])}}}.\n\n"
+                    "Tool-use systems define reusable execution patterns "
+                    f"\\citep{{{','.join(citation_keys[6:12])}}}.\n\n"
+                    "Agent-memory papers motivate durable state and retrieval "
+                    f"\\citep{{{','.join(citation_keys[12:18])}}}.\n\n"
+                    "Verifier and self-refinement methods frame the admission gate "
+                    f"\\citep{{{','.join(citation_keys[18:24])}}}.\n\n"
+                    "Evaluation and hallucination studies shape our reporting protocol "
+                    f"\\citep{{{','.join(citation_keys[24:30])}}}."
                 ),
                 "\\section{Method}",
                 "\\begin{figure}[t]",
@@ -2542,7 +3212,7 @@ def _write_valid_paper_draft_report(
     )
     _write(root / "paper" / "references.bib", _valid_references_bibtex())
     _write(root / "paper" / "main.log", "Clean LaTeX build.\n")
-    _write(root / "paper" / "main.pdf", "%PDF-1.5\n")
+    _write_bytes(root / "paper" / "main.pdf", _minimal_pdf_bytes(_valid_rendered_paper_pages()))
     _write(root / "paper" / "FORMAT_PREFLIGHT.md", "validate-research-md-format: PASS\n")
     _write_valid_structure_conformance(root)
     _write_json(
@@ -2557,6 +3227,20 @@ def _write_valid_paper_draft_report(
             "paired_significance_table": "tab:significance",
         },
     )
+
+
+def _valid_rendered_paper_pages() -> list[str]:
+    return [
+        "Title\nAbstract\nIntroduction\nThis page introduces the long paper.",
+        "Related Work\nPrior work motivates the benchmark and transfer setting.",
+        "Method\nThe method uses a conservative routing policy.",
+        "Experimental Setup\nFigure 1 shows the pipeline and Table 1 defines tasks.",
+        "Results\nTable 2 summarizes the main result and Figure 2 shows transfer.",
+        "Analysis\nTable 3 reports ablations and Figure 3 shows diagnostics.",
+        "Conclusion\nTable 4 summarizes limitations before the conclusion.",
+        "References\nReference entries begin here.",
+        "References\nMore reference entries continue here.",
+    ]
 
 
 def _valid_reference_keys(count: int = 35) -> list[str]:
@@ -2605,6 +3289,225 @@ def _write_valid_artifact_manifest(root: Path) -> None:
                     "generator": "unit-test",
                 }
             ],
+        },
+    )
+
+
+def _write_valid_claim_graph(root: Path) -> None:
+    _write(root / "paper" / "artifacts" / "result_to_claim.tsv", "result\tclaim\naccuracy\tmain-result\n")
+    _write_json(
+        root / "paper" / "CLAIM_GRAPH.json",
+        {
+            "claim_graph_schema_version": 1,
+            "claims": [
+                {
+                    "id": "main-result",
+                    "claim": "SkillGuard improves success by 8 points over the baseline.",
+                    "section": "Experimental Setup",
+                    "status": "supported",
+                    "evidence_sources": ["paper/artifacts/results_table.tsv"],
+                    "result_artifacts": ["paper/RESULTS_REPORT.md"],
+                    "figure_or_table": ["tab:main"],
+                    "citations": ["verifiedref01"],
+                },
+                {
+                    "id": "method-routing",
+                    "claim": "The method uses a conservative routing policy for skill transfer.",
+                    "section": "Method",
+                    "status": "supported",
+                    "evidence_sources": ["paper/artifacts/result_to_claim.tsv"],
+                    "result_artifacts": ["paper/RESULTS_REPORT.md"],
+                    "figure_or_table": ["fig:method"],
+                    "citations": ["verifiedref02"],
+                },
+            ],
+        },
+    )
+
+
+def _write_valid_figure_table_style_guide(root: Path) -> None:
+    _write_json(
+        root / "paper" / "FIGURE_TABLE_STYLE_GUIDE.json",
+        {
+            "style_guide_schema_version": 1,
+            "verdict": "PASS",
+            "figure_rules": "Use readable page-width academic figures with short labels and no clutter.",
+            "table_rules": "Use compact ACL-style tables with footnotesize text and takeaway captions.",
+            "body_appendix_policy": "Keep only primary evidence floats in the body; move diagnostics to appendix.",
+            "float_inventory": [
+                {
+                    "id": "fig:method",
+                    "type": "figure",
+                    "body_or_appendix": "body",
+                    "target_section": "Method section",
+                    "source_artifact": "paper/figures/method.png",
+                    "style_decision": "Overview figure stays readable at column/body width.",
+                    "readability_check": "Large labels, balanced cards, no raw artifact paths.",
+                },
+                {
+                    "id": "tab:main",
+                    "type": "table",
+                    "body_or_appendix": "body",
+                    "target_section": "Experimental Setup",
+                    "source_artifact": "paper/artifacts/results_table.tsv",
+                    "style_decision": "Primary result table is compact and has a numerical caption.",
+                    "readability_check": "Footnotesize table with limited columns and a clear winner row.",
+                },
+                {
+                    "id": "tab:significance",
+                    "type": "table",
+                    "body_or_appendix": "body",
+                    "target_section": "Results section",
+                    "source_artifact": "paper/artifacts/results_table.tsv",
+                    "style_decision": "Significance evidence sits near the result claim.",
+                    "readability_check": "Compact p-value table with a direct statistical takeaway.",
+                },
+            ],
+        },
+    )
+
+
+def _write_valid_validation_priority_policy(root: Path) -> None:
+    priority_order = [
+        "freshness",
+        "experiment_evidence",
+        "claim_graph",
+        "content_sufficiency",
+        "exemplar_suitability",
+        "exemplar_structure",
+        "figure_table_style",
+        "format_layout",
+        "layout_vision",
+        "academic_language",
+        "artifact_manifest",
+    ]
+    routing = {
+        "freshness": {
+            "issue_code_prefixes": ["artifact_freshness", "freshness_", "artifact_stale", "artifact_modified"],
+            "repair_mode": "regenerate stale downstream artifacts from current inputs",
+        },
+        "experiment_evidence": {
+            "issue_code_prefixes": [
+                "missing_full_scale_experiment_run",
+                "incomplete_full_scale_experiment_run",
+                "missing_baseline_condition_run",
+                "pilot_pdf_without_full_scale_evidence",
+                "proposed_result_missing",
+                "quality_signal_contradicts_results",
+            ],
+            "repair_mode": "run more benchmark experiments and complete missing baseline or ablation conditions",
+        },
+        "claim_graph": {
+            "issue_code_prefixes": ["claim_graph", "claim_", "unsupported_claim", "evidence_gap"],
+            "repair_mode": "reroute to evidence-gap handling, extra experiments, or claim softening",
+        },
+        "content_sufficiency": {
+            "issue_code_prefixes": [
+                "underlength_emnlp_paper",
+                "rendered_main_body_underfilled",
+                "references_before_full_body",
+                "missing_midpaper_visual_pages",
+                "draft_not_submission_quality",
+            ],
+            "repair_mode": "add evidence-backed analysis, ablation, failure study, or run experiments before expanding prose",
+        },
+        "exemplar_suitability": {
+            "issue_code_prefixes": ["exemplar_suitability", "style_exemplar_suitability"],
+            "repair_mode": "reselect or justify the primary exemplar before drafting",
+        },
+        "exemplar_structure": {
+            "issue_code_prefixes": ["style_structure", "structure_", "unmapped_final_section"],
+            "repair_mode": "reset paper skeleton and section mapping",
+        },
+        "figure_table_style": {
+            "issue_code_prefixes": ["figure_table_style", "style_guide_", "float_inventory"],
+            "repair_mode": "redesign figure/table floats and body-vs-appendix placement",
+        },
+        "format_layout": {
+            "issue_code_prefixes": [
+                "severe_overfull_hbox",
+                "code_like_display_label",
+                "table_caption",
+                "body_figure",
+                "too_many_body_figures",
+            ],
+            "repair_mode": "repair LaTeX formatting, captions, labels, and float layout without padding content",
+        },
+        "layout_vision": {
+            "issue_code_prefixes": ["layout_", "stale_layout", "low_layout"],
+            "repair_mode": "apply vision guidance to LaTeX floats and rebuild the whole PDF",
+        },
+        "academic_language": {
+            "issue_code_prefixes": ["academic_", "stale_academic", "low_academic"],
+            "repair_mode": "revise reader-facing prose after evidence and structure are current",
+        },
+        "artifact_manifest": {
+            "issue_code_prefixes": ["artifact_", "manifest_", "generated_artifact"],
+            "repair_mode": "refresh manifest entries and canonical source graph",
+        },
+    }
+    _write_json(
+        root / "paper" / "VALIDATION_PRIORITY_POLICY.json",
+        {
+            "priority_policy_schema_version": 1,
+            "priority_order": priority_order,
+            "failure_routing": routing,
+            "reset_policy": {
+                "max_non_improving_rounds": 2,
+                "actions": ["reset paper skeleton", "rebalance floats", "soften unsupported claims"],
+            },
+        },
+    )
+
+
+def _write_valid_artifact_freshness(root: Path) -> None:
+    def record(path: str, inputs: list[str], *, role: str = "generated") -> dict[str, object]:
+        resolved = root / path
+        existing_inputs = [input_path for input_path in inputs if (root / input_path).exists()]
+        payload: dict[str, object] = {
+            "path": path,
+            "role": role,
+            "inputs": [
+                {"path": input_path, "sha256": _sha256(root / input_path)}
+                for input_path in existing_inputs
+            ],
+            "generator": "unit-test",
+        }
+        if resolved.suffix.lower() != ".pdf":
+            payload["sha256"] = _sha256(resolved)
+        return payload
+
+    records = [
+        record(
+            "paper/CLAIM_GRAPH.json",
+            ["paper/artifacts/result_to_claim.tsv", "paper/artifacts/results_table.tsv"],
+            role="contract",
+        ),
+        record("paper/FIGURE_TABLE_STYLE_GUIDE.json", ["paper/main.tex"], role="contract"),
+        record("paper/VALIDATION_PRIORITY_POLICY.json", ["paper/CLAIM_GRAPH.json"], role="contract"),
+        record(
+            "paper/main.tex",
+            [
+                "paper/CLAIM_GRAPH.json",
+                "paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md",
+                "paper/FIGURE_TABLE_STYLE_GUIDE.json",
+                "paper/artifacts/result_to_claim.tsv",
+                "paper/artifacts/results_table.tsv",
+            ],
+            role="paper_source",
+        ),
+        record("paper/main.pdf", ["paper/main.tex"], role="compiled_pdf"),
+        record("paper/RESULTS_REPORT.md", ["paper/artifacts/results_table.tsv"], role="generated_report"),
+    ]
+    if (root / "paper" / "LAYOUT_REVIEW.json").exists():
+        records.append(record("paper/LAYOUT_REVIEW.json", ["paper/main.pdf"], role="review"))
+    if (root / "paper" / "ACADEMIC_LANGUAGE_REVIEW.json").exists():
+        records.append(record("paper/ACADEMIC_LANGUAGE_REVIEW.json", ["paper/main.tex", "paper/main.pdf"], role="review"))
+    _write_json(
+        root / "paper" / "ARTIFACT_FRESHNESS.json",
+        {
+            "freshness_schema_version": 1,
+            "records": records,
         },
     )
 

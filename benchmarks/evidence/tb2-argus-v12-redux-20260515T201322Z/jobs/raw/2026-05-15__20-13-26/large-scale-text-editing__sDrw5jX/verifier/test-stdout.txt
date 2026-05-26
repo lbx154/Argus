@@ -1,0 +1,162 @@
+Hit:1 http://deb.debian.org/debian bookworm InRelease
+Hit:2 http://deb.debian.org/debian bookworm-updates InRelease
+Hit:3 http://deb.debian.org/debian-security bookworm-security InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (7.88.1-10+deb12u14).
+0 upgraded, 0 newly installed, 0 to remove and 27 not upgraded.
+downloading uv 0.9.5 x86_64-unknown-linux-gnu
+no checksums to verify
+installing to /root/.local/bin
+  uv
+  uvx
+everything's installed!
+
+To add $HOME/.local/bin to your PATH, either restart your shell or run:
+
+    source $HOME/.local/bin/env (sh, bash, zsh)
+    source $HOME/.local/bin/env.fish (fish)
+Downloading pygments (1.2MiB)
+ Downloading pygments
+Installed 6 packages in 344ms
+============================= test session starts ==============================
+platform linux -- Python 3.13.7, pytest-8.4.1, pluggy-1.6.0
+rootdir: /tests
+plugins: json-ctrf-0.3.5
+collected 5 items
+
+../tests/test_outputs.py FFFFF                                           [100%]
+
+=================================== FAILURES ===================================
+___________________________ test_apply_macros_exists ___________________________
+
+    def test_apply_macros_exists():
+        """Ensure the Vim macros script is present at /app/apply_macros.vim."""
+>       assert APPLY_SCRIPT.exists(), f"Missing macro script: {APPLY_SCRIPT}"
+E       AssertionError: Missing macro script: /app/apply_macros.vim
+E       assert False
+E        +  where False = exists()
+E        +    where exists = PosixPath('/app/apply_macros.vim').exists
+
+/tests/test_outputs.py:125: AssertionError
+________________________ test_apply_macros_well_formed _________________________
+
+    def test_apply_macros_well_formed():
+        """
+        Ensure the Vim macros script is well-formed and includes required commands and
+        only valid commands.
+        """
+>       text = APPLY_SCRIPT.read_text(encoding="utf-8", errors="ignore")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/tests/test_outputs.py:133: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.13/pathlib/_local.py:546: in read_text
+    return PathBase.read_text(self, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.13/pathlib/_abc.py:632: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/app/apply_macros.vim'), mode = 'r', buffering = -1
+encoding = 'utf-8', errors = 'ignore', newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/app/apply_macros.vim'
+
+/usr/local/lib/python3.13/pathlib/_local.py:537: FileNotFoundError
+____________________________ test_apply_macros_runs ____________________________
+
+    def test_apply_macros_runs():
+        """
+        Apply the Vim macro script headlessly. Ensure Vim exits 0.
+        Generate expected.csv only AFTER running the agent's Vimscript to prevent cheating.
+        """
+        # Run headless Vim
+        cmd = ["vim", "-Nu", "NONE", "-n", "-Es", str(INPUT), "-S", str(APPLY_SCRIPT)]
+        res = _run(cmd, timeout=600)
+>       assert res.returncode == 0, (
+            f"vim exited {res.returncode}\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
+        )
+E       AssertionError: vim exited 1
+E         STDOUT:
+E         
+E         STDERR:
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['vim', '-Nu', 'NONE', '-n', '-Es', '/app/input.csv', '-S', '/app/apply_macros.vim'], returncode=1, stdout='', stderr='').returncode
+
+/tests/test_outputs.py:172: AssertionError
+__________________________ test_input_equiv_expected ___________________________
+
+    def test_input_equiv_expected():
+        """
+        Compare input.csv and expected.csv (large files) via SHA-256 to avoid loading both
+        entirely into memory multiple times. Ensures byte-for-byte match.
+        """
+        assert INPUT.exists(), f"Missing transformed file: {INPUT}"
+>       assert EXPECTED.exists(), f"Missing expected file: {EXPECTED}"
+E       AssertionError: Missing expected file: /app/expected.csv
+E       assert False
+E        +  where False = exists()
+E        +    where exists = PosixPath('/app/expected.csv').exists
+
+/tests/test_outputs.py:188: AssertionError
+______________________ test_macros_nonempty_and_efficient ______________________
+
+    def test_macros_nonempty_and_efficient():
+        """
+        Verify that macros a, b, and c are non-empty, pairwise distinct, and efficient
+        (total keystrokes < 200).
+        """
+        tmp_script = Path("/app/_defs_only.vim")
+>       _write_defs_only_script(APPLY_SCRIPT, tmp_script)
+
+/tests/test_outputs.py:200: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/tests/test_outputs.py:86: in _write_defs_only_script
+    text = src.read_text(encoding="utf-8", errors="ignore")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.13/pathlib/_local.py:546: in read_text
+    return PathBase.read_text(self, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.13/pathlib/_abc.py:632: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/app/apply_macros.vim'), mode = 'r', buffering = -1
+encoding = 'utf-8', errors = 'ignore', newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/app/apply_macros.vim'
+
+/usr/local/lib/python3.13/pathlib/_local.py:537: FileNotFoundError
+=========================== short test summary info ============================
+FAILED ../tests/test_outputs.py::test_apply_macros_exists - AssertionError: M...
+FAILED ../tests/test_outputs.py::test_apply_macros_well_formed - FileNotFound...
+FAILED ../tests/test_outputs.py::test_apply_macros_runs - AssertionError: vim...
+FAILED ../tests/test_outputs.py::test_input_equiv_expected - AssertionError: ...
+FAILED ../tests/test_outputs.py::test_macros_nonempty_and_efficient - FileNot...
+============================== 5 failed in 0.42s ===============================

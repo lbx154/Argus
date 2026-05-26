@@ -1,0 +1,4 @@
+Trial cancel-async-tasks__gnwheGc failed: Docker compose command failed for environment cancel-async-tasks. Command: docker compose --project-name cancel-async-tasks__gnwhegc --project-directory /home/argustest/.cache/harbor/tasks/5pwPaf92MGZBJjvqnuBn9d/cancel-async-tasks/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network cancel-async-tasks__gnwhegc_default  Creating
+ Network cancel-async-tasks__gnwhegc_default  Error
+failed to create network cancel-async-tasks__gnwhegc_default: Error response from daemon: all predefined address pools have been fully subnetted
+. Stderr: None. 

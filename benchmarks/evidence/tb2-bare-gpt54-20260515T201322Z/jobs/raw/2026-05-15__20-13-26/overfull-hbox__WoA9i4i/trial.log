@@ -1,0 +1,162 @@
+Skipping image OS validation for alexgshaw/overfull-hbox:20251031: docker inspect returned 1
+Trial overfull-hbox__WoA9i4i failed: Docker compose command failed for environment overfull-hbox. Command: docker compose --project-name overfull-hbox__woa9i4i --project-directory /home/argustest/.cache/harbor/tasks/ca36CXF7yAdWnRdpyfoihT/overfull-hbox/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
+ 26606e7b332b Pulling fs layer 
+ 63089ce69763 Pulling fs layer 
+ 6428d45056b3 Pulling fs layer 
+ fc5170bb45f0 Pulling fs layer 
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 63089ce69763 Downloading [==================================================>]  2.711kB/2.711kB
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 63089ce69763 Downloading [==================================================>]  2.711kB/2.711kB
+ 63089ce69763 Downloading [==================================================>]  2.711kB/2.711kB
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 63089ce69763 Downloading [==================================================>]  2.711kB/2.711kB
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 63089ce69763 Downloading [==================================================>]  2.711kB/2.711kB
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 63089ce69763 Downloading [==================================================>]  2.711kB/2.711kB
+ fc5170bb45f0 Downloading [====>                                              ]  9.437MB/102.1MB
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ fc5170bb45f0 Downloading [============>                                      ]  25.17MB/102.1MB
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ fc5170bb45f0 Downloading [============>                                      ]  26.21MB/102.1MB
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ fc5170bb45f0 Downloading [============>                                      ]  26.21MB/102.1MB
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ fc5170bb45f0 Downloading [=================>                                 ]  35.65MB/102.1MB
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ fc5170bb45f0 Downloading [====================>                              ]  41.94MB/102.1MB
+ 26606e7b332b Downloading [==================================================>]     281B/281B
+ 63089ce69763 Download complete 
+ fc5170bb45f0 Downloading [=======================>                           ]  47.19MB/102.1MB
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ fc5170bb45f0 Downloading [=========================>                         ]  52.43MB/102.1MB
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ fc5170bb45f0 Downloading [============================>                      ]  58.72MB/102.1MB
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ fc5170bb45f0 Downloading [=============================>                     ]  60.82MB/102.1MB
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ 26606e7b332b Download complete 
+ fc5170bb45f0 Downloading [=================================>                 ]  68.16MB/102.1MB
+ 6428d45056b3 Downloading [==================================================>]  2.988kB/2.988kB
+ fc5170bb45f0 Downloading [=================================>                 ]  68.16MB/102.1MB
+ fc5170bb45f0 Downloading [=================================>                 ]  69.21MB/102.1MB
+ fc5170bb45f0 Downloading [====================================>              ]  74.45MB/102.1MB
+ fc5170bb45f0 Downloading [====================================>              ]   75.5MB/102.1MB
+ fc5170bb45f0 Downloading [=======================================>           ]  80.74MB/102.1MB
+ fc5170bb45f0 Downloading [==========================================>        ]  87.03MB/102.1MB
+ 6428d45056b3 Download complete 
+ fc5170bb45f0 Downloading [=============================================>     ]  92.27MB/102.1MB
+ fc5170bb45f0 Downloading [=============================================>     ]  93.32MB/102.1MB
+ fc5170bb45f0 Downloading [==============================================>    ]  94.37MB/102.1MB
+ fc5170bb45f0 Downloading [=================================================> ]  100.7MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Downloading [==================================================>]  102.1MB/102.1MB
+ fc5170bb45f0 Download complete 
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 1 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 2 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 3 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 4 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 5 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Extracting 6 s
+ fc5170bb45f0 Pull complete 
+ 26606e7b332b Extracting 1 s
+ 26606e7b332b Pull complete 
+ 63089ce69763 Pull complete 
+ 6428d45056b3 Extracting 1 s
+ 6428d45056b3 Pull complete 
+ main Pulled 
+ Network overfull-hbox__woa9i4i_default  Creating
+ Network overfull-hbox__woa9i4i_default  Error
+failed to create network overfull-hbox__woa9i4i_default: Error response from daemon: all predefined address pools have been fully subnetted
+. Stderr: None. 

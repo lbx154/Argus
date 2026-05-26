@@ -43,6 +43,7 @@ DEFAULT_NOTIFY_KINDS = frozenset({
     "budget_pause",
     "auth_failure",
     "planner_cycle",
+    "planner_retry",
     "planner_done",
     "phase_change",
 })
@@ -144,6 +145,7 @@ _KIND_LABELS: dict[str, tuple[str, str]] = {
     "budget_pause":      ("💰", "预算暂停"),
     "auth_failure":      ("🔐", "认证失败"),
     "planner_cycle":     ("📋", "规划完成"),
+    "planner_retry":     ("🔁", "规划继续"),
     "planner_done":      ("🏁", "项目完成"),
     "phase_change":      ("🔄", "层级切换"),
 }
@@ -224,7 +226,7 @@ def _format_telegram_message(payload: dict[str, Any]) -> str:
                 lines.append(f"📊 {' · '.join(details)}")
     elif kind in ("mission_complete", "mission_failed", "mission_iterated"):
         _format_mission_details(lines, extra, summary)
-    elif kind == "planner_cycle":
+    elif kind in ("planner_cycle", "planner_retry"):
         _format_planner_details(lines, summary)
     elif kind == "planner_done":
         if summary:

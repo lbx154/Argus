@@ -1,0 +1,132 @@
+{
+  "finished_at": "2026-05-16T02:22:46.376064",
+  "id": "57f31fc2-8f18-41cc-bd36-12fa04a50057",
+  "n_total_trials": 89,
+  "started_at": "2026-05-16T02:16:36.838590",
+  "stats": {
+    "cost_usd": 0.6675383,
+    "evals": {
+      "argus-skill-codex__gpt-5.4-mini__terminal-bench": {
+        "exception_stats": {
+          "RuntimeError": [
+            "gpt2-codegolf__B7vso9L",
+            "break-filter-js-from-html__PMH8wvx",
+            "reshard-c4-data__qsuhfXn",
+            "write-compressor__rQYUiRe",
+            "merge-diff-arc-agi-task__YvoKW9v",
+            "winning-avg-corewars__BgYFr7W",
+            "log-summary-date-ranges__z87JBkj",
+            "pytorch-model-cli__uJGiihU",
+            "largest-eigenval__HLMWrf8",
+            "portfolio-optimization__cDvkDqB",
+            "regex-chess__vwfw3Gw",
+            "modernize-scientific-stack__zqsSrWu",
+            "torch-tensor-parallelism__MczHTSo",
+            "path-tracing__kJSshGg",
+            "prove-plus-comm__7BKPHiw",
+            "feal-linear-cryptanalysis__EDJv24D",
+            "caffe-cifar-10__dWJ32cV",
+            "distribution-search__AqF5si2",
+            "mteb-retrieve__94M8iG3",
+            "pypi-server__hy4kRh6",
+            "custom-memory-heap-crash__i825BTL",
+            "adaptive-rejection-sampler__7zMghas",
+            "multi-source-data-merger__E7iGY9N",
+            "crack-7z-hash__fgA8TrN",
+            "chess-best-move__eyo9feR",
+            "cobol-modernization__Q3kpP2W",
+            "overfull-hbox__yRji6a5",
+            "polyglot-rust-c__ppDU9MS",
+            "hf-model-inference__aEiYFdt",
+            "compile-compcert__KnHtWGJ",
+            "db-wal-recovery__HgiHxEx",
+            "headless-terminal__FZ5VK3U",
+            "qemu-startup__cnsT7gy",
+            "build-pov-ray__rZ2MKDk",
+            "git-multibranch__oxS4rFa",
+            "video-processing__9MXRooZ",
+            "qemu-alpine-ssh__oQbRvsm",
+            "kv-store-grpc__BhkrXiA",
+            "install-windows-3.11__4S3aLDF",
+            "make-doom-for-mips__ajbYUK2",
+            "torch-pipeline-parallelism__p3TiZAb",
+            "tune-mjcf__RVCdYRB",
+            "extract-moves-from-video__h83PTcP",
+            "gcode-to-text__SGuP6JH",
+            "make-mips-interpreter__iCojJvK",
+            "count-dataset-tokens__4GVfdcu",
+            "circuit-fibsqrt__n89sgRP",
+            "mteb-leaderboard__DkKSXAT",
+            "mailman__eKqZ7kF",
+            "raman-fitting__HPdLoJp",
+            "query-optimize__Q2hiF6z",
+            "extract-elf__RLsLmto",
+            "protein-assembly__pN4xdF5",
+            "code-from-image__9fGpDM7",
+            "financial-document-processor__GxJvHYa",
+            "mcmc-sampling-stan__DyZu3A8",
+            "regex-log__iAzx5iv",
+            "filter-js-from-html__pnW63GY",
+            "feal-differential-cryptanalysis__LGe6mdw",
+            "polyglot-c-py__fR7EWyt",
+            "bn-fit-modify__9x6JVEF",
+            "fix-ocaml-gc__3DpffFv",
+            "git-leak-recovery__uxLHqVo",
+            "build-cython-ext__EHLPoJQ",
+            "pytorch-model-recovery__TutcGuU",
+            "sam-cell-seg__uEBc9Wy",
+            "model-extraction-relu-logits__MS6zzr7",
+            "nginx-request-logging__TrFjtEj",
+            "sparql-university__SpFTPWG",
+            "large-scale-text-editing__GZjusQh",
+            "sqlite-db-truncate__hMAsdMw",
+            "sanitize-git-repo__awk5akq",
+            "build-pmars__YtSgtbE",
+            "rstan-to-pystan__DBfzVf2",
+            "sqlite-with-gcov__h5VENsn",
+            "openssl-selfsigned-cert__8dZ6xpU",
+            "constraints-scheduling__Xh7BpKf",
+            "dna-insert__XJWWy2T",
+            "vulnerable-secret__5UseMQR",
+            "dna-assembly__eYHUKjT"
+          ]
+        },
+        "metrics": [
+          {
+            "mean": 0.011235955056179775
+          }
+        ],
+        "n_errors": 80,
+        "n_trials": 9,
+        "pass_at_k": {},
+        "reward_stats": {
+          "reward": {
+            "0.0": [
+              "llm-inference-batching-scheduler__DBxd9qM",
+              "password-recovery__BjRHvWZ",
+              "path-tracing-reverse__mPA29ko",
+              "configure-git-webserver__kFcoLKC",
+              "schemelike-metacircular-eval__B3XEtvg",
+              "train-fasttext__d5ntPmY",
+              "fix-code-vulnerability__kwVEGpb",
+              "cancel-async-tasks__aWnai3w"
+            ],
+            "1.0": [
+              "fix-git__Ryd5hpN"
+            ]
+          }
+        }
+      }
+    },
+    "n_cache_tokens": 644736.0,
+    "n_cancelled_trials": 0,
+    "n_completed_trials": 89,
+    "n_errored_trials": 80,
+    "n_input_tokens": 1140133.0,
+    "n_output_tokens": 55030.0,
+    "n_pending_trials": 0,
+    "n_retries": 0,
+    "n_running_trials": 0
+  },
+  "updated_at": "2026-05-16T02:22:46.376064"
+}

@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from benchmarks.validate_results import (
-    validate_experiment_dir,
+    validate_bundle_dir,
     validate_results_root,
 )
 
@@ -14,80 +14,240 @@ def _write_file(path: Path, text: str = "x\n") -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _make_complete_experiment(root: Path, *, with_exempt: bool = False) -> Path:
-    exp = root / "tb2-ablation-2026-05-10-new"
-    _write_file(exp / "PLAN.md")
-    _write_file(exp / "BUILD_INFO.md")
-    _write_file(exp / "RESULTS.md")
-    _write_file(exp / "aggregate.py", "print('ok')\n")
-    _write_file(exp / "run-ablation.sh", "#!/usr/bin/env bash\n")
-    _write_file(exp / "driver.stdout.log")
+def _make_complete_bundle(root: Path, *, with_exempt: bool = False) -> Path:
+    bundle = root / "prompt-only-tb2-smoke-20260515T1435Z"
+    _write_file(bundle / "PLAN.md")
+    _write_file(bundle / "BUILD_INFO.md")
+    _write_file(bundle / "RESULTS.md")
+    _write_file(bundle / "manifest.json", '{"source_run_root":"./scratch"}\n')
+    _write_file(bundle / "logs" / "export.log")
     _write_file(
-        exp / "summary.tsv",
-        "\t".join([
-            "cond",
-            "task",
-            "reward",
-            "wall_s",
-            "eng_in_tok",
-            "eng_cached_in_tok",
-            "eng_out_tok",
-            "rev_in_tok",
-            "rev_cached_in_tok",
-            "rev_out_tok",
-            "sci_tokens",
-            "sci_cached_in_tok",
-            "model_eng",
-            "model_rev",
-            "model_sci",
-            "cost_usd",
-        ]) + "\n" + "\t".join(["c", "t", "1.0", "2.0", "3", "4", "5", "6", "7", "8", "9", "10", "m1", "m2", "m3", "12.3"]) + "\n",
+        bundle / "summary.tsv",
+        "\t".join(
+            [
+                "order",
+                "condition",
+                "task_id",
+                "zero_touch_success",
+                "human_interactions_after_assignment",
+                "active_touch_minutes_after_assignment",
+                "manual_commands",
+                "manual_rescue",
+                "intervention_severity",
+                "result_json",
+                "stdout_log",
+                "stderr_log",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "1",
+                "codex",
+                "cancel-async-tasks",
+                "True",
+                "0",
+                "0.0",
+                "0",
+                "none",
+                "reviewer_off_shortcut",
+                "jobs/raw/o001/result.json",
+                "jobs/raw/o001/stdout.log",
+                "jobs/raw/o001/stderr.log",
+            ]
+        )
+        + "\n",
     )
-    _write_file(exp / "C0" / "task" / "jobs" / "trial.log")
+    _write_file(bundle / "jobs" / "raw" / "o001" / "result.json")
+    _write_file(bundle / "jobs" / "raw" / "o001" / "stdout.log")
+    _write_file(bundle / "jobs" / "raw" / "o001" / "stderr.log")
+    _write_file(bundle / "jobs" / "raw" / "o001" / "metadata.json")
+    _write_file(bundle / "jobs" / "raw" / "o001" / "prompt.txt")
+    _write_file(bundle / "jobs" / "raw" / "o001" / "verification-reward-latest" / "official-verifier.log")
+    _write_file(
+        bundle / "jobs" / "index.tsv",
+        "\t".join(
+            [
+                "job_id",
+                "condition",
+                "task_id",
+                "bundle_dir",
+                "result_json",
+                "stdout_log",
+                "stderr_log",
+                "metadata_json",
+                "prompt_txt",
+                "verification_log",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "o001",
+                "codex",
+                "cancel-async-tasks",
+                "jobs/raw/o001",
+                "jobs/raw/o001/result.json",
+                "jobs/raw/o001/stdout.log",
+                "jobs/raw/o001/stderr.log",
+                "jobs/raw/o001/metadata.json",
+                "jobs/raw/o001/prompt.txt",
+                "jobs/raw/o001/verification-reward-latest/official-verifier.log",
+            ]
+        )
+        + "\n",
+    )
     if with_exempt:
-        _write_file(exp / "EXEMPT.md", "legacy\n")
-    return exp
+        _write_file(bundle / "EXEMPT.md", "legacy\n")
+    return bundle
 
 
 def test_validate_complete_experiment_dir(tmp_path: Path) -> None:
-    exp = _make_complete_experiment(tmp_path)
-    assert validate_experiment_dir(exp) == []
+    bundle = _make_complete_bundle(tmp_path)
+    assert validate_bundle_dir(bundle) == []
 
 
-def test_validate_experiment_dir_requires_summary_columns(tmp_path: Path) -> None:
-    exp = tmp_path / "tb2-ablation-2026-05-10-bad"
-    _write_file(exp / "PLAN.md")
-    _write_file(exp / "BUILD_INFO.md")
-    _write_file(exp / "RESULTS.md")
-    _write_file(exp / "aggregate.py", "print('ok')\n")
-    _write_file(exp / "run-ablation.sh", "#!/usr/bin/env bash\n")
-    _write_file(exp / "driver.stdout.log")
-    _write_file(exp / "summary.tsv", "cond\ttask\treward\n")
-    _write_file(exp / "C0" / "task" / "jobs" / "trial.log")
+def test_validate_bundle_dir_requires_index_paths_to_resolve(tmp_path: Path) -> None:
+    bundle = _make_complete_bundle(tmp_path)
+    _write_file(
+        bundle / "jobs" / "index.tsv",
+        "\t".join(
+            [
+                "job_id",
+                "condition",
+                "task_id",
+                "bundle_dir",
+                "result_json",
+                "stdout_log",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "o001",
+                "codex",
+                "cancel-async-tasks",
+                "jobs/raw/o001",
+                "jobs/raw/o001/missing.json",
+                "jobs/raw/o001/stdout.log",
+            ]
+        )
+        + "\n",
+    )
 
-    issues = validate_experiment_dir(exp)
-    assert any("missing required summary columns" in issue.message for issue in issues)
+    issues = validate_bundle_dir(bundle)
+    assert any("references missing path" in issue.message for issue in issues)
 
 
-def test_validate_experiment_dir_allows_explicit_exemption(tmp_path: Path) -> None:
-    exp = _make_complete_experiment(tmp_path, with_exempt=True)
-    _write_file(exp / "summary.tsv", "cond\ttask\treward\n")
-    assert validate_experiment_dir(exp) == []
+def test_validate_study_bundle_requires_populated_study_columns(tmp_path: Path) -> None:
+    bundle = _make_complete_bundle(tmp_path)
+    _write_file(
+        bundle / "summary.tsv",
+        "\t".join(
+            [
+                "order",
+                "condition",
+                "task_id",
+                "zero_touch_success",
+                "human_interactions_after_assignment",
+                "active_touch_minutes_after_assignment",
+                "manual_commands",
+                "manual_rescue",
+                "result_json",
+                "stdout_log",
+                "stderr_log",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "1",
+                "codex",
+                "cancel-async-tasks",
+                "",
+                "0",
+                "0.0",
+                "0",
+                "",
+                "jobs/raw/o001/result.json",
+                "jobs/raw/o001/stdout.log",
+                "jobs/raw/o001/stderr.log",
+            ]
+        )
+        + "\n",
+    )
+
+    issues = validate_bundle_dir(bundle)
+    assert any("missing required study columns" in issue.message for issue in issues) or any(
+        "study row" in issue.message for issue in issues
+    )
+
+
+def test_validate_study_bundle_rejects_zero_touch_contradiction(tmp_path: Path) -> None:
+    bundle = _make_complete_bundle(tmp_path)
+    _write_file(
+        bundle / "summary.tsv",
+        "\t".join(
+            [
+                "order",
+                "condition",
+                "task_id",
+                "needs_human",
+                "zero_touch_success",
+                "human_interactions_after_assignment",
+                "active_touch_minutes_after_assignment",
+                "manual_commands",
+                "manual_rescue",
+                "intervention_severity",
+                "result_json",
+                "stdout_log",
+                "stderr_log",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "1",
+                "codex",
+                "cancel-async-tasks",
+                "False",
+                "False",
+                "0",
+                "0.0",
+                "0",
+                "",
+                "zero_touch",
+                "jobs/raw/o001/result.json",
+                "jobs/raw/o001/stdout.log",
+                "jobs/raw/o001/stderr.log",
+            ]
+        )
+        + "\n",
+    )
+
+    issues = validate_bundle_dir(bundle)
+    assert any(
+        "contradicts needs_human=False with zero_touch_success=False" in issue.message
+        for issue in issues
+    )
+
+
+def test_validate_bundle_dir_allows_explicit_exemption(tmp_path: Path) -> None:
+    bundle = _make_complete_bundle(tmp_path, with_exempt=True)
+    assert validate_bundle_dir(bundle) == []
 
 
 def test_validate_results_root_visits_all_top_level_dirs(tmp_path: Path) -> None:
-    results_root = tmp_path / "results"
-    _make_complete_experiment(results_root)
+    archive_root = tmp_path / "evidence"
+    _make_complete_bundle(archive_root)
 
-    incomplete = results_root / "tb2-broken-2026-05-10"
-    _write_file(incomplete / "PLAN.md")
-    _write_file(incomplete / "RESULTS.md")
-    _write_file(incomplete / "run-ablation.sh", "#!/usr/bin/env bash\n")
+    incomplete = archive_root / "argus-skill-harbor"
+    _write_file(incomplete / "skills" / "bounded-asyncio-task-runner.md")
 
-    exempt = results_root / "tb2-legacy-2026-05-10"
+    exempt = archive_root / "tb2-legacy-2026-05-10"
     _write_file(exempt / "EXEMPT.md", "legacy partial bundle\n")
 
-    issues = validate_results_root(results_root)
+    issues = validate_results_root(archive_root)
     assert any(
         issue.path == incomplete and issue.message == "missing required file: BUILD_INFO.md"
         for issue in issues
@@ -95,33 +255,33 @@ def test_validate_results_root_visits_all_top_level_dirs(tmp_path: Path) -> None
     assert not any(issue.path == exempt for issue in issues)
 
 
-def test_validate_current_results_tree(tmp_path: Path) -> None:
-    results_root = Path("benchmarks/results")
-    if not results_root.exists():
-        results_root = tmp_path / "results"
-        _make_complete_experiment(results_root)
-    issues = validate_results_root(results_root)
+def test_validate_current_archive_tree(tmp_path: Path) -> None:
+    archive_root = Path("benchmarks/evidence")
+    if not archive_root.exists():
+        archive_root = tmp_path / "evidence"
+        _make_complete_bundle(archive_root)
+    issues = validate_results_root(archive_root)
     assert issues == []
 
 
 def test_known_bugs_documents_current_exempt_result_bundles() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     docs = (repo_root / "docs" / "KNOWN_BUGS.md").read_text(encoding="utf-8")
-    results_root = repo_root / "benchmarks" / "results"
+    roots = [repo_root / "benchmarks" / "results", repo_root / "benchmarks" / "evidence"]
 
     documented = {
         match.group(1).rstrip("/")
         for match in re.finditer(r"^- `([^`]+/?)`$", docs, re.MULTILINE)
-        if match.group(1).startswith("benchmarks/results/")
+        if match.group(1).startswith(("benchmarks/results/", "benchmarks/evidence/"))
     }
-    live = (
-        {
+    live: set[str] = set()
+    for root in roots:
+        if not root.exists():
+            continue
+        live.update(
             str(child.relative_to(repo_root))
-            for child in sorted(results_root.iterdir())
+            for child in sorted(root.iterdir())
             if child.is_dir() and (child / "EXEMPT.md").exists()
-        }
-        if results_root.exists()
-        else set()
-    )
+        )
 
     assert documented == live

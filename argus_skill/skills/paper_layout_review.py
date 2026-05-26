@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -24,12 +23,21 @@ from argus_skill.tools.image_tool import (
     _require_route,
 )
 
+from ._review_contract_constants import (
+    LAYOUT_REVIEW_GENERATED_BY,
+    LAYOUT_REVIEW_HISTORY_PATH,
+    REVIEW_INPUT_SHA256_FIELD,
+    REVIEW_PROMPT_SHA256_FIELD,
+    review_sha256_file,
+    review_sha256_json,
+    review_sha256_text,
+)
+
 PAPER_MAIN_PDF_PATH = Path("paper/main.pdf")
 PAPER_MAIN_TEX_PATH = Path("paper/main.tex")
 PAPER_MAIN_LOG_PATH = Path("paper/main.log")
 LAYOUT_REVIEW_JSON_PATH = Path("paper/LAYOUT_REVIEW.json")
 LAYOUT_REVIEW_MD_PATH = Path("paper/LAYOUT_REVIEW.md")
-LAYOUT_REVIEW_HISTORY_PATH = Path("paper/LAYOUT_REVIEW_history.jsonl")
 LAYOUT_REVIEW_PAGE_DIR = Path("paper/layout_review/pages")
 MIN_LAYOUT_SCORE = 4.0
 MAX_DEFAULT_PAGES = 32
@@ -96,7 +104,7 @@ def generate_layout_review(
             )
         )
     else:
-        pdf_sha256 = _sha256_file(pdf_path)
+        pdf_sha256 = review_sha256_file(pdf_path)
         try:
             page_snapshots = _render_pdf_pages(
                 root,
@@ -193,7 +201,7 @@ def generate_layout_review(
     directives = _revision_directives(issues)
     result: dict[str, Any] = {
         "schema_version": 1,
-        "generated_by": "argus_skill.skills.paper_layout_review",
+        "generated_by": LAYOUT_REVIEW_GENERATED_BY,
         "created_at": datetime.now(UTC).isoformat(),
         "iteration": iteration,
         "review_method": review_method,
@@ -273,7 +281,7 @@ def _render_pdf_pages(
             {
                 "page": index,
                 "path": path.relative_to(root).as_posix(),
-                "sha256": _sha256_file(path),
+                "sha256": review_sha256_file(path),
             }
         )
     if not snapshots:
@@ -512,11 +520,12 @@ def _run_vision_review(
     timeout: float,
 ) -> dict[str, Any]:
     route = _require_route("image_review", env)
-    selected = page_snapshots[:10]
+    selected = page_snapshots
+    prompt = _vision_prompt(deterministic=deterministic, threshold=threshold)
     content: list[dict[str, Any]] = [
         {
             "type": "input_text",
-            "text": _vision_prompt(deterministic=deterministic, threshold=threshold),
+            "text": prompt,
         }
     ]
     for snapshot in selected:
@@ -549,27 +558,65 @@ def _run_vision_review(
     parsed["model"] = route.model
     parsed["endpoint"] = endpoint
     parsed["reviewed_pages"] = [snapshot["page"] for snapshot in selected]
+    prompt_sha256 = review_sha256_text(prompt)
+    parsed[REVIEW_PROMPT_SHA256_FIELD] = prompt_sha256
+    parsed[REVIEW_INPUT_SHA256_FIELD] = review_sha256_json(
+        {
+            "prompt_sha256": prompt_sha256,
+            "page_snapshots": selected,
+            "threshold": threshold,
+        }
+    )
     return parsed
 
 
 def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
+    allowed_actions = ", ".join(sorted(ALLOWED_DIRECTIVE_ACTIONS))
     return (
-        "You are the final layout/aesthetic reviewer for an EMNLP/ACL-style paper. "
-        "Review the rendered PDF page screenshots. Penalize ugly or non-reviewable layout: "
-        "float dump pages, crowded tables, table/body overlap, tiny unreadable fonts, awkward "
-        "whitespace, square or low-quality figures, captions detached from content, bad page "
-        "flow, and non-human code-like labels. Enforce the research.md formatting contract: "
-        "conclusion by page 8, Limitations/Ethics after conclusion, References before Appendix, "
-        "no Overfull hbox above 5pt, <=5 body figures, at most one full-width figure*, at least "
-        "one figure/table on each of pages 4-7, table captions with numerical headlines, readable "
-        "research-style tables, adaptive/landscape conceptual figures rather than 1024x1024 "
-        "squares, and no weird fonts, tiny labels, heavy gradients, photorealism, or snake_case "
-        "labels in paper-facing visuals. Return strict JSON only, no markdown, with: "
-        "score_1_to_5 (number), criteria_scores object with typography/table_readability/"
-        "float_balance/page_flow/figure_quality, blocking_issues list, major_issues list, "
-        "revision_directives list where each directive has action, target, rationale, and "
-        "expected_effect, and pass_or_revise as pass or revise. A score below "
-        f"{threshold:g} or any major visual defect means revise.\n\n"
+        "Role: You are an independent visual reviewer for an EMNLP 2026 paper that is being "
+        "prepared for submission. Your job is to judge the rendered PDF screenshots as a polished, "
+        "standard two-column conference paper: visual beauty, professional layout, readability, "
+        "and compliance with EMNLP/ACL paper norms. Do not act as the author and do not excuse "
+        "ugly artifacts; be as strict as a proceedings layout reviewer.\n\n"
+        "Review task: inspect the screenshots page by page, using the deterministic signals below "
+        "as concrete hints. Penalize any page that looks non-submission-ready: large blank lower-page "
+        "regions, float-dump pages, cramped or plain audit-style tables, table/body overlap, tiny "
+        "unreadable fonts, awkward two-column imbalance, captions detached from content, weak page "
+        "flow, square or low-quality figures, non-human code-like labels, snake_case labels, heavy "
+        "gradients, photorealism, or visuals that look like debug artifacts rather than EMNLP paper "
+        "figures. A page with only a couple of small tables and a large empty area is a hard visual "
+        "failure even if LaTeX compiles.\n\n"
+        "Make the feedback concrete for the next engineer/tool call: every blocking or major issue "
+        "must name the page number when visible, the visual target (for example: page 6 lower half, "
+        "Table 3, Figure 1 labels, references page), the visual evidence you saw, and the specific "
+        "source-level action needed. Prefer fixes that rewrite/rebalance manuscript flow, merge or "
+        "remove low-value floats, split unreadable tables, or regenerate poor figures; do not suggest "
+        "cosmetic page-break shuffling when the real defect is weak prose/float integration.\n\n"
+        "Complete improvement guidance is mandatory, not optional. For every blocking or major issue, "
+        "provide enough repair guidance that an engineer can act without re-interpreting the screenshot: "
+        "root_cause, source_targets (LaTeX/generator/table/figure files or section names to edit), "
+        "specific_edits (ordered concrete edits, not vague advice), visual_goal, and verification "
+        "steps after recompilation. The guidance must say whether to delete filler, merge/split/move "
+        "specific floats, rewrite nearby prose, regenerate a figure, or change table styling. If the "
+        "page is ugly because the paper is underfilled or padded with audit-like content, say exactly "
+        "which body section should be expanded with evidence-bearing narrative and which low-value "
+        "artifact/table should move to appendix or be deleted.\n\n"
+        "Submission contract to enforce: conclusion by page 8, Limitations/Ethics after conclusion, "
+        "References before Appendix, no Overfull hbox above 5pt, <=5 body figures, at most one "
+        "full-width figure*, at least one meaningful figure/table anchor on each of pages 4-7, table "
+        "captions with numerical headlines, readable research-style tables, adaptive/landscape "
+        "conceptual figures rather than 1024x1024 squares, and no weird fonts, tiny labels, heavy "
+        "gradients, photorealism, or code-like labels in paper-facing visuals.\n\n"
+        "Return strict JSON only, no markdown. Use this schema: score_1_to_5 (number), "
+        "criteria_scores object with typography/table_readability/float_balance/page_flow/"
+        "figure_quality/submission_standardness, blocking_issues list, major_issues list, "
+        "revision_directives list, and pass_or_revise as pass or revise. Each blocking_issues and "
+        "major_issues item must be an object with issue, page, target, visual_evidence, action, and "
+        "guidance. The guidance object must include root_cause, source_targets, specific_edits, "
+        "visual_goal, and verification. Each revision_directives item must have action, target, "
+        "rationale, expected_effect, and implementation_guidance with the same concrete fields. "
+        f"Allowed action values: {allowed_actions}. A score below {threshold:g} or any major "
+        "visual defect means revise.\n\n"
         f"Deterministic layout signals:\n{json.dumps(deterministic, ensure_ascii=False)[:6000]}"
     )
 
@@ -585,21 +632,31 @@ def _vision_issues(vision_review: dict[str, Any]) -> list[dict[str, Any]]:
                 text = str(item.get("issue") or item.get("description") or item.get("rationale") or "").strip()
                 action = _normalize_action(item.get("action")) or "rebalance_columns"
                 page = _int_or_none(item.get("page"))
+                target = str(item.get("target") or "").strip() or None
+                visual_evidence = str(item.get("visual_evidence") or "").strip() or None
+                guidance = _guidance_from_vision_item(item)
             else:
                 text = str(item).strip()
                 action = "rebalance_columns"
                 page = None
+                target = None
+                visual_evidence = None
+                guidance = None
             if text:
-                issues.append(
-                    _issue(
-                        f"vision_{field}_{index}",
-                        severity,
-                        text,
-                        page=page,
-                        hard_gate=True,
-                        action=action,
-                    )
+                issue = _issue(
+                    f"vision_{field}_{index}",
+                    severity,
+                    text,
+                    page=page,
+                    hard_gate=True,
+                    action=action,
+                    target=target,
                 )
+                if visual_evidence:
+                    issue["visual_evidence"] = visual_evidence
+                if guidance:
+                    issue["guidance"] = guidance
+                issues.append(issue)
     return issues
 
 
@@ -621,9 +678,148 @@ def _revision_directives(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "target": target,
                 "rationale": issue["message"],
                 "expected_effect": _expected_effect(action),
+                "implementation_guidance": _implementation_guidance(
+                    issue=issue,
+                    action=action,
+                    target=target,
+                ),
             }
         )
     return directives
+
+
+def _guidance_from_vision_item(item: Mapping[str, Any]) -> dict[str, Any] | None:
+    raw_guidance = item.get("guidance")
+    guidance = raw_guidance if isinstance(raw_guidance, Mapping) else {}
+    root_cause = _first_text(
+        guidance.get("root_cause"),
+        guidance.get("why_it_matters"),
+        item.get("root_cause"),
+        item.get("visual_evidence"),
+    )
+    source_targets = _text_list(
+        guidance.get("source_targets"),
+        guidance.get("latex_targets"),
+        item.get("source_targets"),
+        item.get("latex_targets"),
+    )
+    specific_edits = _text_list(
+        guidance.get("specific_edits"),
+        guidance.get("concrete_edits"),
+        guidance.get("repair_steps"),
+        item.get("specific_edits"),
+        item.get("concrete_edits"),
+        item.get("repair_steps"),
+    )
+    visual_goal = _first_text(
+        guidance.get("visual_goal"),
+        guidance.get("expected_visual_result"),
+        item.get("visual_goal"),
+    )
+    verification = _text_list(
+        guidance.get("verification"),
+        guidance.get("verification_steps"),
+        item.get("verification"),
+        item.get("verification_steps"),
+    )
+
+    parsed: dict[str, Any] = {}
+    if root_cause:
+        parsed["root_cause"] = root_cause
+    if source_targets:
+        parsed["source_targets"] = source_targets
+    if specific_edits:
+        parsed["specific_edits"] = specific_edits
+    if visual_goal:
+        parsed["visual_goal"] = visual_goal
+    if verification:
+        parsed["verification"] = verification
+    return parsed or None
+
+
+def _implementation_guidance(
+    *,
+    issue: Mapping[str, Any],
+    action: str,
+    target: str,
+) -> dict[str, Any]:
+    raw_guidance = issue.get("guidance")
+    guidance: Mapping[str, Any] = raw_guidance if isinstance(raw_guidance, Mapping) else {}
+    root_cause = _first_text(
+        guidance.get("root_cause"),
+        issue.get("visual_evidence"),
+        issue.get("message"),
+    ) or "The rendered PDF page does not meet EMNLP/ACL visual submission standards."
+    source_targets = _text_list(guidance.get("source_targets"))
+    if not source_targets:
+        source_targets = _default_source_targets(target)
+    specific_edits = _text_list(guidance.get("specific_edits"))
+    if not specific_edits:
+        specific_edits = [_default_specific_edit(action, target)]
+    visual_goal = _first_text(guidance.get("visual_goal")) or _expected_effect(action)
+    verification = _text_list(guidance.get("verification"))
+    if not verification:
+        verification = [
+            "Rebuild paper/main.pdf, rerun paper_layout_review in vision mode, and ensure validate-layout-review passes."
+        ]
+    return {
+        "root_cause": root_cause,
+        "source_targets": source_targets,
+        "specific_edits": specific_edits,
+        "visual_goal": visual_goal,
+        "verification": verification,
+    }
+
+
+def _default_source_targets(target: str) -> list[str]:
+    normalized = target.strip()
+    if normalized and normalized != "paper/main.tex":
+        return ["paper/main.tex", normalized]
+    return ["paper/main.tex", "the generator/source file that owns the affected section, table, or figure"]
+
+
+def _default_specific_edit(action: str, target: str) -> str:
+    target_text = target or "the affected page/object"
+    edits = {
+        "shorten_section": f"Rewrite or trim low-value prose around {target_text}; keep only evidence-bearing narrative and move audit detail to appendix.",
+        "split_table": f"Split the dense table at {target_text} into smaller reader-facing tables or move secondary rows to appendix.",
+        "merge_tables": f"Merge redundant low-density tables around {target_text} into one stronger reader-facing table with a numerical takeaway caption.",
+        "move_float": f"Move the float around {target_text} next to the paragraph that discusses it, or rewrite the nearby prose/float order so the page is not a float dump.",
+        "resize_figure": f"Resize or recrop the figure at {target_text} so labels remain readable and columns stay balanced.",
+        "regenerate_figure": f"Regenerate the figure at {target_text} with a cleaner EMNLP-style layout, readable labels, and no debug/code-facing visual artifacts.",
+        "replace_code_label": f"Replace code-like labels around {target_text} with human-readable paper labels in the figure/table source and caption.",
+        "tighten_paragraph": f"Tighten paragraphs around {target_text} without adding unsupported claims; use the freed space to restore balanced page flow.",
+        "delete_low_value_content": f"Delete or move low-value audit/checklist content around {target_text}; replace body space only with exemplar-aligned evidence narrative if needed.",
+        "rebalance_columns": f"Rebalance text and floats around {target_text} by editing source order, paragraph length, and float placement rather than adding filler.",
+        "fix_overfull_box": f"Fix the source line/table/figure causing overflow at {target_text}; do not hide it with unreadably small fonts.",
+        "fix_bibliography_appendix_order": f"Move References before Appendix and keep Limitations/Ethics after Conclusion around {target_text}.",
+    }
+    return edits.get(action, f"Revise {target_text} so the rendered page has polished EMNLP/ACL layout.")
+
+
+def _first_text(*values: object) -> str | None:
+    for value in values:
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                return text
+    return None
+
+
+def _text_list(*values: object) -> list[str]:
+    items: list[str] = []
+    for value in values:
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                items.append(text)
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            for entry in value:
+                if isinstance(entry, str):
+                    text = entry.strip()
+                    if text:
+                        items.append(text)
+    return items
 
 
 def _expected_effect(action: str) -> str:
@@ -745,6 +941,23 @@ def _layout_review_markdown(result: dict[str, Any]) -> str:
                 f"- `{directive.get('action', 'revise')}` on `{directive.get('target', 'paper/main.tex')}`: "
                 f"{directive.get('rationale', '')}"
             )
+            guidance = directive.get("implementation_guidance")
+            if isinstance(guidance, dict):
+                root_cause = guidance.get("root_cause")
+                visual_goal = guidance.get("visual_goal")
+                source_targets = guidance.get("source_targets")
+                specific_edits = guidance.get("specific_edits")
+                verification = guidance.get("verification")
+                if root_cause:
+                    lines.append(f"  - Root cause: {root_cause}")
+                if isinstance(source_targets, list) and source_targets:
+                    lines.append("  - Source targets: " + "; ".join(str(item) for item in source_targets))
+                if isinstance(specific_edits, list) and specific_edits:
+                    lines.append("  - Specific edits: " + "; ".join(str(item) for item in specific_edits))
+                if visual_goal:
+                    lines.append(f"  - Visual goal: {visual_goal}")
+                if isinstance(verification, list) and verification:
+                    lines.append("  - Verification: " + "; ".join(str(item) for item in verification))
         lines.append("")
     return "\n".join(lines)
 
@@ -765,11 +978,19 @@ def _append_history(root: Path, path: Path, result: dict[str, Any]) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     summary = {
         "created_at": result.get("created_at"),
+        "generated_by": result.get("generated_by"),
         "iteration": result.get("iteration"),
+        "review_method": result.get("review_method"),
         "verdict": result.get("verdict"),
         "score_1_to_5": result.get("score_1_to_5"),
         "needs_revision": result.get("needs_revision"),
         "pdf_sha256": result.get("pdf_sha256"),
+        "vision_model": (result.get("vision_review") or {}).get("model")
+        if isinstance(result.get("vision_review"), dict)
+        else None,
+        "vision_endpoint": (result.get("vision_review") or {}).get("endpoint")
+        if isinstance(result.get("vision_review"), dict)
+        else None,
         "issue_codes": [
             issue.get("code")
             for issue in result.get("issues", [])
@@ -792,14 +1013,6 @@ def _write_text(path: Path, value: str) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(value, encoding="utf-8")
     os.replace(tmp, path)
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _float_or_none(value: object) -> float | None:

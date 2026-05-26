@@ -1,0 +1,39 @@
+{
+  "conditions": {
+    "argus": {
+      "accepted": 6,
+      "accepted_rate": 1.0,
+      "avg_cost_usd": 0.1493763333333333,
+      "avg_wall_minutes": 7.135000000000001,
+      "cost_usd": 0.8962579999999999,
+      "known_acceptance": 6,
+      "known_reward": 6,
+      "mean_reward": 1.0,
+      "needs_human": 0,
+      "needs_human_rate": 0.0,
+      "reward": 6.0,
+      "rows": 6,
+      "timeout_rate": 0.0,
+      "timeouts": 0,
+      "wall_minutes": 42.81
+    },
+    "codex": {
+      "accepted": 6,
+      "accepted_rate": 1.0,
+      "avg_cost_usd": 0.08419916666666667,
+      "avg_wall_minutes": 4.160000000000001,
+      "cost_usd": 0.5051950000000001,
+      "known_acceptance": 6,
+      "known_reward": 6,
+      "mean_reward": 1.0,
+      "needs_human": 1,
+      "needs_human_rate": 0.16666666666666666,
+      "reward": 6.0,
+      "rows": 6,
+      "timeout_rate": 0.0,
+      "timeouts": 0,
+      "wall_minutes": 24.960000000000004
+    }
+  },
+  "total_rows": 12
+}

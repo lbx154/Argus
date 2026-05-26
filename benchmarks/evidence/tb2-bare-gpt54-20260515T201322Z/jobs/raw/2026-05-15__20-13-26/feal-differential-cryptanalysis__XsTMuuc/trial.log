@@ -1,0 +1,4 @@
+Trial feal-differential-cryptanalysis__XsTMuuc failed: Docker compose command failed for environment feal-differential-cryptanalysis. Command: docker compose --project-name feal-differential-cryptanalysis__xstmuuc --project-directory /home/argustest/.cache/harbor/tasks/RyWCxfjAf9RhapMxS2dMks/feal-differential-cryptanalysis/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network feal-differential-cryptanalysis__xstmuuc_default  Creating
+ Network feal-differential-cryptanalysis__xstmuuc_default  Error
+failed to create network feal-differential-cryptanalysis__xstmuuc_default: Error response from daemon: all predefined address pools have been fully subnetted
+. Stderr: None. 

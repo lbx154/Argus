@@ -1,0 +1,9 @@
+{
+  "child_pid": 2768425,
+  "ended_at": "2026-05-15T23:58:13+00:00",
+  "exit_code": 0,
+  "run_id": "tb2-harbor-smoke-20260515T235537Z",
+  "started_at": "2026-05-15T23:55:38+00:00",
+  "state": "completed",
+  "updated_at": "2026-05-15T23:58:13+00:00"
+}
