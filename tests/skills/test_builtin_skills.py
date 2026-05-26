@@ -77,7 +77,9 @@ def test_research_experiment_skill_requires_live_progress_protocol(tmp_path: Pat
         assert required in text
 
 
-def test_agent_md_templates_are_neutral_and_seeded(tmp_path: Path) -> None:
+def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
+    tmp_path: Path,
+) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
     new_project = (skills_dir / "agent-md-new-project-template.md").read_text(
@@ -95,12 +97,40 @@ def test_agent_md_templates_are_neutral_and_seeded(tmp_path: Path) -> None:
         assert "Mind2Web" not in text
         assert "SWE-bench" not in text
         assert "BoundaryTrap" not in text
+        assert "EMNLP/ACL long-paper" in text
+        assert "/home/argustest/research.md" in text
+        assert "/home/argustest/argus-skill" in text
+        assert "/home/argustest/miniconda3/bin/python" in text
+        assert "validate-full-emnlp" in text
+        assert "image-2/codex-image2" in text
+        assert "actual generated image-2 raster" in text
+        assert "Paper Exemplar PDF Learning" in text
+        assert "validate-exemplar" in text
+        assert "validate-research-md-format" in text
+        assert "ACADEMIC_LANGUAGE_REVIEW.json" in text
+        assert "LAYOUT_REVIEW.json" in text
+        assert "progress.jsonl" in text
+        assert "STOP-file cancellation contract" in text
+        assert "Review artifacts, calibration files, and readiness reports are evidence" in text
         assert "operator" in text
         assert "operator's most recent explicit instruction wins" in text
 
     for required in (
         "clean-slate project",
         "Allowed starting inputs",
+        "literature/source discovery -> idea provenance -> benchmark/code",
+        "10 recent high-quality papers",
+        "3 classic anchors",
+        "not_agent_brainstorm: true",
+        "no_skill",
+        "raw_memory",
+        "reflexion",
+        "static_skill_lib",
+        "50--60 tasks as complete final evidence",
+        "We propose X. We show X improves Y by Z because W.",
+        "Anonymous EMNLP Submission",
+        "Overfull \\hbox > 5pt",
+        "1536x1024",
         "Do not copy a previous project",
         "do not preserve the older thesis",
         "must not contain a specific project title",
@@ -111,6 +141,16 @@ def test_agent_md_templates_are_neutral_and_seeded(tmp_path: Path) -> None:
         "existing project",
         "Canonical state",
         "freshness chains synchronized",
+        "Current operator goal",
+        "Existing research and evidence repair",
+        "Existing paper repair",
+        "Figure repair",
+        "Exemplar/style repair",
+        "Final review and assurance repair",
+        "Telemetry and long-run visibility",
+        "Review artifacts, calibration files, and readiness reports are evidence",
+        "50--60 tasks are pilot evidence",
+        "If the overview is ugly",
         "Do not restart from scratch",
         "raw data may still be selectively listed",
     ):
