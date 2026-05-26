@@ -54,6 +54,8 @@ CODE_REUSE_PLAN_JSON_PATH = Path("research/CODE_REUSE_PLAN.json")
 STYLE_EXEMPLAR_JSON_PATH = Path("paper/style_ref/EXEMPLAR.json")
 STYLE_PROFILE_PATH = Path("paper/style_ref/STYLE_PROFILE.md")
 STYLE_STRUCTURE_BLUEPRINT_PATH = Path("paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md")
+STYLE_STRUCTURE_CONFORMANCE_PATH = Path("paper/style_ref/STRUCTURE_CONFORMANCE.md")
+STYLE_STRUCTURE_CONFORMANCE_JSON_PATH = Path("paper/style_ref/STRUCTURE_CONFORMANCE.json")
 IMAGE2_FIGURES_JSON_PATH = Path("paper/figures/IMAGE2_FIGURES.json")
 LAYOUT_REVIEW_JSON_PATH = Path("paper/LAYOUT_REVIEW.json")
 ACADEMIC_LANGUAGE_REVIEW_PATH = ACADEMIC_LANGUAGE_REVIEW_JSON_PATH
@@ -74,6 +76,7 @@ MIN_STYLE_EXEMPLAR_PDF_BYTES = 4096
 MIN_STYLE_EXEMPLAR_TEXT_CHARS = 4000
 MIN_STYLE_PROFILE_CHARS = 1800
 MIN_STYLE_BLUEPRINT_CHARS = 1200
+MIN_STYLE_CONFORMANCE_CHARS = 900
 RECENT_PAPER_YEAR_CUTOFF = 2023
 MIN_MAIN_CONTENT_PAGES = 7.5
 MAX_MAIN_CONTENT_PAGES = 8.0
@@ -353,6 +356,94 @@ STYLE_BLUEPRINT_REQUIRED_TOPICS: dict[str, tuple[str, ...]] = {
         "claims-evidence",
     ),
     "no_prose_copy_policy": ("no prose copy", "structural style only", "do not copy prose"),
+}
+STYLE_CONFORMANCE_REQUIRED_TOPICS: dict[str, tuple[str, ...]] = {
+    "section_mapping": ("section mapping", "section-to-exemplar", "final section map"),
+    "exemplar_lesson": ("exemplar lesson", "style lesson", "structural lesson"),
+    "evidence_source": ("evidence source", "evidence mapping", "artifact source"),
+    "deviation_rationale": ("deviation rationale", "justified deviation", "why this differs"),
+    "no_prose_copy_policy": ("no prose copy", "structural style only", "do not copy prose"),
+}
+STANDARD_STRUCTURE_SECTION_TOKENS = {
+    "abstract",
+    "introduction",
+    "related",
+    "background",
+    "method",
+    "approach",
+    "system",
+    "model",
+    "architecture",
+    "benchmark",
+    "data",
+    "dataset",
+    "task",
+    "experiment",
+    "evaluation",
+    "setup",
+    "result",
+    "analysis",
+    "finding",
+    "ablation",
+    "robustness",
+    "discussion",
+    "interpretation",
+    "failure",
+    "error",
+    "limitation",
+    "limitations",
+    "ethical",
+    "ethic",
+    "conclusion",
+    "reproducibility",
+}
+FILLER_STRUCTURE_SECTION_PATTERNS = (
+    r"\bprotocol\s+notes?\b",
+    r"\btrack\s+mechanics?\b",
+    r"\brelease\s+details?\b",
+    r"\bmechanics?\b",
+    r"\bnotes?\b",
+    r"\bmisc(?:ellaneous)?\b",
+)
+STRUCTURE_PHASE_RANKS: dict[str, int] = {
+    "introduction": 0,
+    "intro": 0,
+    "related work": 1,
+    "related": 1,
+    "background": 1,
+    "prior work": 1,
+    "method": 2,
+    "approach": 2,
+    "system": 2,
+    "model": 2,
+    "architecture": 2,
+    "benchmark": 2,
+    "data": 2,
+    "dataset": 2,
+    "task": 2,
+    "experimental setup": 3,
+    "experiment setup": 3,
+    "experiments": 3,
+    "evaluation": 3,
+    "evaluation setup": 3,
+    "results": 4,
+    "main results": 4,
+    "findings": 4,
+    "results and analysis": 4,
+    "analysis": 5,
+    "discussion": 5,
+    "interpretation": 5,
+    "failure analysis": 5,
+    "error analysis": 5,
+    "ablation": 5,
+    "robustness": 5,
+    "significance": 5,
+    "conclusion": 6,
+    "limitations": 7,
+    "limitation": 7,
+    "ethical considerations": 8,
+    "ethics": 8,
+    "reproducibility": 9,
 }
 AWARD_STYLE_EXEMPLAR_TOKENS = ("best", "award", "outstanding", "distinguished")
 
@@ -1321,6 +1412,7 @@ def validate_emnlp_paper_contract(project_root: Path) -> list[ContractIssue]:
         )
 
     issues.extend(validate_research_md_format_preflight(root))
+    issues.extend(_validate_style_structure_conformance(root))
 
     return _dedupe_contract_issues(issues)
 
@@ -1427,6 +1519,15 @@ def _load_transitive_latex_sources(root: Path) -> tuple[dict[str, str], list[str
 
 def _latex_before_appendix(tex_text: str) -> str:
     return re.split(r"\\appendix\b", tex_text, maxsplit=1)[0]
+
+
+def _latex_before_references_and_appendix(tex_text: str) -> str:
+    before_appendix = _latex_before_appendix(tex_text)
+    return re.split(
+        r"\\(?:bibliography\s*\{|printbibliography\b|begin\s*\{\s*thebibliography\s*\})",
+        before_appendix,
+        maxsplit=1,
+    )[0]
 
 
 def _expanded_latex_body(root: Path) -> str:
@@ -1545,6 +1646,14 @@ def _latex_section_titles(tex_text: str) -> list[str]:
     for command in ("section", "subsection", "subsubsection"):
         titles.extend(_plain_latex_text(title).lower() for title in _extract_latex_command_arguments(tex_text, command))
     return titles
+
+
+def _latex_top_level_section_titles(tex_text: str) -> list[str]:
+    return [
+        _plain_latex_text(title)
+        for title in _extract_latex_command_arguments(tex_text, "section")
+        if _plain_latex_text(title)
+    ]
 
 
 def _plain_latex_text(value: str) -> str:
@@ -2260,6 +2369,14 @@ def _extract_latex_environments(text: str, environment: str) -> list[str]:
         re.S,
     )
     return [match.group(1) for match in pattern.finditer(text)]
+
+
+def _iter_latex_environments_with_offsets(text: str, environment: str) -> list[tuple[int, str]]:
+    pattern = re.compile(
+        rf"\\begin\s*\{{\s*{re.escape(environment)}\s*\}}(.*?)\\end\s*\{{\s*{re.escape(environment)}\s*\}}",
+        re.S,
+    )
+    return [(match.start(), match.group(1)) for match in pattern.finditer(text)]
 
 
 def _balanced_brace_content(text: str, opening_brace: int) -> str | None:
@@ -3804,6 +3921,117 @@ def _validate_style_exemplar_text_extract(
     return issues
 
 
+def _normalize_topic_text(text: str) -> str:
+    text = text.lower()
+    text = re.sub(r"[_/\-]+", " ", text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _missing_required_topics(
+    text: str,
+    required_topics: dict[str, tuple[str, ...]],
+) -> list[str]:
+    normalized = _normalize_topic_text(text)
+    missing: list[str] = []
+    for topic, alternatives in required_topics.items():
+        if not any(_normalize_topic_text(alternative) in normalized for alternative in alternatives):
+            missing.append(topic)
+    return missing
+
+
+def _section_title_key(title: str) -> str:
+    return _normalize_topic_text(_plain_latex_text(title))
+
+
+def _structure_mapping_records(raw_mappings: Any) -> list[dict[str, Any]]:
+    if isinstance(raw_mappings, dict):
+        records: list[dict[str, Any]] = []
+        for section, value in raw_mappings.items():
+            if isinstance(value, dict):
+                record = dict(value)
+            else:
+                record = {"maps_to_exemplar_phase": value}
+            record.setdefault("section", section)
+            records.append(record)
+        return records
+    if isinstance(raw_mappings, list):
+        return [item for item in raw_mappings if isinstance(item, dict)]
+    return []
+
+
+def _structure_mapping_field(record: dict[str, Any], *names: str) -> Any:
+    for name in names:
+        if name in record:
+            return record[name]
+    return None
+
+
+def _structure_evidence_sources(record: dict[str, Any]) -> list[str]:
+    raw_sources = _structure_mapping_field(
+        record,
+        "evidence_sources",
+        "evidence_source",
+        "local_evidence",
+        "artifact_sources",
+        "artifacts",
+    )
+    if isinstance(raw_sources, str):
+        sources = [raw_sources]
+    elif isinstance(raw_sources, list):
+        sources = [str(source) for source in raw_sources]
+    else:
+        sources = []
+    return [source.strip() for source in sources if source.strip()]
+
+
+def _structure_phase_text(record: dict[str, Any]) -> str:
+    raw_phase = _structure_mapping_field(
+        record,
+        "maps_to_exemplar_phase",
+        "exemplar_phase",
+        "phase",
+        "role",
+        "section_role",
+    )
+    return _normalize_topic_text(str(raw_phase)) if raw_phase is not None else ""
+
+
+def _structure_phase_rank(phase: str) -> int | None:
+    phase = _normalize_topic_text(phase)
+    if phase in STRUCTURE_PHASE_RANKS:
+        return STRUCTURE_PHASE_RANKS[phase]
+    for token, rank in STRUCTURE_PHASE_RANKS.items():
+        if re.search(rf"\b{re.escape(token)}\b", phase):
+            return rank
+    return None
+
+
+def _structure_section_is_standard(title_key: str) -> bool:
+    return any(token in title_key.split() for token in STANDARD_STRUCTURE_SECTION_TOKENS)
+
+
+def _structure_section_needs_deviation(title_key: str) -> bool:
+    if not _structure_section_is_standard(title_key):
+        return True
+    return any(re.search(pattern, title_key) for pattern in FILLER_STRUCTURE_SECTION_PATTERNS)
+
+
+def _looks_like_real_evidence_source(source: str) -> bool:
+    lowered = source.lower()
+    if re.search(r"\b(?:todo|tbd|placeholder|none|n/a)\b", lowered):
+        return False
+    return bool(re.search(r"(?:^|/)(?:results|experiments|paper|research|bench|code|data)/", source))
+
+
+def _has_significance_language(text: str) -> bool:
+    return re.search(
+        r"\b(?:paired|mcnemar|bootstrap|wilcoxon|permutation|confidence interval|"
+        r"confidence intervals?|p\s*[-=]\s*value|p\s*[<=>])\b",
+        _plain_latex_text(text).lower(),
+    ) is not None
+
+
 def _validate_style_exemplar_profile(
     root: Path,
     entry: dict[str, Any],
@@ -3855,11 +4083,7 @@ def _validate_style_exemplar_profile(
             )
         )
     lowered = text.lower()
-    missing_topics = [
-        topic
-        for topic, alternatives in STYLE_PROFILE_REQUIRED_TOPICS.items()
-        if not any(alternative in lowered for alternative in alternatives)
-    ]
+    missing_topics = _missing_required_topics(text, STYLE_PROFILE_REQUIRED_TOPICS)
     if missing_topics:
         issues.append(
             ContractIssue(
@@ -3921,11 +4145,7 @@ def _validate_style_structure_blueprint(root: Path) -> list[ContractIssue]:
             )
         )
     lowered = stripped.lower()
-    missing_topics = [
-        topic
-        for topic, alternatives in STYLE_BLUEPRINT_REQUIRED_TOPICS.items()
-        if not any(alternative in lowered for alternative in alternatives)
-    ]
+    missing_topics = _missing_required_topics(stripped, STYLE_BLUEPRINT_REQUIRED_TOPICS)
     if missing_topics:
         issues.append(
             ContractIssue(
@@ -3943,6 +4163,393 @@ def _validate_style_structure_blueprint(root: Path) -> list[ContractIssue]:
                 "paper structure blueprint must not contain TODO/TBD/placeholder markers",
             )
         )
+    return issues
+
+
+def _validate_style_structure_conformance(root: Path) -> list[ContractIssue]:
+    """Validate that the final paper instantiates, rather than ignores, exemplar lessons."""
+
+    issues: list[ContractIssue] = []
+    issues.extend(_validate_style_structure_conformance_markdown(root))
+
+    json_path = root / STYLE_STRUCTURE_CONFORMANCE_JSON_PATH
+    if not json_path.exists():
+        issues.append(
+            ContractIssue(
+                "missing_style_structure_conformance_json",
+                str(STYLE_STRUCTURE_CONFORMANCE_JSON_PATH),
+                "write final structure conformance JSON mapping every body section to exemplar-derived roles and evidence",
+            )
+        )
+        return _dedupe_contract_issues(issues)
+
+    try:
+        payload = _read_json_object(json_path)
+    except ValueError as exc:
+        issues.append(
+            ContractIssue(
+                "invalid_style_structure_conformance_json",
+                str(STYLE_STRUCTURE_CONFORMANCE_JSON_PATH),
+                str(exc),
+            )
+        )
+        return _dedupe_contract_issues(issues)
+
+    if payload.get("conformance_schema_version") != 1:
+        issues.append(
+            ContractIssue(
+                "invalid_structure_conformance_schema_version",
+                str(STYLE_STRUCTURE_CONFORMANCE_JSON_PATH),
+                "STRUCTURE_CONFORMANCE.json must use conformance_schema_version: 1",
+            )
+        )
+    if str(payload.get("verdict", "")).upper() != "PASS":
+        issues.append(
+            ContractIssue(
+                "structure_conformance_not_pass",
+                str(STYLE_STRUCTURE_CONFORMANCE_JSON_PATH),
+                "final structure conformance verdict must be PASS before paper readiness",
+            )
+        )
+    if payload.get("no_prose_copy_attestation") is not True:
+        issues.append(
+            ContractIssue(
+                "missing_structure_no_prose_copy_attestation",
+                str(STYLE_STRUCTURE_CONFORMANCE_JSON_PATH),
+                "attest that exemplars were used only for structure and no prose was copied",
+            )
+        )
+
+    lessons = payload.get("exemplar_lessons", payload.get("applied_exemplar_lessons"))
+    if not isinstance(lessons, list) or len([lesson for lesson in lessons if lesson]) < 2:
+        issues.append(
+            ContractIssue(
+                "too_few_structure_exemplar_lessons",
+                str(STYLE_STRUCTURE_CONFORMANCE_JSON_PATH),
+                "record at least two applied structural lessons from downloaded exemplars",
+            )
+        )
+
+    raw_mappings = payload.get(
+        "section_mappings",
+        payload.get("sections", payload.get("mappings")),
+    )
+    records = _structure_mapping_records(raw_mappings)
+    if not records:
+        issues.append(
+            ContractIssue(
+                "missing_structure_section_mappings",
+                str(STYLE_STRUCTURE_CONFORMANCE_JSON_PATH),
+                "section_mappings must map final manuscript sections to exemplar phases and local evidence",
+            )
+        )
+
+    tex_path = root / PAPER_MAIN_TEX_PATH
+    if not tex_path.is_file():
+        issues.append(
+            ContractIssue(
+                "missing_main_tex_for_structure_conformance",
+                str(PAPER_MAIN_TEX_PATH),
+                "paper/main.tex is required to validate final structure conformance",
+            )
+        )
+        return _dedupe_contract_issues(issues)
+
+    expanded_tex = _expanded_latex_body(root)
+    body_tex = _latex_before_references_and_appendix(expanded_tex)
+    section_titles = _latex_top_level_section_titles(body_tex)
+    section_keys = [_section_title_key(title) for title in section_titles]
+    if not section_titles:
+        issues.append(
+            ContractIssue(
+                "missing_final_body_sections",
+                str(PAPER_MAIN_TEX_PATH),
+                "final paper must have mapped top-level body sections before references/appendix",
+            )
+        )
+
+    mapping_by_key: dict[str, dict[str, Any]] = {}
+    mapping_ranks: dict[str, int] = {}
+    for index, record in enumerate(records):
+        entry_path = f"{STYLE_STRUCTURE_CONFORMANCE_JSON_PATH}:section_mappings[{index}]"
+        raw_title = _structure_mapping_field(record, "section", "section_title", "title", "name")
+        title = str(raw_title).strip() if raw_title is not None else ""
+        if not title:
+            issues.append(
+                ContractIssue(
+                    "missing_structure_mapping_section",
+                    entry_path,
+                    "each section mapping must name the final manuscript section",
+                )
+            )
+            continue
+        title_key = _section_title_key(title)
+        if title_key in mapping_by_key:
+            issues.append(
+                ContractIssue(
+                    "duplicate_structure_section_mapping",
+                    entry_path,
+                    f"section {title!r} is mapped more than once",
+                )
+            )
+        mapping_by_key[title_key] = record
+
+        phase = _structure_phase_text(record)
+        rank = _structure_phase_rank(phase)
+        if not phase:
+            issues.append(
+                ContractIssue(
+                    "missing_structure_mapping_phase",
+                    entry_path,
+                    f"section {title!r} must map to an exemplar-derived phase",
+                )
+            )
+        elif rank is None:
+            issues.append(
+                ContractIssue(
+                    "invalid_structure_mapping_phase",
+                    entry_path,
+                    f"section {title!r} maps to unknown phase {phase!r}",
+                )
+            )
+        else:
+            mapping_ranks[title_key] = rank
+
+        evidence_sources = _structure_evidence_sources(record)
+        if not evidence_sources:
+            issues.append(
+                ContractIssue(
+                    "missing_structure_mapping_evidence",
+                    entry_path,
+                    f"section {title!r} must name local evidence/artifact sources",
+                )
+            )
+        elif not any(_looks_like_real_evidence_source(source) for source in evidence_sources):
+            issues.append(
+                ContractIssue(
+                    "weak_structure_mapping_evidence",
+                    entry_path,
+                    f"section {title!r} evidence sources must point to local research/results/paper artifacts",
+                )
+            )
+
+        exemplar_lesson = _structure_mapping_field(record, "exemplar_lesson", "style_lesson")
+        if not isinstance(exemplar_lesson, str) or len(exemplar_lesson.strip()) < 15:
+            issues.append(
+                ContractIssue(
+                    "missing_structure_mapping_exemplar_lesson",
+                    entry_path,
+                    f"section {title!r} must name the applied exemplar lesson",
+                )
+            )
+
+        deviation = _structure_mapping_field(
+            record,
+            "deviation_rationale",
+            "paper_specific_deviation",
+            "rationale",
+        )
+        if _structure_section_needs_deviation(title_key):
+            code = (
+                "filler_style_section_heading"
+                if any(re.search(pattern, title_key) for pattern in FILLER_STRUCTURE_SECTION_PATTERNS)
+                else "unjustified_nonstandard_section"
+            )
+            if not isinstance(deviation, str) or len(deviation.strip()) < 60:
+                issues.append(
+                    ContractIssue(
+                        code,
+                        entry_path,
+                        f"section {title!r} needs a paper-specific deviation rationale, not filler",
+                    )
+                )
+
+    section_key_set = set(section_keys)
+    for title, title_key in zip(section_titles, section_keys):
+        if title_key not in mapping_by_key:
+            issues.append(
+                ContractIssue(
+                    "unmapped_final_section",
+                    str(STYLE_STRUCTURE_CONFORMANCE_JSON_PATH),
+                    f"final manuscript section {title!r} is not mapped in STRUCTURE_CONFORMANCE.json",
+                )
+            )
+
+    for title_key in mapping_by_key:
+        if title_key not in section_key_set:
+            issues.append(
+                ContractIssue(
+                    "stale_structure_section_mapping",
+                    str(STYLE_STRUCTURE_CONFORMANCE_JSON_PATH),
+                    f"mapped section {title_key!r} is not present in the final main-body section order",
+                )
+            )
+
+    issues.extend(_validate_structure_phase_coverage(section_keys, mapping_ranks))
+    issues.extend(_validate_structure_phase_order(section_titles, section_keys, mapping_ranks))
+    issues.extend(_validate_structure_significance_placement(expanded_tex))
+    return _dedupe_contract_issues(issues)
+
+
+def _validate_style_structure_conformance_markdown(root: Path) -> list[ContractIssue]:
+    path = root / STYLE_STRUCTURE_CONFORMANCE_PATH
+    if not path.exists():
+        return [
+            ContractIssue(
+                "missing_style_structure_conformance",
+                str(STYLE_STRUCTURE_CONFORMANCE_PATH),
+                "write final STRUCTURE_CONFORMANCE.md after drafting to prove the paper follows exemplar-derived structure",
+            )
+        ]
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return [
+            ContractIssue(
+                "style_structure_conformance_not_utf8",
+                str(STYLE_STRUCTURE_CONFORMANCE_PATH),
+                "STRUCTURE_CONFORMANCE.md must be UTF-8 text",
+            )
+        ]
+    except OSError as exc:
+        return [
+            ContractIssue(
+                "style_structure_conformance_unreadable",
+                str(STYLE_STRUCTURE_CONFORMANCE_PATH),
+                f"STRUCTURE_CONFORMANCE.md could not be read: {exc}",
+            )
+        ]
+
+    stripped = text.strip()
+    issues: list[ContractIssue] = []
+    if len(stripped) < MIN_STYLE_CONFORMANCE_CHARS:
+        issues.append(
+            ContractIssue(
+                "style_structure_conformance_too_thin",
+                str(STYLE_STRUCTURE_CONFORMANCE_PATH),
+                f"STRUCTURE_CONFORMANCE.md must explain final section alignment ({MIN_STYLE_CONFORMANCE_CHARS}+ chars)",
+            )
+        )
+    missing_topics = _missing_required_topics(stripped, STYLE_CONFORMANCE_REQUIRED_TOPICS)
+    if missing_topics:
+        issues.append(
+            ContractIssue(
+                "style_structure_conformance_missing_topics",
+                str(STYLE_STRUCTURE_CONFORMANCE_PATH),
+                "STRUCTURE_CONFORMANCE.md is missing required topics: "
+                + ", ".join(missing_topics),
+            )
+        )
+    if re.search(r"\b(?:todo|tbd|placeholder)\b", stripped.lower()):
+        issues.append(
+            ContractIssue(
+                "style_structure_conformance_has_placeholder",
+                str(STYLE_STRUCTURE_CONFORMANCE_PATH),
+                "STRUCTURE_CONFORMANCE.md must not contain TODO/TBD/placeholder markers",
+            )
+        )
+    return issues
+
+
+def _validate_structure_phase_coverage(
+    section_keys: list[str],
+    mapping_ranks: dict[str, int],
+) -> list[ContractIssue]:
+    ranks = {mapping_ranks[key] for key in section_keys if key in mapping_ranks}
+    missing: list[str] = []
+    if 0 not in ranks:
+        missing.append("introduction")
+    if 1 not in ranks:
+        missing.append("related_work")
+    if 2 not in ranks:
+        missing.append("method_or_benchmark")
+    if not ({3, 4} & ranks):
+        missing.append("evaluation_or_results")
+    if 6 not in ranks:
+        missing.append("conclusion")
+    if not missing:
+        return []
+    return [
+        ContractIssue(
+            "missing_structure_phase_coverage",
+            str(STYLE_STRUCTURE_CONFORMANCE_JSON_PATH),
+            "final section map is missing expected EMNLP phases: " + ", ".join(missing),
+        )
+    ]
+
+
+def _validate_structure_phase_order(
+    section_titles: list[str],
+    section_keys: list[str],
+    mapping_ranks: dict[str, int],
+) -> list[ContractIssue]:
+    issues: list[ContractIssue] = []
+    last_rank = -1
+    last_title = ""
+    for title, key in zip(section_titles, section_keys):
+        rank = mapping_ranks.get(key)
+        if rank is None:
+            continue
+        if rank < last_rank:
+            issues.append(
+                ContractIssue(
+                    "nonmonotonic_structure_phase_order",
+                    str(STYLE_STRUCTURE_CONFORMANCE_JSON_PATH),
+                    (
+                        f"section {title!r} appears after {last_title!r} but maps to an earlier "
+                        "exemplar phase"
+                    ),
+                )
+            )
+            continue
+        last_rank = rank
+        last_title = title
+    return issues
+
+
+def _validate_structure_significance_placement(tex_text: str) -> list[ContractIssue]:
+    stripped = _strip_latex_comments(tex_text)
+    appendix_match = re.search(r"\\appendix\b", stripped)
+    appendix_pos = appendix_match.start() if appendix_match else None
+    bibliography_match = re.search(
+        r"\\(?:bibliography\s*\{|printbibliography\b|begin\s*\{\s*thebibliography\s*\})",
+        stripped,
+    )
+    bibliography_pos = bibliography_match.start() if bibliography_match else None
+    ethics_match = re.search(
+        r"\\section\*?(?:\[[^\]]*\])?\s*\{[^{}]*(?:Ethical Considerations|Ethics)[^{}]*\}",
+        stripped,
+        re.I,
+    )
+    ethics_pos = ethics_match.start() if ethics_match else None
+
+    issues: list[ContractIssue] = []
+    for start, environment in (
+        _iter_latex_environments_with_offsets(stripped, "table")
+        + _iter_latex_environments_with_offsets(stripped, "table*")
+    ):
+        if not _has_significance_language(environment):
+            continue
+        if appendix_pos is not None and start > appendix_pos:
+            continue
+        if ethics_pos is not None and start > ethics_pos and (
+            bibliography_pos is None or start < bibliography_pos
+        ):
+            issues.append(
+                ContractIssue(
+                    "significance_table_after_ethics",
+                    str(PAPER_MAIN_TEX_PATH),
+                    "paired-significance evidence belongs with results/analysis or in the appendix, not after Ethics before references",
+                )
+            )
+        elif bibliography_pos is not None and start > bibliography_pos:
+            issues.append(
+                ContractIssue(
+                    "significance_table_after_references",
+                    str(PAPER_MAIN_TEX_PATH),
+                    "paired-significance evidence after references must be inside the appendix",
+                )
+            )
     return issues
 
 

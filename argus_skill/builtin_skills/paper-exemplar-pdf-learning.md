@@ -27,6 +27,7 @@ Use real top-conference papers as formatting and structure references before wri
   - JSON metadata in `EXEMPLAR.json`: `title`, `url`, `venue`, `year`, `source_type`, `award_status` when applicable, `open_access: true`, `license`, `pdf_storage_policy`, `usage: "structural_style_only"`, `no_prose_copy: true`, `local_pdf`, `pdf_sha256`, `text_extract`, and `structural_profile`.
 - `paper/style_ref/STYLE_PROFILE.md`: a thick structural profile, not a one-line note.
 - `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md`: a project-specific outline that maps exemplar structure to this paper before prose is written.
+- After drafting, `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json` must prove the final LaTeX section order still follows the blueprint. These are post-draft artifacts, not prerequisites for `validate-exemplar`.
 - `paper/style_ref/SOURCES.md`: source URLs, PDF URLs, access date, license/terms notes, and extraction commands.
 
 ## Exemplar selection contract
@@ -61,7 +62,9 @@ Accepted `pdf_storage_policy` values:
 8. **Transfer plan**: how those structural lessons will change this paper.
 9. **No prose copy policy**: explicit statement that the exemplar is for structure only.
 
-`paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` must turn the profile into a concrete writing scaffold for this project: section order, page budget, paragraph roles, figure/table plan, related-work grouping, evaluation sequence, local evidence mapping, and a no-prose-copy policy. This blueprint is the paper organizer; do not let the agent improvise body sections from memory.
+`paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` must turn the profile into a concrete writing scaffold for this project: section order, page budget, paragraph roles, figure/table plan, related-work grouping, evaluation sequence, local evidence mapping, and a no-prose-copy policy. This blueprint is the pre-draft paper organizer; do not let the agent improvise body sections from memory.
+
+After the manuscript exists, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json`. The JSON must use `conformance_schema_version: 1`, `verdict: "PASS"`, `no_prose_copy_attestation: true`, at least two `exemplar_lessons`, and `section_mappings` for every final top-level section before references/appendix. Each mapping must include `section`, `maps_to_exemplar_phase`, `evidence_sources`, `exemplar_lesson`, and a `deviation_rationale` for any paper-specific or nonstandard section. This allows the paper to vary from the exemplars when the local thesis/evidence requires it, but blocks unmapped filler sections such as protocol notes, track mechanics, and release details.
 
 ## Procedure
 1. Find official sources first: ACL Anthology paper page, official EMNLP/ACL awards page, arXiv only when conference PDF metadata is unavailable.
@@ -71,15 +74,17 @@ Accepted `pdf_storage_policy` values:
 5. Write or update `paper/style_ref/EXEMPLAR.json`.
 6. Read the PDFs/text extracts and write `paper/style_ref/STYLE_PROFILE.md` from structural observations only.
 7. Write `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` by adapting those structural observations to this project's thesis, evidence, figures, tables, and section/page plan.
-8. Run:
+8. After the final body draft exists, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json` from the actual `paper/main.tex` section order.
+9. Run:
    - `python -m argus_skill.skills.pipeline_contracts validate-exemplar --project-root .`
-9. If validation fails, fix the missing PDF/text/hash/profile/blueprint evidence before paper drafting continues.
+10. If validation fails, fix the missing PDF/text/hash/profile/blueprint evidence before paper drafting continues. Final readiness later runs `validate-full-emnlp`, which also checks structure conformance.
 
 ## Hard rules
 - Never treat an ACL Anthology URL as enough. The PDF and text extract must exist locally.
 - Never copy exemplar prose, examples, claims, terminology, figure design, bibliography text, or sentence templates.
 - Never use exemplar structure to justify unsupported claims in the new paper.
 - Never start body prose until the structure blueprint exists and maps exemplar lessons to local evidence; otherwise the draft will regress into freehand filler.
+- Never leave a final top-level section unmapped in `STRUCTURE_CONFORMANCE.json`; if a project-specific section is genuinely needed, justify the deviation and point to local evidence.
 - If web access is unavailable, write `paper/style_ref/TODO.md` and mark the draft blocked; do not claim EMNLP-ready status.
 
 ## Response shape

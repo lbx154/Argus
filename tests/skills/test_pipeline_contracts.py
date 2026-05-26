@@ -525,6 +525,48 @@ def test_style_exemplar_requires_structure_blueprint(tmp_path: Path) -> None:
     assert "missing_style_structure_blueprint" in codes
 
 
+def test_style_exemplar_accepts_normalized_profile_and_blueprint_headings(tmp_path: Path) -> None:
+    _write_valid_style_exemplar(tmp_path)
+    _write(
+        tmp_path / "paper" / "style_ref" / "STYLE_PROFILE.md",
+        _style_profile_text()
+        .replace("Abstract shape", "abstract_shape")
+        .replace("Section/page allocation", "section_page_allocation")
+        .replace("Figure/table inventory", "figure-table-inventory")
+        .replace("Related-work shape", "related_work_shape")
+        .replace("Evaluation layout", "evaluation_layout")
+        .replace("Formatting/layout lessons", "formatting_layout_lessons")
+        .replace("Writing lessons", "writing-lessons")
+        .replace("Transfer plan", "transfer_plan")
+        .replace("No prose copy policy", "no_prose-copy-policy"),
+    )
+    _write(
+        tmp_path / "paper" / "style_ref" / "PAPER_STRUCTURE_BLUEPRINT.md",
+        _style_blueprint_text()
+        .replace("Section order", "section_order")
+        .replace("Page budget", "page-budget")
+        .replace("Paragraph roles", "paragraph_roles")
+        .replace("Figure/table plan", "figure/table-plan")
+        .replace("Related-work grouping", "related_work_grouping")
+        .replace("Evaluation sequence", "evaluation_sequence")
+        .replace("Local evidence mapping", "local-evidence_mapping")
+        .replace("No prose copy policy", "no_prose-copy-policy"),
+    )
+
+    assert validate_style_exemplar(tmp_path) == []
+
+
+def test_style_exemplar_does_not_require_final_structure_conformance(tmp_path: Path) -> None:
+    _write_valid_style_exemplar(tmp_path)
+    conformance_dir = tmp_path / "paper" / "style_ref"
+    for filename in ("STRUCTURE_CONFORMANCE.md", "STRUCTURE_CONFORMANCE.json"):
+        path = conformance_dir / filename
+        if path.exists():
+            path.unlink()
+
+    assert validate_style_exemplar(tmp_path) == []
+
+
 def test_style_exemplar_rejects_pdf_hash_mismatch(tmp_path: Path) -> None:
     _write_valid_style_exemplar(tmp_path)
     path = tmp_path / "paper" / "style_ref" / "EXEMPLAR.json"
@@ -1019,6 +1061,91 @@ def test_emnlp_paper_contract_requires_emnlp_target(tmp_path: Path) -> None:
     issues = validate_emnlp_paper_contract(tmp_path)
 
     assert "invalid_target_venue" in {issue.code for issue in issues}
+
+
+def test_emnlp_paper_contract_requires_structure_conformance(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    (tmp_path / "paper" / "style_ref" / "STRUCTURE_CONFORMANCE.md").unlink()
+    (tmp_path / "paper" / "style_ref" / "STRUCTURE_CONFORMANCE.json").unlink()
+
+    codes = {issue.code for issue in validate_emnlp_paper_contract(tmp_path)}
+
+    assert "missing_style_structure_conformance" in codes
+    assert "missing_style_structure_conformance_json" in codes
+
+
+def test_emnlp_paper_contract_rejects_unmapped_filler_section(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    main_path = tmp_path / "paper" / "main.tex"
+    text = main_path.read_text(encoding="utf-8")
+    text = text.replace(
+        "\\section{Results}\nTable~\\ref{tab:main} summarizes the main result.",
+        "\\section{Protocol Notes}\nTable~\\ref{tab:main} summarizes the main result.",
+    )
+    _write(main_path, text)
+
+    codes = {issue.code for issue in validate_emnlp_paper_contract(tmp_path)}
+
+    assert "unmapped_final_section" in codes
+    assert "stale_structure_section_mapping" in codes
+
+
+def test_emnlp_paper_contract_allows_justified_paper_specific_section(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    main_path = tmp_path / "paper" / "main.tex"
+    text = main_path.read_text(encoding="utf-8")
+    text = text.replace(
+        "\\section{Results}\nTable~\\ref{tab:main} summarizes the main result.",
+        "\\section{Transfer Diagnostics}\nTable~\\ref{tab:main} summarizes the main result.",
+    )
+    _write(main_path, text)
+
+    path = tmp_path / "paper" / "style_ref" / "STRUCTURE_CONFORMANCE.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    for mapping in payload["section_mappings"]:
+        if mapping["section"] == "Results":
+            mapping["section"] = "Transfer Diagnostics"
+            mapping["maps_to_exemplar_phase"] = "results"
+            mapping["deviation_rationale"] = (
+                "This paper reports transfer diagnostics as its main result section because "
+                "the local benchmark measures cross-family transfer rather than a single "
+                "task score; the section still follows the exemplar result phase."
+            )
+    _write_json(path, payload)
+
+    codes = {issue.code for issue in validate_emnlp_paper_contract(tmp_path)}
+
+    assert "unjustified_nonstandard_section" not in codes
+    assert "unmapped_final_section" not in codes
+    assert "stale_structure_section_mapping" not in codes
+
+
+def test_emnlp_paper_contract_rejects_significance_table_after_ethics(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    main_path = tmp_path / "paper" / "main.tex"
+    text = main_path.read_text(encoding="utf-8")
+    significance_table = (
+        "\\begin{table}[t]\n"
+        "\\centering\n"
+        "\\begin{tabular}{lc}\\toprule Test & p-value \\\\ \\midrule Paired McNemar & 0.01 \\\\ \\bottomrule\\end{tabular}\n"
+        "\\caption{Paired McNemar significance remains below p=0.01 across 120 tasks.}\n"
+        "\\label{tab:ethics-significance}\n"
+        "\\end{table}\n"
+    )
+    text = text.replace(
+        "\\section*{Ethical Considerations}\n"
+        "The work uses synthetic tasks and reports safety-relevant limitations.\n"
+        "\\bibliography{references}",
+        "\\section*{Ethical Considerations}\n"
+        "The work uses synthetic tasks and reports safety-relevant limitations.\n"
+        + significance_table
+        + "\\bibliography{references}",
+    )
+    _write(main_path, text)
+
+    codes = {issue.code for issue in validate_emnlp_paper_contract(tmp_path)}
+
+    assert "significance_table_after_ethics" in codes
 
 
 def test_paper_format_rejects_appendix_before_references(tmp_path: Path) -> None:
@@ -1896,6 +2023,72 @@ def _style_blueprint_text() -> str:
     return "\n\n".join(sections) + "\n" + ("Blueprint evidence mapping note. " * 80)
 
 
+def _write_valid_structure_conformance(root: Path) -> None:
+    sections = [
+        ("Introduction", "introduction"),
+        ("Related Work", "related work"),
+        ("Method", "method"),
+        ("Experimental Setup", "experimental setup"),
+        ("Results", "results"),
+        ("Conclusion", "conclusion"),
+        ("Limitations", "limitations"),
+        ("Ethical Considerations", "ethics"),
+    ]
+    _write(
+        root / "paper" / "style_ref" / "STRUCTURE_CONFORMANCE.md",
+        "\n\n".join(
+            [
+                "# Final structure conformance",
+                "## Section mapping\n"
+                "Every final manuscript section is mapped to the exemplar-derived blueprint and "
+                "the map follows the final LaTeX section order rather than an aspirational outline.",
+                "## Exemplar lesson\n"
+                "The final paper applies structural lessons about motivation-first introduction, "
+                "topic-separated related work, evidence-near result tables, and calibrated endings.",
+                "## Evidence source\n"
+                "Each mapped section names local evidence sources under research/, experiments/, "
+                "results/, or paper/artifacts/ so section roles are grounded in project artifacts.",
+                "## Deviation rationale\n"
+                "Paper-specific deviations are justified where the local benchmark or method needs "
+                "a different shape from the exemplars, while filler sections are disallowed.",
+                "## No prose copy policy\n"
+                "The exemplars were used only for structural style. No prose, examples, terminology, "
+                "claims, bibliography text, figure design, or sentence templates were copied.",
+            ]
+        )
+        + "\n"
+        + ("Final section mapping evidence note. " * 90),
+    )
+    _write_json(
+        root / "paper" / "style_ref" / "STRUCTURE_CONFORMANCE.json",
+        {
+            "conformance_schema_version": 1,
+            "verdict": "PASS",
+            "no_prose_copy_attestation": True,
+            "exemplar_lessons": [
+                "Put the problem, gap, method, and measured result in the introduction before details.",
+                "Keep results and significance evidence near the evaluation narrative.",
+            ],
+            "section_mappings": [
+                {
+                    "section": section,
+                    "maps_to_exemplar_phase": phase,
+                    "evidence_sources": [
+                        "paper/artifacts/results_summary.tsv",
+                        "research/IDEA_PROVENANCE.json",
+                    ],
+                    "exemplar_lesson": "Use the exemplar phase role while grounding prose in local artifacts.",
+                    "deviation_rationale": (
+                        "The local benchmark and method require this section shape while preserving "
+                        "the exemplar-derived argument flow and avoiding copied prose."
+                    ),
+                }
+                for section, phase in sections
+            ],
+        },
+    )
+
+
 def _write_valid_image2_figures(root: Path) -> None:
     _write(root / "paper" / "figures" / "method.prompt.txt", _valid_image2_teaser_prompt())
     _write_bytes(root / "paper" / "figures" / "method.png", _png_bytes(1536, 1024))
@@ -2234,6 +2427,7 @@ def _write_valid_paper_draft_report(
     _write(root / "paper" / "main.log", "Clean LaTeX build.\n")
     _write(root / "paper" / "main.pdf", "%PDF-1.5\n")
     _write(root / "paper" / "FORMAT_PREFLIGHT.md", "validate-research-md-format: PASS\n")
+    _write_valid_structure_conformance(root)
     _write_json(
         root / "paper" / "PAPER_DRAFT_REPORT.json",
         {

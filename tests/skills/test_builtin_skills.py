@@ -111,6 +111,12 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         assert "Paper Exemplar PDF Learning" in text
         assert "validate-exemplar" in text
         assert "PAPER_STRUCTURE_BLUEPRINT.md" in text
+        assert "STRUCTURE_CONFORMANCE.md" in text
+        assert "STRUCTURE_CONFORMANCE.json" in text
+        assert "conformance_schema_version: 1" in text
+        assert "maps_to_exemplar_phase" in text
+        assert "deviation_rationale" in text
+        assert "unmapped" in text
         assert "section order, page budget, paragraph roles" in text
         assert "validate-research-md-format" in text
         assert "ACADEMIC_LANGUAGE_REVIEW.json" in text
@@ -206,6 +212,12 @@ def test_emnlp_paper_skill_requires_official_template_page_budget_and_style_ref(
         "pdf_sha256",
         "text_extract",
         "paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md",
+        "paper/style_ref/STRUCTURE_CONFORMANCE.md",
+        "paper/style_ref/STRUCTURE_CONFORMANCE.json",
+        "conformance_schema_version: 1",
+        "maps_to_exemplar_phase",
+        "deviation_rationale",
+        "unmapped",
         "Use this blueprint as the paper organizer",
         "instead of writing freehand LaTeX",
         "paper/figures/IMAGE2_FIGURES.json",
