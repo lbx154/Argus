@@ -200,8 +200,9 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 5. The abstract should read like a normal EMNLP abstract. Do not mention validator names, raw paths, evidence-span bookkeeping, review mechanics, or appendix layout trivia in the abstract/body.
 6. Never invent BibTeX. Fetch/verify references through scholarly sources or mark unresolved entries as blockers.
 7. Use official ACL/EMNLP review style, anonymous author block, 7.5--8.0 pages of main content, conclusion by the end of page 8, Limitations and Ethical Considerations after Conclusion, References before Appendix, and a reproducibility appendix.
-8. Run `validate-research-md-format` after the final compile and before academic-language/layout review. Update `paper/FORMAT_PREFLIGHT.md` with compile status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final validator result.
-9. Do not tolerate undefined refs/citations, rendered `[?]`, `Overfull \hbox > 5pt`, placeholders, `% UNVERIFIED`, code-like display labels, missing numerical table captions, or stale PDF/log/preflight facts.
+8. Repair `paper/PAGE_BUDGET.md` and `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` against this reference budget, adjusting only with evidence/exemplar justification: Abstract 0.3 pages; Introduction 1 page; Related Work 0.5--0.8 pages; Method 1--1.5 pages; Experimental Setup 0.5--1 page; Main Results 1--1.5 pages; Analysis/Ablation 1 page; Failure Cases 0.3--0.5 pages; Conclusion 0.2 pages.
+9. Run `validate-research-md-format` after the final compile and before academic-language/layout review. Update `paper/FORMAT_PREFLIGHT.md` with compile status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final validator result.
+10. Do not tolerate undefined refs/citations, rendered `[?]`, `Overfull \hbox > 5pt`, placeholders, `% UNVERIFIED`, code-like display labels, missing numerical table captions, or stale PDF/log/preflight facts.
 
 ## Citation and related-work repair
 1. Verify bibliography metadata through Semantic Scholar, arXiv, CrossRef, ACL Anthology, DBLP, or official project pages; never invent BibTeX to clear a warning.

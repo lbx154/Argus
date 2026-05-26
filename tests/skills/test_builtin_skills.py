@@ -150,6 +150,11 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         assert "6--20 layout variants" in text
         assert "Figma-style block diagram" in text
         assert "rounded cards" in text
+        assert "Abstract" in text and "0.3" in text
+        assert "Related Work" in text and "0.5--0.8" in text
+        assert "Experimental Setup" in text and "0.5--1" in text
+        assert "Main Results" in text and "1--1.5" in text
+        assert "Failure Cases" in text and "0.3--0.5" in text
 
     for required in (
         "clean-slate project",
@@ -204,6 +209,11 @@ def test_emnlp_paper_skill_requires_official_template_page_budget_and_style_ref(
         "https://github.com/acl-org/acl-style-files",
         "7.5--8 main-content pages",
         "paper/PAGE_BUDGET.md",
+        "Abstract 0.3 pages",
+        "Related Work 0.5--0.8 pages",
+        "Experimental Setup 0.5--1 page",
+        "Main Results 1--1.5 pages",
+        "Failure Cases 0.3--0.5 pages",
         "paper/TEMPLATE_SOURCE.md",
         "paper/style_ref/STYLE_PROFILE.md",
         "paper/style_ref/EXEMPLAR.json",

@@ -222,12 +222,26 @@ Use the repository's existing conventions if they are already present; otherwise
 ## Paper formatting and layout contract
 1. Use the official ACL/EMNLP style files, preferably `\usepackage[review]{acl}`, and the anonymous review author block `Anonymous EMNLP Submission`.
 2. The final paper must be an EMNLP/ACL long paper with 7.5--8.0 pages of main content, verified citations, limitations, ethics, and a reproducibility appendix.
-3. Conclusion must appear by the end of page 8; Limitations and Ethical Considerations must appear after Conclusion; References must appear before Appendix.
-4. Run `validate-research-md-format` after final compile and before academic-language/layout review.
-5. Write `paper/FORMAT_PREFLIGHT.md` with compile command/status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final validator result.
-6. No undefined references/citation warnings, no rendered `[?]`, no `Overfull \hbox > 5pt`, no placeholders/TODO/TBD/FIXME, no `% UNVERIFIED`, and no ugly code-like display labels in title, abstract, headings, captions, figures, or tables.
-7. Body figures <=5 total, at most one `figure*`, every figure labeled and referenced, every table caption has a numerical headline, at least one figure/table on each of pages 4--7 when extractable, and at least one paired-significance table when comparative binary outcomes apply.
-8. Tables must follow the `research.md` style tokens: `\footnotesize`, `\tabcolsep=3-4pt`, `\arraystretch=1.15`, light-gray header, soft peach "ours" row, alternating row tint for long tables, coral accent only for meaningful degradation, and bold winning values.
+3. Use this reference page budget when writing `paper/PAGE_BUDGET.md` and `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md`; adapt only with evidence/exemplar justification:
+
+   | Section | Pages |
+   | --- | --- |
+   | Abstract | 0.3 |
+   | Introduction | 1 |
+   | Related Work | 0.5--0.8 |
+   | Method | 1--1.5 |
+   | Experimental Setup | 0.5--1 |
+   | Main Results | 1--1.5 |
+   | Analysis/Ablation | 1 |
+   | Failure Cases | 0.3--0.5 |
+   | Conclusion | 0.2 |
+
+4. Conclusion must appear by the end of page 8; Limitations and Ethical Considerations must appear after Conclusion; References must appear before Appendix.
+5. Run `validate-research-md-format` after final compile and before academic-language/layout review.
+6. Write `paper/FORMAT_PREFLIGHT.md` with compile command/status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final validator result.
+7. No undefined references/citation warnings, no rendered `[?]`, no `Overfull \hbox > 5pt`, no placeholders/TODO/TBD/FIXME, no `% UNVERIFIED`, and no ugly code-like display labels in title, abstract, headings, captions, figures, or tables.
+8. Body figures <=5 total, at most one `figure*`, every figure labeled and referenced, every table caption has a numerical headline, at least one figure/table on each of pages 4--7 when extractable, and at least one paired-significance table when comparative binary outcomes apply.
+9. Tables must follow the `research.md` style tokens: `\footnotesize`, `\tabcolsep=3-4pt`, `\arraystretch=1.15`, light-gray header, soft peach "ours" row, alternating row tint for long tables, coral accent only for meaningful degradation, and bold winning values.
 
 ## Figure contract
 1. Use image-2/codex-image2 for at least one core conceptual figure.
