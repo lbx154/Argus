@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -15,6 +16,8 @@ from typing import Any
 from argus_skill.tools.capability_vault import ModelApiRoute, load_model_api_route
 
 DEFAULT_TIMEOUT_SECONDS = 180.0
+DEFAULT_MAX_RETRIES = 5
+TRANSIENT_HTTP_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 class ModelCallError(RuntimeError):
@@ -52,12 +55,28 @@ def _endpoint_url(route: ModelApiRoute, endpoint: str) -> str:
     return f"{route.base_url.rstrip('/')}/{endpoint.lstrip('/')}"
 
 
+def _retry_delay_seconds(exc: BaseException, attempt_index: int) -> float | None:
+    if isinstance(exc, urllib.error.HTTPError):
+        if exc.code not in TRANSIENT_HTTP_STATUS_CODES:
+            return None
+        retry_after = exc.headers.get("Retry-After") if exc.headers else None
+        if retry_after:
+            try:
+                return max(1.0, float(retry_after))
+            except ValueError:
+                pass
+    elif not isinstance(exc, urllib.error.URLError):
+        return None
+    return min(60.0, 2.0 * (2**attempt_index))
+
+
 def _post(
     route: ModelApiRoute,
     endpoint: str,
     payload: dict[str, Any],
     *,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> dict[str, Any]:
     req = urllib.request.Request(
         _endpoint_url(route, endpoint),
@@ -68,14 +87,26 @@ def _post(
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - operator route
-            raw = resp.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        raise ModelCallError(f"{endpoint} failed with HTTP {exc.code}: {body[:500]}") from exc
-    except urllib.error.URLError as exc:
-        raise ModelCallError(f"{endpoint} failed: {exc}") from exc
+    attempts = max(1, int(max_retries))
+    raw = ""
+    for attempt_index in range(attempts):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - operator route
+                raw = resp.read().decode("utf-8")
+            break
+        except urllib.error.HTTPError as exc:
+            delay = _retry_delay_seconds(exc, attempt_index)
+            if delay is not None and attempt_index < attempts - 1:
+                time.sleep(delay)
+                continue
+            body = exc.read().decode("utf-8", errors="replace")
+            raise ModelCallError(f"{endpoint} failed with HTTP {exc.code}: {body[:500]}") from exc
+        except urllib.error.URLError as exc:
+            delay = _retry_delay_seconds(exc, attempt_index)
+            if delay is not None and attempt_index < attempts - 1:
+                time.sleep(delay)
+                continue
+            raise ModelCallError(f"{endpoint} failed after {attempt_index + 1} attempt(s): {exc}") from exc
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:

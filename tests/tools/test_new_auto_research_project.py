@@ -73,7 +73,10 @@ def test_create_project_without_daemon_exports_template_and_skills(tmp_path: Pat
     assert llm.exists()
     assert generate_image_2.exists()
     assert compat_generate_image.exists()
-    assert "load_model_api_route" in llm.read_text(encoding="utf-8")
+    llm_text = llm.read_text(encoding="utf-8")
+    assert "load_model_api_route" in llm_text
+    assert "TRANSIENT_HTTP_STATUS_CODES" in llm_text
+    assert "_retry_delay_seconds" in llm_text
     assert "IMAGE2_FIGURES.json" in generate_image_2.read_text(encoding="utf-8")
     assert "generate_image_2 import main" in compat_generate_image.read_text(encoding="utf-8")
     for path in (llm, generate_image_2, compat_generate_image):

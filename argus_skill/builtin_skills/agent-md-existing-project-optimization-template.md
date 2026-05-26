@@ -69,21 +69,45 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
    Use the reported routes: `scientist` for literature/claim synthesis, `engineer` for code/evaluation helpers, `reviewer` for audits, `image` for image-2/codex-image2 generation, and `image_review` for visual inspection. If a needed route is unavailable but operator-approved environment/Codex config exists, initialize once with:
    `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill --init-model-api`
 3. Keep or create reusable wrappers under `code/`; do not scatter raw API calls through paper generators or review JSON writers. Use `load_model_api_route(...)` from Argus, not hard-coded keys, base URLs, or model names. Route-specific environment overrides such as `ARGUS_SKILL_IMAGE_MODEL=gpt-image-2`, `ARGUS_SKILL_IMAGE_BASE_URL`, and `ARGUS_SKILL_IMAGE_API_KEY` may be used only as process environment, never as committed text.
-4. Minimal `code/llm.py` pattern for text calls:
+4. Officially launched projects include `code/llm.py`; prefer repairing that helper over
+   scattering raw HTTP calls through generators or experiment code. If you must edit or
+   replace it, preserve transient 429/5xx/URL retry with exponential backoff and
+   `Retry-After` handling. Do not convert a rate-limit, disconnect, or temporary backend
+   error directly into a deterministic fallback answer for an experiment row; retry first,
+   then record the failure explicitly if the route is still unusable. Minimal `code/llm.py`
+   pattern for text calls:
 
        from __future__ import annotations
 
        import json
+       import time
+       import urllib.error
        import urllib.request
        from typing import Any
 
        from argus_skill.tools.capability_vault import ModelApiRoute, load_model_api_route
+
+       TRANSIENT_HTTP_STATUS_CODES = {429, 500, 502, 503, 504}
 
        def _route(name: str) -> ModelApiRoute:
            route = load_model_api_route(name)
            if route is None or not route.usable:
                raise RuntimeError(f"model API route {name!r} is unavailable; run --model-api-status")
            return route
+
+       def _retry_delay_seconds(exc: BaseException, attempt: int) -> float | None:
+           if isinstance(exc, urllib.error.HTTPError):
+               if exc.code not in TRANSIENT_HTTP_STATUS_CODES:
+                   return None
+               retry_after = exc.headers.get("Retry-After") if exc.headers else None
+               if retry_after:
+                   try:
+                       return max(1.0, float(retry_after))
+                   except ValueError:
+                       pass
+           elif not isinstance(exc, urllib.error.URLError):
+               return None
+           return min(60.0, 2.0 * (2**attempt))
 
        def _post(route: ModelApiRoute, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
            req = urllib.request.Request(
@@ -92,8 +116,16 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
                headers={"Authorization": f"Bearer {route.api_key}", "Content-Type": "application/json"},
                method="POST",
            )
-           with urllib.request.urlopen(req, timeout=180) as resp:  # noqa: S310 - Argus capability route
-               return json.loads(resp.read().decode("utf-8"))
+           for attempt in range(5):
+               try:
+                   with urllib.request.urlopen(req, timeout=180) as resp:  # noqa: S310 - Argus capability route
+                       return json.loads(resp.read().decode("utf-8"))
+               except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+                   delay = _retry_delay_seconds(exc, attempt)
+                   if delay is None or attempt == 4:
+                       raise
+                   time.sleep(delay)
+           raise RuntimeError("unreachable")
 
        def complete(prompt: str, *, route_name: str = "scientist", system: str = "") -> str:
            route = _route(route_name)
