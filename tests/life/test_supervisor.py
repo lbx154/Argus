@@ -1312,6 +1312,63 @@ def test_continuous_mode_planner_receives_emnlp_gate_snapshot(
     assert "this snapshot is not a PASS" in critic.calls[0]["prompt"]
 
 
+def test_continuous_mode_planner_refusal_falls_back_to_emnlp_gate_task(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "AGENTS.md").write_text(
+        "Build an EMNLP paper and keep running validate-full-emnlp.\n",
+        encoding="utf-8",
+    )
+    runner = _FakeRunner(response_factory=lambda obj, pre: _FakeOutcome())
+    mem = _mk_memory(tmp_path)
+    sink = _RecordingSink()
+
+    class _RefusingPlannerRunner:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None, **kw):
+            del prompt, options, run_label, resume_thread_id, kw
+            self.calls += 1
+
+            class _Result:
+                agent_messages = ["I'm sorry, but I cannot assist with that request."]
+
+            if self.calls > 1:
+                _Result.agent_messages = [
+                    '{"project_done": true, "reason": "done enough", "new_tasks": []}'
+                ]
+            return _Result()
+
+    critic = _RefusingPlannerRunner()
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(max_missions=999, daily_cap_usd=999.0),
+        continuous=True,
+        continuous_objective="optimize the project",
+    )
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=cfg,
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+        critic_runner=critic,
+    )
+
+    summary = sup.run()
+
+    assert summary["stopped_by"] == "project_done"
+    assert runner.calls
+    assert "Planner backend failed to return usable JSON" in runner.calls[0]["objective"]
+    assert "missing_pipeline_state" in runner.calls[0]["objective"]
+    assert not any(entry.kind == "planner_error" for entry in mem.journal.all())
+    planned = next(entry for entry in mem.journal.all() if entry.kind == "planner_cycle")
+    assert planned.extra["enqueued_titles"] == [
+        "Bootstrap the grounded EMNLP research pipeline"
+    ]
+
+
 def test_continuous_mode_planner_generates_new_tasks(tmp_path: Path) -> None:
     """When the planner says not done and provides tasks, those tasks
     are added to the backlog and executed."""

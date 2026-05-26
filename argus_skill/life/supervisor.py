@@ -950,6 +950,99 @@ class LifeSupervisor:
             return text[:_PLANNER_GATE_CONTEXT_MAX_CHARS].rstrip() + "\n- ... snapshot truncated"
         return text
 
+    def _fallback_emnlp_gate_task_for_planner_error(self, verdict: Any) -> Any | None:
+        """Turn a planner formatting/refusal failure into useful EMNLP repair work."""
+        ev = self.config.stop_event
+        if ev is not None and ev.is_set():
+            return None
+        root = self._planner_workdir()
+        if not self._planner_should_include_emnlp_gate_context(root):
+            return None
+        try:
+            from ..critic import TaskSpec
+            from ..skills.pipeline_contracts import validate_full_emnlp_readiness
+
+            issues = validate_full_emnlp_readiness(root)
+        except Exception:  # noqa: BLE001
+            return None
+        if not issues:
+            return None
+
+        counts = Counter(issue.code for issue in issues)
+        issue_codes = {issue.code for issue in issues}
+        if {
+            "missing_pipeline_state",
+            "missing_literature_grounding",
+            "missing_idea_provenance",
+            "missing_code_reuse_plan",
+        } & issue_codes:
+            title = "Bootstrap the grounded EMNLP research pipeline"
+            impact_area = "discovery"
+        elif {
+            "missing_full_scale_experiment_run",
+            "missing_baseline_condition_run",
+            "incomplete_full_scale_experiment_run",
+            "underpowered_pilot",
+        } & issue_codes:
+            title = "Complete the full-scale EMNLP evidence gate"
+            impact_area = "requirement_gap"
+        elif any(
+            code.startswith(("layout_", "academic_language_", "citation_", "artifact_"))
+            or "paper" in code
+            or "submission" in code
+            for code in issue_codes
+        ):
+            title = "Repair the EMNLP paper package against the final gate"
+            impact_area = "integration"
+        else:
+            title = "Repair current EMNLP final-gate blockers"
+            impact_area = "requirement_gap"
+
+        first_issues = "; ".join(
+            f"{issue.code} at {issue.path}" for issue in issues[:8]
+        )
+        top_counts = ", ".join(
+            f"{code}={count}" for code, count in counts.most_common(8)
+        )
+        planner_error = str(getattr(verdict, "error", "") or "planner error")
+        raw_text = str(getattr(verdict, "raw_text", "") or "").strip()
+        refusal_note = f" Planner raw output: {raw_text[:300]}" if raw_text else ""
+        objective = (
+            "Planner backend failed to return usable JSON, so use the automatic "
+            "EMNLP final-gate snapshot as the source of truth. Read AGENTS.md and "
+            "the relevant argus_builtin_skills first, then run "
+            f"`{_FULL_EMNLP_GATE_COMMAND}` and repair the highest-impact blockers "
+            "from current sources rather than hand-editing readiness artifacts. "
+            f"Current blocker summary: {top_counts}. First issues: {first_issues}. "
+            "Acceptance requires rerunning the narrow validators for modified "
+            "artifacts plus the final gate, with clear progress toward exit 0; "
+            "do not declare submission readiness unless the exact final gate passes."
+            f"{refusal_note}"
+        )
+        evidence = (
+            f"{planner_error}; automatic validate-full-emnlp snapshot reports "
+            f"{len(issues)} issue(s), including {first_issues}."
+        )
+        return replace(
+            verdict,
+            project_done=False,
+            reason=(
+                f"planner failed with {planner_error}; queued fallback from "
+                "automatic EMNLP final-gate snapshot"
+            ),
+            new_tasks=[
+                TaskSpec(
+                    title=title,
+                    objective=objective,
+                    impact_score=5,
+                    impact_area=impact_area,
+                    evidence=evidence,
+                    scope=_PLANNER_SCOPE_BOUNDED,
+                )
+            ],
+            error="",
+        )
+
     def _planner_should_include_emnlp_gate_context(self, root: Path) -> bool:
         objective = self.config.continuous_objective or ""
         if _objective_requires_full_emnlp_gate(objective):
@@ -2039,33 +2132,37 @@ class LifeSupervisor:
         )
 
         if verdict.error:
-            self._emit({
-                "type": "life.planner.error",
-                "cycle": self._planning_cycles,
-                "error": verdict.error,
-                "raw_text": verdict.raw_text,
-            })
-            self._emit_status(f"planner error: {verdict.error}; retry later")
-            entry = JournalEntry.new(
-                kind="planner_error",
-                title=f"planner cycle #{self._planning_cycles}",
-                summary=f"{verdict.error}: {verdict.reason}",
-                tags=["life", "planner"],
-                extra={
-                    "agent_layer": "planner",
+            fallback_verdict = self._fallback_emnlp_gate_task_for_planner_error(verdict)
+            if fallback_verdict is not None:
+                verdict = fallback_verdict
+            else:
+                self._emit({
+                    "type": "life.planner.error",
+                    "cycle": self._planning_cycles,
                     "error": verdict.error,
-                    "reason": verdict.reason,
                     "raw_text": verdict.raw_text,
-                },
-            )
-            self.memory.journal.append(entry)
-            self._inject_cumulative_cost(entry)
-            try:
-                from .notify import dispatch_journal_entry
-                dispatch_journal_entry(entry)
-            except Exception:  # noqa: BLE001
-                log.exception("notify dispatch failed; continuing")
-            return None
+                })
+                self._emit_status(f"planner error: {verdict.error}; retry later")
+                entry = JournalEntry.new(
+                    kind="planner_error",
+                    title=f"planner cycle #{self._planning_cycles}",
+                    summary=f"{verdict.error}: {verdict.reason}",
+                    tags=["life", "planner"],
+                    extra={
+                        "agent_layer": "planner",
+                        "error": verdict.error,
+                        "reason": verdict.reason,
+                        "raw_text": verdict.raw_text,
+                    },
+                )
+                self.memory.journal.append(entry)
+                self._inject_cumulative_cost(entry)
+                try:
+                    from .notify import dispatch_journal_entry
+                    dispatch_journal_entry(entry)
+                except Exception:  # noqa: BLE001
+                    log.exception("notify dispatch failed; continuing")
+                return None
 
         if (
             verdict.project_done
