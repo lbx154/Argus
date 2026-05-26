@@ -58,6 +58,75 @@ Before editing, identify and keep synchronized:
 
 If generated artifacts and source disagree, treat source/generator plus raw evidence as authoritative. Regenerate downstream artifacts after source changes, refresh manifests, then rerun the relevant review/validator.
 
+## Model/API and helper-code repair contract
+1. Model and image credentials are operator capabilities, not project artifacts. The private vault is `~/.argus-skill/capabilities/model_api.json` or `ARGUS_SKILL_CAPABILITY_VAULT`; it should be mode `0600`. Do not manually open/read, print, summarize, copy, or commit its raw contents; only Argus route helpers/tools may load it at runtime.
+2. Before model-backed repair or review work, run the secret-free status check:
+   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill --model-api-status`
+   Use the reported routes: `scientist` for literature/claim synthesis, `engineer` for code/evaluation helpers, `reviewer` for audits, `image` for image-2/codex-image2 generation, and `image_review` for visual inspection. If a needed route is unavailable but operator-approved environment/Codex config exists, initialize once with:
+   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill --init-model-api`
+3. Keep or create reusable wrappers under `code/`; do not scatter raw API calls through paper generators or review JSON writers. Use `load_model_api_route(...)` from Argus, not hard-coded keys, base URLs, or model names. Route-specific environment overrides such as `ARGUS_SKILL_IMAGE_MODEL=gpt-image-2`, `ARGUS_SKILL_IMAGE_BASE_URL`, and `ARGUS_SKILL_IMAGE_API_KEY` may be used only as process environment, never as committed text.
+4. Minimal `code/llm.py` pattern for text calls:
+
+       from __future__ import annotations
+
+       import json
+       import urllib.request
+       from typing import Any
+
+       from argus_skill.tools.capability_vault import ModelApiRoute, load_model_api_route
+
+       def _route(name: str) -> ModelApiRoute:
+           route = load_model_api_route(name)
+           if route is None or not route.usable:
+               raise RuntimeError(f"model API route {name!r} is unavailable; run --model-api-status")
+           return route
+
+       def _post(route: ModelApiRoute, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
+           req = urllib.request.Request(
+               f"{route.base_url.rstrip('/')}/{endpoint.lstrip('/')}",
+               data=json.dumps(payload).encode("utf-8"),
+               headers={"Authorization": f"Bearer {route.api_key}", "Content-Type": "application/json"},
+               method="POST",
+           )
+           with urllib.request.urlopen(req, timeout=180) as resp:  # noqa: S310 - Argus capability route
+               return json.loads(resp.read().decode("utf-8"))
+
+       def complete(prompt: str, *, route_name: str = "scientist", system: str = "") -> str:
+           route = _route(route_name)
+           if route.wire_api == "chat":
+               data = _post(route, "/chat/completions", {
+                   "model": route.model,
+                   "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+               })
+               return data["choices"][0]["message"]["content"].strip()
+           data = _post(route, "/responses", {
+               "model": route.model,
+               "input": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+           })
+           if isinstance(data.get("output_text"), str):
+               return data["output_text"].strip()
+           return "\n".join(
+               part.get("text", "").strip()
+               for item in data.get("output", [])
+               for part in item.get("content", [])
+               if isinstance(part, dict) and part.get("text")
+           )
+
+5. For image-2 Figure 1 repair, prefer the Argus image tool and preserve the exact raster it returns:
+
+       PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.tools.image_tool generate \
+         --prompt-file paper/figures/method_overview.prompt.txt \
+         --out paper/figures/method_overview.png \
+         --size 1536x1024 --force
+       PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.tools.image_tool inspect \
+         --image paper/figures/method_overview.png > paper/figures/method_overview.inspect.json
+       PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.tools.image_tool review \
+         --image paper/figures/method_overview.png \
+         --prompt-file paper/figures/method_overview.prompt.txt \
+         --out paper/figures/method_overview.review.json
+
+   A helper such as `code/generate_image2_figure.py` must then write or refresh `paper/figures/IMAGE2_FIGURES.json` with `figure_id`, `figure_type`, `model` or `generator_model`, `prompt_path`, `output_path`, `output_sha256`, `sidecar_path`, `inspect_path`, `review_path`, `generation_provenance_path`, width, and height. `generation_provenance_path` may point at the image sidecar if that JSON records `prompt_path`, `output_path`, and `output_sha256`. Never crop, downsample, resave, PDF-wrap, or locally redraw the accepted raster after this provenance is written.
+
 ## Role model
 - Planner: chooses the next blocker with the highest reviewer value, not the easiest cosmetic edit.
 - Engineer: fixes one bounded blocker end-to-end, updates generators when needed, and reruns relevant validation.

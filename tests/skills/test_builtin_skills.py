@@ -127,6 +127,15 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         assert "do not dump all citations into one dense paragraph" in text or (
             "do not concentrate all citations in one giant paragraph" in text
         )
+        assert "~/.argus-skill/capabilities/model_api.json" in text
+        assert "--model-api-status" in text
+        assert "--init-model-api" in text
+        assert "load_model_api_route" in text
+        assert "code/llm.py" in text
+        assert "code/generate_image2_figure.py" in text
+        assert "ARGUS_SKILL_IMAGE_MODEL=gpt-image-2" in text
+        assert "generation_provenance_path" in text
+        assert "output_sha256" in text
 
     for required in (
         "clean-slate project",
