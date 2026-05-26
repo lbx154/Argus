@@ -1246,6 +1246,72 @@ def test_continuous_mode_planner_receives_full_execution_contract(
     assert forwarded.dangerous_yolo is True
 
 
+def test_continuous_mode_planner_receives_emnlp_gate_snapshot(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "AGENTS.md").write_text(
+        "Build an EMNLP paper and keep running validate-full-emnlp.\n",
+        encoding="utf-8",
+    )
+    runner = _FakeRunner(response_factory=lambda obj, pre: _FakeOutcome())
+    mem = _mk_memory(tmp_path)
+    sink = _RecordingSink()
+
+    class _RecordingPlannerRunner:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None, **kw):
+            del options, run_label, resume_thread_id, kw
+            self.calls.append({"prompt": prompt})
+
+            class _Result:
+                agent_messages = [
+                    json.dumps(
+                        {
+                            "project_done": False,
+                            "reason": "missing the research pipeline",
+                            "new_tasks": [
+                                _planner_task(
+                                    "bootstrap pipeline",
+                                    "create research/PIPELINE_STATE.json",
+                                    evidence="validate-full-emnlp reports missing_pipeline_state",
+                                )
+                            ],
+                        }
+                    )
+                ]
+
+            if len(self.calls) > 1:
+                _Result.agent_messages = [
+                    '{"project_done": true, "reason": "done enough", "new_tasks": []}'
+                ]
+            return _Result()
+
+    critic = _RecordingPlannerRunner()
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(max_missions=999, daily_cap_usd=999.0),
+        continuous=True,
+        continuous_objective="optimize the project",
+    )
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=sink,
+        config=cfg,
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+        critic_runner=critic,
+    )
+
+    summary = sup.run()
+
+    assert summary["stopped_by"] == "project_done"
+    assert "Automatic EMNLP final gate snapshot" in critic.calls[0]["prompt"]
+    assert "missing_pipeline_state" in critic.calls[0]["prompt"]
+    assert "this snapshot is not a PASS" in critic.calls[0]["prompt"]
+
+
 def test_continuous_mode_planner_generates_new_tasks(tmp_path: Path) -> None:
     """When the planner says not done and provides tasks, those tasks
     are added to the backlog and executed."""

@@ -31,6 +31,7 @@ import re
 import threading
 import time
 import unicodedata
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
@@ -160,6 +161,8 @@ _PLANNER_SCOPE_FINAL_SUBMISSION = "final_submission"
 _FULL_EMNLP_GATE_COMMAND = (
     "python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root ."
 )
+_PLANNER_GATE_CONTEXT_MAX_ISSUES = 24
+_PLANNER_GATE_CONTEXT_MAX_CHARS = 6000
 _OPEN_ENDED_OBJECTIVE_MARKERS = (
     "open-ended",
     "self-improvement",
@@ -886,6 +889,89 @@ class LifeSupervisor:
             log.exception("planner runtime context provider raised; continuing")
             return ""
         return str(context or "").strip()
+
+    def _planner_project_context(self) -> str:
+        """Return cheap project-state context that keeps planner work grounded."""
+        parts = [self._planner_runtime_context(), self._planner_emnlp_gate_context()]
+        return "\n\n".join(part for part in parts if part.strip())
+
+    def _planner_emnlp_gate_context(self) -> str:
+        """Summarize the current EMNLP final gate for paper-oriented projects.
+
+        This is advisory planner context, not completion evidence. Final
+        readiness still requires a mission to run the exact gate command and
+        record the passing output.
+        """
+        root = self._planner_workdir()
+        if not self._planner_should_include_emnlp_gate_context(root):
+            return ""
+        try:
+            from ..skills.pipeline_contracts import validate_full_emnlp_readiness
+
+            issues = validate_full_emnlp_readiness(root)
+        except Exception as exc:  # noqa: BLE001
+            return (
+                "Automatic EMNLP final gate snapshot:\n"
+                f"- unable to evaluate validate-full-emnlp context: {type(exc).__name__}: {exc}\n"
+                "- planner must inspect the gate manually before declaring readiness."
+            )
+
+        if not issues:
+            return (
+                "Automatic EMNLP final gate snapshot:\n"
+                "- validate-full-emnlp currently reports no contract issues from the "
+                "in-process readiness checker.\n"
+                "- do not declare project_done unless a recent mission_complete journal "
+                f"entry proves `{_FULL_EMNLP_GATE_COMMAND}` exited 0."
+            )
+
+        counts = Counter(issue.code for issue in issues)
+        lines = [
+            "Automatic EMNLP final gate snapshot:",
+            f"- current validate-full-emnlp blockers: {len(issues)} issue(s), "
+            f"{len(counts)} distinct code(s).",
+            "- highest-frequency blockers: "
+            + ", ".join(f"{code}={count}" for code, count in counts.most_common(8)),
+            "- first blocking issues:",
+        ]
+        for issue in issues[:_PLANNER_GATE_CONTEXT_MAX_ISSUES]:
+            message = issue.message.replace("\n", " ").strip()
+            lines.append(f"  - {issue.code}\t{issue.path}\t{message}")
+        if len(issues) > _PLANNER_GATE_CONTEXT_MAX_ISSUES:
+            lines.append(
+                f"  - ... {len(issues) - _PLANNER_GATE_CONTEXT_MAX_ISSUES} more issue(s) omitted"
+            )
+        lines.append(
+            "- planner should queue the smallest high-impact repair task that moves "
+            "these blockers toward the exact final gate; this snapshot is not a PASS."
+        )
+        text = "\n".join(lines)
+        if len(text) > _PLANNER_GATE_CONTEXT_MAX_CHARS:
+            return text[:_PLANNER_GATE_CONTEXT_MAX_CHARS].rstrip() + "\n- ... snapshot truncated"
+        return text
+
+    def _planner_should_include_emnlp_gate_context(self, root: Path) -> bool:
+        objective = self.config.continuous_objective or ""
+        if _objective_requires_full_emnlp_gate(objective):
+            return True
+        if "validate-full-emnlp" in str(objective).casefold():
+            return True
+        if (root / "argus_builtin_skills" / "emnlp-paper-skill-router.md").exists():
+            return True
+        for filename in ("AGENTS.md", "agent.md"):
+            path = root / filename
+            if not path.exists():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")[:120_000]
+            except OSError:
+                continue
+            normalized = _normalize_planner_text(text)
+            if "validate-full-emnlp" in normalized:
+                return True
+            if ("emnlp" in normalized or "acl" in normalized) and "paper" in normalized:
+                return True
+        return False
 
     def _recent_no_progress_failures(self) -> dict[tuple[str, str], JournalEntry]:
         """Return recent failed task signatures quarantined from replanning."""
@@ -1912,7 +1998,7 @@ class LifeSupervisor:
                     journal_tail=journal_tail,
                     budget_remaining_usd=remaining,
                     planning_cycle=self._planning_cycles - 1,
-                    runtime_change_summary=self._planner_runtime_context(),
+                    runtime_change_summary=self._planner_project_context(),
                     config=self._critic_config(),
                 )
             finally:

@@ -530,7 +530,7 @@ class Critic:
             + continuous_objective.strip()
             + "\n\nJournal of completed work (most recent last):\n"
             + (journal_tail.strip() or "(no completed work yet — this is the first cycle)")
-            + "\n\nRuntime source-change signal:\n"
+            + "\n\nRuntime/project context signal:\n"
             + (
                 runtime_change_summary.strip()
                 or "No runtime source changes have been detected since daemon start; set restart_daemon=false."
