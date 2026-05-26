@@ -1850,6 +1850,29 @@ def test_layout_review_rejects_incomplete_page_snapshot_coverage(tmp_path: Path)
     assert "incomplete_layout_review_snapshot_coverage" in codes
 
 
+def test_layout_review_classifies_extra_snapshot_pages_as_stale_not_incomplete(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_layout_review(tmp_path)
+    path = tmp_path / "paper" / "LAYOUT_REVIEW.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    page_path = tmp_path / "paper" / "layout_review" / "pages" / "page-10.png"
+    _write_bytes(page_path, _png_bytes(612, 792))
+    payload["page_snapshots"].append({
+        "page": 10,
+        "path": page_path.relative_to(tmp_path).as_posix(),
+        "sha256": _sha256(page_path),
+    })
+    payload["vision_review"]["reviewed_pages"] = list(range(1, 11))
+    _write_json(path, payload)
+
+    codes = {issue.code for issue in validate_layout_review(tmp_path)}
+
+    assert "stale_layout_review_snapshot_coverage" in codes
+    assert "incomplete_layout_review_snapshot_coverage" not in codes
+
+
 def test_layout_review_rejects_forged_stale_hashes(tmp_path: Path) -> None:
     _write_valid_paper_draft_report(tmp_path)
     _write_valid_layout_review(tmp_path)

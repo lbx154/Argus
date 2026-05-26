@@ -3981,16 +3981,34 @@ def _validate_layout_review_page_coverage(
     expected_pages = set(range(1, pdf_page_count + 1))
     if snapshot_pages == expected_pages:
         return []
-    return [
-        ContractIssue(
-            "incomplete_layout_review_snapshot_coverage",
-            str(LAYOUT_REVIEW_JSON_PATH),
-            (
-                "layout review snapshots must cover every rendered PDF page; "
-                f"expected pages 1-{pdf_page_count}, got {sorted(snapshot_pages)}"
-            ),
+    issues: list[ContractIssue] = []
+    missing_pages = sorted(expected_pages - snapshot_pages)
+    extra_pages = sorted(snapshot_pages - expected_pages)
+    if missing_pages:
+        issues.append(
+            ContractIssue(
+                "incomplete_layout_review_snapshot_coverage",
+                str(LAYOUT_REVIEW_JSON_PATH),
+                (
+                    "layout review snapshots must cover every rendered PDF page; "
+                    f"expected pages 1-{pdf_page_count}, missing {missing_pages}, "
+                    f"got {sorted(snapshot_pages)}"
+                ),
+            )
         )
-    ]
+    if extra_pages:
+        issues.append(
+            ContractIssue(
+                "stale_layout_review_snapshot_coverage",
+                str(LAYOUT_REVIEW_JSON_PATH),
+                (
+                    "layout review includes snapshots beyond the current rendered PDF; "
+                    f"expected pages 1-{pdf_page_count}, extra {extra_pages}, "
+                    "rerun layout review from the current PDF"
+                ),
+            )
+        )
+    return issues
 
 
 def _validate_layout_vision_payload(
