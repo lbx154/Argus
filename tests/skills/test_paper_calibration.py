@@ -498,6 +498,34 @@ def test_multi_source_benchmark_provenance_passes_source_gate(tmp_path: Path) ->
     assert source_issue_codes.isdisjoint({issue.code for issue in issues})
 
 
+def test_markdown_benchmark_provenance_table_counts_selected_sources(
+    tmp_path: Path,
+) -> None:
+    _write(
+        tmp_path / "experiments" / "BENCHMARK_PROVENANCE.md",
+        "\n".join(
+            [
+                "# Benchmark Provenance",
+                "",
+                "| Name | URL/repo | Paper/citation | Version/date | Unique task count contributed | Split/filtering | License/access | Capability / failure mode | Why selected | Alternatives surveyed |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                "| GAIA | https://huggingface.co/datasets/gaia-benchmark/GAIA | GAIA: A Benchmark for General AI Assistants | 2024 | 450 | sample 100 held-out tasks | public benchmark release | assistant reasoning and retrieval | General-assistant branch of the full benchmark mix. | AgentBench |",
+                "| Online-Mind2Web | https://github.com/OSU-NLP-Group/Online-Mind2Web | An Illusion of Progress? Assessing the Current State of Web Agents | 2025 | 300 | sample 80 live tasks | MIT / CC BY 4.0 | live web navigation under drift | Live-web branch of the full benchmark mix. | WebArena |",
+                "| TheAgentCompany | https://github.com/TheAgentCompany/TheAgentCompany | TheAgentCompany: Benchmarking LLM Agents on Consequential Real World Tasks | 2025 | 175 | sample 60 stable workflows | MIT code | chained office workflows | Work-branch coverage distinct from browsing. | SWE-bench |",
+                "",
+                "The default selected mix is GAIA + Online-Mind2Web + TheAgentCompany.",
+            ]
+        )
+        + "\n",
+    )
+
+    issues = detect_quality_blockers(tmp_path)
+
+    assert "insufficient_selected_benchmark_sources" not in {
+        issue.code for issue in issues
+    }
+
+
 def test_ready_quality_calibration_cannot_keep_blocking_issues(tmp_path: Path) -> None:
     _write_valid_quality_calibration(tmp_path, proposed_protocol="skillcycle")
     path = tmp_path / "paper" / "PAPER_QUALITY_CALIBRATION.json"

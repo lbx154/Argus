@@ -1447,6 +1447,9 @@ def _benchmark_source_has_pointer(source: dict[str, Any]) -> bool:
 
 
 def _text_selected_benchmark_source_count(raw_text: str) -> int:
+    table_count = _markdown_benchmark_source_table_count(raw_text)
+    if table_count:
+        return table_count
     text = raw_text.lower()
     if not any(marker in text for marker in SELECTED_BENCHMARK_TEXT_MARKERS):
         return 0
@@ -1472,6 +1475,100 @@ def _text_selected_benchmark_source_count(raw_text: str) -> int:
         if any(marker in normalized for marker in BENCHMARK_SOURCE_POINTER_MARKERS):
             source_identities.add(_normalize_source_identity(normalized))
     return len(source_identities)
+
+
+def _markdown_benchmark_source_table_count(raw_text: str) -> int:
+    """Count selected benchmark sources from a provenance Markdown table.
+
+    Agents often write `experiments/BENCHMARK_PROVENANCE.md` as a single
+    table under `# Benchmark Provenance` with columns such as `Name`,
+    `URL/repo`, `Paper/citation`, and `Why selected`, without an exact
+    "Selected benchmark sources" heading. That is still a structured selected
+    source table, so count rows with source pointers instead of forcing a
+    brittle heading phrase.
+    """
+    lines = raw_text.splitlines()
+    best_count = 0
+    for index, line in enumerate(lines):
+        if not line.lstrip().startswith("|"):
+            continue
+        if index + 1 >= len(lines) or not _looks_like_markdown_separator(lines[index + 1]):
+            continue
+        headers = _markdown_cells(line)
+        normalized_headers = [
+            re.sub(r"[^a-z0-9]+", "_", header.strip().lower()).strip("_")
+            for header in headers
+        ]
+        header_text = " ".join(normalized_headers)
+        has_source_identity = any(
+            token in normalized_headers
+            for token in ("name", "benchmark", "benchmark_name", "source", "suite", "dataset")
+        )
+        has_pointer = any(
+            "url" in token
+            or "repo" in token
+            or "paper" in token
+            or "citation" in token
+            or token == "doi"
+            for token in normalized_headers
+        )
+        has_selection_rationale = (
+            "selected" in header_text
+            or "rationale" in header_text
+            or "why_selected" in header_text
+            or "capability" in header_text
+        )
+        if not (has_source_identity and has_pointer and has_selection_rationale):
+            continue
+
+        count = 0
+        for row in lines[index + 2 :]:
+            if not row.lstrip().startswith("|"):
+                break
+            if _looks_like_markdown_separator(row):
+                continue
+            normalized_row = row.strip().lower()
+            if any(skip in normalized_row for skip in ("alternative", "reject", "infeasible")):
+                # Skip rows that clearly describe surveyed-but-not-selected sources.
+                continue
+            cells = _markdown_cells(row)
+            if len([cell for cell in cells if cell.strip()]) < 3:
+                continue
+            if any(marker in normalized_row for marker in BENCHMARK_SOURCE_POINTER_MARKERS):
+                count += 1
+                continue
+            pointer_cells = [
+                cell
+                for header, cell in zip(normalized_headers, cells, strict=False)
+                if (
+                    "url" in header
+                    or "repo" in header
+                    or "paper" in header
+                    or "citation" in header
+                    or header == "doi"
+                )
+            ]
+            if any(_nonempty_string(cell) for cell in pointer_cells):
+                count += 1
+        best_count = max(best_count, count)
+    return best_count
+
+
+def _looks_like_markdown_separator(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped.startswith("|"):
+        return False
+    cells = _markdown_cells(stripped)
+    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell.strip()) for cell in cells)
+
+
+def _markdown_cells(line: str) -> list[str]:
+    stripped = line.strip()
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+    return [cell.strip() for cell in stripped.split("|")]
 
 
 def _selected_benchmark_text_section(raw_text: str) -> str:
