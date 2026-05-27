@@ -233,7 +233,7 @@ def test_submission_assurance_contract_accepts_warn_with_environment_blocker(
     _write_valid_layout_review(tmp_path)
     _write_valid_academic_language_review(tmp_path)
     _write_valid_paper_infrastructure_review(tmp_path)
-    _write_full_scale_experiment_run(tmp_path, methods=["no_skill"], task_count=240)
+    _write_full_scale_experiment_run(tmp_path, methods=["no_skill"], task_count=300)
 
     assert validate_submission_assurance(tmp_path) == []
 
@@ -355,7 +355,7 @@ def test_full_scale_evidence_ignores_benchmark_construction_without_run(
 ) -> None:
     _write_json(
         tmp_path / "benchmarks" / "full" / "manifest.json",
-        {"task_count": 240, "unique_semantic_tasks": 240},
+        {"task_count": 300, "unique_semantic_tasks": 300},
     )
     _write(tmp_path / "paper" / "main.pdf", "%PDF-1.5\n")
 
@@ -373,7 +373,7 @@ def test_full_scale_evidence_uses_raw_rows_not_declared_task_count(
         tmp_path,
         methods=["no_skill"],
         task_count=5,
-        declared_task_count=240,
+        declared_task_count=300,
     )
 
     issues = validate_full_scale_experiment_evidence(tmp_path)
@@ -389,7 +389,7 @@ def test_full_scale_evidence_rejects_missing_required_condition(tmp_path: Path) 
     _write_full_scale_experiment_run(
         tmp_path,
         methods=["no_skill", "raw_memory", "reflexion", "static_skill_lib"],
-        task_count=240,
+        task_count=300,
     )
 
     issues = validate_full_scale_experiment_evidence(tmp_path)
@@ -403,7 +403,8 @@ def test_full_scale_evidence_accepts_complete_required_matrix(tmp_path: Path) ->
         tmp_path / "research" / "BASELINE_AND_BENCHMARK_PLAN.md",
         "Required methods: no_skill, raw_memory, reflexion, static_skill_lib, skillcycle\n",
     )
-    _write_full_scale_experiment_run(tmp_path, methods=methods, task_count=240)
+    _write_valid_benchmark_provenance(tmp_path)
+    _write_full_scale_experiment_run(tmp_path, methods=methods, task_count=300)
 
     assert validate_full_scale_experiment_evidence(tmp_path) == []
 
@@ -1925,6 +1926,32 @@ def test_emnlp_paper_contract_rejects_planned_only_benchmark_sources(
     assert "insufficient_executed_benchmark_sources" in codes
 
 
+def test_emnlp_paper_contract_rejects_same_family_benchmark_components(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write(
+        tmp_path / "experiments" / "BENCHMARK_PROVENANCE.md",
+        "\n".join(
+            [
+                "# Benchmark Provenance",
+                "",
+                "Selected benchmark sources:",
+                "| Name | URL/repo | Paper/citation | Version/date | Task count | Split/filtering | License/access | Capability | Rationale | Alternatives |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                "| SWE-bench Verified | https://github.com/swe-bench/SWE-bench | SWE-bench Verified | 2024 | 100 completed scored tasks | verified split | public benchmark release | code repair | main completed source | SWE-bench+ |",
+                "| SWE-bench Lite | https://github.com/swe-bench/SWE-bench | SWE-bench Lite | 2024 | 100 completed scored tasks | lite split | public benchmark release | code repair | same-family slice | SWE-bench |",
+                "| SWE-bench Multimodal | https://huggingface.co/datasets/SWE-bench/SWE-bench_Multimodal | SWE-bench Multimodal | 2024 | 100 completed scored tasks | multimodal split | public benchmark release | visual bug fixing | same-family slice | SWE-bench |",
+            ]
+        )
+        + "\n",
+    )
+
+    codes = {issue.code for issue in validate_emnlp_paper_contract(tmp_path)}
+
+    assert "insufficient_executed_benchmark_sources" in codes
+
+
 def test_emnlp_paper_contract_rejects_significance_table_after_ethics(tmp_path: Path) -> None:
     _write_valid_paper_draft_report(tmp_path)
     main_path = tmp_path / "paper" / "main.tex"
@@ -3048,11 +3075,11 @@ def _write_valid_quality_calibration(root: Path) -> None:
         "\n".join(
             [
                 "scope\tsplit_name\tprotocol\tsuccess_rate\tjson_parse_rate\tn_tasks",
-                "overall\tmain\tno_skill\t0.500\t1.000\t240",
-                "overall\tmain\traw_memory\t0.610\t1.000\t240",
-                "overall\tmain\treflexion\t0.850\t1.000\t240",
-                "overall\tmain\tstatic_skill_lib\t0.620\t1.000\t240",
-                "overall\tmain\tskillcycle\t0.920\t1.000\t240",
+                "overall\tmain\tno_skill\t0.500\t1.000\t300",
+                "overall\tmain\traw_memory\t0.610\t1.000\t300",
+                "overall\tmain\treflexion\t0.850\t1.000\t300",
+                "overall\tmain\tstatic_skill_lib\t0.620\t1.000\t300",
+                "overall\tmain\tskillcycle\t0.920\t1.000\t300",
                 "overall\tpublic_validation\tno_skill\t0.500\t1.000\t30",
                 "overall\tpublic_validation\traw_memory\t0.600\t1.000\t30",
                 "overall\tpublic_validation\treflexion\t0.800\t1.000\t30",
@@ -3148,7 +3175,7 @@ def _write_valid_full_emnlp_package(root: Path) -> None:
         root / "research" / "BASELINE_AND_BENCHMARK_PLAN.md",
         "Required methods: no_skill, raw_memory, reflexion, static_skill_lib, skillcycle\n",
     )
-    _write_full_scale_experiment_run(root, methods=full_methods, task_count=240)
+    _write_full_scale_experiment_run(root, methods=full_methods, task_count=300)
     _write(root / "paper" / "artifacts" / "claims_evidence.tsv", "claim\tevidence\n")
     _write(root / "paper" / "artifacts" / "result_to_claim.tsv", "result\tclaim\n")
     _write(root / "research" / "NARRATIVE_REPORT.md", "narrative\n")
@@ -3159,11 +3186,11 @@ def _write_valid_full_emnlp_package(root: Path) -> None:
         "\n".join(
             [
                 "scope\tsplit_name\tprotocol\tsuccess_rate\tjson_parse_rate\tn_tasks",
-                "overall\tmain\tno_skill\t0.500\t1.000\t240",
-                "overall\tmain\traw_memory\t0.610\t1.000\t240",
-                "overall\tmain\treflexion\t0.850\t1.000\t240",
-                "overall\tmain\tstatic_skill_lib\t0.620\t1.000\t240",
-                "overall\tmain\tskillcycle\t0.920\t1.000\t240",
+                "overall\tmain\tno_skill\t0.500\t1.000\t300",
+                "overall\tmain\traw_memory\t0.610\t1.000\t300",
+                "overall\tmain\treflexion\t0.850\t1.000\t300",
+                "overall\tmain\tstatic_skill_lib\t0.620\t1.000\t300",
+                "overall\tmain\tskillcycle\t0.920\t1.000\t300",
                 "overall\tpublic_validation\tno_skill\t0.500\t1.000\t30",
                 "overall\tpublic_validation\traw_memory\t0.600\t1.000\t30",
                 "overall\tpublic_validation\treflexion\t0.800\t1.000\t30",

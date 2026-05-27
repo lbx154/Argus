@@ -83,7 +83,7 @@ VALIDATOR_TOOLS: tuple[ValidatorTool, ...] = (
     ),
     ValidatorTool(
         id="validate-full-scale-evidence",
-        description="completed 240-task-per-condition raw experiment evidence",
+        description="completed multi-source raw experiment evidence",
         phase="experiments",
         roles=_ALL_ROLES,
         when_to_use="before analysis, narrative claims, paper drafting, or final readiness",

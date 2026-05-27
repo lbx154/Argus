@@ -143,7 +143,7 @@ def test_academic_peer_review_skill_injected_for_complete_paper_scope() -> None:
     assert "Simulate a strict EMNLP/ACL-style program-committee reviewer" in prompt
     assert "Strong Accept" in prompt
     assert "Weak Reject" in prompt
-    assert "240 unique semantic scored main tasks/episodes" in prompt
+    assert "complete executed multi-source matrix" in prompt
     assert "selected benchmark sources/components" in prompt
     assert "image-2/codex-image2" in prompt
     assert "35 verified BibTeX entries" in prompt

@@ -170,10 +170,10 @@ are clearly labeled as such. They must not become headline tables, final
 claims, or submission-readiness evidence.
 
 Final EMNLP evidence needs:
-- at least 3 independent executed real benchmark sources/components, not
-  planned diagnostic rows;
-- at least 240 unique semantic scored main tasks/episodes for every required
-  method/baseline condition;
+- at least 3 independent executed real benchmark source families, not planned
+  diagnostic rows or same-family slices;
+- raw scored rows for every required method/baseline condition on the selected
+  multi-source matrix;
 - raw scored rows under `experiments/**`, not only benchmark manifests;
 - a named evaluated model/backend. For local GPU experiments, record the local
   model/backend class, framework/runtime, checkpoint or scorer identifier,
@@ -184,8 +184,9 @@ Final EMNLP evidence needs:
 
 ### Construction rules
 
-1. **3+ real source components** is the minimum for final evidence. Each source
-   should stress a different capability or failure mode.
+1. **3+ independent real benchmark families** is the minimum for final evidence.
+   Each source should stress a different capability or failure mode; variants
+   from one suite count as one family.
 2. **5 task families** inside a source mix can be useful for analysis. Each family stresses a different
    skill (filtering, planning, calculation, routing, recovery).
 3. **Within a family, vary surface entities** (names, dates, numbers) but
@@ -805,7 +806,7 @@ Before declaring "ready":
   negative finding).
 - Method: executable verifier + dense retrieval + self-consistent compose
   + family-aware routing.
-- Benchmark: SkillEvolve-Bench, 240 episodes, 5 task families.
+- Benchmark: a multi-source SkillEvolve-style matrix with several task families.
 - Headline: SOTA on **Audited Accuracy** at K≤25 (0.958 with 19 verified
   skills vs 72 opaque exemplars). Replicates on gpt-4o backbone and
   ALFWorld 30-task subset (0.947 step-recall).

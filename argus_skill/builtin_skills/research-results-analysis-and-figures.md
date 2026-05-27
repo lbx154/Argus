@@ -66,8 +66,8 @@ Analyze completed runs and generate figure/table artifacts for a paper. This ada
 
 5. Statistical discipline:
    - For multiple seeds, report mean and dispersion.
-   - For single-run pilots or any run with fewer than 240 scored main tasks/episodes, label them as pilot evidence, not conclusive proof; this label does not make them acceptable final EMNLP evidence.
-   - For final EMNLP analysis, the canonical results table must include an overall main split with `n_tasks >= 240` for every required condition before claims can be treated as full-paper evidence.
+   - For single-run pilots or any run that is small, single-source, or same-family-only, label it as pilot evidence, not conclusive proof; this label does not make it acceptable final EMNLP evidence.
+   - For final EMNLP analysis, the canonical results table must include benchmark/source-family and model/backend columns plus scored task counts for every required condition before claims can be treated as full-paper evidence.
    - Avoid significance language unless the appropriate test was actually computed.
 
 6. Write `paper/RESULTS_REPORT.md`:

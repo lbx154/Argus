@@ -55,7 +55,7 @@ Score each dimension 1--5. Most plausible drafts should land in the 2--4 range; 
    - Are unsupported claims removed or softened instead of hidden behind vague wording?
 
 3. **Experiment and benchmark integrity**
-   - Final evidence requires at least 240 unique semantic scored main tasks/episodes; 50/60-task runs are pilots.
+   - Final evidence requires a complete executed multi-source matrix over at least 3 independent real benchmark families; small, single-source, or same-family-only runs are pilots.
    - Do not accept duplicated benchmark expansion: no copied, relabelled, shuffled, suffix-renamed (`_r2`, `_copy`, `_dup`) prompts/specs/gold answers.
    - Benchmark provenance must list selected benchmark sources/components and include at least 3 independent sources, specifically 3 independent executed real/frontier benchmark sources/components, as a hard minimum. Planned diagnostic rows and manifests without raw scored rows do not count.
    - Selected sources should be practical/frontier and not single-family: include URL/repo, paper/citation/DOI, version/date, split/filtering, task count, license/access, capability covered, and rationale.
@@ -98,7 +98,7 @@ Score each dimension 1--5. Most plausible drafts should land in the 2--4 range; 
 - **Weak Reject**: mean >= 2.5 or any dimension below 3, with at least one major weakness.
 - **Reject**: mean < 2.5 or any critical flaw.
 
-Hard blockers force **Reject** or **Weak Reject** regardless of mean: failed `validate-full-emnlp` for `final_submission`, under-240 final evidence, duplicated benchmark expansion, fewer than 3 executed real benchmark sources for final evidence, single-source benchmark evidence for broad effectiveness claims, missing nontrivial baseline for comparative claims, unsupported headline claim, stale manifest/digest, unresolved citations, self-drawn core overview figure, severe overfull boxes, underfilled long-paper body, or missing limitations/ethics.
+Hard blockers force **Reject** or **Weak Reject** regardless of mean: failed `validate-full-emnlp` for `final_submission`, pilot-scale final evidence, duplicated benchmark expansion, fewer than 3 executed real benchmark source families for final evidence, single-source or same-family-only benchmark evidence for broad effectiveness claims, missing nontrivial baseline for comparative claims, unsupported headline claim, stale manifest/digest, unresolved citations, self-drawn core overview figure, severe overfull boxes, underfilled long-paper body, or missing limitations/ethics.
 
 ## Reviewer output contract
 When this skill applies, include a compact simulated-review section inside `round_summary_markdown`:

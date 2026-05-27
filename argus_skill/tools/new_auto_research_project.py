@@ -436,11 +436,12 @@ def _research_bootstrap_files(*, project_name: str, objective: str) -> dict[str,
             "domain-appropriate trained/adapted model. Tiny scorers, prompt-only wrappers, "
             "and exact-oracle policies are baselines/smoke tests unless the operator "
             "explicitly lowers the scope.\n\n"
-            "Required evidence target: at least 240 distinct scored main benchmark "
-            "tasks or episodes for every required method/baseline condition, drawn from "
-            "existing real benchmarks or official task/data releases, with raw rows under "
-            "`experiments/**` and status/progress artifacts. Synthetic/local tasks are "
-            "smoke-only and cannot support final paper claims.\n"
+            "Required evidence target: a complete multi-source matrix over at least "
+            "3 independent executed real benchmark families for every required "
+            "method/baseline condition, drawn from existing real benchmarks or official "
+            "task/data releases, with raw rows under `experiments/**` and status/progress "
+            "artifacts. Synthetic/local tasks are smoke-only and cannot support final "
+            "paper claims.\n"
         ),
         "research/CLAIMS_TO_TEST.md": (
             "# Claims To Test\n\n"
