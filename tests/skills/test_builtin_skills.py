@@ -821,6 +821,31 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             assert required in text, f"{filename} missing {required!r}"
 
 
+def test_format_preflight_requires_neutral_reproducibility_interface(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    seed_builtin_skills(skills_dir)
+    text = (skills_dir / "emnlp-format-preflight.md").read_text(encoding="utf-8")
+
+    for required in (
+        "neutral replay interface",
+        "paper-facing regeneration targets or command aliases",
+        "artifact-type inventory",
+        "Do not render local runner script names",
+        "raw run IDs",
+        "cache/device settings",
+        "manifests, logs, or supplementary package metadata",
+    ):
+        assert required in text
+
+    for forbidden in (
+        "data/artifact paths",
+        "complete reproducibility appendix with commands, seeds",
+    ):
+        assert forbidden not in text
+
+
 def test_academic_peer_review_benchmark_skill_sets_reviewer_standard(
     tmp_path: Path,
 ) -> None:
