@@ -1,0 +1,45 @@
+{
+  "current_stage": "plan",
+  "mission_type": "research-bootstrap",
+  "objective": "Write an EMNLP long paper on \"Supervised Skill-Driven Coding Agents: Combining Horizontal Skill Reuse with Vertical Reviewer-Loop Supervision for Autonomous Software Engineering\". Run the full auto-research pipeline from literature review through experiments, paper drafting, and submission assurance.",
+  "project": "argus skill",
+  "stages": {
+    "analysis": {
+      "status": "missing"
+    },
+    "assurance": {
+      "status": "missing"
+    },
+    "benchmark": {
+      "artifact": "experiments/BENCHMARK_PROVENANCE.md",
+      "status": "ready"
+    },
+    "brief": {
+      "artifact": "research/RESEARCH_BRIEF.md",
+      "status": "done"
+    },
+    "draft": {
+      "status": "missing"
+    },
+    "narrative": {
+      "status": "missing"
+    },
+    "novelty": {
+      "status": "pending"
+    },
+    "plan": {
+      "artifact": "research/EXPERIMENT_PLAN.md",
+      "status": "ready"
+    },
+    "revision": {
+      "status": "missing"
+    },
+    "run": {
+      "status": "missing"
+    },
+    "submission": {
+      "status": "missing"
+    }
+  },
+  "target_venue": "EMNLP"
+}

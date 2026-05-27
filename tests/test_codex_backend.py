@@ -663,6 +663,19 @@ def test_build_codex_backend_from_env_uses_env(monkeypatch):
     assert backend._default_watchdog_hard_idle_seconds == 900
 
 
+def test_build_codex_backend_from_env_strips_legacy_auto_max_profile(
+    monkeypatch,
+):
+    monkeypatch.setenv(
+        "ARGUS_SKILL_RUNNER_EXTRA_ARGS",
+        '-c "profile = \\"auto-max\\"" --trace',
+    )
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
+    backend = build_codex_backend_from_env()
+    assert backend._argus_runner.default_extra_args == ["--trace"]
+
+
 def test_build_codex_backend_from_env_defaults(monkeypatch):
     for name in (
         "ARGUS_SKILL_RUNNER_BACKEND",

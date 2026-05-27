@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
+import argus_skill.adapters.codex_backend as codex_backend_mod
 from argus_skill.apps import _life_repl
 from argus_skill.daemon.life_worker import write_continuous_config
 from argus_skill.life import MemoryBundle
@@ -163,6 +164,49 @@ def test_invoke_supervisor_injects_research_profile(
     assert "profile_name: emnlp2026-tierharness" in captured["runtime_context"]
     assert "Profile metadata:" in captured["runtime_context"]
     assert captured["project_worktree"] == repo
+
+
+def test_codex_skill_loop_runner_strips_legacy_auto_max_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeCodexRunnerBackend:
+        def __init__(
+            self,
+            *,
+            backend: str | None = None,
+            runner_bin: str | None = None,
+            default_extra_args: list[str] | None = None,
+            default_interrupt_reason_provider: Any | None = None,
+            default_watchdog_soft_idle_seconds: int = 0,
+            default_watchdog_hard_idle_seconds: int = 0,
+            event_callback: Any | None = None,
+        ) -> None:
+            captured["backend"] = backend
+            captured["runner_bin"] = runner_bin
+            captured["default_extra_args"] = default_extra_args
+            captured["soft_idle"] = default_watchdog_soft_idle_seconds
+            captured["hard_idle"] = default_watchdog_hard_idle_seconds
+            captured["event_callback"] = event_callback
+            self.backend = backend
+
+    monkeypatch.setattr(codex_backend_mod, "CodexRunnerBackend", FakeCodexRunnerBackend)
+    monkeypatch.setenv(
+        "ARGUS_SKILL_RUNNER_EXTRA_ARGS",
+        '-c "profile = \\"auto-max\\"" --trace',
+    )
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
+
+    runner = _life_repl._CodexSkillLoopRunner(
+        argparse.Namespace(stop_event=None),
+        seed_thread_id=None,
+    )
+
+    assert captured["default_extra_args"] == ["--trace"]
+    assert runner.backend is runner._backend
 
 
 def test_invoke_and_track_clears_stale_thread_id_on_poisoned_outcome(
