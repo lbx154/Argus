@@ -688,11 +688,17 @@ def _select_emnlp_finalization_repair_task(
             ),
             allowed_paths=(
                 "paper/main.tex",
+                "paper/PAGE_BUDGET.md",
+                "paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md",
+                "paper/RESULTS_REPORT.md",
+                "paper/EVIDENCE_GAPS.json",
                 "paper/CLAIM_GRAPH.json",
                 "paper/PAPER_DRAFT_REPORT.json",
                 "paper/PAPER_QUALITY_CALIBRATION.json",
                 "research/",
                 "experiments/",
+                "benchmarks/",
+                "code/",
             ),
             narrow_commands=(
                 _FULL_SCALE_EVIDENCE_GATE_COMMAND,
@@ -700,10 +706,13 @@ def _select_emnlp_finalization_repair_task(
                 "python -m argus_skill.skills.pipeline_contracts validate-paper-quality-contracts --project-root .",
             ),
             repair_focus=(
-                "Treat short pages and draft-not-ready verdicts as evidence gaps, "
-                "not cosmetic padding. Add or run supported analyses, ablations, "
-                "failure studies, and claim downgrades; then update the manuscript "
-                "from those artifacts."
+                "Treat short pages and draft-not-ready verdicts as content/evidence "
+                "sufficiency gaps, not cosmetic padding or float shuffling. Make a "
+                "section-level expansion plan against the page budget; if evidence is "
+                "thin, run the missing experiments, ablations, robustness slices, or "
+                "failure studies first; if evidence exists, expand Introduction/Related "
+                "Work, Method/Setup, Results/Analysis, and Failure Cases from those "
+                "artifacts until references start after the eight-page body."
             ),
         )
 
@@ -896,7 +905,7 @@ def _build_emnlp_finalization_objective(
     raw_note = f" Planner raw output: {raw_text[:300]}" if raw_text else ""
     return (
         "paper_optimization_task. Use the automatic validate-full-emnlp "
-        "finalization route, not a broad paper rewrite. "
+        "finalization route, not a blind whole-paper rewrite or a cosmetic micro-patch. "
         f"{error_note}"
         f"Target repair lane: {task.target_label}. Target issue codes: {target_codes}. "
         f"First target issues: {target_summary}. "

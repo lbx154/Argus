@@ -1516,11 +1516,11 @@ def test_emnlp_finalization_route_prioritizes_content_over_package_drift() -> No
 
     assert route is not None
     assert route.title == "Expand evidence-backed EMNLP content to final-paper length"
-    assert "evidence gaps" in route.repair_focus
+    assert "content/evidence sufficiency gaps" in route.repair_focus
     objective = _build_emnlp_finalization_objective(route)
     assert "paper_optimization_task" in objective
     assert "Target issue codes: rendered_main_body_underfilled=1" in objective
-    assert "not a broad paper rewrite" in objective
+    assert "not a blind whole-paper rewrite or a cosmetic micro-patch" in objective
     assert "validate-full-scale-evidence --project-root ." in objective
     assert _is_emnlp_finalization_objective(objective)
 

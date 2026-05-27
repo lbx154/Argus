@@ -60,7 +60,7 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - Captions should state the takeaway, not only describe the figure.
 
 6. Enforce method/system readability:
-   - The Method and Experimental Setup must be readable without internal project context. They must name the agent framework/runtime or harness, the controller/skill/memory mechanism, the LLM/model identifiers used for agent runs, relevant image/model routes for generated visuals, task source/version, baselines, metrics, and budget/stopping rules.
+   - The Method and Experimental Setup must be readable without internal project context. They must name the evaluated paper system, its agent framework/runtime or benchmark harness, the controller/skill/memory mechanism, task source/version, baselines, metrics, and budget/stopping rules. Name LLM/model identifiers only when the evaluated system or experiment actually calls external models; if the benchmark loop is deterministic, say that no external LLM/model is called. Do not treat Argus, Codex engineer/reviewer routes, daemon handoff, academic-language/layout review, or image-tool infrastructure used to write this paper as paper-method details.
    - Add a compact system/configuration table when prose alone would be ambiguous. The table can name route roles and model IDs, but must not expose API keys, private endpoints, or capability-vault contents.
    - Reject papers that only say "our agent" or "the system" while omitting what framework ran it, which model powered it, and how one benchmark episode executes.
 

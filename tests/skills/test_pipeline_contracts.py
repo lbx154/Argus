@@ -2287,10 +2287,10 @@ def test_academic_language_review_rejects_missing_method_system_basics(
         tmp_path / "paper" / "main.tex",
         text.replace(
             (
-                "The implementation uses the Argus runtime harness with Codex engineer agents "
-                "and gpt-5.5 model routes for planner, engineer, and reviewer roles. "
-                "A controller routes skill-memory state through verifier policy checks before "
-                "each tool-using agent episode."
+                "The evaluated SkillGuard implementation runs in a deterministic Python "
+                "benchmark harness. A controller routes skill-memory state through verifier "
+                "policy checks before each tool-using agent episode, and the benchmark loop "
+                "does not call an external LLM."
             ),
             "The method improves the reported result.",
         ).replace(
@@ -2306,7 +2306,44 @@ def test_academic_language_review_rejects_missing_method_system_basics(
 
     codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
     assert "academic_language_missing_method_framework_or_runtime" in codes
+
+
+def test_academic_language_review_rejects_missing_model_id_when_models_are_used(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    text = (tmp_path / "paper" / "main.tex").read_text(encoding="utf-8")
+    _write(
+        tmp_path / "paper" / "main.tex",
+        text.replace(
+            "and the benchmark loop does not call an external LLM.",
+            "and each episode calls an external LLM at fixed temperature.",
+        ),
+    )
+    _write_valid_academic_language_review(tmp_path)
+
+    codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
     assert "academic_language_missing_method_model_identifier" in codes
+
+
+def test_academic_language_review_rejects_internal_paper_generation_stack(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    text = (tmp_path / "paper" / "main.tex").read_text(encoding="utf-8")
+    _write(
+        tmp_path / "paper" / "main.tex",
+        text.replace(
+            "The evaluated SkillGuard implementation runs in a deterministic Python "
+            "benchmark harness.",
+            "The execution stack is the Argus skill pipeline with Codex engineer "
+            "routing and daemon handoff.",
+        ),
+    )
+    _write_valid_academic_language_review(tmp_path)
+
+    codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
+    assert "academic_language_mentions_internal_generation_infrastructure" in codes
 
 
 def test_academic_language_review_rejects_validator_shaped_abstract_even_with_pass_json(
@@ -3418,7 +3455,7 @@ def _valid_academic_evidence_spans(section_scores: dict[str, float]) -> list[dic
         "contribution_framing": "A controller routes skill-memory state through verifier policy checks",
         "evidence_alignment": "Table~\\ref{tab:main} summarizes the main result.",
         "related_work_positioning": "Prior benchmark work motivates the transfer setting",
-        "method_system_clarity": "The implementation uses the Argus runtime harness with Codex engineer agents and gpt-5.5 model routes",
+        "method_system_clarity": "The evaluated SkillGuard implementation runs in a deterministic Python benchmark harness",
         "style_and_clarity": "The paper concludes within the main-page budget.",
     }
     return [
@@ -3482,10 +3519,10 @@ def _write_valid_paper_draft_report(
                 "\\label{fig:method}",
                 "\\end{figure}",
                 (
-                    "The implementation uses the Argus runtime harness with Codex engineer agents "
-                    "and gpt-5.5 model routes for planner, engineer, and reviewer roles. "
-                    "A controller routes skill-memory state through verifier policy checks before "
-                    "each tool-using agent episode."
+                    "The evaluated SkillGuard implementation runs in a deterministic Python "
+                    "benchmark harness. A controller routes skill-memory state through verifier "
+                    "policy checks before each tool-using agent episode, and the benchmark loop "
+                    "does not call an external LLM."
                 ),
                 "\\section{Experimental Setup}",
                 (
@@ -3567,6 +3604,7 @@ def _valid_rendered_paper_pages() -> list[str]:
         "Results\nTable 2 summarizes the main result and Figure 2 shows transfer.",
         "Analysis\nTable 3 reports ablations and Figure 3 shows diagnostics.",
         "Conclusion\nTable 4 summarizes limitations before the conclusion.",
+        "Operational Takeaways\nThe final body page explains deployment scope and reproducibility.",
         "References\nReference entries begin here.",
         "References\nMore reference entries continue here.",
     ]

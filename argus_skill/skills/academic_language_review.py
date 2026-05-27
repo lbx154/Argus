@@ -159,26 +159,21 @@ SECTION_SYNONYMS: dict[str, tuple[str, ...]] = {
     "limitations": ("limitations", "limitations and broader impact", "discussion"),
 }
 
-METHOD_SYSTEM_DETAIL_PATTERNS: tuple[tuple[str, str, str], ...] = (
+EVALUATED_SYSTEM_DETAIL_PATTERNS: tuple[tuple[str, str, str], ...] = (
     (
         "missing_method_framework_or_runtime",
-        r"\b(?:argus(?:-skill)?|codex|openai agents sdk|langchain|autogen|crewai|"
-        r"semantic kernel|llamaindex|agent framework|framework|runtime|harness|"
-        r"daemon|orchestrator|controller)\b",
-        "method/setup must name the agent framework, runtime, harness, or controller that ran the agent",
-    ),
-    (
-        "missing_method_model_identifier",
-        r"\b(?:gpt[-_ ]?\d(?:[\w.\-:]*)?|o\d(?:[\w.\-:]*)?|claude[-_ ]?\d(?:[\w.\-:]*)?|"
-        r"gemini[-_ ]?\d(?:[\w.\-:]*)?|llama[-_ ]?\d(?:[\w.\-:]*)?|qwen[-_ ]?\d(?:[\w.\-:]*)?|"
-        r"mistral(?:[\w.\-:]*)?|deepseek(?:[\w.\-:]*)?|gpt[-_ ]?image[-_ ]?2|"
-        r"codex[-_ ]?image2|image[-_ ]?2)\b",
-        "method/setup must name the LLM or image model identifier used for agent runs and generated visuals",
+        r"\b(?:agent framework|framework|runtime|harness|benchmark driver|"
+        r"evaluation suite|simulator|execution environment|controller|"
+        r"orchestrator|policy engine|python\s+\d|implementation)\b",
+        (
+            "method/setup must name the evaluated system framework, runtime, "
+            "harness, or controller, not the paper-generation infrastructure"
+        ),
     ),
     (
         "missing_method_agent_mechanism",
-        r"\b(?:agent|planner|engineer|reviewer|skill|memory|retrieval|tool|verifier|"
-        r"reflection|handoff|policy|routing|controller|state)\b",
+        r"\b(?:agent|planner|skill|memory|retrieval|tool|verifier|reflection|"
+        r"policy|routing|controller|state|admission|promotion|gate)\b",
         "method/setup must explain the agent mechanism rather than only reporting scores",
     ),
     (
@@ -186,6 +181,41 @@ METHOD_SYSTEM_DETAIL_PATTERNS: tuple[tuple[str, str, str], ...] = (
         r"\b(?:baseline|benchmark|task|episode|trial|metric|budget|temperature|token|"
         r"cost|scored|run)\b",
         "method/setup must give enough evaluation protocol detail to interpret the results",
+    ),
+)
+
+MODEL_IDENTIFIER_PATTERN = (
+    r"\b(?:gpt[-_ ]?\d(?:[\w.\-:]*)?|o\d(?:[\w.\-:]*)?|claude[-_ ]?\d(?:[\w.\-:]*)?|"
+    r"gemini[-_ ]?\d(?:[\w.\-:]*)?|llama[-_ ]?\d(?:[\w.\-:]*)?|qwen[-_ ]?\d(?:[\w.\-:]*)?|"
+    r"mistral(?:[\w.\-:]*)?|deepseek(?:[\w.\-:]*)?)\b"
+)
+
+MODEL_USE_CONTEXT_PATTERN = (
+    r"\b(?:llm|large language model|language model|prompt(?:ed|ing)?|"
+    r"temperature|decoding|token budget|model route|model call|api call|"
+    r"openai|anthropic|gemini|claude|gpt[-_ ]?\d|llama[-_ ]?\d|qwen[-_ ]?\d)\b"
+)
+
+NO_EXTERNAL_MODEL_PATTERN = (
+    r"\b(?:no|without|does not|do not|never)\s+(?:call|use|invoke|query|run)\s+"
+    r"(?:an?\s+)?(?:external\s+)?(?:llm|large language model|language model|model|api)\b|"
+    r"\bbenchmark loop itself does not call an external llm\b|"
+    r"\bdeterministic\b.{0,100}\b(?:symbolic|no external llm|without external llm)\b"
+)
+
+INTERNAL_GENERATION_INFRASTRUCTURE_PATTERNS: tuple[tuple[str, str, str], ...] = (
+    (
+        "mentions_internal_generation_infrastructure",
+        r"\b(?:argus(?:[- ]skill)?\s+pipeline|codex\s+engineer|"
+        r"engineer\s+routing|reviews?/calibration|planner,\s*engineer,\s*and\s*reviewer|"
+        r"academic[- ]language review|paper[-_ ]layout[-_ ]review|layout review tool|"
+        r"paper generator|capability[- ]vault|daemon|validation[- ]route|"
+        r"argus image tool)\b",
+        (
+            "method/setup is describing the internal Argus/Codex paper-generation "
+            "or review infrastructure; replace it with facts about the evaluated "
+            "system, benchmark harness, baselines, metrics, and actual model use"
+        ),
     ),
 )
 
@@ -740,11 +770,16 @@ def _review_prompt(
         "to evidence. Evidence spans are reviewer-internal audit artifacts: do not ask "
         "authors to paste source paths, appendix/figure references, validation-gate "
         "vocabulary, or evidence quotes into the abstract to satisfy this review. Reject "
-        "papers that leave basic system facts implicit: the Method/Experimental Setup must "
-        "let a reviewer identify the agent framework/runtime or harness, the LLM/model "
-        "identifiers used for agent runs and image generation when relevant, the agent "
-        "mechanism, baselines, task source, metrics, and budget. These details should be "
-        "reader-facing prose or a compact table, not only comments or JSON artifacts. Reject "
+        "papers that leave basic evaluated-system facts implicit: the Method/Experimental "
+        "Setup must let a reviewer identify the system under study, its runtime or "
+        "benchmark harness, the controller/skill/memory mechanism, baselines, task "
+        "source, metrics, and budget. Name LLM/model identifiers only when the evaluated "
+        "method or experiment actually calls external models; if it is deterministic, "
+        "say that no external LLM/model is called. Do not credit or describe the "
+        "Argus/Codex daemon, engineer/reviewer routes, academic-language review, layout "
+        "review, or image tool used to write this paper as if they were paper-method "
+        "components. These details should be reader-facing prose or a compact table, "
+        "not only comments or JSON artifacts. Reject "
         "a paper whose abstract reads like a validator checklist, starts with a numeric "
         "result before the problem/gap, or spends its scarce space on defensive caveats "
         "instead of problem, method, result, and implication. Use a strict ACL/EMNLP "
@@ -959,7 +994,10 @@ def _expected_effect(action: str) -> str:
         "reorganize_related_work": "group prior work by method and gap rather than chronology",
         "replace_hype_language": "remove salesy or unsupported superlative prose",
         "delete_filler": "remove low-information prose that weakens the paper",
-        "clarify_method_mechanism": "explain the agent framework/runtime, model identifiers, mechanism, and why the method changes the measured outcome",
+        "clarify_method_mechanism": (
+            "explain the evaluated system/runtime or harness, applicable model "
+            "identifiers, mechanism, and why the method changes the measured outcome"
+        ),
         "rewrite_caption_takeaway": "make figure/table captions carry the main result",
         "add_limitation_scope": "state scope limits without undermining the supported claim",
         "rename_code_like_label": "use reviewable human-readable labels instead of raw identifiers",
@@ -1150,11 +1188,29 @@ def find_method_system_readability_issues(tex_text: str) -> list[tuple[str, str]
     )
     if not context.strip():
         context = _latex_to_plain_text(tex_text)
-    return [
-        (code, message)
-        for code, pattern, message in METHOD_SYSTEM_DETAIL_PATTERNS
-        if not re.search(pattern, context, re.I)
-    ]
+    issues: list[tuple[str, str]] = []
+    for code, pattern, message in INTERNAL_GENERATION_INFRASTRUCTURE_PATTERNS:
+        if re.search(pattern, context, re.I):
+            issues.append((code, message))
+    for code, pattern, message in EVALUATED_SYSTEM_DETAIL_PATTERNS:
+        if not re.search(pattern, context, re.I):
+            issues.append((code, message))
+    if (
+        re.search(MODEL_USE_CONTEXT_PATTERN, context, re.I)
+        and not re.search(MODEL_IDENTIFIER_PATTERN, context, re.I)
+        and not re.search(NO_EXTERNAL_MODEL_PATTERN, context, re.I)
+    ):
+        issues.append(
+            (
+                "missing_method_model_identifier",
+                (
+                    "method/setup mentions external model-style execution but does "
+                    "not name the evaluated LLM/model identifier or explicitly state "
+                    "that the benchmark loop uses no external LLM/model calls"
+                ),
+            )
+        )
+    return issues
 
 
 def _abstract_quality_issue_specs(abstract: str) -> list[tuple[str, str, float, float]]:

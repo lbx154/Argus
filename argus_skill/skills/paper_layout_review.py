@@ -432,7 +432,7 @@ def _deterministic_assessment(
                     target=f"page {references_page} References boundary",
                 )
             )
-        elif references_page < 8:
+        elif references_page < 9:
             penalty += 0.7
             issues.append(
                 _issue(
@@ -440,6 +440,7 @@ def _deterministic_assessment(
                     "major",
                     (
                         "References begin before the paper visibly fills the long-paper body budget; "
+                        "an eight-page EMNLP body should push references to page 9 or later; "
                         "expand from verified evidence instead of padding"
                     ),
                     page=references_page,
@@ -663,8 +664,8 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "Reference boundary guidance: if References or Bibliography starts on the same rendered page as "
         "Conclusion, Limitations, Ethics, or release/reproducibility body text, do not automatically call "
         "the body overlong and do not ask for generic section shortening. Determine the direction from "
-        "the page: if the body is visibly underfilled or References start before the final body page is "
-        "full, require source-backed body expansion, a meaningful late visual anchor, or a clean "
+        "the page: if the body is visibly underfilled or References start before page 9, "
+        "require source-backed body expansion, a meaningful late visual anchor, or a clean "
         "reference-page break; if body content actually runs past page 8, then require trimming. "
         "Shortening an underfilled body makes the early-References defect worse.\n\n"
         "Submission contract to enforce: conclusion by page 8, Limitations/Ethics after conclusion, "

@@ -113,7 +113,7 @@ MAX_RESEARCH_MD_BODY_FIGURES = 5
 MAX_RESEARCH_MD_WIDE_FIGURES = 1
 RESEARCH_MD_VISUAL_PAGES = {4, 5, 6, 7}
 MIN_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY = 7
-MIN_RENDERED_REFERENCES_PAGE_FOR_FULL_BODY = 8
+MIN_RENDERED_REFERENCES_PAGE_FOR_FULL_BODY = 9
 MIN_FINAL_BIBLIOGRAPHY_ENTRIES = 35
 MIN_FINAL_UNIQUE_CITATION_KEYS = 30
 MIN_RENDERED_REFERENCE_PAGES = 2
@@ -3712,8 +3712,10 @@ def _validate_research_md_pdf_text(pages: list[str]) -> list[ContractIssue]:
                 "references_before_full_body",
                 str(PAPER_MAIN_PDF_PATH),
                 (
-                    "References begin before the main body is visibly full; final EMNLP drafts "
-                    f"should keep references no earlier than page {MIN_RENDERED_REFERENCES_PAGE_FOR_FULL_BODY}"
+                    "References begin before the main body is visibly full; final EMNLP long "
+                    "papers must fill the eight-page body budget before bibliography pages "
+                    f"start, so references should begin no earlier than page "
+                    f"{MIN_RENDERED_REFERENCES_PAGE_FOR_FULL_BODY}"
                 ),
             )
         )
