@@ -175,10 +175,12 @@ Final EMNLP evidence needs:
 - at least 240 unique semantic scored main tasks/episodes for every required
   method/baseline condition;
 - raw scored rows under `experiments/**`, not only benchmark manifests;
-- a named evaluated model/backend. If no local GPU exists, run the approved
-  hosted route, with `gpt-5-mini` as the default low-cost backbone, and record
-  temperature, top_p, max_tokens, budget, cache/retry/timeout policy, and
-  stopping rules.
+- a named evaluated model/backend. For local GPU experiments, record the local
+  model/backend class, framework/runtime, checkpoint or scorer identifier,
+  device, training/inference settings, budget, seeds, and stopping rules. If no
+  local GPU exists, run the approved hosted route, with `gpt-5-mini` as the
+  default low-cost backbone, and record temperature, top_p, max_tokens, budget,
+  cache/retry/timeout policy, and stopping rules.
 
 ### Construction rules
 
@@ -616,7 +618,10 @@ Page 9+  Limitations + Ethics + References + Appendix
 ```
 
 **Rule**: Conclusion (Sec ≤9) MUST appear by end of page 8. Limitations
-and Ethics live after Conclusion and don't count against the limit.
+and Ethics live after Conclusion and don't count against the limit. Do not
+force this with `\clearpage`, `\newpage`, `\pagebreak`, or `\FloatBarrier`
+immediately before Conclusion; a forced pre-Conclusion break can leave page 8
+mostly blank and push the heading to page 9 after minor float changes.
 
 If you overflow, in priority order: (a) move secondary figures to appendix;
 (b) move low-value diagnostics to appendix; (c) tighten repeated score
@@ -769,6 +774,7 @@ Before declaring "ready":
 - [ ] PDF compiles with no `Undefined reference` or `Citation` warnings.
 - [ ] No `Overfull \hbox > 5pt`.
 - [ ] Body Sec 1–N (Conclusion) ends at or before page 8.
+- [ ] No manual page break appears immediately before `\section{Conclusion}`.
 - [ ] Limitations section present and ≥1 paragraph.
 - [ ] Ethical Considerations section present.
 - [ ] Every `\cite{}` resolves; no `[?]` in PDF.

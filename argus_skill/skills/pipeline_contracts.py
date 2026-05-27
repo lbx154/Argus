@@ -118,7 +118,7 @@ MAX_MODERATE_OVERFULL_HBOXES = 0
 MAX_RESEARCH_MD_BODY_FIGURES = 5
 MAX_RESEARCH_MD_WIDE_FIGURES = 1
 RESEARCH_MD_VISUAL_PAGES = {4, 5, 6, 7}
-REQUIRED_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY = 8
+REQUIRED_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY = 7
 MIN_RENDERED_REFERENCES_PAGE_FOR_FULL_BODY = 9
 MIN_RENDERED_APPENDIX_PAGE = 9
 MIN_ABSTRACT_WORDS = 170
@@ -3031,7 +3031,7 @@ def _validate_experiment_model_details(tex_text: str) -> list[ContractIssue]:
         return []
 
     issues: list[ContractIssue] = []
-    model_markers = (
+    hosted_model_markers = (
         "gpt-5-mini",
         "gpt-5",
         "gpt-4",
@@ -3043,28 +3043,54 @@ def _validate_experiment_model_details(tex_text: str) -> list[ContractIssue]:
         "mistral",
         "deepseek",
     )
-    if "no external llm/model" in plain or "no external model" in plain:
+    local_model_markers = (
+        "pairscorer",
+        "pytorch",
+        "torch",
+        "local scorer",
+        "learned scorer",
+        "candidate ranker",
+        "gradient-based scorer",
+        "operation head",
+        "auxiliary operation head",
+        "bag-of-words candidate encoder",
+        "hashed dom candidate",
+    )
+    has_hosted_model = any(marker in plain for marker in hosted_model_markers)
+    has_local_model = any(marker in plain for marker in local_model_markers)
+    mentions_no_external_model = (
+        "no external llm/model" in plain
+        or "no external model" in plain
+        or "no external llm" in plain
+    )
+    if mentions_no_external_model and not has_local_model:
         issues.append(
             ContractIssue(
                 "missing_experiment_model_identifier",
                 str(PAPER_MAIN_TEX_PATH),
                 (
                     "the final paper says the evaluated experiment makes no external "
-                    "LLM/model call. For this agent-paper route, no-GPU experiments "
-                    "should use and report an approved hosted model such as gpt-5-mini "
-                    "or explicitly downgrade the claim to a deterministic baseline/pilot."
+                    "LLM/model call but does not name a concrete local model/backend. "
+                    "For GPU-backed local experiments, report the local model class, "
+                    "runtime/backend, and key method settings without exposing local "
+                    "hardware IDs, CUDA variables, cache paths, or Argus configuration; "
+                    "for no-GPU hosted LLM experiments, report the hosted model id such "
+                    "as gpt-5-mini."
                 ),
             )
         )
-    elif not any(marker in plain for marker in model_markers):
+    elif not (has_hosted_model or has_local_model):
         issues.append(
             ContractIssue(
                 "missing_experiment_model_identifier",
                 str(PAPER_MAIN_TEX_PATH),
                 (
                     "Method/Experimental Setup must name the evaluated model/backend "
-                    "identifier, for example gpt-5-mini for no-GPU hosted LLM runs; "
-                    "do not make reviewers infer which model powered the agent."
+                    "identifier, for example gpt-5-mini for no-GPU hosted LLM runs "
+                    "or a concrete evaluated local model/backend such as a PyTorch "
+                    "PairScorer. Omit local hardware IDs, CUDA variables, cache paths, "
+                    "and Argus configuration; do not make reviewers infer which model "
+                    "powered the agent."
                 ),
             )
         )
@@ -3833,6 +3859,7 @@ def validate_research_md_format_preflight(project_root: Path) -> list[ContractIs
     if (root / IMAGE2_FIGURES_JSON_PATH).is_file():
         issues.extend(_validate_body_image2_conceptual_figure_usage(root, body_tex=body_tex))
     issues.extend(_validate_research_md_table_contract(body_tex, combined_tex, report))
+    issues.extend(_validate_research_md_manual_page_breaks(combined_tex))
 
     pdf_pages = _extract_pdf_text_pages(root / PAPER_MAIN_PDF_PATH)
     if pdf_pages is not None:
@@ -4043,6 +4070,28 @@ def _validate_research_md_required_sections(tex_text: str) -> list[ContractIssue
     for code, (pattern, message) in requirements.items():
         if not re.search(rf"\b(?:{pattern})\b", title_text):
             issues.append(ContractIssue(code, str(PAPER_MAIN_TEX_PATH), message))
+    return issues
+
+
+def _validate_research_md_manual_page_breaks(tex_text: str) -> list[ContractIssue]:
+    issues: list[ContractIssue] = []
+    if re.search(
+        r"\\(?:clearpage|newpage|pagebreak(?:\[[^\]]+\])?|FloatBarrier)\s*"
+        r"\\section\*?\s*\{\s*Conclusion\s*\}",
+        tex_text,
+    ):
+        issues.append(
+            ContractIssue(
+                "forced_page_break_before_conclusion",
+                str(PAPER_MAIN_TEX_PATH),
+                (
+                    "Do not force a page break immediately before Conclusion. It can leave "
+                    "page 8 mostly blank and push the heading to page 9 after small float or "
+                    "prose changes; rebalance body prose/floats instead, and reserve clean "
+                    "manual breaks for the bibliography/appendix boundary after body text."
+                ),
+            )
+        )
     return issues
 
 
