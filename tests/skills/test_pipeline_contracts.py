@@ -507,6 +507,31 @@ def test_figure_table_style_guide_requires_inventory_to_match_body_floats(
     assert "too_few_figure_table_style_floats" in codes
 
 
+def test_figure_table_style_guide_accepts_multiple_source_artifacts(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_artifact_manifest(tmp_path)
+    _write_valid_figure_table_style_guide(tmp_path)
+    _write_bytes(tmp_path / "paper" / "figures" / "method.png", b"png")
+    _write(tmp_path / "paper" / "artifacts" / "component_breakdown.tsv", "component\tvalue\nx\t1\n")
+
+    path = tmp_path / "paper" / "FIGURE_TABLE_STYLE_GUIDE.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["float_inventory"][1]["source_artifact"] = [
+        "paper/artifacts/results_table.tsv",
+        "paper/artifacts/component_breakdown.tsv",
+    ]
+    payload["float_inventory"][2]["source_artifact"] = (
+        "paper/artifacts/results_table.tsv and paper/artifacts/component_breakdown.tsv"
+    )
+    _write_json(path, payload)
+
+    codes = {issue.code for issue in validate_figure_table_style_guide(tmp_path)}
+
+    assert "float_inventory_unknown_source_artifact" not in codes
+
+
 def test_artifact_freshness_rejects_changed_inputs(tmp_path: Path) -> None:
     _write_valid_paper_draft_report(tmp_path)
     _write_valid_artifact_manifest(tmp_path)

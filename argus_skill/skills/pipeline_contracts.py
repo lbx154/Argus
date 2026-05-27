@@ -311,6 +311,7 @@ MIN_ACADEMIC_LANGUAGE_REVIEW_SCORE = MIN_ACADEMIC_LANGUAGE_SCORE
 LAYOUT_REVIEW_VISION_METHODS = {"vision_pdf_pages", "hybrid_vision_heuristic"}
 ALLOWED_LAYOUT_REVIEW_ACTIONS = {
     "shorten_section",
+    "expand_evidence_content",
     "split_table",
     "merge_tables",
     "move_float",
@@ -322,6 +323,7 @@ ALLOWED_LAYOUT_REVIEW_ACTIONS = {
     "rebalance_columns",
     "fix_overfull_box",
     "fix_bibliography_appendix_order",
+    "fix_reference_boundary",
 }
 
 ALLOWED_LITERATURE_VENUE_TOKENS: tuple[str, ...] = (
@@ -2243,15 +2245,15 @@ def validate_figure_table_style_guide(project_root: Path) -> list[ContractIssue]
                         f"float inventory entry must include {key}",
                     )
                 )
-        source = str(raw_float.get("source_artifact", "")).strip()
-        if source and not _path_exists_or_manifested(root, source):
-            issues.append(
-                ContractIssue(
-                    "float_inventory_unknown_source_artifact",
-                    entry_path,
-                    f"float source_artifact {source!r} must exist or appear in ARTIFACT_MANIFEST.json",
+        for source in _source_artifact_values(raw_float.get("source_artifact")):
+            if source and not _path_exists_or_manifested(root, source):
+                issues.append(
+                    ContractIssue(
+                        "float_inventory_unknown_source_artifact",
+                        entry_path,
+                        f"float source_artifact {source!r} must exist or appear in ARTIFACT_MANIFEST.json",
+                    )
                 )
-            )
         if body_labels and location == "body" and label and label not in body_labels:
             issues.append(
                 ContractIssue(
@@ -3689,7 +3691,10 @@ def _validate_research_md_pdf_text(pages: list[str]) -> list[ContractIssue]:
                 (
                     "final EMNLP readiness requires the body to be written out to "
                     f"7.5-8 main-content pages; rendered Conclusion appears on page "
-                    f"{conclusion_page}, before page {MIN_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY}"
+                    f"{conclusion_page}, before page {MIN_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY}. "
+                    "Add or move evidence-bearing Results/Analysis/Ablation content before the "
+                    "Conclusion; Limitations, Ethics, release notes, references, or appendix "
+                    "material after Conclusion do not repair an underfilled main body."
                 ),
             )
         )
@@ -6172,6 +6177,32 @@ def _path_exists_or_manifested(root: Path, value: str) -> bool:
     if resolved is not None and resolved.exists():
         return True
     return normalized in _manifest_path_set(root)
+
+
+def _source_artifact_values(value: Any) -> list[str]:
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        parts = [
+            part.strip()
+            for part in re.split(r"\s+(?:and|&)\s+|,\s*", text)
+            if part.strip()
+        ]
+        if len(parts) > 1 and all(_looks_like_artifact_path(part) for part in parts):
+            return parts
+        return [text]
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        sources: list[str] = []
+        for item in value:
+            if isinstance(item, str) and item.strip():
+                sources.append(item.strip())
+        return sources
+    return []
+
+
+def _looks_like_artifact_path(value: str) -> bool:
+    return bool(re.match(r"^(?:paper|research|code|data|results|artifacts|figures|tables)/", value))
 
 
 def _manifest_path_set(root: Path) -> set[str]:

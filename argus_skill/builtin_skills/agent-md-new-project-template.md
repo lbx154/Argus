@@ -340,7 +340,7 @@ Use the repository's existing conventions if they are already present; otherwise
    | Failure Cases | 0.3--0.5 |
    | Conclusion | 0.2 |
 
-4. Conclusion must appear by the end of page 8; Limitations and Ethical Considerations must appear after Conclusion; References must appear before Appendix.
+4. Conclusion must appear by the end of page 8 and should not render before page 7 for a full long paper. If it appears too early, add or move evidence-backed Results/Analysis/Ablation content before Conclusion; Limitations, Ethical Considerations, release notes, references, or appendix content after Conclusion do not fix an underfilled main body. References must appear before Appendix and start cleanly after the body.
 5. Run `validate-research-md-format` after final compile and before academic-language/layout review.
 6. Write `paper/FORMAT_PREFLIGHT.md` with compile command/status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final validator result.
 7. No undefined references/citation warnings, no rendered `[?]`, no `Overfull \hbox > 5pt`, no placeholders/TODO/TBD/FIXME, no `% UNVERIFIED`, and no ugly code-like display labels in title, abstract, headings, captions, figures, or tables.

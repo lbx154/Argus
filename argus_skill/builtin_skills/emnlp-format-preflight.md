@@ -30,7 +30,7 @@ Treat every item below as blocking for a final EMNLP-ready claim:
 1. **Template and anonymity**
    - Use the official ACL/EMNLP template, preferably `\usepackage[review]{acl}` from https://github.com/acl-org/acl-style-files.
    - In review mode the author block must be anonymous, e.g. `Anonymous EMNLP Submission`. Do not add real authors unless `submission_phase` is camera-ready/final.
-   - Target 7.5--8 main-content pages excluding references; do not pad pilot evidence into a long-paper shell. The final PDF should visibly use the body budget: Conclusion should not appear before page 7, and References should not begin before page 8.
+   - Target 7.5--8 main-content pages excluding references; do not pad pilot evidence into a long-paper shell. The final PDF should visibly use the body budget: Conclusion should not appear before page 7, and References should not begin before page 8. If Conclusion renders before page 7, add or move evidence-bearing Results/Analysis/Ablation material before Conclusion; text after Conclusion does not repair an underfilled main body.
    - If the body is short or visually thin, classify it as `content_sufficiency` rather than a cosmetic layout defect unless the evidence is already complete. Require one of: more benchmark runs, missing baseline/ablation completion, robustness/public-validation analysis, failure taxonomy/error analysis, or claim downgrade. Do not accept larger fonts, looser spacing, repeated caveats, or oversized floats as a page-count fix.
 
 2. **Section order and completeness**
@@ -46,7 +46,7 @@ Treat every item below as blocking for a final EMNLP-ready claim:
    - No placeholders, TODO/TBD/FIXME, `\textbf{[PLACEHOLDER]}`, `[VERIFY_CITATION]`, or `% UNVERIFIED` bibliography entries.
    - Final-ready drafts must have bibliography depth: at least 35 verified BibTeX entries, at least 30 unique cited keys in the paper source, and, when PDF text extraction is available, References must occupy at least two rendered pages before the Appendix.
    - Reference formatting must look like a real ACL bibliography: no rendered `and 1 others`/`and N others`, no BibTeX `author={... and others}` or `et al.` placeholders, no citation commands that dump more than eight keys, and no dense related-work paragraph that functions as a bibliography pile. Fetch verified BibTeX from ACL Anthology, Semantic Scholar, arXiv, CrossRef, DBLP, or official proceedings pages and preserve capitalization with braces where needed.
-   - References must start cleanly after the body. Do not let the References heading share a rendered page or column with Conclusion, Limitations, or Ethical Considerations; insert a layout break or revise page flow.
+   - References must start cleanly after the body. Do not let the References heading share a rendered page or column with Conclusion, Limitations, or Ethical Considerations. If the body is already full, insert a clean reference break; if Conclusion is early, expand or move evidence-backed body content before Conclusion instead of shortening the paper.
    - No code-font/snake_case display labels in title, abstract, headings, captions, figures, or tables unless the exception is explicitly listed in `allowed_code_labels`.
 
 4. **Figures and layout**

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from argus_skill.skills.paper_layout_review import (
+    _deterministic_assessment,
     _revision_directives,
     _vision_issues,
     _vision_prompt,
@@ -32,6 +33,7 @@ def test_vision_prompt_frames_emnlp_2026_visual_submission_review() -> None:
     assert "source_targets" in prompt
     assert "specific_edits" in prompt
     assert "implementation_guidance" in prompt
+    assert "Shortening an underfilled body makes the early-References defect worse" in prompt
     assert "Allowed action values:" in prompt
     assert "dense_table_float_page" in prompt
 
@@ -114,3 +116,55 @@ def test_vision_guidance_is_preserved_in_revision_directives() -> None:
             },
         }
     ]
+
+
+def test_deterministic_review_flags_references_sharing_body_page_with_boundary_action() -> None:
+    pages = [
+        "Title\nAbstract",
+        "Related Work",
+        "Method",
+        "Results\nFigure 1: overview",
+        "Analysis\nTable 1: main results",
+        "Ablation\nTable 2: supporting analyses",
+        "Limitations",
+        "Conclusion\nLimitations and Ethical Considerations\nRelease and Reproducibility\nReferences\n[1] Example",
+        "More references",
+    ]
+
+    result = _deterministic_assessment(
+        tex_text="",
+        log_text="",
+        layout_text="\f".join(pages),
+        threshold=4.0,
+    )
+
+    issues = {issue["code"]: issue for issue in result["issues"]}
+    assert issues["references_share_body_page"]["action"] == "fix_reference_boundary"
+    assert issues["references_share_body_page"]["page"] == 8
+
+    directives = _revision_directives(result["issues"])
+    boundary_directive = next(
+        directive for directive in directives if directive["action"] == "fix_reference_boundary"
+    )
+    guidance = boundary_directive["implementation_guidance"]
+    assert "evidence-backed body content" in guidance["specific_edits"][0]
+
+
+def test_deterministic_review_routes_early_references_to_evidence_expansion() -> None:
+    pages = [
+        "Title",
+        "Method",
+        "Results",
+        "Analysis\nFigure 1: overview",
+        "References\n[1] Example",
+    ]
+
+    result = _deterministic_assessment(
+        tex_text="",
+        log_text="",
+        layout_text="\f".join(pages),
+        threshold=4.0,
+    )
+
+    issues = {issue["code"]: issue for issue in result["issues"]}
+    assert issues["references_before_full_body"]["action"] == "expand_evidence_content"

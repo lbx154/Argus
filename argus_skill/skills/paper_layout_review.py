@@ -47,6 +47,7 @@ MAX_RESEARCH_MD_OVERFULL_HBOX_PT = 5.0
 
 ALLOWED_DIRECTIVE_ACTIONS = {
     "shorten_section",
+    "expand_evidence_content",
     "split_table",
     "merge_tables",
     "move_float",
@@ -58,6 +59,7 @@ ALLOWED_DIRECTIVE_ACTIONS = {
     "rebalance_columns",
     "fix_overfull_box",
     "fix_bibliography_appendix_order",
+    "fix_reference_boundary",
 }
 
 MAX_BODY_FIGURES = 5
@@ -404,6 +406,49 @@ def _deterministic_assessment(
             )
         )
 
+    layout_pages = _layout_pages(layout_text)
+    references_page = _first_layout_page_matching(
+        layout_pages,
+        r"(?m)^\s*(?:References|Bibliography)\s*$",
+    )
+    if references_page is not None:
+        reference_page_text = layout_pages[references_page - 1]
+        if re.search(
+            r"\b(?:Conclusion|Limitations|Ethical Considerations|Ethics|Release and Reproducibility)\b",
+            reference_page_text,
+        ):
+            penalty += 0.9
+            issues.append(
+                _issue(
+                    "references_share_body_page",
+                    "major",
+                    (
+                        "References begin on the same rendered page as body end matter; "
+                        "fix the body/reference boundary without generic shortening"
+                    ),
+                    page=references_page,
+                    hard_gate=True,
+                    action="fix_reference_boundary",
+                    target=f"page {references_page} References boundary",
+                )
+            )
+        elif references_page < 8:
+            penalty += 0.7
+            issues.append(
+                _issue(
+                    "references_before_full_body",
+                    "major",
+                    (
+                        "References begin before the paper visibly fills the long-paper body budget; "
+                        "expand from verified evidence instead of padding"
+                    ),
+                    page=references_page,
+                    hard_gate=True,
+                    action="expand_evidence_content",
+                    target=f"page {references_page} early References",
+                )
+            )
+
     page_stats = _layout_page_stats(layout_text)
     for stat in page_stats:
         if stat["table_captions"] >= 4:
@@ -481,7 +526,7 @@ def _deterministic_assessment(
 
 
 def _layout_page_stats(layout_text: str) -> list[dict[str, Any]]:
-    pages = [page for page in layout_text.split("\f") if page.strip()]
+    pages = _layout_pages(layout_text)
     stats: list[dict[str, Any]] = []
     for index, page in enumerate(pages, start=1):
         lines = [line.rstrip() for line in page.splitlines() if line.strip()]
@@ -508,6 +553,18 @@ def _layout_page_stats(layout_text: str) -> list[dict[str, Any]]:
             }
         )
     return stats
+
+
+def _layout_pages(layout_text: str) -> list[str]:
+    return [page for page in layout_text.split("\f") if page.strip()]
+
+
+def _first_layout_page_matching(pages: Sequence[str], pattern: str) -> int | None:
+    compiled = re.compile(pattern)
+    for index, page in enumerate(pages, start=1):
+        if compiled.search(page):
+            return index
+    return None
 
 
 def _run_vision_review(
@@ -601,6 +658,13 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "page is ugly because the paper is underfilled or padded with audit-like content, say exactly "
         "which body section should be expanded with evidence-bearing narrative and which low-value "
         "artifact/table should move to appendix or be deleted.\n\n"
+        "Reference boundary guidance: if References or Bibliography starts on the same rendered page as "
+        "Conclusion, Limitations, Ethics, or release/reproducibility body text, do not automatically call "
+        "the body overlong and do not ask for generic section shortening. Determine the direction from "
+        "the page: if the body is visibly underfilled or References start before the final body page is "
+        "full, require evidence-backed body expansion, a meaningful late visual anchor, or a clean "
+        "reference-page break; if body content actually runs past page 8, then require trimming. "
+        "Shortening an underfilled body makes the early-References defect worse.\n\n"
         "Submission contract to enforce: conclusion by page 8, Limitations/Ethics after conclusion, "
         "References before Appendix, no Overfull hbox above 5pt, <=5 body figures, at most one "
         "full-width figure*, at least one meaningful figure/table anchor on each of pages 4-7, table "
@@ -782,6 +846,7 @@ def _default_specific_edit(action: str, target: str) -> str:
     target_text = target or "the affected page/object"
     edits = {
         "shorten_section": f"Rewrite or trim low-value prose around {target_text}; keep only evidence-bearing narrative and move audit detail to appendix.",
+        "expand_evidence_content": f"Expand the underfilled body around {target_text} with verified analysis, ablations, failure cases, or robustness evidence; do not pad with generic prose.",
         "split_table": f"Split the dense table at {target_text} into smaller reader-facing tables or move secondary rows to appendix.",
         "merge_tables": f"Merge redundant low-density tables around {target_text} into one stronger reader-facing table with a numerical takeaway caption.",
         "move_float": f"Move the float around {target_text} next to the paragraph that discusses it, or rewrite the nearby prose/float order so the page is not a float dump.",
@@ -793,6 +858,7 @@ def _default_specific_edit(action: str, target: str) -> str:
         "rebalance_columns": f"Rebalance text and floats around {target_text} by editing source order, paragraph length, and float placement rather than adding filler.",
         "fix_overfull_box": f"Fix the source line/table/figure causing overflow at {target_text}; do not hide it with unreadably small fonts.",
         "fix_bibliography_appendix_order": f"Move References before Appendix and keep Limitations/Ethics after Conclusion around {target_text}.",
+        "fix_reference_boundary": f"Separate References from body text at {target_text}; if the body is underfilled, add evidence-backed body content or a meaningful late visual anchor before using a clean reference break.",
     }
     return edits.get(action, f"Revise {target_text} so the rendered page has polished EMNLP/ACL layout.")
 
@@ -825,6 +891,7 @@ def _text_list(*values: object) -> list[str]:
 def _expected_effect(action: str) -> str:
     effects = {
         "shorten_section": "reduce overflow and restore balanced page flow",
+        "expand_evidence_content": "fill the long-paper body budget with verified evidence",
         "split_table": "replace dense unreadable tables with smaller reviewable tables",
         "merge_tables": "reduce float clutter by combining redundant tables",
         "move_float": "avoid float-only pages and attach captions to nearby prose",
@@ -836,6 +903,7 @@ def _expected_effect(action: str) -> str:
         "rebalance_columns": "improve visual balance across columns/pages",
         "fix_overfull_box": "remove visible text/table overflow",
         "fix_bibliography_appendix_order": "restore ACL/EMNLP section order",
+        "fix_reference_boundary": "keep references on a clean page after the body",
     }
     return effects.get(action, "improve final paper layout")
 
