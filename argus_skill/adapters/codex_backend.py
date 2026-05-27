@@ -58,6 +58,8 @@ _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
 _RUNNER_DEFAULT_SOFT_IDLE_SECONDS = 0
 _RUNNER_DEFAULT_HARD_IDLE_SECONDS = 60 * 60
 _RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
+_LEGACY_CODEX_PROFILE_SWITCHES = {"-c", "--config"}
+_LEGACY_CODEX_PROFILE_PAYLOADS = {"profile=auto-max", "config_profile=auto-max"}
 
 
 def looks_like_auth_failure(stderr_lines) -> bool:  # noqa: ANN001
@@ -89,6 +91,54 @@ def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
     except ValueError:
         return default
     return max(minimum, value)
+
+
+def _normalize_codex_config_arg(arg: str) -> str:
+    return re.sub(r"\s+", "", str(arg)).replace('"', "").replace("'", "").casefold()
+
+
+def _is_legacy_codex_profile_arg(arg: str) -> bool:
+    return _normalize_codex_config_arg(arg) in _LEGACY_CODEX_PROFILE_PAYLOADS
+
+
+def _strip_legacy_codex_profile_args(
+    extra_args: list[str] | None,
+) -> list[str] | None:
+    """Remove obsolete auto-max profile flags that break matcher startup.
+
+    The old launcher path forwarded ``-c profile = "auto-max"`` into the
+    Codex CLI. Current matching runs do not need that profile, and the legacy
+    flag now trips a config parse failure before the skill matcher can start.
+    Keep other extra args intact so explicit runner overrides still work.
+    """
+    if not extra_args:
+        return None
+    cleaned: list[str] = []
+    removed = False
+    i = 0
+    while i < len(extra_args):
+        arg = extra_args[i]
+        if arg in _LEGACY_CODEX_PROFILE_SWITCHES and i + 1 < len(extra_args):
+            next_arg = extra_args[i + 1]
+            if _is_legacy_codex_profile_arg(next_arg):
+                removed = True
+                log.warning(
+                    "stripping legacy Codex auto-max profile args from runner config"
+                )
+                i += 2
+                continue
+        if _is_legacy_codex_profile_arg(arg):
+            removed = True
+            log.warning(
+                "stripping legacy Codex auto-max profile arg from runner config"
+            )
+            i += 1
+            continue
+        cleaned.append(arg)
+        i += 1
+    if removed:
+        return cleaned or None
+    return list(extra_args)
 
 
 # --- ArgusBot import (lazy, with friendly error) ---------------------------
@@ -479,7 +529,7 @@ def build_codex_backend_from_env() -> CodexRunnerBackend:
     backend = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND") or None
     runner_bin = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or None
     raw_extra = os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", "").strip()
-    extra = shlex.split(raw_extra) if raw_extra else None
+    extra = _strip_legacy_codex_profile_args(shlex.split(raw_extra) if raw_extra else None)
     return CodexRunnerBackend(
         backend=backend,
         runner_bin=runner_bin,
@@ -498,4 +548,5 @@ def build_codex_backend_from_env() -> CodexRunnerBackend:
 __all__ = [
     "CodexRunnerBackend",
     "build_codex_backend_from_env",
+    "_strip_legacy_codex_profile_args",
 ]

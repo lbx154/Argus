@@ -684,10 +684,13 @@ class _CodexSkillLoopRunner:
 
         # Mirror build_codex_backend_from_env's env-var contract here so
         # we can also pass event_callback (the helper doesn't expose it).
+        from ..adapters.codex_backend import _strip_legacy_codex_profile_args
         backend_name = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND") or None
         runner_bin = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or None
         raw_extra = os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", "").strip()
-        extra = shlex.split(raw_extra) if raw_extra else None
+        extra = _strip_legacy_codex_profile_args(
+            shlex.split(raw_extra) if raw_extra else None
+        )
         stop_event = getattr(args, "stop_event", None)
 
         def _stop_reason() -> str | None:
