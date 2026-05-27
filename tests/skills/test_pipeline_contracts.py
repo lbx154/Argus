@@ -1881,6 +1881,34 @@ def test_emnlp_paper_contract_rejects_stale_result_numbers(
     assert "method_result_number_mismatch" in codes
 
 
+def test_emnlp_paper_contract_allows_multisource_result_rows(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_json(
+        tmp_path / "experiments" / "repobench_p_80_run" / "summary.json",
+        [{"method": "hosted_extract", "correct": 23, "episodes": 80}],
+    )
+    _write_json(
+        tmp_path / "experiments" / "swe_polybench_verified_80_run" / "summary.json",
+        [{"method": "hosted_extract", "correct": 39, "episodes": 80}],
+    )
+    _write_json(
+        tmp_path / "experiments" / "swe_bench_lite_80_run" / "summary.json",
+        [{"method": "hosted_extract", "correct": 38, "episodes": 80}],
+    )
+    main_path = tmp_path / "paper" / "main.tex"
+    text = main_path.read_text(encoding="utf-8") + (
+        "\nHosted extractor & 80 transfer & gpt-5-mini / hosted responses API "
+        "& exact-match success & 23/80 and 39/80.\\n"
+    )
+    _write(main_path, text)
+
+    codes = {issue.code for issue in validate_emnlp_paper_contract(tmp_path)}
+
+    assert "method_result_number_mismatch" not in codes
+
+
 def test_emnlp_paper_contract_rejects_hosted_model_no_external_contradiction(
     tmp_path: Path,
 ) -> None:

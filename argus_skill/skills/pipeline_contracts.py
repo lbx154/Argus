@@ -3287,7 +3287,7 @@ def _validate_method_result_windows_against_summaries(
     plain_text: str,
     summary_results: Sequence[_SummaryResult],
 ) -> list[ContractIssue]:
-    lower_text = plain_text.lower()
+    segments = _method_result_context_segments(plain_text)
     mismatches: list[str] = []
     seen: set[tuple[str, str]] = set()
     for result in summary_results:
@@ -3297,15 +3297,37 @@ def _validate_method_result_windows_against_summaries(
         aliases = _method_result_aliases(result.method)
         for alias in aliases:
             pattern = re.compile(rf"\b{re.escape(alias.lower())}\b")
-            for match in pattern.finditer(lower_text):
-                window = lower_text[max(0, match.start() - 140) : match.end() + 140]
+            for segment in segments:
+                lower_segment = segment.lower()
+                if not pattern.search(lower_segment):
+                    continue
+                if _segment_mentions_different_summary_source(
+                    lower_segment,
+                    result=result,
+                    summary_results=summary_results,
+                ):
+                    continue
                 ratios = {
                     f"{int(ratio_match.group(1))}/{int(ratio_match.group(2))}"
-                    for ratio_match in RESULT_RATIO_PATTERN.finditer(window)
+                    for ratio_match in RESULT_RATIO_PATTERN.finditer(segment)
                     if int(ratio_match.group(2)) == result.episodes
                     and int(ratio_match.group(1)) <= int(ratio_match.group(2))
                 }
                 if not ratios or expected in ratios:
+                    continue
+                if _segment_is_multisource_row_without_current_source(
+                    lower_segment,
+                    ratios=ratios,
+                    result=result,
+                    summary_results=summary_results,
+                ):
+                    continue
+                if _method_result_segment_looks_ambiguous(
+                    lower_segment,
+                    aliases=aliases,
+                    summary_results=summary_results,
+                    denominator=result.episodes,
+                ):
                     continue
                 key = (result.method, expected)
                 if key in seen:
@@ -3330,6 +3352,115 @@ def _validate_method_result_windows_against_summaries(
             ),
         )
     ]
+
+
+def _method_result_context_segments(plain_text: str) -> list[str]:
+    """Return local contexts where method/result numbers should be attributed.
+
+    The older fixed-width window around a method alias was too eager: a long
+    abstract sentence or wide results table often mentions several methods and
+    several ratios, so the validator could assign a neighboring method's score
+    to the wrong baseline.  Splitting at sentence boundaries, LaTeX table row
+    breaks, and paragraph boundaries keeps stale-number checks useful while
+    avoiding cross-row/cross-sentence attribution.
+    """
+
+    normalized = plain_text.replace("\\\\", "\n")
+    raw_segments = re.split(r"(?<=[.!?])\s+|\n+", normalized)
+    return [segment.strip() for segment in raw_segments if segment.strip()]
+
+
+def _method_result_segment_looks_ambiguous(
+    lower_segment: str,
+    *,
+    aliases: Sequence[str],
+    summary_results: Sequence[_SummaryResult],
+    denominator: int,
+) -> bool:
+    """Avoid method-score false positives in list-like multi-method contexts."""
+
+    matching_methods: set[str] = set()
+    for result in summary_results:
+        if result.episodes != denominator:
+            continue
+        for candidate in _method_result_aliases(result.method):
+            if re.search(rf"\b{re.escape(candidate.lower())}\b", lower_segment):
+                matching_methods.add(_normalize_method_name(result.method))
+                break
+    if len(matching_methods) < 3:
+        return False
+    current_aliases = tuple(alias.lower() for alias in aliases)
+    has_direct_for_phrase = any(
+        re.search(
+            rf"{RESULT_RATIO_PATTERN.pattern}\s+(?:for|by|under|with)\s+(?:the\s+)?{re.escape(alias)}\b",
+            lower_segment,
+        )
+        or re.search(
+            rf"\b{re.escape(alias)}\b[^.!?]{{0,80}}{RESULT_RATIO_PATTERN.pattern}",
+            lower_segment,
+        )
+        for alias in current_aliases
+    )
+    return not has_direct_for_phrase
+
+
+def _segment_is_multisource_row_without_current_source(
+    lower_segment: str,
+    *,
+    ratios: set[str],
+    result: _SummaryResult,
+    summary_results: Sequence[_SummaryResult],
+) -> bool:
+    """Avoid cross-source mismatches in compact rows with multiple score columns."""
+
+    if len(ratios) < 2:
+        return False
+    current_aliases = _summary_result_source_aliases(result)
+    if current_aliases and any(alias in lower_segment for alias in current_aliases):
+        return False
+    normalized_method = _normalize_method_name(result.method)
+    matching_paths = {
+        other.path
+        for other in summary_results
+        if other.episodes == result.episodes
+        and _normalize_method_name(other.method) == normalized_method
+    }
+    return len(matching_paths) > 1
+
+
+def _segment_mentions_different_summary_source(
+    lower_segment: str,
+    *,
+    result: _SummaryResult,
+    summary_results: Sequence[_SummaryResult],
+) -> bool:
+    """Return true when a segment is clearly about another benchmark/run."""
+
+    current_aliases = _summary_result_source_aliases(result)
+    if current_aliases and any(alias in lower_segment for alias in current_aliases):
+        return False
+    for other in summary_results:
+        if other.path == result.path:
+            continue
+        other_aliases = _summary_result_source_aliases(other)
+        if other_aliases and any(alias in lower_segment for alias in other_aliases):
+            return True
+    return False
+
+
+def _summary_result_source_aliases(result: _SummaryResult) -> tuple[str, ...]:
+    run_name = Path(result.path).parent.name.lower()
+    normalized = run_name.replace("_", " ").replace("-", " ")
+    aliases = {run_name, normalized, normalized.removesuffix(" run").strip()}
+    if "repobench" in normalized:
+        aliases.update({"repobench", "repobench p", "repobench-p"})
+    if "polybench" in normalized:
+        aliases.update({"swe polybench", "swe-polybench", "polybench"})
+    if "swe verified" in normalized or "swe bench verified" in normalized:
+        aliases.update({"swe bench verified", "swe-bench verified", "core slice"})
+    if "swe bench lite" in normalized or "swe_lite" in run_name or "lite" in normalized:
+        aliases.update({"swe bench lite", "swe-bench lite", "lite slice"})
+    return tuple(sorted(alias for alias in aliases if alias))
 
 
 def _collect_experiment_summary_results(root: Path, tex_text: str) -> list[_SummaryResult]:

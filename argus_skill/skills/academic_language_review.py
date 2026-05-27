@@ -862,7 +862,8 @@ def _review_prompt(
     deterministic: dict[str, Any],
     threshold: float,
 ) -> str:
-    numbered_source = _numbered_source_excerpt(source_text_by_path, limit=26000)
+    structured_digest = _structured_source_digest(source_text_by_path, limit=14000)
+    numbered_source = _numbered_source_excerpt(source_text_by_path, limit=60000)
     return (
         "You are the final academic-language reviewer for an EMNLP long paper. "
         "Reject papers that read like generic agent output: template LLM openings, "
@@ -936,6 +937,11 @@ def _review_prompt(
         f"{threshold:g}, any missing evidence span, or any unsupported headline claim "
         "means revise. Quote source text verbatim in evidence_spans.\n\n"
         f"Deterministic signals:\n{json.dumps(deterministic, ensure_ascii=False)[:7000]}\n\n"
+        "Structured source digest for reviewer navigation. Use this to inspect "
+        "section flow, body floats, table captions, labels, and visible table "
+        "headers even when the numbered source excerpt is long. Evidence spans "
+        "must still quote verbatim from the reviewed LaTeX source.\n"
+        f"{structured_digest}\n\n"
         f"Numbered LaTeX sources:\n{numbered_source}"
     )
 
@@ -1683,6 +1689,128 @@ def _has_quantified_claim(plain: str) -> bool:
         or re.search(r"\b" + outcome + r"\b.{0,140}" + quantity, text, re.I | re.S)
         or re.search(quantity + r".{0,140}\b" + outcome + r"\b", text, re.I | re.S)
     )
+
+
+def _structured_source_digest(
+    source_text_by_path: Mapping[str, str],
+    *,
+    limit: int,
+) -> str:
+    """Return a compact navigation digest without replacing source review."""
+    lines: list[str] = []
+    total = 0
+
+    def add(line: str = "") -> bool:
+        nonlocal total
+        rendered = line.rstrip()
+        needed = len(rendered) + 1
+        if total + needed > limit:
+            lines.append("[structured digest truncated]")
+            return False
+        lines.append(rendered)
+        total += needed
+        return True
+
+    for rel_path, text in source_text_by_path.items():
+        if not add(f"## {rel_path}"):
+            break
+
+        abstract = _extract_environment(text, "abstract").strip()
+        if abstract:
+            abstract_line = _line_number_for_offset(text, text.find(abstract))
+            if not add(f"- abstract near L{abstract_line}: {_one_line(abstract, 650)}"):
+                break
+
+        found_section = False
+        for match in re.finditer(r"\\(section|subsection|subsubsection)\*?\{([^{}]+)\}", text):
+            found_section = True
+            line_no = _line_number_for_offset(text, match.start())
+            title = _latex_to_plain_text(match.group(2)).strip()
+            if not add(f"- {match.group(1)} L{line_no}: {title}"):
+                return "\n".join(lines)
+        if not found_section and not add("- sections: none found"):
+            break
+
+        for env_match in re.finditer(
+            r"\\begin\{(table\*?|figure\*?)\}(.*?)\\end\{\1\}",
+            text,
+            re.S,
+        ):
+            env_name = env_match.group(1)
+            body = env_match.group(2)
+            start_line = _line_number_for_offset(text, env_match.start())
+            label = _first_latex_group(body, "label") or "(no label)"
+            caption = _first_latex_group(body, "caption") or "(no caption)"
+            if not add(
+                f"- {env_name} L{start_line} label={label}: "
+                f"{_one_line(_latex_to_plain_text(caption), 520)}"
+            ):
+                return "\n".join(lines)
+            snippet = _float_content_snippet(body, start_line)
+            if snippet and not add(f"  visible source: {snippet}"):
+                return "\n".join(lines)
+        if not add(""):
+            break
+    return "\n".join(lines)
+
+
+def _line_number_for_offset(text: str, offset: int) -> int:
+    if offset < 0:
+        return 1
+    return text.count("\n", 0, offset) + 1
+
+
+def _one_line(text: str, limit: int) -> str:
+    rendered = " ".join(text.split())
+    if len(rendered) <= limit:
+        return rendered
+    return rendered[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _first_latex_group(text: str, command: str) -> str | None:
+    match = re.search(rf"\\{re.escape(command)}\s*\{{", text)
+    if not match:
+        return None
+    start = match.end()
+    depth = 1
+    for index in range(start, len(text)):
+        char = text[index]
+        if char == "{" and (index == 0 or text[index - 1] != "\\"):
+            depth += 1
+        elif char == "}" and (index == 0 or text[index - 1] != "\\"):
+            depth -= 1
+            if depth == 0:
+                return text[start:index].strip()
+    return None
+
+
+def _float_content_snippet(body: str, start_line: int) -> str:
+    important: list[str] = []
+    for offset, raw_line in enumerate(body.splitlines(), start=1):
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        if any(
+            token in stripped
+            for token in (
+                r"\toprule",
+                r"\midrule",
+                r"\bottomrule",
+                r"\rowcolor",
+                r"\caption",
+                r"\label",
+                "&",
+            )
+        ):
+            important.append(f"L{start_line + offset}: {_one_line(stripped, 220)}")
+        if len(important) >= 10:
+            break
+    if not important:
+        for offset, raw_line in enumerate(body.splitlines()[:8], start=1):
+            stripped = raw_line.strip()
+            if stripped:
+                important.append(f"L{start_line + offset}: {_one_line(stripped, 220)}")
+    return " | ".join(important[:10])
 
 
 def _numbered_source_excerpt(

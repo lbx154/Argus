@@ -35,6 +35,7 @@ MODEL_SCALE_EVIDENCE_GLOBS = (
 )
 EXPERIMENT_STATUS_GLOB = "experiments/**/status.json"
 EXPERIMENT_PROGRESS_GLOB = "experiments/**/progress.jsonl"
+EXPERIMENT_SUMMARY_GLOB = "experiments/**/summary.json"
 BENCHMARK_RECORD_GLOBS = (
     "bench/**/*.jsonl",
     "benchmarks/**/*.jsonl",
@@ -1017,17 +1018,21 @@ def _results_summary_blockers(root: Path) -> list[CalibrationIssue]:
             )
         )
 
-    evidence_counts = _experiment_scored_task_counts(root)
-    if task_counts and evidence_counts and max(task_counts) > max(evidence_counts):
+    evidence_capacity = _experiment_scored_task_capacity(root)
+    if (
+        task_counts
+        and evidence_capacity is not None
+        and max(task_counts) > evidence_capacity
+    ):
         issues.append(
             CalibrationIssue(
                 "results_summary_exceeds_run_evidence",
                 str(RESULTS_SUMMARY_PATH),
                 (
                     f"results_summary.tsv reports up to {max(task_counts)} scored tasks, "
-                    f"but experiment run artifacts show at most {max(evidence_counts)} "
-                    "scored tasks per protocol; rerun experiments instead of only "
-                    "editing summary artifacts"
+                    f"but experiment run artifacts support at most {evidence_capacity} "
+                    "scored tasks for any method after aggregating executed source "
+                    "runs; rerun experiments instead of only editing summary artifacts"
                 ),
             )
         )
@@ -1806,6 +1811,10 @@ def _actual_results_task_counts(rows: list[dict[str, str]]) -> list[int]:
 
 def _experiment_scored_task_counts(root: Path) -> list[int]:
     counts: list[int] = []
+    for path in root.glob(EXPERIMENT_SUMMARY_GLOB):
+        payload = _read_json_object_if_exists(path)
+        if payload is not None:
+            counts.extend(_benchmark_task_counts(payload))
     for path in root.glob(EXPERIMENT_STATUS_GLOB):
         payload = _read_json_object_if_exists(path)
         if payload is not None:
@@ -1815,7 +1824,83 @@ def _experiment_scored_task_counts(root: Path) -> list[int]:
     return counts
 
 
+def _experiment_scored_task_capacity(root: Path) -> int | None:
+    """Maximum supported task count after summing the same method across runs.
+
+    A final paper can legitimately report an aggregate row over several
+    independently executed benchmark-source runs, e.g. 240 + 80 + 80 tasks for
+    the same protocol. A single small run must still not justify a 300+ row.
+    """
+
+    by_run_method: dict[tuple[str, str], int] = {}
+    for path in root.glob(EXPERIMENT_SUMMARY_GLOB):
+        payload = _read_json_object_if_exists(path)
+        if payload is not None:
+            _merge_run_method_counts(by_run_method, path.parent, payload)
+    for path in root.glob(EXPERIMENT_STATUS_GLOB):
+        payload = _read_json_object_if_exists(path)
+        if payload is not None:
+            _merge_run_method_counts(by_run_method, path.parent, payload)
+    for path in root.glob(EXPERIMENT_PROGRESS_GLOB):
+        _merge_progress_run_method_counts(by_run_method, path)
+
+    totals_by_method: dict[str, int] = {}
+    for (_run_id, method), count in by_run_method.items():
+        totals_by_method[method] = totals_by_method.get(method, 0) + count
+    if totals_by_method:
+        return max(totals_by_method.values())
+
+    counts = _experiment_scored_task_counts(root)
+    return max(counts) if counts else None
+
+
+def _merge_run_method_counts(
+    by_run_method: dict[tuple[str, str], int],
+    run_dir: Path,
+    payload: object,
+) -> None:
+    run_id = str(run_dir)
+    for method, count in _method_task_counts(payload).items():
+        key = (run_id, method)
+        by_run_method[key] = max(by_run_method.get(key, 0), count)
+
+
+def _merge_progress_run_method_counts(
+    by_run_method: dict[tuple[str, str], int],
+    path: Path,
+) -> None:
+    run_id = str(path.parent)
+    for method, count in _progress_task_counts_by_method(path).items():
+        key = (run_id, method)
+        by_run_method[key] = max(by_run_method.get(key, 0), count)
+
+
+def _method_task_counts(payload: object) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    if isinstance(payload, dict):
+        method = payload.get("method") or payload.get("protocol") or payload.get("variant")
+        if _nonempty_string(method):
+            for field in BENCHMARK_TASK_COUNT_FIELDS:
+                count = _int_or_none(payload.get(field))
+                if count is not None:
+                    normalized = _normalize_protocol(str(method))
+                    counts[normalized] = max(counts.get(normalized, 0), count)
+                    break
+        for value in payload.values():
+            for nested_method, nested_count in _method_task_counts(value).items():
+                counts[nested_method] = max(counts.get(nested_method, 0), nested_count)
+    elif isinstance(payload, list):
+        for item in payload:
+            for nested_method, nested_count in _method_task_counts(item).items():
+                counts[nested_method] = max(counts.get(nested_method, 0), nested_count)
+    return counts
+
+
 def _progress_task_counts(path: Path) -> list[int]:
+    return list(_progress_task_counts_by_method(path).values())
+
+
+def _progress_task_counts_by_method(path: Path) -> dict[str, int]:
     by_method: dict[str, set[str]] = {}
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -1837,8 +1922,12 @@ def _progress_task_counts(path: Path) -> list[int]:
         )
         if method is None or episode is None:
             continue
-        by_method.setdefault(str(method), set()).add(str(episode))
-    return [len(episodes) for episodes in by_method.values() if episodes]
+        by_method.setdefault(_normalize_protocol(str(method)), set()).add(str(episode))
+    return {
+        method: len(episodes)
+        for method, episodes in by_method.items()
+        if episodes
+    }
 
 
 def _benchmark_uniqueness_blockers(root: Path) -> list[CalibrationIssue]:

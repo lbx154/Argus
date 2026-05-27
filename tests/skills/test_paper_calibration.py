@@ -299,6 +299,45 @@ def test_results_summary_cannot_exceed_run_evidence(tmp_path: Path) -> None:
     assert "results_summary_exceeds_run_evidence" in {issue.code for issue in issues}
 
 
+def test_results_summary_allows_aggregate_across_executed_sources(tmp_path: Path) -> None:
+    _write_valid_quality_calibration(tmp_path, proposed_protocol="skillcycle")
+    _write(
+        tmp_path / "paper" / "artifacts" / "results_summary.tsv",
+        "\n".join(
+            [
+                "scope\tsplit_name\tprotocol\tsuccess_rate\tjson_parse_rate\tn_tasks",
+                "overall\tselected_matrix\tno_skill\t0.500\t1.000\t400",
+                "overall\tselected_matrix\traw_memory\t0.610\t1.000\t400",
+                "overall\tselected_matrix\treflexion\t0.850\t1.000\t400",
+                "overall\tselected_matrix\tstatic_skill_lib\t0.620\t1.000\t400",
+                "overall\tselected_matrix\tskillcycle\t0.920\t1.000\t400",
+                "benchmark_source\tsource_a\tskillcycle\t0.920\t1.000\t240",
+                "benchmark_source\tsource_b\tskillcycle\t0.900\t1.000\t80",
+                "benchmark_source\tsource_c\tskillcycle\t0.950\t1.000\t80",
+            ]
+        )
+        + "\n",
+    )
+    for run_name, episodes in (
+        ("source_a", 240),
+        ("source_b", 80),
+        ("source_c", 80),
+    ):
+        _write_json(
+            tmp_path / "experiments" / run_name / "summary.json",
+            [
+                {"method": "skillcycle", "episodes": episodes, "correct": episodes},
+                {"method": "raw_memory", "episodes": episodes, "correct": episodes // 2},
+            ],
+        )
+
+    issues = detect_quality_blockers(tmp_path)
+
+    assert "results_summary_exceeds_run_evidence" not in {
+        issue.code for issue in issues
+    }
+
+
 def test_copied_records_do_not_count_as_300_unique_tasks(tmp_path: Path) -> None:
     _write_valid_quality_calibration(tmp_path, proposed_protocol="skillcycle")
     _write_full_results_summary(tmp_path)
