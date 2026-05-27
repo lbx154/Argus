@@ -370,6 +370,8 @@ def test_plan_next_passes_config_to_runner():
     assert opts.full_auto is False
     assert opts.dangerous_yolo is True
     assert opts.watchdog_hard_idle_seconds == 300
+    assert opts.external_interrupt_reason_provider is not None
+    assert opts.external_interrupt_reason_provider() is None
     assert verdict.project_done is True
     sent_prompt, _ = runner.calls[0]
     assert "Runtime source changed since daemon start." in sent_prompt
@@ -388,6 +390,25 @@ def test_plan_next_passes_config_to_runner():
     assert "prefer\n   1 broad task over 3 microtasks" in sent_prompt
     assert "host will refuse premature gated downstream tasks" in sent_prompt
     assert "Keep planning lightweight" in sent_prompt
+    assert "planner wall-clock overruns" in sent_prompt
+
+
+def test_plan_next_can_disable_planner_wall_clock_timeout(
+    monkeypatch,
+):
+    monkeypatch.setenv("ARGUS_SKILL_PLANNER_MAX_SECONDS", "0")
+    runner = _FakeRunner('{"project_done": true, "reason": "ok", "new_tasks": []}')
+
+    Critic(runner).plan_next(
+        continuous_objective="keep going",
+        journal_tail="recent history",
+        budget_remaining_usd=1.0,
+        planning_cycle=2,
+    )
+
+    _, opts = runner.calls[0]
+    assert opts.external_interrupt_reason_provider is None
+    assert opts.watchdog_hard_idle_seconds == 300
 
 
 def test_plan_next_returns_error_verdict_on_runner_exception():

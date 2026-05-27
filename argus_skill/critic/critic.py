@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -36,6 +37,7 @@ from ..skills.role_context import format_role_context
 MIN_CRITIC_IMPACT_SCORE = 4
 MIN_PLANNER_IMPACT_SCORE = 4
 DEFAULT_PLANNER_HARD_IDLE_SECONDS = 300
+DEFAULT_PLANNER_MAX_SECONDS = 300
 TASK_SCOPE_BOUNDED = "bounded"
 TASK_SCOPE_FINAL_SUBMISSION = "final_submission"
 _TASK_SCOPES = {TASK_SCOPE_BOUNDED, TASK_SCOPE_FINAL_SUBMISSION}
@@ -285,7 +287,9 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "8) Keep planning lightweight. Inspect enough to route the next mission, but\n"
     "   do not run long pytest suites, full experiments, full paper compilation,\n"
     "   or broad artifact repair inside the planner. Queue that work for the\n"
-    "   Engineer instead, with concrete commands and acceptance criteria.\n"
+    "   Engineer instead, with concrete commands and acceptance criteria. The\n"
+    "   host may interrupt planner wall-clock overruns and fall back to an\n"
+    "   automatic gate-derived Engineer task.\n"
     "9) Order tasks by impact: most important first.\n"
     "10) Cap at 3 tasks per planning cycle. For EMNLP/ACL/paper goals, prefer\n"
     "   1 broad task over 3 microtasks unless the blockers are truly independent.\n"
@@ -322,6 +326,34 @@ def _planner_hard_idle_seconds() -> int:
         return max(0, int(raw))
     except ValueError:
         return DEFAULT_PLANNER_HARD_IDLE_SECONDS
+
+
+def _planner_max_seconds() -> int:
+    raw = os.environ.get("ARGUS_SKILL_PLANNER_MAX_SECONDS", "").strip()
+    if not raw:
+        return DEFAULT_PLANNER_MAX_SECONDS
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return DEFAULT_PLANNER_MAX_SECONDS
+
+
+def _planner_wall_clock_interrupt_provider():
+    limit_seconds = _planner_max_seconds()
+    if limit_seconds <= 0:
+        return None
+    deadline = time.monotonic() + float(limit_seconds)
+
+    def _interrupt_reason() -> str | None:
+        if time.monotonic() < deadline:
+            return None
+        return (
+            "planner wall-clock timeout: exceeded "
+            f"{limit_seconds}s; queue engineer work instead of continuing "
+            "planner inspection"
+        )
+
+    return _interrupt_reason
 
 
 class Critic:
@@ -480,6 +512,9 @@ class Critic:
                     full_auto=cfg.full_auto,
                     skip_git_repo_check=cfg.skip_git_repo_check,
                     extra_args=list(cfg.extra_args) if cfg.extra_args else None,
+                    external_interrupt_reason_provider=(
+                        _planner_wall_clock_interrupt_provider()
+                    ),
                     watchdog_hard_idle_seconds=_planner_hard_idle_seconds(),
                 ),
                 run_label=f"planner.cycle{planning_cycle}",
