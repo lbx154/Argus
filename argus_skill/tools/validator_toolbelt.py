@@ -144,10 +144,10 @@ VALIDATOR_TOOLS: tuple[ValidatorTool, ...] = (
     ),
     ValidatorTool(
         id="refresh-manifest",
-        description="recompute paper/ARTIFACT_MANIFEST.json, then validate it",
+        description="bootstrap/normalize paper/ARTIFACT_MANIFEST.json, then validate it",
         phase="integration",
         roles=_ENGINEER_ONLY,
-        when_to_use="only after source artifacts intentionally changed and manifest refresh is needed",
+        when_to_use="when manifest is missing, legacy-shaped, or source artifacts intentionally changed",
         mutates=True,
     ),
     ValidatorTool(
@@ -164,6 +164,14 @@ VALIDATOR_TOOLS: tuple[ValidatorTool, ...] = (
         phase="integration",
         roles=_ENGINEER_ONLY,
         when_to_use="only after generated artifacts have been regenerated from current inputs",
+        mutates=True,
+    ),
+    ValidatorTool(
+        id="repair-emnlp-contract-artifacts",
+        description="repair manifest, validation-priority policy, and freshness records together",
+        phase="integration",
+        roles=_ENGINEER_ONLY,
+        when_to_use="when final gate shows manifest, freshness, and validation-route drift together",
         mutates=True,
     ),
     ValidatorTool(

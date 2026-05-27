@@ -12,6 +12,7 @@ from argus_skill.skills.pipeline_contracts import (
     _validate_research_md_reference_depth,
     refresh_artifact_freshness,
     refresh_artifact_manifest,
+    repair_emnlp_contract_artifacts,
     validate_academic_language_review,
     validate_artifact_freshness,
     validate_artifact_manifest,
@@ -626,6 +627,103 @@ def test_refresh_artifact_manifest_updates_digests_and_tsv_columns(tmp_path: Pat
     assert issues == []
     manifest = json.loads((tmp_path / "paper" / "ARTIFACT_MANIFEST.json").read_text(encoding="utf-8"))
     assert manifest["canonical_sources"][0]["columns"] == ["metric", "value", "n"]
+
+
+def test_refresh_artifact_manifest_coerces_legacy_string_entries_and_sources(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "experiments" / "run-1" / "results.jsonl"
+    table_path = tmp_path / "paper" / "artifacts" / "results_table.tsv"
+    report_path = tmp_path / "paper" / "RESULTS_REPORT.md"
+    _write(source_path, '{"task_id": "a", "success": true}\n')
+    _write(table_path, "metric\tvalue\nsuccess\t0.7\n")
+    _write(report_path, "success is 0.7\n")
+    _write_json(
+        tmp_path / "paper" / "ARTIFACT_MANIFEST.json",
+        {
+            "canonical_sources": ["experiments/run-1/results.jsonl"],
+            "generated_artifacts": [
+                {"path": "paper/artifacts/results_table.tsv"},
+                {"path": "paper/RESULTS_REPORT.md"},
+            ],
+        },
+    )
+
+    issues = refresh_artifact_manifest(tmp_path)
+
+    assert issues == []
+    manifest = json.loads(
+        (tmp_path / "paper" / "ARTIFACT_MANIFEST.json").read_text(encoding="utf-8")
+    )
+    assert manifest["version"] == 1
+    assert manifest["canonical_sources"][0]["path"] == "experiments/run-1/results.jsonl"
+    generated_by_path = {
+        entry["path"]: entry for entry in manifest["generated_artifacts"]
+    }
+    assert generated_by_path["paper/artifacts/results_table.tsv"]["columns"] == [
+        "metric",
+        "value",
+    ]
+    assert generated_by_path["paper/artifacts/results_table.tsv"]["sources"] == [
+        "experiments/run-1/results.jsonl"
+    ]
+    assert "paper/artifacts/results_table.tsv" in generated_by_path[
+        "paper/RESULTS_REPORT.md"
+    ]["sources"]
+
+
+def test_refresh_artifact_manifest_bootstraps_missing_manifest(tmp_path: Path) -> None:
+    _write(tmp_path / "experiments" / "run-1" / "results.jsonl", '{"task_id": "a"}\n')
+    _write(tmp_path / "paper" / "artifacts" / "results_table.tsv", "metric\tvalue\n")
+    _write(tmp_path / "paper" / "RESULTS_REPORT.md", "result summary\n")
+
+    issues = refresh_artifact_manifest(tmp_path)
+
+    assert issues == []
+    manifest = json.loads(
+        (tmp_path / "paper" / "ARTIFACT_MANIFEST.json").read_text(encoding="utf-8")
+    )
+    assert {entry["path"] for entry in manifest["canonical_sources"]} == {
+        "experiments/run-1/results.jsonl",
+        "paper/artifacts/results_table.tsv",
+    }
+    generated_by_path = {
+        entry["path"]: entry for entry in manifest["generated_artifacts"]
+    }
+    assert generated_by_path["paper/RESULTS_REPORT.md"]["sources"] == [
+        "paper/artifacts/results_table.tsv",
+        "experiments/run-1/results.jsonl",
+    ]
+
+
+def test_repair_emnlp_contract_artifacts_repairs_manifest_policy_and_freshness(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path / "experiments" / "run-1" / "results.jsonl", '{"task_id": "a"}\n')
+    _write(tmp_path / "paper" / "artifacts" / "results_table.tsv", "metric\tvalue\n")
+    _write(tmp_path / "paper" / "RESULTS_REPORT.md", "result summary\n")
+    _write_json(
+        tmp_path / "paper" / "ARTIFACT_MANIFEST.json",
+        {
+            "canonical_sources": ["experiments/run-1/results.jsonl"],
+            "generated_artifacts": [{"path": "paper/RESULTS_REPORT.md"}],
+        },
+    )
+    _write_json(
+        tmp_path / "paper" / "VALIDATION_PRIORITY_POLICY.json",
+        {
+            "priority_policy_schema_version": 1,
+            "priority_order": ["freshness"],
+            "failure_routing": {},
+        },
+    )
+
+    issues = repair_emnlp_contract_artifacts(tmp_path)
+
+    assert issues == []
+    assert validate_artifact_manifest(tmp_path) == []
+    assert validate_validation_priority_policy(tmp_path) == []
+    assert validate_artifact_freshness(tmp_path) == []
 
 
 def test_refresh_artifact_freshness_builds_records_from_manifest(

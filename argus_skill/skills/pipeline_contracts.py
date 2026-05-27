@@ -426,6 +426,135 @@ FRESHNESS_REQUIRED_INPUTS: dict[Path, tuple[Path, ...]] = {
     LAYOUT_REVIEW_JSON_PATH: (PAPER_MAIN_PDF_PATH,),
     ACADEMIC_LANGUAGE_REVIEW_PATH: (PAPER_MAIN_TEX_PATH, PAPER_MAIN_PDF_PATH),
 }
+MANIFEST_DISCOVERY_EXCLUDED_DIRS = {
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "__pycache__",
+    "node_modules",
+}
+MANIFEST_DISCOVERY_SUFFIXES = {
+    ".bib",
+    ".csv",
+    ".json",
+    ".jsonl",
+    ".log",
+    ".md",
+    ".pdf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".tex",
+    ".tsv",
+    ".txt",
+}
+MANIFEST_CANONICAL_PREFIXES = (
+    "bench/",
+    "benchmarks/",
+    "experiments/",
+    "results/",
+    "runs/",
+)
+MANIFEST_GENERATED_PREFIXES = (
+    "paper/",
+    "research/",
+)
+MANIFEST_GENERATED_EXCLUDED_PATHS = {
+    ARTIFACT_MANIFEST_PATH.as_posix(),
+    ARTIFACT_FRESHNESS_JSON_PATH.as_posix(),
+}
+MANIFEST_CANONICAL_RESEARCH_PATHS = {
+    "research/RESEARCH_BRIEF.md",
+    "research/LITERATURE_REVIEW.md",
+    "research/LIT_MATRIX.tsv",
+    "research/LITERATURE_GROUNDING.json",
+    "research/SOURCE_DISCOVERY.md",
+    "research/TREND_INSIGHTS.md",
+    "research/IDEA_PROVENANCE.json",
+    "research/CODE_REUSE_PLAN.json",
+    "research/EXPERIMENT_PLAN.md",
+    "research/CLAIMS_TO_TEST.md",
+    "research/BASELINE_AND_BENCHMARK_PLAN.md",
+    "research/NOVELTY_REPORT.md",
+    "research/NOVELTY_MAP.md",
+    "research/RELATED_WORK_BLOCKERS.md",
+    "research/PIPELINE_STATE.json",
+}
+MANIFEST_SOURCE_PREFERENCES: dict[str, tuple[str, ...]] = {
+    "paper/CLAIM_GRAPH.json": (
+        "paper/artifacts/result_to_claim.tsv",
+        "paper/artifacts/claims_evidence.tsv",
+        "paper/artifacts/results_table.tsv",
+    ),
+    "paper/EVIDENCE_GAPS.json": (
+        "paper/CLAIM_GRAPH.json",
+        "paper/artifacts/result_to_claim.tsv",
+        "paper/artifacts/claims_evidence.tsv",
+    ),
+    "paper/FIGURE_TABLE_STYLE_GUIDE.json": (
+        "paper/figures/IMAGE2_FIGURES.json",
+        "paper/artifacts/results_table.tsv",
+        "paper/artifacts/result_to_claim.tsv",
+    ),
+    "paper/VALIDATION_PRIORITY_POLICY.json": (
+        "paper/CLAIM_GRAPH.json",
+        "paper/EVIDENCE_GAPS.json",
+        "paper/PAPER_QUALITY_CALIBRATION.json",
+    ),
+    "paper/PAPER_QUALITY_CALIBRATION.json": (
+        "paper/RESULTS_REPORT.md",
+        "paper/CLAIM_GRAPH.json",
+        "paper/artifacts/results_table.tsv",
+    ),
+    "paper/PAPER_QUALITY_CALIBRATION.md": (
+        "paper/PAPER_QUALITY_CALIBRATION.json",
+    ),
+    "paper/PAPER_DRAFT_REPORT.json": (
+        "paper/main.tex",
+        "paper/main.pdf",
+    ),
+    "paper/PAPER_DRAFT_REPORT.md": (
+        "paper/PAPER_DRAFT_REPORT.json",
+    ),
+    "paper/FORMAT_PREFLIGHT.md": (
+        "paper/main.tex",
+        "paper/main.pdf",
+    ),
+    "paper/ACADEMIC_LANGUAGE_REVIEW.json": (
+        "paper/main.tex",
+        "paper/main.pdf",
+    ),
+    "paper/LAYOUT_REVIEW.json": (
+        "paper/main.pdf",
+    ),
+    "paper/SUBMISSION_ASSURANCE.json": (
+        "paper/main.pdf",
+        "paper/FORMAT_PREFLIGHT.md",
+        "paper/ACADEMIC_LANGUAGE_REVIEW.json",
+        "paper/LAYOUT_REVIEW.json",
+        "paper/PAPER_QUALITY_CALIBRATION.json",
+    ),
+    "paper/SUBMISSION_ASSURANCE.md": (
+        "paper/SUBMISSION_ASSURANCE.json",
+    ),
+    "paper/main.tex": (
+        "research/NARRATIVE_REPORT.md",
+        "paper/RESULTS_REPORT.md",
+        "paper/CLAIM_GRAPH.json",
+        "paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md",
+        "paper/FIGURE_TABLE_STYLE_GUIDE.json",
+        "paper/figures/IMAGE2_FIGURES.json",
+    ),
+    "paper/main.pdf": (
+        "paper/main.tex",
+    ),
+    "research/NARRATIVE_REPORT.md": (
+        "paper/RESULTS_REPORT.md",
+        "paper/CLAIM_GRAPH.json",
+        "paper/artifacts/results_table.tsv",
+    ),
+}
 DEFAULT_VALIDATION_REPAIR_MODES: dict[str, str] = {
     "freshness": "regenerate stale generated artifacts and refresh recorded input hashes",
     "experiment_evidence": "run full-scale benchmark experiments and required baselines",
@@ -1108,48 +1237,48 @@ def validate_artifact_manifest(project_root: Path) -> list[ContractIssue]:
 
 
 def refresh_artifact_manifest(project_root: Path) -> list[ContractIssue]:
-    """Refresh digests and TSV headers in an existing artifact manifest."""
+    """Normalize and refresh the artifact manifest from files on disk.
+
+    Older projects often contain partially hand-written manifests with bare
+    string paths or generated artifacts that omit their source graph.  Treat
+    this command as the canonical repair path: preserve existing intent when
+    possible, coerce legacy entries to objects, fill digests/TSV headers, and
+    add conservative source links from generated paper artifacts to current
+    canonical experiment/result artifacts.
+    """
 
     root = Path(project_root)
     manifest_path = root / ARTIFACT_MANIFEST_PATH
-    if not manifest_path.exists():
-        return [
-            ContractIssue(
-                "missing_artifact_manifest",
-                str(ARTIFACT_MANIFEST_PATH),
-                "paper artifact manifest is missing",
-            )
-        ]
+    if manifest_path.exists():
+        try:
+            manifest = _read_json_object(manifest_path)
+        except ValueError as exc:
+            return [
+                ContractIssue(
+                    "invalid_artifact_manifest_json",
+                    str(ARTIFACT_MANIFEST_PATH),
+                    str(exc),
+                )
+            ]
+    else:
+        manifest = {"version": 1, "canonical_sources": [], "generated_artifacts": []}
 
-    try:
-        manifest = _read_json_object(manifest_path)
-    except ValueError as exc:
-        return [
-            ContractIssue(
-                "invalid_artifact_manifest_json",
-                str(ARTIFACT_MANIFEST_PATH),
-                str(exc),
-            )
-        ]
-
-    for section in ("canonical_sources", "generated_artifacts"):
-        entries = manifest.get(section)
-        if not isinstance(entries, list):
-            continue
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            normalized = _normalize_manifest_path(entry.get("path"))
-            if normalized is None:
-                continue
-            resolved = _resolve_manifest_path(root, normalized)
-            if resolved is None or not resolved.is_file():
-                continue
-            entry["path"] = normalized
-            entry["sha256"] = _sha256_file(resolved)
-            if resolved.suffix == ".tsv":
-                entry["columns"] = _read_tsv_header(resolved)
-
+    manifest["version"] = 1
+    canonical_entries = _coerce_manifest_entries(
+        root,
+        manifest.get("canonical_sources"),
+        section="canonical_sources",
+    )
+    generated_entries = _coerce_manifest_entries(
+        root,
+        manifest.get("generated_artifacts"),
+        section="generated_artifacts",
+    )
+    _add_discovered_manifest_entries(root, canonical_entries, generated_entries)
+    _add_missing_source_entries(root, canonical_entries, generated_entries)
+    _fill_generated_manifest_sources(root, canonical_entries, generated_entries)
+    manifest["canonical_sources"] = canonical_entries
+    manifest["generated_artifacts"] = generated_entries
     _write_json_object(manifest_path, manifest)
     return validate_artifact_manifest(root)
 
@@ -1272,6 +1401,29 @@ def refresh_artifact_freshness(project_root: Path) -> list[ContractIssue]:
         },
     )
     return validate_artifact_freshness(root)
+
+
+def repair_emnlp_contract_artifacts(project_root: Path) -> list[ContractIssue]:
+    """Repair the machine-checkable paper contract files that commonly drift.
+
+    This command intentionally does not rewrite scientific content.  It only
+    normalizes the manifest, writes the standard validation routing policy, and
+    refreshes freshness records from the current source graph after upstream
+    artifacts have stabilized.
+    """
+
+    root = Path(project_root)
+    refresh_artifact_manifest(root)
+    write_validation_priority_policy(root)
+    refresh_artifact_manifest(root)
+    refresh_artifact_freshness(root)
+    return _dedupe_contract_issues(
+        [
+            *validate_artifact_manifest(root),
+            *validate_validation_priority_policy(root),
+            *validate_artifact_freshness(root),
+        ]
+    )
 
 
 def validate_literature_grounding(project_root: Path) -> list[ContractIssue]:
@@ -8184,6 +8336,222 @@ def _required_full_scale_methods(root: Path, runs: Sequence[_ExperimentRunEviden
     return sorted(required)
 
 
+def _coerce_manifest_entries(
+    root: Path,
+    raw_entries: object,
+    *,
+    section: str,
+) -> list[dict[str, Any]]:
+    if not isinstance(raw_entries, list):
+        return []
+
+    entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_entry in raw_entries:
+        if isinstance(raw_entry, dict):
+            normalized = _normalize_manifest_path(raw_entry.get("path"))
+            entry: dict[str, Any] = dict(raw_entry)
+        else:
+            normalized = _normalize_manifest_path(raw_entry)
+            entry = {}
+        if normalized is None or normalized in seen:
+            continue
+        resolved = _resolve_manifest_path(root, normalized)
+        if resolved is None or not resolved.is_file():
+            continue
+        seen.add(normalized)
+        entry["path"] = normalized
+        _refresh_manifest_entry_file_fields(entry, resolved)
+        if section == "generated_artifacts":
+            sources = _normalized_path_list(entry.get("sources"))
+            if sources:
+                entry["sources"] = sources
+        elif "sources" in entry:
+            entry.pop("sources", None)
+        entries.append(entry)
+    return entries
+
+
+def _refresh_manifest_entry_file_fields(entry: dict[str, Any], resolved: Path) -> None:
+    entry["sha256"] = _sha256_file(resolved)
+    if resolved.suffix == ".tsv":
+        entry["columns"] = _read_tsv_header(resolved)
+    else:
+        entry.pop("columns", None)
+
+
+def _add_discovered_manifest_entries(
+    root: Path,
+    canonical_entries: list[dict[str, Any]],
+    generated_entries: list[dict[str, Any]],
+) -> None:
+    canonical_paths = _manifest_entry_path_set(canonical_entries)
+    generated_paths = _manifest_entry_path_set(generated_entries)
+    for normalized, resolved, section in _discover_manifest_artifact_files(root):
+        if normalized in canonical_paths or normalized in generated_paths:
+            continue
+        entry: dict[str, Any] = {"path": normalized}
+        _refresh_manifest_entry_file_fields(entry, resolved)
+        if section == "canonical_sources":
+            canonical_entries.append(entry)
+            canonical_paths.add(normalized)
+        else:
+            generated_entries.append(entry)
+            generated_paths.add(normalized)
+
+
+def _discover_manifest_artifact_files(root: Path) -> list[tuple[str, Path, str]]:
+    candidates: list[tuple[str, Path, str]] = []
+    for base in ("bench", "benchmarks", "experiments", "results", "runs", "paper", "research"):
+        base_path = root / base
+        if not base_path.is_dir():
+            continue
+        for path in sorted(base_path.rglob("*")):
+            if not path.is_file() or _is_excluded_manifest_discovery_path(path):
+                continue
+            if path.suffix.lower() not in MANIFEST_DISCOVERY_SUFFIXES:
+                continue
+            normalized = _project_relative_path(root, path)
+            if normalized in MANIFEST_GENERATED_EXCLUDED_PATHS:
+                continue
+            section = _manifest_discovery_section(normalized)
+            if section is None:
+                continue
+            candidates.append((normalized, path, section))
+    return candidates
+
+
+def _is_excluded_manifest_discovery_path(path: Path) -> bool:
+    return any(part in MANIFEST_DISCOVERY_EXCLUDED_DIRS for part in path.parts)
+
+
+def _manifest_discovery_section(path: str) -> str | None:
+    if path.startswith(MANIFEST_CANONICAL_PREFIXES):
+        return "canonical_sources"
+    if path.startswith("paper/artifacts/"):
+        return "canonical_sources"
+    if path in MANIFEST_CANONICAL_RESEARCH_PATHS:
+        return "canonical_sources"
+    if path.startswith(MANIFEST_GENERATED_PREFIXES):
+        return "generated_artifacts"
+    return None
+
+
+def _add_missing_source_entries(
+    root: Path,
+    canonical_entries: list[dict[str, Any]],
+    generated_entries: list[dict[str, Any]],
+) -> None:
+    canonical_paths = _manifest_entry_path_set(canonical_entries)
+    generated_paths = _manifest_entry_path_set(generated_entries)
+    all_paths = canonical_paths | generated_paths
+    for entry in list(generated_entries):
+        for source in _normalized_path_list(entry.get("sources")):
+            if source in all_paths:
+                continue
+            resolved = _resolve_manifest_path(root, source)
+            if resolved is None or not resolved.is_file():
+                continue
+            source_entry: dict[str, Any] = {"path": source}
+            _refresh_manifest_entry_file_fields(source_entry, resolved)
+            canonical_entries.append(source_entry)
+            canonical_paths.add(source)
+            all_paths.add(source)
+
+
+def _fill_generated_manifest_sources(
+    root: Path,
+    canonical_entries: list[dict[str, Any]],
+    generated_entries: list[dict[str, Any]],
+) -> None:
+    canonical_paths = _manifest_entry_path_set(canonical_entries)
+    generated_paths = _manifest_entry_path_set(generated_entries)
+    all_paths = canonical_paths | generated_paths
+    canonical_fallbacks = tuple(sorted(canonical_paths))
+    for entry in generated_entries:
+        normalized = _normalize_manifest_path(entry.get("path"))
+        if normalized is None:
+            continue
+        sources = [
+            source
+            for source in _normalized_path_list(entry.get("sources"))
+            if source != normalized and source in all_paths
+        ]
+        if not sources:
+            sources = _default_manifest_sources_for_generated_path(
+                root,
+                normalized,
+                all_paths,
+                canonical_fallbacks,
+            )
+        if sources:
+            entry["sources"] = sources
+
+
+def _default_manifest_sources_for_generated_path(
+    root: Path,
+    generated_path: str,
+    all_paths: set[str],
+    canonical_fallbacks: tuple[str, ...],
+) -> list[str]:
+    preferred: list[str] = []
+    preferred.extend(MANIFEST_SOURCE_PREFERENCES.get(generated_path, ()))
+    if generated_path.startswith("paper/artifacts/"):
+        preferred.extend(
+            path
+            for path in canonical_fallbacks
+            if path.startswith(("experiments/", "results/", "bench/", "benchmarks/"))
+        )
+    if generated_path.startswith("paper/figures/") or generated_path.startswith("paper/style_ref/"):
+        preferred.extend(
+            path
+            for path in canonical_fallbacks
+            if path.startswith(("experiments/", "results/", "paper/artifacts/"))
+        )
+    if generated_path == "paper/RESULTS_REPORT.md":
+        preferred.extend(sorted(path for path in all_paths if path.startswith("paper/artifacts/")))
+        preferred.extend(
+            path
+            for path in canonical_fallbacks
+            if path.startswith(("experiments/", "results/"))
+        )
+    if generated_path.startswith("research/") and generated_path != "research/NARRATIVE_REPORT.md":
+        preferred.extend(
+            path
+            for path in canonical_fallbacks
+            if path.startswith(("research/", "experiments/", "results/", "benchmarks/"))
+        )
+
+    sources: list[str] = []
+    seen: set[str] = set()
+    for source in [*preferred, *canonical_fallbacks]:
+        normalized = _normalize_manifest_path(source)
+        if (
+            normalized is None
+            or normalized == generated_path
+            or normalized in seen
+            or normalized not in all_paths
+        ):
+            continue
+        resolved = _resolve_manifest_path(root, normalized)
+        if resolved is None or not resolved.is_file():
+            continue
+        seen.add(normalized)
+        sources.append(normalized)
+        if len(sources) >= 12:
+            break
+    return sources
+
+
+def _manifest_entry_path_set(entries: Sequence[dict[str, Any]]) -> set[str]:
+    paths: set[str] = set()
+    for entry in entries:
+        normalized = _normalize_manifest_path(entry.get("path"))
+        if normalized:
+            paths.add(normalized)
+    return paths
+
+
 def _collect_manifest_entries(
     root: Path,
     raw_entries: object,
@@ -8529,6 +8897,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         ("validate-pipeline", "validate research/PIPELINE_STATE.json and gated artifacts"),
         ("validate-manifest", "validate paper/ARTIFACT_MANIFEST.json"),
         ("refresh-manifest", "recompute manifest digests and TSV headers, then validate"),
+        (
+            "repair-emnlp-contract-artifacts",
+            "repair manifest, validation-priority policy, and freshness records",
+        ),
         ("refresh-artifact-freshness", "refresh paper/ARTIFACT_FRESHNESS.json hashes, then validate"),
         ("validate-grounding", "validate research/LITERATURE_GROUNDING.json"),
         ("validate-idea-provenance", "validate literature-derived idea provenance"),
@@ -8567,6 +8939,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         issues = validate_artifact_manifest(project_root)
     elif args.command == "refresh-manifest":
         issues = refresh_artifact_manifest(project_root)
+    elif args.command == "repair-emnlp-contract-artifacts":
+        issues = repair_emnlp_contract_artifacts(project_root)
     elif args.command == "refresh-artifact-freshness":
         issues = refresh_artifact_freshness(project_root)
     elif args.command == "validate-grounding":
