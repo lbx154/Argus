@@ -2,8 +2,7 @@
 
 Run from a project root with:
 
-    PYTHONPATH=/home/argustest/argus-skill \
-      /home/argustest/miniconda3/bin/python code/generate_image_2.py \
+    python code/generate_image_2.py \
       --init-prompt --figure-title "Method Overview"
 
 Edit the prompt scaffold before final generation. This helper preserves the

@@ -1,6 +1,6 @@
 ---
 name: emnlp-paper-writing-playbook
-description: "End-to-end operational playbook for producing an EMNLP/ACL/NeurIPS paper from a research idea. Covers project skeleton, LLM client, benchmark design, baselines, LaTeX styling, gpt-image-2 figures, page budget, citation hygiene, experiment audit, and submission preflight. References all argus-skill builtins and server-side skill repos."
+description: "End-to-end operational playbook for producing an EMNLP/ACL/NeurIPS paper from a research idea. Covers project skeleton, LLM client, benchmark design, baselines, LaTeX styling, gpt-image-2 figures, page budget, citation hygiene, experiment audit, and submission preflight. References argus-skill builtins without hard-coded host paths."
 category: paper-writing
 version: "2.0"
 scientist_model: gpt-5.4
@@ -42,17 +42,17 @@ Before doing anything else, consult the **argus-skill built-in skills** and
 | Full paper-writing playbook (this file) | argus-skill builtin: `emnlp-paper-writing-playbook.md` |
 | ML paper writing skill (extended) | `/root/AI-Research-SKILLs/20-ml-paper-writing/ml-paper-writing/SKILL.md` |
 | Academic plotting skill | `/root/AI-Research-SKILLs/20-ml-paper-writing/academic-plotting/SKILL.md` |
-| Image-2 figure generation | `/root/Auto-claude-code-research-in-sleep/skills/paper-illustration-image2/SKILL.md` |
-| Research pipeline orchestration | `/root/Auto-claude-code-research-in-sleep/skills/research-pipeline/SKILL.md` |
-| Experiment audit (fraud detection) | `/root/Auto-claude-code-research-in-sleep/skills/experiment-audit/SKILL.md` |
-| Citation audit | `/root/Auto-claude-code-research-in-sleep/skills/citation-audit/SKILL.md` |
-| Result-to-claim conversion | `/root/Auto-claude-code-research-in-sleep/skills/result-to-claim/SKILL.md` |
+| Image-2 figure generation | argus-skill builtin: `paper-illustration-image2.md` |
+| Research pipeline orchestration | argus-skill builtin: `auto-research-pipeline.md` |
+| Experiment audit | argus-skill builtin: `experiment-audit.md` |
+| Citation audit | argus-skill builtin/domain skill: `domains/research-ops/citation-audit.md` |
+| Result-to-claim conversion | argus-skill builtin: `result-to-claim.md` |
 | 90-skill AI research library | `/root/AI-Research-SKILLs/` (see CLAUDE.md for index) |
 
-**Builtin skill locations on disk:**
-- Global: `~/.argus-skill/skills/*.md` and `~/.argus-skill/skills/**/*.md`
-- Per-project: `<project>/argus_builtin_skills/*.md` and `<project>/argus_builtin_skills/**/*.md`
-- Source: `/root/argus-skill/argus_skill/builtin_skills/*.md` and `/root/argus-skill/argus_skill/builtin_skills/**/*.md`
+**Builtin skill locations:**
+- Per-project export: `<project>/argus_builtin_skills/*.md` and `<project>/argus_builtin_skills/**/*.md`
+- Package resource: `argus_skill.builtin_skills`
+- Source checkout, when the launcher supplies one: `$ARGUS_SKILL_SOURCE_ROOT/argus_skill/builtin_skills/`
 
 **Hard rule:** never invent BibTeX entries from memory. AI hallucination rate
 on citations is ≈40 %. Use Semantic Scholar / arXiv / CrossRef tools to
@@ -415,8 +415,7 @@ overlapping cards. Re-prompt with sharper constraints; do not fix in post.
 Use **`gpt-image-2`** for architecture/method figures. The project template
 ships a helper at `code/generate_image_2.py` and `code/generate_image2_figure.py`.
 For the full multi-stage iterative workflow with visual review, see the
-paper-illustration-image2 skill at:
-`/root/Auto-claude-code-research-in-sleep/skills/paper-illustration-image2/SKILL.md`
+argus-skill builtin `paper-illustration-image2.md`.
 
 The argus-skill image tool (`argus_skill.tools.image_tool`) wraps the
 configured endpoint from `~/.argus-skill/capabilities/model_api.json`.
