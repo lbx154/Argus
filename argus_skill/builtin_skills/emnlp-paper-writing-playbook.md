@@ -620,7 +620,7 @@ Page 6   Results: ablation table, per-condition table, key figure
 Page 7   Analysis: significance, qualitative, discussion
 Page 8   Conclusion
 ─────────  (8-page body limit; references and appendix begin after page 8)
-Page 9+  Limitations/Ethics if they spill after Conclusion, then References + Appendix
+Page 9+  References + Appendix boundary; Limitations/Ethics may spill after Conclusion before References
 ```
 
 **Rule**: Conclusion (Sec ≤9) MUST appear by end of page 8. Limitations
