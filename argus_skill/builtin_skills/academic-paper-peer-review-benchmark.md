@@ -86,7 +86,7 @@ Score each dimension 1--5. Most plausible drafts should land in the 2--4 range; 
    - Figure 1, teaser, overall, and core method/framework/system/pipeline overview figures must use actual image-2/codex-image2 raster output in `paper/main.tex`. Hard reject self-drawn substitutes from matplotlib, TikZ node graphs, SVG/PIL/HTML canvas, screenshots, Inkscape/manual vectors, or cleaned PDFs.
    - Tables should use the research.md style tokens: `\footnotesize`, `\tabcolsep=3-4pt`, `\arraystretch=1.15`, light-gray header, soft peach "ours" row, alternating row tint, and bold winning values.
 
-8. **Adversarial reviewer kill argument**
+8. **Strongest reviewer objection**
    - Write the strongest short reason to reject the paper.
    - If the reason is still valid and fixable, choose `continue`.
    - If the reason requires new experiments, say so directly; do not ask the engineer to paper over it with prose.
@@ -106,7 +106,7 @@ When this skill applies, include a compact simulated-review section inside `roun
 ```markdown
 ### Simulated peer-review benchmark
 - Recommendation: Weak Reject
-- Scores: contribution 4, evidence 2, experiments 2, literature 3, reproducibility 3, writing 4, format/layout 2, kill-argument 2
+- Scores: contribution 4, evidence 2, experiments 2, literature 3, reproducibility 3, writing 4, format/layout 2, strongest-objection 2
 - Strongest accept argument: ...
 - Strongest reject argument: ...
 - Blocking issues: ...

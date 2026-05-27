@@ -868,13 +868,16 @@ ASSURANCE_LAYERS: tuple[str, ...] = (
     "idea_provenance_and_code_reuse",
     "literature_and_exemplar_grounding",
     "citation_audit",
-    "kill_argument",
+    "fatal_objection_review",
     "paper_quality_calibration",
     "research_md_format_preflight",
     "academic_language_review",
     "layout_aesthetic_review",
     "submission_package",
 )
+ASSURANCE_LAYER_ALIASES: dict[str, tuple[str, ...]] = {
+    "fatal_objection_review": ("kill_argument",),
+}
 
 
 @dataclass(frozen=True)
@@ -5300,7 +5303,7 @@ def validate_submission_assurance(project_root: Path) -> list[ContractIssue]:
         )
     else:
         for layer in ASSURANCE_LAYERS:
-            entry = layers.get(layer)
+            entry = _assurance_layer_entry(layers, layer)
             if not isinstance(entry, dict):
                 issues.append(
                     ContractIssue(
@@ -8606,6 +8609,17 @@ def _manifest_entry_path_set(entries: Sequence[dict[str, Any]]) -> set[str]:
         if normalized:
             paths.add(normalized)
     return paths
+
+
+def _assurance_layer_entry(layers: dict[Any, Any], layer: str) -> Any:
+    entry = layers.get(layer)
+    if isinstance(entry, dict):
+        return entry
+    for alias in ASSURANCE_LAYER_ALIASES.get(layer, ()):
+        alias_entry = layers.get(alias)
+        if isinstance(alias_entry, dict):
+            return alias_entry
+    return entry
 
 
 def _collect_manifest_entries(

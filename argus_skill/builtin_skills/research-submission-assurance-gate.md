@@ -1,6 +1,6 @@
 ---
 name: Research Submission Assurance Gate
-description: Decide whether a research draft can be called EMNLP/ACL submission-ready by checking experiment integrity, result-to-claim support, paper claims, citations, prose quality, layout, adversarial rejection arguments, and package completeness.
+description: Decide whether a research draft can be called EMNLP/ACL submission-ready by checking experiment integrity, result-to-claim support, paper claims, citations, prose quality, layout, strongest rejection arguments, and package completeness.
 category: research-audit
 version: 1
 scientist_model: gpt-5.4
@@ -11,7 +11,7 @@ created_at: 2026-05-23T00:00:00+00:00
 Research Submission Assurance Gate
 
 ## Description
-Run the final high-strictness gate before a paper is described as EMNLP-ready. This adapts ARIS experiment-audit, result-to-claim, paper-claim-audit, citation-audit, kill-argument, paper-quality calibration, and MIT-licensed `AI-Research-SKILLs` rigor/prose workflow concepts into a single argus-skill assurance contract.
+Run the final high-strictness gate before a paper is described as EMNLP-ready. This adapts ARIS experiment-audit, result-to-claim, paper-claim-audit, citation-audit, strongest-rejection review, paper-quality calibration, and MIT-licensed `AI-Research-SKILLs` rigor/prose workflow concepts into a single argus-skill assurance contract.
 
 ## When to use
 - A draft exists under `paper/` and the operator asks whether it is ready, submission-quality, conference-ready, or safe to polish.
@@ -92,7 +92,7 @@ Use the 6-state verdict schema `PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLI
    - If web access is unavailable, mark citation checks `BLOCKED` or `WARN` with exact missing verification steps; do not fabricate metadata.
    - Hard blockers: invented citations, citation keys with no bibliography entry, too few verified/cited references, citation dumping, or claims that depend on unverifiable related work.
 
-7. **kill-argument**
+7. **fatal objection review**
    - Write the strongest concise rejection memo against the paper.
    - Adjudicate which points are already answered, which require writing fixes, and which require new experiments.
    - Hard blockers: a still-valid rejection that can be fixed within the current evidence but remains unaddressed.
@@ -151,7 +151,7 @@ The JSON must follow this shape:
     "idea_provenance_and_code_reuse": {"verdict": "PASS", "evidence": ["research/IDEA_PROVENANCE.json", "research/CODE_REUSE_PLAN.json"]},
     "literature_and_exemplar_grounding": {"verdict": "PASS", "evidence": ["research/LITERATURE_GROUNDING.json", "paper/style_ref/EXEMPLAR.json"]},
     "citation_audit": {"verdict": "BLOCKED", "evidence": ["paper/references.bib"]},
-    "kill_argument": {"verdict": "WARN", "evidence": ["paper/KILL_ARGUMENT.md"]},
+    "fatal_objection_review": {"verdict": "WARN", "evidence": ["paper/FATAL_OBJECTION_REVIEW.md"]},
     "paper_quality_calibration": {"verdict": "FAIL", "evidence": ["paper/PAPER_QUALITY_CALIBRATION.json"]},
     "research_md_format_preflight": {"verdict": "FAIL", "evidence": ["paper/FORMAT_PREFLIGHT.md"]},
     "academic_language_review": {"verdict": "FAIL", "evidence": ["paper/ACADEMIC_LANGUAGE_REVIEW.json"]},

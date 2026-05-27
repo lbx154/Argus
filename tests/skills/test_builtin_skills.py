@@ -483,7 +483,7 @@ def test_submission_assurance_gate_skill_requires_audit_layers(
         "idea provenance and code reuse",
         "literature and exemplar grounding",
         "citation audit",
-        "kill-argument",
+        "fatal objection",
         "paper-quality calibration",
         "negative:fresh-demo-pilot-pattern",
         "positive:emnlp2025-best-infini-gram-mini",

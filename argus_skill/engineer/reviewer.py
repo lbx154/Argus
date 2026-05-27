@@ -58,7 +58,7 @@ _ACADEMIC_PAPER_REVIEW_FALLBACK = """# Academic paper peer-review benchmark
 Use for nearly complete EMNLP/ACL paper tasks. Simulate a strict reviewer:
 score contribution, claim-evidence alignment, experiment integrity, benchmark
 quality, literature/citations, reproducibility, writing, format/layout, and the
-strongest rejection argument. Any remaining major actionable reviewer objection
+strongest reviewer objection. Any remaining major actionable reviewer objection
 means `continue`, not `done`.
 """
 
