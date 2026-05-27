@@ -15,6 +15,7 @@ from argus_skill.skills.academic_language_review import (
 from argus_skill.skills.pipeline_contracts import (
     _pdf_page_count,
     _validate_rendered_pdf_page_budget,
+    _validate_research_md_manual_page_breaks,
     _validate_research_md_pdf_text,
     _validate_research_md_reference_depth,
     refresh_artifact_freshness,
@@ -1994,6 +1995,30 @@ def test_research_md_format_preflight_accepts_complete_review_paper(tmp_path: Pa
     assert validate_research_md_format_preflight(tmp_path) == []
 
 
+def test_research_md_format_preflight_rejects_forced_break_before_conclusion(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    main_path = tmp_path / "paper" / "main.tex"
+    main_text = main_path.read_text(encoding="utf-8").replace(
+        "\\section{Conclusion}",
+        "\\clearpage\n\\section{Conclusion}",
+    )
+    _write(main_path, main_text)
+
+    issues = validate_research_md_format_preflight(tmp_path)
+
+    assert "forced_page_break_before_conclusion" in {issue.code for issue in issues}
+
+
+def test_research_md_manual_page_breaks_accept_clean_reference_break() -> None:
+    issues = _validate_research_md_manual_page_breaks(
+        "\\section{Conclusion}\nBody conclusion.\n\\clearpage\n\\bibliography{references}"
+    )
+
+    assert issues == []
+
+
 def test_research_md_format_preflight_rejects_unverified_bib(tmp_path: Path) -> None:
     _write_valid_paper_draft_report(tmp_path)
     _write(
@@ -2151,7 +2176,7 @@ def test_research_md_pdf_text_rejects_underfilled_main_body() -> None:
     assert "references_before_full_body" in codes
 
 
-def test_research_md_pdf_text_requires_conclusion_on_page_eight() -> None:
+def test_research_md_pdf_text_allows_page_seven_conclusion_when_body_continues() -> None:
     issues = _validate_research_md_pdf_text(
         [
             "Title\nIntroduction\n",
@@ -2161,12 +2186,15 @@ def test_research_md_pdf_text_requires_conclusion_on_page_eight() -> None:
             "Main Results\n",
             "Analysis\n",
             "Conclusion\nLimitations and Ethical Considerations\n",
+            "Body tail\nMore limitations and ethics\n",
             "References\nPaper A\nPaper B\n",
             "More References\nPaper C\nPaper D\n",
         ]
     )
 
-    assert "rendered_main_body_underfilled" in {issue.code for issue in issues}
+    codes = {issue.code for issue in issues}
+    assert "rendered_main_body_underfilled" not in codes
+    assert "references_before_full_body" not in codes
 
 
 def test_research_md_pdf_text_allows_uncapped_references_and_appendix_after_page_8() -> None:

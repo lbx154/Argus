@@ -6,8 +6,10 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
+import zlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -244,30 +246,79 @@ def _render_pdf_pages(
     dpi: int,
     timeout: float,
 ) -> list[dict[str, Any]]:
+    output_dir = root / LAYOUT_REVIEW_PAGE_DIR
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    render_errors: list[str] = []
+    if shutil.which("pdftoppm") is not None:
+        try:
+            _render_pdf_pages_with_pdftoppm(
+                output_dir,
+                pdf_path,
+                max_pages=max_pages,
+                dpi=dpi,
+                timeout=timeout,
+            )
+            snapshots = _collect_page_snapshots(root, output_dir, renderer="pdftoppm")
+            if snapshots and not _has_suspicious_blank_pages(root, snapshots):
+                return snapshots
+            if snapshots:
+                render_errors.append("pdftoppm produced blank-looking page images")
+        except LayoutReviewError as exc:
+            render_errors.append(str(exc))
+    else:
+        render_errors.append("pdftoppm is not installed")
+
+    if shutil.which("mutool") is not None:
+        try:
+            _render_pdf_pages_with_mutool(
+                output_dir,
+                pdf_path,
+                max_pages=max_pages,
+                dpi=dpi,
+                timeout=timeout,
+            )
+            snapshots = _collect_page_snapshots(root, output_dir, renderer="mutool")
+            if snapshots:
+                return snapshots
+        except LayoutReviewError as exc:
+            render_errors.append(str(exc))
+
+    detail = "; ".join(error for error in render_errors if error)
+    raise LayoutReviewError(detail or "no PDF renderer produced page images")
+
+
+def _clear_rendered_pages(output_dir: Path) -> None:
+    for old_page in output_dir.glob("page-*.png"):
+        old_page.unlink()
+
+
+def _render_pdf_pages_with_pdftoppm(
+    output_dir: Path,
+    pdf_path: Path,
+    *,
+    max_pages: int,
+    dpi: int,
+    timeout: float,
+) -> None:
     pdftoppm = shutil.which("pdftoppm")
     if pdftoppm is None:
         raise LayoutReviewError("pdftoppm is not installed")
 
-    output_dir = root / LAYOUT_REVIEW_PAGE_DIR
-    output_dir.mkdir(parents=True, exist_ok=True)
-    for old_page in output_dir.glob("page-*.png"):
-        old_page.unlink()
-
-    prefix = output_dir / "page"
-    command = [
-        pdftoppm,
-        "-png",
-        "-r",
-        str(int(dpi)),
-        "-f",
-        "1",
-        "-l",
-        str(max(1, int(max_pages))),
-        str(pdf_path),
-        str(prefix),
-    ]
+    _clear_rendered_pages(output_dir)
     completed = subprocess.run(
-        command,
+        [
+            pdftoppm,
+            "-png",
+            "-r",
+            str(int(dpi)),
+            "-f",
+            "1",
+            "-l",
+            str(max(1, int(max_pages))),
+            str(pdf_path),
+            str(output_dir / "page"),
+        ],
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -277,6 +328,44 @@ def _render_pdf_pages(
         stderr = (completed.stderr or completed.stdout or "").strip()
         raise LayoutReviewError(stderr[:500] or f"pdftoppm exited {completed.returncode}")
 
+
+def _render_pdf_pages_with_mutool(
+    output_dir: Path,
+    pdf_path: Path,
+    *,
+    max_pages: int,
+    dpi: int,
+    timeout: float,
+) -> None:
+    mutool = shutil.which("mutool")
+    if mutool is None:
+        raise LayoutReviewError("mutool is not installed")
+
+    _clear_rendered_pages(output_dir)
+    completed = subprocess.run(
+        [
+            mutool,
+            "draw",
+            "-r",
+            str(int(dpi)),
+            "-F",
+            "png",
+            "-o",
+            str(output_dir / "page-%02d.png"),
+            str(pdf_path),
+            f"1-{max(1, int(max_pages))}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    if completed.returncode != 0:
+        stderr = (completed.stderr or completed.stdout or "").strip()
+        raise LayoutReviewError(stderr[:500] or f"mutool exited {completed.returncode}")
+
+
+def _collect_page_snapshots(root: Path, output_dir: Path, *, renderer: str) -> list[dict[str, Any]]:
     snapshots: list[dict[str, Any]] = []
     for index, path in enumerate(sorted(output_dir.glob("page-*.png")), start=1):
         snapshots.append(
@@ -284,11 +373,131 @@ def _render_pdf_pages(
                 "page": index,
                 "path": path.relative_to(root).as_posix(),
                 "sha256": review_sha256_file(path),
+                "renderer": renderer,
             }
         )
     if not snapshots:
-        raise LayoutReviewError("pdftoppm produced no page images")
+        raise LayoutReviewError(f"{renderer} produced no page images")
     return snapshots
+
+
+def _has_suspicious_blank_pages(root: Path, snapshots: Sequence[Mapping[str, Any]]) -> bool:
+    # A real paper can have a blank trailing page, but a run where most pages are pure
+    # white is usually a renderer failure. Fall back before sending bad screenshots to
+    # the vision reviewer.
+    blank_pages = 0
+    for snapshot in snapshots:
+        path_value = snapshot.get("path")
+        if not isinstance(path_value, str):
+            continue
+        if _png_is_nearly_blank(root / path_value):
+            blank_pages += 1
+    return blank_pages >= 2 or (len(snapshots) > 1 and blank_pages == len(snapshots) - 1)
+
+
+def _png_is_nearly_blank(path: Path) -> bool:
+    try:
+        width, height, color_type, pixels = _read_png_pixels(path)
+    except (OSError, ValueError, zlib.error, struct.error):
+        return False
+    if width <= 0 or height <= 0 or not pixels:
+        return False
+
+    if color_type == 0:
+        return all(value >= 250 for value in pixels)
+    if color_type == 2:
+        return all(value >= 250 for value in pixels)
+    if color_type in {4, 6}:
+        step = 2 if color_type == 4 else 4
+        for offset in range(0, len(pixels), step):
+            alpha = pixels[offset + step - 1]
+            color_values = pixels[offset : offset + step - 1]
+            if alpha > 10 and any(value < 250 for value in color_values):
+                return False
+        return True
+    return False
+
+
+def _read_png_pixels(path: Path) -> tuple[int, int, int, bytes]:
+    data = path.read_bytes()
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ValueError("not a PNG")
+
+    offset = 8
+    width = 0
+    height = 0
+    bit_depth = 0
+    color_type = 0
+    compressed = bytearray()
+    while offset < len(data):
+        length = struct.unpack(">I", data[offset : offset + 4])[0]
+        chunk_type = data[offset + 4 : offset + 8]
+        chunk_data = data[offset + 8 : offset + 8 + length]
+        offset += 12 + length
+        if chunk_type == b"IHDR":
+            width, height, bit_depth, color_type = struct.unpack(">IIBB", chunk_data[:10])
+        elif chunk_type == b"IDAT":
+            compressed.extend(chunk_data)
+        elif chunk_type == b"IEND":
+            break
+
+    if bit_depth != 8 or color_type not in {0, 2, 4, 6}:
+        raise ValueError("unsupported PNG color format")
+    channels = {0: 1, 2: 3, 4: 2, 6: 4}[color_type]
+    stride = width * channels
+    raw = zlib.decompress(bytes(compressed))
+    rows: list[bytes] = []
+    previous = bytes(stride)
+    cursor = 0
+    for _ in range(height):
+        filter_type = raw[cursor]
+        cursor += 1
+        row = bytearray(raw[cursor : cursor + stride])
+        cursor += stride
+        _unfilter_png_row(row, previous, filter_type, channels)
+        rows.append(bytes(row))
+        previous = rows[-1]
+    return width, height, color_type, b"".join(rows)
+
+
+def _unfilter_png_row(row: bytearray, previous: bytes, filter_type: int, bpp: int) -> None:
+    if filter_type == 0:
+        return
+    if filter_type == 1:
+        for index in range(len(row)):
+            left = row[index - bpp] if index >= bpp else 0
+            row[index] = (row[index] + left) & 0xFF
+        return
+    if filter_type == 2:
+        for index, value in enumerate(previous):
+            row[index] = (row[index] + value) & 0xFF
+        return
+    if filter_type == 3:
+        for index in range(len(row)):
+            left = row[index - bpp] if index >= bpp else 0
+            up = previous[index]
+            row[index] = (row[index] + ((left + up) // 2)) & 0xFF
+        return
+    if filter_type == 4:
+        for index in range(len(row)):
+            left = row[index - bpp] if index >= bpp else 0
+            up = previous[index]
+            up_left = previous[index - bpp] if index >= bpp else 0
+            row[index] = (row[index] + _paeth(left, up, up_left)) & 0xFF
+        return
+    raise ValueError(f"unsupported PNG filter {filter_type}")
+
+
+def _paeth(left: int, up: int, up_left: int) -> int:
+    estimate = left + up - up_left
+    left_distance = abs(estimate - left)
+    up_distance = abs(estimate - up)
+    up_left_distance = abs(estimate - up_left)
+    if left_distance <= up_distance and left_distance <= up_left_distance:
+        return left
+    if up_distance <= up_left_distance:
+        return up
+    return up_left
 
 
 def _extract_pdf_layout_text(pdf_path: Path, *, timeout: float) -> str:
@@ -346,6 +555,23 @@ def _deterministic_assessment(
                 "references appear after appendix material",
                 hard_gate=True,
                 action="fix_bibliography_appendix_order",
+            )
+        )
+
+    if _forced_break_before_conclusion(tex_text):
+        penalty += 1.0
+        issues.append(
+            _issue(
+                "forced_page_break_before_conclusion",
+                "major",
+                (
+                    "manual page break immediately before Conclusion can strand page 8 "
+                    "mostly blank or push Conclusion to page 9; rebalance body content and "
+                    "floats instead of forcing the section break"
+                ),
+                hard_gate=True,
+                action="rebalance_columns",
+                target="pre-Conclusion page break",
             )
         )
 
@@ -408,14 +634,14 @@ def _deterministic_assessment(
 
     layout_pages = _layout_pages(layout_text)
     conclusion_page = _first_layout_page_matching(layout_pages, r"\bConclusion\b")
-    if conclusion_page is not None and conclusion_page < 8:
+    if conclusion_page is not None and conclusion_page < 7:
         penalty += 0.7
         issues.append(
             _issue(
                 "rendered_main_body_underfilled",
                 "major",
                 (
-                    "Conclusion starts before page 8, so the paper has not visibly filled "
+                    "Conclusion starts before page 7, so the paper has not visibly filled "
                     "the eight-page EMNLP body budget; add source-backed body content before "
                     "the Conclusion instead of padding after it"
                 ),
@@ -688,7 +914,11 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "Table 3, Figure 1 labels, references page), the visual evidence you saw, and the specific "
         "source-level action needed. Prefer fixes that rewrite/rebalance manuscript flow, merge or "
         "remove low-value floats, split unreadable tables, or regenerate poor figures; do not suggest "
-        "cosmetic page-break shuffling when the real defect is weak prose/float integration.\n\n"
+        "cosmetic page-break shuffling when the real defect is weak prose/float integration. "
+        "Never repair the eight-page body boundary by inserting `\\clearpage`, `\\newpage`, "
+        "`\\pagebreak`, or `\\FloatBarrier` immediately before Conclusion; that can leave page 8 "
+        "mostly blank and then push Conclusion to page 9 after minor float changes. Use section "
+        "ordering, prose tightening/expansion, and float placement instead.\n\n"
         "Complete improvement guidance is mandatory, not optional. For every blocking or major issue, "
         "provide enough repair guidance that an engineer can act without re-interpreting the screenshot: "
         "root_cause, source_targets (LaTeX/generator/table/figure files or section names to edit), "
@@ -706,7 +936,7 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "the page: if the body is visibly underfilled, References start before page 9, "
         "or Appendix material starts before page 9, "
         "require source-backed body expansion, a meaningful late visual anchor, or a clean "
-        "reference/appendix-page break; if body content actually runs past page 8, then require trimming. "
+        "reference/appendix-page break after the body; if body content actually runs past page 8, then require trimming. "
         "Shortening an underfilled body makes the early-References defect worse.\n\n"
         "Submission contract to enforce: conclusion by page 8, Limitations/Ethics after conclusion, "
         "References before Appendix, References/Appendix on page 9 or later with no total-page cap, "
@@ -1003,6 +1233,16 @@ def _references_after_appendix(tex_text: str) -> bool:
         tex_text,
     )
     return appendix is not None and bibliography is not None and appendix.start() < bibliography.start()
+
+
+def _forced_break_before_conclusion(tex_text: str) -> bool:
+    return bool(
+        re.search(
+            r"\\(?:clearpage|newpage|pagebreak(?:\[[^\]]+\])?|FloatBarrier)\s*"
+            r"\\section\*?\s*\{\s*Conclusion\s*\}",
+            tex_text,
+        )
+    )
 
 
 def _parse_json_object_from_text(text: str) -> dict[str, Any]:

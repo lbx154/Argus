@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import struct
+import zlib
+from pathlib import Path
+
 from argus_skill.skills.paper_layout_review import (
     _deterministic_assessment,
+    _png_is_nearly_blank,
     _revision_directives,
     _vision_issues,
     _vision_prompt,
@@ -172,14 +177,13 @@ def test_deterministic_review_routes_early_references_to_evidence_expansion() ->
     assert issues["references_before_full_body"]["action"] == "expand_evidence_content"
 
 
-def test_deterministic_review_flags_page_seven_conclusion_as_underfilled() -> None:
+def test_deterministic_review_flags_page_six_conclusion_as_underfilled() -> None:
     pages = [
         "Title",
         "Related Work",
         "Method",
         "Experimental Setup\nFigure 1: overview",
         "Main Results\nTable 1: main results",
-        "Analysis\nTable 2: supporting analyses",
         "Conclusion\nLimitations and Ethical Considerations",
         "Body tail",
         "References\n[1] Example",
@@ -194,4 +198,63 @@ def test_deterministic_review_flags_page_seven_conclusion_as_underfilled() -> No
 
     issues = {issue["code"]: issue for issue in result["issues"]}
     assert issues["rendered_main_body_underfilled"]["action"] == "expand_evidence_content"
-    assert issues["rendered_main_body_underfilled"]["page"] == 7
+    assert issues["rendered_main_body_underfilled"]["page"] == 6
+
+
+def test_deterministic_review_flags_forced_break_before_conclusion() -> None:
+    result = _deterministic_assessment(
+        tex_text="\\section{Analysis}\nEvidence.\n\\clearpage\n\\section{Conclusion}\nDone.",
+        log_text="",
+        layout_text="\f".join(
+            [
+                "Title",
+                "Related Work",
+                "Method",
+                "Experimental Setup\nFigure 1: overview",
+                "Main Results\nTable 1: main results",
+                "Analysis\nTable 2: supporting analyses",
+                "Failure Cases\nFigure 2: profile",
+                "Conclusion\nLimitations and Ethical Considerations",
+                "References\n[1] Example",
+            ]
+        ),
+        threshold=4.0,
+    )
+
+    issues = {issue["code"]: issue for issue in result["issues"]}
+    assert issues["forced_page_break_before_conclusion"]["action"] == "rebalance_columns"
+
+
+def test_png_blank_detector_distinguishes_empty_renderer_pages(tmp_path: Path) -> None:
+    blank = tmp_path / "blank.png"
+    nonblank = tmp_path / "nonblank.png"
+    _write_rgb_png(blank, width=2, height=2, pixels=[(255, 255, 255)] * 4)
+    _write_rgb_png(
+        nonblank,
+        width=2,
+        height=2,
+        pixels=[(255, 255, 255), (0, 0, 0), (255, 255, 255), (255, 255, 255)],
+    )
+
+    assert _png_is_nearly_blank(blank)
+    assert not _png_is_nearly_blank(nonblank)
+
+
+def _write_rgb_png(path: Path, *, width: int, height: int, pixels: list[tuple[int, int, int]]) -> None:
+    rows = bytearray()
+    for row in range(height):
+        rows.append(0)
+        for red, green, blue in pixels[row * width : (row + 1) * width]:
+            rows.extend((red, green, blue))
+    payload = zlib.compress(bytes(rows))
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + _png_chunk(b"IDAT", payload)
+        + _png_chunk(b"IEND", b"")
+    )
+
+
+def _png_chunk(chunk_type: bytes, payload: bytes) -> bytes:
+    crc = zlib.crc32(chunk_type + payload) & 0xFFFFFFFF
+    return struct.pack(">I", len(payload)) + chunk_type + payload + struct.pack(">I", crc)
