@@ -148,6 +148,43 @@ def _normalize_planner_text(text: str) -> str:
     return re.sub(r"\s+", " ", normalized).strip().casefold()
 
 
+def _sanitize_planner_task_text(text: str) -> str:
+    """Remove stale host-specific entry paths from planner-generated missions."""
+    value = str(text)
+    command_replacements = {
+        (
+            "PYTHONPATH=/home/argustest/argus-skill "
+            "/home/argustest/miniconda3/bin/python -m argus_skill"
+        ): '"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill',
+        (
+            "PYTHONPATH=/home/argustest/argus-skill "
+            "python -m argus_skill"
+        ): '"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill',
+        (
+            "/home/argustest/miniconda3/bin/python -m argus_skill"
+        ): '"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill',
+    }
+    for old, new in command_replacements.items():
+        value = value.replace(old, new)
+    path_replacements = {
+        "`/home/argustest/research.md`": "the operator-provided research playbook if present",
+        "/home/argustest/research.md": "the operator-provided research playbook if present",
+        "`/home/argustest/argus-skill`": "the active Argus source/package",
+        "/home/argustest/argus-skill": "the active Argus source/package",
+        (
+            "`/root/Auto-claude-code-research-in-sleep/skills/"
+            "paper-illustration-image2/SKILL.md`"
+        ): "`argus_builtin_skills/paper-illustration-image2.md`",
+        (
+            "/root/Auto-claude-code-research-in-sleep/skills/"
+            "paper-illustration-image2/SKILL.md"
+        ): "argus_builtin_skills/paper-illustration-image2.md",
+    }
+    for old, new in path_replacements.items():
+        value = value.replace(old, new)
+    return value
+
+
 def _planner_task_signature(title: str, objective: str) -> tuple[str, str]:
     return (_normalize_planner_text(title), _normalize_planner_text(objective))
 
@@ -3404,6 +3441,20 @@ class LifeSupervisor:
 
         # Add new tasks to the backlog.
         for task in verdict.new_tasks:
+            sanitized_title = _sanitize_planner_task_text(task.title)
+            sanitized_objective = _sanitize_planner_task_text(task.objective)
+            sanitized_evidence = _sanitize_planner_task_text(task.evidence)
+            if (
+                sanitized_title != task.title
+                or sanitized_objective != task.objective
+                or sanitized_evidence != task.evidence
+            ):
+                task = replace(
+                    task,
+                    title=sanitized_title,
+                    objective=sanitized_objective,
+                    evidence=sanitized_evidence,
+                )
             signature = _planner_task_signature(task.title, task.objective)
             duplicate_item = seen_signatures.get(signature)
             if duplicate_item is not None:

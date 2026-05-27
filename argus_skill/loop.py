@@ -68,7 +68,7 @@ class SkillLoopConfig:
     scientist_reasoning_effort: str = "high"
     engineer_reasoning_effort: str | None = "high"
     reviewer_reasoning_effort: str = "high"
-    matcher_reasoning_effort: str | None = None
+    matcher_reasoning_effort: str | None = "high"
     max_rounds: int = 500
     check_commands: list[str] = field(default_factory=list)
     check_timeout_seconds: int = 600
@@ -367,6 +367,12 @@ class SkillLoop:
                 "  state.\n"
                 "- Do not stop after one narrow check passes if obvious paper-quality\n"
                 "  blockers remain and are addressable in this mission.\n"
+                "- Runtime context is for execution only. Do not copy daemon config,\n"
+                "  local device/cache/path details, capability-vault paths, or\n"
+                "  Argus/Codex reviewer/engineer route names into manuscript prose.\n"
+                "- If the same paper gate repeats, switch from local micro-edits to\n"
+                "  root-cause repair: inspect evidence sufficiency, section depth,\n"
+                "  page map, stale generated artifacts, and figure/table provenance.\n"
                 "- For underfilled papers, improve reader-facing prose, evidence\n"
                 "  integration, and figure/table placement toward 7.5-8 main-content\n"
                 "  pages; keep main/body content within 8 pages, start references\n"

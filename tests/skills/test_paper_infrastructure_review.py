@@ -26,5 +26,8 @@ def test_paper_infrastructure_prompt_delegates_env_device_leaks_to_reviewer() ->
         "engineer/reviewer/critic/scientist route",
         "strict JSON only",
         "leak_free",
+        "A PASS still requires at least three evidence_spans",
+        "different inspected scopes",
+        "research-method prose rather than local environment",
     ):
         assert required in prompt

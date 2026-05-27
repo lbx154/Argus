@@ -166,6 +166,9 @@ _CRITIC_SYSTEM_PREAMBLE = (
     "   `requirement_gap`s. This does not demand full-gate exit 0 unless the\n"
     "   scope is `final_submission`; it prevents tiny local paper fixes from\n"
     "   being accepted as enough.\n"
+    "   If the remaining paper issue is repeated or systemic, prefer one\n"
+    "   root-cause improvement that audits evidence, page flow, stale artifacts,\n"
+    "   reviews, and figure/table provenance over several micro-edits.\n"
     "9) Output JSON ONLY. No prose around it. No markdown fences.\n"
 )
 
@@ -293,6 +296,9 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "9) Order tasks by impact: most important first.\n"
     "10) Cap at 3 tasks per planning cycle. For EMNLP/ACL/paper goals, prefer\n"
     "   1 broad task over 3 microtasks unless the blockers are truly independent.\n"
+    "   Trust the Engineer model with multi-file, multi-validator objectives when\n"
+    "   the acceptance criteria are concrete; do not decompose a coherent paper\n"
+    "   repair into tiny tasks that can oscillate.\n"
     "11) NEVER repeat work already completed (check the journal below).\n"
     "12) NEVER propose vanity work (renames, comment polish, trivial\n"
     "   refactors) unless the operator explicitly asked for it.\n"
@@ -314,7 +320,10 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "   Such tasks must include observed evidence, tests or smoke checks, and\n"
     "   acceptance criteria proving the agent now handles the blocked class of\n"
     "   tasks. Do NOT self-modify for cosmetic architecture preferences.\n"
-    "17) Output JSON ONLY. No prose around it. No markdown fences.\n"
+    "17) If the same validator/review failure repeats across recent journal\n"
+    "   entries, queue a reset/audit mission that names the repeated issue and\n"
+    "   requires the Engineer to inspect root cause before another local patch.\n"
+    "18) Output JSON ONLY. No prose around it. No markdown fences.\n"
 )
 
 
@@ -591,6 +600,19 @@ class Critic:
             + (
                 runtime_change_summary.strip()
                 or "No runtime source changes have been detected since daemon start; set restart_daemon=false."
+            )
+            + "\n\nPlanner hygiene:\n"
+            + (
+                "Do not copy stale host-specific paths from the journal into new tasks. "
+                "Use the active project files, project-local argus_builtin_skills, and "
+                "`python -m argus_skill ...` or the launcher-provided ARGUS_SKILL_PYTHON "
+                "environment instead of retired absolute paths. For paper infrastructure "
+                "leaks, do not run ad hoc grep/rg pattern scans in the Planner. Inspect "
+                "only whether the model-backed paper infrastructure review artifact and "
+                "`validate-paper-infrastructure-review --project-root .` are missing or "
+                "failing, then queue the Engineer to run `paper_infrastructure_review "
+                "--review-mode model --write`. Do not use a hand-written string-match "
+                "pass as context, acceptance, or a substitute for the reviewer artifact."
             )
             + "\n\n"
             + budget_line

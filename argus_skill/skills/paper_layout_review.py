@@ -46,6 +46,11 @@ MAX_DEFAULT_PAGES = 32
 DEFAULT_DPI = 120
 DEFAULT_TIMEOUT_SECONDS = 500.0
 MAX_RESEARCH_MD_OVERFULL_HBOX_PT = 5.0
+LAYOUT_HEADING_LINE_NUMBER_PREFIX = r"(?:\d{1,5}\s+)?"
+LAYOUT_REFERENCES_HEADING_PATTERN = (
+    rf"(?m)(?:^\s*|\s{{6,}}){LAYOUT_HEADING_LINE_NUMBER_PREFIX}"
+    r"(?:References|Bibliography)\b"
+)
 
 ALLOWED_DIRECTIVE_ACTIONS = {
     "shorten_section",
@@ -671,7 +676,7 @@ def _deterministic_assessment(
 
     references_page = _first_layout_page_matching(
         layout_pages,
-        r"(?m)^\s*(?:References|Bibliography)\s*$",
+        LAYOUT_REFERENCES_HEADING_PATTERN,
     )
     if references_page is not None:
         reference_page_text = layout_pages[references_page - 1]

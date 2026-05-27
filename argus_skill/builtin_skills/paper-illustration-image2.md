@@ -1,6 +1,6 @@
 ---
 name: paper-illustration-image2
-description: "Generate publication-quality academic illustrations using gpt-image-2 with a multi-stage iterative workflow. Claude plans and reviews, codex renders. Use when user says 'generate figure', 'architecture diagram', 'method figure', or needs AI-generated paper illustrations."
+description: "Generate publication-quality academic illustrations using gpt-image-2 with a multi-stage iterative workflow. Argus planner/reviewer agents specify and audit; the configured codex/image route renders. Use when user says 'generate figure', 'architecture diagram', 'method figure', or needs AI-generated paper illustrations."
 category: paper-figures
 version: "1.0"
 scientist_model: gpt-5.4
@@ -9,8 +9,10 @@ created_at: "2025-07-17"
 
 # Paper Illustration Image2
 
-Generate publication-quality paper figures using **Claude/argus as the planner/reviewer**
-and **gpt-image-2** as the raster renderer via the codex backend.
+Generate publication-quality paper figures using **Argus planner/reviewer agents**
+and **gpt-image-2** as the raster renderer via the configured codex/image backend.
+
+For EMNLP/ACL paper projects, data/metric/result plots are the only figures that may be locally scripted. Every other paper-facing figure, including method overviews, architecture/system diagrams, schematics, qualitative/example visuals, teasers, and explanatory diagrams, must be generated through this image-2 workflow and registered in `paper/figures/IMAGE2_FIGURES.json`; never substitute matplotlib, TikZ, SVG/PIL/HTML canvas, screenshots, cleaned PDFs, or manual vector redraws for those non-data figures.
 
 ## Core Design Philosophy
 

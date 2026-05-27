@@ -184,7 +184,9 @@ These skills work for ANY domain:
 ## Venue-Specific Notes
 
 ### EMNLP/ACL (NLP)
-- 8 pages body, unlimited appendix + references
+- 7.5--8 pages main body through Conclusion; Conclusion must land by page 8
+- Limitations/Ethics appear after Conclusion and before References, but do not count as a fix for an underfilled pre-Conclusion body
+- References and Appendix start on page 9 or later, with no total page cap after the body boundary
 - Double-blind review
 - Reproducibility checklist required
 - Ethics statement required

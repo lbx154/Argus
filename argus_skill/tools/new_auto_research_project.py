@@ -21,11 +21,11 @@ from ..skills.builtins import (
     seed_builtin_skills_for_domain,
 )
 
-DEFAULT_PARENT = Path("/home/argustest")
+DEFAULT_PARENT = Path(os.environ.get("ARGUS_SKILL_PROJECT_PARENT", str(Path.home())))
 DEFAULT_PREFIX = "agent-emnlp-auto-research-v"
 DEFAULT_TEMPLATE = "agent-md-new-project-template.md"
 DEFAULT_PROJECT_CODE_DIR = "code"
-PYTHON = Path("/home/argustest/miniconda3/bin/python")
+PYTHON = Path(os.environ.get("ARGUS_SKILL_PYTHON", sys.executable))
 COPY_READY_HEADING = "## Copy-ready `AGENTS.md`"
 TRAILER = "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 
@@ -168,8 +168,8 @@ def default_compute_budget() -> str:
 def default_allowed_inputs_table_rows() -> str:
     return "\n".join(
         [
-            "| Global research playbook | `/home/argustest/research.md` | local operator guidance | Paper-quality and research-process guidance only | Stable cross-project writing and validation policy |",
-            "| Argus source tree | `/home/argustest/argus-skill` | local source | Validators, built-in skills, helper APIs, and daemon runtime | Required toolchain for this workspace |",
+            "| Operator research playbook | provided by the launcher/operator when available | local operator guidance | Paper-quality and research-process guidance only | Stable cross-project writing and validation policy |",
+            "| Active Argus package/source checkout | active Python package plus `ARGUS_SKILL_SOURCE_ROOT` when set | local source/package | Validators, built-in skills, helper APIs, and daemon runtime | Required toolchain for this workspace without hard-coded host paths |",
             "| Exported built-in skills | `./argus_builtin_skills/*.md`, `./argus_builtin_skills/**/*.md` | generated local copy | Read-only local skill guidance | Keeps the daemon self-contained without copying the whole Argus repository |",
             "| Public literature, datasets, and repositories | verified URLs/scholarly sources | source-specific license/access | Topic discovery, citations, benchmark construction, and baseline implementation | Must be recorded before use in research artifacts |",
         ]
@@ -400,8 +400,7 @@ def _research_bootstrap_files(*, project_name: str, objective: str) -> dict[str,
         },
     }
     gate = (
-        "PYTHONPATH=/home/argustest/argus-skill "
-        "/home/argustest/miniconda3/bin/python -m "
+        '"${ARGUS_SKILL_PYTHON:-python}" -m '
         "argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root ."
     )
     return {
@@ -508,7 +507,7 @@ def start_daemon(project_dir: Path, agents_md: str) -> str:
     objective = _continuous_objective_from_agents(agents_md)
     return _run(
         [
-            str(PYTHON if PYTHON.exists() else Path(sys.executable)),
+            str(_argus_python()),
             "-m",
             "argus_skill",
             "--daemon",
@@ -525,7 +524,7 @@ def start_daemon(project_dir: Path, agents_md: str) -> str:
 def status(project_dir: Path) -> str:
     return _run(
         [
-            str(PYTHON if PYTHON.exists() else Path(sys.executable)),
+            str(_argus_python()),
             "-m",
             "argus_skill",
             "--status",
@@ -548,7 +547,16 @@ def _argus_env() -> dict[str, str]:
     repo_root = Path(__file__).resolve().parents[2]
     existing = env.get("PYTHONPATH")
     env["PYTHONPATH"] = f"{repo_root}{os.pathsep}{existing}" if existing else str(repo_root)
+    env.setdefault("ARGUS_SKILL_SOURCE_ROOT", str(repo_root))
+    env.setdefault("ARGUS_SKILL_PYTHON", str(_argus_python()))
     return env
+
+
+def _argus_python() -> Path:
+    configured = Path(os.environ.get("ARGUS_SKILL_PYTHON", str(PYTHON))).expanduser()
+    if configured.exists():
+        return configured
+    return Path(sys.executable)
 
 
 def _run(

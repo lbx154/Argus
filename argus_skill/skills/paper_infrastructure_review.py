@@ -159,6 +159,19 @@ def generate_paper_infrastructure_review(
             blocking_issues.extend(_dict_list(model_review.get("blocking_issues")))
             major_issues.extend(_dict_list(model_review.get("major_issues")))
             directives.extend(_dict_list(model_review.get("revision_directives")))
+            if not evidence_spans:
+                issue = _issue(
+                    "model_review_missing_evidence_spans",
+                    "major",
+                    (
+                        "reviewer model returned no quote evidence spans; rerun the "
+                        "model-backed infrastructure review with explicit evidence "
+                        "from the inspected manuscript scopes"
+                    ),
+                    action="rewrite_setup_as_paper_facing",
+                )
+                issues.append(issue)
+                major_issues.append(issue)
             if model_review.get("verdict") == "FAIL" or not leak_free:
                 issues.append(
                     _issue(
@@ -321,7 +334,11 @@ def _review_prompt(*, source_text_by_path: Mapping[str, str], threshold: float) 
         "major_issues list, evidence_spans list with source_path, line, quote, "
         "why, section, revision_directives list with action/target/rationale/"
         "expected_effect, and pass_or_revise as pass or revise. Quote source "
-        "text verbatim in evidence_spans. Any reader-facing leak, any missing "
+        "text verbatim in evidence_spans. A PASS still requires at least three "
+        "evidence_spans from different inspected scopes that justify leak_free=true; "
+        "for each, quote a representative paper-facing sentence/table cell and "
+        "explain why it is research-method prose rather than local environment, "
+        "device, cache, route, or authoring configuration. Any reader-facing leak, any missing "
         f"scope, or any score below {threshold:g} means revise.\n\n"
         f"Numbered LaTeX sources:\n{numbered_source}"
     )

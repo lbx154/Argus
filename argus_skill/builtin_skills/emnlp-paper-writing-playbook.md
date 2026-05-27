@@ -1,6 +1,6 @@
 ---
 name: emnlp-paper-writing-playbook
-description: "End-to-end operational playbook for producing an EMNLP/ACL/NeurIPS paper from a research idea. Covers project skeleton, LLM client, benchmark design, baselines, LaTeX styling, gpt-image-2 figures, page budget, citation hygiene, experiment audit, and submission preflight. References all argus-skill builtins and server-side skill repos."
+description: "End-to-end operational playbook for producing an EMNLP/ACL/NeurIPS paper from a research idea. Covers project skeleton, LLM client, benchmark design, baselines, LaTeX styling, gpt-image-2 figures, page budget, citation hygiene, experiment audit, and submission preflight. References argus-skill builtins without hard-coded host paths."
 category: paper-writing
 version: "2.0"
 scientist_model: gpt-5.4
@@ -8,7 +8,7 @@ created_at: "2025-07-17"
 updated_at: "2025-07-27"
 ---
 
-# EMNLP Paper Writing Playbook (Claude-style workflow)
+# EMNLP Paper Writing Playbook (Argus workflow)
 
 > **For:** any LLM agent that needs to take a research idea or repo and produce
 > a publication-ready EMNLP / ACL / NeurIPS-style PDF — paper text, benchmark
@@ -42,17 +42,17 @@ Before doing anything else, consult the **argus-skill built-in skills** and
 | Full paper-writing playbook (this file) | argus-skill builtin: `emnlp-paper-writing-playbook.md` |
 | ML paper writing skill (extended) | `/root/AI-Research-SKILLs/20-ml-paper-writing/ml-paper-writing/SKILL.md` |
 | Academic plotting skill | `/root/AI-Research-SKILLs/20-ml-paper-writing/academic-plotting/SKILL.md` |
-| Image-2 figure generation | `/root/Auto-claude-code-research-in-sleep/skills/paper-illustration-image2/SKILL.md` |
-| Research pipeline orchestration | `/root/Auto-claude-code-research-in-sleep/skills/research-pipeline/SKILL.md` |
-| Experiment audit (fraud detection) | `/root/Auto-claude-code-research-in-sleep/skills/experiment-audit/SKILL.md` |
-| Citation audit | `/root/Auto-claude-code-research-in-sleep/skills/citation-audit/SKILL.md` |
-| Result-to-claim conversion | `/root/Auto-claude-code-research-in-sleep/skills/result-to-claim/SKILL.md` |
+| Image-2 figure generation | argus-skill builtin: `paper-illustration-image2.md` |
+| Research pipeline orchestration | argus-skill builtin: `auto-research-pipeline.md` |
+| Experiment audit | argus-skill builtin: `experiment-audit.md` |
+| Citation audit | argus-skill builtin/domain skill: `domains/research-ops/citation-audit.md` |
+| Result-to-claim conversion | argus-skill builtin: `result-to-claim.md` |
 | 90-skill AI research library | `/root/AI-Research-SKILLs/` (see CLAUDE.md for index) |
 
-**Builtin skill locations on disk:**
-- Global: `~/.argus-skill/skills/*.md` and `~/.argus-skill/skills/**/*.md`
-- Per-project: `<project>/argus_builtin_skills/*.md` and `<project>/argus_builtin_skills/**/*.md`
-- Source: `/root/argus-skill/argus_skill/builtin_skills/*.md` and `/root/argus-skill/argus_skill/builtin_skills/**/*.md`
+**Builtin skill locations:**
+- Per-project export: `<project>/argus_builtin_skills/*.md` and `<project>/argus_builtin_skills/**/*.md`
+- Package resource: `argus_skill.builtin_skills`
+- Source checkout, when the launcher supplies one: `$ARGUS_SKILL_SOURCE_ROOT/argus_skill/builtin_skills/`
 
 **Hard rule:** never invent BibTeX entries from memory. AI hallucination rate
 on citations is ≈40 %. Use Semantic Scholar / arXiv / CrossRef tools to
@@ -175,12 +175,16 @@ Final EMNLP evidence needs:
 - raw scored rows for every required method/baseline condition on the selected
   multi-source matrix;
 - raw scored rows under `experiments/**`, not only benchmark manifests;
-- a named evaluated model/backend. For local GPU experiments, record the local
-  model/backend class, framework/runtime, checkpoint or scorer identifier,
-  device, training/inference settings, budget, seeds, and stopping rules. If no
-  local GPU exists, run the approved hosted route, with `gpt-5-mini` as the
-  default low-cost backbone, and record temperature, top_p, max_tokens, budget,
-  cache/retry/timeout policy, and stopping rules.
+- a named evaluated model/backend. Internal manifests may record local compute
+  details, but the manuscript should report only paper-facing facts: evaluated
+  model/backend class, paper-facing framework or benchmark harness, checkpoint or
+  scorer identifier, training/inference settings, budget/decoding, seeds, and
+  high-level compute/cost when relevant. If no local GPU exists, run the
+  approved hosted route, with `gpt-5-mini` as the default low-cost backbone,
+  and record temperature, top_p, max_tokens, budget, cache/retry/timeout policy,
+  and stopping rules in manifests. Do not put local device ordinals, CUDA
+  variables, cache paths, workstation names, private endpoints, or Argus/Codex
+  route configuration in rendered paper prose.
 
 ### Construction rules
 
@@ -401,7 +405,8 @@ The 6-section prompt that produces consistent, paper-grade diagrams:
    "1536x1024 landscape" or "1024x1536 portrait"
 ```
 
-**Generate 3 attempts per figure** at quality="high". Pick the cleanest.
+**Generate 6--20 layout variants per non-data figure** at quality="high" by
+changing only the layout block. Pick the cleanest reviewed image-2 raster.
 Common defects: misspelled labels, character-level vertical text,
 overlapping cards. Re-prompt with sharper constraints; do not fix in post.
 
@@ -410,8 +415,7 @@ overlapping cards. Re-prompt with sharper constraints; do not fix in post.
 Use **`gpt-image-2`** for architecture/method figures. The project template
 ships a helper at `code/generate_image_2.py` and `code/generate_image2_figure.py`.
 For the full multi-stage iterative workflow with visual review, see the
-paper-illustration-image2 skill at:
-`/root/Auto-claude-code-research-in-sleep/skills/paper-illustration-image2/SKILL.md`
+argus-skill builtin `paper-illustration-image2.md`.
 
 The argus-skill image tool (`argus_skill.tools.image_tool`) wraps the
 configured endpoint from `~/.argus-skill/capabilities/model_api.json`.
@@ -596,7 +600,8 @@ FIG_SC, FIG_FULL = (3.25, 2.4), (6.7, 2.6)
 - ✅ Use `figure*[t]` (full-width) only for the *one* most-important figure
   (teaser, waterfall, multi-panel scale curves).
 - ✅ **Move qualitative / secondary figures to appendix** even if you love
-  them. Body has ≤5 figures total.
+  them. Body has ≤5 figures total. Non-data appendix figures still need real
+  image-2 output; only data/metric/result plots may be locally scripted.
 - ✅ Body data figures should sit on the Pareto frontier of the story:
   one heatmap, one scatter/Pareto, one trend line, one bar comparison.
   No more.
@@ -613,18 +618,20 @@ Page 4   Method (at least 700 words), architecture figure
 Page 5   Experimental Setup (at least 550 words), main table
 Page 6   Results: ablation table, per-condition table, key figure
 Page 7   Analysis: significance, qualitative, discussion
-Page 8   Conclusion + start of Limitations + Ethics
-─────────  (8-page hard limit per geshi.md)
-Page 9+  Limitations + Ethics + References + Appendix
+Page 8   Conclusion
+─────────  (8-page body limit; references and appendix begin after page 8)
+Page 9+  Limitations/Ethics if they spill after Conclusion, then References + Appendix
 ```
 
 **Rule**: Conclusion (Sec ≤9) MUST appear by end of page 8. Limitations
-and Ethics live after Conclusion and don't count against the limit. Do not
-force this with `\clearpage`, `\newpage`, `\pagebreak`, or `\FloatBarrier`
-immediately before Conclusion; a forced pre-Conclusion break can leave page 8
-mostly blank and push the heading to page 9 after minor float changes.
+and Ethics are required after Conclusion and before References; they may spill
+past the eight-page body boundary, but they do not repair an underfilled
+pre-Conclusion draft. Do not force Conclusion with `\clearpage`, `\newpage`,
+`\pagebreak`, or `\FloatBarrier` immediately before the section; a forced
+pre-Conclusion break can leave page 8 mostly blank and push the heading to
+page 9 after minor float changes.
 
-If you overflow, in priority order: (a) move secondary figures to appendix;
+If the body overflows, in priority order: (a) move secondary figures to appendix;
 (b) move low-value diagnostics to appendix; (c) tighten repeated score
 restatements; (d) merge Limitations bullets. Do not solve overlength by cutting
 the Introduction below 900 words, deleting model/benchmark configuration, or
@@ -730,7 +737,7 @@ Always include `appendix_repro.tex` with:
 - [ ] LLM settings (temperature, top_p, max_tokens, model version)
 - [ ] Cache key formula (so re-runs reproduce exactly)
 - [ ] Seeds (benchmark generation + bootstrap)
-- [ ] Compute (total tokens, $$, wall-clock, GPU/CPU)
+- [ ] Compute (total tokens, $$, wall-clock, high-level GPU/CPU class if relevant; no local device IDs or cache paths)
 - [ ] Statistical methodology (which tests, two-sided, etc.)
 - [ ] Code/data/prompts release plan with SHA-256 fingerprint of prompts
 
@@ -811,9 +818,10 @@ Before declaring "ready":
   skills vs 72 opaque exemplars). Replicates on gpt-4o backbone and
   ALFWorld 30-task subset (0.947 step-recall).
 
-Both papers use the same: LaTeX skeleton, GenAI Figma teaser/arch figures,
-matplotlib data figures, table-styling tokens, statistical tests, EMNLP
-8-page body limit, and citation discipline described above.
+Both papers use the same: LaTeX skeleton, image-2 Figma-style non-data
+figures, locally scripted data/metric/result figures, table-styling tokens,
+statistical tests, EMNLP 8-page body limit, and citation discipline described
+above.
 
 ---
 

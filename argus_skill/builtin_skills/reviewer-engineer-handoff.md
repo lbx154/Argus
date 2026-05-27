@@ -20,6 +20,7 @@ Use this skill when a reviewer must turn validation, critique, or acceptance-che
 - Group related failures by root cause and tell the engineer what to change first.
 - Include the exact command that must pass before the engineer reports completion.
 - Do not tell the engineer merely to "look at the validation output"; translate it into concrete work.
+- If repeated paper validators or reviews are failing, write a coherent repair brief rather than a microtask. Ask the engineer to inspect the page map, evidence sufficiency, source artifact graph, generated review freshness, and figure/table provenance, then make the smallest complete root-cause repair.
 
 ## `next_action` shape
 
@@ -36,6 +37,6 @@ Keep the handoff concise. Avoid copying stack traces or long output blocks unles
 
 When validation concerns an auto-research paper:
 
-- For Figure 1, teaser, overall, method overview, framework, architecture, pipeline, or schematic failures, require the paper body to include the real image-generation raster output, usually a `.png`, `.jpg`, or `.jpeg` listed in `paper/figures/IMAGE2_FIGURES.json`.
-- Explicitly reject self-drawn overview substitutes: matplotlib, FancyBboxPatch, TikZ/manual vector redraws, SVG/PIL/HTML canvas output, screenshots, cleaned PDFs, generic raster mockups, hand-written `codex-image2` manifests without raw generation sidecars, manual-only image reviews, or other non-image-2 replacements.
-- Tell the engineer to update `paper/main.tex` and any figure-generation scripts so the body uses the image-2 artifact directly. If visual quality is the problem, instruct the engineer to write a stronger image-2 prompt and regenerate/select/review image-2 attempts, not to redraw the figure locally. Then rerun `python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`.
+- For any non-data figure failure (Figure 1, teaser, overall, method overview, framework, architecture, pipeline, schematic, qualitative/example visual, or explanatory diagram), require the paper body to include the real image-generation raster output, usually a `.png`, `.jpg`, or `.jpeg` listed in `paper/figures/IMAGE2_FIGURES.json`. Data/metric/result plots are the only figures that may remain locally scripted.
+- Explicitly reject self-drawn non-data substitutes: matplotlib, FancyBboxPatch, TikZ/manual vector redraws, SVG/PIL/HTML canvas output, screenshots, cleaned PDFs, generic raster mockups, hand-written `codex-image2` manifests without raw generation sidecars, manual-only image reviews, or other non-image-2 replacements.
+- Tell the engineer to update `paper/main.tex` and any non-data figure-generation scripts so the body uses the image-2 artifact directly. If visual quality is the problem, instruct the engineer to write a stronger image-2 prompt and regenerate/select/review image-2 attempts, not to redraw the figure locally. Then rerun `python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`.

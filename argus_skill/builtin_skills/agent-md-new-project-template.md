@@ -30,20 +30,20 @@ This is a clean-slate project. Do not inherit titles, claims, datasets, benchmar
 Non-negotiable research bar: choose a frontier-domain problem grounded in current papers and real benchmark gaps; use the available GPU capacity to train or adapt a substantial domain-appropriate model when the method involves learning; evaluate only on existing real benchmarks or official task/data releases for paper-facing evidence. Synthetic/local benchmarks, tiny bag-of-words scorers, prompt-only wrappers, and exact-oracle policies can be smoke tests or baselines, not the proposed EMNLP-ready result, unless the operator explicitly lowers the scope.
 
 ## Binding playbooks and validators
-- Read and follow `/home/argustest/research.md` before choosing the final thesis, benchmark, method name, metric, paper narrative, figure/table design, or final preflight.
-- Use `/home/argustest/argus-skill` as the local Argus source tree. Built-in skill markdown lives at `/home/argustest/argus-skill/argus_skill/builtin_skills/` and as the Python package resource `argus_skill.builtin_skills`.
+- Read and follow the operator-provided research playbook when one is available before choosing the final thesis, benchmark, method name, metric, paper narrative, figure/table design, or final preflight.
+- Use the active Argus package/source checkout supplied by the launcher. Built-in skill markdown is available as project-local exports under `./argus_builtin_skills/` and as the Python package resource `argus_skill.builtin_skills`; `ARGUS_SKILL_SOURCE_ROOT` may point at a source checkout, but agents must not hard-code host-specific paths.
 - At project setup, copy the built-in skill markdown into this workspace so the daemon can read it directly:
-  `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill --export-builtin-skills ./argus_builtin_skills`
-- Read `./argus_builtin_skills/*.md` and `./argus_builtin_skills/**/*.md` first when invoking built-in paper/research/domain skills. If the local copy is absent or stale, fall back to `/home/argustest/argus-skill/argus_skill/builtin_skills/`. Do not copy the whole Argus repository, global memory, model caches, or capability vault into this project.
+  `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --export-builtin-skills ./argus_builtin_skills`
+- Read `./argus_builtin_skills/*.md` and `./argus_builtin_skills/**/*.md` first when invoking built-in paper/research/domain skills. If the local copy is absent or stale, refresh it with the export command above or load `argus_skill.builtin_skills` through the active Python environment. Do not copy the whole Argus repository, global memory, model caches, or capability vault into this project.
 - When ownership is unclear, read `./argus_builtin_skills/emnlp-paper-skill-router.md` first, then load the specific skill it routes to.
-- Prefer `/home/argustest/miniconda3/bin/python` for Argus validation commands.
+- Prefer `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill ...` for Argus validation commands; the launcher injects `ARGUS_SKILL_PYTHON`, `ARGUS_SKILL_SOURCE_ROOT`, and `PYTHONPATH` when a source checkout is needed.
 - Final EMNLP completion requires this exact command to exit 0 and be quoted in completion evidence:
-  `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`
+  `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`
 - Full-scale experiment evidence is a prerequisite for analysis, narrative, drafting, assurance, and submission. This command must pass before any of those stages are marked ready/done:
-  `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-full-scale-evidence --project-root .`
+  `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-full-scale-evidence --project-root .`
 - Treat `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` as hard blockers.
 - Before final academic/layout review, the paper-quality contracts must pass:
-  `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-paper-quality-contracts --project-root .`
+  `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-paper-quality-contracts --project-root .`
 - The required paper-quality contract artifacts are `paper/style_ref/EXEMPLAR_SUITABILITY.json`, `paper/CLAIM_GRAPH.json`, `paper/EVIDENCE_GAPS.json`, `paper/FIGURE_TABLE_STYLE_GUIDE.json`, `paper/VALIDATION_PRIORITY_POLICY.json`, and `paper/ARTIFACT_FRESHNESS.json`.
 - `validate-pipeline`, a compiled PDF, a pilot run, or a passing review artifact alone is not final readiness.
 
@@ -92,15 +92,15 @@ Use the repository's existing conventions if they are already present; otherwise
 | Paper | `paper/main.tex`, `paper/main.pdf`, verified BibTeX, `paper/PAGE_BUDGET.md`, `paper/TEMPLATE_SOURCE.md`, `paper/ARTIFACT_MANIFEST.json`, `paper/FORMAT_PREFLIGHT.md`, `paper/FIGURE_TABLE_STYLE_GUIDE.json`, `paper/VALIDATION_PRIORITY_POLICY.json`, `paper/ARTIFACT_FRESHNESS.json` |
 | Style references | `paper/style_ref/exemplars/<slug>/paper.pdf`, extracted text, `paper/style_ref/EXEMPLAR.json`, `paper/style_ref/EXEMPLAR_SUITABILITY.json`, `paper/style_ref/STYLE_PROFILE.md`, `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md`, `paper/style_ref/STRUCTURE_CONFORMANCE.md`, `paper/style_ref/STRUCTURE_CONFORMANCE.json`, `paper/style_ref/SOURCES.md` |
 | Claim/evidence contracts | `paper/CLAIM_GRAPH.json`, `paper/EVIDENCE_GAPS.json`, claim-to-result tables, result-to-claim tables, and freshness hashes |
-| Local Argus skills | `argus_builtin_skills/*.md` and `argus_builtin_skills/**/*.md` exported from `/home/argustest/argus-skill/argus_skill/builtin_skills/` |
+| Local Argus skills | `argus_builtin_skills/*.md` and `argus_builtin_skills/**/*.md` exported from the active `argus_skill.builtin_skills` package/source checkout |
 | Reviews | `paper/ACADEMIC_LANGUAGE_REVIEW.json`, `paper/LAYOUT_REVIEW.json`, `paper/PAPER_QUALITY_CALIBRATION.json`, `paper/SUBMISSION_ASSURANCE.md`, `paper/SUBMISSION_ASSURANCE.json` |
 
 ## Model/API and helper-code contract
 1. Model and image credentials are operator capabilities, not project artifacts. The private vault is `~/.argus-skill/capabilities/model_api.json` or `ARGUS_SKILL_CAPABILITY_VAULT`; it should be mode `0600`. Do not manually open/read, print, summarize, copy, or commit its raw contents; only Argus route helpers/tools may load it at runtime.
 2. Before model-backed work, run the secret-free status check:
-   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill --model-api-status`
+   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --model-api-status`
    Use the reported routes: `scientist` for literature/idea synthesis, `engineer` for code/evaluation helpers, `reviewer` for audits, `image` for image-2/codex-image2 generation, and `image_review` for visual inspection. If a needed route is unavailable but operator-approved environment/Codex config exists, initialize once with:
-   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill --init-model-api`
+   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --init-model-api`
 3. Put reusable project wrappers under `code/`; do not scatter raw API calls through notebooks, paper generators, or review JSON writers. Use `load_model_api_route(...)` from Argus, not hard-coded keys, base URLs, or model names. Route-specific environment overrides such as `ARGUS_SKILL_IMAGE_MODEL=gpt-image-2`, `ARGUS_SKILL_IMAGE_BASE_URL`, and `ARGUS_SKILL_IMAGE_API_KEY` may be used only as process environment, never as committed text.
 4. Officially launched projects already include `code/llm.py`; prefer that seeded helper over
    rewriting raw HTTP calls. If you must edit or replace it, preserve transient 429/5xx/URL
@@ -182,13 +182,13 @@ Use the repository's existing conventions if they are already present; otherwise
 
 5. For image-2 Figure 1 generation, prefer the Argus image tool and preserve the exact raster it returns:
 
-       PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.tools.image_tool generate \
+       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_tool generate \
          --prompt-file paper/figures/method_overview.prompt.txt \
          --out paper/figures/method_overview.png \
          --size 1536x1024 --force
-       PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.tools.image_tool inspect \
+       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_tool inspect \
          --image paper/figures/method_overview.png > paper/figures/method_overview.inspect.json
-       PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.tools.image_tool review \
+       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_tool review \
          --image paper/figures/method_overview.png \
          --prompt-file paper/figures/method_overview.prompt.txt \
          --out paper/figures/method_overview.review.json
@@ -281,7 +281,7 @@ Use the repository's existing conventions if they are already present; otherwise
 5. A compact bag-of-words scorer, exact lookahead/oracle policy, lexical ranker, prompt-only wrapper, or trivial classifier is allowed only as a smoke test, baseline, ablation, or operator-approved non-frontier scope. It must not be presented as the main proposed method for a submission-quality long paper.
 6. Benchmark construction is not execution. `benchmarks/full/tasks.jsonl`, benchmark manifests, or `status.json task_count` do not satisfy final evidence unless raw completed scored rows under `experiments/**` cover every required method/baseline condition.
 7. Use at least 3 independent executed real benchmark/data sources or official task-release families for final long-paper evidence. Multiple slices from one benchmark family, such as Verified/Lite/Multimodal variants of the same suite, count as one source family. `experiments/BENCHMARK_PROVENANCE.md`/`.json` must list selected benchmark sources with name, URL/repo, paper/citation/DOI, version/date, license/access, split/filtering, task count, capability tested, rationale, and execution status. Planned diagnostic rows do not count toward the 3-source final gate.
-8. If no local GPU is configured, use the approved hosted LLM route for runnable agent experiments instead of a toy oracle/policy; `gpt-5-mini` is the default low-cost no-GPU backbone unless the operator specifies another model. Record model id, endpoint/provider class, temperature, top_p, max_tokens, token/request budget, cache/retry/timeout policy, and stopping rules in the run manifest and the paper's Experimental Setup.
+8. If no local GPU is configured, use the approved hosted LLM route for runnable agent experiments instead of a toy oracle/policy; `gpt-5-mini` is the default low-cost no-GPU backbone unless the operator specifies another model. Record model id, endpoint/provider class, temperature, top_p, max_tokens, token/request budget, cache/retry/timeout policy, and stopping rules in internal run manifests. In the paper's Experimental Setup, report only evaluated-system facts such as model/backend, benchmark, metric, budget/decoding, and high-level cost; do not expose local device/cache/path or Argus/Codex route configuration.
 9. Synthetic/local tasks are smoke-only. They may test code paths, but their results must not appear in main paper tables, headline metrics, final claims, or submission-readiness artifacts.
 10. Include strongest feasible literature/frontier baselines, not only trivial no-skill or lexical baselines. For agent-skill/memory projects, include at least these diagnostic baselines unless the operator documents a domain-specific replacement: `no_skill`, `raw_memory`, `reflexion`, `static_skill_lib`, and the proposed method. Each required condition must be evaluated on the same executed multi-source benchmark matrix used for final-paper claims.
 11. Do not optimize toward a fixed small row target or a single convenient slice. The final matrix scale is determined by three independent source families times required conditions; if cost forces a smaller slice, call it pilot/blocked and queue the missing family/condition runs rather than claiming final readiness.
@@ -300,7 +300,7 @@ Use the repository's existing conventions if they are already present; otherwise
 8. Write `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` before prose. It must map exemplar lessons to this paper's section order, page budget, paragraph roles, figure/table plan, related-work grouping, evaluation sequence, and local evidence mapping. Draft the paper by following this exemplar-derived skeleton directly; title and section names may adapt to the current thesis, but the page rhythm and role sequence should not drift without explicit evidence.
 9. After drafting, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json` from the actual `paper/main.tex` section order. The JSON must use `conformance_schema_version: 1`, `verdict: "PASS"`, `no_prose_copy_attestation: true`, at least two `exemplar_lessons`, and `section_mappings` for every final top-level section before References/Appendix.
 10. Every section mapping must include `maps_to_exemplar_phase`, `evidence_sources`, `exemplar_lesson`, and a paper-specific `deviation_rationale` for nonstandard sections. The paper may adapt exemplar architecture to the current thesis, but unmapped/freehand filler sections such as `Protocol Notes`, `Track Mechanics`, `Release Detail`, `Mechanics`, or `Notes` are blockers.
-11. Run `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-exemplar --project-root .`; URL-only exemplars and missing structure blueprints are blockers. Final readiness additionally checks `STRUCTURE_CONFORMANCE`.
+11. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-exemplar --project-root .`; URL-only exemplars and missing structure blueprints are blockers. Final readiness additionally checks `STRUCTURE_CONFORMANCE`.
 12. Use exemplars only for structural style learning. Do not copy prose, examples, terminology, claims, bibliography text, figure design, or sentence templates.
 
 ## Paper narrative and prose contract
@@ -336,7 +336,7 @@ Use the repository's existing conventions if they are already present; otherwise
 
 ## Paper formatting and layout contract
 1. Use the official ACL/EMNLP style files, preferably `\usepackage[review]{acl}`, and the anonymous review author block `Anonymous EMNLP Submission`.
-2. The final paper must be an EMNLP/ACL long paper with 7.5--8.0 pages of main content, verified citations, limitations, ethics, and a reproducibility appendix. References and Appendix must begin on page 9 or later, and there is no total-page maximum after the body. It must be readable to an outside reviewer without project-local context: Method/Experimental Setup must name the **evaluated paper system** and its agent framework/runtime or benchmark harness, controller/skill/memory mechanism, task source/version, baselines, metrics, budget, and stopping/resume rules. LLM/model identifiers/routes are mandatory for evaluated agent calls. For no-GPU final agent experiments, use and report the approved hosted route such as `gpt-5-mini` plus decoding/settings/budget; if the benchmark loop is deterministic/no-external-model, downgrade it to a deterministic baseline or pilot rather than presenting it as final agent-system evidence. Do not describe Argus, Codex engineer/reviewer routes, daemon handoff, academic-language/layout review, or image-tool infrastructure as if they were components of the paper method. Use a compact system/configuration table when this would otherwise be buried in prose; never expose API keys, private endpoints, or raw capability-vault contents.
+2. The final paper must be an EMNLP/ACL long paper with 7.5--8.0 pages of main content, verified citations, limitations, ethics, and a reproducibility appendix. References and Appendix must begin on page 9 or later, and there is no total-page maximum after the body. It must be readable to an outside reviewer without project-local context: Method/Experimental Setup must name the **evaluated paper system** and its paper-facing agent framework, benchmark harness, or controller; controller/skill/memory mechanism; task source/version; baselines; metrics; budget; and stopping/resume rules. LLM/model identifiers are mandatory for evaluated hosted agent calls, while scorer-based experiments should name the evaluated scorer/backend such as `PairScorer` and its scoring budget. Do not describe Argus, Codex engineer/reviewer routes, daemon handoff, academic-language/layout review, local device/cache/path configuration, or image-tool infrastructure as if they were components of the paper method. Use a compact system/configuration table when this would otherwise be buried in prose; never expose API keys, private endpoints, or raw capability-vault contents.
 3. Use this reference page budget when writing `paper/PAGE_BUDGET.md` and `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md`; adapt only with evidence/exemplar justification:
 
    | Section | Pages |
@@ -363,22 +363,22 @@ Use the repository's existing conventions if they are already present; otherwise
 
 ## Figure contract
 1. Use image-2/codex-image2 for at least one core conceptual figure.
-2. Figure 1, teaser, overall, and core method/framework/system/pipeline overview figures must include the actual generated image-2 raster `output_path` directly from `paper/main.tex`.
+2. Data/metric/result plots may be generated locally from scripts. Every other paper-facing figure, including Figure 1, teaser, overall, core method/framework/system/pipeline overview figures, schematics, qualitative/example visuals, and explanatory diagrams, must include the actual generated image-2 raster `output_path` directly from `paper/main.tex`.
 3. Preserve prompt, metadata, generation provenance, inspect/review artifacts, SHA-256, width, and height. Do not crop, downsample, resave, overwrite, redraw, trace, vectorize, PDF-wrap, screenshot, or relabel the image after provenance is written.
 4. Do not replace the overview with matplotlib/FancyBboxPatch, TikZ node graphs, PIL/SVG/HTML canvases, manual vector tools, cleaned PDF derivatives, or locally drawn mockups. If it is ugly, regenerate through image-2 with a better prompt.
 5. Conceptual figures must be adaptive or landscape page-width assets, preferably `1536x1024` or `1920x1080`; do not use square `1024x1024`, weird/sketchy fonts, tiny text, heavy gradients, photorealism, excessive logos, or decorative clutter.
 6. Data figures and tables must be generated from local raw data/results, not from image-2.
 
 ## Final review and assurance
-1. Run `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`, then `validate-academic-language-review`. The score must be at least 4/5, model-backed, fresh, with quoted evidence spans, `needs_revision: false`, and no active directives.
-2. Run `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write`, then `validate-layout-review`. The score must be at least 4/5, vision-backed from rendered PDF page snapshots, fresh, and `needs_revision: false`.
+1. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`, then `validate-academic-language-review`. The score must be at least 4/5, model-backed, fresh, with quoted evidence spans, `needs_revision: false`, and no active directives.
+2. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write`, then `validate-layout-review`. The score must be at least 4/5, vision-backed from rendered PDF page snapshots, fresh, and `needs_revision: false`.
 3. Write `paper/SUBMISSION_ASSURANCE.md` and `paper/SUBMISSION_ASSURANCE.json`.
 4. Review artifacts, calibration files, and readiness reports are evidence, not optimization targets. Never hand-edit them to say PASS/ready while underlying validators fail.
 5. Never emit PASS/WARN/final-ready if any required validator fails. `WARN` cannot launder pilot scale, stale reviews, missing provenance, or known hard blockers into final EMNLP readiness.
 
 ## Operational safety
-1. Work inside this project directory unless reading `/home/argustest/research.md` or `/home/argustest/argus-skill`.
-2. Never copy `/home/argustest`, `.skill-agent`, `.argus-skill`, `.cache`, model caches, or recursive workspaces into this project.
+1. Work inside this project directory unless reading an operator-provided research playbook or the active Argus source/package through the launcher-provided environment.
+2. Never copy parent workspaces, the Argus repository, `.skill-agent`, `.argus-skill`, `.cache`, model caches, capability vaults, or recursive workspaces into this project.
 3. Do not download model weights, HuggingFace hub files, datasets, or Torch checkpoints into this project. Use the shared host caches injected by argus-skill: `HF_HOME=/root/.cache/huggingface`, `HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface/hub`, `HF_DATASETS_CACHE=/root/.cache/huggingface/datasets`, `TRANSFORMERS_CACHE=/root/.cache/huggingface/hub`, `TORCH_HOME=/root/.cache/torch`, and `XDG_CACHE_HOME=/root/.cache`.
 4. Keep API keys and capability vault contents out of all artifacts.
 5. Record meaningful decisions and evidence in project files, not only in chat.
@@ -403,7 +403,7 @@ The full project is complete only when the final `validate-full-emnlp` command a
 ```
 
 ## Generality check
-This template is EMNLP/ACL-paper-specific but must stay project-neutral. It may contain stable local Argus paths and validation commands, but it must not contain a specific project title, benchmark name, result number, figure name, or prior-workspace story.
+This template is EMNLP/ACL-paper-specific but must stay project-neutral. It must not contain host-specific Argus paths, a specific project title, benchmark name, result number, figure name, or prior-workspace story.
 
 ## Coverage check
 Before using the template, fill all bracketed placeholders, list allowed inputs, and delete no hard gate unless the operator explicitly changes the paper scope.

@@ -291,9 +291,13 @@ MIN_IMAGE_REVIEW_SCORE = 4.0
 MIN_IMAGE2_TEASER_PROMPT_CHARS = 900
 MIN_LAYOUT_REVIEW_SCORE = 4.0
 IMAGE2_RASTER_OUTPUT_SUFFIXES = {".png", ".jpg", ".jpeg"}
-RENDERED_REFERENCES_HEADING_PATTERN = r"(?m)^\s*(?:References|Bibliography)\s*$"
+RENDERED_HEADING_LINE_NUMBER_PREFIX = r"(?:\d{1,5}\s+)?"
+RENDERED_REFERENCES_HEADING_PATTERN = (
+    rf"(?m)(?:^\s*|\s{{6,}}){RENDERED_HEADING_LINE_NUMBER_PREFIX}"
+    r"(?:References|Bibliography)\b"
+)
 RENDERED_APPENDIX_HEADING_PATTERN = (
-    r"(?m)^\s*(?:Appendix|[A-Z]\.?\s+"
+    rf"(?m)^\s*{RENDERED_HEADING_LINE_NUMBER_PREFIX}(?:Appendix|[A-Z]\.?\s+"
     r"(?:Reproducibility|Appendix|Supplementary|Additional|Artifact|Proof|Detailed)|"
     r"Supplementary Material)\b"
 )
@@ -428,6 +432,24 @@ CONCEPTUAL_IMAGE_FIGURE_TYPES = {
     "teaser",
     "graphical_abstract",
 }
+DATA_IMAGE_FIGURE_TYPES = {
+    "data_plot",
+    "plot",
+    "chart",
+    "result_plot",
+    "results_plot",
+    "metric_plot",
+    "benchmark_plot",
+    "ablation_plot",
+    "bar_chart",
+    "line_chart",
+    "scatter_plot",
+    "heatmap",
+    "histogram",
+    "table",
+    "pgfplots",
+    "matplotlib",
+}
 CONCEPTUAL_FIGURE_PATH_TOKENS = (
     "figure1",
     "fig1",
@@ -475,7 +497,9 @@ CONCEPTUAL_FIGURE_CAPTION_RE = re.compile(
 DATA_PLOT_FIGURE_RE = re.compile(
     r"\b(?:accuracy|success rate|f1|loss|auc|roc|ablation|confidence interval|ci95|"
     r"p-value|bar chart|line chart|scatter|heatmap|histogram|breakdown|per-family|"
-    r"per family|results?|curve|axis|axes)\b",
+    r"per family|results?|curve|axis|axes|benchmark(?:-level)?|metric|effect size|"
+    r"effect summary|operation accuracy|action-kind accuracy|rank reduction|"
+    r"mean positive rank|comparison|confidence intervals?)\b",
     re.I,
 )
 MIN_ACADEMIC_LANGUAGE_REVIEW_SCORE = MIN_ACADEMIC_LANGUAGE_SCORE
@@ -4735,7 +4759,7 @@ def _validate_body_image2_conceptual_figure_usage(
     if not expanded_body.strip():
         return []
 
-    image2_outputs = _image2_conceptual_output_paths(root, figure_entries)
+    image2_outputs = _image2_non_data_output_paths(root, figure_entries)
     if not image2_outputs:
         return _validate_body_conceptual_figures_without_image2(expanded_body)
 
@@ -4763,6 +4787,21 @@ def _validate_body_image2_conceptual_figure_usage(
         )
 
     for index, environment, include_args, normalized_paths in per_figure_paths:
+        if (
+            not _body_figure_looks_data_plot(environment, include_args)
+            and image2_outputs.isdisjoint(normalized_paths)
+        ):
+            includes = ", ".join(arg.strip() for arg in include_args if arg.strip()) or "no includegraphics"
+            outputs = ", ".join(sorted(image2_outputs))
+            issues.append(
+                ContractIssue(
+                    "non_data_body_figure_not_image2",
+                    str(PAPER_MAIN_TEX_PATH),
+                    f"body figure {index + 1} is not a data/metric/result plot "
+                    f"but includes {includes}; every non-data paper figure must use "
+                    f"an image-2 raster output_path instead ({outputs})",
+                )
+            )
         if not _body_figure_looks_conceptual(index, environment, include_args):
             continue
         if not image2_outputs.isdisjoint(normalized_paths):
@@ -4785,6 +4824,17 @@ def _validate_body_conceptual_figures_without_image2(body_tex: str) -> list[Cont
     issues: list[ContractIssue] = []
     for index, environment in enumerate(_extract_latex_figure_environments(body_tex)):
         include_args = _extract_latex_command_arguments(environment, "includegraphics")
+        if not _body_figure_looks_data_plot(environment, include_args):
+            includes = ", ".join(arg.strip() for arg in include_args if arg.strip()) or "no includegraphics"
+            issues.append(
+                ContractIssue(
+                    "non_data_body_figure_not_image2",
+                    str(PAPER_MAIN_TEX_PATH),
+                    f"body figure {index + 1} is not a data/metric/result plot "
+                    f"but includes {includes} and no valid image-2 raster output exists; "
+                    "regenerate the figure through image-2/codex-image2 instead of using a local redraw",
+                )
+            )
         if not _body_figure_looks_conceptual(index, environment, include_args):
             continue
         includes = ", ".join(arg.strip() for arg in include_args if arg.strip()) or "no includegraphics"
@@ -4804,6 +4854,24 @@ def _read_image2_figure_entries(root: Path) -> list[Any] | None:
     payload = _try_read_json_object(root / IMAGE2_FIGURES_JSON_PATH)
     figures = payload.get("figures") if isinstance(payload, dict) else None
     return figures if isinstance(figures, list) else None
+
+
+def _image2_non_data_output_paths(root: Path, raw_figures: list[Any]) -> set[str]:
+    paths: set[str] = set()
+    for raw_entry in raw_figures:
+        if not isinstance(raw_entry, dict) or not _entry_uses_image2(raw_entry):
+            continue
+        figure_type = _lower_text(raw_entry.get("figure_type", raw_entry.get("kind")))
+        if figure_type in DATA_IMAGE_FIGURE_TYPES:
+            continue
+        normalized = _normalize_manifest_path(raw_entry.get("output_path"))
+        if normalized is None:
+            continue
+        resolved = _resolve_manifest_path(root, normalized)
+        if resolved is None or resolved.suffix.lower() not in IMAGE2_RASTER_OUTPUT_SUFFIXES:
+            continue
+        paths.add(_project_relative_path(root, resolved))
+    return paths
 
 
 def _image2_conceptual_output_paths(root: Path, raw_figures: list[Any]) -> set[str]:
@@ -4872,6 +4940,14 @@ def _body_figure_looks_conceptual(index: int, environment: str, include_args: li
     if has_plot_language:
         return bool(path_signal or label_signal or first_figure_method_signal)
     return bool(path_signal or label_signal or caption_signal or first_figure_method_signal)
+
+
+def _body_figure_looks_data_plot(environment: str, include_args: list[str]) -> bool:
+    labels = _latex_label_arguments(environment)
+    captions = _extract_latex_command_arguments(environment, "caption")
+    joined_paths = " ".join(include_args).lower().replace("_", "-")
+    figure_text = " ".join([" ".join(labels), " ".join(captions), joined_paths])
+    return DATA_PLOT_FIGURE_RE.search(figure_text) is not None
 
 
 def _conceptual_path_signal(joined_paths: str, *, has_plot_language: bool) -> bool:
@@ -9103,15 +9179,8 @@ def _validate_figure_entry(
     source = _lower_text(entry.get("source"))
     uses_image2 = _entry_uses_image2(entry)
     is_conceptual = figure_type in CONCEPTUAL_IMAGE_FIGURE_TYPES
-    is_vector_or_data = figure_type in {
-        "data_plot",
-        "plot",
-        "chart",
-        "table",
-        "tikz_diagram",
-        "pgfplots",
-        "matplotlib",
-    } or source in {"tikz", "pgfplots", "matplotlib", "latex", "script"}
+    is_data_figure = figure_type in DATA_IMAGE_FIGURE_TYPES
+    is_vector_or_data = is_data_figure or source in {"tikz", "pgfplots", "matplotlib", "latex", "script"}
     is_raster_generated = source in {"raster", "ai", "generated", "png", "jpg", "jpeg", "image"}
 
     issues: list[ContractIssue] = []
@@ -9126,6 +9195,14 @@ def _validate_figure_entry(
                 "conceptual_figure_not_image2",
                 entry_path,
                 "conceptual/method/overview/teaser/framework figures must be generated with image-2/codex-image2; do not self-draw them with matplotlib, TikZ, scripts, or manual vector tools",
+            )
+        )
+    if figure_type and not is_data_figure and not uses_image2:
+        issues.append(
+            ContractIssue(
+                "non_data_figure_not_image2",
+                entry_path,
+                "every non-data paper figure must be generated with image-2/codex-image2; only data/metric/result plots may be locally scripted",
             )
         )
     if is_raster_generated and not uses_image2 and not is_vector_or_data:
@@ -9585,7 +9662,7 @@ def _validate_image2_generation_sidecar_payload(
                 "generation sidecar prompt_sha256 must be a lowercase SHA-256 hex digest",
             )
         )
-    elif prompt_file is not None and prompt_file.is_file() and _sha256_text_file(prompt_file) != prompt_sha:
+    elif prompt_file is not None and prompt_file.is_file() and prompt_sha not in _sha256_text_file_variants(prompt_file):
         issues.append(
             ContractIssue(
                 "mismatched_image2_sidecar_prompt_sha256",
@@ -9593,6 +9670,26 @@ def _validate_image2_generation_sidecar_payload(
                 "generation sidecar prompt_sha256 does not match prompt_path",
             )
         )
+
+    raw_prompt = payload.get("prompt")
+    if not isinstance(raw_prompt, str) or not raw_prompt.strip():
+        issues.append(
+            ContractIssue(
+                "missing_image2_sidecar_prompt_text",
+                source_path,
+                "generation sidecar must preserve the exact prompt text used for image-2 generation",
+            )
+        )
+    else:
+        prompt_text_sha = hashlib.sha256(raw_prompt.encode("utf-8")).hexdigest()
+        if prompt_sha and _is_sha256_hex(prompt_sha) and prompt_text_sha != prompt_sha:
+            issues.append(
+                ContractIssue(
+                    "mismatched_image2_sidecar_prompt_text_sha256",
+                    source_path,
+                    "generation sidecar prompt text hash does not match prompt_sha256; regenerate through image-2 or restore the matching prompt file instead of editing metadata",
+                )
+            )
 
     output_sha = _image_payload_sha256(payload)
     if not output_sha:
@@ -9707,8 +9804,10 @@ def _image_payload_sha256(payload: dict[str, Any]) -> str:
     return ""
 
 
-def _sha256_text_file(path: Path) -> str:
-    return hashlib.sha256(path.read_text(encoding="utf-8", errors="replace").encode("utf-8")).hexdigest()
+def _sha256_text_file_variants(path: Path) -> set[str]:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    variants = {text, text.strip()}
+    return {hashlib.sha256(value.encode("utf-8")).hexdigest() for value in variants}
 
 
 def _dimensions_from_mapping(payload: dict[str, Any]) -> tuple[int, int] | None:
@@ -9795,7 +9894,7 @@ def _validate_image_review(
         return [
             ContractIssue(
                 "invalid_image_review_json",
-                str(review_path.relative_to(root)),
+                _project_relative_path(root, review_path),
                 "image review sidecar must be valid JSON",
             )
         ]
@@ -9805,7 +9904,7 @@ def _validate_image_review(
         issues.append(
             ContractIssue(
                 "missing_image_review_score",
-                str(review_path.relative_to(root)),
+                _project_relative_path(root, review_path),
                 "image review must include score_1_to_5",
             )
         )
@@ -9813,7 +9912,7 @@ def _validate_image_review(
         issues.append(
             ContractIssue(
                 "low_image_review_score",
-                str(review_path.relative_to(root)),
+                _project_relative_path(root, review_path),
                 f"image review score {score:g} is below {MIN_IMAGE_REVIEW_SCORE:g}",
             )
         )
@@ -9822,7 +9921,7 @@ def _validate_image_review(
         issues.append(
             ContractIssue(
                 "image_review_requested_regeneration",
-                str(review_path.relative_to(root)),
+                _project_relative_path(root, review_path),
                 "image review requested regeneration, so the figure is not final-ready",
             )
         )

@@ -1094,7 +1094,7 @@ def test_style_exemplar_rejects_pdf_hash_mismatch(tmp_path: Path) -> None:
     assert "style_exemplar_pdf_hash_mismatch" in codes
 
 
-def test_image2_figures_require_conceptual_image2_but_allow_secondary_tikz(
+def test_image2_figures_reject_secondary_tikz_non_data_manifest_entry(
     tmp_path: Path,
 ) -> None:
     _write(tmp_path / "paper" / "figures" / "system.prompt.txt", _valid_image2_teaser_prompt())
@@ -1136,7 +1136,9 @@ def test_image2_figures_require_conceptual_image2_but_allow_secondary_tikz(
         },
     )
 
-    assert validate_image2_figures(tmp_path) == []
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "non_data_figure_not_image2" in codes
 
 
 def test_image2_figures_reject_thin_freehand_teaser_prompt(tmp_path: Path) -> None:
@@ -1404,6 +1406,91 @@ def test_image2_figures_reject_body_overall_or_teaser_pdf_substitution(tmp_path:
     assert "conceptual_body_figure_not_image2" in preflight_codes
 
 
+def test_image2_figures_reject_any_non_data_body_figure_not_image2(tmp_path: Path) -> None:
+    _write_valid_image2_figures(tmp_path)
+    _write(tmp_path / "paper" / "figures" / "trajectory_example.pdf", "%PDF-1.4\n")
+    _write_main_tex_with_figures(
+        tmp_path,
+        [
+            (
+                "figures/method.png",
+                "fig:method",
+                "Overview of our method as an executable policy card.",
+            ),
+            (
+                "figures/trajectory_example.pdf",
+                "fig:trajectory-example",
+                "Qualitative trajectory example showing the candidate selection failure mode.",
+            ),
+        ],
+    )
+
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "non_data_body_figure_not_image2" in codes
+
+
+def test_image2_figures_reject_non_data_manifest_entry_not_image2(tmp_path: Path) -> None:
+    _write_valid_image2_figures(tmp_path)
+    manifest_path = tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["figures"].append(
+        {
+            "figure_id": "qualitative-example",
+            "figure_type": "qualitative_example",
+            "source": "script",
+            "generator": "local-script",
+            "output_path": "paper/figures/trajectory_example.pdf",
+        }
+    )
+    _write_json(manifest_path, payload)
+
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "non_data_figure_not_image2" in codes
+
+
+def test_image2_figures_reject_sidecar_prompt_text_hash_mismatch(tmp_path: Path) -> None:
+    _write_valid_image2_figures(tmp_path)
+    sidecar_path = tmp_path / "paper" / "figures" / "method.provenance.json"
+    payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    payload["prompt"] = "older prompt text that was not used by the current prompt file"
+    _write_json(sidecar_path, payload)
+
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "mismatched_image2_sidecar_prompt_text_sha256" in codes
+
+
+def test_image2_figures_accept_prompt_file_trailing_newline_with_stripped_sidecar(
+    tmp_path: Path,
+) -> None:
+    _write_valid_image2_figures(tmp_path)
+    _write_main_tex_with_figures(
+        tmp_path,
+        [
+            (
+                "figures/method.png",
+                "fig:method",
+                "Overview of our method as an executable policy card.",
+            )
+        ],
+    )
+    prompt_path = tmp_path / "paper" / "figures" / "method.prompt.txt"
+    prompt_text = prompt_path.read_text(encoding="utf-8")
+    if not prompt_text.endswith("\n"):
+        _write(prompt_path, prompt_text + "\n")
+        prompt_text = prompt_path.read_text(encoding="utf-8")
+    stripped_prompt = prompt_text.strip()
+    sidecar_path = tmp_path / "paper" / "figures" / "method.provenance.json"
+    payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    payload["prompt"] = stripped_prompt
+    payload["prompt_sha256"] = hashlib.sha256(stripped_prompt.encode("utf-8")).hexdigest()
+    _write_json(sidecar_path, payload)
+
+    assert validate_image2_figures(tmp_path) == []
+
+
 def test_image2_figures_accept_body_conceptual_png_output(tmp_path: Path) -> None:
     _write_valid_image2_figures(tmp_path)
     _write_main_tex_with_figures(
@@ -1418,6 +1505,26 @@ def test_image2_figures_accept_body_conceptual_png_output(tmp_path: Path) -> Non
     )
 
     assert validate_image2_figures(tmp_path) == []
+
+
+def test_image2_figures_accept_relative_project_root(tmp_path: Path) -> None:
+    _write_valid_image2_figures(tmp_path)
+    _write_main_tex_with_figures(
+        tmp_path,
+        [
+            (
+                "figures/method.png",
+                "fig:method",
+                "Overview of our method as an executable policy card.",
+            )
+        ],
+    )
+    previous = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        assert validate_image2_figures(Path(".")) == []
+    finally:
+        os.chdir(previous)
 
 
 def test_image2_figures_reject_cropped_or_resaved_image2_output(tmp_path: Path) -> None:
@@ -2252,6 +2359,64 @@ def test_research_md_pdf_text_rejects_underfilled_main_body() -> None:
     assert "references_before_full_body" in codes
 
 
+def test_research_md_pdf_text_rejects_line_numbered_early_references() -> None:
+    issues = _validate_research_md_pdf_text(
+        [
+            "001 Title\nIntroduction\n",
+            "082 Related Work\n",
+            "155 Method\n",
+            "238 Experimental Setup\n",
+            "312 Main Results\n",
+            "401 Analysis\nConclusion\nLimitations and Ethical Considerations\n",
+            "499 References\nPaper A\nPaper B\n",
+            "556 More references\nPaper C\nPaper D\n",
+        ]
+    )
+
+    codes = {issue.code for issue in issues}
+    assert "references_before_full_body" in codes
+
+
+def test_research_md_pdf_text_rejects_two_column_line_numbered_references() -> None:
+    issues = _validate_research_md_pdf_text(
+        [
+            "001 Title\nIntroduction\n",
+            "082 Related Work\n",
+            "155 Method\n",
+            "238 Experimental Setup\n",
+            "312 Main Results\n",
+            "401 Analysis\nConclusion\nLimitations and Ethical Considerations\n",
+            "499 References        Hyungjoo Chae, Namyoung Kim, and Minju Gwak.\n"
+            "500 More reference text\n",
+            "556 More references\nPaper C\nPaper D\n",
+        ]
+    )
+
+    codes = {issue.code for issue in issues}
+    assert "references_before_full_body" in codes
+
+
+def test_research_md_pdf_text_rejects_right_column_references_after_body_text() -> None:
+    issues = _validate_research_md_pdf_text(
+        [
+            "001 Title\nIntroduction\n",
+            "082 Related Work\n",
+            "155 Method\n",
+            "238 Experimental Setup\n",
+            "312 Main Results\n",
+            "401 Analysis\nMore body text\n",
+            "545 where the decision point is insufficient.                  References      593\n"
+            "546 7 Conclusion                                                Minju Gwak and others\n"
+            "567 8 Limitations and Ethical Considerations\n",
+            "More references\nPaper C\nPaper D\n",
+        ]
+    )
+
+    codes = {issue.code for issue in issues}
+    assert "references_before_full_body" in codes
+    assert "references_share_page_with_body_sections" in codes
+
+
 def test_research_md_pdf_text_allows_page_seven_conclusion_when_body_continues() -> None:
     issues = _validate_research_md_pdf_text(
         [
@@ -2914,6 +3079,25 @@ def test_academic_language_review_rejects_missing_model_id_when_models_are_used(
 
     codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
     assert "academic_language_missing_method_model_identifier" in codes
+
+
+def test_academic_language_review_accepts_named_pairscorer_backend(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    text = (tmp_path / "paper" / "main.tex").read_text(encoding="utf-8")
+    text = text.replace("gpt-5-mini", "PairScorer")
+    text = text.replace("hosted gpt-5-mini agent", "PairScorer candidate-ranking backend")
+    text = text.replace(
+        "The model produces an action or answer under the shared decoding settings.",
+        "The PairScorer backend ranks each candidate under the shared scoring budget.",
+    )
+    _write(tmp_path / "paper" / "main.tex", text)
+    _write_valid_academic_language_review(tmp_path)
+
+    codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
+
+    assert "academic_language_missing_method_model_identifier" not in codes
 
 
 def test_academic_language_review_rejects_validator_shaped_abstract_even_with_pass_json(
@@ -3785,6 +3969,7 @@ def _write_image2_provenance(root: Path, prompt_path: str, output_path: str, pro
             "created_at_unix": 1700000000,
             "duration_seconds": 1.25,
             "prompt_path": prompt_path,
+            "prompt": prompt_text,
             "prompt_sha256": hashlib.sha256(prompt_text.encode("utf-8")).hexdigest(),
             "output_path": output_path,
             "output_sha256": output_sha,

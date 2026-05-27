@@ -258,6 +258,23 @@ def test_research_domain_router_references_current_domain_skill_packs(
         assert current_path in text
 
 
+def test_emnlp_page_contract_keeps_references_and_appendix_after_body(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    seed_builtin_skills(skills_dir)
+
+    router = (skills_dir / "research-domain-router.md").read_text(encoding="utf-8")
+    playbook = (skills_dir / "emnlp-paper-writing-playbook.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "References and appendix start on page 9 or later" in router
+    assert "Page 9+  References + Appendix" in playbook
+    assert "Limitations + Ethics + References + Appendix" not in playbook
+    assert "don't count against the limit" not in playbook
+
+
 def test_builtin_skills_forbid_manual_review_artifact_passes(
     tmp_path: Path,
 ) -> None:
@@ -318,14 +335,15 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         assert "SWE-bench" not in text
         assert "BoundaryTrap" not in text
         assert "EMNLP/ACL long-paper" in text
-        assert "/home/argustest/research.md" in text
-        assert "/home/argustest/argus-skill" in text
-        assert "/home/argustest/argus-skill/argus_skill/builtin_skills/" in text
+        assert "/home/argustest" not in text
+        assert "operator-provided research playbook" in text
+        assert "active Argus package/source checkout" in text
+        assert "ARGUS_SKILL_SOURCE_ROOT" in text
         assert "argus_skill.builtin_skills" in text
         assert "--export-builtin-skills ./argus_builtin_skills" in text
         assert "argus_builtin_skills/*.md" in text
         assert "argus_builtin_skills/**/*.md" in text
-        assert "/home/argustest/miniconda3/bin/python" in text
+        assert '"${ARGUS_SKILL_PYTHON:-python}"' in text
         assert "validate-full-emnlp" in text
         assert "image-2/codex-image2" in text
         assert "actual generated image-2 raster" in text
@@ -409,7 +427,7 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         "1536x1024",
         "Do not copy a previous project",
         "do not preserve the older thesis",
-        "must not contain a specific project title",
+        "must not contain host-specific Argus paths",
     ):
         assert required in new_project
 
@@ -859,7 +877,7 @@ def test_emnlp_paper_skill_router_maps_validator_issue_codes(tmp_path: Path) -> 
         "paper_infrastructure_review --review-mode model --write",
         "missing_paper_infrastructure_review",
         "academic_language_missing_method_model_identifier",
-        "framework/runtime or benchmark harness",
+        "paper-facing framework, benchmark harness, or controller",
         "repair-emnlp-contract-artifacts",
         "submission_not_ready_verdict",
         "Run this last",

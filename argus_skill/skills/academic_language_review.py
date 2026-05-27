@@ -39,6 +39,9 @@ MAX_SOURCE_FILES = 120
 MIN_REVIEW_ABSTRACT_WORDS = 170
 MIN_REVIEW_INTRODUCTION_WORDS = 900
 MIN_INTRODUCTION_CITATION_KEYS = 3
+REVIEW_SOURCE_CONTEXT_CHAR_LIMIT = 70000
+PINNED_REVIEW_CONTEXT_CHAR_LIMIT = 32000
+NUMBERED_REVIEW_CONTEXT_CHAR_LIMIT = 42000
 
 SECTION_SCORE_KEYS: tuple[str, ...] = (
     "abstract",
@@ -214,11 +217,12 @@ EVALUATED_SYSTEM_DETAIL_PATTERNS: tuple[tuple[str, str, str], ...] = (
     (
         "missing_method_framework_or_runtime",
         r"\b(?:agent framework|framework|runtime|harness|benchmark driver|"
-        r"evaluation suite|simulator|execution environment|controller|"
+        r"evaluation suite|simulator|controller|"
         r"orchestrator|policy engine|python\s+\d|implementation)\b",
         (
-            "method/setup must name the evaluated system framework, runtime, "
-            "harness, or controller, not the paper-generation infrastructure"
+            "method/setup must name the evaluated paper system, benchmark "
+            "harness, implementation, or controller, not the paper-generation "
+            "infrastructure"
         ),
     ),
     (
@@ -238,7 +242,9 @@ EVALUATED_SYSTEM_DETAIL_PATTERNS: tuple[tuple[str, str, str], ...] = (
 MODEL_IDENTIFIER_PATTERN = (
     r"\b(?:gpt[-_ ]?\d(?:[\w.\-:]*)?|o\d(?:[\w.\-:]*)?|claude[-_ ]?\d(?:[\w.\-:]*)?|"
     r"gemini[-_ ]?\d(?:[\w.\-:]*)?|llama[-_ ]?\d(?:[\w.\-:]*)?|qwen[-_ ]?\d(?:[\w.\-:]*)?|"
-    r"mistral(?:[\w.\-:]*)?|deepseek(?:[\w.\-:]*)?)\b"
+    r"mistral(?:[\w.\-:]*)?|deepseek(?:[\w.\-:]*)?|pairscorer|pair\s+scorer|"
+    r"candidate[-\s]+ranking\s+(?:scorer|backend|model)|branch[-\s]+selection\s+scorer|"
+    r"auxiliary\s+operation\s+prediction)\b"
 )
 
 MODEL_USE_CONTEXT_PATTERN = (
@@ -862,8 +868,7 @@ def _review_prompt(
     deterministic: dict[str, Any],
     threshold: float,
 ) -> str:
-    structured_digest = _structured_source_digest(source_text_by_path, limit=14000)
-    numbered_source = _numbered_source_excerpt(source_text_by_path, limit=60000)
+    source_context = _review_source_context(source_text_by_path)
     return (
         "You are the final academic-language reviewer for an EMNLP long paper. "
         "Reject papers that read like generic agent output: template LLM openings, "
@@ -874,13 +879,14 @@ def _review_prompt(
         "authors to paste source paths, appendix/figure references, validation-gate "
         "vocabulary, or evidence quotes into the abstract to satisfy this review. Reject "
         "papers that leave basic evaluated-system facts implicit: the Method/Experimental "
-        "Setup must let a reviewer identify the system under study, its runtime or "
-        "benchmark harness, the controller/skill/memory mechanism, baselines, task "
-        "source, metrics, and budget. For no-GPU agent experiments, the final paper "
-        "should name the approved hosted backbone such as gpt-5-mini plus decoding "
-        "and budget settings; a deterministic/no-external-model loop is acceptable "
-        "only when the claim is explicitly downgraded to a deterministic baseline or "
-        "pilot rather than a final agent-system result. Do not credit or describe the "
+        "Setup must let a reviewer identify the system under study, its paper-facing "
+        "framework, benchmark harness, or controller, the controller/skill/memory "
+        "mechanism, baselines, task source, metrics, evaluated model/backend, and "
+        "budget. For hosted agent experiments, the final paper should name the "
+        "approved hosted backbone such as gpt-5-mini plus decoding and budget "
+        "settings. For scorer-based experiments, the paper should name the evaluated "
+        "scorer/backend such as PairScorer and describe the candidate-ranking "
+        "protocol without adding authoring-environment details. Do not credit or describe the "
         "Argus/Codex daemon, engineer/reviewer routes, academic-language review, layout "
         "review, or image tool used to write this paper as if they were paper-method "
         "components. Treat gpt-5.4, gpt-5.4-mini, and similar orchestration/reviewer "
@@ -927,7 +933,13 @@ def _review_prompt(
         "explicitly scopes itself as an end-to-end policy or comparator result; in that "
         "case, evaluate whether the comparator, task slice, sample size, and quantified "
         "outcome are stated plainly and whether unresolved submechanisms are moved to "
-        "analysis or limitations. Return strict JSON only "
+        "analysis or limitations. Calibrate severity tightly: `blocking_issues`, "
+        "`major_issues`, and `revision_directives` are for problems that should keep "
+        "the paper from passing this gate. Do not list optional polish, minor wording "
+        "preferences, or already-contained caveats as major issues once the score is "
+        f"at least {threshold:g}, every required check is true, evidence spans are "
+        "present, and no unsupported headline claim remains; in that case set "
+        "`pass_or_revise` to `pass` and leave those three lists empty. Return strict JSON only "
         "with keys: score_1_to_5 (number), section_scores object containing exactly "
         f"{list(SECTION_SCORE_KEYS)}, required_checks object containing exactly "
         f"{list(REQUIRED_CHECK_KEYS)}, evidence_spans list with at least one entry for "
@@ -935,14 +947,12 @@ def _review_prompt(
         "list, major_issues list, revision_directives list with action/target/rationale/"
         "expected_effect, and pass_or_revise as pass or revise. A score below "
         f"{threshold:g}, any missing evidence span, or any unsupported headline claim "
-        "means revise. Quote source text verbatim in evidence_spans.\n\n"
+        "means revise. Quote source text verbatim in evidence_spans, but choose "
+        "reader-facing prose or caption sentences rather than LaTeX boilerplate, "
+        "preamble lines, table syntax, `\\begin`/`\\end`, `\\includegraphics`, "
+        "or source comments.\n\n"
         f"Deterministic signals:\n{json.dumps(deterministic, ensure_ascii=False)[:7000]}\n\n"
-        "Structured source digest for reviewer navigation. Use this to inspect "
-        "section flow, body floats, table captions, labels, and visible table "
-        "headers even when the numbered source excerpt is long. Evidence spans "
-        "must still quote verbatim from the reviewed LaTeX source.\n"
-        f"{structured_digest}\n\n"
-        f"Numbered LaTeX sources:\n{numbered_source}"
+        f"Reviewer source context:\n{source_context}"
     )
 
 
@@ -1491,8 +1501,7 @@ def find_method_system_readability_issues(tex_text: str) -> list[tuple[str, str]
                 "missing_method_model_identifier",
                 (
                     "method/setup mentions external model-style execution but does "
-                    "not name the evaluated LLM/model identifier or explicitly state "
-                    "that the benchmark loop uses no external LLM/model calls"
+                    "not name the paper-facing evaluated model or backend identifier"
                 ),
             )
         )
@@ -1691,6 +1700,45 @@ def _has_quantified_claim(plain: str) -> bool:
     )
 
 
+def _review_source_context(source_text_by_path: Mapping[str, str]) -> str:
+    """Build reviewer context that cannot hide late sections behind truncation."""
+
+    structured = _structured_source_digest(source_text_by_path, limit=14000)
+    pinned = _pinned_structural_source_excerpt(
+        source_text_by_path,
+        limit=PINNED_REVIEW_CONTEXT_CHAR_LIMIT,
+    )
+    numbered = _numbered_source_excerpt(
+        source_text_by_path,
+        limit=NUMBERED_REVIEW_CONTEXT_CHAR_LIMIT,
+    )
+    chunks = []
+    if structured.strip():
+        chunks.append(
+            "Structured source digest for reviewer navigation. Use this to inspect "
+            "section flow, body floats, table captions, labels, and visible table "
+            "headers even when the numbered source excerpt is long. Evidence spans "
+            "must still quote verbatim from the reviewed LaTeX source.\n"
+            f"{structured}"
+        )
+    if pinned.strip():
+        chunks.append(
+            "Pinned structural LaTeX excerpts. Check these before marking "
+            "limitations, results matrices, captions, or table coverage absent.\n"
+            f"{pinned}"
+        )
+    chunks.append(
+        "Numbered LaTeX sources. Long files preserve both the beginning and "
+        "the tail when truncated.\n"
+        f"{numbered}"
+    )
+    text = "\n\n".join(chunks)
+    if len(text) <= REVIEW_SOURCE_CONTEXT_CHAR_LIMIT:
+        return text
+    tail_budget = max(6000, REVIEW_SOURCE_CONTEXT_CHAR_LIMIT // 5)
+    return _truncate_text_preserving_tail(text, REVIEW_SOURCE_CONTEXT_CHAR_LIMIT, tail_budget)
+
+
 def _structured_source_digest(
     source_text_by_path: Mapping[str, str],
     *,
@@ -1754,6 +1802,117 @@ def _structured_source_digest(
     return "\n".join(lines)
 
 
+def _pinned_structural_source_excerpt(
+    source_text_by_path: Mapping[str, str],
+    *,
+    limit: int,
+) -> str:
+    ranges_by_path: dict[str, list[tuple[int, int]]] = {}
+    for rel_path, text in source_text_by_path.items():
+        lines = text.splitlines()
+        ranges: list[tuple[int, int]] = []
+        ranges.extend(_table_line_ranges(lines))
+        ranges.extend(_caption_line_ranges(lines))
+        ranges.extend(_review_section_line_ranges(lines))
+        if ranges:
+            ranges_by_path[rel_path] = _merge_line_ranges(ranges)
+
+    chunks: list[str] = []
+    for rel_path, ranges in ranges_by_path.items():
+        lines = source_text_by_path[rel_path].splitlines()
+        for start, end in ranges:
+            header = f"--- pinned {rel_path}:L{start}-L{end} ---"
+            block_lines = [header]
+            for line_no in range(start, end + 1):
+                line = lines[line_no - 1] if 0 <= line_no - 1 < len(lines) else ""
+                block_lines.append(f"{rel_path}:L{line_no}: {line}")
+            chunks.append("\n".join(block_lines))
+    text = "\n\n".join(chunks)
+    if len(text) <= limit:
+        return text
+    tail_budget = max(8000, min(limit // 3, 14000))
+    return _truncate_text_preserving_tail(text, limit, tail_budget)
+
+
+def _table_line_ranges(lines: Sequence[str]) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    begin_pattern = re.compile(r"\\begin\{(table\*?|longtable)\}")
+    for index, line in enumerate(lines):
+        match = begin_pattern.search(line)
+        if match is None:
+            continue
+        environment = match.group(1)
+        end_pattern = re.compile(rf"\\end\{{{re.escape(environment)}\}}")
+        end_index = index
+        for probe in range(index, len(lines)):
+            end_index = probe
+            if end_pattern.search(lines[probe]):
+                break
+        ranges.append((max(1, index + 1 - 2), min(len(lines), end_index + 1 + 2)))
+    return ranges
+
+
+def _caption_line_ranges(lines: Sequence[str]) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    for index, line in enumerate(lines):
+        if re.search(r"\\caption(?:\[[^\]]*\])?\s*\{", line):
+            ranges.append((max(1, index + 1 - 4), min(len(lines), index + 1 + 8)))
+    return ranges
+
+
+def _review_section_line_ranges(lines: Sequence[str]) -> list[tuple[int, int]]:
+    section_pattern = re.compile(r"\\section\*?(?:\[[^\]]*\])?\s*\{")
+    text = "\n".join(lines)
+    starts: list[tuple[int, str]] = []
+    for match in section_pattern.finditer(text):
+        title = _balanced_brace_content(text, match.end() - 1) or ""
+        line_no = text.count("\n", 0, match.start()) + 1
+        starts.append((line_no, _normalize_title(_latex_to_plain_text(title))))
+
+    pinned_terms = (
+        "method",
+        "approach",
+        "experimental",
+        "experiment",
+        "evaluation",
+        "results",
+        "analysis",
+        "ablation",
+        "discussion",
+        "conclusion",
+        "limitation",
+        "ethical",
+        "ethics",
+    )
+    ranges: list[tuple[int, int]] = []
+    for index, (line_no, title) in enumerate(starts):
+        if not any(term in title for term in pinned_terms):
+            continue
+        next_start = starts[index + 1][0] if index + 1 < len(starts) else len(lines) + 1
+        ranges.append((max(1, line_no - 1), min(next_start - 1, line_no + 80, len(lines))))
+    return ranges
+
+
+def _merge_line_ranges(
+    ranges: Sequence[tuple[int, int]],
+    *,
+    max_merged_span: int = 90,
+) -> list[tuple[int, int]]:
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(ranges):
+        if end < start:
+            continue
+        if (
+            not merged
+            or start > merged[-1][1] + 3
+            or max(end, merged[-1][1]) - merged[-1][0] + 1 > max_merged_span
+        ):
+            merged.append((start, end))
+        else:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+    return merged
+
+
 def _line_number_for_offset(text: str, offset: int) -> int:
     if offset < 0:
         return 1
@@ -1764,7 +1923,7 @@ def _one_line(text: str, limit: int) -> str:
     rendered = " ".join(text.split())
     if len(rendered) <= limit:
         return rendered
-    return rendered[: max(0, limit - 1)].rstrip() + "…"
+    return rendered[: max(0, limit - 3)].rstrip() + "..."
 
 
 def _first_latex_group(text: str, command: str) -> str | None:
@@ -1819,19 +1978,30 @@ def _numbered_source_excerpt(
     limit: int,
 ) -> str:
     lines: list[str] = []
-    total = 0
     for rel_path, text in source_text_by_path.items():
         header = f"--- {rel_path} ---"
         lines.append(header)
-        total += len(header) + 1
         for line_no, line in enumerate(text.splitlines(), start=1):
             rendered = f"{rel_path}:L{line_no}: {line}"
-            if total + len(rendered) + 1 > limit:
-                lines.append("[truncated]")
-                return "\n".join(lines)
             lines.append(rendered)
-            total += len(rendered) + 1
-    return "\n".join(lines)
+    text = "\n".join(lines)
+    if len(text) <= limit:
+        return text
+    tail_budget = max(4000, min(limit // 3, 16000))
+    return _truncate_text_preserving_tail(text, limit, tail_budget)
+
+
+def _truncate_text_preserving_tail(text: str, limit: int, tail_budget: int) -> str:
+    if len(text) <= limit:
+        return text
+    marker = f"\n[truncated {len(text) - limit} chars; preserving source tail]\n"
+    if limit <= len(marker) + 2:
+        return text[:limit]
+    tail_budget = max(0, min(tail_budget, limit - len(marker) - 1))
+    head_budget = max(0, limit - len(marker) - tail_budget)
+    head = text[:head_budget].rstrip()
+    tail = text[-tail_budget:].lstrip() if tail_budget else ""
+    return f"{head}{marker}{tail}"
 
 
 def _parse_json_object_from_text(text: str) -> dict[str, Any]:

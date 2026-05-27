@@ -30,6 +30,7 @@ from argus_skill.life.supervisor import (
     _CostTrackingSink,
     _is_emnlp_finalization_objective,
     _planner_emnlp_stage_hints,
+    _sanitize_planner_task_text,
     _planner_tasks_need_emnlp_finalization_override,
     _price_for,
     _select_emnlp_finalization_repair_task,
@@ -144,6 +145,21 @@ def _planner_task(
     if scope is not None:
         task["scope"] = scope
     return task
+
+
+def test_sanitize_planner_task_text_removes_stale_entry_paths() -> None:
+    text = (
+        "Read `/home/argustest/research.md`, then run "
+        "PYTHONPATH=/home/argustest/argus-skill "
+        "/home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts "
+        "validate-full-emnlp --project-root ."
+    )
+
+    sanitized = _sanitize_planner_task_text(text)
+
+    assert "/home/argustest" not in sanitized
+    assert "operator-provided research playbook" in sanitized
+    assert '"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts' in sanitized
 
 
 def test_session_poison_classifier_clears_no_progress_and_empty_output() -> None:
@@ -1734,6 +1750,71 @@ def test_continuous_mode_planner_generates_new_tasks(tmp_path: Path) -> None:
     # planner_calls: 1 for planning after task one, 1 for critic evaluate
     # on task two (iterate=True by default), 1 for planning after task two
     assert planner_calls["n"] == 3
+
+
+def test_continuous_planner_tasks_are_path_sanitized(tmp_path: Path) -> None:
+    missions_run: list[str] = []
+
+    def factory(obj: str, pre: str) -> _FakeOutcome:
+        missions_run.append(obj)
+        return _FakeOutcome()
+
+    runner = _FakeRunner(response_factory=factory)
+    mem = _mk_memory(tmp_path)
+    mem.backlog.add(BacklogItem.new(title="first", objective="task one", iterate=False))
+
+    class _FakePlannerRunner:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None, **kw):
+            self.calls += 1
+            if self.calls == 1:
+                payload = json.dumps({
+                    "project_done": False,
+                    "reason": "needs more work",
+                    "new_tasks": [
+                        _planner_task(
+                            "paper repair",
+                            (
+                                "Read `/home/argustest/research.md` and run "
+                                "PYTHONPATH=/home/argustest/argus-skill "
+                                "/home/argustest/miniconda3/bin/python -m "
+                                "argus_skill.skills.pipeline_contracts "
+                                "validate-full-emnlp --project-root ."
+                            ),
+                        )
+                    ],
+                })
+            else:
+                payload = '{"project_done": true, "reason": "all good now", "new_tasks": []}'
+
+            class _Result:
+                agent_messages = [payload]
+            return _Result()
+
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(max_missions=999, daily_cap_usd=999.0),
+        continuous=True,
+        continuous_objective="optimize the project",
+    )
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=_RecordingSink(),
+        config=cfg,
+        engineer_model="gpt-5.4-mini",
+        reviewer_model="gpt-5.4",
+        critic_runner=_FakePlannerRunner(),
+    )
+
+    summary = sup.run()
+
+    assert summary["stopped_by"] == "project_done"
+    assert len(missions_run) == 2
+    assert "/home/argustest" not in missions_run[1]
+    assert "operator-provided research playbook" in missions_run[1]
+    assert '"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts' in missions_run[1]
 
 
 def test_bounded_paper_task_metadata_uses_long_horizon_contract(tmp_path: Path) -> None:

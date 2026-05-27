@@ -28,17 +28,17 @@ This is an existing project: an autonomous EMNLP/ACL long-paper workspace. Impro
 The goal is a submission-quality long-paper package, not a pilot PDF, validator-shaped demo, or superficial review-file edit. Keep the artifact pipeline synchronized: research brief -> literature/source discovery -> idea provenance -> benchmark/code -> experiment runs -> result JSON/TSV -> generated tables/figures -> LaTeX -> PDF -> format preflight -> academic-language review -> visual layout review -> submission assurance.
 
 ## Binding playbooks and validators
-- Read and follow `/home/argustest/research.md` before changing the thesis, benchmark, method name, metric, paper narrative, figure/table design, or final preflight.
-- Use `/home/argustest/argus-skill` as the local Argus source tree. Built-in skill markdown lives at `/home/argustest/argus-skill/argus_skill/builtin_skills/` and as the Python package resource `argus_skill.builtin_skills`.
+- Read and follow the operator-provided research playbook when one is available before changing the thesis, benchmark, method name, metric, paper narrative, figure/table design, or final preflight.
+- Use the active Argus package/source checkout supplied by the launcher. Built-in skill markdown is available as project-local exports under `./argus_builtin_skills/` and as the Python package resource `argus_skill.builtin_skills`; `ARGUS_SKILL_SOURCE_ROOT` may point at a source checkout, but agents must not hard-code host-specific paths.
 - If this workspace does not already have local copies, export the built-in skills so the daemon can read them directly:
-  `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill --export-builtin-skills ./argus_builtin_skills`
-- Read `./argus_builtin_skills/*.md` and `./argus_builtin_skills/**/*.md` first when invoking built-in paper/research/domain skills. If the local copy is absent or stale, fall back to `/home/argustest/argus-skill/argus_skill/builtin_skills/`. Do not copy the whole Argus repository, global memory, model caches, or capability vault into this project.
+  `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --export-builtin-skills ./argus_builtin_skills`
+- Read `./argus_builtin_skills/*.md` and `./argus_builtin_skills/**/*.md` first when invoking built-in paper/research/domain skills. If the local copy is absent or stale, refresh it with the export command above or load `argus_skill.builtin_skills` through the active Python environment. Do not copy the whole Argus repository, global memory, model caches, or capability vault into this project.
 - When ownership is unclear, read `./argus_builtin_skills/emnlp-paper-skill-router.md` first, then load the specific skill it routes to.
-- Prefer `/home/argustest/miniconda3/bin/python` for Argus validation commands.
+- Prefer `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill ...` for Argus validation commands; the launcher injects `ARGUS_SKILL_PYTHON`, `ARGUS_SKILL_SOURCE_ROOT`, and `PYTHONPATH` when a source checkout is needed.
 - Final EMNLP completion requires this exact command to exit 0 and be quoted in completion evidence:
-  `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`
+  `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`
 - Full-scale experiment evidence is a prerequisite for analysis, narrative, drafting, assurance, and submission. This command must pass before any of those stages are marked ready/done:
-  `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-full-scale-evidence --project-root .`
+  `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-full-scale-evidence --project-root .`
 - Treat `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` as hard blockers.
 - `validate-pipeline`, a compiled PDF, a pilot run, or a passing stale review artifact alone is not final readiness.
 
@@ -65,9 +65,9 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 ## Model/API and helper-code repair contract
 1. Model and image credentials are operator capabilities, not project artifacts. The private vault is `~/.argus-skill/capabilities/model_api.json` or `ARGUS_SKILL_CAPABILITY_VAULT`; it should be mode `0600`. Do not manually open/read, print, summarize, copy, or commit its raw contents; only Argus route helpers/tools may load it at runtime.
 2. Before model-backed repair or review work, run the secret-free status check:
-   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill --model-api-status`
+   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --model-api-status`
    Use the reported routes: `scientist` for literature/claim synthesis, `engineer` for code/evaluation helpers, `reviewer` for audits, `image` for image-2/codex-image2 generation, and `image_review` for visual inspection. If a needed route is unavailable but operator-approved environment/Codex config exists, initialize once with:
-   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill --init-model-api`
+   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --init-model-api`
 3. Keep or create reusable wrappers under `code/`; do not scatter raw API calls through paper generators or review JSON writers. Use `load_model_api_route(...)` from Argus, not hard-coded keys, base URLs, or model names. Route-specific environment overrides such as `ARGUS_SKILL_IMAGE_MODEL=gpt-image-2`, `ARGUS_SKILL_IMAGE_BASE_URL`, and `ARGUS_SKILL_IMAGE_API_KEY` may be used only as process environment, never as committed text.
 4. Officially launched projects include `code/llm.py`; prefer repairing that helper over
    scattering raw HTTP calls through generators or experiment code. If you must edit or
@@ -150,13 +150,13 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 
 5. For image-2 Figure 1 repair, prefer the Argus image tool and preserve the exact raster it returns:
 
-       PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.tools.image_tool generate \
+       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_tool generate \
          --prompt-file paper/figures/method_overview.prompt.txt \
          --out paper/figures/method_overview.png \
          --size 1536x1024 --force
-       PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.tools.image_tool inspect \
+       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_tool inspect \
          --image paper/figures/method_overview.png > paper/figures/method_overview.inspect.json
-       PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.tools.image_tool review \
+       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_tool review \
          --image paper/figures/method_overview.png \
          --prompt-file paper/figures/method_overview.prompt.txt \
          --out paper/figures/method_overview.review.json
@@ -264,13 +264,13 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 6. For agent-skill/memory projects, each required baseline/method condition such as `no_skill`, `raw_memory`, `reflexion`, `static_skill_lib`, and the proposed method must be evaluated on the same executed multi-source benchmark matrix, unless the operator documents a domain-specific replacement.
 7. Final paper evidence needs at least 3 independent executed real benchmark/data sources or official task-release families. Same-family slices do not count as separate sources. Planned diagnostic rows, future slices, and manifests without raw scored rows do not count.
 8. Benchmark/source selection must document source diversity, recency/relevance, adoption/rejection decisions, license/access status, leakage controls, and why each source tests a distinct capability.
-9. If no local GPU is configured, use the approved hosted LLM route for runnable agent experiments instead of a toy oracle/policy; `gpt-5-mini` is the default low-cost no-GPU backbone unless the operator specifies another model. Record model id, endpoint/provider class, temperature, top_p, max_tokens, token/request budget, cache/retry/timeout policy, and stopping rules in manifests and paper setup.
+9. If no local GPU is configured, use the approved hosted LLM route for runnable agent experiments instead of a toy oracle/policy; `gpt-5-mini` is the default low-cost no-GPU backbone unless the operator specifies another model. Record model id, endpoint/provider class, temperature, top_p, max_tokens, token/request budget, cache/retry/timeout policy, and stopping rules in internal manifests. In the paper, report only evaluated-system facts such as model/backend, benchmark, metric, budget/decoding, and high-level cost; never expose local device/cache/path or Argus/Codex route configuration.
 10. Every numeric claim must remain tied to current raw artifacts under `results/`, `experiments/`, or `paper/artifacts/`.
 11. Run `validate-full-scale-evidence` before final analysis/drafting/assurance repair. If it fails, preserve valid raw evidence but queue the missing full-run or matrix-completion work and keep the PDF non-final.
 12. If the method-positive thesis is rejected by evidence, queue repair/pivot tasks for method, metric, benchmark, or objective. Do not convert it into a negative-result paper unless the operator explicitly asks.
 
 ## Existing paper repair
-1. Improve the artifact the reader/reviewer sees, not just the validator surface. Reader-facing prose must stay clear, specific, and evidence-backed. Readability includes basic reproducibility facts about the **evaluated paper system**, not the Argus/Codex machinery that wrote the paper: the main body must tell an outside reviewer what agent framework/runtime or benchmark harness was used, which LLM/model identifiers/routes powered the evaluated agent runs, what controller/skill/memory mechanism changed behavior, which benchmark/tasks/baselines/metrics/budgets were used, and how one episode executes. LLM/model identifiers must be visible whenever the evaluated agent calls a model. For no-GPU final agent experiments, use and report the approved hosted route such as `gpt-5-mini`; if the benchmark is deterministic/no-external-model, downgrade it to a deterministic baseline or pilot instead of presenting it as final agent-system evidence. Put this in Method/Experimental Setup prose or a compact table; never expose API keys or private vault contents.
+1. Improve the artifact the reader/reviewer sees, not just the validator surface. Reader-facing prose must stay clear, specific, and evidence-backed. Readability includes basic reproducibility facts about the **evaluated paper system**, not the Argus/Codex machinery that wrote the paper: the main body must tell an outside reviewer what paper-facing agent framework, benchmark harness, or controller was used, which evaluated model/backend powered the agent runs, what controller/skill/memory mechanism changed behavior, which benchmark/tasks/baselines/metrics/budgets were used, and how one episode executes. LLM/model identifiers must be visible whenever the evaluated agent calls a hosted model; scorer-based experiments should name the evaluated scorer/backend such as `PairScorer` and its scoring budget. Put this in Method/Experimental Setup prose or a compact table; never expose API keys, private vault contents, local device/cache/path details, or Argus/Codex authoring route names.
 2. If academic-language review repeatedly says the headline mechanism is unsupported or not isolated, reset the claim instead of polishing the same sentence again. Use one exact end-to-end result as the paper's headline: method/system name, comparator, task slice, sample size, metric, value, and protocol. Remove mechanism-causal language from the title/abstract/conclusion unless an ablation isolates it; put the unresolved mechanism in analysis or limitations.
 3. Preserve useful author/user edits unless they contradict evidence, current validators, or the operator's latest direction.
 4. Do not convert uncertainty into repetitive caveats that make the paper worse. Move detailed scope limits to limitations/discussion.
@@ -300,7 +300,7 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 
 ## Figure repair
 1. Use image-2/codex-image2 for core conceptual figure repair.
-2. Figure 1, teaser, overall, and core method/framework/system/pipeline overview figures must be the actual generated image-2 raster `output_path`, or equivalent codex-image2 raster, included directly from `paper/main.tex`.
+2. Data/metric/result plots may be generated locally from scripts. Every other paper-facing figure, including Figure 1, teaser, overall, core method/framework/system/pipeline overview figures, schematics, qualitative/example visuals, and explanatory diagrams, must be the actual generated image-2 raster `output_path`, or equivalent codex-image2 raster, included directly from `paper/main.tex`.
 3. If the overview is ugly, cramped, misspelled, or low quality, regenerate through image-2 with a better prompt. Do not locally redraw, trace, vectorize, PDF-wrap, screenshot, crop, downsample, resave, or overwrite it after provenance is written.
 4. Do not replace the overview with matplotlib/FancyBboxPatch, TikZ node graphs, PIL/SVG/HTML canvases, manual vector tools, cleaned PDF derivatives, or a locally drawn mockup labeled as image-2.
 5. Preserve prompt, metadata, generation provenance, inspect/review artifacts, SHA-256, width, and height. Refresh `paper/figures/IMAGE2_FIGURES.json` when the prompt, provenance, generation settings, accepted output, or paper include path changes.
@@ -315,15 +315,15 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 4. Refresh `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` before prose repair. It must map exemplar lessons to the current paper's section order, page budget, paragraph roles, figure/table plan, related-work grouping, evaluation sequence, and local evidence mapping.
 5. Rebuild `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json` from the actual final `paper/main.tex` section order after repair. Use `conformance_schema_version: 1`, `verdict: "PASS"`, `no_prose_copy_attestation: true`, at least two `exemplar_lessons`, and `section_mappings` for every top-level section before References/Appendix.
 6. The repair target is not to preserve messy filler. Remove or merge unmapped sections such as `Protocol Notes`, `Track Mechanics`, `Release Detail`, `Mechanics`, or `Notes`; if a nonstandard paper-specific section is genuinely necessary, map it with `maps_to_exemplar_phase`, cite local `evidence_sources`, attach an `exemplar_lesson`, and write a `deviation_rationale`.
-7. Run `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.pipeline_contracts validate-exemplar --project-root .`; URL-only exemplars and missing structure blueprints remain blockers. Final readiness additionally checks `STRUCTURE_CONFORMANCE`.
+7. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-exemplar --project-root .`; URL-only exemplars and missing structure blueprints remain blockers. Final readiness additionally checks `STRUCTURE_CONFORMANCE`.
 8. Use exemplars only for structure. Do not copy prose, examples, terminology, claims, bibliography text, figure design, or sentence templates.
 
 ## Final review and assurance repair
 1. After content and PDF are stable, run:
-   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`
+   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`
    then validate `paper/ACADEMIC_LANGUAGE_REVIEW.json` with `validate-academic-language-review`.
 2. After final compile, run:
-   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write`
+   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write`
    then validate `paper/LAYOUT_REVIEW.json` with `validate-layout-review`.
 3. Academic-language and layout review scores must be at least 4/5, fresh, backed by the required model/vision mode, and have `needs_revision: false`.
 4. Write or refresh `paper/SUBMISSION_ASSURANCE.md` and `paper/SUBMISSION_ASSURANCE.json` only from current validator/review results.
@@ -358,7 +358,7 @@ The full project is complete only when the final `validate-full-emnlp` command a
 ```
 
 ## Generality check
-This template is EMNLP/ACL-paper-specific but must stay project-neutral. It may contain stable local Argus paths and validation commands, but it must not contain a specific project title, benchmark name, result number, figure name, or prior-workspace story.
+This template is EMNLP/ACL-paper-specific but must stay project-neutral. It must not contain host-specific Argus paths, a specific project title, benchmark name, result number, figure name, or prior-workspace story.
 
 ## Coverage check
 Before using the template, fill the current operator goal, canonical state table, validation commands, and reset boundary from the actual project. Delete no hard gate unless the operator explicitly changes the paper scope.
