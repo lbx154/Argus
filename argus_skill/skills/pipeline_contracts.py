@@ -293,7 +293,8 @@ MIN_LAYOUT_REVIEW_SCORE = 4.0
 IMAGE2_RASTER_OUTPUT_SUFFIXES = {".png", ".jpg", ".jpeg"}
 RENDERED_HEADING_LINE_NUMBER_PREFIX = r"(?:\d{1,5}\s+)?"
 RENDERED_REFERENCES_HEADING_PATTERN = (
-    rf"(?m)^\s*{RENDERED_HEADING_LINE_NUMBER_PREFIX}(?:References|Bibliography)\b"
+    rf"(?m)(?:^\s*|\s{{6,}}){RENDERED_HEADING_LINE_NUMBER_PREFIX}"
+    r"(?:References|Bibliography)\b"
 )
 RENDERED_APPENDIX_HEADING_PATTERN = (
     rf"(?m)^\s*{RENDERED_HEADING_LINE_NUMBER_PREFIX}(?:Appendix|[A-Z]\.?\s+"

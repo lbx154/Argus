@@ -217,6 +217,28 @@ def test_deterministic_review_routes_two_column_line_numbered_references() -> No
     assert issues["references_before_full_body"]["page"] == 5
 
 
+def test_deterministic_review_flags_right_column_references_after_body_text() -> None:
+    pages = [
+        "001 Title",
+        "082 Related Work",
+        "155 Method",
+        "238 Results",
+        "545 where the decision point is insufficient.                  References      593\n"
+        "546 Conclusion                                                  Minju Gwak and others\n"
+        "567 Limitations and Ethical Considerations",
+    ]
+
+    result = _deterministic_assessment(
+        tex_text="",
+        log_text="",
+        layout_text="\f".join(pages),
+        threshold=4.0,
+    )
+
+    issues = {issue["code"]: issue for issue in result["issues"]}
+    assert issues["references_share_body_page"]["page"] == 5
+
+
 def test_deterministic_review_flags_page_six_conclusion_as_underfilled() -> None:
     pages = [
         "Title",

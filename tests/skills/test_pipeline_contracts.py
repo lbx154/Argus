@@ -2307,6 +2307,27 @@ def test_research_md_pdf_text_rejects_two_column_line_numbered_references() -> N
     assert "references_before_full_body" in codes
 
 
+def test_research_md_pdf_text_rejects_right_column_references_after_body_text() -> None:
+    issues = _validate_research_md_pdf_text(
+        [
+            "001 Title\nIntroduction\n",
+            "082 Related Work\n",
+            "155 Method\n",
+            "238 Experimental Setup\n",
+            "312 Main Results\n",
+            "401 Analysis\nMore body text\n",
+            "545 where the decision point is insufficient.                  References      593\n"
+            "546 7 Conclusion                                                Minju Gwak and others\n"
+            "567 8 Limitations and Ethical Considerations\n",
+            "More references\nPaper C\nPaper D\n",
+        ]
+    )
+
+    codes = {issue.code for issue in issues}
+    assert "references_before_full_body" in codes
+    assert "references_share_page_with_body_sections" in codes
+
+
 def test_research_md_pdf_text_allows_page_seven_conclusion_when_body_continues() -> None:
     issues = _validate_research_md_pdf_text(
         [
