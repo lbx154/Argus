@@ -49,6 +49,29 @@ def test_mission_telemetry_tracks_incremental_jsonl_progress(tmp_path: Path) -> 
     assert len(_jsonl_events(life_dir / TELEMETRY_FILE)) == 2
 
 
+def test_mission_telemetry_default_scan_dirs_include_project_code(
+    tmp_path: Path,
+) -> None:
+    life_dir = tmp_path / "life"
+    workdir = tmp_path / "repo"
+    source_file = workdir / "code" / "make_paper.py"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("print('generate paper')\n", encoding="utf-8")
+
+    monitor = MissionTelemetryMonitor(
+        life_dir=life_dir,
+        workdir=workdir,
+        item_id="task-code",
+        title="Repair generator",
+        interval_seconds=1.0,
+    )
+
+    latest = monitor.tick_once()
+
+    assert "code" in latest["scan_dirs"]
+    assert any(item["path"] == "code/make_paper.py" for item in latest["files"])
+
+
 def test_mission_telemetry_stop_publishes_idle_snapshot(tmp_path: Path) -> None:
     life_dir = tmp_path / "life"
     workdir = tmp_path / "repo"

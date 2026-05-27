@@ -29,6 +29,10 @@ TELEMETRY_STATUS_FILE = "telemetry.status.json"
 SCHEMA_VERSION = 1
 
 _DEFAULT_SCAN_DIRS: tuple[str, ...] = (
+    "code",
+    "scripts",
+    "src",
+    "benchmarks",
     "results",
     "runs",
     "logs",
