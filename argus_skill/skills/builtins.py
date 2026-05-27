@@ -12,6 +12,7 @@ import os
 import threading
 import uuid
 from importlib import resources
+from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Iterable
 
@@ -27,12 +28,23 @@ def builtin_skill_source_path() -> Path:
 
 
 def iter_builtin_skill_texts() -> Iterable[tuple[str, str]]:
-    """Yield ``(filename, markdown)`` for every bundled default skill."""
+    """Yield ``(relative_filename, markdown)`` for every bundled default skill."""
     root = resources.files(_BUILTIN_PACKAGE)
+    yield from _iter_builtin_skill_resources(root)
+
+
+def _iter_builtin_skill_resources(
+    root: Traversable,
+    prefix: str = "",
+) -> Iterable[tuple[str, str]]:
     for entry in sorted(root.iterdir(), key=lambda item: item.name):
-        if entry.name.startswith("_") or not entry.name.endswith(".md"):
+        if entry.name.startswith(("_", ".")):
             continue
-        yield entry.name, entry.read_text(encoding="utf-8")
+        relative_name = f"{prefix}{entry.name}"
+        if entry.is_dir():
+            yield from _iter_builtin_skill_resources(entry, f"{relative_name}/")
+        elif entry.name.endswith(".md"):
+            yield relative_name, entry.read_text(encoding="utf-8")
 
 
 def builtin_skill_count() -> int:
@@ -56,6 +68,7 @@ def seed_builtin_skills(skills_dir: Path, *, overwrite: bool = False) -> dict[st
         if dest.exists() and not overwrite:
             created[filename] = False
             continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write_text(dest, text)
         created[filename] = True
     return created
@@ -67,8 +80,6 @@ def _validate_builtin(filename: str, text: str) -> None:
         raise ValueError(f"bundled skill has no name: {filename}")
     if not skill.description.strip():
         raise ValueError(f"bundled skill has no description: {filename}")
-    if not skill.category.strip():
-        raise ValueError(f"bundled skill has no category: {filename}")
 
 
 def _atomic_write_text(path: Path, text: str) -> None:

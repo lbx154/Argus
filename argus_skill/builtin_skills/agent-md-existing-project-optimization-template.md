@@ -32,7 +32,7 @@ The goal is a submission-quality long-paper package, not a pilot PDF, validator-
 - Use `/home/argustest/argus-skill` as the local Argus source tree. Built-in skill markdown lives at `/home/argustest/argus-skill/argus_skill/builtin_skills/` and as the Python package resource `argus_skill.builtin_skills`.
 - If this workspace does not already have local copies, export the built-in skills so the daemon can read them directly:
   `PYTHONPATH=/home/argustest/argus-skill /home/argustest/miniconda3/bin/python -m argus_skill --export-builtin-skills ./argus_builtin_skills`
-- Read `./argus_builtin_skills/*.md` first when invoking built-in paper/research skills. If the local copy is absent or stale, fall back to `/home/argustest/argus-skill/argus_skill/builtin_skills/`. Do not copy the whole Argus repository, global memory, model caches, or capability vault into this project.
+- Read `./argus_builtin_skills/*.md` and `./argus_builtin_skills/**/*.md` first when invoking built-in paper/research/domain skills. If the local copy is absent or stale, fall back to `/home/argustest/argus-skill/argus_skill/builtin_skills/`. Do not copy the whole Argus repository, global memory, model caches, or capability vault into this project.
 - When ownership is unclear, read `./argus_builtin_skills/emnlp-paper-skill-router.md` first, then load the specific skill it routes to.
 - Prefer `/home/argustest/miniconda3/bin/python` for Argus validation commands.
 - Final EMNLP completion requires this exact command to exit 0 and be quoted in completion evidence:

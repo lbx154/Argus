@@ -25,7 +25,7 @@ origin or notes when a module is new in this repo.
 | `argus_skill/skills/paper_calibration.py` | new | Stores paper-quality calibration metadata and detects fresh-demo-style quality blockers. |
 | `argus_skill/skills/pipeline_contracts.py` | new | Validates auto-research state, submission assurance, and calibration artifacts. |
 | `argus_skill/skills/store.py` | skill-agent/skill_agent/skill_store.py | Markdown skill cache + fit-graded matcher. |
-| `argus_skill/builtin_skills/*.md` | adapted | Argus-native research/paper playbooks adapted from ARIS workflow concepts. |
+| `argus_skill/builtin_skills/*.md`, `argus_skill/builtin_skills/**/*.md` | adapted | Argus-native research/paper/domain playbooks adapted from ARIS workflow concepts. |
 | `argus_skill/engineer/reviewer.py` | ArgusBot/codex_autoloop/reviewer.py | Reviewer loop adapted to `RunnerBackend`. |
 | `argus_skill/engineer/checks.py` | ArgusBot/codex_autoloop/checks.py | Acceptance-check helpers. |
 | `argus_skill/engineer/reviewer_schema.json` | ArgusBot/codex_autoloop/reviewer_schema.json | Reviewer JSON schema. |

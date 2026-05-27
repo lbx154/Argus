@@ -89,6 +89,7 @@ def test_main_exports_builtin_skills(
     assert rc == 0
     assert (target / "auto-research-pipeline.md").exists()
     assert (target / "emnlp-paper-drafting.md").exists()
+    assert (target / "domains" / "agents-rag" / "langchain.md").exists()
     assert "exported built-in skills" in out
     assert str(target) in out
 

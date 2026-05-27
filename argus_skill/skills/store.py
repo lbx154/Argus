@@ -214,7 +214,9 @@ class SkillStore:
     def list_summaries(self) -> list[dict]:
         summaries: list[dict] = []
         seen: set[str] = set()
-        for p in sorted(self.skills_dir.glob("*.md")):
+        for p in sorted(self.skills_dir.rglob("*.md")):
+            if any(part.startswith(".") for part in p.relative_to(self.skills_dir).parts):
+                continue
             key = str(p)
             seen.add(key)
             try:

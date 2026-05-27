@@ -168,11 +168,13 @@ def test_built_artifacts_and_installed_cli_contract_from_sdist(
     assert _artifact_contains(wheel, "argus_skill/skills/pipeline_policy.py")
     assert _artifact_contains(wheel, "argus_skill/tools/project_templates/code/generate_image_2.py")
     assert _artifact_contains(wheel, "argus_skill/builtin_skills/emnlp-paper-drafting.md")
+    assert _artifact_contains(wheel, "argus_skill/builtin_skills/domains/agents-rag/langchain.md")
     assert _sdist_contains(sdist, "argus_skill/skills/__init__.py")
     assert _sdist_contains(sdist, "argus_skill/skills/store.py")
     assert _sdist_contains(sdist, "argus_skill/skills/pipeline_policy.py")
     assert _sdist_contains(sdist, "argus_skill/tools/project_templates/code/generate_image_2.py")
     assert _sdist_contains(sdist, "argus_skill/builtin_skills/emnlp-paper-drafting.md")
+    assert _sdist_contains(sdist, "argus_skill/builtin_skills/domains/agents-rag/langchain.md")
 
     venv_dir = tmp_path / "venv"
     venv.EnvBuilder(with_pip=True).create(venv_dir)

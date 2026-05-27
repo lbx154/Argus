@@ -50,9 +50,9 @@ Before doing anything else, consult the **argus-skill built-in skills** and
 | 90-skill AI research library | `/root/AI-Research-SKILLs/` (see CLAUDE.md for index) |
 
 **Builtin skill locations on disk:**
-- Global: `~/.argus-skill/skills/*.md`
-- Per-project: `<project>/argus_builtin_skills/*.md`
-- Source: `/root/argus-skill/argus_skill/builtin_skills/*.md`
+- Global: `~/.argus-skill/skills/*.md` and `~/.argus-skill/skills/**/*.md`
+- Per-project: `<project>/argus_builtin_skills/*.md` and `<project>/argus_builtin_skills/**/*.md`
+- Source: `/root/argus-skill/argus_skill/builtin_skills/*.md` and `/root/argus-skill/argus_skill/builtin_skills/**/*.md`
 
 **Hard rule:** never invent BibTeX entries from memory. AI hallucination rate
 on citations is ≈40 %. Use Semantic Scholar / arXiv / CrossRef tools to

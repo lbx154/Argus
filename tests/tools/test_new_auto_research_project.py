@@ -61,9 +61,10 @@ def test_create_project_without_daemon_exports_template_and_skills(tmp_path: Pat
     assert result.daemon_started is False
     assert "agent-emnlp-auto-research-v15" in agents
     assert "validate-paper-quality-contracts" in agents
-    exported = sorted(result.skills_dir.glob("*.md"))
+    exported = sorted(result.skills_dir.rglob("*.md"))
     assert len(exported) == builtin_skill_count()
     assert (result.skills_dir / "agent-md-new-project-template.md").exists()
+    assert (result.skills_dir / "domains" / "agents-rag" / "langchain.md").exists()
 
     code_dir = result.project_dir / "code"
     llm = code_dir / "llm.py"

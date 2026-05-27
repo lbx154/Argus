@@ -548,7 +548,7 @@ ideation → literature → hypothesis → experiment-plan → implementation
 Each stage is governed by a builtin skill. The planner (L4) advances
 the pipeline automatically; you can also run stages manually.
 
-### Built-in skill inventory (34 skills)
+### Built-in skill inventory (76 skills)
 
 **Orchestration & routing:**
 - `auto-research-pipeline` — end-to-end orchestration
@@ -564,10 +564,10 @@ the pipeline automatically; you can also run stages manually.
 **Experiment design & execution:**
 - `research-brief-to-experiment-plan` — idea → runnable plan
 - `agent-research-benchmark-runner` — training-free evaluation
-- `training-experiment-runner` — GPU training (DeepSpeed/FSDP/LoRA/RLHF)
-- `cv-research-pipeline` — CV-specific (ImageNet/COCO/ADE20K)
-- `multimodal-research-pipeline` — VLM-specific (LLaVA/VQA/MMMU)
-- `ai-infra-research-pipeline` — systems benchmarking (throughput/latency)
+- `domains/training/*` — GPU training and fine-tuning packs (DeepSpeed/FSDP/LoRA/RLHF)
+- `domains/cv-multimodal/*` — CV/VLM packs (CLIP, LLaVA, SAM, BLIP-2, VQA/MMMU-style work)
+- `domains/inference-serving/*`, `domains/infrastructure/*`, `domains/optimization/*` — systems benchmarking, serving, and efficiency packs
+- `domains/research-ops/run-experiment`, `domains/research-ops/monitor-experiment` — experiment execution and monitoring
 - `ablation-planner` — systematic ablation study design
 - `experiment-audit` — integrity check (fake GT, normalization fraud)
 
@@ -586,6 +586,8 @@ the pipeline automatically; you can also run stages manually.
 - `paper-review-revision-loop` — iterative review/fix cycle
 - `academic-paper-peer-review-benchmark` — calibrated review
 - `emnlp-format-preflight` — LaTeX/format compliance check
+- `domains/research-ops/citation-audit` — bibliography and citation-context audit
+- `domains/research-ops/paper-compile`, `domains/research-ops/paper-figure` — paper build and figure support
 - `research-submission-assurance-gate` — final submission gate
 
 **Agent roles (L1-L4):**

@@ -17,6 +17,8 @@ def test_seed_builtin_skills_creates_parseable_research_defaults(tmp_path: Path)
 
     assert len(created) == builtin_skill_count()
     assert all(created.values())
+    assert (skills_dir / "domains" / "agents-rag" / "langchain.md").exists()
+    assert (skills_dir / "domains" / "research-ops" / "citation-audit.md").exists()
     summaries = SkillStore(skills_dir).list_summaries()
     names = {summary["name"] for summary in summaries}
     assert "EMNLP Paper Drafting" in names
@@ -36,18 +38,24 @@ def test_seed_builtin_skills_creates_parseable_research_defaults(tmp_path: Path)
     assert "Argus Scientist Role" in names
     assert "AGENTS.md New Project Template" in names
     assert "AGENTS.md Existing Project Optimization Template" in names
+    assert "langchain" in names
+    assert "citation-audit" in names
 
 
 def test_seed_builtin_skills_preserves_existing_user_edits(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
     target = skills_dir / "emnlp-paper-drafting.md"
+    nested_target = skills_dir / "domains" / "agents-rag" / "langchain.md"
     target.write_text("user edit\n", encoding="utf-8")
+    nested_target.write_text("nested user edit\n", encoding="utf-8")
 
     created = seed_builtin_skills(skills_dir)
 
     assert created["emnlp-paper-drafting.md"] is False
+    assert created["domains/agents-rag/langchain.md"] is False
     assert target.read_text(encoding="utf-8") == "user edit\n"
+    assert nested_target.read_text(encoding="utf-8") == "nested user edit\n"
 
 
 def test_global_memory_init_seeds_builtin_skills(tmp_path: Path) -> None:
@@ -158,6 +166,33 @@ def test_builtin_skills_require_full_scale_experiment_evidence_gate(
             assert required in text, f"{filename} missing {required!r}"
 
 
+def test_research_domain_router_references_current_domain_skill_packs(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    seed_builtin_skills(skills_dir)
+
+    text = (skills_dir / "research-domain-router.md").read_text(encoding="utf-8")
+
+    for removed_skill in (
+        "cv-research-pipeline",
+        "multimodal-research-pipeline",
+        "ai-infra-research-pipeline",
+        "training-experiment-runner",
+    ):
+        assert removed_skill not in text
+    for current_path in (
+        "domains/cv-multimodal/*",
+        "domains/inference-serving/*",
+        "domains/infrastructure/*",
+        "domains/optimization/*",
+        "domains/training/*",
+        "domains/research-ops/run-experiment.md",
+        "domains/research-ops/monitor-experiment.md",
+    ):
+        assert current_path in text
+
+
 def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
     tmp_path: Path,
 ) -> None:
@@ -185,6 +220,7 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         assert "argus_skill.builtin_skills" in text
         assert "--export-builtin-skills ./argus_builtin_skills" in text
         assert "argus_builtin_skills/*.md" in text
+        assert "argus_builtin_skills/**/*.md" in text
         assert "/home/argustest/miniconda3/bin/python" in text
         assert "validate-full-emnlp" in text
         assert "image-2/codex-image2" in text

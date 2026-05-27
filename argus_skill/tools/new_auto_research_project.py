@@ -161,7 +161,7 @@ def default_allowed_inputs_table_rows() -> str:
         [
             "| Global research playbook | `/home/argustest/research.md` | local operator guidance | Paper-quality and research-process guidance only | Stable cross-project writing and validation policy |",
             "| Argus source tree | `/home/argustest/argus-skill` | local source | Validators, built-in skills, helper APIs, and daemon runtime | Required toolchain for this workspace |",
-            "| Exported built-in skills | `./argus_builtin_skills/*.md` | generated local copy | Read-only local skill guidance | Keeps the daemon self-contained without copying the whole Argus repository |",
+            "| Exported built-in skills | `./argus_builtin_skills/*.md`, `./argus_builtin_skills/**/*.md` | generated local copy | Read-only local skill guidance | Keeps the daemon self-contained without copying the whole Argus repository |",
             "| Public literature, datasets, and repositories | verified URLs/scholarly sources | source-specific license/access | Topic discovery, citations, benchmark construction, and baseline implementation | Must be recorded before use in research artifacts |",
         ]
     )

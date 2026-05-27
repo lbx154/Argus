@@ -40,11 +40,11 @@ Training is NOT tied to any domain. Any domain can be training-free OR training-
 | Domain | Signals | Primary Pipeline | Venue Targets |
 |--------|---------|-----------------|---------------|
 | Agent/LLM | prompting, tool use, multi-agent, planning, memory | `auto-research-pipeline` + `agent-research-benchmark-runner` | EMNLP, ACL, NeurIPS, ICLR |
-| CV | images, detection, segmentation, ViT, CNN, 3D | `cv-research-pipeline` | CVPR, ICCV, ECCV, NeurIPS |
-| Multimodal/VLM | vision-language, VQA, image+text, video-language | `multimodal-research-pipeline` | CVPR, NeurIPS, EMNLP, ICLR |
-| AI Infrastructure | serving, throughput, latency, kernel, distributed | `ai-infra-research-pipeline` | MLSys, OSDI, ATC, SC, ISCA |
+| CV | images, detection, segmentation, ViT, CNN, 3D | `domains/cv-multimodal/*` + `domains/research-ops/run-experiment.md` | CVPR, ICCV, ECCV, NeurIPS |
+| Multimodal/VLM | vision-language, VQA, image+text, video-language | `domains/cv-multimodal/*` + `domains/research-ops/paper-figure.md` | CVPR, NeurIPS, EMNLP, ICLR |
+| AI Infrastructure | serving, throughput, latency, kernel, distributed | `domains/inference-serving/*` + `domains/infrastructure/*` + `domains/optimization/*` | MLSys, OSDI, ATC, SC, ISCA |
 | NLP | language models, parsing, generation, summarization | `auto-research-pipeline` + `agent-research-benchmark-runner` | EMNLP, ACL, NAACL, EACL |
-| RL/Alignment | RLHF, DPO, reward model, policy optimization | Domain-specific + `training-experiment-runner` | NeurIPS, ICML, ICLR |
+| RL/Alignment | RLHF, DPO, reward model, policy optimization | Domain-specific skills + `domains/training/*` + `domains/evaluation/*` | NeurIPS, ICML, ICLR |
 | Theory/Analysis | proofs, bounds, mechanistic interp | `research-brief-to-experiment-plan` | NeurIPS, ICML, ICLR |
 
 ## Methodology Classification
@@ -52,7 +52,7 @@ Training is NOT tied to any domain. Any domain can be training-free OR training-
 | Methodology | When | Add These Skills |
 |-------------|------|-----------------|
 | Training-free | API-only, zero-shot, prompting, inference | `agent-research-benchmark-runner` (eval only) |
-| Training-based | Fine-tuning, pretraining, RL, any gradient updates | `training-experiment-runner` |
+| Training-based | Fine-tuning, pretraining, RL, any gradient updates | `domains/training/*`, `domains/research-ops/run-experiment.md`, `domains/research-ops/monitor-experiment.md` |
 | Hybrid | Train a model + evaluate with agent/inference pipeline | Both of the above |
 
 ## Routing Logic
