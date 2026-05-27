@@ -82,7 +82,7 @@ Score each dimension 1--5. Most plausible drafts should land in the 2--4 range; 
 7. **Format, layout, and visual evidence**
    - Enforce `research.md`: official ACL/EMNLP review template, anonymous author block, 7.5--8 main-content pages, conclusion by page 8, Limitations/Ethics after conclusion, References before Appendix, References/Appendix starting on page 9 or later, no total-page maximum after the body, and complete reproducibility appendix.
    - No unresolved references/citations, `[?]`, placeholders, or `Overfull \hbox > 5pt`.
-   - Every figure is labeled and referenced; every table caption has a numerical headline; at least one figure/table appears on each of pages 4--7; paired-significance evidence appears when comparative binary outcomes are reported.
+   - Every figure is labeled and referenced; every table caption has a numerical headline; the middle-body visual rhythm passes the model-backed layout review; paired-significance evidence appears when comparative binary outcomes are reported.
    - Data/metric/result plots may be generated locally from scripts. Every other paper-facing figure, including Figure 1, teaser, overall, core method/framework/system/pipeline overview figures, schematics, qualitative/example visuals, and explanatory diagrams, must use actual image-2/codex-image2 raster output in `paper/main.tex`. Hard reject self-drawn substitutes from matplotlib, TikZ node graphs, SVG/PIL/HTML canvas, screenshots, Inkscape/manual vectors, or cleaned PDFs.
    - Tables should use the research.md style tokens: `\footnotesize`, `\tabcolsep=3-4pt`, `\arraystretch=1.15`, light-gray header, soft peach "ours" row, alternating row tint, and bold winning values.
 

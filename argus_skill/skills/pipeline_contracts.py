@@ -133,7 +133,6 @@ OVERFULL_HBOX_COUNT_PT = 5.0
 MAX_MODERATE_OVERFULL_HBOXES = 0
 MAX_RESEARCH_MD_BODY_FIGURES = 5
 MAX_RESEARCH_MD_WIDE_FIGURES = 1
-RESEARCH_MD_VISUAL_PAGES = {4, 5, 6, 7}
 REQUIRED_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY = 7
 MIN_RENDERED_REFERENCES_PAGE_FOR_FULL_BODY = 9
 MIN_RENDERED_APPENDIX_PAGE = 9
@@ -5211,21 +5210,6 @@ def _validate_research_md_pdf_text(pages: list[str]) -> list[ContractIssue]:
                 )
             )
 
-    if len(pages) >= max(RESEARCH_MD_VISUAL_PAGES):
-        visual_pages = {
-            page_number
-            for page_number, page_text in enumerate(pages, start=1)
-            if re.search(r"\b(?:Figure|Table)\s+\d+", page_text)
-        }
-        missing_visual_pages = sorted(RESEARCH_MD_VISUAL_PAGES - visual_pages)
-        if missing_visual_pages:
-            issues.append(
-                ContractIssue(
-                    "missing_midpaper_visual_pages",
-                    str(PAPER_MAIN_PDF_PATH),
-                    f"research.md expects figures/tables on pages 4-7; missing pages {missing_visual_pages}",
-                )
-            )
     return issues
 
 

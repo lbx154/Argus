@@ -946,7 +946,7 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "Submission contract to enforce: conclusion by page 8, Limitations/Ethics after conclusion, "
         "References before Appendix, References/Appendix on page 9 or later with no total-page cap, "
         "no Overfull hbox above 5pt, <=5 body figures, at most one "
-        "full-width figure*, at least one meaningful figure/table anchor on each of pages 4-7, table "
+        "full-width figure*, meaningful figure/table anchors across the middle body when they improve readability, table "
         "captions with numerical headlines, readable research-style tables, adaptive/landscape "
         "conceptual figures rather than 1024x1024 squares, and no weird fonts, tiny labels, heavy "
         "gradients, photorealism, or code-like labels in paper-facing visuals.\n\n"

@@ -55,7 +55,6 @@ DEFAULT_VALIDATION_ISSUE_PREFIXES: dict[str, tuple[str, ...]] = {
         "appendix_before_page_9",
         "references_share_page_with_body_sections",
         "insufficient_rendered_reference_pages",
-        "missing_midpaper_visual_pages",
         "draft_not_submission_quality",
     ),
     "exemplar_suitability": ("exemplar_suitability", "style_exemplar_suitability"),

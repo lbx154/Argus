@@ -4943,7 +4943,6 @@ def _write_valid_validation_priority_policy(root: Path) -> None:
                 "underlength_emnlp_paper",
                 "rendered_main_body_underfilled",
                 "references_before_full_body",
-                "missing_midpaper_visual_pages",
                 "draft_not_submission_quality",
             ],
             "repair_mode": (

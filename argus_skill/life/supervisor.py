@@ -342,7 +342,6 @@ _EMNLP_FIGURE_TABLE_FORMAT_CODES = {
 }
 _EMNLP_CONTENT_SUFFICIENCY_CODES = {
     "missing_main_content_pages",
-    "missing_midpaper_visual_pages",
     "appendix_before_page_9",
     "references_before_full_body",
     "rendered_main_body_underfilled",

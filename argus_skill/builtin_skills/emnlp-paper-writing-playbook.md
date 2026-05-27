@@ -620,13 +620,13 @@ Page 6   Results: ablation table, per-condition table, key figure
 Page 7   Analysis: significance, qualitative, discussion
 Page 8   Conclusion
 ─────────  (8-page body limit; references and appendix begin after page 8)
-Page 9+  References + Appendix boundary; Limitations/Ethics may spill after Conclusion before References
+Page 9+  References + Appendix
 ```
 
 **Rule**: Conclusion (Sec ≤9) MUST appear by end of page 8. Limitations
-and Ethics are required after Conclusion and before References; they may spill
-past the eight-page body boundary, but they do not repair an underfilled
-pre-Conclusion draft. Do not force Conclusion with `\clearpage`, `\newpage`,
+and Ethics are required after Conclusion and before References; they do not
+repair an underfilled pre-Conclusion draft, and References/Appendix must still
+start on page 9 or later with no total-page cap. Do not force Conclusion with `\clearpage`, `\newpage`,
 `\pagebreak`, or `\FloatBarrier` immediately before the section; a forced
 pre-Conclusion break can leave page 8 mostly blank and push the heading to
 page 9 after minor float changes.
