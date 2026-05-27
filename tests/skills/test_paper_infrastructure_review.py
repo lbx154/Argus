@@ -1,0 +1,25 @@
+from argus_skill.skills.paper_infrastructure_review import _review_prompt
+
+
+def test_paper_infrastructure_prompt_delegates_env_device_leaks_to_reviewer() -> None:
+    prompt = _review_prompt(
+        source_text_by_path={
+            "paper/main.tex": (
+                "\\section{Experimental Setup}\n"
+                "The evaluated SkillGuard implementation runs in a deterministic Python benchmark harness.\n"
+            )
+        },
+        threshold=4.0,
+    )
+
+    for required in (
+        "CUDA_VISIBLE_DEVICES",
+        "HF_HOME",
+        "TRANSFORMERS_CACHE",
+        "/root/.cache",
+        "Argus/Codex daemon",
+        "engineer/reviewer/critic/scientist route",
+        "strict JSON only",
+        "leak_free",
+    ):
+        assert required in prompt

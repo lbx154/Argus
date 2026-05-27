@@ -27,6 +27,8 @@ from ._review_contract_constants import (
     LAYOUT_REVIEW_GENERATED_BY,
     LAYOUT_REVIEW_HISTORY_PATH,
     MIN_RAW_REVIEW_TEXT_CHARS,
+    PAPER_INFRASTRUCTURE_REVIEW_GENERATED_BY,
+    PAPER_INFRASTRUCTURE_REVIEW_HISTORY_PATH,
     REVIEW_INPUT_SHA256_FIELD,
     REVIEW_PROMPT_SHA256_FIELD,
 )
@@ -51,6 +53,17 @@ from .academic_language_review import (
 )
 from .academic_language_review import (
     SECTION_SCORE_KEYS as REQUIRED_ACADEMIC_SECTION_SCORES,
+)
+from .paper_infrastructure_review import (
+    ALLOWED_DIRECTIVE_ACTIONS as ALLOWED_PAPER_INFRASTRUCTURE_ACTIONS,
+)
+from .paper_infrastructure_review import (
+    MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE,
+    PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH,
+    REQUIRED_CHECKED_SCOPES as REQUIRED_PAPER_INFRASTRUCTURE_SCOPES,
+)
+from .paper_infrastructure_review import (
+    MODEL_REVIEW_METHODS as PAPER_INFRASTRUCTURE_MODEL_METHODS,
 )
 from .paper_calibration import (
     PAPER_DRAFT_REPORT_JSON_PATH,
@@ -80,6 +93,7 @@ STYLE_STRUCTURE_CONFORMANCE_JSON_PATH = Path("paper/style_ref/STRUCTURE_CONFORMA
 IMAGE2_FIGURES_JSON_PATH = Path("paper/figures/IMAGE2_FIGURES.json")
 LAYOUT_REVIEW_JSON_PATH = Path("paper/LAYOUT_REVIEW.json")
 ACADEMIC_LANGUAGE_REVIEW_PATH = ACADEMIC_LANGUAGE_REVIEW_JSON_PATH
+PAPER_INFRASTRUCTURE_REVIEW_PATH = PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH
 CLAIM_GRAPH_JSON_PATH = Path("paper/CLAIM_GRAPH.json")
 EVIDENCE_GAPS_JSON_PATH = Path("paper/EVIDENCE_GAPS.json")
 FIGURE_TABLE_STYLE_GUIDE_JSON_PATH = Path("paper/FIGURE_TABLE_STYLE_GUIDE.json")
@@ -570,6 +584,7 @@ FRESHNESS_ALWAYS_REQUIRED_PATHS: tuple[Path, ...] = (
     PAPER_MAIN_PDF_PATH,
     LAYOUT_REVIEW_JSON_PATH,
     ACADEMIC_LANGUAGE_REVIEW_PATH,
+    PAPER_INFRASTRUCTURE_REVIEW_PATH,
 )
 FRESHNESS_REQUIRED_INPUTS: dict[Path, tuple[Path, ...]] = {
     PAPER_MAIN_TEX_PATH: (
@@ -582,6 +597,7 @@ FRESHNESS_REQUIRED_INPUTS: dict[Path, tuple[Path, ...]] = {
     PAPER_MAIN_PDF_PATH: (PAPER_MAIN_TEX_PATH,),
     LAYOUT_REVIEW_JSON_PATH: (PAPER_MAIN_PDF_PATH,),
     ACADEMIC_LANGUAGE_REVIEW_PATH: (PAPER_MAIN_TEX_PATH, PAPER_MAIN_PDF_PATH),
+    PAPER_INFRASTRUCTURE_REVIEW_PATH: (PAPER_MAIN_TEX_PATH, PAPER_MAIN_PDF_PATH),
 }
 MANIFEST_DISCOVERY_EXCLUDED_DIRS = {
     ".git",
@@ -683,6 +699,10 @@ MANIFEST_SOURCE_PREFERENCES: dict[str, tuple[str, ...]] = {
         "paper/main.tex",
         "paper/main.pdf",
     ),
+    "paper/PAPER_INFRASTRUCTURE_REVIEW.json": (
+        "paper/main.tex",
+        "paper/main.pdf",
+    ),
     "paper/LAYOUT_REVIEW.json": (
         "paper/main.pdf",
     ),
@@ -690,6 +710,7 @@ MANIFEST_SOURCE_PREFERENCES: dict[str, tuple[str, ...]] = {
         "paper/main.pdf",
         "paper/FORMAT_PREFLIGHT.md",
         "paper/ACADEMIC_LANGUAGE_REVIEW.json",
+        "paper/PAPER_INFRASTRUCTURE_REVIEW.json",
         "paper/LAYOUT_REVIEW.json",
         "paper/PAPER_QUALITY_CALIBRATION.json",
     ),
@@ -731,6 +752,10 @@ DEFAULT_VALIDATION_REPAIR_MODES: dict[str, str] = {
     "format_layout": "repair LaTeX format, page flow, floats, captions, and overfull boxes",
     "layout_vision": "revise rendered PDF layout and rerun the vision layout reviewer",
     "academic_language": "rewrite prose through the model-backed academic-language reviewer",
+    "paper_infrastructure": (
+        "remove reader-facing local environment/device/config leaks and rerun the "
+        "model-backed paper infrastructure reviewer"
+    ),
     "artifact_manifest": "refresh artifact manifest schemas, sources, digests, and TSV columns",
 }
 STANDARD_STRUCTURE_SECTION_TOKENS = {
@@ -1017,6 +1042,7 @@ REQUIRED_ARTIFACT_PATTERNS: dict[str, tuple[str, ...]] = {
         str(PAPER_QUALITY_CALIBRATION_JSON_PATH),
         str(LAYOUT_REVIEW_JSON_PATH),
         str(ACADEMIC_LANGUAGE_REVIEW_JSON_PATH),
+        str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
         "paper/CLAIMS_EVIDENCE_AUDIT.tsv",
         str(CLAIMS_EVIDENCE_AUDIT_JSON_PATH),
     ),
@@ -1025,6 +1051,7 @@ REQUIRED_ARTIFACT_PATTERNS: dict[str, tuple[str, ...]] = {
         "paper/SUBMISSION_ASSURANCE.json",
         str(LAYOUT_REVIEW_JSON_PATH),
         str(ACADEMIC_LANGUAGE_REVIEW_JSON_PATH),
+        str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
     ),
 }
 
@@ -1035,6 +1062,7 @@ CODE_REUSE_PLAN_STAGES = {"plan"}
 EMNLP_PAPER_CONTRACT_STAGES = {"draft", "assurance", "submission"}
 LAYOUT_REVIEW_STAGES = {"assurance", "submission"}
 ACADEMIC_LANGUAGE_REVIEW_STAGES = {"assurance", "submission"}
+PAPER_INFRASTRUCTURE_REVIEW_STAGES = {"assurance", "submission"}
 FULL_EMNLP_REQUIRED_STAGES: tuple[str, ...] = (
     "brief",
     "literature",
@@ -1070,6 +1098,7 @@ ASSURANCE_LAYERS: tuple[str, ...] = (
     "paper_quality_calibration",
     "research_md_format_preflight",
     "academic_language_review",
+    "paper_infrastructure_review",
     "layout_aesthetic_review",
     "submission_package",
 )
@@ -1172,6 +1201,7 @@ def validate_pipeline_state(project_root: Path) -> list[ContractIssue]:
     full_scale_experiment_checked = False
     layout_review_checked = False
     academic_language_review_checked = False
+    paper_infrastructure_review_checked = False
     for stage, value in stages.items():
         if stage not in PIPELINE_STAGES:
             issues.append(
@@ -1246,6 +1276,12 @@ def validate_pipeline_state(project_root: Path) -> list[ContractIssue]:
             ):
                 issues.extend(validate_academic_language_review(root))
                 academic_language_review_checked = True
+            if (
+                stage in PAPER_INFRASTRUCTURE_REVIEW_STAGES
+                and not paper_infrastructure_review_checked
+            ):
+                issues.extend(validate_paper_infrastructure_review(root))
+                paper_infrastructure_review_checked = True
             if stage == "submission":
                 issues.extend(validate_submission_readiness(root))
 
@@ -6037,6 +6073,573 @@ def validate_academic_language_review(project_root: Path) -> list[ContractIssue]
     return _dedupe_contract_issues(issues)
 
 
+def validate_paper_infrastructure_review(project_root: Path) -> list[ContractIssue]:
+    """Validate model-backed review for paper-facing infrastructure leaks."""
+
+    root = Path(project_root)
+    path = root / PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH
+    if not path.exists():
+        return [
+            ContractIssue(
+                "missing_paper_infrastructure_review",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                (
+                    "final EMNLP readiness requires paper/PAPER_INFRASTRUCTURE_REVIEW.json "
+                    "from the model-backed paper infrastructure review tool"
+                ),
+            )
+        ]
+
+    try:
+        payload = _read_json_object(path)
+    except ValueError as exc:
+        return [
+            ContractIssue(
+                "invalid_paper_infrastructure_review_json",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                str(exc),
+            )
+        ]
+
+    issues: list[ContractIssue] = []
+    if payload.get("schema_version") != 1:
+        issues.append(
+            ContractIssue(
+                "unknown_paper_infrastructure_review_schema",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "paper infrastructure review schema_version must be 1",
+            )
+        )
+    issues.extend(
+        _validate_review_generated_by(
+            payload,
+            expected=PAPER_INFRASTRUCTURE_REVIEW_GENERATED_BY,
+            artifact_path=PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH,
+            issue_code="paper_infrastructure_review_not_skill_generated",
+            message=(
+                "paper infrastructure review must be generated by the "
+                "paper_infrastructure_review skill"
+            ),
+        )
+    )
+    issues.extend(
+        _validate_review_policy_flag(
+            payload,
+            flag="pass_requires_model",
+            artifact_path=PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH,
+            issue_code="paper_infrastructure_review_missing_model_policy",
+            message="paper infrastructure review policy must record pass_requires_model=true",
+        )
+    )
+
+    review_method = payload.get("review_method")
+    if not isinstance(review_method, str) or not review_method.strip():
+        issues.append(
+            ContractIssue(
+                "missing_paper_infrastructure_review_method",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "paper infrastructure review must record review_method",
+            )
+        )
+    elif review_method not in PAPER_INFRASTRUCTURE_MODEL_METHODS:
+        issues.append(
+            ContractIssue(
+                "paper_infrastructure_review_not_model_backed",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "final paper infrastructure review must use a model-backed text reviewer",
+            )
+        )
+
+    verdict = payload.get("verdict")
+    if verdict != "PASS":
+        issues.append(
+            ContractIssue(
+                "paper_infrastructure_review_not_pass",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                f"paper infrastructure review verdict must be PASS, got {verdict!r}",
+            )
+        )
+
+    score = _float_or_none(payload.get("score_1_to_5"))
+    threshold = _float_or_none(payload.get("threshold"))
+    if score is None:
+        issues.append(
+            ContractIssue(
+                "missing_paper_infrastructure_review_score",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "paper infrastructure review must include numeric score_1_to_5",
+            )
+        )
+    if threshold is None:
+        issues.append(
+            ContractIssue(
+                "missing_paper_infrastructure_review_threshold",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "paper infrastructure review must include numeric threshold",
+            )
+        )
+    elif threshold < MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE:
+        issues.append(
+            ContractIssue(
+                "paper_infrastructure_review_threshold_too_low",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                (
+                    "paper infrastructure review threshold must be at least "
+                    f"{MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE:g}"
+                ),
+            )
+        )
+    if (
+        score is not None
+        and threshold is not None
+        and score < max(threshold, MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE)
+    ):
+        issues.append(
+            ContractIssue(
+                "low_paper_infrastructure_review_score",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                (
+                    f"paper infrastructure review score {score:g} is below required "
+                    f"threshold {max(threshold, MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE):g}"
+                ),
+            )
+        )
+
+    if payload.get("needs_revision") is not False:
+        issues.append(
+            ContractIssue(
+                "paper_infrastructure_review_needs_revision",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "paper infrastructure review must set needs_revision=false before submission readiness",
+            )
+        )
+    if payload.get("leak_free") is not True:
+        issues.append(
+            ContractIssue(
+                "paper_infrastructure_review_reports_leak",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "paper infrastructure review must certify leak_free=true",
+            )
+        )
+
+    blocking_issues = payload.get("blocking_issues")
+    if not isinstance(blocking_issues, list):
+        issues.append(
+            ContractIssue(
+                "invalid_paper_infrastructure_review_blockers",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "paper infrastructure review blocking_issues must be a list",
+            )
+        )
+    elif blocking_issues:
+        issues.append(
+            ContractIssue(
+                "paper_infrastructure_review_has_blockers",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "paper infrastructure review still reports blocking issues",
+            )
+        )
+    major_issues = payload.get("major_issues")
+    if not isinstance(major_issues, list):
+        issues.append(
+            ContractIssue(
+                "invalid_paper_infrastructure_review_major_issues",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "paper infrastructure review major_issues must be a list",
+            )
+        )
+    elif major_issues:
+        issues.append(
+            ContractIssue(
+                "paper_infrastructure_review_has_major_issues",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "paper infrastructure review still reports major issues",
+            )
+        )
+
+    checked_scope = payload.get("checked_scope")
+    if not isinstance(checked_scope, list):
+        issues.append(
+            ContractIssue(
+                "missing_paper_infrastructure_checked_scope",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "paper infrastructure review must record checked_scope",
+            )
+        )
+    else:
+        normalized_scope = {str(item).strip().casefold() for item in checked_scope}
+        for scope in REQUIRED_PAPER_INFRASTRUCTURE_SCOPES:
+            if scope not in normalized_scope:
+                issues.append(
+                    ContractIssue(
+                        "missing_paper_infrastructure_checked_scope",
+                        str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                        f"checked_scope must include {scope!r}",
+                    )
+                )
+
+    snapshot_paths, snapshot_issues = _validate_paper_infrastructure_source_snapshots(
+        root,
+        payload.get("source_snapshots"),
+    )
+    issues.extend(snapshot_issues)
+    issues.extend(_validate_paper_infrastructure_review_source_set(root, snapshot_paths))
+    issues.extend(_validate_paper_infrastructure_evidence_spans(root, payload, snapshot_paths))
+    issues.extend(_validate_paper_infrastructure_model_payload(payload))
+    issues.extend(_validate_paper_infrastructure_history(root, payload))
+    issues.extend(_validate_paper_infrastructure_directives(payload))
+    return _dedupe_contract_issues(issues)
+
+
+def _validate_paper_infrastructure_source_snapshots(
+    root: Path,
+    raw_snapshots: object,
+) -> tuple[set[str], list[ContractIssue]]:
+    if not isinstance(raw_snapshots, list) or not raw_snapshots:
+        return set(), [
+            ContractIssue(
+                "missing_paper_infrastructure_source_snapshots",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "paper infrastructure review must include source_snapshots with hashes",
+            )
+        ]
+    issues: list[ContractIssue] = []
+    paths: set[str] = set()
+    for index, raw_snapshot in enumerate(raw_snapshots):
+        entry_path = f"{PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH}:source_snapshots[{index}]"
+        if not isinstance(raw_snapshot, dict):
+            issues.append(
+                ContractIssue(
+                    "invalid_paper_infrastructure_source_snapshot",
+                    entry_path,
+                    "source snapshot entry must be an object",
+                )
+            )
+            continue
+        rel_path = _normalize_manifest_path(raw_snapshot.get("path"))
+        if rel_path is None:
+            issues.append(
+                ContractIssue(
+                    "invalid_paper_infrastructure_source_path",
+                    entry_path,
+                    "source snapshot path must be relative to the project",
+                )
+            )
+            continue
+        paths.add(rel_path)
+        resolved = _resolve_manifest_path(root, rel_path)
+        if resolved is None or not resolved.is_file():
+            issues.append(
+                ContractIssue(
+                    "missing_paper_infrastructure_source_file",
+                    rel_path,
+                    "reviewed LaTeX source snapshot is missing",
+                )
+            )
+            continue
+        expected_hash = raw_snapshot.get("sha256")
+        if not isinstance(expected_hash, str) or not _is_sha256_hex(expected_hash):
+            issues.append(
+                ContractIssue(
+                    "missing_paper_infrastructure_source_hash",
+                    entry_path,
+                    "source snapshot must include a valid sha256 hash",
+                )
+            )
+            continue
+        if _sha256_file(resolved) != expected_hash:
+            issues.append(
+                ContractIssue(
+                    "stale_paper_infrastructure_review_source",
+                    rel_path,
+                    "paper infrastructure review hash does not match the current source file",
+                )
+            )
+    if PAPER_MAIN_TEX_PATH.as_posix() not in paths:
+        issues.append(
+            ContractIssue(
+                "missing_main_tex_paper_infrastructure_snapshot",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "paper infrastructure review must include paper/main.tex in source_snapshots",
+            )
+        )
+    return paths, issues
+
+
+def _validate_paper_infrastructure_review_source_set(
+    root: Path,
+    snapshot_paths: set[str],
+) -> list[ContractIssue]:
+    current_paths, missing_paths = collect_latex_source_paths(root)
+    issues: list[ContractIssue] = []
+    for rel_path in missing_paths:
+        issues.append(
+            ContractIssue(
+                "missing_paper_infrastructure_latex_source",
+                rel_path,
+                "paper/main.tex references a LaTeX source that cannot be reviewed",
+            )
+        )
+    current_set = set(current_paths)
+    for rel_path in sorted(current_set - snapshot_paths):
+        issues.append(
+            ContractIssue(
+                "unreviewed_paper_infrastructure_source",
+                rel_path,
+                "current LaTeX source is not covered by paper infrastructure review",
+            )
+        )
+    for rel_path in sorted(snapshot_paths - current_set):
+        issues.append(
+            ContractIssue(
+                "stale_paper_infrastructure_source_set",
+                rel_path,
+                "paper infrastructure review includes a source no longer referenced by paper/main.tex",
+            )
+        )
+    return issues
+
+
+def _validate_paper_infrastructure_evidence_spans(
+    root: Path,
+    payload: dict[str, Any],
+    snapshot_paths: set[str],
+) -> list[ContractIssue]:
+    raw_spans = payload.get("evidence_spans")
+    if not isinstance(raw_spans, list) or not raw_spans:
+        return [
+            ContractIssue(
+                "missing_paper_infrastructure_evidence_spans",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "model-backed infrastructure review must include quote evidence spans",
+            )
+        ]
+    issues: list[ContractIssue] = []
+    source_cache: dict[str, str] = {}
+    for index, raw_span in enumerate(raw_spans):
+        entry_path = f"{PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH}:evidence_spans[{index}]"
+        if not isinstance(raw_span, dict):
+            issues.append(
+                ContractIssue(
+                    "invalid_paper_infrastructure_evidence_span",
+                    entry_path,
+                    "evidence span must be an object",
+                )
+            )
+            continue
+        section = raw_span.get("section")
+        if not _is_nonempty_string(section):
+            issues.append(
+                ContractIssue(
+                    "invalid_paper_infrastructure_evidence_section",
+                    entry_path,
+                    "evidence span section must be non-empty",
+                )
+            )
+        source_path = _normalize_manifest_path(raw_span.get("source_path"))
+        if source_path is None or source_path not in snapshot_paths:
+            issues.append(
+                ContractIssue(
+                    "invalid_paper_infrastructure_evidence_source",
+                    entry_path,
+                    "evidence span source_path must reference a reviewed source snapshot",
+                )
+            )
+            continue
+        if not source_path.endswith(".tex"):
+            issues.append(
+                ContractIssue(
+                    "invalid_paper_infrastructure_evidence_source",
+                    entry_path,
+                    "evidence span source_path must be a reviewed .tex file",
+                )
+            )
+            continue
+        quote = raw_span.get("quote")
+        why = raw_span.get("why")
+        if not _is_nonempty_string(quote) or not _is_nonempty_string(why):
+            issues.append(
+                ContractIssue(
+                    "invalid_paper_infrastructure_evidence_span",
+                    entry_path,
+                    "evidence span must include non-empty quote and why fields",
+                )
+            )
+            continue
+        quote_text = str(quote).strip()
+        if source_path not in source_cache:
+            source_cache[source_path] = (root / source_path).read_text(
+                encoding="utf-8",
+                errors="replace",
+            )
+        if not _quote_in_source(quote_text, source_cache[source_path]):
+            issues.append(
+                ContractIssue(
+                    "paper_infrastructure_evidence_quote_not_found",
+                    entry_path,
+                    "evidence span quote is not present in the current reviewed source",
+                )
+            )
+    return issues
+
+
+def _validate_paper_infrastructure_model_payload(
+    payload: dict[str, Any],
+) -> list[ContractIssue]:
+    issues = _validate_nested_review_payload(
+        payload,
+        field="model_review",
+        artifact_path=PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH,
+        issue_prefix="paper_infrastructure_model",
+        reviewer_label="paper infrastructure model review",
+    )
+    model_review = payload.get("model_review")
+    if not isinstance(model_review, dict):
+        return issues
+    if _float_or_none(model_review.get("score_1_to_5")) is None:
+        issues.append(
+            ContractIssue(
+                "missing_paper_infrastructure_model_score",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "model_review must include numeric score_1_to_5 from the reviewer model",
+            )
+        )
+    if model_review.get("leak_free") is not True:
+        issues.append(
+            ContractIssue(
+                "paper_infrastructure_model_reports_leak",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "model_review must certify leak_free=true",
+            )
+        )
+    if not isinstance(model_review.get("checked_scope"), list):
+        issues.append(
+            ContractIssue(
+                "missing_paper_infrastructure_model_checked_scope",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "model_review must include checked_scope from the reviewer model",
+            )
+        )
+    if not isinstance(model_review.get("evidence_spans"), list) or not model_review.get("evidence_spans"):
+        issues.append(
+            ContractIssue(
+                "missing_paper_infrastructure_model_evidence_spans",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "model_review must include evidence_spans from the reviewer model",
+            )
+        )
+    if payload.get("verdict") == "PASS":
+        model_decision = str(model_review.get("pass_or_revise") or "").strip().casefold()
+        if model_decision and model_decision != "pass":
+            issues.append(
+                ContractIssue(
+                    "pass_paper_infrastructure_review_with_model_revise",
+                    str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                    (
+                        "PASS paper infrastructure review cannot contradict a nested "
+                        f"model_review pass_or_revise={model_decision!r}"
+                    ),
+                )
+            )
+        for field_name in ("blocking_issues", "major_issues", "revision_directives"):
+            raw_items = model_review.get(field_name)
+            if isinstance(raw_items, list) and raw_items:
+                issues.append(
+                    ContractIssue(
+                        f"pass_paper_infrastructure_review_with_model_{field_name}",
+                        str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                        (
+                            "PASS paper infrastructure review cannot leave active "
+                            f"model_review.{field_name}"
+                        ),
+                    )
+                )
+    return issues
+
+
+def _validate_paper_infrastructure_history(
+    root: Path,
+    payload: dict[str, Any],
+) -> list[ContractIssue]:
+    history_entries, history_issues = _read_review_history(
+        root,
+        PAPER_INFRASTRUCTURE_REVIEW_HISTORY_PATH,
+        missing_code="missing_paper_infrastructure_review_history",
+        invalid_code="invalid_paper_infrastructure_review_history",
+    )
+    if history_issues:
+        return history_issues
+
+    expected_sources = {
+        entry.get("path"): entry.get("sha256")
+        for entry in payload.get("source_snapshots", [])
+        if isinstance(entry, dict)
+    }
+    for entry in history_entries:
+        if (
+            entry.get("iteration") == payload.get("iteration")
+            and entry.get("verdict") == payload.get("verdict")
+            and entry.get("score_1_to_5") == payload.get("score_1_to_5")
+            and entry.get("needs_revision") == payload.get("needs_revision")
+            and entry.get("source_sha256") == expected_sources
+        ):
+            return []
+    return [
+        ContractIssue(
+            "stale_paper_infrastructure_review_history",
+            str(PAPER_INFRASTRUCTURE_REVIEW_HISTORY_PATH),
+            "paper infrastructure review history must match current source hashes and verdict",
+        )
+    ]
+
+
+def _validate_paper_infrastructure_directives(
+    payload: dict[str, Any],
+) -> list[ContractIssue]:
+    directives = payload.get("revision_directives")
+    if not isinstance(directives, list):
+        return [
+            ContractIssue(
+                "invalid_paper_infrastructure_review_directives",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "paper infrastructure review revision_directives must be a list",
+            )
+        ]
+    issues: list[ContractIssue] = []
+    if payload.get("verdict") == "PASS" and directives:
+        issues.append(
+            ContractIssue(
+                "pass_paper_infrastructure_review_with_directives",
+                str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+                "PASS paper infrastructure review cannot leave active revision directives",
+            )
+        )
+    for index, raw_directive in enumerate(directives):
+        entry_path = f"{PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH}:revision_directives[{index}]"
+        if not isinstance(raw_directive, dict):
+            issues.append(
+                ContractIssue(
+                    "invalid_paper_infrastructure_review_directive",
+                    entry_path,
+                    "revision directive must be an object",
+                )
+            )
+            continue
+        action = raw_directive.get("action")
+        if action not in ALLOWED_PAPER_INFRASTRUCTURE_ACTIONS:
+            issues.append(
+                ContractIssue(
+                    "invalid_paper_infrastructure_directive_action",
+                    entry_path,
+                    (
+                        "revision directive action must be from the approved "
+                        "paper infrastructure action vocabulary"
+                    ),
+                )
+            )
+    return issues
+
+
 def _validate_academic_source_snapshots(
     root: Path,
     raw_snapshots: object,
@@ -6737,6 +7340,7 @@ def validate_submission_assurance(project_root: Path) -> list[ContractIssue]:
             )
         issues.extend(validate_layout_review(root))
         issues.extend(validate_academic_language_review(root))
+        issues.extend(validate_paper_infrastructure_review(root))
         issues.extend(_contract_issues(detect_quality_blockers(root)))
         issues.extend(validate_artifact_manifest(root))
         issues.extend(validate_full_scale_experiment_evidence(root))
@@ -6789,6 +7393,7 @@ def validate_full_emnlp_readiness(project_root: Path) -> list[ContractIssue]:
     issues.extend(validate_emnlp_paper_contract(root))
     issues.extend(validate_layout_review(root))
     issues.extend(validate_academic_language_review(root))
+    issues.extend(validate_paper_infrastructure_review(root))
     issues.extend(validate_paper_quality_contracts(root))
     issues.extend(_contract_issues(detect_quality_blockers(root)))
     issues.extend(validate_submission_readiness(root))
@@ -10560,6 +11165,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ("validate-research-md-format", "validate strict research.md EMNLP format preflight"),
         ("validate-layout-review", "validate final paper layout/aesthetic review score"),
         ("validate-academic-language-review", "validate final academic-language review score"),
+        ("validate-paper-infrastructure-review", "validate paper-facing infrastructure leak review"),
         ("validate-full-scale-evidence", "validate completed full-scale experiment matrix evidence"),
         ("validate-submission", "validate submission readiness gates"),
         ("validate-full-emnlp", "validate complete EMNLP long-paper readiness"),
@@ -10618,6 +11224,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         issues = validate_layout_review(project_root)
     elif args.command == "validate-academic-language-review":
         issues = validate_academic_language_review(project_root)
+    elif args.command == "validate-paper-infrastructure-review":
+        issues = validate_paper_infrastructure_review(project_root)
     elif args.command == "validate-full-scale-evidence":
         issues = validate_full_scale_experiment_evidence(project_root)
     elif args.command == "validate-submission":

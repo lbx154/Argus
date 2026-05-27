@@ -28,6 +28,7 @@ The Critic is argus-skill's post-review quality filter: after the Reviewer accep
 ## Academic-paper behavior
 - For `final_submission` paper objectives, local stop requires evidence that the full EMNLP gate passed.
 - Missing strong baselines, copied benchmark padding, stale manifests, failed citation/layout gates, or weak claim-evidence alignment are high-impact requirement gaps.
+- Local environment/device/cache/path details, Argus/Codex route labels, or paper-generation configuration in rendered manuscript prose are high-impact paper-quality gaps. Require the model-backed `validate-paper-infrastructure-review` gate to pass instead of proposing hand-written pattern filters.
 - Do not propose prose-only patching when the reviewer objection requires new experiments or fresh artifacts.
 
 ## Output discipline

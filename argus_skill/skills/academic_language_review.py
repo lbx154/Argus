@@ -254,23 +254,6 @@ NO_EXTERNAL_MODEL_PATTERN = (
     r"\bdeterministic\b.{0,100}\b(?:symbolic|no external llm|without external llm)\b"
 )
 
-INTERNAL_GENERATION_INFRASTRUCTURE_PATTERNS: tuple[tuple[str, str, str], ...] = (
-    (
-        "mentions_internal_generation_infrastructure",
-        r"\b(?:argus(?:[- ]skill)?\s+pipeline|codex\s+engineer|"
-        r"engineer\s+routing|reviews?/calibration|planner,\s*engineer,\s*and\s*reviewer|"
-        r"academic[- ]language review|paper[-_ ]layout[-_ ]review|layout review tool|"
-        r"paper generator|capability[- ]vault|daemon|validation[- ]route|"
-        r"argus image tool)\b",
-        (
-            "method/setup is describing the internal Argus/Codex paper-generation "
-            "or review infrastructure; replace it with facts about the evaluated "
-            "system, benchmark harness, baselines, metrics, and actual model use"
-        ),
-    ),
-)
-
-
 class AcademicLanguageReviewError(RuntimeError):
     """Raised when an academic-language review cannot be generated."""
 
@@ -1483,9 +1466,6 @@ def find_method_system_readability_issues(tex_text: str) -> list[tuple[str, str]
     if not context.strip():
         context = _latex_to_plain_text(tex_text)
     issues: list[tuple[str, str]] = []
-    for code, pattern, message in INTERNAL_GENERATION_INFRASTRUCTURE_PATTERNS:
-        if re.search(pattern, context, re.I):
-            issues.append((code, message))
     for code, pattern, message in EVALUATED_SYSTEM_DETAIL_PATTERNS:
         if not re.search(pattern, context, re.I):
             issues.append((code, message))

@@ -12,6 +12,7 @@ VALIDATION_FAILURE_CLASSES: tuple[str, ...] = (
     "format_layout",
     "layout_vision",
     "academic_language",
+    "paper_infrastructure",
     "artifact_manifest",
 )
 
@@ -78,6 +79,12 @@ DEFAULT_VALIDATION_ISSUE_PREFIXES: dict[str, tuple[str, ...]] = {
         "low_academic",
         "pass_academic_language_review",
         "missing_experiment_model",
+    ),
+    "paper_infrastructure": (
+        "paper_infrastructure",
+        "stale_paper_infrastructure",
+        "low_paper_infrastructure",
+        "pass_paper_infrastructure_review",
     ),
     "artifact_manifest": ("artifact_", "manifest_", "generated_artifact"),
 }

@@ -35,6 +35,7 @@ from argus_skill.skills.pipeline_contracts import (
     validate_image2_figures,
     validate_layout_review,
     validate_literature_grounding,
+    validate_paper_infrastructure_review,
     validate_paper_format,
     validate_pipeline_state,
     validate_research_md_format_preflight,
@@ -183,6 +184,7 @@ def test_submission_assurance_contract_rejects_pass_with_failed_layer(
                 "paper_quality_calibration": {"verdict": "PASS"},
                 "research_md_format_preflight": {"verdict": "PASS"},
                 "academic_language_review": {"verdict": "PASS"},
+                "paper_infrastructure_review": {"verdict": "PASS"},
                 "layout_aesthetic_review": {"verdict": "PASS"},
                 "submission_package": {"verdict": "PASS"},
             },
@@ -214,6 +216,7 @@ def test_submission_assurance_contract_accepts_warn_with_environment_blocker(
                 "paper_quality_calibration": {"verdict": "PASS"},
                 "research_md_format_preflight": {"verdict": "PASS"},
                 "academic_language_review": {"verdict": "PASS"},
+                "paper_infrastructure_review": {"verdict": "PASS"},
                 "layout_aesthetic_review": {"verdict": "PASS"},
                 "submission_package": {"verdict": "PASS"},
             },
@@ -229,6 +232,7 @@ def test_submission_assurance_contract_accepts_warn_with_environment_blocker(
     _write_valid_paper_draft_report(tmp_path)
     _write_valid_layout_review(tmp_path)
     _write_valid_academic_language_review(tmp_path)
+    _write_valid_paper_infrastructure_review(tmp_path)
     _write_full_scale_experiment_run(tmp_path, methods=["no_skill"], task_count=300)
 
     assert validate_submission_assurance(tmp_path) == []
@@ -251,6 +255,7 @@ def test_submission_readiness_rejects_non_ready_verdict(tmp_path: Path) -> None:
                 "paper_quality_calibration": {"verdict": "FAIL"},
                 "research_md_format_preflight": {"verdict": "FAIL"},
                 "academic_language_review": {"verdict": "FAIL"},
+                "paper_infrastructure_review": {"verdict": "FAIL"},
                 "layout_aesthetic_review": {"verdict": "FAIL"},
                 "submission_package": {"verdict": "PASS"},
             },
@@ -583,6 +588,7 @@ def test_write_validation_priority_policy_creates_complete_failure_routing(
         "format_layout",
         "layout_vision",
         "academic_language",
+        "paper_infrastructure",
         "artifact_manifest",
     ]
     assert set(payload["failure_routing"]) == set(payload["priority_order"])
@@ -873,6 +879,7 @@ def test_ready_assurance_requires_valid_artifact_manifest(tmp_path: Path) -> Non
     _write_valid_paper_draft_report(tmp_path)
     _write_valid_layout_review(tmp_path)
     _write_valid_academic_language_review(tmp_path)
+    _write_valid_paper_infrastructure_review(tmp_path)
     _write_json(
         tmp_path / "paper" / "SUBMISSION_ASSURANCE.json",
         {
@@ -889,6 +896,7 @@ def test_ready_assurance_requires_valid_artifact_manifest(tmp_path: Path) -> Non
                 "paper_quality_calibration": {"verdict": "PASS"},
                 "research_md_format_preflight": {"verdict": "PASS"},
                 "academic_language_review": {"verdict": "PASS"},
+                "paper_infrastructure_review": {"verdict": "PASS"},
                 "layout_aesthetic_review": {"verdict": "PASS"},
                 "submission_package": {"verdict": "PASS"},
             },
@@ -2579,6 +2587,98 @@ def test_academic_language_review_rejects_missing_review(tmp_path: Path) -> None
     assert "missing_academic_language_review" in {issue.code for issue in issues}
 
 
+def test_paper_infrastructure_review_accepts_model_pass_with_fresh_sources(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_paper_infrastructure_review(tmp_path)
+
+    assert validate_paper_infrastructure_review(tmp_path) == []
+
+
+def test_paper_infrastructure_review_rejects_missing_review(tmp_path: Path) -> None:
+    issues = validate_paper_infrastructure_review(tmp_path)
+
+    assert "missing_paper_infrastructure_review" in {issue.code for issue in issues}
+
+
+def test_paper_infrastructure_review_rejects_model_reported_leak(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_paper_infrastructure_review(
+        tmp_path,
+        score=3.5,
+        verdict="FAIL",
+        needs_revision=True,
+        leak_free=False,
+        major_issues=[
+            {
+                "issue_code": "local_device_config_in_body",
+                "source_path": "paper/main.tex",
+                "quote": "CUDA_VISIBLE_DEVICES=6",
+                "required_rewrite": "remove the local device assignment from prose",
+            }
+        ],
+        revision_directives=[
+            {
+                "action": "remove_infrastructure_leak",
+                "target": "paper/main.tex",
+                "rationale": "local execution details are not paper-facing method facts",
+            }
+        ],
+    )
+
+    codes = {issue.code for issue in validate_paper_infrastructure_review(tmp_path)}
+    assert "paper_infrastructure_review_not_pass" in codes
+    assert "paper_infrastructure_review_reports_leak" in codes
+    assert "paper_infrastructure_review_has_major_issues" in codes
+
+
+def test_paper_infrastructure_review_rejects_stale_source_hash(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_paper_infrastructure_review(tmp_path)
+    _write(
+        tmp_path / "paper" / "main.tex",
+        "\\documentclass{article}\nchanged infrastructure source\n",
+    )
+
+    codes = {issue.code for issue in validate_paper_infrastructure_review(tmp_path)}
+    assert "stale_paper_infrastructure_review_source" in codes
+
+
+def test_paper_infrastructure_review_rejects_pass_contradicting_model_payload(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_paper_infrastructure_review(tmp_path)
+    path = tmp_path / "paper" / "PAPER_INFRASTRUCTURE_REVIEW.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["verdict"] = "PASS"
+    payload["needs_revision"] = False
+    payload["leak_free"] = True
+    payload["revision_directives"] = []
+    payload["model_review"]["pass_or_revise"] = "revise"
+    payload["model_review"]["major_issues"] = [
+        {"issue_code": "local_cache_path", "quote": "/root/.cache/huggingface"}
+    ]
+    payload["model_review"]["revision_directives"] = [
+        {
+            "action": "remove_infrastructure_leak",
+            "target": "paper/main.tex",
+            "rationale": "cache path appears in prose",
+        }
+    ]
+    _write_json(path, payload)
+
+    codes = {issue.code for issue in validate_paper_infrastructure_review(tmp_path)}
+    assert "pass_paper_infrastructure_review_with_model_revise" in codes
+    assert "pass_paper_infrastructure_review_with_model_major_issues" in codes
+    assert "pass_paper_infrastructure_review_with_model_revision_directives" in codes
+
+
 def test_academic_language_review_rejects_low_score_and_pending_revision(
     tmp_path: Path,
 ) -> None:
@@ -2773,26 +2873,6 @@ def test_academic_language_review_rejects_missing_model_id_when_models_are_used(
 
     codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
     assert "academic_language_missing_method_model_identifier" in codes
-
-
-def test_academic_language_review_rejects_internal_paper_generation_stack(
-    tmp_path: Path,
-) -> None:
-    _write_valid_paper_draft_report(tmp_path)
-    text = (tmp_path / "paper" / "main.tex").read_text(encoding="utf-8")
-    _write(
-        tmp_path / "paper" / "main.tex",
-        text.replace(
-            "The evaluated SkillGuard implementation runs in a deterministic Python "
-            "benchmark harness around a hosted gpt-5-mini agent.",
-            "The execution stack is the Argus skill pipeline with Codex engineer "
-            "routing and daemon handoff.",
-        ),
-    )
-    _write_valid_academic_language_review(tmp_path)
-
-    codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
-    assert "academic_language_mentions_internal_generation_infrastructure" in codes
 
 
 def test_academic_language_review_rejects_validator_shaped_abstract_even_with_pass_json(
@@ -3129,6 +3209,7 @@ def _write_valid_full_emnlp_package(root: Path) -> None:
     _write_valid_paper_draft_report(root)
     _write_valid_layout_review(root)
     _write_valid_academic_language_review(root)
+    _write_valid_paper_infrastructure_review(root)
     _write_valid_artifact_manifest(root)
     _write_valid_claim_graph(root)
     _write_valid_figure_table_style_guide(root)
@@ -3153,6 +3234,7 @@ def _write_valid_full_emnlp_package(root: Path) -> None:
                 "paper_quality_calibration": {"verdict": "PASS"},
                 "research_md_format_preflight": {"verdict": "PASS"},
                 "academic_language_review": {"verdict": "PASS"},
+                "paper_infrastructure_review": {"verdict": "PASS"},
                 "layout_aesthetic_review": {"verdict": "PASS"},
                 "submission_package": {"verdict": "PASS"},
             },
@@ -3966,6 +4048,119 @@ def _write_valid_academic_language_review(
     )
 
 
+def _write_valid_paper_infrastructure_review(
+    root: Path,
+    *,
+    score: float = 4.5,
+    verdict: str = "PASS",
+    needs_revision: bool = False,
+    leak_free: bool = True,
+    review_method: str = "llm_text_reviewer",
+    blocking_issues: list[dict[str, object]] | None = None,
+    major_issues: list[dict[str, object]] | None = None,
+    revision_directives: list[dict[str, object]] | None = None,
+) -> None:
+    main_path = root / "paper" / "main.tex"
+    if not main_path.exists():
+        _write_valid_paper_draft_report(root)
+    references_path = root / "paper" / "references.bib"
+    if not references_path.exists():
+        _write(references_path, _valid_references_bibtex())
+    source_paths = [main_path, references_path]
+    source_snapshots = [
+        {
+            "path": path.relative_to(root).as_posix(),
+            "sha256": _sha256(path),
+        }
+        for path in source_paths
+    ]
+    checked_scope = ["title", "abstract", "body", "captions", "tables", "appendix"]
+    evidence_spans = [
+        {
+            "section": "body",
+            "source_path": "paper/main.tex",
+            "line": 1,
+            "quote": "The evaluated SkillGuard implementation runs in a deterministic Python benchmark harness",
+            "why": "The reviewed setup sentence is paper-facing and omits local device/cache details.",
+        }
+    ]
+    prompt = "Review the EMNLP paper for local infrastructure leakage."
+    review_input = json.dumps(
+        {
+            "source_snapshots": source_snapshots,
+            "checked_scope": checked_scope,
+            "leak_free": leak_free,
+        },
+        sort_keys=True,
+    )
+    payload = {
+        "schema_version": 1,
+        "generated_by": "argus_skill.skills.paper_infrastructure_review",
+        "iteration": 1,
+        "review_method": review_method,
+        "review_policy": {
+            "pass_requires_model": True,
+            "minimum_score": 4.0,
+            "required_checked_scope": checked_scope,
+        },
+        "verdict": verdict,
+        "score_1_to_5": score,
+        "threshold": 4.0,
+        "needs_revision": needs_revision,
+        "leak_free": leak_free,
+        "checked_scope": checked_scope,
+        "source_snapshots": source_snapshots,
+        "reviewed_source_count": len(source_snapshots),
+        "evidence_spans": evidence_spans,
+        "model_review": {
+            "model": "gpt-5.5",
+            "endpoint": "/responses",
+            "verdict": verdict,
+            "score_1_to_5": score,
+            "leak_free": leak_free,
+            "checked_scope": checked_scope,
+            "evidence_spans": evidence_spans,
+            "blocking_issues": blocking_issues or [],
+            "major_issues": major_issues or [],
+            "revision_directives": revision_directives or [],
+            "pass_or_revise": "pass" if verdict == "PASS" and leak_free else "revise",
+            "raw_review_text": (
+                "The reviewer inspected the manuscript source for local device, cache, "
+                "environment, path, route, and paper-generation infrastructure leaks."
+            ),
+            "prompt_sha256": _sha256_text(prompt),
+            "review_input_sha256": _sha256_text(review_input),
+        },
+        "issues": [],
+        "blocking_issues": blocking_issues or [],
+        "major_issues": major_issues or [],
+        "revision_directives": revision_directives or [],
+    }
+    review_path = root / "paper" / "PAPER_INFRASTRUCTURE_REVIEW.json"
+    _write_json(review_path, payload)
+    _write(
+        root / "paper" / "PAPER_INFRASTRUCTURE_REVIEW_history.jsonl",
+        json.dumps(
+            {
+                "generated_by": payload["generated_by"],
+                "iteration": 1,
+                "review_method": review_method,
+                "model": "gpt-5.5",
+                "endpoint": "/responses",
+                "artifact_path": "paper/PAPER_INFRASTRUCTURE_REVIEW.json",
+                "artifact_sha256": _sha256(review_path),
+                "verdict": verdict,
+                "score_1_to_5": score,
+                "needs_revision": needs_revision,
+                "source_sha256": {
+                    entry["path"]: entry["sha256"] for entry in source_snapshots
+                },
+            }
+        )
+        + "\n",
+    )
+
+
 def _valid_academic_evidence_spans(section_scores: dict[str, float]) -> list[dict[str, object]]:
     quote_by_section = {
         "abstract": "A complete EMNLP-style long paper studies how evidence-calibrated skill",
@@ -4494,6 +4689,7 @@ def _write_valid_validation_priority_policy(root: Path) -> None:
         "format_layout",
         "layout_vision",
         "academic_language",
+        "paper_infrastructure",
         "artifact_manifest",
     ]
     routing = {
@@ -4559,6 +4755,13 @@ def _write_valid_validation_priority_policy(root: Path) -> None:
             "issue_code_prefixes": ["academic_", "stale_academic", "low_academic"],
             "repair_mode": "revise reader-facing prose after evidence and structure are current",
         },
+        "paper_infrastructure": {
+            "issue_code_prefixes": ["paper_infrastructure", "stale_paper_infrastructure"],
+            "repair_mode": (
+                "remove reader-facing local environment, device, and config leaks "
+                "and rerun the model reviewer"
+            ),
+        },
         "artifact_manifest": {
             "issue_code_prefixes": ["artifact_", "manifest_", "generated_artifact"],
             "repair_mode": "refresh manifest entries and canonical source graph",
@@ -4621,6 +4824,8 @@ def _write_valid_artifact_freshness(root: Path) -> None:
         records.append(record("paper/LAYOUT_REVIEW.json", ["paper/main.pdf"], role="review"))
     if (root / "paper" / "ACADEMIC_LANGUAGE_REVIEW.json").exists():
         records.append(record("paper/ACADEMIC_LANGUAGE_REVIEW.json", ["paper/main.tex", "paper/main.pdf"], role="review"))
+    if (root / "paper" / "PAPER_INFRASTRUCTURE_REVIEW.json").exists():
+        records.append(record("paper/PAPER_INFRASTRUCTURE_REVIEW.json", ["paper/main.tex", "paper/main.pdf"], role="review"))
     _write_json(
         root / "paper" / "ARTIFACT_FRESHNESS.json",
         {
