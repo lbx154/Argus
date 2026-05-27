@@ -1525,6 +1525,35 @@ def test_emnlp_finalization_route_prioritizes_content_over_package_drift() -> No
     assert _is_emnlp_finalization_objective(objective)
 
 
+def test_emnlp_finalization_route_rebalances_overlength_body() -> None:
+    route = _select_emnlp_finalization_repair_task([
+        ContractIssue(
+            "draft_not_submission_quality",
+            "paper/PAPER_DRAFT_REPORT.json",
+            "draft is not ready",
+        ),
+        ContractIssue(
+            "conclusion_after_page_8",
+            "paper/main.pdf",
+            "Conclusion appears on page 9",
+        ),
+        ContractIssue(
+            "overlength_emnlp_paper",
+            "paper/PAPER_DRAFT_REPORT.json",
+            "main content is 9.0 pages",
+        ),
+    ])
+
+    assert route is not None
+    assert route.title == "Rebalance EMNLP body page budget"
+    assert "do not keep expanding prose" in route.repair_focus
+    objective = _build_emnlp_finalization_objective(route)
+    assert "conclusion_after_page_8=1" in objective
+    assert "overlength_emnlp_paper=1" in objective
+    assert "validate-research-md-format --project-root ." in objective
+    assert _is_emnlp_finalization_objective(objective)
+
+
 def test_emnlp_finalization_route_targets_image2_before_generic_package() -> None:
     route = _select_emnlp_finalization_repair_task([
         ContractIssue(

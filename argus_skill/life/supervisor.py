@@ -306,11 +306,14 @@ _EMNLP_FIGURE_TABLE_FORMAT_CODES = {
 _EMNLP_CONTENT_SUFFICIENCY_CODES = {
     "missing_main_content_pages",
     "missing_midpaper_visual_pages",
-    "overlength_emnlp_paper",
     "appendix_before_page_9",
     "references_before_full_body",
     "rendered_main_body_underfilled",
     "underlength_emnlp_paper",
+}
+_EMNLP_BODY_OVER_BUDGET_CODES = {
+    "conclusion_after_page_8",
+    "overlength_emnlp_paper",
 }
 _EMNLP_SUBMISSION_ASSURANCE_CODES = {
     "draft_not_submission_quality",
@@ -535,6 +538,13 @@ def _planner_emnlp_stage_hints(issues: list[Any]) -> str:
             "text reference, readable placement, and a caption with a numerical or "
             "evidence-backed takeaway."
         )
+    if issue_codes & _EMNLP_BODY_OVER_BUDGET_CODES:
+        hints.append(
+            "- stage route: overlength body or Conclusion-after-page-8 failures are "
+            "page-budget reflow blockers; stop adding prose, inspect the rendered PDF "
+            "page map, and compress/move duplicated body or appendix-like material "
+            "until Conclusion lands on page 8 and References/Appendix begin on page 9."
+        )
     if issue_codes & _EMNLP_CONTENT_SUFFICIENCY_CODES:
         hints.append(
             "- stage route: treat short or underfilled PDFs as evidence/analysis/structure "
@@ -677,6 +687,52 @@ def _select_emnlp_finalization_repair_task(
                 "Run or collect the required non-pilot benchmark rows for every "
                 "method/baseline condition. Only after this gate passes should the "
                 "paper claim final EMNLP-ready results."
+            ),
+        )
+
+    over_budget = _emnlp_matching_issues(
+        issues,
+        codes=_EMNLP_BODY_OVER_BUDGET_CODES,
+        contains=("overlength", "page budget", "page 8"),
+    )
+    if over_budget:
+        return _EmnlpFinalizationRepairTask(
+            title="Rebalance EMNLP body page budget",
+            impact_area="requirement_gap",
+            target_label="body overlength, conclusion placement, and page-budget reflow",
+            target_issues=over_budget,
+            skill_files=(
+                "emnlp-paper-skill-router.md",
+                "emnlp-paper-drafting.md",
+                "emnlp-format-preflight.md",
+                "paper-review-revision-loop.md",
+            ),
+            allowed_paths=(
+                "paper/main.tex",
+                "paper/main.pdf",
+                "paper/PAGE_BUDGET.md",
+                "paper/PAPER_DRAFT_REPORT.json",
+                "paper/PAPER_QUALITY_CALIBRATION.json",
+                "paper/FORMAT_PREFLIGHT.md",
+                "paper/FIGURE_TABLE_STYLE_GUIDE.json",
+                "code/",
+            ),
+            narrow_commands=(
+                "python -m argus_skill.skills.pipeline_contracts validate-paper-contract --project-root .",
+                "python -m argus_skill.skills.pipeline_contracts validate-research-md-format --project-root .",
+                "python -m argus_skill.skills.pipeline_contracts validate-paper-format --project-root .",
+            ),
+            repair_focus=(
+                "The paper is over the eight-page main-body budget, so do not keep "
+                "expanding prose. Rebuild or compile, inspect the rendered page map, "
+                "then trim, merge, or relocate duplicated body paragraphs, oversized "
+                "tables, and redundant review/appendix-like material until the main "
+                "Conclusion appears on page 8 and References/Appendix begin on page "
+                "9 or later. Preserve the normal-paper floors for Abstract and "
+                "Introduction, keep result numbers tied to their exact benchmark/"
+                "method rows, and do not introduce new paragraphs unless they replace "
+                "missing evidence-backed content. References and appendices still "
+                "have no total-page maximum after the body boundary."
             ),
         )
 
@@ -1879,25 +1935,41 @@ class LifeSupervisor:
 
     def _fallback_emnlp_gate_task_for_planner_error(self, verdict: Any) -> Any | None:
         """Turn a planner formatting/refusal failure into useful EMNLP repair work."""
+        planner_error = str(getattr(verdict, "error", "") or "planner error")
+
+        def unavailable(reason: str, detail: str = "") -> None:
+            payload = {
+                "type": "life.planner.fallback_unavailable",
+                "cycle": self._planning_cycles,
+                "planner_error": planner_error,
+                "reason": reason,
+            }
+            if detail:
+                payload["detail"] = detail[:500]
+            self._emit(payload)
+
         ev = self.config.stop_event
         if ev is not None and ev.is_set():
+            unavailable("stop_event_set")
             return None
         root = self._planner_workdir()
         if not self._planner_should_include_emnlp_gate_context(root):
+            unavailable("not_emnlp_project", str(root))
             return None
         try:
             from ..skills.pipeline_contracts import validate_full_emnlp_readiness
 
             issues = validate_full_emnlp_readiness(root)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            unavailable("validate_full_emnlp_failed", f"{type(exc).__name__}: {exc}")
             return None
         if not issues:
+            unavailable("final_gate_has_no_issues")
             return None
 
         first_issues = "; ".join(
             f"{issue.code} at {issue.path}" for issue in issues[:8]
         )
-        planner_error = str(getattr(verdict, "error", "") or "planner error")
         raw_text = str(getattr(verdict, "raw_text", "") or "").strip()
         task = _emnlp_finalization_task_spec_from_issues(
             issues,
@@ -1908,6 +1980,7 @@ class LifeSupervisor:
             raw_text=raw_text,
         )
         if task is None:
+            unavailable("no_finalization_task_selected")
             return None
         evidence = (
             f"{planner_error}; automatic validate-full-emnlp snapshot reports "
