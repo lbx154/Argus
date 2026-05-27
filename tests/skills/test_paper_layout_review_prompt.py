@@ -168,3 +168,28 @@ def test_deterministic_review_routes_early_references_to_evidence_expansion() ->
 
     issues = {issue["code"]: issue for issue in result["issues"]}
     assert issues["references_before_full_body"]["action"] == "expand_evidence_content"
+
+
+def test_deterministic_review_flags_page_seven_conclusion_as_underfilled() -> None:
+    pages = [
+        "Title",
+        "Related Work",
+        "Method",
+        "Experimental Setup\nFigure 1: overview",
+        "Main Results\nTable 1: main results",
+        "Analysis\nTable 2: supporting analyses",
+        "Conclusion\nLimitations and Ethical Considerations",
+        "Body tail",
+        "References\n[1] Example",
+    ]
+
+    result = _deterministic_assessment(
+        tex_text="",
+        log_text="",
+        layout_text="\f".join(pages),
+        threshold=4.0,
+    )
+
+    issues = {issue["code"]: issue for issue in result["issues"]}
+    assert issues["rendered_main_body_underfilled"]["action"] == "expand_evidence_content"
+    assert issues["rendered_main_body_underfilled"]["page"] == 7

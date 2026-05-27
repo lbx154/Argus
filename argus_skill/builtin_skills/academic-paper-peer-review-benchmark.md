@@ -80,7 +80,7 @@ Score each dimension 1--5. Most plausible drafts should land in the 2--4 range; 
    - Limitations and ethics should be honest and specific, not boilerplate.
 
 7. **Format, layout, and visual evidence**
-   - Enforce `research.md`: official ACL/EMNLP review template, anonymous author block, 7.5--8 main-content pages, conclusion by page 8, Limitations/Ethics after conclusion, References before Appendix, and complete reproducibility appendix.
+   - Enforce `research.md`: official ACL/EMNLP review template, anonymous author block, 7.5--8 main-content pages, Conclusion on page 8 ending by the bottom of page 8, complete rendered PDF at 12 pages or fewer unless the operator changes the venue package limit, Limitations/Ethics after conclusion, References before Appendix, and complete reproducibility appendix.
    - No unresolved references/citations, `[?]`, placeholders, or `Overfull \hbox > 5pt`.
    - Every figure is labeled and referenced; every table caption has a numerical headline; at least one figure/table appears on each of pages 4--7; paired-significance evidence appears when comparative binary outcomes are reported.
    - Figure 1, teaser, overall, and core method/framework/system/pipeline overview figures must use actual image-2/codex-image2 raster output in `paper/main.tex`. Hard reject self-drawn substitutes from matplotlib, TikZ node graphs, SVG/PIL/HTML canvas, screenshots, Inkscape/manual vectors, or cleaned PDFs.

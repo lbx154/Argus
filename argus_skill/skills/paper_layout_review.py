@@ -407,6 +407,42 @@ def _deterministic_assessment(
         )
 
     layout_pages = _layout_pages(layout_text)
+    conclusion_page = _first_layout_page_matching(layout_pages, r"\bConclusion\b")
+    if conclusion_page is not None and conclusion_page < 8:
+        penalty += 0.7
+        issues.append(
+            _issue(
+                "rendered_main_body_underfilled",
+                "major",
+                (
+                    "Conclusion starts before page 8, so the paper has not visibly filled "
+                    "the eight-page EMNLP body budget; add source-backed body content before "
+                    "the Conclusion instead of padding after it"
+                ),
+                page=conclusion_page,
+                hard_gate=True,
+                action="expand_evidence_content",
+                target=f"page {conclusion_page} early Conclusion",
+            )
+        )
+    elif conclusion_page is not None and conclusion_page > 8:
+        penalty += 0.7
+        issues.append(
+            _issue(
+                "conclusion_after_page_8",
+                "major",
+                (
+                    "Conclusion starts after page 8, so the paper exceeds the EMNLP "
+                    "main-body page budget; move low-value body material to the appendix "
+                    "or tighten prose without deleting evidence"
+                ),
+                page=conclusion_page,
+                hard_gate=True,
+                action="trim_or_move_content",
+                target=f"page {conclusion_page} late Conclusion",
+            )
+        )
+
     references_page = _first_layout_page_matching(
         layout_pages,
         r"(?m)^\s*(?:References|Bibliography)\s*$",
@@ -668,8 +704,10 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "require source-backed body expansion, a meaningful late visual anchor, or a clean "
         "reference-page break; if body content actually runs past page 8, then require trimming. "
         "Shortening an underfilled body makes the early-References defect worse.\n\n"
-        "Submission contract to enforce: conclusion by page 8, Limitations/Ethics after conclusion, "
-        "References before Appendix, no Overfull hbox above 5pt, <=5 body figures, at most one "
+        "Submission contract to enforce: Conclusion on page 8 and ending by the bottom of page 8, "
+        "complete rendered PDF at 12 pages or fewer unless the operator changes the venue package limit, "
+        "Limitations/Ethics after conclusion, References before Appendix, no Overfull hbox above "
+        "5pt, <=5 body figures, at most one "
         "full-width figure*, at least one meaningful figure/table anchor on each of pages 4-7, table "
         "captions with numerical headlines, readable research-style tables, adaptive/landscape "
         "conceptual figures rather than 1024x1024 squares, and no weird fonts, tiny labels, heavy "
@@ -857,6 +895,7 @@ def _default_specific_edit(action: str, target: str) -> str:
         "regenerate_figure": f"Regenerate the figure at {target_text} with a cleaner EMNLP-style layout, readable labels, and no debug/code-facing visual artifacts.",
         "replace_code_label": f"Replace code-like labels around {target_text} with human-readable paper labels in the figure/table source and caption.",
         "tighten_paragraph": f"Tighten paragraphs around {target_text} without adding unsupported claims; use the freed space to restore balanced page flow.",
+        "trim_or_move_content": f"Trim or move low-value body material around {target_text} so Conclusion lands on page 8 while preserving evidence-bearing claims.",
         "delete_low_value_content": f"Delete or move low-value audit/checklist content around {target_text}; replace body space only with exemplar-aligned evidence narrative if needed.",
         "rebalance_columns": f"Rebalance text and floats around {target_text} by editing source order, paragraph length, and float placement rather than adding filler.",
         "fix_overfull_box": f"Fix the source line/table/figure causing overflow at {target_text}; do not hide it with unreadably small fonts.",

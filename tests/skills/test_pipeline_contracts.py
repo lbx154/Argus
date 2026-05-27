@@ -1912,6 +1912,46 @@ def test_research_md_pdf_text_rejects_underfilled_main_body() -> None:
     assert "references_before_full_body" in codes
 
 
+def test_research_md_pdf_text_requires_conclusion_on_page_eight() -> None:
+    issues = _validate_research_md_pdf_text(
+        [
+            "Title\nIntroduction\n",
+            "Related Work\n",
+            "Method\n",
+            "Experimental Setup\n",
+            "Main Results\n",
+            "Analysis\n",
+            "Conclusion\nLimitations and Ethical Considerations\n",
+            "References\nPaper A\nPaper B\n",
+            "More References\nPaper C\nPaper D\n",
+        ]
+    )
+
+    assert "rendered_main_body_underfilled" in {issue.code for issue in issues}
+
+
+def test_research_md_pdf_text_rejects_total_pdf_over_twelve_pages() -> None:
+    issues = _validate_research_md_pdf_text(
+        [
+            "Title\nIntroduction\n",
+            "Related Work\n",
+            "Method\n",
+            "Experimental Setup\n",
+            "Main Results\n",
+            "Analysis\n",
+            "Failure Cases\n",
+            "Conclusion\nLimitations and Ethical Considerations\n",
+            "References\nPaper A\nPaper B\n",
+            "More References\nPaper C\nPaper D\n",
+            "Appendix\nReproducibility\n",
+            "Extra Appendix\nArtifact notes\n",
+            "Supplementary Appendix\nMore artifact notes\n",
+        ]
+    )
+
+    assert "rendered_pdf_exceeds_total_page_limit" in {issue.code for issue in issues}
+
+
 def test_research_md_format_preflight_rejects_transitive_placeholder(tmp_path: Path) -> None:
     _write_valid_paper_draft_report(tmp_path)
     main_path = tmp_path / "paper" / "main.tex"
@@ -3631,8 +3671,8 @@ def _valid_rendered_paper_pages() -> list[str]:
         "Experimental Setup\nFigure 1 shows the pipeline and Table 1 defines tasks.",
         "Results\nTable 2 summarizes the main result and Figure 2 shows transfer.",
         "Analysis\nTable 3 reports ablations and Figure 3 shows diagnostics.",
-        "Conclusion\nTable 4 summarizes limitations before the conclusion.",
-        "Operational Takeaways\nThe final body page explains deployment scope and reproducibility.",
+        "Operational Takeaways\nTable 4 summarizes limitations before the conclusion.",
+        "Conclusion\nThe final body page explains deployment scope and reproducibility.",
         "References\nReference entries begin here.",
         "References\nMore reference entries continue here.",
     ]

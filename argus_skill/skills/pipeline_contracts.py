@@ -106,13 +106,14 @@ MIN_STYLE_GUIDE_FLOATS = 2
 RECENT_PAPER_YEAR_CUTOFF = 2023
 MIN_MAIN_CONTENT_PAGES = 7.5
 MAX_MAIN_CONTENT_PAGES = 8.0
+MAX_RENDERED_TOTAL_PAGES = 12
 SEVERE_OVERFULL_HBOX_PT = 5.0
 OVERFULL_HBOX_COUNT_PT = 5.0
 MAX_MODERATE_OVERFULL_HBOXES = 0
 MAX_RESEARCH_MD_BODY_FIGURES = 5
 MAX_RESEARCH_MD_WIDE_FIGURES = 1
 RESEARCH_MD_VISUAL_PAGES = {4, 5, 6, 7}
-MIN_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY = 7
+REQUIRED_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY = 8
 MIN_RENDERED_REFERENCES_PAGE_FOR_FULL_BODY = 9
 MIN_FINAL_BIBLIOGRAPHY_ENTRIES = 35
 MIN_FINAL_UNIQUE_CITATION_KEYS = 30
@@ -3675,6 +3676,20 @@ def _validate_research_md_pdf_text(pages: list[str]) -> list[ContractIssue]:
             )
         )
 
+    rendered_page_count = len(pages)
+    if rendered_page_count > MAX_RENDERED_TOTAL_PAGES:
+        issues.append(
+            ContractIssue(
+                "rendered_pdf_exceeds_total_page_limit",
+                str(PAPER_MAIN_PDF_PATH),
+                (
+                    "final EMNLP readiness keeps the complete rendered PDF at "
+                    f"{MAX_RENDERED_TOTAL_PAGES} pages or fewer, including references "
+                    f"and appendix; current rendered PDF has {rendered_page_count} pages"
+                ),
+            )
+        )
+
     conclusion_page = _first_pdf_page_matching(pages, r"\bConclusion\b")
     if conclusion_page is not None and conclusion_page > MAX_MAIN_CONTENT_PAGES:
         issues.append(
@@ -3686,7 +3701,7 @@ def _validate_research_md_pdf_text(pages: list[str]) -> list[ContractIssue]:
         )
     if (
         conclusion_page is not None
-        and conclusion_page < MIN_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY
+        and conclusion_page < REQUIRED_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY
     ):
         issues.append(
             ContractIssue(
@@ -3695,7 +3710,8 @@ def _validate_research_md_pdf_text(pages: list[str]) -> list[ContractIssue]:
                 (
                     "final EMNLP readiness requires the body to be written out to "
                     f"7.5-8 main-content pages; rendered Conclusion appears on page "
-                    f"{conclusion_page}, before page {MIN_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY}. "
+                    f"{conclusion_page}, before the required page "
+                    f"{REQUIRED_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY}. "
                     "Add or move source-backed body content before the Conclusion: literature-"
                     "grounded Introduction/Related Work framing, evidence-bearing Method detail, "
                     "or Results/Analysis/Ablation content according to the page budget. "
