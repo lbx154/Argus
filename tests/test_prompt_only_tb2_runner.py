@@ -47,8 +47,8 @@ def test_argus_env_enables_benchmark_lean_mode(monkeypatch) -> None:
     assert env["ARGUS_SKILL_SKILL_WRITEBACK"] == "0"
     assert env["ARGUS_SKILL_REVIEWER_MODEL"] == env["ARGUS_SKILL_ENGINEER_MODEL"]
     assert env["ARGUS_SKILL_SCIENTIST_MODEL"] == env["ARGUS_SKILL_ENGINEER_MODEL"]
-    assert env["ARGUS_SKILL_ENGINEER_REASONING_EFFORT"] == "low"
-    assert env["ARGUS_SKILL_REVIEWER_REASONING_EFFORT"] == "low"
+    assert env["ARGUS_SKILL_ENGINEER_REASONING_EFFORT"] == "high"
+    assert env["ARGUS_SKILL_REVIEWER_REASONING_EFFORT"] == "high"
 
 
 def test_codex_baseline_defaults_to_full_model() -> None:

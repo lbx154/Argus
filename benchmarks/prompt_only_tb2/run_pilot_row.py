@@ -642,8 +642,8 @@ def _env_for_row(row: dict[str, str], run_root: Path) -> dict[str, str]:
         engineer_model = env.setdefault("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini")
         env.setdefault("ARGUS_SKILL_REVIEWER_MODEL", engineer_model)
         env.setdefault("ARGUS_SKILL_SCIENTIST_MODEL", engineer_model)
-        env.setdefault("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "low")
-        env.setdefault("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "low")
+        env.setdefault("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high")
+        env.setdefault("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high")
         existing = env.get("PYTHONPATH")
         env["PYTHONPATH"] = (
             str(REPO_ROOT) if not existing else f"{REPO_ROOT}{os.pathsep}{existing}"

@@ -130,8 +130,8 @@ def test_execute_dispatches_to_chat_path_on_greeting() -> None:
     # Exactly one backend call (no matcher / distill / reviewer).
     assert len(backend.calls) == 1
     assert backend.calls[0]["run_label"] == "chat-1"
-    # Reasoning effort is dialled down for chat.
-    assert backend.calls[0]["options"].reasoning_effort == "low"
+    # Chat uses the same high-effort default as the gpt-5.4-mini engineer route.
+    assert backend.calls[0]["options"].reasoning_effort == "high"
 
 
 def test_execute_dispatches_to_chat_path_on_chinese_capability_question() -> None:
