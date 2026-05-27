@@ -40,6 +40,7 @@ DEFAULT_VALIDATION_ISSUE_PREFIXES: dict[str, tuple[str, ...]] = {
         "missing_main_content_pages",
         "abstract_too_short",
         "introduction_too_short",
+        "thin_introduction_depth_signal",
         "introduction_missing_literature_hooks",
         "introduction_missing_contribution_roadmap",
         "introduction_missing_quantified_result_preview",

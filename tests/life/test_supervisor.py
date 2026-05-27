@@ -30,9 +30,9 @@ from argus_skill.life.supervisor import (
     _CostTrackingSink,
     _is_emnlp_finalization_objective,
     _planner_emnlp_stage_hints,
-    _sanitize_planner_task_text,
     _planner_tasks_need_emnlp_finalization_override,
     _price_for,
+    _sanitize_planner_task_text,
     _select_emnlp_finalization_repair_task,
 )
 from argus_skill.skills.pipeline_contracts import ContractIssue

@@ -70,7 +70,7 @@ Score each dimension 1--5. Most plausible drafts should land in the 2--4 range; 
 5. **Reproducibility and artifact audit**
    - Manifest digests, TSV schemas, generated artifacts, source links, and paper copies must be fresh.
    - Result tables and figures must be generated from canonical artifacts, not hand-edited numbers.
-   - The appendix must include model IDs, prompts/cache fingerprints, seeds, hyperparameters, compute/cost, scoring scripts, and significance methodology.
+   - The appendix must include paper-facing model IDs, prompt/template policy when relevant, seeds, hyperparameters, compute/cost, scoring methodology, and significance methodology. Local cache fingerprints, filesystem paths, device IDs, and authoring-route configuration stay in manifests or logs, not paper prose.
 
 6. **Writing quality and reviewer readability**
    - Abstract and introduction should quickly answer What, Why, So What, and why now.

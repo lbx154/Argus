@@ -37,7 +37,7 @@ MIN_ACADEMIC_LANGUAGE_SCORE = 4.0
 DEFAULT_TIMEOUT_SECONDS = 500.0
 MAX_SOURCE_FILES = 120
 MIN_REVIEW_ABSTRACT_WORDS = 170
-MIN_REVIEW_INTRODUCTION_WORDS = 900
+INTRODUCTION_DEPTH_SIGNAL_WORDS = 900
 MIN_INTRODUCTION_CITATION_KEYS = 3
 REVIEW_SOURCE_CONTEXT_CHAR_LIMIT = 70000
 PINNED_REVIEW_CONTEXT_CHAR_LIMIT = 32000
@@ -584,25 +584,18 @@ def _deterministic_assessment(tex_text: str) -> dict[str, Any]:
     introduction_plain = _section_text(tex_text, "introduction")
     if introduction_plain.strip():
         introduction_words = _word_count(introduction_plain)
-        if introduction_words < MIN_REVIEW_INTRODUCTION_WORDS:
-            score_penalty += 0.8
-            section_scores["introduction"] = min(section_scores["introduction"], 3.0)
-            section_scores["contribution_framing"] = min(
-                section_scores["contribution_framing"], 3.4
-            )
-            required_checks["clear_problem_gap_contribution"] = False
+        if introduction_words < INTRODUCTION_DEPTH_SIGNAL_WORDS:
             issues.append(
                 _issue(
-                    "thin_introduction",
-                    "major",
+                    "thin_introduction_depth_signal",
+                    "minor",
                     (
-                        f"introduction has {introduction_words} words; a normal "
-                        f"EMNLP long-paper introduction should be at least "
-                        f"{MIN_REVIEW_INTRODUCTION_WORDS} words and should explain "
-                        "the problem, literature gap, method insight, result preview, "
-                        "contributions, and scope"
+                        f"introduction has {introduction_words} words; this is a "
+                        "reviewer signal, not an automatic rejection. Judge whether "
+                        "the opening actually explains the problem, literature gap, "
+                        "method insight, result preview, contributions, and scope "
+                        "within the rendered eight-page body budget."
                     ),
-                    hard_gate=True,
                     action="rewrite_introduction",
                 )
             )
@@ -860,9 +853,12 @@ def _review_prompt(
         "a paper whose abstract reads like a validator checklist, starts with a numeric "
         "result before the problem/gap, or spends its scarce space on defensive caveats "
         "instead of problem, method, result, and implication. Apply this ACL/EMNLP "
-        f"standard: abstracts under {MIN_REVIEW_ABSTRACT_WORDS} words or introductions "
-        f"under {MIN_REVIEW_INTRODUCTION_WORDS} words are not submission-quality for "
-        "a long paper unless the manuscript has an explicit venue exception. "
+        f"standard: abstracts under {MIN_REVIEW_ABSTRACT_WORDS} words are too thin. "
+        "Introduction word count is only a reviewer signal, not a pass/fail rule: "
+        "reject short or long introductions when they are missing the problem, "
+        "literature gap, method insight, quantified evidence preview, contribution "
+        "roadmap, or scope; do not reject solely because a word counter is below a "
+        "fixed target when the rendered paper uses the eight-page body budget well. "
         "Reject an Introduction that has fewer than three separate cited "
         "prior-work/benchmark hooks before Related Work; packing many keys into "
         "one or two citation macros does not create a normal literature-grounded "
@@ -1258,9 +1254,12 @@ def _expand_simple_latex_macros(text: str) -> str:
         if value:
             replacements[name] = value
     for name, value in sorted(replacements.items(), key=lambda item: len(item[0]), reverse=True):
+        def replacement(_match: re.Match[str], replacement_text: str = value) -> str:
+            return f" {replacement_text} "
+
         text = re.sub(
             rf"\\{re.escape(name)}(?:\s*\{{\s*\}})?",
-            lambda _match, replacement=value: f" {replacement} ",
+            replacement,
             text,
         )
     return text

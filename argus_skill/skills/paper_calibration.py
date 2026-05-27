@@ -1905,7 +1905,7 @@ def _progress_task_counts_by_method(path: Path) -> dict[str, int]:
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
-        return []
+        return {}
     for line in lines:
         try:
             event = json.loads(line)

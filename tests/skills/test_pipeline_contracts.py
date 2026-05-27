@@ -488,7 +488,7 @@ def test_claim_graph_rejects_weak_claim_left_in_main_body(tmp_path: Path) -> Non
     payload["claims"].append(
         {
             "id": "weak-left-in-body",
-            "claim": "A controller routes skill-memory state through verifier policy checks",
+            "claim": "A controller passes skill-memory state through verifier policy checks",
             "section": "Method",
             "status": "weak",
             "evidence_gap_id": "gap-routing",
@@ -1857,7 +1857,7 @@ def test_emnlp_paper_contract_allows_justified_paper_specific_section(tmp_path: 
     assert "stale_structure_section_mapping" not in codes
 
 
-def test_emnlp_paper_contract_rejects_shallow_core_sections(tmp_path: Path) -> None:
+def test_emnlp_paper_contract_rejects_stub_core_sections_by_function(tmp_path: Path) -> None:
     _write_valid_paper_draft_report(tmp_path)
     main_path = tmp_path / "paper" / "main.tex"
     text = main_path.read_text(encoding="utf-8")
@@ -1891,9 +1891,11 @@ def test_emnlp_paper_contract_rejects_shallow_core_sections(tmp_path: Path) -> N
 
     assert {
         "abstract_too_short",
-        "introduction_too_short",
-        "method_section_too_short",
-        "experimental_setup_too_short",
+        "introduction_missing_literature_hooks",
+        "introduction_missing_quantified_result_preview",
+        "introduction_missing_contribution_roadmap",
+        "missing_experiment_model_identifier",
+        "missing_experiment_model_settings",
     }.issubset(codes)
 
 
@@ -1943,13 +1945,14 @@ def test_emnlp_paper_contract_requires_model_identifier_and_settings(tmp_path: P
     text = text.replace("temperature 0.0, top_p 1.0, max_tokens 512, cache ", "cache ")
     text = text.replace("a fixed per-episode token budget, ", "")
     text = text.replace(" under a fixed token budget", " under identical limits")
-    text = text.replace("cache keys", "memo keys")
-    text = text.replace("cache fingerprint", "request fingerprint")
     text = text.replace("cache policy", "request policy")
     text = text.replace("and a three-retry timeout policy", "and identical limits")
-    text = text.replace("route, temperature, response limit, and retry policy", "route and identical limits")
     text = text.replace("cache enabled, fixed seeds where sampling appears in task selection, ", "")
+    text = text.replace("stop/resume rules", "identical limits")
+    text = text.replace("stopping rules", "identical limits")
+    text = text.replace("temperature", "setting")
     text = re.sub(r"\bseeds?\b", "ordering", text)
+    text = re.sub(r"\bdecoding\b", "configuration", text)
     text = re.sub(r"\bbudget\b", "limit", text)
     _write(main_path, text)
 
@@ -2031,8 +2034,8 @@ def test_emnlp_paper_contract_rejects_hosted_model_no_external_contradiction(
     )
     main_path = tmp_path / "paper" / "main.tex"
     text = main_path.read_text(encoding="utf-8").replace(
-        "We evaluate SkillGuard with gpt-5-mini as a hosted no-GPU backbone, "
-        "deterministic decoding, a fixed response cap, cached prompts, and a shared "
+        "We evaluate SkillGuard with gpt-5-mini as a hosted evaluation backend, "
+        "deterministic decoding, a fixed response cap, fixed seed policy, and a shared "
         "request budget across three real benchmark sources: ToolBench, WebArena, and GAIA.",
         (
             "We evaluate SkillGuard in a deterministic harness that makes no "
@@ -4416,7 +4419,7 @@ def _valid_academic_evidence_spans(section_scores: dict[str, float]) -> list[dic
     quote_by_section = {
         "abstract": "A complete EMNLP-style long paper studies how evidence-calibrated skill",
         "introduction": "Long-horizon agents increasingly rely on stored traces, reflections, and reusable skills",
-        "contribution_framing": "A controller routes skill-memory state through verifier policy checks",
+        "contribution_framing": "A controller passes skill-memory state through verifier policy checks",
         "evidence_alignment": "Table~\\ref{tab:main} summarizes the main result.",
         "related_work_positioning": "Prior benchmark work motivates the transfer setting",
         "method_system_clarity": "The evaluated SkillGuard implementation runs in a deterministic Python benchmark harness",
@@ -4448,8 +4451,8 @@ def _write_valid_paper_draft_report(
         "after verifier checks. Existing agent-memory systems often report a "
         "single benchmark or omit the model and runtime settings needed to "
         "interpret the result. We evaluate SkillGuard with gpt-5-mini as a "
-        "hosted no-GPU backbone, deterministic decoding, a fixed response cap, "
-        "cached prompts, and a shared request budget across three real benchmark "
+        "hosted evaluation backend, deterministic decoding, a fixed response cap, "
+        "fixed seed policy, and a shared request budget across three real benchmark "
         "sources: ToolBench, WebArena, and GAIA. Across 240 scored episodes, "
         "SkillGuard improves verified completion by 8 points over the strongest "
         "runnable baseline while reducing unsupported memory admissions. The "
@@ -4531,7 +4534,7 @@ def _write_valid_paper_draft_report(
         "groups the relevant agent-memory and benchmark literature by the role it "
         "plays in the admission problem. Section 3 defines the controller and "
         "verifier. Section 4 describes the three public benchmark sources, the "
-        "hosted model route, and the shared decoding budget. Sections 5 and 6 "
+        "hosted evaluation backend, and the shared decoding budget. Sections 5 and 6 "
         "separate aggregate success from source-level failures, so the reader can "
         "see both the benefit of the gate and the remaining cases where admission "
         "quality is not enough. This roadmap is part of the claim discipline: the "
@@ -4541,7 +4544,7 @@ def _write_valid_paper_draft_report(
         "difficulty, or model output quality. The result preview is intentionally "
         "concrete: in the completed 240-episode matrix, SkillGuard improves "
         "verified completion by 8 points over the strongest runnable baseline "
-        "under the same gpt-5-mini route, decoding configuration, and task order. "
+        "under the same gpt-5-mini backend, decoding configuration, and task order. "
         "That number is not presented as a universal memory result. It is used "
         "as an empirical anchor for the design question the introduction raises: "
         "whether a verifier should decide which solved episodes become reusable "
@@ -4556,11 +4559,11 @@ def _write_valid_paper_draft_report(
     )
     method_text = (
         "The evaluated SkillGuard implementation runs in a deterministic Python "
-        "benchmark harness around a hosted gpt-5-mini agent. A controller routes "
+        "benchmark harness around a hosted gpt-5-mini agent. A controller passes "
         "skill-memory state through verifier policy checks before each "
         "tool-using agent episode, using temperature 0.0, top_p 1.0, "
-        "max_tokens 512, a fixed per-episode token budget, cache keys that "
-        "include the full prompt, and a three-retry timeout policy. The method "
+        "max_tokens 512, a fixed per-episode token budget, fixed seed policy, "
+        "and fixed stopping rules. The method "
         "has three stages. First, the episode runner builds the prompt from the "
         "benchmark task, the current library summary, and the baseline-specific "
         "state. Second, the model produces an action or answer under the shared "
@@ -4578,7 +4581,7 @@ def _write_valid_paper_draft_report(
         "candidate names a task-local cue that would be unsafe to reuse outside "
         "that family. Rejected candidates remain in raw logs for audit but are "
         "not exposed to later episodes. Accepted skills are serialized with "
-        "source ids, family labels, prompt hashes, model id, and the result row "
+        "source ids, family labels, prompt-template version, model id, and the result row "
         "that justified admission. The implementation keeps the verifier outside "
         "the answer generator so that a rejection cannot rewrite the current "
         "episode. It only changes future retrieval state. At retrieval time, the "
@@ -4604,7 +4607,7 @@ def _write_valid_paper_draft_report(
         "construction reads only these fields plus the task text, so rejected "
         "skills cannot leak into later trials. After the hosted model returns an "
         "answer, the scorer writes the raw answer, normalized answer, gold target, "
-        "success bit, retry count, cache fingerprint, model id, and budget fields "
+        "success bit, failure label, request budget marker, model id, and budget fields "
         "before any admission update occurs. The verifier then receives the solved "
         "row and a candidate memory summary. It first checks that the candidate "
         "mentions the same source family as the solved row, then compares a "
@@ -4618,8 +4621,8 @@ def _write_valid_paper_draft_report(
         "can be reconstructed without calling the hosted model again. This replay "
         "path is used for ablations that swap the admission rule while preserving "
         "the original answers. The implementation also records a compact event log "
-        "for each episode: prompt hash, selected source, active baseline, model "
-        "route, retry count, accepted-skill ids, and rejection reason. Those fields "
+        "for each episode: prompt-template version, selected source, active baseline, "
+        "model/backend, failure label, accepted-skill ids, and rejection reason. Those fields "
         "are the only state used by the analysis scripts, which keeps the method "
         "description aligned with the saved artifacts and prevents hidden manual "
         "corrections from entering the reported result."
@@ -4634,8 +4637,8 @@ def _write_valid_paper_draft_report(
         "Each source contributes documented public tasks with stable ids, "
         "source URLs, split/filtering notes, and license/access records in "
         "the benchmark provenance files. All methods run on the same "
-        "gpt-5-mini backend, temperature 0.0, top_p 1.0, max_tokens 512, cache "
-        "enabled, fixed seeds where sampling appears in task selection, and "
+        "gpt-5-mini backend, temperature 0.0, top_p 1.0, max_tokens 512, "
+        "fixed seed policy where sampling appears in task selection, and "
         "identical stop/resume rules. The primary metric is exact or official "
         "task success depending on the source, and the secondary metrics are "
         "admitted-skill count, duplicate rejection count, and paired win/loss "
@@ -4649,7 +4652,7 @@ def _write_valid_paper_draft_report(
         "the official answer normalization for assistant questions. The analysis "
         "reports paired win/loss counts because every method sees the same ordered "
         "task stream. We also record store size, accepted-skill count, duplicate "
-        "rejection count, retry count, and per-source failure labels so that the "
+        "rejection count, failure category, and per-source failure labels so that the "
         "paper can separate a genuine admission effect from a formatting, timeout, "
         "or parsing artifact. The configuration table in the final manuscript "
         "mirrors these fields instead of relying on prose alone. Before analysis, "
@@ -4660,10 +4663,10 @@ def _write_valid_paper_draft_report(
         "LaTeX table, and every number in the main text is regenerated from that "
         "canonical artifact. Runs that exceed the request budget are marked as "
         "failures with their partial trace preserved for later error analysis. "
-        "The no-GPU setting is handled through the approved hosted route rather "
+        "Hosted calls are treated as evaluated model calls rather "
         "than local acceleration: every evaluated agent call uses gpt-5-mini with "
-        "the same endpoint class, decoding settings, response cap, and retry "
-        "policy. A run is not counted as final evidence until the provenance file "
+        "the same decoding settings, response cap, token budget, and stopping "
+        "rules. A run is not counted as final evidence until the provenance file "
         "lists three executed sources, the status file records completion, and the "
         "raw result rows contain every required method/source pair. The setup also "
         "records the exact source version or access date, because benchmark drift "
@@ -4674,9 +4677,9 @@ def _write_valid_paper_draft_report(
         "accuracy alone. All reported tables are regenerated from the canonical "
         "rows after the run finishes, and the manuscript records the neutral "
         "regeneration target in the reproducibility appendix. The same "
-        "appendix records seed policy, request policy, and source filters for reruns. The "
+        "appendix records seed policy, budget policy, and source filters for reruns. The "
         "setup treats hosted calls as part of the evaluated system, so a table row "
-        "must name the model id, route, temperature, response cap, and retry policy "
+        "must name the model id/backend, temperature, response cap, budget, and stopping rules "
         "whenever a method uses model output. This prevents a final paper from "
         "mixing deterministic pilot prose with hosted-agent evidence."
     )
