@@ -46,6 +46,7 @@ Execute the experiment plan for an agent-science paper. This is the argus-skill-
 
 2. Preflight the environment:
    - Record Python version, relevant env vars without secrets, git commit or working-tree summary, and available benchmark scripts.
+   - Confirm model/data cache variables point to the shared host cache before any dataset/model download: `HF_HOME=/root/.cache/huggingface`, `HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface/hub`, `HF_DATASETS_CACHE=/root/.cache/huggingface/datasets`, `TRANSFORMERS_CACHE=/root/.cache/huggingface/hub`, `TORCH_HOME=/root/.cache/torch`, and `XDG_CACHE_HOME=/root/.cache`. If a value is missing, export it to the shared path; do not create project-local model caches.
    - Check required commands with `--help` or dry-run where available.
    - If running containers or external APIs, verify credentials are present without printing secret values.
 

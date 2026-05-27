@@ -369,7 +369,9 @@ class SkillLoop:
                 "  blockers remain and are addressable in this mission.\n"
                 "- For underfilled papers, improve reader-facing prose, evidence\n"
                 "  integration, and figure/table placement toward 7.5-8 main-content\n"
-                "  pages; do not pad with artifact bookkeeping.\n"
+                "  pages; keep main/body content within 8 pages, start references\n"
+                "  and appendices on page 9 or later, and do not impose a total-page\n"
+                "  maximum after references begin.\n"
                 "- If the full gate still fails, end with the exact remaining blockers\n"
                 "  and the next concrete command."
             )

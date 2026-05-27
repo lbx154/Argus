@@ -110,7 +110,6 @@ MIN_MAIN_CONTENT_PAGES = 7.5
 # EMNLP/ACL page limits apply to the main body only. References and appendix
 # pages are intentionally uncapped, but must not start before page 9.
 MAX_MAIN_CONTENT_PAGES = 8.0
-MAX_RENDERED_TOTAL_PAGES = 12
 SEVERE_OVERFULL_HBOX_PT = 5.0
 OVERFULL_HBOX_COUNT_PT = 5.0
 MAX_MODERATE_OVERFULL_HBOXES = 0
@@ -3092,18 +3091,6 @@ def _validate_rendered_pdf_page_budget(root: Path, reported_main_pages: float) -
                 ),
             )
         ]
-    if page_count > MAX_RENDERED_TOTAL_PAGES:
-        return [
-            ContractIssue(
-                "rendered_pdf_exceeds_total_page_limit",
-                str(PAPER_MAIN_PDF_PATH),
-                (
-                    "final EMNLP readiness keeps the complete rendered PDF at "
-                    f"{MAX_RENDERED_TOTAL_PAGES} pages or fewer, including references "
-                    f"and appendix; current rendered PDF has {page_count} pages"
-                ),
-            )
-        ]
     return []
 
 
@@ -3864,20 +3851,6 @@ def _validate_research_md_pdf_text(pages: list[str]) -> list[ContractIssue]:
             )
         )
 
-    rendered_page_count = len(pages)
-    if rendered_page_count > MAX_RENDERED_TOTAL_PAGES:
-        issues.append(
-            ContractIssue(
-                "rendered_pdf_exceeds_total_page_limit",
-                str(PAPER_MAIN_PDF_PATH),
-                (
-                    "final EMNLP readiness keeps the complete rendered PDF at "
-                    f"{MAX_RENDERED_TOTAL_PAGES} pages or fewer, including references "
-                    f"and appendix; current rendered PDF has {rendered_page_count} pages"
-                ),
-            )
-        )
-
     conclusion_page = _first_pdf_page_matching(pages, r"\bConclusion\b")
     if conclusion_page is not None and conclusion_page > MAX_MAIN_CONTENT_PAGES:
         issues.append(
@@ -4574,6 +4547,54 @@ def _validate_layout_vision_payload(
                 ),
             )
         )
+    if payload.get("verdict") == "PASS":
+        vision_decision = str(vision_review.get("pass_or_revise") or "").strip().casefold()
+        if vision_decision and vision_decision != "pass":
+            issues.append(
+                ContractIssue(
+                    "pass_layout_review_with_vision_revise",
+                    str(LAYOUT_REVIEW_JSON_PATH),
+                    (
+                        "PASS layout review cannot contradict a nested "
+                        f"vision_review pass_or_revise={vision_decision!r}"
+                    ),
+                )
+            )
+        for field_name in ("blocking_issues", "major_issues", "revision_directives"):
+            raw_items = vision_review.get(field_name)
+            if isinstance(raw_items, list) and raw_items:
+                issues.append(
+                    ContractIssue(
+                        f"pass_layout_review_with_vision_{field_name}",
+                        str(LAYOUT_REVIEW_JSON_PATH),
+                        (
+                            "PASS layout review cannot leave active "
+                            f"vision_review.{field_name}"
+                        ),
+                    )
+                )
+        raw_criteria_scores = vision_review.get("criteria_scores")
+        if isinstance(raw_criteria_scores, dict):
+            threshold = max(
+                _float_or_none(payload.get("threshold")) or 0.0,
+                MIN_LAYOUT_REVIEW_SCORE,
+            )
+            low_criteria = [
+                str(key)
+                for key, raw_score in raw_criteria_scores.items()
+                if (_float_or_none(raw_score) or 0.0) < threshold
+            ]
+            if low_criteria:
+                issues.append(
+                    ContractIssue(
+                        "pass_layout_review_with_vision_low_criteria",
+                        str(LAYOUT_REVIEW_JSON_PATH),
+                        (
+                            "PASS layout review cannot contradict low "
+                            f"vision_review.criteria_scores: {low_criteria}"
+                        ),
+                    )
+                )
     return issues
 
 
@@ -5330,6 +5351,72 @@ def _validate_academic_model_payload(payload: dict[str, Any]) -> list[ContractIs
                 "model_review must include evidence_spans from the reviewer model",
             )
         )
+    if payload.get("verdict") == "PASS":
+        model_decision = str(model_review.get("pass_or_revise") or "").strip().casefold()
+        if model_decision and model_decision != "pass":
+            issues.append(
+                ContractIssue(
+                    "pass_academic_language_review_with_model_revise",
+                    str(ACADEMIC_LANGUAGE_REVIEW_JSON_PATH),
+                    (
+                        "PASS academic-language review cannot contradict a nested "
+                        f"model_review pass_or_revise={model_decision!r}"
+                    ),
+                )
+            )
+        for field_name in ("blocking_issues", "major_issues", "revision_directives"):
+            raw_items = model_review.get(field_name)
+            if isinstance(raw_items, list) and raw_items:
+                issues.append(
+                    ContractIssue(
+                        f"pass_academic_language_review_with_model_{field_name}",
+                        str(ACADEMIC_LANGUAGE_REVIEW_JSON_PATH),
+                        (
+                            "PASS academic-language review cannot leave active "
+                            f"model_review.{field_name}"
+                        ),
+                    )
+                )
+        raw_model_checks = model_review.get("required_checks")
+        if isinstance(raw_model_checks, dict):
+            failed = [
+                key
+                for key in REQUIRED_ACADEMIC_LANGUAGE_CHECKS
+                if raw_model_checks.get(key) is not True
+            ]
+            if failed:
+                issues.append(
+                    ContractIssue(
+                        "pass_academic_language_review_with_model_failed_checks",
+                        str(ACADEMIC_LANGUAGE_REVIEW_JSON_PATH),
+                        (
+                            "PASS academic-language review cannot contradict failed "
+                            f"model_review.required_checks: {failed}"
+                        ),
+                    )
+                )
+        raw_model_sections = model_review.get("section_scores")
+        if isinstance(raw_model_sections, dict):
+            threshold = max(
+                _float_or_none(payload.get("threshold")) or 0.0,
+                MIN_ACADEMIC_LANGUAGE_REVIEW_SCORE,
+            )
+            low_sections = [
+                key
+                for key in REQUIRED_ACADEMIC_SECTION_SCORES
+                if (_float_or_none(raw_model_sections.get(key)) or 0.0) < threshold
+            ]
+            if low_sections:
+                issues.append(
+                    ContractIssue(
+                        "pass_academic_language_review_with_model_low_sections",
+                        str(ACADEMIC_LANGUAGE_REVIEW_JSON_PATH),
+                        (
+                            "PASS academic-language review cannot contradict low "
+                            f"model_review.section_scores: {low_sections}"
+                        ),
+                    )
+                )
     return issues
 
 

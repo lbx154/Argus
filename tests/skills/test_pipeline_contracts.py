@@ -1978,7 +1978,7 @@ def test_research_md_pdf_text_requires_conclusion_on_page_eight() -> None:
     assert "rendered_main_body_underfilled" in {issue.code for issue in issues}
 
 
-def test_research_md_pdf_text_rejects_total_pdf_over_twelve_pages() -> None:
+def test_research_md_pdf_text_allows_uncapped_references_and_appendix_after_page_8() -> None:
     issues = _validate_research_md_pdf_text(
         [
             "Title\nIntroduction\n",
@@ -1997,7 +1997,9 @@ def test_research_md_pdf_text_rejects_total_pdf_over_twelve_pages() -> None:
         ]
     )
 
-    assert "rendered_pdf_exceeds_total_page_limit" in {issue.code for issue in issues}
+    codes = {issue.code for issue in issues}
+    assert "rendered_pdf_exceeds_total_page_limit" not in codes
+    assert "appendix_before_page_9" not in codes
 
 
 def test_research_md_pdf_text_ignores_pdftotext_trailing_form_feed_page() -> None:
@@ -2022,14 +2024,33 @@ def test_research_md_pdf_text_ignores_pdftotext_trailing_form_feed_page() -> Non
     assert "rendered_pdf_exceeds_total_page_limit" not in {issue.code for issue in issues}
 
 
-def test_rendered_pdf_page_budget_rejects_pdfinfo_total_over_twelve(tmp_path: Path) -> None:
+def test_rendered_pdf_page_budget_allows_pdfinfo_total_over_twelve(tmp_path: Path) -> None:
     paper_dir = tmp_path / "paper"
     paper_dir.mkdir()
     (paper_dir / "main.pdf").write_bytes(_minimal_pdf_bytes([f"Page {i}" for i in range(13)]))
 
     issues = _validate_rendered_pdf_page_budget(tmp_path, 8.0)
 
-    assert "rendered_pdf_exceeds_total_page_limit" in {issue.code for issue in issues}
+    assert "rendered_pdf_exceeds_total_page_limit" not in {issue.code for issue in issues}
+
+
+def test_research_md_pdf_text_rejects_appendix_before_page_9() -> None:
+    issues = _validate_research_md_pdf_text(
+        [
+            "Title\nAbstract\nIntroduction\n",
+            "Related Work\n",
+            "Method\n",
+            "Experimental Setup\n",
+            "Results\n",
+            "Analysis\n",
+            "Conclusion\n",
+            "Appendix\nReproducibility\n",
+            "References\nPaper A\nPaper B\n",
+            "References\nPaper C\nPaper D\n",
+        ]
+    )
+
+    assert "appendix_before_page_9" in {issue.code for issue in issues}
 
 
 def test_research_md_format_preflight_rejects_transitive_placeholder(tmp_path: Path) -> None:
@@ -2223,6 +2244,35 @@ def test_layout_review_rejects_missing_vision_payload(tmp_path: Path) -> None:
     assert "missing_layout_review_vision_payload" in codes
 
 
+def test_layout_review_rejects_pass_contradicting_vision_payload(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_layout_review(tmp_path)
+    path = tmp_path / "paper" / "LAYOUT_REVIEW.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["verdict"] = "PASS"
+    payload["needs_revision"] = False
+    payload["issues"] = []
+    payload["revision_directives"] = []
+    payload["vision_review"]["pass_or_revise"] = "revise"
+    payload["vision_review"]["major_issues"] = [
+        {"issue": "page 6 lower half is visibly underfilled"}
+    ]
+    payload["vision_review"]["revision_directives"] = [
+        {
+            "action": "rebalance_columns",
+            "target": "page 6",
+            "rationale": "vision reviewer requested source-level repair",
+        }
+    ]
+    _write_json(path, payload)
+
+    codes = {issue.code for issue in validate_layout_review(tmp_path)}
+
+    assert "pass_layout_review_with_vision_revise" in codes
+    assert "pass_layout_review_with_vision_major_issues" in codes
+    assert "pass_layout_review_with_vision_revision_directives" in codes
+
+
 def test_layout_review_rejects_incomplete_page_snapshot_coverage(tmp_path: Path) -> None:
     _write_valid_paper_draft_report(tmp_path)
     _write_valid_layout_review(tmp_path)
@@ -2342,6 +2392,37 @@ def test_academic_language_review_rejects_missing_model_payload(tmp_path: Path) 
     codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
 
     assert "missing_academic_language_model_payload" in codes
+
+
+def test_academic_language_review_rejects_pass_contradicting_model_payload(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_academic_language_review(tmp_path)
+    path = tmp_path / "paper" / "ACADEMIC_LANGUAGE_REVIEW.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["verdict"] = "PASS"
+    payload["needs_revision"] = False
+    payload["issues"] = []
+    payload["revision_directives"] = []
+    payload["model_review"]["pass_or_revise"] = "revise"
+    payload["model_review"]["major_issues"] = [
+        {"issue": "claim framing still overreaches the evidence"}
+    ]
+    payload["model_review"]["revision_directives"] = [
+        {
+            "action": "calibrate_claim",
+            "target": "paper/main.tex",
+            "rationale": "model reviewer requested a substantive revision",
+        }
+    ]
+    _write_json(path, payload)
+
+    codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
+
+    assert "pass_academic_language_review_with_model_revise" in codes
+    assert "pass_academic_language_review_with_model_major_issues" in codes
+    assert "pass_academic_language_review_with_model_revision_directives" in codes
 
 
 def test_academic_language_review_rejects_boilerplate_evidence_quote(tmp_path: Path) -> None:

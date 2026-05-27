@@ -348,7 +348,7 @@ Use the repository's existing conventions if they are already present; otherwise
    | Failure Cases | 0.3--0.5 |
    | Conclusion | 0.2 |
 
-4. Conclusion must render on page 8 and end by the bottom of page 8 for a full long paper; page-7 conclusions are underfilled-body failures, and page-9 conclusions are overlength failures. References should begin on page 9 or later; references on page 8 usually mean the paper has only about seven pages of body. Keep the complete rendered PDF at 12 pages or fewer unless the operator explicitly changes the venue package limit. If the body is short, add or move source-backed body content before Conclusion: literature-grounded Introduction/Related Work framing, benchmark/Method detail, or evidence-backed Results/Analysis/Ablation/Failure Cases content according to the page budget. Limitations, Ethical Considerations, release notes, references, or appendix content after Conclusion do not fix an underfilled main body. References must appear before Appendix and start cleanly after the eight-page body.
+4. Conclusion must appear by the end of page 8 and should not render before page 7 for a full long paper. References and Appendix should begin on page 9 or later; references or appendix material on page 8 usually mean the paper has only about seven pages of body. If the body is short, add or move source-backed body content before Conclusion: literature-grounded Introduction/Related Work framing, benchmark/Method detail, or evidence-backed Results/Analysis/Ablation/Failure Cases content according to the page budget. Limitations, Ethical Considerations, release notes, references, or appendix content after Conclusion do not fix an underfilled main body. References must appear before Appendix and start cleanly after the eight-page body. Do not cap total pages after the reference/appendix boundary.
 5. Run `validate-research-md-format` after final compile and before academic-language/layout review.
 6. Write `paper/FORMAT_PREFLIGHT.md` with compile command/status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final validator result.
 7. No undefined references/citation warnings, no rendered `[?]`, no `Overfull \hbox > 5pt`, no placeholders/TODO/TBD/FIXME, no `% UNVERIFIED`, and no ugly code-like display labels in title, abstract, headings, captions, figures, or tables.
@@ -373,9 +373,10 @@ Use the repository's existing conventions if they are already present; otherwise
 ## Operational safety
 1. Work inside this project directory unless reading `/home/argustest/research.md` or `/home/argustest/argus-skill`.
 2. Never copy `/home/argustest`, `.skill-agent`, `.argus-skill`, `.cache`, model caches, or recursive workspaces into this project.
-3. Keep API keys and capability vault contents out of all artifacts.
-4. Record meaningful decisions and evidence in project files, not only in chat.
-5. Preserve user edits and unrelated work. Do not revert files you did not intentionally change.
+3. Do not download model weights, HuggingFace hub files, datasets, or Torch checkpoints into this project. Use the shared host caches injected by argus-skill: `HF_HOME=/root/.cache/huggingface`, `HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface/hub`, `HF_DATASETS_CACHE=/root/.cache/huggingface/datasets`, `TRANSFORMERS_CACHE=/root/.cache/huggingface/hub`, `TORCH_HOME=/root/.cache/torch`, and `XDG_CACHE_HOME=/root/.cache`.
+4. Keep API keys and capability vault contents out of all artifacts.
+5. Record meaningful decisions and evidence in project files, not only in chat.
+6. Preserve user edits and unrelated work. Do not revert files you did not intentionally change.
 
 ## Forbidden shortcuts
 - Do not fake experiments, citations, provenance, tests, reviews, image-2 artifacts, or validation outputs.

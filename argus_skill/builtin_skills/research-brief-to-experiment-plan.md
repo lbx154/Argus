@@ -101,6 +101,7 @@ Turn a loose operator research direction into a concrete, evidence-first experim
    - Include a run matrix table: id, hypothesis, command, expected output, metric, budget, priority.
    - Include a staged order: smoke -> pilot -> full run -> ablation -> paper analysis.
    - Mark MUST-RUN vs NICE-TO-HAVE and explicitly state what can be skipped if budget is tight.
+   - Include the shared model/data cache contract for every training or dataset command: `HF_HOME=/root/.cache/huggingface`, `HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface/hub`, `HF_DATASETS_CACHE=/root/.cache/huggingface/datasets`, `TRANSFORMERS_CACHE=/root/.cache/huggingface/hub`, `TORCH_HOME=/root/.cache/torch`, and `XDG_CACHE_HOME=/root/.cache`; project-local model caches are forbidden.
    - Include an "Observability and cancellation" section: expected trial count, how progress is streamed, how the user cancels, and which invariants trigger agent-initiated early stop.
    - Include a "Benchmark provenance" section. A plan without benchmark provenance is incomplete for EMNLP-style empirical work.
 

@@ -37,6 +37,7 @@ DEFAULT_VALIDATION_ISSUE_PREFIXES: dict[str, tuple[str, ...]] = {
         "rendered_pdf_underlength",
         "rendered_main_body_underfilled",
         "references_before_full_body",
+        "appendix_before_page_9",
         "references_share_page_with_body_sections",
         "insufficient_rendered_reference_pages",
         "missing_midpaper_visual_pages",
@@ -55,8 +56,13 @@ DEFAULT_VALIDATION_ISSUE_PREFIXES: dict[str, tuple[str, ...]] = {
         "missing_paired_significance",
         "conceptual_body_figure",
     ),
-    "layout_vision": ("layout_", "stale_layout", "low_layout"),
-    "academic_language": ("academic_", "stale_academic", "low_academic"),
+    "layout_vision": ("layout_", "stale_layout", "low_layout", "pass_layout_review"),
+    "academic_language": (
+        "academic_",
+        "stale_academic",
+        "low_academic",
+        "pass_academic_language_review",
+    ),
     "artifact_manifest": ("artifact_", "manifest_", "generated_artifact"),
 }
 

@@ -258,6 +258,45 @@ def test_research_domain_router_references_current_domain_skill_packs(
         assert current_path in text
 
 
+def test_builtin_skills_forbid_manual_review_artifact_passes(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    seed_builtin_skills(skills_dir)
+
+    required_by_skill = {
+        "auto-research-pipeline.md": (
+            "Review artifacts are generated evidence, not knobs",
+            "Do not hand-edit, normalize, or append PASS records",
+            "top-level PASS is invalid when nested `model_review` or `vision_review`",
+            "run the owning reviewer with `--write`",
+        ),
+        "emnlp-academic-language-review.md": (
+            "generated evidence, not editable scoring targets",
+            "Do not hand-edit, normalize, or append a top-level `PASS`",
+            "nested `model_review` still says revise",
+            "revise the manuscript and rerun the review tool",
+        ),
+        "paper-review-revision-loop.md": (
+            "read-only feedback except when regenerated",
+            "Do not hand-edit, normalize, or append `PASS` records",
+            "nested model/vision review evidence",
+            "rerun the owning review tool",
+        ),
+        "emnlp-paper-skill-router.md": (
+            "Review JSON/markdown/history appears manually normalized to PASS",
+            "top-level PASS contradicts nested model/vision evidence",
+            "Treat the artifact as invalid generated evidence",
+            "do not patch the review artifact itself",
+        ),
+    }
+
+    for filename, required_tokens in required_by_skill.items():
+        text = (skills_dir / filename).read_text(encoding="utf-8")
+        for required in required_tokens:
+            assert required in text, f"{filename} missing {required!r}"
+
+
 def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
     tmp_path: Path,
 ) -> None:
@@ -319,6 +358,9 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         assert "--model-api-status" in text
         assert "--init-model-api" in text
         assert "load_model_api_route" in text
+        assert "HF_HOME=/root/.cache/huggingface" in text
+        assert "HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface/hub" in text
+        assert "TORCH_HOME=/root/.cache/torch" in text
         assert "code/llm.py" in text
         assert "code/generate_image2_figure.py" in text
         assert "ARGUS_SKILL_IMAGE_MODEL=gpt-image-2" in text

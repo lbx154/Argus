@@ -79,6 +79,7 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - Then run `python -m argus_skill.skills.pipeline_contracts validate-academic-language-review --project-root .`.
    - The review must write `paper/ACADEMIC_LANGUAGE_REVIEW.json`, `paper/ACADEMIC_LANGUAGE_REVIEW.md`, and history.
    - Passing requires a model-backed review, fresh hashes for all LaTeX sources included by `paper/main.tex`, score at least 4/5, evidence spans quoted from the source, no failed required checks, and no active revision directives. Evidence spans are review artifacts, not prose: do not paste them into the paper to appease the gate.
+   - Treat `paper/ACADEMIC_LANGUAGE_REVIEW.json`, `.md`, and `_history.jsonl` as generated evidence, not editable scoring targets. Do not hand-edit, normalize, or append a top-level `PASS`; if the nested `model_review` still says revise, lists major/blocking issues, failed checks, low section scores, or revision directives, the only valid repair is to revise the manuscript and rerun the review tool.
 
 9. Iterate:
    - Apply `revision_directives` exactly: rewrite abstract, tighten contribution sentence, calibrate claims, reorganize related work, add evidence sentences, replace hype language, or add limitation scope.

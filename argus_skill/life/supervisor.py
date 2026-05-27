@@ -268,6 +268,12 @@ _EMNLP_REVIEW_GATE_CODES = {
     "stale_academic_language_review_source",
     "academic_language_evidence_quote_not_found",
     "academic_language_evidence_boilerplate_quote",
+    "pass_academic_language_review_with_model_revise",
+    "pass_academic_language_review_with_model_blocking_issues",
+    "pass_academic_language_review_with_model_major_issues",
+    "pass_academic_language_review_with_model_revision_directives",
+    "pass_academic_language_review_with_model_failed_checks",
+    "pass_academic_language_review_with_model_low_sections",
     "layout_review_not_pass",
     "layout_review_needs_revision",
     "layout_review_has_blockers",
@@ -277,6 +283,11 @@ _EMNLP_REVIEW_GATE_CODES = {
     "missing_layout_review_vision_payload",
     "stale_layout_review_artifact",
     "incomplete_layout_review_snapshot_coverage",
+    "pass_layout_review_with_vision_revise",
+    "pass_layout_review_with_vision_blocking_issues",
+    "pass_layout_review_with_vision_major_issues",
+    "pass_layout_review_with_vision_revision_directives",
+    "pass_layout_review_with_vision_low_criteria",
 }
 _EMNLP_FIGURE_TABLE_FORMAT_CODES = {
     "body_figure_not_referenced",
@@ -296,6 +307,7 @@ _EMNLP_CONTENT_SUFFICIENCY_CODES = {
     "missing_main_content_pages",
     "missing_midpaper_visual_pages",
     "overlength_emnlp_paper",
+    "appendix_before_page_9",
     "references_before_full_body",
     "rendered_main_body_underfilled",
     "underlength_emnlp_paper",
@@ -712,7 +724,8 @@ def _select_emnlp_finalization_repair_task(
                 "thin, run the missing experiments, ablations, robustness slices, or "
                 "failure studies first; if evidence exists, expand Introduction/Related "
                 "Work, Method/Setup, Results/Analysis, and Failure Cases from those "
-                "artifacts until references start after the eight-page body."
+                "artifacts until references and appendix material start on page 9 or later. "
+                "Do not impose any total-page maximum on references or appendices."
             ),
         )
 

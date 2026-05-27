@@ -19,6 +19,7 @@ _PROFILE_PATH_ENV = "ARGUS_SKILL_RESEARCH_PROFILE_PATH"
 _EMNLP2026_PROFILE = "emnlp2026-tierharness"
 _DEFAULT_TEXT_MODELS = "gpt-5.4-mini,gpt-5.4"
 _DEFAULT_IMAGE_MODEL = "gpt-image-2"
+_SHARED_MODEL_CACHE_ROOT_ENV = "ARGUS_SKILL_SHARED_MODEL_CACHE_ROOT"
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,45 @@ def _read_profile_file(path: str) -> str:
         return ""
 
 
+def _shared_model_cache_root(env: Mapping[str, str]) -> Path:
+    raw = _env_text(env, _SHARED_MODEL_CACHE_ROOT_ENV)
+    return Path(raw).expanduser() if raw else Path.home() / ".cache"
+
+
+def shared_model_cache_defaults(env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Return the host-shared model/data cache env used by research missions."""
+
+    source = env if env is not None else os.environ
+    root = _shared_model_cache_root(source)
+    hf_home = root / "huggingface"
+    return {
+        "XDG_CACHE_HOME": str(root),
+        "HF_HOME": str(hf_home),
+        "HUGGINGFACE_HUB_CACHE": str(hf_home / "hub"),
+        "HF_DATASETS_CACHE": str(hf_home / "datasets"),
+        "TRANSFORMERS_CACHE": str(hf_home / "hub"),
+        "TORCH_HOME": str(root / "torch"),
+    }
+
+
+def ensure_shared_model_cache_environment(
+    env: MutableMapping[str, str] | None = None,
+) -> None:
+    """Default all model/data downloads to the host-shared cache tree.
+
+    Argus research missions often spawn Codex, Python, HuggingFace, and Torch
+    subprocesses from different project directories. Setting these defaults in
+    the daemon environment keeps model weights and datasets under one host cache
+    instead of repeatedly downloading them into each workspace. Explicit
+    operator-provided cache variables still win.
+    """
+
+    target = env if env is not None else os.environ
+    for key, value in shared_model_cache_defaults(target).items():
+        if not _env_text(target, key):
+            target[key] = value
+
+
 def ensure_research_api_environment(env: MutableMapping[str, str] | None = None) -> None:
     """Populate process env with pre-granted model API credentials if available.
 
@@ -54,6 +94,7 @@ def ensure_research_api_environment(env: MutableMapping[str, str] | None = None)
     asking the human.
     """
     target = env if env is not None else os.environ
+    ensure_shared_model_cache_environment(target)
     engineer = load_model_api_route("engineer", target)
     reviewer = load_model_api_route("reviewer", target)
     image = load_model_api_route("image", target)
@@ -103,6 +144,17 @@ def _capability_context(env: Mapping[str, str]) -> str:
         raw_image_route_status if isinstance(raw_image_route_status, dict) else {}
     )
     image_tool_available = bool(image_route_status.get("available"))
+    cache_defaults = shared_model_cache_defaults(env)
+    cache_lines = []
+    for key in (
+        "HF_HOME",
+        "HUGGINGFACE_HUB_CACHE",
+        "HF_DATASETS_CACHE",
+        "TRANSFORMERS_CACHE",
+        "TORCH_HOME",
+        "XDG_CACHE_HOME",
+    ):
+        cache_lines.append(f"- {key}: {_env_text(env, key) or cache_defaults[key]}")
     route_lines = []
     for route_name in ("engineer", "reviewer", "scientist", "image", "image_review"):
         route = routes.get(route_name)
@@ -155,6 +207,12 @@ def _capability_context(env: Mapping[str, str]) -> str:
         "- Use the image model for paper figures only when a figure specification "
         "is saved under figures/ or paper/; always keep the generated image, "
         "sidecar metadata, inspect output, and review output as artifacts.\n"
+        "\n## Shared model/data cache layer\n"
+        f"- cache_root: {_shared_model_cache_root(env)}\n"
+        f"{chr(10).join(cache_lines)}\n"
+        "- Rule: do not download model weights, HuggingFace hub files, datasets, "
+        "or Torch checkpoints into project directories. Reuse the shared host "
+        "cache paths above for every project and experiment subprocess.\n"
     )
 
 

@@ -15,7 +15,7 @@ Compile the LaTeX paper and fix any issues: **$ARGUMENTS**
 - **ENGINE = `pdflatex`** — LaTeX engine. Options: `pdflatex` (default), `xelatex` (for CJK/custom fonts), `lualatex`.
 - **MAX_COMPILE_ATTEMPTS = 3** — Maximum attempts to fix errors and recompile.
 - **PAPER_DIR = `paper/`** — Directory containing LaTeX source files.
-- **MAX_PAGES** — Page limit. ML conferences: main body to Conclusion end (excluding references & appendix). ICLR=9, NeurIPS=9, ICML=8. **IEEE venues: references ARE included in page count.** IEEE journal ≈ 12-14 pages, IEEE conference ≈ 5-8 pages (all inclusive).
+- **MAX_PAGES** — Main-body page limit. ML conferences: main body to Conclusion end (excluding references & appendix). ICLR=9, NeurIPS=9, ICML=8. For Argus EMNLP/ACL long-paper work, enforce main/body <=8 pages with References/Appendix starting on page 9 or later and no total-page cap after that boundary. **IEEE venues: references ARE included in page count.** IEEE journal ≈ 12-14 pages, IEEE conference ≈ 5-8 pages (all inclusive).
 
 ## Workflow
 
@@ -149,7 +149,7 @@ This is a quick visual scan, not a full review — the improvement loop does dee
 **Automated checks:**
 
 - [ ] PDF file exists and is > 100KB (not empty/corrupt)
-- [ ] Total page count is reasonable (MAX_PAGES + appendix + references)
+- [ ] Main/body page count is within MAX_PAGES; for Argus EMNLP/ACL long papers, do not cap total pages after References/Appendix begin
 - [ ] No "??" in the PDF (undefined references — grep the log)
 - [ ] No "[?]" in the PDF (undefined citations — grep the log)
 - [ ] Figures are rendered (not missing image placeholders)
@@ -164,7 +164,7 @@ grep -c "Citation.*undefined" compile.log
 
 ### Step 6: Page Count Verification
 
-**CRITICAL**: Verify paper fits within MAX_PAGES.
+**CRITICAL**: Verify the main body fits within MAX_PAGES.
 
 **For ML conferences (ICLR/NeurIPS/ICML/CVPR/ACL/AAAI):** Main body = first page through end of Conclusion section (not necessarily §5 — could be §6, §7, or §8 depending on structure). References and appendix are NOT counted.
 
@@ -189,12 +189,12 @@ for i, page in enumerate(pages):
 "
 ```
 
-If Conclusion ends mid-page and References start on the same page, the main body is that page number (e.g., if both are on page 9, main body = ~8.5 pages, which is fine for a 9-page limit since it leaves room for the References header).
+If Conclusion ends mid-page and References start on the same page, the main body is that page number (e.g., if both are on page 9, main body = ~8.5 pages, which is fine for a 9-page limit since it leaves room for the References header). For Argus EMNLP/ACL long papers, References and Appendix must start on page 9 or later, and total reference/appendix length is unrestricted.
 
 If over limit:
 - Identify which sections are longest
 - Suggest specific cuts (move proofs to appendix, compress tables, tighten writing)
-- Report: "Main body is X pages (limit: MAX_PAGES). Suggestion: move [specific content] to appendix."
+- Report: "Main body is X pages (limit: MAX_PAGES). References/Appendix pages are uncapped after the required boundary. Suggestion: move [specific content] to appendix."
 
 ### Step 6.5: Stale File Detection
 
@@ -217,7 +217,7 @@ This prevents confusion from leftover files when section structure changes (e.g.
 For conference submission, additional checks:
 
 - [ ] **Anonymous**: no author names, affiliations, or self-citations that reveal identity
-- [ ] **Page limit**: main body within MAX_PAGES (to end of Conclusion)
+- [ ] **Page limit**: main body within MAX_PAGES (to end of Conclusion); for Argus EMNLP/ACL, References/Appendix on page 9 or later with no total-page cap
 - [ ] **Font embedding**: all fonts embedded in PDF
   ```bash
   pdffonts main.pdf | grep -v "yes"  # should return nothing (or only header)
@@ -234,7 +234,7 @@ For conference submission, additional checks:
 - **Status**: SUCCESS / FAILED
 - **PDF**: paper/main.pdf
 - **Pages**: X (main body to Conclusion) + Y (references) + Z (appendix)
-- **Within page limit**: YES/NO (MAX_PAGES = N)
+- **Within main-body page limit**: YES/NO (MAX_PAGES = N; references/appendix uncapped when venue policy excludes them)
 - **Errors fixed**: [list of auto-fixed issues]
 - **Warnings remaining**: [list of non-critical warnings]
 - **Undefined references**: 0

@@ -6,6 +6,7 @@ import pytest
 
 from argus_skill.life.research_profile import (
     ensure_research_api_environment,
+    ensure_shared_model_cache_environment,
     load_research_profile,
     render_research_profile_context,
 )
@@ -24,6 +25,13 @@ def _clear_model_api_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "ARGUS_SKILL_TEXT_MODELS",
         "ARGUS_SKILL_IMAGE_MODEL",
         "ARGUS_SKILL_IMAGE_REVIEW_MODEL",
+        "ARGUS_SKILL_SHARED_MODEL_CACHE_ROOT",
+        "HF_HOME",
+        "HUGGINGFACE_HUB_CACHE",
+        "HF_DATASETS_CACHE",
+        "TRANSFORMERS_CACHE",
+        "TORCH_HOME",
+        "XDG_CACHE_HOME",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -46,6 +54,9 @@ def test_emnlp2026_profile_contains_research_guardrails() -> None:
     assert "human turns after assignment" in ctx
     assert "Granted capability layer" in ctx
     assert "image_model_allowed: gpt-image-2" in ctx
+    assert "Shared model/data cache layer" in ctx
+    assert "HF_HOME: /root/.cache/huggingface" in ctx
+    assert "HUGGINGFACE_HUB_CACHE: /root/.cache/huggingface/hub" in ctx
     assert "Permission model: the human has pre-approved these capabilities" in ctx
     assert "profile_sha256" in ctx
     assert "final_submission" in ctx
@@ -98,6 +109,37 @@ def test_research_api_environment_loads_key_without_printing_secret(tmp_path: Pa
 
     assert env["OPENAI_API_KEY"] == "secret"
     assert env["OPENAI_BASE_URL"] == "https://example.invalid/openai/v1"
+    assert env["HF_HOME"].endswith("/.cache/huggingface")
+    assert env["HUGGINGFACE_HUB_CACHE"].endswith("/.cache/huggingface/hub")
+    assert env["HF_DATASETS_CACHE"].endswith("/.cache/huggingface/datasets")
+    assert env["TRANSFORMERS_CACHE"].endswith("/.cache/huggingface/hub")
+    assert env["TORCH_HOME"].endswith("/.cache/torch")
+    assert env["XDG_CACHE_HOME"].endswith("/.cache")
+
+
+def test_shared_model_cache_environment_uses_one_host_root() -> None:
+    env = {"ARGUS_SKILL_SHARED_MODEL_CACHE_ROOT": "/tmp/argus-cache"}
+
+    ensure_shared_model_cache_environment(env)
+
+    assert env["XDG_CACHE_HOME"] == "/tmp/argus-cache"
+    assert env["HF_HOME"] == "/tmp/argus-cache/huggingface"
+    assert env["HUGGINGFACE_HUB_CACHE"] == "/tmp/argus-cache/huggingface/hub"
+    assert env["HF_DATASETS_CACHE"] == "/tmp/argus-cache/huggingface/datasets"
+    assert env["TRANSFORMERS_CACHE"] == "/tmp/argus-cache/huggingface/hub"
+    assert env["TORCH_HOME"] == "/tmp/argus-cache/torch"
+
+
+def test_shared_model_cache_environment_preserves_operator_overrides() -> None:
+    env = {
+        "ARGUS_SKILL_SHARED_MODEL_CACHE_ROOT": "/tmp/argus-cache",
+        "HF_HOME": "/custom/hf",
+    }
+
+    ensure_shared_model_cache_environment(env)
+
+    assert env["HF_HOME"] == "/custom/hf"
+    assert env["HUGGINGFACE_HUB_CACHE"] == "/tmp/argus-cache/huggingface/hub"
 
 
 def test_research_profile_can_be_loaded_from_file(tmp_path: Path) -> None:
