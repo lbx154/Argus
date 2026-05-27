@@ -37,7 +37,7 @@ Gate paper writing and revisions on evidence integrity. This is an argus-skill-n
    - Scope claims such as "fully autonomous", "zero-touch", "SOTA", or "EMNLP-ready".
    - Citation claims and related-work placeholders.
    - Figure/table claims: every caption with a number, every table headline, every figure takeaway, and every significance statement. A table caption without a numerical headline or a comparative caption without paired-significance evidence is an audit issue, not only a style issue.
-   - Submission-readiness claims tied to format: official ACL/EMNLP template, anonymous author block, conclusion by page 8, References/Appendix starting on page 9 or later with no total-page cap after the body, Limitations/Ethical Considerations, References before Appendix, reproducibility appendix, no `[?]`, no `% UNVERIFIED`, no placeholders, every figure labeled/referenced, at least one figure/table on each of pages 4--7, and no `Overfull \hbox > 5pt`.
+   - Submission-readiness claims tied to format: official ACL/EMNLP template, anonymous author block, conclusion by page 8, References/Appendix starting on page 9 or later with no total-page cap after the body, Limitations/Ethical Considerations, References before Appendix, reproducibility appendix, no `[?]`, no `% UNVERIFIED`, no placeholders, every figure labeled/referenced, model-backed layout review accepts the middle-body visual rhythm, and no `Overfull \hbox > 5pt`.
 
 4. Build `paper/CLAIMS_EVIDENCE_AUDIT.tsv`:
    - claim_id

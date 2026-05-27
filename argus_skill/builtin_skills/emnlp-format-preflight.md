@@ -60,7 +60,7 @@ Treat every item below as blocking for a final EMNLP-ready claim:
 4. **Figures and layout**
    - Every body figure has a `\label{}` and is referenced in the text with `\ref`, `\autoref`, `\cref`, or equivalent.
    - Body figures are capped at five total; at most one may be a full-width `figure*`.
-   - At least one figure or table should be visible on each of pages 4--7 so the paper does not become a wall of text.
+   - The middle body should have meaningful visual anchors when they improve readability; rely on the model-backed layout review for page-rhythm judgment instead of inserting low-value floats to hit fixed page numbers.
    - Data/metric/result plots may be locally scripted from canonical artifacts. Every other figure must include the actual image-2/codex-image2 raster `output_path` in `paper/main.tex` and pass `validate-image2-figures`. **Block any self-drawn non-data replacement:** matplotlib/FancyBboxPatch redraws, TikZ node graphs, SVG/PIL/HTML canvases, cleaned PDF derivatives, screenshots, manual vector replacements, local PNGs with hand-written `codex-image2` metadata, missing `sidecar_path`/`inspect_path`, or manual-only image reviews are hard failures. If the figure is ugly, regenerate it through image-2 with a better prompt. These figures must be adaptive/landscape page-width assets, preferably `1536x1024 or 1920x1080`, and avoid square `1024x1024`, tiny text, heavy gradients, photorealism, weird/sketchy fonts, and code identifiers.
 
 5. **Tables**
