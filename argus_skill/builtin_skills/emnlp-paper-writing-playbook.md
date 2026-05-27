@@ -618,17 +618,18 @@ Page 4   Method (at least 700 words), architecture figure
 Page 5   Experimental Setup (at least 550 words), main table
 Page 6   Results: ablation table, per-condition table, key figure
 Page 7   Analysis: significance, qualitative, discussion
-Page 8   Conclusion + Limitations + Ethics
+Page 8   Conclusion
 ─────────  (8-page body limit; references and appendix begin after page 8)
-Page 9+  References + Appendix
+Page 9+  Limitations/Ethics if they spill after Conclusion, then References + Appendix
 ```
 
 **Rule**: Conclusion (Sec ≤9) MUST appear by end of page 8. Limitations
-and Ethics are body end matter after Conclusion and must fit within the
-eight-page body; they do not repair an underfilled pre-Conclusion draft. Do not
-force this with `\clearpage`, `\newpage`, `\pagebreak`, or `\FloatBarrier`
-immediately before Conclusion; a forced pre-Conclusion break can leave page 8
-mostly blank and push the heading to page 9 after minor float changes.
+and Ethics are required after Conclusion and before References; they may spill
+past the eight-page body boundary, but they do not repair an underfilled
+pre-Conclusion draft. Do not force Conclusion with `\clearpage`, `\newpage`,
+`\pagebreak`, or `\FloatBarrier` immediately before the section; a forced
+pre-Conclusion break can leave page 8 mostly blank and push the heading to
+page 9 after minor float changes.
 
 If the body overflows, in priority order: (a) move secondary figures to appendix;
 (b) move low-value diagnostics to appendix; (c) tighten repeated score
