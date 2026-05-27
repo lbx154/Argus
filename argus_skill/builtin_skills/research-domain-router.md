@@ -91,69 +91,65 @@ Given a research brief / idea:
 
 ### Agent/LLM
 ```
-Domain skills:
-- auto-research-pipeline (orchestration)
-- agent-research-benchmark-runner (evaluation)
+Domain skills (builtin_skills/domains/agents-rag/):
+- langchain, llamaindex, crewai (agent frameworks)
+- faiss, qdrant, chroma, sentence-transformers (RAG)
 
 If training-free:
-  + (no additional training skills)
+  + agent-research-benchmark-runner
 If training-based (e.g., fine-tune for tool-calling, train reward model):
-  + training-experiment-runner
+  + domains/training/ (axolotl, peft, deepspeed, etc.)
 ```
 
-### CV
+### CV / Multimodal
 ```
-Domain skills:
-- cv-research-pipeline (dataset/eval/visualization)
+Domain skills (builtin_skills/domains/cv-multimodal/):
+- clip, llava, blip-2, segment-anything (vision-language)
+- stable-diffusion, cosmos-policy (generation)
+- openvla-oft, whisper (embodied, audio)
 
 If training-free (e.g., zero-shot CLIP, pretrained model eval):
-  + agent-research-benchmark-runner (inference-only eval)
-If training-based (e.g., train ViT, fine-tune detector):
-  + training-experiment-runner
-```
-
-### Multimodal/VLM
-```
-Domain skills:
-- multimodal-research-pipeline (benchmarks, architecture patterns)
-
-If training-free (e.g., GPT-4V prompting, zero-shot VQA):
   + agent-research-benchmark-runner
-If training-based (e.g., LLaVA training, VLM alignment):
-  + training-experiment-runner
+If training-based (e.g., train ViT, LLaVA multi-stage):
+  + domains/training/ (peft, deepspeed, accelerate, etc.)
 ```
 
-### AI Infrastructure
+### AI Infrastructure / Serving
 ```
-Domain skills:
-- ai-infra-research-pipeline (benchmarking, profiling)
+Domain skills (builtin_skills/domains/inference-serving/):
+- vllm, sglang, tensorrt-llm, llama-cpp (serving systems)
 
-If training-free (e.g., serving system, inference kernel):
-  + (benchmarks are inline in ai-infra pipeline)
-If training-based (e.g., training system paper, Megatron):
-  + training-experiment-runner
-```
+Domain skills (builtin_skills/domains/infrastructure/):
+- modal, skypilot, lambda-labs (compute platforms)
 
-### NLP
-```
-Domain skills:
-- auto-research-pipeline (orchestration)
+Domain skills (builtin_skills/domains/optimization/):
+- flash-attention, awq, bitsandbytes, gptq (efficiency)
 
-If training-free (e.g., in-context learning, RAG):
-  + agent-research-benchmark-runner
-If training-based (e.g., pretrain LM, fine-tune for task):
-  + training-experiment-runner
+If training system paper:
+  + domains/training/ (megatron-core, torchtitan, deepspeed)
 ```
 
-### RL/Alignment
+### NLP / LLM Training
 ```
-Domain skills:
-- (use auto-research-pipeline for orchestration)
+Domain skills (builtin_skills/domains/training/):
+- axolotl, llama-factory, peft, unsloth (fine-tuning)
+- deepspeed, pytorch-fsdp2, accelerate, megatron-core, ray-train (distributed)
+- torchtitan, nanogpt (pretraining)
 
-If training-free (e.g., constitutional AI via prompting):
-  + agent-research-benchmark-runner
-If training-based (e.g., PPO, DPO, reward model):
-  + training-experiment-runner
+Domain skills (builtin_skills/domains/evaluation/):
+- lm-evaluation-harness, bigcode-evaluation-harness (benchmarking)
+```
+
+### Research Operations (all domains)
+```
+Domain skills (builtin_skills/domains/research-ops/):
+- arxiv (paper search + download)
+- citation-audit (verify references)
+- paper-compile (LaTeX → PDF, fix errors)
+- paper-figure (matplotlib/seaborn generation)
+- rebuttal (reviewer response drafting)
+- monitor-experiment (watch training runs)
+- run-experiment (execute experiment plans)
 ```
 
 ## Cross-Domain Skills (Always Available)
