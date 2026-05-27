@@ -35,6 +35,103 @@ def iter_builtin_skill_texts() -> Iterable[tuple[str, str]]:
         yield entry.name, entry.read_text(encoding="utf-8")
 
 
+# ---------------------------------------------------------------------------
+# Domain registry
+# ---------------------------------------------------------------------------
+
+AVAILABLE_DOMAINS: dict[str, list[str]] = {
+    "agent": ["agents-rag", "evaluation"],
+    "cv": ["cv-multimodal", "optimization"],
+    "multimodal": ["cv-multimodal", "training", "optimization"],
+    "nlp": ["training", "evaluation"],
+    "infra": ["inference-serving", "infrastructure", "optimization"],
+    "training": ["training", "evaluation", "optimization"],
+    "rl": ["training", "evaluation"],
+}
+
+DOMAIN_DESCRIPTIONS: dict[str, str] = {
+    "agent": "Agent / LLM — multi-agent, tool-use, RAG, planning",
+    "cv": "Computer Vision — detection, segmentation, ViT, 3D",
+    "multimodal": "Multimodal / VLM — vision-language, VQA, video-language",
+    "nlp": "NLP — pretraining, fine-tuning, summarization, parsing",
+    "infra": "AI Infrastructure — serving, kernels, distributed systems",
+    "training": "Model Training — pretraining, fine-tuning, RLHF, DPO",
+    "rl": "RL / Alignment — RLHF, DPO, reward modeling",
+}
+
+
+def list_domains() -> dict[str, str]:
+    """Return available domains with descriptions."""
+    return dict(DOMAIN_DESCRIPTIONS)
+
+
+def iter_domain_skill_texts(domain: str) -> Iterable[tuple[str, str]]:
+    """Yield ``(filename, markdown)`` for skills in the given domain's subdirs."""
+    if domain not in AVAILABLE_DOMAINS:
+       raise ValueError(
+           f"Unknown domain {domain!r}. Available: {list(AVAILABLE_DOMAINS.keys())}"
+       )
+    base = builtin_skill_source_path() / "domains"
+    for subdir_name in AVAILABLE_DOMAINS[domain]:
+       subdir = base / subdir_name
+       if not subdir.is_dir():
+           continue
+       for entry in sorted(subdir.iterdir()):
+           if entry.name.startswith("_") or not entry.name.endswith(".md"):
+               continue
+           yield f"{subdir_name}/{entry.name}", entry.read_text(encoding="utf-8")
+    # Always include research-ops
+    ops_dir = base / "research-ops"
+    if ops_dir.is_dir():
+       for entry in sorted(ops_dir.iterdir()):
+           if entry.name.startswith("_") or not entry.name.endswith(".md"):
+               continue
+           yield f"research-ops/{entry.name}", entry.read_text(encoding="utf-8")
+
+
+def seed_builtin_skills_for_domain(
+    skills_dir: Path,
+    domain: str,
+    *,
+    overwrite: bool = False,
+) -> dict[str, bool]:
+    """Seed common skills + selected domain skills into ``skills_dir``.
+
+    This prevents skill explosion by only loading domain-relevant skills.
+    Common top-level skills (orchestration, paper writing, etc.) are always
+    included. Domain-specific skills from ``domains/<subdir>/`` are added
+    based on the chosen domain.
+
+    Returns a map of filename → created (True) or skipped (False).
+    """
+    skills_dir = Path(skills_dir)
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    created: dict[str, bool] = {}
+
+    # 1. Always seed common top-level skills
+    for filename, text in iter_builtin_skill_texts():
+       _validate_builtin(filename, text)
+       dest = skills_dir / filename
+       if dest.exists() and not overwrite:
+           created[filename] = False
+           continue
+       _atomic_write_text(dest, text)
+       created[filename] = True
+
+    # 2. Seed domain-specific skills (flatten into skills dir with prefix)
+    for rel_path, text in iter_domain_skill_texts(domain):
+       # e.g. "training/deepspeed.md" → "domain--training--deepspeed.md"
+       flat_name = f"domain--{rel_path.replace('/', '--')}"
+       dest = skills_dir / flat_name
+       if dest.exists() and not overwrite:
+           created[flat_name] = False
+           continue
+       _atomic_write_text(dest, text)
+       created[flat_name] = True
+
+    return created
+
+
 def builtin_skill_count() -> int:
     """Return the number of bundled default skills."""
     return sum(1 for _ in iter_builtin_skill_texts())

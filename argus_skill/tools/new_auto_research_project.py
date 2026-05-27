@@ -12,10 +12,13 @@ from importlib import resources
 from pathlib import Path
 
 from ..skills.builtins import (
+    AVAILABLE_DOMAINS,
     DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
+    DOMAIN_DESCRIPTIONS,
     builtin_skill_source_path,
     iter_builtin_skill_texts,
     seed_builtin_skills,
+    seed_builtin_skills_for_domain,
 )
 
 DEFAULT_PARENT = Path("/home/argustest")
@@ -48,6 +51,7 @@ class LaunchConfig:
     objective: str | None = None
     non_goals: str | None = None
     compute_budget: str | None = None
+    domain: str | None = None  # e.g. "cv", "multimodal", "agent", "infra"
     start_daemon: bool = True
     init_git: bool = True
     dry_run: bool = False
@@ -61,10 +65,12 @@ class LaunchResult:
     skills_dir: Path
     project_name: str
     version: str
+    domain: str | None
     daemon_started: bool
     git_commit: str | None
     daemon_output: str
     status_output: str
+    dry_run: bool = False
     dry_run: bool = False
 
 
@@ -236,6 +242,7 @@ def create_project(config: LaunchConfig) -> LaunchResult:
             skills_dir=skills_dir,
             project_name=project_name,
             version=version,
+            domain=config.domain,
             daemon_started=False,
             git_commit=None,
             daemon_output="",
@@ -244,7 +251,10 @@ def create_project(config: LaunchConfig) -> LaunchResult:
         )
     _prepare_project_dir(project_dir, overwrite_empty=config.overwrite_empty)
     agents_path.write_text(agents_md, encoding="utf-8")
-    seed_builtin_skills(skills_dir, overwrite=True)
+    if config.domain:
+        seed_builtin_skills_for_domain(skills_dir, config.domain, overwrite=True)
+    else:
+        seed_builtin_skills(skills_dir, overwrite=True)
     seed_starter_code(project_dir, overwrite=True)
     seed_research_bootstrap(
         project_dir,
@@ -264,6 +274,7 @@ def create_project(config: LaunchConfig) -> LaunchResult:
         skills_dir=skills_dir,
         project_name=project_name,
         version=version,
+        domain=config.domain,
         daemon_started=config.start_daemon,
         git_commit=git_commit,
         daemon_output=daemon_output,
@@ -540,6 +551,42 @@ def _run(
     return output
 
 
+def _interactive_domain_select() -> str | None:
+    """Interactively ask the user to pick a research domain."""
+    print("\n🔬 Select a research domain (loads only relevant skills):\n")
+    keys = list(AVAILABLE_DOMAINS.keys())
+    for i, key in enumerate(keys, 1):
+        desc = DOMAIN_DESCRIPTIONS[key]
+        print(f"  {i}. {desc}")
+    print(f"  {len(keys) + 1}. All domains (load everything — may be slow)")
+    print()
+    while True:
+        try:
+            choice = input("Domain [1-{}]: ".format(len(keys) + 1)).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if not choice:
+            continue
+        try:
+            idx = int(choice)
+        except ValueError:
+            # Try matching by name
+            if choice.lower() in AVAILABLE_DOMAINS:
+                return choice.lower()
+            print(f"  Invalid choice. Enter 1-{len(keys) + 1} or a domain name.")
+            continue
+        if 1 <= idx <= len(keys):
+            selected = keys[idx - 1]
+            print(f"\n  ✓ Selected: {DOMAIN_DESCRIPTIONS[selected]}\n")
+            return selected
+        elif idx == len(keys) + 1:
+            print("\n  ✓ Loading all domains\n")
+            return None
+        else:
+            print(f"  Invalid choice. Enter 1-{len(keys) + 1}.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="new-auto-research-project",
@@ -602,12 +649,27 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="print the resolved project path/version without creating files",
     )
+    parser.add_argument(
+        "--domain",
+        choices=list(AVAILABLE_DOMAINS.keys()),
+        default=None,
+        help=(
+            "research domain to activate (only loads domain-relevant skills). "
+            "Available: " + ", ".join(f"{k} ({v})" for k, v in DOMAIN_DESCRIPTIONS.items())
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # Interactive domain selection if not specified
+    domain = args.domain
+    if domain is None and sys.stdin.isatty() and not args.dry_run:
+        domain = _interactive_domain_select()
+
     config = LaunchConfig(
         parent=args.parent,
         version=args.version,
@@ -616,6 +678,7 @@ def main(argv: list[str] | None = None) -> int:
         objective=args.objective,
         non_goals=args.non_goals,
         compute_budget=args.compute_budget,
+        domain=domain,
         start_daemon=not args.no_start,
         init_git=not args.no_git,
         dry_run=args.dry_run,
@@ -633,6 +696,7 @@ def format_result(result: LaunchResult) -> str:
     lines = [
         f"project : {result.project_dir}",
         f"version : {result.version}",
+        f"domain  : {result.domain or 'all (no filter)'}",
         f"AGENTS  : {result.agents_path}",
         f"skills  : {result.skills_dir}",
         f"code    : {result.project_dir / DEFAULT_PROJECT_CODE_DIR}",
