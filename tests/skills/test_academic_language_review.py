@@ -1,5 +1,6 @@
 from argus_skill.skills.academic_language_review import (
     _deterministic_assessment,
+    _section_text,
     _numbered_source_excerpt,
     _review_prompt,
 )
@@ -79,6 +80,18 @@ def test_model_review_prompt_includes_structured_float_digest() -> None:
     assert "Structured source digest" in prompt
     assert "label=tab:repobench" in prompt
     assert "Benchmark / Source & Model / Backend & Result" in prompt
+
+
+def test_section_text_expands_simple_paper_macros() -> None:
+    tex = "\n".join(
+        [
+            r"\newcommand{\PairScorerBase}{PairScorer-Base}",
+            r"\section{Experimental Setup}",
+            r"The evaluated backend is \PairScorerBase{} for all lanes.",
+        ]
+    )
+
+    assert "PairScorer-Base" in _section_text(tex, "Experimental Setup")
 
 
 def test_review_prompt_pins_late_limitations_and_tables_after_truncation() -> None:
