@@ -607,10 +607,12 @@ class Critic:
                 "Use the active project files, project-local argus_builtin_skills, and "
                 "`python -m argus_skill ...` or the launcher-provided ARGUS_SKILL_PYTHON "
                 "environment instead of retired absolute paths. For paper infrastructure "
-                "leaks, lexical grep/rg scans are context only; the task acceptance must "
-                "require the model-backed `paper_infrastructure_review --review-mode model "
-                "--write` artifact and `validate-paper-infrastructure-review --project-root .`, "
-                "not a hand-written string-match pass."
+                "leaks, do not run ad hoc grep/rg pattern scans in the Planner. Inspect "
+                "only whether the model-backed paper infrastructure review artifact and "
+                "`validate-paper-infrastructure-review --project-root .` are missing or "
+                "failing, then queue the Engineer to run `paper_infrastructure_review "
+                "--review-mode model --write`. Do not use a hand-written string-match "
+                "pass as context, acceptance, or a substitute for the reviewer artifact."
             )
             + "\n\n"
             + budget_line
