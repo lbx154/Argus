@@ -177,7 +177,7 @@ Final EMNLP evidence needs:
 - raw scored rows under `experiments/**`, not only benchmark manifests;
 - a named evaluated model/backend. Internal manifests may record local compute
   details, but the manuscript should report only paper-facing facts: evaluated
-  model/backend class, framework/runtime or benchmark harness, checkpoint or
+  model/backend class, paper-facing framework or benchmark harness, checkpoint or
   scorer identifier, training/inference settings, budget/decoding, seeds, and
   high-level compute/cost when relevant. If no local GPU exists, run the
   approved hosted route, with `gpt-5-mini` as the default low-cost backbone,

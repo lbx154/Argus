@@ -1478,6 +1478,26 @@ def test_image2_figures_accept_body_conceptual_png_output(tmp_path: Path) -> Non
     assert validate_image2_figures(tmp_path) == []
 
 
+def test_image2_figures_accept_relative_project_root(tmp_path: Path) -> None:
+    _write_valid_image2_figures(tmp_path)
+    _write_main_tex_with_figures(
+        tmp_path,
+        [
+            (
+                "figures/method.png",
+                "fig:method",
+                "Overview of our method as an executable policy card.",
+            )
+        ],
+    )
+    previous = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        assert validate_image2_figures(Path(".")) == []
+    finally:
+        os.chdir(previous)
+
+
 def test_image2_figures_reject_cropped_or_resaved_image2_output(tmp_path: Path) -> None:
     _write(tmp_path / "paper" / "figures" / "method.prompt.txt", _valid_image2_teaser_prompt())
     _write_bytes(tmp_path / "paper" / "figures" / "method.png", _png_bytes(1343, 564))
@@ -3002,6 +3022,25 @@ def test_academic_language_review_rejects_missing_model_id_when_models_are_used(
 
     codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
     assert "academic_language_missing_method_model_identifier" in codes
+
+
+def test_academic_language_review_accepts_named_pairscorer_backend(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    text = (tmp_path / "paper" / "main.tex").read_text(encoding="utf-8")
+    text = text.replace("gpt-5-mini", "PairScorer")
+    text = text.replace("hosted gpt-5-mini agent", "PairScorer candidate-ranking backend")
+    text = text.replace(
+        "The model produces an action or answer under the shared decoding settings.",
+        "The PairScorer backend ranks each candidate under the shared scoring budget.",
+    )
+    _write(tmp_path / "paper" / "main.tex", text)
+    _write_valid_academic_language_review(tmp_path)
+
+    codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
+
+    assert "academic_language_missing_method_model_identifier" not in codes
 
 
 def test_academic_language_review_rejects_validator_shaped_abstract_even_with_pass_json(

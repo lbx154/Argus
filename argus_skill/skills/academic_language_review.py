@@ -214,11 +214,12 @@ EVALUATED_SYSTEM_DETAIL_PATTERNS: tuple[tuple[str, str, str], ...] = (
     (
         "missing_method_framework_or_runtime",
         r"\b(?:agent framework|framework|runtime|harness|benchmark driver|"
-        r"evaluation suite|simulator|execution environment|controller|"
+        r"evaluation suite|simulator|controller|"
         r"orchestrator|policy engine|python\s+\d|implementation)\b",
         (
-            "method/setup must name the evaluated system framework, runtime, "
-            "harness, or controller, not the paper-generation infrastructure"
+            "method/setup must name the evaluated paper system, benchmark "
+            "harness, implementation, or controller, not the paper-generation "
+            "infrastructure"
         ),
     ),
     (
@@ -238,7 +239,9 @@ EVALUATED_SYSTEM_DETAIL_PATTERNS: tuple[tuple[str, str, str], ...] = (
 MODEL_IDENTIFIER_PATTERN = (
     r"\b(?:gpt[-_ ]?\d(?:[\w.\-:]*)?|o\d(?:[\w.\-:]*)?|claude[-_ ]?\d(?:[\w.\-:]*)?|"
     r"gemini[-_ ]?\d(?:[\w.\-:]*)?|llama[-_ ]?\d(?:[\w.\-:]*)?|qwen[-_ ]?\d(?:[\w.\-:]*)?|"
-    r"mistral(?:[\w.\-:]*)?|deepseek(?:[\w.\-:]*)?)\b"
+    r"mistral(?:[\w.\-:]*)?|deepseek(?:[\w.\-:]*)?|pairscorer|pair\s+scorer|"
+    r"candidate[-\s]+ranking\s+(?:scorer|backend|model)|branch[-\s]+selection\s+scorer|"
+    r"auxiliary\s+operation\s+prediction)\b"
 )
 
 MODEL_USE_CONTEXT_PATTERN = (
@@ -873,13 +876,14 @@ def _review_prompt(
         "authors to paste source paths, appendix/figure references, validation-gate "
         "vocabulary, or evidence quotes into the abstract to satisfy this review. Reject "
         "papers that leave basic evaluated-system facts implicit: the Method/Experimental "
-        "Setup must let a reviewer identify the system under study, its runtime or "
-        "benchmark harness, the controller/skill/memory mechanism, baselines, task "
-        "source, metrics, and budget. For no-GPU agent experiments, the final paper "
-        "should name the approved hosted backbone such as gpt-5-mini plus decoding "
-        "and budget settings; a deterministic/no-external-model loop is acceptable "
-        "only when the claim is explicitly downgraded to a deterministic baseline or "
-        "pilot rather than a final agent-system result. Do not credit or describe the "
+        "Setup must let a reviewer identify the system under study, its paper-facing "
+        "framework, benchmark harness, or controller, the controller/skill/memory "
+        "mechanism, baselines, task source, metrics, evaluated model/backend, and "
+        "budget. For hosted agent experiments, the final paper should name the "
+        "approved hosted backbone such as gpt-5-mini plus decoding and budget "
+        "settings. For scorer-based experiments, the paper should name the evaluated "
+        "scorer/backend such as PairScorer and describe the candidate-ranking "
+        "protocol without adding authoring-environment details. Do not credit or describe the "
         "Argus/Codex daemon, engineer/reviewer routes, academic-language review, layout "
         "review, or image tool used to write this paper as if they were paper-method "
         "components. Treat gpt-5.4, gpt-5.4-mini, and similar orchestration/reviewer "
@@ -1485,8 +1489,7 @@ def find_method_system_readability_issues(tex_text: str) -> list[tuple[str, str]
                 "missing_method_model_identifier",
                 (
                     "method/setup mentions external model-style execution but does "
-                    "not name the evaluated LLM/model identifier or explicitly state "
-                    "that the benchmark loop uses no external LLM/model calls"
+                    "not name the paper-facing evaluated model or backend identifier"
                 ),
             )
         )
