@@ -24,7 +24,7 @@ class MissionLoopConfig:
     check_commands: list[str] = field(default_factory=list)
     main_model: str = ""
     reviewer_model: str = ""
-    reviewer_reasoning_effort: str = "medium"
+    reviewer_reasoning_effort: str = "high"
     plan_mode: str = "off"
     allow_follow_up_phase: bool = False
     pending_lessons_dir: str = ""

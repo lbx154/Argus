@@ -497,7 +497,7 @@ def test_do_host_prep_default_skills_dir_stays_outside_results_tree(
 
 def test_reviewer_budget_default_is_at_least_120s(adapter):
     """Regression for tb2-ablation-2026-05-10 finding 1: default 60 s was
-    empirically too tight for gpt-5.4 @ medium effort (6/6 timeouts).
+    empirically too tight for gpt-5.4 reviewer calls (6/6 timeouts).
     Don't let it silently regress below 120 s without re-validation."""
     assert adapter._DEFAULT_REVIEWER_BUDGET >= 120.0
 

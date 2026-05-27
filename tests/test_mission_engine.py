@@ -51,6 +51,10 @@ class _DoneReviewer:
         )
 
 
+def test_mission_loop_default_reviewer_effort_is_high() -> None:
+    assert MissionLoopConfig(objective="ship it").reviewer_reasoning_effort == "high"
+
+
 class _ChecksAwareReviewer:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []

@@ -82,7 +82,7 @@ Ablation env vars:
 
 Defaults (post-v12 restoration 2026-05-22):
   scientist = gpt-5.4 @ effort=high       — rich playbooks
-  reviewer  = gpt-5.4 @ effort=medium     — reads evidence carefully
+  reviewer  = gpt-5.4 @ effort=high       — reads evidence carefully
   CHECKS_CMD = (unset)                    — v12 used raw-evidence path, not
                                             CHECKS_CMD. Set this for extra
                                             user-defined acceptance smokes.
@@ -139,7 +139,7 @@ log = logging.getLogger(__name__)
 # --- env-var-driven knobs --------------------------------------------------
 
 _DEFAULT_DISTILL_BUDGET = 120.0          # seconds, host-side matcher+distill cap
-# Reviewer budget — empirical: gpt-5.4 @ reasoning_effort=medium can take
+# Reviewer budget — empirical: gpt-5.4 @ reasoning_effort=high can take
 # 100–150 s on TB v2 fix-tasks (see benchmarks/results/tb2-ablation-2026-05-10/
 # RESULTS.md, finding 1: 6/6 reviewer calls timed out at 60 s and silently
 # degraded to "continue"). 180 s gives the reviewer room to actually answer.
@@ -1926,7 +1926,7 @@ def _invoke_reviewer(
     backend = deps["CodexRunnerBackend"](backend="codex")
     reviewer = deps["Reviewer"](backend)
     cfg = deps["ReviewerConfig"](
-        # v12 baseline: reviewer = gpt-5.4 @ medium effort. The earlier
+        # v12 baseline: reviewer = gpt-5.4 @ high effort. The earlier
         # "cheap mini at low effort" tweak silently broke acceptance —
         # mini @ low can't read engineer evidence carefully enough to
         # tell false-positives from real `done`, and the cost saving
@@ -1935,7 +1935,7 @@ def _invoke_reviewer(
         # ARGUS_SKILL_HARBOR_REVIEWER_MODEL / _EFFORT.
         model=os.environ.get("ARGUS_SKILL_HARBOR_REVIEWER_MODEL", "gpt-5.4"),
         reasoning_effort=os.environ.get(
-            "ARGUS_SKILL_HARBOR_REVIEWER_EFFORT", "medium"
+            "ARGUS_SKILL_HARBOR_REVIEWER_EFFORT", "high"
         ),
         skip_git_repo_check=True,
         full_auto=True,
