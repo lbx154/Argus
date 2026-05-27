@@ -1,8 +1,8 @@
 from argus_skill.skills.academic_language_review import (
     _deterministic_assessment,
-    _section_text,
     _numbered_source_excerpt,
     _review_prompt,
+    _section_text,
 )
 
 
@@ -80,6 +80,71 @@ def test_model_review_prompt_includes_structured_float_digest() -> None:
     assert "Structured source digest" in prompt
     assert "label=tab:repobench" in prompt
     assert "Benchmark / Source & Model / Backend & Result" in prompt
+
+
+def test_intro_word_count_is_reviewer_signal_not_hard_gate() -> None:
+    tex = "\n".join(
+        [
+            r"\begin{abstract}Agent evaluations need benchmark-grounded memory controls. "
+            r"We study a verifier-gated skill memory on public tasks. "
+            r"The method uses a hosted backend with fixed decoding and budget. "
+            r"It improves task success by 8 points over the strongest baseline. "
+            r"The result scopes the contribution to admission policy.\end{abstract}",
+            r"\section{Introduction}",
+            r"Tool agents can reuse solved episodes, but prior memory systems leave the "
+            r"admission decision underspecified \citep{react2023}. Benchmarks expose the "
+            r"same gap from another angle \citep{webarena2024}: a reusable hint can "
+            r"help one source family and hurt another. Evaluation work also shows that "
+            r"agent gains must be tied to source-specific metrics \citep{agentbench2023}. "
+            r"This paper evaluates SkillGuard, a verifier-gated memory policy that keeps "
+            r"the model, task order, decoding budget, and scorer fixed while changing "
+            r"which solved episodes become reusable skills. Across the completed matrix, "
+            r"SkillGuard improves verified completion by 8 points over the strongest "
+            r"runnable baseline. Our contribution is a scoped admission protocol, a "
+            r"three-source benchmark comparison, and an analysis of rejected memories.",
+            r"\section{Related Work}",
+            "Prior work motivates the benchmark and memory design.",
+            r"\section{Method}",
+            "The method describes a controller, verifier, skill memory, benchmark harness, "
+            "gpt-5-mini backend, temperature 0.0, max_tokens 512, fixed token budget, "
+            "seed policy, and stopping rules.",
+            r"\section{Experimental Setup}",
+            "The evaluation uses public tasks, baselines, metrics, paired tests, and a "
+            "fixed budget across conditions.",
+            r"\section{Results}",
+            "SkillGuard improves success by 8 points on the benchmark matrix.",
+            r"\section{Limitations}",
+            "The claim is scoped to the evaluated public tasks.",
+        ]
+    )
+
+    result = _deterministic_assessment(tex)
+    issue = next(
+        issue
+        for issue in result["issues"]
+        if issue["code"] == "thin_introduction_depth_signal"
+    )
+
+    assert issue["severity"] == "minor"
+    assert "hard_gate" not in issue
+    assert result["required_checks"]["clear_problem_gap_contribution"] is True
+    assert result["section_scores"]["introduction"] >= 4.0
+
+
+def test_review_prompt_tells_model_not_to_use_fixed_intro_word_gate() -> None:
+    prompt = _review_prompt(
+        source_text_by_path={"paper/main.tex": r"\section{Introduction}Short but complete."},
+        deterministic={
+            "score_1_to_5": 5.0,
+            "section_scores": {},
+            "required_checks": {},
+            "issues": [],
+        },
+        threshold=4.0,
+    )
+
+    assert "Introduction word count is only a reviewer signal" in prompt
+    assert "do not reject solely because a word counter is below a fixed target" in prompt
 
 
 def test_section_text_expands_simple_paper_macros() -> None:

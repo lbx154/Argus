@@ -136,9 +136,6 @@ REQUIRED_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY = 7
 MIN_RENDERED_REFERENCES_PAGE_FOR_FULL_BODY = 9
 MIN_RENDERED_APPENDIX_PAGE = 9
 MIN_ABSTRACT_WORDS = 170
-MIN_INTRODUCTION_WORDS = 900
-MIN_METHOD_WORDS = 700
-MIN_EXPERIMENTAL_SETUP_WORDS = 550
 MIN_EXECUTED_BENCHMARK_SOURCES = 3
 KNOWN_BENCHMARK_FAMILY_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\bswe[-_\s]?bench\b|\bswebench\b", "swe-bench"),
@@ -3016,7 +3013,6 @@ def validate_emnlp_paper_contract(project_root: Path) -> list[ContractIssue]:
 def _validate_full_paper_narrative_depth(tex_text: str) -> list[ContractIssue]:
     """Reject validator-shaped final papers with stub core sections."""
 
-    body_tex = _latex_before_references_and_appendix(tex_text)
     issues: list[ContractIssue] = []
     abstract_word_count = _latex_environment_word_count(tex_text, "abstract")
     if abstract_word_count < MIN_ABSTRACT_WORDS:
@@ -3034,64 +3030,6 @@ def _validate_full_paper_narrative_depth(tex_text: str) -> list[ContractIssue]:
             )
         )
 
-    section_blocks = _latex_top_level_section_blocks(body_tex)
-    section_requirements = (
-        (
-            "introduction_too_short",
-            "Introduction",
-            MIN_INTRODUCTION_WORDS,
-            _section_words(section_blocks, (r"^introduction$",)),
-            "expand the problem setup, literature gap, method insight, result preview, contributions, and scope",
-        ),
-        (
-            "method_section_too_short",
-            "Method",
-            MIN_METHOD_WORDS,
-            _section_words(
-                section_blocks,
-                (
-                    r"\bmethod\b",
-                    r"\bapproach\b",
-                    r"\bsystem\b",
-                    r"\bmodel\b",
-                ),
-                exclude=(r"\bsetup\b", r"\bexperiment", r"\bevaluation\b"),
-            ),
-            "specify the evaluated mechanism, controller/state/memory flow, decision rules, and enough details to reimplement",
-        ),
-        (
-            "experimental_setup_too_short",
-            "Experimental Setup",
-            MIN_EXPERIMENTAL_SETUP_WORDS,
-            _section_words(
-                section_blocks,
-                (
-                    r"\bexperimental setup\b",
-                    r"\bevaluation setup\b",
-                    r"\bexperiment",
-                    r"\bbenchmark",
-                    r"\bdata\b",
-                ),
-                exclude=(r"\bresults?\b", r"\banalysis\b", r"\bdiscussion\b"),
-            ),
-            "name benchmark sources, model/backend, parameters, baselines, metrics, budget, and stopping rules",
-        ),
-    )
-    for code, section_name, minimum, count, repair_hint in section_requirements:
-        if count >= minimum:
-            continue
-        issues.append(
-            ContractIssue(
-                code,
-                str(PAPER_MAIN_TEX_PATH),
-                (
-                    f"{section_name} is too thin for a submission-quality long paper: "
-                    f"found {count} prose words, below the {minimum}-word minimum; "
-                    f"{repair_hint}. If evidence is missing, run the missing "
-                    "benchmark/analysis work before padding prose."
-                ),
-            )
-        )
     for code, message in find_introduction_readability_issues(tex_text):
         issues.append(
             ContractIssue(
@@ -3200,21 +3138,28 @@ def _validate_experiment_model_details(tex_text: str) -> list[ContractIssue]:
         "max_tokens",
         "max tokens",
         "seed",
+        "seed policy",
         "token budget",
+        "request budget",
         "budget",
-        "cache",
-        "timeout policy",
+        "response cap",
+        "decoding",
+        "scoring budget",
+        "stopping rule",
+        "stop/resume",
     )
-    if not any(marker in plain for marker in settings_markers):
+    if not any(re.search(rf"\b{re.escape(marker)}\b", plain) for marker in settings_markers):
         issues.append(
             ContractIssue(
                 "missing_experiment_model_settings",
                 str(PAPER_MAIN_TEX_PATH),
                 (
                     "Experimental Setup must report reproducibility settings for the "
-                    "evaluated model/backend: decoding parameters, token/request "
-                    "budget, caching/retry policy, seeds where applicable, and "
-                    "stopping rules."
+                    "evaluated model/backend: paper-facing decoding or scoring "
+                    "parameters, token/request budget where applicable, seed policy, "
+                    "and stopping rules. Do not use local cache paths, retry plumbing, "
+                    "device assignments, or Argus/Codex route configuration as "
+                    "manuscript setup details."
                 ),
             )
         )
@@ -3394,7 +3339,9 @@ def _method_result_segment_looks_ambiguous(
             continue
         for candidate in _method_result_aliases(result.method):
             if re.search(rf"\b{re.escape(candidate.lower())}\b", lower_segment):
-                matching_methods.add(_normalize_method_name(result.method))
+                normalized_method = _normalize_method_name(result.method)
+                if normalized_method is not None:
+                    matching_methods.add(normalized_method)
                 break
     if len(matching_methods) < 3:
         return False
@@ -3488,7 +3435,10 @@ def _collect_experiment_summary_results(root: Path, tex_text: str) -> list[_Summ
         results.extend(_summary_results_from_value(value, rel_path))
     deduped: dict[tuple[str, str, int, int], _SummaryResult] = {}
     for result in results:
-        key = (result.path, _normalize_method_name(result.method), result.correct, result.episodes)
+        normalized_method = _normalize_method_name(result.method)
+        if normalized_method is None:
+            continue
+        key = (result.path, normalized_method, result.correct, result.episodes)
         deduped[key] = result
     return list(deduped.values())
 
@@ -3599,7 +3549,7 @@ def _looks_like_method_key(value: object) -> bool:
 
 def _method_result_aliases(method: str) -> tuple[str, ...]:
     normalized = _normalize_method_name(method)
-    aliases = set(METHOD_RESULT_ALIASES.get(normalized, ()))
+    aliases = set(METHOD_RESULT_ALIASES.get(normalized, ())) if normalized else set()
     if normalized:
         aliases.add(normalized.replace("_", " "))
         aliases.add(normalized.replace("_", "-"))
@@ -3684,15 +3634,6 @@ def _latex_top_level_section_blocks(tex_text: str) -> list[tuple[str, str]]:
         end = matches[index + 1].start() if index + 1 < len(matches) else len(tex_text)
         blocks.append((title, tex_text[start:end]))
     return blocks
-
-
-def _section_words(
-    section_blocks: Sequence[tuple[str, str]],
-    include: Sequence[str],
-    *,
-    exclude: Sequence[str] = (),
-) -> int:
-    return _latex_contract_word_count(_section_text(section_blocks, include, exclude=exclude))
 
 
 def _section_text(
@@ -3797,15 +3738,15 @@ def _json_benchmark_source_entries(value: object) -> list[dict[str, Any]]:
         normalized_keys = {str(key).lower().replace("-", "_") for key in value}
         if normalized_keys & (source_name_fields | pointer_fields):
             return [value]
-        sources: list[dict[str, Any]] = []
+        nested_sources: list[dict[str, Any]] = []
         for name, nested in value.items():
             if isinstance(nested, dict):
-                sources.extend(_json_benchmark_source_entries({"name": str(name), **nested}))
+                nested_sources.extend(_json_benchmark_source_entries({"name": str(name), **nested}))
             else:
-                sources.extend(
+                nested_sources.extend(
                     _json_benchmark_source_entries({"name": str(name), "source": nested})
                 )
-        return sources
+        return nested_sources
     if isinstance(value, str) and value.strip():
         return [{"name": value.strip()}]
     return []
@@ -10446,10 +10387,10 @@ def _real_benchmark_source_entries(value: object) -> list[Mapping[str, object]]:
                 sources.append({"name": str(name), "source": nested})
         return sources
     if isinstance(value, list):
-        sources: list[Mapping[str, object]] = []
+        list_sources: list[Mapping[str, object]] = []
         for item in value:
-            sources.extend(_real_benchmark_source_entries(item))
-        return sources
+            list_sources.extend(_real_benchmark_source_entries(item))
+        return list_sources
     if isinstance(value, str) and value.strip():
         return [{"name": value.strip()}]
     return []

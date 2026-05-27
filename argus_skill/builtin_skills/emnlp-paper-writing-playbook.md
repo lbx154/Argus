@@ -181,8 +181,8 @@ Final EMNLP evidence needs:
   scorer identifier, training/inference settings, budget/decoding, seeds, and
   high-level compute/cost when relevant. If no local GPU exists, run the
   approved hosted route, with `gpt-5-mini` as the default low-cost backbone,
-  and record temperature, top_p, max_tokens, budget, cache/retry/timeout policy,
-  and stopping rules in manifests. Do not put local device ordinals, CUDA
+  and record temperature, top_p, max_tokens, budget, seed policy, and stopping
+  rules in manifests. Do not put local device ordinals, CUDA
   variables, cache paths, workstation names, private endpoints, or Argus/Codex
   route configuration in rendered paper prose.
 
@@ -612,10 +612,10 @@ FIG_SC, FIG_FULL = (3.25, 2.4), (6.7, 2.6)
 
 ```
 Page 1   Title, authors, 170--220 word abstract, teaser figure
-Page 2   Introduction (at least 900 words/full first page, with at least three citations and contributions list)
+Page 2   Introduction (full first-page function, with at least three citations and contributions list)
 Page 3   Related Work, start of Method
-Page 4   Method (at least 700 words), architecture figure
-Page 5   Experimental Setup (at least 550 words), main table
+Page 4   Method (reviewer-sufficient system detail), architecture figure
+Page 5   Experimental Setup (reviewer-sufficient benchmark/protocol detail), main table
 Page 6   Results: ablation table, per-condition table, key figure
 Page 7   Analysis: significance, qualitative, discussion
 Page 8   Conclusion
@@ -633,9 +633,9 @@ page 9 after minor float changes.
 
 If the body overflows, in priority order: (a) move secondary figures to appendix;
 (b) move low-value diagnostics to appendix; (c) tighten repeated score
-restatements; (d) merge Limitations bullets. Do not solve overlength by cutting
-the Introduction below 900 words, deleting model/benchmark configuration, or
-removing the explanation a reviewer needs to understand the work.
+restatements; (d) merge Limitations bullets. Do not solve overlength by deleting
+cited problem framing, paper-facing model/benchmark configuration, or the
+explanation a reviewer needs to understand the work.
 
 ---
 
