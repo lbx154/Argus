@@ -99,6 +99,30 @@ def test_create_project_without_daemon_exports_template_and_skills(tmp_path: Pat
     assert (result.project_dir / "experiments" / "BENCHMARK_PROVENANCE.md").exists()
 
 
+def test_create_project_with_domain_exports_only_relevant_domain_skills(
+    tmp_path: Path,
+) -> None:
+    result = create_project(
+        LaunchConfig(
+            parent=tmp_path,
+            version="v16",
+            domain="cv",
+            start_daemon=False,
+            init_git=False,
+        )
+    )
+
+    exported = sorted(result.skills_dir.rglob("*.md"))
+    assert 0 < len(exported) < builtin_skill_count()
+    assert result.domain == "cv"
+    assert (result.skills_dir / "auto-research-pipeline.md").exists()
+    assert (result.skills_dir / "domains" / "cv-multimodal" / "clip.md").exists()
+    assert (result.skills_dir / "domains" / "optimization" / "flash-attention.md").exists()
+    assert (result.skills_dir / "domains" / "research-ops" / "run-experiment.md").exists()
+    assert not (result.skills_dir / "domains" / "agents-rag" / "langchain.md").exists()
+    assert not list(result.skills_dir.glob("domain--*.md"))
+
+
 def test_next_version_uses_highest_existing_workspace(tmp_path: Path) -> None:
     (tmp_path / "agent-emnlp-auto-research-v2").mkdir()
     (tmp_path / "agent-emnlp-auto-research-v10").mkdir()

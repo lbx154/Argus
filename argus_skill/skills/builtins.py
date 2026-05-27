@@ -33,6 +33,15 @@ def iter_builtin_skill_texts() -> Iterable[tuple[str, str]]:
     yield from _iter_builtin_skill_resources(root)
 
 
+def iter_common_builtin_skill_texts() -> Iterable[tuple[str, str]]:
+    """Yield top-level common skills, excluding domain-pack subdirectories."""
+    root = resources.files(_BUILTIN_PACKAGE)
+    for entry in sorted(root.iterdir(), key=lambda item: item.name):
+        if entry.name.startswith(("_", ".")) or not entry.name.endswith(".md"):
+            continue
+        yield entry.name, entry.read_text(encoding="utf-8")
+
+
 def _iter_builtin_skill_resources(
     root: Traversable,
     prefix: str = "",
@@ -78,27 +87,27 @@ def list_domains() -> dict[str, str]:
 
 
 def iter_domain_skill_texts(domain: str) -> Iterable[tuple[str, str]]:
-    """Yield ``(filename, markdown)`` for skills in the given domain's subdirs."""
+    """Yield ``(relative_filename, markdown)`` for selected domain subdirectories."""
     if domain not in AVAILABLE_DOMAINS:
-       raise ValueError(
-           f"Unknown domain {domain!r}. Available: {list(AVAILABLE_DOMAINS.keys())}"
-       )
+        raise ValueError(
+            f"Unknown domain {domain!r}. Available: {list(AVAILABLE_DOMAINS.keys())}"
+        )
     base = builtin_skill_source_path() / "domains"
     for subdir_name in AVAILABLE_DOMAINS[domain]:
-       subdir = base / subdir_name
-       if not subdir.is_dir():
-           continue
-       for entry in sorted(subdir.iterdir()):
-           if entry.name.startswith("_") or not entry.name.endswith(".md"):
-               continue
-           yield f"{subdir_name}/{entry.name}", entry.read_text(encoding="utf-8")
+        subdir = base / subdir_name
+        if not subdir.is_dir():
+            continue
+        for entry in sorted(subdir.iterdir()):
+            if entry.name.startswith(("_", ".")) or not entry.name.endswith(".md"):
+                continue
+            yield f"domains/{subdir_name}/{entry.name}", entry.read_text(encoding="utf-8")
     # Always include research-ops
     ops_dir = base / "research-ops"
     if ops_dir.is_dir():
-       for entry in sorted(ops_dir.iterdir()):
-           if entry.name.startswith("_") or not entry.name.endswith(".md"):
-               continue
-           yield f"research-ops/{entry.name}", entry.read_text(encoding="utf-8")
+        for entry in sorted(ops_dir.iterdir()):
+            if entry.name.startswith(("_", ".")) or not entry.name.endswith(".md"):
+                continue
+            yield f"domains/research-ops/{entry.name}", entry.read_text(encoding="utf-8")
 
 
 def seed_builtin_skills_for_domain(
@@ -120,26 +129,26 @@ def seed_builtin_skills_for_domain(
     skills_dir.mkdir(parents=True, exist_ok=True)
     created: dict[str, bool] = {}
 
-    # 1. Always seed common top-level skills
-    for filename, text in iter_builtin_skill_texts():
-       _validate_builtin(filename, text)
-       dest = skills_dir / filename
-       if dest.exists() and not overwrite:
-           created[filename] = False
-           continue
-       _atomic_write_text(dest, text)
-       created[filename] = True
+    # 1. Always seed common top-level skills.
+    for filename, text in iter_common_builtin_skill_texts():
+        _validate_builtin(filename, text)
+        dest = skills_dir / filename
+        if dest.exists() and not overwrite:
+            created[filename] = False
+            continue
+        _atomic_write_text(dest, text)
+        created[filename] = True
 
-    # 2. Seed domain-specific skills (flatten into skills dir with prefix)
+    # 2. Seed selected domain-specific skills under their original subdirectories.
     for rel_path, text in iter_domain_skill_texts(domain):
-       # e.g. "training/deepspeed.md" → "domain--training--deepspeed.md"
-       flat_name = f"domain--{rel_path.replace('/', '--')}"
-       dest = skills_dir / flat_name
-       if dest.exists() and not overwrite:
-           created[flat_name] = False
-           continue
-       _atomic_write_text(dest, text)
-       created[flat_name] = True
+        _validate_builtin(rel_path, text)
+        dest = skills_dir / rel_path
+        if dest.exists() and not overwrite:
+            created[rel_path] = False
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_text(dest, text)
+        created[rel_path] = True
 
     return created
 

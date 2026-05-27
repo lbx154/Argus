@@ -6,6 +6,7 @@ from argus_skill.life import GlobalMemory
 from argus_skill.skills.builtins import (
     builtin_skill_count,
     seed_builtin_skills,
+    seed_builtin_skills_for_domain,
 )
 from argus_skill.skills.store import SkillStore
 
@@ -56,6 +57,27 @@ def test_seed_builtin_skills_preserves_existing_user_edits(tmp_path: Path) -> No
     assert created["domains/agents-rag/langchain.md"] is False
     assert target.read_text(encoding="utf-8") == "user edit\n"
     assert nested_target.read_text(encoding="utf-8") == "nested user edit\n"
+
+
+def test_seed_builtin_skills_for_domain_keeps_selected_domain_subtrees(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+
+    created = seed_builtin_skills_for_domain(skills_dir, "cv")
+
+    assert 0 < len(created) < builtin_skill_count()
+    assert (skills_dir / "auto-research-pipeline.md").exists()
+    assert (skills_dir / "research-domain-router.md").exists()
+    assert (skills_dir / "domains" / "cv-multimodal" / "clip.md").exists()
+    assert (skills_dir / "domains" / "optimization" / "flash-attention.md").exists()
+    assert (skills_dir / "domains" / "research-ops" / "paper-compile.md").exists()
+    assert not (skills_dir / "domains" / "agents-rag" / "langchain.md").exists()
+    assert not list(skills_dir.glob("domain--*.md"))
+    names = {summary["name"] for summary in SkillStore(skills_dir).list_summaries()}
+    assert "clip" in names
+    assert "paper-compile" in names
+    assert "langchain" not in names
 
 
 def test_global_memory_init_seeds_builtin_skills(tmp_path: Path) -> None:

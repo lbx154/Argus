@@ -71,7 +71,6 @@ class LaunchResult:
     daemon_output: str
     status_output: str
     dry_run: bool = False
-    dry_run: bool = False
 
 
 def extract_copy_ready_agents_md(template_text: str) -> str:
