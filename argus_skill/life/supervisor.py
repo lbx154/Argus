@@ -176,6 +176,10 @@ _WRITE_VALIDATION_PRIORITY_POLICY_COMMAND = (
     "python -m argus_skill.skills.pipeline_contracts "
     "write-validation-priority-policy --project-root ."
 )
+_REPAIR_EMNLP_CONTRACT_ARTIFACTS_COMMAND = (
+    "python -m argus_skill.skills.pipeline_contracts "
+    "repair-emnlp-contract-artifacts --project-root ."
+)
 _PLANNER_GATE_CONTEXT_MAX_ISSUES = 24
 _PLANNER_GATE_CONTEXT_MAX_CHARS = 6000
 _EMNLP_BOOTSTRAP_GATE_CODES = {
@@ -230,6 +234,67 @@ _EMNLP_VALIDATION_POLICY_GATE_CODES = {
     "validation_failure_route_missing_repair_mode",
     "validation_failure_route_bad_repair_mode",
     "missing_validation_reset_policy",
+}
+_EMNLP_IMAGE2_GATE_CODES = {
+    "conceptual_body_figure_not_image2",
+    "image2_conceptual_figure_not_included_in_main_tex",
+    "missing_image2_conceptual_figure",
+    "missing_image2_figures_manifest",
+    "missing_image2_generation_provenance",
+    "missing_image2_inspect_path",
+    "missing_image2_review_path",
+    "missing_image2_sidecar_path",
+    "mismatched_image2_sidecar_prompt_sha256",
+}
+_EMNLP_REVIEW_GATE_CODES = {
+    "academic_language_review_not_pass",
+    "academic_language_review_needs_revision",
+    "academic_language_review_has_blockers",
+    "failed_academic_language_required_check",
+    "low_academic_language_review_score",
+    "low_academic_language_section_score",
+    "missing_academic_language_review",
+    "stale_academic_language_review_source",
+    "academic_language_evidence_quote_not_found",
+    "academic_language_evidence_boilerplate_quote",
+    "layout_review_not_pass",
+    "layout_review_needs_revision",
+    "layout_review_has_blockers",
+    "layout_review_not_visual",
+    "low_layout_review_score",
+    "missing_layout_review",
+    "missing_layout_review_vision_payload",
+    "stale_layout_review_artifact",
+    "incomplete_layout_review_snapshot_coverage",
+}
+_EMNLP_FIGURE_TABLE_FORMAT_CODES = {
+    "body_figure_not_referenced",
+    "body_float_missing_from_style_guide",
+    "figure_table_style_guide_not_pass",
+    "float_inventory_label_not_in_body",
+    "missing_figure_table_style_guide",
+    "missing_figure_table_style_guide_rule",
+    "missing_float_inventory_target_section",
+    "missing_paired_significance_table",
+    "missing_research_md_table_style",
+    "severe_overfull_hbox",
+    "table_caption_missing_number",
+    "too_few_figure_table_style_floats",
+}
+_EMNLP_CONTENT_SUFFICIENCY_CODES = {
+    "missing_main_content_pages",
+    "missing_midpaper_visual_pages",
+    "overlength_emnlp_paper",
+    "references_before_full_body",
+    "rendered_main_body_underfilled",
+    "underlength_emnlp_paper",
+}
+_EMNLP_SUBMISSION_ASSURANCE_CODES = {
+    "draft_not_submission_quality",
+    "draft_self_reports_not_submission_quality",
+    "missing_submission_assurance",
+    "submission_not_ready_verdict",
+    "submission_stage_not_successful",
 }
 _EMNLP_DOWNSTREAM_PATH_PREFIXES = (
     "paper/",
@@ -371,24 +436,54 @@ def _planner_emnlp_stage_hints(issues: list[Any]) -> str:
             f"`{_WRITE_VALIDATION_PRIORITY_POLICY_COMMAND}` before final "
             "review/assurance loops; do not hand-write partial routes."
         )
+    if (
+        issue_codes & _EMNLP_MANIFEST_FRESHNESS_GATE_CODES
+        and issue_codes & _EMNLP_VALIDATION_POLICY_GATE_CODES
+    ):
+        hints.append(
+            "- stage route: when manifest, freshness, and validation-route drift appear "
+            "together after content regeneration, prefer the combined repair helper "
+            f"`{_REPAIR_EMNLP_CONTRACT_ARTIFACTS_COMMAND}`; then inspect remaining "
+            "content/evidence issues as real blockers."
+        )
     if issue_codes & _EMNLP_CITATION_GATE_CODES:
         hints.append(
             "- stage route: repair bibliography sources and rendered citation placement "
             "in the drafting/format-preflight skills before final assurance."
         )
-    if any(
-        code in issue_codes
-        for code in (
-            "underlength_emnlp_paper",
-            "rendered_main_body_underfilled",
-            "missing_midpaper_visual_pages",
-            "missing_main_content_pages",
+    if issue_codes & _EMNLP_IMAGE2_GATE_CODES:
+        hints.append(
+            "- stage route: image-2 issues belong to results-analysis/figures; use the "
+            "Argus image tool, keep the exact accepted raster in main.tex, and repair "
+            "prompt/output/sidecar/inspect/review/provenance hashes instead of "
+            "wrapping a local redraw in image-2 metadata."
         )
-    ):
+    if issue_codes & _EMNLP_FIGURE_TABLE_FORMAT_CODES:
+        hints.append(
+            "- stage route: figure/table/format failures belong to format preflight and "
+            "drafting; every body float needs a style-guide entry, target section, "
+            "text reference, readable placement, and a caption with a numerical or "
+            "evidence-backed takeaway."
+        )
+    if issue_codes & _EMNLP_CONTENT_SUFFICIENCY_CODES:
         hints.append(
             "- stage route: treat short or underfilled PDFs as evidence/analysis/structure "
             "blockers first; add supported analyses, failure studies, or claim downgrades "
             "before cosmetic layout edits."
+        )
+    if issue_codes & _EMNLP_REVIEW_GATE_CODES:
+        hints.append(
+            "- stage route: academic-language and visual-layout review issues are "
+            "downstream; stabilize main.tex/main.pdf first, then rerun the model-backed "
+            "`academic_language_review` and vision `paper_layout_review` tools. Do not "
+            "hand-edit stale review JSON to PASS."
+        )
+    if issue_codes & _EMNLP_SUBMISSION_ASSURANCE_CODES:
+        hints.append(
+            "- stage route: submission assurance is last; write PASS/WARN only after "
+            "evidence, paper format, claim graph, image-2, academic-language review, "
+            "layout review, manifest, freshness, and final gate blockers are genuinely "
+            "cleared."
         )
 
     if not hints:

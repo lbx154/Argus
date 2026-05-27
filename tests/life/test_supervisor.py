@@ -1450,6 +1450,45 @@ def test_emnlp_gate_stage_hints_include_manifest_and_policy_helpers() -> None:
     assert "refresh-manifest --project-root ." in hint
     assert "refresh-artifact-freshness --project-root ." in hint
     assert "write-validation-priority-policy --project-root ." in hint
+    assert "repair-emnlp-contract-artifacts --project-root ." in hint
+
+
+def test_emnlp_gate_stage_hints_route_image2_format_reviews_and_assurance() -> None:
+    hint = _planner_emnlp_stage_hints([
+        ContractIssue(
+            "conceptual_body_figure_not_image2",
+            "paper/main.tex",
+            "body figure 1 uses a local redraw",
+        ),
+        ContractIssue(
+            "table_caption_missing_number",
+            "paper/main.tex",
+            "caption must include the key numerical result",
+        ),
+        ContractIssue(
+            "stale_academic_language_review_source",
+            "paper/main.tex",
+            "academic-language review hash is stale",
+        ),
+        ContractIssue(
+            "stale_layout_review_artifact",
+            "paper/main.pdf",
+            "layout review hash is stale",
+        ),
+        ContractIssue(
+            "submission_not_ready_verdict",
+            "paper/SUBMISSION_ASSURANCE.json",
+            "assurance verdict is FAIL",
+        ),
+    ])
+
+    assert "image-2 issues belong to results-analysis/figures" in hint
+    assert "exact accepted raster in main.tex" in hint
+    assert "figure/table/format failures belong to format preflight" in hint
+    assert "caption with a numerical or evidence-backed takeaway" in hint
+    assert "rerun the model-backed `academic_language_review`" in hint
+    assert "vision `paper_layout_review`" in hint
+    assert "submission assurance is last" in hint
 
 
 def test_continuous_mode_planner_refusal_falls_back_to_emnlp_gate_task(

@@ -678,6 +678,37 @@ def test_academic_peer_review_benchmark_skill_sets_reviewer_standard(
         assert required in text
 
 
+def test_emnlp_paper_skill_router_maps_validator_issue_codes(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    seed_builtin_skills(skills_dir)
+    text = (skills_dir / "emnlp-paper-skill-router.md").read_text(
+        encoding="utf-8"
+    )
+
+    for required in (
+        "Validator Issue-Code Quick Route",
+        "missing_full_scale_experiment_run",
+        "Agent Research Benchmark Runner",
+        "rendered_main_body_underfilled",
+        "Do not pad with generic prose",
+        "table_caption_missing_number",
+        "caption must include the key numerical result",
+        "placeholder_bibtex_author_others",
+        "rendered_placeholder_reference_authors",
+        "conceptual_body_figure_not_image2",
+        "preserve the exact accepted raster",
+        "mismatched_image2_sidecar_prompt_sha256",
+        "stale_layout_review_artifact",
+        "paper_layout_review --review-mode vision --write",
+        "stale_academic_language_review_source",
+        "academic_language_review --review-mode model --write",
+        "repair-emnlp-contract-artifacts",
+        "submission_not_ready_verdict",
+        "Run this last",
+    ):
+        assert required in text
+
+
 def test_argus_role_identity_skills_cover_agent_contracts(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
