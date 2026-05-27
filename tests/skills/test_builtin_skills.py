@@ -344,6 +344,7 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         "If the overview is ugly",
         "Do not restart from scratch",
         "raw data may still be selectively listed",
+        "enter repeated-failure mode",
     ):
         assert required in repair_project
 
@@ -661,6 +662,7 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "1536x1024 or 1920x1080",
             "Prompt, provenance, generation-setting",
             "do not regenerate an already accepted image merely to refresh metadata",
+            "same `pytest` test, validator issue, or review-span lookup fails twice",
         ),
         "claims-evidence-audit.md": (
             "Overfull \\hbox > 5pt",
@@ -767,6 +769,9 @@ def test_emnlp_paper_skill_router_maps_validator_issue_codes(tmp_path: Path) -> 
         "repair-emnlp-contract-artifacts",
         "submission_not_ready_verdict",
         "Run this last",
+        "Repeated Failure Escape Hatch",
+        "same test, validator issue code, or review-span failure repeats",
+        "Do not spend more than one additional cycle on guessed fallback terms",
     ):
         assert required in text
 

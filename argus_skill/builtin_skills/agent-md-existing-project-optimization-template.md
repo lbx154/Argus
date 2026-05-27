@@ -242,6 +242,7 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 7. If an automated review is stale, refresh it after rebuilding the artifact; do not edit review JSON by hand to force a pass.
 8. If a command fails, inspect and fix the failure. Do not hide the failure behind a fallback unless the fallback is explicitly part of the design.
 9. Treat reader-visible quality as part of correctness. A validator-passing but ugly, under-evidenced, or incoherent paper is not done.
+10. If the same `pytest` test, validator issue code, or review-span lookup fails twice in a row, enter repeated-failure mode. Before another edit, capture the full traceback/assertion, expected value, actual value, and the exact fixture/artifact path. Do not keep guessing fallback terms. Decide whether the authoritative fix belongs in source/generator code, raw artifact regeneration, or a synthetic test fixture; then make one narrow fix and rerun the failing command.
 
 ## Optimization workflow
 1. Snapshot the current frontier: daemon status, recent logs, changed files, failing tests/validators, current PDF, current reviews, and most recent generated artifacts.

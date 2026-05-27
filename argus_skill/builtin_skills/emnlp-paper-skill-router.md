@@ -48,6 +48,13 @@ When `validate-full-emnlp` fails, group the TSV output by issue code first. Repa
 | `artifact_*`, `missing_required_artifact_freshness_record`, `unknown_generated_artifact_source`, `generated_artifact_*`, `validation_failure_route_*`, `missing_validation_*` | Auto Research Pipeline | After content artifacts are regenerated, prefer `python -m argus_skill.skills.pipeline_contracts repair-emnlp-contract-artifacts --project-root .` for combined manifest/freshness/route drift; use the narrower helpers only for isolated drift. |
 | `draft_not_submission_quality`, `draft_self_reports_not_submission_quality`, `missing_submission_assurance`, `submission_not_ready_verdict`, `submission_stage_not_successful` | Research Submission Assurance Gate | Run this last from current validators/reviews. `PASS`/`WARN` is invalid while evidence, format, claims, image-2, review, manifest, freshness, or final-gate blockers remain. |
 
+## Repeated Failure Escape Hatch
+- If the same test, validator issue code, or review-span failure repeats two times in a row, stop broadening guessed fallbacks or making sentence-level cosmetic edits.
+- Capture the full failing command output, traceback/assertion, expected value, actual value, and the source fixture or artifact path that produced it. Route from that concrete assertion, not from the high-level validator name.
+- For `pytest` failures in generated-paper fixtures, first decide whether the bug is production source drift, stale generated artifact, or a test fixture that no longer reflects the generator contract. Repair the smallest authoritative source and add one regression assertion for the contract being protected.
+- If a synthetic fixture drives the loop, prefer making the fixture use the generator's real canonical phrases or explicit test inputs over relaxing production review logic repeatedly. Do not spend more than one additional cycle on guessed fallback terms.
+- After the escape-hatch fix, rerun the narrow failing command once, then the broader validator only if the narrow command passes.
+
 ## Repair Principle
 - If a paper looks thin, suspiciously formatted, or padded, first inspect evidence contracts: `validate-full-scale-evidence`, `CLAIM_GRAPH.json`, `EVIDENCE_GAPS.json`, and `VALIDATION_PRIORITY_POLICY.json`.
 - Only use drafting/formatting repairs when the evidence already exists. Missing evidence routes to experiments, ablations, failure analysis, robustness/public validation, or claim downgrade.

@@ -68,6 +68,8 @@ Improve an existing paper draft using an external-review mindset. This adapts AR
 
 6. Iterate within the mission:
    - If compile fails, fix compile errors before declaring progress.
+   - If the same `pytest` test, validator issue, or review-span lookup fails twice after edits, switch to repeated-failure mode before making another patch. Read the full traceback/assertion, record expected versus actual values, and identify whether the authoritative source is the generator, raw artifact, generated review, or synthetic fixture.
+   - In repeated-failure mode, do not keep broadening fallback strings or rewriting nearby prose based on guesses. If a synthetic test fixture is the failing surface, align the fixture with the generator's real canonical sentence or explicit test data; if production logic is wrong, patch the production source once and add a narrow regression assertion.
    - If academic-language review scores below 4/5, has blocking issues, fails a required check, or sets `needs_revision: true`, keep revising prose/claims/related work before layout-only work.
    - If layout review scores below 4/5, has blocking issues, or sets `needs_revision: true`, keep revising layout/content/figures/tables before any assurance PASS.
    - Stop after three non-improving academic-language rounds only after one claim-scope reset has been attempted. If the reset has not been attempted, do it first, rebuild, and rerun the model-backed academic-language review.
