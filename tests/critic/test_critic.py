@@ -369,6 +369,7 @@ def test_plan_next_passes_config_to_runner():
     assert opts.skip_git_repo_check is True
     assert opts.full_auto is False
     assert opts.dangerous_yolo is True
+    assert opts.watchdog_hard_idle_seconds == 300
     assert verdict.project_done is True
     sent_prompt, _ = runner.calls[0]
     assert "Runtime source changed since daemon start." in sent_prompt
@@ -386,6 +387,7 @@ def test_plan_next_passes_config_to_runner():
     assert "long-horizon paper optimization" in sent_prompt
     assert "prefer\n   1 broad task over 3 microtasks" in sent_prompt
     assert "host will refuse premature gated downstream tasks" in sent_prompt
+    assert "Keep planning lightweight" in sent_prompt
 
 
 def test_plan_next_returns_error_verdict_on_runner_exception():

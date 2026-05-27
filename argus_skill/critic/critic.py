@@ -25,6 +25,7 @@ continuous improvement without human intervention.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -34,6 +35,7 @@ from ..skills.role_context import format_role_context
 
 MIN_CRITIC_IMPACT_SCORE = 4
 MIN_PLANNER_IMPACT_SCORE = 4
+DEFAULT_PLANNER_HARD_IDLE_SECONDS = 300
 TASK_SCOPE_BOUNDED = "bounded"
 TASK_SCOPE_FINAL_SUBMISSION = "final_submission"
 _TASK_SCOPES = {TASK_SCOPE_BOUNDED, TASK_SCOPE_FINAL_SUBMISSION}
@@ -280,32 +282,46 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "   validate-full-scale-evidence ... exits 0` precondition while that gate is\n"
     "   missing or failing. Queue the current-stage evidence/benchmark mission\n"
     "   instead; the host will refuse premature gated downstream tasks.\n"
-    "8) Order tasks by impact: most important first.\n"
-    "9) Cap at 3 tasks per planning cycle. For EMNLP/ACL/paper goals, prefer\n"
+    "8) Keep planning lightweight. Inspect enough to route the next mission, but\n"
+    "   do not run long pytest suites, full experiments, full paper compilation,\n"
+    "   or broad artifact repair inside the planner. Queue that work for the\n"
+    "   Engineer instead, with concrete commands and acceptance criteria.\n"
+    "9) Order tasks by impact: most important first.\n"
+    "10) Cap at 3 tasks per planning cycle. For EMNLP/ACL/paper goals, prefer\n"
     "   1 broad task over 3 microtasks unless the blockers are truly independent.\n"
-    "10) NEVER repeat work already completed (check the journal below).\n"
-    "11) NEVER propose vanity work (renames, comment polish, trivial\n"
+    "11) NEVER repeat work already completed (check the journal below).\n"
+    "12) NEVER propose vanity work (renames, comment polish, trivial\n"
     "   refactors) unless the operator explicitly asked for it.\n"
-    "12) Each non-paper task should be independently completable in one mission\n"
+    "13) Each non-paper task should be independently completable in one mission\n"
     "   (not multi-step dependencies). Paper optimization tasks may be broad,\n"
     "   multi-file, and multi-validator because the Engineer is expected to run\n"
     "   long-horizon missions, not wait for Planner to decompose every paragraph.\n"
-    "13) Set `restart_daemon=true` ONLY when the prompt says runtime\n"
+    "14) Set `restart_daemon=true` ONLY when the prompt says runtime\n"
     "   source changed AND a fresh daemon is needed for the next step —\n"
     "   for example daemon/CLI/lifecycle code changed, a large runtime\n"
     "   refactor landed, or verification requires the installed daemon\n"
     "   process to reload new code. Otherwise set it false.\n"
-    "14) `restart_daemon=true` is not a substitute for useful work: if\n"
+    "15) `restart_daemon=true` is not a substitute for useful work: if\n"
     "   new tasks are still needed after restart, include them too. If\n"
     "   restart itself is the next verification step, `new_tasks` may be []\n"
     "   with `project_done=false`.\n"
-    "15) Self-architecture is allowed when the current harness/reviewer/\n"
+    "16) Self-architecture is allowed when the current harness/reviewer/\n"
     "   critic/planner/tooling structure is measurably preventing progress.\n"
     "   Such tasks must include observed evidence, tests or smoke checks, and\n"
     "   acceptance criteria proving the agent now handles the blocked class of\n"
     "   tasks. Do NOT self-modify for cosmetic architecture preferences.\n"
-    "16) Output JSON ONLY. No prose around it. No markdown fences.\n"
+    "17) Output JSON ONLY. No prose around it. No markdown fences.\n"
 )
+
+
+def _planner_hard_idle_seconds() -> int:
+    raw = os.environ.get("ARGUS_SKILL_PLANNER_HARD_IDLE_SECONDS", "").strip()
+    if not raw:
+        return DEFAULT_PLANNER_HARD_IDLE_SECONDS
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return DEFAULT_PLANNER_HARD_IDLE_SECONDS
 
 
 class Critic:
@@ -464,6 +480,7 @@ class Critic:
                     full_auto=cfg.full_auto,
                     skip_git_repo_check=cfg.skip_git_repo_check,
                     extra_args=list(cfg.extra_args) if cfg.extra_args else None,
+                    watchdog_hard_idle_seconds=_planner_hard_idle_seconds(),
                 ),
                 run_label=f"planner.cycle{planning_cycle}",
             )
