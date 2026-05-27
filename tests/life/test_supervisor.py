@@ -26,9 +26,13 @@ from argus_skill.life.supervisor import (
     LifeBudget,
     LifeSupervisor,
     LifeSupervisorConfig,
+    _build_emnlp_finalization_objective,
     _CostTrackingSink,
+    _is_emnlp_finalization_objective,
     _planner_emnlp_stage_hints,
+    _planner_tasks_need_emnlp_finalization_override,
     _price_for,
+    _select_emnlp_finalization_repair_task,
 )
 from argus_skill.skills.pipeline_contracts import ContractIssue
 
@@ -1489,6 +1493,96 @@ def test_emnlp_gate_stage_hints_route_image2_format_reviews_and_assurance() -> N
     assert "rerun the model-backed `academic_language_review`" in hint
     assert "vision `paper_layout_review`" in hint
     assert "submission assurance is last" in hint
+
+
+def test_emnlp_finalization_route_prioritizes_content_over_package_drift() -> None:
+    route = _select_emnlp_finalization_repair_task([
+        ContractIssue(
+            "missing_stage_artifact",
+            "paper/SUBMISSION_ASSURANCE.json",
+            "submission artifact is missing",
+        ),
+        ContractIssue(
+            "rendered_main_body_underfilled",
+            "paper/main.pdf",
+            "main body ends too early",
+        ),
+        ContractIssue(
+            "artifact_digest_mismatch",
+            "paper/main.tex",
+            "manifest is stale",
+        ),
+    ])
+
+    assert route is not None
+    assert route.title == "Expand evidence-backed EMNLP content to final-paper length"
+    assert "evidence gaps" in route.repair_focus
+    objective = _build_emnlp_finalization_objective(route)
+    assert "paper_optimization_task" in objective
+    assert "Target issue codes: rendered_main_body_underfilled=1" in objective
+    assert "not a broad paper rewrite" in objective
+    assert "validate-full-scale-evidence --project-root ." in objective
+    assert _is_emnlp_finalization_objective(objective)
+
+
+def test_emnlp_finalization_route_targets_image2_before_generic_package() -> None:
+    route = _select_emnlp_finalization_repair_task([
+        ContractIssue(
+            "missing_stage_artifact",
+            "paper/main.tex",
+            "paper artifact is missing",
+        ),
+        ContractIssue(
+            "conceptual_body_figure_not_image2",
+            "paper/main.tex",
+            "overview is locally redrawn",
+        ),
+    ])
+
+    assert route is not None
+    assert route.title == "Repair the image-2 overview figure contract"
+    objective = _build_emnlp_finalization_objective(route)
+    assert "validate-image2-figures --project-root ." in objective
+    assert "image-2" in objective
+
+
+def test_emnlp_finalization_override_replaces_broad_paper_package_task() -> None:
+    class _Task:
+        title = "Build the evidence-backed EMNLP paper package"
+        objective = "Run validate-full-emnlp and make the paper package better."
+        evidence = "final gate is failing"
+
+    assert _planner_tasks_need_emnlp_finalization_override(
+        [_Task()],
+        [
+            ContractIssue(
+                "rendered_main_body_underfilled",
+                "paper/main.pdf",
+                "main body ends too early",
+            )
+        ],
+    )
+
+
+def test_emnlp_finalization_override_keeps_specific_issue_task() -> None:
+    class _Task:
+        title = "Expand evidence-backed EMNLP content to final-paper length"
+        objective = (
+            "paper_optimization_task. Target issue codes: "
+            "rendered_main_body_underfilled=1. Run validate-full-emnlp."
+        )
+        evidence = "rendered_main_body_underfilled at paper/main.pdf"
+
+    assert not _planner_tasks_need_emnlp_finalization_override(
+        [_Task()],
+        [
+            ContractIssue(
+                "rendered_main_body_underfilled",
+                "paper/main.pdf",
+                "main body ends too early",
+            )
+        ],
+    )
 
 
 def test_continuous_mode_planner_refusal_falls_back_to_emnlp_gate_task(

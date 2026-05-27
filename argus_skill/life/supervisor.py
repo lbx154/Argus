@@ -218,9 +218,20 @@ _EMNLP_MANIFEST_FRESHNESS_GATE_CODES = {
     "invalid_artifact_manifest_entry",
 }
 _EMNLP_CITATION_GATE_CODES = {
+    "appendix_before_references",
+    "claim_graph_uncited_citation_key",
     "citation_command_dumping",
+    "citation_paragraph_dumping",
+    "insufficient_rendered_reference_pages",
+    "insufficient_unique_citations",
+    "insufficient_verified_bibliography_entries",
+    "missing_bib_source",
+    "missing_bibliography_command",
+    "pdf_unresolved_reference_marker",
     "placeholder_bibtex_author_others",
     "rendered_placeholder_reference_authors",
+    "unresolved_latex_references",
+    "unverified_bib_entry",
 }
 _EMNLP_VALIDATION_POLICY_GATE_CODES = {
     "missing_validation_priority_policy",
@@ -296,6 +307,39 @@ _EMNLP_SUBMISSION_ASSURANCE_CODES = {
     "submission_not_ready_verdict",
     "submission_stage_not_successful",
 }
+_EMNLP_CITATION_GATE_PREFIXES = (
+    "bibliography_",
+    "bibtex_",
+    "citation_",
+    "reference_",
+    "rendered_reference_",
+    "unresolved_citation",
+)
+_EMNLP_IMAGE2_GATE_PREFIXES = ("image2_",)
+_EMNLP_FIGURE_TABLE_FORMAT_PREFIXES = (
+    "body_figure_",
+    "body_float_",
+    "float_",
+    "invalid_float_",
+    "missing_float_",
+    "table_",
+)
+_EMNLP_REVIEW_GATE_PREFIXES = (
+    "academic_",
+    "failed_academic_",
+    "layout_",
+    "low_academic_",
+    "low_layout_",
+    "stale_academic_",
+    "stale_layout_",
+)
+_EMNLP_MANIFEST_FRESHNESS_GATE_PREFIXES = (
+    "artifact_",
+    "freshness_",
+    "generated_artifact_",
+    "invalid_artifact_",
+    "manifest_",
+)
 _EMNLP_DOWNSTREAM_PATH_PREFIXES = (
     "paper/",
     "research/NARRATIVE_REPORT",
@@ -345,6 +389,20 @@ _PAPER_LONG_HORIZON_OBJECTIVE_SUBSTRINGS = (
     "投稿",
 )
 _PAPER_LONG_HORIZON_OBJECTIVE_WORDS = {"acl", "emnlp"}
+
+
+@dataclass(frozen=True)
+class _EmnlpFinalizationRepairTask:
+    """A deterministic planner fallback for the final 30% paper repair loop."""
+
+    title: str
+    impact_area: str
+    target_label: str
+    target_issues: tuple[Any, ...]
+    skill_files: tuple[str, ...]
+    allowed_paths: tuple[str, ...]
+    narrow_commands: tuple[str, ...]
+    repair_focus: str
 
 
 def _objective_is_open_ended(objective: str) -> bool:
@@ -489,6 +547,451 @@ def _planner_emnlp_stage_hints(issues: list[Any]) -> str:
     if not hints:
         return ""
     return "Automatic stage route hints:\n" + "\n".join(hints)
+
+
+def _emnlp_issue_matches(
+    issue: Any,
+    *,
+    codes: set[str] | frozenset[str] = frozenset(),
+    prefixes: tuple[str, ...] = (),
+    contains: tuple[str, ...] = (),
+) -> bool:
+    code = str(getattr(issue, "code", "") or "")
+    return (
+        code in codes
+        or any(code.startswith(prefix) for prefix in prefixes)
+        or any(token in code for token in contains)
+    )
+
+
+def _emnlp_matching_issues(
+    issues: list[Any],
+    *,
+    codes: set[str] | frozenset[str] = frozenset(),
+    prefixes: tuple[str, ...] = (),
+    contains: tuple[str, ...] = (),
+) -> tuple[Any, ...]:
+    return tuple(
+        issue
+        for issue in issues
+        if _emnlp_issue_matches(
+            issue,
+            codes=codes,
+            prefixes=prefixes,
+            contains=contains,
+        )
+    )
+
+
+def _emnlp_issue_summary(issues: list[Any] | tuple[Any, ...], *, limit: int = 10) -> str:
+    snippets: list[str] = []
+    for issue in issues[:limit]:
+        snippets.append(
+            f"{getattr(issue, 'code', '')} at {getattr(issue, 'path', '')}"
+        )
+    if len(issues) > limit:
+        snippets.append(f"... {len(issues) - limit} more")
+    return "; ".join(snippets)
+
+
+def _emnlp_top_issue_counts(issues: list[Any] | tuple[Any, ...], *, limit: int = 8) -> str:
+    counts = Counter(str(getattr(issue, "code", "") or "") for issue in issues)
+    return ", ".join(f"{code}={count}" for code, count in counts.most_common(limit))
+
+
+def _select_emnlp_finalization_repair_task(
+    issues: list[Any],
+) -> _EmnlpFinalizationRepairTask | None:
+    """Select the next narrow repair lane from a failing EMNLP final gate.
+
+    This is deliberately deterministic. The planner is still free to produce
+    richer work, but when it refuses, emits broad JSON, or keeps asking for
+    "make the paper good", the supervisor can hand the engineer a bounded
+    finalization lane with concrete issue codes and validators.
+    """
+    if not issues:
+        return None
+
+    bootstrap = _emnlp_matching_issues(issues, codes=_EMNLP_BOOTSTRAP_GATE_CODES)
+    if bootstrap:
+        return _EmnlpFinalizationRepairTask(
+            title="Bootstrap the grounded EMNLP research pipeline",
+            impact_area="discovery",
+            target_label="bootstrap grounding and provenance",
+            target_issues=bootstrap,
+            skill_files=(
+                "emnlp-paper-skill-router.md",
+                "auto-research-pipeline.md",
+                "research-brief-to-experiment-plan.md",
+            ),
+            allowed_paths=(
+                "research/",
+                "benchmarks/",
+                "experiments/",
+                "code/",
+                "paper/VALIDATION_PRIORITY_POLICY.json",
+            ),
+            narrow_commands=(
+                "python -m argus_skill.skills.pipeline_contracts validate-grounding --project-root .",
+                "python -m argus_skill.skills.pipeline_contracts validate-idea-provenance --project-root .",
+                "python -m argus_skill.skills.pipeline_contracts validate-code-reuse --project-root .",
+            ),
+            repair_focus=(
+                "Create or repair the literature-grounded brief, idea provenance, "
+                "code-reuse plan, benchmark provenance, and PIPELINE_STATE before "
+                "paper drafting. Do not polish paper/main.tex while bootstrap "
+                "blockers remain."
+            ),
+        )
+
+    full_scale = _emnlp_matching_issues(issues, codes=_EMNLP_FULL_SCALE_GATE_CODES)
+    if full_scale:
+        return _EmnlpFinalizationRepairTask(
+            title="Complete the full-scale EMNLP evidence gate",
+            impact_area="requirement_gap",
+            target_label="full-scale experiment evidence",
+            target_issues=full_scale,
+            skill_files=(
+                "emnlp-paper-skill-router.md",
+                "agent-research-benchmark-runner.md",
+                "research-results-analysis-and-figures.md",
+            ),
+            allowed_paths=("experiments/", "benchmarks/", "research/", "code/", "paper/RESULTS_REPORT.md"),
+            narrow_commands=(
+                _FULL_SCALE_EVIDENCE_GATE_COMMAND,
+                "python -m argus_skill.skills.pipeline_contracts validate-claim-graph --project-root .",
+            ),
+            repair_focus=(
+                "Run or collect the required non-pilot benchmark rows for every "
+                "method/baseline condition. Only after this gate passes should the "
+                "paper claim final EMNLP-ready results."
+            ),
+        )
+
+    content = _emnlp_matching_issues(
+        issues,
+        codes=_EMNLP_CONTENT_SUFFICIENCY_CODES | _EMNLP_SUBMISSION_ASSURANCE_CODES,
+        prefixes=("rendered_pdf_",),
+        contains=("underfilled", "underlength", "content_pages"),
+    )
+    if content:
+        return _EmnlpFinalizationRepairTask(
+            title="Expand evidence-backed EMNLP content to final-paper length",
+            impact_area="requirement_gap",
+            target_label="content sufficiency, page budget, and draft readiness",
+            target_issues=content,
+            skill_files=(
+                "emnlp-paper-skill-router.md",
+                "emnlp-paper-drafting.md",
+                "research-results-analysis-and-figures.md",
+                "claims-evidence-audit.md",
+            ),
+            allowed_paths=(
+                "paper/main.tex",
+                "paper/CLAIM_GRAPH.json",
+                "paper/PAPER_DRAFT_REPORT.json",
+                "paper/PAPER_QUALITY_CALIBRATION.json",
+                "research/",
+                "experiments/",
+            ),
+            narrow_commands=(
+                _FULL_SCALE_EVIDENCE_GATE_COMMAND,
+                "python -m argus_skill.skills.pipeline_contracts validate-paper-contract --project-root .",
+                "python -m argus_skill.skills.pipeline_contracts validate-paper-quality-contracts --project-root .",
+            ),
+            repair_focus=(
+                "Treat short pages and draft-not-ready verdicts as evidence gaps, "
+                "not cosmetic padding. Add or run supported analyses, ablations, "
+                "failure studies, and claim downgrades; then update the manuscript "
+                "from those artifacts."
+            ),
+        )
+
+    citations = _emnlp_matching_issues(
+        issues,
+        codes=_EMNLP_CITATION_GATE_CODES,
+        prefixes=_EMNLP_CITATION_GATE_PREFIXES,
+        contains=("citation", "reference", "bibliograph", "bibtex"),
+    )
+    if citations:
+        return _EmnlpFinalizationRepairTask(
+            title="Repair verified EMNLP citations and references",
+            impact_area="integration",
+            target_label="citation, BibTeX, and rendered reference hygiene",
+            target_issues=citations,
+            skill_files=(
+                "emnlp-paper-skill-router.md",
+                "emnlp-paper-drafting.md",
+                "emnlp-format-preflight.md",
+                "claims-evidence-audit.md",
+            ),
+            allowed_paths=("paper/main.tex", "paper/*.bib", "paper/CLAIM_GRAPH.json", "research.md"),
+            narrow_commands=(
+                "python -m argus_skill.skills.pipeline_contracts validate-research-md-format --project-root .",
+                "python -m argus_skill.skills.pipeline_contracts validate-claim-graph --project-root .",
+            ),
+            repair_focus=(
+                "Use verified BibTeX metadata, distribute citations adjacent to "
+                "the claims they support, and keep claim-graph citation keys in "
+                "sync with paper/main.tex. Do not dump citations into one paragraph."
+            ),
+        )
+
+    image2 = _emnlp_matching_issues(
+        issues,
+        codes=_EMNLP_IMAGE2_GATE_CODES,
+        prefixes=_EMNLP_IMAGE2_GATE_PREFIXES,
+        contains=("image2", "image-2", "conceptual_figure"),
+    )
+    if image2:
+        return _EmnlpFinalizationRepairTask(
+            title="Repair the image-2 overview figure contract",
+            impact_area="integration",
+            target_label="image-2 conceptual figure provenance and inclusion",
+            target_issues=image2,
+            skill_files=(
+                "emnlp-paper-skill-router.md",
+                "research-results-analysis-and-figures.md",
+                "emnlp-paper-drafting.md",
+            ),
+            allowed_paths=("paper/figures/", "paper/main.tex", "code/generate_image_2.py"),
+            narrow_commands=(
+                "python -m argus_skill.skills.pipeline_contracts validate-image2-figures --project-root .",
+                "python -m argus_skill.skills.pipeline_contracts validate-figure-table-style --project-root .",
+            ),
+            repair_focus=(
+                "Generate or select the accepted raster through image-2, include "
+                "that exact output in main.tex, and repair prompt/sidecar/inspect/"
+                "review/provenance hashes instead of relabeling a local redraw."
+            ),
+        )
+
+    figure_format = _emnlp_matching_issues(
+        issues,
+        codes=_EMNLP_FIGURE_TABLE_FORMAT_CODES,
+        prefixes=_EMNLP_FIGURE_TABLE_FORMAT_PREFIXES,
+        contains=("overfull", "caption", "float", "figure", "table"),
+    )
+    if figure_format:
+        return _EmnlpFinalizationRepairTask(
+            title="Repair EMNLP LaTeX floats, captions, and page layout",
+            impact_area="integration",
+            target_label="figure/table style, captions, labels, and overfull boxes",
+            target_issues=figure_format,
+            skill_files=(
+                "emnlp-paper-skill-router.md",
+                "emnlp-format-preflight.md",
+                "emnlp-paper-drafting.md",
+                "research-results-analysis-and-figures.md",
+            ),
+            allowed_paths=(
+                "paper/main.tex",
+                "paper/FIGURE_TABLE_STYLE_GUIDE.json",
+                "paper/figures/",
+                "paper/tables/",
+            ),
+            narrow_commands=(
+                "python -m argus_skill.skills.pipeline_contracts validate-figure-table-style --project-root .",
+                "python -m argus_skill.skills.pipeline_contracts validate-research-md-format --project-root .",
+            ),
+            repair_focus=(
+                "Fix float inventory, text references, numerical captions, table "
+                "widths, and overfull boxes without padding or weakening evidence. "
+                "Compile the PDF after every layout-affecting change."
+            ),
+        )
+
+    reviews = _emnlp_matching_issues(
+        issues,
+        codes=_EMNLP_REVIEW_GATE_CODES,
+        prefixes=_EMNLP_REVIEW_GATE_PREFIXES,
+    )
+    if reviews:
+        return _EmnlpFinalizationRepairTask(
+            title="Refresh EMNLP academic-language and visual-layout reviews",
+            impact_area="integration",
+            target_label="model academic-language review and vision layout review",
+            target_issues=reviews,
+            skill_files=(
+                "emnlp-paper-skill-router.md",
+                "emnlp-academic-language-review.md",
+                "paper-review-revision-loop.md",
+            ),
+            allowed_paths=("paper/main.tex", "paper/main.pdf", "paper/ACADEMIC_LANGUAGE_REVIEW.json", "paper/LAYOUT_REVIEW.json"),
+            narrow_commands=(
+                "python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write",
+                "python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write",
+                "python -m argus_skill.skills.pipeline_contracts validate-academic-language-review --project-root .",
+                "python -m argus_skill.skills.pipeline_contracts validate-layout-review --project-root .",
+            ),
+            repair_focus=(
+                "Stabilize main.tex/main.pdf first, then rerun the model-backed "
+                "language reviewer and vision layout reviewer from current sources. "
+                "Never hand-edit stale review JSON into PASS."
+            ),
+        )
+
+    contract_artifacts = _emnlp_matching_issues(
+        issues,
+        codes=_EMNLP_MANIFEST_FRESHNESS_GATE_CODES | _EMNLP_VALIDATION_POLICY_GATE_CODES,
+        prefixes=_EMNLP_MANIFEST_FRESHNESS_GATE_PREFIXES,
+    )
+    if contract_artifacts:
+        return _EmnlpFinalizationRepairTask(
+            title="Regenerate EMNLP manifest, freshness, and routing artifacts",
+            impact_area="integration",
+            target_label="manifest, freshness, and validation routing drift",
+            target_issues=contract_artifacts,
+            skill_files=("emnlp-paper-skill-router.md", "auto-research-pipeline.md"),
+            allowed_paths=(
+                "paper/ARTIFACT_MANIFEST.json",
+                "paper/ARTIFACT_FRESHNESS.json",
+                "paper/VALIDATION_PRIORITY_POLICY.json",
+            ),
+            narrow_commands=(
+                _REPAIR_EMNLP_CONTRACT_ARTIFACTS_COMMAND,
+                "python -m argus_skill.skills.pipeline_contracts validate-manifest --project-root .",
+                "python -m argus_skill.skills.pipeline_contracts validate-validation-priority --project-root .",
+            ),
+            repair_focus=(
+                "Regenerate machine contracts from current source artifacts instead "
+                "of hand-editing readiness JSON. If content blockers remain after "
+                "this quick repair, route to those real blockers next."
+            ),
+        )
+
+    downstream = tuple(issues[: min(len(issues), 12)])
+    return _EmnlpFinalizationRepairTask(
+        title="Repair current EMNLP final-gate blockers",
+        impact_area="requirement_gap",
+        target_label="highest-priority remaining final-gate blockers",
+        target_issues=downstream,
+        skill_files=("emnlp-paper-skill-router.md", "emnlp-paper-drafting.md"),
+        allowed_paths=("paper/", "research/", "experiments/", "benchmarks/", "code/"),
+        narrow_commands=(_FULL_EMNLP_GATE_COMMAND,),
+        repair_focus=(
+            "Group the gate TSV by issue code, repair the earliest upstream blocker "
+            "class first, and avoid whole-paper rewrites unless the selected issue "
+            "class requires a structural reset."
+        ),
+    )
+
+
+def _build_emnlp_finalization_objective(
+    task: _EmnlpFinalizationRepairTask,
+    *,
+    planner_error: str = "",
+    raw_text: str = "",
+) -> str:
+    target_codes = _emnlp_top_issue_counts(task.target_issues)
+    target_summary = _emnlp_issue_summary(task.target_issues)
+    skill_list = ", ".join(f"`argus_builtin_skills/{name}`" for name in task.skill_files)
+    path_list = ", ".join(f"`{path}`" for path in task.allowed_paths)
+    command_list = "; ".join(f"`{command}`" for command in task.narrow_commands)
+    error_note = (
+        f"Planner failure context: {planner_error}. "
+        if planner_error
+        else ""
+    )
+    raw_note = f" Planner raw output: {raw_text[:300]}" if raw_text else ""
+    return (
+        "paper_optimization_task. Use the automatic validate-full-emnlp "
+        "finalization route, not a broad paper rewrite. "
+        f"{error_note}"
+        f"Target repair lane: {task.target_label}. Target issue codes: {target_codes}. "
+        f"First target issues: {target_summary}. "
+        f"Read AGENTS.md and these routed skills first: {skill_list}. "
+        f"Allowed primary edit surface for this mission: {path_list}; touch other files "
+        "only when the target validator proves they are upstream inputs. "
+        f"Repair focus: {task.repair_focus} "
+        f"Start by running `{_FULL_EMNLP_GATE_COMMAND}` or inspecting its fresh TSV "
+        "output, then repair only this target lane until its issue count decreases "
+        "or the lane is genuinely blocked by missing upstream evidence. "
+        f"Run the narrow validator(s): {command_list}. "
+        f"After modifying generated paper artifacts, run `{_REFRESH_MANIFEST_COMMAND}` "
+        f"and `{_REFRESH_ARTIFACT_FRESHNESS_COMMAND}` when applicable, then rerun "
+        f"`{_FULL_EMNLP_GATE_COMMAND}`. "
+        "Acceptance requires reporting the before/after count for the target issue "
+        "codes and either clearing them or recording the exact upstream blocker; "
+        "do not declare submission readiness unless the exact final gate exits 0."
+        f"{raw_note}"
+    )
+
+
+def _emnlp_finalization_task_spec_from_issues(
+    issues: list[Any],
+    *,
+    planner_error: str = "",
+    raw_text: str = "",
+) -> Any | None:
+    selected = _select_emnlp_finalization_repair_task(issues)
+    if selected is None:
+        return None
+    from ..critic import TaskSpec
+
+    return TaskSpec(
+        title=selected.title,
+        objective=_build_emnlp_finalization_objective(
+            selected,
+            planner_error=planner_error,
+            raw_text=raw_text,
+        ),
+        impact_score=5,
+        impact_area=selected.impact_area,
+        evidence=(
+            f"automatic validate-full-emnlp finalization route selected "
+            f"{selected.target_label}: {_emnlp_issue_summary(selected.target_issues, limit=8)}"
+        ),
+        scope=_PLANNER_SCOPE_BOUNDED,
+    )
+
+
+def _is_emnlp_finalization_objective(text: str) -> bool:
+    normalized = _normalize_planner_text(text)
+    return (
+        "paper_optimization_task" in normalized
+        and "validate-full-emnlp" in normalized
+        and "target issue codes" in normalized
+    )
+
+
+def _planner_tasks_need_emnlp_finalization_override(
+    tasks: list[Any],
+    issues: list[Any],
+) -> bool:
+    if not tasks or not issues:
+        return False
+    selected = _select_emnlp_finalization_repair_task(issues)
+    if selected is None:
+        return False
+    target_codes = {
+        str(getattr(issue, "code", "") or "")
+        for issue in selected.target_issues
+    }
+    combined = _normalize_planner_text(
+        "\n".join(
+            "\n".join((
+                str(getattr(task, "title", "") or ""),
+                str(getattr(task, "objective", "") or ""),
+                str(getattr(task, "evidence", "") or ""),
+            ))
+            for task in tasks
+        )
+    )
+    if "validate-full-emnlp" not in combined:
+        return True
+    if "target issue codes" in combined and any(code in combined for code in target_codes):
+        return False
+    if any(code in combined for code in target_codes):
+        return False
+    broad_markers = (
+        "build the evidence-backed emnlp paper package",
+        "repair current emnlp final-gate blockers",
+        "make the paper",
+        "polish the paper",
+        "paper package",
+    )
+    return any(marker in combined for marker in broad_markers)
 
 
 def _backlog_item_requires_full_scale_evidence_precondition(
@@ -1327,6 +1830,14 @@ class LifeSupervisor:
         stage_hints = _planner_emnlp_stage_hints(issues)
         if stage_hints:
             lines.extend(stage_hints.splitlines())
+        repair_route = _select_emnlp_finalization_repair_task(issues)
+        if repair_route is not None:
+            lines.append(
+                "- recommended finalization repair route: "
+                f"{repair_route.title} "
+                f"({repair_route.target_label}; "
+                f"{_emnlp_top_issue_counts(repair_route.target_issues, limit=6)})."
+            )
         lines.append("- first blocking issues:")
         for issue in issues[:_PLANNER_GATE_CONTEXT_MAX_ISSUES]:
             message = issue.message.replace("\n", " ").strip()
@@ -1353,7 +1864,6 @@ class LifeSupervisor:
         if not self._planner_should_include_emnlp_gate_context(root):
             return None
         try:
-            from ..critic import TaskSpec
             from ..skills.pipeline_contracts import validate_full_emnlp_readiness
 
             issues = validate_full_emnlp_readiness(root)
@@ -1362,85 +1872,21 @@ class LifeSupervisor:
         if not issues:
             return None
 
-        counts = Counter(issue.code for issue in issues)
-        issue_codes = {issue.code for issue in issues}
-        issue_paths = _emnlp_issue_paths(issues)
-        stage_hints = _planner_emnlp_stage_hints(issues)
-        downstream_count = sum(
-            count for code, count in counts.items() if code in _EMNLP_DOWNSTREAM_PACKAGE_CODES
-        )
-        manifest_count = sum(
-            count
-            for code, count in counts.items()
-            if code in _EMNLP_MANIFEST_FRESHNESS_GATE_CODES
-        )
-        validation_policy_count = sum(
-            count
-            for code, count in counts.items()
-            if code in _EMNLP_VALIDATION_POLICY_GATE_CODES
-        )
-        citation_count = sum(
-            count for code, count in counts.items() if code in _EMNLP_CITATION_GATE_CODES
-        )
-        if _EMNLP_BOOTSTRAP_GATE_CODES & issue_codes:
-            title = "Bootstrap the grounded EMNLP research pipeline"
-            impact_area = "discovery"
-        elif _EMNLP_FULL_SCALE_GATE_CODES & issue_codes:
-            title = "Complete the full-scale EMNLP evidence gate"
-            impact_area = "requirement_gap"
-        elif citation_count >= max(manifest_count, validation_policy_count, downstream_count, 3):
-            title = "Repair verified EMNLP citations and references"
-            impact_area = "integration"
-        elif (
-            manifest_count + validation_policy_count
-            >= max(downstream_count, 1)
-        ):
-            title = "Regenerate EMNLP manifest, freshness, and routing artifacts"
-            impact_area = "integration"
-        elif _has_emnlp_downstream_package_gap(issue_codes, issue_paths):
-            title = "Build the evidence-backed EMNLP paper package"
-            impact_area = "integration"
-        elif any(
-            code.startswith(("layout_", "academic_language_", "citation_", "artifact_"))
-            or "paper" in code
-            or "submission" in code
-            for code in issue_codes
-        ):
-            title = "Repair the EMNLP paper package against the final gate"
-            impact_area = "integration"
-        else:
-            title = "Repair current EMNLP final-gate blockers"
-            impact_area = "requirement_gap"
-
         first_issues = "; ".join(
             f"{issue.code} at {issue.path}" for issue in issues[:8]
         )
-        top_counts = ", ".join(
-            f"{code}={count}" for code, count in counts.most_common(8)
-        )
         planner_error = str(getattr(verdict, "error", "") or "planner error")
         raw_text = str(getattr(verdict, "raw_text", "") or "").strip()
-        refusal_note = f" Planner raw output: {raw_text[:300]}" if raw_text else ""
-        objective = (
-            "Planner backend failed to return usable JSON, so use the automatic "
-            "EMNLP final-gate snapshot as the source of truth. Read AGENTS.md and "
-            "the relevant argus_builtin_skills first, then run "
-            f"`{_FULL_EMNLP_GATE_COMMAND}` and repair the highest-impact blockers "
-            "from current sources rather than hand-editing readiness artifacts. "
-            f"Current blocker summary: {top_counts}. First issues: {first_issues}. "
-            + (
-                "Stage route hints: "
-                + " ".join(stage_hints.split())
-                + " "
-                if stage_hints
-                else ""
-            )
-            +
-            "Acceptance requires rerunning the narrow validators for modified "
-            "artifacts plus the final gate, with clear progress toward exit 0; "
-            "do not declare submission readiness unless the exact final gate passes."
-            f"{refusal_note}"
+        task = _emnlp_finalization_task_spec_from_issues(
+            issues,
+            planner_error=(
+                "Planner backend failed to return usable JSON; "
+                f"{planner_error}"
+            ),
+            raw_text=raw_text,
         )
+        if task is None:
+            return None
         evidence = (
             f"{planner_error}; automatic validate-full-emnlp snapshot reports "
             f"{len(issues)} issue(s), including {first_issues}."
@@ -1452,18 +1898,29 @@ class LifeSupervisor:
                 f"planner failed with {planner_error}; queued fallback from "
                 "automatic EMNLP final-gate snapshot"
             ),
-            new_tasks=[
-                TaskSpec(
-                    title=title,
-                    objective=objective,
-                    impact_score=5,
-                    impact_area=impact_area,
-                    evidence=evidence,
-                    scope=_PLANNER_SCOPE_BOUNDED,
-                )
-            ],
+            new_tasks=[replace(task, evidence=evidence)],
             error="",
         )
+
+    def _automatic_emnlp_finalization_task_for_current_gate(
+        self,
+    ) -> tuple[Any | None, list[Any]]:
+        """Return a deterministic EMNLP repair task for the current gate, if any."""
+        ev = self.config.stop_event
+        if ev is not None and ev.is_set():
+            return None, []
+        root = self._planner_workdir()
+        if not self._planner_should_include_emnlp_gate_context(root):
+            return None, []
+        try:
+            from ..skills.pipeline_contracts import validate_full_emnlp_readiness
+
+            issues = validate_full_emnlp_readiness(root)
+        except Exception:  # noqa: BLE001
+            return None, []
+        if not issues:
+            return None, []
+        return _emnlp_finalization_task_spec_from_issues(issues), issues
 
     def _planner_should_include_emnlp_gate_context(self, root: Path) -> bool:
         objective = self.config.continuous_objective or ""
@@ -2590,6 +3047,24 @@ class LifeSupervisor:
                     log.exception("notify dispatch failed; continuing")
                 return None
 
+        if not verdict.project_done:
+            automatic_task, gate_issues = self._automatic_emnlp_finalization_task_for_current_gate()
+            if (
+                automatic_task is not None
+                and _planner_tasks_need_emnlp_finalization_override(
+                    verdict.new_tasks,
+                    gate_issues,
+                )
+            ):
+                verdict = replace(
+                    verdict,
+                    reason=(
+                        "planner task was too broad for the current EMNLP final-gate "
+                        "snapshot; queued deterministic finalization repair"
+                    ),
+                    new_tasks=[automatic_task],
+                )
+
         if (
             verdict.project_done
             and _objective_requires_full_emnlp_gate(self.config.continuous_objective)
@@ -2814,6 +3289,11 @@ class LifeSupervisor:
         seen_signatures: dict[tuple[str, str], BacklogItem] = {}
         for existing in existing_items:
             if existing.status not in _PLANNER_DEDUP_STATUSES:
+                continue
+            if (
+                existing.status == "done"
+                and _is_emnlp_finalization_objective(existing.objective)
+            ):
                 continue
             signature = _planner_task_signature(existing.title, existing.objective)
             if existing.status in {"pending", "running"}:
