@@ -59,20 +59,25 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - Every numeric result in prose, table captions, and figure captions must trace to a local artifact.
    - Captions should state the takeaway, not only describe the figure.
 
-6. Replace agent-looking prose:
+6. Enforce method/system readability:
+   - The Method and Experimental Setup must be readable without internal project context. They must name the agent framework/runtime or harness, the controller/skill/memory mechanism, the LLM/model identifiers used for agent runs, relevant image/model routes for generated visuals, task source/version, baselines, metrics, and budget/stopping rules.
+   - Add a compact system/configuration table when prose alone would be ambiguous. The table can name route roles and model IDs, but must not expose API keys, private endpoints, or capability-vault contents.
+   - Reject papers that only say "our agent" or "the system" while omitting what framework ran it, which model powered it, and how one benchmark episode executes.
+
+7. Replace agent-looking prose:
    - Remove filler, boilerplate, and repeated "we demonstrate" sentences.
    - Use human-readable method and baseline names in paper-facing text.
    - Keep raw identifiers, file paths, and snake_case labels in comments, manifests, or appendices only.
    - Do not leave paper-facing format artifacts that read like agent output: placeholders, `% UNVERIFIED` citations, unresolved `[?]` references, code-like section/table/figure labels, or captions that describe a plot without a numerical takeaway.
    - Caption prose must support the `research.md` format contract: every table caption has a numerical headline, every figure caption states an evidence-backed takeaway, and any paired-significance claim is backed by a local artifact.
 
-7. Run the tool-backed review:
+8. Run the tool-backed review:
    - Run `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`.
    - Then run `python -m argus_skill.skills.pipeline_contracts validate-academic-language-review --project-root .`.
    - The review must write `paper/ACADEMIC_LANGUAGE_REVIEW.json`, `paper/ACADEMIC_LANGUAGE_REVIEW.md`, and history.
    - Passing requires a model-backed review, fresh hashes for all LaTeX sources included by `paper/main.tex`, score at least 4/5, evidence spans quoted from the source, no failed required checks, and no active revision directives. Evidence spans are review artifacts, not prose: do not paste them into the paper to appease the gate.
 
-8. Iterate:
+9. Iterate:
    - Apply `revision_directives` exactly: rewrite abstract, tighten contribution sentence, calibrate claims, reorganize related work, add evidence sentences, replace hype language, or add limitation scope.
    - Re-run the review after every prose-changing edit.
    - Do not claim final readiness from a self-written score or heuristic-only review.

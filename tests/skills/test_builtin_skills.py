@@ -238,6 +238,8 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         assert "Failure Cases" in text and "0.3--0.5" in text
         assert "validate-full-scale-evidence" in text
         assert "Benchmark construction is not execution" in text
+        assert "agent framework/runtime" in text
+        assert "LLM/model identifiers" in text
         assert "missing_full_scale_experiment_run" in text
         assert "incomplete_full_scale_experiment_run" in text
         assert "missing_baseline_condition_run" in text
@@ -702,6 +704,8 @@ def test_emnlp_paper_skill_router_maps_validator_issue_codes(tmp_path: Path) -> 
         "paper_layout_review --review-mode vision --write",
         "stale_academic_language_review_source",
         "academic_language_review --review-mode model --write",
+        "academic_language_missing_method_model_identifier",
+        "framework/runtime or harness",
         "repair-emnlp-contract-artifacts",
         "submission_not_ready_verdict",
         "Run this last",

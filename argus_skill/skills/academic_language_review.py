@@ -43,6 +43,7 @@ SECTION_SCORE_KEYS: tuple[str, ...] = (
     "contribution_framing",
     "evidence_alignment",
     "related_work_positioning",
+    "method_system_clarity",
     "style_and_clarity",
 )
 
@@ -51,6 +52,7 @@ REQUIRED_CHECK_KEYS: tuple[str, ...] = (
     "evidence_aligned_claims",
     "five_sentence_abstract_or_equivalent",
     "related_work_methodological",
+    "method_system_readable",
     "calibrated_no_hype",
     "limitations_scope_present",
 )
@@ -156,6 +158,36 @@ SECTION_SYNONYMS: dict[str, tuple[str, ...]] = {
     "experiments": ("experiments", "evaluation", "experimental setup", "results"),
     "limitations": ("limitations", "limitations and broader impact", "discussion"),
 }
+
+METHOD_SYSTEM_DETAIL_PATTERNS: tuple[tuple[str, str, str], ...] = (
+    (
+        "missing_method_framework_or_runtime",
+        r"\b(?:argus(?:-skill)?|codex|openai agents sdk|langchain|autogen|crewai|"
+        r"semantic kernel|llamaindex|agent framework|framework|runtime|harness|"
+        r"daemon|orchestrator|controller)\b",
+        "method/setup must name the agent framework, runtime, harness, or controller that ran the agent",
+    ),
+    (
+        "missing_method_model_identifier",
+        r"\b(?:gpt[-_ ]?\d(?:[\w.\-:]*)?|o\d(?:[\w.\-:]*)?|claude[-_ ]?\d(?:[\w.\-:]*)?|"
+        r"gemini[-_ ]?\d(?:[\w.\-:]*)?|llama[-_ ]?\d(?:[\w.\-:]*)?|qwen[-_ ]?\d(?:[\w.\-:]*)?|"
+        r"mistral(?:[\w.\-:]*)?|deepseek(?:[\w.\-:]*)?|gpt[-_ ]?image[-_ ]?2|"
+        r"codex[-_ ]?image2|image[-_ ]?2)\b",
+        "method/setup must name the LLM or image model identifier used for agent runs and generated visuals",
+    ),
+    (
+        "missing_method_agent_mechanism",
+        r"\b(?:agent|planner|engineer|reviewer|skill|memory|retrieval|tool|verifier|"
+        r"reflection|handoff|policy|routing|controller|state)\b",
+        "method/setup must explain the agent mechanism rather than only reporting scores",
+    ),
+    (
+        "missing_method_evaluation_protocol",
+        r"\b(?:baseline|benchmark|task|episode|trial|metric|budget|temperature|token|"
+        r"cost|scored|run)\b",
+        "method/setup must give enough evaluation protocol detail to interpret the results",
+    ),
+)
 
 
 class AcademicLanguageReviewError(RuntimeError):
@@ -532,6 +564,24 @@ def _deterministic_assessment(tex_text: str) -> dict[str, Any]:
             )
         )
 
+    for code, message in find_method_system_readability_issues(tex_text):
+        score_penalty += 0.45
+        section_scores["method_system_clarity"] = min(
+            section_scores["method_system_clarity"], 3.2
+        )
+        section_scores["style_and_clarity"] = min(section_scores["style_and_clarity"], 3.7)
+        required_checks["method_system_readable"] = False
+        issues.append(
+            _issue(
+                code,
+                "major",
+                message,
+                hard_gate=True,
+                action="clarify_method_mechanism",
+                target="paper/main.tex",
+            )
+        )
+
     for code, pattern in GENERIC_OPENING_PATTERNS:
         if re.search(pattern, opening, re.I):
             score_penalty += 0.6
@@ -690,6 +740,11 @@ def _review_prompt(
         "to evidence. Evidence spans are reviewer-internal audit artifacts: do not ask "
         "authors to paste source paths, appendix/figure references, validation-gate "
         "vocabulary, or evidence quotes into the abstract to satisfy this review. Reject "
+        "papers that leave basic system facts implicit: the Method/Experimental Setup must "
+        "let a reviewer identify the agent framework/runtime or harness, the LLM/model "
+        "identifiers used for agent runs and image generation when relevant, the agent "
+        "mechanism, baselines, task source, metrics, and budget. These details should be "
+        "reader-facing prose or a compact table, not only comments or JSON artifacts. Reject "
         "a paper whose abstract reads like a validator checklist, starts with a numeric "
         "result before the problem/gap, or spends its scarce space on defensive caveats "
         "instead of problem, method, result, and implication. Use a strict ACL/EMNLP "
@@ -904,7 +959,7 @@ def _expected_effect(action: str) -> str:
         "reorganize_related_work": "group prior work by method and gap rather than chronology",
         "replace_hype_language": "remove salesy or unsupported superlative prose",
         "delete_filler": "remove low-information prose that weakens the paper",
-        "clarify_method_mechanism": "explain why the method changes the measured outcome",
+        "clarify_method_mechanism": "explain the agent framework/runtime, model identifiers, mechanism, and why the method changes the measured outcome",
         "rewrite_caption_takeaway": "make figure/table captions carry the main result",
         "add_limitation_scope": "state scope limits without undermining the supported claim",
         "rename_code_like_label": "use reviewable human-readable labels instead of raw identifiers",
@@ -919,6 +974,7 @@ def _section_action(key: str) -> str:
         "contribution_framing": "tighten_contribution_sentence",
         "evidence_alignment": "add_evidence_sentence",
         "related_work_positioning": "reorganize_related_work",
+        "method_system_clarity": "clarify_method_mechanism",
         "style_and_clarity": "delete_filler",
     }.get(key, "calibrate_claim")
 
@@ -929,6 +985,7 @@ def _check_action(key: str) -> str:
         "evidence_aligned_claims": "add_evidence_sentence",
         "five_sentence_abstract_or_equivalent": "rewrite_abstract",
         "related_work_methodological": "reorganize_related_work",
+        "method_system_readable": "clarify_method_mechanism",
         "calibrated_no_hype": "replace_hype_language",
         "limitations_scope_present": "add_limitation_scope",
     }.get(key, "calibrate_claim")
@@ -1073,6 +1130,30 @@ def find_reader_hostile_abstract_issues(tex_text: str) -> list[tuple[str, str]]:
     return [
         (code, message)
         for code, message, _penalty, _cap in _abstract_quality_issue_specs(abstract)
+    ]
+
+
+def find_method_system_readability_issues(tex_text: str) -> list[tuple[str, str]]:
+    """Return method/setup issues that make the paper unreadable to outside reviewers."""
+
+    context = " ".join(
+        _section_text(tex_text, title)
+        for title in (
+            "method",
+            "approach",
+            "system",
+            "implementation",
+            "experimental setup",
+            "experiments",
+            "evaluation",
+        )
+    )
+    if not context.strip():
+        context = _latex_to_plain_text(tex_text)
+    return [
+        (code, message)
+        for code, pattern, message in METHOD_SYSTEM_DETAIL_PATTERNS
+        if not re.search(pattern, context, re.I)
     ]
 
 

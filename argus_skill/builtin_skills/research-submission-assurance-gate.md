@@ -115,6 +115,7 @@ Use the 6-state verdict schema `PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLI
 10. **academic-language review**
    - Run `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write` after prose stabilizes, then run `python -m argus_skill.skills.pipeline_contracts validate-academic-language-review --project-root .`.
    - Check `paper/ACADEMIC_LANGUAGE_REVIEW.json` for `score_1_to_5 >= 4`, `verdict: PASS`, `needs_revision: false`, no blocking issues, fresh hashes for all transitive LaTeX sources, model-backed review method, and quoted evidence spans from current source.
+   - Hard-block final readiness if the body does not tell a reader what agent system was run: framework/runtime or harness, LLM/model identifiers, controller/skill/memory mechanism, task source, baselines, metrics, and budget/stopping rules must be visible in Method or Experimental Setup.
    - Treat review artifacts as evidence, not targets. Do not hand-edit review JSON/Markdown to satisfy a gate; fix the manuscript/source artifacts and rerun the review so the underlying condition is independently true.
    - Hard blockers: missing or stale academic-language review, heuristic-only self-score, score below threshold, active revision directives, generic LLM-boilerplate opening, result-first or validator-shaped abstract, uncalibrated hype, missing What/Why/So-What contribution framing, claims not aligned to evidence, chronological related-work dump, or absent limitation scope.
 

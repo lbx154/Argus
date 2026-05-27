@@ -473,7 +473,7 @@ def test_claim_graph_rejects_weak_claim_left_in_main_body(tmp_path: Path) -> Non
     payload["claims"].append(
         {
             "id": "weak-left-in-body",
-            "claim": "The method uses a conservative routing policy.",
+            "claim": "A controller routes skill-memory state through verifier policy checks",
             "section": "Method",
             "status": "weak",
             "evidence_gap_id": "gap-routing",
@@ -2278,6 +2278,37 @@ def test_academic_language_review_rejects_generic_opening_even_with_pass_json(
     assert "academic_language_generic_llm_success_opening" in codes
 
 
+def test_academic_language_review_rejects_missing_method_system_basics(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    text = (tmp_path / "paper" / "main.tex").read_text(encoding="utf-8")
+    _write(
+        tmp_path / "paper" / "main.tex",
+        text.replace(
+            (
+                "The implementation uses the Argus runtime harness with Codex engineer agents "
+                "and gpt-5.5 model routes for planner, engineer, and reviewer roles. "
+                "A controller routes skill-memory state through verifier policy checks before "
+                "each tool-using agent episode."
+            ),
+            "The method improves the reported result.",
+        ).replace(
+            (
+                "Each benchmark run scores 240 task episodes against no-skill, raw-memory, "
+                "Reflexion, and static-skill baselines with success rate as the primary metric "
+                "under a fixed token budget. We report paired tests in Table~\\ref{tab:significance}."
+            ),
+            "We report paired tests in Table~\\ref{tab:significance}.",
+        ),
+    )
+    _write_valid_academic_language_review(tmp_path)
+
+    codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
+    assert "academic_language_missing_method_framework_or_runtime" in codes
+    assert "academic_language_missing_method_model_identifier" in codes
+
+
 def test_academic_language_review_rejects_validator_shaped_abstract_even_with_pass_json(
     tmp_path: Path,
 ) -> None:
@@ -3294,6 +3325,7 @@ def _write_valid_academic_language_review(
         "contribution_framing": score,
         "evidence_alignment": score,
         "related_work_positioning": score,
+        "method_system_clarity": score,
         "style_and_clarity": score,
     }
     checks = {
@@ -3301,6 +3333,7 @@ def _write_valid_academic_language_review(
         "evidence_aligned_claims": True,
         "five_sentence_abstract_or_equivalent": True,
         "related_work_methodological": True,
+        "method_system_readable": True,
         "calibrated_no_hype": True,
         "limitations_scope_present": True,
     }
@@ -3343,7 +3376,8 @@ def _write_valid_academic_language_review(
             "evidence_spans": evidence_spans,
             "raw_review_text": (
                 "The model reviewed the paper source for problem framing, evidence alignment, "
-                "related-work positioning, calibrated tone, and limitations coverage."
+                "related-work positioning, method/system clarity, calibrated tone, and "
+                "limitations coverage."
             ),
             "prompt_sha256": _sha256_text(prompt),
             "review_input_sha256": _sha256_text(review_input),
@@ -3381,9 +3415,10 @@ def _valid_academic_evidence_spans(section_scores: dict[str, float]) -> list[dic
     quote_by_section = {
         "abstract": "A complete EMNLP-style long paper.",
         "introduction": "This paper is formatted as a reviewable long paper with Figure~\\ref{fig:method}.",
-        "contribution_framing": "The method uses a conservative routing policy.",
+        "contribution_framing": "A controller routes skill-memory state through verifier policy checks",
         "evidence_alignment": "Table~\\ref{tab:main} summarizes the main result.",
         "related_work_positioning": "Prior benchmark work motivates the transfer setting",
+        "method_system_clarity": "The implementation uses the Argus runtime harness with Codex engineer agents and gpt-5.5 model routes",
         "style_and_clarity": "The paper concludes within the main-page budget.",
     }
     return [
@@ -3446,9 +3481,18 @@ def _write_valid_paper_draft_report(
                 "\\caption{SkillGuard routing improves verified completion by 8 points.}",
                 "\\label{fig:method}",
                 "\\end{figure}",
-                "The method uses a conservative routing policy.",
+                (
+                    "The implementation uses the Argus runtime harness with Codex engineer agents "
+                    "and gpt-5.5 model routes for planner, engineer, and reviewer roles. "
+                    "A controller routes skill-memory state through verifier policy checks before "
+                    "each tool-using agent episode."
+                ),
                 "\\section{Experimental Setup}",
-                "We report paired tests in Table~\\ref{tab:significance}.",
+                (
+                    "Each benchmark run scores 240 task episodes against no-skill, raw-memory, "
+                    "Reflexion, and static-skill baselines with success rate as the primary metric "
+                    "under a fixed token budget. We report paired tests in Table~\\ref{tab:significance}."
+                ),
                 "\\begin{table}[t]",
                 "\\centering",
                 "\\footnotesize",
@@ -3694,7 +3738,10 @@ def _write_valid_validation_priority_policy(root: Path) -> None:
                 "missing_midpaper_visual_pages",
                 "draft_not_submission_quality",
             ],
-            "repair_mode": "add evidence-backed analysis, ablation, failure study, or run experiments before expanding prose",
+            "repair_mode": (
+                "add source-backed framing, method detail, evidence-backed "
+                "analysis, ablation, failure study, or run experiments"
+            ),
         },
         "exemplar_suitability": {
             "issue_code_prefixes": ["exemplar_suitability", "style_exemplar_suitability"],

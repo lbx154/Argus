@@ -35,6 +35,7 @@ from .academic_language_review import (
     GENERIC_OPENING_PATTERNS,
     MIN_ACADEMIC_LANGUAGE_SCORE,
     collect_latex_source_paths,
+    find_method_system_readability_issues,
     find_reader_hostile_abstract_issues,
 )
 from .academic_language_review import (
@@ -566,7 +567,10 @@ DEFAULT_VALIDATION_REPAIR_MODES: dict[str, str] = {
     "freshness": "regenerate stale generated artifacts and refresh recorded input hashes",
     "experiment_evidence": "run full-scale benchmark experiments and required baselines",
     "claim_graph": "repair claim graph evidence bindings or soften unsupported claims",
-    "content_sufficiency": "add evidence-backed analysis, ablations, failure studies, or runs",
+    "content_sufficiency": (
+        "add source-backed framing, method detail, evidence-backed analysis, "
+        "ablations, failure studies, or runs"
+    ),
     "exemplar_suitability": "replace unsuitable style exemplars with vetted EMNLP/ACL exemplars",
     "exemplar_structure": "reset paper skeleton to the exemplar-derived structure blueprint",
     "figure_table_style": "redesign figures and tables from the figure-table style guide",
@@ -3692,9 +3696,11 @@ def _validate_research_md_pdf_text(pages: list[str]) -> list[ContractIssue]:
                     "final EMNLP readiness requires the body to be written out to "
                     f"7.5-8 main-content pages; rendered Conclusion appears on page "
                     f"{conclusion_page}, before page {MIN_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY}. "
-                    "Add or move evidence-bearing Results/Analysis/Ablation content before the "
-                    "Conclusion; Limitations, Ethics, release notes, references, or appendix "
-                    "material after Conclusion do not repair an underfilled main body."
+                    "Add or move source-backed body content before the Conclusion: literature-"
+                    "grounded Introduction/Related Work framing, evidence-bearing Method detail, "
+                    "or Results/Analysis/Ablation content according to the page budget. "
+                    "Limitations, Ethics, release notes, references, or appendix material after "
+                    "Conclusion do not repair an underfilled main body."
                 ),
             )
         )
@@ -5205,6 +5211,14 @@ def _academic_static_source_issues(root: Path) -> list[ContractIssue]:
                 )
             )
     for code, message in find_reader_hostile_abstract_issues(raw_text):
+        issues.append(
+            ContractIssue(
+                f"academic_language_{code}",
+                str(PAPER_MAIN_TEX_PATH),
+                f"{message}; rerun academic-language revision",
+            )
+        )
+    for code, message in find_method_system_readability_issues(raw_text):
         issues.append(
             ContractIssue(
                 f"academic_language_{code}",

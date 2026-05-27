@@ -656,13 +656,15 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "steps after recompilation. The guidance must say whether to delete filler, merge/split/move "
         "specific floats, rewrite nearby prose, regenerate a figure, or change table styling. If the "
         "page is ugly because the paper is underfilled or padded with audit-like content, say exactly "
-        "which body section should be expanded with evidence-bearing narrative and which low-value "
-        "artifact/table should move to appendix or be deleted.\n\n"
+        "which body section should be expanded with source-backed narrative and which low-value "
+        "artifact/table should move to appendix or be deleted. Valid expansion targets include "
+        "literature-grounded Introduction/Related Work framing, benchmark or Method detail, and "
+        "evidence-backed Results/Analysis/Ablation material; generic motivation is filler.\n\n"
         "Reference boundary guidance: if References or Bibliography starts on the same rendered page as "
         "Conclusion, Limitations, Ethics, or release/reproducibility body text, do not automatically call "
         "the body overlong and do not ask for generic section shortening. Determine the direction from "
         "the page: if the body is visibly underfilled or References start before the final body page is "
-        "full, require evidence-backed body expansion, a meaningful late visual anchor, or a clean "
+        "full, require source-backed body expansion, a meaningful late visual anchor, or a clean "
         "reference-page break; if body content actually runs past page 8, then require trimming. "
         "Shortening an underfilled body makes the early-References defect worse.\n\n"
         "Submission contract to enforce: conclusion by page 8, Limitations/Ethics after conclusion, "
@@ -846,7 +848,7 @@ def _default_specific_edit(action: str, target: str) -> str:
     target_text = target or "the affected page/object"
     edits = {
         "shorten_section": f"Rewrite or trim low-value prose around {target_text}; keep only evidence-bearing narrative and move audit detail to appendix.",
-        "expand_evidence_content": f"Expand the underfilled body around {target_text} with verified analysis, ablations, failure cases, or robustness evidence; do not pad with generic prose.",
+        "expand_evidence_content": f"Expand the underfilled body around {target_text} with source-backed Introduction/Related Work framing, benchmark/Method detail, verified analysis, ablations, failure cases, or robustness evidence; do not pad with generic prose.",
         "split_table": f"Split the dense table at {target_text} into smaller reader-facing tables or move secondary rows to appendix.",
         "merge_tables": f"Merge redundant low-density tables around {target_text} into one stronger reader-facing table with a numerical takeaway caption.",
         "move_float": f"Move the float around {target_text} next to the paragraph that discusses it, or rewrite the nearby prose/float order so the page is not a float dump.",
@@ -858,7 +860,7 @@ def _default_specific_edit(action: str, target: str) -> str:
         "rebalance_columns": f"Rebalance text and floats around {target_text} by editing source order, paragraph length, and float placement rather than adding filler.",
         "fix_overfull_box": f"Fix the source line/table/figure causing overflow at {target_text}; do not hide it with unreadably small fonts.",
         "fix_bibliography_appendix_order": f"Move References before Appendix and keep Limitations/Ethics after Conclusion around {target_text}.",
-        "fix_reference_boundary": f"Separate References from body text at {target_text}; if the body is underfilled, add evidence-backed body content or a meaningful late visual anchor before using a clean reference break.",
+        "fix_reference_boundary": f"Separate References from body text at {target_text}; if the body is underfilled, add source-backed body content or a meaningful late visual anchor before using a clean reference break.",
     }
     return edits.get(action, f"Revise {target_text} so the rendered page has polished EMNLP/ACL layout.")
 

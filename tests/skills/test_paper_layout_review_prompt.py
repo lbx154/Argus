@@ -147,7 +147,7 @@ def test_deterministic_review_flags_references_sharing_body_page_with_boundary_a
         directive for directive in directives if directive["action"] == "fix_reference_boundary"
     )
     guidance = boundary_directive["implementation_guidance"]
-    assert "evidence-backed body content" in guidance["specific_edits"][0]
+    assert "source-backed body content" in guidance["specific_edits"][0]
 
 
 def test_deterministic_review_routes_early_references_to_evidence_expansion() -> None:
