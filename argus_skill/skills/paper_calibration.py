@@ -19,10 +19,19 @@ BENCHMARK_PROVENANCE_JSON_PATH = Path("experiments/BENCHMARK_PROVENANCE.json")
 PAPER_DRAFT_REPORT_MD_PATH = Path("paper/PAPER_DRAFT_REPORT.md")
 PAPER_DRAFT_REPORT_JSON_PATH = Path("paper/PAPER_DRAFT_REPORT.json")
 PAPER_QUALITY_CALIBRATION_JSON_PATH = Path("paper/PAPER_QUALITY_CALIBRATION.json")
+MODEL_SCALE_PLAN_PATH = Path("experiments/MODEL_SCALE_PLAN.md")
 PAPER_NARRATIVE_PATHS = (
     Path("research/NARRATIVE_REPORT.md"),
     Path("paper/RESULTS_REPORT.md"),
     Path("paper/main.tex"),
+)
+MODEL_SCALE_EVIDENCE_GLOBS = (
+    "experiments/MODEL_SCALE_PLAN.md",
+    "experiments/**/model_card.json",
+    "experiments/**/training_metrics.jsonl",
+    "experiments/**/manifest.json",
+    "research/EXPERIMENT_PLAN.md",
+    "research/BASELINE_AND_BENCHMARK_PLAN.md",
 )
 EXPERIMENT_STATUS_GLOB = "experiments/**/status.json"
 EXPERIMENT_PROGRESS_GLOB = "experiments/**/progress.jsonl"
@@ -258,6 +267,51 @@ NEGATIVE_RESULT_MARKERS = (
     "original method-positive thesis was softened",
     "proposed method fails",
     "not as the main positive claim",
+)
+TINY_MODEL_MARKERS = (
+    "bag-of-words",
+    "bag of words",
+    "hashed token",
+    "hashed-token",
+    "keyword overlap",
+    "lexical baseline",
+    "lexical ranker",
+    "compact scorer",
+    "tiny scorer",
+    "small scorer",
+    "linear scorer",
+    "exact lookahead",
+    "exhaustive gold search",
+    "oracle policy",
+    "prompt-only wrapper",
+)
+MODEL_SCALE_POSITIVE_MARKERS = (
+    "parameter count",
+    "trainable parameter",
+    "trainable parameters",
+    "checkpoint",
+    "adapter",
+    "lora",
+    "qlora",
+    "fsdp",
+    "deepspeed",
+    "accelerate",
+    "fine-tune",
+    "finetune",
+    "trained backbone",
+    "model backbone",
+    "gpu-hours",
+    "gpu hours",
+    "gpu memory",
+)
+SYNTHETIC_BENCHMARK_MARKERS = (
+    "synthetic",
+    "local",
+    "proxy",
+    "generated",
+    "hand-written",
+    "handwritten",
+    "oracle graph",
 )
 
 _AWARDS_SOURCE = "https://2025.emnlp.org/program/awards/"
@@ -550,6 +604,7 @@ def detect_quality_blockers(project_root: Path) -> list[CalibrationIssue]:
     issues.extend(_results_summary_blockers(root))
     issues.extend(_benchmark_uniqueness_blockers(root))
     issues.extend(_benchmark_provenance_blockers(root))
+    issues.extend(_model_scale_blockers(root))
     issues.extend(_draft_report_blockers(root))
     issues.extend(_negative_result_framing_blockers(root))
     return _dedupe_issues(issues)
@@ -1152,17 +1207,22 @@ def _parse_rate_blockers(rows: list[dict[str, str]]) -> list[CalibrationIssue]:
 
 
 def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
+    calibration = _read_json_object_if_exists(root / PAPER_QUALITY_CALIBRATION_JSON_PATH)
+    ready = _ready_calibration(calibration)
     json_payload = _read_json_object_if_exists(root / BENCHMARK_PROVENANCE_JSON_PATH)
     if json_payload is not None:
         issues: list[CalibrationIssue] = []
-        uses_public = json_payload.get("uses_public_benchmark")
+        uses_public = json_payload.get(
+            "uses_existing_real_benchmark",
+            json_payload.get("uses_public_benchmark"),
+        )
         benchmark_type = str(json_payload.get("benchmark_type", "")).lower()
-        if uses_public is False or benchmark_type in {"synthetic", "local", "pilot"}:
+        if uses_public is not True or benchmark_type in {"synthetic", "local", "pilot"}:
             issues.append(
                 CalibrationIssue(
                     "synthetic_only_benchmark",
                     str(BENCHMARK_PROVENANCE_JSON_PATH),
-                    "structured benchmark provenance says public validation is missing",
+                    "structured benchmark provenance must prove existing real benchmark evidence, not synthetic/local/proxy evidence",
                 )
             )
             if not _json_benchmark_survey_present(json_payload):
@@ -1213,6 +1273,14 @@ def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
                         ),
                     )
                 )
+            if any(_benchmark_source_looks_synthetic(source) for source in selected_sources):
+                issues.append(
+                    CalibrationIssue(
+                        "synthetic_selected_benchmark_source",
+                        str(BENCHMARK_PROVENANCE_JSON_PATH),
+                        "selected benchmark sources must be existing real benchmarks or official task/data releases, not synthetic/local/proxy components",
+                    )
+                )
         if task_counts and max(task_counts) < MIN_PAPER_TASKS:
             issues.append(
                 CalibrationIssue(
@@ -1229,18 +1297,24 @@ def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
 
     path = root / BENCHMARK_PROVENANCE_MD_PATH
     if not path.exists():
+        if ready:
+            return [
+                CalibrationIssue(
+                    "missing_real_benchmark_provenance",
+                    str(BENCHMARK_PROVENANCE_MD_PATH),
+                    "ready calibration requires benchmark provenance listing existing real benchmark sources",
+                )
+            ]
         return []
     raw_text = path.read_text(encoding="utf-8", errors="replace")
     text = raw_text.lower()
     text_issues: list[CalibrationIssue] = []
-    if "synthetic" in text and (
-        "no public benchmark" in text or "pilot" in text or "not as a public benchmark" in text
-    ):
+    if "synthetic" in text or "local pseudo-benchmark" in text or "proxy benchmark" in text:
         text_issues.append(
             CalibrationIssue(
                 "synthetic_only_benchmark",
                 str(BENCHMARK_PROVENANCE_MD_PATH),
-                "benchmark provenance describes synthetic/pilot evidence without public validation",
+                "benchmark provenance describes synthetic/local/proxy evidence; final paper evidence must use existing real benchmarks",
             )
         )
         if not _text_benchmark_survey_present(text):
@@ -1320,6 +1394,17 @@ def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
                     ),
                 )
             )
+    if ready and _text_selected_benchmark_source_count(raw_text) < MIN_SELECTED_BENCHMARK_SOURCES:
+        text_issues.append(
+            CalibrationIssue(
+                "insufficient_selected_benchmark_sources",
+                str(BENCHMARK_PROVENANCE_MD_PATH),
+                (
+                    "ready calibration requires a selected benchmark source table/list "
+                    f"with at least {MIN_SELECTED_BENCHMARK_SOURCES} existing real benchmark sources"
+                ),
+            )
+        )
     return text_issues
 
 
@@ -1444,6 +1529,11 @@ def _benchmark_source_has_pointer(source: dict[str, Any]) -> bool:
         marker in json.dumps(source, ensure_ascii=False).lower()
         for marker in BENCHMARK_SOURCE_POINTER_MARKERS
     )
+
+
+def _benchmark_source_looks_synthetic(source: dict[str, Any]) -> bool:
+    text = json.dumps(source, ensure_ascii=False).lower()
+    return any(marker in text for marker in SYNTHETIC_BENCHMARK_MARKERS)
 
 
 def _text_selected_benchmark_source_count(raw_text: str) -> int:
@@ -1768,6 +1858,72 @@ def _planned_only_task_count_line(line: str) -> bool:
     return any(marker in lowered for marker in PLANNED_COUNT_TEXT_MARKERS) and not any(
         marker in lowered for marker in ACTUAL_COUNT_TEXT_MARKERS
     )
+
+
+def _model_scale_blockers(root: Path) -> list[CalibrationIssue]:
+    calibration = _read_json_object_if_exists(root / PAPER_QUALITY_CALIBRATION_JSON_PATH)
+    ready = _ready_calibration(calibration)
+    quality_signals = (
+        calibration.get("quality_signals")
+        if isinstance(calibration, dict) and isinstance(calibration.get("quality_signals"), dict)
+        else {}
+    )
+    issues: list[CalibrationIssue] = []
+    if isinstance(quality_signals, dict) and quality_signals.get("uses_meaningful_trained_model") is False:
+        issues.append(
+            CalibrationIssue(
+                "tiny_model_main_claim",
+                str(PAPER_QUALITY_CALIBRATION_JSON_PATH),
+                "quality signals say the proposed method does not use a meaningful trained/adapted model",
+            )
+        )
+
+    evidence_text, evidence_paths = _model_scale_evidence_text(root)
+    lower_text = evidence_text.lower()
+    has_positive_scale = any(marker in lower_text for marker in MODEL_SCALE_POSITIVE_MARKERS)
+    has_tiny_marker = any(marker in lower_text for marker in TINY_MODEL_MARKERS)
+    if ready and not evidence_paths:
+        issues.append(
+            CalibrationIssue(
+                "missing_model_scale_plan",
+                str(MODEL_SCALE_PLAN_PATH),
+                "ready calibration requires model/backbone scale, trainable parameters, GPU plan, and checkpoint/training artifacts",
+            )
+        )
+    elif ready and not has_positive_scale:
+        issues.append(
+            CalibrationIssue(
+                "missing_model_scale_plan",
+                ", ".join(evidence_paths[:3]) if evidence_paths else str(MODEL_SCALE_PLAN_PATH),
+                "model evidence must record a meaningful trained/adapted backbone, not only a lightweight scorer",
+            )
+        )
+    if has_tiny_marker and not has_positive_scale:
+        issues.append(
+            CalibrationIssue(
+                "tiny_model_main_claim",
+                ", ".join(evidence_paths[:3]) if evidence_paths else str(MODEL_SCALE_PLAN_PATH),
+                "artifacts describe a tiny scorer/oracle/prompt-only proxy without model-scale training evidence",
+            )
+        )
+    return issues
+
+
+def _model_scale_evidence_text(root: Path) -> tuple[str, list[str]]:
+    chunks: list[str] = []
+    paths: list[str] = []
+    for pattern in MODEL_SCALE_EVIDENCE_GLOBS:
+        for path in sorted(root.glob(pattern)):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(root).as_posix()
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            chunks.append(text[:20_000])
+            paths.append(rel)
+    return "\n".join(chunks), paths
 
 
 def _draft_report_blockers(root: Path) -> list[CalibrationIssue]:

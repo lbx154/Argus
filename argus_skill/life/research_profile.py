@@ -192,6 +192,15 @@ Evidence and anti-fabrication rules:
 - Every experimental claim must cite a local artifact path containing raw
   reward, model id, token counters, prompt/config hash, command, commit or
   working-tree manifest, started/ended timestamps, and logs.
+- New research-paper missions must target frontier-domain gaps grounded in
+  current literature and official benchmark evidence. Do not accept a
+  synthetic proxy benchmark, local generated task set, hand-written oracle, or
+  tiny custom scorer as the main proposed paper system when real benchmarks and
+  GPU-scale training/adaptation are available.
+- Paper-facing benchmark results must come from existing real benchmarks or
+  official task/data releases with documented ground truth/evaluation. Synthetic
+  or local tasks are smoke-only unless the operator explicitly changes the
+  deliverable away from a submission-quality empirical paper.
 - If evidence is missing, create a task to collect it; never fill gaps with
   estimates or optimistic prose.
 - Distinguish official Harbor/TB2 benchmark results from prompt-only

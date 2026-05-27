@@ -13,6 +13,12 @@ Research Brief To Experiment Plan
 ## Description
 Turn a loose operator research direction into a concrete, evidence-first experiment plan. The final idea must come from surveyed papers, trend signals, benchmark gaps, and reusable code sources--not from agent brainstorming. Adapted from ARIS-style research pipeline concepts, but written for argus-skill's single-mission engineer/reviewer loop instead of slash-command skill chaining.
 
+## Non-negotiable research bar
+- The selected project must be a frontier-domain project, not a toy mechanism study. Before locking the idea, identify current strong papers, current benchmark leaderboards or reported SOTA baselines, and the concrete gap that remains open.
+- Default to a training-based or hybrid method when local GPUs can support it. Small bag-of-words scorers, linear heads over hashed tokens, prompt-only wrappers, exact-oracle search policies, or other lightweight proxies are allowed only as smoke tests or baselines; they cannot be the proposed paper system unless the operator explicitly downgrades the scope.
+- The proposed method must train or adapt a domain-appropriate modern backbone at meaningful scale for the target field, using LoRA/QLoRA/FSDP/DeepSpeed/Accelerate or an equivalent efficient recipe when full fine-tuning is too expensive. Record the model family, parameter scale, trainable parameters, dataset size, GPU memory plan, and expected GPU-hours.
+- Final benchmark evidence must come from existing real benchmarks or their official task/data releases. Do not create a synthetic benchmark, synthetic proxy, generated task set, or locally invented oracle as the main evidence source. Synthetic data may be used only for unit tests, debugging, or clearly labeled smoke tests with no paper-facing result claims.
+
 ## When to use
 - The operator asks for an EMNLP/ACL-style paper plan, research plan, experiment roadmap, or agent-science hypothesis.
 - The task mentions turning a topic seed or paper/code trend into experiments, baselines, ablations, metrics, or a paper-ready evidence plan.
@@ -36,6 +42,7 @@ Turn a loose operator research direction into a concrete, evidence-first experim
    - Candidate task family, likely evidence type, expected failure modes, and what would make the mission not worth pursuing.
    - Defer the main hypothesis and final contribution until after the literature/code grounding steps below.
    - Constraints: compute, model/API availability, time budget, datasets, and benchmark licenses.
+   - Explicitly record the local GPU capability and choose the strongest feasible training setup. If the workspace has large GPUs, do not default to a tiny custom scorer; justify any smaller model as a baseline, ablation, or operator-approved scope change.
 
 3. Run literature and specified-source grounding before locking the plan:
    - Write `research/LITERATURE_REVIEW.md`, `research/LIT_MATRIX.tsv`, and `research/LITERATURE_GROUNDING.json` before finalizing hypotheses. Target 10 recent high-quality papers from the current system year when credible sources exist; otherwise include the strongest recent papers from the previous two years and record the current-year shortfall.
@@ -54,6 +61,7 @@ Turn a loose operator research direction into a concrete, evidence-first experim
    - Write `research/IDEA_PROVENANCE.json` after the literature and source-discovery artifacts exist.
    - Include `idea_generation_mode: "literature_and_code_grounded"` or `paper_derived`, `not_agent_brainstorm: true`, at least 3 `candidate_ideas`, and a `selected_idea`.
    - Each candidate must cite `source_refs` from surveyed recent papers, classic papers, benchmarks, official projects, or code releases. The selected idea must have at least 2 `derived_from` references and a concrete `research_gap`, `novelty_delta`, and `selection_rationale`.
+   - Each candidate must state the frontier comparison it would have to beat: named SOTA/strong baselines, expected benchmark, primary metric, and why the improvement would be publishable rather than cosmetic.
    - If the only source is the agent's own intuition, set the gate to `blocked` or continue literature search; do not manufacture an idea.
 
 5. Survey reusable code before implementation:
@@ -67,19 +75,20 @@ Turn a loose operator research direction into a concrete, evidence-first experim
    - Write `research/RELATED_WORK_BLOCKERS.md` for papers or trend reports that already solve the idea, expose missing baselines, or make the planned benchmark insufficient.
    - If the idea is already solved or only differs cosmetically, set the planning decision to `pivot` or `rejected` instead of continuing.
 
-7. Choose benchmark sources before inventing synthetic tasks:
-   - Treat benchmark selection as part of the literature/code survey. Before inventing local tasks, search recent/frontier and widely used benchmarks from papers and official repos, including ToolBench/ToolEval, WebArena/MiniWoB++/Mind2Web-style web tasks, GAIA-style assistant tasks, AgentBench/ALFWorld, MultiAgentBench, SWE-bench, LoCoMo, and domain-specific ACL Anthology benchmarks.
-   - Prefer established public benchmarks used by agent/NLP papers when feasible; only choose synthetic tasks after recording why the surveyed public benchmarks are infeasible or insufficient for the claim.
+7. Choose benchmark sources from existing real benchmarks:
+   - Treat benchmark selection as part of the literature/code survey. Search recent/frontier and widely used benchmarks from papers and official repos, including ToolBench/ToolEval, WebArena/MiniWoB++/Mind2Web-style web tasks, GAIA-style assistant tasks, AgentBench/ALFWorld, MultiAgentBench, SWE-bench, LoCoMo, and domain-specific ACL Anthology benchmarks.
+   - Hard requirement: final paper evidence must use existing real benchmark sources, official datasets, or official task releases with documented ground truth/evaluation. Do not invent local synthetic tasks, synthetic proxies, generated episodes, or hand-written gold graphs for the main claim.
+   - If no real benchmark can test the idea, pivot the idea or mark the project blocked. Do not fill the gap with a synthetic benchmark and call it EMNLP-ready.
    - Do not plan a final EMNLP evidence package around one benchmark source. Select a diverse benchmark mix whenever feasible: target 3+ independent practical/frontier benchmark suites or task sources, with 2 independent selected sources as the hard minimum. The selected mix should cover distinct capabilities, domains, or failure modes so the paper can argue method effectiveness beyond one dataset family.
-   - Plan the full EMNLP evidence run at 240/250 scale: at least 240 unique semantic scored main tasks/episodes before final drafting. For a `research.md` synthetic benchmark, generate distinct episodes across the 5 families x 3 difficulties design to reach 240+; for public benchmarks, sample/adapt a documented 240+ task split when licenses and cost allow.
+   - Plan the full EMNLP evidence run at 240/250 scale: at least 240 unique semantic scored main tasks/episodes before final drafting, sampled/adapted from documented public benchmark splits when licenses and cost allow.
    - Hard prohibition: benchmark scale cannot be achieved by copying a 50/60-task pilot, changing IDs, adding suffixes such as `_r2`/`_copy`, duplicating rows, or reusing the same prompts/specs/gold answers as new episodes.
    - Record benchmark provenance in the plan with a **Selected benchmark sources** table/list: each selected benchmark/component must include name, URL/repo, paper/citation/DOI, version/date, license/access, unique task count contributed, split/filtering, why it is practical/frontier, what capability/failure mode it tests, surveyed benchmark alternatives, and why this selected mix fits EMNLP.
-   - If using synthetic tasks, justify why public benchmarks are infeasible for this run, follow `research.md` construction rules, preserve the generator/sampler, include a uniqueness audit, and treat any <240-task result as a pilot with a required scale-up/public-validation follow-up.
+   - Synthetic/local tasks are permitted only as engineering smoke tests and must be labeled `smoke_only: true`; their results must not appear as main paper evidence, headline numbers, final tables, or submission-readiness support.
 
 8. Design baselines and ablations:
-   - Include a bare-agent baseline, any existing system baseline, and the proposed argus-skill variant.
+   - Include a bare-agent baseline, the strongest relevant literature/SOTA baselines that are feasible to run or faithfully reproduce, and the proposed trained/hybrid method.
    - Write `research/BASELINE_AND_BENCHMARK_PLAN.md` with each required baseline discovered from literature or specified sources. Mark each as `required`, `optional`, or `blocked` with a reason and artifact path.
-   - Include ablations that isolate skill memory, reviewer gate, planner/critic, daemon continuity, and budget controls when relevant.
+   - Include ablations that isolate the trained backbone/adaptation, data source, retrieval/planning/controller component, auxiliary heads, and compute budget when relevant. A tiny scorer cannot stand in as the proposed method if the project has enough GPU budget for a stronger backbone.
    - For each cell, name the exact command or harness that should run.
 
 9. Define evidence contracts:

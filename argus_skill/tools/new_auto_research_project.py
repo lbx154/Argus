@@ -136,10 +136,12 @@ def render_agents_md(
 def default_objective(project_name: str) -> str:
     return (
         f"Start {project_name} as a clean-slate EMNLP/ACL long-paper auto-research "
-        "workspace: choose an independent thesis from literature/source discovery, build "
-        "a source-backed benchmark and method, run the full-scale evidence matrix, then "
-        "write an exemplar-locked, visually polished submission package that passes the "
-        "exact final `validate-full-emnlp` gate."
+        "workspace: choose an independent frontier-domain thesis from current "
+        "literature/source discovery, train or adapt a meaningful domain model with "
+        "the available GPU budget, evaluate only on existing real benchmark sources "
+        "or official task/data releases, run the full-scale evidence matrix, then write "
+        "an exemplar-locked, visually polished submission package that passes the exact "
+        "final `validate-full-emnlp` gate."
     )
 
 
@@ -155,9 +157,11 @@ def default_non_goals(project_name: str, version: str) -> str:
 def default_compute_budget() -> str:
     return (
         "Use API/model budget only for necessary literature, coding, image-2, review, and "
-        "experiment work. Stop or ask for operator guidance if a required capability is "
-        "unavailable, the full-scale run is impossible, or repeated repair cycles make no "
-        "validator-relevant progress."
+        "experiment work. Use local GPU capacity for the strongest feasible "
+        "domain-appropriate training/adaptation run rather than defaulting to tiny "
+        "custom scorers. Stop or ask for operator guidance if a required real benchmark, "
+        "model weight/license, GPU capability, or full-scale run is unavailable, or if "
+        "repeated repair cycles make no validator-relevant progress."
     )
 
 
@@ -411,7 +415,11 @@ def _research_bootstrap_files(*, project_name: str, objective: str) -> dict[str,
             "# Research Brief\n\n"
             f"- Project: `{project_name}`\n"
             f"- Primary goal: {objective}\n"
-            "- Target venue/scope: EMNLP/ACL long paper, 7.5-8 main-content pages.\n"
+            "- Target venue/scope: EMNLP/ACL long paper, 7.5-8 main-content pages, "
+            "references/appendix starting on page 9 or later, and no total-page cap after the body.\n"
+            "- Non-negotiable evidence bar: choose a frontier-domain problem, train or adapt "
+            "a meaningful modern model when learning is involved, and use existing real "
+            "benchmarks or official task/data releases for all paper-facing evidence.\n"
             "- Current stage: literature/source discovery.\n\n"
             "This is the official launcher seed. The next agent must replace this "
             "brief with a literature-grounded problem statement before selecting "
@@ -424,9 +432,15 @@ def _research_bootstrap_files(*, project_name: str, objective: str) -> dict[str,
             "`research/LITERATURE_GROUNDING.json`, `research/IDEA_PROVENANCE.json`, "
             "`research/CODE_REUSE_PLAN.json`, `research/BASELINE_AND_BENCHMARK_PLAN.md`, "
             "and `experiments/BENCHMARK_PROVENANCE.md` contain source-backed content.\n\n"
+            "Required method target: use the available GPU budget for a meaningful "
+            "domain-appropriate trained/adapted model. Tiny scorers, prompt-only wrappers, "
+            "and exact-oracle policies are baselines/smoke tests unless the operator "
+            "explicitly lowers the scope.\n\n"
             "Required evidence target: at least 240 distinct scored main benchmark "
-            "tasks or episodes for every required method/baseline condition, with "
-            "raw rows under `experiments/**` and status/progress artifacts.\n"
+            "tasks or episodes for every required method/baseline condition, drawn from "
+            "existing real benchmarks or official task/data releases, with raw rows under "
+            "`experiments/**` and status/progress artifacts. Synthetic/local tasks are "
+            "smoke-only and cannot support final paper claims.\n"
         ),
         "research/CLAIMS_TO_TEST.md": (
             "# Claims To Test\n\n"
@@ -443,8 +457,19 @@ def _research_bootstrap_files(*, project_name: str, objective: str) -> dict[str,
         "experiments/BENCHMARK_PROVENANCE.md": (
             "# Benchmark Provenance\n\n"
             "Seed scaffold only. Record surveyed benchmark papers, repositories, "
-            "licenses/access constraints, selected sources, sampling/adaptation "
-            "logic, and the final task schema before running experiments.\n"
+            "licenses/access constraints, selected existing real benchmark sources, "
+            "sampling/adaptation logic, and the final task schema before running "
+            "experiments. Final evidence must not use synthetic/local benchmarks; "
+            "synthetic tasks are allowed only as smoke tests and must be excluded from "
+            "paper-facing result claims.\n"
+        ),
+        "experiments/MODEL_SCALE_PLAN.md": (
+            "# Model Scale Plan\n\n"
+            "Seed scaffold only. Before implementation, record the chosen model/backbone, "
+            "parameter count, trainable parameter count, training/adaptation recipe, "
+            "dataset size, GPU type/count, memory strategy, expected GPU-hours, checkpoint "
+            "or adapter path, and why this is a meaningful frontier-domain model rather "
+            "than a toy scorer.\n"
         ),
     }
 
