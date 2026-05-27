@@ -2270,6 +2270,43 @@ def test_research_md_pdf_text_rejects_underfilled_main_body() -> None:
     assert "references_before_full_body" in codes
 
 
+def test_research_md_pdf_text_rejects_line_numbered_early_references() -> None:
+    issues = _validate_research_md_pdf_text(
+        [
+            "001 Title\nIntroduction\n",
+            "082 Related Work\n",
+            "155 Method\n",
+            "238 Experimental Setup\n",
+            "312 Main Results\n",
+            "401 Analysis\nConclusion\nLimitations and Ethical Considerations\n",
+            "499 References\nPaper A\nPaper B\n",
+            "556 More references\nPaper C\nPaper D\n",
+        ]
+    )
+
+    codes = {issue.code for issue in issues}
+    assert "references_before_full_body" in codes
+
+
+def test_research_md_pdf_text_rejects_two_column_line_numbered_references() -> None:
+    issues = _validate_research_md_pdf_text(
+        [
+            "001 Title\nIntroduction\n",
+            "082 Related Work\n",
+            "155 Method\n",
+            "238 Experimental Setup\n",
+            "312 Main Results\n",
+            "401 Analysis\nConclusion\nLimitations and Ethical Considerations\n",
+            "499 References        Hyungjoo Chae, Namyoung Kim, and Minju Gwak.\n"
+            "500 More reference text\n",
+            "556 More references\nPaper C\nPaper D\n",
+        ]
+    )
+
+    codes = {issue.code for issue in issues}
+    assert "references_before_full_body" in codes
+
+
 def test_research_md_pdf_text_allows_page_seven_conclusion_when_body_continues() -> None:
     issues = _validate_research_md_pdf_text(
         [
