@@ -9531,7 +9531,7 @@ def _validate_image2_generation_sidecar_payload(
                 "generation sidecar prompt_sha256 must be a lowercase SHA-256 hex digest",
             )
         )
-    elif prompt_file is not None and prompt_file.is_file() and _sha256_text_file(prompt_file) != prompt_sha:
+    elif prompt_file is not None and prompt_file.is_file() and prompt_sha not in _sha256_text_file_variants(prompt_file):
         issues.append(
             ContractIssue(
                 "mismatched_image2_sidecar_prompt_sha256",
@@ -9673,8 +9673,10 @@ def _image_payload_sha256(payload: dict[str, Any]) -> str:
     return ""
 
 
-def _sha256_text_file(path: Path) -> str:
-    return hashlib.sha256(path.read_text(encoding="utf-8", errors="replace").encode("utf-8")).hexdigest()
+def _sha256_text_file_variants(path: Path) -> set[str]:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    variants = {text, text.strip()}
+    return {hashlib.sha256(value.encode("utf-8")).hexdigest() for value in variants}
 
 
 def _dimensions_from_mapping(payload: dict[str, Any]) -> tuple[int, int] | None:
