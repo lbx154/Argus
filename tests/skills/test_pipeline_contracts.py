@@ -1778,19 +1778,47 @@ def test_emnlp_paper_contract_rejects_shallow_core_sections(tmp_path: Path) -> N
     }.issubset(codes)
 
 
+def test_emnlp_paper_contract_rejects_uncited_and_formulaic_intro(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    main_path = tmp_path / "paper" / "main.tex"
+    text = main_path.read_text(encoding="utf-8")
+    text = re.sub(r"\\citep\{[^{}]+\}", "prior studies", text, count=1)
+    repeated_template = " ".join(
+        "The section explains storage rather than admission."
+        for _ in range(7)
+    )
+    text = text.replace(
+        "\\section{Related Work}",
+        f"{repeated_template}\n\\section{{Related Work}}",
+    )
+    _write(main_path, text)
+
+    codes = {issue.code for issue in validate_emnlp_paper_contract(tmp_path)}
+
+    assert "introduction_missing_literature_hooks" in codes
+    assert "contrastive_template_overuse" in codes
+
+
 def test_emnlp_paper_contract_requires_model_identifier_and_settings(tmp_path: Path) -> None:
     _write_valid_paper_draft_report(tmp_path)
     main_path = tmp_path / "paper" / "main.tex"
     text = main_path.read_text(encoding="utf-8")
+    text = text.replace("gpt-5-mini", "hosted model")
     text = text.replace("hosted gpt-5-mini agent", "hosted agent")
     text = text.replace("gpt-5-mini backend", "hosted backend")
+    text = text.replace("response cap", "response limit")
     text = text.replace("temperature 0.0, top_p 1.0, max_tokens 512, ", "")
     text = text.replace("temperature 0.0, top_p 1.0, max_tokens 512, cache ", "cache ")
     text = text.replace("a fixed per-episode token budget, ", "")
     text = text.replace(" under a fixed token budget", " under identical limits")
     text = text.replace("cache keys", "memo keys")
+    text = text.replace("cache fingerprint", "request fingerprint")
+    text = text.replace("cache policy", "request policy")
     text = text.replace("and a three-retry timeout policy", "and identical limits")
     text = text.replace("cache enabled, fixed seeds where sampling appears in task selection, ", "")
+    text = re.sub(r"\bseeds?\b", "ordering", text)
     text = re.sub(r"\bbudget\b", "limit", text)
     _write(main_path, text)
 
@@ -3853,7 +3881,9 @@ def _write_valid_paper_draft_report(
         "under this benchmark mix, not a general claim that all agent memory "
         "should be compressed in the same way. This framing lets the reader "
         "separate the measured admission policy from broader claims about agent "
-        "planning or long-term memory."
+        "planning or long-term memory. The paper reports the model, budget, "
+        "benchmark provenance, ablations, and residual failures in the body so "
+        "the claim can be audited from saved run artifacts."
     )
     introduction_text = (
         "This paper is formatted as a reviewable long paper with "
@@ -3864,6 +3894,15 @@ def _write_valid_paper_draft_report(
         "model powers the evaluated agent, and whether the same budget applies "
         "to every baseline. Without that information, an apparently positive "
         "agent paper can be a thin systems note with hidden benchmark choices. "
+        "Recent tool-agent and memory systems make this risk visible: ReAct-style "
+        "execution, Reflexion-style self-feedback, ToolBench-style API tasks, and "
+        "WebArena-style interaction benchmarks all depend on explicit state, "
+        "actions, and scoring contracts \\citep{"
+        f"{citation_keys[0]},{citation_keys[1]},{citation_keys[2]},{citation_keys[3]}"
+        "}. Those papers motivate skill reuse, but they also show why a memory "
+        "paper must say exactly what is retained and how that retained evidence "
+        "is scored. A reader cannot infer that contract from aggregate accuracy "
+        "alone. "
         "SkillGuard addresses the narrower problem of admission: after an "
         "episode, the system decides whether a proposed skill should enter the "
         "memory library or remain a transient trace. The central hypothesis is "
@@ -3900,7 +3939,29 @@ def _write_valid_paper_draft_report(
         "contract, states the intervention, previews the empirical comparison, "
         "and tells the reader exactly what evidence would falsify the claim. It "
         "also names the negative control so the result is not mistaken for a "
-        "general memory-size comparison."
+        "general memory-size comparison. The motivating example is a tool-using "
+        "agent that solves one task, stores a generic lesson, and later retrieves "
+        "that lesson for a different benchmark source where the relevant evidence "
+        "is a file name, web action, or answer normalization rule. If the memory "
+        "library accepts that lesson without checking the source family, the next "
+        "episode receives confident but misplaced context. SkillGuard is designed "
+        "to make that admission decision auditable. The introduction therefore "
+        "does not treat memory as a single scalar resource; it separates the "
+        "quality of admitted evidence from the amount of stored text, then "
+        "previews the paired evaluation that tests this distinction under fixed "
+        "model calls, fixed budgets, and saved raw rows. The final paragraph also "
+        "sets up the paper organization in reviewer-facing terms. Section 2 "
+        "groups the relevant agent-memory and benchmark literature by the role it "
+        "plays in the admission problem. Section 3 defines the controller and "
+        "verifier. Section 4 describes the three public benchmark sources, the "
+        "hosted model route, and the shared decoding budget. Sections 5 and 6 "
+        "separate aggregate success from source-level failures, so the reader can "
+        "see both the benefit of the gate and the remaining cases where admission "
+        "quality is not enough. This roadmap is part of the claim discipline: the "
+        "paper tells the reader what evidence appears before asking them to accept "
+        "the headline result. It also gives the reviewer enough context to judge "
+        "whether a failure should be attributed to retrieval, admission, task "
+        "difficulty, or model output quality."
     )
     method_text = (
         "The evaluated SkillGuard implementation runs in a deterministic Python "
@@ -3946,7 +4007,26 @@ def _write_valid_paper_draft_report(
         "tool, and file-local cues in a way the verifier cannot classify, the "
         "candidate is rejected and the episode remains a normal solved row. This "
         "keeps the method auditable and makes the ablation against no-verifier "
-        "meaningful."
+        "meaningful. The controller state has four fields that are visible in "
+        "the artifact log: the selected benchmark source, the current episode id, "
+        "the active baseline condition, and the accepted skill inventory. Prompt "
+        "construction reads only these fields plus the task text, so rejected "
+        "skills cannot leak into later trials. After the hosted model returns an "
+        "answer, the scorer writes the raw answer, normalized answer, gold target, "
+        "success bit, retry count, cache fingerprint, model id, and budget fields "
+        "before any admission update occurs. The verifier then receives the solved "
+        "row and a candidate memory summary. It first checks that the candidate "
+        "mentions the same source family as the solved row, then compares a "
+        "normalized duplicate key against accepted entries for that family. Only "
+        "candidates passing both checks become retrievable skills. This ordering "
+        "matters because it prevents the verifier from acting as an answer judge "
+        "or a second planner. It is a post-solve storage policy whose inputs and "
+        "outputs can be audited from the saved result rows. The implementation "
+        "therefore has a simple replay path: given the same raw traces, the same "
+        "family labels, and the same duplicate-key function, the admitted library "
+        "can be reconstructed without calling the hosted model again. This replay "
+        "path is used for ablations that swap the admission rule while preserving "
+        "the original answers."
     )
     setup_text = (
         "Each benchmark run scores 240 task episodes against no-skill, "
@@ -3983,7 +4063,22 @@ def _write_valid_paper_draft_report(
         "and paired tests are computed from the raw result table, not from the "
         "LaTeX table, and every number in the main text is regenerated from that "
         "canonical artifact. Runs that exceed the request budget are marked as "
-        "failures with their partial trace preserved for later error analysis."
+        "failures with their partial trace preserved for later error analysis. "
+        "The no-GPU setting is handled through the approved hosted route rather "
+        "than local acceleration: every evaluated agent call uses gpt-5-mini with "
+        "the same endpoint class, decoding settings, response cap, and retry "
+        "policy. A run is not counted as final evidence until the provenance file "
+        "lists three executed sources, the status file records completion, and the "
+        "raw result rows contain every required method/source pair. The setup also "
+        "records the exact source version or access date, because benchmark drift "
+        "would otherwise make a later rerun difficult to interpret. Error labels "
+        "distinguish model answer failures, parse failures, timeout failures, "
+        "blocked source rows, and verifier rejections. Those labels feed the "
+        "failure-analysis section and keep the body from relying on aggregate "
+        "accuracy alone. All reported tables are regenerated from the canonical "
+        "rows after the run finishes, and the manuscript records the command that "
+        "performs this regeneration in the reproducibility appendix. The same "
+        "appendix records seeds, cache policy, and source filters for reruns."
     )
     _write(
         root / "paper" / "main.tex",

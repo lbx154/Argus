@@ -35,6 +35,8 @@ from .academic_language_review import (
     GENERIC_OPENING_PATTERNS,
     MIN_ACADEMIC_LANGUAGE_SCORE,
     collect_latex_source_paths,
+    find_formulaic_prose_issues,
+    find_introduction_readability_issues,
     find_method_system_readability_issues,
     find_reader_hostile_abstract_issues,
 )
@@ -119,10 +121,10 @@ RESEARCH_MD_VISUAL_PAGES = {4, 5, 6, 7}
 REQUIRED_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY = 8
 MIN_RENDERED_REFERENCES_PAGE_FOR_FULL_BODY = 9
 MIN_RENDERED_APPENDIX_PAGE = 9
-MIN_ABSTRACT_WORDS = 130
-MIN_INTRODUCTION_WORDS = 450
-MIN_METHOD_WORDS = 450
-MIN_EXPERIMENTAL_SETUP_WORDS = 350
+MIN_ABSTRACT_WORDS = 160
+MIN_INTRODUCTION_WORDS = 750
+MIN_METHOD_WORDS = 650
+MIN_EXPERIMENTAL_SETUP_WORDS = 500
 MIN_EXECUTED_BENCHMARK_SOURCES = 3
 MIN_FINAL_BIBLIOGRAPHY_ENTRIES = 35
 MIN_FINAL_UNIQUE_CITATION_KEYS = 30
@@ -2927,6 +2929,32 @@ def _validate_full_paper_narrative_depth(tex_text: str) -> list[ContractIssue]:
                     f"found {count} prose words, below the {minimum}-word minimum; "
                     f"{repair_hint}. If evidence is missing, run the missing "
                     "benchmark/analysis work before padding prose."
+                ),
+            )
+        )
+    for code, message in find_introduction_readability_issues(tex_text):
+        issues.append(
+            ContractIssue(
+                code,
+                str(PAPER_MAIN_TEX_PATH),
+                (
+                    f"{message}. Rewrite the Introduction as a real first-page "
+                    "story with cited prior work, concrete problem framing, "
+                    "method intuition, result preview, contribution roadmap, "
+                    "and calibrated scope."
+                ),
+            )
+        )
+    for code, message in find_formulaic_prose_issues(tex_text):
+        issues.append(
+            ContractIssue(
+                code,
+                str(PAPER_MAIN_TEX_PATH),
+                (
+                    f"{message}. This is a content-sufficiency failure, not a "
+                    "formatting problem: run missing evidence work if needed, "
+                    "then rewrite the affected paragraphs instead of adding "
+                    "repeated caveats or deleting the Introduction."
                 ),
             )
         )
@@ -6039,7 +6067,23 @@ def _academic_static_source_issues(root: Path) -> list[ContractIssue]:
                 f"{message}; rerun academic-language revision",
             )
         )
+    for code, message in find_introduction_readability_issues(raw_text):
+        issues.append(
+            ContractIssue(
+                f"academic_language_{code}",
+                str(PAPER_MAIN_TEX_PATH),
+                f"{message}; rerun academic-language revision",
+            )
+        )
     for code, message in find_method_system_readability_issues(raw_text):
+        issues.append(
+            ContractIssue(
+                f"academic_language_{code}",
+                str(PAPER_MAIN_TEX_PATH),
+                f"{message}; rerun academic-language revision",
+            )
+        )
+    for code, message in find_formulaic_prose_issues(raw_text):
         issues.append(
             ContractIssue(
                 f"academic_language_{code}",

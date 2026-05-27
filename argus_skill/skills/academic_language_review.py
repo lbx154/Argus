@@ -36,8 +36,9 @@ ACADEMIC_LANGUAGE_REVIEW_MD_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW.md")
 MIN_ACADEMIC_LANGUAGE_SCORE = 4.0
 DEFAULT_TIMEOUT_SECONDS = 500.0
 MAX_SOURCE_FILES = 120
-MIN_REVIEW_ABSTRACT_WORDS = 130
-MIN_REVIEW_INTRODUCTION_WORDS = 450
+MIN_REVIEW_ABSTRACT_WORDS = 160
+MIN_REVIEW_INTRODUCTION_WORDS = 750
+MIN_INTRODUCTION_CITATION_KEYS = 2
 
 SECTION_SCORE_KEYS: tuple[str, ...] = (
     "abstract",
@@ -99,6 +100,40 @@ HYPE_PATTERNS: tuple[tuple[str, str], ...] = (
     ("unsupported_sota_language", r"\bstate-of-the-art\b"),
     ("salesy_novel_language", r"\b(?:novel|groundbreaking|revolutionary)\b"),
     ("unsupported_significant_language", r"\bsignificant(?:ly)? improves?\b"),
+)
+
+FORMULAIC_PROSE_LIMITS: tuple[tuple[str, str, int, str], ...] = (
+    (
+        "contrastive_template_overuse",
+        r"\b(?:rather than|instead of|not\s+(?:only\s+)?(?:a\s+)?[a-z][a-z-]*"
+        r"(?:\s+[a-z][a-z-]*){0,4}\s+but|not about|not as)\b",
+        10,
+        (
+            "paper overuses contrastive template prose; rewrite paragraphs into "
+            "direct scientific exposition instead of repeated not-X-but-Y framing"
+        ),
+    ),
+    (
+        "over_defensive_scope_caveats",
+        r"\b(?:narrow|benchmark[- ]scoped|scope boundary|does not establish|"
+        r"not proof|not a general|only shows|limited to|slice-specific|"
+        r"not causal)\b",
+        8,
+        (
+            "paper overuses scope caveats; keep one calibrated scope statement "
+            "near the claim and move the rest to limitations"
+        ),
+    ),
+    (
+        "stock_transition_overuse",
+        r"\b(?:that distinction matters|that matters because|put differently|"
+        r"the headline result|the gap is that|the result is therefore)\b",
+        4,
+        (
+            "paper repeats stock transition templates; replace them with "
+            "section-specific motivation, mechanism, and evidence sentences"
+        ),
+    ),
 )
 
 ABSTRACT_READER_HOSTILE_PATTERNS: tuple[tuple[str, str, str], ...] = (
@@ -602,6 +637,22 @@ def _deterministic_assessment(tex_text: str) -> dict[str, Any]:
                     action="rewrite_introduction",
                 )
             )
+        for code, message in find_introduction_readability_issues(tex_text):
+            score_penalty += 0.6
+            section_scores["introduction"] = min(section_scores["introduction"], 3.1)
+            section_scores["contribution_framing"] = min(
+                section_scores["contribution_framing"], 3.4
+            )
+            required_checks["clear_problem_gap_contribution"] = False
+            issues.append(
+                _issue(
+                    code,
+                    "major",
+                    message,
+                    hard_gate=True,
+                    action="rewrite_introduction",
+                )
+            )
 
     contribution_context = " ".join([abstract_plain, _section_text(tex_text, "introduction")])
     if not _has_reader_facing_contribution(contribution_context):
@@ -677,6 +728,23 @@ def _deterministic_assessment(tex_text: str) -> dict[str, Any]:
                 ),
                 hard_gate=len(matches) > 1,
                 action="replace_hype_language",
+                target=_line_target(match_spans),
+                evidence_spans=match_spans,
+            )
+        )
+
+    for code, message, match_spans, penalty, score_cap in _formulaic_prose_issue_specs(tex_text):
+        score_penalty += penalty
+        section_scores["style_and_clarity"] = min(section_scores["style_and_clarity"], score_cap)
+        section_scores["introduction"] = min(section_scores["introduction"], 3.4)
+        required_checks["calibrated_no_hype"] = False
+        issues.append(
+            _issue(
+                code,
+                "major",
+                f"{message}; matches include {_match_summary(match_spans)}",
+                hard_gate=True,
+                action="delete_filler",
                 target=_line_target(match_spans),
                 evidence_spans=match_spans,
             )
@@ -802,16 +870,19 @@ def _review_prompt(
         "You are the final academic-language reviewer for an EMNLP long paper. "
         "Reject papers that read like generic agent output: template LLM openings, "
         "unsupported hype, vague claims, weak contribution framing, experiment dumps "
-        "without a What/Why/So-What story, ungrouped related work, or claims not tied "
+        "without a What/Why/So-What story, ungrouped related work, repeated "
+        "not-X-but-Y/benchmark-scoped caveats, or claims not tied "
         "to evidence. Evidence spans are reviewer-internal audit artifacts: do not ask "
         "authors to paste source paths, appendix/figure references, validation-gate "
         "vocabulary, or evidence quotes into the abstract to satisfy this review. Reject "
         "papers that leave basic evaluated-system facts implicit: the Method/Experimental "
         "Setup must let a reviewer identify the system under study, its runtime or "
         "benchmark harness, the controller/skill/memory mechanism, baselines, task "
-        "source, metrics, and budget. Name LLM/model identifiers only when the evaluated "
-        "method or experiment actually calls external models; if it is deterministic, "
-        "say that no external LLM/model is called. Do not credit or describe the "
+        "source, metrics, and budget. For no-GPU agent experiments, the final paper "
+        "should name the approved hosted backbone such as gpt-5-mini plus decoding "
+        "and budget settings; a deterministic/no-external-model loop is acceptable "
+        "only when the claim is explicitly downgraded to a deterministic baseline or "
+        "pilot rather than a final agent-system result. Do not credit or describe the "
         "Argus/Codex daemon, engineer/reviewer routes, academic-language review, layout "
         "review, or image tool used to write this paper as if they were paper-method "
         "components. These details should be reader-facing prose or a compact table, "
@@ -822,6 +893,10 @@ def _review_prompt(
         f"standard: abstracts under {MIN_REVIEW_ABSTRACT_WORDS} words or introductions "
         f"under {MIN_REVIEW_INTRODUCTION_WORDS} words are not submission-quality for "
         "a long paper unless the manuscript has an explicit venue exception. "
+        "Reject an Introduction that has no cited prior-work/benchmark hooks before "
+        "Related Work; a normal EMNLP introduction should use citations to establish "
+        "the gap, then explain the method insight and evidence preview in natural "
+        "prose. "
         "Short introductions should be fixed by adding source-backed problem framing, "
         "literature gap, method intuition, contribution, and evidence preview, not by "
         "deleting content elsewhere. Do not require an isolated causal mechanism when the paper "
@@ -1224,6 +1299,30 @@ def _section_text(text: str, title: str) -> str:
     return ""
 
 
+def _raw_section_text(text: str, title: str) -> str:
+    stripped = _strip_latex_comments(text)
+    pattern = re.compile(r"\\section\*?(?:\[[^\]]*\])?\s*\{")
+    matches = list(pattern.finditer(stripped))
+    for index, match in enumerate(matches):
+        raw_title = _balanced_brace_content(stripped, match.end() - 1)
+        if raw_title is None or _normalize_title(title) not in _normalize_title(raw_title):
+            continue
+        start = match.end() + len(raw_title) + 1
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(stripped)
+        return stripped[start:end]
+    return ""
+
+
+def _citation_keys_from_latex(tex_text: str) -> set[str]:
+    keys: set[str] = set()
+    for match in re.finditer(r"\\cite(?:[a-zA-Z]*)?(?:\[[^\]]*\])*\{([^{}]+)\}", tex_text):
+        for key in match.group(1).split(","):
+            normalized = key.strip()
+            if normalized:
+                keys.add(normalized)
+    return keys
+
+
 def _balanced_brace_content(text: str, opening_brace: int) -> str | None:
     if opening_brace >= len(text) or text[opening_brace] != "{":
         return None
@@ -1273,6 +1372,57 @@ def find_reader_hostile_abstract_issues(tex_text: str) -> list[tuple[str, str]]:
     ]
 
 
+def find_introduction_readability_issues(tex_text: str) -> list[tuple[str, str]]:
+    """Return introduction issues that make a draft read like agent filler."""
+
+    intro_source = _raw_section_text(tex_text, "introduction")
+    intro_plain = _latex_to_plain_text(intro_source)
+    if not intro_plain.strip():
+        return []
+
+    issues: list[tuple[str, str]] = []
+    citation_keys = _citation_keys_from_latex(intro_source)
+    if len(citation_keys) < MIN_INTRODUCTION_CITATION_KEYS:
+        issues.append(
+            (
+                "introduction_missing_literature_hooks",
+                (
+                    "Introduction must situate the problem before Related Work with "
+                    f"at least {MIN_INTRODUCTION_CITATION_KEYS} verified cited "
+                    "prior-work or benchmark hooks; otherwise the opening reads "
+                    "like project-local motivation rather than a conference paper"
+                ),
+            )
+        )
+
+    contribution_cues = (
+        r"\b(?:we|this paper|our)\s+"
+        r"(?:make|offer|propose|introduce|present|evaluate|study|show|report)\b|"
+        r"\b(?:contribution|contributions|we show|we find)\b"
+    )
+    if not re.search(contribution_cues, intro_plain, re.I):
+        issues.append(
+            (
+                "introduction_missing_contribution_roadmap",
+                (
+                    "Introduction must include a reader-facing contribution roadmap "
+                    "that names the method, evaluated setting, main result, and "
+                    "scope before the paper moves to Related Work"
+                ),
+            )
+        )
+    return issues
+
+
+def find_formulaic_prose_issues(tex_text: str) -> list[tuple[str, str]]:
+    """Return repeated-template prose issues that remain invalid after JSON review."""
+
+    return [
+        (code, message)
+        for code, message, _spans, _penalty, _score_cap in _formulaic_prose_issue_specs(tex_text)
+    ]
+
+
 def find_method_system_readability_issues(tex_text: str) -> list[tuple[str, str]]:
     """Return method/setup issues that make the paper unreadable to outside reviewers."""
 
@@ -1310,6 +1460,28 @@ def find_method_system_readability_issues(tex_text: str) -> list[tuple[str, str]
                     "not name the evaluated LLM/model identifier or explicitly state "
                     "that the benchmark loop uses no external LLM/model calls"
                 ),
+            )
+        )
+    return issues
+
+
+def _formulaic_prose_issue_specs(
+    tex_text: str,
+) -> list[tuple[str, str, list[dict[str, Any]], float, float]]:
+    source_without_comments = _strip_latex_comments(tex_text)
+    issues: list[tuple[str, str, list[dict[str, Any]], float, float]] = []
+    for code, pattern, allowed_count, message in FORMULAIC_PROSE_LIMITS:
+        matches = list(re.finditer(pattern, source_without_comments, re.I))
+        if len(matches) <= allowed_count:
+            continue
+        match_spans = _regex_match_spans(source_without_comments, matches)
+        issues.append(
+            (
+                code,
+                f"{message}; found {len(matches)} matches, above the {allowed_count}-match limit",
+                match_spans,
+                min(0.9, 0.35 + (len(matches) - allowed_count) * 0.05),
+                3.2,
             )
         )
     return issues

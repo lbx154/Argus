@@ -603,11 +603,11 @@ FIG_SC, FIG_FULL = (3.25, 2.4), (6.7, 2.6)
 ## 8. Page budget (EMNLP long paper)
 
 ```
-Page 1   Title, authors, 130--220 word abstract, teaser figure
-Page 2   Introduction (at least 450 words/about one page, with contributions list)
+Page 1   Title, authors, 160--220 word abstract, teaser figure
+Page 2   Introduction (at least 750 words/full first page, with citations and contributions list)
 Page 3   Related Work, start of Method
-Page 4   Method (at least 450 words), architecture figure
-Page 5   Experimental Setup (at least 350 words), main table
+Page 4   Method (at least 650 words), architecture figure
+Page 5   Experimental Setup (at least 500 words), main table
 Page 6   Results: ablation table, per-condition table, key figure
 Page 7   Analysis: significance, qualitative, discussion
 Page 8   Conclusion + start of Limitations + Ethics
@@ -621,7 +621,7 @@ and Ethics live after Conclusion and don't count against the limit.
 If you overflow, in priority order: (a) move secondary figures to appendix;
 (b) move low-value diagnostics to appendix; (c) tighten repeated score
 restatements; (d) merge Limitations bullets. Do not solve overlength by cutting
-the Introduction below 450 words, deleting model/benchmark configuration, or
+the Introduction below 750 words, deleting model/benchmark configuration, or
 removing the explanation a reviewer needs to understand the work.
 
 ---

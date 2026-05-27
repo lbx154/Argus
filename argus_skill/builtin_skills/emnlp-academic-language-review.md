@@ -42,12 +42,12 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - Use an inner/outer loop: check each experiment claim locally, then synthesize what pattern it supports globally.
 
 3. Fix the abstract and introduction:
-   - Abstract should be about five evidence-backed sentences and normally 130--220 words: problem, gap, method, evaluated model/benchmark mix, result, implication.
+   - Abstract should be about five evidence-backed sentences and normally 160--220 words: problem, gap, method, evaluated model/benchmark mix, result, implication.
    - Keep the abstract reader-facing. Do not satisfy evidence alignment by inserting appendix/figure/table references, raw artifact paths, validator/review-gate vocabulary, evidence-span quotes, or `% evidence:` comments inside the abstract environment.
    - Do not start the abstract with a numeric win. The first sentence should establish the concrete problem or evaluation gap; the result should come after the method is named.
    - Calibrate without sounding defensive: one scoped phrase is fine, but repeated "controlled/synthetic/benchmark-scoped/not causal proof" caveats belong in limitations or discussion.
    - Do not open with generic phrases such as "Large language models have achieved remarkable success" or "In recent years..."
-   - Introduction should move from concrete problem to literature gap, method insight, quantified result, and contribution list. For a final long paper, reject introductions under about one page or 450 words; they usually mean the paper has not explained the problem, prior-work gap, method intuition, evidence preview, and scope well enough for an outside reviewer.
+   - Introduction should move from concrete problem to cited literature/benchmark gap, method insight, quantified result, and contribution list. For a final long paper, reject introductions under about one full page or 750 words; they usually mean the paper has not explained the problem, prior-work gap, method intuition, evidence preview, and scope well enough for an outside reviewer. Also reject introductions with zero or one citation before Related Work: the first page must situate the problem with verified prior work or benchmark papers, not just project-local motivation.
 
 4. Fix related work and positioning:
    - Group related work by method, benchmark, or failure mode; do not write a chronological list.
@@ -63,12 +63,12 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - Acceptable evidence sentence pattern: "In the N-task T slice, X achieves A on metric M versus B for comparator C under protocol P." This satisfies evidence alignment without claiming why X works.
 
 6. Enforce method/system readability:
-   - The Method and Experimental Setup must be readable without internal project context. They must name the evaluated paper system, its agent framework/runtime or benchmark harness, the controller/skill/memory mechanism, task source/version, baselines, metrics, and budget/stopping rules. Name LLM/model identifiers only when the evaluated system or experiment actually calls external models; if the benchmark loop is deterministic, say that no external LLM/model is called. Do not treat Argus, Codex engineer/reviewer routes, daemon handoff, academic-language/layout review, or image-tool infrastructure used to write this paper as paper-method details.
+   - The Method and Experimental Setup must be readable without internal project context. They must name the evaluated paper system, its agent framework/runtime or benchmark harness, the controller/skill/memory mechanism, task source/version, baselines, metrics, and budget/stopping rules. For no-GPU agent experiments, the final paper should name the approved hosted backbone such as `gpt-5-mini` plus decoding/settings/budget; a deterministic/no-external-model loop should be explicitly downgraded to a baseline or pilot rather than presented as the final agent-system evidence. Do not treat Argus, Codex engineer/reviewer routes, daemon handoff, academic-language/layout review, or image-tool infrastructure used to write this paper as paper-method details.
    - Add a compact system/configuration table when prose alone would be ambiguous. The table can name route roles and model IDs, but must not expose API keys, private endpoints, or capability-vault contents.
    - Reject papers that only say "our agent" or "the system" while omitting what framework ran it, which model powered it, and how one benchmark episode executes.
 
 7. Replace agent-looking prose:
-   - Remove filler, boilerplate, and repeated "we demonstrate" sentences.
+   - Remove filler, boilerplate, repeated "we demonstrate" sentences, repeated not-X-but-Y transitions, and over-defensive "narrow / benchmark-scoped / not general" caveats. One calibrated scope statement is enough; the rest belongs in limitations.
    - Use human-readable method and baseline names in paper-facing text.
    - Keep raw identifiers, file paths, and snake_case labels in comments, manifests, or appendices only.
    - Do not leave paper-facing format artifacts that read like agent output: placeholders, `% UNVERIFIED` citations, unresolved `[?]` references, code-like section/table/figure labels, or captions that describe a plot without a numerical takeaway.
