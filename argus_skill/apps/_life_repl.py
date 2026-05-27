@@ -1045,9 +1045,7 @@ class _CodexSkillLoopRunner:
                 prompt=prompt,
                 options=RunnerOptions(
                     model=args.engineer_model,
-                    # ``low`` keeps chat fast and cheap; codex's default
-                    # ``medium`` over-thinks short replies.
-                    reasoning_effort="low",
+                    reasoning_effort=getattr(args, "engineer_reasoning_effort", "high"),
                     full_auto=safe_mode,
                     skip_git_repo_check=True,
                     dangerous_yolo=not safe_mode,
@@ -1309,11 +1307,11 @@ def _invoke_supervisor(
     ns.scientist_model = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4")
     ns.engineer_reasoning_effort = os.environ.get(
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
-        "low" if benchmark_mode else "high",
+        "high",
     )
     ns.reviewer_reasoning_effort = os.environ.get(
         "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
-        "low" if benchmark_mode else "high",
+        "high",
     )
     ns.skills_dir = os.environ.get(
         "ARGUS_SKILL_SKILLS_DIR",
