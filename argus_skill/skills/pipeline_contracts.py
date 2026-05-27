@@ -1209,12 +1209,12 @@ def refresh_artifact_freshness(project_root: Path) -> list[ContractIssue]:
     existing_records: dict[str, dict[str, Any]] = {}
     raw_existing_records = existing.get("records", existing.get("artifacts"))
     if isinstance(raw_existing_records, list):
-        for record in raw_existing_records:
-            if not isinstance(record, dict):
+        for raw_record in raw_existing_records:
+            if not isinstance(raw_record, dict):
                 continue
-            normalized = _normalize_manifest_path(record.get("path"))
+            normalized = _normalize_manifest_path(raw_record.get("path"))
             if normalized:
-                existing_records[normalized] = record
+                existing_records[normalized] = raw_record
 
     manifest = _try_read_json_object(root / ARTIFACT_MANIFEST_PATH) or {}
     canonical_paths: set[str] = set()
