@@ -39,6 +39,9 @@ MAX_SOURCE_FILES = 120
 MIN_REVIEW_ABSTRACT_WORDS = 170
 MIN_REVIEW_INTRODUCTION_WORDS = 900
 MIN_INTRODUCTION_CITATION_KEYS = 3
+REVIEW_SOURCE_CONTEXT_CHAR_LIMIT = 70000
+PINNED_REVIEW_CONTEXT_CHAR_LIMIT = 32000
+NUMBERED_REVIEW_CONTEXT_CHAR_LIMIT = 42000
 
 SECTION_SCORE_KEYS: tuple[str, ...] = (
     "abstract",
@@ -865,7 +868,7 @@ def _review_prompt(
     deterministic: dict[str, Any],
     threshold: float,
 ) -> str:
-    numbered_source = _numbered_source_excerpt(source_text_by_path, limit=26000)
+    source_context = _review_source_context(source_text_by_path)
     return (
         "You are the final academic-language reviewer for an EMNLP long paper. "
         "Reject papers that read like generic agent output: template LLM openings, "
@@ -940,7 +943,7 @@ def _review_prompt(
         f"{threshold:g}, any missing evidence span, or any unsupported headline claim "
         "means revise. Quote source text verbatim in evidence_spans.\n\n"
         f"Deterministic signals:\n{json.dumps(deterministic, ensure_ascii=False)[:7000]}\n\n"
-        f"Numbered LaTeX sources:\n{numbered_source}"
+        f"Reviewer source context:\n{source_context}"
     )
 
 
@@ -1688,25 +1691,177 @@ def _has_quantified_claim(plain: str) -> bool:
     )
 
 
+def _review_source_context(source_text_by_path: Mapping[str, str]) -> str:
+    """Build reviewer context that cannot hide late sections behind truncation."""
+
+    pinned = _pinned_structural_source_excerpt(
+        source_text_by_path,
+        limit=PINNED_REVIEW_CONTEXT_CHAR_LIMIT,
+    )
+    numbered = _numbered_source_excerpt(
+        source_text_by_path,
+        limit=NUMBERED_REVIEW_CONTEXT_CHAR_LIMIT,
+    )
+    chunks = []
+    if pinned.strip():
+        chunks.append(
+            "Pinned structural LaTeX excerpts. Check these before marking "
+            "limitations, results matrices, captions, or table coverage absent.\n"
+            f"{pinned}"
+        )
+    chunks.append(
+        "Numbered LaTeX sources. Long files preserve both the beginning and "
+        "the tail when truncated.\n"
+        f"{numbered}"
+    )
+    text = "\n\n".join(chunks)
+    if len(text) <= REVIEW_SOURCE_CONTEXT_CHAR_LIMIT:
+        return text
+    tail_budget = max(6000, REVIEW_SOURCE_CONTEXT_CHAR_LIMIT // 5)
+    return _truncate_text_preserving_tail(text, REVIEW_SOURCE_CONTEXT_CHAR_LIMIT, tail_budget)
+
+
+def _pinned_structural_source_excerpt(
+    source_text_by_path: Mapping[str, str],
+    *,
+    limit: int,
+) -> str:
+    ranges_by_path: dict[str, list[tuple[int, int]]] = {}
+    for rel_path, text in source_text_by_path.items():
+        lines = text.splitlines()
+        ranges: list[tuple[int, int]] = []
+        ranges.extend(_table_line_ranges(lines))
+        ranges.extend(_caption_line_ranges(lines))
+        ranges.extend(_review_section_line_ranges(lines))
+        if ranges:
+            ranges_by_path[rel_path] = _merge_line_ranges(ranges)
+
+    chunks: list[str] = []
+    for rel_path, ranges in ranges_by_path.items():
+        lines = source_text_by_path[rel_path].splitlines()
+        for start, end in ranges:
+            header = f"--- pinned {rel_path}:L{start}-L{end} ---"
+            block_lines = [header]
+            for line_no in range(start, end + 1):
+                line = lines[line_no - 1] if 0 <= line_no - 1 < len(lines) else ""
+                block_lines.append(f"{rel_path}:L{line_no}: {line}")
+            chunks.append("\n".join(block_lines))
+    text = "\n\n".join(chunks)
+    if len(text) <= limit:
+        return text
+    tail_budget = max(8000, min(limit // 3, 14000))
+    return _truncate_text_preserving_tail(text, limit, tail_budget)
+
+
+def _table_line_ranges(lines: Sequence[str]) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    begin_pattern = re.compile(r"\\begin\{(table\*?|longtable)\}")
+    for index, line in enumerate(lines):
+        match = begin_pattern.search(line)
+        if match is None:
+            continue
+        environment = match.group(1)
+        end_pattern = re.compile(rf"\\end\{{{re.escape(environment)}\}}")
+        end_index = index
+        for probe in range(index, len(lines)):
+            end_index = probe
+            if end_pattern.search(lines[probe]):
+                break
+        ranges.append((max(1, index + 1 - 2), min(len(lines), end_index + 1 + 2)))
+    return ranges
+
+
+def _caption_line_ranges(lines: Sequence[str]) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    for index, line in enumerate(lines):
+        if re.search(r"\\caption(?:\[[^\]]*\])?\s*\{", line):
+            ranges.append((max(1, index + 1 - 4), min(len(lines), index + 1 + 8)))
+    return ranges
+
+
+def _review_section_line_ranges(lines: Sequence[str]) -> list[tuple[int, int]]:
+    section_pattern = re.compile(r"\\section\*?(?:\[[^\]]*\])?\s*\{")
+    text = "\n".join(lines)
+    starts: list[tuple[int, str]] = []
+    for match in section_pattern.finditer(text):
+        title = _balanced_brace_content(text, match.end() - 1) or ""
+        line_no = text.count("\n", 0, match.start()) + 1
+        starts.append((line_no, _normalize_title(_latex_to_plain_text(title))))
+
+    pinned_terms = (
+        "method",
+        "approach",
+        "experimental",
+        "experiment",
+        "evaluation",
+        "results",
+        "analysis",
+        "ablation",
+        "discussion",
+        "conclusion",
+        "limitation",
+        "ethical",
+        "ethics",
+    )
+    ranges: list[tuple[int, int]] = []
+    for index, (line_no, title) in enumerate(starts):
+        if not any(term in title for term in pinned_terms):
+            continue
+        next_start = starts[index + 1][0] if index + 1 < len(starts) else len(lines) + 1
+        ranges.append((max(1, line_no - 1), min(next_start - 1, line_no + 80, len(lines))))
+    return ranges
+
+
+def _merge_line_ranges(
+    ranges: Sequence[tuple[int, int]],
+    *,
+    max_merged_span: int = 90,
+) -> list[tuple[int, int]]:
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(ranges):
+        if end < start:
+            continue
+        if (
+            not merged
+            or start > merged[-1][1] + 3
+            or max(end, merged[-1][1]) - merged[-1][0] + 1 > max_merged_span
+        ):
+            merged.append((start, end))
+        else:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+    return merged
+
+
 def _numbered_source_excerpt(
     source_text_by_path: Mapping[str, str],
     *,
     limit: int,
 ) -> str:
     lines: list[str] = []
-    total = 0
     for rel_path, text in source_text_by_path.items():
         header = f"--- {rel_path} ---"
         lines.append(header)
-        total += len(header) + 1
         for line_no, line in enumerate(text.splitlines(), start=1):
             rendered = f"{rel_path}:L{line_no}: {line}"
-            if total + len(rendered) + 1 > limit:
-                lines.append("[truncated]")
-                return "\n".join(lines)
             lines.append(rendered)
-            total += len(rendered) + 1
-    return "\n".join(lines)
+    text = "\n".join(lines)
+    if len(text) <= limit:
+        return text
+    tail_budget = max(4000, min(limit // 3, 16000))
+    return _truncate_text_preserving_tail(text, limit, tail_budget)
+
+
+def _truncate_text_preserving_tail(text: str, limit: int, tail_budget: int) -> str:
+    if len(text) <= limit:
+        return text
+    marker = f"\n[truncated {len(text) - limit} chars; preserving source tail]\n"
+    if limit <= len(marker) + 2:
+        return text[:limit]
+    tail_budget = max(0, min(tail_budget, limit - len(marker) - 1))
+    head_budget = max(0, limit - len(marker) - tail_budget)
+    head = text[:head_budget].rstrip()
+    tail = text[-tail_budget:].lstrip() if tail_budget else ""
+    return f"{head}{marker}{tail}"
 
 
 def _parse_json_object_from_text(text: str) -> dict[str, Any]:
