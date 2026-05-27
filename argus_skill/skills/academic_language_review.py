@@ -1236,12 +1236,34 @@ def _strip_latex_comments(text: str) -> str:
 
 def _latex_to_plain_text(text: str) -> str:
     stripped = _strip_latex_comments(text)
+    stripped = _expand_simple_latex_macros(stripped)
     stripped = re.sub(r"\\cite(?:[a-zA-Z]*)?(?:\[[^\]]*\])*\{[^{}]*\}", " citation ", stripped)
     stripped = re.sub(r"\\(?:ref|label|url|href)(?:\[[^\]]*\])?\{[^{}]*\}", " ", stripped)
     stripped = re.sub(r"\\[a-zA-Z]+\*?(?:\[[^\]]*\])?", " ", stripped)
     stripped = stripped.replace("{", " ").replace("}", " ")
     stripped = re.sub(r"\s+", " ", stripped)
     return stripped.strip()
+
+
+def _expand_simple_latex_macros(text: str) -> str:
+    """Expand no-argument text macros before stripping LaTeX commands."""
+
+    replacements: dict[str, str] = {}
+    for match in re.finditer(
+        r"\\newcommand\s*\{\s*\\([A-Za-z]+)\s*\}\s*\{\s*([^{}\\]+?)\s*\}",
+        text,
+    ):
+        name = match.group(1)
+        value = re.sub(r"\s+", " ", match.group(2)).strip()
+        if value:
+            replacements[name] = value
+    for name, value in sorted(replacements.items(), key=lambda item: len(item[0]), reverse=True):
+        text = re.sub(
+            rf"\\{re.escape(name)}(?:\s*\{{\s*\}})?",
+            lambda _match, replacement=value: f" {replacement} ",
+            text,
+        )
+    return text
 
 
 def _extract_environment(text: str, name: str) -> str:
@@ -1274,7 +1296,7 @@ def _has_section(section_titles: Sequence[str], synonyms: Sequence[str]) -> bool
 
 
 def _section_text(text: str, title: str) -> str:
-    stripped = _strip_latex_comments(text)
+    stripped = _expand_simple_latex_macros(_strip_latex_comments(text))
     pattern = re.compile(r"\\section\*?(?:\[[^\]]*\])?\s*\{")
     matches = list(pattern.finditer(stripped))
     for index, match in enumerate(matches):
