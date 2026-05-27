@@ -634,6 +634,8 @@ def _deterministic_assessment(tex_text: str) -> dict[str, Any]:
         matches = list(re.finditer(pattern, source_without_comments, re.I))
         if not matches:
             continue
+        match_spans = _regex_match_spans(source_without_comments, matches)
+        match_summary = _match_summary(match_spans)
         score_penalty += min(0.8, 0.25 + len(matches) * 0.15)
         section_scores["style_and_clarity"] = min(section_scores["style_and_clarity"], 3.5)
         required_checks["calibrated_no_hype"] = False
@@ -641,9 +643,14 @@ def _deterministic_assessment(tex_text: str) -> dict[str, Any]:
             _issue(
                 code,
                 "major" if len(matches) > 1 else "minor",
-                f"paper uses hype/superlative language {len(matches)} time(s); calibrate claims",
+                (
+                    f"paper uses hype/superlative language {len(matches)} time(s); "
+                    f"calibrate claims at {match_summary}"
+                ),
                 hard_gate=len(matches) > 1,
                 action="replace_hype_language",
+                target=_line_target(match_spans),
+                evidence_spans=match_spans,
             )
         )
 
@@ -968,6 +975,7 @@ def _issue(
     hard_gate: bool = False,
     action: str = "calibrate_claim",
     target: str | None = None,
+    evidence_spans: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     issue: dict[str, Any] = {
         "code": code,
@@ -979,7 +987,55 @@ def _issue(
         issue["hard_gate"] = True
     if target:
         issue["target"] = target
+    if evidence_spans:
+        issue["evidence_spans"] = evidence_spans
     return issue
+
+
+def _regex_match_spans(
+    text: str,
+    matches: Sequence[re.Match[str]],
+    *,
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    spans: list[dict[str, Any]] = []
+    for match in matches[:limit]:
+        line_no = text.count("\n", 0, match.start()) + 1
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        line_end = text.find("\n", match.end())
+        if line_end == -1:
+            line_end = len(text)
+        line = " ".join(text[line_start:line_end].strip().split())
+        spans.append(
+            {
+                "source_path": "paper/main.tex",
+                "line": line_no,
+                "term": match.group(0),
+                "quote": line[:260],
+            }
+        )
+    return spans
+
+
+def _match_summary(spans: Sequence[Mapping[str, Any]]) -> str:
+    if not spans:
+        return "the reported source matches"
+    fragments = [
+        f"line {span.get('line')} `{span.get('term')}`"
+        for span in spans[:6]
+        if span.get("line") is not None and span.get("term")
+    ]
+    if len(spans) > 6:
+        fragments.append(f"{len(spans) - 6} more")
+    return ", ".join(fragments) if fragments else "the reported source matches"
+
+
+def _line_target(spans: Sequence[Mapping[str, Any]]) -> str:
+    lines = [str(span.get("line")) for span in spans[:10] if span.get("line") is not None]
+    if not lines:
+        return "paper/main.tex"
+    suffix = f" and {len(spans) - 10} more" if len(spans) > 10 else ""
+    return f"paper/main.tex lines {', '.join(lines)}{suffix}"
 
 
 def _normalize_action(value: object) -> str | None:
@@ -1435,6 +1491,17 @@ def _review_markdown(result: dict[str, Any]) -> str:
             if not isinstance(issue, dict):
                 continue
             lines.append(f"- `{issue.get('severity', 'unknown')}` {issue.get('message', '')}")
+            spans = issue.get("evidence_spans")
+            if isinstance(spans, list):
+                for span in spans[:6]:
+                    if not isinstance(span, dict):
+                        continue
+                    line = span.get("line")
+                    term = span.get("term")
+                    quote = str(span.get("quote") or "").strip()
+                    if line is None or not term:
+                        continue
+                    lines.append(f"  - line {line}: `{term}` in \"{quote[:180]}\"")
         lines.append("")
     directives = result.get("revision_directives")
     if isinstance(directives, list) and directives:
