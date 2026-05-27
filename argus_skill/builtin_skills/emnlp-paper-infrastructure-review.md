@@ -19,13 +19,14 @@ Use this skill when a paper may contain local execution details that do not belo
 - When reviewer/critic suspects environment, device, cache, local path, Argus/Codex daemon, route, or paper-generation details entered the paper.
 
 ## What to reject
-- Local hardware ordinals and device placement such as GPU card numbers, `cuda:6`, `CUDA_VISIBLE_DEVICES`, local device IDs, or node-specific execution notes.
+- Local hardware capacity, ordinals, and device placement such as GPU card numbers, `single local GPU`, local GPU/workstation/node labels, `cuda:6`, `CUDA_VISIBLE_DEVICES`, local device IDs, or node-specific execution notes.
+- Local software-environment descriptions that explain the authoring machine rather than the evaluated research system, including CUDA/driver/Python/conda/package tables, runtime environment blocks, or benchmark-machine notes when they are not needed as paper-facing method facts.
 - Local cache and filesystem configuration such as `HF_HOME`, `TRANSFORMERS_CACHE`, `TORCH_HOME`, `XDG_CACHE_HOME`, `/root/.cache`, `/root/...`, `/home/...`, or project-private paths.
 - Argus/Codex authoring infrastructure: daemon handoff, engineer/reviewer/critic/scientist routes, capability-vault configuration, validation artifacts, review artifacts, image-tool plumbing, API keys, private endpoints, or `gpt-5.4*` authoring/review routes.
 - Any local config table that explains how the paper was generated rather than how the evaluated research system ran.
 
 ## What is allowed
-- Paper-facing evaluated system facts: model/backend names, benchmark harness, public dataset or benchmark version, task count/split, metric, decoding/budget setting, seed policy, and high-level compute budget when it is genuinely part of reproducibility.
+- Paper-facing evaluated system facts: model/backend names, benchmark harness, public dataset or benchmark version, task count/split, metric, decoding/budget setting, seed policy, and high-level compute cost when it is genuinely part of reproducibility and not a local machine or authoring-environment description.
 - Local execution notes in non-rendered comments, manifests, logs, or operator traces. These can support the pipeline, but they must not be rendered in title, abstract, body, captions, tables, or appendix prose.
 
 ## How to solve

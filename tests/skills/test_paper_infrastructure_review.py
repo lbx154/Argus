@@ -17,6 +17,8 @@ def test_paper_infrastructure_prompt_delegates_env_device_leaks_to_reviewer() ->
         "HF_HOME",
         "TRANSFORMERS_CACHE",
         "/root/.cache",
+        "single local GPU",
+        "local software-environment",
         "Argus/Codex daemon",
         "engineer/reviewer/critic/scientist route",
         "strict JSON only",
