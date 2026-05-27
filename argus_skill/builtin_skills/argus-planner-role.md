@@ -32,6 +32,7 @@ The Planner is argus-skill's manager/director: when the backlog is empty, it ins
 - Prefer one long-horizon bounded paper-optimization mission over many microtasks. The mission should tell the Engineer to read `AGENTS.md` and built-in paper skills, run or inspect `validate-full-emnlp`, then repair all addressable manuscript, evidence, review, layout, figure/table, citation, manifest, and assurance blockers in one pass.
 - Queue separate bounded tasks only when blockers are genuinely independent or require different resources, such as a long experiment run versus manuscript editing.
 - When the same page-flow, prose-quality, review, or figure provenance blocker repeats, queue a reset/audit mission: inspect the page map, section floors, evidence sufficiency, stale artifact graph, and owning generated tool before making more local edits.
+- For local infrastructure leaks in paper prose, route the work through the model-backed `emnlp-paper-infrastructure-review.md` skill and require `python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write` followed by `python -m argus_skill.skills.pipeline_contracts validate-paper-infrastructure-review --project-root .`. Lexical `grep`/`rg` scans may be used only to collect context, never as the acceptance gate or as a substitute for the reviewer artifact.
 - Do not declare done on a pilot, negative-result pivot, baseline-only win, duplicated benchmark expansion, or single-source benchmark evidence when the paper claims broad effectiveness.
 
 ## Anti-patterns

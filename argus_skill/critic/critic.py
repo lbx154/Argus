@@ -606,7 +606,11 @@ class Critic:
                 "Do not copy stale host-specific paths from the journal into new tasks. "
                 "Use the active project files, project-local argus_builtin_skills, and "
                 "`python -m argus_skill ...` or the launcher-provided ARGUS_SKILL_PYTHON "
-                "environment instead of retired absolute paths."
+                "environment instead of retired absolute paths. For paper infrastructure "
+                "leaks, lexical grep/rg scans are context only; the task acceptance must "
+                "require the model-backed `paper_infrastructure_review --review-mode model "
+                "--write` artifact and `validate-paper-infrastructure-review --project-root .`, "
+                "not a hand-written string-match pass."
             )
             + "\n\n"
             + budget_line
