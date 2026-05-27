@@ -3099,6 +3099,32 @@ def test_academic_language_review_accepts_named_pairscorer_backend(
     assert "academic_language_missing_method_model_identifier" not in codes
 
 
+def test_academic_language_review_accepts_pairscorerbase_macro_backend(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    text = (tmp_path / "paper" / "main.tex").read_text(encoding="utf-8")
+    text = text.replace(
+        "\\begin{document}",
+        "\\newcommand{\\PairScorerBase}{PairScorer-Base}\n\\begin{document}",
+    )
+    text = text.replace("gpt-5-mini", "\\PairScorerBase{}")
+    text = text.replace(
+        "hosted \\PairScorerBase{} agent",
+        "\\PairScorerBase{} candidate-ranking backend",
+    )
+    text = text.replace(
+        "The model produces an action or answer under the shared decoding settings.",
+        "The \\PairScorerBase{} backend ranks each candidate under the shared scoring budget.",
+    )
+    _write(tmp_path / "paper" / "main.tex", text)
+    _write_valid_academic_language_review(tmp_path)
+
+    codes = {issue.code for issue in validate_academic_language_review(tmp_path)}
+
+    assert "academic_language_missing_method_model_identifier" not in codes
+
+
 def test_academic_language_review_rejects_validator_shaped_abstract_even_with_pass_json(
     tmp_path: Path,
 ) -> None:
