@@ -24,6 +24,7 @@ def test_argus_and_bare_conditions_build_distinct_commands(tmp_path: Path) -> No
     assert argus.metadata["dataset_id"] == "terminal-bench@2.0"
     assert argus.metadata["pricing_source"] == "argus_skill.core.pricing.usd_for_tokens"
     assert argus.env["ARGUS_SKILL_HARBOR_REVIEWER_GATE"] == "0"
+    assert argus.env["ARGUS_SKILL_HARBOR_REVIEWER_EFFORT"] == "high"
     assert argus.env["ARGUS_SKILL_HARBOR_VERIFIER_PASS_SHORT_CIRCUIT"] == "1"
     assert 'OPENAI_BASE_URL="$OPENAI_BASE_URL"' in argus.command[3]
 

@@ -795,6 +795,11 @@ class _CodexSkillLoopRunner:
             "scientist_model": args.scientist_model,
             "engineer_model": args.engineer_model,
             "reviewer_model": args.reviewer_model,
+            "scientist_reasoning_effort": getattr(
+                args,
+                "scientist_reasoning_effort",
+                "high",
+            ),
             "engineer_reasoning_effort": getattr(
                 args, "engineer_reasoning_effort", "high"
             ),
@@ -1305,6 +1310,10 @@ def _invoke_supervisor(
     reviewer_default = ns.engineer_model if benchmark_mode else "gpt-5.4"
     ns.reviewer_model = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL", reviewer_default)
     ns.scientist_model = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4")
+    ns.scientist_reasoning_effort = os.environ.get(
+        "ARGUS_SKILL_SCIENTIST_REASONING_EFFORT",
+        "high",
+    )
     ns.engineer_reasoning_effort = os.environ.get(
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
         "high",
@@ -1333,8 +1342,10 @@ def _invoke_supervisor(
         f"- Runner backend: {runner_backend}\n"
         f"- Engineer model: {ns.engineer_model}\n"
         f"- Reviewer model: {ns.reviewer_model}\n"
+        f"- Scientist model: {ns.scientist_model}\n"
         f"- Engineer reasoning effort: {ns.engineer_reasoning_effort or '(default)'}\n"
         f"- Reviewer reasoning effort: {ns.reviewer_reasoning_effort or '(default)'}\n"
+        f"- Scientist reasoning effort: {ns.scientist_reasoning_effort or '(default)'}\n"
         f"- Max rounds per mission: {ns.max_rounds}\n"
         f"- Per-mission budget cap: ${per_mission_cap_usd:.2f}\n"
         f"- Daily budget cap: ${daily_cap_usd:.2f}\n"
