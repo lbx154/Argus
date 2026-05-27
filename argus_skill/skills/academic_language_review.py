@@ -947,7 +947,10 @@ def _review_prompt(
         "list, major_issues list, revision_directives list with action/target/rationale/"
         "expected_effect, and pass_or_revise as pass or revise. A score below "
         f"{threshold:g}, any missing evidence span, or any unsupported headline claim "
-        "means revise. Quote source text verbatim in evidence_spans.\n\n"
+        "means revise. Quote source text verbatim in evidence_spans, but choose "
+        "reader-facing prose or caption sentences rather than LaTeX boilerplate, "
+        "preamble lines, table syntax, `\\begin`/`\\end`, `\\includegraphics`, "
+        "or source comments.\n\n"
         f"Deterministic signals:\n{json.dumps(deterministic, ensure_ascii=False)[:7000]}\n\n"
         f"Reviewer source context:\n{source_context}"
     )
