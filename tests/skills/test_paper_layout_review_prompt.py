@@ -41,7 +41,10 @@ def test_vision_prompt_frames_emnlp_2026_visual_submission_review() -> None:
     assert "Official ACL/EMNLP anonymous review-mode line numbers" in prompt
     assert "must not be treated as debug gutters" in prompt
     assert "Shortening an underfilled body makes the early-References defect worse" in prompt
+    assert "Do not require References to begin exactly on page 9" in prompt
+    assert "page 10 or later is acceptable" in prompt
     assert "Data/metric/result plots may be regenerated from canonical data" in prompt
+    assert "never require image-2 for benchmark-effect" in prompt
     assert "Every other paper-facing figure" in prompt
     assert "must remain an actual image-2/codex-image2 raster" in prompt
     assert "never suggest vector PDF/SVG/TikZ/matplotlib/PIL" in prompt
@@ -163,6 +166,45 @@ def test_vision_guidance_routes_conceptual_figure_repairs_to_image2() -> None:
     directive_edits = " ".join(directive["implementation_guidance"]["specific_edits"])
     assert "Non-data figure policy:" in directive_edits
     assert "accepted image-2 raster rendering" in directive_edits
+
+
+def test_mixed_conceptual_and_data_figure_guidance_keeps_data_plot_scripted() -> None:
+    issues = _vision_issues(
+        {
+            "major_issues": [
+                {
+                    "issue": "Figure 1 overview and Figure 2 benchmark-level effect summary are hard to read.",
+                    "page": 8,
+                    "target": "Figure 1 overview and Figure 2 benchmark-effects data plot",
+                    "action": "regenerate_figure",
+                    "guidance": {
+                        "root_cause": "The overview and benchmark-effect plot have tiny labels.",
+                        "source_targets": ["IMAGE2_FIGURES.json", "code/plot_benchmark_effects.py"],
+                        "specific_edits": [
+                            "Regenerate Figure 1 through the image-2 prompt/select/review pipeline.",
+                            "Regenerate Figure 2 through the image-2 prompt/select/review pipeline as a wide result plot.",
+                        ],
+                        "visual_goal": "Both figures should read immediately at page view.",
+                        "verification": ["Confirm the regenerated rasters are listed in IMAGE2_FIGURES.json."],
+                    },
+                }
+            ]
+        }
+    )
+
+    guidance = issues[0]["guidance"]
+    joined_edits = " ".join(guidance["specific_edits"])
+    assert "Regenerate Figure 2 through the image-2" not in joined_edits
+    assert "Regenerate Figure 2 from canonical data through its plotting script" in joined_edits
+    assert "Regenerate Figure 1 through the image-2" in joined_edits
+    assert "Data figure policy:" in joined_edits
+    assert "Non-data figure policy:" in joined_edits
+    assert "The conceptual figure and any data/result figure should read immediately" in guidance["visual_goal"]
+
+    directive = _revision_directives(issues)[0]
+    directive_edits = " ".join(directive["implementation_guidance"]["specific_edits"])
+    assert "Regenerate Figure 2 through the image-2" not in directive_edits
+    assert "Regenerate Figure 2 from canonical data through its plotting script" in directive_edits
 
 
 def test_deterministic_review_flags_references_sharing_body_page_with_boundary_action() -> None:

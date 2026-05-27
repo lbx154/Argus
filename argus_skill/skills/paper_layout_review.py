@@ -905,7 +905,7 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "ugly artifacts; be as strict as a proceedings layout reviewer.\n\n"
         "Review task: inspect the screenshots page by page, using the deterministic signals below "
         "as concrete hints. Penalize any page that looks non-submission-ready: large blank lower-page "
-        "regions, float-dump pages, cramped or plain audit-style tables, table/body overlap, tiny "
+        "regions before the body boundary, float-dump pages, cramped or plain audit-style tables, table/body overlap, tiny "
         "unreadable fonts, awkward two-column imbalance, captions detached from content, weak page "
         "flow, square or low-quality figures, non-human code-like labels, snake_case labels, heavy "
         "gradients, photorealism, or visuals that look like debug artifacts rather than EMNLP paper "
@@ -913,7 +913,10 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "failure even if LaTeX compiles. Official ACL/EMNLP anonymous review-mode line numbers from "
         "`\\usepackage[review]{acl}` are acceptable submission artifacts and must not be treated as "
         "debug gutters. Penalize only nonstandard duplicate line-number overlays, margin counters "
-        "unrelated to ACL review mode, or post-processing artifacts.\n\n"
+        "unrelated to ACL review mode, or post-processing artifacts. Do not turn a small amount of "
+        "post-body whitespace into repeated revision churn when the formal page contract already "
+        "passes: conclusion by page 8, Limitations/Ethics after conclusion, and References/Appendix "
+        "on page 9 or later.\n\n"
         "Make the feedback concrete for the next engineer/tool call: every blocking or major issue "
         "must name the page number when visible, the visual target (for example: page 6 lower half, "
         "Table 3, Figure 1 labels, references page), the visual evidence you saw, and the specific "
@@ -922,7 +925,8 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "cosmetic page-break shuffling when the real defect is weak prose/float integration. "
         "Figure repair policy: distinguish data/metric/result plots from non-data figures. "
         "Data/metric/result plots may be regenerated from canonical data with local scripts or "
-        "vector exports when larger typography is needed. Every other paper-facing figure, "
+        "vector exports when larger typography is needed; never require image-2 for benchmark-effect, "
+        "metric, result, or canonical-TSV plots merely because their labels are small. Every other paper-facing figure, "
         "including Figure 1, teaser, overview, method/framework/system/pipeline schematics, "
         "architecture diagrams, qualitative/example visuals, and explanatory conceptual figures, "
         "must remain an actual image-2/codex-image2 raster recorded in IMAGE2_FIGURES.json. For "
@@ -953,7 +957,12 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "or Appendix material starts before page 9, "
         "require source-backed body expansion, a meaningful late visual anchor, or a clean "
         "reference/appendix-page break after the body; if body content actually runs past page 8, then require trimming. "
-        "Shortening an underfilled body makes the early-References defect worse.\n\n"
+        "Shortening an underfilled body makes the early-References defect worse. Do not require "
+        "References to begin exactly on page 9: page 10 or later is acceptable when the body and "
+        "body-adjacent end matter occupy page 9 naturally, and the total page count after the body "
+        "is uncapped. Treat page-9 whitespace after Limitations/Ethics as at most a minor style note "
+        "unless it reflects a forced break, Conclusion after page 8, or References/Appendix before "
+        "page 9.\n\n"
         "Submission contract to enforce: conclusion by page 8, Limitations/Ethics after conclusion, "
         "References before Appendix, References/Appendix on page 9 or later with no total-page cap, "
         "no Overfull hbox above 5pt, <=5 body figures, at most one "
@@ -1088,6 +1097,8 @@ def _guidance_from_vision_item(item: Mapping[str, Any]) -> dict[str, Any] | None
         parsed["visual_goal"] = visual_goal
     if verification:
         parsed["verification"] = verification
+    if parsed and _is_data_figure_layout_item(item):
+        parsed = _apply_data_figure_policy(parsed)
     if parsed and _is_non_data_figure_layout_item(item):
         parsed = _apply_non_data_figure_policy(parsed)
     return parsed or None
@@ -1118,6 +1129,21 @@ def _implementation_guidance(
         verification = [
             "Rebuild paper/main.pdf, rerun paper_layout_review in vision mode, and ensure validate-layout-review passes."
         ]
+    if _is_data_figure_layout_item(issue):
+        data_guidance = _apply_data_figure_policy(
+            {
+                "root_cause": root_cause,
+                "source_targets": source_targets,
+                "specific_edits": specific_edits,
+                "visual_goal": visual_goal,
+                "verification": verification,
+            }
+        )
+        root_cause = str(data_guidance["root_cause"])
+        source_targets = list(data_guidance["source_targets"])
+        specific_edits = list(data_guidance["specific_edits"])
+        visual_goal = str(data_guidance["visual_goal"])
+        verification = list(data_guidance["verification"])
     if _is_non_data_figure_layout_item(issue):
         policy_guidance = _apply_non_data_figure_policy(
             {
@@ -1172,23 +1198,10 @@ def _default_specific_edit(action: str, target: str) -> str:
 
 
 def _is_non_data_figure_layout_item(item: Mapping[str, Any]) -> bool:
-    haystack_parts: list[str] = []
-    for key in ("issue", "description", "rationale", "message", "target", "visual_evidence", "action"):
-        value = item.get(key)
-        if isinstance(value, str):
-            haystack_parts.append(value)
-    raw_guidance = item.get("guidance")
-    if isinstance(raw_guidance, Mapping):
-        for key in ("root_cause", "visual_goal", "expected_visual_result"):
-            value = raw_guidance.get(key)
-            if isinstance(value, str):
-                haystack_parts.append(value)
-        for key in ("source_targets", "specific_edits", "concrete_edits", "repair_steps"):
-            values = raw_guidance.get(key)
-            if isinstance(values, Sequence) and not isinstance(values, (str, bytes)):
-                haystack_parts.extend(str(value) for value in values)
-    haystack = " ".join(haystack_parts).lower()
+    haystack = _layout_item_haystack(item)
     if "figure" not in haystack:
+        return False
+    if _is_data_figure_haystack(haystack) and not re.search(r"\bfigure\s*1\b|\bfig\.\s*1\b", haystack):
         return False
     if re.search(r"\bfigure\s*1\b|\bfig\.\s*1\b", haystack):
         return True
@@ -1208,6 +1221,71 @@ def _is_non_data_figure_layout_item(item: Mapping[str, Any]) -> bool:
         "explanatory",
     )
     return any(term in haystack for term in non_data_terms)
+
+
+def _is_data_figure_layout_item(item: Mapping[str, Any]) -> bool:
+    haystack = _layout_item_haystack(item)
+    return "figure" in haystack and _is_data_figure_haystack(haystack)
+
+
+def _layout_item_haystack(item: Mapping[str, Any]) -> str:
+    haystack_parts: list[str] = []
+    for key in ("issue", "description", "rationale", "message", "target", "visual_evidence", "action"):
+        value = item.get(key)
+        if isinstance(value, str):
+            haystack_parts.append(value)
+    raw_guidance = item.get("guidance")
+    if isinstance(raw_guidance, Mapping):
+        for key in ("root_cause", "visual_goal", "expected_visual_result"):
+            value = raw_guidance.get(key)
+            if isinstance(value, str):
+                haystack_parts.append(value)
+        for key in ("source_targets", "specific_edits", "concrete_edits", "repair_steps"):
+            values = raw_guidance.get(key)
+            if isinstance(values, Sequence) and not isinstance(values, (str, bytes)):
+                haystack_parts.extend(str(value) for value in values)
+    return " ".join(haystack_parts).lower()
+
+
+def _is_data_figure_haystack(haystack: str) -> bool:
+    data_terms = (
+        "benchmark-effect",
+        "benchmark effect",
+        "benchmark-level effect",
+        "fig:benchmark-effects",
+        "data plot",
+        "data figure",
+        "metric plot",
+        "metric/result",
+        "result plot",
+        "result graphic",
+        "results figure",
+        "canonical data",
+        "canonical tsv",
+        "results_table",
+        "effect summary",
+    )
+    return any(term in haystack for term in data_terms)
+
+
+def _apply_data_figure_policy(guidance: Mapping[str, Any]) -> dict[str, Any]:
+    parsed = dict(guidance)
+    for key in ("root_cause", "visual_goal"):
+        value = parsed.get(key)
+        if isinstance(value, str):
+            parsed[key] = _sanitize_data_figure_text(value)
+    edits = _text_list(parsed.get("specific_edits"))
+    sanitized_edits = [_sanitize_data_figure_text(edit) for edit in edits]
+    policy_edit = (
+        "Data figure policy: for benchmark-effect, metric, result, or canonical-data plots, "
+        "repair readability through the plotting script, vector/raster export settings, caption, "
+        "or LaTeX placement; do not route the data plot through image-2 unless it is no longer "
+        "a data/metric/result figure."
+    )
+    if not any("Data figure policy:" in edit for edit in sanitized_edits):
+        sanitized_edits.append(policy_edit)
+    parsed["specific_edits"] = sanitized_edits
+    return parsed
 
 
 def _apply_non_data_figure_policy(guidance: Mapping[str, Any]) -> dict[str, Any]:
@@ -1242,6 +1320,24 @@ def _sanitize_non_data_figure_text(text: str) -> str:
         "Vector PDF": "Image-2 raster",
         "manual vector": "manual local redraw",
         "Manual vector": "Manual local redraw",
+    }
+    sanitized = text
+    for old, new in replacements.items():
+        sanitized = sanitized.replace(old, new)
+    return sanitized
+
+
+def _sanitize_data_figure_text(text: str) -> str:
+    replacements = {
+        "Regenerate Figure 2 through the image-2 prompt/select/review pipeline": "Regenerate Figure 2 from canonical data through its plotting script",
+        "regenerate Figure 2 through the image-2 prompt/select/review pipeline": "regenerate Figure 2 from canonical data through its plotting script",
+        "Regenerate Figure 2 through image-2": "Regenerate Figure 2 from canonical data through its plotting script",
+        "regenerate Figure 2 through image-2": "regenerate Figure 2 from canonical data through its plotting script",
+        "Confirm the regenerated rasters are listed in IMAGE2_FIGURES.json.": (
+            "Confirm non-data figure rasters are listed in IMAGE2_FIGURES.json; "
+            "data/metric/result plots are instead traced to their canonical data and plotting script."
+        ),
+        "Both figures should read immediately": "The conceptual figure and any data/result figure should read immediately",
     }
     sanitized = text
     for old, new in replacements.items():
