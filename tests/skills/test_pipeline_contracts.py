@@ -6,7 +6,11 @@ import re
 import struct
 from pathlib import Path
 
-from argus_skill.skills.academic_language_review import generate_academic_language_review
+from argus_skill.skills.academic_language_review import (
+    _has_quantified_claim,
+    _has_reader_facing_contribution,
+    generate_academic_language_review,
+)
 from argus_skill.skills.pipeline_contracts import (
     _pdf_page_count,
     _validate_research_md_pdf_text,
@@ -2411,6 +2415,29 @@ def test_heuristic_academic_language_review_flags_validator_shaped_abstract(
     assert "result_first_abstract" in codes
     assert "over_defensive_abstract" in codes
     assert review["needs_revision"] is True
+
+
+def test_academic_quantified_claim_accepts_comparator_style_result() -> None:
+    text = (
+        "In the 240-task SWE-bench Verified slice, ReplayMemo reaches 77.9% "
+        "success versus 52.9% for the no-verifier comparator under a "
+        "deterministic protocol."
+    )
+
+    assert _has_quantified_claim(text)
+    assert _has_quantified_claim("The method improves verified completion by 25.0 points.")
+    assert not _has_quantified_claim("The method defines a benchmark protocol.")
+
+
+def test_reader_facing_contribution_allows_scoped_policy_claim() -> None:
+    text = (
+        "This paper reports ReplayMemo on SWE-bench Verified. The policy reaches "
+        "77.9% success versus 52.9% against the no-verifier baseline under a "
+        "deterministic protocol, while the current ablation does not isolate "
+        "family matching from duplicate rejection."
+    )
+
+    assert _has_reader_facing_contribution(text)
 
 
 def _write(path: Path, text: str) -> None:

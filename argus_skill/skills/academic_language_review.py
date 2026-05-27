@@ -586,8 +586,9 @@ def _deterministic_assessment(tex_text: str) -> dict[str, Any]:
                 "major",
                 (
                     "paper needs a reader-facing contribution sentence or paragraph that "
-                    "names the method, task/context, measured effect, and mechanism; do "
-                    "not force literal formula prose"
+                    "names the method, task/context, measured effect, and design lever "
+                    "or scoped comparator; name a mechanism only when the current "
+                    "ablations isolate it"
                 ),
                 hard_gate=True,
                 action="tighten_contribution_sentence",
@@ -783,7 +784,11 @@ def _review_prompt(
         "a paper whose abstract reads like a validator checklist, starts with a numeric "
         "result before the problem/gap, or spends its scarce space on defensive caveats "
         "instead of problem, method, result, and implication. Use a strict ACL/EMNLP "
-        "reviewer standard. Return strict JSON only "
+        "reviewer standard. Do not require an isolated causal mechanism when the paper "
+        "explicitly scopes itself as an end-to-end policy or comparator result; in that "
+        "case, evaluate whether the comparator, task slice, sample size, and quantified "
+        "outcome are stated plainly and whether unresolved submechanisms are moved to "
+        "analysis or limitations. Return strict JSON only "
         "with keys: score_1_to_5 (number), section_scores object containing exactly "
         f"{list(SECTION_SCORE_KEYS)}, required_checks object containing exactly "
         f"{list(REQUIRED_CHECK_KEYS)}, evidence_spans list with at least one entry for "
@@ -988,7 +993,10 @@ def _expected_effect(action: str) -> str:
     effects = {
         "rewrite_abstract": "write a natural reader-facing abstract with problem, gap, method, result, and implication",
         "rewrite_introduction": "replace generic setup with problem-specific motivation",
-        "tighten_contribution_sentence": "make the positive contribution and mechanism explicit",
+        "tighten_contribution_sentence": (
+            "make the positive contribution, scoped comparator, and measured effect explicit; "
+            "name a mechanism only when isolated by evidence"
+        ),
         "calibrate_claim": "align claims with measured evidence and uncertainty",
         "add_evidence_sentence": "tie the headline claim to a concrete result artifact",
         "reorganize_related_work": "group prior work by method and gap rather than chronology",
@@ -996,7 +1004,8 @@ def _expected_effect(action: str) -> str:
         "delete_filler": "remove low-information prose that weakens the paper",
         "clarify_method_mechanism": (
             "explain the evaluated system/runtime or harness, applicable model "
-            "identifiers, mechanism, and why the method changes the measured outcome"
+            "identifiers, design lever, and measured comparison without implying "
+            "unisolated causality"
         ),
         "rewrite_caption_takeaway": "make figure/table captions carry the main result",
         "add_limitation_scope": "state scope limits without undermining the supported claim",
@@ -1312,8 +1321,15 @@ def _has_reader_facing_contribution(text: str) -> bool:
             re.S,
         )
     )
-    has_mechanism = bool(re.search(r"\b(?:because|by|via|through|using|with|under|from)\b", lower))
-    return has_method_or_artifact and has_measured_effect and has_mechanism
+    has_design_or_scope = bool(
+        re.search(
+            r"\b(?:because|by|via|through|using|with|under|from|against|"
+            r"relative to|compared (?:with|to)|end-to-end|policy|comparator|"
+            r"baseline|ablation|benchmark|slice|setting)\b",
+            lower,
+        )
+    )
+    return has_method_or_artifact and has_measured_effect and has_design_or_scope
 
 
 def _opening_text(plain: str) -> str:
@@ -1332,13 +1348,32 @@ def _find_display_code_labels(tex_text: str) -> set[str]:
 
 
 def _has_quantified_claim(plain: str) -> bool:
+    text = plain.replace(r"\%", "%")
+    quantity = (
+        r"(?:\d+(?:\.\d+)?\s*(?:%|points?|pp)|"
+        r"\d+\s*/\s*\d+|p\s*[<=>]\s*0?\.\d+)"
+    )
+    outcome = (
+        r"(?:success|completion|pass rate|accuracy|score|solv\w*|"
+        r"repair\w*|recover\w*|win rate|verified completion)"
+    )
     return bool(
         re.search(
-            r"\b(?:improv\w*|increase\w*|reduce\w*|outperform\w*|beat\w*)\b.{0,80}"
-            r"(?:\d+(?:\.\d+)?\s*(?:%|points?|pp)|p\s*[<=>]\s*0?\.\d+)",
-            plain,
-            re.I,
+            r"\b(?:improv\w*|increase\w*|reduce\w*|outperform\w*|beat\w*|"
+            r"recover\w*|raise\w*|yield\w*)\b.{0,100}" + quantity,
+            text,
+            re.I | re.S,
         )
+        or re.search(
+            quantity
+            + r".{0,140}\b(?:vs\.?|versus|compared (?:with|to)|relative to|"
+            r"against|over)\b.{0,140}"
+            + quantity,
+            text,
+            re.I | re.S,
+        )
+        or re.search(r"\b" + outcome + r"\b.{0,140}" + quantity, text, re.I | re.S)
+        or re.search(quantity + r".{0,140}\b" + outcome + r"\b", text, re.I | re.S)
     )
 
 

@@ -37,6 +37,7 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
 2. Rebuild the paper story:
    - Write one thesis sentence in the form: "X is better for Y in Z because W."
    - State the contribution as: "We propose X. We show X improves Y by Z because W."
+   - If the current ablations do not isolate `W`, do not keep defending a mechanism claim. Reset the thesis to the measured comparison: "On benchmark/task slice Z, X reaches Y compared with baseline B under protocol P; which subcomponent causes the gain remains unresolved." Move the unresolved mechanism discussion to analysis or limitations.
    - Make every main section answer What, Why, and So What.
    - Use an inner/outer loop: check each experiment claim locally, then synthesize what pattern it supports globally.
 
@@ -58,6 +59,8 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - Remove SOTA, novel, significant, robust, or generalization claims unless local evidence and citations support them.
    - Every numeric result in prose, table captions, and figure captions must trace to a local artifact.
    - Captions should state the takeaway, not only describe the figure.
+   - When `ACADEMIC_LANGUAGE_REVIEW.json` says a headline mechanism claim is unsupported or not isolated, apply a claim-scope reset instead of another adjective pass: remove mechanism nouns from title, abstract, opening contribution, and conclusion; choose one exact reader-facing headline result; add one quantified sentence with method, comparator, task slice, n, and metric; state the unisolated submechanism once in limitations.
+   - Acceptable evidence sentence pattern: "In the N-task T slice, X achieves A on metric M versus B for comparator C under protocol P." This satisfies evidence alignment without claiming why X works.
 
 6. Enforce method/system readability:
    - The Method and Experimental Setup must be readable without internal project context. They must name the evaluated paper system, its agent framework/runtime or benchmark harness, the controller/skill/memory mechanism, task source/version, baselines, metrics, and budget/stopping rules. Name LLM/model identifiers only when the evaluated system or experiment actually calls external models; if the benchmark loop is deterministic, say that no external LLM/model is called. Do not treat Argus, Codex engineer/reviewer routes, daemon handoff, academic-language/layout review, or image-tool infrastructure used to write this paper as paper-method details.
@@ -81,6 +84,7 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - Apply `revision_directives` exactly: rewrite abstract, tighten contribution sentence, calibrate claims, reorganize related work, add evidence sentences, replace hype language, or add limitation scope.
    - Re-run the review after every prose-changing edit.
    - Do not claim final readiness from a self-written score or heuristic-only review.
+   - If three academic-language rounds fail with the same unsupported-headline or missing-quantified-claim blocker and the paper already has enough evidence/pages, stop local wording churn and perform the claim-scope reset above before the next review.
 
 ## Response shape
 - State the academic-language score and whether `validate-academic-language-review` passed.
