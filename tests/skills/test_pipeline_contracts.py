@@ -8,6 +8,7 @@ from pathlib import Path
 
 from argus_skill.skills.academic_language_review import generate_academic_language_review
 from argus_skill.skills.pipeline_contracts import (
+    _pdf_page_count,
     _validate_research_md_pdf_text,
     _validate_research_md_reference_depth,
     refresh_artifact_freshness,
@@ -2119,14 +2120,14 @@ def test_layout_review_classifies_extra_snapshot_pages_as_stale_not_incomplete(
     _write_valid_layout_review(tmp_path)
     path = tmp_path / "paper" / "LAYOUT_REVIEW.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
-    page_path = tmp_path / "paper" / "layout_review" / "pages" / "page-10.png"
+    page_path = tmp_path / "paper" / "layout_review" / "pages" / "page-11.png"
     _write_bytes(page_path, _png_bytes(612, 792))
     payload["page_snapshots"].append({
-        "page": 10,
+        "page": 11,
         "path": page_path.relative_to(tmp_path).as_posix(),
         "sha256": _sha256(page_path),
     })
-    payload["vision_review"]["reviewed_pages"] = list(range(1, 11))
+    payload["vision_review"]["reviewed_pages"] = list(range(1, 12))
     _write_json(path, payload)
 
     codes = {issue.code for issue in validate_layout_review(tmp_path)}
@@ -3251,7 +3252,7 @@ def _write_valid_layout_review(
     pdf_path = root / "paper" / "main.pdf"
     if not pdf_path.exists():
         _write_bytes(pdf_path, _minimal_pdf_bytes(["Page 1"]))
-    page_count = 9
+    page_count = _pdf_page_count(pdf_path) or 1
     page_snapshots = []
     for page_number in range(1, page_count + 1):
         page_path = root / "paper" / "layout_review" / "pages" / f"page-{page_number}.png"

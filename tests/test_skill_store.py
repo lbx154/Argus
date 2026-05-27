@@ -30,6 +30,21 @@ def test_save_and_list(tmp_path: Path) -> None:
     assert names == ["Bar", "Foo"]
 
 
+def test_skill_parse_accepts_quoted_semver_frontmatter() -> None:
+    skill = Skill.parse(
+        "---\n"
+        "name: semver skill\n"
+        "description: accepts quoted versions\n"
+        "category: test\n"
+        'version: "2.0"\n'
+        "---\n\n"
+        "body\n",
+        "semver.md",
+    )
+
+    assert skill.version == 2
+
+
 def test_find_relevant_returns_high_fit_skill(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     _write_skill(skills_dir, "set-up-nginx", "configure nginx", "nginx")

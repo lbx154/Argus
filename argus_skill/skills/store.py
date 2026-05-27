@@ -72,6 +72,19 @@ def cleanse_task_history(skill: "Skill") -> int:
     return before - len(skill.task_history)
 
 
+def _parse_skill_version(raw: str) -> int:
+    value = raw.strip().strip('"').strip("'")
+    if not value:
+        return 1
+    try:
+        return int(value)
+    except ValueError:
+        match = re.match(r"^(\d+)(?:\.\d+)*$", value)
+        if match:
+            return int(match.group(1))
+        return 1
+
+
 @dataclass
 class Skill:
     name: str
@@ -133,7 +146,7 @@ class Skill:
             description=_get("description"),
             category=_get("category"),
             content=content,
-            version=int(_get("version") or "1"),
+            version=_parse_skill_version(_get("version")),
             scientist_model=_get("scientist_model"),
             created_at=_get("created_at"),
             task_history=history,
