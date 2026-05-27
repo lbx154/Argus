@@ -68,7 +68,7 @@ class SkillLoopConfig:
     scientist_reasoning_effort: str = "high"
     engineer_reasoning_effort: str | None = "high"
     reviewer_reasoning_effort: str = "high"
-    matcher_reasoning_effort: str | None = None
+    matcher_reasoning_effort: str | None = "high"
     max_rounds: int = 500
     check_commands: list[str] = field(default_factory=list)
     check_timeout_seconds: int = 600
