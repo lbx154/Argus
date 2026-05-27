@@ -57,7 +57,7 @@ def test_formulaic_prose_overuse_is_a_hard_revision_issue() -> None:
                 for _ in range(12)
             ),
             r"\section{Experiments}",
-            "Results remain benchmark-scoped with a quantified 240-task comparison.",
+            "Results remain benchmark-scoped with quantified multi-source comparisons.",
         ]
     )
 

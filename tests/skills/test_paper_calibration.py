@@ -155,11 +155,11 @@ def test_proposed_protocol_must_beat_best_nontrivial_baseline(
         "\n".join(
             [
                 "scope\tsplit_name\tprotocol\tsuccess_rate\tjson_parse_rate\tn_tasks",
-                "overall\tmain\tno_skill\t0.500\t1.000\t240",
-                "overall\tmain\traw_memory\t0.500\t1.000\t240",
-                "overall\tmain\treflexion\t0.944\t1.000\t240",
-                "overall\tmain\tstatic_skill_lib\t0.500\t1.000\t240",
-                "overall\tmain\treplay_skill\t0.500\t1.000\t240",
+                "overall\tmain\tno_skill\t0.500\t1.000\t300",
+                "overall\tmain\traw_memory\t0.500\t1.000\t300",
+                "overall\tmain\treflexion\t0.944\t1.000\t300",
+                "overall\tmain\tstatic_skill_lib\t0.500\t1.000\t300",
+                "overall\tmain\treplay_skill\t0.500\t1.000\t300",
                 "overall\tpublic_validation\tno_skill\t0.500\t1.000\t30",
                 "overall\tpublic_validation\traw_memory\t0.500\t1.000\t30",
                 "overall\tpublic_validation\treflexion\t0.833\t1.000\t30",
@@ -197,11 +197,11 @@ def test_positive_headline_contribution_can_pass_quality_blocker_scan(
         "\n".join(
             [
                 "scope\tsplit_name\tprotocol\tsuccess_rate\tjson_parse_rate\tn_tasks",
-                "overall\tmain\tno_skill\t0.500\t1.000\t240",
-                "overall\tmain\traw_memory\t0.610\t1.000\t240",
-                "overall\tmain\treflexion\t0.850\t1.000\t240",
-                "overall\tmain\tstatic_skill_lib\t0.620\t1.000\t240",
-                "overall\tmain\tskillcycle\t0.920\t1.000\t240",
+                "overall\tmain\tno_skill\t0.500\t1.000\t300",
+                "overall\tmain\traw_memory\t0.610\t1.000\t300",
+                "overall\tmain\treflexion\t0.850\t1.000\t300",
+                "overall\tmain\tstatic_skill_lib\t0.620\t1.000\t300",
+                "overall\tmain\tskillcycle\t0.920\t1.000\t300",
                 "overall\tpublic_validation\tno_skill\t0.500\t1.000\t30",
                 "overall\tpublic_validation\traw_memory\t0.600\t1.000\t30",
                 "overall\tpublic_validation\treflexion\t0.800\t1.000\t30",
@@ -236,10 +236,10 @@ def test_sixty_task_summary_is_underpowered_for_full_paper(tmp_path: Path) -> No
 
     underpowered = [issue for issue in issues if issue.code == "underpowered_pilot"]
     assert underpowered
-    assert "240" in underpowered[0].message
+    assert "300" in underpowered[0].message
 
 
-def test_planned_240_provenance_cannot_substitute_for_scored_results(
+def test_planned_300_provenance_cannot_substitute_for_scored_results(
     tmp_path: Path,
 ) -> None:
     _write_valid_quality_calibration(tmp_path, proposed_protocol="skillcycle")
@@ -248,7 +248,7 @@ def test_planned_240_provenance_cannot_substitute_for_scored_results(
         "\n".join(
             [
                 "metric\tvalue\tsource",
-                "benchmark_scored_tasks_overall\t240\texperiments/BENCHMARK_PROVENANCE.md",
+                "benchmark_scored_tasks_overall\t300\texperiments/BENCHMARK_PROVENANCE.md",
                 "canonical_episodes\t60\tresults/transfer60/summary.json",
                 "canonical_accuracy\t1.0000\tpaper/artifacts/results_table.tsv",
             ]
@@ -257,7 +257,7 @@ def test_planned_240_provenance_cannot_substitute_for_scored_results(
     )
     _write(
         tmp_path / "experiments" / "BENCHMARK_PROVENANCE.md",
-        "Planned episodes: 240 total across the full benchmark development corpus.\n",
+        "Planned episodes: 300 total across the full benchmark development corpus.\n",
     )
 
     issues = detect_quality_blockers(tmp_path)
@@ -274,11 +274,11 @@ def test_results_summary_cannot_exceed_run_evidence(tmp_path: Path) -> None:
         "\n".join(
             [
                 "scope\tsplit_name\tprotocol\tsuccess_rate\tjson_parse_rate\tn_tasks",
-                "overall\tmain\tno_skill\t0.500\t1.000\t240",
-                "overall\tmain\traw_memory\t0.610\t1.000\t240",
-                "overall\tmain\treflexion\t0.850\t1.000\t240",
-                "overall\tmain\tstatic_skill_lib\t0.620\t1.000\t240",
-                "overall\tmain\tskillcycle\t0.920\t1.000\t240",
+                "overall\tmain\tno_skill\t0.500\t1.000\t300",
+                "overall\tmain\traw_memory\t0.610\t1.000\t300",
+                "overall\tmain\treflexion\t0.850\t1.000\t300",
+                "overall\tmain\tstatic_skill_lib\t0.620\t1.000\t300",
+                "overall\tmain\tskillcycle\t0.920\t1.000\t300",
             ]
         )
         + "\n",
@@ -299,17 +299,17 @@ def test_results_summary_cannot_exceed_run_evidence(tmp_path: Path) -> None:
     assert "results_summary_exceeds_run_evidence" in {issue.code for issue in issues}
 
 
-def test_copied_records_do_not_count_as_240_unique_tasks(tmp_path: Path) -> None:
+def test_copied_records_do_not_count_as_300_unique_tasks(tmp_path: Path) -> None:
     _write_valid_quality_calibration(tmp_path, proposed_protocol="skillcycle")
     _write_full_results_summary(tmp_path)
     _write_json(
-        tmp_path / "experiments" / "transfer240" / "status.json",
-        {"status": "done", "summaries": [{"method": "skillcycle", "episodes": 240}]},
+        tmp_path / "experiments" / "transfer300" / "status.json",
+        {"status": "done", "summaries": [{"method": "skillcycle", "episodes": 300}]},
     )
     records = []
     for repeat_index in range(4):
         suffix = "" if repeat_index == 0 else f"_r{repeat_index + 1}"
-        for task_index in range(60):
+        for task_index in range(75):
             records.append(
                 {
                     "episode_id": f"pilot_task_{task_index:03d}{suffix}",
@@ -320,7 +320,7 @@ def test_copied_records_do_not_count_as_240_unique_tasks(tmp_path: Path) -> None
                     "success": True,
                 }
             )
-    _write_jsonl(tmp_path / "results" / "transfer240" / "skillcycle" / "records.jsonl", records)
+    _write_jsonl(tmp_path / "results" / "transfer300" / "skillcycle" / "records.jsonl", records)
 
     issues = detect_quality_blockers(tmp_path)
 
@@ -336,7 +336,7 @@ def test_renamed_duplicate_task_definitions_are_blocked(tmp_path: Path) -> None:
             "prompt": f"Route these requests for base case {task_index % 120}.",
             "gold_answer": f"A{task_index % 120}",
         }
-        for task_index in range(240)
+        for task_index in range(300)
     ]
     _write_jsonl(tmp_path / "bench" / "boundary_trap_bench" / "all.jsonl", records)
 
@@ -345,7 +345,7 @@ def test_renamed_duplicate_task_definitions_are_blocked(tmp_path: Path) -> None:
     assert "duplicated_benchmark_expansion" in {issue.code for issue in issues}
 
 
-def test_unique_240_task_records_pass_duplicate_gate(tmp_path: Path) -> None:
+def test_unique_300_task_records_pass_duplicate_gate(tmp_path: Path) -> None:
     _write_valid_quality_calibration(tmp_path, proposed_protocol="skillcycle")
     _write_full_results_summary(tmp_path)
     records = [
@@ -358,9 +358,9 @@ def test_unique_240_task_records_pass_duplicate_gate(tmp_path: Path) -> None:
             "prediction": f"ANSWER: A{task_index}",
             "success": True,
         }
-        for task_index in range(240)
+        for task_index in range(300)
     ]
-    _write_jsonl(tmp_path / "results" / "transfer240" / "skillcycle" / "records.jsonl", records)
+    _write_jsonl(tmp_path / "results" / "transfer300" / "skillcycle" / "records.jsonl", records)
 
     issues = detect_quality_blockers(tmp_path)
 
@@ -388,7 +388,7 @@ def test_synthetic_benchmark_requires_frontier_benchmark_survey(tmp_path: Path) 
         {
             "uses_public_benchmark": False,
             "benchmark_type": "synthetic",
-            "task_count": 240,
+            "task_count": 300,
         },
     )
 
@@ -403,7 +403,7 @@ def test_synthetic_benchmark_survey_can_name_frontier_sources(tmp_path: Path) ->
         {
             "uses_public_benchmark": False,
             "benchmark_type": "synthetic",
-            "task_count": 240,
+            "task_count": 300,
             "surveyed_benchmarks": [
                 {"name": "ToolBench", "decision": "reject", "reason": "tool APIs mismatch"},
                 {"name": "WebArena", "decision": "reject", "reason": "browser stack unavailable"},
@@ -422,13 +422,45 @@ def test_full_benchmark_requires_multiple_selected_sources(tmp_path: Path) -> No
         {
             "uses_public_benchmark": True,
             "benchmark_type": "public",
-            "task_count": 240,
+            "task_count": 300,
             "selected_benchmarks": [
                 {
                     "name": "ToolBench",
                     "url": "https://github.com/OpenBMB/ToolBench",
-                    "task_count": 240,
+                    "task_count": 300,
                 }
+            ],
+        },
+    )
+
+    issues = detect_quality_blockers(tmp_path)
+
+    assert "insufficient_selected_benchmark_sources" in {issue.code for issue in issues}
+
+
+def test_same_family_benchmark_components_count_as_one_source(tmp_path: Path) -> None:
+    _write_json(
+        tmp_path / "experiments" / "BENCHMARK_PROVENANCE.json",
+        {
+            "uses_public_benchmark": True,
+            "benchmark_type": "public",
+            "task_count": 300,
+            "selected_benchmarks": [
+                {
+                    "name": "SWE-bench Verified",
+                    "url": "https://github.com/swe-bench/SWE-bench",
+                    "task_count": 100,
+                },
+                {
+                    "name": "SWE-bench Lite",
+                    "url": "https://github.com/swe-bench/SWE-bench",
+                    "task_count": 100,
+                },
+                {
+                    "name": "SWE-bench Multimodal",
+                    "url": "https://huggingface.co/datasets/SWE-bench/SWE-bench_Multimodal",
+                    "task_count": 100,
+                },
             ],
         },
     )
@@ -444,7 +476,7 @@ def test_selected_benchmark_sources_need_source_pointers(tmp_path: Path) -> None
         {
             "uses_public_benchmark": True,
             "benchmark_type": "hybrid",
-            "task_count": 240,
+            "task_count": 300,
             "selected_benchmarks": [
                 {"name": "ToolBench", "task_count": 120},
                 {"name": "WebArena", "task_count": 120},
@@ -464,7 +496,7 @@ def test_multi_source_benchmark_provenance_passes_source_gate(tmp_path: Path) ->
         {
             "uses_public_benchmark": True,
             "benchmark_type": "hybrid",
-            "task_count": 240,
+            "task_count": 300,
             "selected_benchmarks": [
                 {
                     "name": "ToolBench",
@@ -548,7 +580,7 @@ def test_planned_markdown_benchmark_sources_do_not_count_as_selected(
                 "",
                 "| Name | URL/repo | Paper/citation | Version/date | Unique task count contributed | Split/filtering | License/access | Capability / failure mode | Why selected | Alternatives surveyed |",
                 "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-                "| SWE-bench Verified | https://github.com/swe-bench/SWE-bench | SWE-bench Verified | 2024 | 240 completed scored tasks | verified split | public benchmark release | code repair | Completed main source. | SWE-bench+ |",
+                "| SWE-bench Verified | https://github.com/swe-bench/SWE-bench | SWE-bench Verified | 2024 | 300 completed scored tasks | verified split | public benchmark release | code repair | Completed main source. | SWE-bench+ |",
                 "| SWE-bench Multimodal | https://huggingface.co/datasets/SWE-bench/SWE-bench_Multimodal | SWE-bench Multimodal | 2024 | 80 diagnostic tasks planned | planned split | public benchmark release | visual bug fixing | Planned diagnostic. | SWE-bench |",
                 "| RepoBench-P | https://github.com/Leolty/repobench | RepoBench | 2024 | 80 diagnostic tasks planned | planned split | public benchmark release | repo completion | Planned diagnostic. | CodeSearchNet |",
                 "",
@@ -623,11 +655,11 @@ def _write_full_results_summary(tmp_path: Path) -> None:
         "\n".join(
             [
                 "scope\tsplit_name\tprotocol\tsuccess_rate\tjson_parse_rate\tn_tasks",
-                "overall\tmain\tno_skill\t0.500\t1.000\t240",
-                "overall\tmain\traw_memory\t0.610\t1.000\t240",
-                "overall\tmain\treflexion\t0.850\t1.000\t240",
-                "overall\tmain\tstatic_skill_lib\t0.620\t1.000\t240",
-                "overall\tmain\tskillcycle\t0.920\t1.000\t240",
+                "overall\tmain\tno_skill\t0.500\t1.000\t300",
+                "overall\tmain\traw_memory\t0.610\t1.000\t300",
+                "overall\tmain\treflexion\t0.850\t1.000\t300",
+                "overall\tmain\tstatic_skill_lib\t0.620\t1.000\t300",
+                "overall\tmain\tskillcycle\t0.920\t1.000\t300",
                 "overall\tpublic_validation\tno_skill\t0.500\t1.000\t30",
                 "overall\tpublic_validation\traw_memory\t0.600\t1.000\t30",
                 "overall\tpublic_validation\treflexion\t0.800\t1.000\t30",

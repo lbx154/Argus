@@ -126,6 +126,50 @@ MIN_INTRODUCTION_WORDS = 900
 MIN_METHOD_WORDS = 700
 MIN_EXPERIMENTAL_SETUP_WORDS = 550
 MIN_EXECUTED_BENCHMARK_SOURCES = 3
+KNOWN_BENCHMARK_FAMILY_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"\bswe[-_\s]?bench\b|\bswebench\b", "swe-bench"),
+    (r"\btool[-_\s]?bench\b|\btooleval\b", "toolbench"),
+    (r"\bweb[-_\s]?arena\b", "webarena"),
+    (r"\bmind2web\b|\bonline[-_\s]?mind2web\b", "mind2web"),
+    (r"\bminiwo\b|\bminiwob\b|\bminiwob\+\+\b", "miniwob"),
+    (r"\bgaia\b", "gaia"),
+    (r"\bagent[-_\s]?bench\b", "agentbench"),
+    (r"\balfworld\b", "alfworld"),
+    (r"\bmulti[-_\s]?agent[-_\s]?bench\b", "multiagentbench"),
+    (r"\blocomo\b", "locomo"),
+    (r"\brepo[-_\s]?bench\b", "repobench"),
+    (r"\bcode[-_\s]?search[-_\s]?net\b", "codesearchnet"),
+    (r"\bthe[-_\s]?agent[-_\s]?company\b", "theagentcompany"),
+)
+BENCHMARK_VARIANT_TOKENS = {
+    "benchmark",
+    "bench",
+    "verified",
+    "lite",
+    "multimodal",
+    "multi",
+    "modal",
+    "full",
+    "official",
+    "release",
+    "component",
+    "components",
+    "source",
+    "sources",
+    "suite",
+    "dataset",
+    "tasks",
+    "episodes",
+    "split",
+    "test",
+    "train",
+    "dev",
+    "validation",
+    "held",
+    "out",
+    "sample",
+    "sampled",
+}
 MIN_FINAL_BIBLIOGRAPHY_ENTRIES = 35
 MIN_FINAL_UNIQUE_CITATION_KEYS = 30
 MIN_RENDERED_REFERENCE_PAGES = 2
@@ -799,7 +843,7 @@ PIPELINE_STATUSES: tuple[str, ...] = (
 )
 
 SUCCESS_STATUSES = {"ready", "done"}
-MIN_FULL_SCALE_EXPERIMENT_TASKS = 240
+MIN_FULL_SCALE_EXPERIMENT_TASKS = 300
 FULL_SCALE_GATED_STAGES = {"analysis", "narrative", "draft", "assurance", "submission"}
 FULL_SCALE_COMPLETED_STATUSES = {"complete", "completed", "done", "success", "succeeded"}
 FULL_SCALE_TASK_COUNT_FIELDS = {
@@ -1215,6 +1259,7 @@ def validate_full_scale_experiment_evidence(project_root: Path) -> list[Contract
     runs = _collect_experiment_run_evidence(root)
     required_methods = _required_full_scale_methods(root, runs)
     full_counts_by_method: dict[str, int] = {}
+    aggregate_counts_by_method: dict[str, int] = {}
     incomplete_full_runs: list[_ExperimentRunEvidence] = []
     max_scored_tasks = 0
 
@@ -1231,9 +1276,15 @@ def validate_full_scale_experiment_evidence(project_root: Path) -> list[Contract
         if not run.completed:
             continue
         for method, count in scored_counts.items():
-            if count < MIN_FULL_SCALE_EXPERIMENT_TASKS:
-                continue
-            full_counts_by_method[method] = max(count, full_counts_by_method.get(method, 0))
+            aggregate_counts_by_method[method] = aggregate_counts_by_method.get(method, 0) + count
+
+    if aggregate_counts_by_method:
+        max_scored_tasks = max(max_scored_tasks, max(aggregate_counts_by_method.values()))
+        full_counts_by_method = {
+            method: count
+            for method, count in aggregate_counts_by_method.items()
+            if count >= MIN_FULL_SCALE_EXPERIMENT_TASKS
+        }
 
     issues: list[ContractIssue] = []
     if incomplete_full_runs and not full_counts_by_method:
@@ -1245,7 +1296,7 @@ def validate_full_scale_experiment_evidence(project_root: Path) -> list[Contract
                 "incomplete_full_scale_experiment_run",
                 "experiments/",
                 (
-                    "a >=240-task experiment run was declared but is not completed; "
+                    "a full-scale experiment run was declared but is not completed; "
                     f"finish or rerun it before analysis/drafting ({paths})"
                 ),
             )
@@ -3522,7 +3573,7 @@ def _latex_contract_plain_text(tex_text: str) -> str:
 def _executed_benchmark_source_count_from_json(payload: object) -> int:
     sources = _json_benchmark_sources(payload)
     identities = {
-        _benchmark_source_identity_for_contract(source)
+        _benchmark_source_family_identity_for_contract(source)
         for source in sources
         if not _benchmark_source_planned_only(source)
     }
@@ -3640,7 +3691,7 @@ def _executed_benchmark_source_count_from_markdown(raw_text: str) -> int:
                 continue
             identity_cell = _benchmark_identity_cell(normalized_headers, cells)
             if identity_cell:
-                identities.add(_normalize_contract_identity(identity_cell))
+                identities.add(_benchmark_family_identity(identity_cell))
     if identities:
         return len(identities)
     selected_text = raw_text.lower()
@@ -3655,7 +3706,7 @@ def _executed_benchmark_source_count_from_markdown(raw_text: str) -> int:
         if _benchmark_source_planned_only(normalized):
             continue
         if _line_has_benchmark_pointer(normalized):
-            identities.add(_normalize_contract_identity(normalized))
+            identities.add(_benchmark_family_identity(normalized))
     return len(identities)
 
 
@@ -3670,13 +3721,26 @@ def _benchmark_identity_cell(headers: Sequence[str], cells: Sequence[str]) -> st
     return None
 
 
-def _benchmark_source_identity_for_contract(source: Mapping[str, Any]) -> str | None:
-    for field in ("name", "source", "benchmark", "dataset", "suite", "url", "repo", "paper", "doi"):
+def _benchmark_source_family_identity_for_contract(source: Mapping[str, Any]) -> str | None:
+    for field in (
+        "benchmark_family",
+        "source_family",
+        "family",
+        "suite",
+        "benchmark",
+        "dataset",
+        "name",
+        "source",
+        "url",
+        "repo",
+        "paper",
+        "doi",
+    ):
         value = source.get(field)
         if isinstance(value, str) and value.strip():
-            return _normalize_contract_identity(value)
+            return _benchmark_family_identity(value)
     serialized = json.dumps(source, sort_keys=True, ensure_ascii=False)
-    return _normalize_contract_identity(serialized) if serialized != "{}" else None
+    return _benchmark_family_identity(serialized) if serialized != "{}" else None
 
 
 def _benchmark_source_planned_only(source: object) -> bool:
@@ -3725,6 +3789,24 @@ def _contract_markdown_cells(line: str) -> list[str]:
 
 def _normalize_contract_identity(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().lower())
+
+
+def _benchmark_family_identity(value: str) -> str:
+    text = _normalize_contract_identity(value).replace("_", "-")
+    for pattern, family in KNOWN_BENCHMARK_FAMILY_PATTERNS:
+        if re.search(pattern, text, flags=re.I):
+            return family
+    text = re.sub(r"https?://", " ", text)
+    text = re.sub(r"\b(?:github\.com|huggingface\.co|datasets|dataset)\b", " ", text)
+    text = re.sub(r"[/#?=&:.,;()]+", " ", text)
+    tokens = [
+        token
+        for token in re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)?", text)
+        if token and token not in BENCHMARK_VARIANT_TOKENS
+    ]
+    if not tokens:
+        return _normalize_contract_identity(value)
+    return " ".join(tokens[:2])
 
 
 def validate_paper_format(project_root: Path) -> list[ContractIssue]:
@@ -9483,16 +9565,21 @@ def _real_benchmark_json_issues(payload: Mapping[str, object]) -> list[ContractI
 
     sources = _real_benchmark_sources_from_payload(payload)
     unique_sources = {
-        _normalize_source_identity_for_contract(source)
+        _benchmark_source_family_identity_for_contract(source)
         for source in sources
-        if _normalize_source_identity_for_contract(source)
+        if _benchmark_source_family_identity_for_contract(source)
     }
-    if len(unique_sources) < 2:
+    if len(unique_sources) < MIN_EXECUTED_BENCHMARK_SOURCES:
         issues.append(
             ContractIssue(
                 "insufficient_selected_benchmark_sources",
                 str(BENCHMARK_PROVENANCE_JSON_PATH),
-                "full-scale evidence requires at least 2 selected existing real benchmark sources, with 3+ preferred",
+                (
+                    "full-scale evidence requires at least "
+                    f"{MIN_EXECUTED_BENCHMARK_SOURCES} independent existing real "
+                    "benchmark source families; multiple slices from one family "
+                    "such as SWE-bench Verified/Lite/Multimodal count as one"
+                ),
             )
         )
     elif not all(_real_benchmark_source_has_pointer(source) for source in sources):
@@ -9517,16 +9604,18 @@ def _real_benchmark_markdown_issues(text: str) -> list[ContractIssue]:
                 "full-scale evidence must not use synthetic/local/proxy benchmark sources",
             )
         )
-    source_count = max(
-        _markdown_real_benchmark_table_count(text),
-        sum(1 for marker in REAL_BENCHMARK_POINTER_MARKERS if marker in lower),
-    )
-    if source_count < 2:
+    source_count = _executed_benchmark_source_count_from_markdown(text)
+    if source_count < MIN_EXECUTED_BENCHMARK_SOURCES:
         issues.append(
             ContractIssue(
                 "insufficient_selected_benchmark_sources",
                 str(BENCHMARK_PROVENANCE_MD_PATH),
-                "benchmark provenance must list at least 2 selected existing real benchmark sources with source pointers",
+                (
+                    "benchmark provenance must list at least "
+                    f"{MIN_EXECUTED_BENCHMARK_SOURCES} independent selected existing "
+                    "real benchmark source families with source pointers; same-family "
+                    "components do not count as separate sources"
+                ),
             )
         )
     return issues
@@ -9570,29 +9659,6 @@ def _real_benchmark_source_has_pointer(source: Mapping[str, object]) -> bool:
             return True
     text = json.dumps(source, ensure_ascii=False).lower()
     return any(marker in text for marker in REAL_BENCHMARK_POINTER_MARKERS)
-
-
-def _normalize_source_identity_for_contract(source: Mapping[str, object]) -> str | None:
-    for field in ("name", "benchmark", "dataset", "suite", "source", *REAL_BENCHMARK_POINTER_FIELDS):
-        value = source.get(field)
-        if isinstance(value, str) and value.strip():
-            return re.sub(r"\s+", " ", value.strip().lower())
-    return None
-
-
-def _markdown_real_benchmark_table_count(text: str) -> int:
-    count = 0
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped.startswith("|") or stripped.count("|") < 3:
-            continue
-        lower = stripped.lower()
-        if "http" not in lower and "doi:" not in lower and "arxiv" not in lower:
-            continue
-        if any(marker in lower for marker in ("---", "name", "benchmark |", "source |")):
-            continue
-        count += 1
-    return count
 
 
 def _collect_experiment_run_evidence(root: Path) -> list[_ExperimentRunEvidence]:

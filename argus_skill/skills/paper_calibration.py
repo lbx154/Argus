@@ -51,10 +51,54 @@ QUALITY_CALIBRATION_VERDICTS = (
     "NOT_APPLICABLE",
 )
 READY_VERDICTS = {"PASS", "WARN"}
-MIN_PAPER_TASKS = 240
-PAPER_TASK_SCALE_TARGET = "240/250"
+MIN_PAPER_TASKS = 300
+PAPER_TASK_SCALE_TARGET = "3-source final-evidence"
 MIN_SELECTED_BENCHMARK_SOURCES = 3
 RECOMMENDED_SELECTED_BENCHMARK_SOURCES = 3
+KNOWN_BENCHMARK_FAMILY_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"\bswe[-_\s]?bench\b|\bswebench\b", "swe-bench"),
+    (r"\btool[-_\s]?bench\b|\btooleval\b", "toolbench"),
+    (r"\bweb[-_\s]?arena\b", "webarena"),
+    (r"\bmind2web\b|\bonline[-_\s]?mind2web\b", "mind2web"),
+    (r"\bminiwo\b|\bminiwob\b|\bminiwob\+\+\b", "miniwob"),
+    (r"\bgaia\b", "gaia"),
+    (r"\bagent[-_\s]?bench\b", "agentbench"),
+    (r"\balfworld\b", "alfworld"),
+    (r"\bmulti[-_\s]?agent[-_\s]?bench\b", "multiagentbench"),
+    (r"\blocomo\b", "locomo"),
+    (r"\brepo[-_\s]?bench\b", "repobench"),
+    (r"\bcode[-_\s]?search[-_\s]?net\b", "codesearchnet"),
+    (r"\bthe[-_\s]?agent[-_\s]?company\b", "theagentcompany"),
+)
+BENCHMARK_VARIANT_TOKENS = {
+    "benchmark",
+    "bench",
+    "verified",
+    "lite",
+    "multimodal",
+    "multi",
+    "modal",
+    "full",
+    "official",
+    "release",
+    "component",
+    "components",
+    "source",
+    "sources",
+    "suite",
+    "dataset",
+    "tasks",
+    "episodes",
+    "split",
+    "test",
+    "train",
+    "dev",
+    "validation",
+    "held",
+    "out",
+    "sample",
+    "sampled",
+}
 BENCHMARK_TASK_COUNT_FIELDS = {
     "task_count",
     "n_tasks",
@@ -1271,9 +1315,10 @@ def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
                         (
                             "full-paper benchmark provenance must list at least "
                             f"{MIN_SELECTED_BENCHMARK_SOURCES} independent selected "
-                            "executed benchmark sources/components; planned diagnostic "
-                            "sources do not count, and single-source evidence is not "
-                            "enough to claim broad method effectiveness"
+                            "executed benchmark source families; planned diagnostic "
+                            "sources do not count, and same-family slices such as "
+                            "SWE-bench Verified/Lite/Multimodal do not count as "
+                            "separate sources"
                         ),
                     )
                 )
@@ -1408,9 +1453,9 @@ def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
                         "full-paper benchmark provenance must include a selected "
                         "benchmark source table/list with at least "
                         f"{MIN_SELECTED_BENCHMARK_SOURCES} independent executed real/frontier "
-                        "benchmark sources or components; planned diagnostic rows do "
-                        "not count, and single-source evidence is not enough to claim "
-                        "broad method effectiveness"
+                        "benchmark source families; planned diagnostic rows do not "
+                        "count, and same-family slices do not establish broad method "
+                        "effectiveness"
                     ),
                 )
             )
@@ -1526,18 +1571,42 @@ def _looks_like_benchmark_source(value: dict[str, Any]) -> bool:
 
 
 def _benchmark_source_identity(source: dict[str, Any]) -> str | None:
-    for field in BENCHMARK_SOURCE_NAME_FIELDS + BENCHMARK_SOURCE_POINTER_FIELDS:
+    family_fields = (
+        "benchmark_family",
+        "source_family",
+        "family",
+        "suite",
+    )
+    for field in family_fields + BENCHMARK_SOURCE_NAME_FIELDS + BENCHMARK_SOURCE_POINTER_FIELDS:
         value = source.get(field)
         if _nonempty_string(value):
-            return _normalize_source_identity(str(value))
+            return _benchmark_family_identity(str(value))
     serialized = json.dumps(source, sort_keys=True, ensure_ascii=False)
     if serialized == "{}":
         return None
-    return _normalize_source_identity(serialized)
+    return _benchmark_family_identity(serialized)
 
 
 def _normalize_source_identity(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().lower())
+
+
+def _benchmark_family_identity(value: str) -> str:
+    text = _normalize_source_identity(value).replace("_", "-")
+    for pattern, family in KNOWN_BENCHMARK_FAMILY_PATTERNS:
+        if re.search(pattern, text, flags=re.I):
+            return family
+    text = re.sub(r"https?://", " ", text)
+    text = re.sub(r"\b(?:github\.com|huggingface\.co|datasets|dataset)\b", " ", text)
+    text = re.sub(r"[/#?=&:.,;()]+", " ", text)
+    tokens = [
+        token
+        for token in re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)?", text)
+        if token and token not in BENCHMARK_VARIANT_TOKENS
+    ]
+    if not tokens:
+        return _normalize_source_identity(value)
+    return " ".join(tokens[:2])
 
 
 def _benchmark_source_has_pointer(source: dict[str, Any]) -> bool:
@@ -1580,7 +1649,7 @@ def _text_selected_benchmark_source_count(raw_text: str) -> int:
     source_identities: set[str] = set()
     for marker in FRONTIER_BENCHMARK_TEXT_MARKERS:
         if marker in selected_section.lower():
-            source_identities.add(marker)
+            source_identities.add(_benchmark_family_identity(marker))
     for line in selected_section.splitlines():
         normalized = line.strip().lower()
         if not normalized.startswith(("-", "*", "|")):
@@ -1590,7 +1659,7 @@ def _text_selected_benchmark_source_count(raw_text: str) -> int:
         if _planned_only_text(normalized, markers=PLANNED_SOURCE_TEXT_MARKERS):
             continue
         if any(marker in normalized for marker in BENCHMARK_SOURCE_POINTER_MARKERS):
-            source_identities.add(_normalize_source_identity(normalized))
+            source_identities.add(_benchmark_family_identity(normalized))
     return len(source_identities)
 
 
@@ -1638,7 +1707,7 @@ def _markdown_benchmark_source_table_count(raw_text: str) -> int:
         if not (has_source_identity and has_pointer and has_selection_rationale):
             continue
 
-        count = 0
+        identities: set[str] = set()
         for row in lines[index + 2 :]:
             if not row.lstrip().startswith("|"):
                 break
@@ -1655,8 +1724,9 @@ def _markdown_benchmark_source_table_count(raw_text: str) -> int:
             cells = _markdown_cells(row)
             if len([cell for cell in cells if cell.strip()]) < 3:
                 continue
+            identity_cell = _markdown_identity_cell(normalized_headers, cells)
             if any(marker in normalized_row for marker in BENCHMARK_SOURCE_POINTER_MARKERS):
-                count += 1
+                identities.add(_benchmark_family_identity(identity_cell or normalized_row))
                 continue
             pointer_cells = [
                 cell
@@ -1670,9 +1740,20 @@ def _markdown_benchmark_source_table_count(raw_text: str) -> int:
                 )
             ]
             if any(_nonempty_string(cell) for cell in pointer_cells):
-                count += 1
-        best_count = max(best_count, count)
+                identities.add(_benchmark_family_identity(identity_cell or normalized_row))
+        best_count = max(best_count, len(identities))
     return best_count
+
+
+def _markdown_identity_cell(headers: list[str], cells: list[str]) -> str | None:
+    for header, cell in zip(headers, cells, strict=False):
+        if header in {"name", "benchmark", "benchmark_name", "source", "suite", "dataset"}:
+            if cell.strip():
+                return cell.strip()
+    for cell in cells:
+        if cell.strip():
+            return cell.strip()
+    return None
 
 
 def _looks_like_markdown_separator(line: str) -> bool:
