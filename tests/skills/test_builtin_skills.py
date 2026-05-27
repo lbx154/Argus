@@ -258,6 +258,23 @@ def test_research_domain_router_references_current_domain_skill_packs(
         assert current_path in text
 
 
+def test_emnlp_page_contract_keeps_references_and_appendix_after_body(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    seed_builtin_skills(skills_dir)
+
+    router = (skills_dir / "research-domain-router.md").read_text(encoding="utf-8")
+    playbook = (skills_dir / "emnlp-paper-writing-playbook.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "References and appendix start on page 9 or later" in router
+    assert "Page 9+  References + Appendix" in playbook
+    assert "Limitations + Ethics + References + Appendix" not in playbook
+    assert "don't count against the limit" not in playbook
+
+
 def test_builtin_skills_forbid_manual_review_artifact_passes(
     tmp_path: Path,
 ) -> None:
