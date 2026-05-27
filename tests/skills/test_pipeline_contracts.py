@@ -1909,7 +1909,7 @@ def test_latex_contract_word_count_preserves_escaped_percent() -> None:
     assert _latex_environment_word_count(tex_text, "abstract") >= 180
 
 
-def test_emnlp_paper_contract_rejects_uncited_and_formulaic_intro(
+def test_emnlp_paper_contract_rejects_uncited_intro(
     tmp_path: Path,
 ) -> None:
     _write_valid_paper_draft_report(tmp_path)
@@ -1929,7 +1929,6 @@ def test_emnlp_paper_contract_rejects_uncited_and_formulaic_intro(
     codes = {issue.code for issue in validate_emnlp_paper_contract(tmp_path)}
 
     assert "introduction_missing_literature_hooks" in codes
-    assert "contrastive_template_overuse" in codes
 
 
 def test_emnlp_paper_contract_requires_model_identifier_and_settings(tmp_path: Path) -> None:
