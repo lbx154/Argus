@@ -33,6 +33,8 @@ def test_vision_prompt_frames_emnlp_2026_visual_submission_review() -> None:
     assert "source_targets" in prompt
     assert "specific_edits" in prompt
     assert "implementation_guidance" in prompt
+    assert "Official ACL/EMNLP anonymous review-mode line numbers" in prompt
+    assert "must not be treated as debug gutters" in prompt
     assert "Shortening an underfilled body makes the early-References defect worse" in prompt
     assert "Allowed action values:" in prompt
     assert "dense_table_float_page" in prompt
