@@ -391,6 +391,9 @@ def test_plan_next_passes_config_to_runner():
     assert "host will refuse premature gated downstream tasks" in sent_prompt
     assert "Keep planning lightweight" in sent_prompt
     assert "planner wall-clock overruns" in sent_prompt
+    assert "paper_infrastructure_review --review-mode model --write" in sent_prompt
+    assert "validate-paper-infrastructure-review --project-root ." in sent_prompt
+    assert "not a hand-written string-match pass" in sent_prompt
 
 
 def test_plan_next_can_disable_planner_wall_clock_timeout(
