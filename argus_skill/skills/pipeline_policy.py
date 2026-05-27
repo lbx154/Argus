@@ -69,6 +69,7 @@ DEFAULT_VALIDATION_ISSUE_PREFIXES: dict[str, tuple[str, ...]] = {
         "too_many_wide_body_figures",
         "missing_paired_significance",
         "conceptual_body_figure",
+        "noncanonical_latex_output",
     ),
     "layout_vision": ("layout_", "stale_layout", "low_layout", "pass_layout_review"),
     "academic_language": (

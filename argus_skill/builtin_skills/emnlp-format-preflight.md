@@ -67,8 +67,9 @@ Treat every item below as blocking for a final EMNLP-ready claim:
 
 ## Procedure
 1. Compile from the project root and keep the latest log:
-   - `latexmk -pdf -interaction=nonstopmode -halt-on-error paper/main.tex`
-   - If `latexmk` is unavailable, run `pdflatex`/`bibtex`/`pdflatex`/`pdflatex` and save `paper/main.log`.
+   - `latexmk -pdf -interaction=nonstopmode -halt-on-error -output-directory=paper paper/main.tex`
+   - If `latexmk` is unavailable, run `pdflatex -output-directory=paper`/`bibtex paper/main`/`pdflatex -output-directory=paper`/`pdflatex -output-directory=paper` and save `paper/main.log`.
+   - Do not rely on root-level `main.pdf` or `main.log`; validators read `paper/main.pdf` and `paper/main.log`, and a newer root-level build is a format failure.
 2. Inspect the source and PDF:
    - Run `python -m argus_skill.skills.pipeline_contracts validate-research-md-format --project-root .`.
    - If the command reports any issue, fix the LaTeX/source/artifact and rerun; do not continue to layout review.

@@ -3729,6 +3729,7 @@ def validate_paper_format(project_root: Path) -> list[ContractIssue]:
                 "submission-ready papers must include compiled paper/main.pdf",
             )
         )
+    issues.extend(_validate_canonical_latex_build_outputs(root))
 
     tex_text = tex_path.read_text(encoding="utf-8", errors="replace")
     tex_without_comments = _strip_latex_comments(tex_text)
@@ -3747,6 +3748,53 @@ def validate_paper_format(project_root: Path) -> list[ContractIssue]:
         )
 
     return _dedupe_contract_issues(issues)
+
+
+def _validate_canonical_latex_build_outputs(root: Path) -> list[ContractIssue]:
+    issues: list[ContractIssue] = []
+    for root_name, canonical_rel in (
+        ("main.pdf", PAPER_MAIN_PDF_PATH),
+        ("main.log", PAPER_MAIN_LOG_PATH),
+    ):
+        root_path = root / root_name
+        canonical_path = root / canonical_rel
+        if not root_path.is_file():
+            continue
+        if not canonical_path.is_file():
+            issues.append(
+                ContractIssue(
+                    "noncanonical_latex_output",
+                    root_name,
+                    (
+                        f"LaTeX produced {root_name} at the project root, but the "
+                        f"pipeline requires {canonical_rel.as_posix()}. Compile with "
+                        "`latexmk -pdf -output-directory=paper paper/main.tex` or copy "
+                        "the final PDF/log into paper/ before validation."
+                    ),
+                )
+            )
+            continue
+        try:
+            root_mtime = root_path.stat().st_mtime
+            canonical_mtime = canonical_path.stat().st_mtime
+        except OSError:
+            continue
+        if root_mtime <= canonical_mtime + 1.0:
+            continue
+        issues.append(
+            ContractIssue(
+                "noncanonical_latex_output_newer",
+                root_name,
+                (
+                    f"{root_name} at the project root is newer than "
+                    f"{canonical_rel.as_posix()}; validators read the paper/ copy, "
+                    "so the build command is checking a stale PDF/log. Recompile with "
+                    "`latexmk -pdf -output-directory=paper paper/main.tex` or update "
+                    "the canonical paper/ artifact before running validators."
+                ),
+            )
+        )
+    return issues
 
 
 def validate_research_md_format_preflight(project_root: Path) -> list[ContractIssue]:

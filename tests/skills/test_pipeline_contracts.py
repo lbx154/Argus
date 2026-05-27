@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import struct
 from pathlib import Path
@@ -1972,6 +1973,19 @@ def test_paper_format_rejects_overfull_hbox_above_research_md_limit(tmp_path: Pa
     issues = validate_paper_format(tmp_path)
 
     assert "severe_overfull_hbox" in {issue.code for issue in issues}
+
+
+def test_paper_format_rejects_newer_root_latex_outputs(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_bytes(tmp_path / "main.pdf", _minimal_pdf_bytes(["newer root pdf"]))
+    _write(tmp_path / "main.log", "newer root log\n")
+    newer_time = (tmp_path / "paper" / "main.pdf").stat().st_mtime + 10
+    os.utime(tmp_path / "main.pdf", (newer_time, newer_time))
+    os.utime(tmp_path / "main.log", (newer_time, newer_time))
+
+    codes = {issue.code for issue in validate_paper_format(tmp_path)}
+
+    assert "noncanonical_latex_output_newer" in codes
 
 
 def test_research_md_format_preflight_accepts_complete_review_paper(tmp_path: Path) -> None:
