@@ -54,22 +54,24 @@ from .academic_language_review import (
 from .academic_language_review import (
     SECTION_SCORE_KEYS as REQUIRED_ACADEMIC_SECTION_SCORES,
 )
+from .paper_calibration import (
+    PAPER_DRAFT_REPORT_JSON_PATH,
+    PAPER_QUALITY_CALIBRATION_JSON_PATH,
+    detect_quality_blockers,
+    validate_quality_calibration_file,
+)
 from .paper_infrastructure_review import (
     ALLOWED_DIRECTIVE_ACTIONS as ALLOWED_PAPER_INFRASTRUCTURE_ACTIONS,
 )
 from .paper_infrastructure_review import (
     MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE,
     PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH,
-    REQUIRED_CHECKED_SCOPES as REQUIRED_PAPER_INFRASTRUCTURE_SCOPES,
 )
 from .paper_infrastructure_review import (
     MODEL_REVIEW_METHODS as PAPER_INFRASTRUCTURE_MODEL_METHODS,
 )
-from .paper_calibration import (
-    PAPER_DRAFT_REPORT_JSON_PATH,
-    PAPER_QUALITY_CALIBRATION_JSON_PATH,
-    detect_quality_blockers,
-    validate_quality_calibration_file,
+from .paper_infrastructure_review import (
+    REQUIRED_CHECKED_SCOPES as REQUIRED_PAPER_INFRASTRUCTURE_SCOPES,
 )
 from .pipeline_policy import (
     DEFAULT_VALIDATION_ISSUE_PREFIXES,

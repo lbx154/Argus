@@ -61,5 +61,9 @@ def test_cli_lists_role_tools_as_json(capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     ids = {item["id"] for item in payload}
 
-    assert ids == {"validate-layout-review", "validate-academic-language-review"}
+    assert ids == {
+        "validate-academic-language-review",
+        "validate-layout-review",
+        "validate-paper-infrastructure-review",
+    }
     assert all("command" in item for item in payload)
