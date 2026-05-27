@@ -13,6 +13,7 @@ from argus_skill.skills.academic_language_review import (
     generate_academic_language_review,
 )
 from argus_skill.skills.pipeline_contracts import (
+    _latex_environment_word_count,
     _pdf_page_count,
     _validate_rendered_pdf_page_budget,
     _validate_research_md_manual_page_breaks,
@@ -1787,6 +1788,18 @@ def test_emnlp_paper_contract_rejects_shallow_core_sections(tmp_path: Path) -> N
         "method_section_too_short",
         "experimental_setup_too_short",
     }.issubset(codes)
+
+
+def test_latex_contract_word_count_preserves_escaped_percent() -> None:
+    prefix = " ".join(f"before{i}" for i in range(80))
+    suffix = " ".join(f"after{i}" for i in range(100))
+    tex_text = (
+        "\\begin{abstract}\n"
+        f"{prefix} The score rises from 0.82\\% to 6.15\\% in evaluation. {suffix}\n"
+        "\\end{abstract}\n"
+    )
+
+    assert _latex_environment_word_count(tex_text, "abstract") >= 180
 
 
 def test_emnlp_paper_contract_rejects_uncited_and_formulaic_intro(
