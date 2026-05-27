@@ -1450,6 +1450,18 @@ def test_image2_figures_reject_non_data_manifest_entry_not_image2(tmp_path: Path
     assert "non_data_figure_not_image2" in codes
 
 
+def test_image2_figures_reject_sidecar_prompt_text_hash_mismatch(tmp_path: Path) -> None:
+    _write_valid_image2_figures(tmp_path)
+    sidecar_path = tmp_path / "paper" / "figures" / "method.provenance.json"
+    payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    payload["prompt"] = "older prompt text that was not used by the current prompt file"
+    _write_json(sidecar_path, payload)
+
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "mismatched_image2_sidecar_prompt_text_sha256" in codes
+
+
 def test_image2_figures_accept_body_conceptual_png_output(tmp_path: Path) -> None:
     _write_valid_image2_figures(tmp_path)
     _write_main_tex_with_figures(
@@ -3861,6 +3873,7 @@ def _write_image2_provenance(root: Path, prompt_path: str, output_path: str, pro
             "created_at_unix": 1700000000,
             "duration_seconds": 1.25,
             "prompt_path": prompt_path,
+            "prompt": prompt_text,
             "prompt_sha256": hashlib.sha256(prompt_text.encode("utf-8")).hexdigest(),
             "output_path": output_path,
             "output_sha256": output_sha,

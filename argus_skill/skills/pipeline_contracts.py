@@ -9540,6 +9540,26 @@ def _validate_image2_generation_sidecar_payload(
             )
         )
 
+    raw_prompt = payload.get("prompt")
+    if not isinstance(raw_prompt, str) or not raw_prompt.strip():
+        issues.append(
+            ContractIssue(
+                "missing_image2_sidecar_prompt_text",
+                source_path,
+                "generation sidecar must preserve the exact prompt text used for image-2 generation",
+            )
+        )
+    else:
+        prompt_text_sha = hashlib.sha256(raw_prompt.encode("utf-8")).hexdigest()
+        if prompt_sha and _is_sha256_hex(prompt_sha) and prompt_text_sha != prompt_sha:
+            issues.append(
+                ContractIssue(
+                    "mismatched_image2_sidecar_prompt_text_sha256",
+                    source_path,
+                    "generation sidecar prompt text hash does not match prompt_sha256; regenerate through image-2 or restore the matching prompt file instead of editing metadata",
+                )
+            )
+
     output_sha = _image_payload_sha256(payload)
     if not output_sha:
         issues.append(
