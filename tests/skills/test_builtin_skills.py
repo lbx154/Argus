@@ -188,6 +188,49 @@ def test_builtin_skills_require_full_scale_experiment_evidence_gate(
             assert required in text, f"{filename} missing {required!r}"
 
 
+def test_academic_language_loop_requires_paragraph_reset_and_page_guard(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    seed_builtin_skills(skills_dir)
+
+    academic = (skills_dir / "emnlp-academic-language-review.md").read_text(
+        encoding="utf-8"
+    )
+    revision = (skills_dir / "paper-review-revision-loop.md").read_text(
+        encoding="utf-8"
+    )
+    router = (skills_dir / "emnlp-paper-skill-router.md").read_text(
+        encoding="utf-8"
+    )
+
+    for text in (academic, revision, router):
+        assert "salesy_novel_language" in text
+        assert "calibrated_no_hype=false" in text
+        assert "repeated score restatements" in text
+        assert "contrastive templates" in text
+        assert "proposed method" in text
+
+    for required in (
+        "paragraph-level prose reset",
+        "stop lexical search-and-replace",
+        "at most one numeric headline sentence per paragraph",
+        "Preserve 7.5--8 main-content pages",
+        "not a lab notebook",
+    ):
+        assert required in academic
+
+    for required in (
+        "low-score academic-language loop",
+        "Do not keep lexical search-and-replace",
+        "PAPER_DRAFT_REPORT.main_content_pages",
+        "The goal is a readable paper",
+    ):
+        assert required in revision
+
+    assert "paragraph-level prose reset with page-budget protection" in router
+
+
 def test_research_domain_router_references_current_domain_skill_packs(
     tmp_path: Path,
 ) -> None:
