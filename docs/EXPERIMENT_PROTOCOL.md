@@ -71,7 +71,7 @@ ARGUS_SKILL_HARBOR_NO_REVIEWER=...
 
 ## Models
 engineer  = openai/gpt-5.4-mini, reasoning_effort=high
-reviewer  = openai/gpt-5.4,      reasoning_effort=medium
+reviewer  = openai/gpt-5.4,      reasoning_effort=high
 scientist = openai/gpt-5.4,      reasoning_effort=high
 
 ## Pricing (from docs/PRICING.md)

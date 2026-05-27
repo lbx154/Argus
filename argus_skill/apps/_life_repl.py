@@ -796,12 +796,12 @@ class _CodexSkillLoopRunner:
             "engineer_model": args.engineer_model,
             "reviewer_model": args.reviewer_model,
             "engineer_reasoning_effort": getattr(
-                args, "engineer_reasoning_effort", None
+                args, "engineer_reasoning_effort", "high"
             ),
             "reviewer_reasoning_effort": getattr(
                 args,
                 "reviewer_reasoning_effort",
-                "medium",
+                "high",
             ),
             "max_rounds": args.max_rounds,
             "check_commands": [],
@@ -1309,11 +1309,11 @@ def _invoke_supervisor(
     ns.scientist_model = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4")
     ns.engineer_reasoning_effort = os.environ.get(
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
-        "low" if benchmark_mode else None,
+        "low" if benchmark_mode else "high",
     )
     ns.reviewer_reasoning_effort = os.environ.get(
         "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
-        "low" if benchmark_mode else "medium",
+        "low" if benchmark_mode else "high",
     )
     ns.skills_dir = os.environ.get(
         "ARGUS_SKILL_SKILLS_DIR",

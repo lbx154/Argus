@@ -66,8 +66,8 @@ class SkillLoopConfig:
     reviewer_model: str | None = None  # default: same as engineer (cheap)
     matcher_model: str | None = None   # default: same as engineer
     scientist_reasoning_effort: str = "high"
-    engineer_reasoning_effort: str | None = None
-    reviewer_reasoning_effort: str = "medium"
+    engineer_reasoning_effort: str | None = "high"
+    reviewer_reasoning_effort: str = "high"
     matcher_reasoning_effort: str | None = None
     max_rounds: int = 500
     check_commands: list[str] = field(default_factory=list)

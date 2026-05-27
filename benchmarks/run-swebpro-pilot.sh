@@ -32,7 +32,7 @@ export PYTHONPATH=/home/argustest/argus-skill
 export ARGUS_SKILL_HARBOR_SCIENTIST_MODEL=gpt-5.4
 export ARGUS_SKILL_HARBOR_SCIENTIST_EFFORT=high
 export ARGUS_SKILL_HARBOR_REVIEWER_MODEL=gpt-5.4
-export ARGUS_SKILL_HARBOR_REVIEWER_EFFORT=medium
+export ARGUS_SKILL_HARBOR_REVIEWER_EFFORT=high
 export ARGUS_SKILL_HARBOR_SKILLS_DIR="$EXP_DIR/skills"
 export ARGUS_SKILL_HARBOR_DECISIONS_LOG="$DECISIONS_LOG"
 export ARGUS_SKILL_HARBOR_DISTILL_BUDGET=120
@@ -101,7 +101,7 @@ cd /home/argustest/argus-skill && \
     --engineer-model gpt-5.4-mini \
     --engineer-effort high \
     --reviewer-model gpt-5.4 \
-    --reviewer-effort medium \
+    --reviewer-effort high \
     --max-rounds 2 \
     --round-timeout 1800 \
     --workers $CONCURRENCY \

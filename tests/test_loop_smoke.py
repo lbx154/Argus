@@ -37,6 +37,16 @@ SKILL_MD = (
 )
 
 
+def test_skill_loop_defaults_use_high_reasoning_effort() -> None:
+    config = SkillLoopConfig()
+
+    assert config.engineer_model == "gpt-5.4-mini"
+    assert config.engineer_reasoning_effort == "high"
+    assert config.scientist_model == "gpt-5.4"
+    assert config.scientist_reasoning_effort == "high"
+    assert config.reviewer_reasoning_effort == "high"
+
+
 def _continue_review() -> str:
     return json.dumps({
         "status": "continue",
