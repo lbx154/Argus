@@ -1433,6 +1433,25 @@ def test_emnlp_gate_stage_hints_prioritize_full_scale_evidence() -> None:
     assert "full-scale evidence is not currently a final-gate blocker" not in hint
 
 
+def test_emnlp_gate_stage_hints_include_manifest_and_policy_helpers() -> None:
+    hint = _planner_emnlp_stage_hints([
+        ContractIssue(
+            "artifact_digest_mismatch",
+            "paper/main.tex",
+            "artifact digest does not match the manifest",
+        ),
+        ContractIssue(
+            "missing_validation_failure_route",
+            "paper/VALIDATION_PRIORITY_POLICY.json:failure_routing.freshness",
+            "failure_routing must define route 'freshness'",
+        ),
+    ])
+
+    assert "refresh-manifest --project-root ." in hint
+    assert "refresh-artifact-freshness --project-root ." in hint
+    assert "write-validation-priority-policy --project-root ." in hint
+
+
 def test_continuous_mode_planner_refusal_falls_back_to_emnlp_gate_task(
     tmp_path: Path,
 ) -> None:

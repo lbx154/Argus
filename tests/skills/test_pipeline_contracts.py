@@ -10,6 +10,7 @@ from argus_skill.skills.academic_language_review import generate_academic_langua
 from argus_skill.skills.pipeline_contracts import (
     _validate_research_md_pdf_text,
     _validate_research_md_reference_depth,
+    refresh_artifact_freshness,
     refresh_artifact_manifest,
     validate_academic_language_review,
     validate_artifact_freshness,
@@ -32,6 +33,7 @@ from argus_skill.skills.pipeline_contracts import (
     validate_submission_assurance,
     validate_submission_readiness,
     validate_validation_priority_policy,
+    write_validation_priority_policy,
 )
 
 
@@ -524,6 +526,35 @@ def test_validation_priority_policy_accepts_complete_failure_routing(tmp_path: P
     assert validate_validation_priority_policy(tmp_path) == []
 
 
+def test_write_validation_priority_policy_creates_complete_failure_routing(
+    tmp_path: Path,
+) -> None:
+    issues = write_validation_priority_policy(tmp_path)
+
+    assert issues == []
+    payload = json.loads(
+        (tmp_path / "paper" / "VALIDATION_PRIORITY_POLICY.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["priority_order"] == [
+        "freshness",
+        "experiment_evidence",
+        "claim_graph",
+        "content_sufficiency",
+        "exemplar_suitability",
+        "exemplar_structure",
+        "figure_table_style",
+        "format_layout",
+        "layout_vision",
+        "academic_language",
+        "artifact_manifest",
+    ]
+    assert set(payload["failure_routing"]) == set(payload["priority_order"])
+    assert "experiment" in payload["failure_routing"]["experiment_evidence"]["repair_mode"]
+    assert "analysis" in payload["failure_routing"]["content_sufficiency"]["repair_mode"]
+
+
 def test_validation_priority_policy_requires_experiment_and_content_routes(tmp_path: Path) -> None:
     _write_json(
         tmp_path / "paper" / "VALIDATION_PRIORITY_POLICY.json",
@@ -595,6 +626,29 @@ def test_refresh_artifact_manifest_updates_digests_and_tsv_columns(tmp_path: Pat
     assert issues == []
     manifest = json.loads((tmp_path / "paper" / "ARTIFACT_MANIFEST.json").read_text(encoding="utf-8"))
     assert manifest["canonical_sources"][0]["columns"] == ["metric", "value", "n"]
+
+
+def test_refresh_artifact_freshness_builds_records_from_manifest(
+    tmp_path: Path,
+) -> None:
+    _write_valid_artifact_manifest(tmp_path)
+
+    issues = refresh_artifact_freshness(tmp_path)
+
+    assert issues == []
+    payload = json.loads(
+        (tmp_path / "paper" / "ARTIFACT_FRESHNESS.json").read_text(encoding="utf-8")
+    )
+    records = {record["path"]: record for record in payload["records"]}
+    assert records["paper/artifacts/results_table.tsv"]["role"] == "canonical"
+    report = records["paper/RESULTS_REPORT.md"]
+    assert report["role"] == "generated"
+    assert report["inputs"] == [
+        {
+            "path": "paper/artifacts/results_table.tsv",
+            "sha256": _sha256(tmp_path / "paper" / "artifacts" / "results_table.tsv"),
+        }
+    ]
 
 
 def test_ready_assurance_requires_valid_artifact_manifest(tmp_path: Path) -> None:

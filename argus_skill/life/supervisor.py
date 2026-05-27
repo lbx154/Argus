@@ -165,6 +165,17 @@ _FULL_SCALE_EVIDENCE_GATE_COMMAND = (
     "python -m argus_skill.skills.pipeline_contracts "
     "validate-full-scale-evidence --project-root ."
 )
+_REFRESH_MANIFEST_COMMAND = (
+    "python -m argus_skill.skills.pipeline_contracts refresh-manifest --project-root ."
+)
+_REFRESH_ARTIFACT_FRESHNESS_COMMAND = (
+    "python -m argus_skill.skills.pipeline_contracts "
+    "refresh-artifact-freshness --project-root ."
+)
+_WRITE_VALIDATION_PRIORITY_POLICY_COMMAND = (
+    "python -m argus_skill.skills.pipeline_contracts "
+    "write-validation-priority-policy --project-root ."
+)
 _PLANNER_GATE_CONTEXT_MAX_ISSUES = 24
 _PLANNER_GATE_CONTEXT_MAX_CHARS = 6000
 _EMNLP_BOOTSTRAP_GATE_CODES = {
@@ -206,6 +217,19 @@ _EMNLP_CITATION_GATE_CODES = {
     "citation_command_dumping",
     "placeholder_bibtex_author_others",
     "rendered_placeholder_reference_authors",
+}
+_EMNLP_VALIDATION_POLICY_GATE_CODES = {
+    "missing_validation_priority_policy",
+    "invalid_validation_priority_policy_json",
+    "invalid_validation_priority_policy_schema_version",
+    "missing_validation_priority_order",
+    "incomplete_validation_priority_order",
+    "missing_validation_failure_routing",
+    "missing_validation_failure_route",
+    "validation_failure_route_missing_prefixes",
+    "validation_failure_route_missing_repair_mode",
+    "validation_failure_route_bad_repair_mode",
+    "missing_validation_reset_policy",
 }
 _EMNLP_DOWNSTREAM_PATH_PREFIXES = (
     "paper/",
@@ -337,7 +361,15 @@ def _planner_emnlp_stage_hints(issues: list[Any]) -> str:
         hints.append(
             "- stage route: regenerate stale generated artifacts from current upstream "
             "inputs or refresh manifest/freshness records with canonical source links; "
-            "do not hand-edit only the readiness JSON."
+            f"after regeneration, run `{_REFRESH_MANIFEST_COMMAND}` and "
+            f"`{_REFRESH_ARTIFACT_FRESHNESS_COMMAND}`; do not hand-edit only "
+            "the readiness JSON."
+        )
+    if issue_codes & _EMNLP_VALIDATION_POLICY_GATE_CODES:
+        hints.append(
+            "- stage route: rebuild the failure-routing contract with "
+            f"`{_WRITE_VALIDATION_PRIORITY_POLICY_COMMAND}` before final "
+            "review/assurance loops; do not hand-write partial routes."
         )
     if issue_codes & _EMNLP_CITATION_GATE_CODES:
         hints.append(
@@ -1239,17 +1271,39 @@ class LifeSupervisor:
         issue_codes = {issue.code for issue in issues}
         issue_paths = _emnlp_issue_paths(issues)
         stage_hints = _planner_emnlp_stage_hints(issues)
+        downstream_count = sum(
+            count for code, count in counts.items() if code in _EMNLP_DOWNSTREAM_PACKAGE_CODES
+        )
+        manifest_count = sum(
+            count
+            for code, count in counts.items()
+            if code in _EMNLP_MANIFEST_FRESHNESS_GATE_CODES
+        )
+        validation_policy_count = sum(
+            count
+            for code, count in counts.items()
+            if code in _EMNLP_VALIDATION_POLICY_GATE_CODES
+        )
+        citation_count = sum(
+            count for code, count in counts.items() if code in _EMNLP_CITATION_GATE_CODES
+        )
         if _EMNLP_BOOTSTRAP_GATE_CODES & issue_codes:
             title = "Bootstrap the grounded EMNLP research pipeline"
             impact_area = "discovery"
         elif _EMNLP_FULL_SCALE_GATE_CODES & issue_codes:
             title = "Complete the full-scale EMNLP evidence gate"
             impact_area = "requirement_gap"
+        elif citation_count >= max(manifest_count, validation_policy_count, downstream_count, 3):
+            title = "Repair verified EMNLP citations and references"
+            impact_area = "integration"
+        elif (
+            manifest_count + validation_policy_count
+            >= max(downstream_count, 1)
+        ):
+            title = "Regenerate EMNLP manifest, freshness, and routing artifacts"
+            impact_area = "integration"
         elif _has_emnlp_downstream_package_gap(issue_codes, issue_paths):
             title = "Build the evidence-backed EMNLP paper package"
-            impact_area = "integration"
-        elif _EMNLP_MANIFEST_FRESHNESS_GATE_CODES & issue_codes:
-            title = "Regenerate EMNLP manifest and freshness artifacts"
             impact_area = "integration"
         elif any(
             code.startswith(("layout_", "academic_language_", "citation_", "artifact_"))

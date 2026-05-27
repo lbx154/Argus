@@ -28,7 +28,11 @@ def test_role_filter_keeps_mutating_tools_engineer_only() -> None:
     reviewer_ids = {tool.id for tool in validator_tools_for_role("reviewer")}
 
     assert "refresh-manifest" in engineer_ids
+    assert "write-validation-priority-policy" in engineer_ids
+    assert "refresh-artifact-freshness" in engineer_ids
     assert "refresh-manifest" not in reviewer_ids
+    assert "write-validation-priority-policy" not in reviewer_ids
+    assert "refresh-artifact-freshness" not in reviewer_ids
     assert "validate-academic-language-review" in reviewer_ids
     assert "validate-full-emnlp" in reviewer_ids
 

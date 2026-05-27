@@ -151,6 +151,22 @@ VALIDATOR_TOOLS: tuple[ValidatorTool, ...] = (
         mutates=True,
     ),
     ValidatorTool(
+        id="write-validation-priority-policy",
+        description="write the standard paper/VALIDATION_PRIORITY_POLICY.json and validate it",
+        phase="integration",
+        roles=_ENGINEER_ONLY,
+        when_to_use="when validation priority routes are missing, thin, or invalid",
+        mutates=True,
+    ),
+    ValidatorTool(
+        id="refresh-artifact-freshness",
+        description="refresh paper/ARTIFACT_FRESHNESS.json hashes from the current source graph",
+        phase="integration",
+        roles=_ENGINEER_ONLY,
+        when_to_use="only after generated artifacts have been regenerated from current inputs",
+        mutates=True,
+    ),
+    ValidatorTool(
         id="validate-pipeline",
         description="pipeline state and stage-gated artifact readiness",
         phase="integration",

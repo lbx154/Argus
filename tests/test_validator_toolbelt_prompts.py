@@ -14,6 +14,8 @@ def test_engineer_prompt_includes_validator_toolbelt() -> None:
     assert "Validator toolbelt (engineer)" in prompt
     assert "validate-full-scale-evidence --project-root ." in prompt
     assert "refresh-manifest --project-root ." in prompt
+    assert "write-validation-priority-policy --project-root ." in prompt
+    assert "refresh-artifact-freshness --project-root ." in prompt
     assert "validate-full-emnlp --project-root ." in prompt
     assert "## Verification (verbatim)" in prompt
     assert "Long-horizon paper execution contract" in prompt

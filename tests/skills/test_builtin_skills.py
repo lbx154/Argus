@@ -242,6 +242,9 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         assert "incomplete_full_scale_experiment_run" in text
         assert "missing_baseline_condition_run" in text
         assert "pilot_pdf_without_full_scale_evidence" in text
+        assert "write-validation-priority-policy" in text
+        assert "refresh-artifact-freshness" in text
+        assert "refresh-manifest" in text
 
     for required in (
         "clean-slate project",
@@ -325,6 +328,8 @@ def test_emnlp_paper_skill_requires_official_template_page_budget_and_style_ref(
         "paper/FIGURE_TABLE_STYLE_GUIDE.json",
         "paper/ARTIFACT_FRESHNESS.json",
         "paper/VALIDATION_PRIORITY_POLICY.json",
+        "write-validation-priority-policy",
+        "refresh-artifact-freshness",
         "validate-claim-graph",
         "validate-paper-quality-contracts",
         "paper/figures/IMAGE2_FIGURES.json",

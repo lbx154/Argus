@@ -426,6 +426,19 @@ FRESHNESS_REQUIRED_INPUTS: dict[Path, tuple[Path, ...]] = {
     LAYOUT_REVIEW_JSON_PATH: (PAPER_MAIN_PDF_PATH,),
     ACADEMIC_LANGUAGE_REVIEW_PATH: (PAPER_MAIN_TEX_PATH, PAPER_MAIN_PDF_PATH),
 }
+DEFAULT_VALIDATION_REPAIR_MODES: dict[str, str] = {
+    "freshness": "regenerate stale generated artifacts and refresh recorded input hashes",
+    "experiment_evidence": "run full-scale benchmark experiments and required baselines",
+    "claim_graph": "repair claim graph evidence bindings or soften unsupported claims",
+    "content_sufficiency": "add evidence-backed analysis, ablations, failure studies, or runs",
+    "exemplar_suitability": "replace unsuitable style exemplars with vetted EMNLP/ACL exemplars",
+    "exemplar_structure": "reset paper skeleton to the exemplar-derived structure blueprint",
+    "figure_table_style": "redesign figures and tables from the figure-table style guide",
+    "format_layout": "repair LaTeX format, page flow, floats, captions, and overfull boxes",
+    "layout_vision": "revise rendered PDF layout and rerun the vision layout reviewer",
+    "academic_language": "rewrite prose through the model-backed academic-language reviewer",
+    "artifact_manifest": "refresh artifact manifest schemas, sources, digests, and TSV columns",
+}
 STANDARD_STRUCTURE_SECTION_TOKENS = {
     "abstract",
     "introduction",
@@ -1139,6 +1152,126 @@ def refresh_artifact_manifest(project_root: Path) -> list[ContractIssue]:
 
     _write_json_object(manifest_path, manifest)
     return validate_artifact_manifest(root)
+
+
+def write_validation_priority_policy(project_root: Path) -> list[ContractIssue]:
+    """Write the standard validation-priority policy used by final EMNLP gates."""
+
+    root = Path(project_root)
+    path = root / VALIDATION_PRIORITY_POLICY_JSON_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "priority_policy_schema_version": 1,
+        "priority_order": list(VALIDATION_PRIORITY_EXPECTED_ORDER),
+        "failure_routing": {
+            failure_class: {
+                "issue_code_prefixes": list(
+                    DEFAULT_VALIDATION_ISSUE_PREFIXES.get(failure_class, ())
+                ),
+                "repair_mode": DEFAULT_VALIDATION_REPAIR_MODES.get(
+                    failure_class,
+                    f"repair {failure_class} blockers from canonical sources",
+                ),
+            }
+            for failure_class in VALIDATION_FAILURE_CLASSES
+        },
+        "reset_policy": {
+            "max_non_improving_rounds": 2,
+            "actions": [
+                "repeated non-improving paper/layout/prose edits",
+                "underfilled body without new evidence-backed analysis",
+                "stale generated artifacts after upstream result or draft edits",
+                "reset paper skeleton or float plan before further cosmetic edits",
+            ],
+            "default_action": (
+                "route backward to the owning evidence, structure, figure/table, "
+                "or manifest stage before cosmetic micro-edits"
+            ),
+        },
+    }
+    _write_json_object(path, payload)
+    return validate_validation_priority_policy(root)
+
+
+def refresh_artifact_freshness(project_root: Path) -> list[ContractIssue]:
+    """Refresh ARTIFACT_FRESHNESS from the current manifest/source graph.
+
+    This is intended for use after downstream artifacts have already been
+    regenerated from their canonical sources. It records current hashes; it
+    does not prove that a stale artifact was semantically regenerated.
+    """
+
+    root = Path(project_root)
+    path = root / ARTIFACT_FRESHNESS_JSON_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    existing = _try_read_json_object(path) or {}
+    existing_records: dict[str, dict[str, Any]] = {}
+    raw_existing_records = existing.get("records", existing.get("artifacts"))
+    if isinstance(raw_existing_records, list):
+        for record in raw_existing_records:
+            if not isinstance(record, dict):
+                continue
+            normalized = _normalize_manifest_path(record.get("path"))
+            if normalized:
+                existing_records[normalized] = record
+
+    manifest = _try_read_json_object(root / ARTIFACT_MANIFEST_PATH) or {}
+    canonical_paths: set[str] = set()
+    generated_sources: dict[str, list[str]] = {}
+    for raw_entry in manifest.get("canonical_sources", []):
+        if not isinstance(raw_entry, dict):
+            continue
+        normalized = _normalize_manifest_path(raw_entry.get("path"))
+        if normalized:
+            canonical_paths.add(normalized)
+    for raw_entry in manifest.get("generated_artifacts", []):
+        if not isinstance(raw_entry, dict):
+            continue
+        normalized = _normalize_manifest_path(raw_entry.get("path"))
+        if not normalized:
+            continue
+        generated_sources[normalized] = _normalized_path_list(raw_entry.get("sources"))
+
+    paths = {
+        path.as_posix()
+        for path in _required_freshness_paths(root)
+        if (root / path).is_file()
+    }
+    paths.update(canonical_paths)
+    paths.update(generated_sources)
+    paths.update(existing_records)
+
+    records: list[dict[str, Any]] = []
+    for normalized in sorted(paths):
+        resolved = _resolve_manifest_path(root, normalized)
+        if resolved is None or not resolved.is_file():
+            continue
+        role = "canonical" if normalized in canonical_paths else "generated"
+        record: dict[str, Any] = {
+            "path": normalized,
+            "role": role,
+            "sha256": _sha256_file(resolved),
+        }
+        if role != "canonical":
+            inputs = _freshness_sources_for_path(
+                root,
+                normalized,
+                generated_sources,
+                existing_records,
+            )
+            if inputs:
+                record["inputs"] = inputs
+        records.append(record)
+
+    _write_json_object(
+        path,
+        {
+            "freshness_schema_version": 1,
+            "records": records,
+        },
+    )
+    return validate_artifact_freshness(root)
 
 
 def validate_literature_grounding(project_root: Path) -> list[ContractIssue]:
@@ -5933,6 +6066,54 @@ def _required_freshness_paths(root: Path) -> set[Path]:
     return required
 
 
+def _normalized_path_list(raw_paths: Any) -> list[str]:
+    if not isinstance(raw_paths, list):
+        return []
+    paths: list[str] = []
+    seen: set[str] = set()
+    for raw_path in raw_paths:
+        if isinstance(raw_path, dict):
+            normalized = _normalize_manifest_path(raw_path.get("path", raw_path.get("input_path")))
+        else:
+            normalized = _normalize_manifest_path(raw_path)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        paths.append(normalized)
+    return paths
+
+
+def _freshness_sources_for_path(
+    root: Path,
+    artifact_path: str,
+    generated_sources: Mapping[str, list[str]],
+    existing_records: Mapping[str, dict[str, Any]],
+) -> list[dict[str, str]]:
+    raw_sources = list(generated_sources.get(artifact_path, []))
+    if not raw_sources:
+        raw_sources.extend(
+            input_path
+            for input_path, _ in _freshness_input_records(
+                existing_records.get(artifact_path, {}).get("inputs")
+            )
+        )
+    for required_input in FRESHNESS_REQUIRED_INPUTS.get(Path(artifact_path), ()):
+        raw_sources.append(required_input.as_posix())
+
+    inputs: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for source in raw_sources:
+        normalized = _normalize_manifest_path(source)
+        if not normalized or normalized == artifact_path or normalized in seen:
+            continue
+        resolved = _resolve_manifest_path(root, normalized)
+        if resolved is None or not resolved.is_file():
+            continue
+        seen.add(normalized)
+        inputs.append({"path": normalized, "sha256": _sha256_file(resolved)})
+    return inputs
+
+
 def _freshness_input_records(raw_inputs: Any) -> list[tuple[str, str]]:
     if not isinstance(raw_inputs, list):
         return []
@@ -8348,6 +8529,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ("validate-pipeline", "validate research/PIPELINE_STATE.json and gated artifacts"),
         ("validate-manifest", "validate paper/ARTIFACT_MANIFEST.json"),
         ("refresh-manifest", "recompute manifest digests and TSV headers, then validate"),
+        ("refresh-artifact-freshness", "refresh paper/ARTIFACT_FRESHNESS.json hashes, then validate"),
         ("validate-grounding", "validate research/LITERATURE_GROUNDING.json"),
         ("validate-idea-provenance", "validate literature-derived idea provenance"),
         ("validate-code-reuse", "validate external source-code survey and reuse plan"),
@@ -8357,6 +8539,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ("validate-claim-graph", "validate paper/CLAIM_GRAPH.json evidence bindings"),
         ("validate-figure-table-style", "validate figure/table style guide and float inventory"),
         ("validate-validation-priority", "validate failure routing and reset policy"),
+        ("write-validation-priority-policy", "write the standard failure-routing policy, then validate"),
         ("validate-artifact-freshness", "validate generated artifact input-hash freshness"),
         ("validate-paper-quality-contracts", "validate paper quality contracts above legacy gates"),
         ("validate-paper-contract", "validate full EMNLP long-paper draft contract"),
@@ -8384,6 +8567,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         issues = validate_artifact_manifest(project_root)
     elif args.command == "refresh-manifest":
         issues = refresh_artifact_manifest(project_root)
+    elif args.command == "refresh-artifact-freshness":
+        issues = refresh_artifact_freshness(project_root)
     elif args.command == "validate-grounding":
         issues = validate_literature_grounding(project_root)
     elif args.command == "validate-idea-provenance":
@@ -8402,6 +8587,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         issues = validate_figure_table_style_guide(project_root)
     elif args.command == "validate-validation-priority":
         issues = validate_validation_priority_policy(project_root)
+    elif args.command == "write-validation-priority-policy":
+        issues = write_validation_priority_policy(project_root)
     elif args.command == "validate-artifact-freshness":
         issues = validate_artifact_freshness(project_root)
     elif args.command == "validate-paper-quality-contracts":

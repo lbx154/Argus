@@ -55,9 +55,11 @@ Allowed stage statuses are `missing`, `pending`, `ready`, `running`, `blocked`, 
 From the analysis stage onward, keep a single machine-checkable source of truth for paper artifacts:
 
 - Write `paper/ARTIFACT_MANIFEST.json` with `version: 1`, `canonical_sources`, and `generated_artifacts`.
-- Each manifest entry must contain a POSIX relative `path` and a lowercase SHA-256 `sha256`; TSV entries must also declare exact `columns`.
+- Each manifest entry must be an object, never a bare string. It must contain a POSIX relative `path` and a lowercase SHA-256 `sha256`; TSV entries must also declare exact `columns`.
 - Every generated artifact, including `paper/RESULTS_REPORT.md`, `research/NARRATIVE_REPORT.md`, `paper/main.tex`, `paper/submission/main.tex`, reports, and figures, must list `sources` that transitively reach a canonical source such as raw results or canonical TSV/JSON summaries.
 - Do not hand-edit numbers in generated prose or LaTeX. Update the canonical source, regenerate downstream artifacts, then run `python -m argus_skill.skills.pipeline_contracts refresh-manifest --project-root .`.
+- After regenerated artifacts are stable, run `python -m argus_skill.skills.pipeline_contracts refresh-artifact-freshness --project-root .` so `paper/ARTIFACT_FRESHNESS.json` records current generated outputs and their input hashes.
+- If `VALIDATION_PRIORITY_POLICY.json` is missing or reports route errors, run `python -m argus_skill.skills.pipeline_contracts write-validation-priority-policy --project-root .`; do not hand-write a partial policy.
 - Before marking `analysis`, `narrative`, `draft`, `assurance`, or `submission` as `ready`/`done`, run `python -m argus_skill.skills.pipeline_contracts validate-pipeline --project-root .`. If it reports digest drift, TSV schema drift, unknown sources, or missing manifest entries, the stage is `blocked` until regenerated. Before any final EMNLP-ready claim, also run `python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`; a passing stage-sensitive pipeline check alone is not sufficient.
 
 ## Final EMNLP completion contract
