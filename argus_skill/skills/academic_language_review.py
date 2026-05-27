@@ -36,6 +36,8 @@ ACADEMIC_LANGUAGE_REVIEW_MD_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW.md")
 MIN_ACADEMIC_LANGUAGE_SCORE = 4.0
 DEFAULT_TIMEOUT_SECONDS = 500.0
 MAX_SOURCE_FILES = 120
+MIN_REVIEW_ABSTRACT_WORDS = 130
+MIN_REVIEW_INTRODUCTION_WORDS = 450
 
 SECTION_SCORE_KEYS: tuple[str, ...] = (
     "abstract",
@@ -575,6 +577,32 @@ def _deterministic_assessment(tex_text: str) -> dict[str, Any]:
             )
         )
 
+    introduction_plain = _section_text(tex_text, "introduction")
+    if introduction_plain.strip():
+        introduction_words = _word_count(introduction_plain)
+        if introduction_words < MIN_REVIEW_INTRODUCTION_WORDS:
+            score_penalty += 0.8
+            section_scores["introduction"] = min(section_scores["introduction"], 3.0)
+            section_scores["contribution_framing"] = min(
+                section_scores["contribution_framing"], 3.4
+            )
+            required_checks["clear_problem_gap_contribution"] = False
+            issues.append(
+                _issue(
+                    "thin_introduction",
+                    "major",
+                    (
+                        f"introduction has {introduction_words} words; a normal "
+                        f"EMNLP long-paper introduction should be at least "
+                        f"{MIN_REVIEW_INTRODUCTION_WORDS} words and should explain "
+                        "the problem, literature gap, method insight, result preview, "
+                        "contributions, and scope"
+                    ),
+                    hard_gate=True,
+                    action="rewrite_introduction",
+                )
+            )
+
     contribution_context = " ".join([abstract_plain, _section_text(tex_text, "introduction")])
     if not _has_reader_facing_contribution(contribution_context):
         score_penalty += 0.8
@@ -790,8 +818,13 @@ def _review_prompt(
         "not only comments or JSON artifacts. Reject "
         "a paper whose abstract reads like a validator checklist, starts with a numeric "
         "result before the problem/gap, or spends its scarce space on defensive caveats "
-        "instead of problem, method, result, and implication. Use a strict ACL/EMNLP "
-        "reviewer standard. Do not require an isolated causal mechanism when the paper "
+        "instead of problem, method, result, and implication. Apply this ACL/EMNLP "
+        f"standard: abstracts under {MIN_REVIEW_ABSTRACT_WORDS} words or introductions "
+        f"under {MIN_REVIEW_INTRODUCTION_WORDS} words are not submission-quality for "
+        "a long paper unless the manuscript has an explicit venue exception. "
+        "Short introductions should be fixed by adding source-backed problem framing, "
+        "literature gap, method intuition, contribution, and evidence preview, not by "
+        "deleting content elsewhere. Do not require an isolated causal mechanism when the paper "
         "explicitly scopes itself as an end-to-end policy or comparator result; in that "
         "case, evaluate whether the comparator, task slice, sample size, and quantified "
         "outcome are stated plainly and whether unresolved submechanisms are moved to "
@@ -1226,6 +1259,10 @@ def _sentence_count(text: str) -> int:
     return len([part for part in re.split(r"(?<=[.!?])\s+", text.strip()) if part.strip()])
 
 
+def _word_count(text: str) -> int:
+    return len(re.findall(r"[A-Za-z][A-Za-z0-9'/-]*", text))
+
+
 def find_reader_hostile_abstract_issues(tex_text: str) -> list[tuple[str, str]]:
     """Return abstract-quality issues that remain invalid even if review JSON says PASS."""
 
@@ -1285,6 +1322,21 @@ def _abstract_quality_issue_specs(abstract: str) -> list[tuple[str, str, float, 
     issues: list[tuple[str, str, float, float]] = []
     abstract_without_comments = _strip_latex_comments(abstract)
     abstract_plain = _latex_to_plain_text(abstract)
+
+    abstract_words = _word_count(abstract_plain)
+    if abstract_words < MIN_REVIEW_ABSTRACT_WORDS:
+        issues.append(
+            (
+                "thin_abstract",
+                (
+                    f"abstract has {abstract_words} words; final EMNLP abstracts "
+                    f"should be at least {MIN_REVIEW_ABSTRACT_WORDS} words and cover "
+                    "problem, gap, method, model/benchmark, result, and implication"
+                ),
+                0.6,
+                3.5,
+            )
+        )
 
     if re.search(r"(?m)%\s*(?:evidence|artifact|validator|review|gate|source)\s*:", abstract, re.I):
         issues.append(

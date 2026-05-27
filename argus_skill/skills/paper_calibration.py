@@ -53,7 +53,7 @@ QUALITY_CALIBRATION_VERDICTS = (
 READY_VERDICTS = {"PASS", "WARN"}
 MIN_PAPER_TASKS = 240
 PAPER_TASK_SCALE_TARGET = "240/250"
-MIN_SELECTED_BENCHMARK_SOURCES = 2
+MIN_SELECTED_BENCHMARK_SOURCES = 3
 RECOMMENDED_SELECTED_BENCHMARK_SOURCES = 3
 BENCHMARK_TASK_COUNT_FIELDS = {
     "task_count",
@@ -88,11 +88,26 @@ PLANNED_COUNT_TEXT_MARKERS = (
     "future",
     "will",
 )
+PLANNED_SOURCE_TEXT_MARKERS = (
+    "planned",
+    "diagnostic tasks planned",
+    "not yet run",
+    "not executed",
+    "pending",
+    "future",
+    "todo",
+    "nice-to-have",
+    "blocked",
+)
 ACTUAL_COUNT_TEXT_MARKERS = (
     "actual",
     "completed",
+    "complete",
     "evaluated",
+    "executed",
     "finished",
+    "scored",
+    "raw rows",
     "released",
     "canonical run",
     "main split",
@@ -1239,7 +1254,11 @@ def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
                 )
         task_counts = _benchmark_task_counts(json_payload)
         if _requires_multi_source_benchmark(task_counts, json_payload):
-            selected_sources = _selected_benchmark_sources(json_payload)
+            selected_sources = [
+                source
+                for source in _selected_benchmark_sources(json_payload)
+                if not _benchmark_source_is_planned_only(source)
+            ]
             unique_source_count = len(
                 {_benchmark_source_identity(source) for source in selected_sources}
                 - {None}
@@ -1252,9 +1271,9 @@ def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
                         (
                             "full-paper benchmark provenance must list at least "
                             f"{MIN_SELECTED_BENCHMARK_SOURCES} independent selected "
-                            "benchmark sources/components, with 3+ preferred when "
-                            "feasible; single-source evidence is not enough to claim "
-                            "broad method effectiveness"
+                            "executed benchmark sources/components; planned diagnostic "
+                            "sources do not count, and single-source evidence is not "
+                            "enough to claim broad method effectiveness"
                         ),
                     )
                 )
@@ -1388,9 +1407,10 @@ def _benchmark_provenance_blockers(root: Path) -> list[CalibrationIssue]:
                     (
                         "full-paper benchmark provenance must include a selected "
                         "benchmark source table/list with at least "
-                        f"{MIN_SELECTED_BENCHMARK_SOURCES} independent real/frontier "
-                        "benchmark sources or components; single-source evidence is "
-                        "not enough to claim broad method effectiveness"
+                        f"{MIN_SELECTED_BENCHMARK_SOURCES} independent executed real/frontier "
+                        "benchmark sources or components; planned diagnostic rows do "
+                        "not count, and single-source evidence is not enough to claim "
+                        "broad method effectiveness"
                     ),
                 )
             )
@@ -1536,6 +1556,11 @@ def _benchmark_source_looks_synthetic(source: dict[str, Any]) -> bool:
     return any(marker in text for marker in SYNTHETIC_BENCHMARK_MARKERS)
 
 
+def _benchmark_source_is_planned_only(source: dict[str, Any]) -> bool:
+    text = json.dumps(source, ensure_ascii=False).lower()
+    return _planned_only_text(text, markers=PLANNED_SOURCE_TEXT_MARKERS)
+
+
 def _text_selected_benchmark_source_count(raw_text: str) -> int:
     table_count = _markdown_benchmark_source_table_count(raw_text)
     if table_count:
@@ -1561,6 +1586,8 @@ def _text_selected_benchmark_source_count(raw_text: str) -> int:
         if not normalized.startswith(("-", "*", "|")):
             continue
         if any(skip in normalized for skip in ("reject", "infeasible", "alternative")):
+            continue
+        if _planned_only_text(normalized, markers=PLANNED_SOURCE_TEXT_MARKERS):
             continue
         if any(marker in normalized for marker in BENCHMARK_SOURCE_POINTER_MARKERS):
             source_identities.add(_normalize_source_identity(normalized))
@@ -1620,6 +1647,10 @@ def _markdown_benchmark_source_table_count(raw_text: str) -> int:
             normalized_row = row.strip().lower()
             if any(skip in normalized_row for skip in ("alternative", "reject", "infeasible")):
                 # Skip rows that clearly describe surveyed-but-not-selected sources.
+                continue
+            if _planned_only_text(normalized_row, markers=PLANNED_SOURCE_TEXT_MARKERS):
+                # Planned diagnostic rows are useful provenance, but they are not
+                # executed benchmark evidence for final-paper readiness.
                 continue
             cells = _markdown_cells(row)
             if len([cell for cell in cells if cell.strip()]) < 3:
@@ -1854,8 +1885,16 @@ def _read_jsonl_objects(path: Path) -> list[dict[str, Any]]:
 
 
 def _planned_only_task_count_line(line: str) -> bool:
-    lowered = line.lower()
-    return any(marker in lowered for marker in PLANNED_COUNT_TEXT_MARKERS) and not any(
+    return _planned_only_text(line)
+
+
+def _planned_only_text(
+    text: str,
+    *,
+    markers: tuple[str, ...] = PLANNED_COUNT_TEXT_MARKERS,
+) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in markers) and not any(
         marker in lowered for marker in ACTUAL_COUNT_TEXT_MARKERS
     )
 

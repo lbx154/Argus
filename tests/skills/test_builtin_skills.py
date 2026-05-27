@@ -814,7 +814,7 @@ def test_academic_peer_review_benchmark_skill_sets_reviewer_standard(
         "240 unique semantic scored main tasks/episodes",
         "duplicated benchmark expansion",
         "selected benchmark sources/components",
-        "at least 2 independent sources",
+        "at least 3 independent sources",
         "35 verified BibTeX entries",
         "30 unique cited keys",
         "self-drawn substitutes",

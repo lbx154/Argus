@@ -130,7 +130,7 @@ from pathlib import Path
 CACHE_DIR = Path(__file__).resolve().parent / ".llm_cache"
 CACHE_DIR.mkdir(exist_ok=True)
 
-def chat(messages, model="gpt-4o-mini", temperature=0.0,
+def chat(messages, model="gpt-5-mini", temperature=0.0,
          max_tokens=512, use_cache=True):
     """Cached chat call. Cache key includes the entire prompt, so
     deterministic decoding makes the cache an exact-replay store."""
@@ -161,30 +161,43 @@ config at `~/.codex/config.toml` defines provider endpoints.
 
 ## 4. Benchmark design rules
 
-### Synthetic benchmark over real
+### Real benchmarks over synthetic
 
-For first paper, **build a synthetic benchmark with deterministic gold**.
-Reasons:
-- Real benchmarks (ALFWorld, WebShop, WebArena) require Docker, hours of
-  setup, and have output-format confounds that destroy the signal.
-- Synthetic gold is reproducible — anyone can re-score the predictions
-  against gold without the LLM in the loop.
-- You control task complexity, so you can show ablation effects clearly.
+For a submission-quality paper, **use existing real benchmarks or official
+task/data releases for the main evidence**. Synthetic/local tasks are useful
+only as smoke tests, unit tests, prompt-format diagnostics, or ablations that
+are clearly labeled as such. They must not become headline tables, final
+claims, or submission-readiness evidence.
+
+Final EMNLP evidence needs:
+- at least 3 independent executed real benchmark sources/components, not
+  planned diagnostic rows;
+- at least 240 unique semantic scored main tasks/episodes for every required
+  method/baseline condition;
+- raw scored rows under `experiments/**`, not only benchmark manifests;
+- a named evaluated model/backend. If no local GPU exists, run the approved
+  hosted route, with `gpt-5-mini` as the default low-cost backbone, and record
+  temperature, top_p, max_tokens, budget, cache/retry/timeout policy, and
+  stopping rules.
 
 ### Construction rules
 
-1. **5 task families** is a good number. Each family stresses a different
+1. **3+ real source components** is the minimum for final evidence. Each source
+   should stress a different capability or failure mode.
+2. **5 task families** inside a source mix can be useful for analysis. Each family stresses a different
    skill (filtering, planning, calculation, routing, recovery).
-2. **Within a family, vary surface entities** (names, dates, numbers) but
+3. **Within a family, vary surface entities** (names, dates, numbers) but
    keep the latent procedure constant. This separates pattern-matching
    from skill-abstraction.
-3. **Each family has a "failure trap"**: a tempting wrong branch the model
+4. **Each family has a "failure trap"**: a tempting wrong branch the model
    will hit unless it learns the right rule. The trap is what lets skills
    demonstrate value.
-4. **3 difficulties (easy / mid / hard)** vary noise count or step length,
+5. **3 difficulties (easy / mid / hard)** vary noise count or step length,
    not the skill itself.
-5. **Deterministic Python gold**, no LLM in the loop.
-6. **Hand-verify ≥ 20 random episodes** before running anything.
+6. **Deterministic scoring when the benchmark provides gold**, but the evaluated
+   agent may call `gpt-5-mini` or another approved model; record the model and
+   decoding settings.
+7. **Hand-verify >= 20 random episodes** before running anything.
 
 Skeleton:
 
@@ -590,11 +603,11 @@ FIG_SC, FIG_FULL = (3.25, 2.4), (6.7, 2.6)
 ## 8. Page budget (EMNLP long paper)
 
 ```
-Page 1   Title, authors, abstract, teaser figure
-Page 2   Introduction (with contributions list)
+Page 1   Title, authors, 130--220 word abstract, teaser figure
+Page 2   Introduction (at least 450 words/about one page, with contributions list)
 Page 3   Related Work, start of Method
-Page 4   Method, architecture figure
-Page 5   Experimental Setup, main table
+Page 4   Method (at least 450 words), architecture figure
+Page 5   Experimental Setup (at least 350 words), main table
 Page 6   Results: ablation table, per-condition table, key figure
 Page 7   Analysis: significance, qualitative, discussion
 Page 8   Conclusion + start of Limitations + Ethics
@@ -605,9 +618,11 @@ Page 9+  Limitations + Ethics + References + Appendix
 **Rule**: Conclusion (Sec ≤9) MUST appear by end of page 8. Limitations
 and Ethics live after Conclusion and don't count against the limit.
 
-If you overflow, in priority order: (a) move secondary figures to
-appendix; (b) shorten Analysis paragraphs; (c) merge Limitations bullets;
-(d) tighten the Method section; (e) cut a lower-priority experiment.
+If you overflow, in priority order: (a) move secondary figures to appendix;
+(b) move low-value diagnostics to appendix; (c) tighten repeated score
+restatements; (d) merge Limitations bullets. Do not solve overlength by cutting
+the Introduction below 450 words, deleting model/benchmark configuration, or
+removing the explanation a reviewer needs to understand the work.
 
 ---
 

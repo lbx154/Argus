@@ -119,6 +119,11 @@ RESEARCH_MD_VISUAL_PAGES = {4, 5, 6, 7}
 REQUIRED_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY = 8
 MIN_RENDERED_REFERENCES_PAGE_FOR_FULL_BODY = 9
 MIN_RENDERED_APPENDIX_PAGE = 9
+MIN_ABSTRACT_WORDS = 130
+MIN_INTRODUCTION_WORDS = 450
+MIN_METHOD_WORDS = 450
+MIN_EXPERIMENTAL_SETUP_WORDS = 350
+MIN_EXECUTED_BENCHMARK_SOURCES = 3
 MIN_FINAL_BIBLIOGRAPHY_ENTRIES = 35
 MIN_FINAL_UNIQUE_CITATION_KEYS = 30
 MIN_RENDERED_REFERENCE_PAGES = 2
@@ -2819,6 +2824,16 @@ def validate_emnlp_paper_contract(project_root: Path) -> list[ContractIssue]:
             )
         )
     issues.extend(_validate_acl_template_authenticity(root))
+    if (root / PAPER_MAIN_TEX_PATH).is_file():
+        expanded_body = _expanded_latex_body(root)
+        if not expanded_body.strip():
+            expanded_body = (root / PAPER_MAIN_TEX_PATH).read_text(
+                encoding="utf-8",
+                errors="replace",
+            )
+        issues.extend(_validate_full_paper_narrative_depth(expanded_body))
+        issues.extend(_validate_experiment_model_details(expanded_body))
+    issues.extend(_validate_emnlp_executed_benchmark_sources(root))
 
     assessment = payload.get("submission_quality_self_assessment")
     if assessment != "ready":
@@ -2834,6 +2849,504 @@ def validate_emnlp_paper_contract(project_root: Path) -> list[ContractIssue]:
     issues.extend(_validate_style_structure_conformance(root))
 
     return _dedupe_contract_issues(issues)
+
+
+def _validate_full_paper_narrative_depth(tex_text: str) -> list[ContractIssue]:
+    """Reject validator-shaped final papers with stub core sections."""
+
+    body_tex = _latex_before_references_and_appendix(tex_text)
+    issues: list[ContractIssue] = []
+    abstract_word_count = _latex_environment_word_count(tex_text, "abstract")
+    if abstract_word_count < MIN_ABSTRACT_WORDS:
+        issues.append(
+            ContractIssue(
+                "abstract_too_short",
+                str(PAPER_MAIN_TEX_PATH),
+                (
+                    "final EMNLP abstracts must read like normal paper abstracts, "
+                    f"not validator-shaped stubs; found {abstract_word_count} words, "
+                    f"below the {MIN_ABSTRACT_WORDS}-word minimum. Expand with the "
+                    "problem, gap, method, evaluated model/benchmark mix, main "
+                    "numbers, and scoped implication."
+                ),
+            )
+        )
+
+    section_blocks = _latex_top_level_section_blocks(body_tex)
+    section_requirements = (
+        (
+            "introduction_too_short",
+            "Introduction",
+            MIN_INTRODUCTION_WORDS,
+            _section_words(section_blocks, (r"^introduction$",)),
+            "expand the problem setup, literature gap, method insight, result preview, contributions, and scope",
+        ),
+        (
+            "method_section_too_short",
+            "Method",
+            MIN_METHOD_WORDS,
+            _section_words(
+                section_blocks,
+                (
+                    r"\bmethod\b",
+                    r"\bapproach\b",
+                    r"\bsystem\b",
+                    r"\bmodel\b",
+                ),
+                exclude=(r"\bsetup\b", r"\bexperiment", r"\bevaluation\b"),
+            ),
+            "specify the evaluated mechanism, controller/state/memory flow, decision rules, and enough details to reimplement",
+        ),
+        (
+            "experimental_setup_too_short",
+            "Experimental Setup",
+            MIN_EXPERIMENTAL_SETUP_WORDS,
+            _section_words(
+                section_blocks,
+                (
+                    r"\bexperimental setup\b",
+                    r"\bevaluation setup\b",
+                    r"\bexperiment",
+                    r"\bbenchmark",
+                    r"\bdata\b",
+                ),
+                exclude=(r"\bresults?\b", r"\banalysis\b", r"\bdiscussion\b"),
+            ),
+            "name benchmark sources, model/backend, parameters, baselines, metrics, budget, and stopping rules",
+        ),
+    )
+    for code, section_name, minimum, count, repair_hint in section_requirements:
+        if count >= minimum:
+            continue
+        issues.append(
+            ContractIssue(
+                code,
+                str(PAPER_MAIN_TEX_PATH),
+                (
+                    f"{section_name} is too thin for a submission-quality long paper: "
+                    f"found {count} prose words, below the {minimum}-word minimum; "
+                    f"{repair_hint}. If evidence is missing, run the missing "
+                    "benchmark/analysis work before padding prose."
+                ),
+            )
+        )
+    return issues
+
+
+def _validate_experiment_model_details(tex_text: str) -> list[ContractIssue]:
+    body_tex = _latex_before_references_and_appendix(tex_text)
+    section_blocks = _latex_top_level_section_blocks(body_tex)
+    method_and_setup = _section_text(
+        section_blocks,
+        (
+            r"\bmethod\b",
+            r"\bapproach\b",
+            r"\bsystem\b",
+            r"\bexperimental setup\b",
+            r"\bevaluation setup\b",
+            r"\bexperiment",
+            r"\bbenchmark",
+            r"\bdata\b",
+        ),
+    )
+    plain = _latex_contract_plain_text(method_and_setup).lower()
+    if not plain:
+        return []
+
+    issues: list[ContractIssue] = []
+    model_markers = (
+        "gpt-5-mini",
+        "gpt-5",
+        "gpt-4",
+        "gpt-3.5",
+        "claude",
+        "gemini",
+        "llama",
+        "qwen",
+        "mistral",
+        "deepseek",
+    )
+    if "no external llm/model" in plain or "no external model" in plain:
+        issues.append(
+            ContractIssue(
+                "missing_experiment_model_identifier",
+                str(PAPER_MAIN_TEX_PATH),
+                (
+                    "the final paper says the evaluated experiment makes no external "
+                    "LLM/model call. For this agent-paper route, no-GPU experiments "
+                    "should use and report an approved hosted model such as gpt-5-mini "
+                    "or explicitly downgrade the claim to a deterministic baseline/pilot."
+                ),
+            )
+        )
+    elif not any(marker in plain for marker in model_markers):
+        issues.append(
+            ContractIssue(
+                "missing_experiment_model_identifier",
+                str(PAPER_MAIN_TEX_PATH),
+                (
+                    "Method/Experimental Setup must name the evaluated model/backend "
+                    "identifier, for example gpt-5-mini for no-GPU hosted LLM runs; "
+                    "do not make reviewers infer which model powered the agent."
+                ),
+            )
+        )
+
+    settings_markers = (
+        "temperature",
+        "top_p",
+        "top-p",
+        "max_tokens",
+        "max tokens",
+        "seed",
+        "token budget",
+        "budget",
+        "cache",
+        "timeout policy",
+    )
+    if not any(marker in plain for marker in settings_markers):
+        issues.append(
+            ContractIssue(
+                "missing_experiment_model_settings",
+                str(PAPER_MAIN_TEX_PATH),
+                (
+                    "Experimental Setup must report reproducibility settings for the "
+                    "evaluated model/backend: decoding parameters, token/request "
+                    "budget, caching/retry policy, seeds where applicable, and "
+                    "stopping rules."
+                ),
+            )
+        )
+    return issues
+
+
+def _validate_emnlp_executed_benchmark_sources(root: Path) -> list[ContractIssue]:
+    json_path = root / BENCHMARK_PROVENANCE_JSON_PATH
+    md_path = root / BENCHMARK_PROVENANCE_MD_PATH
+    if json_path.is_file():
+        payload = _try_read_json_object(json_path)
+        count = _executed_benchmark_source_count_from_json(payload) if payload else 0
+        path = BENCHMARK_PROVENANCE_JSON_PATH
+    elif md_path.is_file():
+        count = _executed_benchmark_source_count_from_markdown(
+            md_path.read_text(encoding="utf-8", errors="replace")
+        )
+        path = BENCHMARK_PROVENANCE_MD_PATH
+    else:
+        return [
+            ContractIssue(
+                "missing_benchmark_provenance_for_paper_contract",
+                str(BENCHMARK_PROVENANCE_MD_PATH),
+                (
+                    "final EMNLP paper contract requires benchmark provenance with "
+                    f"at least {MIN_EXECUTED_BENCHMARK_SOURCES} independent executed "
+                    "real benchmark sources/components"
+                ),
+            )
+        ]
+
+    if count < MIN_EXECUTED_BENCHMARK_SOURCES:
+        return [
+            ContractIssue(
+                "insufficient_executed_benchmark_sources",
+                str(path),
+                (
+                    "final EMNLP paper evidence must execute and report at least "
+                    f"{MIN_EXECUTED_BENCHMARK_SOURCES} independent real benchmark "
+                    f"sources/components; found {count}. Planned diagnostic rows do "
+                    "not count. Run/materialize the missing benchmark sources before "
+                    "trying to fix page count with prose."
+                ),
+            )
+        ]
+    return []
+
+
+def _latex_environment_word_count(tex_text: str, environment: str) -> int:
+    matches = _extract_latex_environments(tex_text, environment)
+    return _latex_contract_word_count("\n".join(matches))
+
+
+def _latex_top_level_section_blocks(tex_text: str) -> list[tuple[str, str]]:
+    pattern = re.compile(r"\\section\*?(?:\[[^\]]*\])?\s*\{([^{}]+)\}")
+    matches = list(pattern.finditer(tex_text))
+    blocks: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        title = _latex_contract_plain_text(match.group(1)).lower()
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(tex_text)
+        blocks.append((title, tex_text[start:end]))
+    return blocks
+
+
+def _section_words(
+    section_blocks: Sequence[tuple[str, str]],
+    include: Sequence[str],
+    *,
+    exclude: Sequence[str] = (),
+) -> int:
+    return _latex_contract_word_count(_section_text(section_blocks, include, exclude=exclude))
+
+
+def _section_text(
+    section_blocks: Sequence[tuple[str, str]],
+    include: Sequence[str],
+    *,
+    exclude: Sequence[str] = (),
+) -> str:
+    chunks: list[str] = []
+    include_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in include]
+    exclude_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in exclude]
+    for title, body in section_blocks:
+        if exclude_patterns and any(pattern.search(title) for pattern in exclude_patterns):
+            continue
+        if any(pattern.search(title) for pattern in include_patterns):
+            chunks.append(body)
+    return "\n\n".join(chunks)
+
+
+def _latex_contract_word_count(tex_text: str) -> int:
+    text = tex_text
+    for environment in (
+        "figure",
+        "figure*",
+        "table",
+        "table*",
+        "tabular",
+        "tabular*",
+        "equation",
+        "align",
+        "align*",
+    ):
+        text = re.sub(
+            rf"\\begin\{{{re.escape(environment)}\}}.*?\\end\{{{re.escape(environment)}\}}",
+            " ",
+            text,
+            flags=re.DOTALL,
+        )
+    plain = _latex_contract_plain_text(text)
+    return len(re.findall(r"[A-Za-z][A-Za-z0-9'/-]*", plain))
+
+
+def _latex_contract_plain_text(tex_text: str) -> str:
+    text = re.sub(r"%.*", " ", tex_text)
+    text = re.sub(
+        r"\\(?:citep|citet|cite|citealp|citeauthor|citeyear|ref|pageref|autoref|label|"
+        r"includegraphics|bibliography|bibliographystyle)"
+        r"\*?(?:\[[^\]]*\])?\{[^{}]*\}",
+        " ",
+        text,
+    )
+    text = re.sub(r"\\(?:begin|end)\{[^{}]*\}", " ", text)
+    return _latex_to_plain_for_contract(text)
+
+
+def _executed_benchmark_source_count_from_json(payload: object) -> int:
+    sources = _json_benchmark_sources(payload)
+    identities = {
+        _benchmark_source_identity_for_contract(source)
+        for source in sources
+        if not _benchmark_source_planned_only(source)
+    }
+    return len({identity for identity in identities if identity})
+
+
+def _json_benchmark_sources(payload: object) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        sources: list[dict[str, Any]] = []
+        for item in payload:
+            sources.extend(_json_benchmark_sources(item))
+        return sources
+    if not isinstance(payload, dict):
+        return []
+    source_fields = {
+        "selected_benchmarks",
+        "selected_benchmark_sources",
+        "benchmark_sources",
+        "benchmarks",
+        "sources",
+        "components",
+        "datasets",
+    }
+    sources = []
+    for key, value in payload.items():
+        normalized_key = str(key).lower().replace("-", "_")
+        if normalized_key in source_fields:
+            sources.extend(_json_benchmark_source_entries(value))
+    if not sources and _json_object_looks_like_benchmark_source(payload):
+        sources.append(payload)
+    return sources
+
+
+def _json_benchmark_source_entries(value: object) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        sources: list[dict[str, Any]] = []
+        for item in value:
+            sources.extend(_json_benchmark_source_entries(item))
+        return sources
+    if isinstance(value, dict):
+        source_name_fields = {"name", "source", "benchmark", "dataset", "suite", "title"}
+        pointer_fields = {"url", "repo", "repository", "paper", "citation", "doi"}
+        normalized_keys = {str(key).lower().replace("-", "_") for key in value}
+        if normalized_keys & (source_name_fields | pointer_fields):
+            return [value]
+        sources: list[dict[str, Any]] = []
+        for name, nested in value.items():
+            if isinstance(nested, dict):
+                sources.extend(_json_benchmark_source_entries({"name": str(name), **nested}))
+            else:
+                sources.extend(
+                    _json_benchmark_source_entries({"name": str(name), "source": nested})
+                )
+        return sources
+    if isinstance(value, str) and value.strip():
+        return [{"name": value.strip()}]
+    return []
+
+
+def _json_object_looks_like_benchmark_source(payload: Mapping[str, Any]) -> bool:
+    normalized_keys = {str(key).lower().replace("-", "_") for key in payload}
+    return bool(
+        normalized_keys
+        & {"name", "source", "benchmark", "dataset", "suite", "url", "repo", "paper", "doi"}
+    )
+
+
+def _executed_benchmark_source_count_from_markdown(raw_text: str) -> int:
+    identities: set[str] = set()
+    lines = raw_text.splitlines()
+    for index, line in enumerate(lines):
+        if not line.lstrip().startswith("|"):
+            continue
+        if index + 1 >= len(lines) or not _contract_markdown_separator(lines[index + 1]):
+            continue
+        headers = _contract_markdown_cells(line)
+        normalized_headers = [
+            re.sub(r"[^a-z0-9]+", "_", header.strip().lower()).strip("_")
+            for header in headers
+        ]
+        header_text = " ".join(normalized_headers)
+        has_source_identity = any(
+            token in normalized_headers
+            for token in ("name", "benchmark", "benchmark_name", "source", "suite", "dataset")
+        )
+        has_pointer = any(
+            "url" in token
+            or "repo" in token
+            or "paper" in token
+            or "citation" in token
+            or token == "doi"
+            for token in normalized_headers
+        )
+        has_selection_rationale = (
+            "selected" in header_text
+            or "rationale" in header_text
+            or "why_selected" in header_text
+            or "capability" in header_text
+            or "why_it_belongs" in header_text
+        )
+        if not (has_source_identity and has_pointer and has_selection_rationale):
+            continue
+        for row in lines[index + 2 :]:
+            if not row.lstrip().startswith("|"):
+                break
+            if _contract_markdown_separator(row):
+                continue
+            normalized_row = row.strip().lower()
+            if any(skip in normalized_row for skip in ("alternative", "reject", "infeasible")):
+                continue
+            if _benchmark_source_planned_only(normalized_row):
+                continue
+            cells = _contract_markdown_cells(row)
+            if len([cell for cell in cells if cell.strip()]) < 3:
+                continue
+            identity_cell = _benchmark_identity_cell(normalized_headers, cells)
+            if identity_cell:
+                identities.add(_normalize_contract_identity(identity_cell))
+    if identities:
+        return len(identities)
+    selected_text = raw_text.lower()
+    if "selected benchmark" not in selected_text and "benchmark provenance" not in selected_text:
+        return 0
+    for line in lines:
+        normalized = line.strip().lower()
+        if not normalized.startswith(("-", "*")):
+            continue
+        if any(skip in normalized for skip in ("alternative", "reject", "infeasible")):
+            continue
+        if _benchmark_source_planned_only(normalized):
+            continue
+        if _line_has_benchmark_pointer(normalized):
+            identities.add(_normalize_contract_identity(normalized))
+    return len(identities)
+
+
+def _benchmark_identity_cell(headers: Sequence[str], cells: Sequence[str]) -> str | None:
+    for header, cell in zip(headers, cells, strict=False):
+        if header in {"name", "benchmark", "benchmark_name", "source", "suite", "dataset"}:
+            if cell.strip():
+                return cell.strip()
+    for cell in cells:
+        if cell.strip():
+            return cell.strip()
+    return None
+
+
+def _benchmark_source_identity_for_contract(source: Mapping[str, Any]) -> str | None:
+    for field in ("name", "source", "benchmark", "dataset", "suite", "url", "repo", "paper", "doi"):
+        value = source.get(field)
+        if isinstance(value, str) and value.strip():
+            return _normalize_contract_identity(value)
+    serialized = json.dumps(source, sort_keys=True, ensure_ascii=False)
+    return _normalize_contract_identity(serialized) if serialized != "{}" else None
+
+
+def _benchmark_source_planned_only(source: object) -> bool:
+    text = source if isinstance(source, str) else json.dumps(source, ensure_ascii=False)
+    lowered = text.lower()
+    planned_markers = (
+        "planned",
+        "diagnostic tasks planned",
+        "not yet run",
+        "not executed",
+        "pending",
+        "future",
+        "todo",
+        "nice-to-have",
+        "blocked",
+    )
+    executed_markers = (
+        "actual",
+        "completed",
+        "complete",
+        "evaluated",
+        "executed",
+        "finished",
+        "scored",
+        "raw rows",
+        "results",
+        "canonical run",
+    )
+    return any(marker in lowered for marker in planned_markers) and not any(
+        marker in lowered for marker in executed_markers
+    )
+
+
+def _line_has_benchmark_pointer(text: str) -> bool:
+    return any(marker in text for marker in ("http://", "https://", "github.com", "doi", "arxiv"))
+
+
+def _contract_markdown_separator(line: str) -> bool:
+    cells = _contract_markdown_cells(line)
+    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell.strip()) for cell in cells)
+
+
+def _contract_markdown_cells(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _normalize_contract_identity(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip().lower())
 
 
 def validate_paper_format(project_root: Path) -> list[ContractIssue]:

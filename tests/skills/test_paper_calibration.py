@@ -448,6 +448,7 @@ def test_selected_benchmark_sources_need_source_pointers(tmp_path: Path) -> None
             "selected_benchmarks": [
                 {"name": "ToolBench", "task_count": 120},
                 {"name": "WebArena", "task_count": 120},
+                {"name": "GAIA", "task_count": 120},
             ],
         },
     )
@@ -484,6 +485,16 @@ def test_multi_source_benchmark_provenance_passes_source_gate(tmp_path: Path) ->
                     "split": "sampled web-agent tasks",
                     "task_count": 120,
                     "rationale": "realistic web task coverage",
+                },
+                {
+                    "name": "GAIA",
+                    "url": "https://huggingface.co/datasets/gaia-benchmark/GAIA",
+                    "paper": "GAIA",
+                    "version": "official dataset snapshot",
+                    "license": "recorded in benchmark card",
+                    "split": "sampled assistant tasks",
+                    "task_count": 120,
+                    "rationale": "multi-step assistant reasoning coverage",
                 },
             ],
         },
@@ -522,6 +533,34 @@ def test_markdown_benchmark_provenance_table_counts_selected_sources(
     issues = detect_quality_blockers(tmp_path)
 
     assert "insufficient_selected_benchmark_sources" not in {
+        issue.code for issue in issues
+    }
+
+
+def test_planned_markdown_benchmark_sources_do_not_count_as_selected(
+    tmp_path: Path,
+) -> None:
+    _write(
+        tmp_path / "experiments" / "BENCHMARK_PROVENANCE.md",
+        "\n".join(
+            [
+                "# Benchmark Provenance",
+                "",
+                "| Name | URL/repo | Paper/citation | Version/date | Unique task count contributed | Split/filtering | License/access | Capability / failure mode | Why selected | Alternatives surveyed |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                "| SWE-bench Verified | https://github.com/swe-bench/SWE-bench | SWE-bench Verified | 2024 | 240 completed scored tasks | verified split | public benchmark release | code repair | Completed main source. | SWE-bench+ |",
+                "| SWE-bench Multimodal | https://huggingface.co/datasets/SWE-bench/SWE-bench_Multimodal | SWE-bench Multimodal | 2024 | 80 diagnostic tasks planned | planned split | public benchmark release | visual bug fixing | Planned diagnostic. | SWE-bench |",
+                "| RepoBench-P | https://github.com/Leolty/repobench | RepoBench | 2024 | 80 diagnostic tasks planned | planned split | public benchmark release | repo completion | Planned diagnostic. | CodeSearchNet |",
+                "",
+                "This is the final benchmark package.",
+            ]
+        )
+        + "\n",
+    )
+
+    issues = detect_quality_blockers(tmp_path)
+
+    assert "insufficient_selected_benchmark_sources" in {
         issue.code for issue in issues
     }
 
@@ -670,6 +709,7 @@ def _write_valid_benchmark_provenance(tmp_path: Path) -> None:
                 "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
                 "| GAIA | https://huggingface.co/datasets/gaia-benchmark/GAIA | GAIA: A Benchmark for General AI Assistants | 2024 | 140 | held-out sampled split | public benchmark release | assistant reasoning | main reasoning benchmark | AgentBench |",
                 "| Mind2Web | https://github.com/OSU-NLP-Group/Mind2Web | Mind2Web: Towards a Generalist Agent for the Web | 2023 | 100 | official train/test adaptation | public dataset release | web action selection | web grounding benchmark | WebArena |",
+                "| ToolBench | https://github.com/OpenBMB/ToolBench | ToolLLM: Facilitating Large Language Models to Master 16000+ Real-world APIs | 2023 | 120 | sampled tool-use tasks | public benchmark release | API/tool use | tool-use branch of the benchmark mix | API-Bank |",
             ]
         )
         + "\n",

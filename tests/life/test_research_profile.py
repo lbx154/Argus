@@ -55,8 +55,9 @@ def test_emnlp2026_profile_contains_research_guardrails() -> None:
     assert "Granted capability layer" in ctx
     assert "image_model_allowed: gpt-image-2" in ctx
     assert "Shared model/data cache layer" in ctx
-    assert "HF_HOME: /root/.cache/huggingface" in ctx
-    assert "HUGGINGFACE_HUB_CACHE: /root/.cache/huggingface/hub" in ctx
+    default_cache_root = Path.home() / ".cache"
+    assert f"HF_HOME: {default_cache_root / 'huggingface'}" in ctx
+    assert f"HUGGINGFACE_HUB_CACHE: {default_cache_root / 'huggingface' / 'hub'}" in ctx
     assert "Permission model: the human has pre-approved these capabilities" in ctx
     assert "profile_sha256" in ctx
     assert "final_submission" in ctx

@@ -1738,6 +1738,94 @@ def test_emnlp_paper_contract_allows_justified_paper_specific_section(tmp_path: 
     assert "stale_structure_section_mapping" not in codes
 
 
+def test_emnlp_paper_contract_rejects_shallow_core_sections(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    main_path = tmp_path / "paper" / "main.tex"
+    text = main_path.read_text(encoding="utf-8")
+    text = re.sub(
+        r"\\begin\{abstract\}.*?\\end\{abstract\}",
+        lambda _match: "\\begin{abstract}A short validator-shaped abstract.\\end{abstract}",
+        text,
+        flags=re.DOTALL,
+    )
+    text = re.sub(
+        r"\\section\{Introduction\}.*?\\section\{Related Work\}",
+        lambda _match: "\\section{Introduction}\nThis is too short.\n\\section{Related Work}",
+        text,
+        flags=re.DOTALL,
+    )
+    text = re.sub(
+        r"\\section\{Method\}.*?\\section\{Experimental Setup\}",
+        lambda _match: "\\section{Method}\nThe method is too short.\n\\section{Experimental Setup}",
+        text,
+        flags=re.DOTALL,
+    )
+    text = re.sub(
+        r"\\section\{Experimental Setup\}.*?\\section\{Results\}",
+        lambda _match: "\\section{Experimental Setup}\nThe setup is too short.\n\\section{Results}",
+        text,
+        flags=re.DOTALL,
+    )
+    _write(main_path, text)
+
+    codes = {issue.code for issue in validate_emnlp_paper_contract(tmp_path)}
+
+    assert {
+        "abstract_too_short",
+        "introduction_too_short",
+        "method_section_too_short",
+        "experimental_setup_too_short",
+    }.issubset(codes)
+
+
+def test_emnlp_paper_contract_requires_model_identifier_and_settings(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    main_path = tmp_path / "paper" / "main.tex"
+    text = main_path.read_text(encoding="utf-8")
+    text = text.replace("hosted gpt-5-mini agent", "hosted agent")
+    text = text.replace("gpt-5-mini backend", "hosted backend")
+    text = text.replace("temperature 0.0, top_p 1.0, max_tokens 512, ", "")
+    text = text.replace("temperature 0.0, top_p 1.0, max_tokens 512, cache ", "cache ")
+    text = text.replace("a fixed per-episode token budget, ", "")
+    text = text.replace(" under a fixed token budget", " under identical limits")
+    text = text.replace("cache keys", "memo keys")
+    text = text.replace("and a three-retry timeout policy", "and identical limits")
+    text = text.replace("cache enabled, fixed seeds where sampling appears in task selection, ", "")
+    text = re.sub(r"\bbudget\b", "limit", text)
+    _write(main_path, text)
+
+    codes = {issue.code for issue in validate_emnlp_paper_contract(tmp_path)}
+
+    assert "missing_experiment_model_identifier" in codes
+    assert "missing_experiment_model_settings" in codes
+
+
+def test_emnlp_paper_contract_rejects_planned_only_benchmark_sources(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write(
+        tmp_path / "experiments" / "BENCHMARK_PROVENANCE.md",
+        "\n".join(
+            [
+                "# Benchmark Provenance",
+                "",
+                "Selected benchmark sources:",
+                "| Name | URL/repo | Paper/citation | Version/date | Task count | Split/filtering | License/access | Capability | Rationale | Alternatives |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                "| SWE-bench Verified | https://github.com/swe-bench/SWE-bench | SWE-bench Verified | 2024 | 240 completed scored tasks | verified split | public benchmark release | code repair | main completed source | SWE-bench+ |",
+                "| SWE-bench Multimodal | https://huggingface.co/datasets/SWE-bench/SWE-bench_Multimodal | SWE-bench Multimodal | 2024 | 80 diagnostic tasks planned | planned slice | public benchmark release | visual bug fixing | transfer diagnostic | SWE-bench |",
+                "| RepoBench-P | https://github.com/Leolty/repobench | RepoBench | 2024 | 80 diagnostic tasks planned | planned slice | public benchmark release | repo completion | transfer diagnostic | CodeSearchNet |",
+            ]
+        )
+        + "\n",
+    )
+
+    codes = {issue.code for issue in validate_emnlp_paper_contract(tmp_path)}
+
+    assert "insufficient_executed_benchmark_sources" in codes
+
+
 def test_emnlp_paper_contract_rejects_significance_table_after_ethics(tmp_path: Path) -> None:
     _write_valid_paper_draft_report(tmp_path)
     main_path = tmp_path / "paper" / "main.tex"
@@ -2474,8 +2562,8 @@ def test_academic_language_review_rejects_generic_opening_even_with_pass_json(
     _write(
         tmp_path / "paper" / "main.tex",
         text.replace(
-            "A complete EMNLP-style long paper.",
-            "Large language models have achieved remarkable success. We propose SkillCycle.",
+            "A complete EMNLP-style long paper studies how evidence-calibrated skill",
+            "Large language models have achieved remarkable success. We propose SkillCycle. This paper studies how evidence-calibrated skill",
         ),
     )
     _write_valid_academic_language_review(tmp_path)
@@ -2489,24 +2577,21 @@ def test_academic_language_review_rejects_missing_method_system_basics(
 ) -> None:
     _write_valid_paper_draft_report(tmp_path)
     text = (tmp_path / "paper" / "main.tex").read_text(encoding="utf-8")
+    text = re.sub(
+        r"\\section\{Method\}.*?\\section\{Experimental Setup\}",
+        lambda _match: "\\section{Method}\nThe method improves the reported result.\n\\section{Experimental Setup}",
+        text,
+        flags=re.DOTALL,
+    )
+    text = re.sub(
+        r"\\section\{Experimental Setup\}.*?\\section\{Results\}",
+        lambda _match: "\\section{Experimental Setup}\nWe report paired tests in Table~\\ref{tab:significance}.\n\\section{Results}",
+        text,
+        flags=re.DOTALL,
+    )
     _write(
         tmp_path / "paper" / "main.tex",
-        text.replace(
-            (
-                "The evaluated SkillGuard implementation runs in a deterministic Python "
-                "benchmark harness. A controller routes skill-memory state through verifier "
-                "policy checks before each tool-using agent episode, and the benchmark loop "
-                "does not call an external LLM."
-            ),
-            "The method improves the reported result.",
-        ).replace(
-            (
-                "Each benchmark run scores 240 task episodes against no-skill, raw-memory, "
-                "Reflexion, and static-skill baselines with success rate as the primary metric "
-                "under a fixed token budget. We report paired tests in Table~\\ref{tab:significance}."
-            ),
-            "We report paired tests in Table~\\ref{tab:significance}.",
-        ),
+        text,
     )
     _write_valid_academic_language_review(tmp_path)
 
@@ -2521,9 +2606,9 @@ def test_academic_language_review_rejects_missing_model_id_when_models_are_used(
     text = (tmp_path / "paper" / "main.tex").read_text(encoding="utf-8")
     _write(
         tmp_path / "paper" / "main.tex",
-        text.replace(
-            "and the benchmark loop does not call an external LLM.",
-            "and each episode calls an external LLM at fixed temperature.",
+        text.replace("gpt-5-mini", "hosted model").replace(
+            "The model produces an action or answer under the shared decoding settings.",
+            "Each episode calls an external LLM at fixed temperature.",
         ),
     )
     _write_valid_academic_language_review(tmp_path)
@@ -2541,7 +2626,7 @@ def test_academic_language_review_rejects_internal_paper_generation_stack(
         tmp_path / "paper" / "main.tex",
         text.replace(
             "The evaluated SkillGuard implementation runs in a deterministic Python "
-            "benchmark harness.",
+            "benchmark harness around a hosted gpt-5-mini agent.",
             "The execution stack is the Argus skill pipeline with Codex engineer "
             "routing and daemon handoff.",
         ),
@@ -2570,9 +2655,11 @@ def test_academic_language_review_rejects_validator_shaped_abstract_even_with_pa
     )
     _write(
         tmp_path / "paper" / "main.tex",
-        text.replace(
-            "\\begin{abstract}A complete EMNLP-style long paper.\\end{abstract}",
-            bad_abstract,
+        re.sub(
+            r"\\begin\{abstract\}.*?\\end\{abstract\}",
+            lambda _match: bad_abstract,
+            text,
+            flags=re.DOTALL,
         ),
     )
     _write_valid_academic_language_review(tmp_path)
@@ -2603,9 +2690,11 @@ def test_heuristic_academic_language_review_flags_validator_shaped_abstract(
     )
     _write(
         tmp_path / "paper" / "main.tex",
-        text.replace(
-            "\\begin{abstract}A complete EMNLP-style long paper.\\end{abstract}",
-            bad_abstract,
+        re.sub(
+            r"\\begin\{abstract\}.*?\\end\{abstract\}",
+            lambda _match: bad_abstract,
+            text,
+            flags=re.DOTALL,
         ),
     )
 
@@ -2974,6 +3063,7 @@ def _write_valid_benchmark_provenance(root: Path) -> None:
                 "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
                 "| GAIA | https://huggingface.co/datasets/gaia-benchmark/GAIA | GAIA: A Benchmark for General AI Assistants | 2024 | 140 | held-out sampled split | public benchmark release | assistant reasoning | main reasoning benchmark | AgentBench |",
                 "| Mind2Web | https://github.com/OSU-NLP-Group/Mind2Web | Mind2Web: Towards a Generalist Agent for the Web | 2023 | 100 | official train/test adaptation | public dataset release | web action selection | web grounding benchmark | WebArena |",
+                "| ToolBench | https://github.com/OpenBMB/ToolBench | ToolLLM: Facilitating Large Language Models to Master 16000+ Real-world APIs | 2023 | 120 | sampled tool-use tasks | public benchmark release | API/tool use | tool-use branch of the benchmark mix | API-Bank |",
             ]
         )
         + "\n",
@@ -3720,8 +3810,8 @@ def _write_valid_academic_language_review(
 
 def _valid_academic_evidence_spans(section_scores: dict[str, float]) -> list[dict[str, object]]:
     quote_by_section = {
-        "abstract": "A complete EMNLP-style long paper.",
-        "introduction": "This paper is formatted as a reviewable long paper with Figure~\\ref{fig:method}.",
+        "abstract": "A complete EMNLP-style long paper studies how evidence-calibrated skill",
+        "introduction": "Long-horizon agents increasingly rely on stored traces, reflections, and reusable skills",
         "contribution_framing": "A controller routes skill-memory state through verifier policy checks",
         "evidence_alignment": "Table~\\ref{tab:main} summarizes the main result.",
         "related_work_positioning": "Prior benchmark work motivates the transfer setting",
@@ -3748,6 +3838,153 @@ def _write_valid_paper_draft_report(
     pages: float = 7.8,
 ) -> None:
     citation_keys = _valid_reference_keys()
+    abstract_text = (
+        "A complete EMNLP-style long paper studies how evidence-calibrated skill "
+        "transfer changes tool-using agent behavior when memory is admitted only "
+        "after verifier checks. Existing agent-memory systems often report a "
+        "single benchmark or omit the model and runtime settings needed to "
+        "interpret the result. We evaluate SkillGuard with gpt-5-mini as a "
+        "hosted no-GPU backbone, deterministic decoding, a fixed response cap, "
+        "cached prompts, and a shared request budget across three real benchmark "
+        "sources: ToolBench, WebArena, and GAIA. Across 240 scored episodes, "
+        "SkillGuard improves verified completion by 8 points over the strongest "
+        "runnable baseline while reducing unsupported memory admissions. The "
+        "result supports a scoped claim about verifier-gated skill transfer "
+        "under this benchmark mix, not a general claim that all agent memory "
+        "should be compressed in the same way. This framing lets the reader "
+        "separate the measured admission policy from broader claims about agent "
+        "planning or long-term memory."
+    )
+    introduction_text = (
+        "This paper is formatted as a reviewable long paper with "
+        "Figure~\\ref{fig:method}. Long-horizon agents increasingly rely on "
+        "stored traces, reflections, and reusable skills, but the paper-facing "
+        "question is not merely whether memory exists. A reviewer needs to know "
+        "which memories are admitted, which task distribution tests reuse, which "
+        "model powers the evaluated agent, and whether the same budget applies "
+        "to every baseline. Without that information, an apparently positive "
+        "agent paper can be a thin systems note with hidden benchmark choices. "
+        "SkillGuard addresses the narrower problem of admission: after an "
+        "episode, the system decides whether a proposed skill should enter the "
+        "memory library or remain a transient trace. The central hypothesis is "
+        "that verifier-gated admission can preserve reusable evidence while "
+        "preventing the library from accumulating duplicate or task-local notes. "
+        "This is a practical problem for tool-using agents because downstream "
+        "failures often come from stale, over-general, or unrelated traces being "
+        "retrieved in later episodes. Prior work on ReAct-style loops, "
+        "reflection, and tool benchmarks motivates the ingredients, but it does "
+        "not by itself specify a reproducible admission contract for a shared "
+        "skill store. We therefore frame the contribution as an evaluation of "
+        "one auditable gate rather than as a new universal planner. The "
+        "experiments use gpt-5-mini with fixed decoding and a common harness so "
+        "that the comparison isolates admission policy instead of changing the "
+        "underlying model or benchmark order. The paper makes three "
+        "contributions. First, it defines a concrete SkillGuard admission rule "
+        "that checks task family and duplicate evidence before storage. Second, "
+        "it evaluates the rule on a three-source real benchmark mix with "
+        "nontrivial baselines and paired tests. Third, it reports the remaining "
+        "failure modes and limitations so the claim stays tied to measured "
+        "agent behavior rather than validator-shaped prose. The introduction also "
+        "explains why the problem is not solved by simply increasing memory size. "
+        "A large unfiltered store can look strong on repeated repository cues while "
+        "hurting tasks that require file-local or tool-specific evidence, so the "
+        "paper distinguishes storage capacity from admission quality. It previews "
+        "the evaluation before the reader reaches the tables: the same model, "
+        "task order, budget, and scoring protocol are held fixed, while the memory "
+        "admission rule changes. This keeps the narrative close to what a reviewer "
+        "can verify. The section closes by naming the scoped claim, the three "
+        "benchmark sources, and the reason the remaining problem-digest failures "
+        "are analyzed rather than hidden behind the aggregate score. This makes "
+        "the first page function like a real conference-paper introduction: it "
+        "starts from an observable failure mode, positions the missing admission "
+        "contract, states the intervention, previews the empirical comparison, "
+        "and tells the reader exactly what evidence would falsify the claim. It "
+        "also names the negative control so the result is not mistaken for a "
+        "general memory-size comparison."
+    )
+    method_text = (
+        "The evaluated SkillGuard implementation runs in a deterministic Python "
+        "benchmark harness around a hosted gpt-5-mini agent. A controller routes "
+        "skill-memory state through verifier policy checks before each "
+        "tool-using agent episode, using temperature 0.0, top_p 1.0, "
+        "max_tokens 512, a fixed per-episode token budget, cache keys that "
+        "include the full prompt, and a three-retry timeout policy. The method "
+        "has three stages. First, the episode runner builds the prompt from the "
+        "benchmark task, the current library summary, and the baseline-specific "
+        "state. Second, the model produces an action or answer under the shared "
+        "decoding settings. Third, after a solved episode, SkillGuard proposes "
+        "a candidate skill and admits it only if the verifier can link it to the "
+        "task family and show that the same family does not already contain an "
+        "equivalent memory. The controller does not change the gold labels, "
+        "task order, metrics, or result extraction rule. The no-skill baseline "
+        "runs the same agent without a library, raw memory stores recent "
+        "episode traces, Reflexion stores failure summaries, and the static "
+        "skill library stores candidate memories without the verifier gate. "
+        "This decomposition makes the admission rule the primary intervention. "
+        "The verifier itself is intentionally simple: it checks source family, "
+        "evidence compatibility, duplicate normalized content, and whether the "
+        "candidate names a task-local cue that would be unsafe to reuse outside "
+        "that family. Rejected candidates remain in raw logs for audit but are "
+        "not exposed to later episodes. Accepted skills are serialized with "
+        "source ids, family labels, prompt hashes, model id, and the result row "
+        "that justified admission. The implementation keeps the verifier outside "
+        "the answer generator so that a rejection cannot rewrite the current "
+        "episode. It only changes future retrieval state. At retrieval time, the "
+        "agent receives at most the accepted family-specific entries and cannot "
+        "inspect rejected candidates. This matters for interpretation because a "
+        "gain could otherwise come from leaking gold labels, changing the prompt, "
+        "or letting the verifier act as a second solver. SkillGuard instead "
+        "treats verification as a storage decision with explicit provenance. "
+        "Every accepted entry includes the source benchmark, episode id, family "
+        "assignment, normalized skill text, duplicate key, and the baseline run "
+        "that would have stored or rejected the same candidate. The policy can "
+        "therefore be re-run over raw traces without regenerating model outputs."
+        " The duplicate key is computed from normalized family labels and skill "
+        "content rather than from task ids, so the same lesson cannot be admitted "
+        "again just because it appears in a new benchmark source. The family "
+        "compatibility check is conservative: if a candidate mixes repository, "
+        "tool, and file-local cues in a way the verifier cannot classify, the "
+        "candidate is rejected and the episode remains a normal solved row. This "
+        "keeps the method auditable and makes the ablation against no-verifier "
+        "meaningful."
+    )
+    setup_text = (
+        "Each benchmark run scores 240 task episodes against no-skill, "
+        "raw-memory, Reflexion, and static-skill baselines with success rate as "
+        "the primary metric under a fixed token budget. We report paired tests "
+        "in Table~\\ref{tab:significance}. The benchmark mix contains three "
+        "independent real sources: ToolBench for API/tool use, WebArena for "
+        "web-agent interaction, and GAIA for multi-step assistant reasoning. "
+        "Each source contributes documented public tasks with stable ids, "
+        "source URLs, split/filtering notes, and license/access records in "
+        "the benchmark provenance files. All methods run on the same "
+        "gpt-5-mini backend, temperature 0.0, top_p 1.0, max_tokens 512, cache "
+        "enabled, fixed seeds where sampling appears in task selection, and "
+        "identical stop/resume rules. The primary metric is exact or official "
+        "task success depending on the source, and the secondary metrics are "
+        "admitted-skill count, duplicate rejection count, and paired win/loss "
+        "against the strongest runnable baseline. The run matrix is complete "
+        "only when every baseline and the proposed method have scored rows for "
+        "all selected tasks. Failures, timeouts, parse errors, and blocked "
+        "source rows are retained as rows rather than silently dropped. ToolBench "
+        "episodes are scored with the official tool-use success extraction after "
+        "normalizing harmless formatting differences. WebArena tasks use the "
+        "benchmark interaction outcome exported by the harness, and GAIA tasks use "
+        "the official answer normalization for assistant questions. The analysis "
+        "reports paired win/loss counts because every method sees the same ordered "
+        "task stream. We also record store size, accepted-skill count, duplicate "
+        "rejection count, retry count, and per-source failure labels so that the "
+        "paper can separate a genuine admission effect from a formatting, timeout, "
+        "or parsing artifact. The configuration table in the final manuscript "
+        "mirrors these fields instead of relying on prose alone. Before analysis, "
+        "the runner checks that each selected source contributes unique task ids, "
+        "that no pilot rows were duplicated with suffixes, and that every method "
+        "has a completed row for each required condition. Confidence intervals "
+        "and paired tests are computed from the raw result table, not from the "
+        "LaTeX table, and every number in the main text is regenerated from that "
+        "canonical artifact. Runs that exceed the request budget are marked as "
+        "failures with their partial trace preserved for later error analysis."
+    )
     _write(
         root / "paper" / "main.tex",
         "\n".join(
@@ -3765,9 +4002,9 @@ def _write_valid_paper_draft_report(
                 "\\author{Anonymous EMNLP Submission}",
                 "\\begin{document}",
                 "\\maketitle",
-                "\\begin{abstract}A complete EMNLP-style long paper.\\end{abstract}",
+                f"\\begin{{abstract}}{abstract_text}\\end{{abstract}}",
                 "\\section{Introduction}",
-                "This paper is formatted as a reviewable long paper with Figure~\\ref{fig:method}.",
+                introduction_text,
                 "\\section{Related Work}",
                 (
                     "Prior benchmark work motivates the transfer setting "
@@ -3788,18 +4025,9 @@ def _write_valid_paper_draft_report(
                 "\\caption{SkillGuard routing improves verified completion by 8 points.}",
                 "\\label{fig:method}",
                 "\\end{figure}",
-                (
-                    "The evaluated SkillGuard implementation runs in a deterministic Python "
-                    "benchmark harness. A controller routes skill-memory state through verifier "
-                    "policy checks before each tool-using agent episode, and the benchmark loop "
-                    "does not call an external LLM."
-                ),
+                method_text,
                 "\\section{Experimental Setup}",
-                (
-                    "Each benchmark run scores 240 task episodes against no-skill, raw-memory, "
-                    "Reflexion, and static-skill baselines with success rate as the primary metric "
-                    "under a fixed token budget. We report paired tests in Table~\\ref{tab:significance}."
-                ),
+                setup_text,
                 "\\begin{table}[t]",
                 "\\centering",
                 "\\footnotesize",
@@ -3850,6 +4078,7 @@ def _write_valid_paper_draft_report(
     _write(root / "paper" / "main.log", "Clean LaTeX build.\n")
     _write_bytes(root / "paper" / "main.pdf", _minimal_pdf_bytes(_valid_rendered_paper_pages()))
     _write(root / "paper" / "FORMAT_PREFLIGHT.md", "validate-research-md-format: PASS\n")
+    _write_valid_benchmark_provenance(root)
     _write_valid_structure_conformance(root)
     _write_json(
         root / "paper" / "PAPER_DRAFT_REPORT.json",
