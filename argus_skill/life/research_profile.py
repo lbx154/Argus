@@ -213,6 +213,10 @@ def _capability_context(env: Mapping[str, str]) -> str:
         "- Rule: do not download model weights, HuggingFace hub files, datasets, "
         "or Torch checkpoints into project directories. Reuse the shared host "
         "cache paths above for every project and experiment subprocess.\n"
+        "- Manuscript boundary: capability-vault paths, cache paths, local device "
+        "IDs, daemon configuration, and Argus/Codex route names are agent-only "
+        "runtime facts. Keep them out of rendered paper prose, captions, tables, "
+        "and appendix text; use paper-facing evaluated system facts instead.\n"
     )
 
 

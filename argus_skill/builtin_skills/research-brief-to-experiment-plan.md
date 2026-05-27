@@ -42,7 +42,7 @@ Turn a loose operator research direction into a concrete, evidence-first experim
    - Candidate task family, likely evidence type, expected failure modes, and what would make the mission not worth pursuing.
    - Defer the main hypothesis and final contribution until after the literature/code grounding steps below.
    - Constraints: compute, model/API availability, time budget, datasets, and benchmark licenses.
-   - Explicitly record the local GPU capability and choose the strongest feasible training setup. If the workspace has large GPUs, do not default to a tiny custom scorer; justify any smaller model as a baseline, ablation, or operator-approved scope change.
+   - Record local GPU capability only in internal planning artifacts and use it to choose the strongest feasible training setup. If the workspace has large GPUs, do not default to a tiny custom scorer; justify any smaller model as a baseline, ablation, or operator-approved scope change. Do not plan to copy local device ordinals, CUDA variables, cache paths, workstation names, or Argus/Codex route configuration into the manuscript.
 
 3. Run literature and specified-source grounding before locking the plan:
    - Write `research/LITERATURE_REVIEW.md`, `research/LIT_MATRIX.tsv`, and `research/LITERATURE_GROUNDING.json` before finalizing hypotheses. Target 10 recent high-quality papers from the current system year when credible sources exist; otherwise include the strongest recent papers from the previous two years and record the current-year shortfall.

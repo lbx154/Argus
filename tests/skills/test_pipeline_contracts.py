@@ -1094,7 +1094,7 @@ def test_style_exemplar_rejects_pdf_hash_mismatch(tmp_path: Path) -> None:
     assert "style_exemplar_pdf_hash_mismatch" in codes
 
 
-def test_image2_figures_require_conceptual_image2_but_allow_secondary_tikz(
+def test_image2_figures_reject_secondary_tikz_non_data_manifest_entry(
     tmp_path: Path,
 ) -> None:
     _write(tmp_path / "paper" / "figures" / "system.prompt.txt", _valid_image2_teaser_prompt())
@@ -1136,7 +1136,9 @@ def test_image2_figures_require_conceptual_image2_but_allow_secondary_tikz(
         },
     )
 
-    assert validate_image2_figures(tmp_path) == []
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "non_data_figure_not_image2" in codes
 
 
 def test_image2_figures_reject_thin_freehand_teaser_prompt(tmp_path: Path) -> None:
@@ -1402,6 +1404,50 @@ def test_image2_figures_reject_body_overall_or_teaser_pdf_substitution(tmp_path:
     assert "image2_conceptual_figure_not_included_in_main_tex" in image2_codes
     assert "conceptual_body_figure_not_image2" in image2_codes
     assert "conceptual_body_figure_not_image2" in preflight_codes
+
+
+def test_image2_figures_reject_any_non_data_body_figure_not_image2(tmp_path: Path) -> None:
+    _write_valid_image2_figures(tmp_path)
+    _write(tmp_path / "paper" / "figures" / "trajectory_example.pdf", "%PDF-1.4\n")
+    _write_main_tex_with_figures(
+        tmp_path,
+        [
+            (
+                "figures/method.png",
+                "fig:method",
+                "Overview of our method as an executable policy card.",
+            ),
+            (
+                "figures/trajectory_example.pdf",
+                "fig:trajectory-example",
+                "Qualitative trajectory example showing the candidate selection failure mode.",
+            ),
+        ],
+    )
+
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "non_data_body_figure_not_image2" in codes
+
+
+def test_image2_figures_reject_non_data_manifest_entry_not_image2(tmp_path: Path) -> None:
+    _write_valid_image2_figures(tmp_path)
+    manifest_path = tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["figures"].append(
+        {
+            "figure_id": "qualitative-example",
+            "figure_type": "qualitative_example",
+            "source": "script",
+            "generator": "local-script",
+            "output_path": "paper/figures/trajectory_example.pdf",
+        }
+    )
+    _write_json(manifest_path, payload)
+
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "non_data_figure_not_image2" in codes
 
 
 def test_image2_figures_accept_body_conceptual_png_output(tmp_path: Path) -> None:
