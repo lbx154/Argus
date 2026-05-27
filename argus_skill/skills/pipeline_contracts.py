@@ -3596,7 +3596,7 @@ def _latex_contract_word_count(tex_text: str) -> int:
 
 
 def _latex_contract_plain_text(tex_text: str) -> str:
-    text = re.sub(r"%.*", " ", tex_text)
+    text = _strip_latex_comments_for_contract(tex_text)
     text = re.sub(
         r"\\(?:citep|citet|cite|citealp|citeauthor|citeyear|ref|pageref|autoref|label|"
         r"includegraphics|bibliography|bibliographystyle)"
