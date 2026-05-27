@@ -601,6 +601,13 @@ class Critic:
                 runtime_change_summary.strip()
                 or "No runtime source changes have been detected since daemon start; set restart_daemon=false."
             )
+            + "\n\nPlanner hygiene:\n"
+            + (
+                "Do not copy stale host-specific paths from the journal into new tasks. "
+                "Use the active project files, project-local argus_builtin_skills, and "
+                "`python -m argus_skill ...` or the launcher-provided ARGUS_SKILL_PYTHON "
+                "environment instead of retired absolute paths."
+            )
             + "\n\n"
             + budget_line
             + "\n\nInspect the project now and return the JSON verdict.\n"
