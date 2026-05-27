@@ -1462,6 +1462,35 @@ def test_image2_figures_reject_sidecar_prompt_text_hash_mismatch(tmp_path: Path)
     assert "mismatched_image2_sidecar_prompt_text_sha256" in codes
 
 
+def test_image2_figures_accept_prompt_file_trailing_newline_with_stripped_sidecar(
+    tmp_path: Path,
+) -> None:
+    _write_valid_image2_figures(tmp_path)
+    _write_main_tex_with_figures(
+        tmp_path,
+        [
+            (
+                "figures/method.png",
+                "fig:method",
+                "Overview of our method as an executable policy card.",
+            )
+        ],
+    )
+    prompt_path = tmp_path / "paper" / "figures" / "method.prompt.txt"
+    prompt_text = prompt_path.read_text(encoding="utf-8")
+    if not prompt_text.endswith("\n"):
+        _write(prompt_path, prompt_text + "\n")
+        prompt_text = prompt_path.read_text(encoding="utf-8")
+    stripped_prompt = prompt_text.strip()
+    sidecar_path = tmp_path / "paper" / "figures" / "method.provenance.json"
+    payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    payload["prompt"] = stripped_prompt
+    payload["prompt_sha256"] = hashlib.sha256(stripped_prompt.encode("utf-8")).hexdigest()
+    _write_json(sidecar_path, payload)
+
+    assert validate_image2_figures(tmp_path) == []
+
+
 def test_image2_figures_accept_body_conceptual_png_output(tmp_path: Path) -> None:
     _write_valid_image2_figures(tmp_path)
     _write_main_tex_with_figures(
