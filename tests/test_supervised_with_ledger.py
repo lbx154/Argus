@@ -298,9 +298,15 @@ def test_recoverable_reconnect_predicates_do_not_clear_thread() -> None:
     assert fatal_error_looks_like_recoverable_reconnect(message)
     assert not fatal_error_looks_like_backend_failure(message)
     assert not should_clear_thread_id_after_outcome(status="", fatal_error=message)
-    assert fatal_error_looks_like_backend_failure(
+    exhausted_notice = (
         "Reconnecting... 100/100 "
         "(stream disconnected before completion: response.failed event received)"
+    )
+    assert fatal_error_looks_like_recoverable_reconnect(exhausted_notice)
+    assert not fatal_error_looks_like_backend_failure(exhausted_notice)
+    assert not should_clear_thread_id_after_outcome(
+        status="error",
+        fatal_error=exhausted_notice,
     )
     plain_disconnect = "stream disconnected before completion: response.failed event received"
     assert not fatal_error_looks_like_backend_failure(plain_disconnect)
@@ -320,6 +326,16 @@ def test_effective_progress_timeout_is_no_progress_not_backend_failure() -> None
     assert fatal_error_looks_like_effective_progress_timeout(message)
     assert not fatal_error_looks_like_backend_failure(message)
     assert should_clear_thread_id_after_outcome(status="", fatal_error=message)
+
+
+def test_supervised_config_defaults_allow_long_horizon_turns(monkeypatch) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", raising=False)
+
+    config = SupervisedConfig()
+
+    assert config.effective_progress_timeout_seconds == 3600
+    assert config.runner_hard_idle_seconds == 3600
 
 
 def test_effective_progress_timeout_clears_thread_and_counts_no_progress(
@@ -408,10 +424,7 @@ def test_backend_failure_skips_reviewer_retries_fresh_session(tmp_path: Path) ->
         RunnerResult(
             exit_code=0,
             thread_id="poison-thread",
-            fatal_error=(
-                "Reconnecting... 100/100 "
-                "(stream disconnected before completion: response.failed event received)"
-            ),
+            fatal_error="502 Bad Gateway",
         ),
         RunnerResult(
             exit_code=0,
@@ -500,10 +513,7 @@ def test_repeated_backend_failures_escalate_to_error_without_reviewer(tmp_path: 
         ),
         RunnerResult(
             exit_code=0,
-            fatal_error=(
-                "Reconnecting... 100/100 "
-                "(stream disconnected before completion: response.failed event received)"
-            ),
+            fatal_error="502 Bad Gateway",
             thread_id="bad-2",
         ),
     ])
@@ -599,7 +609,7 @@ def test_supervised_engineer_passes_effective_progress_watchdog_provider(
     options = engineer.calls[0]["options"]
     assert options.external_interrupt_reason_provider is not None
     assert options.external_interrupt_reason_provider() is None
-    assert options.watchdog_hard_idle_seconds == 900
+    assert options.watchdog_hard_idle_seconds == 3600
 
 
 def test_effective_progress_session_parser_ignores_token_count() -> None:

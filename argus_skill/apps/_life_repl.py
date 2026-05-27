@@ -704,7 +704,7 @@ class _CodexSkillLoopRunner:
                 "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", 0,
             ),
             default_watchdog_hard_idle_seconds=_env_int(
-                "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", 900,
+                "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", 3600,
             ),
             event_callback=_trampoline,
         )

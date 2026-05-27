@@ -56,7 +56,7 @@ _AUTH_FAILURE_PATTERNS: tuple[str, ...] = (
 _RUNNER_SOFT_IDLE_ENV = "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS"
 _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
 _RUNNER_DEFAULT_SOFT_IDLE_SECONDS = 0
-_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 900
+_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 60 * 60
 _RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
 
 
@@ -422,11 +422,7 @@ def _looks_like_recoverable_reconnect(fatal_error: str | None) -> bool:
         return False
     low = str(fatal_error).strip().casefold()
     match = _RECOVERABLE_RECONNECT_RE.search(low)
-    if not match:
-        return False
-    attempt = int(match.group(1))
-    limit = int(match.group(2))
-    return attempt < limit
+    return bool(match)
 
 
 def _coerce_int(value: Any) -> int:

@@ -164,7 +164,7 @@ def test_session_poison_classifier_clears_no_progress_and_empty_output() -> None
         status="error",
         fatal_error="stream disconnected before completion: response.failed event received",
     )
-    assert should_clear_thread_id_after_outcome(
+    assert not should_clear_thread_id_after_outcome(
         status="error",
         fatal_error=(
             "Reconnecting... 100/100 "

@@ -81,10 +81,10 @@ _EFFECTIVE_PROGRESS_CHECK_INTERVAL_ENV = (
     "ARGUS_SKILL_EFFECTIVE_PROGRESS_CHECK_INTERVAL_SECONDS"
 )
 _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
-_EFFECTIVE_PROGRESS_DEFAULT_TIMEOUT_SECONDS = 15 * 60
+_EFFECTIVE_PROGRESS_DEFAULT_TIMEOUT_SECONDS = 60 * 60
 _EFFECTIVE_PROGRESS_DEFAULT_CHECK_INTERVAL_SECONDS = 30.0
 _EFFECTIVE_PROGRESS_WAITING_EVENT_INTERVAL_SECONDS = 120.0
-_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 900
+_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 60 * 60
 _CODEX_SESSION_EVENT_IGNORED_PAYLOAD_TYPES = {"token_count"}
 _PROJECT_PROGRESS_IGNORE_DIRS = {
     ".git",
@@ -135,8 +135,6 @@ def fatal_error_looks_like_backend_failure(fatal_error: str | None) -> bool:
     low = str(fatal_error).strip().casefold()
     if fatal_error_looks_like_recoverable_reconnect(fatal_error):
         return False
-    if _fatal_error_looks_like_exhausted_reconnect(fatal_error):
-        return True
     return any(pattern in low for pattern in _BACKEND_FAILURE_FATAL_ERROR_PATTERNS)
 
 
@@ -144,31 +142,15 @@ def fatal_error_looks_like_recoverable_reconnect(fatal_error: str | None) -> boo
     """Return True for Codex CLI reconnect progress notices.
 
     Codex emits messages such as
-    ``Reconnecting... 1/100 (stream disconnected before completion: ...)``
-    while it is trying to recover the stream. That is a live reconnect
-    status, not a completed backend failure.
+    ``Reconnecting... 1/100 (stream disconnected before completion: ...)``.
+    The CLI can keep recovering after high attempt counts, so Argus must not
+    convert the notice into its own backend-failure state.
     """
     if not fatal_error:
         return False
     low = str(fatal_error).strip().casefold()
     match = _RECOVERABLE_RECONNECT_RE.search(low)
-    if not match:
-        return False
-    attempt = int(match.group(1))
-    limit = int(match.group(2))
-    return attempt < limit
-
-
-def _fatal_error_looks_like_exhausted_reconnect(fatal_error: str | None) -> bool:
-    if not fatal_error:
-        return False
-    low = str(fatal_error).strip().casefold()
-    match = _RECOVERABLE_RECONNECT_RE.search(low)
-    if not match:
-        return False
-    attempt = int(match.group(1))
-    limit = int(match.group(2))
-    return attempt >= limit
+    return bool(match)
 
 
 def fatal_error_looks_like_effective_progress_timeout(fatal_error: str | None) -> bool:
@@ -296,8 +278,11 @@ class SupervisedConfig:
     backend_failure_backoff_seconds: float = 15.0
     session_id: str | None = None
     # Kill a live Codex subprocess if it keeps emitting heartbeat/token
-    # noise but makes no effective progress. Effective progress means
-    # either a non-token Codex session event or a project file change.
+    # noise but makes no effective progress for a long time. Effective
+    # progress means either a non-token Codex session event or a project file
+    # change. The default is intentionally long because paper/research turns
+    # often spend many minutes reading, planning, or waiting on model-side
+    # recovery before the next file write.
     # Set ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS=0 to disable.
     effective_progress_timeout_seconds: int = field(
         default_factory=lambda: _env_int(

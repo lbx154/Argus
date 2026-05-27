@@ -179,10 +179,7 @@ def test_mission_engine_backend_failure_skips_reviewer_and_retries_fresh() -> No
         RunnerResult(
             exit_code=0,
             thread_id="poison-thread",
-            fatal_error=(
-                "Reconnecting... 100/100 "
-                "(stream disconnected before completion: response.failed event received)"
-            ),
+            fatal_error="502 Bad Gateway",
         ),
         RunnerResult(
             exit_code=0,
@@ -264,10 +261,7 @@ def test_mission_engine_repeated_backend_failures_escalate_to_error() -> None:
         RunnerResult(
             exit_code=0,
             thread_id="bad-2",
-            fatal_error=(
-                "Reconnecting... 100/100 "
-                "(stream disconnected before completion: response.failed event received)"
-            ),
+            fatal_error="502 Bad Gateway",
         ),
     ])
     reviewer = _DoneReviewer()

@@ -262,6 +262,41 @@ def test_run_exec_normalizes_recoverable_reconnect_notice(
     assert result.fatal_error is None
 
 
+def test_run_exec_normalizes_high_attempt_reconnect_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = CodexRunnerBackend(backend="codex")
+
+    def fake_run_exec(
+        self: Any,
+        *,
+        prompt: Any,  # noqa: ARG001
+        resume_thread_id: Any,  # noqa: ARG001
+        options: Any,  # noqa: ARG001
+        run_label: str,  # noqa: ARG001
+    ) -> CodexRunResult:
+        return _make_argus_result(
+            agent_messages=["continued after high-attempt reconnect"],
+            fatal_error=(
+                "Reconnecting... 100/100 "
+                "(stream disconnected before completion: response.failed event received)"
+            ),
+        )
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+
+    result = backend.run_exec(
+        prompt="demo",
+        options=RunnerOptions(model="gpt-5.4-mini"),
+        run_label="engineer-r1",
+    )
+
+    assert result.last_agent_message == "continued after high-attempt reconnect"
+    assert result.fatal_error is None
+
+
 def test_run_exec_handles_file_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
     backend = CodexRunnerBackend(backend="codex")
 
@@ -642,4 +677,4 @@ def test_build_codex_backend_from_env_defaults(monkeypatch):
     assert backend._argus_runner.backend == "codex"
     assert backend._argus_runner.default_extra_args == []
     assert backend._default_watchdog_soft_idle_seconds == 0
-    assert backend._default_watchdog_hard_idle_seconds == 900
+    assert backend._default_watchdog_hard_idle_seconds == 3600
