@@ -497,6 +497,7 @@ MANIFEST_SOURCE_PREFERENCES: dict[str, tuple[str, ...]] = {
         "paper/artifacts/results_table.tsv",
         "paper/artifacts/result_to_claim.tsv",
     ),
+    "paper/figures/IMAGE2_FIGURES.json": (),
     "paper/VALIDATION_PRIORITY_POLICY.json": (
         "paper/CLAIM_GRAPH.json",
         "paper/EVIDENCE_GAPS.json",
@@ -554,6 +555,10 @@ MANIFEST_SOURCE_PREFERENCES: dict[str, tuple[str, ...]] = {
         "paper/CLAIM_GRAPH.json",
         "paper/artifacts/results_table.tsv",
     ),
+}
+MANIFEST_RECOMPUTE_SOURCE_PATHS = {
+    *MANIFEST_SOURCE_PREFERENCES,
+    "paper/RESULTS_REPORT.md",
 }
 DEFAULT_VALIDATION_REPAIR_MODES: dict[str, str] = {
     "freshness": "regenerate stale generated artifacts and refresh recorded input hashes",
@@ -1274,6 +1279,10 @@ def refresh_artifact_manifest(project_root: Path) -> list[ContractIssue]:
         manifest.get("generated_artifacts"),
         section="generated_artifacts",
     )
+    canonical_entries, generated_entries = _normalize_manifest_entry_sections(
+        canonical_entries,
+        generated_entries,
+    )
     _add_discovered_manifest_entries(root, canonical_entries, generated_entries)
     _add_missing_source_entries(root, canonical_entries, generated_entries)
     _fill_generated_manifest_sources(root, canonical_entries, generated_entries)
@@ -1342,7 +1351,7 @@ def refresh_artifact_freshness(project_root: Path) -> list[ContractIssue]:
             if not isinstance(raw_record, dict):
                 continue
             normalized = _normalize_manifest_path(raw_record.get("path"))
-            if normalized:
+            if normalized and normalized not in MANIFEST_GENERATED_EXCLUDED_PATHS:
                 existing_records[normalized] = raw_record
 
     manifest = _try_read_json_object(root / ARTIFACT_MANIFEST_PATH) or {}
@@ -1369,7 +1378,7 @@ def refresh_artifact_freshness(project_root: Path) -> list[ContractIssue]:
     }
     paths.update(canonical_paths)
     paths.update(generated_sources)
-    paths.update(existing_records)
+    paths.update(path for path in existing_records if path not in MANIFEST_GENERATED_EXCLUDED_PATHS)
 
     records: list[dict[str, Any]] = []
     for normalized in sorted(paths):
@@ -8356,6 +8365,8 @@ def _coerce_manifest_entries(
             entry = {}
         if normalized is None or normalized in seen:
             continue
+        if normalized in MANIFEST_GENERATED_EXCLUDED_PATHS:
+            continue
         resolved = _resolve_manifest_path(root, normalized)
         if resolved is None or not resolved.is_file():
             continue
@@ -8370,6 +8381,38 @@ def _coerce_manifest_entries(
             entry.pop("sources", None)
         entries.append(entry)
     return entries
+
+
+def _normalize_manifest_entry_sections(
+    canonical_entries: list[dict[str, Any]],
+    generated_entries: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    normalized_canonical: list[dict[str, Any]] = []
+    normalized_generated: list[dict[str, Any]] = []
+    seen_canonical: set[str] = set()
+    seen_generated: set[str] = set()
+
+    for section, entries in (
+        ("canonical_sources", canonical_entries),
+        ("generated_artifacts", generated_entries),
+    ):
+        for entry in entries:
+            path = _normalize_manifest_path(entry.get("path"))
+            if path is None or path in MANIFEST_GENERATED_EXCLUDED_PATHS:
+                continue
+            target_section = _manifest_discovery_section(path) or section
+            if target_section == "canonical_sources":
+                if path in seen_canonical:
+                    continue
+                entry.pop("sources", None)
+                normalized_canonical.append(entry)
+                seen_canonical.add(path)
+                continue
+            if path in seen_generated:
+                continue
+            normalized_generated.append(entry)
+            seen_generated.add(path)
+    return normalized_canonical, normalized_generated
 
 
 def _refresh_manifest_entry_file_fields(entry: dict[str, Any], resolved: Path) -> None:
@@ -8477,13 +8520,16 @@ def _fill_generated_manifest_sources(
             for source in _normalized_path_list(entry.get("sources"))
             if source != normalized and source in all_paths
         ]
-        if not sources:
-            sources = _default_manifest_sources_for_generated_path(
+        default_sources: list[str] = []
+        if not sources or normalized in MANIFEST_RECOMPUTE_SOURCE_PATHS:
+            default_sources = _default_manifest_sources_for_generated_path(
                 root,
                 normalized,
                 all_paths,
                 canonical_fallbacks,
             )
+        if default_sources:
+            sources = default_sources
         if sources:
             entry["sources"] = sources
 
@@ -8507,6 +8553,16 @@ def _default_manifest_sources_for_generated_path(
             path
             for path in canonical_fallbacks
             if path.startswith(("experiments/", "results/", "paper/artifacts/"))
+        )
+    if generated_path == IMAGE2_FIGURES_JSON_PATH.as_posix():
+        preferred.extend(
+            sorted(
+                path
+                for path in all_paths
+                if path.startswith("paper/figures/")
+                and path != generated_path
+                and path != PAPER_MAIN_TEX_PATH.as_posix()
+            )
         )
     if generated_path == "paper/RESULTS_REPORT.md":
         preferred.extend(sorted(path for path in all_paths if path.startswith("paper/artifacts/")))

@@ -657,16 +657,16 @@ def test_refresh_artifact_manifest_coerces_legacy_string_entries_and_sources(
     )
     assert manifest["version"] == 1
     assert manifest["canonical_sources"][0]["path"] == "experiments/run-1/results.jsonl"
-    generated_by_path = {
-        entry["path"]: entry for entry in manifest["generated_artifacts"]
+    canonical_by_path = {
+        entry["path"]: entry for entry in manifest["canonical_sources"]
     }
-    assert generated_by_path["paper/artifacts/results_table.tsv"]["columns"] == [
+    assert canonical_by_path["paper/artifacts/results_table.tsv"]["columns"] == [
         "metric",
         "value",
     ]
-    assert generated_by_path["paper/artifacts/results_table.tsv"]["sources"] == [
-        "experiments/run-1/results.jsonl"
-    ]
+    generated_by_path = {
+        entry["path"]: entry for entry in manifest["generated_artifacts"]
+    }
     assert "paper/artifacts/results_table.tsv" in generated_by_path[
         "paper/RESULTS_REPORT.md"
     ]["sources"]
@@ -717,6 +717,20 @@ def test_repair_emnlp_contract_artifacts_repairs_manifest_policy_and_freshness(
             "failure_routing": {},
         },
     )
+    _write_json(
+        tmp_path / "paper" / "ARTIFACT_FRESHNESS.json",
+        {
+            "freshness_schema_version": 1,
+            "records": [
+                {
+                    "path": "paper/ARTIFACT_FRESHNESS.json",
+                    "role": "generated",
+                    "sha256": "0" * 64,
+                    "inputs": [],
+                }
+            ],
+        },
+    )
 
     issues = repair_emnlp_contract_artifacts(tmp_path)
 
@@ -724,6 +738,72 @@ def test_repair_emnlp_contract_artifacts_repairs_manifest_policy_and_freshness(
     assert validate_artifact_manifest(tmp_path) == []
     assert validate_validation_priority_policy(tmp_path) == []
     assert validate_artifact_freshness(tmp_path) == []
+
+
+def test_refresh_artifact_manifest_removes_self_freshness_and_reclassifies_paper_sources(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path / "paper" / "artifacts" / "results_table.tsv", "metric\tvalue\n")
+    _write(tmp_path / "paper" / "CLAIM_GRAPH.json", "{}\n")
+    _write(tmp_path / "paper" / "FIGURE_TABLE_STYLE_GUIDE.json", "{}\n")
+    _write(tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json", "{}\n")
+    _write_bytes(tmp_path / "paper" / "figures" / "method_overview.png", b"png bytes")
+    _write(tmp_path / "paper" / "main.tex", "\\section{Method}\n")
+    _write(tmp_path / "paper" / "ARTIFACT_FRESHNESS.json", "{}\n")
+    _write_json(
+        tmp_path / "paper" / "ARTIFACT_MANIFEST.json",
+        {
+            "version": 1,
+            "canonical_sources": [
+                "paper/main.tex",
+                "paper/artifacts/results_table.tsv",
+                "paper/ARTIFACT_FRESHNESS.json",
+            ],
+            "generated_artifacts": [
+                {
+                    "path": "paper/FIGURE_TABLE_STYLE_GUIDE.json",
+                    "sources": ["paper/figures/IMAGE2_FIGURES.json"],
+                },
+                {
+                    "path": "paper/figures/IMAGE2_FIGURES.json",
+                    "sources": ["paper/main.tex"],
+                },
+                {
+                    "path": "paper/main.tex",
+                    "sources": ["paper/FIGURE_TABLE_STYLE_GUIDE.json"],
+                },
+                {
+                    "path": "paper/CLAIM_GRAPH.json",
+                    "sources": ["paper/artifacts/results_table.tsv"],
+                },
+            ],
+        },
+    )
+
+    issues = refresh_artifact_manifest(tmp_path)
+
+    assert issues == []
+    manifest = json.loads(
+        (tmp_path / "paper" / "ARTIFACT_MANIFEST.json").read_text(encoding="utf-8")
+    )
+    canonical_paths = {entry["path"] for entry in manifest["canonical_sources"]}
+    generated_by_path = {
+        entry["path"]: entry for entry in manifest["generated_artifacts"]
+    }
+    assert "paper/ARTIFACT_FRESHNESS.json" not in canonical_paths
+    assert "paper/main.tex" not in canonical_paths
+    assert "paper/main.tex" in generated_by_path
+    assert generated_by_path["paper/FIGURE_TABLE_STYLE_GUIDE.json"]["sources"] == [
+        "paper/figures/IMAGE2_FIGURES.json",
+        "paper/artifacts/results_table.tsv",
+    ]
+    assert set(generated_by_path["paper/figures/IMAGE2_FIGURES.json"]["sources"]) == {
+        "paper/figures/method_overview.png",
+        "paper/artifacts/results_table.tsv",
+    }
+    assert "paper/main.tex" not in generated_by_path[
+        "paper/figures/IMAGE2_FIGURES.json"
+    ]["sources"]
 
 
 def test_refresh_artifact_freshness_builds_records_from_manifest(
