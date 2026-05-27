@@ -1817,6 +1817,7 @@ def test_emnlp_paper_contract_requires_model_identifier_and_settings(tmp_path: P
     text = text.replace("cache fingerprint", "request fingerprint")
     text = text.replace("cache policy", "request policy")
     text = text.replace("and a three-retry timeout policy", "and identical limits")
+    text = text.replace("route, temperature, response limit, and retry policy", "route and identical limits")
     text = text.replace("cache enabled, fixed seeds where sampling appears in task selection, ", "")
     text = re.sub(r"\bseeds?\b", "ordering", text)
     text = re.sub(r"\bbudget\b", "limit", text)
@@ -1826,6 +1827,66 @@ def test_emnlp_paper_contract_requires_model_identifier_and_settings(tmp_path: P
 
     assert "missing_experiment_model_identifier" in codes
     assert "missing_experiment_model_settings" in codes
+
+
+def test_emnlp_paper_contract_rejects_stale_result_numbers(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_json(
+        tmp_path / "experiments" / "full_swe_verified_240" / "summary.json",
+        [
+            {"method": "repair_memo_gate", "correct": 127, "episodes": 240},
+            {"method": "no_verifier", "correct": 67, "episodes": 240},
+        ],
+    )
+    main_path = tmp_path / "paper" / "main.tex"
+    text = main_path.read_text(encoding="utf-8").replace(
+        "Across 240 scored episodes, SkillGuard improves verified completion by 8 points "
+        "over the strongest runnable baseline while reducing unsupported memory admissions.",
+        (
+            "The repair-memo method reaches 187/240 success versus 127/240 for "
+            "the no-verifier control while reducing unsupported memory admissions."
+        ),
+    )
+    _write(main_path, text)
+
+    codes = {issue.code for issue in validate_emnlp_paper_contract(tmp_path)}
+
+    assert "unsupported_result_ratio" in codes
+    assert "method_result_number_mismatch" in codes
+
+
+def test_emnlp_paper_contract_rejects_hosted_model_no_external_contradiction(
+    tmp_path: Path,
+) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_json(
+        tmp_path / "experiments" / "full_swe_verified_240" / "manifest.json",
+        {
+            "methods": ["repair_memo_gate", "hosted_extract"],
+            "model_metadata": [
+                {"method": "hosted_extract", "model": "gpt-5-mini", "route_name": "engineer"}
+            ],
+            "status": "done",
+        },
+    )
+    main_path = tmp_path / "paper" / "main.tex"
+    text = main_path.read_text(encoding="utf-8").replace(
+        "We evaluate SkillGuard with gpt-5-mini as a hosted no-GPU backbone, "
+        "deterministic decoding, a fixed response cap, cached prompts, and a shared "
+        "request budget across three real benchmark sources: ToolBench, WebArena, and GAIA.",
+        (
+            "We evaluate SkillGuard in a deterministic harness that makes no "
+            "external LLM/model calls while sharing one request budget across "
+            "three real benchmark sources: ToolBench, WebArena, and GAIA."
+        ),
+    )
+    _write(main_path, text)
+
+    codes = {issue.code for issue in validate_emnlp_paper_contract(tmp_path)}
+
+    assert "hosted_model_contradicts_no_external_model_claim" in codes
 
 
 def test_emnlp_paper_contract_rejects_planned_only_benchmark_sources(
@@ -3883,7 +3944,8 @@ def _write_valid_paper_draft_report(
         "separate the measured admission policy from broader claims about agent "
         "planning or long-term memory. The paper reports the model, budget, "
         "benchmark provenance, ablations, and residual failures in the body so "
-        "the claim can be audited from saved run artifacts."
+        "the claim can be audited from saved run artifacts. The failure labels "
+        "show where the gate still loses."
     )
     introduction_text = (
         "This paper is formatted as a reviewable long paper with "
@@ -3961,7 +4023,21 @@ def _write_valid_paper_draft_report(
         "paper tells the reader what evidence appears before asking them to accept "
         "the headline result. It also gives the reviewer enough context to judge "
         "whether a failure should be attributed to retrieval, admission, task "
-        "difficulty, or model output quality."
+        "difficulty, or model output quality. The result preview is intentionally "
+        "concrete: in the completed 240-episode matrix, SkillGuard improves "
+        "verified completion by 8 points over the strongest runnable baseline "
+        "under the same gpt-5-mini route, decoding configuration, and task order. "
+        "That number is not presented as a universal memory result. It is used "
+        "as an empirical anchor for the design question the introduction raises: "
+        "whether a verifier should decide which solved episodes become reusable "
+        "skills. The rest of the paper is organized around that anchor. Related "
+        "Work explains which prior-agent mechanisms supply the controller, "
+        "reflection, and benchmark ingredients. Method defines the admission rule "
+        "in enough detail to replay it. Experiments document the source mix and "
+        "budget. Results and Analysis then separate the aggregate 8-point gain "
+        "from source-level errors, duplicate rejections, and cases where the "
+        "model output itself remains wrong even when the admitted skill is valid "
+        "under identical runtime constraints."
     )
     method_text = (
         "The evaluated SkillGuard implementation runs in a deterministic Python "
@@ -4026,7 +4102,12 @@ def _write_valid_paper_draft_report(
         "family labels, and the same duplicate-key function, the admitted library "
         "can be reconstructed without calling the hosted model again. This replay "
         "path is used for ablations that swap the admission rule while preserving "
-        "the original answers."
+        "the original answers. The implementation also records a compact event log "
+        "for each episode: prompt hash, selected source, active baseline, model "
+        "route, retry count, accepted-skill ids, and rejection reason. Those fields "
+        "are the only state used by the analysis scripts, which keeps the method "
+        "description aligned with the saved artifacts and prevents hidden manual "
+        "corrections from entering the reported result."
     )
     setup_text = (
         "Each benchmark run scores 240 task episodes against no-skill, "
@@ -4078,7 +4159,11 @@ def _write_valid_paper_draft_report(
         "accuracy alone. All reported tables are regenerated from the canonical "
         "rows after the run finishes, and the manuscript records the command that "
         "performs this regeneration in the reproducibility appendix. The same "
-        "appendix records seeds, cache policy, and source filters for reruns."
+        "appendix records seeds, cache policy, and source filters for reruns. The "
+        "setup treats hosted calls as part of the evaluated system, so a table row "
+        "must name the model id, route, temperature, response cap, and retry policy "
+        "whenever a method uses model output. This prevents a final paper from "
+        "mixing deterministic pilot prose with hosted-agent evidence."
     )
     _write(
         root / "paper" / "main.tex",

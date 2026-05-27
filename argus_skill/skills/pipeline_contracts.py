@@ -121,16 +121,56 @@ RESEARCH_MD_VISUAL_PAGES = {4, 5, 6, 7}
 REQUIRED_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY = 8
 MIN_RENDERED_REFERENCES_PAGE_FOR_FULL_BODY = 9
 MIN_RENDERED_APPENDIX_PAGE = 9
-MIN_ABSTRACT_WORDS = 160
-MIN_INTRODUCTION_WORDS = 750
-MIN_METHOD_WORDS = 650
-MIN_EXPERIMENTAL_SETUP_WORDS = 500
+MIN_ABSTRACT_WORDS = 170
+MIN_INTRODUCTION_WORDS = 900
+MIN_METHOD_WORDS = 700
+MIN_EXPERIMENTAL_SETUP_WORDS = 550
 MIN_EXECUTED_BENCHMARK_SOURCES = 3
 MIN_FINAL_BIBLIOGRAPHY_ENTRIES = 35
 MIN_FINAL_UNIQUE_CITATION_KEYS = 30
 MIN_RENDERED_REFERENCE_PAGES = 2
 MAX_CITATION_KEYS_PER_COMMAND = 8
 MAX_CITATION_KEYS_PER_PARAGRAPH = 16
+MIN_RESULT_RATIO_DENOMINATOR = 50
+RESULT_RATIO_PATTERN = re.compile(r"\b(\d{1,4})\s*/\s*(\d{2,4})\b")
+RESULT_RATIO_CONTEXT_PATTERN = re.compile(
+    r"\b(?:success|correct|accuracy|score|scored|solv\w*|reach\w*|achiev\w*|"
+    r"outperform\w*|improv\w*|increase\w*|reduce\w*|recover\w*|yield\w*|"
+    r"versus|vs\.?|baseline|control|method|result)\b",
+    re.IGNORECASE,
+)
+NO_EXTERNAL_MODEL_CLAIM_PATTERN = re.compile(
+    r"\b(?:no|without|does not|do not|never)\s+"
+    r"(?:make\s+)?(?:call|use|invoke|query|run|issue)?s?\s*"
+    r"(?:an?\s+)?(?:external\s+)?(?:llm|large language model|language model|model|api)"
+    r"(?:\s+calls?)?\b|"
+    r"\b(?:no|without)\s+external\s+(?:llm|large language model|language model|model|api)"
+    r"(?:/model)?\s+calls?\b|"
+    r"\bbenchmark loop itself does not call an external llm\b",
+    re.IGNORECASE,
+)
+HOSTED_MODEL_METADATA_PATTERN = re.compile(
+    r"\b(?:hosted_extract|model_metadata|gpt[-_ ]?\d|claude[-_ ]?\d|"
+    r"gemini[-_ ]?\d|llama[-_ ]?\d|qwen[-_ ]?\d|mistral|deepseek|"
+    r"responses_api|chat_completions|base_url)\b",
+    re.IGNORECASE,
+)
+METHOD_RESULT_ALIASES: dict[str, tuple[str, ...]] = {
+    "repair_memo_gate": (
+        "repair-memo",
+        "repair memo",
+        "verifier-gated",
+        "verifier gated",
+        "proposed",
+        "ours",
+    ),
+    "no_verifier": ("no-verifier", "no verifier", "without verifier"),
+    "static_skill_lib": ("static skill", "static library", "static-skill"),
+    "raw_memory": ("raw memory", "raw-memory"),
+    "reflexion": ("reflexion",),
+    "hosted_extract": ("hosted extractor", "hosted_extract", "hosted baseline"),
+    "no_skill": ("no skill", "no-skill"),
+}
 STARTER_BIBTEX_KEY_TITLE_PATTERNS: dict[str, tuple[str, ...]] = {
     "react2022": (r"\breact\b",),
     "reflexion2023": (r"\breflexion\b",),
@@ -1019,6 +1059,14 @@ class _ExperimentRunEvidence:
     declared_task_count: int | None
     declared_methods: tuple[str, ...]
     scored_task_counts: tuple[tuple[str, int], ...]
+
+
+@dataclass(frozen=True)
+class _SummaryResult:
+    path: str
+    method: str
+    correct: int
+    episodes: int
 
 
 def validate_pipeline_state(project_root: Path) -> list[ContractIssue]:
@@ -2835,6 +2883,7 @@ def validate_emnlp_paper_contract(project_root: Path) -> list[ContractIssue]:
             )
         issues.extend(_validate_full_paper_narrative_depth(expanded_body))
         issues.extend(_validate_experiment_model_details(expanded_body))
+        issues.extend(_validate_paper_evidence_consistency(root, expanded_body))
     issues.extend(_validate_emnlp_executed_benchmark_sources(root))
 
     assessment = payload.get("submission_quality_self_assessment")
@@ -3046,6 +3095,281 @@ def _validate_experiment_model_details(tex_text: str) -> list[ContractIssue]:
             )
         )
     return issues
+
+
+def _validate_paper_evidence_consistency(root: Path, tex_text: str) -> list[ContractIssue]:
+    """Catch stale paper prose that no longer matches canonical run artifacts."""
+
+    body_tex = _latex_before_references_and_appendix(tex_text)
+    plain = _latex_contract_plain_text(body_tex)
+    issues: list[ContractIssue] = []
+    summary_results = _collect_experiment_summary_results(root, tex_text)
+    if summary_results:
+        issues.extend(_validate_claimed_result_ratios_against_summaries(plain, summary_results))
+        issues.extend(_validate_method_result_windows_against_summaries(plain, summary_results))
+
+    if _experiment_metadata_mentions_hosted_model(root) and re.search(
+        NO_EXTERNAL_MODEL_CLAIM_PATTERN,
+        plain,
+    ):
+        issues.append(
+            ContractIssue(
+                "hosted_model_contradicts_no_external_model_claim",
+                str(PAPER_MAIN_TEX_PATH),
+                (
+                    "the manuscript claims that the evaluated experiment makes no "
+                    "external LLM/model calls, but experiment metadata contains a "
+                    "hosted/model-backed method or model metadata. Rewrite the "
+                    "abstract/setup from current manifests and summaries instead "
+                    "of carrying over deterministic-only prose."
+                ),
+            )
+        )
+    return _dedupe_contract_issues(issues)
+
+
+def _validate_claimed_result_ratios_against_summaries(
+    plain_text: str,
+    summary_results: Sequence[_SummaryResult],
+) -> list[ContractIssue]:
+    expected_ratios = {
+        f"{result.correct}/{result.episodes}"
+        for result in summary_results
+        if result.episodes >= MIN_RESULT_RATIO_DENOMINATOR
+    }
+    unsupported: list[str] = []
+    for match in RESULT_RATIO_PATTERN.finditer(plain_text):
+        correct = int(match.group(1))
+        denominator = int(match.group(2))
+        if denominator < MIN_RESULT_RATIO_DENOMINATOR or correct > denominator:
+            continue
+        ratio = f"{correct}/{denominator}"
+        if ratio in expected_ratios:
+            continue
+        context = plain_text[max(0, match.start() - 100) : match.end() + 100]
+        if not RESULT_RATIO_CONTEXT_PATTERN.search(context):
+            continue
+        unsupported.append(ratio)
+    if not unsupported:
+        return []
+
+    expected_preview = ", ".join(sorted(expected_ratios)[:12])
+    return [
+        ContractIssue(
+            "unsupported_result_ratio",
+            str(PAPER_MAIN_TEX_PATH),
+            (
+                "paper text contains result-like ratio(s) not present in any "
+                f"experiments/**/summary.json file: {', '.join(sorted(set(unsupported)))}. "
+                "Regenerate every abstract/results/method number from canonical "
+                f"summary artifacts; currently observed summary ratios include: {expected_preview}."
+            ),
+        )
+    ]
+
+
+def _validate_method_result_windows_against_summaries(
+    plain_text: str,
+    summary_results: Sequence[_SummaryResult],
+) -> list[ContractIssue]:
+    lower_text = plain_text.lower()
+    mismatches: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for result in summary_results:
+        if result.episodes < MIN_RESULT_RATIO_DENOMINATOR:
+            continue
+        expected = f"{result.correct}/{result.episodes}"
+        aliases = _method_result_aliases(result.method)
+        for alias in aliases:
+            pattern = re.compile(rf"\b{re.escape(alias.lower())}\b")
+            for match in pattern.finditer(lower_text):
+                window = lower_text[max(0, match.start() - 140) : match.end() + 140]
+                ratios = {
+                    f"{int(ratio_match.group(1))}/{int(ratio_match.group(2))}"
+                    for ratio_match in RESULT_RATIO_PATTERN.finditer(window)
+                    if int(ratio_match.group(2)) == result.episodes
+                    and int(ratio_match.group(1)) <= int(ratio_match.group(2))
+                }
+                if not ratios or expected in ratios:
+                    continue
+                key = (result.method, expected)
+                if key in seen:
+                    continue
+                seen.add(key)
+                mismatches.append(
+                    f"{result.method} expected {expected} from {result.path}, "
+                    f"but nearby text contains {', '.join(sorted(ratios))}"
+                )
+    if not mismatches:
+        return []
+    return [
+        ContractIssue(
+            "method_result_number_mismatch",
+            str(PAPER_MAIN_TEX_PATH),
+            (
+                "paper text assigns a result-like ratio to a method/control that "
+                "does not match canonical experiment summaries: "
+                + "; ".join(mismatches[:6])
+                + ". Regenerate the prose from summary.json and remove stale "
+                "numbers before running layout or language polish."
+            ),
+        )
+    ]
+
+
+def _collect_experiment_summary_results(root: Path, tex_text: str) -> list[_SummaryResult]:
+    experiments_dir = root / "experiments"
+    if not experiments_dir.is_dir():
+        return []
+    selected_summary_paths = _selected_experiment_summary_paths(root, tex_text)
+    results: list[_SummaryResult] = []
+    for summary_path in sorted(experiments_dir.glob("**/summary.json")):
+        if selected_summary_paths and summary_path not in selected_summary_paths:
+            continue
+        value = _try_read_json_value(summary_path)
+        if value is None:
+            continue
+        rel_path = str(summary_path.relative_to(root))
+        results.extend(_summary_results_from_value(value, rel_path))
+    deduped: dict[tuple[str, str, int, int], _SummaryResult] = {}
+    for result in results:
+        key = (result.path, _normalize_method_name(result.method), result.correct, result.episodes)
+        deduped[key] = result
+    return list(deduped.values())
+
+
+def _selected_experiment_summary_paths(root: Path, tex_text: str) -> set[Path]:
+    """Return summaries explicitly tied to the current manuscript/evidence graph."""
+
+    evidence_text_parts = [tex_text]
+    for rel_path in (
+        BENCHMARK_PROVENANCE_JSON_PATH,
+        BENCHMARK_PROVENANCE_MD_PATH,
+        CLAIM_GRAPH_JSON_PATH,
+        PAPER_DRAFT_REPORT_JSON_PATH,
+        RESULTS_TABLE_TSV_PATH,
+        RESULT_TO_CLAIM_TSV_PATH,
+        Path("paper/RESULTS_REPORT.md"),
+        ARTIFACT_MANIFEST_PATH,
+    ):
+        path = root / rel_path
+        if path.is_file():
+            try:
+                evidence_text_parts.append(path.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                continue
+    evidence_text = "\n".join(evidence_text_parts).replace("\\_", "_").lower()
+    selected: set[Path] = set()
+    experiments_dir = root / "experiments"
+    for summary_path in sorted(experiments_dir.glob("**/summary.json")):
+        rel_summary = str(summary_path.relative_to(root)).lower()
+        rel_run = str(summary_path.parent.relative_to(root)).lower()
+        run_name = summary_path.parent.name.lower()
+        if rel_summary in evidence_text or rel_run in evidence_text or run_name in evidence_text:
+            selected.add(summary_path)
+    return selected
+
+
+def _summary_results_from_value(
+    value: object,
+    rel_path: str,
+    *,
+    default_method: str | None = None,
+) -> list[_SummaryResult]:
+    results: list[_SummaryResult] = []
+    if isinstance(value, Mapping):
+        method = _summary_result_method(value, default_method=default_method)
+        correct = _summary_int_field(
+            value,
+            ("correct", "successes", "num_correct", "n_correct", "solved", "wins"),
+        )
+        episodes = _summary_int_field(
+            value,
+            ("episodes", "total", "n", "num_examples", "task_count", "tasks"),
+        )
+        if method and correct is not None and episodes is not None and episodes > 0:
+            results.append(_SummaryResult(rel_path, method, correct, episodes))
+            return results
+        for key, nested in value.items():
+            next_default = str(key) if _looks_like_method_key(key) else default_method
+            if isinstance(nested, (Mapping, list)):
+                results.extend(
+                    _summary_results_from_value(
+                        nested,
+                        rel_path,
+                        default_method=next_default,
+                    )
+                )
+    elif isinstance(value, list):
+        for item in value:
+            results.extend(
+                _summary_results_from_value(
+                    item,
+                    rel_path,
+                    default_method=default_method,
+                )
+            )
+    return results
+
+
+def _summary_result_method(
+    payload: Mapping[str, object],
+    *,
+    default_method: str | None,
+) -> str | None:
+    for key in ("method", "name", "condition", "baseline", "system"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return default_method.strip() if isinstance(default_method, str) and default_method.strip() else None
+
+
+def _summary_int_field(payload: Mapping[str, object], keys: Sequence[str]) -> int | None:
+    normalized_keys = {key.lower().replace("-", "_") for key in keys}
+    for key, value in payload.items():
+        normalized_key = str(key).lower().replace("-", "_")
+        if normalized_key in normalized_keys:
+            parsed = _int_or_none(value)
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _looks_like_method_key(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    normalized = _normalize_method_name(value)
+    return bool(normalized and (normalized in METHOD_RESULT_ALIASES or "_" in normalized))
+
+
+def _method_result_aliases(method: str) -> tuple[str, ...]:
+    normalized = _normalize_method_name(method)
+    aliases = set(METHOD_RESULT_ALIASES.get(normalized, ()))
+    if normalized:
+        aliases.add(normalized.replace("_", " "))
+        aliases.add(normalized.replace("_", "-"))
+    if method.strip():
+        aliases.add(method.strip().lower())
+    return tuple(sorted(alias for alias in aliases if alias))
+
+
+def _experiment_metadata_mentions_hosted_model(root: Path) -> bool:
+    experiments_dir = root / "experiments"
+    if not experiments_dir.is_dir():
+        return False
+    for path in sorted(
+        {
+            *experiments_dir.glob("**/manifest.json"),
+            *experiments_dir.glob("**/summary.json"),
+        }
+    ):
+        value = _try_read_json_value(path)
+        if value is None:
+            continue
+        serialized = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        if HOSTED_MODEL_METADATA_PATTERN.search(serialized):
+            return True
+    return False
 
 
 def _validate_emnlp_executed_benchmark_sources(root: Path) -> list[ContractIssue]:
@@ -9982,6 +10306,16 @@ def _read_json_object(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"{path} must contain a JSON object")
     return value
+
+
+def _try_read_json_value(path: Path) -> Any | None:
+    if not path.exists():
+        return None
+    try:
+        raw = path.read_text(encoding="utf-8")
+        return json.loads(raw)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
 
 
 def _try_read_json_object(path: Path) -> dict[str, Any] | None:

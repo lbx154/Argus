@@ -36,9 +36,9 @@ ACADEMIC_LANGUAGE_REVIEW_MD_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW.md")
 MIN_ACADEMIC_LANGUAGE_SCORE = 4.0
 DEFAULT_TIMEOUT_SECONDS = 500.0
 MAX_SOURCE_FILES = 120
-MIN_REVIEW_ABSTRACT_WORDS = 160
-MIN_REVIEW_INTRODUCTION_WORDS = 750
-MIN_INTRODUCTION_CITATION_KEYS = 2
+MIN_REVIEW_ABSTRACT_WORDS = 170
+MIN_REVIEW_INTRODUCTION_WORDS = 900
+MIN_INTRODUCTION_CITATION_KEYS = 3
 
 SECTION_SCORE_KEYS: tuple[str, ...] = (
     "abstract",
@@ -134,6 +134,20 @@ FORMULAIC_PROSE_LIMITS: tuple[tuple[str, str, int, str], ...] = (
             "section-specific motivation, mechanism, and evidence sentences"
         ),
     ),
+)
+
+INTRODUCTION_RESULT_PREVIEW_PATTERN = (
+    r"\b(?:achiev\w*|reach\w*|solv\w*|outperform\w*|improv\w*|increase\w*|"
+    r"reduce\w*|recover\w*|yield\w*|win\w*|success|accuracy|score)\b"
+    r".{0,80}(?:\d+(?:\.\d+)?\s*(?:%|points?|pp)|\d+\s*/\s*\d+)"
+    r"|(?:\d+(?:\.\d+)?\s*(?:%|points?|pp)|\d+\s*/\s*\d+)"
+    r".{0,80}\b(?:success|accuracy|score|improv\w*|outperform\w*)\b"
+)
+
+INTRODUCTION_ROADMAP_PATTERN = (
+    r"\b(?:we|this paper|our)\s+"
+    r"(?:make|offer|propose|introduce|present|evaluate|study|show|report)\b|"
+    r"\b(?:contribution|contributions|we show|we find)\b"
 )
 
 ABSTRACT_READER_HOSTILE_PATTERNS: tuple[tuple[str, str, str], ...] = (
@@ -893,10 +907,13 @@ def _review_prompt(
         f"standard: abstracts under {MIN_REVIEW_ABSTRACT_WORDS} words or introductions "
         f"under {MIN_REVIEW_INTRODUCTION_WORDS} words are not submission-quality for "
         "a long paper unless the manuscript has an explicit venue exception. "
-        "Reject an Introduction that has no cited prior-work/benchmark hooks before "
-        "Related Work; a normal EMNLP introduction should use citations to establish "
-        "the gap, then explain the method insight and evidence preview in natural "
-        "prose. "
+        "Reject an Introduction that has fewer than three cited prior-work/benchmark "
+        "hooks before Related Work; a normal EMNLP introduction should use citations "
+        "to establish the gap, then explain the method insight, quantified evidence "
+        "preview, and contribution roadmap in natural prose. Reject stale-evidence "
+        "prose where method/control names sit next to result ratios that appear "
+        "carried over from an older run, or where one section claims no external "
+        "LLM/model calls while another reports a hosted/model-backed baseline. "
         "Short introductions should be fixed by adding source-backed problem framing, "
         "literature gap, method intuition, contribution, and evidence preview, not by "
         "deleting content elsewhere. Do not require an isolated causal mechanism when the paper "
@@ -1395,12 +1412,20 @@ def find_introduction_readability_issues(tex_text: str) -> list[tuple[str, str]]
             )
         )
 
-    contribution_cues = (
-        r"\b(?:we|this paper|our)\s+"
-        r"(?:make|offer|propose|introduce|present|evaluate|study|show|report)\b|"
-        r"\b(?:contribution|contributions|we show|we find)\b"
-    )
-    if not re.search(contribution_cues, intro_plain, re.I):
+    if not re.search(INTRODUCTION_RESULT_PREVIEW_PATTERN, intro_plain, re.I | re.S):
+        issues.append(
+            (
+                "introduction_missing_quantified_result_preview",
+                (
+                    "Introduction must preview the main empirical result with a "
+                    "verified number or effect size before the Results section; "
+                    "otherwise reviewers cannot tell what evidence the paper is "
+                    "asking them to evaluate"
+                ),
+            )
+        )
+
+    if not re.search(INTRODUCTION_ROADMAP_PATTERN, intro_plain, re.I):
         issues.append(
             (
                 "introduction_missing_contribution_roadmap",
