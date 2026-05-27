@@ -284,9 +284,10 @@ Use the repository's existing conventions if they are already present; otherwise
 8. If no local GPU is configured, use the approved hosted LLM route for runnable agent experiments instead of a toy oracle/policy; `gpt-5-mini` is the default low-cost no-GPU backbone unless the operator specifies another model. Record model id, endpoint/provider class, temperature, top_p, max_tokens, token/request budget, cache/retry/timeout policy, and stopping rules in the run manifest and the paper's Experimental Setup.
 9. Synthetic/local tasks are smoke-only. They may test code paths, but their results must not appear in main paper tables, headline metrics, final claims, or submission-readiness artifacts.
 10. Include strongest feasible literature/frontier baselines, not only trivial no-skill or lexical baselines. For agent-skill/memory projects, include at least these diagnostic baselines unless the operator documents a domain-specific replacement: `no_skill`, `raw_memory`, `reflexion`, `static_skill_lib`, and the proposed method. Each required condition must be evaluated on the same executed multi-source benchmark matrix used for final-paper claims.
-11. Include ablations, failure analysis, confidence intervals or statistical significance, and enough raw logs/results to reproduce every numerical claim.
-12. Every long experiment must write `manifest.json`, `status.json`, `progress.jsonl`, logs, raw rows, and a STOP-file cancellation contract. `progress.jsonl` should expose current method, task count, total count, success/failure counts, last heartbeat, and latest artifact path so progress is visible while the daemon is running.
-13. Run `validate-full-scale-evidence` before analysis/drafting; if it fails, write only pilot diagnostics and queue the missing full-run/matrix-completion work.
+11. Do not optimize toward a fixed small row target or a single convenient slice. The final matrix scale is determined by three independent source families times required conditions; if cost forces a smaller slice, call it pilot/blocked and queue the missing family/condition runs rather than claiming final readiness.
+12. Include ablations, failure analysis, confidence intervals or statistical significance, and enough raw logs/results to reproduce every numerical claim.
+13. Every long experiment must write `manifest.json`, `status.json`, `progress.jsonl`, logs, raw rows, and a STOP-file cancellation contract. `progress.jsonl` should expose current method, task count, total count, success/failure counts, last heartbeat, and latest artifact path so progress is visible while the daemon is running.
+14. Run `validate-full-scale-evidence` before analysis/drafting; if it fails, write only pilot diagnostics and queue the missing full-run/matrix-completion work.
 
 ## Mandatory thick exemplar learning
 1. Invoke the Paper Exemplar PDF Learning skill before drafting prose.
@@ -310,6 +311,7 @@ Use the repository's existing conventions if they are already present; otherwise
 5. Paper writing and experimentation may interleave. If drafting exposes weak or missing evidence, stop claiming readiness, run the needed supplement/ablation/error analysis, and then update the claim graph and paper; if the evidence remains weak, soften or remove the claim instead of cherry-picking.
 6. Keep claims calibrated without turning the paper into repetitive defensive caveats. Move detailed scope limits to limitations/discussion.
 7. Never invent BibTeX. Fetch/verify references through scholarly sources or mark unresolved entries as blockers.
+8. The main Results section must contain one large paper-facing results matrix, preferably a `table*`, that spans the selected benchmark families and all major methods/baselines. It must have human labels and columns such as `Benchmark / source family`, `Task count / split`, `Evaluated model/backend`, `Method or baseline`, `Metric`, `Budget/decoding`, and the key result. This table is the reader's central map of the three-benchmark evidence; do not replace it with separate tiny audit tables or internal route logs.
 
 ## Paper-quality contract files
 1. `paper/CLAIM_GRAPH.json` must bind every major claim to its section, required evidence, raw result artifact, figure/table/citation support, and allowed fallback if evidence is weak. `paper/EVIDENCE_GAPS.json` must list missing or weak evidence and the planned supplement, ablation, negative result framing, or claim downgrade.
@@ -356,7 +358,8 @@ Use the repository's existing conventions if they are already present; otherwise
 6. Write `paper/FORMAT_PREFLIGHT.md` with compile command/status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final validator result.
 7. No undefined references/citation warnings, no rendered `[?]`, no `Overfull \hbox > 5pt`, no placeholders/TODO/TBD/FIXME, no `% UNVERIFIED`, and no ugly code-like display labels in title, abstract, headings, captions, figures, or tables.
 8. Body figures <=5 total, at most one `figure*`, every figure labeled and referenced, every table caption has a numerical headline, at least one figure/table on each of pages 4--7 when extractable, and at least one paired-significance table when comparative binary outcomes apply.
-9. Tables must follow the `research.md` style tokens: `\footnotesize`, `\tabcolsep=3-4pt`, `\arraystretch=1.15`, light-gray header, soft peach "ours" row, alternating row tint for long tables, coral accent only for meaningful degradation, and bold winning values.
+9. The body should include a large main results matrix that covers all selected benchmark families and major baselines in one place; it should be visually professional rather than a dump of validator artifacts. Split only if the table cannot fit cleanly under the overfull/legibility contract, and keep the cross-benchmark summary in the body while moving low-value diagnostics to the appendix.
+10. Tables must follow the `research.md` style tokens: `\footnotesize`, `\tabcolsep=3-4pt`, `\arraystretch=1.15`, light-gray header, soft peach "ours" row, alternating row tint for long tables, coral accent only for meaningful degradation, and bold winning values.
 
 ## Figure contract
 1. Use image-2/codex-image2 for at least one core conceptual figure.

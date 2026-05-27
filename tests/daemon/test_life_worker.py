@@ -41,6 +41,7 @@ _ENV_VARS_TO_CLEAR = (
     "ARGUS_SKILL_DAEMON_SOURCE_SIGNATURE",
     "ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE",
     "ARGUS_SKILL_ENGINEER_MODEL",
+    "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
     "ARGUS_SKILL_HOME",
     "ARGUS_SKILL_LIFE_BACKEND",
     "ARGUS_SKILL_MAX_ROUNDS",
@@ -50,7 +51,9 @@ _ENV_VARS_TO_CLEAR = (
     "ARGUS_SKILL_RESEARCH_PROFILE",
     "ARGUS_SKILL_RESEARCH_PROFILE_PATH",
     "ARGUS_SKILL_REVIEWER_MODEL",
+    "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
     "ARGUS_SKILL_SCIENTIST_MODEL",
+    "ARGUS_SKILL_SCIENTIST_REASONING_EFFORT",
     "ARGUS_SKILL_SKILLS_DIR",
     "ARGUS_SKILL_TELEGRAM_BOT_TOKEN",
     "ARGUS_SKILL_TELEGRAM_CHAT_ID",
@@ -441,6 +444,9 @@ def test_runner_namespace_uses_global_skills_root(
     )
     assert ns.skills_dir == str(expected_path)
     assert ns.workdir == str(tmp_path / "repo")
+    assert ns.engineer_reasoning_effort == "high"
+    assert ns.reviewer_reasoning_effort == "high"
+    assert ns.scientist_reasoning_effort == "high"
 
 
 def test_handoff_config_payload_round_trips(tmp_path: Path) -> None:

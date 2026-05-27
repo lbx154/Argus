@@ -999,6 +999,15 @@ def main(argv: list[str] | None = None) -> int:
         engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL",
                                       "gpt-5.4-mini"),
         reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL"),
+        scientist_reasoning_effort=os.environ.get(
+            "ARGUS_SKILL_SCIENTIST_REASONING_EFFORT", "high"
+        ),
+        engineer_reasoning_effort=os.environ.get(
+            "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high"
+        ),
+        reviewer_reasoning_effort=os.environ.get(
+            "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high"
+        ),
         plan_mode="auto",
         plan_model=None,
         max_rounds=500,
@@ -1036,6 +1045,15 @@ def _build_worker_config(args: argparse.Namespace):
         engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini"),
         reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.4"),
         scientist_model=os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4"),
+        engineer_reasoning_effort=os.environ.get(
+            "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high"
+        ),
+        reviewer_reasoning_effort=os.environ.get(
+            "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high"
+        ),
+        scientist_reasoning_effort=os.environ.get(
+            "ARGUS_SKILL_SCIENTIST_REASONING_EFFORT", "high"
+        ),
         per_mission_cap_usd=float(os.environ.get("ARGUS_SKILL_PER_MISSION_CAP_USD", "30.0")),
         daily_cap_usd=float(os.environ.get("ARGUS_SKILL_DAILY_CAP_USD", "180.0")),
         planner_task_iteration_max_cycles=int(os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "6")),

@@ -84,6 +84,9 @@ class LifeWorkerConfig:
     engineer_model: str = "gpt-5.4-mini"
     reviewer_model: str = "gpt-5.4"
     scientist_model: str = "gpt-5.4"
+    engineer_reasoning_effort: str = "high"
+    reviewer_reasoning_effort: str = "high"
+    scientist_reasoning_effort: str = "high"
     per_mission_cap_usd: float = 30.0
     daily_cap_usd: float = 180.0
     planner_task_iteration_max_cycles: int = 6
@@ -278,6 +281,9 @@ def _config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
         "engineer_model": config.engineer_model,
         "reviewer_model": config.reviewer_model,
         "scientist_model": config.scientist_model,
+        "engineer_reasoning_effort": config.engineer_reasoning_effort,
+        "reviewer_reasoning_effort": config.reviewer_reasoning_effort,
+        "scientist_reasoning_effort": config.scientist_reasoning_effort,
         "per_mission_cap_usd": config.per_mission_cap_usd,
         "daily_cap_usd": config.daily_cap_usd,
         "planner_task_iteration_max_cycles": config.planner_task_iteration_max_cycles,
@@ -304,6 +310,15 @@ def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         engineer_model=str(data.get("engineer_model") or "gpt-5.4-mini"),
         reviewer_model=str(data.get("reviewer_model") or "gpt-5.4"),
         scientist_model=str(data.get("scientist_model") or "gpt-5.4"),
+        engineer_reasoning_effort=str(
+            data.get("engineer_reasoning_effort") or "high"
+        ),
+        reviewer_reasoning_effort=str(
+            data.get("reviewer_reasoning_effort") or "high"
+        ),
+        scientist_reasoning_effort=str(
+            data.get("scientist_reasoning_effort") or "high"
+        ),
         per_mission_cap_usd=float(data.get("per_mission_cap_usd") or 30.0),
         daily_cap_usd=float(data.get("daily_cap_usd") or 180.0),
         planner_task_iteration_max_cycles=int(
@@ -859,6 +874,18 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     ns.engineer_model = cfg.engineer_model
     ns.reviewer_model = cfg.reviewer_model
     ns.scientist_model = cfg.scientist_model
+    ns.engineer_reasoning_effort = os.environ.get(
+        "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
+        cfg.engineer_reasoning_effort,
+    )
+    ns.reviewer_reasoning_effort = os.environ.get(
+        "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
+        cfg.reviewer_reasoning_effort,
+    )
+    ns.scientist_reasoning_effort = os.environ.get(
+        "ARGUS_SKILL_SCIENTIST_REASONING_EFFORT",
+        cfg.scientist_reasoning_effort,
+    )
     default_skills_dir = (
         core_paths.skills_global_root()
         if cfg.global_root is None
@@ -896,6 +923,10 @@ def _worker_runtime_context(cfg: LifeWorkerConfig) -> str:
         f"- Runner backend: {cfg.backend}\n"
         f"- Engineer model: {cfg.engineer_model}\n"
         f"- Reviewer model: {cfg.reviewer_model}\n"
+        f"- Scientist model: {cfg.scientist_model}\n"
+        f"- Engineer reasoning effort: {cfg.engineer_reasoning_effort}\n"
+        f"- Reviewer reasoning effort: {cfg.reviewer_reasoning_effort}\n"
+        f"- Scientist reasoning effort: {cfg.scientist_reasoning_effort}\n"
         "- Mode: continuous daemon\n"
         f"- Per-mission budget cap: ${cfg.per_mission_cap_usd:.2f}\n"
         f"- Daily budget cap: ${cfg.daily_cap_usd:.2f}\n"
