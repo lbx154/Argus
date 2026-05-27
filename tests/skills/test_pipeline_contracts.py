@@ -13,6 +13,7 @@ from argus_skill.skills.academic_language_review import (
 )
 from argus_skill.skills.pipeline_contracts import (
     _pdf_page_count,
+    _validate_rendered_pdf_page_budget,
     _validate_research_md_pdf_text,
     _validate_research_md_reference_depth,
     refresh_artifact_freshness,
@@ -1850,6 +1851,53 @@ def test_research_md_format_preflight_rejects_placeholder_bibtex_authors(tmp_pat
     assert "placeholder_bibtex_author_others" in {issue.code for issue in issues}
 
 
+def test_research_md_format_preflight_rejects_numeric_acl_citations(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    main_path = tmp_path / "paper" / "main.tex"
+    main_text = main_path.read_text(encoding="utf-8").replace(
+        "\\usepackage[review]{acl}\n",
+        "\\usepackage[review]{acl}\n\\setcitestyle{numbers,square}\n",
+    )
+    _write(main_path, main_text)
+
+    issues = validate_research_md_format_preflight(tmp_path)
+
+    assert "numeric_acl_citation_style" in {issue.code for issue in issues}
+
+
+def test_research_md_format_preflight_rejects_missing_bibtex_author_metadata(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    bib_path = tmp_path / "paper" / "references.bib"
+    bib_text = re.sub(r"\n  author = \{Author, Test 1\},", "", bib_path.read_text(encoding="utf-8"), count=1)
+    _write(bib_path, bib_text)
+
+    issues = validate_research_md_format_preflight(tmp_path)
+
+    assert "missing_bibtex_author_metadata" in {issue.code for issue in issues}
+
+
+def test_research_md_format_preflight_rejects_starter_key_title_mismatch(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    bib_path = tmp_path / "paper" / "references.bib"
+    bib_text = bib_path.read_text(encoding="utf-8")
+    bib_text += "\n".join(
+        [
+            "",
+            "@misc{amem2025,",
+            "  title = {23.8-GHz Acoustic Filter in Periodically Poled Piezoelectric Film Lithium Niobate},",
+            "  author = {Cho, Sinwoo and Barrera, Omar},",
+            "  year = {2024}",
+            "}",
+            "",
+        ]
+    )
+    _write(bib_path, bib_text)
+
+    issues = validate_research_md_format_preflight(tmp_path)
+
+    assert "bibtex_key_title_mismatch" in {issue.code for issue in issues}
+
+
 def test_research_md_format_preflight_rejects_rendered_placeholder_authors(tmp_path: Path) -> None:
     _write_valid_paper_draft_report(tmp_path)
     _write(
@@ -1948,6 +1996,38 @@ def test_research_md_pdf_text_rejects_total_pdf_over_twelve_pages() -> None:
             "Supplementary Appendix\nMore artifact notes\n",
         ]
     )
+
+    assert "rendered_pdf_exceeds_total_page_limit" in {issue.code for issue in issues}
+
+
+def test_research_md_pdf_text_ignores_pdftotext_trailing_form_feed_page() -> None:
+    issues = _validate_research_md_pdf_text(
+        [
+            "Title\nIntroduction\n",
+            "Related Work\n",
+            "Method\n",
+            "Experimental Setup\n",
+            "Main Results\n",
+            "Analysis\n",
+            "Failure Cases\n",
+            "Conclusion\nLimitations and Ethical Considerations\n",
+            "References\nPaper A\nPaper B\n",
+            "More References\nPaper C\nPaper D\n",
+            "Appendix\nReproducibility\n",
+            "Extra Appendix\nArtifact notes\n",
+            "",
+        ]
+    )
+
+    assert "rendered_pdf_exceeds_total_page_limit" not in {issue.code for issue in issues}
+
+
+def test_rendered_pdf_page_budget_rejects_pdfinfo_total_over_twelve(tmp_path: Path) -> None:
+    paper_dir = tmp_path / "paper"
+    paper_dir.mkdir()
+    (paper_dir / "main.pdf").write_bytes(_minimal_pdf_bytes([f"Page {i}" for i in range(13)]))
+
+    issues = _validate_rendered_pdf_page_budget(tmp_path, 8.0)
 
     assert "rendered_pdf_exceeds_total_page_limit" in {issue.code for issue in issues}
 

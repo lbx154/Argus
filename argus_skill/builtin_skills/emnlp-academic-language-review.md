@@ -53,7 +53,7 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - Group related work by method, benchmark, or failure mode; do not write a chronological list.
    - Cite papers next to the claim or paragraph that discusses them. Do not stack all citations in one dense paragraph, one mega-sentence, a caption, or a detached bibliography dump; split any citation command above eight keys into topic-specific sentences.
    - Each group should end with the exact gap this paper addresses.
-   - Use only verified citations with full author metadata. If a citation cannot be verified, mark it as blocked instead of inventing metadata; do not leave BibTeX `author={... and others}`/`et al.` placeholders that render as `and 1 others`.
+   - Use only verified citations with full author metadata and ACL/EMNLP author-year natbib style. If a citation cannot be verified, mark it as blocked instead of inventing metadata; do not leave BibTeX `author={... and others}`/`et al.` placeholders that render as `and 1 others`, do not leave title-only entries from missing authors, and do not use starter keys whose titles point to unrelated papers.
 
 5. Calibrate claims:
    - Remove SOTA, novel, significant, robust, or generalization claims unless local evidence and citations support them.

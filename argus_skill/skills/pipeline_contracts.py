@@ -125,6 +125,58 @@ MIN_FINAL_UNIQUE_CITATION_KEYS = 30
 MIN_RENDERED_REFERENCE_PAGES = 2
 MAX_CITATION_KEYS_PER_COMMAND = 8
 MAX_CITATION_KEYS_PER_PARAGRAPH = 16
+STARTER_BIBTEX_KEY_TITLE_PATTERNS: dict[str, tuple[str, ...]] = {
+    "react2022": (r"\breact\b",),
+    "reflexion2023": (r"\breflexion\b",),
+    "selfrefine2023": (r"\bself[- ]?refine\b",),
+    "toolformer2023": (r"\btoolformer\b",),
+    "toolllm2024": (r"\btoolllm\b",),
+    "apibank2023": (r"\bapi[- ]?bank\b",),
+    "gorilla2023": (r"\bgorilla\b",),
+    "hugginggpt2023": (r"\bhugginggpt\b",),
+    "mrkl2022": (r"\bmrkl\b",),
+    "voyager2024": (r"\bvoyager\b",),
+    "expel2024": (r"\bexpel\b",),
+    "memgpt2024": (r"\bmemgpt\b",),
+    "generativeagents2023": (r"\bgenerative agents\b",),
+    "amem2025": (r"\ba[- ]?mem\b", r"\bagentic memory\b"),
+    "memorybank2024": (r"\bmemorybank\b",),
+    "longmem2024": (r"\blongmem\b",),
+    "webrl2024": (r"\bwebrl\b",),
+    "webevolver2025": (r"\bwebevolver\b",),
+    "mobileagente2025": (r"\bmobile[- ]?agent[- ]?e\b",),
+    "sage2025": (r"\bsage\b",),
+    "skillrl2025": (r"\bskillrl\b", r"\bskill[- ]?rl\b"),
+    "letsverify2023": (r"\blet'?s verify\b", r"\bverify step by step\b"),
+    "star2022": (r"\bstar\b", r"\bself[- ]?taught reasoner\b"),
+    "mtbench2023": (r"\bmt[- ]?bench\b",),
+    "selfcheckgpt2023": (r"\bselfcheckgpt\b",),
+    "truthfulqa2022": (r"\btruthfulqa\b",),
+    "hallucinationsurvey2023": (r"\bhallucinat",),
+    "llmmultiagentsurvey2024": (r"\bmulti[- ]?agent", r"\bmultiple agents\b"),
+    "agentbench2024": (r"\bagentbench\b",),
+    "webarena2024": (r"\bwebarena\b",),
+    "gaia2024": (r"\bgaia\b",),
+    "locomo2024": (r"\blocomo\b", r"\blong[- ]?term conversational memory\b"),
+    "swebench2023": (r"\bswe[- ]?bench\b",),
+    "alfworld2021": (r"\balfworld\b",),
+    "miniwob2020": (r"\bminiwob",),
+    "mind2web2023": (r"\bmind2web\b",),
+    "toolbench2023": (r"\btoolbench\b",),
+    "teval2023": (r"\bt[- ]?eval\b",),
+    "stabletoolbench2024": (r"\bstabletoolbench\b",),
+    "multiagentbench2025": (r"\bmultiagentbench\b", r"\bmulti[- ]?agent bench\b"),
+    "sweagent2024": (r"\bswe[- ]?agent\b",),
+    "autocoderover2024": (r"\bautocoderover\b",),
+    "agentless2024": (r"\bagentless\b",),
+    "swebenchplus2024": (r"\bswe[- ]?bench\+",),
+    "swebenchmultimodal2024": (r"\bswe[- ]?bench\b.*\bmultimodal\b",),
+    "swesmith2025": (r"\bswe[- ]?smith\b",),
+    "multiswebench2025": (r"\bmulti[- ]?swe[- ]?bench\b",),
+    "swebenchgoeslive2025": (r"\bswe[- ]?bench\b.*\blive\b",),
+    "livesweagent2025": (r"\blive[- ]?swe[- ]?agent\b",),
+    "swepolybench2025": (r"\bswe[- ]?polybench\b",),
+}
 MIN_CONCEPTUAL_FIGURE_ASPECT_RATIO = 1.2
 MAX_CONCEPTUAL_FIGURE_ASPECT_RATIO = 2.6
 MIN_CONCEPTUAL_FIGURE_PIXEL_WIDTH = 1200
@@ -3040,6 +3092,18 @@ def _validate_rendered_pdf_page_budget(root: Path, reported_main_pages: float) -
                 ),
             )
         ]
+    if page_count > MAX_RENDERED_TOTAL_PAGES:
+        return [
+            ContractIssue(
+                "rendered_pdf_exceeds_total_page_limit",
+                str(PAPER_MAIN_PDF_PATH),
+                (
+                    "final EMNLP readiness keeps the complete rendered PDF at "
+                    f"{MAX_RENDERED_TOTAL_PAGES} pages or fewer, including references "
+                    f"and appendix; current rendered PDF has {page_count} pages"
+                ),
+            )
+        ]
     return []
 
 
@@ -3154,9 +3218,35 @@ def _validate_research_md_citation_hygiene(
 ) -> list[ContractIssue]:
     issues: list[ContractIssue] = []
 
+    if _uses_numeric_acl_citation_style(tex_text):
+        issues.append(
+            ContractIssue(
+                "numeric_acl_citation_style",
+                str(PAPER_MAIN_TEX_PATH),
+                (
+                    "EMNLP/ACL review papers should use the ACL natbib author-year "
+                    "citation style; remove numeric citation overrides such as "
+                    "\\setcitestyle{numbers,square} or natbib's numbers option"
+                ),
+            )
+        )
+
     for rel_path, text in bib_sources.items():
         for entry_type, key, body in _iter_bibtex_entries(text):
             author = _bibtex_field_value(body, "author")
+            title = _bibtex_field_value(body, "title")
+            if not _has_bibtex_credit_field(body):
+                issues.append(
+                    ContractIssue(
+                        "missing_bibtex_author_metadata",
+                        rel_path,
+                        (
+                            f"BibTeX entry {key!r} has no author/editor/organization metadata; "
+                            "final references must not render as title-only labels such as "
+                            "'min(2020)' or 'too(2023)'"
+                        ),
+                    )
+                )
             if author is not None and re.search(r"\b(?:and\s+others|et\s+al\.?)\b", author, re.I):
                 issues.append(
                     ContractIssue(
@@ -3166,6 +3256,19 @@ def _validate_research_md_citation_hygiene(
                             f"BibTeX entry {key!r} uses abbreviated author metadata "
                             f"({entry_type}); final references need verified full author lists, "
                             "not 'and others' or 'et al.' placeholders"
+                        ),
+                    )
+                )
+            if title is not None and _starter_bibtex_title_mismatch(key, title):
+                issues.append(
+                    ContractIssue(
+                        "bibtex_key_title_mismatch",
+                        rel_path,
+                        (
+                            f"BibTeX entry {key!r} has a title that does not match the "
+                            "starter citation target implied by the key; refetch verified "
+                            "metadata from Semantic Scholar, arXiv, CrossRef, ACL Anthology, "
+                            "DBLP, or the official project page instead of using an unrelated paper"
                         ),
                     )
                 )
@@ -3215,6 +3318,30 @@ def _validate_research_md_citation_hygiene(
                 )
             )
     return issues
+
+
+def _uses_numeric_acl_citation_style(tex_text: str) -> bool:
+    stripped = _strip_latex_comments(tex_text)
+    return bool(
+        re.search(r"\\setcitestyle\s*\{[^{}]*\bnumbers\b", stripped, re.I)
+        or re.search(r"\\usepackage\s*\[[^\]]*\bnumbers\b[^\]]*\]\s*\{natbib\}", stripped, re.I)
+        or re.search(r"\\PassOptionsToPackage\s*\{[^{}]*\bnumbers\b[^{}]*\}\s*\{natbib\}", stripped, re.I)
+    )
+
+
+def _has_bibtex_credit_field(entry_body: str) -> bool:
+    return any(
+        _bibtex_field_value(entry_body, field)
+        for field in ("author", "editor", "organization", "institution")
+    )
+
+
+def _starter_bibtex_title_mismatch(key: str, title: str) -> bool:
+    patterns = STARTER_BIBTEX_KEY_TITLE_PATTERNS.get(key.strip().lower())
+    if not patterns:
+        return False
+    plain_title = _plain_latex_text(title).lower()
+    return not any(re.search(pattern, plain_title, re.I) for pattern in patterns)
 
 
 def _iter_bibtex_entries(text: str) -> list[tuple[str, str, str]]:
@@ -3670,7 +3797,14 @@ def _extract_pdf_text_pages(pdf_path: Path) -> list[str] | None:
         return None
     if completed.returncode != 0:
         return None
-    return completed.stdout.split("\f")
+    return _strip_trailing_blank_pdf_text_pages(completed.stdout.split("\f"))
+
+
+def _strip_trailing_blank_pdf_text_pages(pages: list[str]) -> list[str]:
+    normalized = list(pages)
+    while normalized and not normalized[-1].strip():
+        normalized.pop()
+    return normalized
 
 
 def _pdf_page_count(pdf_path: Path) -> int | None:
@@ -3719,6 +3853,7 @@ def _pdf_page_count_from_bytes(pdf_path: Path) -> int | None:
 
 def _validate_research_md_pdf_text(pages: list[str]) -> list[ContractIssue]:
     issues: list[ContractIssue] = []
+    pages = _strip_trailing_blank_pdf_text_pages(pages)
     all_text = "\n".join(pages)
     if "[?]" in all_text:
         issues.append(

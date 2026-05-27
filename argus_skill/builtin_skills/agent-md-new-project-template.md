@@ -321,13 +321,15 @@ Use the repository's existing conventions if they are already present; otherwise
 1. Use starter citation targets only when the topic matches. Treat keys as retrieval targets, not as ready BibTeX: verify each entry through Semantic Scholar, arXiv, CrossRef, ACL Anthology, DBLP, or official project pages.
 2. Keep references separated by claim/topic/section. Each related-work paragraph must cite the specific papers it discusses; do not dump all citations into one dense paragraph, one mega-sentence, a caption, or the bibliography with no local discussion.
 3. Maintain a literature matrix with topic, paper key, verified source, claim supported, and intended paper section before drafting related work.
-4. Starter targets for memory, agent-skill, and hallucination papers:
+4. Use ACL/EMNLP author-year natbib style for review submissions. Do not add `\setcitestyle{numbers,square}`, `\usepackage[numbers]{natbib}`, or other numeric citation overrides unless the operator explicitly changes the venue/style requirement.
+5. Verify references semantically, not only by compiling: citation key, title, authors, year, venue, DOI/arXiv/ACL URL, and rendered bibliography entry must refer to the same paper. Missing author/editor/organization metadata is a blocker because it renders title-only labels. If a starter key maps to an unrelated title, refetch the metadata instead of renaming the entry.
+6. Starter targets for memory, agent-skill, and hallucination papers:
    - Tool-use and agent loops: `yao2023react`, `shinn2023reflexion`, `madaan2023selfrefine`, `schick2023toolformer`, `qin2023toolllm`, `li2023apibank`, `patil2023gorilla`, `shen2023hugginggpt`, `karpas2022mrkl`.
    - Memory, skills, and long-horizon agents: `wang2024voyager`, `zhao2024expel`, `packer2023memgpt`, `park2023generativeagents`, `xu2025amem`, `zhong2024memorybank`, `wang2023longmem`.
    - Self-evolution and process supervision: `qi2024webrl`, `li2025webevolver`, `wang2025mobileagente`, `tang2025sage`, `zhang2025skillrl`, `lightman2023letsverify`, `zelikman2022star`.
    - Evaluation, hallucination, and multi-agent surveys: `zheng2023judging`, `ji2023survey`, `huang2025hallucination`, `guo2024llmmas`, `manakul2023selfcheckgpt`, `lin2022truthfulqa`.
    - Agent benchmarks and validation environments: `liu2023agentbench`, `zhou2023webarena`, `mialon2023gaia`, `maharana2024locomo`, `shridhar2020alfworld`.
-5. Add domain-specific EMNLP/ACL papers, benchmark papers, dataset papers, and official repos from the literature survey until the final paper clears the bibliography-depth gate. Unrelated domains need their own topic-specific starter list.
+7. Add domain-specific EMNLP/ACL papers, benchmark papers, dataset papers, and official repos from the literature survey until the final paper clears the bibliography-depth gate. Unrelated domains need their own topic-specific starter list.
 
 ## Paper formatting and layout contract
 1. Use the official ACL/EMNLP style files, preferably `\usepackage[review]{acl}`, and the anonymous review author block `Anonymous EMNLP Submission`.
