@@ -24,6 +24,7 @@ The Critic is argus-skill's post-review quality filter: after the Reviewer accep
 - Reject vanity improvements: renames, comment polish, subjective style tweaks, tiny refactors, or "would be cleaner" arguments.
 - Each improvement needs evidence, an impact score, and a testable acceptance criterion.
 - Cap suggestions to the few highest-impact fixes; noisy lists dilute the loop.
+- After an accepted paper mission, do not spend another cycle on a tiny local prose or layout tweak unless it removes a named hard blocker. If the remaining problem is repeated or systemic, hand control back to the Planner or propose one broad root-cause repair.
 
 ## Academic-paper behavior
 - For `final_submission` paper objectives, local stop requires evidence that the full EMNLP gate passed.

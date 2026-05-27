@@ -8,7 +8,7 @@ created_at: "2025-07-17"
 updated_at: "2025-07-27"
 ---
 
-# EMNLP Paper Writing Playbook (Claude-style workflow)
+# EMNLP Paper Writing Playbook (Argus workflow)
 
 > **For:** any LLM agent that needs to take a research idea or repo and produce
 > a publication-ready EMNLP / ACL / NeurIPS-style PDF — paper text, benchmark
@@ -175,12 +175,16 @@ Final EMNLP evidence needs:
 - raw scored rows for every required method/baseline condition on the selected
   multi-source matrix;
 - raw scored rows under `experiments/**`, not only benchmark manifests;
-- a named evaluated model/backend. For local GPU experiments, record the local
-  model/backend class, framework/runtime, checkpoint or scorer identifier,
-  device, training/inference settings, budget, seeds, and stopping rules. If no
-  local GPU exists, run the approved hosted route, with `gpt-5-mini` as the
-  default low-cost backbone, and record temperature, top_p, max_tokens, budget,
-  cache/retry/timeout policy, and stopping rules.
+- a named evaluated model/backend. Internal manifests may record local compute
+  details, but the manuscript should report only paper-facing facts: evaluated
+  model/backend class, framework/runtime or benchmark harness, checkpoint or
+  scorer identifier, training/inference settings, budget/decoding, seeds, and
+  high-level compute/cost when relevant. If no local GPU exists, run the
+  approved hosted route, with `gpt-5-mini` as the default low-cost backbone,
+  and record temperature, top_p, max_tokens, budget, cache/retry/timeout policy,
+  and stopping rules in manifests. Do not put local device ordinals, CUDA
+  variables, cache paths, workstation names, private endpoints, or Argus/Codex
+  route configuration in rendered paper prose.
 
 ### Construction rules
 
@@ -401,7 +405,8 @@ The 6-section prompt that produces consistent, paper-grade diagrams:
    "1536x1024 landscape" or "1024x1536 portrait"
 ```
 
-**Generate 3 attempts per figure** at quality="high". Pick the cleanest.
+**Generate 6--20 layout variants per non-data figure** at quality="high" by
+changing only the layout block. Pick the cleanest reviewed image-2 raster.
 Common defects: misspelled labels, character-level vertical text,
 overlapping cards. Re-prompt with sharper constraints; do not fix in post.
 
@@ -596,7 +601,8 @@ FIG_SC, FIG_FULL = (3.25, 2.4), (6.7, 2.6)
 - ✅ Use `figure*[t]` (full-width) only for the *one* most-important figure
   (teaser, waterfall, multi-panel scale curves).
 - ✅ **Move qualitative / secondary figures to appendix** even if you love
-  them. Body has ≤5 figures total.
+  them. Body has ≤5 figures total. Non-data appendix figures still need real
+  image-2 output; only data/metric/result plots may be locally scripted.
 - ✅ Body data figures should sit on the Pareto frontier of the story:
   one heatmap, one scatter/Pareto, one trend line, one bar comparison.
   No more.
@@ -614,7 +620,7 @@ Page 5   Experimental Setup (at least 550 words), main table
 Page 6   Results: ablation table, per-condition table, key figure
 Page 7   Analysis: significance, qualitative, discussion
 Page 8   Conclusion + start of Limitations + Ethics
-─────────  (8-page hard limit per geshi.md)
+─────────  (8-page body limit; references and appendix are uncapped after page 8)
 Page 9+  Limitations + Ethics + References + Appendix
 ```
 
@@ -624,7 +630,7 @@ force this with `\clearpage`, `\newpage`, `\pagebreak`, or `\FloatBarrier`
 immediately before Conclusion; a forced pre-Conclusion break can leave page 8
 mostly blank and push the heading to page 9 after minor float changes.
 
-If you overflow, in priority order: (a) move secondary figures to appendix;
+If the body overflows, in priority order: (a) move secondary figures to appendix;
 (b) move low-value diagnostics to appendix; (c) tighten repeated score
 restatements; (d) merge Limitations bullets. Do not solve overlength by cutting
 the Introduction below 900 words, deleting model/benchmark configuration, or
@@ -730,7 +736,7 @@ Always include `appendix_repro.tex` with:
 - [ ] LLM settings (temperature, top_p, max_tokens, model version)
 - [ ] Cache key formula (so re-runs reproduce exactly)
 - [ ] Seeds (benchmark generation + bootstrap)
-- [ ] Compute (total tokens, $$, wall-clock, GPU/CPU)
+- [ ] Compute (total tokens, $$, wall-clock, high-level GPU/CPU class if relevant; no local device IDs or cache paths)
 - [ ] Statistical methodology (which tests, two-sided, etc.)
 - [ ] Code/data/prompts release plan with SHA-256 fingerprint of prompts
 
@@ -811,9 +817,10 @@ Before declaring "ready":
   skills vs 72 opaque exemplars). Replicates on gpt-4o backbone and
   ALFWorld 30-task subset (0.947 step-recall).
 
-Both papers use the same: LaTeX skeleton, GenAI Figma teaser/arch figures,
-matplotlib data figures, table-styling tokens, statistical tests, EMNLP
-8-page body limit, and citation discipline described above.
+Both papers use the same: LaTeX skeleton, image-2 Figma-style non-data
+figures, locally scripted data/metric/result figures, table-styling tokens,
+statistical tests, EMNLP 8-page body limit, and citation discipline described
+above.
 
 ---
 
