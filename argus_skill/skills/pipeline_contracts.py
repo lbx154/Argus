@@ -4323,7 +4323,11 @@ def _validate_research_md_required_sections(tex_text: str) -> list[ContractIssue
         "missing_conclusion_section": ("conclusion", "paper must include a Conclusion section before references"),
         "missing_reproducibility_appendix": (
             "reproducibility",
-            "paper must include a reproducibility appendix/section with commands, seeds, and artifacts",
+            (
+                "paper must include a reproducibility appendix/section with a neutral "
+                "replay interface, seed policy, public benchmark/model facts, and "
+                "artifact-type inventory without local runner paths"
+            ),
         ),
     }
     issues: list[ContractIssue] = []

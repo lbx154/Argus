@@ -4672,9 +4672,9 @@ def _write_valid_paper_draft_report(
         "blocked source rows, and verifier rejections. Those labels feed the "
         "failure-analysis section and keep the body from relying on aggregate "
         "accuracy alone. All reported tables are regenerated from the canonical "
-        "rows after the run finishes, and the manuscript records the command that "
-        "performs this regeneration in the reproducibility appendix. The same "
-        "appendix records seeds, cache policy, and source filters for reruns. The "
+        "rows after the run finishes, and the manuscript records the neutral "
+        "regeneration target in the reproducibility appendix. The same "
+        "appendix records seed policy, request policy, and source filters for reruns. The "
         "setup treats hosted calls as part of the evaluated system, so a table row "
         "must name the model id, route, temperature, response cap, and retry policy "
         "whenever a method uses model output. This prevents a final paper from "
@@ -4763,7 +4763,7 @@ def _write_valid_paper_draft_report(
                 "\\bibliography{references}",
                 "\\appendix",
                 "\\section{Reproducibility}",
-                "We include commands, seeds, and artifact hashes in the supplementary package.",
+                "We include neutral replay labels, seed policy, and artifact-type hashes in the supplementary package.",
                 "\\end{document}",
             ]
         )
