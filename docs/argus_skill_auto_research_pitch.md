@@ -12,7 +12,7 @@
 ## Slide 3: What We Built
 - 7x24 daemon: continuous planner, engineer, reviewer, critic loop with resumable work.
 - 34 built-in research/paper skills: domain routing, ideation, literature grounding, benchmark execution, ablations, result-to-claim, paper drafting, image-2 figures, format preflight, review revision, and submission assurance.
-- Domain expansion: EMNLP/ACL remains the flagship path, with new CV, multimodal, AI-infrastructure, and training-experiment playbooks for follow-on research programs.
+- Domain expansion: EMNLP/ACL remains the flagship path, with new CV, multimodal, AI-infrastructure, and training-methodology playbooks for follow-on research programs.
 - Official project entrypoint: initializes AGENTS.md, built-in skills, and reusable code helpers such as LLM/image wrappers.
 - CI-backed implementation: pytest, ruff, and mypy currently pass after the latest merge.
 
@@ -47,7 +47,7 @@
 - Add a live dashboard for daemon state, evidence gaps, page budget, and review blockers.
 - Expand benchmark sourcing beyond synthetic tasks into public/frontier suites where feasible.
 - Build mentor-in-the-loop checkpoints: idea shortlist, experiment design, claim calibration, final paper go/no-go.
-- Package repeatable project entrypoints across EMNLP, CV, multimodal, AI infrastructure, and training-based research.
+- Package repeatable project entrypoints across domains, with training-free vs. training-based methodology selected independently.
 
 ## Slide 9: Ask
 - Mentor time: 30 minutes to judge whether the current research direction is worth turning into the flagship demo paper.
