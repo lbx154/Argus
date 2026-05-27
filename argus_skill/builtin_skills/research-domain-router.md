@@ -24,6 +24,12 @@ Training is NOT tied to any domain. Any domain can be training-free OR training-
 | NLP | In-context learning, RAG | LLM pretraining, RLHF, domain fine-tuning |
 | RL/Alignment | Prompt-based alignment, constitutional AI | PPO/DPO training, reward model training |
 
+## Default Compute Policy
+
+When the operator has made substantial local GPU capacity available, prefer a training-based or hybrid route for publishable empirical work. Training-free routes remain valid for pure evaluation, systems, or prompt/API papers, but they must be justified against the field's current frontier. A tiny custom scorer, bag-of-words classifier, lexical ranker, exact-oracle policy, or prompt wrapper should be routed as smoke/baseline work, not as the proposed model for an EMNLP/ACL-ready paper.
+
+Every route must bind the method to existing real benchmarks or official task/data releases before experiments. If the only available evaluation is synthetic/local proxy tasks, route back to planning and pivot/block rather than accepting the benchmark.
+
 **Decision flow:**
 ```
 1. Classify DOMAIN (what area?)
@@ -32,7 +38,10 @@ Training is NOT tied to any domain. Any domain can be training-free OR training-
 2. Classify METHODOLOGY (how?)
    → Training-free | Training-based | Hybrid (both)
 
-3. Select skills = domain_skills ∪ methodology_skills ∪ cross_domain_skills
+3. Check benchmark reality:
+   → Existing real benchmark / official task release | Block/Pivot
+
+4. Select skills = domain_skills ∪ methodology_skills ∪ cross_domain_skills
 ```
 
 ## Domain Classification
@@ -72,8 +81,13 @@ Given a research brief / idea:
    - Mentions "fine-tune", "pretrain", "train", "LoRA", "gradient" → Training-based
    - Mentions "zero-shot", "prompt", "in-context", "API", "inference-only" → Training-free
    - Both signals present → Hybrid
+   - If large local GPUs are available and the proposed contribution is learned, upgrade training-free or tiny-scorer plans to Hybrid/Training-based unless the operator explicitly requests a non-training study.
 
-3. Compose skill set:
+3. Require real benchmark binding:
+   - Identify the existing benchmark(s), official dataset/task release, primary metric, and strong baseline before running.
+   - If benchmark evidence would be synthetic/local only, return to `research-brief-to-experiment-plan` for pivot/block.
+
+4. Compose skill set:
    skills = domain_pipeline(domain)
          ∪ methodology_skills(methodology)
          ∪ cross_domain_skills

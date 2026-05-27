@@ -605,6 +605,8 @@ def _write_valid_quality_calibration(
     *,
     proposed_protocol: str,
 ) -> None:
+    _write_valid_benchmark_provenance(tmp_path)
+    _write_valid_model_scale_plan(tmp_path)
     _write(tmp_path / "paper" / "artifacts" / "significance.tsv", "test\tp\nmcnemar\t0.01\n")
     _write_json(
         tmp_path / "paper" / "PAPER_QUALITY_CALIBRATION.json",
@@ -653,4 +655,41 @@ def _write_valid_quality_calibration(
                 }
             ],
         },
+    )
+
+
+def _write_valid_benchmark_provenance(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "experiments" / "BENCHMARK_PROVENANCE.md",
+        "\n".join(
+            [
+                "# Benchmark Provenance",
+                "",
+                "Selected benchmark sources:",
+                "| Name | URL/repo | Paper/citation | Version/date | Task count | Split/filtering | License/access | Capability | Rationale | Alternatives |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                "| GAIA | https://huggingface.co/datasets/gaia-benchmark/GAIA | GAIA: A Benchmark for General AI Assistants | 2024 | 140 | held-out sampled split | public benchmark release | assistant reasoning | main reasoning benchmark | AgentBench |",
+                "| Mind2Web | https://github.com/OSU-NLP-Group/Mind2Web | Mind2Web: Towards a Generalist Agent for the Web | 2023 | 100 | official train/test adaptation | public dataset release | web action selection | web grounding benchmark | WebArena |",
+            ]
+        )
+        + "\n",
+    )
+
+
+def _write_valid_model_scale_plan(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "experiments" / "MODEL_SCALE_PLAN.md",
+        "\n".join(
+            [
+                "# Model Scale Plan",
+                "",
+                "- Model backbone: 7B instruction model with LoRA adaptation.",
+                "- Parameter count: 7B total; trainable parameters: 32M adapter parameters.",
+                "- Training data: official benchmark train split plus licensed auxiliary data.",
+                "- GPU memory plan: QLoRA on available B200 GPU with gradient checkpointing.",
+                "- Expected GPU-hours: 8.",
+                "- Checkpoint: experiments/run_001/checkpoint/adapter.pt.",
+            ]
+        )
+        + "\n",
     )

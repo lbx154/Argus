@@ -18,6 +18,8 @@ LLM agents can produce fraudulent experimental results through:
 2. **Score normalization** — dividing metrics by the model's own max to get 0.99+
 3. **Phantom results** — claiming numbers from files that don't exist or functions never called
 4. **Insufficient scope** — reporting 2-scene pilots as "comprehensive evaluation"
+5. **Synthetic benchmark laundering** — presenting locally generated tasks, proxy graphs, or hand-written oracle cases as main benchmark evidence
+6. **Tiny-model laundering** — presenting a bag-of-words scorer, lexical ranker, exact lookup/lookahead policy, or prompt wrapper as the proposed frontier method when available GPUs and field standards require training/adapting a stronger model
 
 These are NOT intentional deception — they are failure modes of optimizing agents
 that lack integrity constraints. This skill adds that constraint.
@@ -86,10 +88,26 @@ For each category, the reviewer must check:
 
 **WARN if:** Scope language exceeds actual evidence.
 
-#### F. Evaluation Type Classification
+#### F. Benchmark Reality
+1. Does the main paper evidence use existing real benchmarks or official task/data releases?
+2. Does `experiments/BENCHMARK_PROVENANCE.md`/`.json` list source URLs/repos, paper/citation/DOI, version/date, license/access, split/filtering, and task count?
+3. Are any synthetic/local/proxy tasks used only for smoke tests and excluded from paper-facing claims?
+
+**FAIL if:** synthetic/local/generated tasks are used as main benchmark evidence or benchmark provenance lacks real source pointers.
+
+#### G. Model Scale and Frontier Fit
+1. What model/backbone is actually trained or adapted?
+2. Are parameter count, trainable parameters, dataset size, GPU plan, logs, checkpoint/adapter path, and evaluation command recorded?
+3. Is the proposed method competitive with current field expectations, or only a tiny scorer/prompt wrapper?
+
+**FAIL if:** the main proposed method is a tiny scorer/oracle/prompt wrapper despite available GPU capacity and no operator-approved scope downgrade.
+
+#### H. Evaluation Type Classification
 Classify each evaluation as:
 - `real_gt`: uses dataset-provided ground truth
 - `synthetic_proxy`: uses model-generated reference
+- `synthetic_main_benchmark`: uses local/generated/synthetic tasks as final paper evidence
+- `tiny_model_main_claim`: main proposed method is a tiny scorer or oracle policy without operator-approved scope downgrade
 - `self_supervised_proxy`: no GT by design
 - `simulation_only`: simulated environment
 - `human_eval`: human judges
@@ -122,7 +140,13 @@ Write `EXPERIMENT_AUDIT.md`:
 ### E. Scope Assessment: [PASS|WARN|FAIL]
 [details]
 
-### F. Evaluation Type: [classification]
+### F. Benchmark Reality: [PASS|WARN|FAIL]
+[details]
+
+### G. Model Scale and Frontier Fit: [PASS|WARN|FAIL]
+[details]
+
+### H. Evaluation Type: [classification]
 [classification + evidence]
 
 ## Action Items
@@ -146,6 +170,8 @@ Also write `EXPERIMENT_AUDIT.json` for machine consumption:
     "result_existence": {"status": "pass|warn|fail", "details": "..."},
     "dead_code": {"status": "pass|warn|fail", "details": "..."},
     "scope": {"status": "pass|warn|fail", "details": "..."},
+    "benchmark_reality": {"status": "pass|warn|fail", "details": "..."},
+    "model_scale_frontier_fit": {"status": "pass|warn|fail", "details": "..."},
     "eval_type": "real_gt|synthetic_proxy|..."
   },
   "claims": [

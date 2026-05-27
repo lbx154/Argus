@@ -90,6 +90,8 @@ PAPER_MAIN_TEX_PATH = Path("paper/main.tex")
 PAPER_MAIN_PDF_PATH = Path("paper/main.pdf")
 PAPER_MAIN_LOG_PATH = Path("paper/main.log")
 FORMAT_PREFLIGHT_REPORT_PATH = Path("paper/FORMAT_PREFLIGHT.md")
+BENCHMARK_PROVENANCE_JSON_PATH = Path("experiments/BENCHMARK_PROVENANCE.json")
+BENCHMARK_PROVENANCE_MD_PATH = Path("experiments/BENCHMARK_PROVENANCE.md")
 
 MIN_RECENT_HIGH_QUALITY_PAPERS = 10
 MIN_CLASSIC_PAPERS = 3
@@ -105,6 +107,8 @@ MIN_CLAIM_GRAPH_CLAIMS = 2
 MIN_STYLE_GUIDE_FLOATS = 2
 RECENT_PAPER_YEAR_CUTOFF = 2023
 MIN_MAIN_CONTENT_PAGES = 7.5
+# EMNLP/ACL page limits apply to the main body only. References and appendix
+# pages are intentionally uncapped, but must not start before page 9.
 MAX_MAIN_CONTENT_PAGES = 8.0
 MAX_RENDERED_TOTAL_PAGES = 12
 SEVERE_OVERFULL_HBOX_PT = 5.0
@@ -115,6 +119,7 @@ MAX_RESEARCH_MD_WIDE_FIGURES = 1
 RESEARCH_MD_VISUAL_PAGES = {4, 5, 6, 7}
 REQUIRED_RENDERED_CONCLUSION_PAGE_FOR_FULL_BODY = 8
 MIN_RENDERED_REFERENCES_PAGE_FOR_FULL_BODY = 9
+MIN_RENDERED_APPENDIX_PAGE = 9
 MIN_FINAL_BIBLIOGRAPHY_ENTRIES = 35
 MIN_FINAL_UNIQUE_CITATION_KEYS = 30
 MIN_RENDERED_REFERENCE_PAGES = 2
@@ -128,6 +133,12 @@ MIN_IMAGE_REVIEW_SCORE = 4.0
 MIN_IMAGE2_TEASER_PROMPT_CHARS = 900
 MIN_LAYOUT_REVIEW_SCORE = 4.0
 IMAGE2_RASTER_OUTPUT_SUFFIXES = {".png", ".jpg", ".jpeg"}
+RENDERED_REFERENCES_HEADING_PATTERN = r"(?m)^\s*(?:References|Bibliography)\s*$"
+RENDERED_APPENDIX_HEADING_PATTERN = (
+    r"(?m)^\s*(?:Appendix|[A-Z]\.?\s+"
+    r"(?:Reproducibility|Appendix|Supplementary|Additional|Artifact|Proof|Detailed)|"
+    r"Supplementary Material)\b"
+)
 IMAGE2_TEASER_PROMPT_REQUIRED_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "academic_teaser_intent",
@@ -760,6 +771,44 @@ KNOWN_FULL_SCALE_METHODS = (
     "skillcycle",
     "skillguard",
 )
+REAL_BENCHMARK_SOURCE_FIELDS = (
+    "selected_benchmarks",
+    "selected_benchmark_sources",
+    "benchmark_sources",
+    "evaluation_benchmarks",
+    "benchmark_mix",
+    "benchmark_components",
+    "public_benchmarks",
+    "source_benchmarks",
+)
+REAL_BENCHMARK_POINTER_FIELDS = (
+    "url",
+    "source_url",
+    "repo",
+    "repository",
+    "paper",
+    "paper_url",
+    "citation",
+    "doi",
+)
+REAL_BENCHMARK_POINTER_MARKERS = (
+    "http://",
+    "https://",
+    "doi:",
+    "arxiv",
+    "acl anthology",
+    "github.com",
+    "papers with code",
+)
+SYNTHETIC_BENCHMARK_MARKERS = (
+    "synthetic",
+    "local pseudo-benchmark",
+    "proxy benchmark",
+    "generated task",
+    "hand-written",
+    "handwritten",
+    "oracle graph",
+)
 
 LITERATURE_ARTIFACT_PATTERNS: tuple[str, ...] = (
     "research/LITERATURE_REVIEW.md",
@@ -1130,6 +1179,9 @@ def validate_full_scale_experiment_evidence(project_root: Path) -> list[Contract
                     ),
                 )
             )
+
+    if full_counts_by_method:
+        issues.extend(_real_benchmark_provenance_issues(root))
 
     if (root / PAPER_MAIN_PDF_PATH).is_file() and issues:
         issues.append(
@@ -2697,7 +2749,11 @@ def validate_emnlp_paper_contract(project_root: Path) -> list[ContractIssue]:
             ContractIssue(
                 "overlength_emnlp_paper",
                 str(PAPER_DRAFT_REPORT_JSON_PATH),
-                f"main content exceeds the {MAX_MAIN_CONTENT_PAGES}-page EMNLP long-paper limit",
+                (
+                    f"main/body content exceeds the {MAX_MAIN_CONTENT_PAGES}-page "
+                    "EMNLP long-paper limit; references and appendix are excluded "
+                    "from this limit and have no total-page maximum"
+                ),
             )
         )
     if pages is not None:
@@ -3275,7 +3331,7 @@ def _iter_latex_citation_command_keys(tex_text: str) -> list[list[str]]:
 def _rendered_reference_page_count(pages: list[str]) -> int | None:
     reference_index: int | None = None
     for index, page_text in enumerate(pages):
-        if re.search(r"(?m)^\s*(?:References|Bibliography)\s*$", page_text):
+        if re.search(RENDERED_REFERENCES_HEADING_PATTERN, page_text):
             reference_index = index
             break
     if reference_index is None:
@@ -3284,10 +3340,7 @@ def _rendered_reference_page_count(pages: list[str]) -> int | None:
     nonempty_page_count = len([page for page in pages if page.strip()])
     appendix_index = nonempty_page_count
     for index in range(reference_index + 1, nonempty_page_count):
-        if re.search(
-            r"(?m)^\s*(?:Appendix|[A-Z]\.?\s+Reproducibility|Supplementary Material)\b",
-            pages[index],
-        ):
+        if re.search(RENDERED_APPENDIX_HEADING_PATTERN, pages[index]):
             appendix_index = index
             break
     return max(0, appendix_index - reference_index)
@@ -3721,7 +3774,7 @@ def _validate_research_md_pdf_text(pages: list[str]) -> list[ContractIssue]:
             )
         )
 
-    references_page = _first_pdf_page_matching(pages, r"(?m)^\s*(?:References|Bibliography)\s*$")
+    references_page = _first_pdf_page_matching(pages, RENDERED_REFERENCES_HEADING_PATTERN)
     if references_page is not None and references_page < MIN_RENDERED_REFERENCES_PAGE_FOR_FULL_BODY:
         issues.append(
             ContractIssue(
@@ -3732,6 +3785,21 @@ def _validate_research_md_pdf_text(pages: list[str]) -> list[ContractIssue]:
                     "papers must fill the eight-page body budget before bibliography pages "
                     f"start, so references should begin no earlier than page "
                     f"{MIN_RENDERED_REFERENCES_PAGE_FOR_FULL_BODY}"
+                ),
+            )
+        )
+
+    appendix_page = _first_pdf_page_matching(pages, RENDERED_APPENDIX_HEADING_PATTERN)
+    if appendix_page is not None and appendix_page < MIN_RENDERED_APPENDIX_PAGE:
+        issues.append(
+            ContractIssue(
+                "appendix_before_page_9",
+                str(PAPER_MAIN_PDF_PATH),
+                (
+                    "Appendix material begins before page 9; final EMNLP long papers "
+                    "must keep main/body content within pages 1-8, with references "
+                    "and appendix material starting on page 9 or later. References "
+                    "and appendix pages have no total-page maximum."
                 ),
             )
         )
@@ -8161,6 +8229,170 @@ def _float_or_none(value: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _real_benchmark_provenance_issues(root: Path) -> list[ContractIssue]:
+    json_path = root / BENCHMARK_PROVENANCE_JSON_PATH
+    if json_path.is_file():
+        payload = _try_read_json_object(json_path)
+        if payload is None:
+            return [
+                ContractIssue(
+                    "invalid_benchmark_provenance_json",
+                    str(BENCHMARK_PROVENANCE_JSON_PATH),
+                    "benchmark provenance JSON is malformed",
+                )
+            ]
+        return _real_benchmark_json_issues(payload)
+
+    md_path = root / BENCHMARK_PROVENANCE_MD_PATH
+    if md_path.is_file():
+        text = md_path.read_text(encoding="utf-8", errors="replace")
+        return _real_benchmark_markdown_issues(text)
+
+    return [
+        ContractIssue(
+            "missing_real_benchmark_provenance",
+            str(BENCHMARK_PROVENANCE_MD_PATH),
+            "full-scale evidence requires benchmark provenance for existing real benchmark sources",
+        )
+    ]
+
+
+def _real_benchmark_json_issues(payload: Mapping[str, object]) -> list[ContractIssue]:
+    issues: list[ContractIssue] = []
+    uses_real = payload.get("uses_existing_real_benchmark", payload.get("uses_public_benchmark"))
+    benchmark_type = _lower_text(payload.get("benchmark_type"))
+    serialized = json.dumps(payload, ensure_ascii=False).lower()
+    if uses_real is not True or benchmark_type in {"synthetic", "local", "pilot"}:
+        issues.append(
+            ContractIssue(
+                "synthetic_only_benchmark",
+                str(BENCHMARK_PROVENANCE_JSON_PATH),
+                "full-scale evidence must come from existing real benchmarks or official task/data releases",
+            )
+        )
+    if any(marker in serialized for marker in SYNTHETIC_BENCHMARK_MARKERS):
+        issues.append(
+            ContractIssue(
+                "synthetic_selected_benchmark_source",
+                str(BENCHMARK_PROVENANCE_JSON_PATH),
+                "selected benchmark components cannot be synthetic/local/proxy sources",
+            )
+        )
+
+    sources = _real_benchmark_sources_from_payload(payload)
+    unique_sources = {
+        _normalize_source_identity_for_contract(source)
+        for source in sources
+        if _normalize_source_identity_for_contract(source)
+    }
+    if len(unique_sources) < 2:
+        issues.append(
+            ContractIssue(
+                "insufficient_selected_benchmark_sources",
+                str(BENCHMARK_PROVENANCE_JSON_PATH),
+                "full-scale evidence requires at least 2 selected existing real benchmark sources, with 3+ preferred",
+            )
+        )
+    elif not all(_real_benchmark_source_has_pointer(source) for source in sources):
+        issues.append(
+            ContractIssue(
+                "incomplete_selected_benchmark_sources",
+                str(BENCHMARK_PROVENANCE_JSON_PATH),
+                "each selected benchmark source needs URL/repo, paper/citation/DOI, version/date, split/filtering, license/access, and task count",
+            )
+        )
+    return issues
+
+
+def _real_benchmark_markdown_issues(text: str) -> list[ContractIssue]:
+    lower = text.lower()
+    issues: list[ContractIssue] = []
+    if any(marker in lower for marker in SYNTHETIC_BENCHMARK_MARKERS):
+        issues.append(
+            ContractIssue(
+                "synthetic_only_benchmark",
+                str(BENCHMARK_PROVENANCE_MD_PATH),
+                "full-scale evidence must not use synthetic/local/proxy benchmark sources",
+            )
+        )
+    source_count = max(
+        _markdown_real_benchmark_table_count(text),
+        sum(1 for marker in REAL_BENCHMARK_POINTER_MARKERS if marker in lower),
+    )
+    if source_count < 2:
+        issues.append(
+            ContractIssue(
+                "insufficient_selected_benchmark_sources",
+                str(BENCHMARK_PROVENANCE_MD_PATH),
+                "benchmark provenance must list at least 2 selected existing real benchmark sources with source pointers",
+            )
+        )
+    return issues
+
+
+def _real_benchmark_sources_from_payload(payload: Mapping[str, object]) -> list[Mapping[str, object]]:
+    sources: list[Mapping[str, object]] = []
+    for field in REAL_BENCHMARK_SOURCE_FIELDS:
+        sources.extend(_real_benchmark_source_entries(payload.get(field)))
+    return sources
+
+
+def _real_benchmark_source_entries(value: object) -> list[Mapping[str, object]]:
+    if isinstance(value, Mapping):
+        if _real_benchmark_source_has_pointer(value) or any(
+            str(key).lower() in {"name", "benchmark", "dataset", "suite", "source"}
+            for key in value
+        ):
+            return [value]
+        sources: list[Mapping[str, object]] = []
+        for name, nested in value.items():
+            if isinstance(nested, Mapping):
+                sources.append({"name": str(name), **dict(nested)})
+            elif isinstance(nested, str):
+                sources.append({"name": str(name), "source": nested})
+        return sources
+    if isinstance(value, list):
+        sources: list[Mapping[str, object]] = []
+        for item in value:
+            sources.extend(_real_benchmark_source_entries(item))
+        return sources
+    if isinstance(value, str) and value.strip():
+        return [{"name": value.strip()}]
+    return []
+
+
+def _real_benchmark_source_has_pointer(source: Mapping[str, object]) -> bool:
+    for field in REAL_BENCHMARK_POINTER_FIELDS:
+        value = source.get(field)
+        if isinstance(value, str) and value.strip():
+            return True
+    text = json.dumps(source, ensure_ascii=False).lower()
+    return any(marker in text for marker in REAL_BENCHMARK_POINTER_MARKERS)
+
+
+def _normalize_source_identity_for_contract(source: Mapping[str, object]) -> str | None:
+    for field in ("name", "benchmark", "dataset", "suite", "source", *REAL_BENCHMARK_POINTER_FIELDS):
+        value = source.get(field)
+        if isinstance(value, str) and value.strip():
+            return re.sub(r"\s+", " ", value.strip().lower())
+    return None
+
+
+def _markdown_real_benchmark_table_count(text: str) -> int:
+    count = 0
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|") or stripped.count("|") < 3:
+            continue
+        lower = stripped.lower()
+        if "http" not in lower and "doi:" not in lower and "arxiv" not in lower:
+            continue
+        if any(marker in lower for marker in ("---", "name", "benchmark |", "source |")):
+            continue
+        count += 1
+    return count
 
 
 def _collect_experiment_run_evidence(root: Path) -> list[_ExperimentRunEvidence]:

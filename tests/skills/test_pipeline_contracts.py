@@ -2579,6 +2579,8 @@ def _write_json(path: Path, payload: object) -> None:
 
 
 def _write_valid_quality_calibration(root: Path) -> None:
+    _write_valid_benchmark_provenance(root)
+    _write_valid_model_scale_plan(root)
     _write(root / "paper" / "artifacts" / "significance.tsv", "test\tp\nmcnemar\t0.01\n")
     _write(
         root / "paper" / "artifacts" / "results_summary.tsv",
@@ -2664,7 +2666,8 @@ def _write_valid_plan_stage(root: Path) -> None:
     _write(root / "research" / "CLAIMS_TO_TEST.md", "claims\n")
     _write(root / "research" / "BASELINE_AND_BENCHMARK_PLAN.md", "baselines\n")
     _write_valid_code_reuse_plan(root)
-    _write(root / "experiments" / "BENCHMARK_PROVENANCE.md", "benchmark\n")
+    _write_valid_benchmark_provenance(root)
+    _write_valid_model_scale_plan(root)
     _write_json(
         root / "research" / "PIPELINE_STATE.json",
         {
@@ -2765,6 +2768,7 @@ def _write_full_scale_experiment_run(
     task_count: int,
     declared_task_count: int | None = None,
 ) -> None:
+    _write_valid_benchmark_provenance(root)
     run_dir = root / "experiments" / "run_001"
     declared_count = declared_task_count if declared_task_count is not None else task_count
     _write_json(
@@ -2795,6 +2799,43 @@ def _write_full_scale_experiment_run(
             )
     _write(run_dir / "results.jsonl", "\n".join(rows) + "\n")
     _write(run_dir / "progress.jsonl", "{}\n")
+
+
+def _write_valid_benchmark_provenance(root: Path) -> None:
+    _write(
+        root / "experiments" / "BENCHMARK_PROVENANCE.md",
+        "\n".join(
+            [
+                "# Benchmark Provenance",
+                "",
+                "Selected benchmark sources:",
+                "| Name | URL/repo | Paper/citation | Version/date | Task count | Split/filtering | License/access | Capability | Rationale | Alternatives |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                "| GAIA | https://huggingface.co/datasets/gaia-benchmark/GAIA | GAIA: A Benchmark for General AI Assistants | 2024 | 140 | held-out sampled split | public benchmark release | assistant reasoning | main reasoning benchmark | AgentBench |",
+                "| Mind2Web | https://github.com/OSU-NLP-Group/Mind2Web | Mind2Web: Towards a Generalist Agent for the Web | 2023 | 100 | official train/test adaptation | public dataset release | web action selection | web grounding benchmark | WebArena |",
+            ]
+        )
+        + "\n",
+    )
+
+
+def _write_valid_model_scale_plan(root: Path) -> None:
+    _write(
+        root / "experiments" / "MODEL_SCALE_PLAN.md",
+        "\n".join(
+            [
+                "# Model Scale Plan",
+                "",
+                "- Model backbone: 7B instruction model with LoRA adaptation.",
+                "- Parameter count: 7B total; trainable parameters: 32M adapter parameters.",
+                "- Training data: official benchmark train split plus licensed auxiliary data.",
+                "- GPU memory plan: QLoRA on available B200 GPU with gradient checkpointing.",
+                "- Expected GPU-hours: 8.",
+                "- Checkpoint: experiments/run_001/checkpoint/adapter.pt.",
+            ]
+        )
+        + "\n",
+    )
 
 
 def _write_valid_literature_grounding(
