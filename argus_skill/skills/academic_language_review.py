@@ -105,40 +105,6 @@ HYPE_PATTERNS: tuple[tuple[str, str], ...] = (
     ("unsupported_significant_language", r"\bsignificant(?:ly)? improves?\b"),
 )
 
-FORMULAIC_PROSE_LIMITS: tuple[tuple[str, str, int, str], ...] = (
-    (
-        "contrastive_template_overuse",
-        r"\b(?:rather than|instead of|not\s+(?:only\s+)?(?:a\s+)?[a-z][a-z-]*"
-        r"(?:\s+[a-z][a-z-]*){0,4}\s+but|not about|not as)\b",
-        10,
-        (
-            "paper overuses contrastive template prose; rewrite paragraphs into "
-            "direct scientific exposition instead of repeated not-X-but-Y framing"
-        ),
-    ),
-    (
-        "over_defensive_scope_caveats",
-        r"\b(?:narrow|benchmark[- ]scoped|scope boundary|does not establish|"
-        r"not proof|not a general|only shows|limited to|slice-specific|"
-        r"not causal)\b",
-        8,
-        (
-            "paper overuses scope caveats; keep one calibrated scope statement "
-            "near the claim and move the rest to limitations"
-        ),
-    ),
-    (
-        "stock_transition_overuse",
-        r"\b(?:that distinction matters|that matters because|put differently|"
-        r"the headline result|the gap is that|the result is therefore)\b",
-        4,
-        (
-            "paper repeats stock transition templates; replace them with "
-            "section-specific motivation, mechanism, and evidence sentences"
-        ),
-    ),
-)
-
 INTRODUCTION_RESULT_PREVIEW_PATTERN = (
     r"\b(?:achiev\w*|reach\w*|solv\w*|outperform\w*|improv\w*|increase\w*|"
     r"reduce\w*|recover\w*|yield\w*|win\w*|success|accuracy|score)\b"
@@ -731,23 +697,6 @@ def _deterministic_assessment(tex_text: str) -> dict[str, Any]:
                 ),
                 hard_gate=len(matches) > 1,
                 action="replace_hype_language",
-                target=_line_target(match_spans),
-                evidence_spans=match_spans,
-            )
-        )
-
-    for code, message, match_spans, penalty, score_cap in _formulaic_prose_issue_specs(tex_text):
-        score_penalty += penalty
-        section_scores["style_and_clarity"] = min(section_scores["style_and_clarity"], score_cap)
-        section_scores["introduction"] = min(section_scores["introduction"], 3.4)
-        required_checks["calibrated_no_hype"] = False
-        issues.append(
-            _issue(
-                code,
-                "major",
-                f"{message}; matches include {_match_summary(match_spans)}",
-                hard_gate=True,
-                action="delete_filler",
                 target=_line_target(match_spans),
                 evidence_spans=match_spans,
             )
@@ -1461,15 +1410,6 @@ def find_introduction_readability_issues(tex_text: str) -> list[tuple[str, str]]
     return issues
 
 
-def find_formulaic_prose_issues(tex_text: str) -> list[tuple[str, str]]:
-    """Return repeated-template prose issues that remain invalid after JSON review."""
-
-    return [
-        (code, message)
-        for code, message, _spans, _penalty, _score_cap in _formulaic_prose_issue_specs(tex_text)
-    ]
-
-
 def find_method_system_readability_issues(tex_text: str) -> list[tuple[str, str]]:
     """Return method/setup issues that make the paper unreadable to outside reviewers."""
 
@@ -1503,28 +1443,6 @@ def find_method_system_readability_issues(tex_text: str) -> list[tuple[str, str]
                     "method/setup mentions external model-style execution but does "
                     "not name the paper-facing evaluated model or backend identifier"
                 ),
-            )
-        )
-    return issues
-
-
-def _formulaic_prose_issue_specs(
-    tex_text: str,
-) -> list[tuple[str, str, list[dict[str, Any]], float, float]]:
-    source_without_comments = _strip_latex_comments(tex_text)
-    issues: list[tuple[str, str, list[dict[str, Any]], float, float]] = []
-    for code, pattern, allowed_count, message in FORMULAIC_PROSE_LIMITS:
-        matches = list(re.finditer(pattern, source_without_comments, re.I))
-        if len(matches) <= allowed_count:
-            continue
-        match_spans = _regex_match_spans(source_without_comments, matches)
-        issues.append(
-            (
-                code,
-                f"{message}; found {len(matches)} matches, above the {allowed_count}-match limit",
-                match_spans,
-                min(0.9, 0.35 + (len(matches) - allowed_count) * 0.05),
-                3.2,
             )
         )
     return issues

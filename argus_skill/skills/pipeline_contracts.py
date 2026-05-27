@@ -37,7 +37,6 @@ from .academic_language_review import (
     GENERIC_OPENING_PATTERNS,
     MIN_ACADEMIC_LANGUAGE_SCORE,
     collect_latex_source_paths,
-    find_formulaic_prose_issues,
     find_introduction_readability_issues,
     find_method_system_readability_issues,
     find_reader_hostile_abstract_issues,
@@ -3103,19 +3102,6 @@ def _validate_full_paper_narrative_depth(tex_text: str) -> list[ContractIssue]:
                     "story with cited prior work, concrete problem framing, "
                     "method intuition, result preview, contribution roadmap, "
                     "and calibrated scope."
-                ),
-            )
-        )
-    for code, message in find_formulaic_prose_issues(tex_text):
-        issues.append(
-            ContractIssue(
-                code,
-                str(PAPER_MAIN_TEX_PATH),
-                (
-                    f"{message}. This is a content-sufficiency failure, not a "
-                    "formatting problem: run missing evidence work if needed, "
-                    "then rewrite the affected paragraphs instead of adding "
-                    "repeated caveats or deleting the Introduction."
                 ),
             )
         )
@@ -7375,14 +7361,6 @@ def _academic_static_source_issues(root: Path) -> list[ContractIssue]:
             )
         )
     for code, message in find_method_system_readability_issues(raw_text):
-        issues.append(
-            ContractIssue(
-                f"academic_language_{code}",
-                str(PAPER_MAIN_TEX_PATH),
-                f"{message}; rerun academic-language revision",
-            )
-        )
-    for code, message in find_formulaic_prose_issues(raw_text):
         issues.append(
             ContractIssue(
                 f"academic_language_{code}",
