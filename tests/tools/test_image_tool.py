@@ -106,6 +106,31 @@ def test_generate_image_keeps_explicit_non_square_size(
     assert meta["requested_size"] == "1536x1024"
 
 
+def test_generate_image_normalizes_non_multiple_of_16_size(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payloads: list[dict[str, Any]] = []
+
+    def fake_urlopen(req: Any, timeout: float) -> FakeResponse:
+        payloads.append(json.loads(req.data.decode("utf-8")))
+        return FakeResponse({"data": [{"b64_json": base64.b64encode(_PNG_BYTES).decode("ascii")}]})
+
+    monkeypatch.setattr(image_tool, "_urlopen", fake_urlopen)
+
+    meta = image_tool.generate_image(
+        prompt="wide academic hierarchy diagram",
+        out=tmp_path / "wide.png",
+        size="1920x1080",
+        env=_env_with_vault(tmp_path),
+    )
+
+    assert payloads[0]["size"] == "1920x1088"
+    assert meta["requested_size"] == "1920x1088"
+    assert meta["original_requested_size"] == "1920x1080"
+    assert meta["size_normalized_to_multiple_of_16"] is True
+
+
 def test_inspect_image_reports_jpeg_dimensions(tmp_path: Path) -> None:
     jpeg = (
         b"\xff\xd8"

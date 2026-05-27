@@ -402,7 +402,7 @@ The 6-section prompt that produces consistent, paper-grade diagrams:
     gradients, decorative blobs, stock icons."
 
 6. ASPECT RATIO
-   "1536x1024 landscape" or "1024x1536 portrait"
+   "1536x1024 landscape", "1920x1088 landscape", or "1024x1536 portrait"
 ```
 
 **Generate 6--20 layout variants per non-data figure** at quality="high" by

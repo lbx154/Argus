@@ -27,7 +27,7 @@ PROMPT_SCAFFOLD = """Use case: scientific-educational
 Asset type: Figure 1 teaser / conceptual overview for an EMNLP/ACL/NeurIPS-style academic manuscript.
 
 General style:
-- EMNLP/ACL/NeurIPS/CS paper method figure, full-width two-column landscape, 1536x1024 or 1920x1080.
+- EMNLP/ACL/NeurIPS/CS paper method figure, full-width two-column landscape, 1536x1024 or 1920x1088.
 - Clean Figma-style block diagram / block-based Figma style with rounded cards, neat alignment, soft pastel fills, dark-gray 2px borders, and compact information density.
 - Compact, information-rich, suitable for a PDF page-width figure; little wasted space but not crowded.
 - Tidy rounded handwritten or friendly sans-serif feel is acceptable only if it remains crisp and readable; no messy sketch fonts.
@@ -77,7 +77,7 @@ Negative prompt / Avoid:
 - no large empty areas, overlapping cards, squashed labels, inconsistent terminology, or extra captions that make it look like a dashboard
 
 Figma tokens for camera-ready cleanup:
-- Canvas 1536x1024 or 1920x1080; background #fbfaf7; stroke #1f2933 at 2px.
+- Canvas 1536x1024 or 1920x1088; background #fbfaf7; stroke #1f2933 at 2px.
 - Corner radius 10-16px; card padding 12-20px; card gap 12-24px.
 - Pastels: acquisition #ffe2d1, parsing #fff2bd, memory/wiki #dcecff, agent #e2f7df, domains #eadfff, benchmark #fff1c9.
 - Text sizes: title 38-52px, section headers 22-30px, card labels 16-22px, chips 12-16px.

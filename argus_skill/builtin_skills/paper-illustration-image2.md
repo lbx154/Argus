@@ -215,5 +215,5 @@ Maintain `paper/figures/IMAGE2_FIGURES.json`:
 - Each gpt-image-2 call takes 200-300s — be patient, set timeout=600
 - Concurrency 4-8 with ThreadPoolExecutor is safe for batch generation
 - Expect occasional 429s — back off honoring Retry-After headers
-- Never use 1024x1024 for paper figures — always landscape (1536x1024) or portrait (1024x1536)
-- Text in images can be imperfect — for critical labels, consider matplotlib overlay post-processing
+- Never use 1024x1024 for paper figures; use image-route-safe dimensions divisible by 16, for example landscape 1536x1024 or 1920x1088, or portrait 1024x1536.
+- Text in images can be imperfect; for critical labels, regenerate with a tighter prompt instead of locally overlaying labels on a non-data figure.

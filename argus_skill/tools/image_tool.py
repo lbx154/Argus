@@ -22,6 +22,7 @@ _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _JPEG_MAGIC = b"\xff\xd8\xff"
 _DEFAULT_TIMEOUT_SECONDS = 500.0
 _AUTO_SIZE_VALUES = {"", "auto", "adaptive"}
+_SIZE_RE = re.compile(r"^(?P<width>[1-9]\d*)x(?P<height>[1-9]\d*)$")
 
 
 class ImageToolError(RuntimeError):
@@ -222,6 +223,28 @@ def _sidecar_path(out: Path) -> Path:
     return out.with_suffix(suffix + ".json")
 
 
+def _round_up_to_multiple(value: int, multiple: int) -> int:
+    return ((value + multiple - 1) // multiple) * multiple
+
+
+def _normalize_requested_size(size: str) -> tuple[str, str | None]:
+    requested = (size or "auto").strip().lower()
+    if requested in _AUTO_SIZE_VALUES:
+        return requested or "auto", None
+    match = _SIZE_RE.fullmatch(requested)
+    if not match:
+        raise ImageToolError(
+            f"invalid image size {size!r}; use 'auto' or WIDTHxHEIGHT, "
+            "for example 1536x1024 or 1920x1088"
+        )
+    width = int(match.group("width"))
+    height = int(match.group("height"))
+    normalized_width = _round_up_to_multiple(width, 16)
+    normalized_height = _round_up_to_multiple(height, 16)
+    normalized = f"{normalized_width}x{normalized_height}"
+    return normalized, requested if normalized != requested else None
+
+
 def _require_route(route_name: str, env: Mapping[str, str] | None = None) -> ModelApiRoute:
     route = load_model_api_route(route_name, env)
     if route is None or not route.usable:
@@ -242,7 +265,7 @@ def generate_image(
     timeout: float = _DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     grant = _require_route("image", env)
-    requested_size = (size or "auto").strip().lower()
+    requested_size, original_requested_size = _normalize_requested_size(size)
     payload = {
         "model": grant.model,
         "prompt": prompt,
@@ -250,7 +273,7 @@ def generate_image(
         "response_format": "b64_json",
     }
     if requested_size not in _AUTO_SIZE_VALUES:
-        payload["size"] = size
+        payload["size"] = requested_size
     started = time.time()
     try:
         response = _json_request(grant, "/images/generations", payload, timeout=timeout)
@@ -284,6 +307,9 @@ def generate_image(
             "key_source": grant.key_source,
         },
     }
+    if original_requested_size is not None:
+        meta["original_requested_size"] = original_requested_size
+        meta["size_normalized_to_multiple_of_16"] = True
     _atomic_write_json(_sidecar_path(out), meta)
     return meta
 

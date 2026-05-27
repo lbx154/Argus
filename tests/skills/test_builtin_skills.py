@@ -739,7 +739,7 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "paired-significance table",
             "tabcolsep=3-4pt",
             "arraystretch=1.15",
-            "1536x1024 or 1920x1080",
+            "1536x1024 or 1920x1088",
             "1024x1024",
         ),
         "auto-research-pipeline.md": (
@@ -751,7 +751,7 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "paired-significance table",
             "<=5 body figures",
             "tabcolsep=3-4pt",
-            "1536x1024 or 1920x1080",
+            "1536x1024 or 1920x1088",
         ),
         "research-results-analysis-and-figures.md": (
             "Overfull \\hbox > 5pt",
@@ -759,7 +759,7 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "body figures <=5",
             "tabcolsep=3-4pt",
             "arraystretch=1.15",
-            "1536x1024 or 1920x1080",
+            "1536x1024 or 1920x1088",
             "derive data figures and tables from local raw data",
             "does not make it acceptable final EMNLP evidence",
         ),
@@ -769,7 +769,7 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "middle-body visual rhythm",
             "paired-significance table",
             "tabcolsep=3-4pt",
-            "1536x1024 or 1920x1080",
+            "1536x1024 or 1920x1088",
             "Prompt, provenance, generation-setting",
             "do not regenerate an already accepted image merely to refresh metadata",
             "same `pytest` test, validator issue, or review-span lookup fails twice",
@@ -790,7 +790,7 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "paired-significance table",
             "tabcolsep=3-4pt",
             "arraystretch=1.15",
-            "1536x1024 or 1920x1080",
+            "1536x1024 or 1920x1088",
         ),
         "emnlp-format-preflight.md": (
             "Anonymous EMNLP Submission",
@@ -800,7 +800,7 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "paired-significance table",
             "tabcolsep=3-4pt",
             "arraystretch=1.15",
-            "1536x1024 or 1920x1080",
+            "1536x1024 or 1920x1088",
             "FORMAT_PREFLIGHT.md",
         ),
         "academic-paper-peer-review-benchmark.md": (
