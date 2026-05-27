@@ -136,6 +136,14 @@ VALIDATOR_TOOLS: tuple[ValidatorTool, ...] = (
         cost="medium",
     ),
     ValidatorTool(
+        id="validate-paper-infrastructure-review",
+        description="fresh model review that paper prose has no local environment/device/config leaks",
+        phase="review",
+        roles=_ALL_ROLES,
+        when_to_use="after changing method, setup, captions, tables, appendix, or paper-facing configuration prose",
+        cost="medium",
+    ),
+    ValidatorTool(
         id="validate-manifest",
         description="artifact manifest paths, digests, and generated-artifact freshness",
         phase="integration",

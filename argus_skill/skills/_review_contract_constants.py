@@ -7,6 +7,8 @@ from pathlib import Path
 
 ACADEMIC_LANGUAGE_REVIEW_GENERATED_BY = "argus_skill.skills.academic_language_review"
 ACADEMIC_LANGUAGE_REVIEW_HISTORY_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW_history.jsonl")
+PAPER_INFRASTRUCTURE_REVIEW_GENERATED_BY = "argus_skill.skills.paper_infrastructure_review"
+PAPER_INFRASTRUCTURE_REVIEW_HISTORY_PATH = Path("paper/PAPER_INFRASTRUCTURE_REVIEW_history.jsonl")
 LAYOUT_REVIEW_GENERATED_BY = "argus_skill.skills.paper_layout_review"
 LAYOUT_REVIEW_HISTORY_PATH = Path("paper/LAYOUT_REVIEW_history.jsonl")
 

@@ -165,7 +165,7 @@ Write a paper draft from local evidence. This adapts ARIS paper-writing/paper-pl
 11. Set validation repair order before final review loops:
    - Write `paper/VALIDATION_PRIORITY_POLICY.json` with a stable priority order: freshness, experiment evidence, claim evidence, and content sufficiency first; exemplar/skeleton conformance next; figure/table and format/layout next; visual layout next; academic language after evidence/structure are stable; then minor manifest/readiness cleanup.
    - Route failures to the right repair mode: stale artifacts trigger regeneration; `missing_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` trigger more benchmark runs; weak claims trigger extra experiments or claim softening; underfilled pages trigger evidence-backed analysis/ablation/failure study when evidence is thin, or source-backed Introduction/Related Work/Method expansion when evidence exists but the paper body is underwritten; structure drift triggers skeleton reset; ugly floats trigger figure/table redesign; repeated non-improving layout/prose edits trigger a skeleton/float reset rather than endless paragraph churn.
-   - Prefer the official scaffold over hand-written JSON: run `python -m argus_skill.skills.pipeline_contracts write-validation-priority-policy --project-root .`, then edit only if a paper-specific route is truly needed. The policy must include all failure classes: `freshness`, `experiment_evidence`, `claim_graph`, `content_sufficiency`, `exemplar_suitability`, `exemplar_structure`, `figure_table_style`, `format_layout`, `layout_vision`, `academic_language`, and `artifact_manifest`.
+   - Prefer the official scaffold over hand-written JSON: run `python -m argus_skill.skills.pipeline_contracts write-validation-priority-policy --project-root .`, then edit only if a paper-specific route is truly needed. The policy must include all failure classes: `freshness`, `experiment_evidence`, `claim_graph`, `content_sufficiency`, `exemplar_suitability`, `exemplar_structure`, `figure_table_style`, `format_layout`, `layout_vision`, `academic_language`, `paper_infrastructure`, and `artifact_manifest`.
    - After regenerating manuscript, figures, review JSON, or submission artifacts, run `python -m argus_skill.skills.pipeline_contracts refresh-manifest --project-root .` and `python -m argus_skill.skills.pipeline_contracts refresh-artifact-freshness --project-root .`; do not manually bump digests without regenerating from current inputs.
 
 12. Run final academic-language review:
@@ -174,13 +174,19 @@ Write a paper draft from local evidence. This adapts ARIS paper-writing/paper-pl
    - Treat `score_1_to_5 < 4`, `needs_revision: true`, any blocking issue, heuristic-only review, stale source hash, missing evidence span, failed required check, or active revision directive as a failed draft.
    - Apply the directives to rewrite the abstract/introduction, tighten the contribution sentence, calibrate claims, reorganize related work, add evidence sentences, replace hype language, add limitation scope, or remove filler. Rerun the tool until it passes or a hard blocker remains.
 
-13. Run final layout-aesthetic review:
+13. Run final paper infrastructure review:
+   - After Method, Experimental Setup, captions, tables, and appendix prose are stable, run `python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write`.
+   - This must write `paper/PAPER_INFRASTRUCTURE_REVIEW.json`, `paper/PAPER_INFRASTRUCTURE_REVIEW.md`, and `paper/PAPER_INFRASTRUCTURE_REVIEW_history.jsonl`.
+   - Then run `python -m argus_skill.skills.pipeline_contracts validate-paper-infrastructure-review --project-root .`. Treat `score_1_to_5 < 4`, `needs_revision: true`, `leak_free: false`, any blocking/major issue, stale source hash, missing evidence span, non-model review, or active revision directive as a failed draft.
+   - If it fails, remove local hardware IDs, CUDA variables, cache paths, local filesystem paths, Argus/Codex daemon details, engineer/reviewer/critic routes, validation artifacts, and paper-generation configuration from rendered prose. Rewrite the setup as paper-facing system, benchmark, evaluated model/backend, metric, and budget facts; keep local configuration in manifests/logs rather than the manuscript.
+
+14. Run final layout-aesthetic review:
    - After the final compile, run `python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write`.
    - This must write `paper/LAYOUT_REVIEW.json`, `paper/LAYOUT_REVIEW.md`, rendered page snapshots under `paper/layout_review/pages/`, and a history entry in `paper/LAYOUT_REVIEW_history.jsonl`.
    - Treat `score_1_to_5 < 4`, `needs_revision: true`, any blocking issue, non-vision review, or stale PDF/page hash as a failed draft. Do not self-report the score; use the tool output.
    - If the review fails for ugly layout, modify layout and content before handoff: split or move dense tables, shorten low-value prose, remove filler, regenerate or resize figures, rebalance columns, and replace code-like labels. Recompile and rerun layout review until it passes or a hard blocker remains.
 
-14. Write `paper/PAPER_DRAFT_REPORT.md`:
+15. Write `paper/PAPER_DRAFT_REPORT.md`:
    - Current draft path and PDF path if compiled.
    - Template source and whether official ACL style is active.
    - Page budget: target pages, actual pages, and whether the draft is long-paper, short-paper, or pilot-note scale.
@@ -194,8 +200,8 @@ Write a paper draft from local evidence. This adapts ARIS paper-writing/paper-pl
    - If any display-context code label must remain, document it in `allowed_code_labels` with a human-readable rationale. This is an exception mechanism, not permission to leave snake_case labels throughout tables.
    - Write `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json` after the final LaTeX section order is stable. Map each final section to `maps_to_exemplar_phase`, `evidence_sources`, `exemplar_lesson`, and any `deviation_rationale`. Keep significance/evidence tables with Results/Analysis or in the Appendix; do not strand them after Ethics before References.
 
-15. Hand off to submission assurance:
-   - Run `python -m argus_skill.skills.pipeline_contracts validate-grounding --project-root .`, `validate-idea-provenance`, `validate-code-reuse`, `validate-exemplar`, `validate-full-scale-evidence`, `validate-image2-figures`, `validate-paper-format`, `validate-research-md-format`, `validate-claim-graph`, `validate-figure-table-style`, `validate-validation-priority`, `validate-artifact-freshness`, `validate-paper-quality-contracts`, `validate-academic-language-review`, `validate-layout-review`, and `validate-paper-contract`; fix failures before handoff. `validate-paper-contract`/`validate-full-emnlp` check the final `STRUCTURE_CONFORMANCE` artifacts, so passing `validate-exemplar` alone is not enough after drafting.
+16. Hand off to submission assurance:
+   - Run `python -m argus_skill.skills.pipeline_contracts validate-grounding --project-root .`, `validate-idea-provenance`, `validate-code-reuse`, `validate-exemplar`, `validate-full-scale-evidence`, `validate-image2-figures`, `validate-paper-format`, `validate-research-md-format`, `validate-claim-graph`, `validate-figure-table-style`, `validate-validation-priority`, `validate-artifact-freshness`, `validate-paper-quality-contracts`, `validate-academic-language-review`, `validate-paper-infrastructure-review`, `validate-layout-review`, and `validate-paper-contract`; fix failures before handoff. `validate-paper-contract`/`validate-full-emnlp` check the final `STRUCTURE_CONFORMANCE` artifacts, so passing `validate-exemplar` alone is not enough after drafting.
    - If the draft is being claimed as final EMNLP-ready rather than a blocked draft, run `python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`; do not treat `validate-pipeline` alone as final readiness.
    - Run `python -m argus_skill.skills.pipeline_contracts refresh-manifest --project-root .` and then `validate-manifest`; fix drift before handoff.
    - Update `research/PIPELINE_STATE.json` with the draft artifact paths and draft scope (`long-paper`, `short-paper`, or `pilot-note`).
