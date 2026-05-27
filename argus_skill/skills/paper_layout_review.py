@@ -920,6 +920,17 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "source-level action needed. Prefer fixes that rewrite/rebalance manuscript flow, merge or "
         "remove low-value floats, split unreadable tables, or regenerate poor figures; do not suggest "
         "cosmetic page-break shuffling when the real defect is weak prose/float integration. "
+        "Figure repair policy: distinguish data/metric/result plots from non-data figures. "
+        "Data/metric/result plots may be regenerated from canonical data with local scripts or "
+        "vector exports when larger typography is needed. Every other paper-facing figure, "
+        "including Figure 1, teaser, overview, method/framework/system/pipeline schematics, "
+        "architecture diagrams, qualitative/example visuals, and explanatory conceptual figures, "
+        "must remain an actual image-2/codex-image2 raster recorded in IMAGE2_FIGURES.json. For "
+        "non-data figure defects, recommend LaTeX placement/size changes or regeneration through "
+        "the image-2 prompt/select/review route; never suggest vector PDF/SVG/TikZ/matplotlib/PIL/"
+        "manual redraws, local vectorization, screenshots, cropping, downsampling, resaving, or "
+        "overwriting the accepted raster. Treat Figure 1/overview/teaser/method figures as "
+        "non-data unless the screenshot and caption clearly identify a metric/result plot. "
         "Never repair the eight-page body boundary by inserting `\\clearpage`, `\\newpage`, "
         "`\\pagebreak`, or `\\FloatBarrier` immediately before Conclusion; that can leave page 8 "
         "mostly blank and then push Conclusion to page 9 after minor float changes. Use section "
@@ -948,7 +959,7 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "no Overfull hbox above 5pt, <=5 body figures, at most one "
         "full-width figure*, meaningful figure/table anchors across the middle body when they improve readability, table "
         "captions with numerical headlines, readable research-style tables, adaptive/landscape "
-        "conceptual figures rather than 1024x1024 squares, and no weird fonts, tiny labels, heavy "
+        "image-2 raster conceptual figures rather than 1024x1024 squares, and no weird fonts, tiny labels, heavy "
         "gradients, photorealism, or code-like labels in paper-facing visuals.\n\n"
         "Return strict JSON only, no markdown. Use this schema: score_1_to_5 (number), "
         "criteria_scores object with typography/table_readability/float_balance/page_flow/"
@@ -1077,6 +1088,8 @@ def _guidance_from_vision_item(item: Mapping[str, Any]) -> dict[str, Any] | None
         parsed["visual_goal"] = visual_goal
     if verification:
         parsed["verification"] = verification
+    if parsed and _is_non_data_figure_layout_item(item):
+        parsed = _apply_non_data_figure_policy(parsed)
     return parsed or None
 
 
@@ -1105,6 +1118,21 @@ def _implementation_guidance(
         verification = [
             "Rebuild paper/main.pdf, rerun paper_layout_review in vision mode, and ensure validate-layout-review passes."
         ]
+    if _is_non_data_figure_layout_item(issue):
+        policy_guidance = _apply_non_data_figure_policy(
+            {
+                "root_cause": root_cause,
+                "source_targets": source_targets,
+                "specific_edits": specific_edits,
+                "visual_goal": visual_goal,
+                "verification": verification,
+            }
+        )
+        root_cause = str(policy_guidance["root_cause"])
+        source_targets = list(policy_guidance["source_targets"])
+        specific_edits = list(policy_guidance["specific_edits"])
+        visual_goal = str(policy_guidance["visual_goal"])
+        verification = list(policy_guidance["verification"])
     return {
         "root_cause": root_cause,
         "source_targets": source_targets,
@@ -1141,6 +1169,84 @@ def _default_specific_edit(action: str, target: str) -> str:
         "fix_reference_boundary": f"Separate References from body text at {target_text}; if the body is underfilled, add source-backed body content or a meaningful late visual anchor before using a clean reference break.",
     }
     return edits.get(action, f"Revise {target_text} so the rendered page has polished EMNLP/ACL layout.")
+
+
+def _is_non_data_figure_layout_item(item: Mapping[str, Any]) -> bool:
+    haystack_parts: list[str] = []
+    for key in ("issue", "description", "rationale", "message", "target", "visual_evidence", "action"):
+        value = item.get(key)
+        if isinstance(value, str):
+            haystack_parts.append(value)
+    raw_guidance = item.get("guidance")
+    if isinstance(raw_guidance, Mapping):
+        for key in ("root_cause", "visual_goal", "expected_visual_result"):
+            value = raw_guidance.get(key)
+            if isinstance(value, str):
+                haystack_parts.append(value)
+        for key in ("source_targets", "specific_edits", "concrete_edits", "repair_steps"):
+            values = raw_guidance.get(key)
+            if isinstance(values, Sequence) and not isinstance(values, (str, bytes)):
+                haystack_parts.extend(str(value) for value in values)
+    haystack = " ".join(haystack_parts).lower()
+    if "figure" not in haystack:
+        return False
+    if re.search(r"\bfigure\s*1\b|\bfig\.\s*1\b", haystack):
+        return True
+    non_data_terms = (
+        "non-data",
+        "conceptual",
+        "overview",
+        "teaser",
+        "method",
+        "framework",
+        "system",
+        "pipeline",
+        "schematic",
+        "architecture",
+        "qualitative",
+        "example visual",
+        "explanatory",
+    )
+    return any(term in haystack for term in non_data_terms)
+
+
+def _apply_non_data_figure_policy(guidance: Mapping[str, Any]) -> dict[str, Any]:
+    parsed = dict(guidance)
+    for key in ("root_cause", "visual_goal"):
+        value = parsed.get(key)
+        if isinstance(value, str):
+            parsed[key] = _sanitize_non_data_figure_text(value)
+    edits = _text_list(parsed.get("specific_edits"))
+    sanitized_edits = [_sanitize_non_data_figure_text(edit) for edit in edits]
+    policy_edit = (
+        "Non-data figure policy: for Figure 1/overview/method/system/pipeline/conceptual figures, "
+        "do not redraw, vectorize, crop, downsample, resave, or overwrite the accepted raster locally; "
+        "adjust LaTeX placement only, or regenerate/select/review a new image-2 raster and update "
+        "IMAGE2_FIGURES.json with matching sidecars and hashes."
+    )
+    if not any("Non-data figure policy:" in edit for edit in sanitized_edits):
+        sanitized_edits.append(policy_edit)
+    parsed["specific_edits"] = sanitized_edits
+    return parsed
+
+
+def _sanitize_non_data_figure_text(text: str) -> str:
+    replacements = {
+        "Regenerate Figure 1 as a vector PDF": "Regenerate Figure 1 through image-2 as an accepted raster",
+        "regenerate Figure 1 as a vector PDF": "regenerate Figure 1 through image-2 as an accepted raster",
+        "maintain vector rendering": "preserve the accepted image-2 raster rendering unless regenerating through image-2",
+        "Maintain vector rendering": "Preserve the accepted image-2 raster rendering unless regenerating through image-2",
+        "keep vector rendering": "keep the accepted image-2 raster rendering unless regenerating through image-2",
+        "Keep vector rendering": "Keep the accepted image-2 raster rendering unless regenerating through image-2",
+        "vector PDF": "image-2 raster",
+        "Vector PDF": "Image-2 raster",
+        "manual vector": "manual local redraw",
+        "Manual vector": "Manual local redraw",
+    }
+    sanitized = text
+    for old, new in replacements.items():
+        sanitized = sanitized.replace(old, new)
+    return sanitized
 
 
 def _first_text(*values: object) -> str | None:

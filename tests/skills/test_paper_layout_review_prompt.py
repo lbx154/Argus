@@ -41,6 +41,10 @@ def test_vision_prompt_frames_emnlp_2026_visual_submission_review() -> None:
     assert "Official ACL/EMNLP anonymous review-mode line numbers" in prompt
     assert "must not be treated as debug gutters" in prompt
     assert "Shortening an underfilled body makes the early-References defect worse" in prompt
+    assert "Data/metric/result plots may be regenerated from canonical data" in prompt
+    assert "Every other paper-facing figure" in prompt
+    assert "must remain an actual image-2/codex-image2 raster" in prompt
+    assert "never suggest vector PDF/SVG/TikZ/matplotlib/PIL" in prompt
     assert "Allowed action values:" in prompt
     assert "dense_table_float_page" in prompt
 
@@ -123,6 +127,42 @@ def test_vision_guidance_is_preserved_in_revision_directives() -> None:
             },
         }
     ]
+
+
+def test_vision_guidance_routes_conceptual_figure_repairs_to_image2() -> None:
+    issues = _vision_issues(
+        {
+            "major_issues": [
+                {
+                    "issue": "Figure 1 conceptual overview is oversized.",
+                    "page": 6,
+                    "target": "Figure 1 upper half",
+                    "action": "resize_figure",
+                    "guidance": {
+                        "root_cause": "The conceptual overview consumes too much space.",
+                        "source_targets": ["figure source for Figure 1", "paper/main.tex"],
+                        "specific_edits": [
+                            "Keep labels in sentence case and maintain vector rendering.",
+                        ],
+                        "visual_goal": "Figure 1 should be smaller but keep vector rendering.",
+                        "verification": ["Rerun layout review."],
+                    },
+                }
+            ]
+        }
+    )
+
+    guidance = issues[0]["guidance"]
+    joined_edits = " ".join(guidance["specific_edits"])
+    assert "maintain vector rendering" not in joined_edits
+    assert "accepted image-2 raster rendering" in joined_edits
+    assert "Non-data figure policy:" in joined_edits
+    assert "image-2 raster" in guidance["visual_goal"]
+
+    directive = _revision_directives(issues)[0]
+    directive_edits = " ".join(directive["implementation_guidance"]["specific_edits"])
+    assert "Non-data figure policy:" in directive_edits
+    assert "accepted image-2 raster rendering" in directive_edits
 
 
 def test_deterministic_review_flags_references_sharing_body_page_with_boundary_action() -> None:
