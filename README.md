@@ -486,6 +486,168 @@ keeping your current session alive, run `argus-skill --daemon-runbook`
 from a separate shell first. It prints the safe sequence: checkpoint,
 stop from the outside, update, relaunch, verify.
 
+## Research paper generation (auto-paper pipeline)
+
+argus-skill ships **34 built-in research skills** that cover the full
+lifecycle of an academic paper — from ideation to camera-ready PDF.
+All skills are self-contained in the repo; no external dependencies.
+
+### Quick start: generate a paper
+
+```bash
+git clone https://github.com/lbx154/argus-skill.git
+cd argus-skill
+python -m venv .venv && . .venv/bin/activate
+pip install -e ".[codex]"
+
+# Create a new research project (interactive wizard)
+python -m argus_skill.tools.new_auto_research_project \
+  --parent ~/research \
+  --title "My EMNLP Paper" \
+  --no-start
+
+# Or start immediately with the daemon
+python -m argus_skill.tools.new_auto_research_project \
+  --parent ~/research \
+  --title "My EMNLP Paper" \
+  --start-daemon
+```
+
+The project launcher creates a full scaffold: `AGENTS.md`, `research/`,
+`code/`, `experiments/`, exported builtin skills, and a pipeline state
+machine starting at the `literature` stage.
+
+### Supported domains
+
+| Domain | Training? | Example Topics |
+|--------|-----------|----------------|
+| Agent / LLM | Free or trained | Multi-agent, tool-use, RAG, planning, reward models |
+| Computer Vision | Free or trained | Detection, segmentation, ViT, 3D vision |
+| Multimodal / VLM | Free or trained | LLaVA-style, VQA, video-language |
+| AI Infrastructure | Free or trained | Serving, kernels, distributed training, MLSys |
+| NLP | Free or trained | Pretraining, fine-tuning, summarization, parsing |
+| RL / Alignment | Free or trained | RLHF, DPO, reward modeling, constitutional AI |
+
+**Domain and methodology are orthogonal** — any domain can use
+training-free (prompting/API) or training-based (gradient) approaches.
+The `research-domain-router` skill auto-selects the right pipeline.
+
+### Target venues
+
+EMNLP, ACL, NeurIPS, ICML, ICLR, CVPR, ICCV, ECCV, MLSys, OSDI, ATC —
+venue-specific formatting rules are built into the skills.
+
+### The 12-stage pipeline
+
+```
+ideation → literature → hypothesis → experiment-plan → implementation
+    → benchmark → results → analysis → drafting → review-loop
+    → revision → submission-preflight
+```
+
+Each stage is governed by a builtin skill. The planner (L4) advances
+the pipeline automatically; you can also run stages manually.
+
+### Built-in skill inventory (34 skills)
+
+**Orchestration & routing:**
+- `auto-research-pipeline` — end-to-end orchestration
+- `research-domain-router` — auto-detect domain × methodology
+- `emnlp-paper-skill-router` — stage-aware skill dispatch
+
+**Ideation & literature:**
+- `research-ideation` — 10-framework structured brainstorming
+- `novelty-check` — verify idea against recent literature
+- `semantic-scholar-search` — published venue paper search
+- `paper-exemplar-pdf-learning` — learn from positive/negative examples
+
+**Experiment design & execution:**
+- `research-brief-to-experiment-plan` — idea → runnable plan
+- `agent-research-benchmark-runner` — training-free evaluation
+- `training-experiment-runner` — GPU training (DeepSpeed/FSDP/LoRA/RLHF)
+- `cv-research-pipeline` — CV-specific (ImageNet/COCO/ADE20K)
+- `multimodal-research-pipeline` — VLM-specific (LLaVA/VQA/MMMU)
+- `ai-infra-research-pipeline` — systems benchmarking (throughput/latency)
+- `ablation-planner` — systematic ablation study design
+- `experiment-audit` — integrity check (fake GT, normalization fraud)
+
+**Results & claims:**
+- `result-to-claim` — experiment results → supported claims
+- `claims-evidence-audit` — evidence sufficiency check
+- `research-results-analysis-and-figures` — stats + visualization
+
+**Writing & figures:**
+- `emnlp-paper-drafting` — section-by-section LaTeX drafting
+- `emnlp-paper-writing-playbook` — 800-line operational playbook
+- `paper-illustration-image2` — gpt-image-2 multi-stage figures
+- `emnlp-academic-language-review` — language quality gate
+
+**Review & submission:**
+- `paper-review-revision-loop` — iterative review/fix cycle
+- `academic-paper-peer-review-benchmark` — calibrated review
+- `emnlp-format-preflight` — LaTeX/format compliance check
+- `research-submission-assurance-gate` — final submission gate
+
+**Agent roles (L1-L4):**
+- `argus-planner-role`, `argus-critic-role`, `argus-reviewer-role`,
+  `argus-engineer-role`, `argus-scientist-role`
+
+**Templates:**
+- `agent-md-new-project-template`, `agent-md-existing-project-optimization-template`
+- `reviewer-engineer-handoff`
+
+### Using with the daemon (7×24 auto-paper)
+
+```bash
+cd ~/research/my-emnlp-paper
+
+export ARGUS_SKILL_LIFE_BACKEND=codex
+export ARGUS_SKILL_RUNNER_BIN=$(which codex)
+
+# Start daemon with a research objective
+argus-skill --daemon --continuous \
+  --objective "Complete the EMNLP paper: run all experiments, \
+  produce figures, write all sections, pass format preflight."
+
+# Monitor progress
+argus-skill --watch    # live cockpit
+argus-skill --follow   # event stream
+argus-skill --status   # one-shot summary
+```
+
+The planner will advance through pipeline stages automatically,
+queuing work for each stage and verifying completion before moving on.
+
+### Manual stage execution
+
+You can also run individual stages from the REPL:
+
+```text
+argus › run the novelty check for our method
+argus › design ablation studies for the main claim
+argus › draft the introduction section
+argus › run format preflight on paper/main.tex
+```
+
+### Extending with custom skills
+
+Drop a markdown file in `~/.argus-skill/skills/` with YAML frontmatter:
+
+```markdown
+---
+name: my-custom-evaluation
+description: "Run my custom benchmark suite"
+category: experiment-execution
+version: "1.0"
+---
+
+# My Custom Evaluation
+
+[Your skill instructions here...]
+```
+
+The matcher will pick it up automatically for future tasks that match.
+
 ## Architecture at a glance
 
 ```
