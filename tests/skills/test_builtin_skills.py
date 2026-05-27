@@ -318,14 +318,15 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         assert "SWE-bench" not in text
         assert "BoundaryTrap" not in text
         assert "EMNLP/ACL long-paper" in text
-        assert "/home/argustest/research.md" in text
-        assert "/home/argustest/argus-skill" in text
-        assert "/home/argustest/argus-skill/argus_skill/builtin_skills/" in text
+        assert "/home/argustest" not in text
+        assert "operator-provided research playbook" in text
+        assert "active Argus package/source checkout" in text
+        assert "ARGUS_SKILL_SOURCE_ROOT" in text
         assert "argus_skill.builtin_skills" in text
         assert "--export-builtin-skills ./argus_builtin_skills" in text
         assert "argus_builtin_skills/*.md" in text
         assert "argus_builtin_skills/**/*.md" in text
-        assert "/home/argustest/miniconda3/bin/python" in text
+        assert '"${ARGUS_SKILL_PYTHON:-python}"' in text
         assert "validate-full-emnlp" in text
         assert "image-2/codex-image2" in text
         assert "actual generated image-2 raster" in text
@@ -409,7 +410,7 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         "1536x1024",
         "Do not copy a previous project",
         "do not preserve the older thesis",
-        "must not contain a specific project title",
+        "must not contain host-specific Argus paths",
     ):
         assert required in new_project
 

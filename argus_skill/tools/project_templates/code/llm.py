@@ -45,8 +45,8 @@ def _route(route_name: str) -> ModelApiRoute:
     if route is None or not route.usable:
         raise ModelCallError(
             f"model API route {route_name!r} is unavailable; run "
-            "`PYTHONPATH=/home/argustest/argus-skill "
-            "/home/argustest/miniconda3/bin/python -m argus_skill --model-api-status`"
+            "`python -m argus_skill --model-api-status` from the active "
+            "Argus environment"
         )
     return route
 

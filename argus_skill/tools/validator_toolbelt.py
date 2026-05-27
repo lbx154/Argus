@@ -117,7 +117,7 @@ VALIDATOR_TOOLS: tuple[ValidatorTool, ...] = (
         description="strict research.md EMNLP format preflight",
         phase="paper",
         roles=_ALL_ROLES,
-        when_to_use="after updating /home/argustest/research.md-derived paper facts",
+        when_to_use="after updating research-playbook-derived paper facts",
     ),
     ValidatorTool(
         id="validate-layout-review",
