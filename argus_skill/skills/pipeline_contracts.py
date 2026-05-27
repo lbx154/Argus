@@ -9761,7 +9761,7 @@ def _validate_image_review(
         return [
             ContractIssue(
                 "invalid_image_review_json",
-                str(review_path.relative_to(root)),
+                _project_relative_path(root, review_path),
                 "image review sidecar must be valid JSON",
             )
         ]
@@ -9771,7 +9771,7 @@ def _validate_image_review(
         issues.append(
             ContractIssue(
                 "missing_image_review_score",
-                str(review_path.relative_to(root)),
+                _project_relative_path(root, review_path),
                 "image review must include score_1_to_5",
             )
         )
@@ -9779,7 +9779,7 @@ def _validate_image_review(
         issues.append(
             ContractIssue(
                 "low_image_review_score",
-                str(review_path.relative_to(root)),
+                _project_relative_path(root, review_path),
                 f"image review score {score:g} is below {MIN_IMAGE_REVIEW_SCORE:g}",
             )
         )
@@ -9788,7 +9788,7 @@ def _validate_image_review(
         issues.append(
             ContractIssue(
                 "image_review_requested_regeneration",
-                str(review_path.relative_to(root)),
+                _project_relative_path(root, review_path),
                 "image review requested regeneration, so the figure is not final-ready",
             )
         )

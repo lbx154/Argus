@@ -877,7 +877,7 @@ def test_emnlp_paper_skill_router_maps_validator_issue_codes(tmp_path: Path) -> 
         "paper_infrastructure_review --review-mode model --write",
         "missing_paper_infrastructure_review",
         "academic_language_missing_method_model_identifier",
-        "framework/runtime or benchmark harness",
+        "paper-facing framework, benchmark harness, or controller",
         "repair-emnlp-contract-artifacts",
         "submission_not_ready_verdict",
         "Run this last",
