@@ -724,6 +724,55 @@ def status_payload(env: Mapping[str, str]) -> dict[str, Any]:
     }
 
 
+def _gpu_resources_path() -> Path:
+    return Path.home() / ".argus-skill" / "capabilities" / "gpu_resources.json"
+
+
+def load_gpu_resources() -> dict[str, Any] | None:
+    """Load GPU resource allocation from the capability vault."""
+    path = _gpu_resources_path()
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def gpu_env_vars() -> dict[str, str]:
+    """Return env vars that restrict GPU access to allocated devices."""
+    config = load_gpu_resources()
+    if not config:
+        return {}
+    cuda_vis = config.get("cuda_visible_devices", "")
+    if not cuda_vis:
+        return {}
+    return {"CUDA_VISIBLE_DEVICES": str(cuda_vis)}
+
+
+def format_gpu_context() -> str:
+    """Format GPU allocation info for agent runtime context."""
+    config = load_gpu_resources()
+    if not config:
+        return ""
+    devices = config.get("allowed_devices", [])
+    cuda_vis = config.get("cuda_visible_devices", "")
+    max_mem = config.get("max_gpu_memory_gb")
+    notes = config.get("notes", "")
+    lines = [
+        "## GPU Resource Allocation",
+        f"- CUDA_VISIBLE_DEVICES={cuda_vis}",
+        f"- Allowed devices: {devices}",
+    ]
+    if max_mem:
+        lines.append(f"- Max GPU memory: {max_mem} GB")
+    if notes:
+        lines.append(f"- {notes}")
+    lines.append("- ALL training/inference commands MUST set CUDA_VISIBLE_DEVICES={} before running.".format(cuda_vis))
+    lines.append("- Do NOT use devices outside this allocation.")
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m argus_skill.tools.capability_vault")
     sub = parser.add_subparsers(dest="cmd", required=True)

@@ -631,6 +631,11 @@ class LifeWorker:
         if _venv_bin not in _current_path:
             os.environ["PATH"] = f"{_venv_bin}:{_current_path}"
 
+        # Set CUDA_VISIBLE_DEVICES from GPU resource allocation
+        from ..tools.capability_vault import gpu_env_vars
+        for k, v in gpu_env_vars().items():
+            os.environ[k] = v
+
         cfg = self.config
         split_memory = bool(cfg.global_root and cfg.project_fingerprint)
         mem: MemoryBundle | LifeMemory
@@ -935,10 +940,12 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
 def _worker_runtime_context(cfg: LifeWorkerConfig) -> str:
     """Return static context injected into daemon-driven missions."""
     from ..life.research_profile import render_research_profile_context
+    from ..tools.capability_vault import format_gpu_context
 
     research_context = render_research_profile_context()
     if not research_context:
         return ""
+    gpu_context = format_gpu_context()
     runtime_context = (
         "## Agent Architecture (3-layer)\n"
         "Planner → Engineer → Reviewer. No Critic, no Scientist.\n"
@@ -967,6 +974,8 @@ def _worker_runtime_context(cfg: LifeWorkerConfig) -> str:
         "\n"
         "## Sub-agents: any command >30s → `python -m argus_skill.tools.subagent submit`\n"
     )
+    if gpu_context:
+        runtime_context += "\n" + gpu_context + "\n"
     return runtime_context + "\n---\n\n" + research_context
 
 
