@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 
 from ..core.models import CheckResult
 
@@ -14,9 +15,11 @@ def run_checks(
     cwd: str | None = None,
 ) -> list[CheckResult]:
     results: list[CheckResult] = []
+    argus_python = sys.executable
     for command in commands:
+        resolved = command.replace("{argus_python}", argus_python)
         completed = subprocess.run(
-            command,
+            resolved,
             shell=True,
             capture_output=True,
             text=True,
@@ -26,7 +29,7 @@ def run_checks(
         merged = _merge_output(completed.stdout, completed.stderr)
         results.append(
             CheckResult(
-                command=command,
+                command=resolved,
                 exit_code=completed.returncode,
                 passed=completed.returncode == 0,
                 output_tail=_tail_text(merged, max_chars=CHECK_OUTPUT_TAIL_CHARS),
