@@ -324,6 +324,24 @@ class Reviewer:
         else:
             stage_checklist = format_stage_checklist(stage, role="reviewer")
 
+        # Always-on project-venv reminder for the reviewer too: a round
+        # summary that says "I skipped X because the package is missing"
+        # is never acceptable — the engineer must `./.venv/bin/pip install`
+        # and retry. Inject the canonical skill body so both roles read
+        # the same source of truth.
+        venv_skill_block = ""
+        try:
+            from ..skills.builtins import iter_builtin_skill_texts
+            for fname, body in iter_builtin_skill_texts():
+                if fname == "project-venv-package-management.md":
+                    venv_skill_block = (
+                        "## Project venv (any missing package is the engineer's job to install)\n"
+                        + body
+                    )
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+
         # Stage-rollback instruction. When the reviewer notices that an
         # upstream stage's evidence is missing or unreliable while
         # working a later stage, demoting current_stage back to the
@@ -393,6 +411,7 @@ class Reviewer:
             f"{paper_review_skill_block}"
             f"{stage_checklist}\n\n"
             f"{rollback_block}\n\n"
+            f"{venv_skill_block}\n\n"
             "**Length constraints:**\n"
             "- Be thorough in `round_summary_markdown` — include all relevant details\n"
             "- Use brief bullet points, not lengthy explanations\n"

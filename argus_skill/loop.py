@@ -395,6 +395,20 @@ class SkillLoop:
         from .skills.stage_checklists import current_stage, format_stage_checklist
         from pathlib import Path as _Path
 
+        # Always-on project-venv reminder. Injected for every stage / every
+        # round so the agent never has an excuse for `import X` failures or
+        # for stubbing around a missing dependency. Loaded directly from the
+        # bundled skill so the canonical text in the markdown is the single
+        # source of truth.
+        try:
+            from .skills.builtins import iter_builtin_skill_texts
+            for fname, body in iter_builtin_skill_texts():
+                if fname == "project-venv-package-management.md":
+                    sections.append("## Project venv (install anything you need here)\n" + body)
+                    break
+        except Exception:  # noqa: BLE001 - defensive; missing skill is non-fatal
+            pass
+
         stage = current_stage(_Path.cwd())
         stage_checklist = format_stage_checklist(stage, role="engineer")
         if stage_checklist:
