@@ -105,12 +105,19 @@ HYPE_PATTERNS: tuple[tuple[str, str], ...] = (
     ("unsupported_significant_language", r"\bsignificant(?:ly)? improves?\b"),
 )
 
+INTRODUCTION_RESULT_VALUE_PATTERN = (
+    r"\d+(?:\.\d+)?\s*(?:\\?%|percentage\s+points?|points?|pp)|"
+    r"\d+\s*/\s*\d+"
+)
+
 INTRODUCTION_RESULT_PREVIEW_PATTERN = (
     r"\b(?:achiev\w*|reach\w*|solv\w*|outperform\w*|improv\w*|increase\w*|"
-    r"reduce\w*|recover\w*|yield\w*|win\w*|success|accuracy|score)\b"
-    r".{0,80}(?:\d+(?:\.\d+)?\s*(?:%|points?|pp)|\d+\s*/\s*\d+)"
-    r"|(?:\d+(?:\.\d+)?\s*(?:%|points?|pp)|\d+\s*/\s*\d+)"
-    r".{0,80}\b(?:success|accuracy|score|improv\w*|outperform\w*)\b"
+    r"reduce\w*|recover\w*|yield\w*|lift\w*|gain\w*|win\w*|success|"
+    r"accuracy|score)\b"
+    rf".{{0,100}}(?:{INTRODUCTION_RESULT_VALUE_PATTERN})"
+    rf"|(?:{INTRODUCTION_RESULT_VALUE_PATTERN})"
+    r".{0,100}\b(?:success|accuracy|score|improv\w*|outperform\w*|"
+    r"increase\w*|reduce\w*|lift\w*|gain\w*)\b"
 )
 
 INTRODUCTION_ROADMAP_PATTERN = (
