@@ -742,7 +742,6 @@ MANIFEST_SOURCE_PREFERENCES: dict[str, tuple[str, ...]] = {
         "paper/SUBMISSION_ASSURANCE.json",
     ),
     "paper/main.tex": (
-        "research/NARRATIVE_REPORT.md",
         "paper/RESULTS_REPORT.md",
         "paper/CLAIM_GRAPH.json",
         "paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md",
@@ -751,11 +750,6 @@ MANIFEST_SOURCE_PREFERENCES: dict[str, tuple[str, ...]] = {
     ),
     "paper/main.pdf": (
         "paper/main.tex",
-    ),
-    "research/NARRATIVE_REPORT.md": (
-        "paper/RESULTS_REPORT.md",
-        "paper/CLAIM_GRAPH.json",
-        "paper/artifacts/results_table.tsv",
     ),
 }
 MANIFEST_RECOMPUTE_SOURCE_PATHS = {
@@ -7573,19 +7567,6 @@ def validate_full_emnlp_readiness(project_root: Path) -> list[ContractIssue]:
     issues = [i for i in issues if not any(i.code.startswith(p) for p in _STALE_PREFIXES)]
 
     return _dedupe_contract_issues(issues)
-    _STALE_PREFIXES = (
-        "artifact_stale",
-        "artifact_modified",
-        "artifact_digest",
-        "stale_",
-        "missing_artifact_freshness",
-        "invalid_artifact_freshness",
-        "artifact_freshness",
-        "missing_required_artifact_freshness",
-    )
-    issues = [i for i in issues if not any(i.code.startswith(p) for p in _STALE_PREFIXES)]
-
-    return _order_issues_by_validation_policy(root, _dedupe_contract_issues(issues))
 
 
 def _contract_issues(issues: list[Any]) -> list[ContractIssue]:
@@ -11006,7 +10987,7 @@ def _default_manifest_sources_for_generated_path(
             for path in canonical_fallbacks
             if path.startswith(("experiments/", "results/"))
         )
-    if generated_path.startswith("research/") and generated_path != "research/NARRATIVE_REPORT.md":
+    if generated_path.startswith("research/"):
         preferred.extend(
             path
             for path in canonical_fallbacks

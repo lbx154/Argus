@@ -395,7 +395,6 @@ _EMNLP_MANIFEST_FRESHNESS_GATE_PREFIXES = (
 )
 _EMNLP_DOWNSTREAM_PATH_PREFIXES = (
     "paper/",
-    "research/NARRATIVE_REPORT",
     "research/CLAIM",
     "research/result",
     "research/results",

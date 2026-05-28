@@ -21,7 +21,6 @@ PAPER_DRAFT_REPORT_JSON_PATH = Path("paper/PAPER_DRAFT_REPORT.json")
 PAPER_QUALITY_CALIBRATION_JSON_PATH = Path("paper/PAPER_QUALITY_CALIBRATION.json")
 MODEL_SCALE_PLAN_PATH = Path("experiments/MODEL_SCALE_PLAN.md")
 PAPER_NARRATIVE_PATHS = (
-    Path("research/NARRATIVE_REPORT.md"),
     Path("paper/RESULTS_REPORT.md"),
     Path("paper/main.tex"),
 )
