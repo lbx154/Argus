@@ -735,6 +735,26 @@ def _deterministic_assessment(
                     target=f"page {references_page} early References",
                 )
             )
+    if _forced_break_before_references(tex_text) and (
+        (references_page is not None and references_page < 9)
+        or (conclusion_page is not None and conclusion_page < 7)
+    ):
+        penalty += 0.8
+        issues.append(
+            _issue(
+                "forced_reference_break_with_underfilled_body",
+                "major",
+                (
+                    "manual page break immediately before References is masking an underfilled "
+                    "body; remove the break and add source-backed body or post-conclusion scope "
+                    "content until References naturally start on page 9 or later"
+                ),
+                page=references_page,
+                hard_gate=True,
+                action="expand_evidence_content",
+                target="pre-References page break",
+            )
+        )
 
     page_stats = _layout_page_stats(layout_text)
     for stat in page_stats:
@@ -977,6 +997,9 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "or Appendix material starts before page 9, "
         "require source-backed body expansion, a meaningful late visual anchor, or a clean "
         "reference/appendix-page break after the body; if body content actually runs past page 8, then require trimming. "
+        "A manual `\\clearpage`, `\\newpage`, `\\pagebreak`, or `\\FloatBarrier` immediately before "
+        "References is not an acceptable fix while the Conclusion starts before page 7 or References "
+        "still start before page 9; remove that break and fix content/page flow first. "
         "Shortening an underfilled body makes the early-References defect worse. Do not require "
         "References to begin exactly on page 9: page 10 or later is acceptable when the body and "
         "body-adjacent end matter occupy page 9 naturally, and the total page count after the body "
@@ -1467,6 +1490,16 @@ def _forced_break_before_conclusion(tex_text: str) -> bool:
         re.search(
             r"\\(?:clearpage|newpage|pagebreak(?:\[[^\]]+\])?|FloatBarrier)\s*"
             r"\\section\*?\s*\{\s*Conclusion\s*\}",
+            tex_text,
+        )
+    )
+
+
+def _forced_break_before_references(tex_text: str) -> bool:
+    return bool(
+        re.search(
+            r"\\(?:clearpage|newpage|pagebreak(?:\[[^\]]+\])?|FloatBarrier)\s*"
+            r"\\(?:bibliography\s*\{|printbibliography\b|begin\s*\{\s*thebibliography\s*\})",
             tex_text,
         )
     )

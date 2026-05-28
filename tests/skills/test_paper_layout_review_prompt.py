@@ -373,6 +373,30 @@ def test_deterministic_review_flags_page_six_conclusion_as_underfilled() -> None
     assert issues["rendered_main_body_underfilled"]["page"] == 6
 
 
+def test_deterministic_review_flags_reference_break_when_body_underfilled() -> None:
+    pages = [
+        "Title",
+        "Related Work",
+        "Method",
+        "Experimental Setup\nFigure 1: overview",
+        "Main Results\nTable 1: main results",
+        "Conclusion",
+        "Limitations and Ethical Considerations",
+        "References\n[1] Example",
+    ]
+
+    result = _deterministic_assessment(
+        tex_text="\\section{Limitations and Ethical Considerations}\nScope.\n\\clearpage\n\\bibliography{refs}",
+        log_text="",
+        layout_text="\f".join(pages),
+        threshold=4.0,
+    )
+
+    issues = {issue["code"]: issue for issue in result["issues"]}
+    assert issues["forced_reference_break_with_underfilled_body"]["action"] == "expand_evidence_content"
+    assert issues["forced_reference_break_with_underfilled_body"]["target"] == "pre-References page break"
+
+
 def test_deterministic_review_flags_forced_break_before_conclusion() -> None:
     result = _deterministic_assessment(
         tex_text="\\section{Analysis}\nEvidence.\n\\clearpage\n\\section{Conclusion}\nDone.",
