@@ -1679,6 +1679,19 @@ class LifeSupervisor:
             "reason": reason,
         }
 
+    def _current_pipeline_stage(self) -> str | None:
+        """Read current_stage from PIPELINE_STATE.json, or None if unavailable."""
+        try:
+            root = self._planner_workdir()
+            state_path = root / "research" / "PIPELINE_STATE.json"
+            if not state_path.exists():
+                return None
+            import json as _json
+            data = _json.loads(state_path.read_text(encoding="utf-8"))
+            return data.get("current_stage")
+        except Exception:  # noqa: BLE001
+            return None
+
     def _planner_workdir(self) -> Path:
         configured = self._configured_worktree()
         if configured is not None:
@@ -3207,22 +3220,28 @@ class LifeSupervisor:
                 return None
 
         if not verdict.project_done:
-            automatic_task, gate_issues = self._automatic_emnlp_finalization_task_for_current_gate()
-            if (
-                automatic_task is not None
-                and _planner_tasks_need_emnlp_finalization_override(
-                    verdict.new_tasks,
-                    gate_issues,
-                )
-            ):
-                verdict = replace(
-                    verdict,
-                    reason=(
-                        "planner task was too broad for the current EMNLP final-gate "
-                        "snapshot; queued deterministic finalization repair"
-                    ),
-                    new_tasks=[automatic_task],
-                )
+            # Only override planner tasks with deterministic repair if the project
+            # is past the early stages. For research/plan/benchmark, the planner's
+            # own tasks are more appropriate than gate-repair.
+            early_stages = {"research", "plan", "benchmark"}
+            current_stage = self._current_pipeline_stage()
+            if current_stage not in early_stages:
+                automatic_task, gate_issues = self._automatic_emnlp_finalization_task_for_current_gate()
+                if (
+                    automatic_task is not None
+                    and _planner_tasks_need_emnlp_finalization_override(
+                        verdict.new_tasks,
+                        gate_issues,
+                    )
+                ):
+                    verdict = replace(
+                        verdict,
+                        reason=(
+                            "planner task was too broad for the current EMNLP final-gate "
+                            "snapshot; queued deterministic finalization repair"
+                        ),
+                        new_tasks=[automatic_task],
+                    )
 
         if (
             verdict.project_done
