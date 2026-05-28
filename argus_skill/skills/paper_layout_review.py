@@ -191,10 +191,16 @@ def generate_layout_review(
                             action="rebalance_columns",
                         )
                     )
-                else:
-                    score = min(score, max(1.0, min(5.0, vision_score)))
                 criteria_scores.update(_criterion_scores(vision_review.get("criteria_scores")))
-                issues.extend(_vision_issues(vision_review, deterministic=deterministic))
+                vision_issues = _vision_issues(vision_review, deterministic=deterministic)
+                issues.extend(vision_issues)
+                if vision_score is not None and _vision_score_should_block(
+                    vision_score=vision_score,
+                    vision_issues=vision_issues,
+                    deterministic=deterministic,
+                    threshold=threshold,
+                ):
+                    score = min(score, max(1.0, min(5.0, vision_score)))
     elif review_mode != "heuristic":
         raise LayoutReviewError(f"unsupported review_mode {review_mode!r}")
 
@@ -1099,8 +1105,109 @@ def _vision_issues(
                         "so final References/Appendix trailing whitespace should not drive a "
                         "blocking layout loop by itself."
                     )
+                elif _is_advisory_visual_polish_issue(
+                    issue,
+                    raw_item=item if isinstance(item, Mapping) else {},
+                    page_flow_contract=page_flow_contract,
+                ):
+                    issue["severity"] = "minor"
+                    issue.pop("hard_gate", None)
+                    issue["code"] = f"vision_advisory_{field}_{index}"
+                    issue["message"] = (
+                        issue["message"]
+                        + " Advisory only: this is subjective visual polish without a "
+                        "specific readability, clipping, overlap, missing-content, or "
+                        "page-flow defect, so it should not drive a blocking layout loop."
+                    )
                 issues.append(issue)
     return issues
+
+
+def _vision_score_should_block(
+    *,
+    vision_score: float,
+    vision_issues: Sequence[Mapping[str, Any]],
+    deterministic: Mapping[str, Any],
+    threshold: float,
+) -> bool:
+    if vision_score >= threshold:
+        return True
+    deterministic_score = _float_or_none(deterministic.get("score_1_to_5"))
+    if deterministic_score is None or deterministic_score < threshold:
+        return True
+    return any(
+        issue.get("severity") == "blocking" or issue.get("hard_gate")
+        for issue in vision_issues
+    )
+
+
+def _is_advisory_visual_polish_issue(
+    issue: Mapping[str, Any],
+    *,
+    raw_item: Mapping[str, Any],
+    page_flow_contract: Mapping[str, Any],
+) -> bool:
+    if not (
+        page_flow_contract.get("post_body_pages_uncapped") is True
+        and page_flow_contract.get("conclusion_by_page_8") is True
+        and page_flow_contract.get("references_on_or_after_page_9") is True
+    ):
+        return False
+    action = _normalize_action(issue.get("action"))
+    if action not in {"resize_figure", "regenerate_figure", "rebalance_columns"}:
+        return False
+    haystack = " ".join(
+        [
+            _layout_item_haystack(issue),
+            _layout_item_haystack(raw_item),
+        ]
+    )
+    concrete_defects = (
+        "unreadable",
+        "illegible",
+        "hard to read",
+        "hard-to-read",
+        "cannot read",
+        "can't read",
+        "too small",
+        "small embedded text",
+        "tiny",
+        "cramped",
+        "overlap",
+        "clipped",
+        "cropped",
+        "blur",
+        "low resolution",
+        "low-resolution",
+        "detached",
+        "caption-only",
+        "missing",
+        "wrong",
+        "mismatched",
+        "references before",
+        "appendix before",
+        "conclusion after",
+    )
+    if any(term in haystack for term in concrete_defects):
+        return False
+    polish_terms = (
+        "plain",
+        "weak",
+        "polish",
+        "presentation-style",
+        "slide",
+        "pastel",
+        "generic",
+        "decorative",
+        "visual payoff",
+        "information density",
+        "sparse",
+        "airy",
+        "dashboard",
+        "poster",
+        "style",
+    )
+    return any(term in haystack for term in polish_terms)
 
 
 def _is_post_body_trailing_whitespace_issue(

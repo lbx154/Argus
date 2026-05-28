@@ -10,6 +10,7 @@ from argus_skill.skills.paper_layout_review import (
     _revision_directives,
     _vision_issues,
     _vision_prompt,
+    _vision_score_should_block,
 )
 
 
@@ -163,6 +164,82 @@ def test_final_appendix_trailing_whitespace_is_advisory_after_boundary_passes() 
     assert issues[0]["severity"] == "minor"
     assert "hard_gate" not in issues[0]
     assert _revision_directives(issues) == []
+
+
+def test_subjective_visual_polish_is_advisory_after_contract_passes() -> None:
+    deterministic = {
+        "score_1_to_5": 5.0,
+        "page_flow_contract": {
+            "page_count": 12,
+            "conclusion_page": 8,
+            "references_page": 9,
+            "appendix_page": None,
+            "conclusion_by_page_8": True,
+            "references_on_or_after_page_9": True,
+            "post_body_pages_uncapped": True,
+        },
+    }
+    issues = _vision_issues(
+        {
+            "major_issues": [
+                {
+                    "issue": "Figure 2 is readable but visually weak and plain.",
+                    "page": 7,
+                    "target": "Figure 2 result chart",
+                    "visual_evidence": "The chart resembles a quick dashboard inset.",
+                    "action": "regenerate_figure",
+                }
+            ]
+        },
+        deterministic=deterministic,
+    )
+
+    assert issues[0]["severity"] == "minor"
+    assert "hard_gate" not in issues[0]
+    assert _revision_directives(issues) == []
+    assert not _vision_score_should_block(
+        vision_score=3.2,
+        vision_issues=issues,
+        deterministic=deterministic,
+        threshold=4.0,
+    )
+
+
+def test_concrete_figure_readability_issue_remains_hard_gate() -> None:
+    deterministic = {
+        "score_1_to_5": 5.0,
+        "page_flow_contract": {
+            "page_count": 12,
+            "conclusion_page": 8,
+            "references_page": 9,
+            "appendix_page": None,
+            "conclusion_by_page_8": True,
+            "references_on_or_after_page_9": True,
+            "post_body_pages_uncapped": True,
+        },
+    }
+    issues = _vision_issues(
+        {
+            "major_issues": [
+                {
+                    "issue": "Figure 2 has tiny labels and is hard to read.",
+                    "page": 7,
+                    "target": "Figure 2 result chart",
+                    "action": "resize_figure",
+                }
+            ]
+        },
+        deterministic=deterministic,
+    )
+
+    assert issues[0]["severity"] == "major"
+    assert issues[0]["hard_gate"] is True
+    assert _vision_score_should_block(
+        vision_score=3.2,
+        vision_issues=issues,
+        deterministic=deterministic,
+        threshold=4.0,
+    )
 
 
 def test_vision_guidance_routes_conceptual_figure_repairs_to_image2() -> None:
