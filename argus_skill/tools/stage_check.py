@@ -77,16 +77,22 @@ LLM_REVIEW_STAGES: dict[str, tuple[str, str, list[str]]] = {
     ),
     "draft": (
         "_LOAD_SKILL:academic-paper-peer-review-benchmark.md",
-        "Review this paper using the peer review benchmark above. Answer in JSON with: "
-        '{"score": 1-10, "pass": true/false, "recommendation": "Accept/Weak Accept/Weak Reject/Reject", '
+        "This is a DRAFT-stage progress check, NOT a final peer review. "
+        "The goal is to verify the draft is structurally complete enough to move forward. "
+        "Be lenient on polish, language quality, and minor gaps — those are fixed in later stages. "
+        "Focus on: (1) are all required sections present? (2) do claims have at least placeholder evidence? "
+        "(3) is the overall story coherent? (4) are there any fatal structural problems that would block progress? "
+        "Answer in JSON with: "
+        '{"score": 1-10, "pass": true/false, "recommendation": "Advance/Needs structure fixes", '
         '"strengths": ["..."], "weaknesses": ["..."], '
-        '"strongest_reject_argument": "...", "verdict": "one sentence"}. '
-        "Score 5+ = pass.\n\n{content}",
+        '"verdict": "one sentence"}. '
+        "Score 3+ = pass (this is a progress gate, not a quality gate).\n\n{content}",
         ["paper/main.tex"],
     ),
     "submission": (
         "_LOAD_SKILL:academic-paper-peer-review-benchmark.md",
         "This is the FINAL submission gate review. Be strict — this paper will be submitted to EMNLP. "
+        "Evaluate as an actual EMNLP reviewer would. "
         "Review using the peer review benchmark above. Answer in JSON with: "
         '{"score": 1-10, "pass": true/false, "recommendation": "Accept/Weak Accept/Weak Reject/Reject", '
         '"strengths": ["..."], "weaknesses": ["..."], '
