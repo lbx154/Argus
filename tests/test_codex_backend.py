@@ -118,6 +118,21 @@ def fake_codex_autoloop(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "codex_autoloop.runner_backend", backend_mod)
     monkeypatch.setitem(sys.modules, "codex_autoloop.models", models_mod)
 
+    # ``_import_argusbot()`` now prefers the vendored copy at
+    # ``argus_skill.codex_autoloop`` over the legacy top-level package.
+    # Mirror the mock there so the option-translation contract test
+    # keeps exercising the same surface the production code uses.
+    monkeypatch.setitem(sys.modules, "argus_skill.codex_autoloop", pkg)
+    monkeypatch.setitem(
+        sys.modules, "argus_skill.codex_autoloop.codex_runner", runner_mod,
+    )
+    monkeypatch.setitem(
+        sys.modules, "argus_skill.codex_autoloop.runner_backend", backend_mod,
+    )
+    monkeypatch.setitem(
+        sys.modules, "argus_skill.codex_autoloop.models", models_mod,
+    )
+
 
 def _make_argus_result(
     *,

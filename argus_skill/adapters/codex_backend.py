@@ -144,14 +144,20 @@ def _strip_legacy_codex_profile_args(
 # --- ArgusBot import (lazy, with friendly error) ---------------------------
 
 def _import_argusbot():
+    """Resolve the codex/claude/copilot CLI runner shipped with argus-skill.
+
+    Prefers the vendored copy under ``argus_skill.codex_autoloop`` (no
+    separate install step). Falls back to a top-level ``codex_autoloop``
+    package if one is on ``sys.path`` — this preserves compatibility with
+    historical ``pip install 'argus-skill[codex]'`` installs and with local
+    upstream ArgusBot checkouts used for development.
+    """
     try:
-        from codex_autoloop.codex_runner import (
+        from argus_skill.codex_autoloop.codex_runner import (
             CodexRunner,
-        )
-        from codex_autoloop.codex_runner import (
             RunnerOptions as ArgusRunnerOptions,
         )
-        from codex_autoloop.runner_backend import (
+        from argus_skill.codex_autoloop.runner_backend import (
             BACKEND_CLAUDE,
             BACKEND_CODEX,
             BACKEND_COPILOT,
@@ -159,11 +165,26 @@ def _import_argusbot():
             default_runner_bin,
             normalize_runner_backend,
         )
-    except ImportError as exc:  # pragma: no cover - environmental
-        raise ImportError(
-            "CodexRunnerBackend requires ArgusBot to be importable. "
-            "Install with `pip install 'argus-skill[codex]'` (or add it to PYTHONPATH)."
-        ) from exc
+    except ImportError:
+        try:
+            from codex_autoloop.codex_runner import (  # type: ignore[no-redef]
+                CodexRunner,
+                RunnerOptions as ArgusRunnerOptions,
+            )
+            from codex_autoloop.runner_backend import (  # type: ignore[no-redef]
+                BACKEND_CLAUDE,
+                BACKEND_CODEX,
+                BACKEND_COPILOT,
+                DEFAULT_RUNNER_BACKEND,
+                default_runner_bin,
+                normalize_runner_backend,
+            )
+        except ImportError as exc:  # pragma: no cover - environmental
+            raise ImportError(
+                "CodexRunnerBackend requires the bundled codex_autoloop "
+                "module. Reinstall argus-skill, or add a sibling "
+                "`codex_autoloop` package to PYTHONPATH for development."
+            ) from exc
     return {
         "CodexRunner": CodexRunner,
         "ArgusRunnerOptions": ArgusRunnerOptions,

@@ -1,0 +1,103 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "workstreams",
+    "done_items",
+    "remaining_items",
+    "risks",
+    "next_steps",
+    "exploration_items",
+    "suggested_next_objective",
+    "should_propose_follow_up"
+  ],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "Short manager summary of the current implementation state.",
+      "maxLength": 3000
+    },
+    "workstreams": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "area",
+          "status",
+          "evidence",
+          "next_step"
+        ],
+        "properties": {
+          "area": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "in_progress",
+              "todo",
+              "blocked"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "maxLength": 1500
+          },
+          "next_step": {
+            "type": "string",
+            "maxLength": 800
+          }
+        }
+      }
+    },
+    "done_items": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string"
+      }
+    },
+    "remaining_items": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string"
+      }
+    },
+    "risks": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string"
+      }
+    },
+    "next_steps": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string"
+      }
+    },
+    "exploration_items": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string"
+      }
+    },
+    "suggested_next_objective": {
+      "type": "string",
+      "description": "One concrete objective for the next session if a follow-up run should be offered.",
+      "maxLength": 1000
+    },
+    "should_propose_follow_up": {
+      "type": "boolean",
+      "description": "True when it makes sense to offer a one-click follow-up run to the user."
+    }
+  }
+}

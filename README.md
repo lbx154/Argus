@@ -114,24 +114,42 @@ Skills 按角色分两个目录：
 
 ## 快速开始
 
-### 1. 安装
+### 1. 前置依赖
+
+**Python ≥ 3.11** + **Codex CLI**（OpenAI 官方非交互推理 CLI）：
+
+```bash
+# Codex CLI 是 npm 全局包
+npm install -g @openai/codex
+codex --version   # 验证可用
+```
+
+> 注意：ArgusBot 的 `codex_autoloop` 监督循环模块已经**内置**在本仓库里
+> （见 `argus_skill/codex_autoloop/`），**不需要**再单独安装 ArgusBot
+> 或使用任何 `[codex]` extra —— `pip install argus-skill`（下一步）就已经包含 codex 后端。
+
+### 2. 安装
 
 ```bash
 git clone https://github.com/lbx154/argus-skill.git
 cd argus-skill
 python -m venv .venv && . .venv/bin/activate
-pip install -e ".[codex]"
+pip install -e .
 ```
 
-### 2. 初始配置（交互式向导）
+### 3. 初始配置（交互式向导）
 
 ```bash
 argus-skill --setup
 ```
 
 向导会依次引导你配置：
+
 1. **三个 Agent 的 API**（Planner / Engineer / Reviewer）— 支持共享或独立配置
 2. **GPU 资源分配** — 自动检测所有 GPU，选择分配给 Argus 的设备
+3. **Codex CLI 配置** — 用你刚输入的同一把 API key/base_url 自动写好
+   `~/.codex/config.toml` 和 `~/.codex/auth.json`（已存在的文件会备份成
+   `*.bak` 后才覆盖；不想覆盖直接回车）
 
 ```
 ═══════════════════════════════════════════════════════════════
@@ -153,6 +171,10 @@ argus-skill --setup
     [7] NVIDIA B200 (179 GB)
   Devices to allocate (e.g. 6 or 0,1,2) [6]: 6
   ✓ Allocated: device(s) 6 (1 GPU, 179 GB total)
+
+  Step 3: Codex CLI Configuration
+  ✓ codex config → /root/.codex/config.toml
+  ✓ codex auth   → /root/.codex/auth.json
 
   ✓ Setup complete!
 ```
@@ -286,5 +308,5 @@ MIT — see [LICENSE](LICENSE).
 ## Provenance
 
 - [skill-agent](https://github.com/lbx154/skill-agent): skill 匹配、distiller
-- [ArgusBot](../ArgusBot): reviewer 循环、codex runner
-- 新代码: auto-research pipeline, stage_check, 31 个 builtin skills, image-2 集成
+- [ArgusBot](https://github.com/waltstephen/ArgusBot) (MIT)：reviewer 循环、codex runner —— `codex_autoloop` 模块已 **vendored** 到 `argus_skill/codex_autoloop/`（含上游 LICENSE 与 `_VENDORED.md` 注明 commit/sha；详见该目录）
+- 新代码: auto-research pipeline, stage_check, builtin skills, image-2 集成

@@ -31,12 +31,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-codex = [
-  # ArgusBot is the production codex backend. It is not yet on PyPI;
-  # pulled directly from github so `pip install 'argus-skill[codex]'`
-  # is one step.
-  "ArgusBot @ git+https://github.com/waltstephen/ArgusBot.git",
-]
+# NOTE: the historical `argus-skill[codex]` extra used to install the
+# upstream ArgusBot package for its `codex_autoloop` module. That module
+# is now vendored under `argus_skill/codex_autoloop/`, so no separate
+# install is required. The extra is kept as an empty alias so that legacy
+# `pip install 'argus-skill[codex]'` invocations in user scripts still
+# succeed without pulling in anything.
+codex = []
 dev = [
   "build>=1",
   "mypy>=1.8",
@@ -58,6 +59,7 @@ packages = ["argus_skill"]
 "argus_skill/engineer/reviewer_schema.json" = "argus_skill/engineer/reviewer_schema.json"
 "argus_skill/critic/planner_schema.json" = "argus_skill/critic/planner_schema.json"
 "argus_skill/builtin_skills" = "argus_skill/builtin_skills"
+"argus_skill/codex_autoloop" = "argus_skill/codex_autoloop"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -119,7 +121,7 @@ warn_unused_configs = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = ["codex_autoloop.*"]
+module = ["codex_autoloop.*", "argus_skill.codex_autoloop.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

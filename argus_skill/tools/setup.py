@@ -199,6 +199,125 @@ def _save_gpu_resources(config: dict) -> Path:
     return path
 
 
+def _codex_home() -> Path:
+    raw = os.environ.get("CODEX_HOME")
+    return Path(raw).expanduser() if raw else Path.home() / ".codex"
+
+
+def _codex_cli_available() -> str | None:
+    return shutil.which("codex")
+
+
+def _render_codex_config_toml(base_url: str, model: str) -> str:
+    """Render a production-friendly minimal ``~/.codex/config.toml``.
+
+    Mirrors the resilience knobs argus-skill's 7x24 daemon depends on
+    (long idle timeout, many retries, no response storage) and points the
+    default ``codex`` provider at the operator-supplied ``base_url``. The
+    sandbox defaults to ``workspace-write`` with network access so the
+    agent can run experiments without prompting; upgrade to
+    ``danger-full-access`` only if you trust the host.
+    """
+    safe_model = model or "gpt-5.4"
+    safe_url = base_url.rstrip("/") + "/" if base_url and not base_url.endswith("/") else base_url
+    return (
+        f'model = "{safe_model}"\n'
+        'model_reasoning_effort = "high"\n'
+        "disable_response_storage = true\n"
+        'sandbox_mode = "workspace-write"\n'
+        'approval_policy = "never"\n'
+        'model_provider = "codex"\n'
+        "\n"
+        "[shell_environment_policy]\n"
+        'inherit = "all"\n'
+        "ignore_default_excludes = false\n"
+        "\n"
+        "[sandbox_workspace_write]\n"
+        "network_access = true\n"
+        "\n"
+        "[history]\n"
+        'persistence = "save-all"\n'
+        "\n"
+        "[features]\n"
+        "plan_tool = true\n"
+        "apply_patch_freeform = true\n"
+        "view_image_tool = true\n"
+        "\n"
+        "[model_providers.codex]\n"
+        f'name = "codex (argus-skill setup)"\n'
+        f'base_url = "{safe_url}"\n'
+        'wire_api = "responses"\n'
+        "requires_openai_auth = true\n"
+        "request_max_retries = 200\n"
+        "stream_max_retries = 200\n"
+        "stream_idle_timeout_ms = 600000\n"
+    )
+
+
+def _seed_codex_config(base_url: str, api_key: str, model: str) -> tuple[Path, Path] | None:
+    """Write ``~/.codex/{config.toml,auth.json}`` from the supplied API.
+
+    Returns ``(config_path, auth_path)`` on success, or ``None`` if the
+    user declines overwriting an existing file. Existing files are backed
+    up to ``<name>.bak`` before being overwritten.
+    """
+    if not base_url or not api_key:
+        return None
+
+    home = _codex_home()
+    home.mkdir(parents=True, exist_ok=True)
+    cfg_path = home / "config.toml"
+    auth_path = home / "auth.json"
+
+    existing = [p.name for p in (cfg_path, auth_path) if p.exists()]
+    if existing:
+        print()
+        print(_yellow(
+            f"  Existing codex files detected ({', '.join(existing)}) at "
+            f"{home}/"))
+        ans = _prompt(
+            "Overwrite (existing files will be backed up to *.bak) [y/N]",
+            "n",
+        )
+        if ans.lower() not in ("y", "yes"):
+            print(_dim("  Skipped writing ~/.codex/config.toml and auth.json."))
+            return None
+
+    for target in (cfg_path, auth_path):
+        if target.exists():
+            backup = target.with_suffix(target.suffix + ".bak")
+            try:
+                shutil.copy2(target, backup)
+            except OSError:
+                pass
+
+    cfg_path.write_text(_render_codex_config_toml(base_url, model), encoding="utf-8")
+    os.chmod(cfg_path, 0o600)
+
+    auth_path.write_text(
+        json.dumps({"OPENAI_API_KEY": api_key}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    os.chmod(auth_path, 0o600)
+    return cfg_path, auth_path
+
+
+def _check_codex_prereq() -> None:
+    """Print a friendly note if the ``codex`` CLI is missing on PATH."""
+    if _codex_cli_available():
+        return
+    print()
+    print(_yellow("  Note: `codex` CLI not found on PATH."))
+    print(_dim("    argus-skill drives codex non-interactively for every L1"))
+    print(_dim("    round. Install once with:"))
+    print()
+    print(_dim("        npm install -g @openai/codex"))
+    print()
+    print(_dim("    The setup wizard will still write your codex config so the"))
+    print(_dim("    binary is ready as soon as you install it."))
+    print()
+
+
 def _load_existing_routes() -> dict[str, dict]:
     """Load existing model API routes if any."""
     path = _capabilities_dir() / "model_api.json"
@@ -328,6 +447,24 @@ def run_setup() -> int:
     gpus = _detect_gpus()
     gpu_config = _configure_gpus(gpus, existing_gpu)
 
+    # Step 3: codex CLI config
+    print(_bold("  Step 3: Codex CLI Configuration"))
+    print()
+    print(_dim("  argus-skill drives the `codex` CLI for every L1 round."))
+    print(_dim("  The wizard can seed ~/.codex/config.toml and ~/.codex/auth.json"))
+    print(_dim("  from the API you just entered so codex talks to the same endpoint."))
+    print()
+    engineer_route = routes.get("engineer") or routes.get("text") or {}
+    codex_base_url = engineer_route.get("base_url", "")
+    codex_api_key = engineer_route.get("api_key", "")
+    codex_model = engineer_route.get("model", "gpt-5.4")
+    codex_paths: tuple[Path, Path] | None = None
+    if codex_base_url and codex_api_key:
+        codex_paths = _seed_codex_config(codex_base_url, codex_api_key, codex_model)
+    else:
+        print(_yellow("  Skipped: no engineer API endpoint configured."))
+        print()
+
     # Save
     print(_bold("  Saving..."))
     api_path = _save_model_api(routes)
@@ -337,6 +474,12 @@ def run_setup() -> int:
         gpu_path = _save_gpu_resources(gpu_config)
         print(f"  {_green('✓')} GPU config → {gpu_path}")
 
+    if codex_paths:
+        cfg, auth = codex_paths
+        print(f"  {_green('✓')} codex config → {cfg}")
+        print(f"  {_green('✓')} codex auth   → {auth}")
+
+    _check_codex_prereq()
     print()
 
     # Summary
@@ -345,7 +488,7 @@ def run_setup() -> int:
     print(_green("  ✓ Setup complete! You can now create a research project:"))
     print()
     print(_dim('    python -m argus_skill.tools.new_auto_research_project \\'))
-    print(_dim('      --parent ~/research --title "My EMNLP Paper" --start-daemon'))
+    print(_dim('      --parent ~/research --objective "My EMNLP Paper"'))
     print()
     return 0
 

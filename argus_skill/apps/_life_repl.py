@@ -1157,16 +1157,18 @@ def _codex_preflight_warning() -> str | None:
     try:
         from ..adapters.codex_backend import _import_argusbot
     except ImportError:
-        return "ArgusBot not installed — `pip install 'argus-skill[codex]'`"
+        return ("bundled codex_autoloop module not importable — "
+                "reinstall argus-skill")
     try:  # noqa: SIM105
         _import_argusbot()
     except Exception:  # noqa: BLE001
-        return ("ArgusBot importable but codex_autoloop failed to load — "
-                "check the install")
+        return ("bundled codex_autoloop failed to load — "
+                "check the argus-skill install")
     import shutil
     bin_path = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or shutil.which("codex")
     if not bin_path:
-        return ("`codex` binary not found on PATH — set ARGUS_SKILL_RUNNER_BIN")
+        return ("`codex` binary not found on PATH — install with "
+                "`npm install -g @openai/codex` or set ARGUS_SKILL_RUNNER_BIN")
     return None
 
 
