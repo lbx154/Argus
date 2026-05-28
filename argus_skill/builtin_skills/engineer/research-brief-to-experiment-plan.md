@@ -15,6 +15,11 @@ Turn a loose operator research direction into a concrete, evidence-first experim
 
 ## Non-negotiable research bar
 - The selected project must be a frontier-domain project, not a toy mechanism study. Before locking the idea, identify current strong papers, current benchmark leaderboards or reported SOTA baselines, and the concrete gap that remains open.
+- **Research taste**: the idea must contain a genuine insight or surprising angle. Ask yourself:
+  - "What would make an EMNLP reviewer say 'that's interesting, I hadn't thought of it that way'?"
+  - "What is the ONE key insight that makes this work, and why hasn't anyone done it before?"
+  - If you can't answer these, the idea needs more thinking, not more engineering.
+  - A paper that says "we applied technique A to domain B and it worked" is NOT research — there must be a WHY.
 - Default to a training-based or hybrid method when local GPUs can support it. Small bag-of-words scorers, linear heads over hashed tokens, prompt-only wrappers, exact-oracle search policies, or other lightweight proxies are allowed only as smoke tests or baselines; they cannot be the proposed paper system unless the operator explicitly downgrades the scope.
 - The proposed method must train or adapt a domain-appropriate modern backbone at meaningful scale for the target field, using LoRA/QLoRA/FSDP/DeepSpeed/Accelerate or an equivalent efficient recipe when full fine-tuning is too expensive. Record the model family, parameter scale, trainable parameters, dataset size, GPU memory plan, and expected GPU-hours.
 - Final benchmark evidence must come from existing real benchmarks or their official task/data releases. Do not create a synthetic benchmark, synthetic proxy, generated task set, or locally invented oracle as the main evidence source. Synthetic data may be used only for unit tests, debugging, or clearly labeled smoke tests with no paper-facing result claims.

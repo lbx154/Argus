@@ -15,6 +15,11 @@ Run a complete research project as a gated artifact workflow rather than a one-s
 
 ## Non-negotiable project bar
 - The project must target a real frontier gap in the selected domain, grounded in current papers, official benchmark reports/leaderboards, and strong baselines. A local mechanism demo, synthetic proxy, or validator-shaped paper is not enough.
+- **Research taste and innovation are mandatory.** This system produces RESEARCH papers, not engineering reports. Every project must have:
+  - A genuine insight about WHY something works or doesn't, not just "we tried X and it improved Y"
+  - A surprising finding, counter-intuitive result, or novel perspective that makes reviewers think "I hadn't considered that"
+  - A contribution that advances understanding, not just numbers on a leaderboard
+  - Simple reproduction of existing work is NOT a paper. Adding a trivial module to an existing system is NOT a paper. You must have a real thesis.
 - If local GPUs can train or adapt a substantial domain model, the proposed method must use that capability. Prompt-only wrappers, exact-oracle policies, bag-of-words scorers, and tiny custom classifiers are allowed as smoke tests or baselines, not as the main proposed system, unless the operator explicitly changes the scope.
 - Final benchmark evidence must come from existing real benchmarks or official task/data releases. Locally invented synthetic benchmarks, generated tasks, proxy graphs, and hand-written oracle tasks are forbidden as main evidence. If no real benchmark tests the idea, pivot or block instead of fabricating a benchmark.
 
@@ -126,19 +131,28 @@ research → plan → benchmark → run → analysis → draft → review → su
 - Gate: datasets exist, gold answers verified
 
 ### 4. run (execute experiments)
-- Run all conditions: proposed method + all baselines on all benchmarks
+- **Smoke-first strategy**: run a small pilot (10-50 tasks) to verify the idea works BEFORE full-scale
+- If smoke shows the idea is invalid → pivot immediately, don't waste GPU hours
+- Once smoke validates → submit full experiment via subagent (supervised mode)
+- **Do NOT block on full training**. After submitting, advance to analysis/draft:
+  1. Submit full run: `python -m argus_skill.tools.subagent submit --task-id train-full --mode supervised --command '...'`
+  2. While waiting: start drafting paper structure, write method section, prepare figure templates
+  3. When subagent reports completion → fill in actual results
 - Use approved frameworks (vLLM, LLaMA-Factory, etc.)
 - Write status.json, progress.jsonl, raw results
-- Gate: results pass experiment-results-review (LLM check)
+- Gate: smoke results validate idea direction; full results pass experiment-results-review
 - Reviewer LLM check: ⚡ experiment-results-review.md (significance, ablation fairness, effect size)
 
 ### 5. analysis (results → claims + figures)
-- Generate results_table.tsv, significance.tsv, figures
+- Can start partially while full experiments still running (prepare templates, write analysis framework)
+- Generate results_table.tsv, significance.tsv, figures once results arrive
 - Write RESULTS_REPORT.md with supported/rejected claims
 - Build claim-evidence mapping
 - Gate: figures exist, claims backed by numbers
 
 ### 6. draft (write paper)
+- Can start paper skeleton while experiments run — write intro, method, related work
+- Fill in results/analysis sections when experiment data arrives from subagent
 - Write paper/main.tex following EMNLP format (8 pages body)
 - Generate Figure 1 via paper-framework-figure-studio-pro S0-S7
 - Compile PDF

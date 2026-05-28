@@ -112,29 +112,75 @@ REGISTRY_DIR = Path(".argus_subagents")
 SUPERVISOR_MODEL = "gpt-5.4-mini"
 
 
-def _alert_engineer(task_id: str, message: str) -> None:
-    """Send an alert to engineer via the project inbox.
+def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
+    """Build a structured report for engineer consumption."""
+    lines = [f"## Subagent Report: {task_id}", f"**Event**: {event}", ""]
 
-    The engineer's next round will see this as operator guidance,
-    so it knows a subagent needs attention.
-    """
+    desc = task_data.get("description", "")
+    cmd = task_data.get("command", "")
+    elapsed = task_data.get("elapsed_seconds", 0)
+    mode = task_data.get("mode", "direct")
+    exit_code = task_data.get("exit_code", "N/A")
+    checks = task_data.get("supervisor_checks", 0)
+
+    lines.append(f"- **Description**: {desc}")
+    lines.append(f"- **Command**: `{cmd}`")
+    lines.append(f"- **Mode**: {mode} | **Duration**: {elapsed:.0f}s | **Exit code**: {exit_code}")
+    if checks:
+        lines.append(f"- **Supervisor checks**: {checks}")
+
+    # Paths for engineer to inspect
+    lines.append("")
+    lines.append("**Artifact paths**:")
+    log_dir = REGISTRY_DIR / f"{task_id}_logs"
+    stdout_log = task_data.get("stdout_log", str(log_dir / "stdout.log"))
+    stderr_log = task_data.get("stderr_log", str(log_dir / "stderr.log"))
+    lines.append(f"- stdout: `{stdout_log}`")
+    lines.append(f"- stderr: `{stderr_log}`")
+    lines.append(f"- task record: `{_registry_path(task_id)}`")
+    sup_log = task_data.get("supervisor_log", "")
+    if sup_log:
+        lines.append(f"- supervisor log: `{sup_log}`")
+
+    # Self-summary from stdout tail
+    stdout_tail = task_data.get("stdout_tail", "")
+    stderr_tail = task_data.get("stderr_tail", "")
+    if stdout_tail:
+        last_lines = stdout_tail.strip().splitlines()[-5:]
+        lines.append("")
+        lines.append("**Last output**:")
+        for l in last_lines:
+            lines.append(f"  {l}")
+    if stderr_tail and event != "COMPLETED":
+        last_err = stderr_tail.strip().splitlines()[-3:]
+        lines.append("**Last errors**:")
+        for l in last_err:
+            lines.append(f"  {l}")
+
+    # Action guidance
+    lines.append("")
+    if event == "COMPLETED":
+        lines.append("**Next action**: collect results from the paths above, update PIPELINE_STATE, and continue pipeline.")
+    elif event == "EARLY-STOPPED":
+        lines.append("**Next action**: inspect supervisor log for stop reason, check if idea needs revision or if hyperparameters need adjustment.")
+    else:
+        lines.append("**Next action**: inspect stderr for root cause, fix, and re-submit if needed.")
+
+    return "\n".join(lines)
+
+
+def _alert_engineer(task_id: str, event: str, task_data: dict[str, Any]) -> None:
+    """Send a structured report to engineer via the project inbox."""
+    report = _build_report(task_id, event, task_data)
     try:
         from ..apps._inbox import queue_inbox_message
         from ..apps._target_paths import resolve_life_dir
         life_dir = resolve_life_dir()
-        queue_inbox_message(
-            life_dir,
-            f"🚨 SUBAGENT ALERT [{task_id}]: {message}",
-            source="subagent",
-        )
+        queue_inbox_message(life_dir, report, source="subagent")
     except Exception:
-        # Fallback: write alert to a file the engineer can find
-        alert_path = REGISTRY_DIR / f"{task_id}_ALERT.txt"
+        alert_path = REGISTRY_DIR / f"{task_id}_ALERT.md"
         alert_path.parent.mkdir(parents=True, exist_ok=True)
-        alert_path.write_text(
-            f"SUBAGENT ALERT [{task_id}]: {message}\n"
-            f"Time: {time.strftime('%Y-%m-%dT%H:%M:%S')}\n",
-        )
+        alert_path.write_text(report + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -224,21 +270,21 @@ def _run_direct(
                     proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     proc.kill()
-                _write_task(task_id, {
-                    "state": "timeout", "task_id": task_id,
+                td = {"state": "timeout", "task_id": task_id,
                     "description": description, "command": command,
                     "pid": proc.pid, "timeout_seconds": timeout,
                     "elapsed_seconds": round(time.time() - start_time, 1),
                     "completed_at": time.time(), "mode": "direct",
                     "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
-                })
-                _alert_engineer(task_id, f"TIMEOUT after {timeout}s. Command: {command}")
+                }
+                _write_task(task_id, td)
+                _alert_engineer(task_id, "TIMEOUT", td)
                 return
 
         elapsed = round(time.time() - start_time, 1)
         stdout_tail = _tail_file(stdout_path, 3000)
         stderr_tail = _tail_file(stderr_path, 3000)
-        _write_task(task_id, {
+        td = {
             "state": "done" if proc.returncode == 0 else "error",
             "task_id": task_id, "description": description,
             "command": command, "exit_code": proc.returncode,
@@ -246,21 +292,20 @@ def _run_direct(
             "pid": proc.pid, "mode": "direct",
             "stdout_tail": stdout_tail, "stderr_tail": stderr_tail,
             "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
-        })
-        if proc.returncode != 0:
-            _alert_engineer(task_id, f"FAILED (exit={proc.returncode}) after {elapsed:.0f}s. Check {stderr_path}")
-        else:
-            _alert_engineer(task_id, f"COMPLETED successfully in {elapsed:.0f}s. Results ready for collection.")
+        }
+        _write_task(task_id, td)
+        _alert_engineer(task_id, "COMPLETED" if proc.returncode == 0 else "FAILED", td)
 
     except Exception as exc:
-        _write_task(task_id, {
+        td = {
             "state": "error", "task_id": task_id,
             "description": description, "command": command,
             "error": f"{type(exc).__name__}: {exc}",
             "elapsed_seconds": round(time.time() - start_time, 1),
             "completed_at": time.time(), "mode": "direct",
-        })
-        _alert_engineer(task_id, f"CRASHED: {type(exc).__name__}: {exc}")
+        }
+        _write_task(task_id, td)
+        _alert_engineer(task_id, "CRASHED", td)
 
 
 # ---------------------------------------------------------------------------
@@ -406,14 +451,15 @@ def _run_supervised(
                         proc.wait(timeout=10)
                     except subprocess.TimeoutExpired:
                         proc.kill()
-                    _write_task(task_id, {
+                    td = {
                         "state": "timeout", "task_id": task_id,
                         "description": description, "command": command,
                         "pid": proc.pid, "timeout_seconds": timeout,
                         "elapsed_seconds": round(elapsed, 1),
                         "completed_at": time.time(), "mode": "supervised",
-                    })
-                    _alert_engineer(task_id, f"TIMEOUT after {timeout}s (supervised). Command: {command}")
+                    }
+                    _write_task(task_id, td)
+                    _alert_engineer(task_id, "TIMEOUT", td)
                     return
 
                 # Supervisor LLM check
@@ -447,7 +493,6 @@ def _run_supervised(
                     stop_file.write_text(
                         f"Early-stopped by supervisor at check #{check_number}\n",
                     )
-                    # Wait briefly for graceful shutdown
                     try:
                         proc.wait(timeout=30)
                     except subprocess.TimeoutExpired:
@@ -456,7 +501,7 @@ def _run_supervised(
                             proc.wait(timeout=10)
                         except subprocess.TimeoutExpired:
                             proc.kill()
-                    _write_task(task_id, {
+                    td = {
                         "state": "early_stopped", "task_id": task_id,
                         "description": description, "command": command,
                         "pid": proc.pid, "exit_code": proc.returncode,
@@ -464,22 +509,20 @@ def _run_supervised(
                         "completed_at": time.time(), "mode": "supervised",
                         "supervisor_checks": check_number,
                         "stop_reason": "supervisor early-stop",
-                    })
-                    stderr_tail = _tail_file(stderr_path, 500)
-                    _alert_engineer(
-                        task_id,
-                        f"EARLY-STOPPED by supervisor at check #{check_number} "
-                        f"({round(time.time() - start_time)}s). "
-                        f"Reason: training anomaly detected. "
-                        f"Last stderr: {stderr_tail[:200]}"
-                    )
+                        "stdout_tail": _tail_file(stdout_path, 3000),
+                        "stderr_tail": _tail_file(stderr_path, 3000),
+                        "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
+                        "supervisor_log": str(supervisor_log),
+                    }
+                    _write_task(task_id, td)
+                    _alert_engineer(task_id, "EARLY-STOPPED", td)
                     return
 
         # Process exited naturally
         elapsed = round(time.time() - start_time, 1)
         stdout_tail = _tail_file(stdout_path, 3000)
         stderr_tail = _tail_file(stderr_path, 3000)
-        _write_task(task_id, {
+        td = {
             "state": "done" if proc.returncode == 0 else "error",
             "task_id": task_id, "description": description,
             "command": command, "exit_code": proc.returncode,
@@ -488,21 +531,21 @@ def _run_supervised(
             "supervisor_checks": check_number,
             "stdout_tail": stdout_tail, "stderr_tail": stderr_tail,
             "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
-        })
-        if proc.returncode != 0:
-            _alert_engineer(task_id, f"FAILED (exit={proc.returncode}) after {elapsed:.0f}s, {check_number} supervisor checks. Check {stderr_path}")
-        else:
-            _alert_engineer(task_id, f"COMPLETED successfully in {elapsed:.0f}s ({check_number} supervisor checks). Results ready.")
+            "supervisor_log": str(supervisor_log),
+        }
+        _write_task(task_id, td)
+        _alert_engineer(task_id, "COMPLETED" if proc.returncode == 0 else "FAILED", td)
 
     except Exception as exc:
-        _write_task(task_id, {
+        td = {
             "state": "error", "task_id": task_id,
             "description": description, "command": command,
             "error": f"{type(exc).__name__}: {exc}",
             "elapsed_seconds": round(time.time() - start_time, 1),
             "completed_at": time.time(), "mode": "supervised",
-        })
-        _alert_engineer(task_id, f"CRASHED: {type(exc).__name__}: {exc}")
+        }
+        _write_task(task_id, td)
+        _alert_engineer(task_id, "CRASHED", td)
 
 
 # ---------------------------------------------------------------------------

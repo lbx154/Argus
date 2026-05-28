@@ -83,15 +83,16 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
     "plan": (
         "reviewer/experiment-plan-review.md",
         "Evaluate the experiment plan on these dimensions:\n"
-        "1. Method competitiveness — is the proposed method strong enough vs SOTA?\n"
-        "2. Idea novelty — is this a real gap, not a manufactured/incremental one? Check IDEA_REJECTION_LOG.md\n"
-        "3. Baseline strength — is at least ONE baseline a reproduced published method (not just random/no-skill)?\n"
-        "4. Reference code study — were top related papers' code repos cloned and studied? Check CODE_STUDY_NOTES.md\n"
-        "5. Evaluation fairness — same compute/data budget for all conditions?\n"
-        "6. Benchmark adequacy — ≥3 independent real benchmark families?\n"
-        "7. Infrastructure choice — is the right training/inference framework selected?\n"
-        "8. Feasibility — can this be executed with available resources?\n"
-        "If idea novelty is weak or no strong baseline is planned, block the plan.",
+        "1. **Research taste** — does this have a genuine insight/surprising angle, not just 'applied A to B'?\n"
+        "2. Method competitiveness — is the proposed method strong enough vs SOTA?\n"
+        "3. Idea novelty — is this a real gap, not a manufactured/incremental one? Check IDEA_REJECTION_LOG.md\n"
+        "4. Baseline strength — is at least ONE baseline a reproduced published method (not just random/no-skill)?\n"
+        "5. Reference code study — were top related papers' code repos cloned and studied? Check CODE_STUDY_NOTES.md\n"
+        "6. Evaluation fairness — same compute/data budget for all conditions?\n"
+        "7. Benchmark adequacy — ≥3 independent real benchmark families?\n"
+        "8. Infrastructure choice — is the right training/inference framework selected?\n"
+        "9. Feasibility — can this be executed with available resources?\n"
+        "If research taste is missing (no insight, just engineering), BLOCK the plan.",
         ["research/EXPERIMENT_PLAN.md", "research/IDEA_REJECTION_LOG.md",
          "research/CODE_STUDY_NOTES.md", "research/BASELINE_AND_BENCHMARK_PLAN.md"],
     ),
