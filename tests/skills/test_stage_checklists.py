@@ -143,3 +143,105 @@ def test_stage_checklist_completeness() -> None:
     submission_ids = {item.id for item in STAGE_CHECKLISTS["submission"]}
     assert "submission.upstream" in submission_ids
     assert "submission.anonymous" in submission_ids
+
+
+# --- stage rollback ---------------------------------------------------------
+
+
+def test_rollback_stage_moves_state_machine_backward(tmp_path: Path) -> None:
+    from argus_skill.skills.stage_checklists import rollback_stage
+
+    research_dir = tmp_path / "research"
+    research_dir.mkdir()
+    (research_dir / "PIPELINE_STATE.json").write_text(json.dumps({
+        "current_stage": "run",
+        "stages": {
+            "research": {"status": "done"},
+            "plan": {"status": "done"},
+            "benchmark": {"status": "done"},
+            "run": {"status": "in_progress"},
+            "analysis": {"status": "missing"},
+        },
+    }), encoding="utf-8")
+
+    rollback_stage(
+        tmp_path,
+        target_stage="benchmark",
+        reason="benchmark evaluator returns constant 1.0; not a real scorer",
+    )
+
+    payload = json.loads((research_dir / "PIPELINE_STATE.json").read_text(encoding="utf-8"))
+    assert payload["current_stage"] == "benchmark"
+    # `run` was in_progress; rollback must demote it back to pending
+    assert payload["stages"]["run"]["status"] == "pending"
+    # benchmark itself stays as the earlier `done` value — operator chooses
+    # whether the next round downgrades it via the checklist
+    assert payload["stages"]["benchmark"]["status"] == "done"
+    assert len(payload["rollback_history"]) == 1
+    entry = payload["rollback_history"][0]
+    assert entry["from_stage"] == "run"
+    assert entry["to_stage"] == "benchmark"
+    assert "constant 1.0" in entry["reason"]
+
+
+def test_rollback_stage_rejects_forward_or_same_target(tmp_path: Path) -> None:
+    import pytest as _pytest
+    from argus_skill.skills.stage_checklists import rollback_stage
+
+    research_dir = tmp_path / "research"
+    research_dir.mkdir()
+    (research_dir / "PIPELINE_STATE.json").write_text(json.dumps({
+        "current_stage": "plan",
+    }), encoding="utf-8")
+
+    with _pytest.raises(ValueError):
+        rollback_stage(tmp_path, target_stage="plan", reason="self-rollback")
+    with _pytest.raises(ValueError):
+        rollback_stage(tmp_path, target_stage="benchmark", reason="forward")
+    with _pytest.raises(ValueError):
+        rollback_stage(tmp_path, target_stage="nonsense", reason="bad name")
+
+
+def test_rollback_stage_appends_history_across_calls(tmp_path: Path) -> None:
+    from argus_skill.skills.stage_checklists import rollback_stage
+
+    research_dir = tmp_path / "research"
+    research_dir.mkdir()
+    (research_dir / "PIPELINE_STATE.json").write_text(json.dumps({
+        "current_stage": "draft",
+        "stages": {s: {"status": "done"} for s in (
+            "research", "plan", "benchmark", "run", "analysis", "draft",
+        )},
+    }), encoding="utf-8")
+
+    rollback_stage(tmp_path, target_stage="plan", reason="infra choice missing")
+    payload = json.loads((research_dir / "PIPELINE_STATE.json").read_text(encoding="utf-8"))
+    assert payload["current_stage"] == "plan"
+    # benchmark/run/analysis/draft demoted back to pending
+    for downgraded in ("benchmark", "run", "analysis", "draft"):
+        assert payload["stages"][downgraded]["status"] == "pending"
+
+    # A subsequent rollback (e.g. after re-advancing to benchmark and
+    # discovering another upstream gap) must accumulate, not overwrite.
+    payload["current_stage"] = "benchmark"
+    payload["stages"]["benchmark"] = {"status": "in_progress"}
+    (research_dir / "PIPELINE_STATE.json").write_text(json.dumps(payload), encoding="utf-8")
+    rollback_stage(tmp_path, target_stage="research", reason="literature gap")
+    payload = json.loads((research_dir / "PIPELINE_STATE.json").read_text(encoding="utf-8"))
+    assert len(payload["rollback_history"]) == 2
+    assert payload["current_stage"] == "research"
+
+
+# --- new evaluator-authenticity items --------------------------------------
+
+
+def test_benchmark_stage_checklist_demands_real_evaluator() -> None:
+    items = STAGE_CHECKLISTS["benchmark"]
+    ids = {item.id for item in items}
+    assert "benchmark.evaluator_authentic" in ids
+
+
+def test_run_stage_checklist_demands_score_variance() -> None:
+    items = STAGE_CHECKLISTS["run"]
+    ids = {item.id for item in items}
+    assert "run.score_variance" in ids

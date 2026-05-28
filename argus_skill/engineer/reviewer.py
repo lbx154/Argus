@@ -311,6 +311,7 @@ class Reviewer:
             raw_evidence=raw_evidence,
         )
         from ..skills.stage_checklists import (
+            CANONICAL_STAGE_ORDER,
             current_stage,
             format_full_pipeline_checklist,
             format_stage_checklist,
@@ -322,6 +323,36 @@ class Reviewer:
             stage_checklist = format_full_pipeline_checklist(role="reviewer")
         else:
             stage_checklist = format_stage_checklist(stage, role="reviewer")
+
+        # Stage-rollback instruction. When the reviewer notices that an
+        # upstream stage's evidence is missing or unreliable while
+        # working a later stage, demoting current_stage back to the
+        # earlier stage is the correct move — the agent should not be
+        # asked to repair upstream defects through the current stage's
+        # acceptance criteria. The instruction lives here (not in the
+        # individual checklist items) so it applies uniformly.
+        stage_idx = (
+            CANONICAL_STAGE_ORDER.index(stage)
+            if stage in CANONICAL_STAGE_ORDER
+            else 0
+        )
+        earlier_stages = ", ".join(CANONICAL_STAGE_ORDER[:stage_idx]) or "(none)"
+        rollback_block = (
+            "## Stage rollback\n"
+            f"Current stage: `{stage}`. Earlier stages: {earlier_stages}.\n"
+            "If you discover that an *earlier* stage's evidence is missing, "
+            "stale, or unreliable (e.g. while in `run` you notice the "
+            "`benchmark` evaluator is a stub; while in `draft` you notice "
+            "that `research/INFRA_CHOICE.md` was never locked in; while in "
+            "`analysis` you notice the `run.score_variance` rows are all "
+            "identical) — do NOT try to patch the gap from inside the "
+            "current stage. Reply `continue` and tell the engineer to roll "
+            "back the pipeline state machine by calling:\n\n"
+            "    python -c \"from argus_skill.skills.stage_checklists import rollback_stage; "
+            "rollback_stage('.', target_stage='<earlier-stage>', "
+            "reason='<one-sentence reason>')\"\n\n"
+            "then complete the earlier stage's checklist before re-advancing."
+        )
         operator_text = (
             "\n".join(f"- {line}" for line in operator_messages)
             if operator_messages
@@ -361,6 +392,7 @@ class Reviewer:
             f"{handoff_skill}\n\n"
             f"{paper_review_skill_block}"
             f"{stage_checklist}\n\n"
+            f"{rollback_block}\n\n"
             "**Length constraints:**\n"
             "- Be thorough in `round_summary_markdown` — include all relevant details\n"
             "- Use brief bullet points, not lengthy explanations\n"

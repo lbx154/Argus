@@ -282,6 +282,14 @@ the agent must select an existing open-source framework on each axis
 training loops, bare `model.generate()` benchmark loops, and hand-rolled
 PPO/GRPO/RLHF trainers are **hard blockers** at the reviewer gate.
 
+Frameworks are real, non-trivial repositories — they cannot be a snippet,
+a gist, or a "starter template" the agent writes itself. The agent must
+**actually `git clone` each shortlisted framework** into
+`code/references/<repo>/`, **read its `README` / `docs/` / example
+scripts**, and only then judge whether the framework fits the project.
+A shortlist row that names a framework without a corresponding cloned
+copy + a notes file summarizing the README fails the reviewer gate.
+
 1. **Anchor against the bundled baseline:** read
    `argus_builtin_skills/training-infrastructure-guide.md` first. It is
    the operator-curated starting point covering LLM SFT/DPO/RLHF, agent
@@ -290,32 +298,86 @@ PPO/GRPO/RLHF trainers are **hard blockers** at the reviewer gate.
    GitHub trending for frameworks that match your specific domain. You
    must add at least one credible candidate the bundled guide does not
    name, with URL + last release/commit date + paper (if any).
-3. **Maintenance bar:** every shortlisted framework must have a release
-   or default-branch commit dated **2026 or later**. Older repos are
-   excluded as unmaintained, no matter how prestigious they once were.
-4. **Paper-released frameworks are allowed** when (a) the repo meets the
+3. **Clone and study before shortlisting.** For every candidate framework:
+   ```bash
+   git clone --depth=1 <repo-url> code/references/<repo-name>/
+   git -C code/references/<repo-name>/ log -1 --format='%cI' > code/references/<repo-name>/.last-commit-iso
+   ```
+   then read at least the README, the top-level `examples/` or
+   `scripts/` directory, and the trainer/inferencer entrypoint module
+   so you understand how the framework is intended to be used.
+4. **Maintenance bar:** every shortlisted framework must have a release
+   or default-branch commit dated **2026 or later** (record the date
+   from `.last-commit-iso` above). Older repos are excluded as
+   unmaintained, no matter how prestigious they once were.
+5. **Paper-released frameworks are allowed** when (a) the repo meets the
    2026+ recency bar and (b) the paper appears in
    `research/LITERATURE_GROUNDING.json`. Prefer the official authors'
    repo over third-party reimplementations.
-5. **No self-written training or inference loops.** Wrap an existing
+6. **No self-written training or inference loops.** Wrap an existing
    framework. Excepted: thin glue scripts that import the framework's
    trainer/inferencer object and configure it.
-6. **Research stage artifact:** `research/INFRA_SHORTLIST.md` listing
-   every candidate considered with URL, last release/commit date, paper
-   (if any), a one-line domain-fit rationale, and a "maintained"
-   yes/no — including a note for any bundled-guide entry you found
-   stale and excluded.
-7. **Plan stage artifact:** `research/INFRA_CHOICE.md` locking in
+7. **Research stage artifact:** `research/INFRA_SHORTLIST.md` listing
+   every candidate considered with URL, last release/commit date (from
+   the cloned repo), paper (if any), a one-line domain-fit rationale,
+   the path to the cloned copy under `code/references/`, and a
+   "maintained" yes/no — including a note for any bundled-guide entry
+   you found stale and excluded.
+8. **Plan stage artifact:** `research/INFRA_CHOICE.md` locking in
    exactly one training framework and exactly one inference framework
    with rationale tying the choice to the project domain and the
    GPU / API budget. Mirror the locked choice in
    `research/EXPERIMENT_PLAN.md` under an `## Infra` section. Record
    one explicitly-rejected runner-up with a one-line reason.
-8. **Skip both artifacts only if** the project does not train any model
+9. **Skip both artifacts only if** the project does not train any model
    AND does not run large-scale inference (e.g. a pure literature
    analysis paper). Record the skip explicitly in
    `research/RESEARCH_BRIEF.md`; otherwise the reviewer fails the
    `research.infra_shortlist` and `plan.infra_choice` checklist items.
+
+## Pipeline state machine and stage rollback
+
+The project advances through the 8 stages in order
+(research → plan → benchmark → run → analysis → draft → review → submission).
+`research/PIPELINE_STATE.json` records `current_stage` and the per-stage
+status. The L2 reviewer gates each transition by ticking off the
+current stage's checklist items.
+
+**Backward moves are not only allowed, they are required when an
+upstream defect is discovered.** Examples:
+
+- While in `run`, the reviewer notices the `benchmark` evaluator is a
+  stub that returns a constant — the right move is to roll back to
+  `benchmark` and rewire the real scorer, NOT to patch around it from
+  inside `run`.
+- While in `draft`, the reviewer notices that
+  `research/INFRA_CHOICE.md` was never locked in — roll back to `plan`,
+  lock the choice, then re-advance.
+- While in `analysis`, the reviewer notices that
+  `scored_rows.jsonl` rows all carry the same score — roll back to
+  `benchmark` (evaluator authenticity) or `run` (matrix completeness),
+  fix the upstream cause, then re-advance.
+
+When the reviewer detects this, it must reply `continue` and tell the
+engineer to run:
+
+```python
+from argus_skill.skills.stage_checklists import rollback_stage
+rollback_stage(
+    ".",
+    target_stage="<earlier-stage>",
+    reason="<one-sentence reason quoting the missing/unreliable artifact>",
+)
+```
+
+That helper updates `current_stage`, demotes any stages strictly after
+the target back to `pending`, and appends an entry to
+`rollback_history` inside `PIPELINE_STATE.json` so the journal carries
+an audit trail. The next round will load the earlier stage's checklist
+and the agent must work it before being allowed to re-advance.
+
+Forward moves still require every item on the current stage's
+checklist to be ticked off by the reviewer.
 
 ## Benchmark and experiment contract
 1. Final long-paper evidence must come from existing real benchmarks, official benchmark datasets, or official task releases with real ground truth/evaluation. Do not create synthetic benchmarks, generated proxy tasks, hand-written gold graphs, or local pseudo-benchmarks for the main paper claim.

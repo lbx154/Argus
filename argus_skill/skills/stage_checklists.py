@@ -92,17 +92,26 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "If the project will involve gradient-based training or "
                 "large-scale inference, an initial training-infra and "
-                "inference-infra shortlist is recorded. Candidates must be "
-                "actively maintained open-source frameworks (last release "
-                "or commit in 2026 or later); self-written training/inference "
-                "loops are forbidden. The shortlist must (a) anchor against "
-                "the bundled `argus_builtin_skills/training-infrastructure-guide.md`, "
-                "(b) add at least one candidate the agent independently "
-                "discovered (with URL + last-commit date + paper/citation), "
-                "and (c) note any candidate from the bundled guide that is no "
-                "longer maintained and must be excluded."
+                "inference-infra shortlist is recorded. Each shortlisted "
+                "framework must be (a) actively maintained (last release or "
+                "default-branch commit in 2026 or later), (b) a real, "
+                "non-trivial open-source repository — not a snippet, gist, "
+                "or 'starter template'; framework selection is a *find*, "
+                "not a *write*, exercise, and (c) verified by actually "
+                "cloning the repo under `code/references/<repo>/` and "
+                "reading its `README` / `docs/` / example scripts so the "
+                "shortlist rationale reflects how the framework is meant "
+                "to be used. The shortlist must anchor against the bundled "
+                "`argus_builtin_skills/training-infrastructure-guide.md`, "
+                "add at least one candidate the agent independently "
+                "discovered, and note any guide entry that turned out "
+                "stale and must be excluded."
             ),
-            evidence_hint="research/INFRA_SHORTLIST.md",
+            evidence_hint=(
+                "research/INFRA_SHORTLIST.md (cites URL + last-commit-date + "
+                "paper if any) plus the actual cloned repos under "
+                "`code/references/`"
+            ),
         ),
     ),
     "plan": _checklist(
@@ -142,15 +151,38 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "an explicit rationale tying each choice to the project's domain "
                 "(e.g. diffusion RL post-training vs LLM SFT vs agent RL) and to "
                 "the resource budget. The chosen frameworks must be 2026+-active, "
-                "open-source, and explicitly NOT custom training/inference loops. "
-                "Cite the chosen project's repo URL, last release/commit date, "
-                "and (if from a paper) the paper. Record both the final choice "
-                "and any explicitly-rejected alternative with a one-line reason."
+                "open-source, **actually cloned and readme-studied**, and "
+                "explicitly NOT a self-written stub or starter template. Cite "
+                "the chosen project's repo URL, last release/commit date, and "
+                "(if from a paper) the paper. Record both the final choice and "
+                "any explicitly-rejected alternative with a one-line reason."
             ),
-            evidence_hint="research/INFRA_CHOICE.md + research/EXPERIMENT_PLAN.md `## Infra` section",
+            evidence_hint=(
+                "research/INFRA_CHOICE.md + research/EXPERIMENT_PLAN.md "
+                "`## Infra` section + the actually-cloned framework repo under "
+                "`code/references/<chosen-framework>/`"
+            ),
         ),
     ),
     "benchmark": _checklist(
+        ChecklistItem(
+            id="benchmark.environment_preflight",
+            statement=(
+                "Before the first real scoring call, the engineer ran the "
+                "Environment Readiness Gate (`argus_builtin_skills/engineer/"
+                "environment-readiness-gate.md`) and captured the verbatim "
+                "output to `experiments/runs/<run_id>/preflight.txt`. The "
+                "preflight must show: project `.venv` active (NOT the Argus "
+                "framework venv), `CUDA_VISIBLE_DEVICES` matches the vault, "
+                "every chosen-framework `import` succeeds, `torch.cuda.is_"
+                "available()` is True, HF/Torch cache env vars point under "
+                "`<project>/models/`, the base model weights are on disk, "
+                "and any reward/scoring API route returns a non-empty test "
+                "response. No preflight evidence ⇒ this item fails ⇒ no "
+                "downstream benchmark item can be ticked."
+            ),
+            evidence_hint="experiments/runs/<run_id>/preflight.txt",
+        ),
         ChecklistItem(
             id="benchmark.tasks",
             statement=(
@@ -177,8 +209,42 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
             evidence_hint="experiments/**/smoke/*.jsonl",
         ),
+        ChecklistItem(
+            id="benchmark.evaluator_authentic",
+            statement=(
+                "The benchmark evaluator is the *real* scoring backend for "
+                "each family, not a stub. The reviewer must inspect the "
+                "evaluator source code and confirm it (a) actually loads or "
+                "downloads the generator output, (b) calls the official scoring "
+                "model / API / metric backend (e.g. GenEval's CLIP + detector "
+                "stack, TIFA's QA model, T2I-CompBench++'s official backend), "
+                "and (c) does NOT short-circuit by returning a constant "
+                "(`return 1.0`, `gold_oracle_exact_match`, `smoke_oracle`, or "
+                "any other label that means 'we pretended'). If the evaluator "
+                "is currently a stub, this item fails and the next mission "
+                "must wire in the real scorer before any pilot/full run."
+            ),
+            evidence_hint="code/**/*.py — read every `evaluate_*` / `_evaluate_*` body",
+        ),
     ),
     "run": _checklist(
+        ChecklistItem(
+            id="run.environment_preflight",
+            statement=(
+                "Every pilot / full / ablation launch is preceded by a fresh "
+                "Environment Readiness Gate run (`argus_builtin_skills/"
+                "engineer/environment-readiness-gate.md`). The verbatim "
+                "preflight output is captured to `experiments/runs/<run_id>/"
+                "preflight.txt` for THAT run_id — not reused from an earlier "
+                "run. Required signals: project `.venv` active, "
+                "`CUDA_VISIBLE_DEVICES` matches the vault, framework imports "
+                "succeed, `torch.cuda.is_available()` True, HF/Torch caches "
+                "rooted under `<project>/models/`, base model weights present, "
+                "API routes test-called. A run launched without a fresh "
+                "preflight is treated as wasted budget and rolled back."
+            ),
+            evidence_hint="experiments/runs/<run_id>/preflight.txt (per run)",
+        ),
         ChecklistItem(
             id="run.manifests",
             statement=(
@@ -204,6 +270,23 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "row labelled as final is from a real benchmark execution."
             ),
             evidence_hint="experiments/**/manifest.json declares scale=full",
+        ),
+        ChecklistItem(
+            id="run.score_variance",
+            statement=(
+                "Scored rows reflect a real scoring distribution. The reviewer "
+                "must spot-check at least one `scored_rows.jsonl` per benchmark "
+                "family and confirm that the `score` column varies across rows. "
+                "A file with >3 rows whose scores are all identical (e.g. all "
+                "1.0 or all 0.0) is treated as stub evidence — fail this item "
+                "and require the engineer to wire in the real scorer (see "
+                "`benchmark.evaluator_authentic`) before declaring the run "
+                "stage done."
+            ),
+            evidence_hint=(
+                "`jq -r .score experiments/runs/<id>/results/<family>/scored_rows.jsonl"
+                " | sort -u | wc -l` should be > 1 per file with >3 rows"
+            ),
         ),
     ),
     "analysis": _checklist(
@@ -386,6 +469,103 @@ def current_stage(project_root: Path | str = ".") -> str:
     if stage in STAGE_CHECKLISTS:
         return stage
     return "research"
+
+
+def rollback_stage(
+    project_root: Path | str,
+    *,
+    target_stage: str,
+    reason: str,
+    rolled_back_by: str = "reviewer",
+) -> str:
+    """Move the pipeline state machine **backward** to an earlier stage.
+
+    Use this when reviewing stage N exposes a missing or unreliable
+    upstream artifact (e.g. while in ``run`` the reviewer notices that
+    the ``benchmark`` evaluator is a stub, or while in ``draft`` the
+    reviewer notices that ``research/INFRA_CHOICE.md`` was never
+    locked in). The next round will get the earlier stage's checklist
+    and the agent will repair the upstream defect before being allowed
+    to advance again.
+
+    Behavior:
+    - ``current_stage`` is set to ``target_stage``.
+    - Every stage strictly between ``target_stage`` (exclusive) and the
+      previous ``current_stage`` (inclusive) is downgraded from
+      ``done``/``ready`` to ``pending`` so the planner does not skip
+      back over them on the way up.
+    - A ``rollback_history`` array is appended with the timestamp,
+      previous stage, target stage, reason, and ``rolled_back_by`` so
+      the journal carries an audit trail.
+
+    Returns the rendered JSON file path written. Raises ``ValueError``
+    if ``target_stage`` is unknown or not strictly earlier than the
+    current stage.
+    """
+
+    import datetime as _dt
+
+    root = Path(project_root)
+    state_path = root / "research" / "PIPELINE_STATE.json"
+    target = _normalize_stage(target_stage)
+    if target not in STAGE_CHECKLISTS:
+        raise ValueError(f"unknown stage {target_stage!r}")
+
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    previous = _normalize_stage(payload.get("current_stage") or "research")
+    if previous not in STAGE_CHECKLISTS:
+        previous = "research"
+    if CANONICAL_STAGE_ORDER.index(target) >= CANONICAL_STAGE_ORDER.index(previous):
+        raise ValueError(
+            f"rollback target {target!r} must be strictly earlier than current "
+            f"stage {previous!r}"
+        )
+
+    payload["current_stage"] = target
+
+    stages = payload.get("stages")
+    if not isinstance(stages, dict):
+        stages = {}
+        payload["stages"] = stages
+
+    # Downgrade every stage strictly after the rollback target back to
+    # `pending`. Leave the target stage itself at whatever status it
+    # currently has (the engineer may want to mark it `pending` again
+    # via the next round, but we don't force that here).
+    target_index = CANONICAL_STAGE_ORDER.index(target)
+    for stage_name in CANONICAL_STAGE_ORDER[target_index + 1:]:
+        stage_record = stages.get(stage_name)
+        if not isinstance(stage_record, dict):
+            stage_record = {}
+            stages[stage_name] = stage_record
+        status = str(stage_record.get("status") or "").lower()
+        if status in {"done", "ready", "in_progress"}:
+            stage_record["status"] = "pending"
+
+    history = payload.get("rollback_history")
+    if not isinstance(history, list):
+        history = []
+        payload["rollback_history"] = history
+    history.append({
+        "at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "from_stage": previous,
+        "to_stage": target,
+        "reason": reason,
+        "rolled_back_by": rolled_back_by,
+    })
+
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return str(state_path)
 
 
 def _render_items(items: Iterable[ChecklistItem]) -> str:
