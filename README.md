@@ -123,12 +123,38 @@ python -m venv .venv && . .venv/bin/activate
 pip install -e ".[codex]"
 ```
 
-### 2. 配置 API
+### 2. 初始配置（交互式向导）
 
 ```bash
-export OPENAI_API_KEY="<your key>"
-argus-skill --init-model-api
-argus-skill --model-api-status
+argus-skill --setup
+```
+
+向导会依次引导你配置：
+1. **三个 Agent 的 API**（Planner / Engineer / Reviewer）— 支持共享或独立配置
+2. **GPU 资源分配** — 自动检测所有 GPU，选择分配给 Argus 的设备
+
+```
+═══════════════════════════════════════════════════════════════
+  Argus — Autonomous Research Generation & Understanding System
+═══════════════════════════════════════════════════════════════
+
+  Step 1: API Configuration
+  Do all 3 agents share the same API endpoint? (y/n) [y]: y
+  API Base URL: https://api.openai.com/v1/
+  API Key: sk-...
+  Planner model [gpt-5.4]:
+  Engineer model [gpt-5.4]:
+  Reviewer model [gpt-5.4]:
+
+  Step 2: GPU Resources
+  Available GPUs:
+    [0] NVIDIA B200 (179 GB)
+    ...
+    [7] NVIDIA B200 (179 GB)
+  Devices to allocate (e.g. 6 or 0,1,2) [6]: 6
+  ✓ Allocated: device(s) 6 (1 GPU, 179 GB total)
+
+  ✓ Setup complete!
 ```
 
 ### 3. 创建研究项目
