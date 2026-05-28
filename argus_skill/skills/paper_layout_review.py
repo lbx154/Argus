@@ -678,11 +678,28 @@ def _deterministic_assessment(
         layout_pages,
         LAYOUT_REFERENCES_HEADING_PATTERN,
     )
+    page_flow_contract = {
+        "conclusion_page": conclusion_page,
+        "references_page": references_page,
+        "conclusion_by_page_8": conclusion_page is None or conclusion_page <= 8,
+        "references_on_or_after_page_9": references_page is None or references_page >= 9,
+        "post_body_pages_uncapped": True,
+    }
     if references_page is not None:
         reference_page_text = layout_pages[references_page - 1]
-        if re.search(
-            r"\b(?:Conclusion|Limitations|Ethical Considerations|Ethics|Release and Reproducibility)\b",
-            reference_page_text,
+        has_conclusion_on_reference_page = bool(re.search(r"\bConclusion\b", reference_page_text))
+        has_body_end_matter_on_reference_page = bool(
+            re.search(
+                r"\b(?:Limitations|Ethical Considerations|Ethics|Release and Reproducibility)\b",
+                reference_page_text,
+            )
+        )
+        formal_boundary_passes = bool(
+            page_flow_contract["conclusion_by_page_8"]
+            and page_flow_contract["references_on_or_after_page_9"]
+        )
+        if has_conclusion_on_reference_page or (
+            has_body_end_matter_on_reference_page and not formal_boundary_passes
         ):
             penalty += 0.9
             issues.append(
@@ -691,7 +708,9 @@ def _deterministic_assessment(
                     "major",
                     (
                         "References begin on the same rendered page as body end matter; "
-                        "fix the body/reference boundary without generic shortening"
+                        "fix the body/reference boundary without generic shortening. "
+                        "Do not hard-separate post-conclusion Limitations/Ethics from References "
+                        "when Conclusion is by page 8 and References start on page 9 or later"
                     ),
                     page=references_page,
                     hard_gate=True,
@@ -789,6 +808,7 @@ def _deterministic_assessment(
     return {
         "score_1_to_5": round(score, 2),
         "criteria_scores": {key: round(value, 2) for key, value in criteria_scores.items()},
+        "page_flow_contract": page_flow_contract,
         "issues": issues,
     }
 
