@@ -12,11 +12,28 @@ def test_engineer_prompt_includes_validator_toolbelt() -> None:
     )
 
     assert "Validator toolbelt (engineer)" in prompt
+    # Core gates still advertised after toolbelt slim-down:
+    assert "validate-pipeline --project-root ." in prompt
+    assert "validate-grounding --project-root ." in prompt
     assert "validate-full-scale-evidence --project-root ." in prompt
-    assert "refresh-manifest --project-root ." in prompt
-    assert "write-validation-priority-policy --project-root ." in prompt
-    assert "refresh-artifact-freshness --project-root ." in prompt
+    assert "validate-paper-contract --project-root ." in prompt
+    assert "validate-paper-format --project-root ." in prompt
+    assert "validate-submission --project-root ." in prompt
     assert "validate-full-emnlp --project-root ." in prompt
+    # Retired bureaucratic / mutating helpers MUST NOT be advertised:
+    for retired in (
+        "refresh-manifest",
+        "write-validation-priority-policy",
+        "refresh-artifact-freshness",
+        "repair-emnlp-contract-artifacts",
+        "validate-image2-figures",
+        "validate-layout-review",
+        "validate-academic-language-review",
+        "validate-paper-infrastructure-review",
+    ):
+        assert f"{retired} --project-root ." not in prompt, (
+            f"engineer prompt still advertises retired tool {retired!r}"
+        )
     assert "## Verification (verbatim)" in prompt
     assert "Long-horizon paper execution contract" in prompt
     assert "AGENTS.md" in prompt

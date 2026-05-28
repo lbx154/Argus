@@ -101,6 +101,7 @@ class LaunchConfig:
     init_git: bool = True
     dry_run: bool = False
     overwrite_empty: bool = True
+    create_project_venv: bool = True
 
 
 @dataclass(frozen=True)
@@ -115,6 +116,7 @@ class LaunchResult:
     git_commit: str | None
     daemon_output: str
     status_output: str
+    project_venv: Path | None = None
     dry_run: bool = False
 
 
@@ -238,6 +240,30 @@ def _gpu_budget_from_vault() -> str:
     return " ".join(parts)
 
 
+def _project_venv_clause() -> str:
+    """Tell the agent where the project's own virtualenv lives.
+
+    The launcher creates `<project>/.venv` so the agent can pip install
+    experiment dependencies without touching the Argus framework venv.
+    Without this clause the agent often `pip install`s into whatever
+    Python first appears on PATH (which is the Argus venv) and ends up
+    polluting the harness with project-specific packages.
+    """
+
+    return (
+        "Project Python environment: this workspace ships with its own isolated "
+        "`./.venv` (created by the launcher). Use `./.venv/bin/python` and "
+        "`./.venv/bin/pip` for ALL experiment / dataset / training / inference "
+        "code and for any `pip install` of project dependencies. NEVER `pip install` "
+        "into the Argus framework Python (the interpreter that runs "
+        "`python -m argus_skill.*` / `${ARGUS_SKILL_PYTHON}`) — that interpreter is "
+        "reserved exclusively for argus-skill validators, daemon, and helper CLIs. "
+        "If a needed package is missing inside `./.venv`, run "
+        "`./.venv/bin/pip install <pkg>` from the project root; do not fall back "
+        "to system pip or the framework venv."
+    )
+
+
 def default_compute_budget() -> str:
     base = (
         "Use API/model budget only for necessary literature, coding, image-2, review, and "
@@ -248,9 +274,9 @@ def default_compute_budget() -> str:
         "repeated repair cycles make no validator-relevant progress."
     )
     gpu_clause = _gpu_budget_from_vault()
-    if gpu_clause:
-        return f"{gpu_clause}\n\n{base}"
-    return base
+    venv_clause = _project_venv_clause()
+    parts = [p for p in (gpu_clause, venv_clause, base) if p]
+    return "\n\n".join(parts)
 
 
 def default_allowed_inputs_table_rows() -> str:
@@ -338,6 +364,7 @@ def create_project(config: LaunchConfig) -> LaunchResult:
             git_commit=None,
             daemon_output="",
             status_output="",
+            project_venv=None,
             dry_run=True,
         )
     _prepare_project_dir(project_dir, overwrite_empty=config.overwrite_empty)
@@ -353,6 +380,19 @@ def create_project(config: LaunchConfig) -> LaunchResult:
         objective=_continuous_objective_from_agents(agents_md),
         overwrite=True,
     )
+    project_venv: Path | None = None
+    if config.create_project_venv:
+        try:
+            project_venv = init_project_venv(project_dir)
+        except (LaunchError, OSError, subprocess.TimeoutExpired) as exc:
+            # The launcher should not die just because the project venv
+            # bootstrap is slow/flaky; the user can rerun it manually.
+            print(
+                "argus-skill: warning: per-project .venv bootstrap failed "
+                f"({exc!s}). Run `python -m venv .venv` inside the project "
+                "directory and continue manually.",
+                file=sys.stderr,
+            )
     git_commit = init_git(project_dir, project_name) if config.init_git else None
     daemon_output = ""
     status_output = ""
@@ -370,6 +410,7 @@ def create_project(config: LaunchConfig) -> LaunchResult:
         git_commit=git_commit,
         daemon_output=daemon_output,
         status_output=status_output,
+        project_venv=project_venv,
     )
 
 
@@ -596,6 +637,52 @@ def init_git(project_dir: Path, project_name: str) -> str:
     return _run(["git", "rev-parse", "--short", "HEAD"], cwd=project_dir).strip()
 
 
+def init_project_venv(project_dir: Path) -> Path:
+    """Create a per-project ``.venv`` so the agent can ``pip install`` freely.
+
+    The Argus framework venv (the one running this launcher) must stay clean:
+    every research workspace gets its own isolated Python so experiment
+    dependencies (`requests`, `numpy`, custom datasets/models, …) never bleed
+    back into the harness. The new venv is seeded with a recent pip and a
+    couple of nearly-universal HTTP/JSON helpers so the agent's very first
+    `python -c "import requests"` does not fail and trigger a derail.
+    """
+
+    venv_dir = project_dir / ".venv"
+    if venv_dir.exists():
+        return venv_dir
+
+    # Use the launcher's interpreter to spawn a clean venv with system pip.
+    _run(
+        [str(_argus_python()), "-m", "venv", "--upgrade-deps", str(venv_dir)],
+        cwd=project_dir,
+        timeout=180,
+    )
+
+    pip_path = venv_dir / "bin" / "pip"
+    if not pip_path.exists():
+        pip_path = venv_dir / "Scripts" / "pip.exe"  # Windows fallback
+    if pip_path.exists():
+        try:
+            _run(
+                [str(pip_path), "install", "--quiet", "requests"],
+                cwd=project_dir,
+                timeout=180,
+            )
+        except LaunchError:
+            # Network may be flaky; the venv itself is still usable.
+            pass
+
+    # Make sure git does not try to track per-project virtualenvs.
+    gitignore = project_dir / ".gitignore"
+    snippet = "\n# argus-skill: per-project virtualenv\n.venv/\n"
+    existing = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
+    if ".venv/" not in existing.split():
+        gitignore.write_text(existing + snippet, encoding="utf-8")
+
+    return venv_dir
+
+
 def start_daemon(project_dir: Path, agents_md: str) -> str:
     objective = _continuous_objective_from_agents(agents_md)
     return _run(
@@ -771,6 +858,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip git init/add/commit",
     )
     parser.add_argument(
+        "--no-venv",
+        action="store_true",
+        help=(
+            "skip per-project `.venv` bootstrap. By default the launcher "
+            "creates an isolated virtualenv at `<project>/.venv` so the "
+            "agent can `pip install` experiment dependencies without "
+            "polluting the Argus framework venv."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="print the resolved project path/version without creating files",
@@ -808,6 +905,7 @@ def main(argv: list[str] | None = None) -> int:
         start_daemon=not args.no_start,
         init_git=not args.no_git,
         dry_run=args.dry_run,
+        create_project_venv=not args.no_venv,
     )
     try:
         result = create_project(config)
@@ -832,6 +930,8 @@ def format_result(result: LaunchResult) -> str:
         return "\n".join(lines)
     if result.git_commit:
         lines.append(f"commit  : {result.git_commit}")
+    if result.project_venv is not None:
+        lines.append(f"venv    : {result.project_venv}")
     lines.append(f"daemon  : {'started' if result.daemon_started else 'not started'}")
     if result.daemon_output.strip():
         lines.append("")

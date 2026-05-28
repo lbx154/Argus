@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 
+from argus_skill.skills.pipeline_contracts import cli_command_handlers, main as pipeline_contracts_main
 from argus_skill.tools.validator_toolbelt import (
     FINAL_EMNLP_COMMAND,
     format_validator_toolbelt_for_role,
     get_validator_tool,
+    all_validator_tools,
     main,
     validator_tools_for_role,
 )
@@ -23,18 +25,49 @@ def test_validator_tool_commands_use_pipeline_contracts_surface() -> None:
     )
 
 
-def test_role_filter_keeps_mutating_tools_engineer_only() -> None:
+def test_role_filter_separates_engineer_and_reviewer_tools() -> None:
+    """The slimmed toolbelt no longer exposes mutating repair tools or the
+    LLM-review chrome at all (those validators were too noisy a feedback
+    loop for the agent). Surface the core gates the engineer/reviewer
+    actually need, and assert the historical mutating tools are gone for
+    *every* role so nothing slips back in by mistake.
+    """
+
     engineer_ids = {tool.id for tool in validator_tools_for_role("engineer", include_mutating=True)}
     reviewer_ids = {tool.id for tool in validator_tools_for_role("reviewer")}
 
-    assert "refresh-manifest" in engineer_ids
-    assert "write-validation-priority-policy" in engineer_ids
-    assert "refresh-artifact-freshness" in engineer_ids
-    assert "refresh-manifest" not in reviewer_ids
-    assert "write-validation-priority-policy" not in reviewer_ids
-    assert "refresh-artifact-freshness" not in reviewer_ids
-    assert "validate-academic-language-review" in reviewer_ids
-    assert "validate-full-emnlp" in reviewer_ids
+    # Mutating repair tools are intentionally dropped from the toolbelt.
+    for retired in (
+        "refresh-manifest",
+        "write-validation-priority-policy",
+        "refresh-artifact-freshness",
+        "repair-emnlp-contract-artifacts",
+    ):
+        assert retired not in engineer_ids, f"{retired} should be off the toolbelt"
+        assert retired not in reviewer_ids, f"{retired} should be off the toolbelt"
+
+    # LLM-review chrome is intentionally dropped from the toolbelt too.
+    for retired in (
+        "validate-academic-language-review",
+        "validate-layout-review",
+        "validate-paper-infrastructure-review",
+        "validate-image2-figures",
+    ):
+        assert retired not in engineer_ids, f"{retired} should be off the toolbelt"
+        assert retired not in reviewer_ids, f"{retired} should be off the toolbelt"
+
+    # Core gates must still be available to both roles.
+    for required in (
+        "validate-pipeline",
+        "validate-grounding",
+        "validate-full-scale-evidence",
+        "validate-paper-contract",
+        "validate-paper-format",
+        "validate-submission",
+        "validate-full-emnlp",
+    ):
+        assert required in engineer_ids
+        assert required in reviewer_ids
 
 
 def test_toolbelt_prompt_distinguishes_narrow_feedback_from_final_gate() -> None:
@@ -43,7 +76,9 @@ def test_toolbelt_prompt_distinguishes_narrow_feedback_from_final_gate() -> None
     assert "Validator toolbelt (reviewer)" in text
     assert "Run the narrowest validator" in text
     assert "not substitutes for final readiness" in text
-    assert "validate-academic-language-review --project-root ." in text
+    # The reviewer surface still advertises the core paper-contract gate
+    # and the final EMNLP gate, even though the LLM-review chrome is gone.
+    assert "validate-paper-contract --project-root ." in text
     assert "validate-full-emnlp --project-root ." in text
 
 
@@ -57,13 +92,29 @@ def test_cli_lists_role_tools_as_text(capsys) -> None:
 
 
 def test_cli_lists_role_tools_as_json(capsys) -> None:
+    """The slim ``review`` phase no longer exposes the three LLM-review
+    validators on the toolbelt. Listing the reviewer/review role-phase
+    pair should therefore return an empty set — agents that want those
+    deeper review reports can still call the python entrypoints
+    directly, but they will not be advertised in the prompt.
+    """
+
     assert main(["list", "--role", "reviewer", "--stage", "review", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     ids = {item["id"] for item in payload}
 
-    assert ids == {
-        "validate-academic-language-review",
-        "validate-layout-review",
-        "validate-paper-infrastructure-review",
-    }
+    assert ids == set()
     assert all("command" in item for item in payload)
+
+
+def test_all_validator_toolbelt_commands_are_registered_in_pipeline_contracts_cli() -> None:
+    registered = set(cli_command_handlers())
+    toolbelt_ids = {tool.id for tool in all_validator_tools()}
+
+    assert toolbelt_ids <= registered
+
+
+def test_pipeline_contracts_cli_accepts_every_validator_toolbelt_command(tmp_path) -> None:
+    for tool in all_validator_tools():
+        exit_code = pipeline_contracts_main([tool.id, "--project-root", str(tmp_path)])
+        assert exit_code in {0, 1}

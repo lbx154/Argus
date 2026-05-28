@@ -570,8 +570,12 @@ def test_critic_prompt_has_scoped_final_submission_gate() -> None:
     sent_prompt, _ = runner.calls[0]
     assert "planner_scope: final_submission" in sent_prompt
     assert "Validator toolbelt (critic)" in sent_prompt
-    assert "validate-academic-language-review --project-root ." in sent_prompt
+    # Toolbelt slim-down removed the LLM-review validators; the critic
+    # prompt now references the core paper-contract gate instead, with
+    # the final aggregate gate still present.
+    assert "validate-paper-contract --project-root ." in sent_prompt
     assert "validate-full-emnlp --project-root ." in sent_prompt
+    assert "validate-academic-language-review" not in sent_prompt
     assert "Do NOT apply this" in sent_prompt
     assert "paper_optimization_task" in sent_prompt
 

@@ -112,8 +112,12 @@ def test_reviewer_prompt_includes_validator_toolbelt() -> None:
 
     assert "Validator toolbelt (reviewer)" in prompt
     assert "python -m argus_skill.tools.validator_toolbelt list --role reviewer" in prompt
-    assert "validate-academic-language-review --project-root ." in prompt
+    # After the toolbelt slim-down the LLM-review validators are no longer
+    # advertised; the core paper-contract gate and the final EMNLP gate
+    # take their place as what the reviewer is told to call.
+    assert "validate-paper-contract --project-root ." in prompt
     assert "validate-full-emnlp --project-root ." in prompt
+    assert "validate-academic-language-review" not in prompt
     assert "not substitutes for final readiness" in prompt
 
 

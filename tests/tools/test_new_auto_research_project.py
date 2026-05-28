@@ -54,6 +54,7 @@ def test_create_project_without_daemon_exports_template_and_skills(tmp_path: Pat
             version="v15",
             start_daemon=False,
             init_git=False,
+            create_project_venv=False,
         )
     )
 
@@ -109,6 +110,7 @@ def test_create_project_without_domain_exports_all_skills(
             version="v16",
             start_daemon=False,
             init_git=False,
+            create_project_venv=False,
         )
     )
 
@@ -123,3 +125,50 @@ def test_next_version_uses_highest_existing_workspace(tmp_path: Path) -> None:
     (tmp_path / "agent-emnlp-auto-research-not-a-version").mkdir()
 
     assert next_version(tmp_path) == "v11"
+
+
+def test_create_project_seeds_an_isolated_venv(tmp_path: Path) -> None:
+    """The launcher must build an isolated `.venv` inside each project so
+    the agent can `pip install` experiment dependencies without polluting
+    the Argus framework venv.
+    """
+
+    result = create_project(
+        LaunchConfig(
+            parent=tmp_path,
+            version="v17",
+            start_daemon=False,
+            init_git=False,
+            create_project_venv=True,
+        )
+    )
+
+    project = result.project_dir
+    venv_dir = project / ".venv"
+    assert result.project_venv == venv_dir
+    assert venv_dir.is_dir(), "per-project virtualenv was not created"
+    # pyvenv.cfg is the canonical marker that this is a real venv.
+    assert (venv_dir / "pyvenv.cfg").exists()
+    # The venv must ship its own python interpreter binary.
+    py = venv_dir / "bin" / "python"
+    if not py.exists():
+        py = venv_dir / "Scripts" / "python.exe"
+    assert py.exists(), "project venv does not expose its own python"
+    # The launcher's gitignore should keep the venv out of git history.
+    gitignore = (project / ".gitignore").read_text(encoding="utf-8")
+    assert ".venv/" in gitignore
+
+
+def test_default_compute_budget_mentions_project_venv() -> None:
+    """`default_compute_budget()` is what fills the project's AGENTS.md
+    compute clause; it must teach the agent to use the project venv and
+    NOT pip into the framework venv.
+    """
+
+    from argus_skill.tools.new_auto_research_project import default_compute_budget
+
+    rendered = default_compute_budget()
+    assert "./.venv" in rendered
+    # Should explicitly warn against polluting the framework venv.
+    assert "Argus framework" in rendered
+    assert "NEVER" in rendered

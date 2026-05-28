@@ -18,7 +18,7 @@ import struct
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from ._review_contract_constants import (
     ACADEMIC_LANGUAGE_REVIEW_GENERATED_BY,
@@ -7546,7 +7546,26 @@ def validate_submission_readiness(project_root: Path) -> list[ContractIssue]:
 
 
 def validate_full_emnlp_readiness(project_root: Path) -> list[ContractIssue]:
-    """Validate final EMNLP readiness — lean gate checking real quality only."""
+    """Validate final EMNLP readiness — lean gate checking real quality only.
+
+    The full gate now intentionally skips the LLM-review chrome
+    (`validate_layout_review`, `validate_academic_language_review`,
+    `validate_paper_infrastructure_review`) and the image-2 figure
+    provenance gate. Those validators repeatedly block agents on
+    review-JSON freshness drift even after the underlying prose and
+    figures are fine, and they are not what determines whether a paper
+    is *real research* vs slop. The remaining checks still defend the
+    properties that actually matter for an EMNLP submission:
+
+      * the pipeline state machine has reached `submission` cleanly,
+      * the experiment evidence is full-scale (not a pilot),
+      * the LaTeX manuscript satisfies the long-paper contract, and
+      * the submission packaging is ready.
+
+    The skipped validators are still callable directly via their narrow
+    CLI subcommands or python entrypoints if a downstream reviewer
+    wants to re-introduce them.
+    """
 
     root = Path(project_root)
     state = _try_read_json_object(root / PIPELINE_STATE_PATH)
@@ -7554,14 +7573,8 @@ def validate_full_emnlp_readiness(project_root: Path) -> list[ContractIssue]:
     issues = validate_pipeline_state(root)
 
     # Core content checks
-    issues.extend(validate_image2_figures(root))
     issues.extend(validate_emnlp_paper_contract(root))
     issues.extend(validate_full_scale_experiment_evidence(root))
-
-    # Review checks (score-based, not hash-based)
-    issues.extend(validate_layout_review(root))
-    issues.extend(validate_academic_language_review(root))
-    issues.extend(validate_paper_infrastructure_review(root))
 
     # Submission readiness
     issues.extend(validate_submission_readiness(root))
@@ -11399,27 +11412,59 @@ def _artifact_exists(root: Path, pattern: str) -> bool:
     return (root / pattern).exists()
 
 
+_PipelineContractsHandler = Callable[[Path], list[ContractIssue]]
+
+
+def cli_command_specs() -> tuple[tuple[str, str, _PipelineContractsHandler], ...]:
+    """Return the public CLI command surface for pipeline contracts.
+
+    Keep this registry as the single source of truth so validator discovery,
+    built-in skill docs, and CLI tests cannot silently drift apart.
+    """
+
+    return (
+        ("validate-pipeline", "validate research/PIPELINE_STATE.json and gated artifacts", validate_pipeline_state),
+        ("validate-grounding", "validate research/LITERATURE_GROUNDING.json", validate_literature_grounding),
+        ("validate-idea-provenance", "validate research/IDEA_PROVENANCE.json", validate_idea_provenance),
+        ("validate-code-reuse", "validate research/CODE_REUSE_PLAN.json", validate_code_reuse_plan),
+        ("validate-exemplar", "validate style exemplar, suitability, and structure blueprint artifacts", validate_style_exemplar),
+        ("validate-claim-graph", "validate paper/CLAIM_GRAPH.json", validate_claim_graph),
+        ("validate-figure-table-style", "validate paper/FIGURE_TABLE_STYLE_GUIDE.json", validate_figure_table_style_guide),
+        ("validate-validation-priority", "validate paper/VALIDATION_PRIORITY_POLICY.json", validate_validation_priority_policy),
+        ("validate-artifact-freshness", "validate paper/ARTIFACT_FRESHNESS.json", validate_artifact_freshness),
+        ("validate-paper-quality-contracts", "validate claim graph, figure/table style, and validation-priority contracts", validate_paper_quality_contracts),
+        ("validate-image2-figures", "validate paper/figures/IMAGE2_FIGURES.json", validate_image2_figures),
+        ("validate-paper-contract", "validate full EMNLP long-paper draft contract", validate_emnlp_paper_contract),
+        ("validate-paper-format", "validate paper/main.{tex,pdf,log} formatting and rendered reviewability", validate_paper_format),
+        ("validate-research-md-format", "validate strict EMNLP/ACL research.md format preflight", validate_research_md_format_preflight),
+        ("validate-layout-review", "validate final paper layout/aesthetic review score", validate_layout_review),
+        ("validate-academic-language-review", "validate final academic-language review score", validate_academic_language_review),
+        ("validate-paper-infrastructure-review", "validate paper-facing infrastructure leak review", validate_paper_infrastructure_review),
+        ("validate-full-scale-evidence", "validate completed full-scale experiment matrix evidence", validate_full_scale_experiment_evidence),
+        ("validate-manifest", "validate paper/ARTIFACT_MANIFEST.json", validate_artifact_manifest),
+        ("refresh-manifest", "repair and refresh paper/ARTIFACT_MANIFEST.json", refresh_artifact_manifest),
+        ("write-validation-priority-policy", "write and validate paper/VALIDATION_PRIORITY_POLICY.json", write_validation_priority_policy),
+        ("refresh-artifact-freshness", "refresh and validate paper/ARTIFACT_FRESHNESS.json", refresh_artifact_freshness),
+        ("repair-emnlp-contract-artifacts", "repair manifest, validation-priority policy, and freshness records", repair_emnlp_contract_artifacts),
+        ("validate-submission", "validate submission readiness gates", validate_submission_readiness),
+        ("validate-full-emnlp", "validate complete EMNLP long-paper readiness", validate_full_emnlp_readiness),
+    )
+
+
+def cli_command_handlers() -> dict[str, _PipelineContractsHandler]:
+    """Return command -> handler mapping for the public CLI."""
+
+    return {command: handler for command, _help, handler in cli_command_specs()}
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m argus_skill.skills.pipeline_contracts",
         description="Validate or refresh argus-skill research pipeline contracts.",
     )
     subcommands = parser.add_subparsers(dest="command", required=True)
-    for command, help_text in (
-        ("validate-pipeline", "validate research/PIPELINE_STATE.json and gated artifacts"),
-        (
-            "repair-emnlp-contract-artifacts",
-            "repair manifest, validation-priority policy, and freshness records",
-        ),
-        ("validate-image2-figures", "validate paper/figures/IMAGE2_FIGURES.json"),
-        ("validate-paper-contract", "validate full EMNLP long-paper draft contract"),
-        ("validate-layout-review", "validate final paper layout/aesthetic review score"),
-        ("validate-academic-language-review", "validate final academic-language review score"),
-        ("validate-paper-infrastructure-review", "validate paper-facing infrastructure leak review"),
-        ("validate-full-scale-evidence", "validate completed full-scale experiment matrix evidence"),
-        ("validate-submission", "validate submission readiness gates"),
-        ("validate-full-emnlp", "validate complete EMNLP long-paper readiness"),
-    ):
+    command_handlers = cli_command_handlers()
+    for command, help_text, _handler in cli_command_specs():
         command_parser = subcommands.add_parser(command, help=help_text)
         command_parser.add_argument(
             "--project-root",
@@ -11430,24 +11475,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args = parser.parse_args(list(argv) if argv is not None else None)
     project_root = Path(args.project_root)
-    if args.command == "validate-pipeline":
-        issues = validate_pipeline_state(project_root)
-    elif args.command == "validate-image2-figures":
-        issues = validate_image2_figures(project_root)
-    elif args.command == "validate-paper-contract":
-        issues = validate_emnlp_paper_contract(project_root)
-    elif args.command == "validate-layout-review":
-        issues = validate_layout_review(project_root)
-    elif args.command == "validate-academic-language-review":
-        issues = validate_academic_language_review(project_root)
-    elif args.command == "validate-paper-infrastructure-review":
-        issues = validate_paper_infrastructure_review(project_root)
-    elif args.command == "validate-full-scale-evidence":
-        issues = validate_full_scale_experiment_evidence(project_root)
-    elif args.command == "validate-submission":
-        issues = validate_submission_readiness(project_root)
-    else:
-        issues = validate_full_emnlp_readiness(project_root)
+    issues = command_handlers[args.command](project_root)
 
     for issue in issues:
         print(f"{issue.code}\t{issue.path}\t{issue.message}")
