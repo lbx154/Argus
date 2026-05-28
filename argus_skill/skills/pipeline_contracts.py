@@ -4961,10 +4961,24 @@ def _has_research_md_table_style(combined_tex: str, table_envs: list[str]) -> bo
     table_text = "\n".join(table_envs)
     searchable = f"{combined_tex}\n{table_text}"
     has_size = bool(re.search(r"\\(?:footnotesize|small)\b", searchable))
-    has_spacing = bool(re.search(r"\\setlength\s*\{\s*\\tabcolsep\s*\}\s*\{\s*[234]\s*pt\s*\}", searchable))
+    has_spacing = _has_tight_table_column_spacing(searchable)
     has_arraystretch = bool(re.search(r"\\renewcommand\s*\{\s*\\arraystretch\s*\}\s*\{\s*1\.(?:1|15|2)", searchable))
     has_shading = bool(re.search(r"\\(?:rowcolor|cellcolor)\b|tabheader|oursrow|tabours", searchable, re.I))
     return has_size and has_spacing and has_arraystretch and has_shading
+
+
+def _has_tight_table_column_spacing(tex_text: str) -> bool:
+    for match in re.finditer(
+        r"\\setlength\s*\{\s*\\tabcolsep\s*\}\s*\{\s*([0-9]+(?:\.[0-9]+)?)\s*pt\s*\}",
+        tex_text,
+    ):
+        try:
+            value = float(match.group(1))
+        except ValueError:
+            continue
+        if 2.0 <= value <= 4.0:
+            return True
+    return False
 
 
 def _has_paired_significance_evidence(
