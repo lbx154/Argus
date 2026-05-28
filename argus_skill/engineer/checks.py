@@ -4,7 +4,7 @@ import subprocess
 
 from ..core.models import CheckResult
 
-CHECK_OUTPUT_TAIL_CHARS = 8000
+CHECK_OUTPUT_TAIL_CHARS = 60000
 
 
 def run_checks(

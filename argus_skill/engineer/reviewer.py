@@ -352,11 +352,11 @@ class Reviewer:
             f"{handoff_skill}\n\n"
             f"{paper_review_skill_block}"
             f"{validator_toolbelt}\n\n"
-            "**Length constraints (strictly enforce):**\n"
-            "- Keep `round_summary_markdown` concise (under 2000 characters)\n"
-            "- Keep `completion_summary_markdown` under 1500 characters\n"
-            "- Avoid code blocks in summaries - focus on outcomes, not implementation details\n"
-            "- Use brief bullet points, not lengthy explanations\n\n"
+            "**Length constraints:**\n"
+            "- Be thorough in `round_summary_markdown` — include all relevant details\n"
+            "- Use brief bullet points, not lengthy explanations\n"
+            "- `next_action` must contain ALL specific issues, failure details, and repair steps\n"
+            "  the engineer needs — do NOT summarize away critical information\n\n"
             "Required JSON keys:\n"
             "- status\n"
             "- confidence\n"
@@ -390,12 +390,12 @@ class Reviewer:
             "   check in `Acceptance check results` is `[FAIL]`, choose\n"
             "   `continue` even if the main agent claims success. Your\n"
             "   `next_action` is the only repair prompt the engineer receives,\n"
-            "   so professionally distill the failed command, exit code,\n"
+            "   so include the failed command, exit code,\n"
             "   concrete issue codes/paths/messages, likely root cause, ordered\n"
-            "   repair steps, and exact rerun command. Do NOT paste the raw\n"
-            "   output tail wholesale. For `validate-*` commands, summarize the\n"
-            "   validator issues into exact repair instructions rather than\n"
-            "   saying only \"rerun validation\".\n"
+            "   repair steps, and exact rerun command. Include full check output\n"
+            "   so the engineer has all the context needed to fix the issue.\n"
+            "   For `validate-*` commands, list every issue with its code, path,\n"
+            "   and message, then provide concrete repair instructions.\n"
             "3) When `continue`, `next_action` must be a concrete instruction\n"
             "   that asks for SPECIFIC verification commands (e.g.,\n"
             "   `run pytest -xvs and paste the full output`,\n"
@@ -467,13 +467,13 @@ class Reviewer:
             f"Main agent fatal error: {error_text}\n\n"
             "Main agent last summary:\n"
             f"{main_summary}\n\n"
-            "Acceptance check results (reviewer-only evidence; summarize into `next_action`, do not paste raw output wholesale):\n"
+            "Acceptance check results (include full details in next_action so engineer can act on them):\n"
             f"{check_text}\n"
             f"{evidence_block}"
         )
 
 
-_MAX_SHARED_CTX_CHARS = 2000
+_MAX_SHARED_CTX_CHARS = 30000
 
 
 def _format_engineer_shared_context(
