@@ -679,6 +679,7 @@ def test_submission_assurance_gate_skill_requires_audit_layers(
         "validate-academic-language-review",
         "validate-paper-infrastructure-review",
         "result-first or validator-shaped abstract",
+        "operational audit-bundle metadata promoted into the main narrative",
         "long-paper",
         "PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLICABLE",
         "paired-significance table when comparative binary outcomes",
@@ -686,6 +687,28 @@ def test_submission_assurance_gate_skill_requires_audit_layers(
         "never a `WARN` for final EMNLP readiness",
         "citation dumping",
         "each paragraph should cite the papers it actually discusses",
+    ):
+        assert required in text
+
+
+def test_paper_infrastructure_skill_rejects_body_audit_bundle_clutter(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    seed_builtin_skills(skills_dir)
+    text = (skills_dir / "emnlp-paper-infrastructure-review.md").read_text(
+        encoding="utf-8"
+    )
+
+    for required in (
+        "Operational audit-bundle metadata promoted into main-body scientific prose",
+        "wall-clock logging",
+        "artifact hashes",
+        "status snapshots",
+        "progress logs",
+        "STOP-file cancellation contracts",
+        "provenance-refresh workflow details",
+        "Move wall-clock/hash/status/progress/STOP-file details out of Method, Setup, Results, Analysis, and Conclusion",
     ):
         assert required in text
 
