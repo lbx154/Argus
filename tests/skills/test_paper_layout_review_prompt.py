@@ -32,6 +32,8 @@ def test_vision_prompt_frames_emnlp_2026_visual_submission_review() -> None:
     assert "independent visual reviewer for an EMNLP 2026 paper" in prompt
     assert "polished, standard two-column conference paper" in prompt
     assert "large blank lower-page regions" in prompt
+    assert "Final References/Appendix pages are post-body pages" in prompt
+    assert "choose one dominant repair action" in prompt
     assert "page number when visible, the visual target" in prompt
     assert "visual_evidence" in prompt
     assert "Complete improvement guidance is mandatory" in prompt
@@ -130,6 +132,37 @@ def test_vision_guidance_is_preserved_in_revision_directives() -> None:
             },
         }
     ]
+
+
+def test_final_appendix_trailing_whitespace_is_advisory_after_boundary_passes() -> None:
+    issues = _vision_issues(
+        {
+            "major_issues": [
+                {
+                    "issue": "Appendix page ends with a large underfilled lower-page blank region.",
+                    "page": 12,
+                    "target": "Appendix page 12 lower half",
+                    "visual_evidence": "Only natural trailing whitespace remains after the appendix table.",
+                    "action": "merge_tables",
+                }
+            ]
+        },
+        deterministic={
+            "page_flow_contract": {
+                "page_count": 12,
+                "conclusion_page": 8,
+                "references_page": 9,
+                "appendix_page": 11,
+                "conclusion_by_page_8": True,
+                "references_on_or_after_page_9": True,
+                "post_body_pages_uncapped": True,
+            }
+        },
+    )
+
+    assert issues[0]["severity"] == "minor"
+    assert "hard_gate" not in issues[0]
+    assert _revision_directives(issues) == []
 
 
 def test_vision_guidance_routes_conceptual_figure_repairs_to_image2() -> None:
@@ -346,6 +379,7 @@ def test_deterministic_review_allows_postbody_matter_sharing_valid_reference_pag
     assert "references_share_body_page" not in issues
     assert result["page_flow_contract"]["conclusion_page"] == 8
     assert result["page_flow_contract"]["references_page"] == 9
+    assert result["page_flow_contract"]["page_count"] == 10
     assert result["page_flow_contract"]["post_body_pages_uncapped"] is True
 
 

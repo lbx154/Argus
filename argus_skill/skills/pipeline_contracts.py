@@ -502,6 +502,7 @@ LAYOUT_REVIEW_VISION_METHODS = {"vision_pdf_pages", "hybrid_vision_heuristic"}
 ALLOWED_LAYOUT_REVIEW_ACTIONS = {
     "shorten_section",
     "expand_evidence_content",
+    "trim_or_move_content",
     "split_table",
     "merge_tables",
     "move_float",
