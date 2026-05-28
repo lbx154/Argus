@@ -2821,6 +2821,24 @@ def test_layout_review_rejects_forged_stale_hashes(tmp_path: Path) -> None:
     assert "stale_layout_review_artifact" in {issue.code for issue in validate_layout_review(tmp_path)}
 
 
+def test_layout_review_reports_stale_pdf_before_old_score_directives(tmp_path: Path) -> None:
+    _write_valid_paper_draft_report(tmp_path)
+    _write_valid_layout_review(
+        tmp_path,
+        score=2.0,
+        verdict="FAIL",
+        needs_revision=True,
+    )
+    _write(tmp_path / "paper" / "main.pdf", "%PDF-1.5\nchanged\n")
+
+    issues = validate_layout_review(tmp_path)
+    codes = [issue.code for issue in issues]
+
+    assert codes[0] == "stale_layout_review_artifact"
+    assert "low_layout_review_score" not in codes
+    assert "layout_review_needs_revision" not in codes
+
+
 def test_academic_language_review_accepts_model_pass_with_fresh_sources(
     tmp_path: Path,
 ) -> None:
