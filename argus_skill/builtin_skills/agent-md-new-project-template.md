@@ -306,6 +306,18 @@ copy + a notes file summarizing the README fails the reviewer gate.
    then read at least the README, the top-level `examples/` or
    `scripts/` directory, and the trainer/inferencer entrypoint module
    so you understand how the framework is intended to be used.
+3a. **Scan the README for supersession hints.** Frameworks routinely
+    get upstreamed into a larger project or superseded; the original
+    repo often still ranks in search but its README points elsewhere.
+    Concrete example: `flow_grpo`'s own README now says it is "now
+    supported by `verl-omni`". For every shortlisted repo run:
+    ```bash
+    grep -nEi 'now supported by|upstreamed (in)?to|merged (in)?to|moved to|migrated to|deprecat|archived|superseded|recommended|please use|maintained at' \
+        code/references/<repo>/README* 2>/dev/null
+    ```
+    If any hit names a successor, clone the successor too, compare the
+    two in the rationale, and **default to the successor** unless there
+    is a concrete reason to stay on the older repo.
 4. **Maintenance bar:** every shortlisted framework must have a release
    or default-branch commit dated **2026 or later** (record the date
    from `.last-commit-iso` above). Older repos are excluded as

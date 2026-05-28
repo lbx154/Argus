@@ -38,18 +38,68 @@ large-scale inference must commit to a specific framework on each axis
    is no longer maintained, explicitly note it as "excluded — stale" in
    `research/INFRA_SHORTLIST.md` so the reasoning is auditable.
 
+### 🚨 Always scan the README for supersession hints
+
+Frameworks routinely get **upstreamed into a larger project, renamed,
+or superseded**. The original repo often stays publicly archived but
+its own README points at the new home. Pick the wrong one and you'll
+end up wrapping abandoned code while the active community has moved
+on. Concrete observed example: `flow_grpo`'s own README now says
+"🚀 Flow-GRPO is now supported by verl-omni, which provides a
+verl-style training framework for Flow-GRPO users." A naive shortlist
+that just notices "flow_grpo matches my domain" misses that the
+recommended path is now `verl-omni`.
+
+For every candidate framework you shortlist, you MUST do the
+following on the freshly cloned repo before writing a row in
+`research/INFRA_SHORTLIST.md`:
+
+```bash
+# Get the README text (handle both common spellings + .md/.rst):
+for f in README.md README.rst README; do
+  [ -f code/references/<repo>/$f ] && echo "=== $f ===" && cat code/references/<repo>/$f
+done | head -200
+```
+
+Then explicitly grep for supersession / migration language:
+
+```bash
+grep -nEi 'now supported by|upstreamed (in)?to|merged (in)?to|moved to|migrated to|deprecat|archived|superseded|recommended|please use|maintained at|see also' \
+    code/references/<repo>/README* 2>/dev/null
+```
+
+If any hit names a successor project, the shortlist row must:
+
+1. **Add the successor as its own candidate** in `INFRA_SHORTLIST.md`
+   (clone it under `code/references/<successor>/`, repeat the
+   maintenance + README check there too).
+2. **Compare the two in the rationale**: what does the original repo
+   still offer that the successor does not (e.g. an algorithm-specific
+   recipe the successor hasn't ported yet)?
+3. **Default to the successor** unless step 2 produced a concrete
+   reason to stay on the older repo. Wrapping a self-deprecated
+   framework "because it appeared first in our search" is a real
+   blocker, not a stylistic preference.
+
+Also do one sanity pass at the *paper* level: if the chosen framework
+backs a paper that was itself surpassed by a follow-up paper with
+its own released code, the follow-up wins on the same logic.
+
 ### Artifacts the L2 reviewer will check
 
 - **research stage** (`research.infra_shortlist`):
   `research/INFRA_SHORTLIST.md` listing every candidate framework you
-  evaluated, with URL, last release/commit date, paper (if any), and a
-  one-line "fit" rationale.
+  evaluated, with URL, last release/commit date, paper (if any),
+  README-supersession note (or "no supersession hint found" — both
+  are valid; the absence is itself a positive signal), and a one-line
+  "fit" rationale.
 - **plan stage** (`plan.infra_choice`): `research/INFRA_CHOICE.md`
   locking in exactly one training framework and exactly one inference
   framework, citing the chosen repo's URL + last release/commit date,
-  and a one-line reason why the rejected runner-up was rejected. The
-  same choice must also appear in an `## Infra` section of
-  `research/EXPERIMENT_PLAN.md`.
+  and a one-line reason why the rejected runner-up was rejected. If a
+  runner-up was rejected because of a supersession hint, name the
+  successor in the reason. The same choice must also appear in an
+  `## Infra` section of `research/EXPERIMENT_PLAN.md`.
 
 Skip both artifacts only if the project genuinely needs neither
 training nor large-scale inference (e.g. a pure literature analysis
