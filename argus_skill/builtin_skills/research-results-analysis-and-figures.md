@@ -84,7 +84,6 @@ Analyze completed runs and generate figure/table artifacts for a paper. This ada
 7. Write the narrative handoff:
    - Create or update `research/NARRATIVE_REPORT.md` with problem framing, benchmark provenance, method/protocol, supported claims, weakened/rejected claims, failure taxonomy, figure/table inventory, limitations, and the intended paper scope.
    - Read `research/LITERATURE_GROUNDING.json` and carry forward the recent-paper gap, classic anchors, trend signals, and required baselines into the narrative. Do not write the paper as if literature/news grounding happened when `validate-grounding` fails. Trend signals can motivate but cannot replace paper/code/benchmark or local-result evidence for technical claims.
-   - Read `research/IDEA_PROVENANCE.json` and `research/CODE_REUSE_PLAN.json`; carry forward the paper-derived gap, selected-idea rationale, reused/adapted code sources, attribution, and any from-scratch justification.
    - If the intended claim cannot be positioned against both recent high-quality papers and classic anchors, mark the narrative `pivot` or `blocked` instead of inventing a contribution.
    - If the evidence is only pilot-scale, explicitly label the narrative `pilot-note` or `short/workshop` scale.
    - Update `research/PIPELINE_STATE.json` so the analysis and narrative stages are `done` only when their artifacts exist.

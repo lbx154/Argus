@@ -58,15 +58,12 @@ Turn a loose operator research direction into a concrete, evidence-first experim
    - `research/LITERATURE_GROUNDING.json` must contain `recent_high_quality_papers` (minimum 10), `classic_papers` (minimum 3), and `trend_sources` with source name, URL, access date, and extracted signals. Trend sources do not need paper/benchmark/code backing and do not require `paper_or_benchmark_backing`; if a trend later becomes a technical paper claim, the claim must be supported by surveyed papers/code/benchmarks or local experiment artifacts. The literature matrix must include: source type, date, title, venue/status, URL, task, method, dataset, baseline, metric, key result, limitation, and implication for this project.
 
 4. Derive candidate ideas from evidence, not brainstorming:
-   - Write `research/IDEA_PROVENANCE.json` after the literature and source-discovery artifacts exist.
-   - Include `idea_generation_mode: "literature_and_code_grounded"` or `paper_derived`, `not_agent_brainstorm: true`, at least 3 `candidate_ideas`, and a `selected_idea`.
    - Each candidate must cite `source_refs` from surveyed recent papers, classic papers, benchmarks, official projects, or code releases. The selected idea must have at least 2 `derived_from` references and a concrete `research_gap`, `novelty_delta`, and `selection_rationale`.
    - Each candidate must state the frontier comparison it would have to beat: named SOTA/strong baselines, expected benchmark, primary metric, and why the improvement would be publishable rather than cosmetic.
    - If the only source is the agent's own intuition, set the gate to `blocked` or continue literature search; do not manufacture an idea.
 
 5. Survey reusable code before implementation:
    - Search official paper code, benchmark repositories, Papers with Code links, GitHub project pages, dataset repos, and well-licensed libraries related to the selected idea.
-   - Write `research/CODE_REUSE_PLAN.json` with `searched_queries`, `code_sources`, URL, source type, paper/project backing, license/terms, attribution, and reuse decision: `use`, `adapt`, `fork`, `reference`, `baseline`, or `reject`.
    - Prefer license-compatible official paper code, benchmark harnesses, and libraries over writing everything from scratch. If all external code is rejected, record `from_scratch_justification` or `no_usable_external_code_reason`.
    - Never paste incompatible or unlicensed code; record attribution for any reused/adapted source.
 
@@ -114,7 +111,6 @@ Turn a loose operator research direction into a concrete, evidence-first experim
    - Write `research/GO_NO_GO.md` with verdict `go`, `blocked`, `pivot`, or `rejected`.
    - Use `blocked` when compute, credentials, benchmark access, or literature access prevents a faithful experiment.
    - Use `pivot` or `rejected` when the research question is not testable with available benchmarks instead of drafting a weak paper.
-   - Update `research/PIPELINE_STATE.json` so the plan stage is `ready` only when `research/IDEA_PROVENANCE.json`, `research/CODE_REUSE_PLAN.json`, `research/EXPERIMENT_PLAN.md`, `research/CLAIMS_TO_TEST.md`, `research/BASELINE_AND_BENCHMARK_PLAN.md`, and `experiments/BENCHMARK_PROVENANCE.md` are present.
 
 13. Verify the plan:
    - Ensure every planned paper claim maps to at least one concrete run.
@@ -124,5 +120,4 @@ Turn a loose operator research direction into a concrete, evidence-first experim
    - Run `python -m argus_skill.skills.pipeline_contracts validate-idea-provenance --project-root .` and `validate-code-reuse --project-root .`; do not mark the plan stage ready while the idea looks agent-generated or the implementation ignores surveyed paper/open-source code.
 
 ## Response shape
-- Create or update `research/RESEARCH_BRIEF.md`, `research/LITERATURE_REVIEW.md`, `research/LIT_MATRIX.tsv`, `research/LITERATURE_GROUNDING.json`, `research/SOURCE_DISCOVERY.md`, `research/TREND_INSIGHTS.md`, `research/IDEA_PROVENANCE.json`, `research/CODE_REUSE_PLAN.json`, `research/NOVELTY_MAP.md`, `research/RELATED_WORK_BLOCKERS.md`, `research/BASELINE_AND_BENCHMARK_PLAN.md`, `research/EXPERIMENT_PLAN.md`, `research/CLAIMS_TO_TEST.md`, `research/GO_NO_GO.md`, and `research/PIPELINE_STATE.json`.
 - End with a short list of the next executable missions, each with acceptance criteria.

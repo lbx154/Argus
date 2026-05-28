@@ -11410,28 +11410,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     subcommands = parser.add_subparsers(dest="command", required=True)
     for command, help_text in (
         ("validate-pipeline", "validate research/PIPELINE_STATE.json and gated artifacts"),
-        ("validate-manifest", "validate paper/ARTIFACT_MANIFEST.json"),
-        ("refresh-manifest", "recompute manifest digests and TSV headers, then validate"),
         (
             "repair-emnlp-contract-artifacts",
             "repair manifest, validation-priority policy, and freshness records",
         ),
-        ("refresh-artifact-freshness", "refresh paper/ARTIFACT_FRESHNESS.json hashes, then validate"),
-        ("validate-grounding", "validate research/LITERATURE_GROUNDING.json"),
-        ("validate-idea-provenance", "validate literature-derived idea provenance"),
-        ("validate-code-reuse", "validate external source-code survey and reuse plan"),
-        ("validate-exemplar", "validate paper/style_ref/EXEMPLAR.json"),
-        ("validate-exemplar-suitability", "validate primary exemplar suitability before structure lock"),
         ("validate-image2-figures", "validate paper/figures/IMAGE2_FIGURES.json"),
-        ("validate-claim-graph", "validate paper/CLAIM_GRAPH.json evidence bindings"),
-        ("validate-figure-table-style", "validate figure/table style guide and float inventory"),
-        ("validate-validation-priority", "validate failure routing and reset policy"),
-        ("write-validation-priority-policy", "write the standard failure-routing policy, then validate"),
-        ("validate-artifact-freshness", "validate generated artifact input-hash freshness"),
-        ("validate-paper-quality-contracts", "validate paper quality contracts above legacy gates"),
         ("validate-paper-contract", "validate full EMNLP long-paper draft contract"),
-        ("validate-paper-format", "validate LaTeX/PDF reviewability and formatting evidence"),
-        ("validate-research-md-format", "validate strict research.md EMNLP format preflight"),
         ("validate-layout-review", "validate final paper layout/aesthetic review score"),
         ("validate-academic-language-review", "validate final academic-language review score"),
         ("validate-paper-infrastructure-review", "validate paper-facing infrastructure leak review"),
@@ -11451,44 +11435,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     project_root = Path(args.project_root)
     if args.command == "validate-pipeline":
         issues = validate_pipeline_state(project_root)
-    elif args.command == "validate-manifest":
-        issues = validate_artifact_manifest(project_root)
-    elif args.command == "refresh-manifest":
-        issues = refresh_artifact_manifest(project_root)
-    elif args.command == "repair-emnlp-contract-artifacts":
-        issues = repair_emnlp_contract_artifacts(project_root)
-    elif args.command == "refresh-artifact-freshness":
-        issues = refresh_artifact_freshness(project_root)
-    elif args.command == "validate-grounding":
-        issues = validate_literature_grounding(project_root)
-    elif args.command == "validate-idea-provenance":
-        issues = validate_idea_provenance(project_root)
-    elif args.command == "validate-code-reuse":
-        issues = validate_code_reuse_plan(project_root)
-    elif args.command == "validate-exemplar":
-        issues = validate_style_exemplar(project_root)
-    elif args.command == "validate-exemplar-suitability":
-        issues = validate_exemplar_suitability(project_root)
     elif args.command == "validate-image2-figures":
         issues = validate_image2_figures(project_root)
-    elif args.command == "validate-claim-graph":
-        issues = validate_claim_graph(project_root)
-    elif args.command == "validate-figure-table-style":
-        issues = validate_figure_table_style_guide(project_root)
-    elif args.command == "validate-validation-priority":
-        issues = validate_validation_priority_policy(project_root)
-    elif args.command == "write-validation-priority-policy":
-        issues = write_validation_priority_policy(project_root)
-    elif args.command == "validate-artifact-freshness":
-        issues = validate_artifact_freshness(project_root)
-    elif args.command == "validate-paper-quality-contracts":
-        issues = validate_paper_quality_contracts(project_root)
     elif args.command == "validate-paper-contract":
         issues = validate_emnlp_paper_contract(project_root)
-    elif args.command == "validate-paper-format":
-        issues = validate_paper_format(project_root)
-    elif args.command == "validate-research-md-format":
-        issues = validate_research_md_format_preflight(project_root)
     elif args.command == "validate-layout-review":
         issues = validate_layout_review(project_root)
     elif args.command == "validate-academic-language-review":

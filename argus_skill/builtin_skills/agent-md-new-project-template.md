@@ -85,7 +85,7 @@ Use the repository's existing conventions if they are already present; otherwise
 
 | Area | Required artifacts |
 | --- | --- |
-| Research | `research/RESEARCH_BRIEF.md`, `research/LITERATURE_REVIEW.md`, `research/LIT_MATRIX.tsv`, `research/LITERATURE_GROUNDING.json`, `research/IDEA_PROVENANCE.json`, `research/CODE_REUSE_PLAN.json`, `research/EXPERIMENT_PLAN.md` |
+| Research | `research/RESEARCH_BRIEF.md`, `research/LITERATURE_REVIEW.md`, `research/LIT_MATRIX.tsv`, `research/LITERATURE_GROUNDING.json`, `research/EXPERIMENT_PLAN.md` |
 | Experiments | benchmark source/provenance files, run manifests, `status.json`, `progress.jsonl`, raw result JSON/TSV, logs, STOP-file contract |
 | Style references | `paper/style_ref/exemplars/<slug>/paper.pdf`, extracted text, `paper/style_ref/EXEMPLAR.json`, `paper/style_ref/EXEMPLAR_SUITABILITY.json`, `paper/style_ref/STYLE_PROFILE.md`, `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md`, `paper/style_ref/STRUCTURE_CONFORMANCE.md`, `paper/style_ref/STRUCTURE_CONFORMANCE.json`, `paper/style_ref/SOURCES.md` |
 | Claim/evidence contracts | `paper/CLAIM_GRAPH.json`, `paper/EVIDENCE_GAPS.json`, claim-to-result tables, result-to-claim tables, and freshness hashes |
@@ -96,7 +96,7 @@ Use the repository's existing conventions if they are already present; otherwise
 1. Model and image credentials are operator capabilities, not project artifacts. The private vault is `~/.argus-skill/capabilities/model_api.json` or `ARGUS_SKILL_CAPABILITY_VAULT`; it should be mode `0600`. Do not manually open/read, print, summarize, copy, or commit its raw contents; only Argus route helpers/tools may load it at runtime.
 2. Before model-backed work, run the secret-free status check:
    `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --model-api-status`
-   Use the reported routes: `scientist` for literature/idea synthesis, `engineer` for code/evaluation helpers, `reviewer` for audits, `image` for image-2/codex-image2 generation, and `image_review` for visual inspection. If a needed route is unavailable but operator-approved environment/Codex config exists, initialize once with:
+   Use the reported routes: `engineer` for code/evaluation helpers, `reviewer` for audits, `image` for image-2/codex-image2 generation, and `image_review` for visual inspection. If a needed route is unavailable but operator-approved environment/Codex config exists, initialize once with:
    `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --init-model-api`
 3. Put reusable project wrappers under `code/`; do not scatter raw API calls through notebooks, paper generators, or review JSON writers. Use `load_model_api_route(...)` from Argus, not hard-coded keys, base URLs, or model names. Route-specific environment overrides such as `ARGUS_SKILL_IMAGE_MODEL=gpt-image-2`, `ARGUS_SKILL_IMAGE_BASE_URL`, and `ARGUS_SKILL_IMAGE_API_KEY` may be used only as process environment, never as committed text.
 4. Officially launched projects already include `code/llm.py`; prefer that seeded helper over
@@ -260,15 +260,11 @@ Use the repository's existing conventions if they are already present; otherwise
 - Planner: decomposes the paper into gated research tasks and chooses the next blocker with the highest reviewer value.
 - Engineer: implements benchmarks, experiments, generators, LaTeX, and fixes; edits source/generators rather than patching generated outputs.
 - Reviewer: checks evidence, freshness, paper quality, and whether the completion command actually passed.
-- Critic: challenges weak theses, duplicated benchmarks, validator gaming, ugly figures, stale artifacts, and overclaiming.
-- Scientist: distills reusable lessons only after a task succeeds; write guidance for a smaller engineer model with concrete gates and anti-patterns.
 
 ## Research and experiment plan contract
 1. Start from a research brief, not from a paper title.
 2. Before selecting the final thesis, survey credible sources: recent high-quality papers, classic anchor papers, benchmark/dataset papers, official repos, and operator-specified trend sources when available.
 3. Write `research/LITERATURE_GROUNDING.json` and require at least 10 recent high-quality papers plus at least 3 classic anchors unless access constraints are documented as blockers.
-5. Write `research/IDEA_PROVENANCE.json` with `idea_generation_mode: literature_and_code_grounded` and `not_agent_brainstorm: true`.
-6. Write `research/CODE_REUSE_PLAN.json`; prefer license-compatible official paper code, benchmark repos, and public libraries when appropriate instead of rewriting everything blindly.
 7. Never copy paper or media prose. Store metadata, short paraphrased summaries, and original analysis.
 
 ## Benchmark and experiment contract

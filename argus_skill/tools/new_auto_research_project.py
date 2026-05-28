@@ -191,7 +191,7 @@ def default_objective(project_name: str) -> str:
     return (
         f"Start {project_name} as a clean-slate EMNLP/ACL long-paper auto-research "
         "workspace: choose an independent frontier-domain thesis from current "
-        "literature/source discovery, train or adapt a meaningful domain model with "
+        "research, train or adapt a meaningful domain model with "
         "the available GPU budget, evaluate only on existing real benchmark sources "
         "or official task/data releases, run the full-scale evidence matrix, then write "
         "an exemplar-locked, visually polished submission package that passes the exact "
@@ -463,7 +463,7 @@ def _research_bootstrap_files(*, project_name: str, objective: str) -> dict[str,
             "- Non-negotiable evidence bar: choose a frontier-domain problem, train or adapt "
             "a meaningful modern model when learning is involved, and use existing real "
             "benchmarks or official task/data releases for all paper-facing evidence.\n"
-            "- Current stage: literature/source discovery.\n\n"
+            "- Current stage: research.\n\n"
             "This is the official launcher seed. The next agent must replace this "
             "brief with a literature-grounded problem statement before selecting "
             "the final thesis, benchmark, or paper story.\n\n"
@@ -472,8 +472,8 @@ def _research_bootstrap_files(*, project_name: str, objective: str) -> dict[str,
         "research/EXPERIMENT_PLAN.md": (
             "# Experiment Plan\n\n"
             "Seed scaffold only. Do not mark the plan stage ready until "
-            "`research/LITERATURE_GROUNDING.json`, `research/IDEA_PROVENANCE.json`, "
-            "`research/CODE_REUSE_PLAN.json`, `research/BASELINE_AND_BENCHMARK_PLAN.md`, "
+            ""
+            ""
             "and `experiments/BENCHMARK_PROVENANCE.md` contain source-backed content.\n\n"
             "Required method target: use the available GPU budget for a meaningful "
             "domain-appropriate trained/adapted model. Tiny scorers, prompt-only wrappers, "

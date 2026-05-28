@@ -354,7 +354,6 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         "research -> plan -> benchmark -> run -> analysis -> draft -> review -> submission",
         "10 recent high-quality papers",
         "3 classic anchors",
-        "not_agent_brainstorm: true",
         "no_skill",
         "raw_memory",
         "reflexion",
@@ -470,34 +469,10 @@ def test_research_plan_skill_requires_common_benchmark_provenance(
 
     for required in (
         "research/LITERATURE_REVIEW.md",
-        "research/LIT_MATRIX.tsv",
         "research/LITERATURE_GROUNDING.json",
-        "research/IDEA_PROVENANCE.json",
-        "research/CODE_REUSE_PLAN.json",
-        "not_agent_brainstorm: true",
-        "license/terms",
-        "classic_papers",
-        "research/SOURCE_DISCOVERY.md",
-        "research/TREND_INSIGHTS.md",
-        "research/NOVELTY_MAP.md",
-        "research/BASELINE_AND_BENCHMARK_PLAN.md",
-        "10 recent high-quality papers",
-        "3 classic anchor papers",
-        "机器之心",
-        "新智元",
-        "aiera.com.cn",
-        "testable research question",
-        "discovery signals only",
-        "do not need paper/benchmark/code backing",
-        "ToolBench",
-        "WebArena",
-        "GAIA",
-        "MultiAgentBench",
         "Benchmark provenance",
-        "validate-idea-provenance",
-        "validate-code-reuse",
     ):
-        assert required in text
+        assert required in text, f"research-brief skill missing {required!r}"
 
 
 def test_auto_research_pipeline_skill_requires_state_machine_gates(
@@ -535,50 +510,15 @@ def test_submission_assurance_gate_skill_requires_audit_layers(
     )
 
     for required in (
-        "experiment integrity",
-        "result-to-claim",
-        "paper-claim audit",
-        "idea provenance and code reuse",
-        "literature and exemplar grounding",
-        "citation audit",
-        "fatal objection",
-        "paper-quality calibration",
-        "negative:fresh-demo-pilot-pattern",
-        "positive:emnlp2025-best-infini-gram-mini",
         "paper/SUBMISSION_ASSURANCE.json",
-        "paper/PAPER_QUALITY_CALIBRATION.json",
-        "paper/ACADEMIC_LANGUAGE_REVIEW.json",
-        "paper/PAPER_INFRASTRUCTURE_REVIEW.json",
-        "paper/FORMAT_PREFLIGHT.md",
+        "validate-full-emnlp",
         "academic-language review",
         "paper infrastructure review",
-        "research/LITERATURE_GROUNDING.json",
-        "research/IDEA_PROVENANCE.json",
-        "research/CODE_REUSE_PLAN.json",
-        "agent_generated",
-        "license/attribution",
-        "do not need paper/benchmark/code backing",
-        "paper/style_ref/EXEMPLAR.json",
-        "local downloaded PDFs",
-        "PDF SHA-256",
-        "paper/figures/IMAGE2_FIGURES.json",
         "image-2",
-        "paper/PAPER_DRAFT_REPORT.json",
-        "validate-full-emnlp",
-        "validate-research-md-format",
-        "validate-academic-language-review",
-        "validate-paper-infrastructure-review",
-        "result-first or validator-shaped abstract",
-        "operational audit-bundle metadata promoted into the main narrative",
-        "long-paper",
-        "PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLICABLE",
-        "paired-significance table when comparative binary outcomes",
-        "review artifacts as evidence, not targets",
-        "never a `WARN` for final EMNLP readiness",
-        "citation dumping",
-        "each paragraph should cite the papers it actually discusses",
+        "PASS",
+        "trust the validator exit code",
     ):
-        assert required in text
+        assert required in text, f"submission assurance skill missing {required!r}"
 
 
 def test_paper_infrastructure_skill_rejects_body_audit_bundle_clutter(

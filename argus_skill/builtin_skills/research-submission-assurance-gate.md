@@ -43,8 +43,6 @@ and stop. Do not attempt further repairs.
 - `paper/PAGE_BUDGET.md`, `paper/TEMPLATE_SOURCE.md`, and a thick `paper/style_ref/STYLE_PROFILE.md`
 - `paper/main.log`, rendered `paper/main.pdf`, and extracted layout/page evidence sufficient to prove the `research.md` formatting preflight: no unresolved references/citations, no `[?]`, no `Overfull \hbox > 5pt`, body visibly fills the EMNLP long-paper budget (Conclusion not before page 7 and References/Appendix not before page 9 when PDF text can be extracted), conclusion by page 8 with no forced manual page break immediately before it, Limitations/Ethical Considerations present after the conclusion, References before Appendix, no total-page maximum after References/Appendix begin, anonymous author block, no placeholders, no `% UNVERIFIED` bibliography entries unless explicitly accepted by the operator, at least 35 verified BibTeX entries, at least 30 unique cited keys, at least two rendered References pages when PDF text can be extracted, every figure labeled/referenced, every table caption a numerical headline, model-backed layout review accepts the middle-body visual rhythm, at least one paired-significance table when comparative binary outcomes are reported or an explicit not-applicable rationale, and complete reproducibility appendix
 - `research/LITERATURE_GROUNDING.json` with at least 10 recent high-quality papers, 3 classic anchor papers, and recorded news/trend discovery signals
-- `research/IDEA_PROVENANCE.json` proving the selected idea was derived from surveyed papers, benchmarks, trend signals, and code sources rather than agent brainstorming
-- `research/CODE_REUSE_PLAN.json` recording official paper-code/open-source repository search, license/terms, attribution, and reuse/adapt/reject decisions
 - Full-scale experiment evidence that passes `python -m argus_skill.skills.pipeline_contracts validate-full-scale-evidence --project-root .`: completed raw scored rows under `experiments/**` for every required method/baseline condition, not merely `benchmarks/full/tasks.jsonl`, a benchmark manifest, or a declared `status.json task_count`.
 - `paper/style_ref/EXEMPLAR.json` with `exemplar_schema_version: 2`, at least two excellent open-access paper exemplars, local downloaded PDFs under `paper/style_ref/exemplars/`, text extracts, PDF SHA-256 digests, license/storage-policy metadata, and structural-style-only/no-prose-copy attestations
 - `paper/PAPER_DRAFT_REPORT.json` declaring `target_venue: "EMNLP"`, `paper_scope: "long-paper"`, `main_content_pages`, `official_acl_template: true`, and `submission_quality_self_assessment`
@@ -81,7 +79,6 @@ Use the 6-state verdict schema `PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLI
    - Check that the final idea comes from surveyed papers, benchmark gaps, trend sources, and/or code sources--not from free-form agent brainstorming.
    - Check that official paper code, benchmark repositories, Papers with Code links, GitHub project pages, dataset repos, and relevant libraries were searched before implementation.
    - Confirm any reused/adapted code has license/terms, attribution, and a clear reuse decision; incompatible code must be rejected, not pasted.
-   - Hard blockers: missing `research/IDEA_PROVENANCE.json`, `agent_generated` ideas, fewer than 3 literature-derived candidates, selected ideas without paper-derived sources, missing `research/CODE_REUSE_PLAN.json`, no repository/code search, or reused code without license/attribution.
 
 5. **literature and exemplar grounding**
    - Run `python -m argus_skill.skills.pipeline_contracts validate-grounding --project-root .` and `validate-exemplar`.
@@ -170,7 +167,6 @@ The JSON must follow this shape:
     "experiment_integrity": {"verdict": "PASS", "evidence": ["experiments/run/manifest.json"]},
     "result_to_claim": {"verdict": "WARN", "evidence": ["paper/artifacts/claims_evidence.tsv"]},
     "paper_claim_audit": {"verdict": "FAIL", "evidence": ["paper/main.tex"]},
-    "idea_provenance_and_code_reuse": {"verdict": "PASS", "evidence": ["research/IDEA_PROVENANCE.json", "research/CODE_REUSE_PLAN.json"]},
     "literature_and_exemplar_grounding": {"verdict": "PASS", "evidence": ["research/LITERATURE_GROUNDING.json", "paper/style_ref/EXEMPLAR.json"]},
     "citation_audit": {"verdict": "BLOCKED", "evidence": ["paper/references.bib"]},
     "fatal_objection_review": {"verdict": "WARN", "evidence": ["paper/FATAL_OBJECTION_REVIEW.md"]},

@@ -38,7 +38,6 @@ This skill is not a copyediting pass. It is a calibrated reject/accept simulatio
 - Manuscript: `paper/main.tex`, section files, `paper/main.pdf`, and `paper/main.log`.
 - Paper contract: `paper/PAPER_DRAFT_REPORT.json`, `paper/PAGE_BUDGET.md`, `paper/TEMPLATE_SOURCE.md`, and `research/PIPELINE_STATE.json`.
 - Evidence: `paper/artifacts/results_summary.tsv`, raw `experiments/**` and `results/**` records/logs, `paper/artifacts/claims_evidence.tsv`, and `paper/SUBMISSION_ASSURANCE.json`.
-- Grounding: `research/LITERATURE_GROUNDING.json`, `research/IDEA_PROVENANCE.json`, `research/CODE_REUSE_PLAN.json`, `experiments/BENCHMARK_PROVENANCE.md` or `.json`.
 - Style/review gates: `paper/FORMAT_PREFLIGHT.md`, `paper/ACADEMIC_LANGUAGE_REVIEW.json`, `paper/LAYOUT_REVIEW.json`, `paper/style_ref/EXEMPLAR.json`, and `paper/figures/IMAGE2_FIGURES.json`.
 
 ## Eight review dimensions

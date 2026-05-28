@@ -231,8 +231,6 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 - Planner: chooses the next blocker with the highest reviewer value, not the easiest cosmetic edit.
 - Engineer: fixes one bounded blocker end-to-end, updates generators when needed, and reruns relevant validation.
 - Reviewer: verifies the claimed blocker is actually gone and no new blocker was introduced.
-- Critic: challenges shortcuts, stale artifacts, duplicated benchmarks, weak novelty, ugly figures, and paper text that only exists to appease validators.
-- Scientist: distills reusable lessons only when the fix is complete and general, not from a mid-failure workaround.
 
 ## Operating rules
 1. Read this file before each new mission or round.

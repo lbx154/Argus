@@ -39,7 +39,6 @@ Create or update `research/PIPELINE_STATE.json` before doing expensive work. The
   "stages": {
     "brief": {"status": "done", "artifact": "research/RESEARCH_BRIEF.md"},
     "literature": {"status": "pending", "artifact": "research/LITERATURE_GROUNDING.json"},
-    "novelty": {"status": "pending", "artifact": "research/IDEA_PROVENANCE.json"},
     "plan": {"status": "running", "artifact": "research/EXPERIMENT_PLAN.md"},
     "benchmark": {"status": "missing"},
     "run": {"status": "missing"},

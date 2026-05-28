@@ -16,7 +16,7 @@ EMNLP Paper Skill Router
 
 ## Routing
 - **End-to-end stage control:** Auto Research Pipeline. Owns `research/PIPELINE_STATE.json`, stage gates, pivots, and when to move backward from drafting to experiments.
-- **Literature, idea, benchmark plan:** Research Brief To Experiment Plan. Owns literature/source discovery, `LITERATURE_GROUNDING.json`, `IDEA_PROVENANCE.json`, `CODE_REUSE_PLAN.json`, benchmark provenance, and baseline plan.
+- **Literature, idea, benchmark plan:** Research Brief To Experiment Plan. Owns literature/source discovery, `LITERATURE_GROUNDING.json`, benchmark provenance, and baseline plan.
 - **Experiment execution:** Agent Research Benchmark Runner. Owns live runs, `progress.jsonl`, `status.json`, raw scored rows, full-scale task count, baselines, ablations, STOP-file protocol, and resumability.
 - **Results, tables, plots, image-2 manifest:** Research Results Analysis And Figures. Owns `RESULTS_REPORT.md`, `result_to_claim.tsv`, `results_table.tsv`, data-derived figures/tables, Figure 1 / teaser / overview image-2 generation, and `IMAGE2_FIGURES.json`.
 - **Paper structure and first LaTeX draft:** EMNLP Paper Drafting. Owns official ACL template use, `PAGE_BUDGET.md`, `PAPER_DRAFT_REPORT.json`, verified BibTeX insertion, citation placement, claim-to-evidence prose, and `main.tex`.
@@ -35,7 +35,6 @@ When `validate-full-emnlp` fails, group the TSV output by issue code first. Repa
 
 | Issue codes / symptoms | Primary route | Required action |
 | --- | --- | --- |
-| `missing_pipeline_state`, `missing_literature_grounding`, `missing_idea_provenance`, `missing_code_reuse_plan` | Auto Research Pipeline + Research Brief To Experiment Plan | Bootstrap the stage state, literature grounding, idea provenance, benchmark/source plan, and code reuse plan before drafting. |
 | `missing_full_scale_experiment_run`, `missing_baseline_condition_run`, `incomplete_full_scale_experiment_run`, `underpowered_pilot`, `pilot_pdf_without_full_scale_evidence`, `synthetic_only_benchmark`, `insufficient_executed_benchmark_sources` | Agent Research Benchmark Runner | Run or collect full-scale source-backed evidence from at least 3 independent executed real benchmark source families and nontrivial baselines; benchmark construction/status files, same-family variants, and planned diagnostic rows alone are not experiment evidence. |
 | `proposed_result_missing`, `missing_results_summary`, `quality_signal_contradicts_results`, unsupported or weak result claims | Research Results Analysis And Figures + Claims Evidence Audit | Recompute canonical result tables from raw runs, update result-to-claim mappings, then soften or supplement claims. |
 | `claim_graph_*`, `supported_claim_missing_*`, `missing_paper_contribution`, `invalid_quality_signal`, `ready_quality_calibration_with_blocking_issues` | Claims Evidence Audit | Rebuild `CLAIM_GRAPH.json`, `EVIDENCE_GAPS.json`, and paper-quality calibration from current evidence before touching prose. |

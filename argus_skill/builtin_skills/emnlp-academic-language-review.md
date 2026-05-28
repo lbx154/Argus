@@ -27,7 +27,6 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
 ## How to solve
 1. Read the evidence before editing prose:
    - `research/NARRATIVE_REPORT.md`
-   - `research/IDEA_PROVENANCE.json`
    - `research/LITERATURE_GROUNDING.json`
    - `paper/RESULTS_REPORT.md`
    - `paper/artifacts/result_to_claim.tsv`
