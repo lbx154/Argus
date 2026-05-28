@@ -119,6 +119,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     capability_grp = parser.add_argument_group("capability config")
     capability_grp.add_argument(
+        "--setup",
+        action="store_true",
+        help="run the interactive setup wizard (API + GPU configuration)",
+    )
+    capability_grp.add_argument(
         "--model-api-status",
         action="store_true",
         help="print the unified model/image API capability status without secrets",
@@ -932,6 +937,7 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.follow)
         + bool(args.notify)
         + bool(args.init_identity)
+        + bool(args.setup)
         + bool(args.model_api_status)
         + bool(args.init_model_api)
         + bool(args.skill_stats)
@@ -970,6 +976,9 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_notify(args))
     if args.init_identity:
         return _run_with_path_resolution_errors(lambda: _cmd_init_identity(args))
+    if args.setup:
+        from ..tools.setup import run_setup
+        return run_setup()
     if args.model_api_status:
         return _run_with_path_resolution_errors(lambda: _cmd_model_api_status(args))
     if args.init_model_api:
