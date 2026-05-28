@@ -13,6 +13,7 @@ from argus_skill.skills.academic_language_review import (
     generate_academic_language_review,
 )
 from argus_skill.skills.pipeline_contracts import (
+    _has_research_md_table_style,
     _latex_environment_word_count,
     _pdf_page_count,
     _validate_rendered_pdf_page_budget,
@@ -46,6 +47,46 @@ from argus_skill.skills.pipeline_contracts import (
     validate_validation_priority_policy,
     write_validation_priority_policy,
 )
+
+
+def test_research_md_table_style_accepts_decimal_tight_tabcolsep() -> None:
+    table = "\n".join(
+        [
+            "\\begin{table}[t]",
+            "\\centering",
+            "\\footnotesize",
+            "\\setlength{\\tabcolsep}{3.5pt}",
+            "\\renewcommand{\\arraystretch}{1.15}",
+            "\\begin{tabular}{lc}",
+            "\\rowcolor{softgray}",
+            "System & Score \\\\",
+            "\\end{tabular}",
+            "\\caption{Method improves by 8 points.}",
+            "\\end{table}",
+        ]
+    )
+
+    assert _has_research_md_table_style(table, [table])
+
+
+def test_research_md_table_style_rejects_loose_decimal_tabcolsep() -> None:
+    table = "\n".join(
+        [
+            "\\begin{table}[t]",
+            "\\centering",
+            "\\footnotesize",
+            "\\setlength{\\tabcolsep}{4.5pt}",
+            "\\renewcommand{\\arraystretch}{1.15}",
+            "\\begin{tabular}{lc}",
+            "\\rowcolor{softgray}",
+            "System & Score \\\\",
+            "\\end{tabular}",
+            "\\caption{Method improves by 8 points.}",
+            "\\end{table}",
+        ]
+    )
+
+    assert not _has_research_md_table_style(table, [table])
 
 
 def test_pipeline_state_contract_accepts_ready_stage_artifacts(tmp_path: Path) -> None:
