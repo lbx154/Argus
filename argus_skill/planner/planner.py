@@ -1,26 +1,16 @@
-"""Critic sub-agent implementation.
+"""Planner agent — emits the next batch of backlog items each planning cycle.
 
-Stateless: one ``Critic.evaluate(...)`` call per iteration cycle.
-The critic receives the original objective, the latest reviewer
-completion summary (which by contract quotes concrete evidence — see
-reviewer rule 7), and a tail of the journal for context, and is asked
-to either:
+Per planning cycle, the planner inspects the project (read files, run
+`pytest -q`, etc.), then returns a :class:`PlannerVerdict` containing
+either ``project_done=True`` (with ``new_tasks=[]``) or a list of
+:class:`TaskSpec` describing the next missions for the engineer + reviewer
+pair to work through.
 
-* return one or more concrete, actionable improvement items, OR
-* return an empty list AND ``stop=True`` if the artefact is
-  genuinely done — no fluff, no nitpicking.
-
-The prompt and parser are engineered to reject vanity edits (rename,
-comment, tiny refactor) unless the operator explicitly asked for them.
-The goal is sustained high-value work: L3 stops low-value local polish
-so L4 can find the next valuable mission instead of burning tokens on
-iteration theatre.
-
-The :meth:`Critic.plan_next` method extends the critic into a
-*planner* role: after all currently queued work is finished, the
-planner inspects the project holistically and generates the next batch
-of backlog items (or declares the project done). This enables 24/7
-continuous improvement without human intervention.
+This module used to also house a "critic" sub-agent that judged whether
+a `done` mission was worth one more polishing round; that layer was
+removed once the L2 reviewer subsumed its responsibility. Anything in
+this file with a ``_RetiredCritic*`` prefix is dead code preserved only
+for back-compat imports; new callers should ignore it.
 """
 from __future__ import annotations
 
@@ -34,22 +24,14 @@ from ..core.models import RunnerOptions
 from ..core.ports import RunnerBackend
 from ..skills.role_context import format_role_context
 
-MIN_CRITIC_IMPACT_SCORE = 4
 MIN_PLANNER_IMPACT_SCORE = 4
 DEFAULT_PLANNER_HARD_IDLE_SECONDS = 300
 DEFAULT_PLANNER_MAX_SECONDS = 300
 TASK_SCOPE_BOUNDED = "bounded"
 TASK_SCOPE_FINAL_SUBMISSION = "final_submission"
 _TASK_SCOPES = {TASK_SCOPE_BOUNDED, TASK_SCOPE_FINAL_SUBMISSION}
-_CRITIC_ROLE_SKILL = "argus-critic-role.md"
 _PLANNER_ROLE_SKILL = "argus-planner-role.md"
 PLANNER_SCHEMA_PATH = str(Path(__file__).with_name("planner_schema.json"))
-_CRITIC_ROLE_FALLBACK = """# Argus Critic Role
-
-The Critic is argus-skill's post-review quality filter. Continue only for
-operator-visible high-impact improvements; stop local iteration for vanity or
-cosmetic work.
-"""
 _PLANNER_ROLE_FALLBACK = """# Argus Planner Role
 
 The Planner is argus-skill's manager/director. Inspect project state and queue
@@ -59,7 +41,9 @@ whole-project readiness gate.
 
 
 @dataclass
-class CriticConfig:
+class PlannerConfig:
+    """Knobs the supervisor passes down to a Planner.plan_next() call."""
+
     model: str | None = None
     reasoning_effort: str | None = None
     working_dir: str | None = None
@@ -69,106 +53,10 @@ class CriticConfig:
     dangerous_yolo: bool = False
 
 
-@dataclass(frozen=True)
-class Improvement:
-    """One concrete polish proposal the critic wants the engineer to apply."""
-
-    title: str
-    rationale: str
-    acceptance: str  # how the operator would verify the improvement landed
-    impact_score: int = 0  # 0-5; parser accepts only high-value proposals
-    impact_area: str = ""
-    evidence: str = ""
-
-
-@dataclass(frozen=True)
-class CriticVerdict:
-    stop: bool  # True ⇒ finalize the item, do not iterate further
-    reason: str
-    improvements: list[Improvement] = field(default_factory=list)
-    raw_text: str = ""
-    input_tokens: int = 0
-    cached_input_tokens: int = 0
-    output_tokens: int = 0
-
-
-_CRITIC_SYSTEM_PREAMBLE = (
-    "You are the Critic agent in a 7×24 supervised coding loop. "
-    "An engineer just produced an artefact and the reviewer accepted "
-    "it as `done`. Your job: decide whether one more polishing cycle "
-    "would deliver real, operator-visible value, or whether further "
-    "iteration is iteration theatre. `stop=true` does NOT mean the "
-    "daemon stops working; it means this local artifact is done and the "
-    "L4 planner should find the next valuable mission.\n\n"
-    "Output a JSON object with this exact shape:\n"
-    "{\n"
-    '  "stop": <true|false>,\n'
-    '  "reason": "<one sentence>",\n'
-    '  "improvements": [\n'
-    "    {\n"
-    '      "title":      "<short imperative, e.g. add property-based tests for amount validation>",\n'
-    '      "impact_score": <0-5 integer>,\n'
-    '      "impact_area": "<correctness|security|operator_ux|performance|reliability|integration|requirement_gap>",\n'
-    '      "evidence":   "<specific signal showing this is worth another agent round>",\n'
-    '      "rationale":  "<why this matters to the operator, 1-2 sentences>",\n'
-    '      "acceptance": "<what the engineer must show next round to prove it landed>"\n'
-    "    }\n"
-    "  ]\n"
-    "}\n\n"
-    "Rules:\n"
-    "1) `stop=true` MUST be returned when:\n"
-    "   - the operator's original objective is fully satisfied with no\n"
-    "     concrete weakness left, OR\n"
-    "   - any further work would be cosmetic (rename, doc polish, "
-    "trivial refactor) and the operator did NOT ask for that.\n"
-    "   When `stop=true`, `improvements` MUST be `[]`.\n"
-    "2) `stop=false` is allowed ONLY when at least one improvement has\n"
-    f"   `impact_score >= {MIN_CRITIC_IMPACT_SCORE}` and is GENUINELY VALUABLE — examples:\n"
-    "   * missing edge cases the test suite does not exercise;\n"
-    "   * obvious correctness gap (race, off-by-one, leak, security);\n"
-    "   * a feature the operator asked for that is incomplete;\n"
-    "   * performance / robustness in a path the operator cares about;\n"
-    "   * an integration / end-to-end demo proving the artefact works\n"
-    "     in the real environment, not just unit tests.\n"
-    "3) NEVER propose: variable renames, type-hint tightening,\n"
-    "   docstring polish, removing trailing whitespace, splitting a\n"
-    "   30-line file into more files, adding logging just to add\n"
-    "   logging, or any change whose acceptance criterion is itself\n"
-    "   subjective. Those are vanity. Vanity ⇒ `stop=true`.\n"
-    "4) Each improvement must include concrete `evidence`: failing or\n"
-    "   missing coverage, observed runtime risk, user-visible gap,\n"
-    "   documented requirement gap, production-like smoke failure, etc.\n"
-    "   If the evidence is only \"would be cleaner\", stop instead.\n"
-    "5) Each improvement's `acceptance` must be testable: a command\n"
-    "   the engineer can run, an output that must be present, a\n"
-    "   measurable property. If you cannot write an acceptance line,\n"
-    "   it is not a real improvement; do not list it.\n"
-    "6) Cap improvements at 3. Quality over quantity.\n"
-    "7) If the original objective or metadata says `planner_scope: final_submission`\n"
-    "   or `Task scope: final_submission`, `stop=true` is allowed ONLY when the\n"
-    "   latest reviewer verdict says `done` against the **full pipeline checklist**\n"
-    "   (research → submission) and the submission-stage checklist itself records\n"
-    "   no hard blockers. A passing single-stage checklist, pilot run, underlength\n"
-    "   draft, missing strong baseline, missing ablation, negative-result pivot for\n"
-    "   a positive paper objective, or baseline-only win that does not support the\n"
-    "   proposed contribution is a high-impact `requirement_gap` and must yield\n"
-    "   `stop=false`. Do NOT apply this rule to `planner_scope: bounded` or\n"
-    "   unscoped bounded subtasks.\n"
-    "8) If the original objective or metadata says `paper_optimization_task`,\n"
-    "   treat it as a long-horizon paper mission even when\n"
-    "   `planner_scope: bounded`. `stop=true` is allowed only when the latest\n"
-    "   reviewer evidence ticks off the currently-relevant checklist items or\n"
-    "   explicitly lists the remaining checklist items as outside this mission's\n"
-    "   budget. Underfilled body, stale artifacts, missing manuscript, or\n"
-    "   untriaged submission-stage items are high-impact `requirement_gap`s. This\n"
-    "   does not demand the full pipeline checklist unless the scope is\n"
-    "   `final_submission`; it prevents tiny local paper fixes from being accepted\n"
-    "   as enough.\n"
-    "   If the remaining paper issue is repeated or systemic, prefer one\n"
-    "   root-cause improvement that audits evidence, page flow, stale artifacts,\n"
-    "   reviews, and figure/table provenance over several micro-edits.\n"
-    "9) Output JSON ONLY. No prose around it. No markdown fences.\n"
-)
+# Back-compat alias for any caller still importing the historical name.
+# The post-mission "critic" iteration loop was removed long ago; only the
+# planner role survives. New code should use ``PlannerConfig`` directly.
+CriticConfig = PlannerConfig
 
 
 @dataclass(frozen=True)
@@ -364,124 +252,20 @@ def _planner_wall_clock_interrupt_provider():
     return _interrupt_reason
 
 
-class Critic:
-    """Critic + Planner agent. Stateless per call.
+class Planner:
+    """Project-level planner.
 
-    * :meth:`evaluate` — per-iteration: polish or finalize one mission.
-    * :meth:`plan_next` — per-planning-cycle: inspect the project and
-      generate the next batch of backlog items (or declare done).
+    Per planning cycle: inspect project state and emit the next batch of
+    backlog items (or declare project done).
+
+    The historical "Critic.evaluate()" per-iteration polish layer was
+    removed; the supervisor now relies on the L2 reviewer for verdicts
+    and the planner for forward scheduling. The exported ``Critic``
+    alias below preserves any third-party import sites.
     """
 
     def __init__(self, runner: RunnerBackend) -> None:
         self.runner = runner
-
-    def evaluate(
-        self,
-        *,
-        original_objective: str,
-        latest_completion_summary: str,
-        cycles_done: int,
-        cycles_max: int,
-        budget_remaining_usd: float,
-        journal_tail: str = "",
-        config: CriticConfig | None = None,
-    ) -> CriticVerdict:
-        cfg = config or CriticConfig()
-        prompt = self._build_prompt(
-            original_objective=original_objective,
-            latest_completion_summary=latest_completion_summary,
-            cycles_done=cycles_done,
-            cycles_max=cycles_max,
-            budget_remaining_usd=budget_remaining_usd,
-            journal_tail=journal_tail,
-        )
-        result = self.runner.run_exec(
-            prompt=prompt,
-            resume_thread_id=None,
-            options=RunnerOptions(
-                model=cfg.model,
-                reasoning_effort=cfg.reasoning_effort,
-                working_dir=cfg.working_dir,
-                dangerous_yolo=cfg.dangerous_yolo,
-                full_auto=cfg.full_auto,
-                skip_git_repo_check=cfg.skip_git_repo_check,
-                extra_args=list(cfg.extra_args) if cfg.extra_args else None,
-            ),
-            run_label=f"critic.cycle{cycles_done + 1}",
-        )
-        input_tokens = int(getattr(result, "input_tokens", 0) or 0)
-        cached_input_tokens = int(getattr(result, "cached_input_tokens", 0) or 0)
-        output_tokens = int(getattr(result, "output_tokens", 0) or 0)
-        text = "\n".join(result.agent_messages or [])
-        parsed = parse_critic_text(text)
-        if parsed is None:
-            # On parse failure we play it safe and stop — better to
-            # accept the reviewer's `done` than to spin a malformed
-            # prompt forever.
-            return CriticVerdict(
-                stop=True,
-                reason="critic returned unparseable output; defaulting to stop",
-                improvements=[],
-                raw_text=text,
-                input_tokens=input_tokens,
-                cached_input_tokens=cached_input_tokens,
-                output_tokens=output_tokens,
-            )
-        return CriticVerdict(
-            stop=parsed.stop,
-            reason=parsed.reason,
-            improvements=parsed.improvements,
-            raw_text=text,
-            input_tokens=input_tokens,
-            cached_input_tokens=cached_input_tokens,
-            output_tokens=output_tokens,
-        )
-
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _build_prompt(
-        *,
-        original_objective: str,
-        latest_completion_summary: str,
-        cycles_done: int,
-        cycles_max: int,
-        budget_remaining_usd: float,
-        journal_tail: str,
-    ) -> str:
-        min_impact_score = 5 if cycles_done >= 1 else MIN_CRITIC_IMPACT_SCORE
-        budget_line = (
-            f"You are at iteration cycle {cycles_done}/{cycles_max}. "
-            f"Remaining budget: ${budget_remaining_usd:.2f}. "
-            f"This cycle requires impact_score >= {min_impact_score}; "
-            "later polish rounds must clear a higher bar than the first pass. "
-            "If budget is low, prefer stopping this artifact so the planner "
-            "can find a higher-impact mission."
-        )
-        from ..skills.stage_checklists import current_stage, format_stage_checklist
-        from pathlib import Path as _Path
-
-        stage = current_stage(_Path.cwd())
-        stage_checklist = format_stage_checklist(stage, role="critic")
-
-        return (
-            format_role_context(
-                "Argus critic role skill",
-                _CRITIC_ROLE_SKILL,
-                _CRITIC_ROLE_FALLBACK,
-            )
-            + stage_checklist
-            + "\n\n"
-            + _CRITIC_SYSTEM_PREAMBLE
-            + "\n\nOriginal operator objective:\n"
-            + original_objective.strip()
-            + "\n\nLatest reviewer-accepted completion summary:\n"
-            + latest_completion_summary.strip()
-            + "\n\nJournal tail (recent events for context):\n"
-            + (journal_tail.strip() or "(none)")
-            + "\n\n"
-            + budget_line
-            + "\n\nReturn the JSON verdict now. No prose.\n"
-        )
 
     # ------------------------------------------------------------------
     # Planner role — project-level planning
@@ -584,11 +368,59 @@ class Critic:
             "Keep searching for valuable work; do not spend tokens on "
             "low-value polish just to keep the loop busy."
         )
-        from ..skills.stage_checklists import current_stage, format_stage_checklist
+        from ..skills.stage_checklists import (
+            CANONICAL_STAGE_ORDER,
+            current_stage,
+            format_stage_checklist,
+        )
         from pathlib import Path as _Path
 
         stage = current_stage(_Path.cwd())
         stage_checklist = format_stage_checklist(stage, role="planner")
+        stage_idx = (
+            CANONICAL_STAGE_ORDER.index(stage)
+            if stage in CANONICAL_STAGE_ORDER
+            else 0
+        )
+        earlier_stages = ", ".join(CANONICAL_STAGE_ORDER[:stage_idx]) or "(none)"
+        upstream_rollback_block = (
+            "## Upstream defect detection and rollback\n"
+            f"Current stage according to `research/PIPELINE_STATE.json`: `{stage}`.\n"
+            f"Earlier stages: {earlier_stages}.\n\n"
+            "While inspecting the project to decide the next mission you may "
+            "discover that an *upstream* (earlier-stage) artifact is missing, "
+            "stale, or unreliable. Examples:\n"
+            "- you're at `run` but `research/INFRA_CHOICE.md` does not exist,\n"
+            "  even though the project does training/large-scale inference;\n"
+            "- you're at `analysis` but every `scored_rows.jsonl` has uniform\n"
+            "  scores (the benchmark evaluator is a stub);\n"
+            "- you're at `draft` but `research/RESEARCH_BRIEF.md` was never\n"
+            "  filled in with a real thesis.\n\n"
+            "When that happens, do NOT queue a forward-progress task that\n"
+            "pretends the gap doesn't exist. Instead:\n\n"
+            "1. **Investigate before deciding.** Read at least: the missing\n"
+            "   artifact's expected path, the stage checklist for the\n"
+            "   earlier stage that owns it, the current `PIPELINE_STATE.json`,\n"
+            "   and any nearby evidence that might already cover the gap\n"
+            "   under a different name. Do not roll back on a typo.\n"
+            "2. **Identify the EARLIEST broken stage**, not the latest one.\n"
+            "   If both `research.infra_shortlist` and `plan.infra_choice`\n"
+            "   are missing, the rollback target is `research`, not `plan` —\n"
+            "   the engineer cannot lock a choice without a shortlist.\n"
+            "3. **Queue exactly one bounded mission** whose body is to:\n"
+            "   (a) call `python -c \"from argus_skill.skills.stage_checklists "
+            "import rollback_stage; rollback_stage('.', target_stage='<X>', "
+            "reason='<one-sentence quoting the missing artifact>')\"` so the "
+            "state machine and audit trail are correct;\n"
+            "   (b) re-do the broken stage with concrete investigation\n"
+            "   (read referenced papers, clone candidate framework repos,\n"
+            "   call the model APIs to verify scoring backends, …) — NOT a\n"
+            "   blind regenerate or a template fill-in;\n"
+            "   (c) only after the earlier-stage checklist is satisfied,\n"
+            "   re-advance.\n"
+            "4. **Do not queue parallel forward + rollback tasks.** A\n"
+            "   rollback supersedes everything else this cycle.\n"
+        )
 
         return (
             format_role_context(
@@ -598,6 +430,8 @@ class Critic:
             )
             + stage_checklist
             + "\n\n"
+            + upstream_rollback_block
+            + "\n"
             + _PLANNER_SYSTEM_PREAMBLE
             + "\n\nOperator's continuous goal:\n"
             + continuous_objective.strip()
@@ -724,72 +558,6 @@ def _parse_task_scope(value: object) -> str:
     return scope
 
 
-def parse_critic_text(text: str) -> CriticVerdict | None:
-    """Parse the JSON verdict out of an agent message.
-
-    Returns ``None`` if the payload cannot be coerced to the expected
-    shape; the supervisor treats that as "stop". Tolerant of leading /
-    trailing prose and markdown fences even though the prompt forbids
-    them.
-    """
-    if not text:
-        return None
-    found = _load_json_object_with_schema(
-        text,
-        required_keys=("stop", "reason", "improvements"),
-    )
-    if found is None:
-        return None
-    data, blob = found
-    stop = _parse_json_bool(data.get("stop", True), True)
-    reason = str(data.get("reason", ""))
-    improvements_raw = data.get("improvements") or []
-    improvements: list[Improvement] = []
-    raw_improvement_count = len(improvements_raw) if isinstance(improvements_raw, list) else 0
-    if isinstance(improvements_raw, list):
-        for entry in improvements_raw:
-            if not isinstance(entry, dict):
-                continue
-            title = str(entry.get("title", "")).strip()
-            rationale = str(entry.get("rationale", "")).strip()
-            acceptance = str(entry.get("acceptance", "")).strip()
-            impact_score = _parse_impact_score(entry.get("impact_score"))
-            impact_area = str(entry.get("impact_area", "")).strip()
-            evidence = str(entry.get("evidence", "")).strip()
-            if (
-                not title
-                or not acceptance
-                or impact_score < MIN_CRITIC_IMPACT_SCORE
-                or not evidence
-            ):
-                continue
-            improvements.append(
-                Improvement(
-                    title=title,
-                    rationale=rationale,
-                    acceptance=acceptance,
-                    impact_score=impact_score,
-                    impact_area=impact_area,
-                    evidence=evidence,
-                )
-            )
-            if len(improvements) >= 3:
-                break
-    if stop and improvements:
-        # Inconsistent — operator-facing rule: stop=True ⇒ no improvements.
-        # Honor stop and discard.
-        improvements = []
-    if not stop and not improvements:
-        # Inconsistent the other way — defensively treat as stop.
-        stop = True
-        if raw_improvement_count:
-            reason = "critic improvements did not meet the high-impact gate"
-        elif not reason:
-            reason = "critic flagged continue but produced no concrete improvements"
-    return CriticVerdict(
-        stop=stop, reason=reason, improvements=improvements, raw_text=blob
-    )
-
 
 def parse_planner_text(text: str) -> PlannerVerdict:
     """Parse a planner JSON verdict out of an agent message.
@@ -893,41 +661,3 @@ def parse_planner_text(text: str) -> PlannerVerdict:
 # ---------------------------------------------------------------------------
 
 
-def render_iteration_objective(
-    *,
-    original_objective: str,
-    cycles_done: int,
-    improvements: list[Improvement],
-) -> str:
-    """Build the next-cycle objective handed back to the engineer.
-
-    The engineer sees the original operator request, then the
-    polish-pass improvements; we explicitly tell it not to redo work
-    already accepted.
-    """
-    if not improvements:
-        return original_objective
-    bullets = []
-    for i, imp in enumerate(improvements, 1):
-        line = f"{i}. {imp.title}"
-        line += f"\n   impact: {imp.impact_score}/5"
-        if imp.impact_area:
-            line += f" ({imp.impact_area})"
-        if imp.evidence:
-            line += f"\n   evidence: {imp.evidence}"
-        if imp.rationale:
-            line += f"\n   why: {imp.rationale}"
-        line += f"\n   acceptance: {imp.acceptance}"
-        bullets.append(line)
-    cycle_label = f"cycle #{cycles_done + 1}"
-    return (
-        f"Iteration {cycle_label} — continue high-value work on the existing artefact. "
-        "DO NOT rewrite from scratch; the previous cycle's work was "
-        "already accepted by the reviewer. Apply the improvements "
-        "below, and for paper/submission objectives keep working through "
-        "adjacent validator blockers when budget allows instead of treating "
-        "this as a tiny polish-only pass. Verify each acceptance criterion "
-        "before declaring done.\n\n"
-        f"Original operator objective:\n{original_objective.strip()}\n\n"
-        "Polish-pass improvements:\n" + "\n".join(bullets) + "\n"
-    )

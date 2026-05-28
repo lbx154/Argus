@@ -753,7 +753,7 @@ class LifeWorker:
             config=sup_cfg,
             engineer_model=cfg.engineer_model,
             reviewer_model=cfg.reviewer_model,
-            critic_runner=getattr(runner, "backend", None),
+            planner_runner=getattr(runner, "backend", None),
         )
 
         log.info(

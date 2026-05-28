@@ -239,7 +239,7 @@ class _CommandRouter:
     _LAYER_LABELS = {
         "engineer": "👷 工程师 (L1)",
         "reviewer": "👨‍🏫 审查员 (L2)",
-        "critic":   "👔 评审员 (L3)",
+        # critic layer removed,
         "planner":  "🧠 规划师 (L4)",
     }
 

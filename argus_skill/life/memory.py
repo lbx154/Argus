@@ -374,8 +374,8 @@ class BacklogItem:
     last_error: str = ""
     # --- iteration loop fields (Phase-7) -------------------------------
     # When ``iterate`` is True the supervisor, after a successful
-    # ``done`` verdict, hands the produced artefacts to a Critic agent.
-    # If the Critic finds concrete improvements the item is requeued
+    # ``done`` verdict, hands the produced artefacts to a L2 reviewer agent. The reviewer is the only verdict authority;
+    # there is no separate critic polish layer any more.
     # for another mission cycle until either the cost budget or the
     # cycle ceiling is hit. ``original_objective`` preserves the
     # operator's first-cycle instruction so subsequent cycles can be

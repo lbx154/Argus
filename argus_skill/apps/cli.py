@@ -223,7 +223,7 @@ def _resolve_follow_events_path(args: argparse.Namespace) -> Path:
 _FOLLOW_LAYER_LABELS = {
     "engineer": "L1 工程师",
     "reviewer": "L2 审查员",
-    "critic": "L3 评审员",
+    # critic layer removed,
     "planner": "L4 规划师",
 }
 _FOLLOW_HEARTBEAT_SECONDS = 20.0

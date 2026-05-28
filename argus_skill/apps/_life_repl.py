@@ -1281,7 +1281,7 @@ def run_life_supervisor(
             config=cfg,
             engineer_model=engineer_model,
             reviewer_model=reviewer_model,
-            critic_runner=getattr(runner, "backend", None),
+            planner_runner=getattr(runner, "backend", None),
         )
         return sup.run()
     finally:
@@ -1582,7 +1582,7 @@ def _free_text_cmd(
     from ``chat_state["config"]`` are used.
 
     When ``config["continuous"]`` is True, the supervisor runs in
-    continuous improvement mode: the critic-as-planner inspects the
+    continuous improvement mode: the planner inspects the
     project after each completed task and generates new work until
     the project satisfies the objective.
     """
@@ -1854,7 +1854,7 @@ def _render_help(theme) -> str:  # noqa: ANN001
         "Use /config continuous=true to enable 24/7 continuous improvement mode."
     ))
     out.append(theme.gray(
-        "In continuous mode the critic-as-planner inspects the project after each "
+        "In continuous mode the planner inspects the project after each "
         "task and generates new work until the objective is fully satisfied."
     ))
     out.append("")

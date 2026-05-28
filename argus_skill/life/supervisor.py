@@ -1006,7 +1006,7 @@ def _emnlp_finalization_task_spec_from_issues(
     selected = _select_emnlp_finalization_repair_task(issues)
     if selected is None:
         return None
-    from ..critic import TaskSpec
+    from ..planner import TaskSpec
 
     return TaskSpec(
         title=selected.title,
@@ -1370,7 +1370,7 @@ class LifeSupervisorConfig:
     planner_task_iteration_budget_usd: float = 30.0
     # --- Continuous improvement mode -----------------------------------
     # When enabled, the supervisor does not exit when the backlog is
-    # empty. Instead it invokes the critic-as-planner to inspect the
+    # empty. Instead it invokes the planner to inspect the
     # project and generate the next batch of tasks. The supervisor
     # only stops when the planner declares the project done, or when
     # budget / stop_event fires.
@@ -1453,7 +1453,7 @@ class LifeSupervisor:
         config: LifeSupervisorConfig | None = None,
         engineer_model: str = "gpt-5.4",
         reviewer_model: str = "gpt-5.4",
-        critic_runner: Any | None = None,
+        planner_runner: Any | None = None,
     ) -> None:
         self.memory = memory
         self.runner = runner
@@ -1461,11 +1461,11 @@ class LifeSupervisor:
         self.config = config or LifeSupervisorConfig()
         self.engineer_model = engineer_model
         self.reviewer_model = reviewer_model
-        # critic_runner: any RunnerBackend (codex / memory). When None
+        # planner_runner: any RunnerBackend (codex / memory). When None
         # the iteration loop is effectively disabled — items still go
         # ``done`` after the first successful mission. Wired by the
         # life worker / REPL to the same backend the engineer uses.
-        self.critic_runner = critic_runner
+        self.planner_runner = planner_runner
         self._missions_started = 0
         self._planning_cycles = 0
         self._reap_orphans_on_startup()
@@ -1674,8 +1674,8 @@ class LifeSupervisor:
             return Path(root)
         return Path.cwd()
 
-    def _critic_config(self):
-        from ..critic import CriticConfig
+    def _planner_config(self):
+        from ..planner import CriticConfig
 
         safe_mode = self._safe_mode_enabled()
         return CriticConfig(
@@ -2473,7 +2473,7 @@ class LifeSupervisor:
                 "terminal_status": status if kind == "mission_failed" else "",
                 "stop_reason": (stop_reason or err) if kind == "mission_failed" else "",
                 "failure_reason": err if kind == "mission_failed" else "",
-                "agent_layer": "critic" if iteration_outcome and iteration_outcome.get("requeued") else "engineer",
+                "agent_layer": "planner" if iteration_outcome and iteration_outcome.get("requeued") else "engineer",
                 "engineer_model": self.engineer_model,
                 "reviewer_model": self.reviewer_model,
                 "input_tokens": cost_sink.total_input_tokens(),
@@ -2750,263 +2750,7 @@ class LifeSupervisor:
             "stop_reason": "critic layer removed — reviewer handles verification",
         }
 
-        cycles_done = int(item.iteration_cycles_done)
-        cycles_max = int(item.iteration_max_cycles)
-        cost_so_far = float(item.iteration_cost_usd) + max(0.0, float(cycle_cost_usd))
-        budget = float(item.iteration_budget_usd)
-        remaining_budget = max(0.0, budget - cost_so_far)
-
-        if cycles_done >= cycles_max:
-            return {
-                "cycles_done": cycles_done,
-                "cost_so_far_usd": cost_so_far,
-                "requeued": False,
-                "stop_reason": f"cycle ceiling {cycles_max} reached",
-            }
-        if remaining_budget <= 0.0:
-            return {
-                "cycles_done": cycles_done,
-                "cost_so_far_usd": cost_so_far,
-                "requeued": False,
-                "stop_reason": (
-                    f"iteration budget exhausted (${cost_so_far:.2f}/${budget:.2f})"
-                ),
-            }
-
-        # Pull the reviewer's accepted completion summary.
-        latest = ""
-        for attr in ("final_message", "completion_summary_markdown", "stop_reason"):
-            v = getattr(outcome, attr, "") or ""
-            if v:
-                latest = str(v)
-                break
-        original = item.original_objective or item.objective
-        critic_original = self._objective_with_item_scope_context(item, original)
-
-        # Notify: critic layer starting
-        try:
-            self._emit({
-                "type": "life.phase.started",
-                "item_id": item.id,
-                "agent_layer": "critic",
-                "iteration_cycle": cycles_done + 1,
-                "iteration_max": cycles_max,
-            })
-            from .notify import dispatch_journal_entry
-            critic_start = JournalEntry.new(
-                kind="phase_change",
-                title=item.title,
-                summary=f"迭代 {cycles_done + 1}/{cycles_max}: 评审员开始评估",
-                tags=["life", "phase"],
-                extra={
-                    "item_id": item.id,
-                    "objective": item.objective,
-                    "agent_layer": "critic",
-                    "iteration_cycle": cycles_done + 1,
-                    "iteration_max": cycles_max,
-                },
-            )
-            self._inject_cumulative_cost(
-                critic_start, in_flight_usd=cycle_cost_usd,
-            )
-            dispatch_journal_entry(critic_start)
-        except Exception:  # noqa: BLE001
-            log.debug("critic phase_change notify failed; non-critical")
-
-        try:
-            from ..critic import (
-                Critic,
-                render_iteration_objective,
-            )
-            critic = Critic(self.critic_runner)
-            # Enable streaming so critic output flows through the event sink
-            ctx = getattr(self.runner, "stream_to", None)
-            stream_ctx = ctx(self.sink) if ctx else None
-            if stream_ctx:
-                stream_ctx.__enter__()
-            try:
-                verdict = critic.evaluate(
-                    original_objective=critic_original,
-                    latest_completion_summary=latest,
-                    cycles_done=cycles_done,
-                    cycles_max=cycles_max,
-                    budget_remaining_usd=remaining_budget,
-                    journal_tail=self._render_recent_journal_for_critic(item.id),
-                    config=self._critic_config(),
-                )
-            finally:
-                if stream_ctx:
-                    stream_ctx.__exit__(None, None, None)
-        except Exception as exc:  # noqa: BLE001
-            log.exception("life supervisor: critic raised; finalizing as done")
-            return {
-                "cycles_done": cycles_done,
-                "cost_so_far_usd": cost_so_far,
-                "requeued": False,
-                "stop_reason": f"critic error: {type(exc).__name__}",
-            }
-
-        critic_cost_usd = usd_for_tokens(
-            self.reviewer_model,
-            verdict.input_tokens,
-            verdict.cached_input_tokens,
-            verdict.output_tokens,
-            price_lookup=price_for,
-        )
-        cost_so_far += critic_cost_usd
-        remaining_budget = max(0.0, budget - cost_so_far)
-        raw_improvements = list(verdict.improvements)
-        value_gate_min_score = (
-            _FOLLOWUP_CRITIC_MIN_IMPACT_SCORE
-            if cycles_done >= 1
-            else 4
-        )
-        valuable_improvements = [
-            imp
-            for imp in raw_improvements
-            if int(getattr(imp, "impact_score", 0) or 0) >= value_gate_min_score
-        ]
-        dropped_low_value_count = len(raw_improvements) - len(valuable_improvements)
-        effective_stop = bool(verdict.stop) or not valuable_improvements
-        effective_reason = verdict.reason
-        if not bool(verdict.stop) and not valuable_improvements:
-            effective_reason = (
-                f"critic improvements below impact gate "
-                f"({value_gate_min_score}/5); handing control back to planner"
-            )
-
-        # Notify: critic layer completed with cost
-        try:
-            from .notify import dispatch_journal_entry
-            critic_done = JournalEntry.new(
-                kind="phase_change",
-                title=item.title,
-                summary=(
-                    f"评审员完成: {'停止迭代' if effective_stop else f'{len(valuable_improvements)}项高价值改进'}"
-                    f", ${critic_cost_usd:.4f}"
-                ),
-                tags=["life", "phase"],
-                cost_usd=critic_cost_usd,
-                extra={
-                    "item_id": item.id,
-                    "objective": item.objective,
-                    "agent_layer": "critic",
-                    "phase_status": "completed",
-                    "stop": effective_stop,
-                    "improvement_count": len(valuable_improvements),
-                    "raw_improvement_count": len(raw_improvements),
-                    "dropped_low_value_count": dropped_low_value_count,
-                    "value_gate_min_score": value_gate_min_score,
-                    "reason": effective_reason,
-                    "input_tokens": verdict.input_tokens,
-                    "cached_input_tokens": verdict.cached_input_tokens,
-                    "output_tokens": verdict.output_tokens,
-                },
-            )
-            self._inject_cumulative_cost(
-                critic_done, in_flight_usd=cycle_cost_usd + critic_cost_usd,
-            )
-            dispatch_journal_entry(critic_done)
-        except Exception:  # noqa: BLE001
-            log.debug("critic completion notify failed; non-critical")
-
-        self._emit({
-            "type": "life.iteration.critic",
-            "item_id": item.id,
-            "stop": effective_stop,
-            "improvement_count": len(valuable_improvements),
-            "raw_improvement_count": len(raw_improvements),
-            "dropped_low_value_count": dropped_low_value_count,
-            "value_gate_min_score": value_gate_min_score,
-            "reason": effective_reason,
-            "input_tokens": verdict.input_tokens,
-            "cached_input_tokens": verdict.cached_input_tokens,
-            "output_tokens": verdict.output_tokens,
-            "cost_usd": critic_cost_usd,
-        })
-
-        if effective_stop:
-            # Salvage path: the engineer hit max_rounds without a `done`
-            # verdict, but the critic — looking at journal evidence —
-            # decided no further work is needed. Promote the mission to
-            # ``done`` so the operator isn't woken up by a false-failure.
-            return {
-                "cycles_done": cycles_done,
-                "cost_so_far_usd": cost_so_far,
-                "requeued": False,
-                "stop_reason": effective_reason or "critic stopped",
-                "salvaged": bool(salvage_mode),
-                "critic_cost_usd": critic_cost_usd,
-            }
-
-        if remaining_budget <= 0.0:
-            return {
-                "cycles_done": cycles_done,
-                "cost_so_far_usd": cost_so_far,
-                "requeued": False,
-                "stop_reason": (
-                    f"iteration budget exhausted (${cost_so_far:.2f}/${budget:.2f})"
-                ),
-                "critic_cost_usd": critic_cost_usd,
-            }
-
-        new_objective = render_iteration_objective(
-            original_objective=original,
-            cycles_done=cycles_done,
-            improvements=valuable_improvements,
-        )
-        try:
-            self.memory.backlog.requeue_for_iteration(
-                item.id,
-                new_objective=new_objective,
-                cost_delta_usd=cycle_cost_usd + critic_cost_usd,
-            )
-        except Exception as exc:  # noqa: BLE001
-            log.exception("life supervisor: requeue_for_iteration failed")
-            return {
-                "cycles_done": cycles_done,
-                "cost_so_far_usd": cost_so_far,
-                "requeued": False,
-                "stop_reason": f"requeue failed: {type(exc).__name__}",
-            }
-        self._emit({
-            "type": "life.iteration.continued",
-            "item_id": item.id,
-            "cycles_done": cycles_done + 1,
-            "cycles_max": cycles_max,
-            "cost_so_far_usd": cost_so_far,
-            "budget_usd": budget,
-            "improvements": [
-                {
-                    "title": imp.title,
-                    "acceptance": imp.acceptance,
-                    "impact_score": getattr(imp, "impact_score", 0),
-                    "impact_area": getattr(imp, "impact_area", ""),
-                    "evidence": getattr(imp, "evidence", ""),
-                }
-                for imp in valuable_improvements
-            ],
-            "critic_cost_usd": critic_cost_usd,
-        })
-        return {
-            "cycles_done": cycles_done + 1,
-            "cost_so_far_usd": cost_so_far,
-            "requeued": True,
-            "improvement_count": len(valuable_improvements),
-            "improvements": [
-                {
-                    "title": imp.title,
-                    "acceptance": imp.acceptance,
-                    "impact_score": getattr(imp, "impact_score", 0),
-                    "impact_area": getattr(imp, "impact_area", ""),
-                    "evidence": getattr(imp, "evidence", ""),
-                }
-                for imp in valuable_improvements
-            ],
-            "critic_cost_usd": critic_cost_usd,
-        }
-
-    def _render_recent_journal_for_critic(self, item_id: str) -> str:
+    def _render_recent_journal_for_planner(self, item_id: str) -> str:
         """A tiny tail of journal entries for the current item, plain text."""
         try:
             entries = self.memory.journal.tail(6)
@@ -3065,21 +2809,21 @@ class LifeSupervisor:
     # ------------------------------------------------------------------
 
     def _plan_next_work(self) -> bool | None | str:
-        """Call the critic-as-planner to generate new backlog items.
+        """Call the planner to generate new backlog items.
 
         Returns ``True`` if new work was added (caller should loop),
         ``False`` if the planner declares the project done, and
         ``"daemon_handoff"`` if the planner asked the host to restart,
         and ``None`` when the planner fails and should be retried later.
         """
-        if self.critic_runner is None:
-            self._emit_status("planner error: no critic runner wired; retry later")
+        if self.planner_runner is None:
+            self._emit_status("planner error: no planner runner wired; retry later")
             entry = JournalEntry.new(
                 kind="planner_error",
                 title="planner unavailable",
-                summary="no critic runner wired",
+                summary="no planner runner wired",
                 tags=["life", "planner"],
-                extra={"agent_layer": "planner", "error": "no critic runner wired"},
+                extra={"agent_layer": "planner", "error": "no planner runner wired"},
             )
             self.memory.journal.append(entry)
             self._inject_cumulative_cost(entry)
@@ -3101,22 +2845,22 @@ class LifeSupervisor:
         remaining = self.config.budget.remaining_today(self.memory.journal)
 
         try:
-            from ..critic import Critic
+            from ..planner import Planner
 
-            critic = Critic(self.critic_runner)
+            planner = Planner(self.planner_runner)
             # Enable streaming so planner output flows through the event sink
             ctx = getattr(self.runner, "stream_to", None)
             stream_ctx = ctx(self.sink) if ctx else None
             if stream_ctx:
                 stream_ctx.__enter__()
             try:
-                verdict = critic.plan_next(
+                verdict = planner.plan_next(
                     continuous_objective=self.config.continuous_objective,
                     journal_tail=journal_tail,
                     budget_remaining_usd=remaining,
                     planning_cycle=self._planning_cycles - 1,
                     runtime_change_summary=self._planner_project_context(),
-                    config=self._critic_config(),
+                    config=self._planner_config(),
                 )
             finally:
                 if stream_ctx:
@@ -3192,7 +2936,7 @@ class LifeSupervisor:
             and _objective_requires_full_emnlp_gate(self.config.continuous_objective)
             and not self._journal_has_full_emnlp_gate_success()
         ):
-            from ..critic import TaskSpec
+            from ..planner import TaskSpec
 
             verdict = replace(
                 verdict,
