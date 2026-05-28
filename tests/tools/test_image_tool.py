@@ -147,6 +147,34 @@ def test_generate_image_keeps_explicit_non_square_size(
     assert meta["requested_size"] == "1536x1024"
 
 
+def test_generate_image_records_prompt_and_output_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_urlopen(req: Any, timeout: float) -> FakeResponse:
+        return FakeResponse({"data": [{"b64_json": base64.b64encode(_PNG_BYTES).decode("ascii")}]})
+
+    monkeypatch.setattr(image_tool, "_urlopen", fake_urlopen)
+    prompt_file = tmp_path / "figure.prompt.txt"
+    prompt_file.write_text("clean academic hierarchy diagram", encoding="utf-8")
+    out = tmp_path / "figure.png"
+
+    meta = image_tool.generate_image(
+        prompt=prompt_file.read_text(encoding="utf-8"),
+        prompt_file=prompt_file,
+        out=out,
+        env=_env_with_vault(tmp_path),
+    )
+    sidecar = json.loads((tmp_path / "figure.png.json").read_text(encoding="utf-8"))
+
+    assert meta["prompt_path"] == str(prompt_file)
+    assert meta["output_path"] == str(out)
+    assert meta["output_sha256"] == meta["image"]["sha256"]
+    assert sidecar["prompt_path"] == str(prompt_file)
+    assert sidecar["output_path"] == str(out)
+    assert sidecar["output_sha256"] == sidecar["image"]["sha256"]
+
+
 def test_generate_image_normalizes_non_multiple_of_16_size(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
