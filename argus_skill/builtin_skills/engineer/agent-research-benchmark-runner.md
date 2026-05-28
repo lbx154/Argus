@@ -59,9 +59,19 @@ Execute the experiment plan for an agent-science paper. This is the argus-skill-
    - Also create `status.json`, `progress.jsonl`, `stdout.log`, `stderr.log`, and document the `STOP` cancellation file before the first expensive call.
    - Update `research/PIPELINE_STATE.json` with the run id and set the run stage to `running`; never mark it `done` until raw result rows and the status/progress artifacts exist.
 
-4. Run in stages:
+4. Run in stages — use subagent for GPU tasks:
    - Start with a smoke run that is cheap and fast.
    - Only launch full baselines/ablations after smoke passes.
+   - **CRITICAL: use the subagent system for any GPU training/inference/evaluation >60s:**
+     ```bash
+     python -m argus_skill.tools.subagent submit \
+       --task-id train-grpo-lora \
+       --description "Train zImage LoRA with GRPO on GenEval" \
+       --command ".venv/bin/python code/train.py --config config.yaml"
+     ```
+   - After submitting GPU tasks, **continue other work** (prepare analysis templates, draft paper sections, write code for next condition). Do NOT wait/sleep/block.
+   - Check progress periodically: `python -m argus_skill.tools.subagent status --task-id train-grpo-lora`
+   - Use the project venv (`.venv/bin/python`) for all ML commands, NOT the argus-skill venv.
    - The full run must report unique semantic tasks for each selected benchmark family in the canonical results table. Use documented splits from multiple real/frontier benchmarks; do not relabel, duplicate, generate, or suffix-copy a pilot as full evidence.
    - The full run must also write per-condition raw rows (`results.jsonl`, `progress.jsonl`, or equivalent) with fields such as `method`, `task_id`, and a scored outcome. Do not rely on `status.json task_count` alone: the validator counts distinct raw task ids per method/condition and rejects declared-complete runs with too few rows.
    - The canonical run output must be shaped for a large paper-facing results matrix: every row should carry benchmark/source family, official source/version, task count/split, method/baseline name, evaluated model/backend, metric, budget/decoding/stopping rule, and raw score fields. If these fields are missing, fix the collector before writing the paper.

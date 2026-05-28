@@ -39,6 +39,7 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Benchmark provenance exists", "test -f experiments/BENCHMARK_PROVENANCE.md"),
     ],
     "run": [
+        ("Project venv exists", "test -d .venv && test -f .venv/bin/python"),
         ("Results exist", "find experiments -name 'summary.tsv' -o -name 'eval_results.jsonl' 2>/dev/null | head -1 | grep -q ."),
         ("Baseline reproduction recorded", "test -f research/BASELINE_REPRODUCTION.md"),
     ],
