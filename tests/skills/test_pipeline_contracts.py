@@ -1224,6 +1224,53 @@ def test_image2_figures_reject_thin_freehand_teaser_prompt(tmp_path: Path) -> No
     assert "incomplete_image2_teaser_prompt_scaffold" in codes
 
 
+def test_image2_figures_reject_noncanonical_figure_studio_prompt(tmp_path: Path) -> None:
+    prompt = (
+        _valid_image2_teaser_prompt()
+        .replace("Prompt template: argus-image2-paper-prompt-v1\n", "")
+        .replace("Prompt source: paper-framework-figure-studio-pro-v3.1.4a\n", "")
+    )
+    _write(tmp_path / "paper" / "figures" / "method.prompt.txt", prompt)
+    _write_bytes(tmp_path / "paper" / "figures" / "method.png", _png_bytes(1536, 1024))
+    _write_json(
+        tmp_path / "paper" / "figures" / "method.review.json",
+        _valid_image_review_payload(tmp_path, "paper/figures/method.png"),
+    )
+    _write_image2_provenance(
+        tmp_path,
+        "paper/figures/method.prompt.txt",
+        "paper/figures/method.png",
+        "paper/figures/method.provenance.json",
+    )
+    _write_image2_inspect(tmp_path, "paper/figures/method.png", "paper/figures/method.inspect.json")
+    _write_json(
+        tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json",
+        {
+            "figures": [
+                {
+                    "figure_id": "method-overview",
+                    "figure_type": "teaser",
+                    "source": "raster",
+                    "generator": "codex-image2",
+                    "model": "image-2",
+                    "prompt_path": "paper/figures/method.prompt.txt",
+                    "output_path": "paper/figures/method.png",
+                    "generation_provenance_path": "paper/figures/method.provenance.json",
+                    "sidecar_path": "paper/figures/method.provenance.json",
+                    "inspect_path": "paper/figures/method.inspect.json",
+                    "review_path": "paper/figures/method.review.json",
+                    "requested_size": "1536x1024",
+                }
+            ]
+        },
+    )
+
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "noncanonical_image2_prompt_template" in codes
+    assert "missing_figure_studio_prompt_source" in codes
+
+
 def test_image2_figures_reject_square_1024_conceptual_figure(tmp_path: Path) -> None:
     _write(tmp_path / "paper" / "figures" / "system.prompt.txt", _valid_image2_teaser_prompt())
     _write_bytes(tmp_path / "paper" / "figures" / "system.png", _png_bytes(1024, 1024))
@@ -4060,6 +4107,8 @@ def _write_valid_image2_figures(root: Path) -> None:
 
 def _valid_image2_teaser_prompt() -> str:
     return """Use case: scientific-educational.
+Prompt template: argus-image2-paper-prompt-v1
+Prompt source: paper-framework-figure-studio-pro-v3.1.4a
 Asset type: Figure 1 teaser / conceptual overview for an EMNLP/ACL academic manuscript.
 
 General style:
@@ -4076,6 +4125,16 @@ Pinned content that must appear exactly:
 - SPELL EXACTLY the quoted labels above; do not invent extra terminology.
 
 Layout variant: horizontal swimlane with a central verifier gate. Three clean swimlanes show input, admission, and final answer. Use one large central card for the verifier and small output cards on the right.
+
+Figure-caption contract:
+- Caption explains arrow semantics, color roles, and why rejected candidates are shown outside the accepted path.
+- Legend defines the verifier gate and reusable skill card.
+
+Core mechanism contract:
+- Core step visibility plan: show proposal, verifier gate, accepted skill card, and evidence-backed answer as visible modules.
+- Claimed improvement visual anchor: accepted versus rejected item contrast.
+- Symbol/formula necessity proof: no formula is needed.
+- Arrow/color/icon semantic contract: solid arrows indicate data/control flow and dashed arrows indicate rejected proposals.
 
 Negative prompt / Avoid:
 - no tiny unreadable text, no paragraphs, no code snippets, no raw paths, no watermark

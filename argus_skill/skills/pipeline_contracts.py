@@ -286,6 +286,8 @@ MIN_IMAGE_REVIEW_SCORE = 4.0
 MIN_IMAGE2_TEASER_PROMPT_CHARS = 900
 MIN_LAYOUT_REVIEW_SCORE = 4.0
 IMAGE2_RASTER_OUTPUT_SUFFIXES = {".png", ".jpg", ".jpeg"}
+IMAGE2_PROMPT_TEMPLATE_ID = "argus-image2-paper-prompt-v1"
+IMAGE2_FIGURE_STUDIO_SOURCE_ID = "paper-framework-figure-studio-pro-v3.1.4a"
 RENDERED_HEADING_LINE_NUMBER_PREFIX = r"(?:\d{1,5}\s+)?"
 RENDERED_REFERENCES_HEADING_PATTERN = (
     rf"(?m)(?:^\s*|\s{{6,}}){RENDERED_HEADING_LINE_NUMBER_PREFIX}"
@@ -9282,6 +9284,30 @@ def _validate_image2_teaser_prompt_quality(
     normalized = re.sub(r"\s+", " ", stripped.lower())
 
     issues: list[ContractIssue] = []
+    if IMAGE2_PROMPT_TEMPLATE_ID not in stripped:
+        issues.append(
+            ContractIssue(
+                "noncanonical_image2_prompt_template",
+                _project_relative_path(root, prompt_file),
+                (
+                    "image-2 Figure 1/teaser prompts must be derived from the built-in "
+                    f"Argus paper figure prompt template {IMAGE2_PROMPT_TEMPLATE_ID}; "
+                    "run `python -m argus_skill.tools.image_tool paper-prompt ...` and "
+                    "edit only the paper-specific labels/contracts/layout block"
+                ),
+            )
+        )
+    if IMAGE2_FIGURE_STUDIO_SOURCE_ID not in stripped:
+        issues.append(
+            ContractIssue(
+                "missing_figure_studio_prompt_source",
+                _project_relative_path(root, prompt_file),
+                (
+                    "image-2 conceptual figure prompts must carry the Argus-adapted "
+                    f"{IMAGE2_FIGURE_STUDIO_SOURCE_ID} drawing workflow marker"
+                ),
+            )
+        )
     if len(stripped) < MIN_IMAGE2_TEASER_PROMPT_CHARS:
         issues.append(
             ContractIssue(

@@ -422,25 +422,16 @@ configured endpoint from `~/.argus-skill/capabilities/model_api.json`.
 
 Minimal usage pattern:
 
-```python
-from openai import AzureOpenAI  # or OpenAI
-import base64
-from pathlib import Path
-
-# Load credentials from model_api.json or environment
-MODEL = "gpt-image-2"
-SIZE = "1536x1024"  # landscape for method figures (NEVER 1024x1024)
-TIMEOUT = 600.0     # gpt-image-2 takes 200-300s per call
-
-# client = ... (configured from your vault/env)
-resp = client.images.generate(model=MODEL, prompt=PROMPT, n=1, size=SIZE)
-img_bytes = base64.b64decode(resp.data[0].b64_json)
-Path("fig.png").write_bytes(img_bytes)
+```bash
+python -m argus_skill.tools.image_tool paper-prompt --out paper/figures/<id>.prompt.txt ...
+python -m argus_skill.tools.image_tool generate --prompt-file paper/figures/<id>.prompt.txt --out paper/figures/<id>.png --size 1536x1024 --force
+python -m argus_skill.tools.image_tool review --image paper/figures/<id>.png --prompt-file paper/figures/<id>.prompt.txt --out paper/figures/<id>.png.review.json
+python -m argus_skill.tools.image_tool sync-paper-metadata --project-root . --image paper/figures/<id>.png --prompt-file paper/figures/<id>.prompt.txt --figure-id <id> --figure-type method
 ```
 
 **Pitfalls**:
-- Use `client.images.generate(...)` for text-to-image; use
-  `client.images.edit(image=...)` if you have a reference image to edit.
+- Use `image_tool generate` for text-to-image so the raw sidecar, prompt hash,
+  output hash, model, and API endpoint evidence are recorded consistently.
 - Each call takes 200-300s; bump client `timeout=600`.
 - Concurrency 4-8 with a `ThreadPoolExecutor` is safe; expect occasional
   429s — back off honoring `Retry-After` from the response headers.
@@ -450,20 +441,24 @@ Path("fig.png").write_bytes(img_bytes)
 
 ### gpt-image-2 prompt style — NeurIPS/CS pipeline figures
 
-For full-width method/architecture figures the strongest known recipe is
-the 6-section prompt below (used to generate the
-\textsc{VideoWorldSkills} pipeline figures). Copy verbatim and only swap
-the variant-specific layout.
+For full-width method/architecture figures, start from
+`python -m argus_skill.tools.image_tool paper-prompt ...`. The generated prompt
+must retain `argus-image2-paper-prompt-v1` and
+`paper-framework-figure-studio-pro-v3.1.4a`, and only paper-specific labels,
+figure-caption contracts, core mechanism contracts, and layout variants should
+change.
 
-#### Base style block (paste verbatim)
+#### Base style block inside `paper-prompt`
 
 ```text
+Prompt template: argus-image2-paper-prompt-v1
+Prompt source: paper-framework-figure-studio-pro-v3.1.4a
 General style:
 - NeurIPS / CS paper method figure, full-width two-column landscape.
 - Clean block-based Figma style with rounded cards, neat alignment,
   soft pastel fills, dark gray 2px borders.
 - Compact, information-rich, suitable for a PDF page-width figure.
-- Comic Sans MS-like rounded handwritten font, but tidy and readable.
+- Friendly sans-serif or tidy rounded labels are acceptable only if crisp and readable.
 - Moderate logo/badge use: a few simple recognizable icons,
   not a logo wall.
 - No heavy shadows, no gradients, no photorealism, no messy

@@ -32,6 +32,7 @@ def test_seed_builtin_skills_creates_parseable_research_defaults(tmp_path: Path)
     assert "EMNLP Format Preflight" in names
     assert "Paper Exemplar PDF Learning" in names
     assert "Academic Paper Peer Review Benchmark" in names
+    assert "Paper Framework Figure Studio Pro" in names
     assert "Argus Engineer Role" in names
     assert "Argus Reviewer Role" in names
     assert "Argus Critic Role" in names
@@ -880,11 +881,37 @@ def test_paper_illustration_image2_orders_post_generation_checks(
     text = (skills_dir / "paper-illustration-image2.md").read_text(encoding="utf-8")
 
     for required in (
+        "paper-prompt",
+        "argus-image2-paper-prompt-v1",
+        "paper-framework-figure-studio-pro-v3.1.4a",
+        "sync-paper-metadata",
         "Wait for the `image_tool generate`",
         "Confirm the output file exists and is non-empty",
         "Do not launch inspect/review in parallel with generation",
         "missing-file inspect/review failure is noise",
         "Only concurrentize independent complete generations",
+    ):
+        assert required in text
+
+
+def test_paper_framework_figure_studio_pro_is_argus_adapted(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    seed_builtin_skills(skills_dir)
+    text = (skills_dir / "paper-framework-figure-studio-pro.md").read_text(encoding="utf-8")
+
+    for required in (
+        "Argus-native adaptation",
+        "paper-prompt",
+        "image_tool generate",
+        "sync-paper-metadata",
+        "argus-image2-paper-prompt-v1",
+        "paper-framework-figure-studio-pro-v3.1.4a",
+        "S0-PAPER-FOUNDATION",
+        "S7-FINAL-JOINT-AUDIT",
+        "Do not hand-write image prompts from scratch",
+        "A core contribution module cannot be an empty generic box",
     ):
         assert required in text
 

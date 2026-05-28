@@ -16,72 +16,22 @@ import json
 from pathlib import Path
 from typing import Any
 
-from argus_skill.tools.image_tool import generate_image, inspect_image, review_image
+from argus_skill.tools.image_tool import (
+    PAPER_FIGURE_PROMPT_TEMPLATE,
+    PAPER_FIGURE_PROMPT_TEMPLATE_ID,
+    PAPER_FIGURE_STUDIO_SOURCE_ID,
+    generate_image,
+    inspect_image,
+    review_image,
+    write_paper_figure_prompt,
+)
 
 DEFAULT_PROMPT_PATH = Path("paper/figures/method_overview.prompt.txt")
 DEFAULT_OUTPUT_PATH = Path("paper/figures/method_overview.png")
 DEFAULT_MANIFEST_PATH = Path("paper/figures/IMAGE2_FIGURES.json")
 DEFAULT_SIZE = "1536x1024"
 
-PROMPT_SCAFFOLD = """Use case: scientific-educational
-Asset type: Figure 1 teaser / conceptual overview for an EMNLP/ACL/NeurIPS-style academic manuscript.
-
-General style:
-- EMNLP/ACL/NeurIPS/CS paper method figure, full-width two-column landscape, 1536x1024 or 1920x1088.
-- Clean Figma-style block diagram / block-based Figma style with rounded cards, neat alignment, soft pastel fills, dark-gray 2px borders, and compact information density.
-- Compact, information-rich, suitable for a PDF page-width figure; little wasted space but not crowded.
-- Tidy rounded handwritten or friendly sans-serif feel is acceptable only if it remains crisp and readable; no messy sketch fonts.
-- Moderate badge/icon use only when semantically useful; a few simple recognizable icons are fine, not a logo wall.
-- No heavy shadows, no gradients, no photorealism, no glassmorphism, no messy Excalidraw look.
-- Large readable labels, short phrases, balanced hierarchy, flat vector-like raster rendering on warm white #fbfaf7.
-
-Style intent:
-- Clean, dense, modular, Figma-like, mostly rounded cards, low-saturation pastel blocks.
-- Use small badges/icons sparingly; avoid empty space while preserving alignment.
-- It should look like a main figure in an EMNLP/ACL/NeurIPS paper, not a marketing graphic, stock illustration, dashboard screenshot, or casual whiteboard.
-
-Pinned content that must appear exactly:
-- Title: "{figure_title}"
-- Show: "{input_label}" -> "{mechanism_label}" -> "{verification_label}" -> "Reusable state/library" -> "Agent execution" -> "{output_label}" -> "{evidence_label}".
-- Components/chips: "Baseline/status quo", "Proposed method", "Accepted item", "Rejected item", "{benefit_label}", "{failure_label}".
-- SPELL EXACTLY every quoted label above. Do not invent alternate terminology, code identifiers, raw artifact paths, or extra labels.
-
-Layout variant:
-- Pick one variant ID and name it in the prompt. Swap only this block when generating variants.
-- 01 central hero: huge central memory/wiki/library card, source factory on the left, agent/output board on the right, benchmark strip at bottom.
-- 02 horizontal swimlanes: three clean lanes such as Build, Verify, Execute; use offset cards so it is not too rigid.
-- 03 sankey funnel: many sources merge into distillation, narrow through gates, expand into library/state, then branch to outputs.
-- 04 exploded entry: one accepted skill/memory/wiki entry pulled apart into Text, Visual, Recipe, Metadata plates with callout arrows.
-- 05 layered architecture stack: bottom sources, middle reusable memory/library, top agent execution; use shelf-like overlapping slabs.
-- 06 pipeline plus gallery: main pipeline across top, output gallery on right, compact benchmark/evidence cards along bottom.
-- 07 modular dashboard: dense but paper-clean cards; central method card largest, side panel for domains/tasks/outputs.
-- 08 radial hub-spoke: reusable library/state as center hub; sources feed from left arc; agent/results radiate right; evidence panel below.
-- 09 zigzag pipeline: Z-shaped reading path with numbered step badges and compact insets.
-- 10 research-poster dense: section headers, compact cards, mini charts, and small output thumbnails; still clean Figma and paper-friendly.
-- 11 grayscale accent: mostly grayscale academic style with two pastel accent colors for proposed path and verification.
-- 12 color-coded phases: peach acquisition, blue memory/library, green agent, lavender domains, yellow benchmark; overlapping phase tabs.
-- 13 card deck: sources, skills, and outputs as tidy fanned decks; one accepted card expanded.
-- 14 computation graph: nodes and grouped modules with thin arrows and rounded containers, like an ML systems diagram.
-- 15 dataflow with sidebars: main flow through center, left source sidebar, right output sidebar, bottom benchmark/evidence sidebar.
-- 16 timeline plus insets: left-to-right timeline with zoom boxes for the core mechanism and output/evidence.
-- 17 nested containers: big containers for Offline Construction and Online Execution; nested subcards plus benchmark footer.
-- 18 multi-panel A/B/C/D: A sources/build, B reusable state, C agent execution, D benchmark/evidence; panels overlap slightly and share arrows.
-- 19 light blueprint: pale blue grid background, modular boxes, thin connector routes, neat badges, strong central method box.
-- 20 polished Figma wireframe: component frames, auto-layout-like spacing, section tabs, chips, and carefully staggered components.
-
-Negative prompt / Avoid:
-- no concrete code snippets, raw paths, tiny unreadable text, character-level vertical text, or dense paragraphs
-- no excessive logos or brand marks, no watermark
-- no photorealistic scenes, stock photos, glassmorphism, heavy gradients, heavy shadows, texture, or arbitrary decorative blobs
-- no messy whiteboard / Excalidraw-heavy sketch style
-- no large empty areas, overlapping cards, squashed labels, inconsistent terminology, or extra captions that make it look like a dashboard
-
-Figma tokens for camera-ready cleanup:
-- Canvas 1536x1024 or 1920x1088; background #fbfaf7; stroke #1f2933 at 2px.
-- Corner radius 10-16px; card padding 12-20px; card gap 12-24px.
-- Pastels: acquisition #ffe2d1, parsing #fff2bd, memory/wiki #dcecff, agent #e2f7df, domains #eadfff, benchmark #fff1c9.
-- Text sizes: title 38-52px, section headers 22-30px, card labels 16-22px, chips 12-16px.
-"""
+PROMPT_SCAFFOLD = PAPER_FIGURE_PROMPT_TEMPLATE
 
 
 def sha256_file(path: Path) -> str:
@@ -127,8 +77,8 @@ def write_prompt_scaffold(
 ) -> Path:
     if prompt_path.exists() and not overwrite:
         return prompt_path
-    prompt_path.parent.mkdir(parents=True, exist_ok=True)
-    prompt = PROMPT_SCAFFOLD.format(
+    write_paper_figure_prompt(
+        prompt_path,
         figure_title=figure_title,
         input_label=input_label,
         mechanism_label=mechanism_label,
@@ -137,8 +87,8 @@ def write_prompt_scaffold(
         benefit_label=benefit_label,
         evidence_label=evidence_label,
         failure_label=failure_label,
+        force=overwrite,
     )
-    prompt_path.write_text(prompt, encoding="utf-8")
     return prompt_path
 
 
@@ -191,8 +141,19 @@ def generate_image2_figure(
     prompt = prompt_path.read_text(encoding="utf-8").strip()
     if not prompt:
         raise RuntimeError(f"prompt file is empty: {prompt_path}")
+    if PAPER_FIGURE_PROMPT_TEMPLATE_ID not in prompt or PAPER_FIGURE_STUDIO_SOURCE_ID not in prompt:
+        raise RuntimeError(
+            "prompt file must be created from the canonical Argus figure-studio "
+            "paper prompt; run with --init-prompt or use image_tool paper-prompt"
+        )
 
-    generation = generate_image(prompt=prompt, out=output_path, size=size, force=force)
+    generation = generate_image(
+        prompt=prompt,
+        prompt_file=prompt_path,
+        out=output_path,
+        size=size,
+        force=force,
+    )
     image_info = inspect_image(output_path)
     inspect_path = output_path.with_suffix(output_path.suffix + ".inspect.json")
     write_json(inspect_path, image_info)
@@ -214,6 +175,9 @@ def generate_image2_figure(
         "generator": "codex-image2",
         "model": model,
         "tool": "argus_skill.tools.image_tool",
+        "prompt_template_id": PAPER_FIGURE_PROMPT_TEMPLATE_ID,
+        "figure_studio_source": PAPER_FIGURE_STUDIO_SOURCE_ID,
+        "figure_studio_stage": "S5-CANDIDATE-IMAGE",
         "prompt_path": relpath(project_root, prompt_path),
         "prompt_sha256": sha256_text(prompt),
         "output_path": relpath(project_root, output_path),
@@ -236,6 +200,9 @@ def generate_image2_figure(
         "generator": "codex-image2",
         "model": model,
         "generator_model": model,
+        "prompt_template_id": PAPER_FIGURE_PROMPT_TEMPLATE_ID,
+        "figure_studio_source": PAPER_FIGURE_STUDIO_SOURCE_ID,
+        "figure_studio_stage": "S5-CANDIDATE-IMAGE",
         "prompt_path": relpath(project_root, prompt_path),
         "output_path": relpath(project_root, output_path),
         "output_sha256": output_sha256,
