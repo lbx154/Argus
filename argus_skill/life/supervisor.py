@@ -2722,20 +2722,31 @@ class LifeSupervisor:
         return ""
 
     def _journal_has_full_emnlp_gate_success(self) -> bool:
-        # First check: run the live validator directly via the Python
-        # function. The historical CLI subcommand was retired; calling the
-        # function avoids both that empty CLI surface and any subprocess
-        # overhead.
+        """Decide whether the project-final EMNLP gate has actually passed.
+
+        Source of truth: ``validate_full_emnlp_readiness()``. If it returns
+        no issues, the gate passes; if it returns any issues the gate has
+        NOT passed and we must say so — without consulting the brittle
+        journal-text fallback below, which over-matches when an earlier
+        round talked about the gate (e.g. "validate-grounding exited 0,
+        but validate-full-emnlp still fails on …" used to trigger a false
+        positive). The journal fallback is only consulted when the live
+        validator literally cannot be evaluated (import / IO error).
+        """
+
         try:
             from ..skills.pipeline_contracts import validate_full_emnlp_readiness
             workdir = self._project_workdir()
             issues = validate_full_emnlp_readiness(Path(workdir))
-            if not issues:
-                return True
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 — fall through to journal heuristic
             pass
+        else:
+            # Trust the live validator. Returning False here is correct
+            # even when the journal mentions an earlier gate pass, because
+            # any current gate failure invalidates that historical evidence.
+            return not issues
 
-        # Fallback: check journal for historical evidence
+        # Fallback only when the live validator could not be run at all.
         try:
             entries = self.memory.journal.tail(50)
         except Exception:  # noqa: BLE001
