@@ -84,6 +84,16 @@ LLM_REVIEW_STAGES: dict[str, tuple[str, str, list[str]]] = {
         "Score 5+ = pass.\n\n{content}",
         ["paper/main.tex"],
     ),
+    "submission": (
+        "_LOAD_SKILL:academic-paper-peer-review-benchmark.md",
+        "This is the FINAL submission gate review. Be strict — this paper will be submitted to EMNLP. "
+        "Review using the peer review benchmark above. Answer in JSON with: "
+        '{"score": 1-10, "pass": true/false, "recommendation": "Accept/Weak Accept/Weak Reject/Reject", '
+        '"strengths": ["..."], "weaknesses": ["..."], '
+        '"strongest_reject_argument": "...", "verdict": "one sentence"}. '
+        "Score 5+ = pass.\n\n{content}",
+        ["paper/main.tex"],
+    ),
 }
 
 
@@ -208,8 +218,8 @@ def main() -> int:
                 output = (result.stdout + result.stderr).strip()
                 print(f"  ❌ {desc}")
                 if output:
-                    for line in output.splitlines()[:5]:
-                        print(f"     {line[:200]}")
+                    for line in output.splitlines():
+                        print(f"     {line}")
                 failed += 1
         except subprocess.TimeoutExpired:
             print(f"  ⏰ {desc} (timeout)")
@@ -229,13 +239,28 @@ def main() -> int:
                 score = review.get("score", 0)
                 passed_review = review.get("pass", True)
                 verdict = review.get("verdict", "")
+                recommendation = review.get("recommendation", "")
                 issues = review.get("issues", review.get("weaknesses", []))
+                strengths = review.get("strengths", [])
+                strongest_reject = review.get("strongest_reject_argument", "")
 
                 icon = "✅" if passed_review else "❌"
-                print(f"  {icon} Scientific review: score={score}, {verdict}")
+                label = f"score={score}"
+                if recommendation:
+                    label += f", {recommendation}"
+                print(f"  {icon} Scientific review: {label}")
+                if verdict:
+                    print(f"     Verdict: {verdict}")
+                if strengths:
+                    print(f"     Strengths:")
+                    for s in strengths:
+                        print(f"       + {s}")
                 if issues:
-                    for issue in issues[:3]:
-                        print(f"     ⚠️  {issue}")
+                    print(f"     Issues to fix:")
+                    for issue in issues:
+                        print(f"       - {issue}")
+                if strongest_reject and not passed_review:
+                    print(f"     ⚠️  Strongest reject argument: {strongest_reject}")
                 if not passed_review:
                     llm_failed = True
                     failed += 1

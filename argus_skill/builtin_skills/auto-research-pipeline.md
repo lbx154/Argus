@@ -156,8 +156,9 @@ research → plan → benchmark → run → analysis → draft → review → su
 
 ### 8. submission (final gate)
 - Write SUBMISSION_ASSURANCE.json
-- Run validate-full-emnlp → must exit 0
-- Gate: project complete, daemon auto-stops
+- Run validate-full-emnlp → must exit 0 with no issues
+- Reviewer LLM check: ⚡ academic-paper-peer-review-benchmark.md (final strict review, score 5+ = pass)
+- Gate: structural gate clean AND LLM peer review passes → project complete, daemon auto-stops
 
 
 ## Review artifact integrity
