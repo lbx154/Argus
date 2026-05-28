@@ -204,6 +204,9 @@ def generate_image2_figure(
     sidecar_path = Path(str(generation.get("sidecar") or output_path.with_suffix(output_path.suffix + ".json")))
     provenance_path = output_path.with_suffix(output_path.suffix + ".provenance.json")
     model = str(generation.get("model") or "gpt-image-2")
+    requested_size = str(generation.get("requested_size") or size)
+    original_requested_size = generation.get("original_requested_size")
+    size_was_normalized = generation.get("size_normalized_to_multiple_of_16") is True
     width = image_info.get("width")
     height = image_info.get("height")
     output_sha256 = str(image_info.get("sha256") or sha256_file(output_path))
@@ -216,10 +219,14 @@ def generate_image2_figure(
         "output_path": relpath(project_root, output_path),
         "output_sha256": output_sha256,
         "sidecar_path": relpath(project_root, sidecar_path),
-        "requested_size": size,
+        "requested_size": requested_size,
         "width": width,
         "height": height,
     }
+    if isinstance(original_requested_size, str) and original_requested_size:
+        provenance["original_requested_size"] = original_requested_size
+    if size_was_normalized:
+        provenance["size_normalized_to_multiple_of_16"] = True
     write_json(provenance_path, provenance)
 
     entry = {
@@ -236,10 +243,14 @@ def generate_image2_figure(
         "inspect_path": relpath(project_root, inspect_path),
         "review_path": relpath(project_root, review_path),
         "generation_provenance_path": relpath(project_root, provenance_path),
-        "requested_size": size,
+        "requested_size": requested_size,
         "width": width,
         "height": height,
     }
+    if isinstance(original_requested_size, str) and original_requested_size:
+        entry["original_requested_size"] = original_requested_size
+    if size_was_normalized:
+        entry["size_normalized_to_multiple_of_16"] = True
     upsert_manifest_entry(manifest_path, entry)
     return entry
 
