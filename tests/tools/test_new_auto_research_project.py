@@ -114,7 +114,7 @@ def test_create_project_without_domain_exports_all_skills(
 
     exported = sorted(result.skills_dir.rglob("*.md"))
     assert len(exported) > 0
-    assert (result.skills_dir / "auto-research-pipeline.md").exists()
+    assert (result.skills_dir / "engineer" / "auto-research-pipeline.md").exists()
 
 
 def test_next_version_uses_highest_existing_workspace(tmp_path: Path) -> None:

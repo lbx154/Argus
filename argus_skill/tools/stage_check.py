@@ -63,7 +63,7 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
 REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
     # stage: (skill_to_load, review_instructions, files_to_read)
     "research": (
-        "research-brief-to-experiment-plan.md",
+        "engineer/research-brief-to-experiment-plan.md",
         "Evaluate the research foundation on these dimensions:\n"
         "1. Problem clarity — is the research gap well-defined and grounded in literature?\n"
         "2. Literature coverage — ≥10 recent papers + ≥3 classic anchors surveyed?\n"
@@ -75,7 +75,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
          "research/SOURCE_DISCOVERY.md", "research/TREND_INSIGHTS.md"],
     ),
     "plan": (
-        "experiment-plan-review.md",
+        "reviewer/experiment-plan-review.md",
         "Evaluate the experiment plan on these dimensions:\n"
         "1. Method competitiveness — is the proposed method strong enough vs SOTA?\n"
         "2. Baseline strength — are baselines non-trivial and representative?\n"
@@ -87,7 +87,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         ["research/EXPERIMENT_PLAN.md"],
     ),
     "benchmark": (
-        "agent-research-benchmark-runner.md",
+        "engineer/agent-research-benchmark-runner.md",
         "Evaluate benchmark preparation on these dimensions:\n"
         "1. Benchmark provenance — are all benchmarks from real public sources (not synthetic)?\n"
         "2. Coverage — ≥3 independent benchmark families with ≥240 tasks per condition?\n"
@@ -98,7 +98,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         ["experiments/BENCHMARK_PROVENANCE.md"],
     ),
     "run": (
-        "experiment-results-review.md",
+        "reviewer/experiment-results-review.md",
         "Evaluate the experiment results on these dimensions:\n"
         "1. Statistical significance — are gains significant, not noise?\n"
         "2. Ablation fairness — does ablation isolate the claimed contribution?\n"
@@ -110,7 +110,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         ["paper/artifacts/results_table.tsv", "paper/artifacts/significance.tsv"],
     ),
     "analysis": (
-        "research-results-analysis-and-figures.md",
+        "engineer/research-results-analysis-and-figures.md",
         "Evaluate the analysis artifacts on these dimensions:\n"
         "1. Results report — does RESULTS_REPORT.md accurately summarize all experiment outcomes?\n"
         "2. Results table — does results_table.tsv have all conditions × benchmarks × metrics?\n"
@@ -121,7 +121,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         ["paper/RESULTS_REPORT.md", "paper/artifacts/results_table.tsv"],
     ),
     "draft": (
-        "academic-paper-peer-review-benchmark.md",
+        "reviewer/academic-paper-peer-review-benchmark.md",
         "DRAFT-stage progress check (lenient, not a final peer review).\n"
         "Focus on whether the draft can move forward:\n"
         "1. Are all required sections present (abstract, intro, method, experiments, results, conclusion)?\n"
@@ -133,7 +133,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         ["paper/main.tex"],
     ),
     "review": (
-        "emnlp-academic-language-review.md",
+        "reviewer/emnlp-academic-language-review.md",
         "Evaluate the review artifacts on these dimensions:\n"
         "1. Layout review — does LAYOUT_REVIEW.json pass? Are pages well-balanced, figures readable?\n"
         "2. Academic language — does ACADEMIC_LANGUAGE_REVIEW.json pass? No hype, salesy language, or vague claims?\n"
@@ -145,7 +145,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
          "paper/PAPER_INFRASTRUCTURE_REVIEW.json"],
     ),
     "submission": (
-        "academic-paper-peer-review-benchmark.md",
+        "reviewer/academic-paper-peer-review-benchmark.md",
         "FINAL submission gate — be STRICT, evaluate as an actual EMNLP reviewer.\n"
         "Review dimensions (all must pass):\n"
         "1. Novelty — does this make a meaningful contribution beyond incremental?\n"

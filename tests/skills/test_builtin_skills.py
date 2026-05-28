@@ -18,8 +18,8 @@ def test_seed_builtin_skills_creates_parseable_research_defaults(tmp_path: Path)
 
     assert len(created) == builtin_skill_count()
     assert all(created.values())
-    assert (skills_dir / "auto-research-pipeline.md").exists()
-    assert (skills_dir / "emnlp-paper-drafting.md").exists()
+    assert (skills_dir / "engineer" / "auto-research-pipeline.md").exists()
+    assert (skills_dir / "engineer" / "emnlp-paper-drafting.md").exists()
     summaries = SkillStore(skills_dir).list_summaries()
     names = {summary["name"] for summary in summaries}
     assert "EMNLP Paper Drafting" in names
@@ -43,12 +43,12 @@ def test_seed_builtin_skills_creates_parseable_research_defaults(tmp_path: Path)
 def test_seed_builtin_skills_preserves_existing_user_edits(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
-    target = skills_dir / "emnlp-paper-drafting.md"
+    target = skills_dir / "engineer" / "emnlp-paper-drafting.md"
     target.write_text("user edit\n", encoding="utf-8")
 
     created = seed_builtin_skills(skills_dir)
 
-    assert created["emnlp-paper-drafting.md"] is False
+    assert created["engineer/emnlp-paper-drafting.md"] is False
     assert target.read_text(encoding="utf-8") == "user edit\n"
 
 
@@ -61,7 +61,7 @@ def test_seed_builtin_skills_exports_all_without_domains(
     created = seed_builtin_skills(skills_dir)
 
     assert len(created) == builtin_skill_count()
-    assert (skills_dir / "auto-research-pipeline.md").exists()
+    assert (skills_dir / "engineer" / "auto-research-pipeline.md").exists()
     assert not (skills_dir / "domains").exists()
 
 
@@ -71,14 +71,14 @@ def test_global_memory_init_seeds_builtin_skills(tmp_path: Path) -> None:
     state = mem.init()
 
     assert state == {"identity": True, "journal": True}
-    assert (tmp_path / "skills" / "emnlp-paper-drafting.md").exists()
-    assert (tmp_path / "skills" / "research-results-analysis-and-figures.md").exists()
+    assert (tmp_path / "skills" / "engineer" / "emnlp-paper-drafting.md").exists()
+    assert (tmp_path / "skills" / "engineer" / "research-results-analysis-and-figures.md").exists()
 
 
 def test_research_experiment_skill_requires_live_progress_protocol(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
-    text = (skills_dir / "agent-research-benchmark-runner.md").read_text(
+    text = (skills_dir / "engineer" / "agent-research-benchmark-runner.md").read_text(
         encoding="utf-8"
     )
 
@@ -103,7 +103,7 @@ def test_builtin_skills_require_full_scale_experiment_evidence_gate(
     seed_builtin_skills(skills_dir)
 
     required_by_skill = {
-        "auto-research-pipeline.md": (
+        "engineer/auto-research-pipeline.md": (
             "validate-full-scale-evidence",
             "Benchmark construction is not execution",
             "missing_full_scale_experiment_run",
@@ -113,7 +113,7 @@ def test_builtin_skills_require_full_scale_experiment_evidence_gate(
             "status.json",
             "raw result rows",
         ),
-        "agent-research-benchmark-runner.md": (
+        "engineer/agent-research-benchmark-runner.md": (
             "validate-full-scale-evidence",
             "Benchmark construction is not execution",
             "status.json task_count",
@@ -121,28 +121,28 @@ def test_builtin_skills_require_full_scale_experiment_evidence_gate(
             "same multi-source benchmark matrix",
             "missing_baseline_condition_run",
         ),
-        "research-results-analysis-and-figures.md": (
+        "engineer/research-results-analysis-and-figures.md": (
             "validate-full-scale-evidence",
             "benchmarks/full/tasks.jsonl",
             "declared `status.json task_count`",
             "completed raw scored rows per required method/baseline condition",
             "pilot_pdf_without_full_scale_evidence",
         ),
-        "emnlp-paper-drafting.md": (
+        "engineer/emnlp-paper-drafting.md": (
             "validate-full-scale-evidence",
             "Benchmark construction is not executed evidence",
             "raw `experiments/**` rows",
             "every required method/baseline condition",
             "pilot_pdf_without_full_scale_evidence",
         ),
-        "emnlp-academic-language-review.md": (
+        "reviewer/emnlp-academic-language-review.md": (
             "validate-full-scale-evidence",
             "benchmark construction",
             "status.json task_count",
             "every required method/baseline condition",
             "pilot_pdf_without_full_scale_evidence",
         ),
-        "research-submission-assurance-gate.md": (
+        "engineer/research-submission-assurance-gate.md": (
             "validate-full-scale-evidence",
             "benchmark construction presented as execution",
             "same-family-only evidence",
@@ -179,13 +179,13 @@ def test_academic_language_loop_requires_paragraph_reset_and_page_guard(
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
 
-    academic = (skills_dir / "emnlp-academic-language-review.md").read_text(
+    academic = (skills_dir / "reviewer" / "emnlp-academic-language-review.md").read_text(
         encoding="utf-8"
     )
-    revision = (skills_dir / "paper-review-revision-loop.md").read_text(
+    revision = (skills_dir / "engineer" / "paper-review-revision-loop.md").read_text(
         encoding="utf-8"
     )
-    router = (skills_dir / "emnlp-paper-skill-router.md").read_text(
+    router = (skills_dir / "engineer" / "emnlp-paper-skill-router.md").read_text(
         encoding="utf-8"
     )
 
@@ -223,25 +223,25 @@ def test_builtin_skills_forbid_manual_review_artifact_passes(
     seed_builtin_skills(skills_dir)
 
     required_by_skill = {
-        "auto-research-pipeline.md": (
+        "engineer/auto-research-pipeline.md": (
             "Review artifacts are generated evidence, not knobs",
             "Do not hand-edit, normalize, or append PASS records",
             "top-level PASS is invalid when nested `model_review` or `vision_review`",
             "run the owning reviewer with `--write`",
         ),
-        "emnlp-academic-language-review.md": (
+        "reviewer/emnlp-academic-language-review.md": (
             "generated evidence, not editable scoring targets",
             "Do not hand-edit, normalize, or append a top-level `PASS`",
             "nested `model_review` still says revise",
             "revise the manuscript and rerun the review tool",
         ),
-        "paper-review-revision-loop.md": (
+        "engineer/paper-review-revision-loop.md": (
             "read-only feedback except when regenerated",
             "Do not hand-edit, normalize, or append `PASS` records",
             "nested model/vision review evidence",
             "rerun the owning review tool",
         ),
-        "emnlp-paper-skill-router.md": (
+        "engineer/emnlp-paper-skill-router.md": (
             "Review JSON/markdown/history appears manually normalized to PASS",
             "top-level PASS contradicts nested model/vision evidence",
             "Treat the artifact as invalid generated evidence",
@@ -395,7 +395,7 @@ def test_emnlp_paper_skill_requires_official_template_page_budget_and_style_ref(
 ) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
-    text = (skills_dir / "emnlp-paper-drafting.md").read_text(encoding="utf-8")
+    text = (skills_dir / "engineer" / "emnlp-paper-drafting.md").read_text(encoding="utf-8")
 
     for required in (
         "https://github.com/acl-org/acl-style-files",
@@ -463,7 +463,7 @@ def test_research_plan_skill_requires_common_benchmark_provenance(
 ) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
-    text = (skills_dir / "research-brief-to-experiment-plan.md").read_text(
+    text = ( skills_dir / "engineer" / "research-brief-to-experiment-plan.md").read_text(
         encoding="utf-8"
     )
 
@@ -480,7 +480,7 @@ def test_auto_research_pipeline_skill_requires_state_machine_gates(
 ) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
-    text = (skills_dir / "auto-research-pipeline.md").read_text(encoding="utf-8")
+    text = (skills_dir / "engineer" / "auto-research-pipeline.md").read_text(encoding="utf-8")
 
     for required in (
         "research/PIPELINE_STATE.json",
@@ -505,7 +505,7 @@ def test_submission_assurance_gate_skill_requires_audit_layers(
 ) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
-    text = (skills_dir / "research-submission-assurance-gate.md").read_text(
+    text = (skills_dir / "engineer" / "research-submission-assurance-gate.md").read_text(
         encoding="utf-8"
     )
 
@@ -526,7 +526,7 @@ def test_paper_infrastructure_skill_rejects_body_audit_bundle_clutter(
 ) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
-    text = (skills_dir / "emnlp-paper-infrastructure-review.md").read_text(
+    text = ( skills_dir / "engineer" / "emnlp-paper-infrastructure-review.md").read_text(
         encoding="utf-8"
     )
 
@@ -548,7 +548,7 @@ def test_paper_exemplar_skill_requires_pdf_text_hash_and_thick_profile(
 ) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
-    text = (skills_dir / "paper-exemplar-pdf-learning.md").read_text(encoding="utf-8")
+    text = ( skills_dir / "engineer" / "paper-exemplar-pdf-learning.md").read_text(encoding="utf-8")
 
     for required in (
         "Paper Exemplar PDF Learning",
@@ -584,7 +584,7 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
     seed_builtin_skills(skills_dir)
 
     required_by_skill = {
-        "emnlp-paper-drafting.md": (
+        "engineer/emnlp-paper-drafting.md": (
             "Anonymous EMNLP Submission",
             "Overfull \\hbox > 5pt",
             "validate-research-md-format",
@@ -596,7 +596,7 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "1024x1024",
         ),
         # auto-research-pipeline is now lean — format details are in drafting/format skills
-        "research-results-analysis-and-figures.md": (
+        "engineer/research-results-analysis-and-figures.md": (
             "Overfull \\hbox > 5pt",
             "paired-significance table",
             "body figures <=5",
@@ -609,7 +609,7 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "provenance reports, manifests, or developer-facing run logs",
             "Do not copy raw local paths",
         ),
-        "paper-review-revision-loop.md": (
+        "engineer/paper-review-revision-loop.md": (
             "Anonymous EMNLP Submission",
             "Overfull \\hbox > 5pt",
             "middle-body visual rhythm",
@@ -620,14 +620,14 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "do not regenerate an already accepted image merely to refresh metadata",
             "same `pytest` test, validator issue, or review-span lookup fails twice",
         ),
-        "claims-evidence-audit.md": (
+        "engineer/claims-evidence-audit.md": (
             "Overfull \\hbox > 5pt",
             "middle-body visual rhythm",
             "paired-significance table",
             "% UNVERIFIED",
             "numerical headline",
         ),
-        "research-submission-assurance-gate.md": (
+        "engineer/research-submission-assurance-gate.md": (
             "Anonymous EMNLP Submission",
             "Overfull \\hbox > 5pt",
             "research_md_format_preflight",
@@ -638,7 +638,7 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "arraystretch=1.15",
             "1536x1024 or 1920x1088",
         ),
-        "emnlp-format-preflight.md": (
+        "engineer/emnlp-format-preflight.md": (
             "Anonymous EMNLP Submission",
             "Overfull \\hbox > 5pt",
             "validate-research-md-format",
@@ -649,7 +649,7 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "1536x1024 or 1920x1088",
             "FORMAT_PREFLIGHT.md",
         ),
-        "academic-paper-peer-review-benchmark.md": (
+        "reviewer/academic-paper-peer-review-benchmark.md": (
             "Overfull \\hbox > 5pt",
             "validate-full-emnlp",
             "middle-body visual rhythm",
@@ -672,7 +672,7 @@ def test_format_preflight_requires_neutral_reproducibility_interface(
 ) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
-    text = (skills_dir / "emnlp-format-preflight.md").read_text(encoding="utf-8")
+    text = ( skills_dir / "engineer" / "emnlp-format-preflight.md").read_text(encoding="utf-8")
 
     for required in (
         "neutral replay interface",
@@ -697,7 +697,7 @@ def test_paper_illustration_image2_orders_post_generation_checks(
 ) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
-    text = (skills_dir / "paper-illustration-image2.md").read_text(encoding="utf-8")
+    text = ( skills_dir / "engineer" / "paper-illustration-image2.md").read_text(encoding="utf-8")
 
     for required in (
         "paper-prompt",
@@ -718,7 +718,7 @@ def test_paper_framework_figure_studio_pro_is_argus_adapted(
 ) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
-    text = (skills_dir / "paper-framework-figure-studio-pro.md").read_text(encoding="utf-8")
+    text = ( skills_dir / "engineer" / "paper-framework-figure-studio-pro.md").read_text(encoding="utf-8")
 
     for required in (
         "Argus-native adaptation",
@@ -740,7 +740,7 @@ def test_academic_peer_review_benchmark_skill_sets_reviewer_standard(
 ) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
-    text = (skills_dir / "academic-paper-peer-review-benchmark.md").read_text(
+    text = ( skills_dir / "reviewer" / "academic-paper-peer-review-benchmark.md").read_text(
         encoding="utf-8"
     )
 
@@ -767,7 +767,7 @@ def test_academic_peer_review_benchmark_skill_sets_reviewer_standard(
 def test_emnlp_paper_skill_router_maps_validator_issue_codes(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
-    text = (skills_dir / "emnlp-paper-skill-router.md").read_text(
+    text = (skills_dir / "engineer" / "emnlp-paper-skill-router.md").read_text(
         encoding="utf-8"
     )
 
@@ -806,13 +806,13 @@ def test_argus_role_identity_skills_cover_agent_contracts(tmp_path: Path) -> Non
     seed_builtin_skills(skills_dir)
 
     required_by_skill = {
-        "argus-engineer-role.md": (
+        "engineer/argus-engineer-role.md": (
             "execution arm",
             "Reviewer decides",
             "concrete verification",
             "validate-full-emnlp",
         ),
-        "argus-reviewer-role.md": (
+        "reviewer/argus-reviewer-role.md": (
             "evidence gate",
             "done",
             "continue",
@@ -821,7 +821,7 @@ def test_argus_role_identity_skills_cover_agent_contracts(tmp_path: Path) -> Non
             "short, deterministic shell checks",
             "bounded paper tasks",
         ),
-        "argus-planner-role.md": (
+        "engineer/argus-planner-role.md": (
             "manager/director",
             "bounded",
             "final_submission",

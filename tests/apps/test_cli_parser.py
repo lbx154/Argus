@@ -87,9 +87,9 @@ def test_main_exports_builtin_skills(
     out = capsys.readouterr().out
 
     assert rc == 0
-    assert (target / "auto-research-pipeline.md").exists()
-    assert (target / "emnlp-paper-drafting.md").exists()
-    assert (target / "arxiv-paper-search.md").exists()
+    assert (target / "engineer/auto-research-pipeline.md").exists()
+    assert (target / "engineer/emnlp-paper-drafting.md").exists()
+    assert (target / "engineer/arxiv-paper-search.md").exists()
     assert "exported built-in skills" in out
     assert str(target) in out
 

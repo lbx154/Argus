@@ -176,11 +176,11 @@ def _sanitize_planner_task_text(text: str) -> str:
         (
             "`/root/Auto-claude-code-research-in-sleep/skills/"
             "paper-illustration-image2/SKILL.md`"
-        ): "`argus_builtin_skills/paper-illustration-image2.md`",
+        ): "`argus_builtin_skills/engineer/paper-illustration-image2.md`",
         (
             "/root/Auto-claude-code-research-in-sleep/skills/"
             "paper-illustration-image2/SKILL.md"
-        ): "argus_builtin_skills/paper-illustration-image2.md",
+        ): "argus_builtin_skills/engineer/paper-illustration-image2.md",
     }
     for old, new in path_replacements.items():
         value = value.replace(old, new)
@@ -680,11 +680,11 @@ def _select_emnlp_finalization_repair_task(
             target_label="bootstrap grounding and provenance",
             target_issues=bootstrap,
             skill_files=(
-                "emnlp-paper-skill-router.md",
-                "auto-research-pipeline.md",
-                "research-brief-to-experiment-plan.md",
-                "arxiv-paper-search.md",
-                "semantic-scholar-search.md",
+                "engineer/emnlp-paper-skill-router.md",
+                "engineer/auto-research-pipeline.md",
+                "engineer/research-brief-to-experiment-plan.md",
+                "engineer/arxiv-paper-search.md",
+                "engineer/semantic-scholar-search.md",
             ),
             allowed_paths=(
                 "research/",
@@ -714,9 +714,9 @@ def _select_emnlp_finalization_repair_task(
             target_label="full-scale experiment evidence",
             target_issues=full_scale,
             skill_files=(
-                "emnlp-paper-skill-router.md",
-                "agent-research-benchmark-runner.md",
-                "research-results-analysis-and-figures.md",
+                "engineer/emnlp-paper-skill-router.md",
+                "engineer/agent-research-benchmark-runner.md",
+                "engineer/research-results-analysis-and-figures.md",
             ),
             allowed_paths=("experiments/", "benchmarks/", "research/", "code/", "paper/RESULTS_REPORT.md"),
             narrow_commands=(
@@ -742,10 +742,10 @@ def _select_emnlp_finalization_repair_task(
             target_label="body overlength, conclusion placement, and page-budget reflow",
             target_issues=over_budget,
             skill_files=(
-                "emnlp-paper-skill-router.md",
-                "emnlp-paper-drafting.md",
-                "emnlp-format-preflight.md",
-                "paper-review-revision-loop.md",
+                "engineer/emnlp-paper-skill-router.md",
+                "engineer/emnlp-paper-drafting.md",
+                "engineer/emnlp-format-preflight.md",
+                "engineer/paper-review-revision-loop.md",
             ),
             allowed_paths=(
                 "paper/main.tex",
@@ -789,10 +789,10 @@ def _select_emnlp_finalization_repair_task(
             target_label="content sufficiency, page budget, and draft readiness",
             target_issues=content,
             skill_files=(
-                "emnlp-paper-skill-router.md",
-                "emnlp-paper-drafting.md",
-                "research-results-analysis-and-figures.md",
-                "claims-evidence-audit.md",
+                "engineer/emnlp-paper-skill-router.md",
+                "engineer/emnlp-paper-drafting.md",
+                "engineer/research-results-analysis-and-figures.md",
+                "engineer/claims-evidence-audit.md",
             ),
             allowed_paths=(
                 "paper/main.tex",
@@ -838,10 +838,10 @@ def _select_emnlp_finalization_repair_task(
             target_label="citation, BibTeX, and rendered reference hygiene",
             target_issues=citations,
             skill_files=(
-                "emnlp-paper-skill-router.md",
-                "emnlp-paper-drafting.md",
-                "emnlp-format-preflight.md",
-                "claims-evidence-audit.md",
+                "engineer/emnlp-paper-skill-router.md",
+                "engineer/emnlp-paper-drafting.md",
+                "engineer/emnlp-format-preflight.md",
+                "engineer/claims-evidence-audit.md",
             ),
             allowed_paths=("paper/main.tex", "paper/*.bib", "paper/CLAIM_GRAPH.json", "research.md"),
             narrow_commands=(
@@ -868,9 +868,9 @@ def _select_emnlp_finalization_repair_task(
             target_label="image-2 conceptual figure provenance and inclusion",
             target_issues=image2,
             skill_files=(
-                "emnlp-paper-skill-router.md",
-                "research-results-analysis-and-figures.md",
-                "emnlp-paper-drafting.md",
+                "engineer/emnlp-paper-skill-router.md",
+                "engineer/research-results-analysis-and-figures.md",
+                "engineer/emnlp-paper-drafting.md",
             ),
             allowed_paths=("paper/figures/", "paper/main.tex", "code/generate_image_2.py"),
             narrow_commands=(
@@ -897,10 +897,10 @@ def _select_emnlp_finalization_repair_task(
             target_label="figure/table style, captions, labels, and overfull boxes",
             target_issues=figure_format,
             skill_files=(
-                "emnlp-paper-skill-router.md",
-                "emnlp-format-preflight.md",
-                "emnlp-paper-drafting.md",
-                "research-results-analysis-and-figures.md",
+                "engineer/emnlp-paper-skill-router.md",
+                "engineer/emnlp-format-preflight.md",
+                "engineer/emnlp-paper-drafting.md",
+                "engineer/research-results-analysis-and-figures.md",
             ),
             allowed_paths=(
                 "paper/main.tex",
@@ -931,9 +931,9 @@ def _select_emnlp_finalization_repair_task(
             target_label="model academic-language review and vision layout review",
             target_issues=reviews,
             skill_files=(
-                "emnlp-paper-skill-router.md",
-                "emnlp-academic-language-review.md",
-                "paper-review-revision-loop.md",
+                "engineer/emnlp-paper-skill-router.md",
+                "reviewer/emnlp-academic-language-review.md",
+                "engineer/paper-review-revision-loop.md",
             ),
             allowed_paths=("paper/main.tex", "paper/main.pdf", "paper/ACADEMIC_LANGUAGE_REVIEW.json", "paper/LAYOUT_REVIEW.json"),
             narrow_commands=(
@@ -960,7 +960,7 @@ def _select_emnlp_finalization_repair_task(
             impact_area="integration",
             target_label="manifest, freshness, and validation routing drift",
             target_issues=contract_artifacts,
-            skill_files=("emnlp-paper-skill-router.md", "auto-research-pipeline.md"),
+            skill_files=("engineer/emnlp-paper-skill-router.md", "engineer/auto-research-pipeline.md"),
             allowed_paths=(
                 "paper/ARTIFACT_MANIFEST.json",
                 "paper/ARTIFACT_FRESHNESS.json",
@@ -984,7 +984,7 @@ def _select_emnlp_finalization_repair_task(
         impact_area="requirement_gap",
         target_label="highest-priority remaining final-gate blockers",
         target_issues=downstream,
-        skill_files=("emnlp-paper-skill-router.md", "emnlp-paper-drafting.md"),
+        skill_files=("engineer/emnlp-paper-skill-router.md", "engineer/emnlp-paper-drafting.md"),
         allowed_paths=("paper/", "research/", "experiments/", "benchmarks/", "code/"),
         narrow_commands=(_FULL_EMNLP_GATE_COMMAND,),
         repair_focus=(
@@ -2092,7 +2092,7 @@ class LifeSupervisor:
             return True
         if "validate-full-emnlp" in str(objective).casefold():
             return True
-        if (root / "argus_builtin_skills" / "emnlp-paper-skill-router.md").exists():
+        if (root / "argus_builtin_skills" / "engineer/emnlp-paper-skill-router.md").exists():
             return True
         for filename in ("AGENTS.md", "agent.md"):
             path = root / filename
