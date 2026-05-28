@@ -62,6 +62,18 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
 # It will load the skill, read the files, and do the review itself.
 REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
     # stage: (skill_to_load, review_instructions, files_to_read)
+    "research": (
+        "research-brief-to-experiment-plan.md",
+        "Evaluate the research foundation on these dimensions:\n"
+        "1. Problem clarity — is the research gap well-defined and grounded in literature?\n"
+        "2. Literature coverage — ≥10 recent papers + ≥3 classic anchors surveyed?\n"
+        "3. Source diversity — both scholarly (arXiv, Semantic Scholar) and trend sources (机器之心 etc.) checked?\n"
+        "4. Trend grounding — are trend insights converted to testable research questions?\n"
+        "5. Direction viability — is this a real frontier gap, not just an incremental tweak?\n"
+        "Pass threshold: clear gap identified with literature backing, not just agent brainstorming.",
+        ["research/RESEARCH_BRIEF.md", "research/LITERATURE_GROUNDING.json",
+         "research/SOURCE_DISCOVERY.md", "research/TREND_INSIGHTS.md"],
+    ),
     "plan": (
         "experiment-plan-review.md",
         "Evaluate the experiment plan on these dimensions:\n"
@@ -70,8 +82,20 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "3. Evaluation fairness — same compute/data budget for all conditions?\n"
         "4. Benchmark adequacy — ≥3 independent real benchmark families?\n"
         "5. Feasibility — can this be executed with available resources?\n"
+        "6. Infrastructure choice — is the right training/inference framework selected per training-infrastructure-guide?\n"
         "If any dimension scores below 3/5, the plan needs revision before proceeding.",
         ["research/EXPERIMENT_PLAN.md"],
+    ),
+    "benchmark": (
+        "agent-research-benchmark-runner.md",
+        "Evaluate benchmark preparation on these dimensions:\n"
+        "1. Benchmark provenance — are all benchmarks from real public sources (not synthetic)?\n"
+        "2. Coverage — ≥3 independent benchmark families with ≥240 tasks per condition?\n"
+        "3. Gold answers — are ground truth labels verified, not assumed?\n"
+        "4. Baseline readiness — are baseline implementations ready to run?\n"
+        "5. Reproducibility — can someone else download and run these benchmarks?\n"
+        "Pass threshold: all benchmarks sourced, verified, and ready for experiment execution.",
+        ["experiments/BENCHMARK_PROVENANCE.md"],
     ),
     "run": (
         "experiment-results-review.md",
@@ -85,6 +109,17 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "If results are too weak to support an EMNLP paper, recommend pivot or more experiments.",
         ["paper/artifacts/results_table.tsv", "paper/artifacts/significance.tsv"],
     ),
+    "analysis": (
+        "research-results-analysis-and-figures.md",
+        "Evaluate the analysis artifacts on these dimensions:\n"
+        "1. Results report — does RESULTS_REPORT.md accurately summarize all experiment outcomes?\n"
+        "2. Results table — does results_table.tsv have all conditions × benchmarks × metrics?\n"
+        "3. Claim mapping — does each claim trace back to specific experimental evidence?\n"
+        "4. Figures — are figures data-driven (not placeholder) and do they communicate key findings?\n"
+        "5. Consistency — do numbers in the report match raw experiment outputs?\n"
+        "Pass threshold: analysis is complete, figures are generated, claims are evidence-backed.",
+        ["paper/RESULTS_REPORT.md", "paper/artifacts/results_table.tsv"],
+    ),
     "draft": (
         "academic-paper-peer-review-benchmark.md",
         "DRAFT-stage progress check (lenient, not a final peer review).\n"
@@ -96,6 +131,18 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "Do NOT block on: language polish, minor formatting, incomplete related work.\n"
         "Pass threshold: structure complete enough to proceed to review stage.",
         ["paper/main.tex"],
+    ),
+    "review": (
+        "emnlp-academic-language-review.md",
+        "Evaluate the review artifacts on these dimensions:\n"
+        "1. Layout review — does LAYOUT_REVIEW.json pass? Are pages well-balanced, figures readable?\n"
+        "2. Academic language — does ACADEMIC_LANGUAGE_REVIEW.json pass? No hype, salesy language, or vague claims?\n"
+        "3. Infrastructure leaks — does PAPER_INFRASTRUCTURE_REVIEW.json pass? No local paths, device names, or Argus/Codex references in manuscript?\n"
+        "4. Citation quality — all citations author-year natbib, no dumping, no placeholders?\n"
+        "5. Page budget — body ≤8 pages, conclusion on page 8, references start page 9+?\n"
+        "If any review artifact has unresolved major issues, block until fixed.",
+        ["paper/LAYOUT_REVIEW.json", "paper/ACADEMIC_LANGUAGE_REVIEW.json",
+         "paper/PAPER_INFRASTRUCTURE_REVIEW.json"],
     ),
     "submission": (
         "academic-paper-peer-review-benchmark.md",
