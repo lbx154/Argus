@@ -321,6 +321,34 @@ def test_deterministic_review_flags_right_column_references_after_body_text() ->
     assert issues["references_share_body_page"]["page"] == 5
 
 
+def test_deterministic_review_allows_postbody_matter_sharing_valid_reference_page() -> None:
+    pages = [
+        "Title",
+        "Related Work",
+        "Method",
+        "Experimental Setup\nFigure 1: overview",
+        "Main Results\nTable 1: main results",
+        "Analysis\nTable 2: supporting analyses",
+        "Failure Cases\nFigure 2: profile",
+        "Conclusion",
+        "Limitations and Ethical Considerations\nReferences\n[1] Example",
+        "More references",
+    ]
+
+    result = _deterministic_assessment(
+        tex_text="",
+        log_text="",
+        layout_text="\f".join(pages),
+        threshold=4.0,
+    )
+
+    issues = {issue["code"]: issue for issue in result["issues"]}
+    assert "references_share_body_page" not in issues
+    assert result["page_flow_contract"]["conclusion_page"] == 8
+    assert result["page_flow_contract"]["references_page"] == 9
+    assert result["page_flow_contract"]["post_body_pages_uncapped"] is True
+
+
 def test_deterministic_review_flags_page_six_conclusion_as_underfilled() -> None:
     pages = [
         "Title",
