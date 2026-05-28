@@ -61,9 +61,19 @@ Turn a loose operator research direction into a concrete, evidence-first experim
    - Each candidate must cite `source_refs` from surveyed recent papers, classic papers, benchmarks, official projects, or code releases. The selected idea must have at least 2 `derived_from` references and a concrete `research_gap`, `novelty_delta`, and `selection_rationale`.
    - Each candidate must state the frontier comparison it would have to beat: named SOTA/strong baselines, expected benchmark, primary metric, and why the improvement would be publishable rather than cosmetic.
    - If the only source is the agent's own intuition, set the gate to `blocked` or continue literature search; do not manufacture an idea.
+   - **Anti-mediocrity gate**: reject an idea if ANY of these apply:
+     * It is a minor variant of an existing method (e.g., "add a memory module" to an agent that already has memory)
+     * The novelty is only "combining X and Y" without a clear reason why the combination solves an unsolved problem
+     * No paper in the literature survey left this gap open — the "gap" is manufactured
+     * The expected improvement over SOTA is <2% on the primary metric with no qualitative novelty
+     * A trivial baseline (prompt engineering, simple heuristic) could plausibly match the proposed method
+   - Write `research/IDEA_REJECTION_LOG.md` with each rejected candidate and the specific anti-mediocrity reason. A project with 0 rejections is suspicious.
 
-5. Survey reusable code before implementation:
+5. Survey reusable code and download reference implementations:
    - Search official paper code, benchmark repositories, Papers with Code links, GitHub project pages, dataset repos, and well-licensed libraries related to the selected idea.
+   - **Download and study reference implementations**: for the top-3 most relevant papers, clone their official code repos into `code/references/` (shallow clone: `git clone --depth 1`). Read their model architecture, training loop, evaluation scripts, and data processing. Record what you learned in `research/CODE_STUDY_NOTES.md`.
+   - This is NOT optional. You cannot design a competitive method without understanding how existing methods actually work. Reading the paper abstract is not enough — you must read the code.
+   - For each downloaded repo, record: paper title, repo URL, license, what you learned about the method, what code/ideas you can reuse, and what limitations you found.
    - Prefer license-compatible official paper code, benchmark harnesses, and libraries over writing everything from scratch. If all external code is rejected, record `from_scratch_justification` or `no_usable_external_code_reason`.
    - Never paste incompatible or unlicensed code; record attribution for any reused/adapted source.
 
@@ -84,6 +94,8 @@ Turn a loose operator research direction into a concrete, evidence-first experim
 
 8. Design baselines and ablations:
    - Include a bare-agent baseline, the strongest relevant literature/SOTA baselines that are feasible to run or faithfully reproduce, and the proposed trained/hybrid method.
+   - **Strong baseline requirement**: at least ONE baseline must be a reproduced or faithfully re-implemented version of a recent published method (not just a no-skill/random/lexical baseline). Download the official code (step 5) and run it on your benchmarks. If the official code cannot run, re-implement the core algorithm and verify your reproduction matches reported numbers within reasonable tolerance. Record the reproduction result in `research/BASELINE_REPRODUCTION.md`.
+   - **Why this matters**: if you only compare against trivial baselines (no-skill, random, BM25), any method looks good. EMNLP reviewers will reject a paper that avoids comparing to relevant published methods.
    - Write `research/BASELINE_AND_BENCHMARK_PLAN.md` with each required baseline discovered from literature or specified sources. Mark each as `required`, `optional`, or `blocked` with a reason and artifact path.
    - Include ablations that isolate the trained backbone/adaptation, data source, retrieval/planning/controller component, auxiliary heads, and compute budget when relevant. A tiny scorer cannot stand in as the proposed method if the project has enough GPU budget for a stronger backbone.
    - For each cell, name the exact command or harness that should run.

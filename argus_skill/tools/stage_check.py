@@ -31,12 +31,16 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     ],
     "plan": [
         ("Experiment plan exists", "test -f research/EXPERIMENT_PLAN.md"),
+        ("Idea rejection log exists", "test -f research/IDEA_REJECTION_LOG.md"),
+        ("Code study notes exist", "test -f research/CODE_STUDY_NOTES.md"),
+        ("Baseline plan exists", "test -f research/BASELINE_AND_BENCHMARK_PLAN.md"),
     ],
     "benchmark": [
         ("Benchmark provenance exists", "test -f experiments/BENCHMARK_PROVENANCE.md"),
     ],
     "run": [
         ("Results exist", "find experiments -name 'summary.tsv' -o -name 'eval_results.jsonl' 2>/dev/null | head -1 | grep -q ."),
+        ("Baseline reproduction recorded", "test -f research/BASELINE_REPRODUCTION.md"),
     ],
     "analysis": [
         ("Results report exists", "test -f paper/RESULTS_REPORT.md"),
@@ -70,6 +74,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "3. Source diversity — both scholarly (arXiv, Semantic Scholar) and trend sources (机器之心 etc.) checked?\n"
         "4. Trend grounding — are trend insights converted to testable research questions?\n"
         "5. Direction viability — is this a real frontier gap, not just an incremental tweak?\n"
+        "6. Reference code — were related papers' official repos cloned and studied?\n"
         "Pass threshold: clear gap identified with literature backing, not just agent brainstorming.",
         ["research/RESEARCH_BRIEF.md", "research/LITERATURE_GROUNDING.json",
          "research/SOURCE_DISCOVERY.md", "research/TREND_INSIGHTS.md"],
@@ -78,13 +83,16 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "reviewer/experiment-plan-review.md",
         "Evaluate the experiment plan on these dimensions:\n"
         "1. Method competitiveness — is the proposed method strong enough vs SOTA?\n"
-        "2. Baseline strength — are baselines non-trivial and representative?\n"
-        "3. Evaluation fairness — same compute/data budget for all conditions?\n"
-        "4. Benchmark adequacy — ≥3 independent real benchmark families?\n"
-        "5. Feasibility — can this be executed with available resources?\n"
-        "6. Infrastructure choice — is the right training/inference framework selected per training-infrastructure-guide?\n"
-        "If any dimension scores below 3/5, the plan needs revision before proceeding.",
-        ["research/EXPERIMENT_PLAN.md"],
+        "2. Idea novelty — is this a real gap, not a manufactured/incremental one? Check IDEA_REJECTION_LOG.md\n"
+        "3. Baseline strength — is at least ONE baseline a reproduced published method (not just random/no-skill)?\n"
+        "4. Reference code study — were top related papers' code repos cloned and studied? Check CODE_STUDY_NOTES.md\n"
+        "5. Evaluation fairness — same compute/data budget for all conditions?\n"
+        "6. Benchmark adequacy — ≥3 independent real benchmark families?\n"
+        "7. Infrastructure choice — is the right training/inference framework selected?\n"
+        "8. Feasibility — can this be executed with available resources?\n"
+        "If idea novelty is weak or no strong baseline is planned, block the plan.",
+        ["research/EXPERIMENT_PLAN.md", "research/IDEA_REJECTION_LOG.md",
+         "research/CODE_STUDY_NOTES.md", "research/BASELINE_AND_BENCHMARK_PLAN.md"],
     ),
     "benchmark": (
         "engineer/agent-research-benchmark-runner.md",

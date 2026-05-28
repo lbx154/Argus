@@ -37,16 +37,13 @@ Create or update `research/PIPELINE_STATE.json` before doing expensive work. The
   "objective": "short operator objective",
   "target_venue": "EMNLP",
   "stages": {
-    "brief": {"status": "done", "artifact": "research/RESEARCH_BRIEF.md"},
-    "literature": {"status": "pending", "artifact": "research/LITERATURE_GROUNDING.json"},
+    "research": {"status": "done", "artifact": "research/RESEARCH_BRIEF.md"},
     "plan": {"status": "running", "artifact": "research/EXPERIMENT_PLAN.md"},
     "benchmark": {"status": "missing"},
     "run": {"status": "missing"},
     "analysis": {"status": "missing"},
-    "narrative": {"status": "missing"},
     "draft": {"status": "missing"},
-    "assurance": {"status": "missing"},
-    "revision": {"status": "missing"},
+    "review": {"status": "missing"},
     "submission": {"status": "missing"}
   },
   "last_gate": {"verdict": "pending", "reason": "planning not complete"}
@@ -65,7 +62,7 @@ From the analysis stage onward, keep a single machine-checkable source of truth 
 - After regenerated artifacts are stable, run `python -m argus_skill.skills.pipeline_contracts refresh-artifact-freshness --project-root .` so `paper/ARTIFACT_FRESHNESS.json` records current generated outputs and their input hashes.
 - If `VALIDATION_PRIORITY_POLICY.json` is missing or reports route errors, run `python -m argus_skill.skills.pipeline_contracts write-validation-priority-policy --project-root .`; do not hand-write a partial policy.
 - If final validation reports manifest, freshness, and validation-route drift together, run `python -m argus_skill.skills.pipeline_contracts repair-emnlp-contract-artifacts --project-root .` after regenerating content artifacts; then inspect any remaining issues as real content/evidence blockers.
-- Before marking `analysis`, `narrative`, `draft`, `assurance`, or `submission` as `ready`/`done`, run `python -m argus_skill.skills.pipeline_contracts validate-pipeline --project-root .`. If it reports digest drift, TSV schema drift, unknown sources, or missing manifest entries, the stage is `blocked` until regenerated. Before any final EMNLP-ready claim, also run `python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`; a passing stage-sensitive pipeline check alone is not sufficient.
+- Before marking `analysis`, `draft`, `review`, or `submission` as `ready`/`done`, run `python -m argus_skill.skills.pipeline_contracts validate-pipeline --project-root .`. If it reports digest drift, TSV schema drift, unknown sources, or missing manifest entries, the stage is `blocked` until regenerated. Before any final EMNLP-ready claim, also run `python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`; a passing stage-sensitive pipeline check alone is not sufficient.
 
 ## Final EMNLP completion contract
 - Treat intermediate work as `bounded` scope: literature, pilot feasibility, benchmark scale-up, baseline/ablation implementation, drafting, assurance, and revision can complete on their own acceptance criteria without proving the whole paper is ready.
