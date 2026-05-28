@@ -25,6 +25,88 @@ _DEFAULT_MAX_RETRIES = 4
 _TRANSIENT_HTTP_STATUS_CODES = {429, 500, 502, 503, 504}
 _AUTO_SIZE_VALUES = {"", "auto", "adaptive"}
 _SIZE_RE = re.compile(r"^(?P<width>[1-9]\d*)x(?P<height>[1-9]\d*)$")
+PAPER_FIGURE_PROMPT_TEMPLATE_ID = "argus-image2-paper-prompt-v1"
+PAPER_FIGURE_STUDIO_SOURCE_ID = "paper-framework-figure-studio-pro-v3.1.4a"
+PAPER_FIGURE_STUDIO_SOURCE_REPO = (
+    "https://github.com/c-narcissus/paper-framework-figure-studio-pro"
+)
+PAPER_FIGURE_STUDIO_WORKFLOW = (
+    "S0-PAPER-FOUNDATION",
+    "S1-FIGURE-STRATEGY",
+    "S2-SKETCH-EXPLORE",
+    "S3-DIRECTION-SELECT",
+    "S4-CANDIDATE-BRIEF",
+    "S5-CANDIDATE-IMAGE",
+    "S6-FINAL-SELECT",
+    "S7-FINAL-JOINT-AUDIT",
+)
+PAPER_FIGURE_STUDIO_DEFAULT_STAGE = "S5-CANDIDATE-IMAGE"
+
+
+PAPER_FIGURE_PROMPT_TEMPLATE = """Use case: scientific-educational
+Prompt template: {template_id}
+Prompt source: {figure_studio_source}
+Source workflow: S0-PAPER-FOUNDATION -> S1-FIGURE-STRATEGY -> S2-SKETCH-EXPLORE -> S3-DIRECTION-SELECT -> S4-CANDIDATE-BRIEF -> S5-CANDIDATE-IMAGE -> S6-FINAL-SELECT -> S7-FINAL-JOINT-AUDIT.
+Current image stage: {studio_stage}
+Asset type: Figure 1 teaser / conceptual overview for an EMNLP/ACL/NeurIPS-style academic manuscript.
+
+Argus figure-studio adaptation:
+- Build the prompt from paper facts and candidate contracts, not from a one-sentence image request.
+- Treat the image and title/caption/legend/body-reference as one explanatory unit; the image carries the reader path and the caption/legend carry definitions, caveats, and nonessential detail.
+- Generate each candidate as a separate image-2 raster and audit the final image-caption bundle with a bounded S7-style joint review.
+- Do not use manual vector redraws, SVG/PPT/HTML/canvas, or locally scripted conceptual diagrams as substitutes for image-2 rasters.
+
+General style:
+- EMNLP/ACL/NeurIPS/CS paper method figure, full-width two-column landscape, 1536x1024 or 1920x1088.
+- Clean Figma-style block diagram / block-based Figma style with rounded cards, neat alignment, soft pastel fills, dark-gray 2px borders, and compact information density.
+- Compact, information-rich, suitable for a PDF page-width figure; little wasted space but not crowded.
+- Tidy rounded handwritten or friendly sans-serif feel is acceptable only if it remains crisp and readable; no messy sketch fonts.
+- Moderate badge/icon use only when semantically useful; a few simple recognizable icons are fine, not a logo wall.
+- No heavy shadows, no gradients, no photorealism, no glassmorphism, no messy Excalidraw look.
+- Large readable labels, short phrases, balanced hierarchy, flat vector-like raster rendering on warm white #fbfaf7.
+
+Style intent:
+- Clean, dense, modular, Figma-like, mostly rounded cards, low-saturation pastel blocks.
+- Use small badges/icons sparingly; avoid empty space while preserving alignment.
+- It should look like a main figure in an EMNLP/ACL/NeurIPS paper, not a marketing graphic, stock illustration, dashboard screenshot, or casual whiteboard.
+
+Pinned content that must appear exactly:
+- Title: "{figure_title}"
+- Show: "{input_label}" -> "{mechanism_label}" -> "{verification_label}" -> "{state_label}" -> "{execution_label}" -> "{output_label}" -> "{evidence_label}".
+- Components/chips: "Baseline/status quo", "Proposed method", "Accepted item", "Rejected item", "{benefit_label}", "{failure_label}".
+- SPELL EXACTLY every quoted label above. Do not invent alternate terminology, code identifiers, raw artifact paths, local configuration details, or extra labels.
+
+Figure-caption contract:
+- Caption plan: {caption_plan}
+- Legend plan: {legend_plan}
+- Body reference plan: {body_reference_plan}
+- Keep long definitions, exact numeric evidence, implementation caveats, and detailed symbol explanations out of the image pixels unless they are visually essential.
+
+Core mechanism contract:
+- Core step visibility plan: {core_step_visibility_plan}
+- Claimed improvement visual anchor: {claimed_improvement_anchor}
+- Symbol/formula necessity proof: {symbol_formula_necessity}
+- Arrow/color/icon semantic contract: {semantic_contract}
+- Do not draw the core contribution as an empty generic box; expose the required internal mechanism with nested cards, a connected inset, a compact loop, or a small mechanism panel.
+
+Layout variant:
+- {layout_variant}
+- Keep the visible labels faithful to the pinned content, but use the layout variant to create a polished, dense, paper-native composition with visual hierarchy.
+- Prefer grouped modules, phase containers, compact chips, and clear arrows over a sparse chain of identical boxes.
+
+Negative prompt / Avoid:
+- no concrete code snippets, raw paths, local runner commands, GPU/device/cache/config text, tiny unreadable text, character-level vertical text, or dense paragraphs
+- no excessive logos or brand marks, no watermark
+- no photorealistic scenes, stock photos, glassmorphism, heavy gradients, heavy shadows, texture, or arbitrary decorative blobs
+- no messy whiteboard / Excalidraw-heavy sketch style
+- no large empty areas, overlapping cards, squashed labels, inconsistent terminology, or extra captions that make it look like a dashboard
+
+Figma tokens for camera-ready cleanup:
+- Canvas 1536x1024 or 1920x1088; background #fbfaf7; stroke #1f2933 at 2px.
+- Corner radius 10-16px; card padding 12-20px; card gap 12-24px.
+- Pastels: acquisition #ffe2d1, parsing #fff2bd, memory/wiki #dcecff, agent #e2f7df, domains #eadfff, benchmark #fff1c9.
+- Text sizes: title 38-52px, section headers 22-30px, card labels 16-22px, chips 12-16px.
+"""
 
 
 class ImageToolError(RuntimeError):
@@ -146,6 +228,168 @@ def _sha256_bytes(data: bytes) -> str:
 
 def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def render_paper_figure_prompt(
+    *,
+    studio_stage: str = PAPER_FIGURE_STUDIO_DEFAULT_STAGE,
+    figure_title: str = "Method Overview",
+    input_label: str = "Literature-grounded inputs",
+    mechanism_label: str = "Reusable agent skill loop",
+    verification_label: str = "Evidence gate",
+    state_label: str = "Reusable state/library",
+    execution_label: str = "Agent execution",
+    output_label: str = "Submission-ready paper",
+    evidence_label: str = "Full-scale evidence",
+    benefit_label: str = "Better grounded claims",
+    failure_label: str = "Overclaiming avoided",
+    caption_plan: str = (
+        "Caption explains the method path, what the accepted/rejected chips mean, and which "
+        "evidence supports the paper claim without putting raw numbers into the image."
+    ),
+    legend_plan: str = (
+        "Legend defines arrow direction, verifier-gate colors, and accepted/rejected item "
+        "semantics in prose outside the image."
+    ),
+    body_reference_plan: str = (
+        "The body first points readers to the left-to-right mechanism, then uses the caption "
+        "for evidence and limitations."
+    ),
+    core_step_visibility_plan: str = (
+        "Expose the core mechanism as nested cards inside the central method module, with a "
+        "small verifier loop and a compact state/library update inset."
+    ),
+    claimed_improvement_anchor: str = (
+        "Use the accepted/rejected contrast and evidence panel as the visual anchor for the "
+        "main improvement claim."
+    ),
+    symbol_formula_necessity: str = (
+        "No equations are required unless a compact score or gate token is essential to the "
+        "paper mechanism."
+    ),
+    semantic_contract: str = (
+        "Solid arrows mean data/control flow; loop arrows mean verification or update; warm "
+        "colors mark inputs and baselines; cool colors mark reusable state and execution."
+    ),
+    layout_variant: str = (
+        "20 polished Figma wireframe: component frames, auto-layout-like spacing, "
+        "section tabs, chips, and carefully staggered components."
+    ),
+) -> str:
+    """Render the canonical Argus paper-figure prompt scaffold."""
+
+    return PAPER_FIGURE_PROMPT_TEMPLATE.format(
+        template_id=PAPER_FIGURE_PROMPT_TEMPLATE_ID,
+        figure_studio_source=PAPER_FIGURE_STUDIO_SOURCE_ID,
+        studio_stage=studio_stage,
+        figure_title=figure_title,
+        input_label=input_label,
+        mechanism_label=mechanism_label,
+        verification_label=verification_label,
+        state_label=state_label,
+        execution_label=execution_label,
+        output_label=output_label,
+        evidence_label=evidence_label,
+        benefit_label=benefit_label,
+        failure_label=failure_label,
+        caption_plan=caption_plan,
+        legend_plan=legend_plan,
+        body_reference_plan=body_reference_plan,
+        core_step_visibility_plan=core_step_visibility_plan,
+        claimed_improvement_anchor=claimed_improvement_anchor,
+        symbol_formula_necessity=symbol_formula_necessity,
+        semantic_contract=semantic_contract,
+        layout_variant=layout_variant,
+    ).strip() + "\n"
+
+
+def write_paper_figure_prompt(
+    prompt_file: Path,
+    *,
+    studio_stage: str = PAPER_FIGURE_STUDIO_DEFAULT_STAGE,
+    figure_title: str = "Method Overview",
+    input_label: str = "Literature-grounded inputs",
+    mechanism_label: str = "Reusable agent skill loop",
+    verification_label: str = "Evidence gate",
+    state_label: str = "Reusable state/library",
+    execution_label: str = "Agent execution",
+    output_label: str = "Submission-ready paper",
+    evidence_label: str = "Full-scale evidence",
+    benefit_label: str = "Better grounded claims",
+    failure_label: str = "Overclaiming avoided",
+    caption_plan: str = (
+        "Caption explains the method path, what the accepted/rejected chips mean, and which "
+        "evidence supports the paper claim without putting raw numbers into the image."
+    ),
+    legend_plan: str = (
+        "Legend defines arrow direction, verifier-gate colors, and accepted/rejected item "
+        "semantics in prose outside the image."
+    ),
+    body_reference_plan: str = (
+        "The body first points readers to the left-to-right mechanism, then uses the caption "
+        "for evidence and limitations."
+    ),
+    core_step_visibility_plan: str = (
+        "Expose the core mechanism as nested cards inside the central method module, with a "
+        "small verifier loop and a compact state/library update inset."
+    ),
+    claimed_improvement_anchor: str = (
+        "Use the accepted/rejected contrast and evidence panel as the visual anchor for the "
+        "main improvement claim."
+    ),
+    symbol_formula_necessity: str = (
+        "No equations are required unless a compact score or gate token is essential to the "
+        "paper mechanism."
+    ),
+    semantic_contract: str = (
+        "Solid arrows mean data/control flow; loop arrows mean verification or update; warm "
+        "colors mark inputs and baselines; cool colors mark reusable state and execution."
+    ),
+    layout_variant: str = (
+        "20 polished Figma wireframe: component frames, auto-layout-like spacing, "
+        "section tabs, chips, and carefully staggered components."
+    ),
+    force: bool = False,
+) -> dict[str, Any]:
+    if prompt_file.exists() and not force:
+        raise ImageToolError(f"{prompt_file} already exists; pass --force to overwrite")
+    prompt = render_paper_figure_prompt(
+        studio_stage=studio_stage,
+        figure_title=figure_title,
+        input_label=input_label,
+        mechanism_label=mechanism_label,
+        verification_label=verification_label,
+        state_label=state_label,
+        execution_label=execution_label,
+        output_label=output_label,
+        evidence_label=evidence_label,
+        benefit_label=benefit_label,
+        failure_label=failure_label,
+        caption_plan=caption_plan,
+        legend_plan=legend_plan,
+        body_reference_plan=body_reference_plan,
+        core_step_visibility_plan=core_step_visibility_plan,
+        claimed_improvement_anchor=claimed_improvement_anchor,
+        symbol_formula_necessity=symbol_formula_necessity,
+        semantic_contract=semantic_contract,
+        layout_variant=layout_variant,
+    )
+    prompt_file.parent.mkdir(parents=True, exist_ok=True)
+    prompt_file.write_text(prompt, encoding="utf-8")
+    return {
+        "prompt_path": str(prompt_file),
+        "prompt_sha256": _sha256_text(prompt.strip()),
+        "template_id": PAPER_FIGURE_PROMPT_TEMPLATE_ID,
+        "bytes": len(prompt.encode("utf-8")),
+    }
 
 
 def _infer_mime(data: bytes) -> str:
@@ -513,6 +757,281 @@ def review_image(
     return result
 
 
+def _project_path(project_root: Path, path: Path | str) -> Path:
+    value = Path(path)
+    return value if value.is_absolute() else project_root / value
+
+
+def _project_relative(project_root: Path, path: Path) -> str:
+    try:
+        return path.resolve().relative_to(project_root.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _read_json_object(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ImageToolError(f"{path} is not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ImageToolError(f"{path} must contain a JSON object")
+    return payload
+
+
+def _load_image2_manifest(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"figures": []}
+    payload = _read_json_object(path)
+    figures = payload.get("figures")
+    if not isinstance(figures, list):
+        payload["figures"] = []
+    return payload
+
+
+def _upsert_image2_manifest_entry(manifest_path: Path, entry: dict[str, Any]) -> None:
+    payload = _load_image2_manifest(manifest_path)
+    figures = payload.setdefault("figures", [])
+    figure_id = str(entry.get("figure_id") or "")
+    replaced = False
+    for index, existing in enumerate(figures):
+        if isinstance(existing, dict) and str(existing.get("figure_id") or "") == figure_id:
+            figures[index] = entry
+            replaced = True
+            break
+    if not replaced:
+        figures.append(entry)
+    _atomic_write_json(manifest_path, payload)
+
+
+def _prompt_hash_variants(prompt_file: Path) -> set[str]:
+    text = prompt_file.read_text(encoding="utf-8", errors="replace")
+    return {_sha256_text(text), _sha256_text(text.strip())}
+
+
+def _require_matching_prompt(
+    *,
+    prompt_file: Path,
+    sidecar: dict[str, Any],
+    allow_noncanonical_prompt: bool,
+) -> tuple[str, str]:
+    prompt_text = prompt_file.read_text(encoding="utf-8").strip()
+    if not prompt_text:
+        raise ImageToolError(f"prompt file is empty: {prompt_file}")
+    if not allow_noncanonical_prompt:
+        missing: list[str] = []
+        if PAPER_FIGURE_PROMPT_TEMPLATE_ID not in prompt_text:
+            missing.append(PAPER_FIGURE_PROMPT_TEMPLATE_ID)
+        if PAPER_FIGURE_STUDIO_SOURCE_ID not in prompt_text:
+            missing.append(PAPER_FIGURE_STUDIO_SOURCE_ID)
+        if missing:
+            raise ImageToolError(
+                "paper image-2 prompts must be derived from the built-in Argus "
+                f"figure-studio prompt; missing {', '.join(missing)}. "
+                "Run `python -m argus_skill.tools.image_tool paper-prompt ...`."
+            )
+
+    prompt_sha = str(sidecar.get("prompt_sha256") or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", prompt_sha):
+        raise ImageToolError("generation sidecar must contain a lowercase prompt_sha256")
+    if prompt_sha not in _prompt_hash_variants(prompt_file):
+        raise ImageToolError(
+            "generation sidecar prompt_sha256 does not match prompt_path; "
+            "regenerate through image-2 or restore the matching prompt file"
+        )
+    raw_prompt = sidecar.get("prompt")
+    if not isinstance(raw_prompt, str) or not raw_prompt.strip():
+        raise ImageToolError("generation sidecar must preserve the exact prompt text")
+    if _sha256_text(raw_prompt) != prompt_sha:
+        raise ImageToolError("generation sidecar prompt text hash does not match prompt_sha256")
+    return prompt_text, prompt_sha
+
+
+def _sidecar_output_sha(sidecar: dict[str, Any]) -> str:
+    for field in ("output_sha256", "sha256"):
+        value = str(sidecar.get(field) or "").strip().lower()
+        if value:
+            return value
+    image = sidecar.get("image")
+    if isinstance(image, dict):
+        for field in ("output_sha256", "sha256"):
+            value = str(image.get(field) or "").strip().lower()
+            if value:
+                return value
+    return ""
+
+
+def _review_image_sha(review: dict[str, Any]) -> str:
+    image = review.get("image")
+    if isinstance(image, dict):
+        for field in ("output_sha256", "sha256"):
+            value = str(image.get(field) or "").strip().lower()
+            if value:
+                return value
+    return ""
+
+
+def _recorded_prompt_path(project_root: Path, prompt_file: Path, sidecar: dict[str, Any]) -> str:
+    raw_prompt_path = sidecar.get("prompt_path")
+    if isinstance(raw_prompt_path, str) and raw_prompt_path.strip():
+        candidate = _project_path(project_root, raw_prompt_path)
+        if candidate.resolve() == prompt_file.resolve():
+            return _project_relative(project_root, candidate)
+    return _project_relative(project_root, prompt_file)
+
+
+def sync_paper_metadata(
+    *,
+    project_root: Path,
+    image: Path,
+    figure_id: str,
+    figure_type: str = "method",
+    manifest: Path = Path("paper/figures/IMAGE2_FIGURES.json"),
+    prompt_file: Path | None = None,
+    sidecar: Path | None = None,
+    inspect_path: Path | None = None,
+    review_path: Path | None = None,
+    provenance_path: Path | None = None,
+    figure_studio_stage: str = PAPER_FIGURE_STUDIO_DEFAULT_STAGE,
+    allow_noncanonical_prompt: bool = False,
+) -> dict[str, Any]:
+    """Synchronize image-2 manifest/provenance from the real raster and sidecars."""
+
+    if not figure_id.strip():
+        raise ImageToolError("missing --figure-id")
+    project_root = project_root.resolve()
+    image_path = _project_path(project_root, image)
+    if not image_path.is_file():
+        raise ImageToolError(f"generated image does not exist: {image_path}")
+
+    sidecar_path = _project_path(project_root, sidecar) if sidecar is not None else _sidecar_path(image_path)
+    if not sidecar_path.is_file():
+        raise ImageToolError(f"generation sidecar does not exist: {sidecar_path}")
+    sidecar_payload = _read_json_object(sidecar_path)
+
+    if prompt_file is None:
+        raw_prompt_path = sidecar_payload.get("prompt_path")
+        if not isinstance(raw_prompt_path, str) or not raw_prompt_path.strip():
+            raise ImageToolError("pass --prompt-file; generation sidecar has no prompt_path")
+        prompt_path = _project_path(project_root, raw_prompt_path)
+    else:
+        prompt_path = _project_path(project_root, prompt_file)
+    if not prompt_path.is_file():
+        raise ImageToolError(f"prompt file does not exist: {prompt_path}")
+    _prompt_text, prompt_sha = _require_matching_prompt(
+        prompt_file=prompt_path,
+        sidecar=sidecar_payload,
+        allow_noncanonical_prompt=allow_noncanonical_prompt,
+    )
+
+    image_info = inspect_image(image_path)
+    output_sha = str(image_info.get("sha256") or "").strip().lower()
+    sidecar_output_sha = _sidecar_output_sha(sidecar_payload)
+    if sidecar_output_sha != output_sha:
+        raise ImageToolError(
+            "generation sidecar output SHA-256 does not match the current raster; "
+            "do not patch only metadata hashes"
+        )
+
+    inspect_sidecar_path = (
+        _project_path(project_root, inspect_path)
+        if inspect_path is not None
+        else image_path.with_suffix(image_path.suffix + ".inspect.json")
+    )
+    _atomic_write_json(inspect_sidecar_path, image_info)
+
+    review_sidecar_path = (
+        _project_path(project_root, review_path)
+        if review_path is not None
+        else image_path.with_suffix(image_path.suffix + ".review.json")
+    )
+    if not review_sidecar_path.is_file():
+        raise ImageToolError(f"review sidecar does not exist: {review_sidecar_path}")
+    review_payload = _read_json_object(review_sidecar_path)
+    review_sha = _review_image_sha(review_payload)
+    if review_sha and review_sha != output_sha:
+        raise ImageToolError("review sidecar image SHA-256 does not match the current raster")
+
+    provenance_sidecar_path = (
+        _project_path(project_root, provenance_path)
+        if provenance_path is not None
+        else image_path.with_suffix(image_path.suffix + ".provenance.json")
+    )
+    manifest_path = _project_path(project_root, manifest)
+
+    model = str(sidecar_payload.get("model") or "gpt-image-2")
+    requested_size = str(
+        sidecar_payload.get("requested_size")
+        or f"{image_info.get('width') or 0}x{image_info.get('height') or 0}"
+    )
+    prompt_rel = _recorded_prompt_path(project_root, prompt_path, sidecar_payload)
+    output_rel = _project_relative(project_root, image_path)
+    sidecar_rel = _project_relative(project_root, sidecar_path)
+    inspect_rel = _project_relative(project_root, inspect_sidecar_path)
+    review_rel = _project_relative(project_root, review_sidecar_path)
+    provenance_rel = _project_relative(project_root, provenance_sidecar_path)
+    review_file_sha = _sha256_file(review_sidecar_path)
+
+    provenance = {
+        "figure_id": figure_id,
+        "figure_type": figure_type,
+        "generator": "codex-image2",
+        "model": model,
+        "generator_model": model,
+        "tool": "argus_skill.tools.image_tool",
+        "prompt_template_id": PAPER_FIGURE_PROMPT_TEMPLATE_ID,
+        "figure_studio_source": PAPER_FIGURE_STUDIO_SOURCE_ID,
+        "figure_studio_stage": figure_studio_stage,
+        "prompt_path": prompt_rel,
+        "prompt_sha256": prompt_sha,
+        "output_path": output_rel,
+        "output_sha256": output_sha,
+        "sidecar_path": sidecar_rel,
+        "inspect_path": inspect_rel,
+        "review_path": review_rel,
+        "review_sha256": review_file_sha,
+        "requested_size": requested_size,
+        "width": image_info.get("width"),
+        "height": image_info.get("height"),
+    }
+    original_requested_size = sidecar_payload.get("original_requested_size")
+    if isinstance(original_requested_size, str) and original_requested_size:
+        provenance["original_requested_size"] = original_requested_size
+    if sidecar_payload.get("size_normalized_to_multiple_of_16") is True:
+        provenance["size_normalized_to_multiple_of_16"] = True
+    _atomic_write_json(provenance_sidecar_path, provenance)
+
+    entry = {
+        "figure_id": figure_id,
+        "figure_type": figure_type,
+        "source": "raster",
+        "generator": "codex-image2",
+        "model": model,
+        "generator_model": model,
+        "prompt_template_id": PAPER_FIGURE_PROMPT_TEMPLATE_ID,
+        "figure_studio_source": PAPER_FIGURE_STUDIO_SOURCE_ID,
+        "figure_studio_stage": figure_studio_stage,
+        "prompt_path": prompt_rel,
+        "prompt_sha256": prompt_sha,
+        "output_path": output_rel,
+        "output_sha256": output_sha,
+        "sidecar_path": sidecar_rel,
+        "inspect_path": inspect_rel,
+        "review_path": review_rel,
+        "review_sha256": review_file_sha,
+        "generation_provenance_path": provenance_rel,
+        "requested_size": requested_size,
+        "width": image_info.get("width"),
+        "height": image_info.get("height"),
+    }
+    if isinstance(original_requested_size, str) and original_requested_size:
+        entry["original_requested_size"] = original_requested_size
+    if sidecar_payload.get("size_normalized_to_multiple_of_16") is True:
+        entry["size_normalized_to_multiple_of_16"] = True
+    _upsert_image2_manifest_entry(manifest_path, entry)
+    return entry
+
+
 def _print_json(data: dict[str, Any]) -> None:
     print(json.dumps(data, indent=2, sort_keys=True))
 
@@ -520,6 +1039,29 @@ def _print_json(data: dict[str, Any]) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m argus_skill.tools.image_tool")
     sub = parser.add_subparsers(dest="cmd", required=True)
+
+    paper = sub.add_parser("paper-prompt", help="write the canonical Argus paper figure prompt")
+    paper.add_argument("--out", type=Path, required=True)
+    paper.add_argument("--force", action="store_true")
+    paper.add_argument("--studio-stage", default=PAPER_FIGURE_STUDIO_DEFAULT_STAGE)
+    paper.add_argument("--figure-title", default="Method Overview")
+    paper.add_argument("--input-label", default="Literature-grounded inputs")
+    paper.add_argument("--mechanism-label", default="Reusable agent skill loop")
+    paper.add_argument("--verification-label", default="Evidence gate")
+    paper.add_argument("--state-label", default="Reusable state/library")
+    paper.add_argument("--execution-label", default="Agent execution")
+    paper.add_argument("--output-label", default="Submission-ready paper")
+    paper.add_argument("--evidence-label", default="Full-scale evidence")
+    paper.add_argument("--benefit-label", default="Better grounded claims")
+    paper.add_argument("--failure-label", default="Overclaiming avoided")
+    paper.add_argument("--caption-plan", default=None)
+    paper.add_argument("--legend-plan", default=None)
+    paper.add_argument("--body-reference-plan", default=None)
+    paper.add_argument("--core-step-visibility-plan", default=None)
+    paper.add_argument("--claimed-improvement-anchor", default=None)
+    paper.add_argument("--symbol-formula-necessity", default=None)
+    paper.add_argument("--semantic-contract", default=None)
+    paper.add_argument("--layout-variant", default=None)
 
     gen = sub.add_parser("generate", help="generate an image artifact")
     gen.add_argument("--prompt")
@@ -542,8 +1084,56 @@ def main(argv: list[str] | None = None) -> int:
     rev.add_argument("--timeout", type=float, default=_DEFAULT_TIMEOUT_SECONDS)
     rev.add_argument("--max-retries", type=int, default=_DEFAULT_MAX_RETRIES)
 
+    sync = sub.add_parser(
+        "sync-paper-metadata",
+        help="synchronize IMAGE2_FIGURES.json and provenance from image-2 sidecars",
+    )
+    sync.add_argument("--project-root", type=Path, default=Path("."))
+    sync.add_argument("--image", type=Path, required=True)
+    sync.add_argument("--figure-id", required=True)
+    sync.add_argument("--figure-type", default="method")
+    sync.add_argument("--manifest", type=Path, default=Path("paper/figures/IMAGE2_FIGURES.json"))
+    sync.add_argument("--prompt-file", type=Path)
+    sync.add_argument("--sidecar", type=Path)
+    sync.add_argument("--inspect-path", type=Path)
+    sync.add_argument("--review-path", type=Path)
+    sync.add_argument("--provenance-path", type=Path)
+    sync.add_argument("--figure-studio-stage", default=PAPER_FIGURE_STUDIO_DEFAULT_STAGE)
+    sync.add_argument("--allow-noncanonical-prompt", action="store_true")
+
     args = parser.parse_args(argv)
     try:
+        if args.cmd == "paper-prompt":
+            kwargs: dict[str, Any] = {
+                "prompt_file": args.out,
+                "studio_stage": args.studio_stage,
+                "figure_title": args.figure_title,
+                "input_label": args.input_label,
+                "mechanism_label": args.mechanism_label,
+                "verification_label": args.verification_label,
+                "state_label": args.state_label,
+                "execution_label": args.execution_label,
+                "output_label": args.output_label,
+                "evidence_label": args.evidence_label,
+                "benefit_label": args.benefit_label,
+                "failure_label": args.failure_label,
+                "force": bool(args.force),
+            }
+            for cli_name, helper_name in (
+                ("caption_plan", "caption_plan"),
+                ("legend_plan", "legend_plan"),
+                ("body_reference_plan", "body_reference_plan"),
+                ("core_step_visibility_plan", "core_step_visibility_plan"),
+                ("claimed_improvement_anchor", "claimed_improvement_anchor"),
+                ("symbol_formula_necessity", "symbol_formula_necessity"),
+                ("semantic_contract", "semantic_contract"),
+                ("layout_variant", "layout_variant"),
+            ):
+                value = getattr(args, cli_name)
+                if value is not None:
+                    kwargs[helper_name] = value
+            _print_json(write_paper_figure_prompt(**kwargs))
+            return 0
         if args.cmd == "generate":
             prompt = _read_prompt(args.prompt, args.prompt_file)
             _print_json(generate_image(
@@ -568,6 +1158,22 @@ def main(argv: list[str] | None = None) -> int:
                 rubric=args.rubric,
                 timeout=float(args.timeout),
                 max_retries=int(args.max_retries),
+            ))
+            return 0
+        if args.cmd == "sync-paper-metadata":
+            _print_json(sync_paper_metadata(
+                project_root=args.project_root,
+                image=args.image,
+                figure_id=args.figure_id,
+                figure_type=args.figure_type,
+                manifest=args.manifest,
+                prompt_file=args.prompt_file,
+                sidecar=args.sidecar,
+                inspect_path=args.inspect_path,
+                review_path=args.review_path,
+                provenance_path=args.provenance_path,
+                figure_studio_stage=args.figure_studio_stage,
+                allow_noncanonical_prompt=bool(args.allow_noncanonical_prompt),
             ))
             return 0
     except Exception as exc:  # noqa: BLE001 - CLI boundary

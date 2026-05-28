@@ -109,27 +109,38 @@ size: 1536x1024 (landscape)
 
 ## Step 2: Prompt Construction
 
-Convert the brief into a detailed gpt-image-2 prompt. Rules:
+Convert the brief into a detailed gpt-image-2 prompt only through the canonical
+Argus paper-figure prompt scaffold. The scaffold is Argus-adapted from
+`paper-framework-figure-studio-pro-v3.1.4a` and carries the required markers
+`argus-image2-paper-prompt-v1` and
+`paper-framework-figure-studio-pro-v3.1.4a`.
 
-- **Be exhaustive**: describe every element, its position, color, size
-- **Specify text**: every label, font size relative to figure, placement
-- **Academic style**: muted colors, clean lines, no gradients, no 3D effects
-- **White background**: always white or very light gray
-- **Arrow style**: thin black arrows with small heads, labeled where needed
-- **Font**: sans-serif, consistent size throughout
+Required command:
 
-Template:
+```bash
+python -m argus_skill.tools.image_tool paper-prompt \
+  --out paper/figures/<figure_id>.prompt.txt \
+  --figure-title "<paper-facing figure title>" \
+  --input-label "<short input label>" \
+  --mechanism-label "<short method label>" \
+  --verification-label "<short gate/check label>" \
+  --state-label "<short state/library label>" \
+  --execution-label "<short execution label>" \
+  --output-label "<short output label>" \
+  --evidence-label "<short evidence label>" \
+  --caption-plan "<what the caption, not pixels, will explain>" \
+  --legend-plan "<arrow/color/icon semantics>" \
+  --core-step-visibility-plan "<visible internal mechanism plan>" \
+  --semantic-contract "<arrow/color/icon contract>" \
+  --layout-variant "<one chosen layout variant>"
 ```
-Create a publication-quality academic figure on a white background.
-Style: clean, minimal, suitable for a top-tier ML conference paper (EMNLP/NeurIPS).
-No gradients, no 3D effects, no decorative elements.
 
-[Detailed description of all components, positions, connections, labels...]
-
-Color palette: [specific hex codes or descriptions]
-Text: all labels in English, sans-serif font, clearly readable at print size.
-Layout: [left-to-right | top-to-bottom], with clear visual hierarchy.
-```
+After this command, edit only paper-specific labels, candidate contracts, and
+the layout block. Do not hand-write a fresh prompt from scratch, delete the
+template markers, or replace the scaffold with a thin one-sentence request.
+Generate 6--20 variants by re-running `paper-prompt` or editing only
+`--layout-variant` / candidate-contract fields; each candidate still needs its
+own image-2 raster and sidecars.
 
 ## Step 3: Style Verification Checklist
 
@@ -146,25 +157,12 @@ Before rendering, verify the prompt against these academic figure standards:
 
 ## Step 4: Render
 
-```python
-from openai import OpenAI  # or AzureOpenAI
-import base64
-from pathlib import Path
-
-# Use credentials from ~/.argus-skill/capabilities/model_api.json
-# or environment variables (OPENAI_API_KEY, OPENAI_BASE_URL)
-client = ...  # configured client
-
-resp = client.images.generate(
-    model="gpt-image-2",
-    prompt=OPTIMIZED_PROMPT,
-    n=1,
-    size="1536x1024"
-)
-img_bytes = base64.b64decode(resp.data[0].b64_json)
-output_path = Path("paper/figures/ai_generated/") / f"{figure_name}.png"
-output_path.parent.mkdir(parents=True, exist_ok=True)
-output_path.write_bytes(img_bytes)
+```bash
+python -m argus_skill.tools.image_tool generate \
+  --prompt-file paper/figures/<figure_id>.prompt.txt \
+  --out paper/figures/<figure_id>.png \
+  --size 1536x1024 \
+  --force
 ```
 
 Cache by SHA-256(prompt) to avoid re-spending tokens on identical prompts.
@@ -176,6 +174,10 @@ Before review, enforce this ordering:
 1. Wait for the `image_tool generate` / `code/generate_image_2.py` command to finish.
 2. Confirm the output file exists and is non-empty with `test -s <output.png>` or the project helper return payload.
 3. Run `image_tool inspect` and `image_tool review` only after the generated raster exists.
+4. Run `image_tool sync-paper-metadata` after review so
+   `IMAGE2_FIGURES.json`, inspect sidecar, provenance sidecar, prompt hash, and
+   raster hash are synchronized from the actual files; do not hand-patch JSON
+   hashes.
 
 Do not launch inspect/review in parallel with generation. A missing-file inspect/review failure is noise, not a useful candidate verdict; rerun the ordered sequence instead of treating it as image quality feedback.
 
@@ -191,6 +193,17 @@ After generation, review the image against these criteria (score 1-10):
 
 **Score ≥ 9**: Accept. Save final image + manifest entry.
 **Score < 9**: Generate specific improvement feedback, loop back to Step 2.
+
+Final synchronization command:
+
+```bash
+python -m argus_skill.tools.image_tool sync-paper-metadata \
+  --project-root . \
+  --image paper/figures/<figure_id>.png \
+  --prompt-file paper/figures/<figure_id>.prompt.txt \
+  --figure-id <figure_id> \
+  --figure-type method
+```
 
 ## Output Manifest
 

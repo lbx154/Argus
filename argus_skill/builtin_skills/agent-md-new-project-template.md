@@ -194,9 +194,11 @@ Use the repository's existing conventions if they are already present; otherwise
          --out paper/figures/method_overview.review.json
 
    A helper such as `code/generate_image2_figure.py` must then write `paper/figures/IMAGE2_FIGURES.json` with `figure_id`, `figure_type`, `model` or `generator_model`, `prompt_path`, `output_path`, `output_sha256`, `sidecar_path`, `inspect_path`, `review_path`, `generation_provenance_path`, width, and height. The sidecar must preserve image-tool/API evidence (`/images/generations`, model, created time, prompt SHA, output SHA, dimensions), and `review_path` must come from the `image_review` model route. `generation_provenance_path` may point at the image sidecar if that JSON records `prompt_path`, `output_path`, and `output_sha256`. Never crop, downsample, resave, PDF-wrap, locally redraw the accepted raster, or hand-fill `codex-image2` metadata around a local PNG after provenance is written.
-6. Do not let the model freehand a one-paragraph image prompt. Before calling image-2, write `paper/figures/method_overview.prompt.txt` from this teaser scaffold, then generate 6--20 layout variants by changing only the `Layout variant` block; keep the best reviewed raster and record the selected `prompt_variant_id` in provenance or the manifest:
+6. Do not let the model freehand a one-paragraph image prompt. Before calling image-2, create `paper/figures/method_overview.prompt.txt` with `python -m argus_skill.tools.image_tool paper-prompt ...`, keep the required `argus-image2-paper-prompt-v1` and `paper-framework-figure-studio-pro-v3.1.4a` markers, then generate 6--20 layout variants by changing only the layout/candidate-contract fields; keep the best reviewed raster and record the selected `prompt_variant_id` in provenance or the manifest:
 
        Use case: scientific-educational
+       Prompt template: argus-image2-paper-prompt-v1
+       Prompt source: paper-framework-figure-studio-pro-v3.1.4a
        Asset type: Figure 1 teaser / conceptual overview for an EMNLP/ACL/NeurIPS-style academic manuscript.
 
        General style:
@@ -255,7 +257,7 @@ Use the repository's existing conventions if they are already present; otherwise
        - Pastels: acquisition #ffe2d1, parsing #fff2bd, memory/wiki #dcecff, agent #e2f7df, domains #eadfff, benchmark #fff1c9.
        - Text sizes: title 38-52px, section headers 22-30px, card labels 16-22px, chips 12-16px.
 
-   A prompt that lacks `General style`, `Pinned content`, exact spelling instructions, `Layout variant`, and `Negative prompt / Avoid` is a blocker even if the image API call succeeds.
+   A prompt that lacks `argus-image2-paper-prompt-v1`, `paper-framework-figure-studio-pro-v3.1.4a`, `General style`, `Pinned content`, exact spelling instructions, `Layout variant`, and `Negative prompt / Avoid` is a blocker even if the image API call succeeds.
 
 ## Role model
 - Planner: decomposes the paper into gated research tasks and chooses the next blocker with the highest reviewer value.
@@ -365,7 +367,7 @@ Use the repository's existing conventions if they are already present; otherwise
 1. Use image-2/codex-image2 for at least one core conceptual figure.
 2. Data/metric/result plots may be generated locally from scripts. Every other paper-facing figure, including Figure 1, teaser, overall, core method/framework/system/pipeline overview figures, schematics, qualitative/example visuals, and explanatory diagrams, must include the actual generated image-2 raster `output_path` directly from `paper/main.tex`.
 3. Preserve prompt, metadata, generation provenance, inspect/review artifacts, SHA-256, width, and height. Do not crop, downsample, resave, overwrite, redraw, trace, vectorize, PDF-wrap, screenshot, or relabel the image after provenance is written.
-4. Do not replace the overview with matplotlib/FancyBboxPatch, TikZ node graphs, PIL/SVG/HTML canvases, manual vector tools, cleaned PDF derivatives, or locally drawn mockups. If it is ugly, regenerate through image-2 with a better prompt.
+4. Do not replace the overview with matplotlib/FancyBboxPatch, TikZ node graphs, PIL/SVG/HTML canvases, manual vector tools, cleaned PDF derivatives, or locally drawn mockups. If it is ugly, regenerate through image-2 from `python -m argus_skill.tools.image_tool paper-prompt ...`, keep `argus-image2-paper-prompt-v1` and `paper-framework-figure-studio-pro-v3.1.4a`, then review and run `sync-paper-metadata`.
 5. Conceptual figures must be adaptive or landscape page-width assets, preferably `1536x1024` or `1920x1088` (image-route dimensions divisible by 16); do not use square `1024x1024`, weird/sketchy fonts, tiny text, heavy gradients, photorealism, excessive logos, or decorative clutter.
 6. Data figures and tables must be generated from local raw data/results, not from image-2.
 

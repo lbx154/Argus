@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 from email.message import Message
@@ -52,6 +53,81 @@ def _env_with_vault(tmp_path: Path) -> dict[str, str]:
         )
     )
     return {"ARGUS_SKILL_CAPABILITY_VAULT": str(vault)}
+
+
+def test_render_paper_figure_prompt_uses_figure_studio_template() -> None:
+    prompt = image_tool.render_paper_figure_prompt(figure_title="SkillCycle")
+
+    assert "Prompt template: argus-image2-paper-prompt-v1" in prompt
+    assert "Prompt source: paper-framework-figure-studio-pro-v3.1.4a" in prompt
+    assert "Figure-caption contract" in prompt
+    assert "Core mechanism contract" in prompt
+    assert "raw paths, local runner commands, GPU/device/cache/config text" in prompt
+
+
+def test_sync_paper_metadata_writes_manifest_and_provenance(tmp_path: Path) -> None:
+    figures = tmp_path / "paper" / "figures"
+    figures.mkdir(parents=True)
+    prompt_path = figures / "method.prompt.txt"
+    prompt = image_tool.render_paper_figure_prompt(figure_title="SkillCycle").strip()
+    prompt_path.write_text(prompt + "\n", encoding="utf-8")
+    output_path = figures / "method.png"
+    output_path.write_bytes(_PNG_BYTES)
+    info = image_tool.inspect_image(output_path)
+    prompt_sha = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    sidecar_path = output_path.with_suffix(output_path.suffix + ".json")
+    sidecar_path.write_text(
+        json.dumps(
+            {
+                "model": "gpt-image-2",
+                "created_at_unix": 1700000000,
+                "prompt": prompt,
+                "prompt_path": "paper/figures/method.prompt.txt",
+                "prompt_sha256": prompt_sha,
+                "output_path": "paper/figures/method.png",
+                "output_sha256": info["sha256"],
+                "requested_size": "1536x1024",
+                "image": info,
+                "api": {"endpoint": "/images/generations"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    review_path = output_path.with_suffix(output_path.suffix + ".review.json")
+    review_path.write_text(
+        json.dumps(
+            {
+                "image": info,
+                "model": "gpt-5.4",
+                "endpoint": "/responses",
+                "review": "score_1_to_5: 5\nkeep_or_regenerate: keep",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    entry = image_tool.sync_paper_metadata(
+        project_root=tmp_path,
+        image=Path("paper/figures/method.png"),
+        prompt_file=Path("paper/figures/method.prompt.txt"),
+        figure_id="method-overview",
+        figure_type="method",
+    )
+
+    provenance = json.loads(
+        output_path.with_suffix(output_path.suffix + ".provenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    manifest = json.loads((figures / "IMAGE2_FIGURES.json").read_text(encoding="utf-8"))
+    manifest_entry = manifest["figures"][0]
+    assert entry["prompt_template_id"] == "argus-image2-paper-prompt-v1"
+    assert entry["figure_studio_source"] == "paper-framework-figure-studio-pro-v3.1.4a"
+    assert manifest_entry["output_sha256"] == info["sha256"]
+    assert provenance["output_sha256"] == info["sha256"]
+    assert (figures / "method.png.inspect.json").exists()
 
 
 def test_generate_image_writes_artifact_and_secret_free_sidecar(
@@ -302,9 +378,17 @@ def test_project_image2_helper_records_normalized_size(
     output_path = tmp_path / "paper" / "figures" / "method.png"
     manifest_path = tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json"
     prompt_path.parent.mkdir(parents=True)
-    prompt_path.write_text("clean method figure", encoding="utf-8")
+    prompt_path.write_text(image_tool.render_paper_figure_prompt(), encoding="utf-8")
 
-    def fake_generate_image(prompt: str, out: Path, size: str, force: bool) -> dict[str, Any]:
+    def fake_generate_image(
+        prompt: str,
+        prompt_file: Path,
+        out: Path,
+        size: str,
+        force: bool,
+    ) -> dict[str, Any]:
+        assert "argus-image2-paper-prompt-v1" in prompt
+        assert prompt_file == prompt_path
         out.write_bytes(_PNG_BYTES)
         return {
             "artifact": str(out),

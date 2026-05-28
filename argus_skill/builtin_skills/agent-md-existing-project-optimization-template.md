@@ -162,9 +162,11 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
          --out paper/figures/method_overview.review.json
 
    A helper such as `code/generate_image2_figure.py` must then write or refresh `paper/figures/IMAGE2_FIGURES.json` with `figure_id`, `figure_type`, `model` or `generator_model`, `prompt_path`, `output_path`, `output_sha256`, `sidecar_path`, `inspect_path`, `review_path`, `generation_provenance_path`, width, and height. The sidecar must preserve image-tool/API evidence (`/images/generations`, model, created time, prompt SHA, output SHA, dimensions), and `review_path` must come from the `image_review` model route. `generation_provenance_path` may point at the image sidecar if that JSON records `prompt_path`, `output_path`, and `output_sha256`. Never crop, downsample, resave, PDF-wrap, locally redraw the accepted raster, or hand-fill `codex-image2` metadata around a local PNG after this provenance is written.
-6. If the current Figure 1/teaser is ugly, cramped, misspelled, square, generic, or prompt-thin, do not patch it with matplotlib/TikZ/PDF/vector redraws. Regenerate through image-2 from this scaffold, generating 6--20 layout variants by changing only the `Layout variant` block; keep the best reviewed raster and record the selected `prompt_variant_id` in provenance or the manifest:
+6. If the current Figure 1/teaser is ugly, cramped, misspelled, square, generic, or prompt-thin, do not patch it with matplotlib/TikZ/PDF/vector redraws. Regenerate through image-2 from `python -m argus_skill.tools.image_tool paper-prompt ...`, keeping the required `argus-image2-paper-prompt-v1` and `paper-framework-figure-studio-pro-v3.1.4a` markers, generating 6--20 layout variants by changing only the layout/candidate-contract fields; keep the best reviewed raster and record the selected `prompt_variant_id` in provenance or the manifest:
 
        Use case: scientific-educational
+       Prompt template: argus-image2-paper-prompt-v1
+       Prompt source: paper-framework-figure-studio-pro-v3.1.4a
        Asset type: Figure 1 teaser / conceptual overview for an EMNLP/ACL/NeurIPS-style academic manuscript.
 
        General style:
@@ -223,7 +225,7 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
        - Pastels: acquisition #ffe2d1, parsing #fff2bd, memory/wiki #dcecff, agent #e2f7df, domains #eadfff, benchmark #fff1c9.
        - Text sizes: title 38-52px, section headers 22-30px, card labels 16-22px, chips 12-16px.
 
-   A prompt that lacks `General style`, `Pinned content`, exact spelling instructions, `Layout variant`, and `Negative prompt / Avoid` is a blocker even if the image API call succeeds.
+   A prompt that lacks `argus-image2-paper-prompt-v1`, `paper-framework-figure-studio-pro-v3.1.4a`, `General style`, `Pinned content`, exact spelling instructions, `Layout variant`, and `Negative prompt / Avoid` is a blocker even if the image API call succeeds.
 
 ## Role model
 - Planner: chooses the next blocker with the highest reviewer value, not the easiest cosmetic edit.
@@ -301,7 +303,7 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 ## Figure repair
 1. Use image-2/codex-image2 for core conceptual figure repair.
 2. Data/metric/result plots may be generated locally from scripts. Every other paper-facing figure, including Figure 1, teaser, overall, core method/framework/system/pipeline overview figures, schematics, qualitative/example visuals, and explanatory diagrams, must be the actual generated image-2 raster `output_path`, or equivalent codex-image2 raster, included directly from `paper/main.tex`.
-3. If the overview is ugly, cramped, misspelled, or low quality, regenerate through image-2 with a better prompt. Do not locally redraw, trace, vectorize, PDF-wrap, screenshot, crop, downsample, resave, or overwrite it after provenance is written.
+3. If the overview is ugly, cramped, misspelled, or low quality, regenerate through image-2 from `python -m argus_skill.tools.image_tool paper-prompt ...`, keep `argus-image2-paper-prompt-v1` and `paper-framework-figure-studio-pro-v3.1.4a`, then review and run `sync-paper-metadata`. Do not locally redraw, trace, vectorize, PDF-wrap, screenshot, crop, downsample, resave, or overwrite it after provenance is written.
 4. Do not replace the overview with matplotlib/FancyBboxPatch, TikZ node graphs, PIL/SVG/HTML canvases, manual vector tools, cleaned PDF derivatives, or a locally drawn mockup labeled as image-2.
 5. Preserve prompt, metadata, generation provenance, inspect/review artifacts, SHA-256, width, and height. Refresh `paper/figures/IMAGE2_FIGURES.json` when the prompt, provenance, generation settings, accepted output, or paper include path changes.
 6. Do not regenerate an already accepted image merely to refresh metadata; repair missing provenance from recorded facts when possible, otherwise regenerate once through image-2.
