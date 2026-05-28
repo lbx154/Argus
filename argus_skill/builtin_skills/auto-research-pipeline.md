@@ -107,9 +107,13 @@ research → plan → benchmark → run → analysis → draft → review → su
 
 ### 1. research (brief + literature combined)
 - Write `research/RESEARCH_BRIEF.md`: problem, gap, target venue
-- Survey literature via Semantic Scholar: 10+ recent papers, 3+ classic anchors
-- Write `research/LITERATURE_GROUNDING.json` and `research/LIT_MATRIX.tsv`
-- Gate: real gap identified, relevant baselines found, benchmark options exist
+- Survey literature using all available sources:
+  - arXiv (`arxiv-paper-search.md`): latest preprints and cutting-edge work
+  - Semantic Scholar (`semantic-scholar-search.md`): published papers with citation counts
+  - 机器之心/新智元 etc. (`research-brief-to-experiment-plan.md` §3): trend signals, hot topics, practitioner insights
+- Write `research/LITERATURE_GROUNDING.json` (10+ recent papers, 3+ classic anchors, trend_sources)
+- Write `research/LIT_MATRIX.tsv`, `research/SOURCE_DISCOVERY.md`, `research/TREND_INSIGHTS.md`
+- Gate: real gap identified, relevant baselines found, benchmark options exist, trend sources checked
 - Reviewer LLM check: none (code checks only)
 
 ### 2. plan (experiment design)

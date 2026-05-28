@@ -28,6 +28,8 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     "research": [
         ("Research brief exists", "test -f research/RESEARCH_BRIEF.md"),
         ("Literature grounding exists", "test -f research/LITERATURE_GROUNDING.json"),
+        ("Source discovery exists", "test -f research/SOURCE_DISCOVERY.md"),
+        ("Trend insights exists", "test -f research/TREND_INSIGHTS.md"),
         ("BibTeX has entries", "test -f paper/refs.bib && grep -c '@' paper/refs.bib"),
     ],
     "plan": [
