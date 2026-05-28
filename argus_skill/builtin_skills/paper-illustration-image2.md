@@ -171,6 +171,14 @@ Cache by SHA-256(prompt) to avoid re-spending tokens on identical prompts.
 
 ## Step 5: Review & Score
 
+Before review, enforce this ordering:
+
+1. Wait for the `image_tool generate` / `code/generate_image_2.py` command to finish.
+2. Confirm the output file exists and is non-empty with `test -s <output.png>` or the project helper return payload.
+3. Run `image_tool inspect` and `image_tool review` only after the generated raster exists.
+
+Do not launch inspect/review in parallel with generation. A missing-file inspect/review failure is noise, not a useful candidate verdict; rerun the ordered sequence instead of treating it as image quality feedback.
+
 After generation, review the image against these criteria (score 1-10):
 
 | Criterion | Weight | What to check |
@@ -214,6 +222,7 @@ Maintain `paper/figures/IMAGE2_FIGURES.json`:
 
 - Each gpt-image-2 call takes 200-300s — be patient, set timeout=600
 - Concurrency 4-8 with ThreadPoolExecutor is safe for batch generation
+- Only concurrentize independent complete generations; do not race inspect/review before each output file exists.
 - Expect occasional 429s — back off honoring Retry-After headers
 - Never use 1024x1024 for paper figures; use image-route-safe dimensions divisible by 16, for example landscape 1536x1024 or 1920x1088, or portrait 1024x1536.
 - Text in images can be imperfect; for critical labels, regenerate with a tighter prompt instead of locally overlaying labels on a non-data figure.

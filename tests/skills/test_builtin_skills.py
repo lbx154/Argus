@@ -762,6 +762,9 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "1536x1024 or 1920x1088",
             "derive data figures and tables from local raw data",
             "does not make it acceptable final EMNLP evidence",
+            "Run inspect/review only after generation has returned",
+            "provenance reports, manifests, or developer-facing run logs",
+            "Do not copy raw local paths",
         ),
         "paper-review-revision-loop.md": (
             "Anonymous EMNLP Submission",
@@ -844,6 +847,23 @@ def test_format_preflight_requires_neutral_reproducibility_interface(
         "complete reproducibility appendix with commands, seeds",
     ):
         assert forbidden not in text
+
+
+def test_paper_illustration_image2_orders_post_generation_checks(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    seed_builtin_skills(skills_dir)
+    text = (skills_dir / "paper-illustration-image2.md").read_text(encoding="utf-8")
+
+    for required in (
+        "Wait for the `image_tool generate`",
+        "Confirm the output file exists and is non-empty",
+        "Do not launch inspect/review in parallel with generation",
+        "missing-file inspect/review failure is noise",
+        "Only concurrentize independent complete generations",
+    ):
+        assert required in text
 
 
 def test_academic_peer_review_benchmark_skill_sets_reviewer_standard(
