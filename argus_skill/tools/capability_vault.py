@@ -773,6 +773,24 @@ def format_gpu_context() -> str:
     return "\n".join(lines)
 
 
+def format_api_context() -> str:
+    """Format available API routes for agent runtime context."""
+    lines = ["## Available APIs"]
+    vault_path = Path.home() / ".argus-skill" / "capabilities" / "model_api.json"
+    lines.append(f"- Vault file: `{vault_path}` (contains API keys, read with Python)")
+    lines.append("- Load API key in code: `json.load(open('{vault}'))['capabilities']['model_api']['routes']['<route>']['api_key']`".format(vault=vault_path))
+
+    for route_name in ("text", "image", "image_review"):
+        route = load_model_api_route(route_name)
+        if route and route.usable:
+            lines.append(f"- **{route_name}**: model=`{route.model}`, base_url=`{route.base_url}`")
+
+    lines.append("")
+    lines.append("Use these APIs for reward models, VLM scoring, image generation, etc.")
+    lines.append("Example: Qwen-VL or GPT-5.4 as reward model via the text route.")
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m argus_skill.tools.capability_vault")
     sub = parser.add_subparsers(dest="cmd", required=True)

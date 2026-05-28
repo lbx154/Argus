@@ -940,7 +940,7 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
 def _worker_runtime_context(cfg: LifeWorkerConfig) -> str:
     """Return static context injected into daemon-driven missions."""
     from ..life.research_profile import render_research_profile_context
-    from ..tools.capability_vault import format_gpu_context
+    from ..tools.capability_vault import format_gpu_context, format_api_context
 
     research_context = render_research_profile_context()
     if not research_context:
@@ -990,6 +990,9 @@ def _worker_runtime_context(cfg: LifeWorkerConfig) -> str:
     )
     if gpu_context:
         runtime_context += "\n" + gpu_context + "\n"
+    api_context = format_api_context()
+    if api_context:
+        runtime_context += "\n" + api_context + "\n"
     return runtime_context + "\n---\n\n" + research_context
 
 
