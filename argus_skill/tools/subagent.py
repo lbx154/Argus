@@ -112,8 +112,83 @@ REGISTRY_DIR = Path(".argus_subagents")
 SUPERVISOR_MODEL = "gpt-5.4-mini"
 
 
+def _llm_summarize_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
+    """Use LLM to generate a concise, insightful report for the engineer."""
+    codex = _find_codex()
+    stdout_tail = task_data.get("stdout_tail", "")[-2000:]
+    stderr_tail = task_data.get("stderr_tail", "")[-1000:]
+    elapsed = task_data.get("elapsed_seconds", 0)
+    command = task_data.get("command", "")
+    description = task_data.get("description", "")
+    exit_code = task_data.get("exit_code", "N/A")
+    checks = task_data.get("supervisor_checks", 0)
+
+    prompt = (
+        f"You are a subagent reporting to the engineer. Generate a concise report.\n\n"
+        f"Task: {task_id}\n"
+        f"Description: {description}\n"
+        f"Event: {event}\n"
+        f"Command: {command}\n"
+        f"Duration: {elapsed:.0f}s | Exit code: {exit_code}\n"
+    )
+    if checks:
+        prompt += f"Supervisor checks: {checks}\n"
+    prompt += f"\n=== stdout (last 2000 chars) ===\n{stdout_tail}\n"
+    if stderr_tail and event != "COMPLETED":
+        prompt += f"\n=== stderr (last 1000 chars) ===\n{stderr_tail}\n"
+
+    # Paths
+    log_dir = REGISTRY_DIR / f"{task_id}_logs"
+    prompt += (
+        f"\nArtifact paths:\n"
+        f"- stdout: {task_data.get('stdout_log', str(log_dir / 'stdout.log'))}\n"
+        f"- stderr: {task_data.get('stderr_log', str(log_dir / 'stderr.log'))}\n"
+        f"- task record: {_registry_path(task_id)}\n"
+    )
+    sup_log = task_data.get("supervisor_log", "")
+    if sup_log:
+        prompt += f"- supervisor log: {sup_log}\n"
+
+    prompt += (
+        "\nWrite a report in markdown for the engineer. Include:\n"
+        "1. One-sentence summary of what happened\n"
+        "2. Key metrics extracted from stdout (loss, accuracy, steps, etc.)\n"
+        "3. All artifact paths the engineer needs to inspect\n"
+        "4. Concrete next action the engineer should take\n"
+        "Keep it under 300 words. Be direct and actionable."
+    )
+
+    try:
+        result = subprocess.run(
+            [codex, "exec", "--json", "-m", SUPERVISOR_MODEL,
+             "--skip-git-repo-check", "--ephemeral",
+             "--dangerously-bypass-approvals-and-sandbox", prompt],
+            capture_output=True, text=True, timeout=60,
+        )
+        for line in result.stdout.strip().splitlines():
+            try:
+                d = json.loads(line)
+                if d.get("type") == "message" and d.get("role") == "assistant":
+                    content = d.get("content", "")
+                    if isinstance(content, list):
+                        texts = [c.get("text", "") for c in content if c.get("type") == "output_text"]
+                        return "\n".join(texts) if texts else ""
+                    return content
+            except json.JSONDecodeError:
+                continue
+    except Exception:
+        pass
+    return ""
+
+
 def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
-    """Build a structured report for engineer consumption."""
+    """Build a report for engineer. Uses LLM if available, falls back to template."""
+    # Try LLM summary first
+    llm_report = _llm_summarize_report(task_id, event, task_data)
+    if llm_report and len(llm_report) > 50:
+        return f"## Subagent Report: {task_id} [{event}]\n\n{llm_report}"
+
+    # Fallback: template-based report
     lines = [f"## Subagent Report: {task_id}", f"**Event**: {event}", ""]
 
     desc = task_data.get("description", "")
@@ -173,9 +248,11 @@ def _alert_engineer(task_id: str, event: str, task_data: dict[str, Any]) -> None
     """Send a structured report to engineer via the project inbox."""
     report = _build_report(task_id, event, task_data)
     try:
+        from ..core.project import project_fingerprint
+        from ..core.paths import global_root
         from ..apps._inbox import queue_inbox_message
-        from ..apps._target_paths import resolve_life_dir
-        life_dir = resolve_life_dir()
+        ident = project_fingerprint()
+        life_dir = global_root() / "projects" / ident.fingerprint
         queue_inbox_message(life_dir, report, source="subagent")
     except Exception:
         alert_path = REGISTRY_DIR / f"{task_id}_ALERT.md"
