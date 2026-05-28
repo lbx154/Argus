@@ -3219,29 +3219,8 @@ class LifeSupervisor:
                     log.exception("notify dispatch failed; continuing")
                 return None
 
-        if not verdict.project_done:
-            # Only override planner tasks with deterministic repair if the project
-            # is past the early stages. For research/plan/benchmark, the planner's
-            # own tasks are more appropriate than gate-repair.
-            early_stages = {"research", "plan", "benchmark"}
-            current_stage = self._current_pipeline_stage()
-            if current_stage not in early_stages:
-                automatic_task, gate_issues = self._automatic_emnlp_finalization_task_for_current_gate()
-                if (
-                    automatic_task is not None
-                    and _planner_tasks_need_emnlp_finalization_override(
-                        verdict.new_tasks,
-                        gate_issues,
-                    )
-                ):
-                    verdict = replace(
-                        verdict,
-                        reason=(
-                            "planner task was too broad for the current EMNLP final-gate "
-                            "snapshot; queued deterministic finalization repair"
-                        ),
-                        new_tasks=[automatic_task],
-                    )
+        # The planner's tasks are trusted. Deterministic gate-repair is only
+        # used as a fallback when the planner itself fails (verdict.error above).
 
         if (
             verdict.project_done
