@@ -2,8 +2,8 @@
 
 Reads the current pipeline stage from research/PIPELINE_STATE.json and
 runs shell checks relevant to that stage. Outputs a reviewer checklist
-for critical stages — the reviewer agent (LLM) uses this to do
-scientific quality review. No LLM calls happen here.
+for critical stages — the reviewer agent (codex) reads the checklist,
+loads the referenced skill, and inspects the artifacts itself.
 
 Usage:
     python -m argus_skill.tools.stage_check --project-root .
@@ -57,13 +57,14 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
-# Stage → reviewer checklist (printed as text for the reviewer agent to evaluate)
-# The reviewer agent is already an LLM — it reads this checklist and does the review.
+# Stage → reviewer checklist
+# The reviewer agent is a codex agent with shell access in the same workdir.
+# It will load the skill, read the files, and do the review itself.
 REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
-    # stage: (review_skill_name, review_instructions, files_to_include)
+    # stage: (skill_to_load, review_instructions, files_to_read)
     "plan": (
         "experiment-plan-review.md",
-        "REVIEWER: evaluate this experiment plan on these dimensions:\n"
+        "Evaluate the experiment plan on these dimensions:\n"
         "1. Method competitiveness — is the proposed method strong enough vs SOTA?\n"
         "2. Baseline strength — are baselines non-trivial and representative?\n"
         "3. Evaluation fairness — same compute/data budget for all conditions?\n"
@@ -74,7 +75,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
     ),
     "run": (
         "experiment-results-review.md",
-        "REVIEWER: evaluate these experiment results on these dimensions:\n"
+        "Evaluate the experiment results on these dimensions:\n"
         "1. Statistical significance — are gains significant, not noise?\n"
         "2. Ablation fairness — does ablation isolate the claimed contribution?\n"
         "3. Effect size — are improvements meaningful, not cosmetic?\n"
@@ -86,19 +87,19 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
     ),
     "draft": (
         "academic-paper-peer-review-benchmark.md",
-        "REVIEWER: this is a DRAFT-stage progress check, NOT a final peer review.\n"
-        "Be lenient — focus on whether the draft can move forward:\n"
+        "DRAFT-stage progress check (lenient, not a final peer review).\n"
+        "Focus on whether the draft can move forward:\n"
         "1. Are all required sections present (abstract, intro, method, experiments, results, conclusion)?\n"
         "2. Do claims have at least placeholder evidence from actual experiments?\n"
         "3. Is the overall story coherent and the narrative structure sound?\n"
         "4. Are there fatal structural problems that would block progress?\n"
-        "Do NOT block on: language polish, minor formatting, incomplete related work, missing appendix.\n"
+        "Do NOT block on: language polish, minor formatting, incomplete related work.\n"
         "Pass threshold: structure complete enough to proceed to review stage.",
         ["paper/main.tex"],
     ),
     "submission": (
         "academic-paper-peer-review-benchmark.md",
-        "REVIEWER: this is the FINAL submission gate. Be STRICT — evaluate as an actual EMNLP reviewer.\n"
+        "FINAL submission gate — be STRICT, evaluate as an actual EMNLP reviewer.\n"
         "Review dimensions (all must pass):\n"
         "1. Novelty — does this make a meaningful contribution beyond incremental?\n"
         "2. Evidence strength — do experiments convincingly support claims?\n"
@@ -123,24 +124,6 @@ def _get_current_stage(project_root: Path) -> str:
         return data.get("current_stage", "brief")
     except (json.JSONDecodeError, OSError):
         return "brief"
-
-
-def _read_files_for_checklist(root: Path, paths: list[str], max_chars: int = 120000) -> str:
-    """Read files and include content for reviewer to evaluate."""
-    parts = []
-    total = 0
-    for p in paths:
-        full = root / p
-        if not full.exists():
-            parts.append(f"=== {p} === (FILE NOT FOUND)")
-            continue
-        text = full.read_text(encoding="utf-8", errors="replace")
-        remaining = max_chars - total
-        if remaining <= 0:
-            break
-        parts.append(f"=== {p} ===\n{text[:remaining]}")
-        total += len(parts[-1])
-    return "\n\n".join(parts)
 
 
 def main() -> int:
@@ -183,17 +166,15 @@ def main() -> int:
             failed += 1
 
     # 2. Output reviewer checklist for critical stages
-    #    No LLM call here — the reviewer agent reads this and does the review.
+    #    Reviewer is a codex agent — it reads the skill and files itself.
     if stage in REVIEWER_CHECKLISTS:
         skill_name, instructions, files = REVIEWER_CHECKLISTS[stage]
-        content = _read_files_for_checklist(root, files)
         print()
-        print(f"📋 REVIEWER CHECKLIST (reference skill: {skill_name})")
+        print(f"📋 REVIEWER CHECKLIST for stage '{stage}'")
+        print(f"   Load skill: argus_builtin_skills/{skill_name}")
+        print(f"   Read and review: {', '.join(files)}")
+        print()
         print(instructions)
-        if content:
-            print()
-            print("--- Artifacts for review ---")
-            print(content)
 
     total_failed = failed
     print(f"\n{'✅' if total_failed == 0 else '❌'} {passed} passed, {total_failed} failed")
