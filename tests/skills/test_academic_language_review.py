@@ -4,6 +4,7 @@ from argus_skill.skills.academic_language_review import (
     _review_prompt,
     _revision_directives,
     _section_text,
+    find_introduction_readability_issues,
 )
 
 
@@ -130,6 +131,29 @@ def test_intro_word_count_is_reviewer_signal_not_hard_gate() -> None:
     assert "hard_gate" not in issue
     assert result["required_checks"]["clear_problem_gap_contribution"] is True
     assert result["section_scores"]["introduction"] >= 4.0
+
+
+def test_intro_result_preview_accepts_natural_metric_units() -> None:
+    preview_sentences = [
+        r"PairScorer reaches 87.70\% Mind2Web operation accuracy under the fixed split.",
+        "PairScorer improves Mind2Web operation accuracy by 84.42 percentage points.",
+    ]
+    for preview in preview_sentences:
+        tex = "\n".join(
+            [
+                r"\section{Introduction}",
+                r"Prior planning and web-agent work motivate the decision problem "
+                r"\citep{react2023,webarena2024,agentbench2023}.",
+                preview,
+                r"We evaluate PairScorer and report a scoped benchmark contribution.",
+                r"\section{Related Work}",
+                "Prior work motivates the benchmark and method.",
+            ]
+        )
+
+        codes = {code for code, _message in find_introduction_readability_issues(tex)}
+
+        assert "introduction_missing_quantified_result_preview" not in codes
 
 
 def test_review_prompt_tells_model_not_to_use_fixed_intro_word_gate() -> None:
