@@ -3187,37 +3187,33 @@ class LifeSupervisor:
         )
 
         if verdict.error:
-            fallback_verdict = self._fallback_emnlp_gate_task_for_planner_error(verdict)
-            if fallback_verdict is not None:
-                verdict = fallback_verdict
-            else:
-                self._emit({
-                    "type": "life.planner.error",
-                    "cycle": self._planning_cycles,
+            self._emit({
+                "type": "life.planner.error",
+                "cycle": self._planning_cycles,
+                "error": verdict.error,
+                "raw_text": verdict.raw_text,
+            })
+            self._emit_status(f"planner error: {verdict.error}; retry later")
+            entry = JournalEntry.new(
+                kind="planner_error",
+                title=f"planner cycle #{self._planning_cycles}",
+                summary=f"{verdict.error}: {verdict.reason}",
+                tags=["life", "planner"],
+                extra={
+                    "agent_layer": "planner",
                     "error": verdict.error,
+                    "reason": verdict.reason,
                     "raw_text": verdict.raw_text,
-                })
-                self._emit_status(f"planner error: {verdict.error}; retry later")
-                entry = JournalEntry.new(
-                    kind="planner_error",
-                    title=f"planner cycle #{self._planning_cycles}",
-                    summary=f"{verdict.error}: {verdict.reason}",
-                    tags=["life", "planner"],
-                    extra={
-                        "agent_layer": "planner",
-                        "error": verdict.error,
-                        "reason": verdict.reason,
-                        "raw_text": verdict.raw_text,
-                    },
-                )
-                self.memory.journal.append(entry)
-                self._inject_cumulative_cost(entry)
-                try:
-                    from .notify import dispatch_journal_entry
-                    dispatch_journal_entry(entry)
-                except Exception:  # noqa: BLE001
-                    log.exception("notify dispatch failed; continuing")
-                return None
+                },
+            )
+            self.memory.journal.append(entry)
+            self._inject_cumulative_cost(entry)
+            try:
+                from .notify import dispatch_journal_entry
+                dispatch_journal_entry(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("notify dispatch failed; continuing")
+            return None
 
         # The planner's tasks are trusted. Deterministic gate-repair is only
         # used as a fallback when the planner itself fails (verdict.error above).
