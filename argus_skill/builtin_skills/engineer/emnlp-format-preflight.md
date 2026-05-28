@@ -61,7 +61,7 @@ Treat every item below as blocking for a final EMNLP-ready claim:
    - Every body figure has a `\label{}` and is referenced in the text with `\ref`, `\autoref`, `\cref`, or equivalent.
    - Body figures are capped at five total; at most one may be a full-width `figure*`.
    - The middle body should have meaningful visual anchors when they improve readability; rely on the model-backed layout review for page-rhythm judgment instead of inserting low-value floats to hit fixed page numbers.
-   - Data/metric/result plots may be locally scripted from canonical artifacts. Every other figure must include the actual image-2/codex-image2 raster `output_path` in `paper/main.tex` and pass `validate-image2-figures`. **Block any self-drawn non-data replacement:** matplotlib/FancyBboxPatch redraws, TikZ node graphs, SVG/PIL/HTML canvases, cleaned PDF derivatives, screenshots, manual vector replacements, local PNGs with hand-written `codex-image2` metadata, missing `sidecar_path`/`inspect_path`, missing `argus-image2-paper-prompt-v1` / `paper-framework-figure-studio-pro-v3.1.4a` prompt markers, or manual-only image reviews are hard failures. If the figure is ugly, regenerate it through image-2 with `python -m argus_skill.tools.image_tool paper-prompt ...`, then generate/review/sync metadata. A reviewed candidate may be promoted to a stable filename only when the canonical raster is bit-identical to the generated image-2 bytes and its SHA-256 matches the sidecar/provenance evidence. These figures must be adaptive/landscape page-width assets, preferably `1536x1024 or 1920x1088` (dimensions divisible by 16), and avoid square `1024x1024`, tiny text, heavy gradients, photorealism, weird/sketchy fonts, and code identifiers.
+   - Data/metric/result plots may be locally scripted from canonical artifacts. Every other figure must include the actual image-2/codex-image2 raster `output_path` in `paper/main.tex` and pass `the reviewer stage-checklist item2-figures`. **Block any self-drawn non-data replacement:** matplotlib/FancyBboxPatch redraws, TikZ node graphs, SVG/PIL/HTML canvases, cleaned PDF derivatives, screenshots, manual vector replacements, local PNGs with hand-written `codex-image2` metadata, missing `sidecar_path`/`inspect_path`, missing `argus-image2-paper-prompt-v1` / `paper-framework-figure-studio-pro-v3.1.4a` prompt markers, or manual-only image reviews are hard failures. If the figure is ugly, regenerate it through image-2 with `python -m argus_skill.tools.image_tool paper-prompt ...`, then generate/review/sync metadata. A reviewed candidate may be promoted to a stable filename only when the canonical raster is bit-identical to the generated image-2 bytes and its SHA-256 matches the sidecar/provenance evidence. These figures must be adaptive/landscape page-width assets, preferably `1536x1024 or 1920x1088` (dimensions divisible by 16), and avoid square `1024x1024`, tiny text, heavy gradients, photorealism, weird/sketchy fonts, and code identifiers.
 
 5. **Tables**
    - Every table caption must state a numerical headline, not just describe contents.
@@ -76,7 +76,7 @@ Treat every item below as blocking for a final EMNLP-ready claim:
    - If `latexmk` is unavailable, run `pdflatex -output-directory=paper`/`bibtex paper/main`/`pdflatex -output-directory=paper`/`pdflatex -output-directory=paper` and save `paper/main.log`.
    - Do not rely on root-level `main.pdf` or `main.log`; validators read `paper/main.pdf` and `paper/main.log`, and a newer root-level build is a format failure.
 2. Inspect the source and PDF:
-   - Run `python -m argus_skill.skills.pipeline_contracts validate-research-md-format --project-root .`.
+   - Run (reviewer stage-checklist verification).
    - If the command reports any issue, fix the LaTeX/source/artifact and rerun; do not continue to layout review.
 3. Write `paper/FORMAT_PREFLIGHT.md` with:
    - compile command and status;
@@ -84,14 +84,14 @@ Treat every item below as blocking for a final EMNLP-ready claim:
    - figure/table inventory with labels, refs, captions, and page placement;
    - bibliography verification status, verified entry count, unique cited-key count, and rendered reference-page count;
    - every fix made during preflight;
-   - the exact final `validate-research-md-format` result.
+   - the exact final the reviewer stage-checklist item result.
 4. Only after this command is clean, run:
    - `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`
    - `python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write`
-   - `python -m argus_skill.skills.pipeline_contracts validate-paper-contract --project-root .`
-   - `python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`
+   - (reviewer stage-checklist verification)
+   - (reviewer stage-checklist verification)
 
 ## Response shape
-- State whether `validate-research-md-format` passed.
+- State whether the reviewer stage-checklist item passed.
 - If it failed, list the blocking issue codes and changed files.
 - If it passed, name `paper/FORMAT_PREFLIGHT.md`, `paper/main.pdf`, and the next required review artifact.

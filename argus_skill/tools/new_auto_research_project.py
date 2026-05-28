@@ -197,7 +197,7 @@ def default_objective(project_name: str) -> str:
         "the available GPU budget, evaluate only on existing real benchmark sources "
         "or official task/data releases, run the full-scale evidence matrix, then write "
         "an exemplar-locked, visually polished submission package that passes the exact "
-        "final `validate-full-emnlp` gate."
+        "the L2 reviewer marking `done` against the full pipeline checklist."
     )
 
 
@@ -514,13 +514,13 @@ def _research_bootstrap_files(*, project_name: str, objective: str) -> dict[str,
             "reason": (
                 "official launcher seed only; final readiness requires completed "
                 "literature grounding, full-scale evidence, paper reviews, and "
-                "validate-full-emnlp exit 0"
+                "the L2 reviewer marking `done` against the full pipeline checklist"
             ),
         },
     }
     gate = (
         '"${ARGUS_SKILL_PYTHON:-python}" -m '
-        "argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root ."
+        "(reviewer stage-checklist verification)"
     )
     return {
         "research/PIPELINE_STATE.json": json.dumps(
@@ -585,8 +585,8 @@ def _research_bootstrap_files(*, project_name: str, objective: str) -> dict[str,
         "research/GO_NO_GO.md": (
             "# Go / No-Go\n\n"
             "Initial decision: no-go for drafting. Advance only after the full "
-            "benchmark matrix has completed and `validate-full-scale-evidence` "
-            "passes on current experiment artifacts.\n"
+            "benchmark matrix has completed and the run-stage full-scale evidence "
+            "checklist item is satisfied on current experiment artifacts.\n"
         ),
         "experiments/BENCHMARK_PROVENANCE.md": (
             "# Benchmark Provenance\n\n"
@@ -673,12 +673,25 @@ def init_project_venv(project_dir: Path) -> Path:
             # Network may be flaky; the venv itself is still usable.
             pass
 
-    # Make sure git does not try to track per-project virtualenvs.
+    # Make sure git does not try to track per-project virtualenvs or
+    # downloaded model weights / huggingface caches.
     gitignore = project_dir / ".gitignore"
-    snippet = "\n# argus-skill: per-project virtualenv\n.venv/\n"
+    snippet_pieces = []
     existing = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
     if ".venv/" not in existing.split():
-        gitignore.write_text(existing + snippet, encoding="utf-8")
+        snippet_pieces.append("\n# argus-skill: per-project virtualenv\n.venv/\n")
+    if "models/" not in existing.split():
+        snippet_pieces.append(
+            "\n# argus-skill: per-project model weights / HF cache\n"
+            "models/\n"
+        )
+    if snippet_pieces:
+        gitignore.write_text(existing + "".join(snippet_pieces), encoding="utf-8")
+
+    # Pre-create the per-project model directory so HF_HOME et al. point
+    # at a real location from round 1. Empty directory is fine; the agent
+    # populates it on first download.
+    (project_dir / "models").mkdir(exist_ok=True)
 
     return venv_dir
 
@@ -719,7 +732,7 @@ def _continuous_objective_from_agents(agents_md: str) -> str:
     for line in agents_md.splitlines():
         if line.startswith("- Primary paper goal: "):
             return line.split(": ", 1)[1]
-    return "Start a clean-slate EMNLP/ACL long-paper auto-research project and continue until validate-full-emnlp exits 0."
+    return "Start a clean-slate EMNLP/ACL long-paper auto-research project and continue until the L2 reviewer marks `done` against the full pipeline checklist."
 
 
 def _argus_env() -> dict[str, str]:

@@ -87,6 +87,23 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
             evidence_hint="code/references/<repo>/.git/config + a notes file",
         ),
+        ChecklistItem(
+            id="research.infra_shortlist",
+            statement=(
+                "If the project will involve gradient-based training or "
+                "large-scale inference, an initial training-infra and "
+                "inference-infra shortlist is recorded. Candidates must be "
+                "actively maintained open-source frameworks (last release "
+                "or commit in 2026 or later); self-written training/inference "
+                "loops are forbidden. The shortlist must (a) anchor against "
+                "the bundled `argus_builtin_skills/training-infrastructure-guide.md`, "
+                "(b) add at least one candidate the agent independently "
+                "discovered (with URL + last-commit date + paper/citation), "
+                "and (c) note any candidate from the bundled guide that is no "
+                "longer maintained and must be excluded."
+            ),
+            evidence_hint="research/INFRA_SHORTLIST.md",
+        ),
     ),
     "plan": _checklist(
         ChecklistItem(
@@ -115,6 +132,22 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "extract from, with what we will reuse vs reimplement."
             ),
             evidence_hint="research/CODE_REUSE_PLAN.json or .md",
+        ),
+        ChecklistItem(
+            id="plan.infra_choice",
+            statement=(
+                "If training or large-scale inference is required, a final "
+                "training-infra and inference-infra choice is locked in (one "
+                "framework per axis, picked from research.infra_shortlist) with "
+                "an explicit rationale tying each choice to the project's domain "
+                "(e.g. diffusion RL post-training vs LLM SFT vs agent RL) and to "
+                "the resource budget. The chosen frameworks must be 2026+-active, "
+                "open-source, and explicitly NOT custom training/inference loops. "
+                "Cite the chosen project's repo URL, last release/commit date, "
+                "and (if from a paper) the paper. Record both the final choice "
+                "and any explicitly-rejected alternative with a one-line reason."
+            ),
+            evidence_hint="research/INFRA_CHOICE.md + research/EXPERIMENT_PLAN.md `## Infra` section",
         ),
     ),
     "benchmark": _checklist(

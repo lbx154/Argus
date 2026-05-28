@@ -45,16 +45,16 @@ Use this skill when a paper may contain local execution details that do not belo
    - Keep evaluated model identifiers only when they describe the experiment itself.
 3. Run the model-backed tool:
    - `python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write`
-   - `python -m argus_skill.skills.pipeline_contracts validate-paper-infrastructure-review --project-root .`
+   - (reviewer stage-checklist verification)
 4. Treat the review files as generated evidence:
    - Do not hand-edit `paper/PAPER_INFRASTRUCTURE_REVIEW.json`, `.md`, or `_history.jsonl`.
    - If the nested `model_review` says `revise`, lists blocking/major issues, reports `leak_free: false`, or leaves revision directives, edit the manuscript and rerun the tool.
 5. After a pass, run the surrounding gates affected by source changes:
-   - `validate-academic-language-review`
-   - `validate-research-md-format`
-   - `validate-full-emnlp` near final readiness
+   - the reviewer stage-checklist item
+   - the reviewer stage-checklist item
+   - the reviewer stage-checklist item near final readiness
 
 ## Response shape
-- State whether `validate-paper-infrastructure-review` passed.
+- State whether the reviewer stage-checklist item passed.
 - If blocked, quote the highest-priority model review issue and the exact source target.
 - Mention any paper-facing rewrite made to replace local environment/device/config prose.

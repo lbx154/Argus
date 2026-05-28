@@ -22,7 +22,7 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
 - Experiment evidence is missing; run analysis or benchmarks first.
 - The paper is only a pilot note and should not be polished into a fake long paper.
 - The task is purely visual layout; use the layout review after language changes are done.
-- `python -m argus_skill.skills.pipeline_contracts validate-full-scale-evidence --project-root .` reports `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, or `pilot_pdf_without_full_scale_evidence`; fix/run the full evidence matrix before final prose polish.
+- (reviewer stage-checklist verification) reports `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, or `pilot_pdf_without_full_scale_evidence`; fix/run the full evidence matrix before final prose polish.
 
 ## How to solve
 1. Read the evidence before editing prose:
@@ -31,7 +31,7 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - `paper/RESULTS_REPORT.md`
    - `paper/artifacts/result_to_claim.tsv`
    - `paper/PAPER_QUALITY_CALIBRATION.json`
-   - Run `python -m argus_skill.skills.pipeline_contracts validate-full-scale-evidence --project-root .` for any final EMNLP/ACL paper. Do not accept benchmark construction, `benchmarks/full/manifest.json`, or `status.json task_count` as execution evidence; final language must be grounded in raw completed scored `experiments/**` rows for every required method/baseline condition.
+   - Run (reviewer stage-checklist verification) for any final EMNLP/ACL paper. Do not accept benchmark construction, `benchmarks/full/manifest.json`, or `status.json task_count` as execution evidence; final language must be grounded in raw completed scored `experiments/**` rows for every required method/baseline condition.
 
 2. Rebuild the paper story:
    - Write one thesis sentence in the form: "X is better for Y in Z because W."
@@ -67,7 +67,7 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - Add a compact system/configuration table when prose alone would be ambiguous. The table must be professional and paper-facing: benchmark/component name, task count/split, evaluated model/backend, method or baseline role, runtime/harness, metric, budget/decoding, and the numerical takeaway. It must not expose Argus/Codex route names, engineer/reviewer/scientist roles, `gpt-5.4*`, API keys, private endpoints, capability-vault contents, or validation artifacts.
    - Require the Results section to contain a large, reader-facing cross-benchmark matrix for final long-paper claims. The table should let a reviewer compare the selected 3+ benchmark/source families, evaluated model/backend, task counts/splits, major baselines/methods, metrics, budget/decoding, and key scores in one place. Reject disconnected tiny tables when they hide missing benchmarks or omit model/backend information.
    - Reject papers that only say "our agent" or "the system" while omitting what framework ran it, which model powered it, and how one benchmark episode executes.
-   - For local environment/device/cache/path leakage, delegate the final judgment to the dedicated model-backed paper infrastructure review: run `python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write` and `python -m argus_skill.skills.pipeline_contracts validate-paper-infrastructure-review --project-root .`. Do not patch this by adding local regex filters to the academic-language skill.
+   - For local environment/device/cache/path leakage, delegate the final judgment to the dedicated model-backed paper infrastructure review: run `python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write` and (reviewer stage-checklist verification). Do not patch this by adding local regex filters to the academic-language skill.
 
 7. Replace agent-looking prose:
    - Remove filler, boilerplate, repeated "we demonstrate" sentences, repeated not-X-but-Y transitions, and over-defensive "narrow / benchmark-scoped / not general" caveats. One calibrated scope statement is enough; the rest belongs in limitations.
@@ -78,7 +78,7 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
 
 8. Run the tool-backed review:
    - Run `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`.
-   - Then run `python -m argus_skill.skills.pipeline_contracts validate-academic-language-review --project-root .`.
+   - Then run (reviewer stage-checklist verification).
    - The review must write `paper/ACADEMIC_LANGUAGE_REVIEW.json`, `paper/ACADEMIC_LANGUAGE_REVIEW.md`, and history.
    - Passing requires a model-backed review, fresh hashes for all LaTeX sources included by `paper/main.tex`, score at least 4/5, evidence spans quoted from the source, no failed required checks, and no active revision directives. Evidence spans are review artifacts, not prose: do not paste them into the paper to appease the gate.
    - Treat `paper/ACADEMIC_LANGUAGE_REVIEW.json`, `.md`, and `_history.jsonl` as generated evidence, not editable scoring targets. Do not hand-edit, normalize, or append a top-level `PASS`; if the nested `model_review` still says revise, lists major/blocking issues, failed checks, low section scores, or revision directives, the only valid repair is to revise the manuscript and rerun the review tool.
@@ -94,6 +94,6 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - The desired prose is normal reviewer-facing EMNLP writing, not a lab notebook. Keep explanatory connective tissue and section flow while removing overclaiming; do not strip every adjective if the sentence is already factual and supported.
 
 ## Response shape
-- State the academic-language score and whether `validate-academic-language-review` passed.
+- State the academic-language score and whether the reviewer stage-checklist item passed.
 - Name the strongest rewritten contribution sentence.
 - If blocked, quote the highest-priority revision directive and the source file it targets.

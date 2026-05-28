@@ -269,9 +269,9 @@ Evidence and anti-fabrication rules:
   operator-mode smoke tests. Do not conflate the two.
 - Final EMNLP completion is a separate `final_submission` scope. The project is
   not done until `python -m argus_skill.skills.pipeline_contracts
-  validate-full-emnlp --project-root .` exits 0 and that exact command/output is
+  the full pipeline checklist (research → submission)` is marked `done` by the L2 reviewer and that verdict is
   present in journal evidence.
-- Passing `validate-pipeline`, `validate-manifest`, a pilot run, or an existing
+- Passing a single stage's checklist, a pilot run, or an existing
   PDF is not enough for project_done. If the full gate fails, queue bounded
   blocker tasks for the reported experiment, baseline, ablation, paper-contract,
   assurance, manifest, or submission-state gaps.

@@ -36,7 +36,7 @@ Improve an existing paper draft using an external-review mindset. This adapts AR
    - Reject validator-shaped abstracts: no result-first numeric opening, appendix/figure/table references, raw artifact paths, evidence-span quotes, review-gate vocabulary, or long defensive caveat strings in the abstract.
    - Check the `research.md` formatting contract before cosmetic polishing: official ACL/EMNLP review template, anonymous author block (`Anonymous EMNLP Submission`), conclusion by page 8 without a forced manual break immediately before it, References/Appendix starting on page 9 or later with no total-page cap after the body, Limitations and Ethical Considerations after the conclusion, References before Appendix, complete reproducibility appendix, no unresolved refs/citations, no `[?]`, no `% UNVERIFIED` bibliography entries, no placeholders, and no `Overfull \hbox > 5pt`.
    - Check figure/table constraints: every figure labeled and referenced, every table caption has a numerical headline, the middle-body visual rhythm passes the model-backed layout review, at least one paired-significance table when comparisons are reported, <=5 body figures, only one `figure*`, no square `1024x1024` conceptual figure, and no code-like/snake_case labels in paper-facing visuals.
-   - If the paper is short, weirdly sparse, or References start before page 9, do not treat it as a prose-polish task until evidence sufficiency is checked. Inspect `validate-full-scale-evidence`, `paper/EVIDENCE_GAPS.json`, `paper/CLAIM_GRAPH.json`, and raw result logs. If missing evidence is addressable, send the next repair to experiments/analysis, not layout.
+   - If the paper is short, weirdly sparse, or References start before page 9, do not treat it as a prose-polish task until evidence sufficiency is checked. Inspect the reviewer stage-checklist item, `paper/EVIDENCE_GAPS.json`, `paper/CLAIM_GRAPH.json`, and raw result logs. If missing evidence is addressable, send the next repair to experiments/analysis, not layout.
    - Rank weaknesses as critical, major, or minor.
 
 3. Write `paper/REVIEW_REPORT.md`:
@@ -63,10 +63,10 @@ Improve an existing paper draft using an external-review mindset. This adapts AR
    - Re-run data figure/table generation when source data changes. Re-run image-2/conceptual figure generation when the prompt, provenance, generation settings, sidecar/inspect/review evidence, or accepted output changes; do not regenerate an already accepted image merely to refresh metadata unless the original raw generation proof is missing.
    - Re-run benchmark or analysis work when page/body failures are caused by missing evidence: finish full-scale runs, add missing baselines, run ablations/sensitivity slices, produce failure taxonomy/error analysis, or generate public-validation/robustness tables before rewriting prose.
    - Compile the paper when LaTeX is available.
-   - Invoke the EMNLP Format Preflight skill and run `validate-paper-format` plus `validate-research-md-format` after any LaTeX, figure, table, bibliography, or appendix-order edit; do not continue to assurance while it reports unresolved refs/citations, appendix-before-references ordering, placeholders, code-like display labels, missing figure/table constraints, or `Overfull \hbox > 5pt`.
-   - After every prose-changing edit, run `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write` and `python -m argus_skill.skills.pipeline_contracts validate-academic-language-review --project-root .`.
-   - After changing Method, Experimental Setup, captions, tables, appendix, or any configuration prose, run `python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write` and `python -m argus_skill.skills.pipeline_contracts validate-paper-infrastructure-review --project-root .`.
-   - After every layout-affecting edit, run `python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write` and `python -m argus_skill.skills.pipeline_contracts validate-layout-review --project-root .`.
+   - Invoke the EMNLP Format Preflight skill and run the reviewer stage-checklist item plus the reviewer stage-checklist item after any LaTeX, figure, table, bibliography, or appendix-order edit; do not continue to assurance while it reports unresolved refs/citations, appendix-before-references ordering, placeholders, code-like display labels, missing figure/table constraints, or `Overfull \hbox > 5pt`.
+   - After every prose-changing edit, run `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write` and (reviewer stage-checklist verification).
+   - After changing Method, Experimental Setup, captions, tables, appendix, or any configuration prose, run `python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write` and (reviewer stage-checklist verification).
+   - After every layout-affecting edit, run `python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write` and (reviewer stage-checklist verification).
    - Review JSON, markdown, page snapshots, and history files are read-only feedback except when regenerated by their owning tool commands. Do not hand-edit, normalize, or append `PASS` records for `paper/ACADEMIC_LANGUAGE_REVIEW.*`, `paper/PAPER_INFRASTRUCTURE_REVIEW.*`, or `paper/LAYOUT_REVIEW.*`; if nested model/vision review evidence still has revise, leaks, major/blocking issues, failed checks, low scores, or revision directives, patch the paper/PDF and rerun the owning review tool.
 
 6. Iterate within the mission:
@@ -86,7 +86,7 @@ Improve an existing paper draft using an external-review mindset. This adapts AR
 
 7. Update `paper/PAPER_REVISION_LOG.md`:
    - Round summary, files edited, compile/test output, remaining blockers.
-   - Include raw verification output for compile, academic-language review score, `validate-academic-language-review`, paper infrastructure review result, `validate-paper-infrastructure-review`, layout review score, `validate-layout-review`, and any analysis scripts.
+   - Include raw verification output for compile, academic-language review score, the reviewer stage-checklist item, paper infrastructure review result, the reviewer stage-checklist item, layout review score, the reviewer stage-checklist item, and any analysis scripts.
    - Update `research/PIPELINE_STATE.json` with `revision` status and the next assurance action.
 
 ## Response shape

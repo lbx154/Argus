@@ -24,6 +24,45 @@ Turn a loose operator research direction into a concrete, evidence-first experim
 - The proposed method must train or adapt a domain-appropriate modern backbone at meaningful scale for the target field, using LoRA/QLoRA/FSDP/DeepSpeed/Accelerate or an equivalent efficient recipe when full fine-tuning is too expensive. Record the model family, parameter scale, trainable parameters, dataset size, GPU memory plan, and expected GPU-hours.
 - Final benchmark evidence must come from existing real benchmarks or their official task/data releases. Do not create a synthetic benchmark, synthetic proxy, generated task set, or locally invented oracle as the main evidence source. Synthetic data may be used only for unit tests, debugging, or clearly labeled smoke tests with no paper-facing result claims.
 
+## Training & inference infrastructure contract (REQUIRED if any training or large-scale inference)
+
+Custom training loops and bare `model.generate()` inference loops are **hard
+blockers** at the planner / reviewer gate. Every project that involves
+gradient-based training or large-scale inference must lock in an existing
+open-source framework on each axis before drafting the experiment plan.
+
+1. **Read `argus_builtin_skills/training-infrastructure-guide.md` first.**
+   It is the bundled curated baseline (LLM SFT/DPO/RLHF, agent RL,
+   diffusion, LLM inference, API inference). Anchor your selection there.
+2. **Then do your own search.** Look at recent arXiv (2026+) repos that
+   match your specific domain (e.g. for diffusion RL: SimpleTuner /
+   diffusers / SimpleTuner-RL / flow_grpo / Dense_Reward_T2I-style
+   official repos; for agent RL: AgentGym-RL / veRL / SLIME; for LLM
+   post-training: LLaMA-Factory / TRL / OpenRLHF / veRL). Add at least
+   one candidate the bundled guide does not name.
+3. **Maintenance bar: 2026-or-later.** Every candidate must have a
+   release or default-branch commit in 2026+. Older repos are excluded
+   regardless of historical prestige.
+4. **No self-written trainers / inference loops.** Including: hand-rolled
+   PPO/GRPO trainers, custom KV-cache management, custom mixed-precision
+   or distributed-training scaffolding. Wrap an existing framework.
+5. **Paper-released code allowed** when the repo meets the 2026+ bar and
+   the paper appears in `research/LITERATURE_GROUNDING.json`.
+6. **Write `research/INFRA_SHORTLIST.md`** during the research stage with
+   every candidate you considered (URL + last release/commit date + paper
+   if any + one-line fit rationale + maintained-yes/no).
+7. **Write `research/INFRA_CHOICE.md`** during the plan stage locking in
+   exactly one training framework and exactly one inference framework
+   with rationale tying the choice to the project domain and the GPU /
+   API budget. Mirror the same locked choice in
+   `research/EXPERIMENT_PLAN.md` under an `## Infra` section.
+8. **Skip both artifacts only if** the project does not train any model
+   and does not run large-scale inference (e.g. pure literature analysis).
+   Record that skip explicitly in `research/RESEARCH_BRIEF.md`.
+
+The L2 reviewer ticks these checklist items as `research.infra_shortlist`
+and `plan.infra_choice`. Empty / hand-waved infra sections fail the gate.
+
 ## When to use
 - The operator asks for an EMNLP/ACL-style paper plan, research plan, experiment roadmap, or agent-science hypothesis.
 - The task mentions turning a topic seed or paper/code trend into experiments, baselines, ablations, metrics, or a paper-ready evidence plan.
@@ -133,8 +172,8 @@ Turn a loose operator research direction into a concrete, evidence-first experim
    - Ensure every planned paper claim maps to at least one concrete run.
    - Ensure every run has an expected output path and a success/failure criterion.
    - Ensure no result number appears unless it already exists in a cited artifact.
-   - Run `python -m argus_skill.skills.pipeline_contracts validate-grounding --project-root .`; do not mark the plan stage ready while it reports missing recent papers, classic papers, or trend-source metadata.
-   - Run `python -m argus_skill.skills.pipeline_contracts validate-idea-provenance --project-root .` and `validate-code-reuse --project-root .`; do not mark the plan stage ready while the idea looks agent-generated or the implementation ignores surveyed paper/open-source code.
+   - Run (reviewer stage-checklist verification); do not mark the plan stage ready while it reports missing recent papers, classic papers, or trend-source metadata.
+   - Run (reviewer stage-checklist verification) and (reviewer stage-checklist verification); do not mark the plan stage ready while the idea looks agent-generated or the implementation ignores surveyed paper/open-source code.
 
 ## Response shape
 - End with a short list of the next executable missions, each with acceptance criteria.

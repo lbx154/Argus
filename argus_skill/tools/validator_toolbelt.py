@@ -18,7 +18,7 @@ PIPELINE_CONTRACTS_MODULE = "argus_skill.skills.pipeline_contracts"
 DEFAULT_PROJECT_ROOT = "."
 VALIDATOR_ROLES = ("engineer", "reviewer", "critic", "planner")
 FINAL_EMNLP_COMMAND = (
-    f"python -m {PIPELINE_CONTRACTS_MODULE} validate-full-emnlp --project-root ."
+    "the L2 reviewer marking `done` against the full pipeline checklist"
 )
 
 

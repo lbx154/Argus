@@ -235,7 +235,7 @@ python -m argus_skill.tools.image_tool sync-paper-metadata \
   --prompt-file paper/figures/method_overview.prompt.txt \
   --figure-id method_overview --figure-type method
 
-python -m argus_skill.skills.pipeline_contracts validate-image2-figures \
+python -m argus_skill.skills.pipeline_contracts the reviewer stage-checklist item2-figures \
   --project-root .
 ```
 

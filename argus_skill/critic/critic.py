@@ -615,9 +615,9 @@ class Critic:
                 "`python -m argus_skill ...` or the launcher-provided ARGUS_SKILL_PYTHON "
                 "environment instead of retired absolute paths. For paper infrastructure "
                 "leaks, do not run ad hoc grep/rg pattern scans in the Planner. Inspect "
-                "only whether the model-backed paper infrastructure review artifact and "
-                "`validate-paper-infrastructure-review --project-root .` are missing or "
-                "failing, then queue the Engineer to run `paper_infrastructure_review "
+                "only whether the model-backed paper infrastructure review artifact under "
+                "`paper/PAPER_INFRASTRUCTURE_REVIEW.json` is fresh; if it is missing or "
+                "stale, queue the Engineer to run `paper_infrastructure_review "
                 "--review-mode model --write`. Do not use a hand-written string-match "
                 "pass as context, acceptance, or a substitute for the reviewer artifact."
             )

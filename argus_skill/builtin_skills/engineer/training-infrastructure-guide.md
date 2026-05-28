@@ -11,6 +11,51 @@ created_at: 2026-05-28T00:00:00+00:00
 
 When experiments involve model training or large-scale inference, use established frameworks. Do NOT write custom loops from scratch.
 
+## 🔒 Selection contract (research + plan stages)
+
+This guide is the **starting baseline**, not the final answer. During the
+**research** and **plan** stages every project that needs training or
+large-scale inference must commit to a specific framework on each axis
+(training / inference), and that decision must satisfy ALL of the following:
+
+1. **Open-source, actively maintained, 2026+.** The last meaningful release
+   or commit must be in **2026 or later**. Anything older is treated as
+   unmaintained and rejected — even if it was once state-of-the-art.
+2. **No self-written training or inference loops.** A custom `for epoch`
+   loop, a bare `model.generate()` benchmark loop, or a hand-rolled
+   RL/PPO trainer is a hard blocker. Wrap an existing framework instead.
+3. **Paper-released frameworks are allowed** if (a) the repo meets the
+   2026+ recency bar and (b) the paper is cited in
+   `research/LITERATURE_GROUNDING.json`. Prefer official authors' code
+   over third-party reimplementations.
+4. **Anchor against this guide first, then supplement.** Use the tables
+   below as the curated baseline. You must additionally do at least one
+   round of independent research (recent arXiv, GitHub trending, papers
+   that match your domain) to (a) confirm those baseline frameworks are
+   still maintained at decision time and (b) add at least one credible
+   candidate of your own with URL + last-commit date + paper.
+5. **Excluded entries from this guide.** If a baseline framework below
+   is no longer maintained, explicitly note it as "excluded — stale" in
+   `research/INFRA_SHORTLIST.md` so the reasoning is auditable.
+
+### Artifacts the L2 reviewer will check
+
+- **research stage** (`research.infra_shortlist`):
+  `research/INFRA_SHORTLIST.md` listing every candidate framework you
+  evaluated, with URL, last release/commit date, paper (if any), and a
+  one-line "fit" rationale.
+- **plan stage** (`plan.infra_choice`): `research/INFRA_CHOICE.md`
+  locking in exactly one training framework and exactly one inference
+  framework, citing the chosen repo's URL + last release/commit date,
+  and a one-line reason why the rejected runner-up was rejected. The
+  same choice must also appear in an `## Infra` section of
+  `research/EXPERIMENT_PLAN.md`.
+
+Skip both artifacts only if the project genuinely needs neither
+training nor large-scale inference (e.g. a pure literature analysis
+paper). In that case record the decision in `research/RESEARCH_BRIEF.md`
+and proceed.
+
 ## ⚡ YOUR RESOURCES (configured by operator)
 
 These resources are allocated to you. Use them.
@@ -30,6 +75,32 @@ These resources are allocated to you. Use them.
 - Path: `.venv/bin/python` (in project directory)
 - If not exists: `python3 -m venv .venv --system-site-packages && .venv/bin/pip install torch diffusers transformers accelerate peft safetensors`
 - NEVER install ML deps in `/root/argus-skill/.venv/`
+
+**Project model store** (for ALL downloaded weights / adapters / datasets):
+- Path: `./models/` inside the project directory (pre-created by the launcher).
+- Set HF / Torch cache env vars before any download or model load:
+  ```bash
+  export HF_HOME="$(pwd)/models/huggingface"
+  export HUGGINGFACE_HUB_CACHE="$(pwd)/models/huggingface/hub"
+  export HF_DATASETS_CACHE="$(pwd)/models/huggingface/datasets"
+  export TRANSFORMERS_CACHE="$(pwd)/models/huggingface/hub"
+  export TORCH_HOME="$(pwd)/models/torch"
+  ```
+- Equivalent Python (set before `import transformers` / `from huggingface_hub`):
+  ```python
+  import os, pathlib
+  root = pathlib.Path.cwd() / "models"
+  os.environ.update({
+      "HF_HOME": str(root / "huggingface"),
+      "HUGGINGFACE_HUB_CACHE": str(root / "huggingface/hub"),
+      "HF_DATASETS_CACHE": str(root / "huggingface/datasets"),
+      "TRANSFORMERS_CACHE": str(root / "huggingface/hub"),
+      "TORCH_HOME": str(root / "torch"),
+  })
+  ```
+- `./models/` is already in `.gitignore`; never commit downloaded weights.
+- NEVER download into `~/.cache/`, `/root/.cache/`, or any other project's `models/`. Each project owns its weights.
+- Skip the download entirely if the model is served via the model API route in `~/.argus-skill/capabilities/model_api.json`.
 
 **Subagent** (for long GPU tasks):
 - Submit: `python -m argus_skill.tools.subagent submit --task-id <id> --mode supervised --command '.venv/bin/python ...'`

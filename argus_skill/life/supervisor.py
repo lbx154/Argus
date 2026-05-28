@@ -198,27 +198,15 @@ _FOLLOWUP_CRITIC_MIN_IMPACT_SCORE = 5
 _PLANNER_SCOPE_BOUNDED = "bounded"
 _PLANNER_SCOPE_FINAL_SUBMISSION = "final_submission"
 _FULL_EMNLP_GATE_COMMAND = (
-    "python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root ."
+    "the L2 reviewer's full pipeline checklist (research → submission)"
 )
 _FULL_SCALE_EVIDENCE_GATE_COMMAND = (
-    "python -m argus_skill.skills.pipeline_contracts "
-    "validate-full-scale-evidence --project-root ."
+    "the run-stage checklist item \"full-scale evidence\""
 )
-_REFRESH_MANIFEST_COMMAND = (
-    "python -m argus_skill.skills.pipeline_contracts refresh-manifest --project-root ."
-)
-_REFRESH_ARTIFACT_FRESHNESS_COMMAND = (
-    "python -m argus_skill.skills.pipeline_contracts "
-    "refresh-artifact-freshness --project-root ."
-)
-_WRITE_VALIDATION_PRIORITY_POLICY_COMMAND = (
-    "python -m argus_skill.skills.pipeline_contracts "
-    "write-validation-priority-policy --project-root ."
-)
-_REPAIR_EMNLP_CONTRACT_ARTIFACTS_COMMAND = (
-    "python -m argus_skill.skills.pipeline_contracts "
-    "repair-emnlp-contract-artifacts --project-root ."
-)
+_REFRESH_MANIFEST_COMMAND = "refresh the artifact manifest"
+_REFRESH_ARTIFACT_FRESHNESS_COMMAND = "refresh artifact freshness records"
+_WRITE_VALIDATION_PRIORITY_POLICY_COMMAND = "write a validation priority policy"
+_REPAIR_EMNLP_CONTRACT_ARTIFACTS_COMMAND = "repair the EMNLP manifest/freshness/policy artifacts together"
 _PLANNER_GATE_CONTEXT_MAX_ISSUES = 24
 _PLANNER_GATE_CONTEXT_MAX_CHARS = 6000
 _EMNLP_BOOTSTRAP_GATE_CODES = {
@@ -692,11 +680,7 @@ def _select_emnlp_finalization_repair_task(
                 "code/",
                 "paper/VALIDATION_PRIORITY_POLICY.json",
             ),
-            narrow_commands=(
-                "python -m argus_skill.skills.pipeline_contracts validate-grounding --project-root .",
-                "python -m argus_skill.skills.pipeline_contracts validate-idea-provenance --project-root .",
-                "python -m argus_skill.skills.pipeline_contracts validate-code-reuse --project-root .",
-            ),
+            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
             repair_focus=(
                 "Create or repair the literature-grounded brief, idea provenance, "
                 "code-reuse plan, benchmark provenance, and PIPELINE_STATE before "
@@ -718,10 +702,7 @@ def _select_emnlp_finalization_repair_task(
                 "engineer/research-results-analysis-and-figures.md",
             ),
             allowed_paths=("experiments/", "benchmarks/", "research/", "code/", "paper/RESULTS_REPORT.md"),
-            narrow_commands=(
-                _FULL_SCALE_EVIDENCE_GATE_COMMAND,
-                "python -m argus_skill.skills.pipeline_contracts validate-claim-graph --project-root .",
-            ),
+            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
             repair_focus=(
                 "Run or collect the required non-pilot benchmark rows for every "
                 "method/baseline condition. Only after this gate passes should the "
@@ -756,11 +737,7 @@ def _select_emnlp_finalization_repair_task(
                 "paper/FIGURE_TABLE_STYLE_GUIDE.json",
                 "code/",
             ),
-            narrow_commands=(
-                "python -m argus_skill.skills.pipeline_contracts validate-paper-contract --project-root .",
-                "python -m argus_skill.skills.pipeline_contracts validate-research-md-format --project-root .",
-                "python -m argus_skill.skills.pipeline_contracts validate-paper-format --project-root .",
-            ),
+            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
             repair_focus=(
                 "The paper is over the eight-page main-body budget, so do not keep "
                 "expanding prose. Rebuild or compile, inspect the rendered page map, "
@@ -807,11 +784,7 @@ def _select_emnlp_finalization_repair_task(
                 "benchmarks/",
                 "code/",
             ),
-            narrow_commands=(
-                _FULL_SCALE_EVIDENCE_GATE_COMMAND,
-                "python -m argus_skill.skills.pipeline_contracts validate-paper-contract --project-root .",
-                "python -m argus_skill.skills.pipeline_contracts validate-paper-quality-contracts --project-root .",
-            ),
+            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
             repair_focus=(
                 "Treat short pages and draft-not-ready verdicts as content/evidence "
                 "sufficiency gaps, not cosmetic padding or float shuffling. Make a "
@@ -843,10 +816,7 @@ def _select_emnlp_finalization_repair_task(
                 "engineer/claims-evidence-audit.md",
             ),
             allowed_paths=("paper/main.tex", "paper/*.bib", "paper/CLAIM_GRAPH.json", "research.md"),
-            narrow_commands=(
-                "python -m argus_skill.skills.pipeline_contracts validate-research-md-format --project-root .",
-                "python -m argus_skill.skills.pipeline_contracts validate-claim-graph --project-root .",
-            ),
+            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
             repair_focus=(
                 "Use verified BibTeX metadata, distribute citations adjacent to "
                 "the claims they support, and keep claim-graph citation keys in "
@@ -872,10 +842,7 @@ def _select_emnlp_finalization_repair_task(
                 "engineer/emnlp-paper-drafting.md",
             ),
             allowed_paths=("paper/figures/", "paper/main.tex", "code/generate_image_2.py"),
-            narrow_commands=(
-                "python -m argus_skill.skills.pipeline_contracts validate-image2-figures --project-root .",
-                "python -m argus_skill.skills.pipeline_contracts validate-figure-table-style --project-root .",
-            ),
+            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
             repair_focus=(
                 "Generate or select the accepted raster through image-2, include "
                 "that exact output in main.tex, and repair prompt/sidecar/inspect/"
@@ -907,10 +874,7 @@ def _select_emnlp_finalization_repair_task(
                 "paper/figures/",
                 "paper/tables/",
             ),
-            narrow_commands=(
-                "python -m argus_skill.skills.pipeline_contracts validate-figure-table-style --project-root .",
-                "python -m argus_skill.skills.pipeline_contracts validate-research-md-format --project-root .",
-            ),
+            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
             repair_focus=(
                 "Fix float inventory, text references, numerical captions, table "
                 "widths, and overfull boxes without padding or weakening evidence. "
@@ -935,12 +899,7 @@ def _select_emnlp_finalization_repair_task(
                 "engineer/paper-review-revision-loop.md",
             ),
             allowed_paths=("paper/main.tex", "paper/main.pdf", "paper/ACADEMIC_LANGUAGE_REVIEW.json", "paper/LAYOUT_REVIEW.json"),
-            narrow_commands=(
-                "python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write",
-                "python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write",
-                "python -m argus_skill.skills.pipeline_contracts validate-academic-language-review --project-root .",
-                "python -m argus_skill.skills.pipeline_contracts validate-layout-review --project-root .",
-            ),
+            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
             repair_focus=(
                 "Stabilize main.tex/main.pdf first, then rerun the model-backed "
                 "language reviewer and vision layout reviewer from current sources. "
@@ -965,11 +924,7 @@ def _select_emnlp_finalization_repair_task(
                 "paper/ARTIFACT_FRESHNESS.json",
                 "paper/VALIDATION_PRIORITY_POLICY.json",
             ),
-            narrow_commands=(
-                _REPAIR_EMNLP_CONTRACT_ARTIFACTS_COMMAND,
-                "python -m argus_skill.skills.pipeline_contracts validate-manifest --project-root .",
-                "python -m argus_skill.skills.pipeline_contracts validate-validation-priority --project-root .",
-            ),
+            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
             repair_focus=(
                 "Regenerate machine contracts from current source artifacts instead "
                 "of hand-editing readiness JSON. If content blockers remain after "
@@ -1004,7 +959,17 @@ def _build_emnlp_finalization_objective(
     target_summary = _emnlp_issue_summary(task.target_issues)
     skill_list = ", ".join(f"`argus_builtin_skills/{name}`" for name in task.skill_files)
     path_list = ", ".join(f"`{path}`" for path in task.allowed_paths)
-    command_list = "; ".join(f"`{command}`" for command in task.narrow_commands)
+    # narrow_commands has been retired across all _EmnlpFinalizationRepairTask
+    # specs (the agent now works from AGENTS.md + the stage checklist instead
+    # of being told to shell out to validate-* CLI subcommands). Keep this
+    # local variable so the helper text can mention any residual command
+    # hints that *do* still belong to the task; in practice it will be empty
+    # for every checklist-driven lane.
+    checklist_hint = (
+        f"Additional hints from the harness: {'; '.join(task.narrow_commands)}. "
+        if task.narrow_commands
+        else ""
+    )
     error_note = (
         f"Planner failure context: {planner_error}. "
         if planner_error
@@ -1012,25 +977,22 @@ def _build_emnlp_finalization_objective(
     )
     raw_note = f" Planner raw output: {raw_text[:300]}" if raw_text else ""
     return (
-        "paper_optimization_task. Use the automatic validate-full-emnlp "
-        "finalization route, not a blind whole-paper rewrite or a cosmetic micro-patch. "
+        "paper_optimization_task. Work the L2 reviewer's stage checklist for "
+        "the current lane, not a blind whole-paper rewrite or a cosmetic micro-patch. "
         f"{error_note}"
         f"Target repair lane: {task.target_label}. Target issue codes: {target_codes}. "
         f"First target issues: {target_summary}. "
         f"Read AGENTS.md and these routed skills first: {skill_list}. "
         f"Allowed primary edit surface for this mission: {path_list}; touch other files "
-        "only when the target validator proves they are upstream inputs. "
+        "only when the checklist item proves they are upstream inputs. "
         f"Repair focus: {task.repair_focus} "
-        f"Start by running `{_FULL_EMNLP_GATE_COMMAND}` or inspecting its fresh TSV "
-        "output, then repair only this target lane until its issue count decreases "
-        "or the lane is genuinely blocked by missing upstream evidence. "
-        f"Run the narrow validator(s): {command_list}. "
-        f"After modifying generated paper artifacts, run `{_REFRESH_MANIFEST_COMMAND}` "
-        f"and `{_REFRESH_ARTIFACT_FRESHNESS_COMMAND}` when applicable, then rerun "
-        f"`{_FULL_EMNLP_GATE_COMMAND}`. "
-        "Acceptance requires reporting the before/after count for the target issue "
-        "codes and either clearing them or recording the exact upstream blocker; "
-        "do not declare submission readiness unless the exact final gate exits 0."
+        f"Anchor against {_FULL_EMNLP_GATE_COMMAND}; address the unchecked items in "
+        "the current lane until they are satisfied or genuinely blocked by missing "
+        "upstream evidence. "
+        f"{checklist_hint}"
+        "Acceptance: the reviewer ticks off the target lane's checklist items, or "
+        "you record the exact upstream blocker preventing them. Submission readiness "
+        "requires the reviewer to mark `done` against the full pipeline checklist."
         f"{raw_note}"
     )
 
@@ -1056,7 +1018,7 @@ def _emnlp_finalization_task_spec_from_issues(
         impact_score=5,
         impact_area=selected.impact_area,
         evidence=(
-            f"automatic validate-full-emnlp finalization route selected "
+            f"automatic finalization repair route selected "
             f"{selected.target_label}: {_emnlp_issue_summary(selected.target_issues, limit=8)}"
         ),
         scope=_PLANNER_SCOPE_BOUNDED,

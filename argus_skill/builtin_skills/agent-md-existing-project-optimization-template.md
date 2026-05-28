@@ -36,11 +36,11 @@ The goal is a submission-quality long-paper package, not a pilot PDF, validator-
 - When ownership is unclear, read `./argus_builtin_skills/emnlp-paper-skill-router.md` first, then load the specific skill it routes to.
 - Prefer `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill ...` for Argus validation commands; the launcher injects `ARGUS_SKILL_PYTHON`, `ARGUS_SKILL_SOURCE_ROOT`, and `PYTHONPATH` when a source checkout is needed.
 - Final EMNLP completion requires this exact command to exit 0 and be quoted in completion evidence:
-  `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`
+  `the L2 reviewer marking `done` against the full pipeline checklist (research → submission)`
 - Full-scale experiment evidence is a prerequisite for analysis, narrative, drafting, assurance, and submission. This command must pass before any of those stages are marked ready/done:
-  `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-full-scale-evidence --project-root .`
+  `the L2 reviewer ticking off the run-stage "full-scale evidence" checklist item`
 - Treat `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` as hard blockers.
-- `validate-pipeline`, a compiled PDF, a pilot run, or a passing stale review artifact alone is not final readiness.
+- the L2 reviewer pipeline-state checklist item, a compiled PDF, a pilot run, or a passing stale review artifact alone is not final readiness.
 
 ## Current operator goal
 - Primary improvement objective: [write the current repair/optimization objective]
@@ -56,9 +56,9 @@ Before editing, identify and keep synchronized:
 | --- | --- | --- | --- |
 | Research/novelty | `research/*` | narrative reports, claim maps | grounding, idea provenance, code reuse validators |
 | Benchmark/experiments | benchmark builders, run configs, raw result rows | summaries, tables, plots | manifest checks, uniqueness/leakage checks, statistical tests |
-| Paper source | LaTeX/generator/source tables | `paper/main.tex`, `paper/main.pdf`, submission copy | compile, `validate-research-md-format` |
+| Paper source | LaTeX/generator/source tables | `paper/main.tex`, `paper/main.pdf`, submission copy | compile, the L2 reviewer review-stage checklist item for research.md format |
 | Figures | image-2 prompts/provenance and data plotting scripts | raster overview, data plots, figure manifest | image review, layout review, artifact manifest |
-| Reviews/assurance | current PDF/source hashes and validators | review JSON/MD, calibration, assurance | academic-language, layout, `validate-full-emnlp` |
+| Reviews/assurance | current PDF/source hashes and validators | review JSON/MD, calibration, assurance | academic-language, layout, the L2 reviewer marking done against the full pipeline checklist |
 
 If generated artifacts and source disagree, treat source/generator plus raw evidence as authoritative. Regenerate downstream artifacts after source changes, refresh manifests, then rerun the relevant review/validator.
 
@@ -266,7 +266,7 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 8. Benchmark/source selection must document source diversity, recency/relevance, adoption/rejection decisions, license/access status, leakage controls, and why each source tests a distinct capability.
 9. If no local GPU is configured, use the approved hosted LLM route for runnable agent experiments instead of a toy oracle/policy; `gpt-5-mini` is the default low-cost no-GPU backbone unless the operator specifies another model. Record model id, endpoint/provider class, temperature, top_p, max_tokens, token/request budget, seed policy, and stopping rules in internal manifests. In the paper, report only evaluated-system facts such as model/backend, benchmark, metric, budget/decoding, and high-level cost; never expose local device/cache/path or Argus/Codex route configuration.
 10. Every numeric claim must remain tied to current raw artifacts under `results/`, `experiments/`, or `paper/artifacts/`.
-11. Run `validate-full-scale-evidence` before final analysis/drafting/assurance repair. If it fails, preserve valid raw evidence but queue the missing full-run or matrix-completion work and keep the PDF non-final.
+11. the L2 reviewer run-stage "full-scale evidence" checklist item before final analysis/drafting/assurance repair. If it fails, preserve valid raw evidence but queue the missing full-run or matrix-completion work and keep the PDF non-final.
 12. If the method-positive thesis is rejected by evidence, queue repair/pivot tasks for method, metric, benchmark, or objective. Do not convert it into a negative-result paper unless the operator explicitly asks.
 
 ## Existing paper repair
@@ -279,8 +279,8 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 7. Never invent BibTeX. Fetch/verify references through scholarly sources or mark unresolved entries as blockers.
 8. Use official ACL/EMNLP review style, anonymous author block, 7.5--8.0 pages of main content, conclusion by the end of page 8, Limitations and Ethical Considerations after Conclusion, References before Appendix, and a reproducibility appendix. References and Appendix should begin on page 9 or later for an eight-page body; references or appendix material on page 8 are still an underfilled-paper smell. After page 8, the total article length is unrestricted: do not enforce a total-page maximum for References or Appendix. If the body is short, repair by adding or moving source-backed body content before Conclusion: literature-grounded Introduction/Related Work framing, benchmark/Method detail, or evidence-bearing Results/Analysis/Ablation/Failure Cases content according to the page budget. Post-Conclusion end matter does not count as fixing the main body. Do not insert `\clearpage`, `\newpage`, `\pagebreak`, or `\FloatBarrier` immediately before Conclusion; those breaks can strand page 8 and must be reserved for after body end matter.
 9. Repair `paper/PAGE_BUDGET.md` and `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` against this reference budget, adjusting only with evidence/exemplar justification: Abstract 0.3 pages; Introduction 1 page; Related Work 0.5--0.8 pages; Method 1--1.5 pages; Experimental Setup 0.5--1 page; Main Results 1--1.5 pages; Analysis/Ablation 1 page; Failure Cases 0.3--0.5 pages; Conclusion 0.2 pages.
-10. If the rendered body is underfilled, references begin before page 9, or the paper feels like a thin report, do not fix it with margins, font tricks, filler, or repeated caveats. First check `validate-full-scale-evidence`, `paper/EVIDENCE_GAPS.json`, and `paper/CLAIM_GRAPH.json`; then run missing benchmark conditions, ablations, robustness slices, public-validation checks, or failure analyses. Only expand prose from fresh or already-recorded evidence. If the evidence remains insufficient, downgrade to `pilot-note`/`not_ready` or soften claims.
-11. Run `validate-research-md-format` after the final compile and before academic-language/layout review. Update `paper/FORMAT_PREFLIGHT.md` with compile status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final validator result.
+10. If the rendered body is underfilled, references begin before page 9, or the paper feels like a thin report, do not fix it with margins, font tricks, filler, or repeated caveats. First check the L2 reviewer run-stage "full-scale evidence" checklist item, `paper/EVIDENCE_GAPS.json`, and `paper/CLAIM_GRAPH.json`; then run missing benchmark conditions, ablations, robustness slices, public-validation checks, or failure analyses. Only expand prose from fresh or already-recorded evidence. If the evidence remains insufficient, downgrade to `pilot-note`/`not_ready` or soften claims.
+11. the L2 reviewer review-stage checklist item for research.md format after the final compile and before academic-language/layout review. Update `paper/FORMAT_PREFLIGHT.md` with compile status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final validator result.
 12. Do not tolerate undefined refs/citations, rendered `[?]`, `Overfull \hbox > 5pt`, placeholders, `% UNVERIFIED`, code-like display labels, missing numerical table captions, or stale PDF/log/preflight facts.
 13. If `paper/VALIDATION_PRIORITY_POLICY.json` has missing or bad routes, run `python -m argus_skill.skills.pipeline_contracts write-validation-priority-policy --project-root .` instead of hand-writing a partial policy.
 14. After regenerating paper, review, figure, or submission artifacts from current sources, run `python -m argus_skill.skills.pipeline_contracts refresh-manifest --project-root .` and `python -m argus_skill.skills.pipeline_contracts refresh-artifact-freshness --project-root .`. Manifest entries must be objects with `path`, `sha256`, TSV `columns` when applicable, and generated-artifact `sources`; never use bare-string entries.
@@ -315,16 +315,16 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 4. Refresh `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` before prose repair. It must map exemplar lessons to the current paper's section order, page budget, paragraph roles, figure/table plan, related-work grouping, evaluation sequence, and local evidence mapping.
 5. Rebuild `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json` from the actual final `paper/main.tex` section order after repair. Use `conformance_schema_version: 1`, `verdict: "PASS"`, `no_prose_copy_attestation: true`, at least two `exemplar_lessons`, and `section_mappings` for every top-level section before References/Appendix.
 6. The repair target is not to preserve messy filler. Remove or merge unmapped sections such as `Protocol Notes`, `Track Mechanics`, `Release Detail`, `Mechanics`, or `Notes`; if a nonstandard paper-specific section is genuinely necessary, map it with `maps_to_exemplar_phase`, cite local `evidence_sources`, attach an `exemplar_lesson`, and write a `deviation_rationale`.
-7. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-exemplar --project-root .`; URL-only exemplars and missing structure blueprints remain blockers. Final readiness additionally checks `STRUCTURE_CONFORMANCE`.
+7. Run `the L2 reviewer ticking off the draft-stage exemplar/structure checklist item`; URL-only exemplars and missing structure blueprints remain blockers. Final readiness additionally checks `STRUCTURE_CONFORMANCE`.
 8. Use exemplars only for structure. Do not copy prose, examples, terminology, claims, bibliography text, figure design, or sentence templates.
 
 ## Final review and assurance repair
 1. After content and PDF are stable, run:
    `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`
-   then validate `paper/ACADEMIC_LANGUAGE_REVIEW.json` with `validate-academic-language-review`.
+   then confirm the L2 reviewer ticks the review-stage academic-language checklist item.
 2. After final compile, run:
    `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write`
-   then validate `paper/LAYOUT_REVIEW.json` with `validate-layout-review`.
+   then confirm the L2 reviewer ticks the review-stage layout checklist item.
 3. Academic-language and layout review scores must be at least 4/5, fresh, backed by the required model/vision mode, and have `needs_revision: false`.
 4. Write or refresh `paper/SUBMISSION_ASSURANCE.md` and `paper/SUBMISSION_ASSURANCE.json` only from current validator/review results.
 5. Review artifacts, calibration files, and readiness reports are evidence, not targets. Never hand-edit them to say PASS/ready while the underlying paper, PDF, image, evidence, or validator remains blocked.
@@ -354,7 +354,7 @@ An optimization task is complete only when:
 - remaining failures are newly enumerated and not caused by the change,
 - the handoff states the current frontier and next highest-priority blocker.
 
-The full project is complete only when the final `validate-full-emnlp` command above exits 0 on the current workspace and that exact output is quoted in completion evidence.
+The full project is complete only when the final the L2 reviewer marking done against the full pipeline checklist command above exits 0 on the current workspace and that exact output is quoted in completion evidence.
 ```
 
 ## Generality check

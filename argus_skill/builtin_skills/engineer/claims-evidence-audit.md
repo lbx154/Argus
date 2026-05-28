@@ -61,7 +61,7 @@ Gate paper writing and revisions on evidence integrity. This is an argus-skill-n
    - Ensure every figure/table reference points to an existing file.
    - Ensure every figure has a `\label{}` and a text reference, every table caption has a numerical headline, and every paper-facing figure/table label uses human-readable names rather than snake_case/code identifiers.
    - If the audit touches format readiness, require the same `research.md` hard preflight used by the drafting and assurance skills: no unresolved refs/citations, no `[?]`, no `% UNVERIFIED` entries unless disclosed, no placeholders, no `Overfull \hbox > 5pt`, at least one paired-significance table when applicable, and a complete reproducibility appendix.
-   - Run `python -m argus_skill.skills.pipeline_contracts validate-manifest --project-root .`; digest or TSV schema drift means the audit is blocked.
+   - Run (reviewer stage-checklist verification); digest or TSV schema drift means the audit is blocked.
    - Ensure every new TODO is explicit rather than hidden.
 
 7. Write `paper/CLAIMS_EVIDENCE_AUDIT.md`:

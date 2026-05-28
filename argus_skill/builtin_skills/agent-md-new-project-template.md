@@ -45,13 +45,13 @@ Non-negotiable research bar: choose a frontier-domain problem grounded in curren
 - When ownership is unclear, read `./argus_builtin_skills/emnlp-paper-skill-router.md` first, then load the specific skill it routes to.
 - Prefer `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill ...` for Argus validation commands; the launcher injects `ARGUS_SKILL_PYTHON`, `ARGUS_SKILL_SOURCE_ROOT`, and `PYTHONPATH` when a source checkout is needed.
 - Final EMNLP completion requires this exact command to exit 0 and be quoted in completion evidence:
-  `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`
+  `the L2 reviewer marking `done` against the full pipeline checklist (research → submission)`
 - Full-scale experiment evidence is a prerequisite for analysis, draft, review, and submission. This command must pass before any of those stages are marked ready/done:
-  `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-full-scale-evidence --project-root .`
+  `the L2 reviewer ticking off the run-stage "full-scale evidence" checklist item`
 - Treat `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` as hard blockers.
 - Before final academic/layout review, the paper-quality contracts must pass:
-  `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-paper-quality-contracts --project-root .`
-- `validate-pipeline`, a compiled PDF, a pilot run, or a passing review artifact alone is not final readiness.
+  `the L2 reviewer ticking off the analysis/draft-stage paper-quality checklist items`
+- the L2 reviewer pipeline-state checklist item, a compiled PDF, a pilot run, or a passing review artifact alone is not final readiness.
 
 ## Skill route
 Before each planner or engineer round, classify the current blocker and load only the router plus the focused skill(s) below. Do not skim all skills as a substitute for doing the routed work. If ownership is unclear, read `argus_builtin_skills/emnlp-paper-skill-router.md` first and follow its target skill.
@@ -74,7 +74,7 @@ Routing rule: if the blocker is "paper is too short", "format looks fake", "refe
 ## Operator goal
 - Primary paper goal: [write the target research problem and deliverable]
 - Target venue/scope: EMNLP/ACL long paper unless the operator explicitly says otherwise
-- Success condition: final `validate-full-emnlp` exit 0 plus a current PDF/submission package
+- Success condition: final the L2 reviewer marking done against the full pipeline checklist exit 0 plus a current PDF/submission package
 - Non-goals: [write what must not be optimized, copied, or claimed]
 - Allowed compute/API budget: [write limits and stop conditions]
 
@@ -274,6 +274,49 @@ Use the repository's existing conventions if they are already present; otherwise
 3. Write `research/LITERATURE_GROUNDING.json` and require at least 10 recent high-quality papers plus at least 3 classic anchors unless access constraints are documented as blockers.
 7. Never copy paper or media prose. Store metadata, short paraphrased summaries, and original analysis.
 
+## Training & inference infrastructure contract (research + plan stages)
+
+If the project will involve gradient-based training or large-scale inference,
+the agent must select an existing open-source framework on each axis
+(training, inference) before the planning stage closes. Self-written
+training loops, bare `model.generate()` benchmark loops, and hand-rolled
+PPO/GRPO/RLHF trainers are **hard blockers** at the reviewer gate.
+
+1. **Anchor against the bundled baseline:** read
+   `argus_builtin_skills/training-infrastructure-guide.md` first. It is
+   the operator-curated starting point covering LLM SFT/DPO/RLHF, agent
+   RL, diffusion (T2I), LLM inference, and API inference.
+2. **Supplement with your own search** of recent arXiv (2026+) and
+   GitHub trending for frameworks that match your specific domain. You
+   must add at least one credible candidate the bundled guide does not
+   name, with URL + last release/commit date + paper (if any).
+3. **Maintenance bar:** every shortlisted framework must have a release
+   or default-branch commit dated **2026 or later**. Older repos are
+   excluded as unmaintained, no matter how prestigious they once were.
+4. **Paper-released frameworks are allowed** when (a) the repo meets the
+   2026+ recency bar and (b) the paper appears in
+   `research/LITERATURE_GROUNDING.json`. Prefer the official authors'
+   repo over third-party reimplementations.
+5. **No self-written training or inference loops.** Wrap an existing
+   framework. Excepted: thin glue scripts that import the framework's
+   trainer/inferencer object and configure it.
+6. **Research stage artifact:** `research/INFRA_SHORTLIST.md` listing
+   every candidate considered with URL, last release/commit date, paper
+   (if any), a one-line domain-fit rationale, and a "maintained"
+   yes/no — including a note for any bundled-guide entry you found
+   stale and excluded.
+7. **Plan stage artifact:** `research/INFRA_CHOICE.md` locking in
+   exactly one training framework and exactly one inference framework
+   with rationale tying the choice to the project domain and the
+   GPU / API budget. Mirror the locked choice in
+   `research/EXPERIMENT_PLAN.md` under an `## Infra` section. Record
+   one explicitly-rejected runner-up with a one-line reason.
+8. **Skip both artifacts only if** the project does not train any model
+   AND does not run large-scale inference (e.g. a pure literature
+   analysis paper). Record the skip explicitly in
+   `research/RESEARCH_BRIEF.md`; otherwise the reviewer fails the
+   `research.infra_shortlist` and `plan.infra_choice` checklist items.
+
 ## Benchmark and experiment contract
 1. Final long-paper evidence must come from existing real benchmarks, official benchmark datasets, or official task releases with real ground truth/evaluation. Do not create synthetic benchmarks, generated proxy tasks, hand-written gold graphs, or local pseudo-benchmarks for the main paper claim.
 2. Final long-paper evidence must use unique semantic tasks/examples, not duplicated prompts, relabeling, suffixes, paraphrase inflation, or shuffled copies.
@@ -288,20 +331,20 @@ Use the repository's existing conventions if they are already present; otherwise
 11. Do not optimize toward a fixed small row target or a single convenient slice. The final matrix scale is determined by three independent source families times required conditions; if cost forces a smaller slice, call it pilot/blocked and queue the missing family/condition runs rather than claiming final readiness.
 12. Include ablations, failure analysis, confidence intervals or statistical significance, and enough raw logs/results to reproduce every numerical claim.
 13. Every long experiment must write `manifest.json`, `status.json`, `progress.jsonl`, logs, raw rows, and a STOP-file cancellation contract. `progress.jsonl` should expose current method, task count, total count, success/failure counts, last heartbeat, and latest artifact path so progress is visible while the daemon is running.
-14. Run `validate-full-scale-evidence` before analysis/drafting; if it fails, write only pilot diagnostics and queue the missing full-run/matrix-completion work.
+14. the L2 reviewer run-stage "full-scale evidence" checklist item before analysis/drafting; if it fails, write only pilot diagnostics and queue the missing full-run/matrix-completion work.
 
 ## Mandatory thick exemplar learning
 1. Invoke the Paper Exemplar PDF Learning skill before drafting prose.
 2. Download at least two open-access top-conference paper PDFs under `paper/style_ref/exemplars/<slug>/paper.pdf`.
 3. At least one exemplar should be a recent EMNLP/ACL best/outstanding/award paper when available; another should match the method/evaluation structure.
 4. Extract text to `paper/style_ref/exemplars/<slug>/paper.txt`, compute and record `pdf_sha256`, record license and `pdf_storage_policy`, and write `paper/style_ref/SOURCES.md`.
-5. Before locking a primary exemplar, write `paper/style_ref/EXEMPLAR_SUITABILITY.json` scoring candidate exemplars against this project's task type, method family, experiment shape, figure/table density, related-work structure, and page rhythm. Run `validate-exemplar-suitability`; a weak exemplar match is a drafting blocker.
+5. Before locking a primary exemplar, write `paper/style_ref/EXEMPLAR_SUITABILITY.json` scoring candidate exemplars against this project's task type, method family, experiment shape, figure/table density, related-work structure, and page rhythm. the L2 reviewer draft-stage exemplar checklist item; a weak exemplar match is a drafting blocker.
 6. `paper/style_ref/EXEMPLAR.json` must use `exemplar_schema_version: 2` and include `local_pdf`, `text_extract`, `pdf_sha256`, `license`, `pdf_storage_policy`, `usage: "structural_style_only"`, and `no_prose_copy: true` for every exemplar.
 7. Write a thick `paper/style_ref/STYLE_PROFILE.md` covering abstract shape, section/page allocation, figure/table inventory, related-work shape, evaluation layout, formatting/layout lessons, writing lessons, transfer plan, and no-prose-copy policy.
 8. Write `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` before prose. It must map exemplar lessons to this paper's section order, page budget, paragraph roles, figure/table plan, related-work grouping, evaluation sequence, and local evidence mapping. Draft the paper by following this exemplar-derived skeleton directly; title and section names may adapt to the current thesis, but the page rhythm and role sequence should not drift without explicit evidence.
 9. After drafting, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json` from the actual `paper/main.tex` section order. The JSON must use `conformance_schema_version: 1`, `verdict: "PASS"`, `no_prose_copy_attestation: true`, at least two `exemplar_lessons`, and `section_mappings` for every final top-level section before References/Appendix.
 10. Every section mapping must include `maps_to_exemplar_phase`, `evidence_sources`, `exemplar_lesson`, and a paper-specific `deviation_rationale` for nonstandard sections. The paper may adapt exemplar architecture to the current thesis, but unmapped/freehand filler sections such as `Protocol Notes`, `Track Mechanics`, `Release Detail`, `Mechanics`, or `Notes` are blockers.
-11. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-exemplar --project-root .`; URL-only exemplars and missing structure blueprints are blockers. Final readiness additionally checks `STRUCTURE_CONFORMANCE`.
+11. Run `the L2 reviewer ticking off the draft-stage exemplar/structure checklist item`; URL-only exemplars and missing structure blueprints are blockers. Final readiness additionally checks `STRUCTURE_CONFORMANCE`.
 12. Use exemplars only for structural style learning. Do not copy prose, examples, terminology, claims, bibliography text, figure design, or sentence templates.
 
 ## Paper narrative and prose contract
@@ -318,7 +361,7 @@ Use the repository's existing conventions if they are already present; otherwise
 1. `paper/CLAIM_GRAPH.json` must bind every major claim to its section, required evidence, raw result artifact, figure/table/citation support, and allowed fallback if evidence is weak. `paper/EVIDENCE_GAPS.json` must list missing or weak evidence and the planned supplement, ablation, negative result framing, or claim downgrade.
 2. `paper/FIGURE_TABLE_STYLE_GUIDE.json` must specify the intended body/appendix float inventory, width, font/readability target, legend/caption length, color discipline, column density, information hierarchy, and whether each float belongs in the main body or appendix. Ugly, cramped, or audit-table-like floats are blockers even if the PDF compiles.
 3. `paper/VALIDATION_PRIORITY_POLICY.json` must order repair work as freshness, full-scale experiment evidence, claim evidence, and content sufficiency first; exemplar structure next; figure/table and format/layout next; academic language only after evidence and structure are stable; manifest/readiness cleanup last. It must include every validator failure class, not only the currently failing ones. Run `python -m argus_skill.skills.pipeline_contracts write-validation-priority-policy --project-root .` to create the standard scaffold before final review loops. Underlength, underfilled body, missing full-scale runs, missing baselines, weak ablations, or missing failure analysis are not layout-only problems: route them to `run_more_experiments`, additional ablations/failure studies, source-backed Introduction/Related Work/Method expansion, or evidence-backed analysis according to the actual gap. After repeated non-improving edits, reset the skeleton/float plan instead of looping on review JSON or cosmetic micro-edits.
-5. Run `validate-paper-quality-contracts` before final academic-language and layout review. Missing, stale, or thin contract artifacts are hard blockers.
+5. the L2 reviewer analysis/draft-stage paper-quality checklist items before final academic-language and layout review. Missing, stale, or thin contract artifacts are hard blockers.
 
 ## Citation and related-work contract
 1. Use starter citation targets only when the topic matches. Treat keys as retrieval targets, not as ready BibTeX: verify each entry through Semantic Scholar, arXiv, CrossRef, ACL Anthology, DBLP, or official project pages.
@@ -354,7 +397,7 @@ Use the repository's existing conventions if they are already present; otherwise
    Section-depth before final readiness is reviewer-calibrated, not an exact word-count floor. Keep the abstract in the normal 170--220 word range. The Introduction needs cited prior-work/benchmark hooks, problem/gap framing, method insight, quantified result preview, contribution roadmap, and scope; Method and Experimental Setup need enough evaluated-system, benchmark, metric, budget/decoding or scoring, seed-policy, and stopping-rule detail for a reviewer to understand the work. A body can be eight pages and still fail if it reaches the target through repeated caveats, formulaic contrast sentences, stale result numbers, oversized floats, or post-Conclusion material.
 
 4. Conclusion must appear by the end of page 8 and should not render before page 7 for a full long paper. References and Appendix should begin on page 9 or later; references or appendix material on page 8 usually mean the paper has only about seven pages of body. If the body is short, add or move source-backed body content before Conclusion: literature-grounded Introduction/Related Work framing, benchmark/Method detail, or evidence-backed Results/Analysis/Ablation/Failure Cases content according to the page budget. Limitations, Ethical Considerations, release notes, references, or appendix content after Conclusion do not fix an underfilled main body. References must appear before Appendix and start cleanly after the eight-page body. Do not cap total pages after the reference/appendix boundary. Never put `\clearpage`, `\newpage`, `\pagebreak`, or `\FloatBarrier` immediately before Conclusion; use those only after body end matter when a clean bibliography/appendix boundary is needed.
-5. Run `validate-research-md-format` after final compile and before academic-language/layout review.
+5. the L2 reviewer review-stage checklist item for research.md format after final compile and before academic-language/layout review.
 6. Write `paper/FORMAT_PREFLIGHT.md` with compile command/status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final validator result.
 7. No undefined references/citation warnings, no rendered `[?]`, no `Overfull \hbox > 5pt`, no placeholders/TODO/TBD/FIXME, no `% UNVERIFIED`, and no ugly code-like display labels in title, abstract, headings, captions, figures, or tables.
 8. Body figures <=5 total, at most one `figure*`, every figure labeled and referenced, every table caption has a numerical headline, middle-body visual rhythm passes the model-backed layout review, and at least one paired-significance table when comparative binary outcomes apply.
@@ -370,8 +413,8 @@ Use the repository's existing conventions if they are already present; otherwise
 6. Data figures and tables must be generated from local raw data/results, not from image-2.
 
 ## Final review and assurance
-1. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`, then `validate-academic-language-review`. The score must be at least 4/5, model-backed, fresh, with quoted evidence spans, `needs_revision: false`, and no active directives.
-2. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write`, then `validate-layout-review`. The score must be at least 4/5, vision-backed from rendered PDF page snapshots, fresh, and `needs_revision: false`.
+1. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write` and confirm the L2 reviewer ticks the review-stage "academic language" checklist item. The generated `paper/ACADEMIC_LANGUAGE_REVIEW.json` must score at least 4/5, be model-backed, fresh, contain quoted evidence spans, and have `needs_revision: false` with no active directives.
+2. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write` and confirm the L2 reviewer ticks the review-stage "layout" checklist item. `paper/LAYOUT_REVIEW.json` must score at least 4/5, be vision-backed from rendered PDF page snapshots, fresh, and `needs_revision: false`.
 3. Write `paper/SUBMISSION_ASSURANCE.md` and `paper/SUBMISSION_ASSURANCE.json`.
 4. Review artifacts, calibration files, and readiness reports are evidence, not optimization targets. Never hand-edit them to say PASS/ready while underlying validators fail.
 5. Never emit PASS/WARN/final-ready if any required validator fails. `WARN` cannot launder pilot scale, stale reviews, missing provenance, or known hard blockers into final EMNLP readiness.
@@ -379,7 +422,7 @@ Use the repository's existing conventions if they are already present; otherwise
 ## Operational safety
 1. Work inside this project directory unless reading an operator-provided research playbook or the active Argus source/package through the launcher-provided environment.
 2. Never copy parent workspaces, the Argus repository, `.skill-agent`, `.argus-skill`, `.cache`, model caches, capability vaults, or recursive workspaces into this project.
-3. Do not download model weights, HuggingFace hub files, datasets, or Torch checkpoints into this project. Use the shared host caches injected by argus-skill: `HF_HOME=/root/.cache/huggingface`, `HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface/hub`, `HF_DATASETS_CACHE=/root/.cache/huggingface/datasets`, `TRANSFORMERS_CACHE=/root/.cache/huggingface/hub`, `TORCH_HOME=/root/.cache/torch`, and `XDG_CACHE_HOME=/root/.cache`.
+3. **Model weight storage:** if you download any model checkpoint, adapter, tokenizer, embedding, or dataset, put it under `./models/` inside this project. Set the HuggingFace / PyTorch cache environment to point there: `HF_HOME=$(pwd)/models/huggingface`, `HUGGINGFACE_HUB_CACHE=$(pwd)/models/huggingface/hub`, `HF_DATASETS_CACHE=$(pwd)/models/huggingface/datasets`, `TRANSFORMERS_CACHE=$(pwd)/models/huggingface/hub`, `TORCH_HOME=$(pwd)/models/torch`. Each project owns its weights; do not pollute the shared `~/.cache/` of the host or another project. Add `models/` to `.gitignore` if it is not already there so checkpoints never enter git history. Skip the download entirely if the model is already addressable through the model API route in `~/.argus-skill/capabilities/model_api.json`.
 4. Keep API keys and capability vault contents out of all artifacts.
 5. Record meaningful decisions and evidence in project files, not only in chat.
 6. Preserve user edits and unrelated work. Do not revert files you did not intentionally change.
@@ -399,7 +442,7 @@ A task is complete only when:
 - known limitations are documented without pretending they are solved,
 - the handoff states what changed, what passed, and the next highest-priority blocker.
 
-The full project is complete only when the final `validate-full-emnlp` command above exits 0 on the current workspace and that exact output is quoted in completion evidence.
+The full project is complete only when the final the L2 reviewer marking done against the full pipeline checklist command above exits 0 on the current workspace and that exact output is quoted in completion evidence.
 ```
 
 ## Generality check
