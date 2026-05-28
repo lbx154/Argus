@@ -2499,7 +2499,7 @@ def validate_figure_table_style_guide(project_root: Path) -> list[ContractIssue]
                     "body_or_appendix must be body or appendix",
                 )
             )
-        if not _nonempty_contract_value(raw_float.get("target_section")):
+        if not _nonempty_section_value(raw_float.get("target_section")):
             issues.append(
                 ContractIssue(
                     "missing_float_inventory_target_section",
@@ -8330,6 +8330,15 @@ def _nonempty_contract_value(value: Any) -> bool:
     if isinstance(value, str):
         lowered = value.strip().lower()
         return len(value.strip()) >= 8 and not re.search(r"\b(?:todo|tbd|placeholder)\b", lowered)
+    if isinstance(value, (list, tuple, dict)):
+        return bool(value)
+    return value is not None
+
+
+def _nonempty_section_value(value: Any) -> bool:
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        return bool(value.strip()) and not re.search(r"\b(?:todo|tbd|placeholder)\b", lowered)
     if isinstance(value, (list, tuple, dict)):
         return bool(value)
     return value is not None
