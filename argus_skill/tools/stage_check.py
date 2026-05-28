@@ -20,9 +20,13 @@ STAGE_ORDER = [
     "analysis", "draft", "review", "submission",
 ]
 
+# Common check: pipeline state must be valid (includes stage ordering)
+_PIPELINE_CHECK = ("Pipeline state valid", "{python} -m argus_skill.skills.pipeline_contracts validate-pipeline --project-root .")
+
 # Stage → code checks (description, shell command)
 STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     "research": [
+        _PIPELINE_CHECK,
         ("Research brief exists", "test -f research/RESEARCH_BRIEF.md"),
         ("Literature grounding exists", "test -f research/LITERATURE_GROUNDING.json"),
         ("Source discovery exists", "test -f research/SOURCE_DISCOVERY.md"),
@@ -30,34 +34,41 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("BibTeX has entries", "test -f paper/refs.bib && grep -c '@' paper/refs.bib"),
     ],
     "plan": [
+        _PIPELINE_CHECK,
         ("Experiment plan exists", "test -f research/EXPERIMENT_PLAN.md"),
         ("Idea rejection log exists", "test -f research/IDEA_REJECTION_LOG.md"),
         ("Code study notes exist", "test -f research/CODE_STUDY_NOTES.md"),
         ("Baseline plan exists", "test -f research/BASELINE_AND_BENCHMARK_PLAN.md"),
     ],
     "benchmark": [
+        _PIPELINE_CHECK,
         ("Benchmark provenance exists", "test -f experiments/BENCHMARK_PROVENANCE.md"),
     ],
     "run": [
+        _PIPELINE_CHECK,
         ("Project venv exists", "test -d .venv && test -f .venv/bin/python"),
         ("Results exist", "find experiments -name 'summary.tsv' -o -name 'eval_results.jsonl' 2>/dev/null | head -1 | grep -q ."),
         ("Baseline reproduction recorded", "test -f research/BASELINE_REPRODUCTION.md"),
     ],
     "analysis": [
+        _PIPELINE_CHECK,
         ("Results report exists", "test -f paper/RESULTS_REPORT.md"),
         ("Results table exists", "test -f paper/artifacts/results_table.tsv"),
         ("Figures exist", "ls paper/figures/*.png paper/figures/*.pdf 2>/dev/null | head -1 | grep -q ."),
     ],
     "draft": [
+        _PIPELINE_CHECK,
         ("main.tex exists", "test -f paper/main.tex"),
         ("PDF compiles", "test -f paper/main.pdf"),
         ("Image2 figures valid", "{python} -m argus_skill.skills.pipeline_contracts validate-image2-figures --project-root ."),
     ],
     "review": [
+        _PIPELINE_CHECK,
         ("Layout review", "{python} -m argus_skill.skills.pipeline_contracts validate-layout-review --project-root ."),
         ("Academic review", "{python} -m argus_skill.skills.pipeline_contracts validate-academic-language-review --project-root ."),
     ],
     "submission": [
+        _PIPELINE_CHECK,
         ("Full EMNLP gate", "{python} -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root . 2>/dev/null | { ! grep -q .; }"),
     ],
 }

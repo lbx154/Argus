@@ -1204,6 +1204,25 @@ def validate_pipeline_state(project_root: Path) -> list[ContractIssue]:
         )
         return issues
 
+    # Enforce sequential stage ordering: cannot advance past incomplete stages
+    if isinstance(current_stage, str) and current_stage in PIPELINE_STAGES:
+        current_idx = PIPELINE_STAGES.index(current_stage)
+        for prev_stage in PIPELINE_STAGES[:current_idx]:
+            prev_value = stages.get(prev_stage)
+            if not isinstance(prev_value, dict):
+                continue
+            prev_status = prev_value.get("status", "missing")
+            if prev_status not in SUCCESS_STATUSES:
+                issues.append(
+                    ContractIssue(
+                        "stage_ordering_violation",
+                        str(PIPELINE_STATE_PATH),
+                        f"current_stage is '{current_stage}' but prerequisite "
+                        f"stage '{prev_stage}' is '{prev_status}' — "
+                        f"complete earlier stages before advancing",
+                    )
+                )
+
     manifest_checked = False
     literature_grounding_checked = False
     idea_provenance_checked = False
