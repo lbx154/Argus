@@ -1548,6 +1548,50 @@ def test_image2_figures_accept_body_conceptual_png_output(tmp_path: Path) -> Non
     assert validate_image2_figures(tmp_path) == []
 
 
+def test_image2_figures_accept_bit_identical_candidate_promotion(tmp_path: Path) -> None:
+    _write_valid_image2_figures(tmp_path)
+    original = tmp_path / "paper" / "figures" / "method.png"
+    promoted = tmp_path / "paper" / "figures" / "method_final.png"
+    _write_bytes(promoted, original.read_bytes())
+    output_sha = hashlib.sha256(promoted.read_bytes()).hexdigest()
+    manifest_path = tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    figure = manifest["figures"][0]
+    figure["output_path"] = "paper/figures/method_final.png"
+    figure["output_sha256"] = output_sha
+    _write_json(manifest_path, manifest)
+    _write_main_tex_with_figures(
+        tmp_path,
+        [
+            (
+                "figures/method_final.png",
+                "fig:method",
+                "Overview of our method as an executable policy card.",
+            )
+        ],
+    )
+
+    assert validate_image2_figures(tmp_path) == []
+
+
+def test_image2_figures_reject_candidate_promotion_with_changed_bytes(tmp_path: Path) -> None:
+    _write_valid_image2_figures(tmp_path)
+    promoted = tmp_path / "paper" / "figures" / "method_final.png"
+    _write_bytes(promoted, _png_bytes(1536, 1024) + b"changed")
+    output_sha = hashlib.sha256(promoted.read_bytes()).hexdigest()
+    manifest_path = tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    figure = manifest["figures"][0]
+    figure["output_path"] = "paper/figures/method_final.png"
+    figure["output_sha256"] = output_sha
+    _write_json(manifest_path, manifest)
+
+    codes = {issue.code for issue in validate_image2_figures(tmp_path)}
+
+    assert "mismatched_image2_provenance_output_path" in codes
+    assert "mismatched_image2_provenance_output_sha256" in codes
+
+
 def test_image2_figures_accept_relative_project_root(tmp_path: Path) -> None:
     _write_valid_image2_figures(tmp_path)
     _write_main_tex_with_figures(
