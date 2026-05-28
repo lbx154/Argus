@@ -146,7 +146,7 @@ research → plan → benchmark → run → analysis → draft → review → su
 - Generate Figure 1 via paper-framework-figure-studio-pro S0-S7
 - Compile PDF
 - Gate: PDF compiles, all sections present, story coherent
-- Reviewer LLM check: ⚡ **lenient** progress gate (score 3+ = pass). Checks structure completeness, not polish. Language/formatting fixed in review stage.
+- Reviewer LLM check: ⚡ **lenient** academic-paper-peer-review-benchmark (score 3+ = pass). Checks structure completeness, not polish. Language/formatting fixed in review stage.
 
 ### 7. review (final reviews)
 - Run academic language review, layout review, infrastructure review
@@ -157,7 +157,7 @@ research → plan → benchmark → run → analysis → draft → review → su
 ### 8. submission (final gate)
 - Write SUBMISSION_ASSURANCE.json
 - Run validate-full-emnlp → must exit 0 with no issues
-- Reviewer LLM check: ⚡ **strict** EMNLP peer review (score 5+ = pass). Evaluates as actual EMNLP reviewer.
+- Reviewer LLM check: ⚡ **strict** academic-paper-peer-review-benchmark (score 5+ = pass). Evaluates as actual EMNLP reviewer.
 - Gate: structural gate clean AND LLM peer review passes → project complete, daemon auto-stops
 
 

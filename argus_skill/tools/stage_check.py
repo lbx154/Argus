@@ -114,7 +114,8 @@ def _get_current_stage(project_root: Path) -> str:
         return "brief"
 
 
-def _read_files(root: Path, paths: list[str], max_chars: int = 8000) -> str:
+def _read_files(root: Path, paths: list[str], max_chars: int = 120000) -> str:
+    """Read files for LLM review. Default 120k chars to fit full papers."""
     parts = []
     total = 0
     for p in paths:
@@ -267,6 +268,12 @@ def main() -> int:
                         print(f"       - {issue}")
                 if strongest_reject and not passed_review:
                     print(f"     ⚠️  Strongest reject argument: {strongest_reject}")
+
+                # Dump full review JSON so engineer/reviewer see everything
+                print()
+                print(f"  📄 Full review JSON:")
+                print(json.dumps(review, indent=2, ensure_ascii=False))
+
                 if not passed_review:
                     llm_failed = True
                     failed += 1
