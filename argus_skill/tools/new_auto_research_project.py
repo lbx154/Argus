@@ -640,24 +640,58 @@ def init_git(project_dir: Path, project_name: str) -> str:
 def init_project_venv(project_dir: Path) -> Path:
     """Create a per-project ``.venv`` so the agent can ``pip install`` freely.
 
-    The Argus framework venv (the one running this launcher) must stay clean:
-    every research workspace gets its own isolated Python so experiment
-    dependencies (`requests`, `numpy`, custom datasets/models, …) never bleed
-    back into the harness. The new venv is seeded with a recent pip and a
-    couple of nearly-universal HTTP/JSON helpers so the agent's very first
-    `python -c "import requests"` does not fail and trigger a derail.
+    The Argus framework venv (the one running this launcher) must stay clean,
+    but the **host system** is treated as a shared ML-ready base layer: any
+    package the operator has installed at the system level (typically a
+    CUDA-built ``torch`` from the NVIDIA container image, plus tooling like
+    ``numpy``) becomes visible inside the project venv via
+    ``--system-site-packages``. The agent then ``pip install``s project-
+    specific extras (``diffusers``, ``transformers``, ``peft``,
+    ``accelerate``, …) into the project venv overlay without polluting the
+    framework venv or other projects.
+
+    Why this matters: when the project venv is built without
+    ``--system-site-packages`` on a CUDA host, ``import torch`` fails
+    inside the project; the agent then either (a) downloads its own
+    multi-GB CPU-only torch wheel that ignores the host GPU stack, or
+    (b) — worse — produces stub evaluator code that pretends to score
+    while reporting ``state: completed``. The system-site-packages
+    overlay puts the host's CUDA torch within reach by default, while
+    still letting per-project ``pip install`` add overlay packages that
+    do not affect other projects.
     """
 
     venv_dir = project_dir / ".venv"
-    if venv_dir.exists():
-        return venv_dir
+    if not venv_dir.exists():
+        _run(
+            [
+                str(_argus_python()),
+                "-m",
+                "venv",
+                "--upgrade-deps",
+                "--system-site-packages",
+                str(venv_dir),
+            ],
+            cwd=project_dir,
+            timeout=180,
+        )
 
-    # Use the launcher's interpreter to spawn a clean venv with system pip.
-    _run(
-        [str(_argus_python()), "-m", "venv", "--upgrade-deps", str(venv_dir)],
-        cwd=project_dir,
-        timeout=180,
-    )
+    # Even on a pre-existing venv, force include-system-site-packages = true
+    # so old projects created before this fix also start seeing the host
+    # CUDA stack on next daemon round.
+    cfg_path = venv_dir / "pyvenv.cfg"
+    if cfg_path.exists():
+        cfg_lines = []
+        saw_flag = False
+        for raw in cfg_path.read_text(encoding="utf-8").splitlines():
+            if raw.strip().startswith("include-system-site-packages"):
+                cfg_lines.append("include-system-site-packages = true")
+                saw_flag = True
+            else:
+                cfg_lines.append(raw)
+        if not saw_flag:
+            cfg_lines.append("include-system-site-packages = true")
+        cfg_path.write_text("\n".join(cfg_lines) + "\n", encoding="utf-8")
 
     pip_path = venv_dir / "bin" / "pip"
     if not pip_path.exists():
