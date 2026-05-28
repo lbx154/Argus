@@ -208,8 +208,38 @@ def default_non_goals(project_name: str, version: str) -> str:
     )
 
 
+def _gpu_budget_from_vault() -> str:
+    """Render a GPU-allocation clause from the capability vault if available.
+
+    Reads ``~/.argus-skill/capabilities/gpu_resources.json`` via
+    :func:`argus_skill.tools.capability_vault.load_gpu_resources` so the
+    generated ``AGENTS.md`` automatically reflects the operator's GPU grant
+    without forcing the user to retype it on every project.
+    """
+    try:
+        from .capability_vault import load_gpu_resources  # local import to avoid cycle
+    except Exception:  # pragma: no cover - defensive
+        return ""
+    config = load_gpu_resources() or {}
+    cuda_vis = str(config.get("cuda_visible_devices") or "").strip()
+    if not cuda_vis:
+        return ""
+    devices = config.get("allowed_devices") or []
+    max_mem = config.get("max_gpu_memory_gb")
+    parts = [
+        f"GPU allocation (from capability vault): ONLY CUDA devices [{cuda_vis}] are available; "
+        f"every training/eval/inference command MUST run with CUDA_VISIBLE_DEVICES={cuda_vis} "
+        "and MUST NOT touch any other device on the host."
+    ]
+    if devices:
+        parts.append(f"Allowed device indices: {list(devices)}.")
+    if max_mem:
+        parts.append(f"Aggregate GPU memory budget: ~{max_mem} GB across the allocation.")
+    return " ".join(parts)
+
+
 def default_compute_budget() -> str:
-    return (
+    base = (
         "Use API/model budget only for necessary literature, coding, image-2, review, and "
         "experiment work. Use local GPU capacity for the strongest feasible "
         "domain-appropriate training/adaptation run rather than defaulting to tiny "
@@ -217,6 +247,10 @@ def default_compute_budget() -> str:
         "model weight/license, GPU capability, or full-scale run is unavailable, or if "
         "repeated repair cycles make no validator-relevant progress."
     )
+    gpu_clause = _gpu_budget_from_vault()
+    if gpu_clause:
+        return f"{gpu_clause}\n\n{base}"
+    return base
 
 
 def default_allowed_inputs_table_rows() -> str:

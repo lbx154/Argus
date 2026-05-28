@@ -162,11 +162,27 @@ argus-skill --setup
 ```bash
 python -m argus_skill.tools.new_auto_research_project \
   --parent ~/research \
-  --title "World Model for Agent Action Selection" \
-  --start-daemon
+  --objective "World Model for Agent Action Selection"
 ```
 
-系统自动创建项目目录、导出 31 个 skill、初始化 PIPELINE_STATE，启动 7×24 daemon。
+系统自动创建项目目录、导出内置 skill、初始化 PIPELINE_STATE，并启动 7×24 daemon
+（默认即启动；如只想建目录不启 daemon 加 `--no-start`）。
+
+常用参数（完整列表见 `python -m argus_skill.tools.new_auto_research_project --help`）：
+
+| 参数 | 说明 |
+|------|------|
+| `version` | 位置参数，例如 `15` 或 `v15`；省略则自动选下一个可用版本号 |
+| `--parent` | 版本化 workspace 的父目录 |
+| `--project-dir` | 直接指定项目目录，跳过 `parent + version` 命名 |
+| `--objective` | 项目主目标（写入 `AGENTS.md` 和 daemon objective） |
+| `--non-goals` | 显式 non-goals |
+| `--compute-budget` | 项目特定的算力 / API 预算和停机条件 |
+| `--template` | 自定义 AGENTS 模板，默认使用内置 |
+| `--domain` | 仅加载指定 domain 的 skill 包（当前内置 domain 注册表为空，等同于不传） |
+| `--no-start` | 创建项目但不启动 daemon |
+| `--no-git` | 跳过 `git init/add/commit` |
+| `--dry-run` | 仅打印将要创建的路径/版本号，不落盘 |
 
 ### 4. 监控进度
 
