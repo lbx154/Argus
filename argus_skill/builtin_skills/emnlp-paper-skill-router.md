@@ -16,6 +16,7 @@ EMNLP Paper Skill Router
 
 ## Routing
 - **End-to-end stage control:** Auto Research Pipeline. Owns `research/PIPELINE_STATE.json`, stage gates, pivots, and when to move backward from drafting to experiments.
+- **Literature search:** arXiv Paper Search (preprints, latest SOTA) + Semantic Scholar Search (published venue papers with citations). Use both during research stage for comprehensive coverage.
 - **Literature, idea, benchmark plan:** Research Brief To Experiment Plan. Owns literature/source discovery, `LITERATURE_GROUNDING.json`, benchmark provenance, and baseline plan.
 - **Experiment execution:** Agent Research Benchmark Runner. Owns live runs, `progress.jsonl`, `status.json`, raw scored rows, full-scale task count, baselines, ablations, STOP-file protocol, and resumability.
 - **Results, tables, plots, image-2 manifest:** Research Results Analysis And Figures. Owns `RESULTS_REPORT.md`, `result_to_claim.tsv`, `results_table.tsv`, data-derived figures/tables, Figure 1 / teaser / overview image-2 generation, and `IMAGE2_FIGURES.json`.

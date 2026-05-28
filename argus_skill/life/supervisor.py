@@ -683,6 +683,8 @@ def _select_emnlp_finalization_repair_task(
                 "emnlp-paper-skill-router.md",
                 "auto-research-pipeline.md",
                 "research-brief-to-experiment-plan.md",
+                "arxiv-paper-search.md",
+                "semantic-scholar-search.md",
             ),
             allowed_paths=(
                 "research/",
