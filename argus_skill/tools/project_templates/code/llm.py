@@ -1,32 +1,71 @@
-"""Project-local model helpers backed by the Argus capability vault.
+"""Project-local model helpers — standalone, no argus_skill dependency.
 
-This module keeps API credentials out of the project tree. Configure routes
-with `python -m argus_skill --model-api-status` / `--init-model-api`, then call
-`complete(...)` from benchmark builders, literature tooling, or paper helpers.
+Reads API credentials from ~/.argus-skill/capabilities/model_api.json
+(configured via `argus-skill --setup`). Works in any venv.
 """
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
-
-from argus_skill.tools.capability_vault import ModelApiRoute, load_model_api_route
 
 DEFAULT_TIMEOUT_SECONDS = 180.0
 DEFAULT_MAX_RETRIES = 5
 TRANSIENT_HTTP_STATUS_CODES = {429, 500, 502, 503, 504}
+_VAULT_PATH = Path.home() / ".argus-skill" / "capabilities" / "model_api.json"
 
 
 class ModelCallError(RuntimeError):
     """Raised when a configured model route cannot complete a request."""
 
 
-def route_status(route_name: str = "scientist") -> dict[str, Any]:
-    """Return secret-free status for a configured Argus model route."""
-    route = load_model_api_route(route_name)
+@dataclass
+class Route:
+    name: str
+    base_url: str
+    api_key: str
+    model: str
+    wire_api: str = "responses"
+    provider: str = "codex"
+
+    @property
+    def usable(self) -> bool:
+        return bool(self.base_url and self.api_key and self.model)
+
+
+def _load_vault() -> dict[str, Any]:
+    vault_path = Path(os.environ.get("ARGUS_VAULT_PATH", str(_VAULT_PATH)))
+    if not vault_path.exists():
+        return {}
+    return json.loads(vault_path.read_text(encoding="utf-8"))
+
+
+def load_route(route_name: str = "text") -> Route | None:
+    """Load a named API route from the capability vault."""
+    vault = _load_vault()
+    routes = vault.get("capabilities", {}).get("model_api", {}).get("routes", {})
+    r = routes.get(route_name)
+    if not r or not isinstance(r, dict):
+        return None
+    return Route(
+        name=route_name,
+        base_url=r.get("base_url", ""),
+        api_key=r.get("api_key", ""),
+        model=r.get("model", ""),
+        wire_api=r.get("wire_api", "responses"),
+        provider=r.get("provider", "codex"),
+    )
+
+
+def route_status(route_name: str = "text") -> dict[str, Any]:
+    """Return secret-free status for a configured route."""
+    route = load_route(route_name)
     if route is None:
         return {"route": route_name, "usable": False}
     return {
@@ -35,23 +74,21 @@ def route_status(route_name: str = "scientist") -> dict[str, Any]:
         "provider": route.provider,
         "wire_api": route.wire_api,
         "model": route.model,
-        "base_url_source": route.base_url_source,
-        "model_source": route.model_source,
+        "base_url": route.base_url[:40] + "..." if len(route.base_url) > 40 else route.base_url,
     }
 
 
-def _route(route_name: str) -> ModelApiRoute:
-    route = load_model_api_route(route_name)
+def _route(route_name: str) -> Route:
+    route = load_route(route_name)
     if route is None or not route.usable:
         raise ModelCallError(
             f"model API route {route_name!r} is unavailable; run "
-            "`python -m argus_skill --model-api-status` from the active "
-            "Argus environment"
+            "`argus-skill --setup` to configure"
         )
     return route
 
 
-def _endpoint_url(route: ModelApiRoute, endpoint: str) -> str:
+def _endpoint_url(route: Route, endpoint: str) -> str:
     return f"{route.base_url.rstrip('/')}/{endpoint.lstrip('/')}"
 
 
@@ -71,7 +108,7 @@ def _retry_delay_seconds(exc: BaseException, attempt_index: int) -> float | None
 
 
 def _post(
-    route: ModelApiRoute,
+    route: Route,
     endpoint: str,
     payload: dict[str, Any],
     *,
@@ -161,7 +198,7 @@ def _parse_chat_text(data: dict[str, Any]) -> str:
 def complete(
     prompt: str,
     *,
-    route_name: str = "scientist",
+    route_name: str = "text",
     system: str = "",
     temperature: float | None = None,
     max_output_tokens: int | None = None,
