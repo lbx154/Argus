@@ -514,9 +514,20 @@ def _run_supervised(
 
             check_number = 0
             while True:
-                # Wait for monitor_interval or process exit
+                # Adaptive interval: check frequently early, less often later
+                # First 10 min: use configured interval (default 120s)
+                # After 10 min: check every 5 min
+                # After 1 hour: check every 15 min
+                elapsed_so_far = time.time() - start_time
+                if elapsed_so_far < 600:
+                    current_interval = monitor_interval
+                elif elapsed_so_far < 3600:
+                    current_interval = max(monitor_interval, 300)
+                else:
+                    current_interval = max(monitor_interval, 900)
+
                 try:
-                    proc.wait(timeout=monitor_interval)
+                    proc.wait(timeout=current_interval)
                     break  # Process exited
                 except subprocess.TimeoutExpired:
                     pass  # Still running, do supervisor check
