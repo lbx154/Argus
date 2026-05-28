@@ -242,6 +242,78 @@ def test_concrete_figure_readability_issue_remains_hard_gate() -> None:
     )
 
 
+def test_soft_adapter_density_request_is_advisory_after_contract_passes() -> None:
+    deterministic = {
+        "score_1_to_5": 5.0,
+        "page_flow_contract": {
+            "page_count": 12,
+            "conclusion_page": 8,
+            "references_page": 9,
+            "appendix_page": None,
+            "conclusion_by_page_8": True,
+            "references_on_or_after_page_9": True,
+            "post_body_pages_uncapped": True,
+        },
+    }
+    issues = _vision_issues(
+        {
+            "major_issues": [
+                {
+                    "issue": (
+                        "Figure 1 is readable but still feels slide-like; it is missing "
+                        "benchmark-specific adapter labels and should be denser."
+                    ),
+                    "page": 4,
+                    "target": "Figure 1 overview schematic",
+                    "action": "regenerate_figure",
+                }
+            ]
+        },
+        deterministic=deterministic,
+    )
+
+    assert issues[0]["severity"] == "minor"
+    assert "hard_gate" not in issues[0]
+    assert _revision_directives(issues) == []
+    assert not _vision_score_should_block(
+        vision_score=3.2,
+        vision_issues=issues,
+        deterministic=deterministic,
+        threshold=4.0,
+    )
+
+
+def test_missing_required_visual_content_remains_hard_gate() -> None:
+    deterministic = {
+        "score_1_to_5": 5.0,
+        "page_flow_contract": {
+            "page_count": 12,
+            "conclusion_page": 8,
+            "references_page": 9,
+            "appendix_page": None,
+            "conclusion_by_page_8": True,
+            "references_on_or_after_page_9": True,
+            "post_body_pages_uncapped": True,
+        },
+    }
+    issues = _vision_issues(
+        {
+            "major_issues": [
+                {
+                    "issue": "Figure 1 is missing required content and contradicts the caption.",
+                    "page": 4,
+                    "target": "Figure 1 overview schematic",
+                    "action": "regenerate_figure",
+                }
+            ]
+        },
+        deterministic=deterministic,
+    )
+
+    assert issues[0]["severity"] == "major"
+    assert issues[0]["hard_gate"] is True
+
+
 def test_vision_guidance_routes_conceptual_figure_repairs_to_image2() -> None:
     issues = _vision_issues(
         {
