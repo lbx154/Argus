@@ -822,10 +822,11 @@ def test_argus_role_identity_skills_cover_agent_contracts(tmp_path: Path) -> Non
             "bounded paper tasks",
         ),
         "engineer/argus-planner-role.md": (
-            "manager/director",
-            "bounded",
-            "final_submission",
-            "restart_daemon",
+            "Planner",
+            "Engineer",
+            "Reviewer",
+            "PIPELINE_STATE",
+            "Never skip stages",
         ),
     }
 
