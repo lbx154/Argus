@@ -378,12 +378,15 @@ def test_plan_next_passes_config_to_runner():
     assert "continuous high-value discovery" in sent_prompt
     assert "Argus planner role skill" in sent_prompt
     assert "Argus Planner Role" in sent_prompt
-    assert "Validator toolbelt (planner)" in sent_prompt
-    assert "validate-full-scale-evidence --project-root ." in sent_prompt
+    # New: planner prompt now carries the per-stage checklist; old
+    # validator toolbelt headline must be absent.
+    assert "## Stage checklist" in sent_prompt
+    assert "Validator toolbelt" not in sent_prompt
+    assert "validate-full-scale-evidence --project-root ." not in sent_prompt
+    assert "validate-full-emnlp --project-root ." not in sent_prompt
     assert "manager/director" in sent_prompt
     assert "iteration is cheap" not in sent_prompt
     assert '"scope": "<bounded|final_submission>"' in sent_prompt
-    assert "validate-full-emnlp --project-root ." in sent_prompt
     assert "paper_contribution" in sent_prompt
     assert "negative-result pivot" in sent_prompt
     assert "long-horizon paper optimization" in sent_prompt
@@ -391,10 +394,6 @@ def test_plan_next_passes_config_to_runner():
     assert "host will refuse premature gated downstream tasks" in sent_prompt
     assert "Keep planning lightweight" in sent_prompt
     assert "planner wall-clock overruns" in sent_prompt
-    assert "paper_infrastructure_review --review-mode model --write" in sent_prompt
-    assert "validate-paper-infrastructure-review --project-root ." in sent_prompt
-    assert "do not run ad hoc grep/rg pattern scans in the Planner" in sent_prompt
-    assert "Do not use a hand-written string-match pass" in sent_prompt
 
 
 def test_plan_next_can_disable_planner_wall_clock_timeout(
@@ -569,13 +568,12 @@ def test_critic_prompt_has_scoped_final_submission_gate() -> None:
     )
     sent_prompt, _ = runner.calls[0]
     assert "planner_scope: final_submission" in sent_prompt
-    assert "Validator toolbelt (critic)" in sent_prompt
-    # Toolbelt slim-down removed the LLM-review validators; the critic
-    # prompt now references the core paper-contract gate instead, with
-    # the final aggregate gate still present.
-    assert "validate-paper-contract --project-root ." in sent_prompt
-    assert "validate-full-emnlp --project-root ." in sent_prompt
+    # The critic prompt now injects the per-stage checklist instead of
+    # the historical validator toolbelt.
+    assert "## Stage checklist" in sent_prompt
+    assert "Validator toolbelt" not in sent_prompt
     assert "validate-academic-language-review" not in sent_prompt
+    assert "validate-full-emnlp" not in sent_prompt
     assert "Do NOT apply this" in sent_prompt
     assert "paper_optimization_task" in sent_prompt
 

@@ -94,31 +94,38 @@ def test_rule_8_structural_spec_adherence_present() -> None:
     assert "Functional correctness alone is NOT sufficient" in prompt
 
 
-def test_final_submission_scope_requires_full_emnlp_gate() -> None:
+def test_final_submission_scope_requires_full_pipeline_checklist() -> None:
+    """The 'final-submission' reviewer rule is now stated in terms of the
+    full pipeline checklist (research → submission), not the retired
+    `validate-full-emnlp` CLI gate. The structured-claim requirement and
+    the bounded-vs-final distinction remain.
+    """
+
     prompt = _build_prompt()
     assert "Final-submission scope" in prompt
     assert "planner_scope: final_submission" in prompt
-    assert "validate-full-emnlp" in prompt
+    assert "full pipeline checklist" in prompt
     assert "paper_contribution" in prompt
     assert "negative-result pivot" in prompt
-    assert "validate-pipeline" in prompt
     assert "bounded" in prompt
-    assert "paper_optimization_task" in prompt
-    assert "validate-research-md-format" in prompt
+    # The retired CLI command name must not leak into the reviewer prompt
+    # anywhere (rule body, examples, or scope description).
+    assert "validate-full-emnlp" not in prompt
+    assert "validate-pipeline" not in prompt
+    assert "validate-research-md-format" not in prompt
 
 
-def test_reviewer_prompt_includes_validator_toolbelt() -> None:
+def test_reviewer_prompt_includes_stage_checklist() -> None:
+    """Reviewer prompt is now stage-checklist driven, not validator-driven."""
+
     prompt = _build_prompt()
 
-    assert "Validator toolbelt (reviewer)" in prompt
-    assert "python -m argus_skill.tools.validator_toolbelt list --role reviewer" in prompt
-    # After the toolbelt slim-down the LLM-review validators are no longer
-    # advertised; the core paper-contract gate and the final EMNLP gate
-    # take their place as what the reviewer is told to call.
-    assert "validate-paper-contract --project-root ." in prompt
-    assert "validate-full-emnlp --project-root ." in prompt
+    assert "## Stage checklist" in prompt
+    assert "You are the L2 reviewer" in prompt
+    # Old surface gone:
+    assert "Validator toolbelt" not in prompt
     assert "validate-academic-language-review" not in prompt
-    assert "not substitutes for final readiness" in prompt
+    assert "validate-full-emnlp" not in prompt
 
 
 def test_academic_peer_review_skill_injected_for_complete_paper_scope() -> None:

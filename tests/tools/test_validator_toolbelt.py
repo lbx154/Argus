@@ -4,60 +4,49 @@ import json
 
 from argus_skill.skills.pipeline_contracts import cli_command_handlers, main as pipeline_contracts_main
 from argus_skill.tools.validator_toolbelt import (
-    FINAL_EMNLP_COMMAND,
     format_validator_toolbelt_for_role,
-    get_validator_tool,
     all_validator_tools,
     main,
     validator_tools_for_role,
 )
 
 
-def test_validator_tool_commands_use_pipeline_contracts_surface() -> None:
-    tool = get_validator_tool("validate-full-scale-evidence")
+def test_validator_toolbelt_is_empty() -> None:
+    """The validator toolbelt is intentionally retired.
 
-    assert tool.command(".") == (
-        "python -m argus_skill.skills.pipeline_contracts "
-        "validate-full-scale-evidence --project-root ."
-    )
-    assert FINAL_EMNLP_COMMAND == (
-        "python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root ."
-    )
-
-
-def test_role_filter_separates_engineer_and_reviewer_tools() -> None:
-    """The slimmed toolbelt no longer exposes mutating repair tools or the
-    LLM-review chrome at all (those validators were too noisy a feedback
-    loop for the agent). Surface the core gates the engineer/reviewer
-    actually need, and assert the historical mutating tools are gone for
-    *every* role so nothing slips back in by mistake.
+    The agent surface is now stage-checklist driven; the empty tuple is
+    the canonical signal that nothing is to be advertised. Any caller
+    iterating ``all_validator_tools()`` must cleanly get nothing.
     """
 
-    engineer_ids = {tool.id for tool in validator_tools_for_role("engineer", include_mutating=True)}
-    reviewer_ids = {tool.id for tool in validator_tools_for_role("reviewer")}
+    assert all_validator_tools() == ()
+    assert validator_tools_for_role("engineer", include_mutating=True) == ()
+    assert validator_tools_for_role("reviewer") == ()
+    assert validator_tools_for_role("critic") == ()
+    assert validator_tools_for_role("planner") == ()
 
-    # Mutating repair tools are intentionally dropped from the toolbelt.
+
+def test_format_validator_toolbelt_returns_empty_string() -> None:
+    """When no tools are advertised the toolbelt formatter must collapse
+    to an empty string so the calling prompt does not get a confusing
+    headline with no content underneath it.
+    """
+
+    for role in ("engineer", "reviewer", "critic", "planner"):
+        assert format_validator_toolbelt_for_role(role) == ""
+
+
+def test_cli_lists_role_tools_as_text(capsys) -> None:
+    """The CLI helper still runs, but with no tools advertised the body
+    is empty — agents that ask for the list see nothing instead of a
+    stale catalog.
+    """
+
+    assert main(["list", "--role", "planner", "--stage", "experiments"]) == 0
+    out = capsys.readouterr().out
+    # No tool ids should appear; the headline / hint block is acceptable
+    # but no historical validate-* identifier should leak.
     for retired in (
-        "refresh-manifest",
-        "write-validation-priority-policy",
-        "refresh-artifact-freshness",
-        "repair-emnlp-contract-artifacts",
-    ):
-        assert retired not in engineer_ids, f"{retired} should be off the toolbelt"
-        assert retired not in reviewer_ids, f"{retired} should be off the toolbelt"
-
-    # LLM-review chrome is intentionally dropped from the toolbelt too.
-    for retired in (
-        "validate-academic-language-review",
-        "validate-layout-review",
-        "validate-paper-infrastructure-review",
-        "validate-image2-figures",
-    ):
-        assert retired not in engineer_ids, f"{retired} should be off the toolbelt"
-        assert retired not in reviewer_ids, f"{retired} should be off the toolbelt"
-
-    # Core gates must still be available to both roles.
-    for required in (
         "validate-pipeline",
         "validate-grounding",
         "validate-full-scale-evidence",
@@ -65,46 +54,19 @@ def test_role_filter_separates_engineer_and_reviewer_tools() -> None:
         "validate-paper-format",
         "validate-submission",
         "validate-full-emnlp",
+        "validate-academic-language-review",
+        "validate-layout-review",
+        "refresh-manifest",
     ):
-        assert required in engineer_ids
-        assert required in reviewer_ids
-
-
-def test_toolbelt_prompt_distinguishes_narrow_feedback_from_final_gate() -> None:
-    text = format_validator_toolbelt_for_role("reviewer")
-
-    assert "Validator toolbelt (reviewer)" in text
-    assert "Run the narrowest validator" in text
-    assert "not substitutes for final readiness" in text
-    # The reviewer surface still advertises the core paper-contract gate
-    # and the final EMNLP gate, even though the LLM-review chrome is gone.
-    assert "validate-paper-contract --project-root ." in text
-    assert "validate-full-emnlp --project-root ." in text
-
-
-def test_cli_lists_role_tools_as_text(capsys) -> None:
-    assert main(["list", "--role", "planner", "--stage", "experiments"]) == 0
-    out = capsys.readouterr().out
-
-    assert "Validator toolbelt (planner)" in out
-    assert "validate-full-scale-evidence --project-root ." in out
-    assert "validate-grounding" not in out
+        assert retired not in out, f"retired tool {retired!r} leaked into CLI output"
 
 
 def test_cli_lists_role_tools_as_json(capsys) -> None:
-    """The slim ``review`` phase no longer exposes the three LLM-review
-    validators on the toolbelt. Listing the reviewer/review role-phase
-    pair should therefore return an empty set — agents that want those
-    deeper review reports can still call the python entrypoints
-    directly, but they will not be advertised in the prompt.
-    """
+    """JSON form of the listing must be an empty array now."""
 
     assert main(["list", "--role", "reviewer", "--stage", "review", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    ids = {item["id"] for item in payload}
-
-    assert ids == set()
-    assert all("command" in item for item in payload)
+    assert payload == []
 
 
 def test_all_validator_toolbelt_commands_are_registered_in_pipeline_contracts_cli() -> None:

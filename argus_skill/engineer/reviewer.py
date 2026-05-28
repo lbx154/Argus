@@ -310,9 +310,18 @@ class Reviewer:
             check_text=check_text,
             raw_evidence=raw_evidence,
         )
-        from ..tools.validator_toolbelt import format_validator_toolbelt_for_role
+        from ..skills.stage_checklists import (
+            current_stage,
+            format_full_pipeline_checklist,
+            format_stage_checklist,
+        )
+        from pathlib import Path as _Path
 
-        validator_toolbelt = format_validator_toolbelt_for_role("reviewer")
+        stage = current_stage(_Path.cwd())
+        if stage == "submission":
+            stage_checklist = format_full_pipeline_checklist(role="reviewer")
+        else:
+            stage_checklist = format_stage_checklist(stage, role="reviewer")
         operator_text = (
             "\n".join(f"- {line}" for line in operator_messages)
             if operator_messages
@@ -351,7 +360,7 @@ class Reviewer:
             "Reviewer-to-engineer handoff skill:\n"
             f"{handoff_skill}\n\n"
             f"{paper_review_skill_block}"
-            f"{validator_toolbelt}\n\n"
+            f"{stage_checklist}\n\n"
             "**Length constraints:**\n"
             "- Be thorough in `round_summary_markdown` — include all relevant details\n"
             "- Use brief bullet points, not lengthy explanations\n"
@@ -437,25 +446,17 @@ class Reviewer:
             "   downstream tooling.\n"
             "9) Final-submission scope: ONLY when the Objective metadata says\n"
             "   `planner_scope: final_submission` or `Task scope: final_submission`,\n"
-            "   choose `done` only if the evidence includes the command\n"
-            "   `python -m argus_skill.skills.pipeline_contracts validate-full-emnlp\n"
-            "   --project-root .` with a zero-exit/success result, plus submission\n"
-            "   assurance showing PASS or an explicitly accepted WARN with no hard\n"
-            "   blockers. `validate-pipeline`, `validate-manifest`, a pilot run,\n"
-            "   or an underlength draft is NOT enough for final submission. For\n"
-            "   positive paper objectives, do not accept a negative-result pivot\n"
-            "   or a baseline-only win: the proposed contribution must have a\n"
-            "   structured X-Y-Z-W paper_contribution claim and beat the strongest\n"
-            "   nontrivial baseline on the declared metric with statistical support.\n"
-            "   For\n"
-            "   `planner_scope: bounded` or absent scope metadata, do not require\n"
-            "   this project-final gate; judge the bounded task by its own\n"
-            "   acceptance criteria. Exception: if the objective metadata says\n"
-            "   `paper_optimization_task`, require fresh validator evidence or an\n"
-            "   exact remaining-blocker list; do not accept a tiny local paper fix\n"
-            "   while addressable underfilled-body, stale-artifact, layout, citation,\n"
-            "   review, figure/table, `validate-research-md-format`, or\n"
-            "   `validate-full-emnlp` blockers remain untriaged.\n\n"
+            "   choose `done` only if every item on the **full pipeline checklist**\n"
+            "   injected above is satisfied (research → submission). A passing\n"
+            "   single-stage checklist, a pilot run, or an underlength draft is NOT\n"
+            "   enough for final submission. For positive paper objectives, do not\n"
+            "   accept a negative-result pivot or a baseline-only win: the proposed\n"
+            "   contribution must have a structured X-Y-Z-W paper_contribution claim\n"
+            "   and beat the strongest nontrivial baseline on the declared metric\n"
+            "   with statistical support. For `planner_scope: bounded` or absent\n"
+            "   scope metadata, do not require the full pipeline checklist; judge\n"
+            "   the bounded task by its own acceptance criteria and the relevant\n"
+            "   per-stage checklist items.\n\n"
             f"Objective:\n{objective}\n\n"
             "Operator message history (source of truth for user instructions):\n"
             f"{operator_text}\n\n"

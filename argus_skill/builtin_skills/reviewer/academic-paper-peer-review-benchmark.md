@@ -19,7 +19,7 @@ This skill is not a copyediting pass. It is a calibrated reject/accept simulatio
 - The reviewer is judging a paper drafting, paper revision, submission assurance, or final submission task.
 - The project has a manuscript (`paper/main.tex`, `paper/main.pdf`, or equivalent) plus claims, results, figures/tables, and bibliography.
 - The main agent asks to call the paper "complete", "EMNLP-ready", "submission-ready", or "publication quality".
-- `validate-full-emnlp`, submission assurance, academic-language review, layout review, or format preflight output is available.
+- the per-stage reviewer checklist items have been ticked off and submission-assurance evidence is fresh.
 
 ## When NOT to use
 - The task is only literature search, experiment planning, benchmark implementation, or early smoke testing with no complete draft.
@@ -97,7 +97,7 @@ Score each dimension 1--5. Most plausible drafts should land in the 2--4 range; 
 - **Weak Reject**: mean >= 2.5 or any dimension below 3, with at least one major weakness.
 - **Reject**: mean < 2.5 or any critical flaw.
 
-Hard blockers force **Reject** or **Weak Reject** regardless of mean: failed `validate-full-emnlp` for `final_submission`, pilot-scale final evidence, duplicated benchmark expansion, fewer than 3 executed real benchmark source families for final evidence, single-source or same-family-only benchmark evidence for broad effectiveness claims, missing nontrivial baseline for comparative claims, unsupported headline claim, stale manifest/digest, unresolved citations, self-drawn non-data figure where image-2 output is required, severe overfull boxes, underfilled long-paper body, or missing limitations/ethics.
+Hard blockers force **Reject** or **Weak Reject** regardless of mean: failed the full pipeline checklist for `final_submission`, pilot-scale final evidence, duplicated benchmark expansion, fewer than 3 executed real benchmark source families for final evidence, single-source or same-family-only benchmark evidence for broad effectiveness claims, missing nontrivial baseline for comparative claims, unsupported headline claim, stale manifest/digest, unresolved citations, self-drawn non-data figure where image-2 output is required, severe overfull boxes, underfilled long-paper body, or missing limitations/ethics.
 
 ## Reviewer output contract
 When this skill applies, include a compact simulated-review section inside `round_summary_markdown`:
@@ -115,7 +115,7 @@ If `status` is `continue`, make `next_action` a concise engineer prompt:
 
 1. List the top 1--3 blocking reviewer objections.
 2. Name exact files/artifacts to repair.
-3. Include exact validation commands, especially `python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .` for final submission.
+3. Phrase the verdict in terms of the per-stage reviewer checklist; for final submission, confirm every item across all stages is satisfied.
 4. Tell the engineer not to claim completion until those commands pass.
 
 If `status` is `done`, `completion_summary_markdown` must cite the passing gate output and explain why no simulated reviewer hard blocker remains.

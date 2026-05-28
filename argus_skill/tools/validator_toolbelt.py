@@ -52,64 +52,29 @@ _ALL_ROLES = VALIDATOR_ROLES
 _ENGINEER_ONLY = ("engineer",)
 
 
-VALIDATOR_TOOLS: tuple[ValidatorTool, ...] = (
-    ValidatorTool(
-        id="validate-pipeline",
-        description="pipeline state and stage-gated artifact readiness",
-        phase="integration",
-        roles=_ALL_ROLES,
-        when_to_use="when deciding which stage is allowed to advance next",
-        cost="medium",
-    ),
-    ValidatorTool(
-        id="validate-grounding",
-        description="literature grounding and source-backed reference inventory",
-        phase="research",
-        roles=_ALL_ROLES,
-        when_to_use="after creating or changing research/LITERATURE_GROUNDING.json",
-    ),
-    ValidatorTool(
-        id="validate-full-scale-evidence",
-        description="completed multi-source raw experiment evidence",
-        phase="experiments",
-        roles=_ALL_ROLES,
-        when_to_use="before analysis, narrative claims, paper drafting, or final readiness",
-        cost="medium",
-    ),
-    ValidatorTool(
-        id="validate-paper-contract",
-        description="EMNLP long-paper structure, citation, table, and body contract",
-        phase="paper",
-        roles=_ALL_ROLES,
-        when_to_use="after regenerating paper/main.tex or changing manuscript structure",
-        cost="medium",
-    ),
-    ValidatorTool(
-        id="validate-paper-format",
-        description="LaTeX/PDF reviewability and formatting evidence",
-        phase="paper",
-        roles=_ALL_ROLES,
-        when_to_use="after compiling paper/main.pdf or changing LaTeX/layout-affecting source",
-        cost="medium",
-    ),
-    ValidatorTool(
-        id="validate-submission",
-        description="submission assurance readiness gate",
-        phase="submission",
-        roles=_ALL_ROLES,
-        when_to_use="after paper assurance artifacts are refreshed and blockers look resolved",
-        cost="medium",
-    ),
-    ValidatorTool(
-        id="validate-full-emnlp",
-        description="complete project-final EMNLP/ACL readiness gate",
-        phase="submission",
-        roles=_ALL_ROLES,
-        when_to_use="only for final_submission or pre-final proof after narrow gates are clean",
-        cost="high",
-        final_gate=True,
-    ),
-)
+# The validator toolbelt is intentionally empty.
+#
+# argus-skill used to advertise a long list of ``validate-*`` shell
+# commands to the engineer / reviewer / critic / planner roles. Agents
+# repeatedly tried to defeat those gates instead of producing the
+# underlying evidence they were supposed to verify, and stale gate-state
+# (manifest hashes, freshness JSONs, validation-priority policies, …)
+# kept dragging the loop into bureaucratic repair work.
+#
+# The agent surface is now checklist-driven: see
+# :mod:`argus_skill.skills.stage_checklists` for the per-stage items the
+# L2 reviewer ticks off against artifacts. The CLI subcommand surface
+# (``python -m argus_skill.skills.pipeline_contracts``) is correspondingly
+# empty as far as the agent is concerned; the underlying Python validator
+# functions still exist for the supervisor / harness to consume internally
+# but are no longer exposed.
+#
+# Leaving this tuple in place (rather than deleting the module) keeps the
+# old import surface usable: any caller asking
+# ``format_validator_toolbelt_for_role(...)`` cleanly gets an empty string,
+# and any caller iterating ``all_validator_tools()`` cleanly gets an empty
+# tuple, instead of an ImportError.
+VALIDATOR_TOOLS: tuple[ValidatorTool, ...] = ()
 
 
 def normalize_role(role: str | None) -> str | None:

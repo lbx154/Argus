@@ -146,26 +146,24 @@ _CRITIC_SYSTEM_PREAMBLE = (
     "6) Cap improvements at 3. Quality over quantity.\n"
     "7) If the original objective or metadata says `planner_scope: final_submission`\n"
     "   or `Task scope: final_submission`, `stop=true` is allowed ONLY when the\n"
-    "   latest evidence quotes `python -m argus_skill.skills.pipeline_contracts\n"
-    "   validate-full-emnlp --project-root .` exiting 0 and the submission\n"
-    "   assurance has no hard blockers. A passing `validate-pipeline`,\n"
-    "   manifest check, pilot run, underlength draft, missing strong baseline,\n"
-    "   missing ablation, negative-result pivot for a positive paper objective,\n"
-    "   baseline-only win that does not support the proposed contribution, or\n"
-    "   failed/missing full gate is a high-impact\n"
-    "   `requirement_gap` and must yield `stop=false`. Do NOT apply this\n"
-    "   rule to `planner_scope: bounded` or unscoped bounded subtasks.\n"
+    "   latest reviewer verdict says `done` against the **full pipeline checklist**\n"
+    "   (research → submission) and the submission-stage checklist itself records\n"
+    "   no hard blockers. A passing single-stage checklist, pilot run, underlength\n"
+    "   draft, missing strong baseline, missing ablation, negative-result pivot for\n"
+    "   a positive paper objective, or baseline-only win that does not support the\n"
+    "   proposed contribution is a high-impact `requirement_gap` and must yield\n"
+    "   `stop=false`. Do NOT apply this rule to `planner_scope: bounded` or\n"
+    "   unscoped bounded subtasks.\n"
     "8) If the original objective or metadata says `paper_optimization_task`,\n"
     "   treat it as a long-horizon paper mission even when\n"
     "   `planner_scope: bounded`. `stop=true` is allowed only when the latest\n"
-    "   evidence shows fresh paper validators were run or inspected and either\n"
-    "   the addressable blockers were fixed or the remaining blockers are\n"
-    "   explicitly listed as outside this mission's budget. Underfilled body,\n"
-    "   stale artifacts, missing manuscript, failed `validate-research-md-format`,\n"
-    "   or untriaged `validate-full-emnlp` blockers are high-impact\n"
-    "   `requirement_gap`s. This does not demand full-gate exit 0 unless the\n"
-    "   scope is `final_submission`; it prevents tiny local paper fixes from\n"
-    "   being accepted as enough.\n"
+    "   reviewer evidence ticks off the currently-relevant checklist items or\n"
+    "   explicitly lists the remaining checklist items as outside this mission's\n"
+    "   budget. Underfilled body, stale artifacts, missing manuscript, or\n"
+    "   untriaged submission-stage items are high-impact `requirement_gap`s. This\n"
+    "   does not demand the full pipeline checklist unless the scope is\n"
+    "   `final_submission`; it prevents tiny local paper fixes from being accepted\n"
+    "   as enough.\n"
     "   If the remaining paper issue is repeated or systemic, prefer one\n"
     "   root-cause improvement that audits evidence, page flow, stale artifacts,\n"
     "   reviews, and figure/table provenance over several micro-edits.\n"
@@ -261,31 +259,32 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "   - `bounded` for non-final missions. For EMNLP/ACL/paper goals,\n"
     "     bounded does NOT mean tiny: prefer one long-horizon paper optimization\n"
     "     mission that tells the Engineer to read `AGENTS.md` and built-in paper\n"
-    "     skills, run or inspect `validate-full-emnlp`, then repair all\n"
-    "     addressable manuscript/evidence/layout/review/artifact blockers in the\n"
-    "     same mission before stopping.\n"
+    "     skills, work the per-stage checklist, then repair all addressable\n"
+    "     manuscript/evidence/layout/review/artifact blockers in the same\n"
+    "     mission before stopping.\n"
     "   - `final_submission` ONLY for the single project-final readiness task\n"
     "     whose acceptance is proving the whole EMNLP/ACL submission package.\n"
-    "     That objective must require verbatim success for\n"
-    "     `python -m argus_skill.skills.pipeline_contracts validate-full-emnlp\n"
-    "     --project-root .` before anyone may declare it done.\n"
+    "     That objective must require the L2 reviewer to mark `done` against\n"
+    "     the full pipeline checklist (research → submission) before anyone\n"
+    "     may declare it done.\n"
     f"5) Every task must have `impact_score >= {MIN_PLANNER_IMPACT_SCORE}` and\n"
     "   concrete `evidence`. Lower-score work is rejected by the host.\n"
     "6) For an operator goal that asks for a full EMNLP/ACL paper or\n"
     "   submission-ready package, `project_done=true` requires journal evidence\n"
-    "   that `validate-full-emnlp --project-root .` exited 0. If the full gate\n"
-    "   is missing or failing, set `project_done=false` and queue one broad\n"
-    "   bounded long-horizon paper optimization blocker mission by default, or a\n"
-    "   `final_submission` task only when the package appears ready and just\n"
-    "   needs final proof. `validate-pipeline` alone is never enough.\n"
+    "   that a recent `final_submission` mission was marked `done` by the L2\n"
+    "   reviewer against the full pipeline checklist. If that journal entry is\n"
+    "   missing or the submission-stage items still report blockers, set\n"
+    "   `project_done=false` and queue one broad bounded long-horizon paper\n"
+    "   optimization blocker mission by default, or a `final_submission` task\n"
+    "   only when the package appears ready and just needs final proof.\n"
+    "   A single-stage checklist alone is never enough.\n"
     "   For positive paper objectives, a negative-result pivot or a baseline-only\n"
     "   win is not project_done; require a structured X-Y-Z-W paper_contribution\n"
     "   claim where the proposed artifact/protocol beats the strongest nontrivial\n"
     "   baseline with statistical support.\n"
     "7) For EMNLP/ACL/paper goals, do not queue downstream analysis, paper,\n"
-    "   review, or submission-package tasks with a `Start only after\n"
-    "   validate-full-scale-evidence ... exits 0` precondition while that gate is\n"
-    "   missing or failing. Queue the current-stage evidence/benchmark mission\n"
+    "   review, or submission-package tasks while their upstream stage's\n"
+    "   checklist items are still unchecked. Queue the current-stage mission\n"
     "   instead; the host will refuse premature gated downstream tasks.\n"
     "8) Keep planning lightweight. Inspect enough to route the next mission, but\n"
     "   do not run long pytest suites, full experiments, full paper compilation,\n"
@@ -458,7 +457,11 @@ class Critic:
             "If budget is low, prefer stopping this artifact so the planner "
             "can find a higher-impact mission."
         )
-        from ..tools.validator_toolbelt import format_validator_toolbelt_for_role
+        from ..skills.stage_checklists import current_stage, format_stage_checklist
+        from pathlib import Path as _Path
+
+        stage = current_stage(_Path.cwd())
+        stage_checklist = format_stage_checklist(stage, role="critic")
 
         return (
             format_role_context(
@@ -466,7 +469,7 @@ class Critic:
                 _CRITIC_ROLE_SKILL,
                 _CRITIC_ROLE_FALLBACK,
             )
-            + format_validator_toolbelt_for_role("critic")
+            + stage_checklist
             + "\n\n"
             + _CRITIC_SYSTEM_PREAMBLE
             + "\n\nOriginal operator objective:\n"
@@ -581,7 +584,11 @@ class Critic:
             "Keep searching for valuable work; do not spend tokens on "
             "low-value polish just to keep the loop busy."
         )
-        from ..tools.validator_toolbelt import format_validator_toolbelt_for_role
+        from ..skills.stage_checklists import current_stage, format_stage_checklist
+        from pathlib import Path as _Path
+
+        stage = current_stage(_Path.cwd())
+        stage_checklist = format_stage_checklist(stage, role="planner")
 
         return (
             format_role_context(
@@ -589,7 +596,7 @@ class Critic:
                 _PLANNER_ROLE_SKILL,
                 _PLANNER_ROLE_FALLBACK,
             )
-            + format_validator_toolbelt_for_role("planner")
+            + stage_checklist
             + "\n\n"
             + _PLANNER_SYSTEM_PREAMBLE
             + "\n\nOperator's continuous goal:\n"

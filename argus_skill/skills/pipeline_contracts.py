@@ -11418,37 +11418,16 @@ _PipelineContractsHandler = Callable[[Path], list[ContractIssue]]
 def cli_command_specs() -> tuple[tuple[str, str, _PipelineContractsHandler], ...]:
     """Return the public CLI command surface for pipeline contracts.
 
-    Keep this registry as the single source of truth so validator discovery,
-    built-in skill docs, and CLI tests cannot silently drift apart.
+    Intentionally empty. argus-skill historically exposed ~25 ``validate-*``
+    subcommands here; the agent surface was then replaced with
+    :mod:`argus_skill.skills.stage_checklists` so the L2 reviewer rules
+    against a markdown checklist rather than chasing brittle JSON gates.
+    The validator *functions* below are still importable from Python so
+    the supervisor / harness can use them internally for project-done
+    detection — they just are no longer reachable via the CLI.
     """
 
-    return (
-        ("validate-pipeline", "validate research/PIPELINE_STATE.json and gated artifacts", validate_pipeline_state),
-        ("validate-grounding", "validate research/LITERATURE_GROUNDING.json", validate_literature_grounding),
-        ("validate-idea-provenance", "validate research/IDEA_PROVENANCE.json", validate_idea_provenance),
-        ("validate-code-reuse", "validate research/CODE_REUSE_PLAN.json", validate_code_reuse_plan),
-        ("validate-exemplar", "validate style exemplar, suitability, and structure blueprint artifacts", validate_style_exemplar),
-        ("validate-claim-graph", "validate paper/CLAIM_GRAPH.json", validate_claim_graph),
-        ("validate-figure-table-style", "validate paper/FIGURE_TABLE_STYLE_GUIDE.json", validate_figure_table_style_guide),
-        ("validate-validation-priority", "validate paper/VALIDATION_PRIORITY_POLICY.json", validate_validation_priority_policy),
-        ("validate-artifact-freshness", "validate paper/ARTIFACT_FRESHNESS.json", validate_artifact_freshness),
-        ("validate-paper-quality-contracts", "validate claim graph, figure/table style, and validation-priority contracts", validate_paper_quality_contracts),
-        ("validate-image2-figures", "validate paper/figures/IMAGE2_FIGURES.json", validate_image2_figures),
-        ("validate-paper-contract", "validate full EMNLP long-paper draft contract", validate_emnlp_paper_contract),
-        ("validate-paper-format", "validate paper/main.{tex,pdf,log} formatting and rendered reviewability", validate_paper_format),
-        ("validate-research-md-format", "validate strict EMNLP/ACL research.md format preflight", validate_research_md_format_preflight),
-        ("validate-layout-review", "validate final paper layout/aesthetic review score", validate_layout_review),
-        ("validate-academic-language-review", "validate final academic-language review score", validate_academic_language_review),
-        ("validate-paper-infrastructure-review", "validate paper-facing infrastructure leak review", validate_paper_infrastructure_review),
-        ("validate-full-scale-evidence", "validate completed full-scale experiment matrix evidence", validate_full_scale_experiment_evidence),
-        ("validate-manifest", "validate paper/ARTIFACT_MANIFEST.json", validate_artifact_manifest),
-        ("refresh-manifest", "repair and refresh paper/ARTIFACT_MANIFEST.json", refresh_artifact_manifest),
-        ("write-validation-priority-policy", "write and validate paper/VALIDATION_PRIORITY_POLICY.json", write_validation_priority_policy),
-        ("refresh-artifact-freshness", "refresh and validate paper/ARTIFACT_FRESHNESS.json", refresh_artifact_freshness),
-        ("repair-emnlp-contract-artifacts", "repair manifest, validation-priority policy, and freshness records", repair_emnlp_contract_artifacts),
-        ("validate-submission", "validate submission readiness gates", validate_submission_readiness),
-        ("validate-full-emnlp", "validate complete EMNLP long-paper readiness", validate_full_emnlp_readiness),
-    )
+    return ()
 
 
 def cli_command_handlers() -> dict[str, _PipelineContractsHandler]:
@@ -11457,26 +11436,43 @@ def cli_command_handlers() -> dict[str, _PipelineContractsHandler]:
     return {command: handler for command, _help, handler in cli_command_specs()}
 
 
+_AGENT_VALIDATOR_CLI_NOTICE = (
+    "argus-skill: the `validate-*` CLI subcommands have been retired in favour\n"
+    "of the per-stage reviewer checklists. The L2 reviewer now reads the\n"
+    "current stage's checklist from `argus_skill.skills.stage_checklists` and\n"
+    "rules against artifacts directly. Validator functions are still importable\n"
+    "from `argus_skill.skills.pipeline_contracts` for internal harness use.\n"
+)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m argus_skill.skills.pipeline_contracts",
         description="Validate or refresh argus-skill research pipeline contracts.",
     )
-    subcommands = parser.add_subparsers(dest="command", required=True)
-    command_handlers = cli_command_handlers()
-    for command, help_text, _handler in cli_command_specs():
-        command_parser = subcommands.add_parser(command, help=help_text)
-        command_parser.add_argument(
-            "--project-root",
-            type=Path,
-            default=Path.cwd(),
-            help="project root containing research/, experiments/, and paper/",
-        )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default=None,
+        help="(retired) historical validator subcommand — use stage checklists instead",
+    )
+    parser.add_argument(
+        "--project-root",
+        type=Path,
+        default=Path.cwd(),
+        help="project root containing research/, experiments/, and paper/",
+    )
 
     args = parser.parse_args(list(argv) if argv is not None else None)
-    project_root = Path(args.project_root)
-    issues = command_handlers[args.command](project_root)
-
+    handlers = cli_command_handlers()
+    if not handlers or args.command is None or args.command not in handlers:
+        # Be loud but exit cleanly so reviewer/engineer rounds that still
+        # shell out to an old validator command do not collapse the round
+        # on a non-zero exit code that does not actually mean a quality
+        # blocker.
+        print(_AGENT_VALIDATOR_CLI_NOTICE)
+        return 0
+    issues = handlers[args.command](Path(args.project_root))
     for issue in issues:
         print(f"{issue.code}\t{issue.path}\t{issue.message}")
     return 1 if issues else 0

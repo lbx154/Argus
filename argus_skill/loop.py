@@ -356,20 +356,20 @@ class SkillLoop:
                 "owner of the paper trajectory for this mission.\n\n"
                 "- Read `AGENTS.md` and the relevant built-in paper skills before\n"
                 "  choosing the scope of work.\n"
-                "- Run or inspect `python -m argus_skill.skills.pipeline_contracts\n"
-                "  validate-full-emnlp --project-root .` early when feasible; use\n"
-                "  the failures as the roadmap. If it is too expensive, run the\n"
-                "  narrower reported validators and explain why.\n"
+                "- The L2 reviewer rules against the per-stage checklist injected\n"
+                "  below. Make concrete progress on its currently-unchecked items;\n"
+                "  there is no `validate-*` shell command to chase. Read artifacts\n"
+                "  directly when you need to decide what is and is not satisfied.\n"
                 "- Fix multiple adjacent blockers in one mission when budget allows:\n"
                 "  evidence, `paper/main.tex`, body/page flow, citations, figures,\n"
                 "  tables, reviews, assurance, manifest freshness, and submission\n"
                 "  state.\n"
-                "- Do not stop after one narrow check passes if obvious paper-quality\n"
+                "- Do not stop after one checklist item passes if obvious paper-quality\n"
                 "  blockers remain and are addressable in this mission.\n"
                 "- Runtime context is for execution only. Do not copy daemon config,\n"
                 "  local device/cache/path details, capability-vault paths, or\n"
                 "  Argus/Codex reviewer/engineer route names into manuscript prose.\n"
-                "- If the same paper gate repeats, switch from local micro-edits to\n"
+                "- If the same checklist item repeats, switch from local micro-edits to\n"
                 "  root-cause repair: inspect evidence sufficiency, section depth,\n"
                 "  page map, stale generated artifacts, and figure/table provenance.\n"
                 "- For underfilled papers, improve reader-facing prose, evidence\n"
@@ -392,11 +392,13 @@ class SkillLoop:
                 "## Operator guidance (injected since last round)\n"
                 + "\n\n".join(extra_guidance)
             )
-        from .tools.validator_toolbelt import format_validator_toolbelt_for_role
+        from .skills.stage_checklists import current_stage, format_stage_checklist
+        from pathlib import Path as _Path
 
-        validator_toolbelt = format_validator_toolbelt_for_role("engineer")
-        if validator_toolbelt:
-            sections.append(validator_toolbelt)
+        stage = current_stage(_Path.cwd())
+        stage_checklist = format_stage_checklist(stage, role="engineer")
+        if stage_checklist:
+            sections.append(stage_checklist)
         sections.append(
             "## Required output\n"
             "Make concrete progress: read files, run commands, edit code as\n"

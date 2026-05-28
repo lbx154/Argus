@@ -651,7 +651,8 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
         ),
         "reviewer/academic-paper-peer-review-benchmark.md": (
             "Overfull \\hbox > 5pt",
-            "validate-full-emnlp",
+            # validate-full-emnlp retired; reviewer rules against the per-stage checklist now.
+            "per-stage reviewer checklist",
             "middle-body visual rhythm",
             "paired-significance",
             "tabcolsep=3-4pt",
