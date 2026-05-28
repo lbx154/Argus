@@ -17,6 +17,7 @@ from argus_skill.tools.capability_vault import (
     save_model_api_grant,
     save_model_api_routes,
 )
+from argus_skill.tools.project_templates.code import generate_image_2 as image2_template
 
 _PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
@@ -263,3 +264,67 @@ def test_image_tool_uses_distinct_image_and_review_routes(
         ("https://image.invalid/openai/v1/images/generations", "Bearer image-key"),
         ("https://review.invalid/openai/v1/responses", "Bearer review-key"),
     ]
+
+
+def test_project_image2_helper_records_normalized_size(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompt_path = tmp_path / "paper" / "figures" / "method.prompt.txt"
+    output_path = tmp_path / "paper" / "figures" / "method.png"
+    manifest_path = tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json"
+    prompt_path.parent.mkdir(parents=True)
+    prompt_path.write_text("clean method figure", encoding="utf-8")
+
+    def fake_generate_image(prompt: str, out: Path, size: str, force: bool) -> dict[str, Any]:
+        out.write_bytes(_PNG_BYTES)
+        return {
+            "artifact": str(out),
+            "sidecar": str(out.with_suffix(out.suffix + ".json")),
+            "model": "gpt-image-2",
+            "requested_size": "1920x1088",
+            "original_requested_size": "1920x1080",
+            "size_normalized_to_multiple_of_16": True,
+        }
+
+    def fake_inspect_image(image: Path) -> dict[str, Any]:
+        return {
+            "image": str(image),
+            "sha256": "image-sha",
+            "mime": "image/png",
+            "width": 1920,
+            "height": 1088,
+        }
+
+    def fake_review_image(image: Path, out: Path, prompt: str) -> dict[str, Any]:
+        image2_template.write_json(out, {"review": "ok"})
+        return {"review": "ok"}
+
+    monkeypatch.setattr(image2_template, "generate_image", fake_generate_image)
+    monkeypatch.setattr(image2_template, "inspect_image", fake_inspect_image)
+    monkeypatch.setattr(image2_template, "review_image", fake_review_image)
+
+    entry = image2_template.generate_image2_figure(
+        project_root=tmp_path,
+        prompt_file=prompt_path,
+        output=output_path,
+        manifest=manifest_path,
+        figure_id="method",
+        size="1920x1080",
+        force=True,
+    )
+
+    provenance = json.loads(
+        (tmp_path / "paper" / "figures" / "method.png.provenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    manifest_entry = json.loads(manifest_path.read_text(encoding="utf-8"))["figures"][0]
+
+    assert entry["requested_size"] == "1920x1088"
+    assert entry["original_requested_size"] == "1920x1080"
+    assert entry["size_normalized_to_multiple_of_16"] is True
+    assert provenance["requested_size"] == "1920x1088"
+    assert provenance["original_requested_size"] == "1920x1080"
+    assert provenance["size_normalized_to_multiple_of_16"] is True
+    assert manifest_entry["requested_size"] == "1920x1088"
