@@ -2722,18 +2722,15 @@ class LifeSupervisor:
         return ""
 
     def _journal_has_full_emnlp_gate_success(self) -> bool:
-        # First check: run the live validator directly. If it passes now,
-        # that's stronger evidence than any journal entry.
+        # First check: run the live validator directly via the Python
+        # function. The historical CLI subcommand was retired; calling the
+        # function avoids both that empty CLI surface and any subprocess
+        # overhead.
         try:
-            import subprocess
+            from ..skills.pipeline_contracts import validate_full_emnlp_readiness
             workdir = self._project_workdir()
-            result = subprocess.run(
-                [sys.executable, "-m", "argus_skill.skills.pipeline_contracts",
-                 "validate-full-emnlp", "--project-root", str(workdir)],
-                capture_output=True, text=True, timeout=120,
-                cwd=str(workdir),
-            )
-            if result.returncode == 0:
+            issues = validate_full_emnlp_readiness(Path(workdir))
+            if not issues:
                 return True
         except Exception:  # noqa: BLE001
             pass
