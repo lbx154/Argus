@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
+from email.message import Message
 from pathlib import Path
 from typing import Any, cast
 from urllib.error import HTTPError
@@ -81,6 +83,44 @@ def test_generate_image_writes_artifact_and_secret_free_sidecar(
     sidecar_text = (tmp_path / "figure.png.json").read_text(encoding="utf-8")
     assert "dummy-key" not in sidecar_text
     assert "clean academic hierarchy diagram" in sidecar_text
+
+
+def test_generate_image_retries_transient_overload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    sleeps: list[float] = []
+
+    def fake_urlopen(req: Any, timeout: float) -> FakeResponse:
+        calls.append(req.full_url)
+        if len(calls) == 1:
+            headers = Message()
+            headers["Retry-After"] = "0"
+            raise HTTPError(
+                req.full_url,
+                429,
+                "too many requests",
+                hdrs=headers,
+                fp=io.BytesIO(b'{"error":{"code":"EngineOverloaded"}}'),
+            )
+        return FakeResponse({"data": [{"b64_json": base64.b64encode(_PNG_BYTES).decode("ascii")}]})
+
+    monkeypatch.setattr(image_tool, "_urlopen", fake_urlopen)
+    monkeypatch.setattr(image_tool.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    meta = image_tool.generate_image(
+        prompt="clean academic hierarchy diagram",
+        out=tmp_path / "figure.png",
+        env=_env_with_vault(tmp_path),
+    )
+
+    assert calls == [
+        "https://example.invalid/openai/v1/images/generations",
+        "https://example.invalid/openai/v1/images/generations",
+    ]
+    assert sleeps == [1.0]
+    assert meta["image"]["mime"] == "image/png"
 
 
 def test_generate_image_keeps_explicit_non_square_size(

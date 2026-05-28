@@ -21,6 +21,8 @@ from .capability_vault import ModelApiGrant, ModelApiRoute, load_model_api_route
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _JPEG_MAGIC = b"\xff\xd8\xff"
 _DEFAULT_TIMEOUT_SECONDS = 500.0
+_DEFAULT_MAX_RETRIES = 4
+_TRANSIENT_HTTP_STATUS_CODES = {429, 500, 502, 503, 504}
 _AUTO_SIZE_VALUES = {"", "auto", "adaptive"}
 _SIZE_RE = re.compile(r"^(?P<width>[1-9]\d*)x(?P<height>[1-9]\d*)$")
 
@@ -58,32 +60,64 @@ def _endpoint_url(base_url: str, endpoint: str) -> str:
     return f"{base}/{endpoint.lstrip('/')}"
 
 
+def _retry_delay_seconds(exc: BaseException, attempt_index: int) -> float | None:
+    if isinstance(exc, urllib.error.HTTPError):
+        if exc.code not in _TRANSIENT_HTTP_STATUS_CODES:
+            return None
+        retry_after = exc.headers.get("Retry-After") if exc.headers else None
+        if retry_after:
+            try:
+                return max(1.0, float(retry_after))
+            except ValueError:
+                pass
+    elif not isinstance(exc, urllib.error.URLError):
+        return None
+    return min(45.0, 3.0 * (2**attempt_index))
+
+
 def _json_request(
     grant: ModelApiGrant | ModelApiRoute,
     endpoint: str,
     payload: dict[str, Any],
     *,
     timeout: float = _DEFAULT_TIMEOUT_SECONDS,
+    max_retries: int = _DEFAULT_MAX_RETRIES,
 ) -> dict[str, Any]:
     url = _endpoint_url(grant.base_url, endpoint)
     body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers={
-            "Authorization": f"Bearer {grant.api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with _urlopen(req, timeout=timeout) as resp:
-            raw = resp.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        raw = exc.read().decode("utf-8", errors="replace")
-        raise ApiError(status=exc.code, endpoint=endpoint, body=_redact(raw, grant)) from exc
-    except urllib.error.URLError as exc:
-        raise ImageToolError(_redact(str(exc), grant)) from exc
+    raw = ""
+    attempts = max(1, int(max_retries))
+    for attempt_index in range(attempts):
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "Authorization": f"Bearer {grant.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with _urlopen(req, timeout=timeout) as resp:
+                raw = resp.read().decode("utf-8")
+            break
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            delay = _retry_delay_seconds(exc, attempt_index)
+            if delay is not None and attempt_index < attempts - 1:
+                time.sleep(delay)
+                continue
+            raise ApiError(
+                status=exc.code,
+                endpoint=endpoint,
+                body=_redact(raw, grant),
+            ) from exc
+        except urllib.error.URLError as exc:
+            delay = _retry_delay_seconds(exc, attempt_index)
+            if delay is not None and attempt_index < attempts - 1:
+                time.sleep(delay)
+                continue
+            raise ImageToolError(_redact(str(exc), grant)) from exc
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -263,6 +297,7 @@ def generate_image(
     force: bool = False,
     env: Mapping[str, str] | None = None,
     timeout: float = _DEFAULT_TIMEOUT_SECONDS,
+    max_retries: int = _DEFAULT_MAX_RETRIES,
 ) -> dict[str, Any]:
     grant = _require_route("image", env)
     requested_size, original_requested_size = _normalize_requested_size(size)
@@ -276,11 +311,23 @@ def generate_image(
         payload["size"] = requested_size
     started = time.time()
     try:
-        response = _json_request(grant, "/images/generations", payload, timeout=timeout)
+        response = _json_request(
+            grant,
+            "/images/generations",
+            payload,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
     except ApiError as exc:
         if exc.status == 400 and "response_format" in exc.body:
             payload.pop("response_format", None)
-            response = _json_request(grant, "/images/generations", payload, timeout=timeout)
+            response = _json_request(
+                grant,
+                "/images/generations",
+                payload,
+                timeout=timeout,
+                max_retries=max_retries,
+            )
         else:
             raise
     image_bytes = _extract_image_bytes(response, timeout=timeout)
@@ -393,6 +440,7 @@ def review_image(
     rubric: str = "",
     env: Mapping[str, str] | None = None,
     timeout: float = _DEFAULT_TIMEOUT_SECONDS,
+    max_retries: int = _DEFAULT_MAX_RETRIES,
 ) -> dict[str, Any]:
     grant = _require_route("image_review", env)
     original_prompt = prompt.strip() or _load_sidecar_prompt(image)
@@ -412,7 +460,13 @@ def review_image(
     }
     endpoint = "/responses"
     try:
-        data = _json_request(grant, endpoint, payload, timeout=timeout)
+        data = _json_request(
+            grant,
+            endpoint,
+            payload,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
         review_text = _parse_responses_text(data)
     except ApiError as exc:
         if exc.status not in (400, 404):
@@ -430,7 +484,13 @@ def review_image(
                 }
             ],
         }
-        data = _json_request(grant, endpoint, chat_payload, timeout=timeout)
+        data = _json_request(
+            grant,
+            endpoint,
+            chat_payload,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
         review_text = _parse_chat_text(data)
     if not review_text:
         raise ImageToolError("review model returned no text")
@@ -463,6 +523,7 @@ def main(argv: list[str] | None = None) -> int:
     gen.add_argument("--size", default="auto")
     gen.add_argument("--force", action="store_true")
     gen.add_argument("--timeout", type=float, default=_DEFAULT_TIMEOUT_SECONDS)
+    gen.add_argument("--max-retries", type=int, default=_DEFAULT_MAX_RETRIES)
 
     ins = sub.add_parser("inspect", help="inspect a local image without a model call")
     ins.add_argument("--image", type=Path, required=True)
@@ -474,6 +535,7 @@ def main(argv: list[str] | None = None) -> int:
     rev.add_argument("--prompt-file", type=Path)
     rev.add_argument("--rubric", default="")
     rev.add_argument("--timeout", type=float, default=_DEFAULT_TIMEOUT_SECONDS)
+    rev.add_argument("--max-retries", type=int, default=_DEFAULT_MAX_RETRIES)
 
     args = parser.parse_args(argv)
     try:
@@ -485,6 +547,7 @@ def main(argv: list[str] | None = None) -> int:
                 size=args.size,
                 force=bool(args.force),
                 timeout=float(args.timeout),
+                max_retries=int(args.max_retries),
             ))
             return 0
         if args.cmd == "inspect":
@@ -498,6 +561,7 @@ def main(argv: list[str] | None = None) -> int:
                 prompt=prompt,
                 rubric=args.rubric,
                 timeout=float(args.timeout),
+                max_retries=int(args.max_retries),
             ))
             return 0
     except Exception as exc:  # noqa: BLE001 - CLI boundary
