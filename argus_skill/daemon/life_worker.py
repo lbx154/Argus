@@ -101,7 +101,7 @@ class LifeWorkerConfig:
     # freshness so the reviewer sees up-to-date validation state without
     # the engineer having to remember to run them manually.
     check_commands: list[str] = field(default_factory=lambda: [
-        'python -m argus_skill.tools.stage_check --project-root .',
+        f'{sys.executable} -m argus_skill.tools.stage_check --project-root .',
     ])
 
 
