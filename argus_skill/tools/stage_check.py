@@ -49,14 +49,14 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     "draft": [
         ("main.tex exists", "test -f paper/main.tex"),
         ("PDF compiles", "test -f paper/main.pdf"),
-        ("Image2 figures valid", "{python} -m argus_skill.skills.pipeline_contracts validate-image2-figures --project-root . || true"),
+        ("Image2 figures valid", "{python} -m argus_skill.skills.pipeline_contracts validate-image2-figures --project-root ."),
     ],
     "review": [
-        ("Layout review", "{python} -m argus_skill.skills.pipeline_contracts validate-layout-review --project-root . || true"),
-        ("Academic review", "{python} -m argus_skill.skills.pipeline_contracts validate-academic-language-review --project-root . || true"),
+        ("Layout review", "{python} -m argus_skill.skills.pipeline_contracts validate-layout-review --project-root ."),
+        ("Academic review", "{python} -m argus_skill.skills.pipeline_contracts validate-academic-language-review --project-root ."),
     ],
     "submission": [
-        ("Full EMNLP gate", "{python} -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root . || true"),
+        ("Full EMNLP gate", "{python} -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root . 2>/dev/null | { ! grep -q .; }"),
     ],
 }
 
@@ -205,10 +205,11 @@ def main() -> int:
                 print(f"  ✅ {desc}")
                 passed += 1
             else:
-                output = (result.stdout + result.stderr).strip()[:200]
+                output = (result.stdout + result.stderr).strip()
                 print(f"  ❌ {desc}")
                 if output:
-                    print(f"     {output}")
+                    for line in output.splitlines()[:5]:
+                        print(f"     {line[:200]}")
                 failed += 1
         except subprocess.TimeoutExpired:
             print(f"  ⏰ {desc} (timeout)")
