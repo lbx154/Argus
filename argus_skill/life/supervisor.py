@@ -1945,8 +1945,7 @@ class LifeSupervisor:
 
     def _planner_project_context(self) -> str:
         """Return cheap project-state context that keeps planner work grounded."""
-        parts = [self._planner_runtime_context(), self._planner_emnlp_gate_context()]
-        return "\n\n".join(part for part in parts if part.strip())
+        return self._planner_runtime_context()
 
     def _planner_emnlp_gate_context(self) -> str:
         """Summarize the current EMNLP final gate for paper-oriented projects.
