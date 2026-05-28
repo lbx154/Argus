@@ -866,17 +866,13 @@ STRUCTURE_PHASE_RANKS: dict[str, int] = {
 AWARD_STYLE_EXEMPLAR_TOKENS = ("best", "award", "outstanding", "distinguished")
 
 PIPELINE_STAGES: tuple[str, ...] = (
-    "brief",
-    "literature",
-    "novelty",
+    "research",
     "plan",
     "benchmark",
     "run",
     "analysis",
-    "narrative",
     "draft",
-    "assurance",
-    "revision",
+    "review",
     "submission",
 )
 
@@ -893,7 +889,7 @@ PIPELINE_STATUSES: tuple[str, ...] = (
 
 SUCCESS_STATUSES = {"ready", "done"}
 MIN_FULL_SCALE_EXPERIMENT_TASKS = 300
-FULL_SCALE_GATED_STAGES = {"analysis", "narrative", "draft", "assurance", "submission"}
+FULL_SCALE_GATED_STAGES = {"analysis", "draft", "review", "submission"}
 FULL_SCALE_COMPLETED_STATUSES = {"complete", "completed", "done", "success", "succeeded"}
 FULL_SCALE_TASK_COUNT_FIELDS = {
     "task_count",
@@ -1025,12 +1021,12 @@ PLAN_ARTIFACT_PATTERNS: tuple[str, ...] = (
 )
 
 REQUIRED_ARTIFACT_PATTERNS: dict[str, tuple[str, ...]] = {
-    "brief": ("research/RESEARCH_BRIEF.md",),
-    "literature": LITERATURE_ARTIFACT_PATTERNS,
-    "novelty": NOVELTY_ARTIFACT_PATTERNS,
+    "research": (
+        "research/RESEARCH_BRIEF.md",
+        *LITERATURE_ARTIFACT_PATTERNS,
+    ),
     "plan": (
         *LITERATURE_ARTIFACT_PATTERNS,
-        *NOVELTY_ARTIFACT_PATTERNS,
         *PLAN_ARTIFACT_PATTERNS,
     ),
     "benchmark": ("experiments/BENCHMARK_PROVENANCE.md",),
@@ -1046,10 +1042,6 @@ REQUIRED_ARTIFACT_PATTERNS: dict[str, tuple[str, ...]] = {
         str(RESULT_TO_CLAIM_TSV_PATH),
         str(RESULTS_TABLE_TSV_PATH),
     ),
-    "narrative": (
-        "research/NARRATIVE_REPORT.md",
-        "paper/RESULTS_REPORT.md",
-    ),
     "draft": (
         "paper/main.tex",
         "paper/PAGE_BUDGET.md",
@@ -1060,7 +1052,12 @@ REQUIRED_ARTIFACT_PATTERNS: dict[str, tuple[str, ...]] = {
         str(STYLE_EXEMPLAR_JSON_PATH),
         str(IMAGE2_FIGURES_JSON_PATH),
     ),
-    "assurance": (
+    "review": (
+        str(LAYOUT_REVIEW_JSON_PATH),
+        str(ACADEMIC_LANGUAGE_REVIEW_JSON_PATH),
+        str(PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH),
+    ),
+    "submission": (
         "paper/SUBMISSION_ASSURANCE.md",
         "paper/SUBMISSION_ASSURANCE.json",
         str(PAPER_QUALITY_CALIBRATION_JSON_PATH),
@@ -1079,14 +1076,14 @@ REQUIRED_ARTIFACT_PATTERNS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-ARTIFACT_MANIFEST_STAGES = {"analysis", "narrative", "draft", "assurance", "submission"}
-LITERATURE_GROUNDING_STAGES = {"literature", "novelty", "plan"}
-IDEA_PROVENANCE_STAGES = {"novelty", "plan"}
+ARTIFACT_MANIFEST_STAGES = {"analysis", "draft", "review", "submission"}
+LITERATURE_GROUNDING_STAGES = {"research", "plan"}
+IDEA_PROVENANCE_STAGES = {"plan"}
 CODE_REUSE_PLAN_STAGES = {"plan"}
-EMNLP_PAPER_CONTRACT_STAGES = {"draft", "assurance", "submission"}
-LAYOUT_REVIEW_STAGES = {"assurance", "submission"}
-ACADEMIC_LANGUAGE_REVIEW_STAGES = {"assurance", "submission"}
-PAPER_INFRASTRUCTURE_REVIEW_STAGES = {"assurance", "submission"}
+EMNLP_PAPER_CONTRACT_STAGES = {"draft", "review", "submission"}
+LAYOUT_REVIEW_STAGES = {"review", "submission"}
+ACADEMIC_LANGUAGE_REVIEW_STAGES = {"review", "submission"}
+PAPER_INFRASTRUCTURE_REVIEW_STAGES = {"review", "submission"}
 FULL_EMNLP_REQUIRED_STAGES: tuple[str, ...] = (
     "research",
     "plan",

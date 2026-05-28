@@ -1155,9 +1155,7 @@ def _backlog_item_requires_full_scale_evidence_precondition(
             "draft",
             "manuscript",
             "submission",
-            "assurance",
             "review",
-            "narrative",
             "analysis",
             "package",
         )

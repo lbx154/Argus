@@ -173,12 +173,12 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
 def _get_current_stage(project_root: Path) -> str:
     state_path = project_root / "research" / "PIPELINE_STATE.json"
     if not state_path.exists():
-        return "brief"
+        return "research"
     try:
         data = json.loads(state_path.read_text(encoding="utf-8"))
-        return data.get("current_stage", "brief")
+        return data.get("current_stage", "research")
     except (json.JSONDecodeError, OSError):
-        return "brief"
+        return "research"
 
 
 def main() -> int:

@@ -327,11 +327,10 @@ class _MemoryRunner:
                 "objective": objective,
                 "target_venue": "EMNLP",
                 "stages": {
-                    "brief": {
+                    "research": {
                         "status": "done",
                         "artifact": "research/RESEARCH_BRIEF.md",
                     },
-                    "novelty": {"status": "pending"},
                     "plan": {
                         "status": "ready",
                         "artifact": "research/EXPERIMENT_PLAN.md",
@@ -342,10 +341,8 @@ class _MemoryRunner:
                     },
                     "run": {"status": "missing"},
                     "analysis": {"status": "missing"},
-                    "narrative": {"status": "missing"},
                     "draft": {"status": "missing"},
-                    "assurance": {"status": "missing"},
-                    "revision": {"status": "missing"},
+                    "review": {"status": "missing"},
                     "submission": {"status": "missing"},
                 },
             }

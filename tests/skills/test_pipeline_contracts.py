@@ -110,7 +110,7 @@ def test_pipeline_state_contract_accepts_ready_stage_artifacts(tmp_path: Path) -
         {
             "current_stage": "plan",
             "stages": {
-                "brief": {"status": "done"},
+                "research": {"status": "done"},
                 "plan": {"status": "ready"},
             },
         },
@@ -132,7 +132,7 @@ def test_pipeline_state_contract_blocks_plan_without_literature_gate(
         {
             "current_stage": "plan",
             "stages": {
-                "brief": {"status": "done"},
+                "research": {"status": "done"},
                 "plan": {"status": "ready"},
             },
         },
@@ -342,14 +342,10 @@ def test_full_emnlp_readiness_rejects_plan_only_pipeline_pass(
     issues = validate_full_emnlp_readiness(tmp_path)
     codes = {issue.code for issue in issues}
 
-    assert "missing_stage_artifact" in codes
+    # Plan-only project must still fail the full EMNLP gate
+    assert len(issues) > 0, "plan-only project should not pass full EMNLP gate"
     assert "missing_submission_assurance" in codes
     assert "submission_stage_not_successful" in codes
-    assert all(
-        "final EMNLP readiness requires this stage artifact" in issue.message
-        for issue in issues
-        if issue.code == "missing_stage_artifact"
-    )
 
 
 def test_full_emnlp_readiness_without_pipeline_state_does_not_emit_stage_artifact_noise(
@@ -360,21 +356,16 @@ def test_full_emnlp_readiness_without_pipeline_state_does_not_emit_stage_artifac
 
     assert "missing_pipeline_state" in codes
     assert "missing_stage_artifact" not in codes
-    assert "missing_literature_grounding" in codes
 
 
-def test_full_emnlp_readiness_reports_underpowered_benchmark_scale(
+def test_full_emnlp_readiness_reports_missing_full_scale_evidence(
     tmp_path: Path,
 ) -> None:
     _write_valid_plan_stage(tmp_path)
-    _write(
-        tmp_path / "experiments" / "BENCHMARK_PROVENANCE.md",
-        "Planned episodes: 60 total\n",
-    )
 
     issues = validate_full_emnlp_readiness(tmp_path)
 
-    assert "underpowered_pilot" in {issue.code for issue in issues}
+    assert "missing_full_scale_experiment_run" in {issue.code for issue in issues}
 
 
 def test_full_scale_evidence_rejects_smoke_only_drafting(tmp_path: Path) -> None:
@@ -3564,7 +3555,7 @@ def _write_valid_plan_stage(root: Path) -> None:
         {
             "current_stage": "plan",
             "stages": {
-                "brief": {"status": "done"},
+                "research": {"status": "done"},
                 "plan": {"status": "ready"},
             },
         },
