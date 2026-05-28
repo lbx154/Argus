@@ -55,6 +55,7 @@ LAYOUT_REFERENCES_HEADING_PATTERN = (
 ALLOWED_DIRECTIVE_ACTIONS = {
     "shorten_section",
     "expand_evidence_content",
+    "trim_or_move_content",
     "split_table",
     "merge_tables",
     "move_float",
@@ -193,7 +194,7 @@ def generate_layout_review(
                 else:
                     score = min(score, max(1.0, min(5.0, vision_score)))
                 criteria_scores.update(_criterion_scores(vision_review.get("criteria_scores")))
-                issues.extend(_vision_issues(vision_review))
+                issues.extend(_vision_issues(vision_review, deterministic=deterministic))
     elif review_mode != "heuristic":
         raise LayoutReviewError(f"unsupported review_mode {review_mode!r}")
 
@@ -224,6 +225,7 @@ def generate_layout_review(
         "render_error": render_error,
         "layout_text_extracted": bool(layout_text.strip()),
         "criteria_scores": criteria_scores,
+        "page_flow_contract": deterministic.get("page_flow_contract", {}),
         "issues": issues,
         "blocking_issues": blocking_issues,
         "revision_directives": directives,
@@ -678,9 +680,16 @@ def _deterministic_assessment(
         layout_pages,
         LAYOUT_REFERENCES_HEADING_PATTERN,
     )
+    appendix_page = _first_layout_page_matching(
+        layout_pages,
+        rf"(?m)(?:^\s*|\s{{6,}}){LAYOUT_HEADING_LINE_NUMBER_PREFIX}"
+        r"(?:Reproducibility\s+Appendix|Appendix)\b",
+    )
     page_flow_contract = {
+        "page_count": len(layout_pages),
         "conclusion_page": conclusion_page,
         "references_page": references_page,
+        "appendix_page": appendix_page,
         "conclusion_by_page_8": conclusion_page is None or conclusion_page <= 8,
         "references_on_or_after_page_9": references_page is None or references_page >= 9,
         "post_body_pages_uncapped": True,
@@ -949,8 +958,12 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "unreadable fonts, awkward two-column imbalance, captions detached from content, weak page "
         "flow, square or low-quality figures, non-human code-like labels, snake_case labels, heavy "
         "gradients, photorealism, or visuals that look like debug artifacts rather than EMNLP paper "
-        "figures. A page with only a couple of small tables and a large empty area is a hard visual "
-        "failure even if LaTeX compiles. Official ACL/EMNLP anonymous review-mode line numbers from "
+        "figures. A pre-body-boundary page with only a couple of small tables and a large empty area "
+        "is a hard visual failure even if LaTeX compiles. Final References/Appendix pages are "
+        "post-body pages: when Conclusion is by page 8 and References/Appendix start on page 9 or "
+        "later, natural trailing whitespace on the last appendix/reference page is advisory unless "
+        "there is a separate readability defect such as overlap, detached captions, missing required "
+        "content, or unreadably tiny tables. Official ACL/EMNLP anonymous review-mode line numbers from "
         "`\\usepackage[review]{acl}` are acceptable submission artifacts and must not be treated as "
         "debug gutters. Penalize only nonstandard duplicate line-number overlays, margin counters "
         "unrelated to ACL review mode, or post-processing artifacts. Do not turn a small amount of "
@@ -989,7 +1002,10 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "which body section should be expanded with source-backed narrative and which low-value "
         "artifact/table should move to appendix or be deleted. Valid expansion targets include "
         "literature-grounded Introduction/Related Work framing, benchmark or Method detail, and "
-        "evidence-backed Results/Analysis/Ablation material; generic motivation is filler.\n\n"
+        "evidence-backed Results/Analysis/Ablation material; generic motivation is filler. For any "
+        "single table cluster, choose one dominant repair action: merge low-density redundant tables "
+        "or split an unreadably dense table, but do not issue contradictory merge and split directives "
+        "for the same appendix/table target in the same review.\n\n"
         "Reference boundary guidance: if References or Bibliography starts on the same rendered page as "
         "Conclusion, Limitations, Ethics, or release/reproducibility body text, do not automatically call "
         "the body overlong and do not ask for generic section shortening. Determine the direction from "
@@ -1027,8 +1043,15 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
     )
 
 
-def _vision_issues(vision_review: dict[str, Any]) -> list[dict[str, Any]]:
+def _vision_issues(
+    vision_review: dict[str, Any],
+    *,
+    deterministic: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
+    page_flow_contract = {}
+    if deterministic is not None and isinstance(deterministic.get("page_flow_contract"), Mapping):
+        page_flow_contract = dict(deterministic["page_flow_contract"])
     for field, severity in (("blocking_issues", "major"), ("major_issues", "major")):
         raw_items = vision_review.get(field)
         if not isinstance(raw_items, list):
@@ -1062,8 +1085,69 @@ def _vision_issues(vision_review: dict[str, Any]) -> list[dict[str, Any]]:
                     issue["visual_evidence"] = visual_evidence
                 if guidance:
                     issue["guidance"] = guidance
+                if _is_post_body_trailing_whitespace_issue(
+                    issue,
+                    raw_item=item if isinstance(item, Mapping) else {},
+                    page_flow_contract=page_flow_contract,
+                ):
+                    issue["severity"] = "minor"
+                    issue.pop("hard_gate", None)
+                    issue["code"] = f"vision_advisory_{field}_{index}"
+                    issue["message"] = (
+                        issue["message"]
+                        + " Advisory only: the formal post-body page contract already passes, "
+                        "so final References/Appendix trailing whitespace should not drive a "
+                        "blocking layout loop by itself."
+                    )
                 issues.append(issue)
     return issues
+
+
+def _is_post_body_trailing_whitespace_issue(
+    issue: Mapping[str, Any],
+    *,
+    raw_item: Mapping[str, Any],
+    page_flow_contract: Mapping[str, Any],
+) -> bool:
+    if not (
+        page_flow_contract.get("post_body_pages_uncapped") is True
+        and page_flow_contract.get("conclusion_by_page_8") is True
+        and page_flow_contract.get("references_on_or_after_page_9") is True
+    ):
+        return False
+    page = _int_or_none(issue.get("page"))
+    page_count = _int_or_none(page_flow_contract.get("page_count"))
+    if page is None or page_count is None or page < page_count:
+        return False
+    haystack = " ".join(
+        [
+            _layout_item_haystack(issue),
+            _layout_item_haystack(raw_item),
+        ]
+    )
+    if not re.search(r"\b(?:appendix|references|bibliography|reproducibility)\b", haystack):
+        return False
+    if not re.search(
+        r"\b(?:blank|empty|underfill|underfilled|under-utilized|underutilized|"
+        r"dead\s+space|whitespace|white\s+space|lower[- ]page|lower\s+half|"
+        r"low[- ]density|low\s+density)\b",
+        haystack,
+    ):
+        return False
+    separate_readability_defects = (
+        "overlap",
+        "unreadable",
+        "tiny",
+        "detached",
+        "overfull",
+        "caption-only",
+        "references before",
+        "appendix before",
+        "conclusion after",
+        "missing required",
+        "missing content",
+    )
+    return not any(term in haystack for term in separate_readability_defects)
 
 
 def _revision_directives(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:

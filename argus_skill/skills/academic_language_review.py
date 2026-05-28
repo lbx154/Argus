@@ -878,7 +878,13 @@ def _review_prompt(
         "explicitly scopes itself as an end-to-end policy or comparator result; in that "
         "case, evaluate whether the comparator, task slice, sample size, and quantified "
         "outcome are stated plainly and whether unresolved submechanisms are moved to "
-        "analysis or limitations. Calibrate severity tightly: `blocking_issues`, "
+        "analysis or limitations. Make revision guidance stable: emit at most one "
+        "revision directive per section/action pair. If the Introduction fails for "
+        "problem/gap/contribution, quantified preview, contribution framing, or claim "
+        "calibration, provide one coherent `rewrite_introduction` directive targeted "
+        "at `Introduction` with a paragraph-level repair plan, rather than separate "
+        "rewrite/calibrate/tighten directives that cause local edit oscillation. "
+        "Calibrate severity tightly: `blocking_issues`, "
         "`major_issues`, and `revision_directives` are for problems that should keep "
         "the paper from passing this gate. Do not list optional polish, minor wording "
         "preferences, or already-contained caveats as major issues once the score is "
@@ -1025,6 +1031,7 @@ def _revision_directives(
     seen: set[tuple[str, str]] = set()
 
     def add(action: str, target: str, rationale: str, expected_effect: str | None = None) -> None:
+        action, target = _canonical_directive(action, target, rationale)
         key = (action, target)
         if key in seen:
             return
@@ -1057,6 +1064,29 @@ def _revision_directives(
         target = str(issue.get("target") or "paper/main.tex")
         add(action, target, str(issue.get("message") or "revise academic prose"))
     return directives
+
+
+def _canonical_directive(action: str, target: str, rationale: str) -> tuple[str, str]:
+    text = " ".join([action, target, rationale]).lower()
+    introduction_actions = {
+        "rewrite_introduction",
+        "tighten_contribution_sentence",
+        "calibrate_claim",
+    }
+    introduction_signals = (
+        "introduction",
+        "clear_problem_gap_contribution",
+        "problem/gap",
+        "problem, gap",
+        "literature gap",
+        "contribution framing",
+        "contribution_framing",
+        "quantified result preview",
+        "roadmap",
+    )
+    if action in introduction_actions and any(signal in text for signal in introduction_signals):
+        return "rewrite_introduction", "Introduction"
+    return action, target
 
 
 def _issue(

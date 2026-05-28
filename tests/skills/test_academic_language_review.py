@@ -2,6 +2,7 @@ from argus_skill.skills.academic_language_review import (
     _deterministic_assessment,
     _numbered_source_excerpt,
     _review_prompt,
+    _revision_directives,
     _section_text,
 )
 
@@ -145,6 +146,54 @@ def test_review_prompt_tells_model_not_to_use_fixed_intro_word_gate() -> None:
 
     assert "Introduction word count is only a reviewer signal" in prompt
     assert "do not reject solely because a word counter is below a fixed target" in prompt
+    assert "emit at most one revision directive per section/action pair" in prompt
+
+
+def test_intro_revision_directives_are_bundled_by_section() -> None:
+    directives = _revision_directives(
+        issues=[
+            {
+                "severity": "major",
+                "hard_gate": True,
+                "action": "tighten_contribution_sentence",
+                "target": "paper/main.tex",
+                "message": "section score contribution_framing=3.4 is below 4",
+            },
+            {
+                "severity": "major",
+                "hard_gate": True,
+                "action": "calibrate_claim",
+                "target": "paper/main.tex",
+                "message": "Introduction does not satisfy clear_problem_gap_contribution",
+            },
+        ],
+        model_review={
+            "revision_directives": [
+                {
+                    "action": "rewrite_introduction",
+                    "target": "Introduction",
+                    "rationale": "Strengthen the opening into a clearer EMNLP-style arc.",
+                },
+                {
+                    "action": "rewrite_introduction",
+                    "target": "paper/main.tex",
+                    "rationale": "Introduction must preview the main empirical result.",
+                },
+            ]
+        },
+    )
+
+    intro_directives = [
+        directive for directive in directives if directive["target"] == "Introduction"
+    ]
+    assert intro_directives == [
+        {
+            "action": "rewrite_introduction",
+            "target": "Introduction",
+            "rationale": "Strengthen the opening into a clearer EMNLP-style arc.",
+            "expected_effect": "replace generic setup with problem-specific motivation",
+        }
+    ]
 
 
 def test_section_text_expands_simple_paper_macros() -> None:
