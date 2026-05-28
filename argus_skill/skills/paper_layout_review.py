@@ -1162,6 +1162,19 @@ def _is_advisory_visual_polish_issue(
             _layout_item_haystack(raw_item),
         ]
     )
+    soft_label_density_request = bool(
+        re.search(
+            r"\b(?:missing|needs?|add|include|wants?)\b.{0,80}\b"
+            r"(?:benchmark[- ]specific\s+)?(?:adapter\s+labels?|adapter\s+tags?|"
+            r"small\s+adapter\s+tags?|internal\s+labels?|subtitle|title)\b",
+            haystack,
+        )
+        or re.search(
+            r"\b(?:denser|density|information\s+density|paper[- ]native|"
+            r"schematic|slide[- ]like|presentation[- ]like)\b",
+            haystack,
+        )
+    )
     concrete_defects = (
         "unreadable",
         "illegible",
@@ -1181,7 +1194,7 @@ def _is_advisory_visual_polish_issue(
         "low-resolution",
         "detached",
         "caption-only",
-        "missing",
+        *(("missing",) if not soft_label_density_request else ()),
         "wrong",
         "mismatched",
         "references before",
@@ -1195,12 +1208,21 @@ def _is_advisory_visual_polish_issue(
         "weak",
         "polish",
         "presentation-style",
+        "presentation-like",
         "slide",
+        "slide-like",
         "pastel",
         "generic",
         "decorative",
         "visual payoff",
         "information density",
+        "denser",
+        "density",
+        "paper-native",
+        "adapter label",
+        "adapter tag",
+        "subtitle",
+        "title sizing",
         "sparse",
         "airy",
         "dashboard",
