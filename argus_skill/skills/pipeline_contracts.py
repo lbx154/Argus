@@ -5452,6 +5452,11 @@ def validate_layout_review(project_root: Path) -> list[ContractIssue]:
             )
         )
 
+    layout_pdf_page_count, pdf_binding_issues = _validate_layout_review_pdf_binding(root, payload)
+    issues.extend(pdf_binding_issues)
+    if any(issue.code == "stale_layout_review_artifact" for issue in pdf_binding_issues):
+        return _dedupe_contract_issues(issues)
+
     verdict = payload.get("verdict")
     if verdict != "PASS":
         issues.append(
@@ -5524,38 +5529,6 @@ def validate_layout_review(project_root: Path) -> list[ContractIssue]:
             )
         )
 
-    layout_pdf_page_count: int | None = None
-    pdf_path = _normalize_manifest_path(payload.get("pdf_path"))
-    if pdf_path is None:
-        issues.append(
-            ContractIssue(
-                "invalid_layout_review_pdf_path",
-                str(LAYOUT_REVIEW_JSON_PATH),
-                "layout review pdf_path must be a relative project path",
-            )
-        )
-    else:
-        resolved_pdf = _resolve_manifest_path(root, pdf_path)
-        if resolved_pdf is None or not resolved_pdf.is_file():
-            issues.append(
-                ContractIssue(
-                    "missing_layout_review_pdf",
-                    pdf_path,
-                    "layout review pdf_path does not exist",
-                )
-            )
-        else:
-            issues.extend(_validate_layout_review_hash(payload, "pdf_sha256", resolved_pdf, pdf_path))
-            layout_pdf_page_count = _pdf_page_count(resolved_pdf)
-            if layout_pdf_page_count is None:
-                issues.append(
-                    ContractIssue(
-                        "layout_review_pdf_page_count_unavailable",
-                        pdf_path,
-                        "could not derive PDF page count with pdfinfo; rerun layout review from a valid PDF",
-                    )
-                )
-
     snapshot_pages, snapshot_issues = _validate_layout_review_snapshots(
         root,
         payload.get("page_snapshots"),
@@ -5566,6 +5539,50 @@ def validate_layout_review(project_root: Path) -> list[ContractIssue]:
     issues.extend(_validate_layout_review_history(root, payload))
     issues.extend(_validate_layout_review_directives(payload))
     return _dedupe_contract_issues(issues)
+
+
+def _validate_layout_review_pdf_binding(
+    root: Path,
+    payload: dict[str, Any],
+) -> tuple[int | None, list[ContractIssue]]:
+    issues: list[ContractIssue] = []
+    layout_pdf_page_count: int | None = None
+    pdf_path = _normalize_manifest_path(payload.get("pdf_path"))
+    if pdf_path is None:
+        issues.append(
+            ContractIssue(
+                "invalid_layout_review_pdf_path",
+                str(LAYOUT_REVIEW_JSON_PATH),
+                "layout review pdf_path must be a relative project path",
+            )
+        )
+        return None, issues
+
+    resolved_pdf = _resolve_manifest_path(root, pdf_path)
+    if resolved_pdf is None or not resolved_pdf.is_file():
+        issues.append(
+            ContractIssue(
+                "missing_layout_review_pdf",
+                pdf_path,
+                "layout review pdf_path does not exist",
+            )
+        )
+        return None, issues
+
+    issues.extend(_validate_layout_review_hash(payload, "pdf_sha256", resolved_pdf, pdf_path))
+    if any(issue.code == "stale_layout_review_artifact" for issue in issues):
+        return None, issues
+
+    layout_pdf_page_count = _pdf_page_count(resolved_pdf)
+    if layout_pdf_page_count is None:
+        issues.append(
+            ContractIssue(
+                "layout_review_pdf_page_count_unavailable",
+                pdf_path,
+                "could not derive PDF page count with pdfinfo; rerun layout review from a valid PDF",
+            )
+        )
+    return layout_pdf_page_count, issues
 
 
 def _validate_layout_review_hash(
