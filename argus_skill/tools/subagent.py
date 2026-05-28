@@ -112,6 +112,31 @@ REGISTRY_DIR = Path(".argus_subagents")
 SUPERVISOR_MODEL = "gpt-5.4-mini"
 
 
+def _alert_engineer(task_id: str, message: str) -> None:
+    """Send an alert to engineer via the project inbox.
+
+    The engineer's next round will see this as operator guidance,
+    so it knows a subagent needs attention.
+    """
+    try:
+        from ..apps._inbox import queue_inbox_message
+        from ..apps._target_paths import resolve_life_dir
+        life_dir = resolve_life_dir()
+        queue_inbox_message(
+            life_dir,
+            f"🚨 SUBAGENT ALERT [{task_id}]: {message}",
+            source="subagent",
+        )
+    except Exception:
+        # Fallback: write alert to a file the engineer can find
+        alert_path = REGISTRY_DIR / f"{task_id}_ALERT.txt"
+        alert_path.parent.mkdir(parents=True, exist_ok=True)
+        alert_path.write_text(
+            f"SUBAGENT ALERT [{task_id}]: {message}\n"
+            f"Time: {time.strftime('%Y-%m-%dT%H:%M:%S')}\n",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Registry: persistent task state on disk
 # ---------------------------------------------------------------------------
@@ -207,6 +232,7 @@ def _run_direct(
                     "completed_at": time.time(), "mode": "direct",
                     "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
                 })
+                _alert_engineer(task_id, f"TIMEOUT after {timeout}s. Command: {command}")
                 return
 
         elapsed = round(time.time() - start_time, 1)
@@ -221,6 +247,10 @@ def _run_direct(
             "stdout_tail": stdout_tail, "stderr_tail": stderr_tail,
             "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
         })
+        if proc.returncode != 0:
+            _alert_engineer(task_id, f"FAILED (exit={proc.returncode}) after {elapsed:.0f}s. Check {stderr_path}")
+        else:
+            _alert_engineer(task_id, f"COMPLETED successfully in {elapsed:.0f}s. Results ready for collection.")
 
     except Exception as exc:
         _write_task(task_id, {
@@ -230,6 +260,7 @@ def _run_direct(
             "elapsed_seconds": round(time.time() - start_time, 1),
             "completed_at": time.time(), "mode": "direct",
         })
+        _alert_engineer(task_id, f"CRASHED: {type(exc).__name__}: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +413,7 @@ def _run_supervised(
                         "elapsed_seconds": round(elapsed, 1),
                         "completed_at": time.time(), "mode": "supervised",
                     })
+                    _alert_engineer(task_id, f"TIMEOUT after {timeout}s (supervised). Command: {command}")
                     return
 
                 # Supervisor LLM check
@@ -433,6 +465,14 @@ def _run_supervised(
                         "supervisor_checks": check_number,
                         "stop_reason": "supervisor early-stop",
                     })
+                    stderr_tail = _tail_file(stderr_path, 500)
+                    _alert_engineer(
+                        task_id,
+                        f"EARLY-STOPPED by supervisor at check #{check_number} "
+                        f"({round(time.time() - start_time)}s). "
+                        f"Reason: training anomaly detected. "
+                        f"Last stderr: {stderr_tail[:200]}"
+                    )
                     return
 
         # Process exited naturally
@@ -449,6 +489,10 @@ def _run_supervised(
             "stdout_tail": stdout_tail, "stderr_tail": stderr_tail,
             "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
         })
+        if proc.returncode != 0:
+            _alert_engineer(task_id, f"FAILED (exit={proc.returncode}) after {elapsed:.0f}s, {check_number} supervisor checks. Check {stderr_path}")
+        else:
+            _alert_engineer(task_id, f"COMPLETED successfully in {elapsed:.0f}s ({check_number} supervisor checks). Results ready.")
 
     except Exception as exc:
         _write_task(task_id, {
@@ -458,6 +502,7 @@ def _run_supervised(
             "elapsed_seconds": round(time.time() - start_time, 1),
             "completed_at": time.time(), "mode": "supervised",
         })
+        _alert_engineer(task_id, f"CRASHED: {type(exc).__name__}: {exc}")
 
 
 # ---------------------------------------------------------------------------
