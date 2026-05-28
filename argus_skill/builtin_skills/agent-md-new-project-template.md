@@ -29,6 +29,13 @@ This is a clean-slate project. Do not inherit titles, claims, datasets, benchmar
 
 Non-negotiable research bar: choose a frontier-domain problem grounded in current papers and real benchmark gaps; use the available GPU capacity to train or adapt a substantial domain-appropriate model when the method involves learning; evaluate only on existing real benchmarks or official task/data releases for paper-facing evidence. Synthetic/local benchmarks, tiny bag-of-words scorers, prompt-only wrappers, and exact-oracle policies can be smoke tests or baselines, not the proposed EMNLP-ready result, unless the operator explicitly lowers the scope.
 
+**Research taste is mandatory.** The operator gives you a research DIRECTION, not a paper plan. You must find your own insight:
+- Survey the field first. Read code, not just abstracts. Find what existing methods miss.
+- Your paper needs a 'WHY' — not just 'we applied X to Y and it worked'.
+- Simple reproduction of existing work is NOT a paper. You must have a novel thesis.
+- If you can't articulate what makes your approach surprising or counter-intuitive, keep searching.
+- Write `research/IDEA_REJECTION_LOG.md` — reject at least one mediocre idea before committing.
+
 ## Binding playbooks and validators
 - Read and follow the operator-provided research playbook when one is available before choosing the final thesis, benchmark, method name, metric, paper narrative, figure/table design, or final preflight.
 - Use the active Argus package/source checkout supplied by the launcher. Built-in skill markdown is available as project-local exports under `./argus_builtin_skills/` and as the Python package resource `argus_skill.builtin_skills`; `ARGUS_SKILL_SOURCE_ROOT` may point at a source checkout, but agents must not hard-code host-specific paths.
