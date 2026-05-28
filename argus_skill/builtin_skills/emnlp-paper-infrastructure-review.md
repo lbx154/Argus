@@ -23,12 +23,13 @@ Use this skill when a paper may contain local execution details that do not belo
 - Local software-environment descriptions that explain the authoring machine rather than the evaluated research system, including CUDA/driver/Python/conda/package tables, runtime environment blocks, or benchmark-machine notes when they are not needed as paper-facing method facts.
 - Local cache and filesystem configuration such as `HF_HOME`, `TRANSFORMERS_CACHE`, `TORCH_HOME`, `XDG_CACHE_HOME`, `/root/.cache`, `/root/...`, `/home/...`, or project-private paths.
 - Raw runner commands, script names, run IDs, or artifact paths that expose local device/config naming, such as `run_mind2web_gpu.py`, `mind2web-gpu-*`, `.venv`, `--output-root experiments`, `--benchmark-root benchmarks/...`, or project-private experiment directories rendered as the paper-facing reproducibility interface.
+- Operational audit-bundle metadata promoted into main-body scientific prose: wall-clock logging, artifact hashes, status snapshots, progress logs, STOP-file cancellation contracts, internal manifest mechanics, provenance-refresh workflow details, or validator/review artifact names. Keep these in appendix replay notes, manifests, logs, or supplementary metadata unless the paper explicitly studies that infrastructure.
 - Argus/Codex authoring infrastructure: daemon handoff, engineer/reviewer/critic/scientist routes, capability-vault configuration, validation artifacts, review artifacts, image-tool plumbing, API keys, private endpoints, or `gpt-5.4*` authoring/review routes.
 - Any local config table that explains how the paper was generated rather than how the evaluated research system ran.
 
 ## What is allowed
 - Paper-facing evaluated system facts: model/backend names, benchmark harness, public dataset or benchmark version, task count/split, metric, decoding/budget setting, seed policy, and high-level compute cost when it is genuinely part of reproducibility and not a local machine or authoring-environment description.
-- Neutral replay descriptions in the appendix: public benchmark lane, seed policy, split, metric, paper-facing command alias, and artifact types such as manifest/status/progress/raw rows/summary TSV. Put exact local CLI strings and path-heavy run IDs in manifests/logs/supplementary metadata, not rendered manuscript prose.
+- Neutral replay descriptions in the appendix: public benchmark lane, seed policy, split, metric, paper-facing command alias, and concise artifact-type availability. Put exact local CLI strings, path-heavy run IDs, audit-bundle mechanics, hashes, status/progress internals, and STOP-file contracts in manifests/logs/supplementary metadata, not rendered main-body prose.
 - Local execution notes in non-rendered comments, manifests, logs, or operator traces. These can support the pipeline, but they must not be rendered in title, abstract, body, captions, tables, or appendix prose.
 
 ## How to solve
@@ -39,6 +40,7 @@ Use this skill when a paper may contain local execution details that do not belo
 2. Remove or rewrite leaks as reader-facing method facts:
    - Replace local device/cache/path text with benchmark protocol, model/backend, metric, budget, and artifact availability.
    - Replace raw local runner paths/run IDs with neutral paper-facing labels such as "Mind2Web primary replay" plus seeds, split, metric, and artifact types.
+   - Move wall-clock/hash/status/progress/STOP-file details out of Method, Setup, Results, Analysis, and Conclusion; if needed, summarize them once in appendix-facing replay language.
    - Move local operational details to manifests/logs if they are needed for the daemon, not to the manuscript.
    - Keep evaluated model identifiers only when they describe the experiment itself.
 3. Run the model-backed tool:

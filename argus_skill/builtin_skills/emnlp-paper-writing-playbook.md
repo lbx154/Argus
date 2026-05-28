@@ -735,11 +735,11 @@ Always include `appendix_repro.tex` with:
 
 - [ ] Hyperparameters (learning rate, K, top-k, thresholds, ages)
 - [ ] LLM settings (temperature, top_p, max_tokens, model version)
-- [ ] Cache key formula (so re-runs reproduce exactly)
+- [ ] Reader-facing replay identifier or released artifact bundle version, not local cache paths or cache-key internals
 - [ ] Seeds (benchmark generation + bootstrap)
-- [ ] Compute (total tokens, $$, wall-clock, high-level GPU/CPU class if relevant; no local device IDs or cache paths)
+- [ ] Compute only when it is a research-method fact; keep wall-clock logs, local device IDs, GPU ordinals, cache settings, and authoring-machine details out of rendered prose
 - [ ] Statistical methodology (which tests, two-sided, etc.)
-- [ ] Code/data/prompts release plan with SHA-256 fingerprint of prompts
+- [ ] Code/data/prompts release plan with public package metadata; put SHA-256 fingerprints, status/progress logs, STOP-file contracts, and other audit-bundle mechanics in manifests or supplementary metadata rather than the main paper body
 
 ---
 

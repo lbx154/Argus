@@ -75,7 +75,7 @@ Analyze completed runs and generate figure/table artifacts for a paper. This ada
 
 6. Write `paper/RESULTS_REPORT.md`:
    - Summarize what the data supports, weakens, or rejects.
-   - Include exact artifact paths and regeneration commands only in provenance reports, manifests, or developer-facing run logs. Do not copy raw local paths, commands, GPU/device/cache settings, route names, or private configuration into rendered paper prose; captions and body text should use reader-facing artifact types, benchmark/model facts, and neutral replay-interface language.
+   - Include exact artifact paths and regeneration commands only in provenance reports, manifests, or developer-facing run logs. Do not copy raw local paths, commands, GPU/device/cache settings, route names, private configuration, wall-clock log details, artifact hashes, status/progress log mechanics, or STOP-file contracts into rendered paper prose; captions and body text should use reader-facing artifact types, benchmark/model facts, and neutral replay-interface language.
    - List missing evidence as TODOs rather than filling gaps with estimates.
    - Treat canonical tables/JSON as the only source of reported numbers; regenerate the report after any table change.
    - Include a `research.md format readiness` subsection listing table-style compliance, figure aspect ratios, paired-significance status, and whether any generated artifact is likely to cause `Overfull \hbox > 5pt`.
