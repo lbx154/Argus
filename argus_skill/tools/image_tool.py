@@ -43,27 +43,20 @@ PAPER_FIGURE_STUDIO_WORKFLOW = (
 PAPER_FIGURE_STUDIO_DEFAULT_STAGE = "S5-CANDIDATE-IMAGE"
 
 
-PAPER_FIGURE_PROMPT_TEMPLATE = """Use case: scientific-educational
+PAPER_FIGURE_PROMPT_TEMPLATE = """Create one polished EMNLP method figure variant.
 Prompt template: {template_id}
 Prompt source: {figure_studio_source}
-Source workflow: S0-PAPER-FOUNDATION -> S1-FIGURE-STRATEGY -> S2-SKETCH-EXPLORE -> S3-DIRECTION-SELECT -> S4-CANDIDATE-BRIEF -> S5-CANDIDATE-IMAGE -> S6-FINAL-SELECT -> S7-FINAL-JOINT-AUDIT.
-Current image stage: {studio_stage}
-Asset type: Figure 1 teaser / conceptual overview for an EMNLP/ACL/NeurIPS-style academic manuscript.
-
-Argus figure-studio adaptation:
-- Build the prompt from paper facts and candidate contracts, not from a one-sentence image request.
-- Treat the image and title/caption/legend/body-reference as one explanatory unit; the image carries the reader path and the caption/legend carry definitions, caveats, and nonessential detail.
-- Generate each candidate as a separate image-2 raster and audit the final image-caption bundle with a bounded S7-style joint review.
-- Do not use manual vector redraws, SVG/PPT/HTML/canvas, or locally scripted conceptual diagrams as substitutes for image-2 rasters.
+{framing}
 
 General style:
-- EMNLP/ACL/NeurIPS/CS paper method figure, full-width two-column landscape, 1536x1024 or 1920x1088.
-- Clean Figma-style block diagram / block-based Figma style with rounded cards, neat alignment, soft pastel fills, dark-gray 2px borders, and compact information density.
+- EMNLP/ACL/NeurIPS/CS paper method figure, full-width two-column landscape.
+- Clean block-based Figma style with rounded cards (10-16px radius), neat alignment, soft pastel fills, dark-gray 2px borders, and compact information density.
 - Compact, information-rich, suitable for a PDF page-width figure; little wasted space but not crowded.
-- Tidy rounded handwritten or friendly sans-serif feel is acceptable only if it remains crisp and readable; no messy sketch fonts.
+- Tidy rounded or friendly sans-serif feel; must remain crisp and readable.
 - Moderate badge/icon use only when semantically useful; a few simple recognizable icons are fine, not a logo wall.
 - No heavy shadows, no gradients, no photorealism, no glassmorphism, no messy Excalidraw look.
 - Large readable labels, short phrases, balanced hierarchy, flat vector-like raster rendering on warm white #fbfaf7.
+- 干净、密实、模块化、Figma 风，圆角卡片为主，低饱和浅色块，少量 badge/logo，少留白但不拥挤。整体适合 EMNLP/ACL/NeurIPS 论文主图，不要像随手白板，也不要像艺术插画。
 
 Style intent:
 - Clean, dense, modular, Figma-like, mostly rounded cards, low-saturation pastel blocks.
@@ -71,23 +64,8 @@ Style intent:
 - It should look like a main figure in an EMNLP/ACL/NeurIPS paper, not a marketing graphic, stock illustration, dashboard screenshot, or casual whiteboard.
 
 Pinned content that must appear exactly:
-- Title: "{figure_title}"
-- Show: "{input_label}" -> "{mechanism_label}" -> "{verification_label}" -> "{state_label}" -> "{execution_label}" -> "{output_label}" -> "{evidence_label}".
-- Components/chips: "Baseline/status quo", "Proposed method", "Accepted item", "Rejected item", "{benefit_label}", "{failure_label}".
-- SPELL EXACTLY every quoted label above. Do not invent alternate terminology, code identifiers, raw artifact paths, local configuration details, or extra labels.
-
-Figure-caption contract:
-- Caption plan: {caption_plan}
-- Legend plan: {legend_plan}
-- Body reference plan: {body_reference_plan}
-- Keep long definitions, exact numeric evidence, implementation caveats, and detailed symbol explanations out of the image pixels unless they are visually essential.
-
-Core mechanism contract:
-- Core step visibility plan: {core_step_visibility_plan}
-- Claimed improvement visual anchor: {claimed_improvement_anchor}
-- Symbol/formula necessity proof: {symbol_formula_necessity}
-- Arrow/color/icon semantic contract: {semantic_contract}
-- Do not draw the core contribution as an empty generic box; expose the required internal mechanism with nested cards, a connected inset, a compact loop, or a small mechanism panel.
+{content}
+- SPELL EXACTLY every quoted label above. Do not invent alternate terminology, code identifiers, raw artifact paths, or extra labels.
 
 Layout variant:
 - {layout_variant}
@@ -95,14 +73,18 @@ Layout variant:
 - Prefer grouped modules, phase containers, compact chips, and clear arrows over a sparse chain of identical boxes.
 
 Negative prompt / Avoid:
-- no concrete code snippets, raw paths, local runner commands, GPU/device/cache/config text, tiny unreadable text, character-level vertical text, or dense paragraphs
+- no concrete code snippets, raw paths, tiny unreadable text, character-level vertical text, or dense paragraphs
 - no excessive logos or brand marks, no watermark
 - no photorealistic scenes, stock photos, glassmorphism, heavy gradients, heavy shadows, texture, or arbitrary decorative blobs
 - no messy whiteboard / Excalidraw-heavy sketch style
 - no large empty areas, overlapping cards, squashed labels, inconsistent terminology, or extra captions that make it look like a dashboard
+- no inconsistent terminology between figure and text
+
+Aspect ratio:
+- {aspect_ratio}
 
 Figma tokens for camera-ready cleanup:
-- Canvas 1536x1024 or 1920x1088; background #fbfaf7; stroke #1f2933 at 2px.
+- Background #fbfaf7; stroke #1f2933 at 2px.
 - Corner radius 10-16px; card padding 12-20px; card gap 12-24px.
 - Pastels: acquisition #ffe2d1, parsing #fff2bd, memory/wiki #dcecff, agent #e2f7df, domains #eadfff, benchmark #fff1c9.
 - Text sizes: title 38-52px, section headers 22-30px, card labels 16-22px, chips 12-16px.
@@ -238,132 +220,125 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _sha256_prompt_file(path: Path) -> str:
+    """Canonical prompt hash: always hash the raw file bytes on disk.
+
+    This MUST match how ``pipeline_contracts.validate_image2_figures``
+    computes the hash.  Never use ``_sha256_text(text.strip())`` for
+    prompt hashes stored in manifests, provenance, or sidecars — the
+    validator reads the file as raw bytes, so stripped-text hashes will
+    silently mismatch and block the pipeline forever.
+    """
+    return _sha256_file(path)
+
+
 def render_paper_figure_prompt(
     *,
-    studio_stage: str = PAPER_FIGURE_STUDIO_DEFAULT_STAGE,
     figure_title: str = "Method Overview",
-    input_label: str = "Literature-grounded inputs",
-    mechanism_label: str = "Reusable agent skill loop",
-    verification_label: str = "Evidence gate",
-    state_label: str = "Reusable state/library",
-    execution_label: str = "Agent execution",
-    output_label: str = "Submission-ready paper",
-    evidence_label: str = "Full-scale evidence",
-    benefit_label: str = "Better grounded claims",
-    failure_label: str = "Overclaiming avoided",
-    caption_plan: str = (
-        "Caption explains the method path, what the accepted/rejected chips mean, and which "
-        "evidence supports the paper claim without putting raw numbers into the image."
-    ),
-    legend_plan: str = (
-        "Legend defines arrow direction, verifier-gate colors, and accepted/rejected item "
-        "semantics in prose outside the image."
-    ),
-    body_reference_plan: str = (
-        "The body first points readers to the left-to-right mechanism, then uses the caption "
-        "for evidence and limitations."
-    ),
-    core_step_visibility_plan: str = (
-        "Expose the core mechanism as nested cards inside the central method module, with a "
-        "small verifier loop and a compact state/library update inset."
-    ),
-    claimed_improvement_anchor: str = (
-        "Use the accepted/rejected contrast and evidence panel as the visual anchor for the "
-        "main improvement claim."
-    ),
-    symbol_formula_necessity: str = (
-        "No equations are required unless a compact score or gate token is essential to the "
-        "paper mechanism."
-    ),
-    semantic_contract: str = (
-        "Solid arrows mean data/control flow; loop arrows mean verification or update; warm "
-        "colors mark inputs and baselines; cool colors mark reusable state and execution."
-    ),
+    content: str = "",
     layout_variant: str = (
         "20 polished Figma wireframe: component frames, auto-layout-like spacing, "
         "section tabs, chips, and carefully staggered components."
     ),
+    framing: str = "",
+    aspect_ratio: str = "1536x1024 landscape",
+    # Legacy parameters — composed into content block if content is empty
+    studio_stage: str = PAPER_FIGURE_STUDIO_DEFAULT_STAGE,
+    input_label: str = "",
+    mechanism_label: str = "",
+    verification_label: str = "",
+    state_label: str = "",
+    execution_label: str = "",
+    output_label: str = "",
+    evidence_label: str = "",
+    benefit_label: str = "",
+    failure_label: str = "",
+    caption_plan: str = "",
+    legend_plan: str = "",
+    body_reference_plan: str = "",
+    core_step_visibility_plan: str = "",
+    claimed_improvement_anchor: str = "",
+    symbol_formula_necessity: str = "",
+    semantic_contract: str = "",
 ) -> str:
-    """Render the canonical Argus paper-figure prompt scaffold."""
+    """Render a paper-figure prompt using the 6-section structure.
+
+    Preferred usage: provide ``figure_title``, a free-form ``content`` block
+    listing every label that must appear verbatim, a ``layout_variant``,
+    and an ``aspect_ratio``.
+
+    If ``content`` is empty, legacy stage-label parameters are composed into
+    a default content block for backward compatibility.
+    """
+    if not content.strip():
+        stages = [s for s in [
+            input_label, mechanism_label, verification_label,
+            state_label, execution_label, output_label, evidence_label,
+        ] if s]
+        chips = [c for c in [benefit_label, failure_label] if c]
+        lines = [f'- Title: "{figure_title}"']
+        if stages:
+            lines.append('- Show: "' + '" -> "'.join(stages) + '".')
+        if chips:
+            lines.append('- Components/chips: "' + '", "'.join(chips) + '".')
+        content = "\n".join(lines)
+
+    if not framing.strip():
+        framing = (
+            f"Figma-style technical diagram for an EMNLP/ACL paper. "
+            f"Subject: {figure_title}."
+        )
 
     return PAPER_FIGURE_PROMPT_TEMPLATE.format(
         template_id=PAPER_FIGURE_PROMPT_TEMPLATE_ID,
         figure_studio_source=PAPER_FIGURE_STUDIO_SOURCE_ID,
-        studio_stage=studio_stage,
-        figure_title=figure_title,
-        input_label=input_label,
-        mechanism_label=mechanism_label,
-        verification_label=verification_label,
-        state_label=state_label,
-        execution_label=execution_label,
-        output_label=output_label,
-        evidence_label=evidence_label,
-        benefit_label=benefit_label,
-        failure_label=failure_label,
-        caption_plan=caption_plan,
-        legend_plan=legend_plan,
-        body_reference_plan=body_reference_plan,
-        core_step_visibility_plan=core_step_visibility_plan,
-        claimed_improvement_anchor=claimed_improvement_anchor,
-        symbol_formula_necessity=symbol_formula_necessity,
-        semantic_contract=semantic_contract,
+        framing=framing,
+        content=content,
         layout_variant=layout_variant,
+        aspect_ratio=aspect_ratio,
     ).strip() + "\n"
 
 
 def write_paper_figure_prompt(
     prompt_file: Path,
     *,
-    studio_stage: str = PAPER_FIGURE_STUDIO_DEFAULT_STAGE,
     figure_title: str = "Method Overview",
-    input_label: str = "Literature-grounded inputs",
-    mechanism_label: str = "Reusable agent skill loop",
-    verification_label: str = "Evidence gate",
-    state_label: str = "Reusable state/library",
-    execution_label: str = "Agent execution",
-    output_label: str = "Submission-ready paper",
-    evidence_label: str = "Full-scale evidence",
-    benefit_label: str = "Better grounded claims",
-    failure_label: str = "Overclaiming avoided",
-    caption_plan: str = (
-        "Caption explains the method path, what the accepted/rejected chips mean, and which "
-        "evidence supports the paper claim without putting raw numbers into the image."
-    ),
-    legend_plan: str = (
-        "Legend defines arrow direction, verifier-gate colors, and accepted/rejected item "
-        "semantics in prose outside the image."
-    ),
-    body_reference_plan: str = (
-        "The body first points readers to the left-to-right mechanism, then uses the caption "
-        "for evidence and limitations."
-    ),
-    core_step_visibility_plan: str = (
-        "Expose the core mechanism as nested cards inside the central method module, with a "
-        "small verifier loop and a compact state/library update inset."
-    ),
-    claimed_improvement_anchor: str = (
-        "Use the accepted/rejected contrast and evidence panel as the visual anchor for the "
-        "main improvement claim."
-    ),
-    symbol_formula_necessity: str = (
-        "No equations are required unless a compact score or gate token is essential to the "
-        "paper mechanism."
-    ),
-    semantic_contract: str = (
-        "Solid arrows mean data/control flow; loop arrows mean verification or update; warm "
-        "colors mark inputs and baselines; cool colors mark reusable state and execution."
-    ),
+    content: str = "",
     layout_variant: str = (
         "20 polished Figma wireframe: component frames, auto-layout-like spacing, "
         "section tabs, chips, and carefully staggered components."
     ),
+    framing: str = "",
+    aspect_ratio: str = "1536x1024 landscape",
     force: bool = False,
+    # Legacy parameters — passed through for backward compat
+    studio_stage: str = PAPER_FIGURE_STUDIO_DEFAULT_STAGE,
+    input_label: str = "",
+    mechanism_label: str = "",
+    verification_label: str = "",
+    state_label: str = "",
+    execution_label: str = "",
+    output_label: str = "",
+    evidence_label: str = "",
+    benefit_label: str = "",
+    failure_label: str = "",
+    caption_plan: str = "",
+    legend_plan: str = "",
+    body_reference_plan: str = "",
+    core_step_visibility_plan: str = "",
+    claimed_improvement_anchor: str = "",
+    symbol_formula_necessity: str = "",
+    semantic_contract: str = "",
 ) -> dict[str, Any]:
     if prompt_file.exists() and not force:
         raise ImageToolError(f"{prompt_file} already exists; pass --force to overwrite")
     prompt = render_paper_figure_prompt(
-        studio_stage=studio_stage,
         figure_title=figure_title,
+        content=content,
+        layout_variant=layout_variant,
+        framing=framing,
+        aspect_ratio=aspect_ratio,
+        studio_stage=studio_stage,
         input_label=input_label,
         mechanism_label=mechanism_label,
         verification_label=verification_label,
@@ -373,20 +348,12 @@ def write_paper_figure_prompt(
         evidence_label=evidence_label,
         benefit_label=benefit_label,
         failure_label=failure_label,
-        caption_plan=caption_plan,
-        legend_plan=legend_plan,
-        body_reference_plan=body_reference_plan,
-        core_step_visibility_plan=core_step_visibility_plan,
-        claimed_improvement_anchor=claimed_improvement_anchor,
-        symbol_formula_necessity=symbol_formula_necessity,
-        semantic_contract=semantic_contract,
-        layout_variant=layout_variant,
     )
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
     prompt_file.write_text(prompt, encoding="utf-8")
     return {
         "prompt_path": str(prompt_file),
-        "prompt_sha256": _sha256_text(prompt.strip()),
+        "prompt_sha256": _sha256_prompt_file(prompt_file),
         "template_id": PAPER_FIGURE_PROMPT_TEMPLATE_ID,
         "bytes": len(prompt.encode("utf-8")),
     }
@@ -591,7 +558,7 @@ def generate_image(
         "output_sha256": str(info.get("sha256") or ""),
         "requested_size": requested_size or "auto",
         "prompt": prompt,
-        "prompt_sha256": _sha256_text(prompt),
+        "prompt_sha256": _sha256_prompt_file(prompt_file) if prompt_file is not None else _sha256_text(prompt),
         "image": info,
         "api": {
             "provider": grant.provider,
@@ -620,12 +587,30 @@ def _data_url(path: Path) -> str:
 
 def _review_prompt(*, original_prompt: str, rubric: str) -> str:
     return (
-        "You are reviewing an academic paper figure generated for an EMNLP paper. "
-        "Judge visual quality, scientific clarity, text legibility, and faithfulness "
-        "to the requested prompt. Return concise JSON-compatible prose with: "
-        "score_1_to_5, major_issues, concrete_revision_prompt, and keep_or_regenerate.\n\n"
+        "You are reviewing an academic paper figure for an EMNLP/ACL submission. "
+        "Your ONLY job is to judge whether the figure effectively communicates "
+        "the paper's method to a reader. Do NOT nitpick pixel-level prompt "
+        "compliance, chip placement, badge count, or exact visual hierarchy — "
+        "those are style preferences, not quality issues.\n\n"
+        "Focus on these questions:\n"
+        "1. Does the figure faithfully represent the paper's method/architecture?\n"
+        "2. Is the core contribution module visible (not an empty box)?\n"
+        "3. Are labels readable and correctly spelled?\n"
+        "4. Is the data flow / reader path clear?\n"
+        "5. Would an EMNLP reviewer understand the method from this figure + its caption?\n\n"
+        "Return JSON with:\n"
+        "- score_1_to_5: 4+ means acceptable for submission, 3 means needs one more pass, "
+        "1-2 means fundamentally wrong (wrong modules, misleading flow, unreadable)\n"
+        "- major_issues: ONLY issues that would mislead a reader or misrepresent the method. "
+        "Do NOT list cosmetic preferences as major issues.\n"
+        "- concrete_revision_prompt: if score < 4, provide a SPECIFIC revision to the prompt "
+        "that fixes the actual problem. The prompt must still use the standard template "
+        "(General style, Pinned content, Layout variant, Negative prompt, Aspect ratio, "
+        "Figma tokens sections).\n"
+        "- keep_or_regenerate: 'keep' if score >= 4, 'regenerate' only if the figure "
+        "would actively mislead readers about the method.\n\n"
         f"Original figure prompt:\n{original_prompt or '(not provided)'}\n\n"
-        f"Rubric:\n{rubric or 'Prefer clean vector-like academic style, readable labels, and no fabricated numbers.'}"
+        f"Rubric:\n{rubric or 'Does this figure effectively communicate the paper method to an EMNLP reviewer?'}"
     )
 
 
@@ -805,8 +790,15 @@ def _upsert_image2_manifest_entry(manifest_path: Path, entry: dict[str, Any]) ->
 
 
 def _prompt_hash_variants(prompt_file: Path) -> set[str]:
+    """Return all plausible SHA-256 hashes for a prompt file.
+
+    Accepts raw-file hash (canonical), stripped-text hash, and
+    as-is-text hash so that sidecars written by older versions
+    still pass validation.
+    """
+    raw_file_hash = _sha256_file(prompt_file)
     text = prompt_file.read_text(encoding="utf-8", errors="replace")
-    return {_sha256_text(text), _sha256_text(text.strip())}
+    return {raw_file_hash, _sha256_text(text), _sha256_text(text.strip())}
 
 
 def _require_matching_prompt(
@@ -918,11 +910,15 @@ def sync_paper_metadata(
         prompt_path = _project_path(project_root, prompt_file)
     if not prompt_path.is_file():
         raise ImageToolError(f"prompt file does not exist: {prompt_path}")
-    _prompt_text, prompt_sha = _require_matching_prompt(
+    _prompt_text, _sidecar_prompt_sha = _require_matching_prompt(
         prompt_file=prompt_path,
         sidecar=sidecar_payload,
         allow_noncanonical_prompt=allow_noncanonical_prompt,
     )
+    # Always use the canonical raw-file hash for downstream artifacts,
+    # regardless of what the sidecar recorded (it may use an older
+    # stripped-text hash convention).
+    prompt_sha = _sha256_prompt_file(prompt_path)
 
     image_info = inspect_image(image_path)
     output_sha = str(image_info.get("sha256") or "").strip().lower()

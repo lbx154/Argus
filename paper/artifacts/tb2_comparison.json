@@ -2,7 +2,7 @@
   "artifact_label": "tb2_comparison",
   "artifact_name": "tb2_comparison",
   "artifact_version": 1,
-  "repo_root": "/home/argustest/argus-skill",
+  "repo_root": "/root/argus-skill",
   "rows": [
     {
       "cached_input_tokens": "",

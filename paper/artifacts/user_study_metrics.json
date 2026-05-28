@@ -2,7 +2,7 @@
   "artifact_label": "user_study_metrics",
   "artifact_name": "user_study_metrics",
   "artifact_version": 1,
-  "repo_root": "/home/argustest/argus-skill",
+  "repo_root": "/root/argus-skill",
   "rows": [
     {
       "accepted_rate": "0.8333333333333334",

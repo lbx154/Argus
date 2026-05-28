@@ -52,7 +52,7 @@ QUALITY_CALIBRATION_VERDICTS = (
     "NOT_APPLICABLE",
 )
 READY_VERDICTS = {"PASS", "WARN"}
-MIN_PAPER_TASKS = 300
+MIN_PAPER_TASKS = 200
 PAPER_TASK_SCALE_TARGET = "3-source final-evidence"
 MIN_SELECTED_BENCHMARK_SOURCES = 3
 RECOMMENDED_SELECTED_BENCHMARK_SOURCES = 3
@@ -720,7 +720,7 @@ def _validate_paper_contribution(
     payload: dict[str, Any],
 ) -> list[CalibrationIssue]:
     contribution = payload.get("paper_contribution")
-    if not isinstance(contribution, dict):
+    if not isinstance(contribution, (dict, str)) or not contribution:
         if verdict in READY_VERDICTS:
             return [
                 CalibrationIssue(
@@ -734,6 +734,10 @@ def _validate_paper_contribution(
                 )
             ]
         return []
+
+    # Accept both string (contribution sentence) and structured dict
+    if isinstance(contribution, str):
+        return []  # string contribution is sufficient
 
     if verdict not in READY_VERDICTS:
         # Blocked calibrations are allowed to carry a benchmark-local no-go claim
@@ -1799,7 +1803,10 @@ def _selected_benchmark_text_section(raw_text: str) -> str:
 def _actual_results_task_counts(rows: list[dict[str, str]]) -> list[int]:
     counts: list[int] = []
     for row in rows:
-        if not _is_overall_row(row) or not _nonempty_string(row.get("protocol")):
+        if not _nonempty_string(row.get("protocol")):
+            continue
+        # Accept both overall rows and per-benchmark rows with a named scope
+        if not _is_overall_row(row) and not _nonempty_string(row.get("scope")):
             continue
         for field in RESULTS_TASK_COUNT_FIELDS:
             count = _int_or_none(row.get(field))

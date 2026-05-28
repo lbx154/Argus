@@ -144,7 +144,7 @@ Write a paper draft from local evidence. This adapts ARIS paper-writing/paper-pl
    - Add captions that state exactly what data source the figure uses.
    - Tables must fit the ACL layout without visual overlap. Split wide tables, use human labels, adjust `tabcolsep=3-4pt`/`\footnotesize`/`\arraystretch=1.15` conservatively, or move verbose diagnostics to appendix. Do not rely on over-wide `table*` floats that interleave with body text.
 
-9. Compile and check page budget:
+9. Compile and auto-refresh:
    - Run `latexmk -pdf -interaction=nonstopmode -halt-on-error -output-directory=paper paper/main.tex` when LaTeX is available so the canonical output is `paper/main.pdf` and `paper/main.log`.
    - If `latexmk` is unavailable, run `pdflatex -output-directory=paper` twice and capture the log in `paper/main.log`.
    - Do not validate a root-level `main.pdf`/`main.log`; if those files are newer than `paper/main.pdf`/`paper/main.log`, recompile or copy the final artifacts into `paper/` before any validator run.
@@ -156,7 +156,6 @@ Write a paper draft from local evidence. This adapts ARIS paper-writing/paper-pl
    - Save compile logs and do not claim a PDF exists unless it does.
    - Treat any `Overfull \hbox` warning above 5pt as a blocking format failure, matching `research.md`; it usually indicates table/text overflow. Fix the source and recompile before marking the draft ready.
    - Inspect the rendered PDF or `pdftotext -layout` output when available. Reject table/body overlap, interleaved floats, references mixed into appendix pages, unreadable tiny table text, or any page that looks like a validator-passing but non-reviewable draft.
-   - Write `paper/ARTIFACT_FRESHNESS.json` after each regeneration wave. It must hash the current inputs for the claim graph, result tables, paper skeleton/blueprint, figure/table guide, `paper/main.tex`, compiled PDF, and review artifacts so stale paper prose cannot cite old results.
 
 10. Run dedicated format preflight:
    - Invoke the EMNLP Format Preflight skill after the final compile and before academic-language or layout scoring.
@@ -167,25 +166,52 @@ Write a paper draft from local evidence. This adapts ARIS paper-writing/paper-pl
    - Write `paper/VALIDATION_PRIORITY_POLICY.json` with a stable priority order: freshness, experiment evidence, claim evidence, and content sufficiency first; exemplar/skeleton conformance next; figure/table and format/layout next; visual layout next; academic language after evidence/structure are stable; then minor manifest/readiness cleanup.
    - Route failures to the right repair mode: stale artifacts trigger regeneration; `missing_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` trigger more benchmark runs; weak claims trigger extra experiments or claim softening; underfilled pages trigger evidence-backed analysis/ablation/failure study when evidence is thin, or source-backed Introduction/Related Work/Method expansion when evidence exists but the paper body is underwritten; structure drift triggers skeleton reset; ugly floats trigger figure/table redesign; repeated non-improving layout/prose edits trigger a skeleton/float reset rather than endless paragraph churn.
    - Prefer the official scaffold over hand-written JSON: run `python -m argus_skill.skills.pipeline_contracts write-validation-priority-policy --project-root .`, then edit only if a paper-specific route is truly needed. The policy must include all failure classes: `freshness`, `experiment_evidence`, `claim_graph`, `content_sufficiency`, `exemplar_suitability`, `exemplar_structure`, `figure_table_style`, `format_layout`, `layout_vision`, `academic_language`, `paper_infrastructure`, and `artifact_manifest`.
-   - After regenerating manuscript, figures, review JSON, or submission artifacts, run `python -m argus_skill.skills.pipeline_contracts refresh-manifest --project-root .` and `python -m argus_skill.skills.pipeline_contracts refresh-artifact-freshness --project-root .`; do not manually bump digests without regenerating from current inputs.
 
-12. Run final academic-language review:
-   - After the paper content is stable, run `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`.
-   - This must write `paper/ACADEMIC_LANGUAGE_REVIEW.json`, `paper/ACADEMIC_LANGUAGE_REVIEW.md`, and `paper/ACADEMIC_LANGUAGE_REVIEW_history.jsonl`.
-   - Treat `score_1_to_5 < 4`, `needs_revision: true`, any blocking issue, heuristic-only review, stale source hash, missing evidence span, failed required check, or active revision directive as a failed draft.
-   - Apply the directives to rewrite the abstract/introduction, tighten the contribution sentence, calibrate claims, reorganize related work, add evidence sentences, replace hype language, add limitation scope, or remove filler. Rerun the tool until it passes or a hard blocker remains.
+12. Deferred reviews — run ONLY when content is stable:
+   - Do NOT run reviews after every compile. Reviews are expensive API calls.
+     Only run them when the paper content (main.tex) has stabilized — meaning
+     no more planned edits to prose, figures, tables, or structure.
+   - When ready, run all three reviews. Academic-language and infrastructure
+     reviews can run in parallel (both read main.tex, neither modifies it).
+     Layout review must run after the final compile (it reads the PDF).
+   - Use sub-agents to run reviews in parallel while doing other work:
 
-13. Run final paper infrastructure review:
-   - After Method, Experimental Setup, captions, tables, and appendix prose are stable, run `python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write`.
-   - This must write `paper/PAPER_INFRASTRUCTURE_REVIEW.json`, `paper/PAPER_INFRASTRUCTURE_REVIEW.md`, and `paper/PAPER_INFRASTRUCTURE_REVIEW_history.jsonl`.
-   - Then run `python -m argus_skill.skills.pipeline_contracts validate-paper-infrastructure-review --project-root .`. Treat `score_1_to_5 < 4`, `needs_revision: true`, `leak_free: false`, any blocking/major issue, stale source hash, missing evidence span, non-model review, or active revision directive as a failed draft.
-   - If it fails, remove local hardware IDs, CUDA variables, cache paths, local filesystem paths, Argus/Codex daemon details, engineer/reviewer/critic routes, validation artifacts, and paper-generation configuration from rendered prose. Rewrite the setup as paper-facing system, benchmark, evaluated model/backend, metric, and budget facts; keep local configuration in manifests/logs rather than the manuscript.
+   ```bash
+   # Final compile + auto-refresh
+   cd paper && latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex
 
-14. Run final layout-aesthetic review:
-   - After the final compile, run `python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write`.
-   - This must write `paper/LAYOUT_REVIEW.json`, `paper/LAYOUT_REVIEW.md`, rendered page snapshots under `paper/layout_review/pages/`, and a history entry in `paper/LAYOUT_REVIEW_history.jsonl`.
-   - Treat `score_1_to_5 < 4`, `needs_revision: true`, any blocking issue, non-vision review, or stale PDF/page hash as a failed draft. Do not self-report the score; use the tool output.
-   - If the review fails for ugly layout, modify layout and content before handoff: split or move dense tables, shorten low-value prose, remove filler, regenerate or resize figures, rebalance columns, and replace code-like labels. Recompile and rerun layout review until it passes or a hard blocker remains.
+   # Submit reviews to sub-agents (all return immediately)
+   python -m argus_skill.tools.subagent submit \
+     --task-id review-academic \
+     --description "Academic language review" \
+     --command "python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write"
+
+   python -m argus_skill.tools.subagent submit \
+     --task-id review-infra \
+     --description "Infrastructure review" \
+     --command "python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write"
+
+   python -m argus_skill.tools.subagent submit \
+     --task-id review-layout \
+     --description "Layout review" \
+     --command "python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write"
+
+   # ... continue with other work ...
+
+   # Check all reviews at once
+   python -m argus_skill.tools.subagent list
+
+   # Final refresh after all reviews complete
+   ```
+
+   - Required output files: `paper/ACADEMIC_LANGUAGE_REVIEW.json`, `paper/ACADEMIC_LANGUAGE_REVIEW.md`, `paper/PAPER_INFRASTRUCTURE_REVIEW.json`, `paper/LAYOUT_REVIEW.json`, `paper/LAYOUT_REVIEW.md`, and corresponding history `.jsonl` files.
+   - If a review fails with score < 4: fix the source issue, recompile,
+     and rerun ONLY that specific review — not all three.
+   - If only minor language issues remain (score 3, a few directives),
+     fix them and rerun only the academic-language review.
+   - Do NOT loop on cosmetic layout preferences. If layout review says
+     score 3+ and the only issues are subjective (density, hierarchy,
+     visual rhythm), accept it and move on.
 
 15. Write `paper/PAPER_DRAFT_REPORT.md`:
    - Current draft path and PDF path if compiled.
@@ -204,7 +230,6 @@ Write a paper draft from local evidence. This adapts ARIS paper-writing/paper-pl
 16. Hand off to submission assurance:
    - Run `python -m argus_skill.skills.pipeline_contracts validate-grounding --project-root .`, `validate-idea-provenance`, `validate-code-reuse`, `validate-exemplar`, `validate-full-scale-evidence`, `validate-image2-figures`, `validate-paper-format`, `validate-research-md-format`, `validate-claim-graph`, `validate-figure-table-style`, `validate-validation-priority`, `validate-artifact-freshness`, `validate-paper-quality-contracts`, `validate-academic-language-review`, `validate-paper-infrastructure-review`, `validate-layout-review`, and `validate-paper-contract`; fix failures before handoff. `validate-paper-contract`/`validate-full-emnlp` check the final `STRUCTURE_CONFORMANCE` artifacts, so passing `validate-exemplar` alone is not enough after drafting.
    - If the draft is being claimed as final EMNLP-ready rather than a blocked draft, run `python -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`; do not treat `validate-pipeline` alone as final readiness.
-   - Run `python -m argus_skill.skills.pipeline_contracts refresh-manifest --project-root .` and then `validate-manifest`; fix drift before handoff.
    - Update `research/PIPELINE_STATE.json` with the draft artifact paths and draft scope (`long-paper`, `short-paper`, or `pilot-note`).
    - Do not mark the pipeline submission-ready from this skill. The Research Submission Assurance Gate must write `paper/SUBMISSION_ASSURANCE.md` and `paper/SUBMISSION_ASSURANCE.json` before any final readiness claim.
 

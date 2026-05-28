@@ -75,10 +75,9 @@ class SkillLoopConfig:
     no_progress_threshold: int = 2
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
-    skill_writeback: bool = True
-    distill_on_miss: bool = True
-    # When True, the writeback also calls the scientist to revise the
-    # playbook based on the successful trajectory (bumps version).
+    skill_writeback: bool = False
+    distill_on_miss: bool = False
+    # Scientist layer disabled — engineer does all work, reviewer verifies.
     skill_revise_on_writeback: bool = False
     full_auto: bool = True
     skip_git_repo_check: bool = True

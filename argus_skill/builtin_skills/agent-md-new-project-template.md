@@ -23,7 +23,7 @@ AGENTS.md New Project Template
 # AGENTS.md
 
 ## Project contract
-This workspace must produce a submission-quality EMNLP/ACL long-paper package, not a pilot PDF, validator-shaped demo, or renamed copy of an older project. Build the paper as an evidence pipeline: research brief -> literature/source discovery -> idea provenance -> benchmark/code -> experiment runs -> result JSON/TSV -> generated tables/figures -> LaTeX -> PDF -> format preflight -> academic-language review -> visual layout review -> submission assurance.
+This workspace must produce a submission-quality EMNLP/ACL long-paper package, not a pilot PDF, validator-shaped demo, or renamed copy of an older project. Build the paper as an evidence pipeline: research -> plan -> benchmark -> run -> analysis -> draft -> review -> submission.
 
 This is a clean-slate project. Do not inherit titles, claims, datasets, benchmark episodes, generators, figures, review artifacts, result numbers, architecture, thesis, or paper story from any prior project unless they are listed in **Allowed starting inputs** with source, license/access status, allowed use, and rationale.
 
@@ -39,12 +39,11 @@ Non-negotiable research bar: choose a frontier-domain problem grounded in curren
 - Prefer `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill ...` for Argus validation commands; the launcher injects `ARGUS_SKILL_PYTHON`, `ARGUS_SKILL_SOURCE_ROOT`, and `PYTHONPATH` when a source checkout is needed.
 - Final EMNLP completion requires this exact command to exit 0 and be quoted in completion evidence:
   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-full-emnlp --project-root .`
-- Full-scale experiment evidence is a prerequisite for analysis, narrative, drafting, assurance, and submission. This command must pass before any of those stages are marked ready/done:
+- Full-scale experiment evidence is a prerequisite for analysis, draft, review, and submission. This command must pass before any of those stages are marked ready/done:
   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-full-scale-evidence --project-root .`
 - Treat `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` as hard blockers.
 - Before final academic/layout review, the paper-quality contracts must pass:
   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.pipeline_contracts validate-paper-quality-contracts --project-root .`
-- The required paper-quality contract artifacts are `paper/style_ref/EXEMPLAR_SUITABILITY.json`, `paper/CLAIM_GRAPH.json`, `paper/EVIDENCE_GAPS.json`, `paper/FIGURE_TABLE_STYLE_GUIDE.json`, `paper/VALIDATION_PRIORITY_POLICY.json`, and `paper/ARTIFACT_FRESHNESS.json`.
 - `validate-pipeline`, a compiled PDF, a pilot run, or a passing review artifact alone is not final readiness.
 
 ## Skill route
@@ -53,7 +52,6 @@ Before each planner or engineer round, classify the current blocker and load onl
 | Current blocker / task | Read this skill first | Use it to decide or produce |
 | --- | --- | --- |
 | Stage order, readiness state, pivots, or "what next?" | `argus_builtin_skills/auto-research-pipeline.md` | `research/PIPELINE_STATE.json`, stage gates, when to move backward from paper drafting to experiments |
-| Research brief, literature grounding, novelty, source discovery, idea choice | `argus_builtin_skills/research-brief-to-experiment-plan.md` | `LITERATURE_GROUNDING.json`, `IDEA_PROVENANCE.json`, `CODE_REUSE_PLAN.json`, benchmark/baseline plan |
 | Benchmark implementation, full-scale runs, baselines, ablations, progress files | `argus_builtin_skills/agent-research-benchmark-runner.md` | runnable harnesses, manifests, `status.json`, `progress.jsonl`, raw scored rows, STOP-file protocol |
 | Results analysis, result tables, data figures, Figure 1 / teaser image-2 provenance | `argus_builtin_skills/research-results-analysis-and-figures.md` | `RESULTS_REPORT.md`, result-to-claim tables, paper figures/tables, `IMAGE2_FIGURES.json` |
 | Exemplar PDFs, page rhythm, structure blueprint, conformance | `argus_builtin_skills/paper-exemplar-pdf-learning.md` | exemplar PDFs/text, `STYLE_PROFILE.md`, `PAPER_STRUCTURE_BLUEPRINT.md`, structure conformance artifacts |
@@ -89,7 +87,6 @@ Use the repository's existing conventions if they are already present; otherwise
 | --- | --- |
 | Research | `research/RESEARCH_BRIEF.md`, `research/LITERATURE_REVIEW.md`, `research/LIT_MATRIX.tsv`, `research/LITERATURE_GROUNDING.json`, `research/IDEA_PROVENANCE.json`, `research/CODE_REUSE_PLAN.json`, `research/EXPERIMENT_PLAN.md` |
 | Experiments | benchmark source/provenance files, run manifests, `status.json`, `progress.jsonl`, raw result JSON/TSV, logs, STOP-file contract |
-| Paper | `paper/main.tex`, `paper/main.pdf`, verified BibTeX, `paper/PAGE_BUDGET.md`, `paper/TEMPLATE_SOURCE.md`, `paper/ARTIFACT_MANIFEST.json`, `paper/FORMAT_PREFLIGHT.md`, `paper/FIGURE_TABLE_STYLE_GUIDE.json`, `paper/VALIDATION_PRIORITY_POLICY.json`, `paper/ARTIFACT_FRESHNESS.json` |
 | Style references | `paper/style_ref/exemplars/<slug>/paper.pdf`, extracted text, `paper/style_ref/EXEMPLAR.json`, `paper/style_ref/EXEMPLAR_SUITABILITY.json`, `paper/style_ref/STYLE_PROFILE.md`, `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md`, `paper/style_ref/STRUCTURE_CONFORMANCE.md`, `paper/style_ref/STRUCTURE_CONFORMANCE.json`, `paper/style_ref/SOURCES.md` |
 | Claim/evidence contracts | `paper/CLAIM_GRAPH.json`, `paper/EVIDENCE_GAPS.json`, claim-to-result tables, result-to-claim tables, and freshness hashes |
 | Local Argus skills | `argus_builtin_skills/*.md` and `argus_builtin_skills/**/*.md` exported from the active `argus_skill.builtin_skills` package/source checkout |
@@ -266,11 +263,10 @@ Use the repository's existing conventions if they are already present; otherwise
 - Critic: challenges weak theses, duplicated benchmarks, validator gaming, ugly figures, stale artifacts, and overclaiming.
 - Scientist: distills reusable lessons only after a task succeeds; write guidance for a smaller engineer model with concrete gates and anti-patterns.
 
-## Research and idea provenance contract
+## Research and experiment plan contract
 1. Start from a research brief, not from a paper title.
 2. Before selecting the final thesis, survey credible sources: recent high-quality papers, classic anchor papers, benchmark/dataset papers, official repos, and operator-specified trend sources when available.
 3. Write `research/LITERATURE_GROUNDING.json` and require at least 10 recent high-quality papers plus at least 3 classic anchors unless access constraints are documented as blockers.
-4. Generate candidate ideas only from literature, benchmark gaps, trend signals, and code/source discovery. Do not use free-form agent brainstorming as the source of novelty.
 5. Write `research/IDEA_PROVENANCE.json` with `idea_generation_mode: literature_and_code_grounded` and `not_agent_brainstorm: true`.
 6. Write `research/CODE_REUSE_PLAN.json`; prefer license-compatible official paper code, benchmark repos, and public libraries when appropriate instead of rewriting everything blindly.
 7. Never copy paper or media prose. Store metadata, short paraphrased summaries, and original analysis.
@@ -319,7 +315,6 @@ Use the repository's existing conventions if they are already present; otherwise
 1. `paper/CLAIM_GRAPH.json` must bind every major claim to its section, required evidence, raw result artifact, figure/table/citation support, and allowed fallback if evidence is weak. `paper/EVIDENCE_GAPS.json` must list missing or weak evidence and the planned supplement, ablation, negative result framing, or claim downgrade.
 2. `paper/FIGURE_TABLE_STYLE_GUIDE.json` must specify the intended body/appendix float inventory, width, font/readability target, legend/caption length, color discipline, column density, information hierarchy, and whether each float belongs in the main body or appendix. Ugly, cramped, or audit-table-like floats are blockers even if the PDF compiles.
 3. `paper/VALIDATION_PRIORITY_POLICY.json` must order repair work as freshness, full-scale experiment evidence, claim evidence, and content sufficiency first; exemplar structure next; figure/table and format/layout next; academic language only after evidence and structure are stable; manifest/readiness cleanup last. It must include every validator failure class, not only the currently failing ones. Run `python -m argus_skill.skills.pipeline_contracts write-validation-priority-policy --project-root .` to create the standard scaffold before final review loops. Underlength, underfilled body, missing full-scale runs, missing baselines, weak ablations, or missing failure analysis are not layout-only problems: route them to `run_more_experiments`, additional ablations/failure studies, source-backed Introduction/Related Work/Method expansion, or evidence-backed analysis according to the actual gap. After repeated non-improving edits, reset the skeleton/float plan instead of looping on review JSON or cosmetic micro-edits.
-4. `paper/ARTIFACT_FRESHNESS.json` must hash/timestamp experiment outputs, result indexes, claim graph, exemplar blueprint, `paper/main.tex`, `paper/main.pdf`, review JSON, and submission assurance. Refresh it after experiments, paper source edits, figure changes, review regeneration, and manifest updates with `python -m argus_skill.skills.pipeline_contracts refresh-artifact-freshness --project-root .` after artifacts are regenerated. Create or repair `paper/ARTIFACT_MANIFEST.json` with `python -m argus_skill.skills.pipeline_contracts refresh-manifest --project-root .`; the tool bootstraps a missing manifest, converts legacy bare-string entries to objects, refreshes `sha256`, adds TSV `columns`, and fills conservative generated-artifact `sources`. If manifest, freshness, and validation-route failures appear together, run `python -m argus_skill.skills.pipeline_contracts repair-emnlp-contract-artifacts --project-root .` after regenerating content artifacts. Do not hand-write manifest JSON except for a source edge the tool cannot infer and `validate-manifest` explicitly reports.
 5. Run `validate-paper-quality-contracts` before final academic-language and layout review. Missing, stale, or thin contract artifacts are hard blockers.
 
 ## Citation and related-work contract

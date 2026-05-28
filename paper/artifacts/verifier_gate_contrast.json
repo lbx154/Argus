@@ -2,7 +2,7 @@
   "artifact_label": "verifier_gate_contrast",
   "artifact_name": "verifier_gate_contrast",
   "artifact_version": 1,
-  "repo_root": "/home/argustest/argus-skill",
+  "repo_root": "/root/argus-skill",
   "rows": [
     {
       "active_touch_minutes_after_assignment": "",

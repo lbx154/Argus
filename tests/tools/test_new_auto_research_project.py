@@ -38,9 +38,10 @@ def test_render_agents_md_fills_placeholders_and_quality_contracts() -> None:
     assert "CLAIM_GRAPH.json" in rendered
     assert "FIGURE_TABLE_STYLE_GUIDE.json" in rendered
     assert "VALIDATION_PRIORITY_POLICY.json" in rendered
-    assert "ARTIFACT_FRESHNESS.json" in rendered
     assert "validate-paper-quality-contracts" in rendered
     assert "## Skill route" in rendered
+    assert "## Argus harness modification map" in rendered
+    assert "argus_skill/tools/new_auto_research_project.py" in rendered
     assert "argus_builtin_skills/emnlp-paper-skill-router.md" in rendered
     assert "argus_builtin_skills/research-results-analysis-and-figures.md" in rendered
     assert "argus_builtin_skills/research-submission-assurance-gate.md" in rendered
@@ -61,10 +62,10 @@ def test_create_project_without_daemon_exports_template_and_skills(tmp_path: Pat
     assert result.daemon_started is False
     assert "agent-emnlp-auto-research-v15" in agents
     assert "validate-paper-quality-contracts" in agents
+    assert "## Argus harness modification map" in agents
     exported = sorted(result.skills_dir.rglob("*.md"))
     assert len(exported) == builtin_skill_count()
     assert (result.skills_dir / "agent-md-new-project-template.md").exists()
-    assert (result.skills_dir / "domains" / "agents-rag" / "langchain.md").exists()
 
     code_dir = result.project_dir / "code"
     llm = code_dir / "llm.py"
@@ -88,9 +89,8 @@ def test_create_project_without_daemon_exports_template_and_skills(tmp_path: Pat
             encoding="utf-8"
         )
     )
-    assert pipeline_state["current_stage"] == "literature"
-    assert pipeline_state["stages"]["brief"]["status"] == "done"
-    assert pipeline_state["stages"]["literature"]["status"] == "pending"
+    assert pipeline_state["current_stage"] == "research"
+    assert pipeline_state["stages"]["research"]["status"] == "pending"
     assert pipeline_state["stages"]["submission"]["status"] == "missing"
     assert (result.project_dir / "research" / "RESEARCH_BRIEF.md").exists()
     assert (result.project_dir / "research" / "EXPERIMENT_PLAN.md").exists()
@@ -99,28 +99,22 @@ def test_create_project_without_daemon_exports_template_and_skills(tmp_path: Pat
     assert (result.project_dir / "experiments" / "BENCHMARK_PROVENANCE.md").exists()
 
 
-def test_create_project_with_domain_exports_only_relevant_domain_skills(
+def test_create_project_without_domain_exports_all_skills(
     tmp_path: Path,
 ) -> None:
+    """Domain packs removed — all projects get the same skill set."""
     result = create_project(
         LaunchConfig(
             parent=tmp_path,
             version="v16",
-            domain="cv",
             start_daemon=False,
             init_git=False,
         )
     )
 
     exported = sorted(result.skills_dir.rglob("*.md"))
-    assert 0 < len(exported) < builtin_skill_count()
-    assert result.domain == "cv"
+    assert len(exported) > 0
     assert (result.skills_dir / "auto-research-pipeline.md").exists()
-    assert (result.skills_dir / "domains" / "cv-multimodal" / "clip.md").exists()
-    assert (result.skills_dir / "domains" / "optimization" / "flash-attention.md").exists()
-    assert (result.skills_dir / "domains" / "research-ops" / "run-experiment.md").exists()
-    assert not (result.skills_dir / "domains" / "agents-rag" / "langchain.md").exists()
-    assert not list(result.skills_dir.glob("domain--*.md"))
 
 
 def test_next_version_uses_highest_existing_workspace(tmp_path: Path) -> None:

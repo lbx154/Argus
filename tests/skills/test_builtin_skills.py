@@ -18,8 +18,8 @@ def test_seed_builtin_skills_creates_parseable_research_defaults(tmp_path: Path)
 
     assert len(created) == builtin_skill_count()
     assert all(created.values())
-    assert (skills_dir / "domains" / "agents-rag" / "langchain.md").exists()
-    assert (skills_dir / "domains" / "research-ops" / "citation-audit.md").exists()
+    assert (skills_dir / "auto-research-pipeline.md").exists()
+    assert (skills_dir / "emnlp-paper-drafting.md").exists()
     summaries = SkillStore(skills_dir).list_summaries()
     names = {summary["name"] for summary in summaries}
     assert "EMNLP Paper Drafting" in names
@@ -35,50 +35,34 @@ def test_seed_builtin_skills_creates_parseable_research_defaults(tmp_path: Path)
     assert "Paper Framework Figure Studio Pro" in names
     assert "Argus Engineer Role" in names
     assert "Argus Reviewer Role" in names
-    assert "Argus Critic Role" in names
     assert "Argus Planner Role" in names
-    assert "Argus Scientist Role" in names
     assert "AGENTS.md New Project Template" in names
     assert "AGENTS.md Existing Project Optimization Template" in names
-    assert "langchain" in names
-    assert "citation-audit" in names
 
 
 def test_seed_builtin_skills_preserves_existing_user_edits(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     seed_builtin_skills(skills_dir)
     target = skills_dir / "emnlp-paper-drafting.md"
-    nested_target = skills_dir / "domains" / "agents-rag" / "langchain.md"
     target.write_text("user edit\n", encoding="utf-8")
-    nested_target.write_text("nested user edit\n", encoding="utf-8")
 
     created = seed_builtin_skills(skills_dir)
 
     assert created["emnlp-paper-drafting.md"] is False
-    assert created["domains/agents-rag/langchain.md"] is False
     assert target.read_text(encoding="utf-8") == "user edit\n"
-    assert nested_target.read_text(encoding="utf-8") == "nested user edit\n"
 
 
-def test_seed_builtin_skills_for_domain_keeps_selected_domain_subtrees(
+def test_seed_builtin_skills_exports_all_without_domains(
     tmp_path: Path,
 ) -> None:
+    """Domain packs removed — seed always exports the full flat set."""
     skills_dir = tmp_path / "skills"
 
-    created = seed_builtin_skills_for_domain(skills_dir, "cv")
+    created = seed_builtin_skills(skills_dir)
 
-    assert 0 < len(created) < builtin_skill_count()
+    assert len(created) == builtin_skill_count()
     assert (skills_dir / "auto-research-pipeline.md").exists()
-    assert (skills_dir / "research-domain-router.md").exists()
-    assert (skills_dir / "domains" / "cv-multimodal" / "clip.md").exists()
-    assert (skills_dir / "domains" / "optimization" / "flash-attention.md").exists()
-    assert (skills_dir / "domains" / "research-ops" / "paper-compile.md").exists()
-    assert not (skills_dir / "domains" / "agents-rag" / "langchain.md").exists()
-    assert not list(skills_dir.glob("domain--*.md"))
-    names = {summary["name"] for summary in SkillStore(skills_dir).list_summaries()}
-    assert "clip" in names
-    assert "paper-compile" in names
-    assert "langchain" not in names
+    assert not (skills_dir / "domains").exists()
 
 
 def test_global_memory_init_seeds_builtin_skills(tmp_path: Path) -> None:
@@ -232,50 +216,6 @@ def test_academic_language_loop_requires_paragraph_reset_and_page_guard(
     assert "paragraph-level prose reset with page-budget protection" in router
 
 
-def test_research_domain_router_references_current_domain_skill_packs(
-    tmp_path: Path,
-) -> None:
-    skills_dir = tmp_path / "skills"
-    seed_builtin_skills(skills_dir)
-
-    text = (skills_dir / "research-domain-router.md").read_text(encoding="utf-8")
-
-    for removed_skill in (
-        "cv-research-pipeline",
-        "multimodal-research-pipeline",
-        "ai-infra-research-pipeline",
-        "training-experiment-runner",
-    ):
-        assert removed_skill not in text
-    for current_path in (
-        "domains/cv-multimodal/*",
-        "domains/inference-serving/*",
-        "domains/infrastructure/*",
-        "domains/optimization/*",
-        "domains/training/*",
-        "domains/research-ops/run-experiment.md",
-        "domains/research-ops/monitor-experiment.md",
-    ):
-        assert current_path in text
-
-
-def test_emnlp_page_contract_keeps_references_and_appendix_after_body(
-    tmp_path: Path,
-) -> None:
-    skills_dir = tmp_path / "skills"
-    seed_builtin_skills(skills_dir)
-
-    router = (skills_dir / "research-domain-router.md").read_text(encoding="utf-8")
-    playbook = (skills_dir / "emnlp-paper-writing-playbook.md").read_text(
-        encoding="utf-8"
-    )
-
-    assert "References and appendix start on page 9 or later" in router
-    assert "Page 9+  References + Appendix" in playbook
-    assert "Limitations + Ethics + References + Appendix" not in playbook
-    assert "don't count against the limit" not in playbook
-
-
 def test_builtin_skills_forbid_manual_review_artifact_passes(
     tmp_path: Path,
 ) -> None:
@@ -407,13 +347,11 @@ def test_agent_md_templates_are_emnlp_paper_oriented_and_seeded(
         assert "missing_baseline_condition_run" in text
         assert "pilot_pdf_without_full_scale_evidence" in text
         assert "write-validation-priority-policy" in text
-        assert "refresh-artifact-freshness" in text
-        assert "refresh-manifest" in text
 
     for required in (
         "clean-slate project",
         "Allowed starting inputs",
-        "literature/source discovery -> idea provenance -> benchmark/code",
+        "research -> plan -> benchmark -> run -> analysis -> draft -> review -> submission",
         "10 recent high-quality papers",
         "3 classic anchors",
         "not_agent_brainstorm: true",
@@ -491,10 +429,8 @@ def test_emnlp_paper_skill_requires_official_template_page_budget_and_style_ref(
         "paper/EVIDENCE_GAPS.json",
         "Drafting and experimentation are allowed to interleave",
         "paper/FIGURE_TABLE_STYLE_GUIDE.json",
-        "paper/ARTIFACT_FRESHNESS.json",
         "paper/VALIDATION_PRIORITY_POLICY.json",
         "write-validation-priority-policy",
-        "refresh-artifact-freshness",
         "validate-claim-graph",
         "validate-paper-quality-contracts",
         "paper/figures/IMAGE2_FIGURES.json",
@@ -573,67 +509,20 @@ def test_auto_research_pipeline_skill_requires_state_machine_gates(
 
     for required in (
         "research/PIPELINE_STATE.json",
-        "research/GO_NO_GO.md",
-        "Literature grounding and source-discovery gate",
-        "research/LITERATURE_REVIEW.md",
-        "research/LIT_MATRIX.tsv",
-        "research/LITERATURE_GROUNDING.json",
-        "research/IDEA_PROVENANCE.json",
-        "research/CODE_REUSE_PLAN.json",
-        "not_agent_brainstorm: true",
-        "classic_papers",
-        "research/SOURCE_DISCOVERY.md",
-        "research/TREND_INSIGHTS.md",
-        "机器之心",
-        "新智元",
-        "aiera.com.cn",
-        "source access status",
-        "testable research question",
-        "non-peer-reviewed discovery signals",
-        "do not need paper/benchmark/code backing",
-        "free-form agent brainstorming",
-        "license-compatible official paper code",
+        "research → plan → benchmark → run → analysis → draft → review → submission",
+        "PRIMARY ENTRY POINT",
         "pivot",
         "rejected",
-        "research/NARRATIVE_REPORT.md",
-        "paper/SUBMISSION_ASSURANCE.md",
-        "paper/PAPER_QUALITY_CALIBRATION.json",
-        "Paper Exemplar PDF Learning",
-        "local exemplar PDFs/text extracts",
-        "paper/style_ref/EXEMPLAR.json",
-        "paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md",
-        "concrete paper organizer before prose",
-        "paper/figures/IMAGE2_FIGURES.json",
-        "paper/ACADEMIC_LANGUAGE_REVIEW.json",
-        "paper/PAPER_INFRASTRUCTURE_REVIEW.json",
-        "paper/FORMAT_PREFLIGHT.md",
-        "paper/PAPER_DRAFT_REPORT.json",
-        "target_venue: EMNLP",
-        "image-2",
-        "long-paper",
-        "negative fresh-demo pilot pattern",
-        "argus_skill.skills.pipeline_contracts",
         "validate-full-emnlp",
-        "validate-research-md-format",
-        "validate-academic-language-review",
-        "validate-paper-infrastructure-review",
-        "Final EMNLP completion contract",
-        "paper_contribution",
-        "We propose X. We show X improves Y by Z because W.",
-        "negative-result paper",
-        "proposed artifact/protocol",
-        "final_submission",
-        "bounded",
-        "small pilot is never sufficient final evidence",
-        "nontrivial baselines",
-        "ablations/failure analysis",
-        "defensive caveat lists",
-        "must not be called EMNLP-ready",
-        "unrelated domains need their own literature-derived retrieval targets",
-        "Citation placement is part of paper quality",
-        "one giant related-work paragraph",
+        "paper/SUBMISSION_ASSURANCE",
+        "Review artifact",
+        "run the owning reviewer with `--write`",
+        "experiment-plan-review",
+        "experiment-results-review",
+        "academic-paper-peer-review-benchmark",
+        "training-infrastructure-guide",
     ):
-        assert required in text
+        assert required in text, f"auto-research-pipeline.md missing {required!r}"
 
 
 def test_submission_assurance_gate_skill_requires_audit_layers(
@@ -766,17 +655,7 @@ def test_format_related_skills_embed_research_md_preflight_constraints(
             "1536x1024 or 1920x1088",
             "1024x1024",
         ),
-        "auto-research-pipeline.md": (
-            "Anonymous EMNLP Submission",
-            "Overfull \\hbox > 5pt",
-            "EMNLP Format Preflight",
-            "validate-research-md-format",
-            "middle-body visual rhythm",
-            "paired-significance table",
-            "<=5 body figures",
-            "tabcolsep=3-4pt",
-            "1536x1024 or 1920x1088",
-        ),
+        # auto-research-pipeline is now lean — format details are in drafting/format skills
         "research-results-analysis-and-figures.md": (
             "Overfull \\hbox > 5pt",
             "paired-significance table",
@@ -973,7 +852,6 @@ def test_emnlp_paper_skill_router_maps_validator_issue_codes(tmp_path: Path) -> 
         "missing_paper_infrastructure_review",
         "academic_language_missing_method_model_identifier",
         "paper-facing framework, benchmark harness, or controller",
-        "repair-emnlp-contract-artifacts",
         "submission_not_ready_verdict",
         "Run this last",
         "Repeated Failure Escape Hatch",
@@ -1003,25 +881,11 @@ def test_argus_role_identity_skills_cover_agent_contracts(tmp_path: Path) -> Non
             "short, deterministic shell checks",
             "bounded paper tasks",
         ),
-        "argus-critic-role.md": (
-            "post-review quality filter",
-            "operator-visible value",
-            "vanity",
-            "impact score",
-        ),
         "argus-planner-role.md": (
             "manager/director",
             "bounded",
             "final_submission",
             "restart_daemon",
-        ),
-        "argus-scientist-role.md": (
-            "skill-memory researcher",
-            "Match skills conservatively",
-            "Distill capability-level guidance",
-            "gpt-5.4-mini",
-            "relatively small engineer model",
-            "coverage check",
         ),
     }
 

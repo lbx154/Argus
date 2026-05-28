@@ -60,9 +60,84 @@ def test_render_paper_figure_prompt_uses_figure_studio_template() -> None:
 
     assert "Prompt template: argus-image2-paper-prompt-v1" in prompt
     assert "Prompt source: paper-framework-figure-studio-pro-v3.1.4a" in prompt
-    assert "Figure-caption contract" in prompt
-    assert "Core mechanism contract" in prompt
-    assert "raw paths, local runner commands, GPU/device/cache/config text" in prompt
+    assert "SkillCycle" in prompt
+    assert "General style:" in prompt
+    assert "Pinned content that must appear exactly:" in prompt
+    assert "Layout variant:" in prompt
+    assert "Negative prompt / Avoid:" in prompt
+
+
+def test_render_paper_figure_prompt_with_free_content() -> None:
+    content = (
+        '- Title: "PairScorer Pipeline"\n'
+        '- Show: "Context+Candidate Pairs" -> "BoW Encoder" -> "Candidate Ranking" -> "Auxiliary Op Head" -> "Joint Prediction".\n'
+        '- Operation types: "CLICK", "SELECT", "TYPE", "HOVER".\n'
+        '- Baselines: "keyword overlap", "random", "no_skill".'
+    )
+    prompt = image_tool.render_paper_figure_prompt(
+        figure_title="PairScorer Pipeline",
+        content=content,
+        layout_variant="17 nested containers: big containers for Offline and Online; nested subcards inside.",
+    )
+    assert "PairScorer Pipeline" in prompt
+    assert "BoW Encoder" in prompt
+    assert "Auxiliary Op Head" in prompt
+    assert "keyword overlap" in prompt
+    assert "nested containers" in prompt
+    # Should NOT contain legacy generic labels
+    assert "Literature-grounded inputs" not in prompt
+    assert "Reusable agent skill loop" not in prompt
+    # Should contain research.md features
+    assert "Aspect ratio:" in prompt
+    assert "1536x1024 landscape" in prompt
+    assert "干净" in prompt  # Chinese style intent
+
+
+def test_render_paper_figure_prompt_legacy_compat() -> None:
+    prompt = image_tool.render_paper_figure_prompt(
+        figure_title="TestMethod",
+        input_label="Raw Data",
+        mechanism_label="Encoder",
+        output_label="Predictions",
+        benefit_label="Higher F1",
+    )
+    assert '"Raw Data"' in prompt
+    assert '"Encoder"' in prompt
+
+
+def test_prompt_sha256_matches_raw_file_bytes(tmp_path: Path) -> None:
+    """Prompt SHA-256 in manifest/sidecar must match raw file bytes on disk.
+
+    This is the bug that caused the infinite regeneration loop: image_tool
+    used stripped-text hash but the validator used raw-file-bytes hash,
+    so they never matched.
+    """
+    import hashlib
+
+    result = image_tool.write_paper_figure_prompt(
+        tmp_path / "test.prompt.txt",
+        figure_title="HashTest",
+        content='- Title: "HashTest"\n- Show: "A" -> "B".',
+        force=True,
+    )
+    # The SHA in the result must match raw file bytes
+    raw_bytes = (tmp_path / "test.prompt.txt").read_bytes()
+    raw_hash = hashlib.sha256(raw_bytes).hexdigest()
+    assert result["prompt_sha256"] == raw_hash, (
+        f"prompt_sha256 must match raw file bytes! "
+        f"got {result['prompt_sha256'][:16]}... "
+        f"expected {raw_hash[:16]}..."
+    )
+
+
+def test_render_paper_figure_prompt_custom_aspect_ratio() -> None:
+    prompt = image_tool.render_paper_figure_prompt(
+        figure_title="Tall Diagram",
+        content='- Title: "Tall Diagram"\n- Show: "A" -> "B" -> "C".',
+        aspect_ratio="1024x1536 portrait",
+    )
+    assert "1024x1536 portrait" in prompt
+    assert "1536x1024" not in prompt.split("Aspect ratio:")[1].split("\n")[0]
 
 
 def test_sync_paper_metadata_writes_manifest_and_provenance(tmp_path: Path) -> None:

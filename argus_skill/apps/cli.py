@@ -1042,7 +1042,7 @@ def _build_worker_config(args: argparse.Namespace):
         project_fingerprint=bundle.project.fingerprint,
         project_label=bundle.project.label,
         backend=backend,
-        engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini"),
+        engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4"),
         reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.4"),
         scientist_model=os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4"),
         engineer_reasoning_effort=os.environ.get(

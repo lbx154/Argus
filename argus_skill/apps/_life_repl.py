@@ -809,7 +809,7 @@ class _CodexSkillLoopRunner:
                 "high",
             ),
             "max_rounds": args.max_rounds,
-            "check_commands": [],
+            "check_commands": list(getattr(args, "check_commands", []) or []),
             "skill_writeback": _env_flag(
                 "ARGUS_SKILL_SKILL_WRITEBACK",
                 default=not benchmark_mode,

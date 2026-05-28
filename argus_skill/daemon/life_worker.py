@@ -31,7 +31,7 @@ import sys
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -81,7 +81,7 @@ class LifeWorkerConfig:
     project_fingerprint: str = ""
     project_label: str = ""
     backend: str = "codex"  # "codex" | "memory"
-    engineer_model: str = "gpt-5.4-mini"
+    engineer_model: str = "gpt-5.4"
     reviewer_model: str = "gpt-5.4"
     scientist_model: str = "gpt-5.4"
     engineer_reasoning_effort: str = "high"
@@ -96,6 +96,13 @@ class LifeWorkerConfig:
     project_workdir: Path | None = None
     continuous: bool = False
     continuous_objective: str = ""
+    # Post-engineer check commands run by the reviewer agent after each
+    # engineer round.  For EMNLP projects these auto-refresh manifest and
+    # freshness so the reviewer sees up-to-date validation state without
+    # the engineer having to remember to run them manually.
+    check_commands: list[str] = field(default_factory=lambda: [
+        'python -m argus_skill.tools.stage_check --project-root .',
+    ])
 
 
 _HANDOFF_CONFIG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_CONFIG"
@@ -307,7 +314,7 @@ def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         project_fingerprint=str(data.get("project_fingerprint") or ""),
         project_label=str(data.get("project_label") or ""),
         backend=str(data.get("backend") or "codex"),
-        engineer_model=str(data.get("engineer_model") or "gpt-5.4-mini"),
+        engineer_model=str(data.get("engineer_model") or "gpt-5.4"),
         reviewer_model=str(data.get("reviewer_model") or "gpt-5.4"),
         scientist_model=str(data.get("scientist_model") or "gpt-5.4"),
         engineer_reasoning_effort=str(
@@ -610,6 +617,20 @@ class LifeWorker:
         self._install_signal_handlers()
         self._started_at = time.time()
 
+        # Ensure ARGUS_SKILL_PYTHON is set in the process environment so
+        # all child processes (engineer codex, reviewer codex, check_commands)
+        # can find the argus_skill package.  Without this, shells spawned by
+        # codex exec fall back to /usr/bin/python which cannot import
+        # argus_skill.
+        _argus_python = os.environ.get("ARGUS_SKILL_PYTHON") or sys.executable
+        os.environ.setdefault("ARGUS_SKILL_PYTHON", _argus_python)
+        # Also prepend the venv bin dir to PATH so bare `python` resolves
+        # to the venv interpreter in child shells.
+        _venv_bin = str(Path(_argus_python).resolve().parent)
+        _current_path = os.environ.get("PATH", "")
+        if _venv_bin not in _current_path:
+            os.environ["PATH"] = f"{_venv_bin}:{_current_path}"
+
         cfg = self.config
         split_memory = bool(cfg.global_root and cfg.project_fingerprint)
         mem: MemoryBundle | LifeMemory
@@ -904,6 +925,7 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     ns.plan_mode = os.environ.get("ARGUS_SKILL_PLAN_MODE", "auto")
     ns.plan_model = os.environ.get("ARGUS_SKILL_PLAN_MODEL")
     ns.check = []
+    ns.check_commands = list(cfg.check_commands)
     ns.color = None
     ns.verbose = False
     ns.quiet = True
@@ -918,18 +940,32 @@ def _worker_runtime_context(cfg: LifeWorkerConfig) -> str:
     if not research_context:
         return ""
     runtime_context = (
+        "## Agent Architecture (3-layer)\n"
+        "Planner → Engineer → Reviewer. No Critic, no Scientist.\n"
+        "\n"
+        "### Engineer (you)\n"
+        "- Do ALL work: code, experiments, LaTeX, figures, compilation.\n"
+        "- You MAY run these quick checks (L0, no API, <2s):\n"
+        "  validate-pipeline, validate-manifest, validate-paper-format, validate-image2-figures\n"
+        "- You MUST NOT run these (L2, owned by Reviewer):\n"
+        "  validate-full-emnlp, academic_language_review, paper_layout_review,\n"
+        "  paper_infrastructure_review\n"
+        "- Reviewer runs them automatically after you finish each round.\n"
+        "- Focus on producing artifacts. Do not verify your own output.\n"
+        "\n"
+        "### Reviewer (automatic after each round)\n"
+        "- Runs stage-aware checklist (only checks relevant to current pipeline stage)\n"
+        "- Decides done/continue/blocked based on evidence\n"
+        "- If continue: gives you a specific next_action\n"
+        "\n"
         "## Runtime info\n"
-        f"- Life backend: {cfg.backend}\n"
-        f"- Runner backend: {cfg.backend}\n"
         f"- Engineer model: {cfg.engineer_model}\n"
         f"- Reviewer model: {cfg.reviewer_model}\n"
-        f"- Scientist model: {cfg.scientist_model}\n"
-        f"- Engineer reasoning effort: {cfg.engineer_reasoning_effort}\n"
-        f"- Reviewer reasoning effort: {cfg.reviewer_reasoning_effort}\n"
-        f"- Scientist reasoning effort: {cfg.scientist_reasoning_effort}\n"
-        "- Mode: continuous daemon\n"
-        f"- Per-mission budget cap: ${cfg.per_mission_cap_usd:.2f}\n"
-        f"- Daily budget cap: ${cfg.daily_cap_usd:.2f}\n"
+        f"- Budget: ${cfg.per_mission_cap_usd:.0f}/mission, ${cfg.daily_cap_usd:.0f}/day\n"
+        "\n"
+        "## Python: use `/root/argus-skill/.venv/bin/python` for argus_skill commands\n"
+        "\n"
+        "## Sub-agents: any command >30s → `python -m argus_skill.tools.subagent submit`\n"
     )
     return runtime_context + "\n---\n\n" + research_context
 

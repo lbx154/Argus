@@ -60,25 +60,9 @@ def _iter_builtin_skill_resources(
 # Domain registry
 # ---------------------------------------------------------------------------
 
-AVAILABLE_DOMAINS: dict[str, list[str]] = {
-    "agent": ["agents-rag", "evaluation"],
-    "cv": ["cv-multimodal", "optimization"],
-    "multimodal": ["cv-multimodal", "training", "optimization"],
-    "nlp": ["training", "evaluation"],
-    "infra": ["inference-serving", "infrastructure", "optimization"],
-    "training": ["training", "evaluation", "optimization"],
-    "rl": ["training", "evaluation"],
-}
+AVAILABLE_DOMAINS: dict[str, list[str]] = {}
 
-DOMAIN_DESCRIPTIONS: dict[str, str] = {
-    "agent": "Agent / LLM — multi-agent, tool-use, RAG, planning",
-    "cv": "Computer Vision — detection, segmentation, ViT, 3D",
-    "multimodal": "Multimodal / VLM — vision-language, VQA, video-language",
-    "nlp": "NLP — pretraining, fine-tuning, summarization, parsing",
-    "infra": "AI Infrastructure — serving, kernels, distributed systems",
-    "training": "Model Training — pretraining, fine-tuning, RLHF, DPO",
-    "rl": "RL / Alignment — RLHF, DPO, reward modeling",
-}
+DOMAIN_DESCRIPTIONS: dict[str, str] = {}
 
 
 def list_domains() -> dict[str, str]:

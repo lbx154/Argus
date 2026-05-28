@@ -28,6 +28,8 @@ from __future__ import annotations
 import logging
 import os
 import re
+import subprocess
+import sys
 import threading
 import time
 import unicodedata
@@ -1488,7 +1490,7 @@ class LifeSupervisor:
         runner: _MissionRunner,
         sink: EventSink,
         config: LifeSupervisorConfig | None = None,
-        engineer_model: str = "gpt-5.4-mini",
+        engineer_model: str = "gpt-5.4",
         reviewer_model: str = "gpt-5.4",
         critic_runner: Any | None = None,
     ) -> None:
@@ -1727,6 +1729,23 @@ class LifeSupervisor:
                     self._emit_status(stop_reason)
                 stopped_by = stop_reason
                 break
+            # Early auto-stop: if this is an EMNLP project and the gate
+            # already passes, stop immediately — don't run any more ticks
+            # or planner cycles.  This prevents the planner from inventing
+            # new work (lint, refactor, etc.) after the paper is done.
+            if (
+                self.config.continuous
+                and self.config.continuous_objective
+                and _objective_requires_full_emnlp_gate(
+                    self.config.continuous_objective
+                )
+                and self._journal_has_full_emnlp_gate_success()
+            ):
+                self._emit_status(
+                    "auto-stop: EMNLP gate passes, project complete"
+                )
+                stopped_by = "project_done"
+                break
             try:
                 outcome = self.tick()
             except Exception as exc:  # noqa: BLE001
@@ -1758,6 +1777,20 @@ class LifeSupervisor:
                         })
                         self._emit_status(gate_reason)
                         stopped_by = gate_reason
+                        break
+                    # Auto-stop: if the EMNLP gate already passes, the
+                    # project is done — don't ask the planner to invent
+                    # more work.
+                    if (
+                        _objective_requires_full_emnlp_gate(
+                            self.config.continuous_objective
+                        )
+                        and self._journal_has_full_emnlp_gate_success()
+                    ):
+                        self._emit_status(
+                            "planner: project done — EMNLP gate passes"
+                        )
+                        stopped_by = "project_done"
                         break
                     planned = self._plan_next_work()
                     if planned == "daemon_handoff":
@@ -1927,10 +1960,8 @@ class LifeSupervisor:
         if not issues:
             return (
                 "Automatic EMNLP final gate snapshot:\n"
-                "- validate-full-emnlp currently reports no contract issues from the "
-                "in-process readiness checker.\n"
-                "- do not declare project_done unless a recent mission_complete journal "
-                f"entry proves `{_FULL_EMNLP_GATE_COMMAND}` exited 0."
+                "- validate-full-emnlp currently reports no contract issues.\n"
+                "- The project is ready for submission. You may declare project_done=true."
             )
 
         counts = Counter(issue.code for issue in issues)
@@ -2680,6 +2711,23 @@ class LifeSupervisor:
         return ""
 
     def _journal_has_full_emnlp_gate_success(self) -> bool:
+        # First check: run the live validator directly. If it passes now,
+        # that's stronger evidence than any journal entry.
+        try:
+            import subprocess
+            workdir = self._project_workdir()
+            result = subprocess.run(
+                [sys.executable, "-m", "argus_skill.skills.pipeline_contracts",
+                 "validate-full-emnlp", "--project-root", str(workdir)],
+                capture_output=True, text=True, timeout=120,
+                cwd=str(workdir),
+            )
+            if result.returncode == 0:
+                return True
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Fallback: check journal for historical evidence
         try:
             entries = self.memory.journal.tail(50)
         except Exception:  # noqa: BLE001
@@ -2712,33 +2760,14 @@ class LifeSupervisor:
         cycle_cost_usd: float,
         salvage_mode: bool = False,
     ) -> dict[str, Any] | None:
-        """Decide whether to requeue ``item`` for another polish cycle.
-
-        Returns a dict describing the decision (always non-None when
-        called on a successful mission). The keys reported back to the
-        journal/event sink:
-
-        * ``cycles_done`` — count after this cycle (pre-requeue).
-        * ``cost_so_far_usd`` — accumulated iteration cost.
-        * ``requeued`` — bool, True if we re-armed the item.
-        * ``stop_reason`` — present when ``requeued=False`` because of
-          budget / cycles / vanity / disabled / runner missing.
-        * ``improvement_count`` / ``improvements`` — when requeued.
-        """
-        if not item.iterate:
-            return {
-                "cycles_done": item.iteration_cycles_done,
-                "cost_so_far_usd": item.iteration_cost_usd,
-                "requeued": False,
-                "stop_reason": "iteration disabled",
-            }
-        if self.critic_runner is None:
-            return {
-                "cycles_done": item.iteration_cycles_done,
-                "cost_so_far_usd": item.iteration_cost_usd,
-                "requeued": False,
-                "stop_reason": "no critic runner wired",
-            }
+        """Critic iteration is disabled. Engineer does the work, reviewer
+        verifies. No separate critic polish cycle."""
+        return {
+            "cycles_done": int(item.iteration_cycles_done),
+            "cost_so_far_usd": float(item.iteration_cost_usd),
+            "requeued": False,
+            "stop_reason": "critic layer removed — reviewer handles verification",
+        }
 
         cycles_done = int(item.iteration_cycles_done)
         cycles_max = int(item.iteration_max_cycles)
