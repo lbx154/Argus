@@ -293,6 +293,7 @@ def generate_image(
     *,
     prompt: str,
     out: Path,
+    prompt_file: Path | None = None,
     size: str = "auto",
     force: bool = False,
     env: Mapping[str, str] | None = None,
@@ -342,6 +343,8 @@ def generate_image(
         "created_at_unix": started,
         "duration_seconds": round(time.time() - started, 3),
         "model": grant.model,
+        "output_path": str(out),
+        "output_sha256": str(info.get("sha256") or ""),
         "requested_size": requested_size or "auto",
         "prompt": prompt,
         "prompt_sha256": _sha256_text(prompt),
@@ -354,6 +357,8 @@ def generate_image(
             "key_source": grant.key_source,
         },
     }
+    if prompt_file is not None:
+        meta["prompt_path"] = str(prompt_file)
     if original_requested_size is not None:
         meta["original_requested_size"] = original_requested_size
         meta["size_normalized_to_multiple_of_16"] = True
@@ -544,6 +549,7 @@ def main(argv: list[str] | None = None) -> int:
             _print_json(generate_image(
                 prompt=prompt,
                 out=args.out,
+                prompt_file=args.prompt_file,
                 size=args.size,
                 force=bool(args.force),
                 timeout=float(args.timeout),
