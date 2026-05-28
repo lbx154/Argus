@@ -12,6 +12,17 @@ Each research project maintains its own Python virtual environment for ML worklo
 The argus-skill system venv (`/root/argus-skill/.venv`) is for pipeline tools only —
 never install torch/diffusers/training dependencies there.
 
+## ⚡ RESOURCE FILES (read these first)
+
+All resources configured by the operator are in `~/.argus-skill/capabilities/`:
+
+| File | Contents | How to read |
+|------|----------|-------------|
+| `gpu_resources.json` | Allocated GPU devices, CUDA_VISIBLE_DEVICES | `json.load(open(path))` |
+| `model_api.json` | API keys, base URLs, models for text/image/review | `...['capabilities']['model_api']['routes']['text']` |
+
+These are YOUR resources. Use them for training, inference, reward models, etc.
+
 ## Rules
 
 1. **One venv per project**: create `.venv/` in the project root directory

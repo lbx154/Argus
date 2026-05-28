@@ -33,6 +33,28 @@ Run a complete research project as a gated artifact workflow rather than a one-s
 - Required credentials, datasets, or compute are missing and no local smoke alternative can establish feasibility.
 - The current evidence already proves the idea should be rejected; write the rejection/pivot report instead of forcing a paper.
 
+## ⚡ YOUR RESOURCES
+
+Before starting work, check what the operator has allocated for you:
+
+```python
+import json, os
+vault = os.path.expanduser("~/.argus-skill/capabilities")
+# GPU
+gpu = json.load(open(f"{vault}/gpu_resources.json"))
+print("GPU devices:", gpu["cuda_visible_devices"])  # e.g. "6"
+# API (for reward models, VLM, image gen)
+api = json.load(open(f"{vault}/model_api.json"))
+routes = api["capabilities"]["model_api"]["routes"]
+print("Text API:", routes["text"]["base_url"], routes["text"]["model"])
+print("API key:", routes["text"]["api_key"][:10] + "...")
+```
+
+- **GPU**: CUDA_VISIBLE_DEVICES is auto-set. Use `.venv/bin/python` for training.
+- **API**: Use for reward models, VLM scoring, image quality evaluation.
+- **Subagent**: GPU tasks >60s → `python -m argus_skill.tools.subagent submit --mode supervised`
+- **Project venv**: `.venv/` for ML deps. See `project-environment-management` skill.
+
 ## Pipeline state contract
 Create or update `research/PIPELINE_STATE.json` before doing expensive work. The file is the mission ledger, not decorative prose:
 

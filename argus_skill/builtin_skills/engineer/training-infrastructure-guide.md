@@ -11,6 +11,33 @@ created_at: 2026-05-28T00:00:00+00:00
 
 When experiments involve model training or large-scale inference, use established frameworks. Do NOT write custom loops from scratch.
 
+## ⚡ YOUR RESOURCES (configured by operator)
+
+These resources are allocated to you. Use them.
+
+**GPU**:
+- Config file: `~/.argus-skill/capabilities/gpu_resources.json`
+- Read with: `json.load(open(os.path.expanduser('~/.argus-skill/capabilities/gpu_resources.json')))`
+- `CUDA_VISIBLE_DEVICES` is auto-set by the daemon. All training/inference inherits it.
+
+**API (for reward models, VLM scoring, image generation)**:
+- Config file: `~/.argus-skill/capabilities/model_api.json`
+- Read API key: `json.load(open(os.path.expanduser('~/.argus-skill/capabilities/model_api.json')))['capabilities']['model_api']['routes']['text']['api_key']`
+- Available routes: `text` (LLM), `image` (generation), `image_review` (VLM)
+- Use for: reward model scoring, VLM-based image quality evaluation, Qwen-VL as reward
+
+**Project venv** (for ML dependencies):
+- Path: `.venv/bin/python` (in project directory)
+- If not exists: `python3 -m venv .venv --system-site-packages && .venv/bin/pip install torch diffusers transformers accelerate peft safetensors`
+- NEVER install ML deps in `/root/argus-skill/.venv/`
+
+**Subagent** (for long GPU tasks):
+- Submit: `python -m argus_skill.tools.subagent submit --task-id <id> --mode supervised --command '.venv/bin/python ...'`
+- Check: `python -m argus_skill.tools.subagent status --task-id <id>`
+- Do NOT block — submit and continue other work.
+
+---
+
 ## Core rule
 
 If a task involves gradient-based training or inference on >100 examples, the engineer MUST use an approved framework. Custom `for epoch` training loops and bare `model.generate()` inference loops are hard blockers in experiment plan review.
