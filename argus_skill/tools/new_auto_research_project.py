@@ -122,21 +122,42 @@ class LaunchResult:
 
 
 def extract_copy_ready_agents_md(template_text: str) -> str:
-    """Return the copy-ready AGENTS.md body from a built-in template."""
+    """Return the copy-ready AGENTS.md body from a built-in template.
+
+    The body is wrapped in a fenced block under ``COPY_READY_HEADING`` and may
+    itself contain nested code fences (e.g. ```python examples). To avoid
+    closing the block at the first nested fence — which silently truncates the
+    generated agent prompt — the wrapper uses a longer fence (four backticks)
+    and we close only on a fence of at least the opening length with nothing but
+    whitespace after it (CommonMark-style). This keeps any inner 3-backtick
+    blocks as ordinary body content.
+    """
     heading_index = template_text.find(COPY_READY_HEADING)
     if heading_index < 0:
         raise LaunchError(f"template is missing {COPY_READY_HEADING!r}")
-    fence_start = template_text.find("```", heading_index)
-    if fence_start < 0:
+    lines = template_text[heading_index:].split("\n")
+    open_re = re.compile(r"^[ \t]{0,3}(`{3,})\s*([^`]*)$")
+    fence_marker = None
+    body_lines: list[str] = []
+    open_index = None
+    for index, line in enumerate(lines[1:], start=1):
+        match = open_re.match(line)
+        if match:
+            fence_marker = match.group(1)
+            open_index = index
+            break
+    if fence_marker is None or open_index is None:
         raise LaunchError("template is missing the opening markdown fence")
-    body_start = template_text.find("\n", fence_start)
-    if body_start < 0:
-        raise LaunchError("template opening fence is malformed")
-    body_start += 1
-    fence_end = template_text.find("\n```", body_start)
-    if fence_end < 0:
+    close_re = re.compile(r"^[ \t]{0,3}`{" + str(len(fence_marker)) + r",}\s*$")
+    closed = False
+    for line in lines[open_index + 1:]:
+        if close_re.match(line):
+            closed = True
+            break
+        body_lines.append(line)
+    if not closed:
         raise LaunchError("template is missing the closing markdown fence")
-    body = template_text[body_start:fence_end].strip()
+    body = "\n".join(body_lines).strip()
     if not body.startswith("# AGENTS.md"):
         raise LaunchError("copy-ready template body must start with '# AGENTS.md'")
     return body + "\n"
@@ -258,7 +279,7 @@ def _project_venv_clause() -> str:
         "code and for any `pip install` of project dependencies. NEVER `pip install` "
         "into the Argus framework Python (the interpreter that runs "
         "`python -m argus_skill.*` / `${ARGUS_SKILL_PYTHON}`) — that interpreter is "
-        "reserved exclusively for argus-skill validators, daemon, and helper CLIs. "
+        "reserved exclusively for the argus-skill daemon, reviewer, and helper CLIs. "
         "If a needed package is missing inside `./.venv`, run "
         "`./.venv/bin/pip install <pkg>` from the project root; do not fall back "
         "to system pip or the framework venv."
@@ -272,7 +293,7 @@ def default_compute_budget() -> str:
         "domain-appropriate training/adaptation run rather than defaulting to tiny "
         "custom scorers. Stop or ask for operator guidance if a required real benchmark, "
         "model weight/license, GPU capability, or full-scale run is unavailable, or if "
-        "repeated repair cycles make no validator-relevant progress."
+        "repeated repair cycles make no review-relevant progress."
     )
     gpu_clause = _gpu_budget_from_vault()
     venv_clause = _project_venv_clause()
@@ -283,8 +304,8 @@ def default_compute_budget() -> str:
 def default_allowed_inputs_table_rows() -> str:
     return "\n".join(
         [
-            "| Operator research playbook | provided by the launcher/operator when available | local operator guidance | Paper-quality and research-process guidance only | Stable cross-project writing and validation policy |",
-            "| Active Argus package/source checkout | active Python package plus `ARGUS_SKILL_SOURCE_ROOT` when set | local source/package | Validators, built-in skills, helper APIs, and daemon runtime | Required toolchain for this workspace without hard-coded host paths |",
+            "| Operator research playbook | provided by the launcher/operator when available | local operator guidance | Paper-quality and research-process guidance only | Stable cross-project writing and review policy |",
+            "| Active Argus package/source checkout | active Python package plus `ARGUS_SKILL_SOURCE_ROOT` when set | local source/package | Reviewer, built-in skills, helper APIs, and daemon runtime | Required toolchain for this workspace without hard-coded host paths |",
             "| Exported built-in skills | `./argus_builtin_skills/*.md`, `./argus_builtin_skills/**/*.md` | generated local copy | Read-only local skill guidance | Keeps the daemon self-contained without copying the whole Argus repository |",
             "| Public literature, datasets, and repositories | verified URLs/scholarly sources | source-specific license/access | Topic discovery, citations, benchmark construction, and baseline implementation | Must be recorded before use in research artifacts |",
         ]

@@ -19,11 +19,11 @@ AGENTS.md New Project Template
 
 ## Copy-ready `AGENTS.md`
 
-```markdown
+````markdown
 # AGENTS.md
 
 ## Project contract
-This workspace must produce a submission-quality EMNLP/ACL long-paper package, not a pilot PDF, validator-shaped demo, or renamed copy of an older project. Build the paper as an evidence pipeline: research -> plan -> benchmark -> run -> analysis -> draft -> review -> submission.
+This workspace must produce a submission-quality EMNLP/ACL long-paper package, not a pilot PDF, reviewer-gaming demo, or renamed copy of an older project. Build the paper as an evidence pipeline: research -> plan -> benchmark -> run -> analysis -> draft -> review -> submission.
 
 This is a clean-slate project. Do not inherit titles, claims, datasets, benchmark episodes, generators, figures, review artifacts, result numbers, architecture, thesis, or paper story from any prior project unless they are listed in **Allowed starting inputs** with source, license/access status, allowed use, and rationale.
 
@@ -36,14 +36,14 @@ Non-negotiable research bar: choose a frontier-domain problem grounded in curren
 - If you can't articulate what makes your approach surprising or counter-intuitive, keep searching.
 - Write `research/IDEA_REJECTION_LOG.md` — reject at least one mediocre idea before committing.
 
-## Binding playbooks and validators
+## Binding playbooks and completion contract
 - Read and follow the operator-provided research playbook when one is available before choosing the final thesis, benchmark, method name, metric, paper narrative, figure/table design, or final preflight.
 - Use the active Argus package/source checkout supplied by the launcher. Built-in skill markdown is available as project-local exports under `./argus_builtin_skills/` and as the Python package resource `argus_skill.builtin_skills`; `ARGUS_SKILL_SOURCE_ROOT` may point at a source checkout, but agents must not hard-code host-specific paths.
 - At project setup, copy the built-in skill markdown into this workspace so the daemon can read it directly:
   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --export-builtin-skills ./argus_builtin_skills`
 - Read `./argus_builtin_skills/*.md` and `./argus_builtin_skills/**/*.md` first when invoking built-in paper/research/domain skills. If the local copy is absent or stale, refresh it with the export command above or load `argus_skill.builtin_skills` through the active Python environment. Do not copy the whole Argus repository, global memory, model caches, or capability vault into this project.
 - When ownership is unclear, read `./argus_builtin_skills/emnlp-paper-skill-router.md` first, then load the specific skill it routes to.
-- Prefer `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill ...` for Argus validation commands; the launcher injects `ARGUS_SKILL_PYTHON`, `ARGUS_SKILL_SOURCE_ROOT`, and `PYTHONPATH` when a source checkout is needed.
+- Prefer `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill ...` for Argus helper commands; the launcher injects `ARGUS_SKILL_PYTHON`, `ARGUS_SKILL_SOURCE_ROOT`, and `PYTHONPATH` when a source checkout is needed.
 - Final EMNLP completion is certified only when the L2 reviewer returns a `scope: final_submission` verdict with `status: done` and a non-empty checklist where every item has `satisfied: true` plus concrete evidence covering the full pipeline (research → submission). Quote that verdict in completion evidence.
 - Full-scale experiment evidence is a prerequisite for analysis, draft, review, and submission. The L2 reviewer must tick off the run-stage "full-scale evidence" checklist item before any of those stages are marked ready/done.
 - Treat `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` as hard blockers.
@@ -63,8 +63,8 @@ Before each planner or engineer round, classify the current blocker and load onl
 | Short, underfilled, weird-looking, overfull, bad references/appendix/page flow | `argus_builtin_skills/emnlp-format-preflight.md` | classify whether to fix layout/prose or route back to experiments/evidence; compile and page-budget checks |
 | Weak claims, unsupported numbers, evidence gaps, stale artifacts | `argus_builtin_skills/claims-evidence-audit.md` | `CLAIM_GRAPH.json`, `EVIDENCE_GAPS.json`, claim-to-result/freshness repair plan |
 | Academic tone and model-backed prose critique after evidence is stable | `argus_builtin_skills/emnlp-academic-language-review.md` | fresh `ACADEMIC_LANGUAGE_REVIEW.json` and concrete language directives |
-| Iterative paper repair after review feedback | `argus_builtin_skills/paper-review-revision-loop.md` | source-level revisions plus validator reruns, without hand-editing stale generated outputs |
-| Final submission readiness and go/no-go | `argus_builtin_skills/research-submission-assurance-gate.md` | `SUBMISSION_ASSURANCE.json`, final PASS/FAIL/BLOCKED decision, exact final validator evidence |
+| Iterative paper repair after review feedback | `argus_builtin_skills/paper-review-revision-loop.md` | source-level revisions plus review reruns, without hand-editing stale generated outputs |
+| Final submission readiness and go/no-go | `argus_builtin_skills/research-submission-assurance-gate.md` | `SUBMISSION_ASSURANCE.json`, final PASS/FAIL/BLOCKED decision, exact final reviewer evidence |
 
 Routing rule: if the blocker is "paper is too short", "format looks fake", "references look bad", or "figure is wrong", first determine whether evidence/full-scale runs/claim support are missing. Missing evidence routes to benchmark execution or analysis before prose/layout polish.
 
@@ -160,7 +160,7 @@ Use the repository's existing conventions if they are already present; otherwise
                    time.sleep(delay)
            raise RuntimeError("unreachable")
 
-       def complete(prompt: str, *, route_name: str = "scientist", system: str = "") -> str:
+       def complete(prompt: str, *, route_name: str = "text", system: str = "") -> str:
            route = _route(route_name)
            if route.wire_api == "chat":
                data = _post(route, "/chat/completions", {
@@ -392,7 +392,7 @@ checklist to be ticked off by the reviewer.
 1. Final long-paper evidence must come from existing real benchmarks, official benchmark datasets, or official task releases with real ground truth/evaluation. Do not create synthetic benchmarks, generated proxy tasks, hand-written gold graphs, or local pseudo-benchmarks for the main paper claim.
 2. Final long-paper evidence must use unique semantic tasks/examples, not duplicated prompts, relabeling, suffixes, paraphrase inflation, or shuffled copies.
 3. A small run is pilot evidence only. For final EMNLP readiness, execute a multi-source full-paper matrix over at least 3 independent real benchmark families. A single benchmark slice is not final evidence even when it has hundreds of scored rows.
-4. Use the available GPU capacity for a meaningful trained/adapted model when the contribution is learned. Prefer a modern backbone and efficient training recipe (LoRA/QLoRA/FSDP/DeepSpeed/Accelerate as appropriate). Record model family, parameter count, trainable parameters, dataset size, GPU memory plan, GPU-hours, checkpoint/adapter path, and evaluation command.
+4. Use the available GPU capacity for a meaningful trained/adapted model when the contribution is learned. Prefer a modern backbone and efficient training recipe (LoRA/QLoRA/FSDP/DeepSpeed/Accelerate as appropriate). Record model family, parameter count, trainable parameters, dataset size, GPU memory plan, GPU-hours, checkpoint/adapter path, and evaluation command. Launch any long training/inference/evaluation run as a non-blocking sub-agent job (`python -m argus_skill.tools.subagent submit ...`) and continue other work while it runs; never block a round waiting on a GPU job.
 5. A compact bag-of-words scorer, exact lookahead/oracle policy, lexical ranker, prompt-only wrapper, or trivial classifier is allowed only as a smoke test, baseline, ablation, or operator-approved non-frontier scope. It must not be presented as the main proposed method for a submission-quality long paper.
 6. Benchmark construction is not execution. `benchmarks/full/tasks.jsonl`, benchmark manifests, or `status.json task_count` do not satisfy final evidence unless raw completed scored rows under `experiments/**` cover every required method/baseline condition.
 7. Use at least 3 independent executed real benchmark/data sources or official task-release families for final long-paper evidence. Multiple slices from one benchmark family, such as Verified/Lite/Multimodal variants of the same suite, count as one source family. `experiments/BENCHMARK_PROVENANCE.md`/`.json` must list selected benchmark sources with name, URL/repo, paper/citation/DOI, version/date, license/access, split/filtering, task count, capability tested, rationale, and execution status. Planned diagnostic rows do not count toward the 3-source final gate.
@@ -421,7 +421,7 @@ checklist to be ticked off by the reviewer.
 ## Paper narrative and prose contract
 1. Do not write the abstract first. Draft the abstract after the main numbers, ablations, and limitations exist.
 2. The paper must have one sentence-long contribution: "We propose X. We show X improves Y by Z because W." If X, Y, Z, and W cannot be filled from evidence, the paper is not ready.
-3. The abstract should read like a normal EMNLP abstract: problem, gap, method, result, implication. Do not expose validator names, raw paths, evidence-span bookkeeping, review mechanics, or appendix layout trivia in the abstract/body.
+3. The abstract should read like a normal EMNLP abstract: problem, gap, method, result, implication. Do not expose reviewer/route names, raw paths, evidence-span bookkeeping, review mechanics, or appendix layout trivia in the abstract/body.
 4. Every numerical paper claim must trace to raw artifacts under `results/`, `experiments/`, or `paper/artifacts/`.
 5. Paper writing and experimentation may interleave. If drafting exposes weak or missing evidence, stop claiming readiness, run the needed supplement/ablation/error analysis, and then update the claim graph and paper; if the evidence remains weak, soften or remove the claim instead of cherry-picking.
 6. Keep claims calibrated without turning the paper into repetitive defensive caveats. Move detailed scope limits to limitations/discussion.
@@ -431,7 +431,7 @@ checklist to be ticked off by the reviewer.
 ## Paper-quality contract files
 1. `paper/CLAIM_GRAPH.json` must bind every major claim to its section, required evidence, raw result artifact, figure/table/citation support, and allowed fallback if evidence is weak. `paper/EVIDENCE_GAPS.json` must list missing or weak evidence and the planned supplement, ablation, negative result framing, or claim downgrade.
 2. `paper/FIGURE_TABLE_STYLE_GUIDE.json` must specify the intended body/appendix float inventory, width, font/readability target, legend/caption length, color discipline, column density, information hierarchy, and whether each float belongs in the main body or appendix. Ugly, cramped, or audit-table-like floats are blockers even if the PDF compiles.
-3. `paper/VALIDATION_PRIORITY_POLICY.json` must order repair work as freshness, full-scale experiment evidence, claim evidence, and content sufficiency first; exemplar structure next; figure/table and format/layout next; academic language only after evidence and structure are stable; manifest/readiness cleanup last. It must include every validator failure class, not only the currently failing ones. Run `python -m argus_skill.skills.pipeline_contracts write-validation-priority-policy --project-root .` to create the standard scaffold before final review loops. Underlength, underfilled body, missing full-scale runs, missing baselines, weak ablations, or missing failure analysis are not layout-only problems: route them to `run_more_experiments`, additional ablations/failure studies, source-backed Introduction/Related Work/Method expansion, or evidence-backed analysis according to the actual gap. After repeated non-improving edits, reset the skeleton/float plan instead of looping on review JSON or cosmetic micro-edits.
+3. `paper/VALIDATION_PRIORITY_POLICY.json` must order repair work as freshness, full-scale experiment evidence, claim evidence, and content sufficiency first; exemplar structure next; figure/table and format/layout next; academic language only after evidence and structure are stable; manifest/readiness cleanup last. It must include every reviewer checklist failure class, not only the currently failing ones. Run `python -m argus_skill.skills.pipeline_contracts write-validation-priority-policy --project-root .` to create the standard scaffold before final review loops. Underlength, underfilled body, missing full-scale runs, missing baselines, weak ablations, or missing failure analysis are not layout-only problems: route them to `run_more_experiments`, additional ablations/failure studies, source-backed Introduction/Related Work/Method expansion, or evidence-backed analysis according to the actual gap. After repeated non-improving edits, reset the skeleton/float plan instead of looping on review JSON or cosmetic micro-edits.
 5. the L2 reviewer analysis/draft-stage paper-quality checklist items before final academic-language and layout review. Missing, stale, or thin contract artifacts are hard blockers.
 
 ## Citation and related-work contract
@@ -469,10 +469,10 @@ checklist to be ticked off by the reviewer.
 
 4. Conclusion must appear by the end of page 8 and should not render before page 7 for a full long paper. References and Appendix should begin on page 9 or later; references or appendix material on page 8 usually mean the paper has only about seven pages of body. If the body is short, add or move source-backed body content before Conclusion: literature-grounded Introduction/Related Work framing, benchmark/Method detail, or evidence-backed Results/Analysis/Ablation/Failure Cases content according to the page budget. Limitations, Ethical Considerations, release notes, references, or appendix content after Conclusion do not fix an underfilled main body. References must appear before Appendix and start cleanly after the eight-page body. Do not cap total pages after the reference/appendix boundary. Never put `\clearpage`, `\newpage`, `\pagebreak`, or `\FloatBarrier` immediately before Conclusion; use those only after body end matter when a clean bibliography/appendix boundary is needed.
 5. the L2 reviewer review-stage checklist item for research.md format after final compile and before academic-language/layout review.
-6. Write `paper/FORMAT_PREFLIGHT.md` with compile command/status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final validator result.
+6. Write `paper/FORMAT_PREFLIGHT.md` with compile command/status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final preflight result.
 7. No undefined references/citation warnings, no rendered `[?]`, no `Overfull \hbox > 5pt`, no placeholders/TODO/TBD/FIXME, no `% UNVERIFIED`, and no ugly code-like display labels in title, abstract, headings, captions, figures, or tables.
 8. Body figures <=5 total, at most one `figure*`, every figure labeled and referenced, every table caption has a numerical headline, middle-body visual rhythm passes the model-backed layout review, and at least one paired-significance table when comparative binary outcomes apply.
-9. The body should include a large main results matrix that covers all selected benchmark families and major baselines in one place; it should be visually professional rather than a dump of validator artifacts. Split only if the table cannot fit cleanly under the overfull/legibility contract, and keep the cross-benchmark summary in the body while moving low-value diagnostics to the appendix.
+9. The body should include a large main results matrix that covers all selected benchmark families and major baselines in one place; it should be visually professional rather than a dump of review artifacts. Split only if the table cannot fit cleanly under the overfull/legibility contract, and keep the cross-benchmark summary in the body while moving low-value diagnostics to the appendix.
 10. Tables must follow the `research.md` style tokens: `\footnotesize`, `\tabcolsep=3-4pt`, `\arraystretch=1.15`, light-gray header, soft peach "ours" row, alternating row tint for long tables, coral accent only for meaningful degradation, and bold winning values.
 
 ## Figure contract
@@ -487,8 +487,8 @@ checklist to be ticked off by the reviewer.
 1. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write` and confirm the L2 reviewer ticks the review-stage "academic language" checklist item. The generated `paper/ACADEMIC_LANGUAGE_REVIEW.json` must score at least 4/5, be model-backed, fresh, contain quoted evidence spans, and have `needs_revision: false` with no active directives.
 2. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write` and confirm the L2 reviewer ticks the review-stage "layout" checklist item. `paper/LAYOUT_REVIEW.json` must score at least 4/5, be vision-backed from rendered PDF page snapshots, fresh, and `needs_revision: false`.
 3. Write `paper/SUBMISSION_ASSURANCE.md` and `paper/SUBMISSION_ASSURANCE.json`.
-4. Review artifacts, calibration files, and readiness reports are evidence, not optimization targets. Never hand-edit them to say PASS/ready while underlying validators fail.
-5. Never emit PASS/WARN/final-ready if any required validator fails. `WARN` cannot launder pilot scale, stale reviews, missing provenance, or known hard blockers into final EMNLP readiness.
+4. Review artifacts, calibration files, and readiness reports are evidence, not optimization targets. Never hand-edit them to say PASS/ready while underlying checklist items fail.
+5. Never emit PASS/WARN/final-ready if any required checklist item fails. `WARN` cannot launder pilot scale, stale reviews, missing provenance, or known hard blockers into final EMNLP readiness.
 
 ## Operational safety
 1. Work inside this project directory unless reading an operator-provided research playbook or the active Argus source/package through the launcher-provided environment.
@@ -499,11 +499,11 @@ checklist to be ticked off by the reviewer.
 6. Preserve user edits and unrelated work. Do not revert files you did not intentionally change.
 
 ## Forbidden shortcuts
-- Do not fake experiments, citations, provenance, tests, reviews, image-2 artifacts, or validation outputs.
+- Do not fake experiments, citations, provenance, tests, reviews, image-2 artifacts, or review outputs.
 - Do not edit generated paper artifacts without updating the generator/source and manifest.
-- Do not satisfy validators by adding boilerplate that makes the actual paper worse.
+- Do not satisfy the reviewer by adding boilerplate that makes the actual paper worse.
 - Do not copy a previous project and rename variables to make it look new.
-- Do not silently ignore failed commands, missing artifacts, stale reviews, or validator blockers.
+- Do not silently ignore failed commands, missing artifacts, stale reviews, or checklist blockers.
 
 ## Completion contract
 A task is complete only when:
@@ -514,7 +514,7 @@ A task is complete only when:
 - the handoff states what changed, what passed, and the next highest-priority blocker.
 
 The full project is complete only when the L2 reviewer certifies `done` for `scope: final_submission` against the full pipeline checklist on the current workspace, with every checklist item satisfied and backed by concrete evidence, and that verdict is quoted in completion evidence.
-```
+````
 
 ## Generality check
 This template is EMNLP/ACL-paper-specific but must stay project-neutral. It must not contain host-specific Argus paths, a specific project title, benchmark name, result number, figure name, or prior-workspace story.

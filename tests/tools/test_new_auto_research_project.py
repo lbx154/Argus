@@ -26,6 +26,61 @@ def test_extract_copy_ready_agents_md_omits_skill_frontmatter() -> None:
     assert "## Copy-ready `AGENTS.md`" not in body
 
 
+def test_extract_copy_ready_agents_md_keeps_body_after_nested_code_fence() -> None:
+    """Nested ```python fences inside the body must not truncate AGENTS.md.
+
+    A naive 'first ```' search closed the copy-ready block at the embedded
+    rollback example and silently dropped the entire back half of the agent
+    prompt (Operational safety, Forbidden shortcuts, Completion contract).
+    Extraction must walk fence depth and keep content after the nested fence.
+    """
+    body = extract_copy_ready_agents_md(load_template_text())
+
+    # The nested code example itself and every section that follows it must
+    # survive extraction.
+    assert "rollback_stage(" in body
+    for section in (
+        "## Operational safety",
+        "## Forbidden shortcuts",
+        "## Completion contract",
+    ):
+        assert section in body, f"section dropped by extraction: {section!r}"
+
+    # Template-only meta sections live outside the copy-ready fence and must
+    # NOT leak into the generated agent prompt.
+    assert "## Generality check" not in body
+    assert "## Coverage check" not in body
+
+
+def test_extract_copy_ready_agents_md_survives_bare_nested_fence() -> None:
+    """A bare (untagged) nested fence must not close the copy-ready block.
+
+    The four-backtick wrapper plus length-aware closing means inner 3-backtick
+    fences — tagged or bare — stay body content. This is the failure class that
+    silently truncated the agent prompt before.
+    """
+    template = (
+        "---\nname: demo\n---\n\n"
+        "## Copy-ready `AGENTS.md`\n\n"
+        "````markdown\n"
+        "# AGENTS.md\n\n"
+        "Intro before the example.\n\n"
+        "```\n"
+        "a bare untagged code block\n"
+        "```\n\n"
+        "## Trailing section\n"
+        "This must survive extraction.\n"
+        "````\n\n"
+        "## Generality check\nMeta only.\n"
+    )
+    body = extract_copy_ready_agents_md(template)
+    assert body.startswith("# AGENTS.md\n")
+    assert "a bare untagged code block" in body
+    assert "## Trailing section" in body
+    assert "This must survive extraction." in body
+    assert "## Generality check" not in body
+
+
 def test_render_agents_md_fills_placeholders_and_quality_contracts() -> None:
     rendered = render_agents_md(
         load_template_text(),
