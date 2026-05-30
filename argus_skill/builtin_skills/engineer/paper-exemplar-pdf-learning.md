@@ -3,7 +3,7 @@ name: Paper Exemplar PDF Learning
 description: Download open-access top-conference paper PDFs, extract structural evidence, and build a thick style profile before drafting an EMNLP/ACL submission.
 category: paper-audit
 version: 1
-scientist_model: gpt-5.4
+scientist_model: gpt-5.5
 created_at: 2026-05-25T00:00:00+00:00
 ---
 
@@ -28,7 +28,7 @@ Use real top-conference papers as formatting and structure references before wri
 - `paper/style_ref/STYLE_PROFILE.md`: a thick structural profile, not a one-line note.
 - `paper/style_ref/EXEMPLAR_SUITABILITY.json`: a pre-draft suitability lock showing why the primary exemplar is structurally appropriate for this project.
 - `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md`: a project-specific outline that maps exemplar structure to this paper before prose is written.
-- After drafting, `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json` must prove the final LaTeX section order still follows the blueprint. These are post-draft artifacts, not prerequisites for the reviewer stage-checklist item.
+- After drafting, `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json` must prove the final LaTeX section order still follows the blueprint. These are post-draft artifacts, not prerequisites for the exemplar-grounding and structure-blueprint requirement.
 - `paper/style_ref/SOURCES.md`: source URLs, PDF URLs, access date, license/terms notes, and extraction commands.
 
 ## Exemplar selection contract
@@ -79,8 +79,8 @@ After the manuscript exists, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` an
 8. Write `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` by adapting the primary exemplar skeleton to this project's thesis, evidence, figures, tables, and section/page plan. Keep title/section wording flexible but not freeform: every rename, merge, or split needs a local-evidence rationale.
 9. After the final body draft exists, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json` from the actual `paper/main.tex` section order.
 10. Run:
-   - (reviewer stage-checklist verification)
-11. If validation fails, fix the missing PDF/text/hash/profile/suitability/blueprint evidence before paper drafting continues. Final readiness later runs the reviewer stage-checklist item, which also checks structure conformance.
+   - self-audit the exemplar-grounding and structure-blueprint requirement; the L2 reviewer verifies these artifacts directly against the draft stage checklist.
+11. If validation fails, fix the missing PDF/text/hash/profile/suitability/blueprint evidence before paper drafting continues. Final readiness later self-audits the full EMNLP submission contract, which also checks structure conformance.
 
 ## Hard rules
 - Never treat an ACL Anthology URL as enough. The PDF and text extract must exist locally.
@@ -95,5 +95,5 @@ After the manuscript exists, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` an
 - Name the downloaded exemplar PDFs and text extracts.
 - Name the primary exemplar suitability verdict and any rejected candidate reasons.
 - Name the structure blueprint and the exemplar-derived section/page decisions it imposes.
-- State whether the reviewer stage-checklist item passed.
+- State whether the exemplar-grounding and structure-blueprint requirement holds.
 - If blocked, list the exact missing artifacts or license/source issues.

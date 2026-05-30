@@ -3,7 +3,7 @@ name: arxiv-paper-search
 description: "Search arXiv preprints via the public API. Covers latest cutting-edge work before formal publication. Complements Semantic Scholar (published venue papers) with preprint coverage. Use for literature search, related work discovery, or tracking SOTA."
 category: literature
 version: "1.0"
-scientist_model: gpt-5.4
+scientist_model: gpt-5.5
 created_at: "2026-05-28"
 ---
 

@@ -3,7 +3,7 @@ name: paper-illustration-image2
 description: "Generate publication-quality academic illustrations using gpt-image-2 with a multi-stage iterative workflow. Argus planner/reviewer agents specify and audit; the configured codex/image route renders. Use when user says 'generate figure', 'architecture diagram', 'method figure', or needs AI-generated paper illustrations."
 category: paper-figures
 version: "1.0"
-scientist_model: gpt-5.4
+scientist_model: gpt-5.5
 created_at: "2025-07-17"
 ---
 

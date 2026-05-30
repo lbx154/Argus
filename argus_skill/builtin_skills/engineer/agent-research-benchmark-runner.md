@@ -3,7 +3,7 @@ name: Agent Research Benchmark Runner
 description: Run agent-research benchmark experiments reproducibly, including baselines, ablations, manifests, logs, cost fields, and resumable background status files.
 category: research-experiments
 version: 1
-scientist_model: gpt-5.4
+scientist_model: gpt-5.5
 created_at: 2026-05-23T00:00:00+00:00
 ---
 
@@ -48,7 +48,7 @@ Execute the experiment plan for an agent-science paper. This is the argus-skill-
 
 2. Preflight the environment:
    - Record Python version, relevant env vars without secrets, git commit or working-tree summary, and available benchmark scripts in run manifests/logs only. These local execution details are not paper-facing prose.
-   - Confirm model/data cache variables point to the shared host cache before any dataset/model download: `HF_HOME=/root/.cache/huggingface`, `HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface/hub`, `HF_DATASETS_CACHE=/root/.cache/huggingface/datasets`, `TRANSFORMERS_CACHE=/root/.cache/huggingface/hub`, `TORCH_HOME=/root/.cache/torch`, and `XDG_CACHE_HOME=/root/.cache`. If a value is missing, export it to the shared path; do not create project-local model caches.
+   - Confirm model/data cache variables point at the project-local store under `./models/` before any dataset/model download: `HF_HOME=$(pwd)/models/huggingface`, `HUGGINGFACE_HUB_CACHE=$(pwd)/models/huggingface/hub`, `HF_DATASETS_CACHE=$(pwd)/models/huggingface/datasets`, `TRANSFORMERS_CACHE=$(pwd)/models/huggingface/hub`, and `TORCH_HOME=$(pwd)/models/torch`. If a value is missing, export it to the project-local path; each project owns its weights (see the training-infrastructure-guide skill).
    - Check required commands with `--help` or dry-run where available.
    - If running containers or external APIs, verify credentials are present without printing secret values.
 
@@ -75,7 +75,7 @@ Execute the experiment plan for an agent-science paper. This is the argus-skill-
    - The full run must report unique semantic tasks for each selected benchmark family in the canonical results table. Use documented splits from multiple real/frontier benchmarks; do not relabel, duplicate, generate, or suffix-copy a pilot as full evidence.
    - The full run must also write per-condition raw rows (`results.jsonl`, `progress.jsonl`, or equivalent) with fields such as `method`, `task_id`, and a scored outcome. Do not rely on `status.json task_count` alone: the validator counts distinct raw task ids per method/condition and rejects declared-complete runs with too few rows.
    - The canonical run output must be shaped for a large paper-facing results matrix: every row should carry benchmark/source family, official source/version, task count/split, method/baseline name, evaluated model/backend, metric, budget/decoding/stopping rule, and raw score fields. If these fields are missing, fix the collector before writing the paper.
-   - Before marking the run stage done or starting final analysis, run (reviewer stage-checklist verification). Treat `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` as hard blockers.
+   - Before marking the run stage done or starting final analysis, self-audit the full-scale experiment-evidence requirement (completed raw scored rows under `experiments/**` for every required method/baseline condition) before claiming readiness; the L2 reviewer verifies these artifacts directly against the run stage checklist. Treat `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` as hard blockers.
    - For any command that may exceed 60 seconds or 5 model/API calls, run it as a background process and write `pid`, `stdout.log`, `stderr.log`, `status.json`, and `progress.jsonl`.
    - For short commands, capture full stdout/stderr into the run directory.
    - The experiment worker must append a progress JSON line before and after every trial/model call, flush/fsync after every line, and atomically update `status.json`.
@@ -83,7 +83,7 @@ Execute the experiment plan for an agent-science paper. This is the argus-skill-
    - Check for `STOP` before each expensive call and at least every 30 seconds; on cancellation write `run_cancelled`, set status to `cancelled`, and exit 130.
    - Implement early-stop invariants: stop if repeated validator failures, auth/model errors, unpaired conditions, broken metrics, model mismatch, or budget overrun show the experiment no longer matches the plan.
    - Do not block the agent while a long experiment runs. After launch, verify the PID and first progress events, then continue independent paper/analysis work or answer operator guidance while monitoring the run.
-   - Completed-run handoff is mandatory: if a background run reaches `completed`, `failed`, `cancelled`, or its PID exits while the mission is still active, collect it in the same mission before waiting, finishing, or relying on the planner. Read `status.json`, tail logs, count raw rows, write/update `RUN_REPORT.md`, run the reviewer stage-checklist item, update `research/PIPELINE_STATE.json`, and either advance to analysis or mark `pivot`/`rejected` when the result invalidates the paper-positive thesis. Do not leave a completed run uncollected with only token-only waiting or watchdog heartbeats.
+   - Completed-run handoff is mandatory: if a background run reaches `completed`, `failed`, `cancelled`, or its PID exits while the mission is still active, collect it in the same mission before waiting, finishing, or relying on the planner. Read `status.json`, tail logs, count raw rows, write/update `RUN_REPORT.md`, self-audit the full-scale experiment-evidence requirement, update `research/PIPELINE_STATE.json`, and either advance to analysis or mark `pivot`/`rejected` when the result invalidates the paper-positive thesis. Do not leave a completed run uncollected with only token-only waiting or watchdog heartbeats.
 
 5. Preserve raw evidence:
    - Never summarize over missing logs; keep raw command output.

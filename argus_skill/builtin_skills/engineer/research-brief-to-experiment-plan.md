@@ -3,7 +3,7 @@ name: Research Brief To Experiment Plan
 description: Convert an operator research seed into a literature/code-derived idea and falsifiable experiment plan with hypotheses, baselines, metrics, budgets, and artifact contracts.
 category: research-planning
 version: 1
-scientist_model: gpt-5.4
+scientist_model: gpt-5.5
 created_at: 2026-05-23T00:00:00+00:00
 ---
 
@@ -154,7 +154,7 @@ and `plan.infra_choice`. Empty / hand-waved infra sections fail the gate.
    - Include a run matrix table: id, hypothesis, command, expected output, metric, budget, priority.
    - Include a staged order: smoke -> pilot -> full run -> ablation -> paper analysis.
    - Mark MUST-RUN vs NICE-TO-HAVE and explicitly state what can be skipped if budget is tight.
-   - Include the shared model/data cache contract for every training or dataset command: `HF_HOME=/root/.cache/huggingface`, `HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface/hub`, `HF_DATASETS_CACHE=/root/.cache/huggingface/datasets`, `TRANSFORMERS_CACHE=/root/.cache/huggingface/hub`, `TORCH_HOME=/root/.cache/torch`, and `XDG_CACHE_HOME=/root/.cache`; project-local model caches are forbidden.
+   - Include the project-local model/data cache contract for every training or dataset command: `HF_HOME=$(pwd)/models/huggingface`, `HUGGINGFACE_HUB_CACHE=$(pwd)/models/huggingface/hub`, `HF_DATASETS_CACHE=$(pwd)/models/huggingface/datasets`, `TRANSFORMERS_CACHE=$(pwd)/models/huggingface/hub`, and `TORCH_HOME=$(pwd)/models/torch`; each project owns its weights under `./models/` (see the training-infrastructure-guide skill).
    - Include an "Observability and cancellation" section: expected trial count, how progress is streamed, how the user cancels, and which invariants trigger agent-initiated early stop.
    - Include a "Benchmark provenance" section. A plan without benchmark provenance is incomplete for EMNLP-style empirical work.
 
@@ -172,8 +172,8 @@ and `plan.infra_choice`. Empty / hand-waved infra sections fail the gate.
    - Ensure every planned paper claim maps to at least one concrete run.
    - Ensure every run has an expected output path and a success/failure criterion.
    - Ensure no result number appears unless it already exists in a cited artifact.
-   - Run (reviewer stage-checklist verification); do not mark the plan stage ready while it reports missing recent papers, classic papers, or trend-source metadata.
-   - Run (reviewer stage-checklist verification) and (reviewer stage-checklist verification); do not mark the plan stage ready while the idea looks agent-generated or the implementation ignores surveyed paper/open-source code.
+   - Self-audit the literature-grounding requirement; do not mark the plan stage ready while review finds missing recent papers, classic papers, or trend-source metadata.
+   - Self-audit the idea-provenance requirement and the code-reuse requirement; do not mark the plan stage ready while the idea looks agent-generated or the implementation ignores surveyed paper/open-source code.
 
 ## Response shape
 - End with a short list of the next executable missions, each with acceptance criteria.

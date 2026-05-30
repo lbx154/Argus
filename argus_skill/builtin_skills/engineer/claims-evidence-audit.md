@@ -3,7 +3,7 @@ name: Claims Evidence Audit
 description: Audit a research report or paper so every claim, number, citation placeholder, and figure reference maps to local evidence or is explicitly marked unsupported.
 category: research-audit
 version: 1
-scientist_model: gpt-5.4
+scientist_model: gpt-5.5
 created_at: 2026-05-23T00:00:00+00:00
 ---
 
@@ -61,7 +61,7 @@ Gate paper writing and revisions on evidence integrity. This is an argus-skill-n
    - Ensure every figure/table reference points to an existing file.
    - Ensure every figure has a `\label{}` and a text reference, every table caption has a numerical headline, and every paper-facing figure/table label uses human-readable names rather than snake_case/code identifiers.
    - If the audit touches format readiness, require the same `research.md` hard preflight used by the drafting and assurance skills: no unresolved refs/citations, no `[?]`, no `% UNVERIFIED` entries unless disclosed, no placeholders, no `Overfull \hbox > 5pt`, at least one paired-significance table when applicable, and a complete reproducibility appendix.
-   - Run (reviewer stage-checklist verification); digest or TSV schema drift means the audit is blocked.
+   - Self-audit the artifact-manifest requirements (canonical sources, SHA-256 digests, TSV schemas, source links); digest or TSV schema drift means the audit is blocked.
    - Ensure every new TODO is explicit rather than hidden.
 
 7. Write `paper/CLAIMS_EVIDENCE_AUDIT.md`:

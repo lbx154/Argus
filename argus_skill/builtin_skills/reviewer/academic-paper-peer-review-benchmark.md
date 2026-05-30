@@ -3,7 +3,7 @@ name: Academic Paper Peer Review Benchmark
 description: Simulate a strict EMNLP/ACL-style program-committee reviewer for a nearly complete academic paper, scoring contribution, evidence, experiments, writing, format, and readiness before reviewer agents accept paper tasks as done.
 category: paper-review
 version: 1
-scientist_model: gpt-5.4
+scientist_model: gpt-5.5
 created_at: 2026-05-25T00:00:00+00:00
 ---
 

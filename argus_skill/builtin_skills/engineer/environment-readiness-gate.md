@@ -185,7 +185,7 @@ The L2 reviewer must NOT mark `benchmark.smoke`, `benchmark.evaluator_authentic`
 `experiments/runs/<run_id>/preflight.txt` quoting the verbatim output
 of every command above. A reviewer round that finds:
 
-- `which python` points at `/root/argus-skill/.venv` (framework venv)
+- `which python` points at the argus-skill framework venv (`$ARGUS_SKILL_PYTHON`) instead of the project `.venv`
 - `CUDA_VISIBLE_DEVICES` does not match the vault
 - `torch.cuda.is_available()` is False
 - HF cache env vars point outside `<project>/models/`

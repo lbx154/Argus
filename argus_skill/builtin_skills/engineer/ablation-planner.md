@@ -3,7 +3,7 @@ name: ablation-planner
 description: "Design ablation studies that answer reviewer questions. Identifies which components to remove/replace, prioritizes by impact and compute cost, and produces runnable experiment configs. Use after main results pass result-to-claim."
 category: experiment-design
 version: "1.0"
-scientist_model: gpt-5.4
+scientist_model: gpt-5.5
 created_at: "2025-07-27"
 ---
 

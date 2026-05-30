@@ -3,7 +3,7 @@ name: EMNLP Paper Infrastructure Review
 description: Run the model-backed gate that rejects reader-facing local environment, device, cache, path, and Argus/Codex configuration leaks in an EMNLP/ACL manuscript.
 category: paper-review
 version: 1
-scientist_model: gpt-5.4
+scientist_model: gpt-5.5
 created_at: 2026-05-27T00:00:00+00:00
 ---
 
@@ -16,7 +16,7 @@ Use this skill when a paper may contain local execution details that do not belo
 ## When to use
 - After editing Method, Experimental Setup, captions, tables, reproducibility appendix, or any configuration prose.
 - When validator output mentions `paper_infrastructure_*`, stale infrastructure review hashes, or final readiness is blocked by missing infrastructure review.
-- When reviewer/critic suspects environment, device, cache, local path, Argus/Codex daemon, route, or paper-generation details entered the paper.
+- When the reviewer suspects environment, device, cache, local path, Argus/Codex daemon, route, or paper-generation details entered the paper.
 
 ## What to reject
 - Local hardware capacity, ordinals, and device placement such as GPU card numbers, `single local GPU`, local GPU/workstation/node labels, `cuda:6`, `CUDA_VISIBLE_DEVICES`, local device IDs, or node-specific execution notes.
@@ -24,7 +24,7 @@ Use this skill when a paper may contain local execution details that do not belo
 - Local cache and filesystem configuration such as `HF_HOME`, `TRANSFORMERS_CACHE`, `TORCH_HOME`, `XDG_CACHE_HOME`, `/root/.cache`, `/root/...`, `/home/...`, or project-private paths.
 - Raw runner commands, script names, run IDs, or artifact paths that expose local device/config naming, such as `run_mind2web_gpu.py`, `mind2web-gpu-*`, `.venv`, `--output-root experiments`, `--benchmark-root benchmarks/...`, or project-private experiment directories rendered as the paper-facing reproducibility interface.
 - Operational audit-bundle metadata promoted into main-body scientific prose: wall-clock logging, artifact hashes, status snapshots, progress logs, STOP-file cancellation contracts, internal manifest mechanics, provenance-refresh workflow details, or validator/review artifact names. Keep these in appendix replay notes, manifests, logs, or supplementary metadata unless the paper explicitly studies that infrastructure.
-- Argus/Codex authoring infrastructure: daemon handoff, engineer/reviewer/critic/scientist routes, capability-vault configuration, validation artifacts, review artifacts, image-tool plumbing, API keys, private endpoints, or `gpt-5.4*` authoring/review routes.
+- Argus/Codex authoring infrastructure: daemon handoff, engineer/reviewer/scientist routes, capability-vault configuration, validation artifacts, review artifacts, image-tool plumbing, API keys, private endpoints, or `gpt-5.5*` authoring/review routes.
 - Any local config table that explains how the paper was generated rather than how the evaluated research system ran.
 
 ## What is allowed
@@ -45,16 +45,16 @@ Use this skill when a paper may contain local execution details that do not belo
    - Keep evaluated model identifiers only when they describe the experiment itself.
 3. Run the model-backed tool:
    - `python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write`
-   - (reviewer stage-checklist verification)
+   - self-audit the paper-infrastructure review thresholds (leak_free, score); the L2 reviewer verifies the review artifact directly against the review stage checklist.
 4. Treat the review files as generated evidence:
    - Do not hand-edit `paper/PAPER_INFRASTRUCTURE_REVIEW.json`, `.md`, or `_history.jsonl`.
    - If the nested `model_review` says `revise`, lists blocking/major issues, reports `leak_free: false`, or leaves revision directives, edit the manuscript and rerun the tool.
 5. After a pass, run the surrounding gates affected by source changes:
-   - the reviewer stage-checklist item
-   - the reviewer stage-checklist item
-   - the reviewer stage-checklist item near final readiness
+   - the academic-language review thresholds
+   - the `research.md` format-preflight requirements
+   - the full EMNLP submission contract near final readiness
 
 ## Response shape
-- State whether the reviewer stage-checklist item passed.
+- State whether the paper-infrastructure review thresholds (leak_free, score) hold.
 - If blocked, quote the highest-priority model review issue and the exact source target.
 - Mention any paper-facing rewrite made to replace local environment/device/config prose.

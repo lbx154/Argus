@@ -11418,16 +11418,42 @@ _PipelineContractsHandler = Callable[[Path], list[ContractIssue]]
 def cli_command_specs() -> tuple[tuple[str, str, _PipelineContractsHandler], ...]:
     """Return the public CLI command surface for pipeline contracts.
 
-    Intentionally empty. argus-skill historically exposed ~25 ``validate-*``
-    subcommands here; the agent surface was then replaced with
+    The ~25 historical ``validate-*`` quality *gates* are intentionally
+    absent: the agent surface was replaced with
     :mod:`argus_skill.skills.stage_checklists` so the L2 reviewer rules
     against a markdown checklist rather than chasing brittle JSON gates.
-    The validator *functions* below are still importable from Python so
-    the supervisor / harness can use them internally for project-done
+    Those validator *functions* are still importable from Python so the
+    supervisor / harness can use them internally for project-done
     detection — they just are no longer reachable via the CLI.
+
+    The artifact *build/repair* utilities below are NOT quality gates;
+    they construct the manifest/freshness/policy artifacts that the agent
+    must produce (skills forbid hand-editing those JSON files), so they
+    remain on the CLI.
     """
 
-    return ()
+    return (
+        (
+            "refresh-manifest",
+            "repair and refresh paper/ARTIFACT_MANIFEST.json",
+            refresh_artifact_manifest,
+        ),
+        (
+            "refresh-artifact-freshness",
+            "refresh paper/ARTIFACT_FRESHNESS.json",
+            refresh_artifact_freshness,
+        ),
+        (
+            "write-validation-priority-policy",
+            "write paper/VALIDATION_PRIORITY_POLICY.json",
+            write_validation_priority_policy,
+        ),
+        (
+            "repair-emnlp-contract-artifacts",
+            "repair manifest, validation-priority policy, and freshness records",
+            repair_emnlp_contract_artifacts,
+        ),
+    )
 
 
 def cli_command_handlers() -> dict[str, _PipelineContractsHandler]:

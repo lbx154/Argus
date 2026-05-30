@@ -124,7 +124,7 @@ These resources are allocated to you. Use them.
 **Project venv** (for ML dependencies):
 - Path: `.venv/bin/python` (in project directory)
 - If not exists: `python3 -m venv .venv --system-site-packages && .venv/bin/pip install torch diffusers transformers accelerate peft safetensors`
-- NEVER install ML deps in `/root/argus-skill/.venv/`
+- NEVER install ML deps in the argus-skill framework venv (`$ARGUS_SKILL_PYTHON`)
 
 **Project model store** (for ALL downloaded weights / adapters / datasets):
 - Path: `./models/` inside the project directory (pre-created by the launcher).

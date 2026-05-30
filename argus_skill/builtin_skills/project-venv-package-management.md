@@ -68,9 +68,9 @@ once, or prefix every command with `./.venv/bin/python` / `./.venv/bin/pip`.
 
 ### Rule 2 — Never touch the Argus framework venv
 
-The Argus framework Python is at `${ARGUS_SKILL_PYTHON}` (typically
-`/root/argus-skill/.venv/bin/python`). It runs the daemon, the
-reviewer, the planner, the validators, the helper CLIs. Installing
+The Argus framework Python is at `${ARGUS_SKILL_PYTHON}` (the interpreter
+shown in each round's runtime prompt). It runs the daemon, the
+reviewer, the planner, and the helper CLIs. Installing
 project dependencies there pollutes every other project that shares
 this host. **Do not run**:
 

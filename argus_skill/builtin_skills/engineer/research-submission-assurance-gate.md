@@ -3,7 +3,7 @@ name: Research Submission Assurance Gate
 description: Decide whether a research draft can be called EMNLP/ACL submission-ready by checking experiment integrity, result-to-claim support, paper claims, citations, prose quality, layout, strongest rejection arguments, and package completeness.
 category: research-audit
 version: 1
-scientist_model: gpt-5.4
+scientist_model: gpt-5.5
 created_at: 2026-05-23T00:00:00+00:00
 ---
 
@@ -23,13 +23,15 @@ Run the final high-strictness gate before a paper is described as EMNLP-ready. T
 - The operator only asks for a quick writing pass and explicitly does not want a readiness judgment.
 - A prior assurance report already blocks on missing evidence and nothing has changed.
 
-## Critical rule: trust the validator exit code
-If (reviewer stage-checklist verification) exits 0, the project PASSES.
-Do NOT second-guess the validator by reading individual review JSON files
-and finding stored `verdict: FAIL` — the validator may have accepted a
-review based on a score threshold even if the stored verdict is FAIL.
-When the validator exits 0, write SUBMISSION_ASSURANCE with verdict PASS
-and stop. Do not attempt further repairs.
+## Critical rule: trust the reviewer checklist verdict
+The completion authority is the L2 reviewer's checklist verdict for the
+`final_submission` scope, not a validator exit code (the historical
+`pipeline_contracts validate-*` CLI is retired and is now a no-op).
+Self-audit every required artifact for completeness and internal
+consistency, then let the reviewer certify the stage checklist. If
+evidence is missing, incomplete, or inconsistent, report the gap and keep
+the draft blocked — never fabricate, extrapolate, or hand-edit review
+artifacts to force a PASS.
 
 ## Required inputs
 - `research/PIPELINE_STATE.json`
@@ -43,11 +45,11 @@ and stop. Do not attempt further repairs.
 - `paper/PAGE_BUDGET.md`, `paper/TEMPLATE_SOURCE.md`, and a thick `paper/style_ref/STYLE_PROFILE.md`
 - `paper/main.log`, rendered `paper/main.pdf`, and extracted layout/page evidence sufficient to prove the `research.md` formatting preflight: no unresolved references/citations, no `[?]`, no `Overfull \hbox > 5pt`, body visibly fills the EMNLP long-paper budget (Conclusion not before page 7 and References/Appendix not before page 9 when PDF text can be extracted), conclusion by page 8 with no forced manual page break immediately before it, Limitations/Ethical Considerations present after the conclusion, References before Appendix, no total-page maximum after References/Appendix begin, anonymous author block, no placeholders, no `% UNVERIFIED` bibliography entries unless explicitly accepted by the operator, at least 35 verified BibTeX entries, at least 30 unique cited keys, at least two rendered References pages when PDF text can be extracted, every figure labeled/referenced, every table caption a numerical headline, model-backed layout review accepts the middle-body visual rhythm, at least one paired-significance table when comparative binary outcomes are reported or an explicit not-applicable rationale, and complete reproducibility appendix
 - `research/LITERATURE_GROUNDING.json` with at least 10 recent high-quality papers, 3 classic anchor papers, and recorded news/trend discovery signals
-- Full-scale experiment evidence that passes (reviewer stage-checklist verification): completed raw scored rows under `experiments/**` for every required method/baseline condition, not merely `benchmarks/full/tasks.jsonl`, a benchmark manifest, or a declared `status.json task_count`.
+- Full-scale experiment evidence satisfying the full-scale experiment-evidence requirement: completed raw scored rows under `experiments/**` for every required method/baseline condition, not merely `benchmarks/full/tasks.jsonl`, a benchmark manifest, or a declared `status.json task_count`.
 - `paper/style_ref/EXEMPLAR.json` with `exemplar_schema_version: 2`, at least two excellent open-access paper exemplars, local downloaded PDFs under `paper/style_ref/exemplars/`, text extracts, PDF SHA-256 digests, license/storage-policy metadata, and structural-style-only/no-prose-copy attestations
 - `paper/PAPER_DRAFT_REPORT.json` declaring `target_venue: "EMNLP"`, `paper_scope: "long-paper"`, `main_content_pages`, `official_acl_template: true`, and `submission_quality_self_assessment`
 - `paper/figures/IMAGE2_FIGURES.json` proving every non-data paper-facing figure was generated through image-2 / codex-image2 and that `paper/main.tex` includes the manifest's raster `output_path`; include prompt, raw generation sidecar, inspect sidecar, generation provenance, SHA-256, dimensions, and model-backed review sidecars. The prompt must come from `python -m argus_skill.tools.image_tool paper-prompt ...` and retain `argus-image2-paper-prompt-v1` plus `paper-framework-figure-studio-pro-v3.1.4a`; after review, run `sync-paper-metadata` instead of hand-patching hashes. Data/metric/result plots may be script/vector generated from canonical artifacts; secondary non-data TikZ/pgfplots/matplotlib/PIL/SVG diagrams may not. **Self-drawn non-data figure replacements are hard blockers:** matplotlib/FancyBboxPatch, TikZ node graphs, SVG/PIL/HTML canvases, cleaned PDFs, screenshots, Inkscape/manual vector output, generic raster mockups, manual-only reviews, hand-written `codex-image2` manifests, or local PNG/JPEGs falsely labeled as `codex-image2` are not acceptable substitutes.
-- `paper/FORMAT_PREFLIGHT.md` plus a clean (reviewer stage-checklist verification) run proving the dedicated `research.md` format preflight passed
+- `paper/FORMAT_PREFLIGHT.md` evidence proving the dedicated `research.md` format preflight passed
 - `paper/ACADEMIC_LANGUAGE_REVIEW.json` and `paper/ACADEMIC_LANGUAGE_REVIEW.md` produced by `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`, with fresh source hashes, quoted evidence spans, score at least 4/5, and `needs_revision: false`
 - `paper/PAPER_INFRASTRUCTURE_REVIEW.json` and `paper/PAPER_INFRASTRUCTURE_REVIEW.md` produced by `python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write`, with fresh source hashes, quoted evidence spans, score at least 4/5, `leak_free: true`, and `needs_revision: false`
 - `paper/LAYOUT_REVIEW.json` and `paper/LAYOUT_REVIEW.md` produced by `python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write`, with rendered page snapshots, fresh hashes, score at least 4/5, and `needs_revision: false`
@@ -57,7 +59,7 @@ and stop. Do not attempt further repairs.
 Use the 6-state verdict schema `PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLICABLE` for every layer.
 
 1. **experiment integrity**
-   - Run (reviewer stage-checklist verification) and require it to pass before any assurance `PASS`/final-ready verdict.
+   - Self-audit the full-scale experiment-evidence requirement and require it to hold before any assurance `PASS`/final-ready verdict; the L2 reviewer verifies this against the run-stage checklist.
    - Check that evaluation uses real ground truth or a documented oracle, not another model's output as hidden ground truth.
    - Verify task pairing, seeds, model IDs, metrics, filtering, and failed-run handling match the experiment plan.
    - Verify that full-run task counts are unique semantic tasks, not repeated pilot rows with changed IDs. Inspect benchmark JSONL/records for duplicate prompts/specs/gold answers and suffix-copy patterns such as `_r2`, `_copy`, `_dup`, or equivalent relabeling.
@@ -71,17 +73,17 @@ Use the 6-state verdict schema `PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLI
 3. **paper-claim audit**
    - Cold-read `paper/main.tex` against raw TSV/JSONL artifacts.
    - Check every number, percentage, comparison, superlative, figure caption, table caption, and scope phrase.
-   - Run (reviewer stage-checklist verification) and treat digest drift, TSV schema mismatch, unknown generated sources, source cycles, or missing manifest entries as paper-claim audit failures.
+   - Self-audit the artifact-manifest requirements (canonical sources, SHA-256 digests, TSV column schemas, and source links in `paper/ARTIFACT_MANIFEST.json`) and treat digest drift, TSV schema mismatch, unknown generated sources, source cycles, or missing manifest entries as paper-claim audit failures.
    - Hard blockers: unsupported SOTA/generalization language, mismatched numbers, stale manuscript copies relative to canonical tables, or pilot results written as full-benchmark conclusions.
 
 4. **idea provenance and code reuse**
-   - Run (reviewer stage-checklist verification) and the reviewer stage-checklist item.
+   - Self-audit the idea-provenance and code-reuse requirements.
    - Check that the final idea comes from surveyed papers, benchmark gaps, trend sources, and/or code sources--not from free-form agent brainstorming.
    - Check that official paper code, benchmark repositories, Papers with Code links, GitHub project pages, dataset repos, and relevant libraries were searched before implementation.
    - Confirm any reused/adapted code has license/terms, attribution, and a clear reuse decision; incompatible code must be rejected, not pasted.
 
 5. **literature and exemplar grounding**
-   - Run (reviewer stage-checklist verification) and the reviewer stage-checklist item.
+   - Self-audit the literature-grounding and exemplar requirements.
    - Check that recent high-quality papers, classic anchors, and trend/news signals all exist before accepting related-work or motivation framing.
    - Trend/news signals do not need paper/benchmark/code backing merely to be recorded. However, any technical paper claim inspired by a trend must still be supported by surveyed papers/code/benchmarks or local experiment artifacts.
    - Confirm Paper Exemplar PDF Learning ran: at least two PDFs are downloaded locally, text extracts exist, `pdf_sha256` matches, one exemplar is a recent best/outstanding/award paper when available, and `paper/style_ref/STYLE_PROFILE.md` is thick enough to cover abstract shape, section/page allocation, figure/table inventory, related-work shape, evaluation layout, formatting/layout lessons, writing lessons, transfer plan, and no-prose-copy policy.
@@ -113,15 +115,15 @@ Use the 6-state verdict schema `PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLI
 
 9. **research.md format preflight**
    - Invoke the EMNLP Format Preflight skill after the final compile and before model/vision review.
-   - Run (reviewer stage-checklist verification); treat every issue as a blocking package defect.
-   - Check `paper/FORMAT_PREFLIGHT.md` for the compile command, page count, conclusion page, figure/table inventory, bibliography status, fixes applied, and exact final validator result.
+   - Self-audit the `research.md` format-preflight requirements; treat every issue as a blocking package defect.
+   - Check `paper/FORMAT_PREFLIGHT.md` for the compile command, page count, conclusion page, figure/table inventory, bibliography status, fixes applied, and exact final preflight result.
    - Hard blockers: missing or stale preflight, non-anonymous review author block, visibly underfilled main body, references after appendix, too few verified/cited references or too-short rendered References section, missing Limitations/Ethical Considerations, no reproducibility appendix, `[?]`, undefined references/citations, `Overfull \hbox > 5pt`, placeholders, `% UNVERIFIED`, unreferenced figures, excessive body figures, missing numerical table captions, missing paired-significance evidence, or missing `research.md` table-style tokens.
    - For underfilled-body or early-References blockers, decide whether the root cause is incomplete evidence. If yes, set `next_action: run_more_experiments` and name the exact missing benchmark condition, ablation, robustness/public-validation slice, or failure analysis. Only set `next_action: revise_paper` when the required evidence already exists and the repair is section organization, citation placement, or float/page flow.
 
 10. **academic-language review**
-   - Run `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write` after prose stabilizes, then run (reviewer stage-checklist verification).
+   - Run `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write` after prose stabilizes; the L2 reviewer verifies the resulting JSON against the review-stage checklist.
    - Check `paper/ACADEMIC_LANGUAGE_REVIEW.json` for `score_1_to_5 >= 4`, `verdict: PASS`, `needs_revision: false`, no blocking issues, fresh hashes for all transitive LaTeX sources, model-backed review method, and quoted evidence spans from current source.
-   - Hard-block final readiness if the body does not tell a reader what evaluated agent system was run: paper-facing framework, benchmark harness, or controller; evaluated model/backend identifiers; controller/skill/memory mechanism; task source; baselines; metrics; and budget/stopping rules must be visible in Method or Experimental Setup. For hosted agent experiments, report the approved hosted model/backend such as `gpt-5-mini`; for scorer-based candidate-ranking experiments, report the evaluated scorer/backend such as `PairScorer` and its scoring budget. Do not count Argus/Codex daemon, engineer/reviewer routing, academic-language/layout review, paper-generation image-tool details, local device/cache/path configuration, or orchestration/reviewer model names such as `gpt-5.4` / `gpt-5.4-mini` as method reproducibility facts.
+   - Hard-block final readiness if the body does not tell a reader what evaluated agent system was run: paper-facing framework, benchmark harness, or controller; evaluated model/backend identifiers; controller/skill/memory mechanism; task source; baselines; metrics; and budget/stopping rules must be visible in Method or Experimental Setup. For hosted agent experiments, report the approved hosted model/backend such as `gpt-5-mini`; for scorer-based candidate-ranking experiments, report the evaluated scorer/backend such as `PairScorer` and its scoring budget. Do not count Argus/Codex daemon, engineer/reviewer routing, academic-language/layout review, paper-generation image-tool details, local device/cache/path configuration, or orchestration/reviewer model names such as `gpt-5.5` / `gpt-5.5-mini` as method reproducibility facts.
    - Hard-block final readiness if the body lacks a professional cross-benchmark results matrix covering the selected 3+ benchmark/source families and major baselines/methods. The matrix must expose benchmark/source, task count/split, evaluated model/backend, metric, budget/decoding, and key result columns; otherwise reviewers cannot tell whether the claimed evidence is actually multi-source.
    - Hard-block final readiness if the paper has a stub abstract/introduction/method/setup. The abstract should be in the normal 170--220 word range; Introduction, Method, and Experimental Setup depth should be judged by the model-backed academic-language reviewer against paper function, not exact word counts. These sections must contain reader-facing scientific exposition, cited problem/gap framing, evaluated-system detail, benchmark protocol, evidence preview, and scoped contribution language, not validator vocabulary, repeated contrastive templates, or repetitive caveats.
    - Hard-block final readiness if any result ratio/percentage in the manuscript cannot be regenerated from canonical summaries, or if the paper claims no external model calls while experiment metadata contains a hosted/model-backed method. This is an evidence-alignment failure, not a copy-editing issue.
@@ -129,21 +131,21 @@ Use the 6-state verdict schema `PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLI
    - Hard blockers: missing or stale academic-language review, heuristic-only self-score, score below threshold, active revision directives, generic LLM-boilerplate opening, result-first or validator-shaped abstract, uncalibrated hype, missing What/Why/So-What contribution framing, claims not aligned to evidence, chronological related-work dump, or absent limitation scope.
 
 11. **paper infrastructure review**
-   - Run `python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write` after Method/Setup/caption/table/appendix prose stabilizes, then run (reviewer stage-checklist verification).
+   - Run `python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write` after Method/Setup/caption/table/appendix prose stabilizes; the L2 reviewer verifies the resulting JSON against the review-stage checklist.
    - Check `paper/PAPER_INFRASTRUCTURE_REVIEW.json` for `score_1_to_5 >= 4`, `verdict: PASS`, `needs_revision: false`, `leak_free: true`, no blocking/major issues, no active revision directives, fresh hashes for all transitive LaTeX sources, model-backed review method, and quoted evidence spans from current source.
-   - Hard-block final readiness if title, abstract, body, captions, tables, or appendix prose exposes local hardware ordinals, CUDA/device variables, cache paths, local filesystem paths, API/private endpoint configuration, Argus/Codex daemon details, engineer/reviewer/critic/scientist routes, validation artifacts, review artifacts, image-tool plumbing, capability-vault configuration, authoring/review model routes, or operational audit-bundle metadata promoted into the main narrative such as wall-clock logs, artifact hashes, status/progress logs, STOP-file contracts, or provenance-refresh mechanics. These are local pipeline facts, not paper method facts.
+   - Hard-block final readiness if title, abstract, body, captions, tables, or appendix prose exposes local hardware ordinals, CUDA/device variables, cache paths, local filesystem paths, API/private endpoint configuration, Argus/Codex daemon details, engineer/reviewer/scientist routes, validation artifacts, review artifacts, image-tool plumbing, capability-vault configuration, authoring/review model routes, or operational audit-bundle metadata promoted into the main narrative such as wall-clock logs, artifact hashes, status/progress logs, STOP-file contracts, or provenance-refresh mechanics. These are local pipeline facts, not paper method facts.
    - Allow paper-facing evaluated-system facts such as evaluated model/backend, benchmark harness, task count/split, metric, decoding/budget setting, public benchmark version/date, and high-level compute budget when they describe the research system rather than the local machine.
    - Treat infrastructure review artifacts as evidence, not targets. Do not hand-edit `paper/PAPER_INFRASTRUCTURE_REVIEW.*`; fix rendered manuscript prose and rerun the tool.
    - Hard blockers: missing or stale paper infrastructure review, non-model self-score, score below threshold, `leak_free: false`, active directives, local environment/device/cache/path text in rendered prose, or nested `model_review` contradicting a top-level PASS.
 
 12. **layout aesthetic review**
-   - Run `python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write` after the final PDF compile, then run (reviewer stage-checklist verification).
-   - Check `paper/LAYOUT_REVIEW.json` for `score_1_to_5 >= 3.5`, no blocking issues, and a vision-based review method. If the reviewer stage-checklist item exits 0, the layout review is accepted regardless of the stored `verdict` or `needs_revision` fields (these may reflect an older stricter threshold).
+   - Run `python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write` after the final PDF compile; the L2 reviewer verifies the resulting JSON against the review-stage checklist.
+   - Check `paper/LAYOUT_REVIEW.json` for `score_1_to_5 >= 3.5`, no blocking issues, and a vision-based review method. If the layout review meets its score threshold with no blocking issues, it is accepted regardless of the stored `verdict` or `needs_revision` fields (these may reflect an older stricter threshold).
    - Hard blockers: missing or stale layout review, heuristic-only self-score, score below threshold, active revision directives, float/table dump pages, unreadable tiny table fonts, awkward whitespace inside the body or around active floats, table/body overlap, `Overfull \hbox > 5pt`, more than five body figures, multiple `figure*` floats, square `1024x1024` conceptual figures, or image/caption layout that would make a reviewer reject the paper before reading. Natural trailing whitespace on the final References/Appendix page is not a hard blocker once Conclusion is on/before page 8 and References/Appendix begin on page 9 or later, unless it is tied to a concrete unreadable-table, detached-caption, missing-content, or ordering defect.
 
 13. **submission package**
    - Check official ACL/EMNLP style usage, anonymity, page budget, compile status, figures/tables existence, artifact manifest, and reproducibility notes.
-   - Run the reviewer stage-checklist item, `the reviewer stage-checklist item2-figures`, the relevant reviewer stage-checklist items, and the final the reviewer stage-checklist item gate; block if the draft is a pilot/short/workshop scope, has an incomplete executed multi-source matrix for any required method/baseline condition, duplicates/relabels pilot episodes to inflate benchmark scale, lacks a literature-grounded survey of frontier/public benchmarks, relies on a single selected benchmark source or same-family variants only, omits source provenance for selected benchmarks, has main/body content outside the 7.5--8 page EMNLP long-paper range, starts References/Appendix before page 9, lacks official ACL style, lacks a core image-2 conceptual figure, lacks a passing format preflight, lacks a passing academic-language review, lacks a passing paper infrastructure review, lacks a passing visual layout review, or has no submission-stage ready/done state. Do not block on total page count after References/Appendix begin.
+   - Self-audit the full submission contract across every stage checklist (full-scale evidence, image-2 figures, `research.md` format preflight, academic-language review, paper-infrastructure review, and layout review); block if the draft is a pilot/short/workshop scope, has an incomplete executed multi-source matrix for any required method/baseline condition, duplicates/relabels pilot episodes to inflate benchmark scale, lacks a literature-grounded survey of frontier/public benchmarks, relies on a single selected benchmark source or same-family variants only, omits source provenance for selected benchmarks, has main/body content outside the 7.5--8 page EMNLP long-paper range, starts References/Appendix before page 9, lacks official ACL style, lacks a core image-2 conceptual figure, lacks a passing format preflight, lacks a passing academic-language review, lacks a passing paper infrastructure review, lacks a passing visual layout review, or has no submission-stage ready/done state. Do not block on total page count after References/Appendix begin.
    - Also block if the evidence has fewer than 3 executed selected benchmark sources; planned diagnostic rows do not count.
    - Treat `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` as hard blockers. A compiled PDF or polished paper must remain `FAIL`/`BLOCKED` while any of these issue codes are present.
    - Validate `paper/VALIDATION_PRIORITY_POLICY.json` includes `experiment_evidence`, `content_sufficiency`, and `format_layout`. If these routes are missing, final assurance must fail because the daemon has no reliable path from short/weird papers back to experiments and evidence-backed analysis.
@@ -216,12 +218,12 @@ The calibration JSON must include explicit machine-checkable signals:
 
 ## Decision rules
 - Overall `PASS`: all hard layers pass and `blocking_issues` is empty.
-- Overall `WARN`: all listed validators and hard gates pass, and only non-blocking caveats outside those gates remain; otherwise use `FAIL` or `BLOCKED`. Environment-limited verification can be `WARN` only for an explicitly non-final/operator-accepted scope. Pilot scale, same-family-only evidence, or any item listed above as a hard blocker is never a `WARN` for final EMNLP readiness; it is `FAIL`, `BLOCKED`, or a non-final operator-accepted scope.
+- Overall `WARN`: all listed checks and hard gates pass, and only non-blocking caveats outside those gates remain; otherwise use `FAIL` or `BLOCKED`. Environment-limited verification can be `WARN` only for an explicitly non-final/operator-accepted scope. Pilot scale, same-family-only evidence, or any item listed above as a hard blocker is never a `WARN` for final EMNLP readiness; it is `FAIL`, `BLOCKED`, or a non-final operator-accepted scope.
 - Overall `FAIL`: the draft makes claims that the evidence does not support or has fixable paper defects.
 - Overall `BLOCKED`: required external resources are unavailable; record exact unblock steps.
 - Overall `ERROR`: the audit could not complete because required files are malformed.
-- Never emit `PASS` or `WARN` if the reviewer stage-checklist item reports any issue. Stale generated artifacts are evidence-integrity blockers, not formatting warnings.
-- Never emit `PASS` or `WARN` if the relevant reviewer stage-checklist items, `the reviewer stage-checklist item2-figures`, the relevant reviewer stage-checklist items, or the reviewer stage-checklist item reports any issue. A project without literature/news/classic grounding, a literature-derived idea, a license-aware code survey, downloaded/thick top-paper exemplar learning, image-2 conceptual figure, passing `research.md` format preflight, passing academic-language review, passing paper infrastructure review, passing visual layout review, complete EMNLP long-paper scope, and submission-stage readiness is not submission-ready.
+- Never emit `PASS` or `WARN` if the reviewer's stage checklist reports any issue. Stale generated artifacts are evidence-integrity blockers, not formatting warnings.
+- Never emit `PASS` or `WARN` while any required stage-checklist item is unmet (literature/news/classic grounding, idea provenance, code reuse, exemplar learning, image-2 figures, `research.md` format preflight, academic-language review, paper-infrastructure review, or visual layout review). A project without literature/news/classic grounding, a literature-derived idea, a license-aware code survey, downloaded/thick top-paper exemplar learning, image-2 conceptual figure, passing `research.md` format preflight, passing academic-language review, passing paper infrastructure review, passing visual layout review, complete EMNLP long-paper scope, and submission-stage readiness is not submission-ready.
 
 ## Response shape
 - State the overall verdict and the highest-severity blocker.

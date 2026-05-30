@@ -9,7 +9,8 @@ created_at: "2026-05-28"
 # Project Environment Management
 
 Each research project maintains its own Python virtual environment for ML workloads.
-The argus-skill system venv (`/root/argus-skill/.venv`) is for pipeline tools only —
+The argus-skill framework venv (the interpreter shown as `$ARGUS_SKILL_PYTHON`
+in each round's runtime prompt) is for pipeline tools only —
 never install torch/diffusers/training dependencies there.
 
 ## ⚡ RESOURCE FILES (read these first)
@@ -58,8 +59,8 @@ Always reference the project venv Python explicitly:
 # Correct — activate first
 source .venv/bin/activate && python code/train.py
 
-# WRONG — uses argus-skill system venv
-/root/argus-skill/.venv/bin/python code/train.py
+# WRONG — uses the argus-skill framework venv
+"$ARGUS_SKILL_PYTHON" code/train.py
 ```
 
 ## For subagent commands
@@ -76,15 +77,16 @@ python -m argus_skill.tools.subagent submit \
 ## Environment variables
 
 The project venv inherits `CUDA_VISIBLE_DEVICES` from the daemon process (set via `gpu_resources.json`).
-Additional env vars for training:
+Point all model/data caches at the project-local store under `./models/` (pre-created by the
+launcher and gitignored) so each project owns its weights — see the
+training-infrastructure-guide skill, which is the source of truth for this contract:
 
 ```bash
-export HF_HOME=/root/.cache/huggingface
-export HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface/hub
-export HF_DATASETS_CACHE=/root/.cache/huggingface/datasets
-export TRANSFORMERS_CACHE=/root/.cache/huggingface/hub
-export TORCH_HOME=/root/.cache/torch
-export XDG_CACHE_HOME=/root/.cache
+export HF_HOME="$(pwd)/models/huggingface"
+export HUGGINGFACE_HUB_CACHE="$(pwd)/models/huggingface/hub"
+export HF_DATASETS_CACHE="$(pwd)/models/huggingface/datasets"
+export TRANSFORMERS_CACHE="$(pwd)/models/huggingface/hub"
+export TORCH_HOME="$(pwd)/models/torch"
 ```
 
 ## Dependency management
@@ -101,5 +103,5 @@ Keep `requirements.lock` with exact versions for full reproducibility.
 ## Troubleshooting
 
 - If `torch.cuda.is_available()` returns False, check `CUDA_VISIBLE_DEVICES` and that CUDA toolkit is installed system-wide
-- If import errors occur, verify you're using `.venv/bin/python`, not `/root/argus-skill/.venv/bin/python`
+- If import errors occur, verify you're using `.venv/bin/python`, not the argus-skill framework venv (`$ARGUS_SKILL_PYTHON`)
 - If disk space is low, use `--system-site-packages` to share system torch installation

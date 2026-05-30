@@ -955,6 +955,7 @@ def _worker_runtime_context(cfg: LifeWorkerConfig) -> str:
     research_context = render_research_profile_context()
     if not research_context:
         return ""
+    argus_python = os.environ.get("ARGUS_SKILL_PYTHON") or sys.executable
     gpu_context = format_gpu_context()
     runtime_context = (
         "## Agent Architecture (3-layer)\n"
@@ -980,7 +981,7 @@ def _worker_runtime_context(cfg: LifeWorkerConfig) -> str:
         f"- Budget: ${cfg.per_mission_cap_usd:.0f}/mission, ${cfg.daily_cap_usd:.0f}/day\n"
         "\n"
         "## Python environments (CRITICAL)\n"
-        "- argus-skill commands: `/root/argus-skill/.venv/bin/python`\n"
+        f"- argus-skill commands: `{argus_python}`\n"
         "- ML/training/inference: use the PROJECT venv at `.venv/bin/python`\n"
         "- If project .venv does not exist, CREATE IT FIRST:\n"
         "  `python3 -m venv .venv --system-site-packages && "

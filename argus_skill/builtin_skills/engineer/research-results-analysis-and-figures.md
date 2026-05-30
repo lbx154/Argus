@@ -3,7 +3,7 @@ name: Research Results Analysis And Figures
 description: Turn raw experiment outputs into paper-ready tables, plots, failure taxonomies, and a claims-evidence matrix without inventing missing numbers.
 category: research-analysis
 version: 1
-scientist_model: gpt-5.4
+scientist_model: gpt-5.5
 created_at: 2026-05-23T00:00:00+00:00
 ---
 
@@ -31,7 +31,7 @@ Analyze completed runs and generate figure/table artifacts for a paper. This ada
 2. Validate before computing:
    - Check that compared rows use the same dataset/task split and compatible metrics.
    - Flag missing seeds, missing baselines, duplicate run ids, partial runs, and failed verifier outputs.
-   - For final EMNLP analysis, run (reviewer stage-checklist verification) before generating paper-facing claims. If it reports `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, or `pilot_pdf_without_full_scale_evidence`, keep the analysis labeled pilot/diagnostic and do not mark analysis, narrative, draft, assurance, or submission stages ready.
+   - For final EMNLP analysis, self-audit the full-scale experiment-evidence requirement (completed raw scored rows under `experiments/**` for every required method/baseline condition) before generating paper-facing claims. If it reports `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, or `pilot_pdf_without_full_scale_evidence`, keep the analysis labeled pilot/diagnostic and do not mark analysis, narrative, draft, assurance, or submission stages ready.
    - Do not treat `benchmarks/full/tasks.jsonl`, `benchmarks/full/manifest.json`, or a declared `status.json task_count` as executed evidence. Final analysis needs completed raw scored rows per required method/baseline condition.
    - Keep negative and failed runs in the analysis unless the plan explicitly excludes them.
 
@@ -83,7 +83,7 @@ Analyze completed runs and generate figure/table artifacts for a paper. This ada
 
 7. Write the narrative handoff:
    - Create or update `research/NARRATIVE_REPORT.md` with problem framing, benchmark provenance, method/protocol, supported claims, weakened/rejected claims, failure taxonomy, figure/table inventory, limitations, and the intended paper scope.
-   - Read `research/LITERATURE_GROUNDING.json` and carry forward the recent-paper gap, classic anchors, trend signals, and required baselines into the narrative. Do not write the paper as if literature/news grounding happened when the reviewer stage-checklist item fails. Trend signals can motivate but cannot replace paper/code/benchmark or local-result evidence for technical claims.
+   - Read `research/LITERATURE_GROUNDING.json` and carry forward the recent-paper gap, classic anchors, trend signals, and required baselines into the narrative. Do not write the paper as if literature/news grounding happened when the literature-grounding requirement is not satisfied. Trend signals can motivate but cannot replace paper/code/benchmark or local-result evidence for technical claims.
    - If the intended claim cannot be positioned against both recent high-quality papers and classic anchors, mark the narrative `pivot` or `blocked` instead of inventing a contribution.
    - If the evidence is only pilot-scale, explicitly label the narrative `pilot-note` or `short/workshop` scale.
    - Update `research/PIPELINE_STATE.json` so the analysis and narrative stages are `done` only when their artifacts exist.
@@ -91,10 +91,10 @@ Analyze completed runs and generate figure/table artifacts for a paper. This ada
 8. Verify outputs:
    - Run the analysis script from a clean shell.
    - Confirm every generated figure/table file exists and is non-empty.
-   - Run (reviewer stage-checklist verification) before drafting so weak literature grounding cannot become a confident related-work section.
-   - Run (reviewer stage-checklist verification) and (reviewer stage-checklist verification) before drafting so an agent-invented idea or untracked external code cannot become the paper's contribution.
-   - Run `python -m argus_skill.skills.pipeline_contracts the reviewer stage-checklist item2-figures --project-root .` before drafting and again after LaTeX integration so conceptual figures cannot bypass image-2 or silently switch to a cleaned PDF/vector derivative.
-   - Run `python -m argus_skill.skills.pipeline_contracts refresh-manifest --project-root .` after generation, then (reviewer stage-checklist verification).
+   - Self-audit the literature-grounding requirement before drafting so weak literature grounding cannot become a confident related-work section.
+   - Self-audit the idea-provenance requirement and the code-reuse requirement before drafting so an agent-invented idea or untracked external code cannot become the paper's contribution.
+   - Self-audit the image-2 figure requirements before drafting and again after LaTeX integration so conceptual figures cannot bypass image-2 or silently switch to a cleaned PDF/vector derivative.
+   - Run `python -m argus_skill.skills.pipeline_contracts refresh-manifest --project-root .` after generation, then self-audit the artifact-manifest requirements (canonical sources, SHA-256 digests, TSV schemas, source links).
    - If the manifest reports digest drift, TSV schema mismatch, generated-source cycles, or unknown sources, fix the generator and rerun it before updating `PIPELINE_STATE.json`.
    - Quote the command output in the final verification block.
 

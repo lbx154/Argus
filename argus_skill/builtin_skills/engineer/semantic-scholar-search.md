@@ -3,7 +3,7 @@ name: semantic-scholar-search
 description: "Search published venue papers (IEEE, ACM, Springer, etc.) via Semantic Scholar API. Provides citation counts, venue metadata, and TLDR. Complements arXiv (preprints) with published literature. Use for literature search, citation finding, or venue-specific paper discovery."
 category: literature
 version: "1.0"
-scientist_model: gpt-5.4
+scientist_model: gpt-5.5
 created_at: "2025-07-27"
 ---
 

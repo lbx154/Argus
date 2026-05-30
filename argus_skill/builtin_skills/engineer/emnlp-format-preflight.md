@@ -3,7 +3,7 @@ name: EMNLP Format Preflight
 description: Perform the final research.md formatting, PDF, figure/table, and layout-readiness preflight before academic-language and visual layout review.
 category: paper-audit
 version: 1
-scientist_model: gpt-5.4
+scientist_model: gpt-5.5
 created_at: 2026-05-23T00:00:00+00:00
 ---
 
@@ -43,7 +43,7 @@ Treat every item below as blocking for a final EMNLP-ready claim:
    - References and any Appendix material must start on page 9 or later; after that boundary, the total number of reference/appendix pages is unlimited.
    - Include a complete reproducibility appendix with a neutral replay interface: paper-facing regeneration targets or command aliases, seed policy, evaluated model/backend IDs, public data/source versions, artifact-type inventory, and verification notes. Do not render local runner script names, raw run IDs, private experiment directory paths, cache/device settings, or project-local artifact paths as the paper-facing reproducibility interface; keep those details in manifests, logs, or supplementary package metadata.
    - Method/Experimental Setup must include reader-visible basics about the evaluated paper system: paper-facing agent framework, benchmark harness, or controller; evaluated model/backend identifiers used by evaluated runs; controller/skill/memory mechanism; task source/version; baselines; metrics; budget; and stopping/resume rules. For hosted agent experiments, report a paper-facing hosted model/backend such as `gpt-5-mini`; for scorer-based candidate-ranking experiments, report the evaluated scorer/backend such as `PairScorer` and its scoring budget. Do not describe Argus, Codex engineer/reviewer routes, daemon handoff, academic-language/layout review, image-tool infrastructure, or local device/cache/path configuration as paper-method components. If these details are missing, fix the paper body rather than only updating JSON artifacts.
-   - Setup/configuration and result tables must look like paper tables, not internal logs. They should include explicit `Benchmark`/`Source` and `Model`/`Backend` columns, task count/split, method or baseline role, metric, budget/decoding, and key result; they must not show `engineer`/`reviewer` route labels, `gpt-5.4*`, Argus/Codex configuration, validator names, or capability-vault details.
+   - Setup/configuration and result tables must look like paper tables, not internal logs. They should include explicit `Benchmark`/`Source` and `Model`/`Backend` columns, task count/split, method or baseline role, metric, budget/decoding, and key result; they must not show `engineer`/`reviewer` route labels, `gpt-5.5*`, Argus/Codex configuration, validator names, or capability-vault details.
    - Final long-paper results need one readable cross-benchmark results matrix in the body. It should cover the selected 3+ benchmark/source families and major methods/baselines with benchmark/source, task count/split, evaluated model/backend, metric, budget/decoding, and result columns. If the only visible tables are narrow single-benchmark fragments or internal audit/config tables, route back to results analysis/drafting before layout polish.
 
 3. **Compile/PDF cleanliness**
@@ -61,7 +61,7 @@ Treat every item below as blocking for a final EMNLP-ready claim:
    - Every body figure has a `\label{}` and is referenced in the text with `\ref`, `\autoref`, `\cref`, or equivalent.
    - Body figures are capped at five total; at most one may be a full-width `figure*`.
    - The middle body should have meaningful visual anchors when they improve readability; rely on the model-backed layout review for page-rhythm judgment instead of inserting low-value floats to hit fixed page numbers.
-   - Data/metric/result plots may be locally scripted from canonical artifacts. Every other figure must include the actual image-2/codex-image2 raster `output_path` in `paper/main.tex` and pass `the reviewer stage-checklist item2-figures`. **Block any self-drawn non-data replacement:** matplotlib/FancyBboxPatch redraws, TikZ node graphs, SVG/PIL/HTML canvases, cleaned PDF derivatives, screenshots, manual vector replacements, local PNGs with hand-written `codex-image2` metadata, missing `sidecar_path`/`inspect_path`, missing `argus-image2-paper-prompt-v1` / `paper-framework-figure-studio-pro-v3.1.4a` prompt markers, or manual-only image reviews are hard failures. If the figure is ugly, regenerate it through image-2 with `python -m argus_skill.tools.image_tool paper-prompt ...`, then generate/review/sync metadata. A reviewed candidate may be promoted to a stable filename only when the canonical raster is bit-identical to the generated image-2 bytes and its SHA-256 matches the sidecar/provenance evidence. These figures must be adaptive/landscape page-width assets, preferably `1536x1024 or 1920x1088` (dimensions divisible by 16), and avoid square `1024x1024`, tiny text, heavy gradients, photorealism, weird/sketchy fonts, and code identifiers.
+   - Data/metric/result plots may be locally scripted from canonical artifacts. Every other figure must include the actual image-2/codex-image2 raster `output_path` in `paper/main.tex` and satisfy the image-2 figure requirements. **Block any self-drawn non-data replacement:** matplotlib/FancyBboxPatch redraws, TikZ node graphs, SVG/PIL/HTML canvases, cleaned PDF derivatives, screenshots, manual vector replacements, local PNGs with hand-written `codex-image2` metadata, missing `sidecar_path`/`inspect_path`, missing `argus-image2-paper-prompt-v1` / `paper-framework-figure-studio-pro-v3.1.4a` prompt markers, or manual-only image reviews are hard failures. If the figure is ugly, regenerate it through image-2 with `python -m argus_skill.tools.image_tool paper-prompt ...`, then generate/review/sync metadata. A reviewed candidate may be promoted to a stable filename only when the canonical raster is bit-identical to the generated image-2 bytes and its SHA-256 matches the sidecar/provenance evidence. These figures must be adaptive/landscape page-width assets, preferably `1536x1024 or 1920x1088` (dimensions divisible by 16), and avoid square `1024x1024`, tiny text, heavy gradients, photorealism, weird/sketchy fonts, and code identifiers.
 
 5. **Tables**
    - Every table caption must state a numerical headline, not just describe contents.
@@ -76,7 +76,7 @@ Treat every item below as blocking for a final EMNLP-ready claim:
    - If `latexmk` is unavailable, run `pdflatex -output-directory=paper`/`bibtex paper/main`/`pdflatex -output-directory=paper`/`pdflatex -output-directory=paper` and save `paper/main.log`.
    - Do not rely on root-level `main.pdf` or `main.log`; validators read `paper/main.pdf` and `paper/main.log`, and a newer root-level build is a format failure.
 2. Inspect the source and PDF:
-   - Run (reviewer stage-checklist verification).
+   - Self-audit the `research.md` format-preflight requirements before claiming readiness; the L2 reviewer verifies these artifacts directly against the draft/submission stage checklists.
    - If the command reports any issue, fix the LaTeX/source/artifact and rerun; do not continue to layout review.
 3. Write `paper/FORMAT_PREFLIGHT.md` with:
    - compile command and status;
@@ -84,14 +84,14 @@ Treat every item below as blocking for a final EMNLP-ready claim:
    - figure/table inventory with labels, refs, captions, and page placement;
    - bibliography verification status, verified entry count, unique cited-key count, and rendered reference-page count;
    - every fix made during preflight;
-   - the exact final the reviewer stage-checklist item result.
+   - the exact final format-preflight self-audit result.
 4. Only after this command is clean, run:
    - `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`
    - `python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write`
-   - (reviewer stage-checklist verification)
-   - (reviewer stage-checklist verification)
+   - self-audit the academic-language review thresholds
+   - self-audit the layout review thresholds
 
 ## Response shape
-- State whether the reviewer stage-checklist item passed.
+- State whether the `research.md` format-preflight requirements hold.
 - If it failed, list the blocking issue codes and changed files.
 - If it passed, name `paper/FORMAT_PREFLIGHT.md`, `paper/main.pdf`, and the next required review artifact.

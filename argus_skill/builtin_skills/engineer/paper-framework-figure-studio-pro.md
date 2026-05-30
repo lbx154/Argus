@@ -3,7 +3,7 @@ name: Paper Framework Figure Studio Pro
 description: "Argus-adapted autonomous S0-S7 figure workflow from paper-framework-figure-studio-pro-v3.1.4a. The engineer agent executes each stage in sequence — reading the paper, extracting module facts, exploring layout directions, refining candidates with project-specific content, co-designing figure+caption+legend, and jointly auditing for paper fidelity. Use when a paper needs a non-data conceptual figure. Prompt template marker: argus-image2-paper-prompt-v1."
 category: paper-figures
 version: "3.2.0-argus"
-scientist_model: gpt-5.4
+scientist_model: gpt-5.5
 created_at: "2026-05-28"
 source: "paper-framework-figure-studio-pro-v3.1.4a"
 ---
@@ -235,8 +235,8 @@ python -m argus_skill.tools.image_tool sync-paper-metadata \
   --prompt-file paper/figures/method_overview.prompt.txt \
   --figure-id method_overview --figure-type method
 
-python -m argus_skill.skills.pipeline_contracts the reviewer stage-checklist item2-figures \
-  --project-root .
+# Self-audit the image-2 figure requirements before handoff;
+# the L2 reviewer verifies these artifacts directly against the draft/review stage checklists.
 ```
 
 ## Figure Rules

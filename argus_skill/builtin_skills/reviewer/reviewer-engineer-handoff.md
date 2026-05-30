@@ -13,7 +13,7 @@ Use this skill when a reviewer must turn validation, critique, or acceptance-che
 ## Contract
 
 - Treat validation output as reviewer-only evidence. The engineer should receive your distilled handoff, not a raw log dump.
-- Assume the engineer may be `gpt-5.4-mini`: write short, explicit, ordered instructions with no hidden context.
+- Do not assume the engineer shares your context: write short, explicit, ordered instructions with no hidden context.
 - If any acceptance check fails, choose `continue` unless user input is strictly required.
 - If a short deterministic check can disambiguate missing evidence, the reviewer may run it locally. Do not run long builds, model reviews, experiments, or regeneration work inside the handoff step; give the engineer the exact command and expected pass condition.
 - Preserve the important facts from validation: failed command, exit code, issue codes, exact file paths, artifact paths, and validator messages.
