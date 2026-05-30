@@ -8,6 +8,7 @@ from argus_skill.skills.builtins import builtin_skill_count
 from argus_skill.tools.new_auto_research_project import (
     LaunchConfig,
     create_project,
+    default_objective,
     extract_copy_ready_agents_md,
     load_template_text,
     next_version,
@@ -39,6 +40,50 @@ def test_render_agents_md_fills_placeholders_and_quality_contracts() -> None:
     assert "[write the target research problem and deliverable]" not in rendered
     assert "| [input] | [source] | [status] | [allowed use] | [rationale] |" not in rendered
     assert "agent-emnlp-auto-research-v15" in rendered
+
+
+def test_rendered_agents_md_has_no_stale_validator_or_critic_prose() -> None:
+    """Guard against the botched validator->reviewer find/replace recurring.
+
+    The reviewer completion contract replaced the old "validator command must
+    exit 0" gate. Earlier mechanical edits left garbled, incoherent prose and
+    dead-module references in every generated AGENTS.md. These assertions keep
+    the generated project doc coherent with the current architecture.
+    """
+    rendered = render_agents_md(
+        load_template_text(),
+        project_name="agent-emnlp-auto-research-v15",
+        version="v15",
+    )
+    forbidden = (
+        "exact command to exit 0",
+        "this exact command",
+        "the exact the",
+        "command above exits 0",
+        "marking done against the full pipeline checklist exit 0",
+        "passes the exact",
+        "critic/critic",
+        "L3 critic",
+        "repair-lane",
+        # nested-backtick reviewer prose produced by the bad replace
+        "reviewer marking `done`",
+    )
+    for phrase in forbidden:
+        assert phrase not in rendered, f"stale prose leaked into AGENTS.md: {phrase!r}"
+
+    # The live scientist distiller/compactor package is still referenced.
+    assert "scientist/*" in rendered
+    # The completion contract is described in reviewer-certification terms.
+    assert "scope: final_submission" in rendered
+
+
+def test_default_objective_is_coherent_paper_submission_goal() -> None:
+    objective = default_objective("agent-emnlp-auto-research-v15")
+    assert "the exact the" not in objective
+    assert "passes the exact" not in objective
+    # Supervisor long-horizon heuristics still key on broad paper terms.
+    assert "EMNLP/ACL long-paper" in objective
+    assert "submission package" in objective
 
 
 def test_create_project_without_daemon_exports_template_and_skills(tmp_path: Path) -> None:

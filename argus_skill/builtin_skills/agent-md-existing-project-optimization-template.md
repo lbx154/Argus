@@ -35,10 +35,8 @@ The goal is a submission-quality long-paper package, not a pilot PDF, validator-
 - Read `./argus_builtin_skills/*.md` and `./argus_builtin_skills/**/*.md` first when invoking built-in paper/research/domain skills. If the local copy is absent or stale, refresh it with the export command above or load `argus_skill.builtin_skills` through the active Python environment. Do not copy the whole Argus repository, global memory, model caches, or capability vault into this project.
 - When ownership is unclear, read `./argus_builtin_skills/emnlp-paper-skill-router.md` first, then load the specific skill it routes to.
 - Prefer `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill ...` for Argus validation commands; the launcher injects `ARGUS_SKILL_PYTHON`, `ARGUS_SKILL_SOURCE_ROOT`, and `PYTHONPATH` when a source checkout is needed.
-- Final EMNLP completion requires this exact command to exit 0 and be quoted in completion evidence:
-  `the L2 reviewer marking `done` against the full pipeline checklist (research → submission)`
-- Full-scale experiment evidence is a prerequisite for analysis, narrative, drafting, assurance, and submission. This command must pass before any of those stages are marked ready/done:
-  `the L2 reviewer ticking off the run-stage "full-scale evidence" checklist item`
+- Final EMNLP completion is certified only when the L2 reviewer returns a `scope: final_submission` verdict with `status: done` and a non-empty checklist where every item has `satisfied: true` plus concrete evidence covering the full pipeline (research → submission). Quote that verdict in completion evidence.
+- Full-scale experiment evidence is a prerequisite for analysis, narrative, drafting, assurance, and submission. The L2 reviewer must tick off the run-stage "full-scale evidence" checklist item before any of those stages are marked ready/done.
 - Treat `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` as hard blockers.
 - the L2 reviewer pipeline-state checklist item, a compiled PDF, a pilot run, or a passing stale review artifact alone is not final readiness.
 
@@ -58,7 +56,7 @@ Before editing, identify and keep synchronized:
 | Benchmark/experiments | benchmark builders, run configs, raw result rows | summaries, tables, plots | manifest checks, uniqueness/leakage checks, statistical tests |
 | Paper source | LaTeX/generator/source tables | `paper/main.tex`, `paper/main.pdf`, submission copy | compile, the L2 reviewer review-stage checklist item for research.md format |
 | Figures | image-2 prompts/provenance and data plotting scripts | raster overview, data plots, figure manifest | image review, layout review, artifact manifest |
-| Reviews/assurance | current PDF/source hashes and validators | review JSON/MD, calibration, assurance | academic-language, layout, the L2 reviewer marking done against the full pipeline checklist |
+| Reviews/assurance | current PDF/source hashes and validators | review JSON/MD, calibration, assurance | academic-language, layout, the L2 reviewer's final-submission checklist certification |
 
 If generated artifacts and source disagree, treat source/generator plus raw evidence as authoritative. Regenerate downstream artifacts after source changes, refresh manifests, then rerun the relevant review/validator.
 
@@ -354,7 +352,7 @@ An optimization task is complete only when:
 - remaining failures are newly enumerated and not caused by the change,
 - the handoff states the current frontier and next highest-priority blocker.
 
-The full project is complete only when the final the L2 reviewer marking done against the full pipeline checklist command above exits 0 on the current workspace and that exact output is quoted in completion evidence.
+The full project is complete only when the L2 reviewer certifies `done` for `scope: final_submission` against the full pipeline checklist on the current workspace, with every checklist item satisfied and backed by concrete evidence, and that verdict is quoted in completion evidence.
 ```
 
 ## Generality check

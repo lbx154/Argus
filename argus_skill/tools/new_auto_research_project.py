@@ -57,21 +57,22 @@ Ownership map:
 | One mission's skill matcher -> distiller -> engineer -> reviewer flow | `argus_skill/loop.py` |
 | L1 engineer retries, checks, session carryover, watchdogs, backend failures | `argus_skill/engineer/runner.py`, `argus_skill/engineer/checks.py` |
 | L2 reviewer verdicts, JSON schema, reviewer-to-engineer next action | `argus_skill/engineer/reviewer.py`, `argus_skill/engineer/reviewer_schema.json` |
-| L3 critic iteration and L4 planner continuous-mode task creation | `argus_skill/life/supervisor.py`, `argus_skill/critic/critic.py` |
-| Skill matching, distilled skill storage, writeback, builtin skill seeding | `argus_skill/skills/store.py`, `argus_skill/scientist/*`, `argus_skill/skills/builtins.py`, `argus_skill/builtin_skills/` |
-| EMNLP artifact validators and final readiness gates | `argus_skill/skills/pipeline_contracts.py`, `argus_skill/skills/pipeline_policy.py` |
-| EMNLP final-gate issue-code -> repair-lane routing | `argus_skill/life/supervisor.py` |
+| L4 planner continuous-mode task creation and mission supervision | `argus_skill/life/supervisor.py`, `argus_skill/planner/planner.py` |
+| Skill distillation/compaction and distilled-skill storage, writeback, builtin skill seeding | `argus_skill/scientist/*` (distiller/compactor), `argus_skill/skills/store.py`, `argus_skill/skills/builtins.py`, `argus_skill/builtin_skills/` |
+| EMNLP artifact-validation helpers (importable checks, no completion gating) | `argus_skill/skills/pipeline_contracts.py`, `argus_skill/skills/pipeline_policy.py` |
+| Final-submission completion certification (L2 reviewer contract + checklist) | `argus_skill/engineer/reviewer.py`, `argus_skill/engineer/reviewer_schema.json` |
 | Academic-language, infrastructure-leak, and visual-layout review tools | `argus_skill/skills/academic_language_review.py`, `argus_skill/skills/paper_infrastructure_review.py`, `argus_skill/skills/paper_layout_review.py` |
 | Image-2 paper figure prompt/generation/review/metadata helpers | `argus_skill/tools/image_tool.py` |
 | New auto-research project launcher and this declaration | `argus_skill/tools/new_auto_research_project.py` |
 
-Modification rule: if a validator should be stricter or looser, change
-`pipeline_contracts.py`; if a failing issue should route to a different next
-task, change `life/supervisor.py`; if an agent needs different instructions
-while executing paper work, change the relevant `argus_skill/builtin_skills/*.md`
-or `SkillLoop._build_engineer_prompt`. Do not hand-edit generated review JSON,
-manifest/freshness records, or submission-assurance artifacts just to make a
-gate pass.
+Modification rule: final-submission completion is certified by the L2 reviewer
+contract — to change what "done" requires, edit the reviewer prompt/checklist in
+`argus_skill/engineer/reviewer.py` and `reviewer_schema.json`; if an artifact
+check should be stricter or looser, change `pipeline_contracts.py`; if an agent
+needs different instructions while executing paper work, change the relevant
+`argus_skill/builtin_skills/*.md` or `SkillLoop._build_engineer_prompt`. Do not
+hand-edit generated review JSON, manifest/freshness records, or
+submission-assurance artifacts just to make completion look certified.
 """.strip()
 
 STARTER_CODE_TEMPLATE_PACKAGE = "argus_skill.tools.project_templates.code"
@@ -196,8 +197,8 @@ def default_objective(project_name: str) -> str:
         "research, train or adapt a meaningful domain model with "
         "the available GPU budget, evaluate only on existing real benchmark sources "
         "or official task/data releases, run the full-scale evidence matrix, then write "
-        "an exemplar-locked, visually polished submission package that passes the exact "
-        "the L2 reviewer marking `done` against the full pipeline checklist."
+        "an exemplar-locked, visually polished EMNLP/ACL long-paper submission package "
+        "that the L2 reviewer certifies `done` against the full pipeline checklist."
     )
 
 
@@ -518,10 +519,6 @@ def _research_bootstrap_files(*, project_name: str, objective: str) -> dict[str,
             ),
         },
     }
-    gate = (
-        '"${ARGUS_SKILL_PYTHON:-python}" -m '
-        "(reviewer stage-checklist verification)"
-    )
     return {
         "research/PIPELINE_STATE.json": json.dumps(
             pipeline_state,

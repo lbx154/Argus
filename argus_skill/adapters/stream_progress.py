@@ -210,8 +210,8 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
             sink.handle_stream_line(stream, line)
         except Exception:  # noqa: BLE001 — never let logging crash the runner
             pass
-        # Surface the four operator-visible hierarchy layers:
-        #   L1 engineer/main, L2 reviewer, L3 critic, L4 planner.
+        # Surface the operator-visible hierarchy layers:
+        #   L1 engineer/main, L2 reviewer, L4 planner.
         # Keep matcher/scientist/distiller hidden because their stdout is
         # protocol traffic or skill-maintenance noise, not live work.
         is_stdout = stream == "stdout" or stream.endswith(".stdout")
