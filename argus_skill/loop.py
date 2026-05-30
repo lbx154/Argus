@@ -3,7 +3,8 @@
 This is the new code that argus-skill exists to deliver. It composes:
 
   * ``SkillStore`` (vendored from skill-agent): horizontal skill cache.
-  * ``Distiller``  (vendored from skill-agent): scientist's playbook authoring.
+  * ``Distiller``  (vendored from skill-agent): playbook authoring (runs on
+    the engineer backend; there is no separate scientist agent).
   * ``SupervisedEngineer`` (new, with ``Reviewer`` vendored from ArgusBot):
     vertical round-loop that supervises the engineer until the reviewer
     is satisfied.
@@ -61,8 +62,8 @@ _PAPER_OBJECTIVE_WORDS = {"acl", "emnlp"}
 @dataclass
 class SkillLoopConfig:
     """All knobs for one SkillLoop.run invocation, in one place."""
-    scientist_model: str = "gpt-5.4"
-    engineer_model: str = "gpt-5.4-mini"
+    scientist_model: str = "gpt-5.5"
+    engineer_model: str = "gpt-5.5"
     reviewer_model: str | None = None  # default: same as engineer (cheap)
     matcher_model: str | None = None   # default: same as engineer
     scientist_reasoning_effort: str = "high"
@@ -95,21 +96,21 @@ class SkillLoopConfig:
 class SkillLoop:
     """High-level entry point: ``loop.run("task description")``.
 
-    Three injectable backends — typically all the same in production
-    (one codex CLI), but separable so tests can mock individually:
+    Two injectable backends — typically the same in production (one codex
+    CLI), but separable so tests can mock individually:
 
-      * ``scientist_runner`` — for distillation (big model).
-      * ``engineer_runner``  — for execution (small model).
-      * ``reviewer_runner``  — for the per-round verdict (small / medium model).
+      * ``engineer_runner``  — for execution and skill distillation.
+      * ``reviewer_runner``  — for the per-round verdict.
 
-    Pass the same backend three times if you only have one.
+    There is no separate "scientist" backend: skill distillation reuses the
+    engineer backend (and the unified ``gpt-5.5`` route). Pass the same
+    backend twice if you only have one.
     """
 
     def __init__(
         self,
         *,
         skills_dir: Path,
-        scientist_runner: RunnerBackend,
         engineer_runner: RunnerBackend,
         reviewer_runner: RunnerBackend | None = None,
         config: SkillLoopConfig | None = None,
@@ -119,7 +120,6 @@ class SkillLoop:
     ) -> None:
         self.config = config or SkillLoopConfig()
         self.skills_dir = Path(skills_dir)
-        self.scientist_runner = scientist_runner
         self.engineer_runner = engineer_runner
         self.reviewer_runner = reviewer_runner or engineer_runner
         self.on_event = on_event
@@ -134,7 +134,9 @@ class SkillLoop:
             matcher_model=self.config.resolved_matcher_model(),
             matcher_reasoning_effort=self.config.matcher_reasoning_effort,
         )
-        self.distiller = Distiller(scientist_runner)
+        # Skill distillation reuses the engineer backend; there is no
+        # separate scientist agent.
+        self.distiller = Distiller(engineer_runner)
         self.reviewer = Reviewer(self.reviewer_runner)
         self.supervised = SupervisedEngineer(
             engineer_runner=engineer_runner,
@@ -163,7 +165,8 @@ class SkillLoop:
 
     def run(self, task: str, *, workdir: Path | None = None, seed_thread_id: str | None = None,
             failed_tool_ledger: Any | None = None,
-            objective_for_skill: str | None = None) -> LoopOutcome:
+            objective_for_skill: str | None = None,
+            scope: str = "") -> LoopOutcome:
         """Run one mission end-to-end.
 
         ``task`` is the *full* prompt the engineer sees (typically a long
@@ -257,6 +260,7 @@ class SkillLoop:
             on_event=self.on_event,
             seed_thread_id=seed_thread_id,
             failed_tool_ledger=failed_tool_ledger,
+            scope=scope,
         )
 
         # Step 4: skill writeback on success

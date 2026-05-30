@@ -1000,13 +1000,16 @@ def main(argv: list[str] | None = None) -> int:
     # 24/7 even after the operator detaches.
     from ._life_repl import run_life_chat_loop
 
+    from ..tools.capability_vault import resolve_route_model
+
     repl_args = argparse.Namespace(
         life_dir=args.life_dir,
         color=None,
         backend=backend_default,
-        scientist_model=os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4"),
-        engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL",
-                                      "gpt-5.4-mini"),
+        scientist_model=os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL")
+        or resolve_route_model("scientist"),
+        engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL")
+        or resolve_route_model("engineer"),
         reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL"),
         scientist_reasoning_effort=os.environ.get(
             "ARGUS_SKILL_SCIENTIST_REASONING_EFFORT", "high"
@@ -1044,6 +1047,8 @@ def _build_worker_config(args: argparse.Namespace):
         "ARGUS_SKILL_LIFE_BACKEND",
         "codex",
     )
+    from ..tools.capability_vault import resolve_route_model
+
     return LifeWorkerConfig(
         life_dir=bundle.project.root,
         global_root=bundle.global_root,
@@ -1051,9 +1056,12 @@ def _build_worker_config(args: argparse.Namespace):
         project_fingerprint=bundle.project.fingerprint,
         project_label=bundle.project.label,
         backend=backend,
-        engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4"),
-        reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.4"),
-        scientist_model=os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4"),
+        engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL")
+        or resolve_route_model("engineer"),
+        reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL")
+        or resolve_route_model("reviewer"),
+        scientist_model=os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL")
+        or resolve_route_model("scientist"),
         engineer_reasoning_effort=os.environ.get(
             "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high"
         ),

@@ -7,10 +7,8 @@ either ``project_done=True`` (with ``new_tasks=[]``) or a list of
 pair to work through.
 
 This module used to also house a "critic" sub-agent that judged whether
-a `done` mission was worth one more polishing round; that layer was
-removed once the L2 reviewer subsumed its responsibility. Anything in
-this file with a ``_RetiredCritic*`` prefix is dead code preserved only
-for back-compat imports; new callers should ignore it.
+a `done` mission was worth one more polishing round; that layer has been
+removed entirely — the L2 reviewer subsumed its responsibility.
 """
 from __future__ import annotations
 
@@ -51,12 +49,6 @@ class PlannerConfig:
     skip_git_repo_check: bool = True
     full_auto: bool = False
     dangerous_yolo: bool = False
-
-
-# Back-compat alias for any caller still importing the historical name.
-# The post-mission "critic" iteration loop was removed long ago; only the
-# planner role survives. New code should use ``PlannerConfig`` directly.
-CriticConfig = PlannerConfig
 
 
 @dataclass(frozen=True)
@@ -279,7 +271,7 @@ class Planner:
         budget_remaining_usd: float = 0.0,
         planning_cycle: int = 0,
         runtime_change_summary: str = "",
-        config: CriticConfig | None = None,
+        config: PlannerConfig | None = None,
     ) -> PlannerVerdict:
         """Inspect the project and generate the next batch of tasks.
 
@@ -287,7 +279,7 @@ class Planner:
         The runner has shell access, so the planner can inspect code,
         run tests, read docs, etc. before deciding what to work on next.
         """
-        cfg = config or CriticConfig()
+        cfg = config or PlannerConfig()
         prompt = self._build_planner_prompt(
             continuous_objective=continuous_objective,
             journal_tail=journal_tail,

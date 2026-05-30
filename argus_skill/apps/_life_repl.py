@@ -234,6 +234,15 @@ class _Outcome:
     # token, missing API key, etc.). The supervisor uses this to stop
     # early instead of looping over failing missions.
     auth_failure: bool = False
+    # Reviewer completion contract (replaces the retired EMNLP validator
+    # gate). Set True only when the mission scope was ``final_submission``
+    # AND the final reviewer verdict certified the whole project complete
+    # (status=done, scope=final_submission, every checklist item satisfied
+    # with evidence). The supervisor uses this — never raw ``success`` — to
+    # decide whole-project completion. ``completion_evidence`` carries the
+    # reviewer's completion summary for the journal.
+    final_submission_certified: bool = False
+    completion_evidence: str = ""
 
 
 class _MemoryRunner:
@@ -836,7 +845,6 @@ class _CodexSkillLoopRunner:
         config = self._SkillLoopConfig(**config_kwargs)
         loop = self._SkillLoop(
             skills_dir=Path(args.skills_dir),
-            scientist_runner=self._backend,
             engineer_runner=self._backend,
             reviewer_runner=self._backend,
             config=config,
@@ -856,11 +864,22 @@ class _CodexSkillLoopRunner:
         ledger = FailedToolLedger()
         self._current_sink = sink
         self._current_failure_ledger = ledger
+        objective_lc = (objective or "").lower()
+        mission_scope = (
+            "final_submission"
+            if (
+                "planner_scope: final_submission" in objective_lc
+                or "task scope: final_submission" in objective_lc
+                or "scope: final_submission" in objective_lc
+            )
+            else ""
+        )
         try:
             outcome = loop.run(
                 full_task, workdir=workdir, seed_thread_id=seed,
                 failed_tool_ledger=ledger,
                 objective_for_skill=objective,
+                scope=mission_scope,
             )
         finally:
             self._current_sink = None
@@ -879,6 +898,24 @@ class _CodexSkillLoopRunner:
         auth_fail = getattr(self._backend, "_auth_failure_detected", False)
         if auth_fail:
             self._backend._auth_failure_detected = False
+        # Reviewer completion contract: certify whole-project completion only
+        # from the final reviewer verdict (never raw success). Fail-closed:
+        # absent rounds / review / non-final scope ⇒ not certified.
+        final_submission_certified = False
+        completion_evidence = ""
+        if mission_scope == "final_submission":
+            final_review = None
+            rounds_list = getattr(outcome, "rounds", None) or []
+            if rounds_list:
+                final_review = getattr(rounds_list[-1], "review", None)
+            if final_review is not None and getattr(
+                final_review, "final_submission_certified", False
+            ):
+                final_submission_certified = True
+                completion_evidence = (
+                    getattr(final_review, "completion_summary_markdown", "")
+                    or getattr(final_review, "reason", "")
+                )
         return _Outcome(
             success=outcome.successful,
             status=outcome.status,
@@ -888,6 +925,8 @@ class _CodexSkillLoopRunner:
             skill_distilled=outcome.skill_distilled,
             last_thread_id=new_tid,
             auth_failure=auth_fail,
+            final_submission_certified=final_submission_certified,
+            completion_evidence=completion_evidence,
         )
 
     def _benchmark_direct_execute(
@@ -1305,10 +1344,16 @@ def _invoke_supervisor(
     ns = argparse.Namespace()
     ns.backend = backend
     benchmark_mode = _env_flag("ARGUS_SKILL_BENCHMARK_MODE", False)
-    ns.engineer_model = os.environ.get("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini")
-    reviewer_default = ns.engineer_model if benchmark_mode else "gpt-5.4"
-    ns.reviewer_model = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL", reviewer_default)
-    ns.scientist_model = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL", "gpt-5.4")
+    from ..tools.capability_vault import resolve_route_model
+
+    ns.engineer_model = os.environ.get("ARGUS_SKILL_ENGINEER_MODEL") or resolve_route_model(
+        "engineer"
+    )
+    reviewer_default = ns.engineer_model if benchmark_mode else resolve_route_model("reviewer")
+    ns.reviewer_model = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL") or reviewer_default
+    ns.scientist_model = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL") or resolve_route_model(
+        "scientist"
+    )
     ns.scientist_reasoning_effort = os.environ.get(
         "ARGUS_SKILL_SCIENTIST_REASONING_EFFORT",
         "high",

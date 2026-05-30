@@ -6,6 +6,8 @@ from collections.abc import Callable
 PriceLookup = Callable[[str], tuple[float, float]]
 
 DEFAULT_PRICES_USD_PER_MTOK: dict[str, tuple[float, float]] = {
+    "gpt-5.5": (1.25, 10.0),
+    "gpt-5.5-mini": (0.25, 2.0),
     "gpt-5.4": (1.25, 10.0),
     "gpt-5.4-mini": (0.25, 2.0),
     "gpt-5.2": (1.25, 10.0),
@@ -13,15 +15,15 @@ DEFAULT_PRICES_USD_PER_MTOK: dict[str, tuple[float, float]] = {
 }
 
 
-def price_for(model: str, *, default: str = "gpt-5.4-mini") -> tuple[float, float]:
+def price_for(model: str, *, default: str = "gpt-5.5") -> tuple[float, float]:
     """USD per million ``(input, output)`` tokens for ``model``."""
     if not model:
         return DEFAULT_PRICES_USD_PER_MTOK[default]
     if model in DEFAULT_PRICES_USD_PER_MTOK:
         return DEFAULT_PRICES_USD_PER_MTOK[model]
     if "mini" in model:
-        return DEFAULT_PRICES_USD_PER_MTOK["gpt-5.4-mini"]
-    return DEFAULT_PRICES_USD_PER_MTOK["gpt-5.4"]
+        return DEFAULT_PRICES_USD_PER_MTOK["gpt-5.5-mini"]
+    return DEFAULT_PRICES_USD_PER_MTOK["gpt-5.5"]
 
 
 def usd_for_tokens(

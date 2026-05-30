@@ -448,7 +448,7 @@ class SkillStore:
         from ..scientist.distiller import DistillerConfig  # local import: avoid cycle
         try:
             cfg = DistillerConfig(
-                model=scientist_model or skill.scientist_model or "gpt-5.4",
+                model=scientist_model or skill.scientist_model or "gpt-5.5",
                 reasoning_effort="high",
                 skip_git_repo_check=True,
                 full_auto=True,

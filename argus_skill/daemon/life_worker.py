@@ -81,9 +81,9 @@ class LifeWorkerConfig:
     project_fingerprint: str = ""
     project_label: str = ""
     backend: str = "codex"  # "codex" | "memory"
-    engineer_model: str = "gpt-5.4"
-    reviewer_model: str = "gpt-5.4"
-    scientist_model: str = "gpt-5.4"
+    engineer_model: str = "gpt-5.5"
+    reviewer_model: str = "gpt-5.5"
+    scientist_model: str = "gpt-5.5"
     engineer_reasoning_effort: str = "high"
     reviewer_reasoning_effort: str = "high"
     scientist_reasoning_effort: str = "high"
@@ -304,6 +304,8 @@ def _config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
 
 
 def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
+    from ..tools.capability_vault import resolve_route_model
+
     log_path = str(data.get("log_path") or "")
     global_root = str(data.get("global_root") or "")
     project_workdir = str(data.get("project_workdir") or "")
@@ -314,9 +316,9 @@ def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         project_fingerprint=str(data.get("project_fingerprint") or ""),
         project_label=str(data.get("project_label") or ""),
         backend=str(data.get("backend") or "codex"),
-        engineer_model=str(data.get("engineer_model") or "gpt-5.4"),
-        reviewer_model=str(data.get("reviewer_model") or "gpt-5.4"),
-        scientist_model=str(data.get("scientist_model") or "gpt-5.4"),
+        engineer_model=str(data.get("engineer_model") or resolve_route_model("engineer")),
+        reviewer_model=str(data.get("reviewer_model") or resolve_route_model("reviewer")),
+        scientist_model=str(data.get("scientist_model") or resolve_route_model("scientist")),
         engineer_reasoning_effort=str(
             data.get("engineer_reasoning_effort") or "high"
         ),

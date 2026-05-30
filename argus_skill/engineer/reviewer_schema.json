@@ -30,6 +30,24 @@
     "completion_summary_markdown": {
       "type": "string",
       "maxLength": 5000
+    },
+    "scope": {
+      "type": "string",
+      "enum": ["bounded", "final_submission"]
+    },
+    "checklist": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "item": { "type": "string", "maxLength": 500 },
+          "satisfied": { "type": "boolean" },
+          "evidence": { "type": "string", "maxLength": 2000 }
+        },
+        "required": ["item", "satisfied", "evidence"]
+      }
     }
   },
   "required": [

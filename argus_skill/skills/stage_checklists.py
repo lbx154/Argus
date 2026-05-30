@@ -5,11 +5,13 @@ was injected into engineer / reviewer / critic prompts. Validators turned
 into gates the agent kept trying to defeat; checklists are written for a
 human-level reviewer to read, ground in artifacts, and rule on.
 
-The validator functions under :mod:`argus_skill.skills.pipeline_contracts`
-are intentionally still importable — the :mod:`argus_skill.life.supervisor`
-harness uses them for project-done detection. They are no longer exposed
-on the CLI or in any agent prompt; the only thing the agent sees is the
-markdown checklist for the current stage.
+The legacy validator functions under :mod:`argus_skill.skills.pipeline_contracts`
+remain importable for other call sites (tooling, tests), but the
+:mod:`argus_skill.life.supervisor` harness no longer uses them for
+project-done detection. Whole-project completion is now decided by the L2
+reviewer's full-pipeline checklist verdict (a certified ``final_submission``
+review), not by any hardcoded validator gate. The only thing the agent sees
+is the markdown checklist for the current stage.
 """
 from __future__ import annotations
 

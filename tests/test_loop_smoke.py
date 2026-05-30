@@ -40,10 +40,10 @@ SKILL_MD = (
 def test_skill_loop_defaults_use_high_reasoning_effort() -> None:
     config = SkillLoopConfig()
 
-    assert config.engineer_model == "gpt-5.4-mini"
+    assert config.engineer_model == "gpt-5.5"
     assert config.engineer_reasoning_effort == "high"
     assert config.matcher_reasoning_effort == "high"
-    assert config.scientist_model == "gpt-5.4"
+    assert config.scientist_model == "gpt-5.5"
     assert config.scientist_reasoning_effort == "high"
     assert config.reviewer_reasoning_effort == "high"
 
@@ -88,7 +88,6 @@ def test_skill_loop_distill_then_two_rounds_to_done(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     loop = SkillLoop(
         skills_dir=skills_dir,
-        scientist_runner=backend,
         engineer_runner=backend,
         reviewer_runner=backend,
         config=SkillLoopConfig(max_rounds=4, distill_on_miss=True, skill_writeback=True),
@@ -132,7 +131,6 @@ def test_skill_loop_distill_then_two_rounds_to_done(tmp_path: Path) -> None:
 
     loop2 = SkillLoop(
         skills_dir=skills_dir,
-        scientist_runner=backend2,
         engineer_runner=backend2,
         reviewer_runner=backend2,
         config=SkillLoopConfig(max_rounds=3, distill_on_miss=True, skill_writeback=True),
@@ -160,7 +158,6 @@ def test_skill_loop_blocked_short_circuits(tmp_path: Path) -> None:
 
     loop = SkillLoop(
         skills_dir=tmp_path / "skills",
-        scientist_runner=backend,
         engineer_runner=backend,
         reviewer_runner=backend,
         config=SkillLoopConfig(max_rounds=5),
@@ -182,7 +179,6 @@ def test_skill_loop_max_rounds_hit(tmp_path: Path) -> None:
 
     loop = SkillLoop(
         skills_dir=tmp_path / "skills",
-        scientist_runner=backend,
         engineer_runner=backend,
         reviewer_runner=backend,
         config=SkillLoopConfig(max_rounds=3),
@@ -202,7 +198,6 @@ def test_skill_loop_no_distill_falls_back_to_no_skill(tmp_path: Path) -> None:
 
     loop = SkillLoop(
         skills_dir=tmp_path / "skills",
-        scientist_runner=backend,
         engineer_runner=backend,
         reviewer_runner=backend,
         config=SkillLoopConfig(max_rounds=2, distill_on_miss=False),

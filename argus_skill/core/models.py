@@ -109,6 +109,15 @@ class ReviewDecision:
     failure_cause: str = ""
     mission_lesson: str = ""
     verification_summary: str = ""
+    # Reviewer completion contract (replaces the hardcoded EMNLP validator
+    # gate). For ``final_submission`` missions the reviewer must set
+    # ``scope == "final_submission"`` and populate ``checklist`` with one
+    # entry ``{"item", "satisfied", "evidence"}`` per full-pipeline
+    # checklist item. A ``done`` verdict only certifies project completion
+    # when every item is satisfied with concrete evidence. Empty for
+    # ordinary bounded missions.
+    scope: str = ""
+    checklist: list[dict[str, Any]] = field(default_factory=list)
     # Side-channel: token usage of the reviewer subprocess that produced
     # this decision. Populated by ``MissionReviewer.evaluate``; used by
     # benchmarks/runners to compute USD cost. Not part of the reviewer's
@@ -116,6 +125,26 @@ class ReviewDecision:
     input_tokens: int = 0
     cached_input_tokens: int = 0
     output_tokens: int = 0
+
+    @property
+    def final_submission_certified(self) -> bool:
+        """True when this verdict certifies whole-project final-submission
+        readiness: a ``done`` verdict scoped to ``final_submission`` whose
+        checklist is non-empty and every item is satisfied with concrete
+        evidence. Fail-closed: any missing/empty field means not certified.
+        """
+        if self.status != "done" or self.scope != "final_submission":
+            return False
+        if not self.checklist:
+            return False
+        for item in self.checklist:
+            if not isinstance(item, dict):
+                return False
+            if not bool(item.get("satisfied")):
+                return False
+            if not str(item.get("evidence", "")).strip():
+                return False
+        return True
 
 
 @dataclass

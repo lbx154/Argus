@@ -75,7 +75,6 @@ def _build_loop(backend: MemoryBackend, skills_dir: Path) -> SkillLoop:
     )
     return SkillLoop(
         skills_dir=skills_dir,
-        scientist_runner=backend,
         engineer_runner=backend,
         reviewer_runner=backend,
         config=config,

@@ -16,7 +16,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from ..core.models import CheckResult, ReviewDecision, ReviewStatus, RunnerOptions
 from ..core.ports import RunnerBackend
@@ -177,6 +177,7 @@ class Reviewer:
         engineer_reasoning_summary: str = "",
         prev_review_summary: str = "",
         raw_evidence: str = "",
+        scope: str = "",
     ) -> ReviewDecision:
         prompt = self._build_prompt(
             objective=objective,
@@ -191,6 +192,7 @@ class Reviewer:
             engineer_reasoning_summary=engineer_reasoning_summary,
             prev_review_summary=prev_review_summary,
             raw_evidence=raw_evidence,
+            scope=scope,
         )
         try:
             result = self.runner.run_exec(
@@ -292,6 +294,7 @@ class Reviewer:
         engineer_reasoning_summary: str = "",
         prev_review_summary: str = "",
         raw_evidence: str = "",
+        scope: str = "",
     ) -> str:
         error_text = main_error or "none"
         check_text = summarize_checks(checks)
@@ -319,7 +322,15 @@ class Reviewer:
         from pathlib import Path as _Path
 
         stage = current_stage(_Path.cwd())
-        if stage == "submission":
+        scope_normalized = (scope or "").strip().lower()
+        objective_lc = (objective or "").lower()
+        is_final_submission = (
+            scope_normalized == "final_submission"
+            or "planner_scope: final_submission" in objective_lc
+            or "task scope: final_submission" in objective_lc
+            or "scope: final_submission" in objective_lc
+        )
+        if is_final_submission or stage == "submission":
             stage_checklist = format_full_pipeline_checklist(role="reviewer")
         else:
             stage_checklist = format_stage_checklist(stage, role="reviewer")
@@ -393,6 +404,35 @@ class Reviewer:
             if raw_evidence.strip()
             else ""
         )
+        # Final-submission completion contract. This block replaces the
+        # retired hardcoded EMNLP validators: instead of the supervisor
+        # running ``validate_full_emnlp_readiness`` and friends, the reviewer
+        # is the single source of truth for whether the *whole project* is
+        # ready to submit. It only fires for final_submission missions.
+        final_submission_block = ""
+        if is_final_submission:
+            final_submission_block = (
+                "## FINAL SUBMISSION CONTRACT (scope = final_submission)\n"
+                "This mission's scope is `final_submission`: you are certifying\n"
+                "that the ENTIRE research pipeline is complete and ready to\n"
+                "submit, not just one bounded task. You are the single source of\n"
+                "truth for project completion — there is no separate validator.\n\n"
+                "You MUST:\n"
+                "1. Set `scope` to `final_submission` in your JSON response.\n"
+                "2. Populate `checklist` with ONE entry per item in the full\n"
+                "   pipeline checklist above. Each entry needs `item` (the\n"
+                "   checklist item text), `satisfied` (true/false), and\n"
+                "   `evidence` (concrete proof you verified yourself: command\n"
+                "   output, file contents, query rows). `evidence` must be\n"
+                "   non-empty for every item you mark `satisfied: true`.\n"
+                "3. Choose `status: done` ONLY when EVERY checklist item is\n"
+                "   `satisfied: true` with concrete evidence. If even one item\n"
+                "   is unmet or lacks evidence, choose `status: continue` and\n"
+                "   list every unmet item with the exact repair steps in\n"
+                "   `next_action`.\n"
+                "Do not certify on the engineer's word alone — re-run the\n"
+                "verification commands yourself and cite your own output.\n\n"
+            )
         return (
             "You are the reviewer sub-agent for an argus-skill autoloop run.\n"
             "Decide whether the objective is fully complete.\n\n"
@@ -410,6 +450,7 @@ class Reviewer:
             f"{handoff_skill}\n\n"
             f"{paper_review_skill_block}"
             f"{stage_checklist}\n\n"
+            f"{final_submission_block}"
             f"{rollback_block}\n\n"
             f"{venv_skill_block}\n\n"
             "**Length constraints:**\n"
@@ -423,7 +464,10 @@ class Reviewer:
             "- reason\n"
             "- next_action\n"
             "- round_summary_markdown\n"
-            "- completion_summary_markdown\n\n"
+            "- completion_summary_markdown\n"
+            "Optional JSON keys (REQUIRED when scope is final_submission):\n"
+            "- scope (`bounded` or `final_submission`)\n"
+            "- checklist (array of {item, satisfied, evidence})\n\n"
             "Decision rules:\n"
             "1) Choose `done` ONLY when the main agent's last summary contains\n"
             "   CONCRETE EVIDENCE that the work succeeded: actual command output,\n"
@@ -454,8 +498,9 @@ class Reviewer:
             "   concrete issue codes/paths/messages, likely root cause, ordered\n"
             "   repair steps, and exact rerun command. Include full check output\n"
             "   so the engineer has all the context needed to fix the issue.\n"
-            "   For `validate-*` commands, list every issue with its code, path,\n"
-            "   and message, then provide concrete repair instructions.\n"
+            "   For any acceptance command that emits structured issues, list\n"
+            "   every issue with its code, path, and message, then provide\n"
+            "   concrete repair instructions.\n"
             "3) When `continue`, `next_action` must be a concrete instruction\n"
             "   that asks for SPECIFIC verification commands (e.g.,\n"
             "   `run pytest -xvs and paste the full output`,\n"
@@ -627,7 +672,34 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
         next_action=next_action,
         round_summary_markdown=round_summary_markdown,
         completion_summary_markdown=completion_summary_markdown,
+        scope=_parse_scope(parsed),
+        checklist=_parse_checklist(parsed),
     )
+
+
+def _parse_scope(parsed: dict) -> str:
+    value = parsed.get("scope")
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"bounded", "final_submission"}:
+            return normalized
+    return ""
+
+
+def _parse_checklist(parsed: dict) -> list[dict[str, Any]]:
+    raw = parsed.get("checklist")
+    if not isinstance(raw, list):
+        return []
+    items: list[dict[str, Any]] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        items.append({
+            "item": str(entry.get("item", "")).strip(),
+            "satisfied": bool(entry.get("satisfied")),
+            "evidence": str(entry.get("evidence", "")).strip(),
+        })
+    return items
 
 
 def _load_json(text: str) -> dict | None:

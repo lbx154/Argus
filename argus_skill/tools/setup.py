@@ -218,7 +218,7 @@ def _render_codex_config_toml(base_url: str, model: str) -> str:
     agent can run experiments without prompting; upgrade to
     ``danger-full-access`` only if you trust the host.
     """
-    safe_model = model or "gpt-5.4"
+    safe_model = model or "gpt-5.5"
     safe_url = base_url.rstrip("/") + "/" if base_url and not base_url.endswith("/") else base_url
     return (
         f'model = "{safe_model}"\n'
@@ -388,15 +388,15 @@ def run_setup() -> int:
 
         planner_model = _prompt(
             "Planner model",
-            existing_routes.get("planner", existing_routes.get("scientist", {})).get("model", "gpt-5.4"),
+            existing_routes.get("planner", existing_routes.get("scientist", {})).get("model", "gpt-5.5"),
         )
         engineer_model = _prompt(
             "Engineer model",
-            existing_routes.get("engineer", {}).get("model", "gpt-5.4"),
+            existing_routes.get("engineer", {}).get("model", "gpt-5.5"),
         )
         reviewer_model = _prompt(
             "Reviewer model",
-            existing_routes.get("reviewer", {}).get("model", "gpt-5.4"),
+            existing_routes.get("reviewer", {}).get("model", "gpt-5.5"),
         )
         print()
 
@@ -428,16 +428,16 @@ def run_setup() -> int:
         # Per-agent config
         routes = {}
         planner = _configure_agent(
-            "Planner", existing_routes.get("planner", existing_routes.get("scientist")), "gpt-5.4",
+            "Planner", existing_routes.get("planner", existing_routes.get("scientist")), "gpt-5.5",
         )
         routes["planner"] = planner
         routes["scientist"] = planner  # planner = scientist
 
         routes["engineer"] = _configure_agent(
-            "Engineer", existing_routes.get("engineer"), "gpt-5.4",
+            "Engineer", existing_routes.get("engineer"), "gpt-5.5",
         )
         routes["reviewer"] = _configure_agent(
-            "Reviewer", existing_routes.get("reviewer"), "gpt-5.4",
+            "Reviewer", existing_routes.get("reviewer"), "gpt-5.5",
         )
         routes["text"] = routes["engineer"]
 
@@ -457,7 +457,7 @@ def run_setup() -> int:
     engineer_route = routes.get("engineer") or routes.get("text") or {}
     codex_base_url = engineer_route.get("base_url", "")
     codex_api_key = engineer_route.get("api_key", "")
-    codex_model = engineer_route.get("model", "gpt-5.4")
+    codex_model = engineer_route.get("model", "gpt-5.5")
     codex_paths: tuple[Path, Path] | None = None
     if codex_base_url and codex_api_key:
         codex_paths = _seed_codex_config(codex_base_url, codex_api_key, codex_model)

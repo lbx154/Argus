@@ -25,14 +25,20 @@ _BASE_URL_ENV = "ARGUS_SKILL_MODEL_API_BASE_URL"
 _TEXT_MODELS_ENV = "ARGUS_SKILL_TEXT_MODELS"
 _IMAGE_MODEL_ENV = "ARGUS_SKILL_IMAGE_MODEL"
 _IMAGE_REVIEW_MODEL_ENV = "ARGUS_SKILL_IMAGE_REVIEW_MODEL"
-_DEFAULT_TEXT_MODELS = ("gpt-5.4-mini", "gpt-5.4")
+# Unified default text model for every agent route. The single source of
+# truth for production model selection is the vault file
+# ``~/.argus-skill/capabilities/model_api.json``; these literals are only the
+# offline fallback when a route is absent from the vault.
+_DEFAULT_TEXT_MODEL = "gpt-5.5"
+_DEFAULT_TEXT_MODELS = (_DEFAULT_TEXT_MODEL, _DEFAULT_TEXT_MODEL)
 _DEFAULT_IMAGE_MODEL = "gpt-image-2"
-_DEFAULT_IMAGE_REVIEW_MODEL = "gpt-5.4"
+_DEFAULT_IMAGE_REVIEW_MODEL = _DEFAULT_TEXT_MODEL
 _DEFAULT_ROUTE_MODELS = {
-    "engineer": "gpt-5.4-mini",
-    "reviewer": "gpt-5.4",
-    "scientist": "gpt-5.4",
-    "text": "gpt-5.4",
+    "engineer": _DEFAULT_TEXT_MODEL,
+    "reviewer": _DEFAULT_TEXT_MODEL,
+    "scientist": _DEFAULT_TEXT_MODEL,
+    "planner": _DEFAULT_TEXT_MODEL,
+    "text": _DEFAULT_TEXT_MODEL,
     "image": _DEFAULT_IMAGE_MODEL,
     "image_review": _DEFAULT_IMAGE_REVIEW_MODEL,
 }
@@ -40,6 +46,7 @@ _ROUTE_FALLBACKS = {
     "engineer": ("engineer", "text", "default"),
     "reviewer": ("reviewer", "text", "default"),
     "scientist": ("scientist", "text", "default"),
+    "planner": ("planner", "reviewer", "text", "default"),
     "text": ("text", "default"),
     "image": ("image", "default"),
     "image_review": ("image_review", "reviewer", "text", "default"),
@@ -389,6 +396,28 @@ def load_model_api_route(
     return _route_from_explicit_sources(route, source, path)
 
 
+def resolve_route_model(
+    route: str,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    """Single entry point for "which model does this route use".
+
+    Reads the model name from the vault file
+    ``~/.argus-skill/capabilities/model_api.json`` (route -> model), following
+    the same fallback chain as :func:`load_model_api_route`. When the route is
+    absent from the vault and no explicit source provides a model, the offline
+    default from :data:`_DEFAULT_ROUTE_MODELS` is returned.
+
+    This is intentionally decoupled from :func:`load_model_api_route`, which
+    returns ``None`` when credentials are unavailable. Model selection must
+    always yield a concrete name, even in offline/test environments.
+    """
+    loaded = load_model_api_route(route, env)
+    if loaded is not None and loaded.model:
+        return loaded.model
+    return _DEFAULT_ROUTE_MODELS.get(route, _DEFAULT_TEXT_MODEL)
+
+
 def _route_to_legacy_grant(route: ModelApiRoute, env: Mapping[str, str]) -> ModelApiGrant:
     engineer_route = load_model_api_route("engineer", env)
     reviewer_route = load_model_api_route("reviewer", env)
@@ -640,7 +669,7 @@ def discover_model_api_routes(env: Mapping[str, str] | None = None) -> list[Mode
         )
     )
     routes: list[ModelApiRoute] = []
-    for route_name in ("engineer", "reviewer", "scientist", "text", "image", "image_review"):
+    for route_name in ("engineer", "reviewer", "scientist", "planner", "text", "image", "image_review"):
         api_key, key_source = _route_env_value(source, route_name, "api_key")
         if not api_key:
             api_key = global_key

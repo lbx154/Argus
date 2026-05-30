@@ -17,7 +17,7 @@ from ..tools.capability_vault import (
 _PROFILE_ENV = "ARGUS_SKILL_RESEARCH_PROFILE"
 _PROFILE_PATH_ENV = "ARGUS_SKILL_RESEARCH_PROFILE_PATH"
 _EMNLP2026_PROFILE = "emnlp2026-tierharness"
-_DEFAULT_TEXT_MODELS = "gpt-5.4-mini,gpt-5.4"
+_DEFAULT_TEXT_MODELS = "gpt-5.5,gpt-5.5"
 _DEFAULT_IMAGE_MODEL = "gpt-image-2"
 _SHARED_MODEL_CACHE_ROOT_ENV = "ARGUS_SKILL_SHARED_MODEL_CACHE_ROOT"
 
@@ -133,7 +133,7 @@ def _capability_context(env: Mapping[str, str]) -> str:
     base_url_source = grant.base_url_source if grant is not None else "missing"
     text_models = ",".join(grant.text_models) if grant is not None else _DEFAULT_TEXT_MODELS
     image_model = grant.image_model if grant is not None else _DEFAULT_IMAGE_MODEL
-    review_model = grant.image_review_model if grant is not None else "gpt-5.4"
+    review_model = grant.image_review_model if grant is not None else "gpt-5.5"
     api_available = bool(grant and grant.usable)
     vault_path = grant.vault_path if grant is not None and grant.vault_path else default_vault_path(env)
     status = status_payload(env)
@@ -268,13 +268,13 @@ Evidence and anti-fabrication rules:
 - Distinguish official Harbor/TB2 benchmark results from prompt-only
   operator-mode smoke tests. Do not conflate the two.
 - Final EMNLP completion is a separate `final_submission` scope. The project is
-  not done until `python -m argus_skill.skills.pipeline_contracts
-  the full pipeline checklist (research → submission)` is marked `done` by the L2 reviewer and that verdict is
-  present in journal evidence.
+  not done until the L2 reviewer certifies the full pipeline checklist (research
+  → submission) as `done` — every checklist item satisfied with concrete
+  evidence — and that certified verdict is present in journal evidence.
 - Passing a single stage's checklist, a pilot run, or an existing
-  PDF is not enough for project_done. If the full gate fails, queue bounded
-  blocker tasks for the reported experiment, baseline, ablation, paper-contract,
-  assurance, manifest, or submission-state gaps.
+  PDF is not enough for project_done. If the full checklist is not certified,
+  queue bounded blocker tasks for the reported experiment, baseline, ablation,
+  paper-contract, assurance, manifest, or submission-state gaps.
 - For positive EMNLP paper objectives, final readiness requires a structured
   `paper/PAPER_QUALITY_CALIBRATION.json.paper_contribution` claim in the
   research.md form: "We propose X. We show X improves Y by Z because W." The

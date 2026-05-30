@@ -33,7 +33,6 @@ import sys
 import threading
 import time
 import unicodedata
-from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
@@ -200,202 +199,6 @@ _PLANNER_SCOPE_FINAL_SUBMISSION = "final_submission"
 _FULL_EMNLP_GATE_COMMAND = (
     "the L2 reviewer's full pipeline checklist (research → submission)"
 )
-_FULL_SCALE_EVIDENCE_GATE_COMMAND = (
-    "the run-stage checklist item \"full-scale evidence\""
-)
-_REFRESH_MANIFEST_COMMAND = "refresh the artifact manifest"
-_REFRESH_ARTIFACT_FRESHNESS_COMMAND = "refresh artifact freshness records"
-_WRITE_VALIDATION_PRIORITY_POLICY_COMMAND = "write a validation priority policy"
-_REPAIR_EMNLP_CONTRACT_ARTIFACTS_COMMAND = "repair the EMNLP manifest/freshness/policy artifacts together"
-_PLANNER_GATE_CONTEXT_MAX_ISSUES = 24
-_PLANNER_GATE_CONTEXT_MAX_CHARS = 6000
-_EMNLP_BOOTSTRAP_GATE_CODES = {
-    "missing_pipeline_state",
-    "missing_literature_grounding",
-    "missing_idea_provenance",
-    "missing_code_reuse_plan",
-}
-_EMNLP_FULL_SCALE_GATE_CODES = {
-    "missing_full_scale_experiment_run",
-    "missing_baseline_condition_run",
-    "incomplete_full_scale_experiment_run",
-    "underpowered_pilot",
-    "pilot_pdf_without_full_scale_evidence",
-}
-_EMNLP_DOWNSTREAM_PACKAGE_CODES = {
-    "missing_stage_artifact",
-    "missing_submission_assurance",
-    "missing_style_exemplar",
-    "missing_paper_draft_report_json",
-    "missing_layout_review",
-    "missing_academic_language_review",
-    "missing_claim_graph",
-    "missing_image2_figures_manifest",
-    "missing_figure_table_style_guide",
-}
-_EMNLP_MANIFEST_FRESHNESS_GATE_CODES = {
-    "artifact_stale_vs_inputs",
-    "artifact_modified_after_freshness_recorded",
-    "artifact_digest_mismatch",
-    "artifact_freshness_missing_required_input",
-    "missing_required_artifact_freshness_record",
-    "unknown_generated_artifact_source",
-    "generated_artifact_without_canonical_source",
-    "generated_artifact_missing_sources",
-    "invalid_artifact_manifest_entry",
-}
-_EMNLP_CITATION_GATE_CODES = {
-    "appendix_before_references",
-    "claim_graph_uncited_citation_key",
-    "citation_command_dumping",
-    "citation_paragraph_dumping",
-    "insufficient_rendered_reference_pages",
-    "insufficient_unique_citations",
-    "insufficient_verified_bibliography_entries",
-    "missing_bib_source",
-    "missing_bibliography_command",
-    "pdf_unresolved_reference_marker",
-    "placeholder_bibtex_author_others",
-    "rendered_placeholder_reference_authors",
-    "unresolved_latex_references",
-    "unverified_bib_entry",
-}
-_EMNLP_VALIDATION_POLICY_GATE_CODES = {
-    "missing_validation_priority_policy",
-    "invalid_validation_priority_policy_json",
-    "invalid_validation_priority_policy_schema_version",
-    "missing_validation_priority_order",
-    "incomplete_validation_priority_order",
-    "missing_validation_failure_routing",
-    "missing_validation_failure_route",
-    "validation_failure_route_missing_prefixes",
-    "validation_failure_route_missing_repair_mode",
-    "validation_failure_route_bad_repair_mode",
-    "missing_validation_reset_policy",
-}
-_EMNLP_IMAGE2_GATE_CODES = {
-    "conceptual_body_figure_not_image2",
-    "image2_conceptual_figure_not_included_in_main_tex",
-    "missing_image2_conceptual_figure",
-    "missing_image2_figures_manifest",
-    "missing_image2_generation_provenance",
-    "missing_image2_inspect_path",
-    "missing_image2_review_path",
-    "missing_image2_sidecar_path",
-    "mismatched_image2_sidecar_prompt_sha256",
-}
-_EMNLP_REVIEW_GATE_CODES = {
-    "academic_language_review_not_pass",
-    "academic_language_review_needs_revision",
-    "academic_language_review_has_blockers",
-    "failed_academic_language_required_check",
-    "low_academic_language_review_score",
-    "low_academic_language_section_score",
-    "missing_academic_language_review",
-    "stale_academic_language_review_source",
-    "academic_language_evidence_quote_not_found",
-    "academic_language_evidence_boilerplate_quote",
-    "pass_academic_language_review_with_model_revise",
-    "pass_academic_language_review_with_model_blocking_issues",
-    "pass_academic_language_review_with_model_major_issues",
-    "pass_academic_language_review_with_model_revision_directives",
-    "pass_academic_language_review_with_model_failed_checks",
-    "pass_academic_language_review_with_model_low_sections",
-    "layout_review_not_pass",
-    "layout_review_needs_revision",
-    "layout_review_has_blockers",
-    "layout_review_not_visual",
-    "low_layout_review_score",
-    "missing_layout_review",
-    "missing_layout_review_vision_payload",
-    "stale_layout_review_artifact",
-    "incomplete_layout_review_snapshot_coverage",
-    "pass_layout_review_with_vision_revise",
-    "pass_layout_review_with_vision_blocking_issues",
-    "pass_layout_review_with_vision_major_issues",
-    "pass_layout_review_with_vision_revision_directives",
-    "pass_layout_review_with_vision_low_criteria",
-}
-_EMNLP_FIGURE_TABLE_FORMAT_CODES = {
-    "body_figure_not_referenced",
-    "body_float_missing_from_style_guide",
-    "figure_table_style_guide_not_pass",
-    "float_inventory_label_not_in_body",
-    "missing_figure_table_style_guide",
-    "missing_figure_table_style_guide_rule",
-    "missing_float_inventory_target_section",
-    "missing_paired_significance_table",
-    "missing_research_md_table_style",
-    "severe_overfull_hbox",
-    "table_caption_missing_number",
-    "too_few_figure_table_style_floats",
-}
-_EMNLP_CONTENT_SUFFICIENCY_CODES = {
-    "missing_main_content_pages",
-    "appendix_before_page_9",
-    "references_before_full_body",
-    "rendered_main_body_underfilled",
-    "underlength_emnlp_paper",
-}
-_EMNLP_BODY_OVER_BUDGET_CODES = {
-    "conclusion_after_page_8",
-    "overlength_emnlp_paper",
-}
-_EMNLP_SUBMISSION_ASSURANCE_CODES = {
-    "draft_not_submission_quality",
-    "draft_self_reports_not_submission_quality",
-    "missing_submission_assurance",
-    "submission_not_ready_verdict",
-    "submission_stage_not_successful",
-}
-_EMNLP_CITATION_GATE_PREFIXES = (
-    "bibliography_",
-    "bibtex_",
-    "citation_",
-    "reference_",
-    "rendered_reference_",
-    "unresolved_citation",
-)
-_EMNLP_IMAGE2_GATE_PREFIXES = ("image2_",)
-_EMNLP_FIGURE_TABLE_FORMAT_PREFIXES = (
-    "body_figure_",
-    "body_float_",
-    "float_",
-    "invalid_float_",
-    "missing_float_",
-    "table_",
-)
-_EMNLP_REVIEW_GATE_PREFIXES = (
-    "academic_",
-    "failed_academic_",
-    "layout_",
-    "low_academic_",
-    "low_layout_",
-    "stale_academic_",
-    "stale_layout_",
-)
-_EMNLP_MANIFEST_FRESHNESS_GATE_PREFIXES = (
-    "artifact_",
-    "freshness_",
-    "generated_artifact_",
-    "invalid_artifact_",
-    "manifest_",
-)
-_EMNLP_DOWNSTREAM_PATH_PREFIXES = (
-    "paper/",
-    "research/CLAIM",
-    "research/result",
-    "research/results",
-)
-_EMNLP_DOWNSTREAM_PATH_NAMES = {
-    "paper/main.tex",
-    "paper/main.pdf",
-    "paper/RESULTS_REPORT.md",
-    "paper/SUBMISSION_ASSURANCE.json",
-    "paper/CLAIM_GRAPH.json",
-    "paper/ARTIFACT_MANIFEST.json",
-    "paper/ARTIFACT_FRESHNESS.json",
-}
 _OPEN_ENDED_OBJECTIVE_MARKERS = (
     "open-ended",
     "self-improvement",
@@ -429,20 +232,6 @@ _PAPER_LONG_HORIZON_OBJECTIVE_SUBSTRINGS = (
     "投稿",
 )
 _PAPER_LONG_HORIZON_OBJECTIVE_WORDS = {"acl", "emnlp"}
-
-
-@dataclass(frozen=True)
-class _EmnlpFinalizationRepairTask:
-    """A deterministic planner fallback for the final 30% paper repair loop."""
-
-    title: str
-    impact_area: str
-    target_label: str
-    target_issues: tuple[Any, ...]
-    skill_files: tuple[str, ...]
-    allowed_paths: tuple[str, ...]
-    narrow_commands: tuple[str, ...]
-    repair_focus: str
 
 
 def _objective_is_open_ended(objective: str) -> bool:
@@ -479,667 +268,20 @@ def _objective_is_paper_long_horizon(objective: str) -> bool:
     return bool(tokens & _PAPER_LONG_HORIZON_OBJECTIVE_WORDS)
 
 
-def _emnlp_issue_paths(issues: list[Any]) -> set[str]:
-    return {str(getattr(issue, "path", "") or "") for issue in issues}
-
-
-def _has_emnlp_downstream_package_gap(
-    issue_codes: set[str],
-    issue_paths: set[str],
-) -> bool:
-    if issue_codes & _EMNLP_DOWNSTREAM_PACKAGE_CODES:
-        return True
-    return any(
-        path in _EMNLP_DOWNSTREAM_PATH_NAMES
-        or path.startswith(_EMNLP_DOWNSTREAM_PATH_PREFIXES)
-        for path in issue_paths
-    )
-
-
-def _planner_emnlp_stage_hints(issues: list[Any]) -> str:
-    """Return compact stage-routing hints for final-gate issue snapshots."""
-    if not issues:
-        return ""
-    issue_codes = {str(getattr(issue, "code", "") or "") for issue in issues}
-    issue_paths = _emnlp_issue_paths(issues)
-    hints: list[str] = []
-
-    if issue_codes & _EMNLP_BOOTSTRAP_GATE_CODES:
-        hints.append(
-            "- stage route: bootstrap literature grounding, idea provenance, "
-            "code-reuse plan, and PIPELINE_STATE before benchmark execution or paper polish."
-        )
-    if issue_codes & _EMNLP_FULL_SCALE_GATE_CODES:
-        hints.append(
-            "- stage route: complete or collect the full-scale evidence matrix before "
-            "analysis, narrative, drafting, reviews, or submission assurance."
-        )
-    elif _has_emnlp_downstream_package_gap(issue_codes, issue_paths):
-        hints.append(
-            "- stage route: full-scale evidence is not currently a final-gate blocker; "
-            "collect completed runs, then build analysis/narrative/draft/review/"
-            "submission artifacts from current evidence instead of relaunching duplicate benchmarks."
-        )
-    if issue_codes & _EMNLP_MANIFEST_FRESHNESS_GATE_CODES:
-        hints.append(
-            "- stage route: regenerate stale generated artifacts from current upstream "
-            "inputs or refresh manifest/freshness records with canonical source links; "
-            f"after regeneration, run `{_REFRESH_MANIFEST_COMMAND}` and "
-            f"`{_REFRESH_ARTIFACT_FRESHNESS_COMMAND}`; do not hand-edit only "
-            "the readiness JSON."
-        )
-    if issue_codes & _EMNLP_VALIDATION_POLICY_GATE_CODES:
-        hints.append(
-            "- stage route: rebuild the failure-routing contract with "
-            f"`{_WRITE_VALIDATION_PRIORITY_POLICY_COMMAND}` before final "
-            "review/assurance loops; do not hand-write partial routes."
-        )
-    if (
-        issue_codes & _EMNLP_MANIFEST_FRESHNESS_GATE_CODES
-        and issue_codes & _EMNLP_VALIDATION_POLICY_GATE_CODES
-    ):
-        hints.append(
-            "- stage route: when manifest, freshness, and validation-route drift appear "
-            "together after content regeneration, prefer the combined repair helper "
-            f"`{_REPAIR_EMNLP_CONTRACT_ARTIFACTS_COMMAND}`; then inspect remaining "
-            "content/evidence issues as real blockers."
-        )
-    if issue_codes & _EMNLP_CITATION_GATE_CODES:
-        hints.append(
-            "- stage route: repair bibliography sources and rendered citation placement "
-            "in the drafting/format-preflight skills before final assurance."
-        )
-    if issue_codes & _EMNLP_IMAGE2_GATE_CODES:
-        hints.append(
-            "- stage route: image-2 issues belong to results-analysis/figures; use the "
-            "Argus image tool, keep the exact accepted raster in main.tex, and repair "
-            "prompt/output/sidecar/inspect/review/provenance hashes instead of "
-            "wrapping a local redraw in image-2 metadata."
-        )
-    if issue_codes & _EMNLP_FIGURE_TABLE_FORMAT_CODES:
-        hints.append(
-            "- stage route: figure/table/format failures belong to format preflight and "
-            "drafting; every body float needs a style-guide entry, target section, "
-            "text reference, readable placement, and a caption with a numerical or "
-            "evidence-backed takeaway."
-        )
-    if issue_codes & _EMNLP_BODY_OVER_BUDGET_CODES:
-        hints.append(
-            "- stage route: overlength body or Conclusion-after-page-8 failures are "
-            "page-budget reflow blockers; stop adding prose, inspect the rendered PDF "
-            "page map, and compress/move duplicated body or appendix-like material "
-            "until Conclusion lands on page 8 and References/Appendix begin on page 9."
-        )
-    if issue_codes & _EMNLP_CONTENT_SUFFICIENCY_CODES:
-        hints.append(
-            "- stage route: treat short or underfilled PDFs as evidence/analysis/structure "
-            "blockers first; add supported analyses, failure studies, or claim downgrades "
-            "before cosmetic layout edits."
-        )
-    if issue_codes & _EMNLP_REVIEW_GATE_CODES:
-        hints.append(
-            "- stage route: academic-language and visual-layout review issues are "
-            "downstream; stabilize main.tex/main.pdf first, then rerun the model-backed "
-            "`academic_language_review` and vision `paper_layout_review` tools. Do not "
-            "hand-edit stale review JSON to PASS."
-        )
-    if issue_codes & _EMNLP_SUBMISSION_ASSURANCE_CODES:
-        hints.append(
-            "- stage route: submission assurance is last; write PASS/WARN only after "
-            "evidence, paper format, claim graph, image-2, academic-language review, "
-            "layout review, manifest, freshness, and final gate blockers are genuinely "
-            "cleared."
-        )
-
-    if not hints:
-        return ""
-    return "Automatic stage route hints:\n" + "\n".join(hints)
-
-
-def _emnlp_issue_matches(
-    issue: Any,
-    *,
-    codes: set[str] | frozenset[str] = frozenset(),
-    prefixes: tuple[str, ...] = (),
-    contains: tuple[str, ...] = (),
-) -> bool:
-    code = str(getattr(issue, "code", "") or "")
-    return (
-        code in codes
-        or any(code.startswith(prefix) for prefix in prefixes)
-        or any(token in code for token in contains)
-    )
-
-
-def _emnlp_matching_issues(
-    issues: list[Any],
-    *,
-    codes: set[str] | frozenset[str] = frozenset(),
-    prefixes: tuple[str, ...] = (),
-    contains: tuple[str, ...] = (),
-) -> tuple[Any, ...]:
-    return tuple(
-        issue
-        for issue in issues
-        if _emnlp_issue_matches(
-            issue,
-            codes=codes,
-            prefixes=prefixes,
-            contains=contains,
-        )
-    )
-
-
-def _emnlp_issue_summary(issues: list[Any] | tuple[Any, ...], *, limit: int = 10) -> str:
-    snippets: list[str] = []
-    for issue in issues[:limit]:
-        snippets.append(
-            f"{getattr(issue, 'code', '')} at {getattr(issue, 'path', '')}"
-        )
-    if len(issues) > limit:
-        snippets.append(f"... {len(issues) - limit} more")
-    return "; ".join(snippets)
-
-
-def _emnlp_top_issue_counts(issues: list[Any] | tuple[Any, ...], *, limit: int = 8) -> str:
-    counts = Counter(str(getattr(issue, "code", "") or "") for issue in issues)
-    return ", ".join(f"{code}={count}" for code, count in counts.most_common(limit))
-
-
-def _select_emnlp_finalization_repair_task(
-    issues: list[Any],
-) -> _EmnlpFinalizationRepairTask | None:
-    """Select the next narrow repair lane from a failing EMNLP final gate.
-
-    This is deliberately deterministic. The planner is still free to produce
-    richer work, but when it refuses, emits broad JSON, or keeps asking for
-    "make the paper good", the supervisor can hand the engineer a bounded
-    finalization lane with concrete issue codes and validators.
-    """
-    if not issues:
-        return None
-
-    bootstrap = _emnlp_matching_issues(issues, codes=_EMNLP_BOOTSTRAP_GATE_CODES)
-    if bootstrap:
-        return _EmnlpFinalizationRepairTask(
-            title="Bootstrap the grounded EMNLP research pipeline",
-            impact_area="discovery",
-            target_label="bootstrap grounding and provenance",
-            target_issues=bootstrap,
-            skill_files=(
-                "engineer/emnlp-paper-skill-router.md",
-                "engineer/auto-research-pipeline.md",
-                "engineer/research-brief-to-experiment-plan.md",
-                "engineer/arxiv-paper-search.md",
-                "engineer/semantic-scholar-search.md",
-            ),
-            allowed_paths=(
-                "research/",
-                "benchmarks/",
-                "experiments/",
-                "code/",
-                "paper/VALIDATION_PRIORITY_POLICY.json",
-            ),
-            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
-            repair_focus=(
-                "Create or repair the literature-grounded brief, idea provenance, "
-                "code-reuse plan, benchmark provenance, and PIPELINE_STATE before "
-                "paper drafting. Do not polish paper/main.tex while bootstrap "
-                "blockers remain."
-            ),
-        )
-
-    full_scale = _emnlp_matching_issues(issues, codes=_EMNLP_FULL_SCALE_GATE_CODES)
-    if full_scale:
-        return _EmnlpFinalizationRepairTask(
-            title="Complete the full-scale EMNLP evidence gate",
-            impact_area="requirement_gap",
-            target_label="full-scale experiment evidence",
-            target_issues=full_scale,
-            skill_files=(
-                "engineer/emnlp-paper-skill-router.md",
-                "engineer/agent-research-benchmark-runner.md",
-                "engineer/research-results-analysis-and-figures.md",
-            ),
-            allowed_paths=("experiments/", "benchmarks/", "research/", "code/", "paper/RESULTS_REPORT.md"),
-            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
-            repair_focus=(
-                "Run or collect the required non-pilot benchmark rows for every "
-                "method/baseline condition. Only after this gate passes should the "
-                "paper claim final EMNLP-ready results."
-            ),
-        )
-
-    over_budget = _emnlp_matching_issues(
-        issues,
-        codes=_EMNLP_BODY_OVER_BUDGET_CODES,
-        contains=("overlength", "page budget", "page 8"),
-    )
-    if over_budget:
-        return _EmnlpFinalizationRepairTask(
-            title="Rebalance EMNLP body page budget",
-            impact_area="requirement_gap",
-            target_label="body overlength, conclusion placement, and page-budget reflow",
-            target_issues=over_budget,
-            skill_files=(
-                "engineer/emnlp-paper-skill-router.md",
-                "engineer/emnlp-paper-drafting.md",
-                "engineer/emnlp-format-preflight.md",
-                "engineer/paper-review-revision-loop.md",
-            ),
-            allowed_paths=(
-                "paper/main.tex",
-                "paper/main.pdf",
-                "paper/PAGE_BUDGET.md",
-                "paper/PAPER_DRAFT_REPORT.json",
-                "paper/PAPER_QUALITY_CALIBRATION.json",
-                "paper/FORMAT_PREFLIGHT.md",
-                "paper/FIGURE_TABLE_STYLE_GUIDE.json",
-                "code/",
-            ),
-            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
-            repair_focus=(
-                "The paper is over the eight-page main-body budget, so do not keep "
-                "expanding prose. Rebuild or compile, inspect the rendered page map, "
-                "then trim, merge, or relocate duplicated body paragraphs, oversized "
-                "tables, and redundant review/appendix-like material until the main "
-                "Conclusion appears on page 8 and References/Appendix begin on page "
-                "9 or later. Preserve the normal-paper floors for Abstract and "
-                "Introduction, keep result numbers tied to their exact benchmark/"
-                "method rows, and do not introduce new paragraphs unless they replace "
-                "missing evidence-backed content. References and appendices still "
-                "have no total-page maximum after the body boundary."
-            ),
-        )
-
-    content = _emnlp_matching_issues(
-        issues,
-        codes=_EMNLP_CONTENT_SUFFICIENCY_CODES | _EMNLP_SUBMISSION_ASSURANCE_CODES,
-        prefixes=("rendered_pdf_",),
-        contains=("underfilled", "underlength", "content_pages"),
-    )
-    if content:
-        return _EmnlpFinalizationRepairTask(
-            title="Expand evidence-backed EMNLP content to final-paper length",
-            impact_area="requirement_gap",
-            target_label="content sufficiency, page budget, and draft readiness",
-            target_issues=content,
-            skill_files=(
-                "engineer/emnlp-paper-skill-router.md",
-                "engineer/emnlp-paper-drafting.md",
-                "engineer/research-results-analysis-and-figures.md",
-                "engineer/claims-evidence-audit.md",
-            ),
-            allowed_paths=(
-                "paper/main.tex",
-                "paper/PAGE_BUDGET.md",
-                "paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md",
-                "paper/RESULTS_REPORT.md",
-                "paper/EVIDENCE_GAPS.json",
-                "paper/CLAIM_GRAPH.json",
-                "paper/PAPER_DRAFT_REPORT.json",
-                "paper/PAPER_QUALITY_CALIBRATION.json",
-                "research/",
-                "experiments/",
-                "benchmarks/",
-                "code/",
-            ),
-            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
-            repair_focus=(
-                "Treat short pages and draft-not-ready verdicts as content/evidence "
-                "sufficiency gaps, not cosmetic padding or float shuffling. Make a "
-                "section-level expansion plan against the page budget; if evidence is "
-                "thin, run the missing experiments, ablations, robustness slices, or "
-                "failure studies first; if evidence exists, expand Introduction/Related "
-                "Work, Method/Setup, Results/Analysis, and Failure Cases from those "
-                "artifacts until references and appendix material start on page 9 or later. "
-                "Do not impose any total-page maximum on references or appendices."
-            ),
-        )
-
-    citations = _emnlp_matching_issues(
-        issues,
-        codes=_EMNLP_CITATION_GATE_CODES,
-        prefixes=_EMNLP_CITATION_GATE_PREFIXES,
-        contains=("citation", "reference", "bibliograph", "bibtex"),
-    )
-    if citations:
-        return _EmnlpFinalizationRepairTask(
-            title="Repair verified EMNLP citations and references",
-            impact_area="integration",
-            target_label="citation, BibTeX, and rendered reference hygiene",
-            target_issues=citations,
-            skill_files=(
-                "engineer/emnlp-paper-skill-router.md",
-                "engineer/emnlp-paper-drafting.md",
-                "engineer/emnlp-format-preflight.md",
-                "engineer/claims-evidence-audit.md",
-            ),
-            allowed_paths=("paper/main.tex", "paper/*.bib", "paper/CLAIM_GRAPH.json", "research.md"),
-            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
-            repair_focus=(
-                "Use verified BibTeX metadata, distribute citations adjacent to "
-                "the claims they support, and keep claim-graph citation keys in "
-                "sync with paper/main.tex. Do not dump citations into one paragraph."
-            ),
-        )
-
-    image2 = _emnlp_matching_issues(
-        issues,
-        codes=_EMNLP_IMAGE2_GATE_CODES,
-        prefixes=_EMNLP_IMAGE2_GATE_PREFIXES,
-        contains=("image2", "image-2", "conceptual_figure"),
-    )
-    if image2:
-        return _EmnlpFinalizationRepairTask(
-            title="Repair the image-2 overview figure contract",
-            impact_area="integration",
-            target_label="image-2 conceptual figure provenance and inclusion",
-            target_issues=image2,
-            skill_files=(
-                "engineer/emnlp-paper-skill-router.md",
-                "engineer/research-results-analysis-and-figures.md",
-                "engineer/emnlp-paper-drafting.md",
-            ),
-            allowed_paths=("paper/figures/", "paper/main.tex", "code/generate_image_2.py"),
-            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
-            repair_focus=(
-                "Generate or select the accepted raster through image-2, include "
-                "that exact output in main.tex, and repair prompt/sidecar/inspect/"
-                "review/provenance hashes instead of relabeling a local redraw."
-            ),
-        )
-
-    figure_format = _emnlp_matching_issues(
-        issues,
-        codes=_EMNLP_FIGURE_TABLE_FORMAT_CODES,
-        prefixes=_EMNLP_FIGURE_TABLE_FORMAT_PREFIXES,
-        contains=("overfull", "caption", "float", "figure", "table"),
-    )
-    if figure_format:
-        return _EmnlpFinalizationRepairTask(
-            title="Repair EMNLP LaTeX floats, captions, and page layout",
-            impact_area="integration",
-            target_label="figure/table style, captions, labels, and overfull boxes",
-            target_issues=figure_format,
-            skill_files=(
-                "engineer/emnlp-paper-skill-router.md",
-                "engineer/emnlp-format-preflight.md",
-                "engineer/emnlp-paper-drafting.md",
-                "engineer/research-results-analysis-and-figures.md",
-            ),
-            allowed_paths=(
-                "paper/main.tex",
-                "paper/FIGURE_TABLE_STYLE_GUIDE.json",
-                "paper/figures/",
-                "paper/tables/",
-            ),
-            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
-            repair_focus=(
-                "Fix float inventory, text references, numerical captions, table "
-                "widths, and overfull boxes without padding or weakening evidence. "
-                "Compile the PDF after every layout-affecting change."
-            ),
-        )
-
-    reviews = _emnlp_matching_issues(
-        issues,
-        codes=_EMNLP_REVIEW_GATE_CODES,
-        prefixes=_EMNLP_REVIEW_GATE_PREFIXES,
-    )
-    if reviews:
-        return _EmnlpFinalizationRepairTask(
-            title="Refresh EMNLP academic-language and visual-layout reviews",
-            impact_area="integration",
-            target_label="model academic-language review and vision layout review",
-            target_issues=reviews,
-            skill_files=(
-                "engineer/emnlp-paper-skill-router.md",
-                "reviewer/emnlp-academic-language-review.md",
-                "engineer/paper-review-revision-loop.md",
-            ),
-            allowed_paths=("paper/main.tex", "paper/main.pdf", "paper/ACADEMIC_LANGUAGE_REVIEW.json", "paper/LAYOUT_REVIEW.json"),
-            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
-            repair_focus=(
-                "Stabilize main.tex/main.pdf first, then rerun the model-backed "
-                "language reviewer and vision layout reviewer from current sources. "
-                "Never hand-edit stale review JSON into PASS."
-            ),
-        )
-
-    contract_artifacts = _emnlp_matching_issues(
-        issues,
-        codes=_EMNLP_MANIFEST_FRESHNESS_GATE_CODES | _EMNLP_VALIDATION_POLICY_GATE_CODES,
-        prefixes=_EMNLP_MANIFEST_FRESHNESS_GATE_PREFIXES,
-    )
-    if contract_artifacts:
-        return _EmnlpFinalizationRepairTask(
-            title="Regenerate EMNLP manifest, freshness, and routing artifacts",
-            impact_area="integration",
-            target_label="manifest, freshness, and validation routing drift",
-            target_issues=contract_artifacts,
-            skill_files=("engineer/emnlp-paper-skill-router.md", "engineer/auto-research-pipeline.md"),
-            allowed_paths=(
-                "paper/ARTIFACT_MANIFEST.json",
-                "paper/ARTIFACT_FRESHNESS.json",
-                "paper/VALIDATION_PRIORITY_POLICY.json",
-            ),
-            narrow_commands=(),  # checklist-driven; reviewer rules against stage items
-            repair_focus=(
-                "Regenerate machine contracts from current source artifacts instead "
-                "of hand-editing readiness JSON. If content blockers remain after "
-                "this quick repair, route to those real blockers next."
-            ),
-        )
-
-    downstream = tuple(issues[: min(len(issues), 12)])
-    return _EmnlpFinalizationRepairTask(
-        title="Repair current EMNLP final-gate blockers",
-        impact_area="requirement_gap",
-        target_label="highest-priority remaining final-gate blockers",
-        target_issues=downstream,
-        skill_files=("engineer/emnlp-paper-skill-router.md", "engineer/emnlp-paper-drafting.md"),
-        allowed_paths=("paper/", "research/", "experiments/", "benchmarks/", "code/"),
-        narrow_commands=(_FULL_EMNLP_GATE_COMMAND,),
-        repair_focus=(
-            "Group the gate TSV by issue code, repair the earliest upstream blocker "
-            "class first, and avoid whole-paper rewrites unless the selected issue "
-            "class requires a structural reset."
-        ),
-    )
-
-
-def _build_emnlp_finalization_objective(
-    task: _EmnlpFinalizationRepairTask,
-    *,
-    planner_error: str = "",
-    raw_text: str = "",
-) -> str:
-    target_codes = _emnlp_top_issue_counts(task.target_issues)
-    target_summary = _emnlp_issue_summary(task.target_issues)
-    skill_list = ", ".join(f"`argus_builtin_skills/{name}`" for name in task.skill_files)
-    path_list = ", ".join(f"`{path}`" for path in task.allowed_paths)
-    # narrow_commands has been retired across all _EmnlpFinalizationRepairTask
-    # specs (the agent now works from AGENTS.md + the stage checklist instead
-    # of being told to shell out to validate-* CLI subcommands). Keep this
-    # local variable so the helper text can mention any residual command
-    # hints that *do* still belong to the task; in practice it will be empty
-    # for every checklist-driven lane.
-    checklist_hint = (
-        f"Additional hints from the harness: {'; '.join(task.narrow_commands)}. "
-        if task.narrow_commands
-        else ""
-    )
-    error_note = (
-        f"Planner failure context: {planner_error}. "
-        if planner_error
-        else ""
-    )
-    raw_note = f" Planner raw output: {raw_text[:300]}" if raw_text else ""
-    return (
-        "paper_optimization_task. Work the L2 reviewer's stage checklist for "
-        "the current lane, not a blind whole-paper rewrite or a cosmetic micro-patch. "
-        f"{error_note}"
-        f"Target repair lane: {task.target_label}. Target issue codes: {target_codes}. "
-        f"First target issues: {target_summary}. "
-        f"Read AGENTS.md and these routed skills first: {skill_list}. "
-        f"Allowed primary edit surface for this mission: {path_list}; touch other files "
-        "only when the checklist item proves they are upstream inputs. "
-        f"Repair focus: {task.repair_focus} "
-        f"Anchor against {_FULL_EMNLP_GATE_COMMAND}; address the unchecked items in "
-        "the current lane until they are satisfied or genuinely blocked by missing "
-        "upstream evidence. "
-        f"{checklist_hint}"
-        "Acceptance: the reviewer ticks off the target lane's checklist items, or "
-        "you record the exact upstream blocker preventing them. Submission readiness "
-        "requires the reviewer to mark `done` against the full pipeline checklist."
-        f"{raw_note}"
-    )
-
-
-def _emnlp_finalization_task_spec_from_issues(
-    issues: list[Any],
-    *,
-    planner_error: str = "",
-    raw_text: str = "",
-) -> Any | None:
-    selected = _select_emnlp_finalization_repair_task(issues)
-    if selected is None:
-        return None
-    from ..planner import TaskSpec
-
-    return TaskSpec(
-        title=selected.title,
-        objective=_build_emnlp_finalization_objective(
-            selected,
-            planner_error=planner_error,
-            raw_text=raw_text,
-        ),
-        impact_score=5,
-        impact_area=selected.impact_area,
-        evidence=(
-            f"automatic finalization repair route selected "
-            f"{selected.target_label}: {_emnlp_issue_summary(selected.target_issues, limit=8)}"
-        ),
-        scope=_PLANNER_SCOPE_BOUNDED,
-    )
-
-
 def _is_emnlp_finalization_objective(text: str) -> bool:
+    """True when an objective is a project-final ``final_submission`` task.
+
+    Used by the planner dedupe so a fresh final-submission readiness task can
+    be re-queued even after a previous one was marked ``done`` (completion is
+    re-certified by the reviewer each time, not cached). Keys on the
+    ``final_submission`` scope marker rather than retired validator command
+    names.
+    """
     normalized = _normalize_planner_text(text)
     return (
-        "paper_optimization_task" in normalized
-        and "validate-full-emnlp" in normalized
-        and "target issue codes" in normalized
+        "scope: final_submission" in normalized
+        or "planner_scope: final_submission" in normalized
     )
-
-
-def _planner_tasks_need_emnlp_finalization_override(
-    tasks: list[Any],
-    issues: list[Any],
-) -> bool:
-    if not tasks or not issues:
-        return False
-    selected = _select_emnlp_finalization_repair_task(issues)
-    if selected is None:
-        return False
-    target_codes = {
-        str(getattr(issue, "code", "") or "")
-        for issue in selected.target_issues
-    }
-    combined = _normalize_planner_text(
-        "\n".join(
-            "\n".join((
-                str(getattr(task, "title", "") or ""),
-                str(getattr(task, "objective", "") or ""),
-                str(getattr(task, "evidence", "") or ""),
-            ))
-            for task in tasks
-        )
-    )
-    if "validate-full-emnlp" not in combined:
-        return True
-    if "target issue codes" in combined and any(code in combined for code in target_codes):
-        return False
-    if any(code in combined for code in target_codes):
-        return False
-    broad_markers = (
-        "build the evidence-backed emnlp paper package",
-        "repair current emnlp final-gate blockers",
-        "make the paper",
-        "polish the paper",
-        "paper package",
-    )
-    return any(marker in combined for marker in broad_markers)
-
-
-def _backlog_item_requires_full_scale_evidence_precondition(
-    item: BacklogItem,
-) -> bool:
-    """Return true for downstream tasks explicitly gated on full-scale evidence.
-
-    This intentionally looks for hard start preconditions, not ordinary
-    acceptance criteria such as "run validate-full-scale-evidence before
-    stopping." Evidence-building tasks must remain runnable while the gate is
-    red.
-    """
-    text = _normalize_planner_text(f"{item.title}\n{item.objective}")
-    if "validate-full-scale-evidence" not in text:
-        return False
-    start_gate = any(
-        marker in text
-        for marker in (
-            "start only after",
-            "only start after",
-            "must start only after",
-            "do not start until",
-            "do not begin until",
-            "wait until",
-        )
-    )
-    success_gate = any(
-        marker in text
-        for marker in (
-            "exits 0",
-            "exit 0",
-            "returns 0",
-            "passes",
-            "passed",
-            "is green",
-            "succeeds",
-        )
-    )
-    downstream = any(
-        word in text
-        for word in (
-            "paper",
-            "draft",
-            "manuscript",
-            "submission",
-            "review",
-            "analysis",
-            "package",
-        )
-    )
-    return start_gate and success_gate and downstream
-
-
-def _text_has_full_emnlp_gate_success(text: str) -> bool:
-    normalized = _normalize_planner_text(text)
-    if "validate-full-emnlp" not in normalized:
-        return False
-    gate = r"validate-full-emnlp"
-    zero_exit = (
-        r"(?:exit(?:ed|s)?(?:\s+with\s+code)?\s*0|"
-        r"return\s*code\s*0|returncode\s*0|status\s*[=:]?\s*0)"
-    )
-    success_word = r"(?:pass(?:ed|es)?|succeed(?:ed|s)?)"
-    patterns = (
-        rf"{gate}.{{0,240}}{zero_exit}",
-        rf"{zero_exit}.{{0,240}}{gate}",
-        rf"{gate}.{{0,120}}{success_word}",
-    )
-    return any(re.search(pattern, normalized) for pattern in patterns)
 
 
 def _entry_task_signature(entry: JournalEntry) -> tuple[str, str] | None:
@@ -1451,8 +593,8 @@ class LifeSupervisor:
         runner: _MissionRunner,
         sink: EventSink,
         config: LifeSupervisorConfig | None = None,
-        engineer_model: str = "gpt-5.4",
-        reviewer_model: str = "gpt-5.4",
+        engineer_model: str = "gpt-5.5",
+        reviewer_model: str = "gpt-5.5",
         planner_runner: Any | None = None,
     ) -> None:
         self.memory = memory
@@ -1562,85 +704,6 @@ class LifeSupervisor:
             return Path(root)
         return Path.cwd()
 
-    def _full_scale_evidence_precondition_reason(
-        self,
-        item: BacklogItem,
-    ) -> str:
-        if not _backlog_item_requires_full_scale_evidence_precondition(item):
-            return ""
-        root = self._project_workdir()
-        try:
-            from ..skills.pipeline_contracts import validate_full_scale_experiment_evidence
-
-            issues = validate_full_scale_experiment_evidence(root)
-        except Exception as exc:  # noqa: BLE001
-            return (
-                "deferred precondition could not be verified: "
-                f"`{_FULL_SCALE_EVIDENCE_GATE_COMMAND}` raised "
-                f"{type(exc).__name__}: {exc}; repair the evidence gate before "
-                "starting downstream paper/package work"
-            )
-        if not issues:
-            return ""
-        first = "; ".join(
-            f"{getattr(issue, 'code', 'issue')} at {getattr(issue, 'path', '?')}"
-            for issue in issues[:4]
-        )
-        return (
-            "deferred precondition unmet: "
-            f"`{_FULL_SCALE_EVIDENCE_GATE_COMMAND}` still reports "
-            f"{len(issues)} issue(s)"
-            + (f" ({first})" if first else "")
-            + "; complete or collect the full-scale evidence matrix before "
-            "starting downstream paper/package work"
-        )
-
-    def _block_unmet_backlog_preconditions(
-        self,
-        item: BacklogItem,
-    ) -> dict[str, Any] | None:
-        reason = self._full_scale_evidence_precondition_reason(item)
-        if not reason:
-            return None
-        marked = self.memory.backlog.mark_failed(item.id, error=reason)
-        if marked is None:
-            return {"status": "claim_lost", "item_id": item.id}
-        entry = JournalEntry.new(
-            kind="mission_failed",
-            title=item.title,
-            summary=f"status=precondition_blocked; rounds=0; reason={reason}",
-            tags=list(item.tags) + ["life", "precondition"],
-            extra={
-                "item_id": item.id,
-                "objective": item.objective,
-                "terminal_status": "precondition_blocked",
-                "failure_reason": reason,
-                "precondition": "validate-full-scale-evidence",
-                "agent_layer": "supervisor",
-            },
-        )
-        self.memory.journal.append(entry)
-        self._inject_cumulative_cost(entry)
-        self._emit_status(f"precondition block: {item.title}")
-        self._emit({
-            "type": "life.mission.precondition_blocked",
-            "item_id": item.id,
-            "title": item.title,
-            "reason": reason,
-            "precondition": "validate-full-scale-evidence",
-        })
-        try:
-            from .notify import dispatch_journal_entry
-            dispatch_journal_entry(entry)
-        except Exception:  # noqa: BLE001
-            log.exception("notify dispatch failed; continuing")
-        return {
-            "success": False,
-            "status": "precondition_blocked",
-            "item_id": item.id,
-            "reason": reason,
-        }
-
     def _current_pipeline_stage(self) -> str | None:
         """Read current_stage from PIPELINE_STATE.json, or None if unavailable."""
         try:
@@ -1675,11 +738,12 @@ class LifeSupervisor:
         return Path.cwd()
 
     def _planner_config(self):
-        from ..planner import CriticConfig
+        from ..planner import PlannerConfig
+        from ..tools.capability_vault import resolve_route_model
 
         safe_mode = self._safe_mode_enabled()
-        return CriticConfig(
-            model=self.reviewer_model,
+        return PlannerConfig(
+            model=resolve_route_model("planner") or self.reviewer_model,
             working_dir=str(self._planner_workdir()),
             skip_git_repo_check=True,
             full_auto=safe_mode,
@@ -1909,177 +973,6 @@ class LifeSupervisor:
         """Return cheap project-state context that keeps planner work grounded."""
         return self._planner_runtime_context()
 
-    def _planner_emnlp_gate_context(self) -> str:
-        """Summarize the current EMNLP final gate for paper-oriented projects.
-
-        This is advisory planner context, not completion evidence. Final
-        readiness still requires a mission to run the exact gate command and
-        record the passing output.
-        """
-        root = self._planner_workdir()
-        if not self._planner_should_include_emnlp_gate_context(root):
-            return ""
-        try:
-            from ..skills.pipeline_contracts import validate_full_emnlp_readiness
-
-            issues = validate_full_emnlp_readiness(root)
-        except Exception as exc:  # noqa: BLE001
-            return (
-                "Automatic EMNLP final gate snapshot:\n"
-                f"- unable to evaluate validate-full-emnlp context: {type(exc).__name__}: {exc}\n"
-                "- planner must inspect the gate manually before declaring readiness."
-            )
-
-        if not issues:
-            return (
-                "Automatic EMNLP final gate snapshot:\n"
-                "- validate-full-emnlp currently reports no contract issues.\n"
-                "- The project is ready for submission. You may declare project_done=true."
-            )
-
-        counts = Counter(issue.code for issue in issues)
-        lines = [
-            "Automatic EMNLP final gate snapshot:",
-            f"- current validate-full-emnlp blockers: {len(issues)} issue(s), "
-            f"{len(counts)} distinct code(s).",
-            "- highest-frequency blockers: "
-            + ", ".join(f"{code}={count}" for code, count in counts.most_common(8)),
-        ]
-        stage_hints = _planner_emnlp_stage_hints(issues)
-        if stage_hints:
-            lines.extend(stage_hints.splitlines())
-        repair_route = _select_emnlp_finalization_repair_task(issues)
-        if repair_route is not None:
-            lines.append(
-                "- recommended finalization repair route: "
-                f"{repair_route.title} "
-                f"({repair_route.target_label}; "
-                f"{_emnlp_top_issue_counts(repair_route.target_issues, limit=6)})."
-            )
-        lines.append("- first blocking issues:")
-        for issue in issues[:_PLANNER_GATE_CONTEXT_MAX_ISSUES]:
-            message = issue.message.replace("\n", " ").strip()
-            lines.append(f"  - {issue.code}\t{issue.path}\t{message}")
-        if len(issues) > _PLANNER_GATE_CONTEXT_MAX_ISSUES:
-            lines.append(
-                f"  - ... {len(issues) - _PLANNER_GATE_CONTEXT_MAX_ISSUES} more issue(s) omitted"
-            )
-        lines.append(
-            "- planner should queue the smallest high-impact repair task that moves "
-            "these blockers toward the exact final gate; this snapshot is not a PASS."
-        )
-        text = "\n".join(lines)
-        if len(text) > _PLANNER_GATE_CONTEXT_MAX_CHARS:
-            return text[:_PLANNER_GATE_CONTEXT_MAX_CHARS].rstrip() + "\n- ... snapshot truncated"
-        return text
-
-    def _fallback_emnlp_gate_task_for_planner_error(self, verdict: Any) -> Any | None:
-        """Turn a planner formatting/refusal failure into useful EMNLP repair work."""
-        planner_error = str(getattr(verdict, "error", "") or "planner error")
-
-        def unavailable(reason: str, detail: str = "") -> None:
-            payload = {
-                "type": "life.planner.fallback_unavailable",
-                "cycle": self._planning_cycles,
-                "planner_error": planner_error,
-                "reason": reason,
-            }
-            if detail:
-                payload["detail"] = detail[:500]
-            self._emit(payload)
-
-        ev = self.config.stop_event
-        if ev is not None and ev.is_set():
-            unavailable("stop_event_set")
-            return None
-        root = self._planner_workdir()
-        if not self._planner_should_include_emnlp_gate_context(root):
-            unavailable("not_emnlp_project", str(root))
-            return None
-        try:
-            from ..skills.pipeline_contracts import validate_full_emnlp_readiness
-
-            issues = validate_full_emnlp_readiness(root)
-        except Exception as exc:  # noqa: BLE001
-            unavailable("validate_full_emnlp_failed", f"{type(exc).__name__}: {exc}")
-            return None
-        if not issues:
-            unavailable("final_gate_has_no_issues")
-            return None
-
-        first_issues = "; ".join(
-            f"{issue.code} at {issue.path}" for issue in issues[:8]
-        )
-        raw_text = str(getattr(verdict, "raw_text", "") or "").strip()
-        task = _emnlp_finalization_task_spec_from_issues(
-            issues,
-            planner_error=(
-                "Planner backend failed to return usable JSON; "
-                f"{planner_error}"
-            ),
-            raw_text=raw_text,
-        )
-        if task is None:
-            unavailable("no_finalization_task_selected")
-            return None
-        evidence = (
-            f"{planner_error}; automatic validate-full-emnlp snapshot reports "
-            f"{len(issues)} issue(s), including {first_issues}."
-        )
-        return replace(
-            verdict,
-            project_done=False,
-            reason=(
-                f"planner failed with {planner_error}; queued fallback from "
-                "automatic EMNLP final-gate snapshot"
-            ),
-            new_tasks=[replace(task, evidence=evidence)],
-            error="",
-        )
-
-    def _automatic_emnlp_finalization_task_for_current_gate(
-        self,
-    ) -> tuple[Any | None, list[Any]]:
-        """Return a deterministic EMNLP repair task for the current gate, if any."""
-        ev = self.config.stop_event
-        if ev is not None and ev.is_set():
-            return None, []
-        root = self._planner_workdir()
-        if not self._planner_should_include_emnlp_gate_context(root):
-            return None, []
-        try:
-            from ..skills.pipeline_contracts import validate_full_emnlp_readiness
-
-            issues = validate_full_emnlp_readiness(root)
-        except Exception:  # noqa: BLE001
-            return None, []
-        if not issues:
-            return None, []
-        return _emnlp_finalization_task_spec_from_issues(issues), issues
-
-    def _planner_should_include_emnlp_gate_context(self, root: Path) -> bool:
-        objective = self.config.continuous_objective or ""
-        if _objective_requires_full_emnlp_gate(objective):
-            return True
-        if "validate-full-emnlp" in str(objective).casefold():
-            return True
-        if (root / "argus_builtin_skills" / "engineer/emnlp-paper-skill-router.md").exists():
-            return True
-        for filename in ("AGENTS.md", "agent.md"):
-            path = root / filename
-            if not path.exists():
-                continue
-            try:
-                text = path.read_text(encoding="utf-8", errors="replace")[:120_000]
-            except OSError:
-                continue
-            normalized = _normalize_planner_text(text)
-            if "validate-full-emnlp" in normalized:
-                return True
-            if ("emnlp" in normalized or "acl" in normalized) and "paper" in normalized:
-                return True
-        return False
-
     def _recent_no_progress_failures(self) -> dict[tuple[str, str], JournalEntry]:
         """Return recent failed task signatures quarantined from replanning."""
         try:
@@ -2123,10 +1016,6 @@ class LifeSupervisor:
         item = self.memory.backlog.next_pending()
         if item is None:
             return None
-
-        precondition_block = self._block_unmet_backlog_preconditions(item)
-        if precondition_block is not None:
-            return precondition_block
 
         ok, reason = self.config.budget.can_start(
             item=item, journal=self.memory.journal
@@ -2382,39 +1271,11 @@ class LifeSupervisor:
                 ),
             })
 
-        # ---- iteration loop: should we requeue for another polish cycle?
-        # Trigger on `success` (mission marked done) AND on `max_rounds`
-        # (engineer ran out of rounds without reviewer-confirmed done).
-        # The latter is critical for a 7×24 product: when the engineer
-        # built a perfectly correct artifact but reviewer kept demanding
-        # more verbatim evidence, we don't want the whole mission to die
-        # — let the critic sub-agent inspect the work and either certify
-        # it as done or ask for a *concrete* next round.
+        # The post-mission critic/polish iteration loop was removed. The L1
+        # engineer does the work and the L2 reviewer verifies it; there is no
+        # separate critic agent. ``iteration_outcome`` is retained as ``None``
+        # so the downstream journal/event payloads stay schema-compatible.
         iteration_outcome: dict[str, Any] | None = None
-        salvage_mode = (not success) and status == "max_rounds" and item.iterate
-        # Chat fast-path: when the runner short-circuited a conversational
-        # input, there is no artifact to polish — skip the critic loop
-        # entirely. Otherwise the critic would try to "improve" a
-        # one-line greeting reply, costing another LLM call for no gain.
-        chat_mode = bool(getattr(outcome, "chat_mode", False))
-        if not chat_mode and (success or salvage_mode):
-            iteration_outcome = self._maybe_iterate(
-                item=item,
-                outcome=outcome,
-                cycle_cost_usd=usd,
-                salvage_mode=salvage_mode,
-            )
-        # If the critic accepted the salvage attempt, treat the mission
-        # as successful so it transitions to ``done`` not ``failed``.
-        if salvage_mode and iteration_outcome and iteration_outcome.get("salvaged"):
-            success = True
-            status = "done"
-            stop_reason = iteration_outcome.get("stop_reason") or stop_reason
-
-        iteration_bonus_usd = 0.0
-        if iteration_outcome:
-            iteration_bonus_usd = float(iteration_outcome.get("critic_cost_usd", 0.0) or 0.0)
-            usd += iteration_bonus_usd
 
         # Update backlog row.
         if iteration_outcome and iteration_outcome.get("requeued"):
@@ -2482,6 +1343,12 @@ class LifeSupervisor:
                 "skill_distilled": bool(getattr(outcome, "skill_distilled", False)),
                 "had_follow_up": bool(getattr(outcome, "had_follow_up", False)),
                 "completion_summary": self._completion_evidence_from_outcome(outcome),
+                "final_submission_certified": bool(
+                    kind == "mission_complete"
+                    and self._planner_scope_from_item(item)
+                    == _PLANNER_SCOPE_FINAL_SUBMISSION
+                    and getattr(outcome, "final_submission_certified", False)
+                ),
                 "iteration": iteration_outcome or {},
             },
         )
@@ -2640,8 +1507,9 @@ class LifeSupervisor:
             lines.append("- tags: " + ", ".join(item.tags))
         if scope == _PLANNER_SCOPE_FINAL_SUBMISSION:
             lines.append(
-                f"- final_submission_gate: `{_FULL_EMNLP_GATE_COMMAND}` must exit 0 "
-                "before this item can be marked done."
+                f"- final_submission_gate: {_FULL_EMNLP_GATE_COMMAND} must be "
+                "fully satisfied (every checklist item certified by the reviewer "
+                "with concrete evidence) before this item can be marked done."
             )
         elif scope == _PLANNER_SCOPE_BOUNDED:
             if is_paper_long_horizon:
@@ -2650,12 +1518,11 @@ class LifeSupervisor:
                     "part of a long-horizon paper/submission objective. First satisfy "
                     "the named acceptance criteria, then continue through adjacent "
                     "paper blockers while budget allows; do not mark done only because "
-                    "one narrow check passed if `validate-research-md-format` or "
-                    "`validate-full-emnlp` still reports addressable manuscript, "
-                    "evidence, review, layout, figure/table, citation, manifest, or "
-                    "assurance blockers. Full-gate success is required only for "
-                    "`final_submission`, but fresh validator evidence or an exact "
-                    "blocker list is required here."
+                    "one narrow check passed if the relevant stage checklist items "
+                    "(manuscript, evidence, review, layout, figure/table, citation, "
+                    "manifest, or assurance) are still unmet. Full-pipeline "
+                    "certification is required only for `final_submission`, but fresh "
+                    "concrete evidence for the items you touched is required here."
                 )
             else:
                 lines.append(
@@ -2684,31 +1551,19 @@ class LifeSupervisor:
         return ""
 
     def _journal_has_full_emnlp_gate_success(self) -> bool:
-        """Decide whether the project-final EMNLP gate has actually passed.
+        """Decide whether the project-final completion gate has passed.
 
-        Source of truth: ``validate_full_emnlp_readiness()``. If it returns
-        no issues, the gate passes; if it returns any issues the gate has
-        NOT passed and we must say so — without consulting the brittle
-        journal-text fallback below, which over-matches when an earlier
-        round talked about the gate (e.g. "validate-grounding exited 0,
-        but validate-full-emnlp still fails on …" used to trigger a false
-        positive). The journal fallback is only consulted when the live
-        validator literally cannot be evaluated (import / IO error).
+        Source of truth (post-validator-retirement): the journal. A
+        ``final_submission`` mission is certified complete only when the
+        reviewer returns a full-pipeline completion verdict, which the
+        supervisor records as a ``mission_complete`` journal entry carrying
+        ``extra["final_submission_certified"] = True``. We no longer call the
+        hardcoded ``validate_full_emnlp_readiness`` validator — the reviewer's
+        checklist verdict is the single source of truth.
+
+        Fail-closed: only an explicit certified entry counts. We scan the
+        recent journal tail for such an entry.
         """
-
-        try:
-            from ..skills.pipeline_contracts import validate_full_emnlp_readiness
-            workdir = self._project_workdir()
-            issues = validate_full_emnlp_readiness(Path(workdir))
-        except Exception:  # noqa: BLE001 — fall through to journal heuristic
-            pass
-        else:
-            # Trust the live validator. Returning False here is correct
-            # even when the journal mentions an earlier gate pass, because
-            # any current gate failure invalidates that historical evidence.
-            return not issues
-
-        # Fallback only when the live validator could not be run at all.
         try:
             entries = self.memory.journal.tail(50)
         except Exception:  # noqa: BLE001
@@ -2717,38 +1572,15 @@ class LifeSupervisor:
             if getattr(entry, "kind", "") != "mission_complete":
                 continue
             extra = getattr(entry, "extra", {}) or {}
-            chunks = [
-                str(getattr(entry, "summary", "") or ""),
-            ]
-            if isinstance(extra, dict):
-                for key in ("completion_summary", "verification_summary"):
-                    value = extra.get(key)
-                    if value:
-                        chunks.append(str(value))
-            if _text_has_full_emnlp_gate_success("\n".join(chunks)):
+            if isinstance(extra, dict) and bool(
+                extra.get("final_submission_certified")
+            ):
                 return True
         return False
 
     # ------------------------------------------------------------------
     # Iteration loop
     # ------------------------------------------------------------------
-
-    def _maybe_iterate(
-        self,
-        *,
-        item: BacklogItem,
-        outcome: Any,
-        cycle_cost_usd: float,
-        salvage_mode: bool = False,
-    ) -> dict[str, Any] | None:
-        """Critic iteration is disabled. Engineer does the work, reviewer
-        verifies. No separate critic polish cycle."""
-        return {
-            "cycles_done": int(item.iteration_cycles_done),
-            "cost_so_far_usd": float(item.iteration_cost_usd),
-            "requeued": False,
-            "stop_reason": "critic layer removed — reviewer handles verification",
-        }
 
     def _render_recent_journal_for_planner(self, item_id: str) -> str:
         """A tiny tail of journal entries for the current item, plain text."""
@@ -2942,29 +1774,30 @@ class LifeSupervisor:
                 verdict,
                 project_done=False,
                 reason=(
-                    "full EMNLP readiness gate is required before project_done; "
-                    "queueing final submission proof"
+                    "full-pipeline final-submission readiness is required before "
+                    "project_done; queueing final submission proof"
                 ),
                 new_tasks=[
                     TaskSpec(
-                        title="Prove EMNLP submission readiness",
+                        title="Prove final submission readiness",
                         objective=(
                             "Project-final task. Scope: final_submission. "
-                            "Run the full EMNLP readiness gate and fix every blocker "
-                            "until it passes. Acceptance requires verbatim output showing "
-                            f"`{_FULL_EMNLP_GATE_COMMAND}` exits 0, plus "
-                            "paper/SUBMISSION_ASSURANCE.json with PASS or accepted WARN "
-                            "and no hard blockers. Do not declare done based only on "
-                            "validate-pipeline, validate-manifest, a pilot run, or an "
-                            "underlength draft; if the gate fails, inspect the reported "
-                            "blockers and repair experiments, baselines, ablations, paper "
-                            "contract, assurance, manifest, or submission state as needed."
+                            "Complete and verify every item on the full research "
+                            "pipeline checklist (research → run → analysis → draft → "
+                            "submission). The reviewer will certify completion only "
+                            "when EVERY checklist item is satisfied with concrete "
+                            "evidence (command output, file contents, query rows). "
+                            "Do not declare done based on a single stage, a pilot run, "
+                            "or an underlength draft; inspect any unmet checklist item "
+                            "and repair experiments, baselines, ablations, paper "
+                            "contract, figures, citations, manifest, or submission "
+                            "state as needed until the reviewer certifies the project."
                         ),
                         impact_score=5,
                         impact_area="requirement_gap",
                         evidence=(
-                            "Planner attempted project_done without journal evidence "
-                            "that validate-full-emnlp exited 0."
+                            "Planner attempted project_done without a journal entry "
+                            "certifying full-pipeline final-submission readiness."
                         ),
                         scope=_PLANNER_SCOPE_FINAL_SUBMISSION,
                     )
@@ -3365,7 +2198,7 @@ class LifeSupervisor:
             extra = getattr(e, "extra", {}) or {}
             if isinstance(extra, dict):
                 evidence = str(extra.get("completion_summary") or "")
-                if "validate-full-emnlp" in evidence:
-                    line += f" | evidence: {evidence[:500]}"
+                if extra.get("final_submission_certified") and evidence:
+                    line += f" | final-submission evidence: {evidence[:500]}"
             lines.append(line)
         return "\n".join(lines) or "(empty)"

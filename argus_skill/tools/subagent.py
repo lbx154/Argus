@@ -109,7 +109,7 @@ Usage from the engineer:
 
 
 REGISTRY_DIR = Path(".argus_subagents")
-SUPERVISOR_MODEL = "gpt-5.4-mini"
+SUPERVISOR_MODEL = "gpt-5.5"
 
 
 def _llm_summarize_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:

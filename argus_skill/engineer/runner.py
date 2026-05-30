@@ -623,6 +623,7 @@ class SupervisedEngineer:
         on_event: Callable[[dict], None] | None = None,
         seed_thread_id: str | None = None,
         failed_tool_ledger: _AdvisoryLedger | None = None,
+        scope: str = "",
     ) -> tuple[LoopStatus, list[RoundRecord], str, str, str | None]:
         """Run the supervised loop.
 
@@ -876,6 +877,7 @@ class SupervisedEngineer:
                     config=self.reviewer_config,
                     engineer_reasoning_summary=engineer_message or "",
                     prev_review_summary=prev_review_summary,
+                    scope=scope,
                 )
             except Exception as exc:  # noqa: BLE001
                 msg = f"reviewer raised {type(exc).__name__}: {exc}"
