@@ -4,7 +4,7 @@
 
 ## 一句话架构
 
-`argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L3 critic、L4 planner；内层 `SkillLoop` 管单个任务的 skill 匹配、必要时蒸馏 skill、L1 engineer 执行、L2 reviewer 验收。EMNLP 论文生成 pipeline 是 built-in skill + contract validator + planner fallback 共同实现的，不是单独一个 `make_paper.py`。
+`argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 管单个任务的 skill 匹配、必要时蒸馏 skill、L1 engineer 执行、L2 reviewer 验收。历史上独立的 L3 critic 逐轮打磨循环已经移除——验收完全交给 L2 reviewer。EMNLP 论文生成 pipeline 是 built-in skill + per-stage reviewer 检查（stage checklists，底层复用 `pipeline_contracts.py` 的 `validate_*` 函数）+ planner fallback 共同实现的，不是单独一个 `make_paper.py`。
 
 主链路：
 
@@ -12,7 +12,7 @@
 argus-skill / python -m argus_skill
   -> argus_skill/apps/cli.py
   -> argus_skill/apps/_life_repl.py 或 argus_skill/daemon/life_worker.py
-  -> argus_skill/life/supervisor.py        # backlog / budget / L3 / L4
+  -> argus_skill/life/supervisor.py        # backlog / budget / L4 planner
   -> _CodexSkillLoopRunner.execute(...)
   -> argus_skill/loop.py                   # matcher -> distiller -> engineer -> reviewer
   -> argus_skill/engineer/runner.py        # L1 round loop
@@ -26,9 +26,8 @@ argus-skill / python -m argus_skill
 | L0 | CLI / daemon / cockpit | `argus_skill/apps/cli.py`, `argus_skill/apps/_life_repl.py`, `argus_skill/daemon/life_worker.py`, `argus_skill/apps/_watch.py` | 命令行参数、REPL、daemon 启停、`--status`、`--follow`、Telegram/事件展示 |
 | L1 | Engineer | `argus_skill/loop.py`, `argus_skill/engineer/runner.py` | 单轮执行 prompt、失败重试、session 续接、acceptance check、进度 watchdog |
 | L2 | Reviewer | `argus_skill/engineer/reviewer.py`, `argus_skill/engineer/reviewer_schema.json` | done/continue/blocked 判断、reviewer JSON schema、论文任务的 peer-review gate |
-| L3 | Critic | `argus_skill/critic/critic.py`, `argus_skill/life/supervisor.py` | 成功后是否继续打磨、过滤低价值 polish、max_rounds salvage |
-| L4 | Planner | `argus_skill/critic/critic.py`, `argus_skill/life/supervisor.py` | continuous mode 自动排新任务、EMNLP final gate 失败后的自动分流 |
-| Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/scientist/distiller.py`, `argus_skill/builtin_skills/` | skill 匹配、miss 后蒸馏、writeback、内置论文/research playbook |
+| L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor.py` | continuous mode 自动排新任务、EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除（见 `planner/planner.py` 顶部说明），验收只由 L2 reviewer 负责 |
+| Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/scientist/distiller.py`, `argus_skill/builtin_skills/` | skill 匹配、miss 后蒸馏（distiller 复用 engineer backend，不是独立 agent）、writeback、内置论文/research playbook |
 | Contracts | 论文/研究状态机 | `argus_skill/skills/pipeline_contracts.py`, `argus_skill/skills/pipeline_policy.py` | EMNLP artifact 校验、issue code、manifest/freshness/validation priority |
 
 ## 入口和运行面
@@ -79,7 +78,7 @@ skill_text + task -> SupervisedEngineer.run(...)
 改 prompt 时注意：
 
 - 普通任务的 L1 prompt 在 `SkillLoop._build_engineer_prompt`。
-- 论文任务额外 contract 也在这个函数里，包含 `validate-full-emnlp`、不要把 daemon/route/cache/path 写进论文 prose、正文页数等约束。
+- 论文任务额外 contract 也在这个函数里，包含整链 EMNLP gate（reviewer 的 full-pipeline checklist）、不要把 daemon/route/cache/path 写进论文 prose、正文页数等约束。
 - `objective_for_skill` 是干净用户目标；不要把 memory prelude 写进 skill history。`SkillStore.append_task_history` 已经在防这个坑。
 
 ## Engineer / Reviewer
@@ -121,15 +120,13 @@ L2 reviewer 在 `argus_skill/engineer/reviewer.py`。
 - 调用 runner 的 `execute(...)`。
 - 成本统计和 budget gate。
 - 任务完成后写 journal。
-- L3 critic 判断是否 requeue 继续打磨。
-- backlog 空时，L4 planner 自动生成下一批任务。
+- backlog 空时，L4 planner 自动生成下一批任务（历史的 L3 critic 逐轮打磨层已移除）。
 - EMNLP final gate 失败时，生成确定性的窄修复任务，避免 planner 反复给“把论文弄好”这种空泛任务。
 
 重点函数：
 
 - `LifeSupervisor.run()`: 主循环。
 - `LifeSupervisor.tick()`: 处理一个 backlog item。
-- `_maybe_iterate(...)`: L3 critic，成功后决定是否继续一轮。
 - `_plan_next_work(...)`: L4 planner，continuous mode 下 backlog 空了就调用。
 - `_automatic_emnlp_finalization_task_for_current_gate(...)`: 读取当前 EMNLP final gate，必要时自动派窄任务。
 - `_select_emnlp_finalization_repair_task(...)`: issue code -> 具体 repair lane。
@@ -216,9 +213,9 @@ paper/
   style_ref/
 ```
 
-主要 stage 和 ownership：
+主要 stage 和 ownership（下表第三列的 `validate-*` 是历史 CLI 名，现已是 stage checklist 检查项 / `pipeline_contracts.py` 内部 `validate_*` 函数，不再是可直接调用的 CLI 子命令）：
 
-| Stage | 主要 skill | 主要 artifact / validator |
+| Stage | 主要 skill | 主要 artifact / 检查项 |
 | --- | --- | --- |
 | 选题/grounding | `research-brief-to-experiment-plan.md`, `auto-research-pipeline.md` | `validate-grounding`, `validate-idea-provenance`, `validate-code-reuse` |
 | 实验/benchmark | `agent-research-benchmark-runner.md` | `validate-full-scale-evidence`, `experiments/**` |
@@ -231,46 +228,36 @@ paper/
 | 视觉布局 | `paper-review-revision-loop.md`, `emnlp-format-preflight.md` | `paper_layout_review --write`, `validate-layout-review` |
 | 最终提交 | `research-submission-assurance-gate.md` | `validate-submission`, `validate-full-emnlp` |
 
-## EMNLP contract validators
+## EMNLP 论文检查（stage checklists + validator 函数）
 
-所有机器校验入口集中在 `argus_skill/skills/pipeline_contracts.py`。
-
-CLI 形态：
+所有机器校验逻辑集中在 `argus_skill/skills/pipeline_contracts.py`，但**历史的 `validate-*` CLI 子命令已经下线**。现在 L2 reviewer 直接读取当前 stage 的 checklist（`argus_skill/skills/stage_checklists.py` 的 `format_stage_checklist` / `format_full_pipeline_checklist`），对照 artifact 做裁决。`pipeline_contracts.py` 里的 `validate_*` 函数仍然可被 harness 内部 import 复用。
 
 ```bash
-python -m argus_skill.skills.pipeline_contracts <command> --project-root .
+# 已下线：python -m argus_skill.skills.pipeline_contracts <validate-*>
+# 现在由 reviewer 走 stage checklist：
+python -c "from argus_skill.skills.stage_checklists import format_full_pipeline_checklist; print(format_full_pipeline_checklist(role='reviewer'))"
 ```
 
-重要 command：
+仍可 import 的核心 validator 函数（供 reviewer / harness 内部调用）：
 
 ```text
-validate-pipeline
-validate-grounding
-validate-idea-provenance
-validate-code-reuse
-validate-full-scale-evidence
-validate-claim-graph
-validate-paper-quality-contracts
-validate-paper-contract
-validate-paper-format
-validate-research-md-format
-validate-image2-figures
-validate-figure-table-style
-validate-layout-review
-validate-academic-language-review
-validate-paper-infrastructure-review
-validate-manifest
-refresh-manifest
-validate-artifact-freshness
-refresh-artifact-freshness
-validate-validation-priority
-write-validation-priority-policy
-repair-emnlp-contract-artifacts
-validate-submission
-validate-full-emnlp
+validate_pipeline_state
+validate_full_scale_experiment_evidence
+validate_literature_grounding
+validate_idea_provenance
+validate_code_reuse_plan
+validate_claim_graph
+validate_paper_quality_contracts
+validate_emnlp_paper_contract
+validate_image2_figures
+validate_figure_table_style_guide
+validate_artifact_manifest / refresh_artifact_manifest
+validate_artifact_freshness / refresh_artifact_freshness
+validate_validation_priority_policy / write_validation_priority_policy
+repair_emnlp_contract_artifacts
 ```
 
-`validate-full-emnlp` 是最终总 gate。它不是只看 PDF 存不存在，而是串起 evidence、claim graph、paper contract、format、image-2、review、manifest、freshness、submission assurance。
+最终总 gate 串起 evidence、claim graph、paper contract、format、image-2、review、manifest、freshness、submission assurance——不是只看 PDF 存不存在。
 
 改 validator 时注意：
 
@@ -343,7 +330,7 @@ RunnerBackend.run_exec(prompt, options, run_label, resume_thread_id=None) -> Run
 
 - `argus_skill/adapters/codex_backend.py`: 包 ArgusBot 的 `CodexRunner`，真实 codex/claude/copilot CLI 都从这里走。
 - `argus_skill/adapters/memory_backend.py`: deterministic 测试/smoke。
-- `_CodexSkillLoopRunner` 在 `_life_repl.py` 里组装真实 backend，并把同一个 backend 传给 scientist、engineer、reviewer、critic、planner。
+- `_CodexSkillLoopRunner` 在 `_life_repl.py` 里组装真实 backend，并把同一个 backend 传给 distiller(scientist)、engineer、reviewer、planner。
 
 常见 env：
 
@@ -374,7 +361,6 @@ ARGUS_SKILL_DAILY_CAP_USD=180
 - `round.review.started`
 - `round.review.completed`
 - `skill.outcome`
-- `life.iteration.critic`
 - `life.iteration.continued`
 - `life.planner.start`
 - `life.planner.verdict`
@@ -421,7 +407,7 @@ pytest tests/tools/test_image_tool.py
 pytest
 ```
 
-只改文档通常不用全跑。改 `pipeline_contracts.py` 至少跑 pipeline/review/image 相关 tests。改 `supervisor.py` 至少跑 life/daemon/critic/planner 相关 tests。
+只改文档通常不用全跑。改 `pipeline_contracts.py` 至少跑 pipeline/review/image 相关 tests。改 `supervisor.py` 至少跑 life/daemon/planner 相关 tests。
 
 ## 修改时的层级规则
 
@@ -429,7 +415,7 @@ pytest
 2. 单任务 agent prompt 改 `loop.py`。
 3. L1 执行可靠性改 `engineer/runner.py`。
 4. L2 验收标准改 `engineer/reviewer.py` 和相关 role skill。
-5. L3/L4 调度策略改 `life/supervisor.py` / `critic/critic.py`。
+5. L4 调度策略改 `life/supervisor.py` / `planner/planner.py`。
 6. Skill 匹配、蒸馏、writeback 改 `skills/store.py` / `scientist/*`。
 7. EMNLP artifact 是否合格改 `skills/pipeline_contracts.py`。
 8. EMNLP issue 失败后派谁修改 `life/supervisor.py`。
@@ -441,8 +427,8 @@ pytest
 - 不要把 runtime prelude、daemon 路径、Codex route、capability vault、local cache/device 写进论文正文。
 - 不要手改 review JSON、manifest、freshness、submission assurance 来制造 PASS。优先修源 artifact 后重跑生成器。
 - 不要重命名 `ContractIssue.code` 后忘记更新 planner fallback 分组。
-- 不要只在 built-in skill 文案里改规则，却忘了机器 validator 仍然会红。
-- 不要只让 `validate-paper-contract` 过就说 EMNLP ready；最终是 `validate-full-emnlp`。
+- 不要只在 built-in skill 文案里改规则，却忘了 reviewer 的 stage checklist（底层 `validate_*` 函数）仍然会判红。
+- 不要只让单个 stage 的 paper-contract 检查过就说 EMNLP ready；最终看 `format_full_pipeline_checklist` 的整链裁决。
 - 不要在 full-scale evidence gate 红的时候继续 polish `paper/main.tex`，先补实验/benchmark/source matrix。
 - 不要把 pilot、synthetic、same-family-only evidence 写成 full EMNLP-ready result。
 - 不要在 user 的 `~/.argus-skill/skills` 里直接覆盖本地编辑，源码改 `argus_skill/builtin_skills`，需要时再 export。
