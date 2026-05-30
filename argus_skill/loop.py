@@ -33,7 +33,8 @@ from .core.ports import RunnerBackend
 from .engineer.reviewer import Reviewer, ReviewerConfig
 from .engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from .scientist.distiller import Distiller, DistillerConfig
-from .skills.role_match import match_role_skills, render_skill_playbook
+from .missions import EngineerMission
+from .skills.role_match import render_skill_playbook
 from .skills.store import Skill, SkillStore
 
 log = logging.getLogger(__name__)
@@ -138,6 +139,9 @@ class SkillLoop:
         # Skill distillation reuses the engineer backend; there is no
         # separate scientist agent.
         self.distiller = Distiller(engineer_runner)
+        self.engineer_mission = EngineerMission(
+            self.skill_store, on_event=self.on_event
+        )
         self.reviewer = Reviewer(self.reviewer_runner, skill_store=self.skill_store)
         self.supervised = SupervisedEngineer(
             engineer_runner=engineer_runner,
@@ -186,21 +190,22 @@ class SkillLoop:
         skill_task = (objective_for_skill or task).strip() or task
         self._emit({"type": "loop.start", "text": f"task: {skill_task[:120]}"})
 
-        # Step 1: matcher (role-scoped, shared by every role mission)
-        match = match_role_skills(
-            self.skill_store, role="engineer", task=skill_task,
-            on_event=self.on_event,
-        )
+        # Step 1: matcher (role mission — shared scaffold across all roles)
+        match = self.engineer_mission.match(skill_task)
         matcher_tokens = match.input_tokens + match.output_tokens
         matcher_input_tokens = match.input_tokens
         matcher_cached_input_tokens = match.cached_input_tokens
         matcher_output_tokens = match.output_tokens
-        matched_skills: list[Skill] = list(match.skills)
+        # Own-role playbooks drive distill/writeback; cross-role references
+        # are read-only context and never written back to.
+        primary_skills: list[Skill] = list(match.primary_skills)
+        reference_skills: list[Skill] = list(match.reference_skills)
         skill: Skill | None = match.primary
         skill_distilled = False
         distill_result = None
 
-        # Step 2: distill on miss
+        # Step 2: distill on miss (only when no OWN-role skill matched —
+        # a cross-role reference never counts as having a playbook)
         if skill is None and self.config.distill_on_miss:
             self._emit({"type": "scientist.start", "text": "no high-fit skill — distilling"})
             try:
@@ -224,14 +229,16 @@ class SkillLoop:
                     )
                     skill_distilled = skill is not None
                     if skill is not None:
-                        matched_skills = [skill]
+                        primary_skills = [skill]
             except Exception as exc:
                 log.warning("scientist distill failed (%s: %s); proceeding without skill",
                             type(exc).__name__, exc)
                 self._emit({"type": "scientist.error",
                             "text": f"distill failed: {type(exc).__name__}"})
 
-        skill_text = render_skill_playbook(self.skill_store, matched_skills)
+        skill_text = render_skill_playbook(
+            self.skill_store, primary_skills, reference_skills
+        )
         skill_name = skill.name if skill else None
 
         # Step 3: supervised round-loop
@@ -345,7 +352,8 @@ class SkillLoop:
         """Deprecated shim — delegates to the shared role-mission renderer.
 
         Kept so external callers/tests referencing this method keep working;
-        new code should call ``render_skill_playbook`` directly.
+        new code should call ``render_skill_playbook`` directly. Treats every
+        passed skill as a primary (own-role) playbook.
         """
         return render_skill_playbook(self.skill_store, skills)
 

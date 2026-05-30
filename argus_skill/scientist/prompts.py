@@ -45,15 +45,44 @@ class Prompts:
 
     # -- Step 2: Skill matching (small model) --
     @staticmethod
-    def skill_match(task_description: str, summaries: list[dict]) -> str:
+    def skill_match(
+        task_description: str,
+        summaries: list[dict],
+        *,
+        requesting_role: str | None = None,
+    ) -> str:
+        from ..skills.store import ROLE_SKILL_POOLS
+
+        primary_pool = (
+            ROLE_SKILL_POOLS.get(requesting_role, frozenset())
+            if requesting_role else frozenset()
+        )
+
+        def _role_tag(s: dict) -> str:
+            if not requesting_role:
+                return ""
+            skill_role = s.get("role", "general")
+            kind = "OWN" if skill_role in primary_pool else f"REFERENCE/{skill_role}"
+            return f" [{kind}]"
+
         listing = "\n".join(
             (
-                f"- **{s['name']}**: {s['description']} "
+                f"- **{s['name']}**{_role_tag(s)}: {s['description']} "
                 f"(category: {s['category'] or 'unspecified'})"
                 + ((" | past tasks: " + ", ".join(s["task_history"][:3])) if s.get("task_history") else "")
             )
             for s in summaries
         )
+        role_note = ""
+        if requesting_role and primary_pool:
+            role_note = (
+                f"\n\nYou are matching skills for the **{requesting_role}** role. "
+                "Skills tagged `[OWN]` are this role's own playbooks. Skills "
+                "tagged `[REFERENCE/<role>]` belong to a *different* role and "
+                "are only useful as context (e.g. anticipating that role's "
+                "standards) — match one ONLY when genuinely high-fit, and never "
+                "as a substitute for an OWN skill.\n"
+            )
         return (
             _scientist_role_context()
             +
@@ -63,7 +92,9 @@ class Prompts:
             "wrong sub-domain. Be strict: a borderline match is worse than "
             "none. Most tasks have one matching skill or none — but when "
             "several skills EACH independently clear the `high` bar, return "
-            "all of them and let the engineer make the final relevance call.\n\n"
+            "all of them and let the engineer make the final relevance call."
+            + role_note
+            + "\n"
             f"## Task\n{task_description}\n\n"
             f"## Available Skills\n{listing}\n\n"
             "## Instructions\n"

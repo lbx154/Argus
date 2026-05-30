@@ -160,12 +160,14 @@ class Reviewer:
     def __init__(self, runner: RunnerBackend, *, skill_store: Any | None = None) -> None:
         self.runner = runner
         self.schema_path = SCHEMA_PATH
-        # Optional: when wired, the reviewer runs the same role-scoped skill
-        # matcher every other role mission uses, surfacing adaptive reviewer
-        # skills (e.g. stage-specific review playbooks) on top of the fixed
-        # role/handoff context. ``None`` keeps the legacy fixed-context-only
-        # behaviour.
+        # Optional: when wired, the reviewer runs the same role-mission skill
+        # matcher every other role uses, surfacing adaptive reviewer skills
+        # (e.g. stage-specific review playbooks) plus cross-role engineer
+        # references on top of the fixed role/handoff context. ``None`` keeps
+        # the legacy fixed-context-only behaviour.
         self.skill_store = skill_store
+        from ..missions import ReviewerMission
+        self.mission = ReviewerMission(skill_store)
 
     def evaluate(
         self,
@@ -319,25 +321,15 @@ class Reviewer:
             check_text=check_text,
             raw_evidence=raw_evidence,
         )
-        # Role-scoped matcher (same primitive engineer/planner use). It
-        # surfaces ADAPTIVE reviewer skills (stage-specific review
-        # playbooks) on top of the fixed role/handoff/academic blocks
-        # above. The three fixed skills are excluded so the matcher never
-        # re-injects what is already hard-wired into this prompt.
+        # Role-mission matcher (same primitive engineer/planner use). It
+        # surfaces ADAPTIVE reviewer skills (stage-specific review playbooks)
+        # plus cross-role engineer references on top of the fixed
+        # role/handoff/academic blocks above. The three fixed reviewer skills
+        # are excluded by ReviewerMission so the matcher never re-injects what
+        # is already hard-wired into this prompt.
         matched_review_skill_block = ""
         if self.skill_store is not None:
-            from ..skills.role_match import match_role_skills
-
-            review_match = match_role_skills(
-                self.skill_store,
-                role="reviewer",
-                task=objective,
-                exclude_files={
-                    _REVIEWER_ROLE_SKILL,
-                    _REVIEWER_ENGINEER_HANDOFF_SKILL,
-                    _ACADEMIC_PAPER_REVIEW_SKILL,
-                },
-            )
+            review_match = self.mission.match(objective)
             if review_match.block:
                 matched_review_skill_block = (
                     "Matched reviewer skill(s) for this objective "

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -36,7 +37,37 @@ ROLE_SKILL_POOLS: dict[str, frozenset[str]] = {
     "reviewer": frozenset({"reviewer"}),
     "planner": frozenset({"planner"}),
 }
+# Cross-role *reference* pools. A role's matcher ALSO considers these
+# subdirs, but their skills are surfaced as read-only "other-role
+# perspective" references — never as the role's own primary playbook, and
+# never eligible for skill writeback. This lets the engineer anticipate the
+# reviewer's rubric, the reviewer understand the engineer's playbook, and
+# the planner see both, without blurring role identity. See
+# ``role_match.partition_by_role``.
+ROLE_CROSS_READ_POOLS: dict[str, frozenset[str]] = {
+    "engineer": frozenset({"reviewer"}),
+    "reviewer": frozenset({"engineer"}),
+    "planner": frozenset({"engineer", "reviewer"}),
+}
 _ROLE_SUBDIRS = frozenset({"engineer", "reviewer", "planner"})
+
+
+def role_of_path(path: str, skills_dir: Path) -> str:
+    """Return the role bucket a skill file belongs to (its first subdir).
+
+    Top-level files (distilled/user skills) bucket as ``general``. Mirrors
+    the logic in :meth:`SkillStore.list_summaries` so callers can classify a
+    loaded :class:`Skill` without re-listing.
+    """
+    try:
+        rel_parts = Path(path).resolve().relative_to(Path(skills_dir).resolve()).parts
+    except ValueError:
+        rel_parts = Path(path).parts
+    return (
+        rel_parts[0]
+        if len(rel_parts) > 1 and rel_parts[0] in _ROLE_SUBDIRS
+        else "general"
+    )
 
 TASK_HISTORY_MAX_ITEMS = 32
 TASK_HISTORY_MAX_ITEM_LEN = 200
@@ -199,6 +230,14 @@ class SkillStore:
         self._last_match_input_tokens = 0
         self._last_match_cached_input_tokens = 0
         self._last_match_output_tokens = 0
+        # Non-semantic safety valve for the pure-LLM matcher: the model sees
+        # EVERY in-scope candidate (no keyword pre-filtering). For very large
+        # pools we split into deterministic batches of this size and union
+        # the matches, so cost stays bounded without ever silently dropping a
+        # candidate. The common case (pool <= cap) is a single matcher call.
+        self._matcher_max_candidates = max(
+            1, int(os.environ.get("ARGUS_SKILL_MATCHER_MAX_CANDIDATES", "80") or "80")
+        )
 
     # ------------------------------------------------------------------
     # Listing / loading / saving
@@ -582,24 +621,6 @@ class SkillStore:
             except OSError:
                 self._match_cache.pop(cache_key, None)
 
-        candidate_summaries = self._select_candidate_summaries(task_description, summaries)
-
-        if on_event:
-            names = ", ".join(s.get("name", "?") for s in candidate_summaries[:5])
-            more = (
-                f" (+{len(candidate_summaries) - 5} more)"
-                if len(candidate_summaries) > 5
-                else ""
-            )
-            on_event({
-                "type": "match.info",
-                "text": (
-                    f"querying matcher ({self.matcher_model}) against "
-                    f"{len(candidate_summaries)}/{len(summaries)} candidates: "
-                    f"{names}{more}"
-                ),
-            })
-
         if self.runner is None:
             log.warning("SkillStore.find_relevant called with no runner; "
                         "cannot run matcher")
@@ -611,59 +632,90 @@ class SkillStore:
             self._last_match_output_tokens = 0
             return None, 0
 
-        prompt = Prompts.skill_match(task_description, candidate_summaries)
-        try:
-            result: RunnerResult = self.runner.run_exec(
-                prompt=prompt,
-                options=RunnerOptions(
-                    model=self.matcher_model,
-                    reasoning_effort=self.matcher_reasoning_effort,
-                    # The matcher is a pure-LLM call — no tool use, no
-                    # workspace reads. Codex CLI refuses to run outside a
-                    # trusted git repo by default, which silently breaks
-                    # the matcher when the daemon's workdir is just a
-                    # scratch dir. Always opt out for the matcher.
-                    skip_git_repo_check=True,
+        # Pure-LLM matching: the model judges EVERY in-scope candidate (no
+        # keyword pre-filter). Large pools are split into deterministic
+        # batches and the matches unioned, so cost is bounded without ever
+        # silently dropping a candidate.
+        batches = self._candidate_batches(summaries)
+        if on_event:
+            names = ", ".join(s.get("name", "?") for s in summaries[:5])
+            more = f" (+{len(summaries) - 5} more)" if len(summaries) > 5 else ""
+            batch_note = f" in {len(batches)} batches" if len(batches) > 1 else ""
+            on_event({
+                "type": "match.info",
+                "text": (
+                    f"querying matcher ({self.matcher_model}) against "
+                    f"{len(summaries)} candidates{batch_note}: {names}{more}"
                 ),
-                run_label="matcher",
-            )
-        except Exception as exc:  # noqa: BLE001 — best-effort, fall back to keyword
-            log.error("skill matcher subprocess raised: %s", exc)
-            if on_event:
-                on_event({"type": "match.error",
-                          "text": f"matcher subprocess raised: {exc} — falling back to keyword overlap"})
-            kw = self._keyword_fallback(task_description, summaries=summaries)
-            self._last_match_input_tokens = 0
-            self._last_match_cached_input_tokens = 0
-            self._last_match_output_tokens = 0
-            if kw:
-                self._cache_match(cache_key, kw)
-                return kw, 0
-            self._cache_match(cache_key, [])
-            return None, 0
+            })
 
-        if result.fatal_error or result.exit_code != 0:
-            err = result.fatal_error or f"exit_code={result.exit_code}"
-            stderr_tail = " | ".join(result.stderr_lines[-3:]) if result.stderr_lines else ""
-            log.error("skill matcher subprocess failed: %s ; stderr: %s",
-                      err, stderr_tail)
-            if on_event:
-                on_event({"type": "match.error",
-                          "text": f"matcher subprocess failed: {err}"
-                                  + (f" — {stderr_tail}" if stderr_tail else "")})
-            raise RuntimeError(
-                f"skill matcher failed: {err}"
-                + (f" — {stderr_tail}" if stderr_tail else "")
+        matched_by_path: dict[str, Skill] = {}
+        in_tok = cached_tok = out_tok = 0
+        for batch in batches:
+            prompt = Prompts.skill_match(
+                task_description, batch, requesting_role=role
             )
+            try:
+                result: RunnerResult = self.runner.run_exec(
+                    prompt=prompt,
+                    options=RunnerOptions(
+                        model=self.matcher_model,
+                        reasoning_effort=self.matcher_reasoning_effort,
+                        # The matcher is a pure-LLM call — no tool use, no
+                        # workspace reads. Codex CLI refuses to run outside a
+                        # trusted git repo by default, which silently breaks
+                        # the matcher when the daemon's workdir is just a
+                        # scratch dir. Always opt out for the matcher.
+                        skip_git_repo_check=True,
+                    ),
+                    run_label="matcher",
+                )
+            except Exception as exc:  # noqa: BLE001 — best-effort, keyword fallback
+                log.error("skill matcher subprocess raised: %s", exc)
+                if on_event:
+                    on_event({"type": "match.error",
+                              "text": f"matcher subprocess raised: {exc} — falling back to keyword overlap"})
+                kw = self._keyword_fallback(task_description, summaries=summaries)
+                self._last_match_input_tokens = 0
+                self._last_match_cached_input_tokens = 0
+                self._last_match_output_tokens = 0
+                if kw:
+                    self._cache_match(cache_key, kw)
+                    return kw, 0
+                self._cache_match(cache_key, [])
+                return None, 0
 
-        total_tokens = result.input_tokens + result.output_tokens
-        matched = self._parse_match_response(result.message, candidate_summaries)
+            # A non-zero exit / fatal error is a hard infrastructure failure,
+            # not a "no match" — propagate it (distinct from the keyword
+            # fallback taken when the backend itself raises).
+            if result.fatal_error or result.exit_code != 0:
+                err = result.fatal_error or f"exit_code={result.exit_code}"
+                stderr_tail = (
+                    " | ".join(result.stderr_lines[-3:])
+                    if result.stderr_lines else ""
+                )
+                log.error("skill matcher subprocess failed: %s ; stderr: %s",
+                          err, stderr_tail)
+                if on_event:
+                    on_event({"type": "match.error",
+                              "text": f"matcher subprocess failed: {err}"
+                                      + (f" — {stderr_tail}" if stderr_tail else "")})
+                raise RuntimeError(
+                    f"skill matcher failed: {err}"
+                    + (f" — {stderr_tail}" if stderr_tail else "")
+                )
+            in_tok += int(getattr(result, "input_tokens", 0) or 0)
+            cached_tok += int(getattr(result, "cached_input_tokens", 0) or 0)
+            out_tok += int(getattr(result, "output_tokens", 0) or 0)
+            for sk in self._parse_match_response(result.message, batch):
+                matched_by_path.setdefault(sk.path, sk)
+
+        total_tokens = in_tok + out_tok
+        self._last_match_input_tokens = in_tok
+        self._last_match_cached_input_tokens = cached_tok
+        self._last_match_output_tokens = out_tok
+        matched = list(matched_by_path.values())
         if matched:
-            self._last_match_input_tokens = int(getattr(result, "input_tokens", 0) or 0)
-            self._last_match_cached_input_tokens = int(
-                getattr(result, "cached_input_tokens", 0) or 0
-            )
-            self._last_match_output_tokens = int(getattr(result, "output_tokens", 0) or 0)
             if on_event:
                 on_event({"type": "match.info",
                           "text": f"matcher picked: {matched[0].name}  "
@@ -675,11 +727,6 @@ class SkillStore:
             on_event({"type": "match.info",
                       "text": f"matcher: no high-fit match  ({total_tokens:,} tok) - will distill"})
         self._cache_match(cache_key, [])
-        self._last_match_input_tokens = int(getattr(result, "input_tokens", 0) or 0)
-        self._last_match_cached_input_tokens = int(
-            getattr(result, "cached_input_tokens", 0) or 0
-        )
-        self._last_match_output_tokens = int(getattr(result, "output_tokens", 0) or 0)
         return None, total_tokens
 
     @property
@@ -781,25 +828,6 @@ class SkillStore:
             score += 6
         return score
 
-    def _select_candidate_summaries(
-        self,
-        task_description: str,
-        summaries: list[dict],
-        *,
-        limit: int = 8,
-    ) -> list[dict]:
-        if len(summaries) <= limit:
-            return summaries
-        scored = [
-            (self._score_summary(task_description, summary), idx, summary)
-            for idx, summary in enumerate(summaries)
-        ]
-        scored.sort(key=lambda item: (-item[0], item[1]))
-        selected = [summary for score, _, summary in scored[:limit] if score > 0]
-        if selected:
-            return selected
-        return [summary for _, _, summary in scored[:limit]]
-
     @staticmethod
     def _scope_summaries(
         summaries: list[dict],
@@ -807,15 +835,42 @@ class SkillStore:
         role: str | None,
         exclude_files: set[str] | None,
     ) -> list[dict]:
-        """Filter summaries to a role's pool and drop excluded filenames."""
+        """Filter summaries to a role's matchable pool and drop excluded files.
+
+        The matchable pool is the role's ``primary`` subdirs
+        (:data:`ROLE_SKILL_POOLS`) UNION its ``cross-read`` reference subdirs
+        (:data:`ROLE_CROSS_READ_POOLS`). Primary-vs-reference partitioning of
+        the *matched* results happens later (``role_match.partition_by_role``)
+        so the matcher gets recall across both while callers keep the roles
+        distinct. ``role=None`` disables scoping (whole corpus).
+        """
         out = summaries
         if role is not None:
-            pool = ROLE_SKILL_POOLS.get(role, frozenset({role, "general"}))
+            primary = ROLE_SKILL_POOLS.get(role, frozenset({role, "general"}))
+            cross = ROLE_CROSS_READ_POOLS.get(role, frozenset())
+            pool = primary | cross
             out = [s for s in out if s.get("role", "general") in pool]
         if exclude_files:
             excl = {f.casefold() for f in exclude_files}
             out = [s for s in out if Path(s["path"]).name.casefold() not in excl]
         return out
+
+    def _candidate_batches(self, summaries: list[dict]) -> list[list[dict]]:
+        """Split candidates into deterministic, non-semantic batches.
+
+        Pure-LLM matching means the model judges every candidate; we never
+        keyword-prefilter. To bound per-call cost for very large pools we
+        chunk by :attr:`_matcher_max_candidates` (preserving on-disk order)
+        and union the matches. The common case (pool <= cap) is one batch.
+        """
+        cap = self._matcher_max_candidates
+        if len(summaries) <= cap:
+            return [summaries]
+        return [summaries[i:i + cap] for i in range(0, len(summaries), cap)]
+
+    def role_for(self, skill: "Skill") -> str:
+        """Role bucket of a loaded skill (its on-disk subdir, else general)."""
+        return role_of_path(skill.path, self.skills_dir)
 
     def _keyword_fallback(
         self,
