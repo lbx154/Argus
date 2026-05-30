@@ -21,6 +21,7 @@ from argus_skill.daemon.life_worker import (
     _config_payload,
     _DaemonSink,
     _runner_namespace,
+    _strip_git_config_injection,
     _worker_runtime_context,
     read_continuous_state,
     read_daemon_status,
@@ -947,3 +948,38 @@ def _wait_for_thread_stop(thread: threading.Thread, *, timeout: float) -> None:
         if not thread.is_alive():
             return
         time.sleep(0.05)
+
+
+def test_strip_git_config_injection_removes_whole_family() -> None:
+    """The codex sandbox forwards an incomplete ``GIT_CONFIG_*`` tuple that
+    breaks every ``git`` command in the agent shell. The whole family must be
+    stripped from the child env, leaving unrelated git vars untouched.
+    """
+
+    env = {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "safe.bareRepository",
+        "GIT_CONFIG_VALUE_0": "explicit",
+        "GIT_CONFIG_KEY_1": "core.foo",
+        "GIT_CONFIG_VALUE_1": "bar",
+        "GIT_DIR": "/keep/me",
+        "PATH": "/usr/bin",
+    }
+
+    removed = _strip_git_config_injection(env)
+
+    assert set(removed) == {
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_KEY_0",
+        "GIT_CONFIG_VALUE_0",
+        "GIT_CONFIG_KEY_1",
+        "GIT_CONFIG_VALUE_1",
+    }
+    assert env == {"GIT_DIR": "/keep/me", "PATH": "/usr/bin"}
+
+
+def test_strip_git_config_injection_noop_when_absent() -> None:
+    env = {"PATH": "/usr/bin", "HOME": "/home/x"}
+    removed = _strip_git_config_injection(env)
+    assert removed == []
+    assert env == {"PATH": "/usr/bin", "HOME": "/home/x"}

@@ -14,6 +14,7 @@ from argus_skill.tools.new_auto_research_project import (
     next_version,
     render_agents_md,
 )
+import argus_skill.tools.new_auto_research_project as narp
 
 
 def test_extract_copy_ready_agents_md_omits_skill_frontmatter() -> None:
@@ -257,3 +258,60 @@ def test_default_compute_budget_mentions_project_venv() -> None:
     # specific "framework" / "NEVER" wording is intentionally not asserted
     # because it drifts every time we rephrase the warning.
     assert "./.venv" in rendered
+
+
+def test_ml_base_python_prefers_torch_bearing_override(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`_ml_base_python()` selects the ARGUS_SKILL_ML_PYTHON override when it
+    can import torch, so the project venv inherits the host CUDA stack instead
+    of the (torch-less) framework venv.
+    """
+
+    override = tmp_path / "ml" / "bin" / "python"
+    override.parent.mkdir(parents=True)
+    override.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    monkeypatch.setenv("ARGUS_SKILL_ML_PYTHON", str(override))
+    monkeypatch.delenv("CONDA_PREFIX", raising=False)
+    monkeypatch.setattr(narp, "_interpreter_has_torch", lambda p: p == override)
+
+    assert narp._ml_base_python() == override
+
+
+def test_ml_base_python_falls_back_to_conda_prefix(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """With no override, `$CONDA_PREFIX/bin/python` is chosen when it has
+    torch — this is the Azure ML ``ptca`` conda env case.
+    """
+
+    conda = tmp_path / "conda"
+    conda_py = conda / "bin" / "python"
+    conda_py.parent.mkdir(parents=True)
+    conda_py.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    monkeypatch.delenv("ARGUS_SKILL_ML_PYTHON", raising=False)
+    monkeypatch.setenv("CONDA_PREFIX", str(conda))
+    monkeypatch.setattr(narp, "_interpreter_has_torch", lambda p: p == conda_py)
+
+    assert narp._ml_base_python() == conda_py
+
+
+def test_ml_base_python_falls_back_to_framework_when_no_torch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """When no candidate interpreter has torch, fall back to the framework
+    python (prior behavior) rather than raising.
+    """
+
+    sentinel = tmp_path / "fw" / "bin" / "python"
+    sentinel.parent.mkdir(parents=True)
+    sentinel.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    monkeypatch.delenv("ARGUS_SKILL_ML_PYTHON", raising=False)
+    monkeypatch.setenv("CONDA_PREFIX", str(tmp_path / "conda"))
+    monkeypatch.setattr(narp, "_interpreter_has_torch", lambda p: False)
+    monkeypatch.setattr(narp, "_argus_python", lambda: sentinel)
+
+    assert narp._ml_base_python() == sentinel

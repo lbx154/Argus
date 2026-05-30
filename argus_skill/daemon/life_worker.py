@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from collections.abc import MutableMapping
 
 from ..core import paths as core_paths
 from ..core.bootstrap import inspect_project_bootstrap
@@ -220,6 +221,33 @@ def _truthy_env(name: str, default: str = "1") -> bool:
         "yes",
         "on",
     }
+
+
+def _strip_git_config_injection(env: MutableMapping[str, str]) -> list[str]:
+    """Remove the ``GIT_CONFIG_COUNT`` / ``GIT_CONFIG_KEY_*`` /
+    ``GIT_CONFIG_VALUE_*`` env-based config-injection family in place.
+
+    The host seeds a benign ``safe.bareRepository=explicit`` override via
+    these vars, but the codex sandbox forwards ``GIT_CONFIG_COUNT`` /
+    ``GIT_CONFIG_VALUE_0`` while dropping ``GIT_CONFIG_KEY_0`` — leaving an
+    incomplete tuple that makes *every* ``git`` command in the agent's shell
+    fail with ``fatal: unable to parse command-line config`` until the agent
+    rediscovers an ``env -u`` workaround, burning rounds each mission. The
+    agent's project git work does not need this host override, so drop the
+    whole family from the env handed to child shells.
+
+    Returns the list of removed keys (for logging/tests).
+    """
+    removed = [
+        k
+        for k in list(env)
+        if k == "GIT_CONFIG_COUNT"
+        or k.startswith("GIT_CONFIG_KEY_")
+        or k.startswith("GIT_CONFIG_VALUE_")
+    ]
+    for k in removed:
+        env.pop(k, None)
+    return removed
 
 
 def _auto_handoff_enabled() -> bool:
@@ -559,6 +587,33 @@ class LifeWorker:
             # missing. Ignoring is a no-op on Windows anyway.
             pass
 
+    def _seed_project_agents_and_venv(self, project_root: Path) -> None:
+        """Seed ``AGENTS.md`` and a per-project ``.venv`` for a continuous-mode
+        bootstrap, matching the standalone launcher. Idempotent: skips each
+        artifact that already exists so a re-bootstrap never clobbers operator
+        or engineer edits.
+        """
+        from ..tools.new_auto_research_project import (
+            init_project_venv,
+            load_template_text,
+            render_agents_md,
+        )
+
+        agents_path = project_root / "AGENTS.md"
+        if not agents_path.exists():
+            objective = (self.config.continuous_objective or "").strip() or None
+            template_text = load_template_text(None)
+            agents_md = render_agents_md(
+                template_text,
+                project_name=project_root.name,
+                version="v1",
+                objective=objective,
+            )
+            agents_path.write_text(agents_md, encoding="utf-8")
+
+        if not (project_root / ".venv").exists():
+            init_project_venv(project_root)
+
     def _seed_bootstrap_task(
         self,
         memory: Any,
@@ -604,6 +659,17 @@ class LifeWorker:
             seed_starter_code(Path(preflight.project_root), overwrite=False)
         except Exception:  # noqa: BLE001
             log.exception("daemon: failed to seed starter code during bootstrap")
+
+        # Parity with the standalone launcher's create_project: a
+        # continuous-mode project must also get an ``AGENTS.md`` (the engineer
+        # prompt instructs the agent to read it — without it the agent burns
+        # rounds on ``sed: can't read AGENTS.md``) and a per-project ``.venv``
+        # (so the agent pip-installs experiment deps into an overlay rather
+        # than the framework venv). Both are no-ops when already present.
+        try:
+            self._seed_project_agents_and_venv(Path(preflight.project_root))
+        except Exception:  # noqa: BLE001
+            log.exception("daemon: failed to seed AGENTS.md / venv during bootstrap")
 
         try:
             item = BacklogItem.new(
@@ -654,6 +720,12 @@ class LifeWorker:
             if _code_dir not in _pp_parts:
                 _pp_parts.append(_code_dir)
                 os.environ["PYTHONPATH"] = os.pathsep.join(_pp_parts)
+
+        # Strip the env-based ``GIT_CONFIG_*`` config-injection family from the
+        # env handed to child codex shells. The codex sandbox forwards an
+        # incomplete tuple (drops ``GIT_CONFIG_KEY_0``) that breaks *every*
+        # ``git`` command in the agent's shell. See _strip_git_config_injection.
+        _strip_git_config_injection(os.environ)
 
         # Set CUDA_VISIBLE_DEVICES from GPU resource allocation
         from ..tools.capability_vault import gpu_env_vars

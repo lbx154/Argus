@@ -686,7 +686,7 @@ def init_project_venv(project_dir: Path) -> Path:
     if not venv_dir.exists():
         _run(
             [
-                str(_argus_python()),
+                str(_ml_base_python()),
                 "-m",
                 "venv",
                 "--upgrade-deps",
@@ -805,6 +805,48 @@ def _argus_python() -> Path:
     if configured.exists():
         return configured
     return Path(sys.executable)
+
+
+def _interpreter_has_torch(python: Path) -> bool:
+    """True when ``python -c 'import torch'`` succeeds for ``python``."""
+    try:
+        proc = subprocess.run(
+            [str(python), "-c", "import torch"],
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+        return proc.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _ml_base_python() -> Path:
+    """Pick the base interpreter for a project venv that can ``import torch``.
+
+    On a CUDA host (e.g. Azure ML PyTorch containers) the GPU-enabled torch
+    lives in a conda env exposed via ``$CONDA_PREFIX`` — not in the Argus
+    framework venv. Building the project venv on that interpreter with
+    ``--system-site-packages`` inherits the host CUDA stack so the agent never
+    has to download a multi-GB CPU-only torch wheel (or, worse, fake scoring
+    because ``import torch`` failed). Preference order:
+
+    1. ``ARGUS_SKILL_ML_PYTHON`` operator override,
+    2. ``$CONDA_PREFIX/bin/python`` (the active conda env),
+    3. the Argus framework python (fallback — keeps prior behavior when no
+       torch-bearing interpreter is found).
+    """
+    candidates: list[Path] = []
+    override = os.environ.get("ARGUS_SKILL_ML_PYTHON", "").strip()
+    if override:
+        candidates.append(Path(override).expanduser())
+    conda_prefix = os.environ.get("CONDA_PREFIX", "").strip()
+    if conda_prefix:
+        candidates.append(Path(conda_prefix) / "bin" / "python")
+    for cand in candidates:
+        if cand.exists() and _interpreter_has_torch(cand):
+            return cand
+    return _argus_python()
 
 
 def _run(
