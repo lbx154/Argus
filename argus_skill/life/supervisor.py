@@ -596,6 +596,7 @@ class LifeSupervisor:
         engineer_model: str = "gpt-5.5",
         reviewer_model: str = "gpt-5.5",
         planner_runner: Any | None = None,
+        skill_store: Any | None = None,
     ) -> None:
         self.memory = memory
         self.runner = runner
@@ -608,6 +609,10 @@ class LifeSupervisor:
         # ``done`` after the first successful mission. Wired by the
         # life worker / REPL to the same backend the engineer uses.
         self.planner_runner = planner_runner
+        # Optional role-scoped skill store for the planner mission matcher.
+        # Threaded from the composition root (REPL / life worker). None keeps
+        # the planner on fixed role context only (no planner skill pool today).
+        self.skill_store = skill_store
         self._missions_started = 0
         self._planning_cycles = 0
         self._reap_orphans_on_startup()
@@ -1679,7 +1684,7 @@ class LifeSupervisor:
         try:
             from ..planner import Planner
 
-            planner = Planner(self.planner_runner)
+            planner = Planner(self.planner_runner, skill_store=self.skill_store)
             # Enable streaming so planner output flows through the event sink
             ctx = getattr(self.runner, "stream_to", None)
             stream_ctx = ctx(self.sink) if ctx else None

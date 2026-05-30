@@ -26,6 +26,18 @@ from ..scientist.prompts import Prompts
 
 log = logging.getLogger(__name__)
 
+# Role-scoped matcher pools. A role's matcher only considers skills whose
+# on-disk subdir maps to one of these buckets, so e.g. the engineer never
+# matches a reviewer-only skill. ``role=None`` (the default) disables
+# scoping and matches the whole corpus (back-compat). Distilled/user skills
+# live at the top level and are bucketed as ``general`` (engineer-domain).
+ROLE_SKILL_POOLS: dict[str, frozenset[str]] = {
+    "engineer": frozenset({"engineer", "general"}),
+    "reviewer": frozenset({"reviewer"}),
+    "planner": frozenset({"planner"}),
+}
+_ROLE_SUBDIRS = frozenset({"engineer", "reviewer", "planner"})
+
 TASK_HISTORY_MAX_ITEMS = 32
 TASK_HISTORY_MAX_ITEM_LEN = 200
 
@@ -182,7 +194,7 @@ class SkillStore:
         self.matcher_model = matcher_model
         self.matcher_reasoning_effort = matcher_reasoning_effort
         self._summary_cache: dict[str, tuple[int, int, dict]] = {}
-        self._match_cache: dict[tuple[str, tuple], list[str] | None] = {}
+        self._match_cache: dict[tuple, list[str] | None] = {}
         self._match_cache_max = 64
         self._last_match_input_tokens = 0
         self._last_match_cached_input_tokens = 0
@@ -238,12 +250,19 @@ class SkillStore:
                     "skipping skill file with missing/invalid frontmatter: %s", p
                 )
                 continue
+            rel_parts = p.relative_to(self.skills_dir).parts
+            skill_role = (
+                rel_parts[0]
+                if len(rel_parts) > 1 and rel_parts[0] in _ROLE_SUBDIRS
+                else "general"
+            )
             summary = {
                 "name": skill.name,
                 "description": skill.description,
                 "category": skill.category,
                 "task_history": skill.task_history[:5],
                 "path": str(p),
+                "role": skill_role,
             }
             self._summary_cache[key] = (st.st_mtime_ns, st.st_size, summary)
             summaries.append(summary)
@@ -505,6 +524,9 @@ class SkillStore:
         self,
         task_description: str,
         on_event: Callable[[dict], None] | None = None,
+        *,
+        role: str | None = None,
+        exclude_files: set[str] | None = None,
     ) -> tuple[list[Skill] | None, int]:
         """Use small model to judge which skills are relevant to the task.
 
@@ -512,19 +534,32 @@ class SkillStore:
 
         ``None`` means "matcher said no high-fit skill, OR something
         broke and the caller should distill instead".
+
+        ``role`` scopes the candidate pool to that role's skills (see
+        :data:`ROLE_SKILL_POOLS`); ``None`` matches the whole corpus.
+        ``exclude_files`` drops skills by on-disk filename (e.g. skills a
+        role already injects verbatim, so the matcher never re-surfaces
+        them).
         """
-        summaries = self.list_summaries()
+        summaries = self._scope_summaries(
+            self.list_summaries(), role=role, exclude_files=exclude_files
+        )
         if not summaries:
             self._last_match_input_tokens = 0
             self._last_match_cached_input_tokens = 0
             self._last_match_output_tokens = 0
             if on_event:
-                on_event({"type": "match.info",
-                          "text": "skill store empty - will distill a new playbook"})
+                msg = (
+                    "skill store empty - will distill a new playbook"
+                    if role is None
+                    else f"no skills in scope for role={role}"
+                )
+                on_event({"type": "match.info", "text": msg})
             return None, 0
 
         cache_key = (
             " ".join(task_description.lower().split()),
+            role or "",
             self._fingerprint_summaries(summaries),
         )
         cached = self._match_cache.get(cache_key)
@@ -597,7 +632,7 @@ class SkillStore:
             if on_event:
                 on_event({"type": "match.error",
                           "text": f"matcher subprocess raised: {exc} — falling back to keyword overlap"})
-            kw = self._keyword_fallback(task_description)
+            kw = self._keyword_fallback(task_description, summaries=summaries)
             self._last_match_input_tokens = 0
             self._last_match_cached_input_tokens = 0
             self._last_match_output_tokens = 0
@@ -660,7 +695,7 @@ class SkillStore:
         return self._last_match_output_tokens
 
     def _cache_match(
-        self, key: tuple[str, tuple], matched: list[Skill]
+        self, key: tuple, matched: list[Skill]
     ) -> None:
         paths = [s.path for s in matched] if matched else None
         if key in self._match_cache:
@@ -765,18 +800,39 @@ class SkillStore:
             return selected
         return [summary for _, _, summary in scored[:limit]]
 
+    @staticmethod
+    def _scope_summaries(
+        summaries: list[dict],
+        *,
+        role: str | None,
+        exclude_files: set[str] | None,
+    ) -> list[dict]:
+        """Filter summaries to a role's pool and drop excluded filenames."""
+        out = summaries
+        if role is not None:
+            pool = ROLE_SKILL_POOLS.get(role, frozenset({role, "general"}))
+            out = [s for s in out if s.get("role", "general") in pool]
+        if exclude_files:
+            excl = {f.casefold() for f in exclude_files}
+            out = [s for s in out if Path(s["path"]).name.casefold() not in excl]
+        return out
+
     def _keyword_fallback(
         self,
         task_description: str,
         *,
+        summaries: list[dict] | None = None,
         min_score: int = 2,
         limit: int = 3,
     ) -> list[Skill]:
         """Best-effort keyword-overlap match. Used when the matcher
         subprocess raises (e.g., codex not installed in tests). Returns
         skills with strong token overlap; empty list if nothing scores
-        above ``min_score``."""
-        summaries = self.list_summaries()
+        above ``min_score``. ``summaries`` is the already role-scoped pool
+        when called from :meth:`find_relevant`, so the fallback respects
+        the same scoping as the LLM matcher."""
+        if summaries is None:
+            summaries = self.list_summaries()
         if not summaries:
             return []
         scored = [

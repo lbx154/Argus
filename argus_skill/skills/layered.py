@@ -348,6 +348,9 @@ class LayeredSkillStore:
         self,
         task_description: str,
         on_event: Callable[[dict], None] | None = None,
+        *,
+        role: str | None = None,
+        exclude_files: set[str] | None = None,
     ) -> tuple[list[Skill] | None, int]:
         """Run the matcher across the merged (project + global) summaries.
 
@@ -386,7 +389,12 @@ class LayeredSkillStore:
         ps_any.list_summaries = lambda: merged_summaries
         ps_any.load = _layered_load
         try:
-            return ps.find_relevant(task_description, on_event=on_event)
+            return ps.find_relevant(
+                task_description,
+                on_event=on_event,
+                role=role,
+                exclude_files=exclude_files,
+            )
         finally:
             ps_any.list_summaries = original_list
             ps_any.load = original_load

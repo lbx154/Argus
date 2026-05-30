@@ -47,7 +47,13 @@ class SkillSource(Protocol):
     index without changing the loop.
     """
 
-    def find_relevant(self, task_description: str) -> tuple[list[Any] | None, int]:
+    def find_relevant(
+        self,
+        task_description: str,
+        *,
+        role: str | None = None,
+        exclude_files: set[str] | None = None,
+    ) -> tuple[list[Any] | None, int]:
         ...
 
     def render_skill(self, skill: Any) -> str:

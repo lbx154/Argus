@@ -17,6 +17,7 @@ import os
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 from ..core.models import RunnerOptions
 from ..core.ports import RunnerBackend
@@ -256,8 +257,13 @@ class Planner:
     alias below preserves any third-party import sites.
     """
 
-    def __init__(self, runner: RunnerBackend) -> None:
+    def __init__(self, runner: RunnerBackend, *, skill_store: Any | None = None) -> None:
         self.runner = runner
+        # Optional role-scoped skill matcher (same primitive engineer and
+        # reviewer use). There is no builtin_skills/planner/ pool today, so
+        # the matcher short-circuits to empty with no backend call; wiring it
+        # establishes the uniform mission path for when planner skills land.
+        self.skill_store = skill_store
 
     # ------------------------------------------------------------------
     # Planner role — project-level planning
@@ -286,6 +292,7 @@ class Planner:
             budget_remaining_usd=budget_remaining_usd,
             planning_cycle=planning_cycle,
             runtime_change_summary=runtime_change_summary,
+            skill_store=self.skill_store,
         )
         try:
             result = self.runner.run_exec(
@@ -352,6 +359,7 @@ class Planner:
         budget_remaining_usd: float,
         planning_cycle: int,
         runtime_change_summary: str = "",
+        skill_store: Any | None = None,
     ) -> str:
         budget_line = (
             f"This is planning cycle #{planning_cycle + 1}. "
@@ -414,6 +422,24 @@ class Planner:
             "   rollback supersedes everything else this cycle.\n"
         )
 
+        # Role-scoped matcher (same primitive engineer/reviewer use). No
+        # builtin_skills/planner/ pool exists today, so this short-circuits
+        # to empty with no backend call; it establishes the uniform mission
+        # path for when planner skills are added.
+        matched_planner_skill_block = ""
+        if skill_store is not None:
+            from ..skills.role_match import match_role_skills
+
+            planner_match = match_role_skills(
+                skill_store, role="planner", task=continuous_objective,
+            )
+            if planner_match.block:
+                matched_planner_skill_block = (
+                    "Matched planner skill(s) for this objective "
+                    "(read first; apply the relevant one(s)):\n"
+                    f"{planner_match.block}\n\n"
+                )
+
         return (
             format_role_context(
                 "Argus planner role skill",
@@ -422,6 +448,7 @@ class Planner:
             )
             + stage_checklist
             + "\n\n"
+            + matched_planner_skill_block
             + upstream_rollback_block
             + "\n"
             + _PLANNER_SYSTEM_PREAMBLE

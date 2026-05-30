@@ -33,6 +33,7 @@ from .core.ports import RunnerBackend
 from .engineer.reviewer import Reviewer, ReviewerConfig
 from .engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from .scientist.distiller import Distiller, DistillerConfig
+from .skills.role_match import match_role_skills, render_skill_playbook
 from .skills.store import Skill, SkillStore
 
 log = logging.getLogger(__name__)
@@ -137,7 +138,7 @@ class SkillLoop:
         # Skill distillation reuses the engineer backend; there is no
         # separate scientist agent.
         self.distiller = Distiller(engineer_runner)
-        self.reviewer = Reviewer(self.reviewer_runner)
+        self.reviewer = Reviewer(self.reviewer_runner, skill_store=self.skill_store)
         self.supervised = SupervisedEngineer(
             engineer_runner=engineer_runner,
             reviewer=self.reviewer,
@@ -185,21 +186,17 @@ class SkillLoop:
         skill_task = (objective_for_skill or task).strip() or task
         self._emit({"type": "loop.start", "text": f"task: {skill_task[:120]}"})
 
-        # Step 1: matcher
-        matched, matcher_tokens = self.skill_store.find_relevant(
-            skill_task, on_event=self.on_event,
+        # Step 1: matcher (role-scoped, shared by every role mission)
+        match = match_role_skills(
+            self.skill_store, role="engineer", task=skill_task,
+            on_event=self.on_event,
         )
-        matcher_input_tokens = int(
-            getattr(self.skill_store, "last_match_input_tokens", 0) or 0
-        )
-        matcher_cached_input_tokens = int(
-            getattr(self.skill_store, "last_match_cached_input_tokens", 0) or 0
-        )
-        matcher_output_tokens = int(
-            getattr(self.skill_store, "last_match_output_tokens", 0) or 0
-        )
-        matched_skills: list[Skill] = list(matched) if matched else []
-        skill: Skill | None = matched_skills[0] if matched_skills else None
+        matcher_tokens = match.input_tokens + match.output_tokens
+        matcher_input_tokens = match.input_tokens
+        matcher_cached_input_tokens = match.cached_input_tokens
+        matcher_output_tokens = match.output_tokens
+        matched_skills: list[Skill] = list(match.skills)
+        skill: Skill | None = match.primary
         skill_distilled = False
         distill_result = None
 
@@ -234,7 +231,7 @@ class SkillLoop:
                 self._emit({"type": "scientist.error",
                             "text": f"distill failed: {type(exc).__name__}"})
 
-        skill_text = self._render_skill_playbook(matched_skills)
+        skill_text = render_skill_playbook(self.skill_store, matched_skills)
         skill_name = skill.name if skill else None
 
         # Step 3: supervised round-loop
@@ -345,28 +342,12 @@ class SkillLoop:
             log.exception("on_event handler raised")
 
     def _render_skill_playbook(self, skills: list[Skill]) -> str:
-        """Render the matched skills for the engineer prompt.
+        """Deprecated shim — delegates to the shared role-mission renderer.
 
-        The matcher returns every skill that independently clears the
-        ``high`` bar. We inject all of them and let the engineer make the
-        final relevance call for THIS task instead of pre-committing to a
-        single match.
+        Kept so external callers/tests referencing this method keep working;
+        new code should call ``render_skill_playbook`` directly.
         """
-        if not skills:
-            return ""
-        if len(skills) == 1:
-            return self.skill_store.render_skill(skills[0])
-        parts = [
-            "The matcher found multiple high-fit skills. They are candidates, "
-            "not orders: read each, apply the one(s) genuinely relevant to "
-            "THIS task, and ignore any that do not fit.",
-        ]
-        for skill in skills:
-            parts.append(
-                f"### Candidate skill: {skill.name}\n"
-                + self.skill_store.render_skill(skill)
-            )
-        return "\n\n".join(parts)
+        return render_skill_playbook(self.skill_store, skills)
 
     @staticmethod
     def _build_engineer_prompt(
