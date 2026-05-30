@@ -203,7 +203,17 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "17) If the same validator/review failure repeats across recent journal\n"
     "   entries, queue a reset/audit mission that names the repeated issue and\n"
     "   requires the Engineer to inspect root cause before another local patch.\n"
-    "18) Output JSON ONLY. No prose around it. No markdown fences.\n"
+    "18) Do ALL inspection with your tools BEFORE you emit the final JSON. The\n"
+    "   final JSON is a committed decision, not a status update. Returning\n"
+    "   `project_done=false` with `new_tasks=[]` and `restart_daemon=false` is\n"
+    "   INVALID — never emit a placeholder verdict whose `reason` says you are\n"
+    "   'inspecting', 'deciding', or 'about to' route a mission. By the time you\n"
+    "   output JSON you MUST have finished inspecting and either (a) committed at\n"
+    "   least one concrete task, (b) set `project_done=true`, or (c) set\n"
+    "   `restart_daemon=true`. If you are unsure what the next mission is, default\n"
+    "   to one bounded current-stage gate mission derived from the stage\n"
+    "   checklist — do not stall.\n"
+    "19) Output JSON ONLY. No prose around it. No markdown fences.\n"
 )
 
 
