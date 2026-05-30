@@ -79,6 +79,9 @@ STARTER_CODE_TEMPLATE_PACKAGE = "argus_skill.tools.project_templates.code"
 STARTER_CODE_TEMPLATE_FILES = (
     "__init__.py",
     "llm.py",
+    "gpu_env.py",
+    "experiment_io.py",
+    "run_experiments.py",
     "generate_image_2.py",
     "generate_image2_figure.py",
 )

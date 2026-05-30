@@ -157,6 +157,30 @@ These resources are allocated to you. Use them.
 - Check: `python -m argus_skill.tools.subagent status --task-id <id>`
 - Do NOT block — submit and continue other work.
 
+**Reusable project scaffolds** (seeded in `code/`, standalone, run with `.venv/bin/python`):
+- `code/gpu_env.py` — call `gpu_env.configure_caches()` before any model load to pin
+  HF/Torch caches to `./models/`; `gpu_env.visible_devices()` / `suggest_nproc()` tell
+  you how many GPUs you may use. Run `.venv/bin/python code/gpu_env.py` for a one-screen
+  GPU + cache readiness report.
+- `code/experiment_io.py` — `experiment_io.RunWriter(...)` writes the full run-directory
+  contract for you (`manifest.json`, `status.json`, `progress.jsonl`, `results.jsonl`
+  rows with `method`/`task_id`/`score`, `STOP` handling, exit 130 on cancel). Wrap your
+  framework calls with it instead of re-implementing run bookkeeping;
+  `experiment_io.validate_run(<dir>)` self-audits a run before you claim it complete.
+- `code/run_experiments.py` — launch a whole method×benchmark matrix as NON-BLOCKING
+  sub-agent jobs from `experiments/MATRIX.json`, then `status` to poll. This is how you
+  fan out and stay unblocked.
+
+**Multi-GPU utilization** (this box has multiple GPUs — use them):
+- One large job that needs all GPUs → declare one condition with `"gpus": "0,1,2,3"` in
+  `MATRIX.json` and launch your framework's distributed runner inside its command
+  (torchrun / accelerate / deepspeed / vLLM `--tensor-parallel-size`).
+- Several independent conditions → give each a disjoint GPU subset (`gpu_policy:
+  "fanout_one_gpu"` or explicit `"gpus"`) so they train/evaluate in PARALLEL on
+  different GPUs. Never leave allocated GPUs idle while work is queued.
+- Never run two parallel conditions on the same GPU unless you have measured the memory
+  headroom; `run_experiments.py` warns on oversubscription.
+
 ---
 
 ## Core rule

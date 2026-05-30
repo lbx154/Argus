@@ -48,7 +48,7 @@ Execute the experiment plan for an agent-science paper. This is the argus-skill-
 
 2. Preflight the environment:
    - Record Python version, relevant env vars without secrets, git commit or working-tree summary, and available benchmark scripts in run manifests/logs only. These local execution details are not paper-facing prose.
-   - Confirm model/data cache variables point at the project-local store under `./models/` before any dataset/model download: `HF_HOME=$(pwd)/models/huggingface`, `HUGGINGFACE_HUB_CACHE=$(pwd)/models/huggingface/hub`, `HF_DATASETS_CACHE=$(pwd)/models/huggingface/datasets`, `TRANSFORMERS_CACHE=$(pwd)/models/huggingface/hub`, and `TORCH_HOME=$(pwd)/models/torch`. If a value is missing, export it to the project-local path; each project owns its weights (see the training-infrastructure-guide skill).
+   - Confirm model/data cache variables point at the project-local store under `./models/` before any dataset/model download: `HF_HOME=$(pwd)/models/huggingface`, `HUGGINGFACE_HUB_CACHE=$(pwd)/models/huggingface/hub`, `HF_DATASETS_CACHE=$(pwd)/models/huggingface/datasets`, `TRANSFORMERS_CACHE=$(pwd)/models/huggingface/hub`, and `TORCH_HOME=$(pwd)/models/torch`. The seeded `code/gpu_env.py` does this for you: call `gpu_env.configure_caches()` at the top of any script before importing transformers, or run `.venv/bin/python code/gpu_env.py` for a readiness check. If a value is missing, export it to the project-local path; each project owns its weights (see the training-infrastructure-guide skill).
    - Check required commands with `--help` or dry-run where available.
    - If running containers or external APIs, verify credentials are present without printing secret values.
 
@@ -57,6 +57,7 @@ Execute the experiment plan for an agent-science paper. This is the argus-skill-
    - Write `manifest.json` before launching any run.
    - Include objective, command list, model/backend, budget cap, expected outputs, source snapshot, and parent plan path.
    - Also create `status.json`, `progress.jsonl`, `stdout.log`, `stderr.log`, and document the `STOP` cancellation file before the first expensive call.
+   - The seeded `code/experiment_io.py` writes this whole contract for you: wrap your worker in `experiment_io.RunWriter(run_dir, method=..., manifest={...})` and call `run.record(task_id=..., score=...)` per trial. It emits `manifest.json`/`status.json`/`progress.jsonl`/`results.jsonl`, handles `STOP` (writes `run_cancelled`, exits 130), and `experiment_io.validate_run(run_dir)` self-audits row counts. Prefer it over re-implementing run bookkeeping by hand.
    - Update `research/PIPELINE_STATE.json` with the run id and set the run stage to `running`; never mark it `done` until raw result rows and the status/progress artifacts exist.
 
 4. Run in stages — use subagent for GPU tasks:
@@ -69,6 +70,7 @@ Execute the experiment plan for an agent-science paper. This is the argus-skill-
        --description "Train zImage LoRA with GRPO on GenEval" \
        --command ".venv/bin/python code/train.py --config config.yaml"
      ```
+   - To launch a whole method×benchmark matrix at once, define `experiments/MATRIX.json` and run `.venv/bin/python code/run_experiments.py submit` (one non-blocking sub-agent job per condition, with explicit per-condition GPU assignment for parallel multi-GPU use), then poll with `code/run_experiments.py status`.
    - After submitting GPU tasks, **continue other work** (prepare analysis templates, draft paper sections, write code for next condition). Do NOT wait/sleep/block.
    - Check progress periodically: `python -m argus_skill.tools.subagent status --task-id train-grpo-lora`
    - Use the project venv (`.venv/bin/python`) for all ML commands, NOT the argus-skill venv.
