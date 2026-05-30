@@ -157,7 +157,7 @@ research → plan → benchmark → run → analysis → draft → review → su
 - If smoke shows the idea is invalid → pivot immediately, don't waste GPU hours
 - Once smoke validates → submit full experiment via subagent (supervised mode)
 - **Do NOT block on full training**. After submitting, advance to analysis/draft:
-  1. Submit full run: `python -m argus_skill.tools.subagent submit --task-id train-full --mode supervised --command '...'`
+  1. Submit full run: `python -m argus_skill.tools.subagent submit --task-id train-full --mode supervised --run-dir experiments/train-full --command '...'`
   2. While waiting: start drafting paper structure, write method section, prepare figure templates
   3. When subagent reports completion → fill in actual results
 - Use approved frameworks (vLLM, LLaMA-Factory, etc.)

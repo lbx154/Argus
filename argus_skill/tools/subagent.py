@@ -80,9 +80,10 @@ Two execution modes:
    training, inference, evaluation — any command that just needs to run.
 
 2. **supervised**: fork + Popen + periodic LLM monitoring. A codex agent
-   checks training logs every N seconds and can intervene (early-stop,
-   save checkpoint, flag anomaly). Best for long GPU training where you
-   want an agent watching the loss curve.
+   reads the log tails every N seconds and can intervene (early-stop,
+   save checkpoint, flag anomaly). It is RL-aware (judges reward/KL/response
+   length, not just SFT loss) and backs off while healthy to save tokens.
+   Best for long GPU training where you want an agent watching the run.
 
 Usage from the engineer:
 
@@ -92,12 +93,16 @@ Usage from the engineer:
       --description "Evaluate zImage on GenEval" \
       --command ".venv/bin/python code/eval.py --benchmark geneval"
 
-    # Supervised mode — run with LLM monitoring every 120s
+    # Supervised mode — RL-aware monitoring, base interval 120s, backs off
+    # while healthy and snaps back when health degrades. Point --run-dir at
+    # the experiment_io run directory so the supervisor reads progress/status
+    # and writes STOP there on early-stop.
     python -m argus_skill.tools.subagent submit \
       --task-id train-grpo \
       --mode supervised \
       --monitor-interval 120 \
-      --description "Train zImage LoRA with GRPO" \
+      --run-dir experiments/train-grpo \
+      --description "Train policy with GRPO (veRL)" \
       --command ".venv/bin/python code/train.py --config grpo_config.yaml"
 
     # Check status
@@ -110,6 +115,57 @@ Usage from the engineer:
 
 REGISTRY_DIR = Path(".argus_subagents")
 SUPERVISOR_MODEL = "gpt-5.5"
+SUPERVISOR_INTERVAL_CAP = 900
+
+
+def _next_monitor_interval(
+    health: str,
+    current: int,
+    base: int,
+    cap: int = SUPERVISOR_INTERVAL_CAP,
+) -> int:
+    """Health-adaptive polling backoff for the supervisor.
+
+    Healthy training is boring, so back off exponentially to save supervisor
+    tokens. Any non-healthy signal pulls the interval back to ``base`` so the
+    supervisor looks closely while things are interesting.
+    """
+    base = max(int(base), 1)
+    cap = max(int(cap), base)
+    current = max(int(current), base)
+    if health in {"degrading", "stuck", "diverging"}:
+        return base
+    if health == "healthy":
+        return min(current * 2, cap)
+    # unknown / parse failure: hold steady within bounds.
+    return min(current, cap)
+
+
+_VALID_DECISIONS = {"continue", "early_stop", "save_checkpoint"}
+_VALID_HEALTH = {"healthy", "degrading", "stuck", "diverging"}
+_HEALTH_ALIASES = {
+    "degraded": "degrading",
+    "diverged": "diverging",
+    "diverge": "diverging",
+    "stalling": "stuck",
+    "stalled": "stuck",
+    "stall": "stuck",
+    "ok": "healthy",
+    "good": "healthy",
+}
+
+
+def _norm_decision(value: object) -> str:
+    """Normalize a supervisor decision, defaulting to the safe ``continue``."""
+    token = str(value).strip().lower().replace("-", "_")
+    return token if token in _VALID_DECISIONS else "continue"
+
+
+def _norm_health(value: object) -> str:
+    """Normalize a health label, mapping common variants; else ``unknown``."""
+    token = str(value).strip().lower().replace("-", "_")
+    token = _HEALTH_ALIASES.get(token, token)
+    return token if token in _VALID_HEALTH else "unknown"
 
 
 def _llm_summarize_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
@@ -417,21 +473,38 @@ def _supervisor_check(
     check_number: int,
     model: str,
     cwd: str,
-) -> str:
-    """Call codex to check training progress. Returns: continue/early-stop/checkpoint."""
+    run_dir: str | None = None,
+) -> tuple[str, str]:
+    """Call codex to check training/eval progress.
+
+    Returns ``(decision, health)`` where decision is
+    ``continue`` / ``early_stop`` / ``save_checkpoint`` and health is
+    ``healthy`` / ``degrading`` / ``stuck`` / ``diverging`` / ``unknown``.
+    """
     codex = _find_codex()
 
     stdout_tail = _tail_file(stdout_path, 2000)
     stderr_tail = _tail_file(stderr_path, 1000)
 
-    # Also read progress.jsonl if it exists
-    progress_path = Path(cwd) / "progress.jsonl"
+    # Structured run signals live in the run directory (experiment_io.RunWriter
+    # contract). Resolve run_dir relative to the task cwd; fall back to cwd.
+    if run_dir:
+        signal_base = Path(run_dir)
+        if not signal_base.is_absolute():
+            signal_base = Path(cwd) / signal_base
+    else:
+        signal_base = Path(cwd)
     progress_tail = ""
+    progress_path = signal_base / "progress.jsonl"
     if progress_path.exists():
         progress_tail = _tail_file(progress_path, 1500)
+    status_tail = ""
+    status_path = signal_base / "status.json"
+    if status_path.exists():
+        status_tail = _tail_file(status_path, 800)
 
     prompt = (
-        f"You are a training supervisor agent. Check #{check_number} on task '{task_id}'.\n"
+        f"You are a training/eval supervisor agent. Check #{check_number} on task '{task_id}'.\n"
         f"Task: {description}\n"
         f"Command: {command}\n"
         f"Running for: {elapsed:.0f}s\n\n"
@@ -440,17 +513,29 @@ def _supervisor_check(
     )
     if progress_tail:
         prompt += f"=== progress.jsonl (last 1500 chars) ===\n{progress_tail}\n\n"
+    if status_tail:
+        prompt += f"=== status.json ===\n{status_tail}\n\n"
 
     prompt += (
-        "Analyze the training progress. Respond with EXACTLY one JSON object:\n"
+        "Judge health by whatever signals appear — this may be supervised\n"
+        "fine-tuning, RL (PPO/GRPO/RLVR), or a benchmark eval run:\n"
+        "- SFT/pretrain: training loss should trend DOWN; watch for NaN/inf.\n"
+        "- RL: the REWARD / return / score should trend UP. Watch KL divergence\n"
+        "  not exploding, generation/response length not collapsing toward 0 or\n"
+        "  blowing up, and outputs not degenerating (format collapse, repetition).\n"
+        "  Do NOT treat a noisy/rising policy loss as failure — RL loss is not SFT loss.\n"
+        "- Any run: watch for CUDA OOM, tracebacks, stalls (no new steps for a long\n"
+        "  stretch), or throughput collapse.\n\n"
+        "Respond with EXACTLY one JSON object:\n"
         '{"decision": "continue" or "early_stop" or "save_checkpoint",\n'
         ' "reason": "one sentence explaining why",\n'
-        ' "metrics": {"loss": ..., "step": ..., "epoch": ...},\n'
+        ' "metrics": {"step": ..., "loss": ..., "reward": ..., "kl": ..., "resp_len": ...},\n'
         ' "health": "healthy" or "degrading" or "stuck" or "diverging"}\n\n'
         "Decision rules:\n"
-        "- continue: training looks healthy, loss trending down\n"
-        "- early_stop: loss diverging, NaN detected, GPU OOM, or no progress for >30% of total steps\n"
-        "- save_checkpoint: notable improvement milestone reached\n"
+        "- continue: signals look healthy (loss down for SFT; reward up and KL stable for RL).\n"
+        "- early_stop: NaN/inf, CUDA OOM, KL blow-up, reward collapse, response-length\n"
+        "  collapse, or no progress for a long stretch of total steps.\n"
+        "- save_checkpoint: a notable improvement milestone reached.\n"
         "Only output the JSON, nothing else."
     )
 
@@ -471,12 +556,15 @@ def _supervisor_check(
                     if text.startswith("```"):
                         text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
                     data = json.loads(text)
-                    return data.get("decision", "continue")
+                    return (
+                        _norm_decision(data.get("decision", "continue")),
+                        _norm_health(data.get("health", "unknown")),
+                    )
         except (json.JSONDecodeError, KeyError, IndexError):
             pass
-        return "continue"
+        return ("continue", "unknown")
     except Exception:
-        return "continue"  # On any error, don't intervene
+        return ("continue", "unknown")  # On any error, don't intervene
 
 
 def _run_supervised(
@@ -487,6 +575,7 @@ def _run_supervised(
     monitor_interval: int,
     model: str,
     cwd: str,
+    run_dir: str | None = None,
 ) -> None:
     """Run command with periodic LLM supervisor checks."""
     log_dir = REGISTRY_DIR / f"{task_id}_logs"
@@ -496,6 +585,12 @@ def _run_supervised(
     supervisor_log = log_dir / "supervisor.jsonl"
 
     start_time = time.time()
+    # Resolve run_dir once relative to the task cwd so the supervisor reads the
+    # right progress/status and writes STOP where RunWriter watches.
+    resolved_run_dir: str | None = None
+    if run_dir:
+        rp = Path(run_dir)
+        resolved_run_dir = str(rp if rp.is_absolute() else Path(cwd) / rp)
     try:
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
             proc = subprocess.Popen(
@@ -508,26 +603,22 @@ def _run_supervised(
                 "pid": proc.pid, "worker_pid": os.getpid(),
                 "started_at": time.time(), "mode": "supervised",
                 "monitor_interval": monitor_interval,
+                "run_dir": resolved_run_dir,
                 "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
                 "supervisor_log": str(supervisor_log),
             })
 
             check_number = 0
+            # Health-adaptive backoff: start at the configured interval (capped),
+            # then double while healthy (save supervisor tokens), snap back to the
+            # base interval the moment health degrades.
+            current_interval = min(max(monitor_interval, 1), SUPERVISOR_INTERVAL_CAP)
             while True:
-                # Adaptive interval: check frequently early, less often later
-                # First 10 min: use configured interval (default 120s)
-                # After 10 min: check every 5 min
-                # After 1 hour: check every 15 min
-                elapsed_so_far = time.time() - start_time
-                if elapsed_so_far < 600:
-                    current_interval = monitor_interval
-                elif elapsed_so_far < 3600:
-                    current_interval = max(monitor_interval, 300)
-                else:
-                    current_interval = max(monitor_interval, 900)
-
+                # Never wait past the hard timeout, even with a long interval.
+                remaining = timeout - (time.time() - start_time)
+                wait_for = min(current_interval, max(1, int(remaining)))
                 try:
-                    proc.wait(timeout=current_interval)
+                    proc.wait(timeout=wait_for)
                     break  # Process exited
                 except subprocess.TimeoutExpired:
                     pass  # Still running, do supervisor check
@@ -554,16 +645,17 @@ def _run_supervised(
                 check_number += 1
                 out.flush()
                 err.flush()
-                decision = _supervisor_check(
+                decision, health = _supervisor_check(
                     task_id, command, description,
                     stdout_path, stderr_path, elapsed, check_number,
-                    model, cwd,
+                    model, cwd, resolved_run_dir,
                 )
 
                 # Log supervisor decision
                 entry = {
                     "check": check_number, "elapsed_s": round(elapsed, 1),
-                    "decision": decision, "timestamp": time.time(),
+                    "decision": decision, "health": health,
+                    "interval_s": current_interval, "timestamp": time.time(),
                 }
                 with supervisor_log.open("a") as sl:
                     sl.write(json.dumps(entry) + "\n")
@@ -572,15 +664,28 @@ def _run_supervised(
                 task = _read_task(task_id) or {}
                 task["last_supervisor_check"] = check_number
                 task["last_supervisor_decision"] = decision
+                task["last_supervisor_health"] = health
                 task["elapsed_seconds"] = round(elapsed, 1)
                 _write_task(task_id, task)
 
+                # Back off while healthy, tighten the moment health degrades.
+                current_interval = _next_monitor_interval(
+                    health, current_interval, monitor_interval,
+                )
+
                 if decision == "early_stop":
-                    # Send STOP signal
-                    stop_file = Path(cwd) / "STOP"
-                    stop_file.write_text(
-                        f"Early-stopped by supervisor at check #{check_number}\n",
-                    )
+                    # Send STOP signal. Write into the run dir (experiment_io
+                    # RunWriter watches <run_dir>/STOP) and cwd for back-compat.
+                    stop_note = f"Early-stopped by supervisor at check #{check_number}\n"
+                    stop_targets = {Path(cwd) / "STOP"}
+                    if resolved_run_dir:
+                        stop_targets.add(Path(resolved_run_dir) / "STOP")
+                    for stop_file in stop_targets:
+                        try:
+                            stop_file.parent.mkdir(parents=True, exist_ok=True)
+                            stop_file.write_text(stop_note)
+                        except OSError:
+                            pass
                     try:
                         proc.wait(timeout=30)
                     except subprocess.TimeoutExpired:
@@ -704,6 +809,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             monitor_interval=getattr(args, "monitor_interval", 120) or 120,
             model=getattr(args, "model", SUPERVISOR_MODEL) or SUPERVISOR_MODEL,
             cwd=cwd,
+            run_dir=getattr(args, "run_dir", None),
         )
     else:
         _run_direct(
@@ -821,8 +927,12 @@ def main() -> int:
                           help="direct: just run (no LLM). supervised: run + periodic LLM monitoring")
     p_submit.add_argument("--timeout", type=int, default=7200, help="Max seconds (default: 2h)")
     p_submit.add_argument("--monitor-interval", type=int, default=120,
-                          help="Seconds between supervisor checks (supervised mode only)")
+                          help="Base seconds between supervisor checks; backs off "
+                               "while healthy, tightens when degrading (supervised mode)")
     p_submit.add_argument("--model", default=SUPERVISOR_MODEL, help="Supervisor model (supervised mode)")
+    p_submit.add_argument("--run-dir", default=None,
+                          help="Run directory whose progress.jsonl/status.json the "
+                               "supervisor reads and where it writes STOP on early-stop")
     p_submit.add_argument("--cwd", default=None)
 
     p_status = sub.add_parser("status", help="Check one task's status")

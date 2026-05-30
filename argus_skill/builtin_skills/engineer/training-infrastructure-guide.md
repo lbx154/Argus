@@ -153,7 +153,13 @@ These resources are allocated to you. Use them.
 - Skip the download entirely if the model is served via the model API route in `~/.argus-skill/capabilities/model_api.json`.
 
 **Subagent** (for long GPU tasks):
-- Submit: `python -m argus_skill.tools.subagent submit --task-id <id> --mode supervised --command '.venv/bin/python ...'`
+- Submit: `python -m argus_skill.tools.subagent submit --task-id <id> --mode supervised --run-dir experiments/<id> --command '.venv/bin/python ...'`
+- `--mode supervised` attaches an RL-aware LLM watcher: it polls the log on an
+  increasing interval (backs off while healthy to save tokens, tightens when it
+  sees trouble), judges reward/KL/response-length (not just SFT loss), and writes
+  `STOP` into the run dir to early-stop a diverging run.
+- `--run-dir` should point at the `experiment_io` run directory so the watcher
+  reads `progress.jsonl`/`status.json` and its early-stop `STOP` reaches `RunWriter`.
 - Check: `python -m argus_skill.tools.subagent status --task-id <id>`
 - Do NOT block — submit and continue other work.
 
