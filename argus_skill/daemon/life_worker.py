@@ -643,6 +643,18 @@ class LifeWorker:
         if _venv_bin not in _current_path:
             os.environ["PATH"] = f"{_venv_bin}:{_current_path}"
 
+        # Make the project's ``code/`` importable in every child shell so inline
+        # scripts and ``code/*.py`` helpers can ``import benchmark_loaders`` /
+        # ``import gpu_env`` without per-command ``PYTHONPATH=$PWD/code``
+        # gymnastics — a recurring source of wasted engineer rounds. Appended
+        # (not prepended) so it never shadows argus_skill or stdlib modules.
+        if self.config.project_workdir is not None:
+            _code_dir = str((self.config.project_workdir / "code").resolve())
+            _pp_parts = [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p]
+            if _code_dir not in _pp_parts:
+                _pp_parts.append(_code_dir)
+                os.environ["PYTHONPATH"] = os.pathsep.join(_pp_parts)
+
         # Set CUDA_VISIBLE_DEVICES from GPU resource allocation
         from ..tools.capability_vault import gpu_env_vars
         for k, v in gpu_env_vars().items():

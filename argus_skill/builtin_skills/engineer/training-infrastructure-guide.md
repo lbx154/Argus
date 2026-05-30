@@ -106,7 +106,67 @@ training nor large-scale inference (e.g. a pure literature analysis
 paper). In that case record the decision in `research/RESEARCH_BRIEF.md`
 and proceed.
 
-## ⚡ YOUR RESOURCES (configured by operator)
+## 🧬 Backbone model selection contract (research + plan stages)
+
+Picking the **base model** is as important as picking the framework, and is a
+**separate decision** that the L2 reviewer checks. Default failures here are
+choosing a model that is **too small** or **too old** for the hardware — that
+produces a result no main-conference reviewer will believe.
+
+1. **Current generation only.** The backbone must be from a **current,
+   actively released open model family** (latest generation at decision time,
+   e.g. released/updated in the most recent ~12 months). Do **not** default to
+   a previous-generation or legacy small model just because it is familiar or
+   downloads fast. Verify the family is current by checking the Hugging Face
+   model hub / trending / a recent open-LLM leaderboard at decision time —
+   exactly as you verify framework recency.
+2. **Size the model to the hardware, not to convenience.** Read your real GPU
+   budget first (`.venv/bin/python code/gpu_env.py` prints total VRAM). On a
+   multi-H200 box (hundreds of GB of aggregate VRAM) a **7B–14B** backbone
+   trains comfortably with LoRA/QLoRA, and an 8–9B model trains comfortably
+   even with full fine-tuning + FSDP/DeepSpeed-ZeRO. **The headline result must
+   use a model in at least the ~8–9B class** unless the research question is
+   specifically about small models. A 1–3B model is acceptable **only** as an
+   ablation/scaling point or a fast smoke run — never as the paper's main
+   claim when the GPUs can clearly train bigger.
+3. **Justify the choice in writing.** `research/INFRA_CHOICE.md` (and the
+   `## Infra` section of `research/EXPERIMENT_PLAN.md`) must name the exact
+   backbone (org/model id + parameter count + release date), state the VRAM
+   budget it was sized against, and give a one-line reason the size is
+   appropriate. If you deliberately use a small model, the reason must be a
+   research reason, not "it was easier / faster to train".
+4. **Reviewer blocker.** A headline run on a stale or sub-~8B backbone while
+   large GPUs sit underused is a hard blocker, the same as a self-written
+   training loop. Fix the backbone before claiming the run stage complete.
+
+## 🔥 Hardware saturation contract (run stage)
+
+Allocated GPUs that sit idle or near-idle are wasted compute and a blocker.
+The headline run must actually *use* the machine.
+
+1. **Use every allocated GPU.** If `gpu_env.visible_devices()` reports N GPUs,
+   the headline run must drive all N — one distributed job across them
+   (torchrun / accelerate / DeepSpeed / FSDP, or vLLM `--tensor-parallel-size N`
+   for inference) **or** several conditions fanned out one-per-GPU in parallel
+   via `code/run_experiments.py`. A headline run pinned to a single GPU while
+   others are free is a blocker.
+2. **Fill the memory.** Target **high VRAM utilization on each card** (aim for
+   ≳70% of each GPU's memory in steady state). Reach it by scaling, in order:
+   model size → per-device batch size / sequence length → less aggressive
+   quantization. Use **bf16**, **gradient checkpointing**, and
+   **flash-attention** so the headroom goes to useful work, not waste.
+3. **Verify, don't assume.** While the run is live, check actual utilization
+   (`nvidia-smi` or `.venv/bin/python code/gpu_env.py`) at least once and record
+   **peak VRAM per GPU and observed GPU util%** in the run's
+   `manifest.json`/report. "I launched a distributed command" is not evidence;
+   measured utilization is. A run that trained at a few-GB / low-util footprint
+   on a 140GB+ card has not used the hardware and must be rescaled.
+4. **Stay unblocked.** Saturating the GPUs does not mean blocking on them:
+   submit the heavy job through `argus_skill.tools.subagent --mode supervised`
+   and keep working. A healthy `running` job is **not** a failure — see the
+   Subagent note below.
+
+
 
 These resources are allocated to you. Use them.
 
@@ -161,7 +221,19 @@ These resources are allocated to you. Use them.
 - `--run-dir` should point at the `experiment_io` run directory so the watcher
   reads `progress.jsonl`/`status.json` and its early-stop `STOP` reaches `RunWriter`.
 - Check: `python -m argus_skill.tools.subagent status --task-id <id>`
+- A `status` call exits **0 while the job is healthily `running`** (and when it
+  is `done`/`early_stopped`); it exits non-zero **only** for genuine failures
+  (`error`/`crashed`/`timeout`). So a `running` result is NOT a failed command —
+  do not "repair" it. The JSON includes `live` (worker process alive) and a
+  `progress` summary (rows written + last progress line + age), so one poll
+  answers "is it alive and advancing" without hand-reading `progress.jsonl`.
+- Poll with backoff (the supervised watcher already does); do not spam `status`
+  every few seconds. Inspect the run directory directly only if `live` is true
+  but `progress` has stopped advancing.
 - Do NOT block — submit and continue other work.
+- `code/` is already on `PYTHONPATH` in your shell: `import gpu_env`,
+  `import experiment_io`, `import benchmark_loaders` work directly. Do NOT
+  prefix commands with `PYTHONPATH=$PWD/code` — it is redundant.
 
 **Reusable project scaffolds** (seeded in `code/`, standalone, run with `.venv/bin/python`):
 - `code/gpu_env.py` — call `gpu_env.configure_caches()` before any model load to pin

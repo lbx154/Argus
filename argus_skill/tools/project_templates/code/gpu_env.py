@@ -155,6 +155,54 @@ def suggest_nproc() -> int:
     return max(1, device_count())
 
 
+def total_vram_gb() -> float:
+    """Best-effort total VRAM across visible GPUs, in GiB (0.0 if unknown)."""
+    report = torch_cuda_report()
+    if report.get("cuda_available") and report.get("devices"):
+        return round(sum(float(d.get("total_memory_gb", 0.0)) for d in report["devices"]), 1)
+    # Fall back to nvidia-smi memory.total (MiB) for visible devices.
+    smi = nvidia_smi_summary()
+    if smi:
+        total_mib = 0.0
+        for row in smi.splitlines():
+            cols = [c.strip() for c in row.split(",")]
+            if len(cols) >= 4:
+                try:
+                    total_mib += float(cols[3])
+                except ValueError:
+                    continue
+        if total_mib > 0:
+            return round(total_mib / 1024.0, 1)
+    return 0.0
+
+
+def recommended_backbone_scale() -> str:
+    """A concrete model-size nudge for the *headline* run, sized to real VRAM.
+
+    The aim is to stop the common failure of defaulting to a tiny/legacy model
+    while large GPUs sit underused. This is guidance, not a hard cap — always
+    pick a *current-generation* open model and confirm fit empirically.
+    """
+    vram = total_vram_gb()
+    n = device_count()
+    if vram <= 0:
+        return "GPU VRAM unknown — run on real GPUs before sizing the backbone."
+    if vram >= 320:
+        scale = "an 8-14B (or larger) current-gen backbone; full fine-tune with FSDP/DeepSpeed-ZeRO is feasible"
+    elif vram >= 120:
+        scale = "an ~8-9B current-gen backbone (LoRA/QLoRA comfortably; full FT with ZeRO-3)"
+    elif vram >= 40:
+        scale = "a 7-8B current-gen backbone with LoRA/QLoRA"
+    elif vram >= 16:
+        scale = "a 3-7B current-gen backbone with QLoRA"
+    else:
+        scale = "a small (1-3B) backbone — headline claims need more VRAM than this"
+    return (
+        f"~{vram:.0f} GiB total VRAM across {n} GPU(s): headline run should use {scale}. "
+        f"Target >=70% VRAM utilization per card and drive all {n} GPU(s)."
+    )
+
+
 def suggest_launcher(framework: str = "") -> str:
     """Return a *hint* for launching a multi-GPU job — adapt to your framework.
 
@@ -220,6 +268,7 @@ def readiness_report() -> str:
         lines.append("nvidia-smi: unavailable.")
     lines.append("")
     lines.append("Launcher hint: " + suggest_launcher())
+    lines.append("Backbone sizing: " + recommended_backbone_scale())
     return "\n".join(lines)
 
 

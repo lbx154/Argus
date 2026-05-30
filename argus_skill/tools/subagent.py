@@ -822,24 +822,79 @@ def cmd_submit(args: argparse.Namespace) -> int:
     os._exit(0)
 
 
+# States that mean "this task did NOT fail". A healthy *running* job is not a
+# failure, so polling its status must exit 0 — otherwise the engineer's shell
+# flags every poll as a failed command and wastes rounds working around a
+# non-error. Only genuine failures get a non-zero exit.
+_OK_STATES = frozenset({"done", "running", "starting", "early_stopped"})
+_FAILED_STATES = frozenset({"error", "crashed", "timeout"})
+
+
+def _progress_summary(run_dir: str | None) -> dict[str, Any]:
+    """Summarize a run directory so one `status` call answers 'alive & advancing'."""
+    summary: dict[str, Any] = {}
+    if not run_dir:
+        return summary
+    base = Path(run_dir)
+    progress = base / "progress.jsonl"
+    if progress.exists():
+        try:
+            lines = progress.read_text(encoding="utf-8").splitlines()
+            summary["progress_rows"] = len(lines)
+            if lines:
+                try:
+                    summary["last_progress"] = json.loads(lines[-1])
+                except (ValueError, json.JSONDecodeError):
+                    summary["last_progress"] = lines[-1][:200]
+            try:
+                summary["progress_age_seconds"] = round(time.time() - progress.stat().st_mtime, 1)
+            except OSError:
+                pass
+        except OSError:
+            pass
+    results = base / "results.jsonl"
+    if results.exists():
+        try:
+            summary["result_rows"] = sum(1 for _ in results.open(encoding="utf-8"))
+        except OSError:
+            pass
+    return summary
+
+
 def cmd_status(args: argparse.Namespace) -> int:
-    """Check status of a single task."""
+    """Check status of a single task.
+
+    Exit code is 0 for any non-failure state (including a healthy ``running``
+    job) and non-zero only for genuine failures, so routine polling never reads
+    as a failed command.
+    """
     task = _read_task(args.task_id)
     if task is None:
         print(json.dumps({"error": f"task '{args.task_id}' not found"}))
-        return 1
+        return 2
 
-    # Update state if process died without writing final report
-    if task.get("state") == "running":
-        pid = task.get("pid", 0)
+    # Update state if process died without writing final report.
+    pid = task.get("pid", 0)
+    if task.get("state") in ("running", "starting"):
         if pid and not _is_pid_alive(pid):
             task["state"] = "crashed"
             task["error"] = f"sub-agent process {pid} no longer running"
             task["completed_at"] = time.time()
             _write_task(args.task_id, task)
 
+    # Enrich with a live-process flag and run-directory progress so a single
+    # poll tells the engineer whether the job is alive and advancing, without
+    # it having to hand-inspect progress.jsonl/status.json itself.
+    task["live"] = bool(pid and _is_pid_alive(pid))
+    progress = _progress_summary(task.get("run_dir"))
+    if progress:
+        task["progress"] = progress
+
     print(json.dumps(task, indent=2))
-    return 0 if task.get("state") == "done" else 1
+    state = task.get("state")
+    if state in _FAILED_STATES:
+        return 1
+    return 0
 
 
 def cmd_list(args: argparse.Namespace) -> int:
@@ -888,7 +943,7 @@ def cmd_wait(args: argparse.Namespace) -> int:
             return 1
         if task.get("state") not in ("running", "starting"):
             print(json.dumps(task, indent=2))
-            return 0 if task.get("state") == "done" else 1
+            return 1 if task.get("state") in _FAILED_STATES else 0
         time.sleep(5)
     print(json.dumps({"error": "wait timeout", "task_id": args.task_id}))
     return 1
