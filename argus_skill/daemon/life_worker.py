@@ -671,6 +671,7 @@ class LifeWorker:
         # poll_interval seconds and try again — items may have been
         # /add'd from a coexisting REPL.
         from ..apps._life_repl import _inbox_drainer_for
+        from ..life.activity_log import ActivityLogSink
         from ..life.event_log import JsonlEventSink
 
         # Telegram live-streaming reporter (daemon thread)
@@ -683,8 +684,15 @@ class LifeWorker:
         except Exception:  # noqa: BLE001
             log.debug("telegram stream reporter unavailable; continuing")
 
-        sink = JsonlEventSink(
-            _DaemonSink(self, stream_reporter=stream_reporter),
+        # ActivityLogSink (outermost) renders a concise, high-signal
+        # <life_dir>/activity.log for debugging; JsonlEventSink keeps the
+        # exhaustive events.jsonl replay surface; _DaemonSink drives the
+        # daemon log + telegram. Events flow outermost -> innermost.
+        sink = ActivityLogSink(
+            JsonlEventSink(
+                _DaemonSink(self, stream_reporter=stream_reporter),
+                life_dir=runtime_root,
+            ),
             life_dir=runtime_root,
         )
 
