@@ -649,9 +649,31 @@ def test_worker_runtime_context_empty_without_research_profile(
 ) -> None:
     monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
+    # Isolate operator special prompts so the host's directives don't leak in.
+    monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR",
+                       str(tmp_path / "no_special_prompts"))
     cfg = LifeWorkerConfig(life_dir=tmp_path, backend="memory")
 
     assert _worker_runtime_context(cfg) == ""
+
+
+def test_worker_runtime_context_surfaces_operator_special_prompts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Operator directives lead the runtime context, even with no profile."""
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
+    sp = tmp_path / "special"
+    sp.mkdir()
+    (sp / "10-gpu.md").write_text("Free the keep-alive before training.",
+                                  encoding="utf-8")
+    monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(sp))
+    cfg = LifeWorkerConfig(life_dir=tmp_path, backend="memory")
+
+    context = _worker_runtime_context(cfg)
+    assert "Operator Directives" in context
+    assert "Free the keep-alive before training." in context
 
 
 def test_handoff_source_signature_reads_test_override_file(

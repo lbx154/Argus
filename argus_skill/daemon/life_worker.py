@@ -950,11 +950,15 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
 def _worker_runtime_context(cfg: LifeWorkerConfig) -> str:
     """Return static context injected into daemon-driven missions."""
     from ..life.research_profile import render_research_profile_context
+    from ..life.special_prompts import render_special_prompts_context
     from ..tools.capability_vault import format_gpu_context, format_api_context
 
+    # Operator directives ("special prompts") are machine-specific house
+    # rules; they lead the runtime context so the agent sees them first.
+    special_context = render_special_prompts_context()
     research_context = render_research_profile_context()
     if not research_context:
-        return ""
+        return special_context
     argus_python = os.environ.get("ARGUS_SKILL_PYTHON") or sys.executable
     gpu_context = format_gpu_context()
     runtime_context = (
@@ -1003,7 +1007,10 @@ def _worker_runtime_context(cfg: LifeWorkerConfig) -> str:
     api_context = format_api_context()
     if api_context:
         runtime_context += "\n" + api_context + "\n"
-    return runtime_context + "\n---\n\n" + research_context
+    body = runtime_context + "\n---\n\n" + research_context
+    if special_context:
+        return special_context + "\n\n---\n\n" + body
+    return body
 
 
 class _DaemonSink:
