@@ -61,6 +61,32 @@ def test_render_line_milestone_and_drop() -> None:
     assert "needs full-scale evidence" in verdict
 
 
+def test_render_line_round_milestones() -> None:
+    # Reviewer verdict per round is the key debugging signal.
+    verdict = render_line({
+        "type": "round.review.completed",
+        "round_index": 3,
+        "status": "continue",
+        "confidence": 0.4,
+        "reason": "benchmark provenance missing",
+    })
+    assert verdict is not None
+    assert "ROUND" in verdict and "reviewer" in verdict
+    assert "round=3" in verdict and "verdict=continue" in verdict
+    assert "benchmark provenance missing" in verdict
+
+    built = render_line({"type": "round.main.completed", "round_index": 3})
+    assert built == "ROUND    engineer  round=3  built"
+
+    warn = render_line({
+        "type": "engineer.failure_nudge",
+        "round": 4,
+        "text": "repeated tool failures detected — advisory injected",
+    })
+    assert warn is not None
+    assert warn.startswith("WARN") and "round=4" in warn
+
+
 def test_render_line_drops_noise() -> None:
     # Not on the allow-list -> dropped.
     assert render_line({"type": "skill.outcome", "status": "done"}) is None

@@ -595,6 +595,16 @@ class LifeWorker:
         if existing:
             return False
 
+        # Seed the reusable GPU/experiment scaffolds into ``code/`` so a
+        # continuous-mode project bootstraps with the same starter helpers
+        # the standalone launcher provides. overwrite=False never clobbers
+        # files the engineer has already written on a re-bootstrap.
+        try:
+            from ..tools.new_auto_research_project import seed_starter_code
+            seed_starter_code(Path(preflight.project_root), overwrite=False)
+        except Exception:  # noqa: BLE001
+            log.exception("daemon: failed to seed starter code during bootstrap")
+
         try:
             item = BacklogItem.new(
                 title=title,

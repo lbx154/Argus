@@ -86,6 +86,24 @@ def _phase_started(e: dict[str, Any]) -> str:
     return f"PHASE    {layer:<9} round={e.get('round_index', 0)}"
 
 
+def _round_main_completed(e: dict[str, Any]) -> str:
+    return f"ROUND    engineer  round={e.get('round_index', '?')}  built"
+
+
+def _round_review_completed(e: dict[str, Any]) -> str:
+    status = _txt(e, "status") or "?"
+    conf = e.get("confidence")
+    conf_part = f"  conf={conf:.2f}" if isinstance(conf, (int, float)) else ""
+    reason = _txt(e, "reason", limit=120)
+    line = f"ROUND    reviewer  round={e.get('round_index', '?')}  verdict={status}{conf_part}"
+    return f"{line} :: {reason}" if reason else line
+
+
+def _failure_nudge(e: dict[str, Any]) -> str:
+    detail = _txt(e, "text", "reason") or "repeated tool failures"
+    return f"WARN     engineer  round={e.get('round', '?')}  {detail}"
+
+
 def _planner_start(_e: dict[str, Any]) -> str:
     return "PLANNER  start"
 
@@ -154,6 +172,9 @@ RENDERERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "life.mission.completed": _mission_completed,
     "life.mission.orphaned": _mission_orphaned,
     "life.phase.started": _phase_started,
+    "round.main.completed": _round_main_completed,
+    "round.review.completed": _round_review_completed,
+    "engineer.failure_nudge": _failure_nudge,
     "life.planner.start": _planner_start,
     "life.planner.verdict": _planner_verdict,
     "life.planner.task_added": _planner_task_added,

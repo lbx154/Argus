@@ -32,11 +32,11 @@
       "maxLength": 5000
     },
     "scope": {
-      "type": "string",
-      "enum": ["bounded", "final_submission"]
+      "type": ["string", "null"],
+      "enum": ["bounded", "final_submission", null]
     },
     "checklist": {
-      "type": "array",
+      "type": ["array", "null"],
       "maxItems": 200,
       "items": {
         "type": "object",
@@ -56,6 +56,8 @@
     "reason",
     "next_action",
     "round_summary_markdown",
-    "completion_summary_markdown"
+    "completion_summary_markdown",
+    "scope",
+    "checklist"
   ]
 }
