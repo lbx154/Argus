@@ -198,7 +198,8 @@ class SkillLoop:
         matcher_output_tokens = int(
             getattr(self.skill_store, "last_match_output_tokens", 0) or 0
         )
-        skill: Skill | None = matched[0] if matched else None
+        matched_skills: list[Skill] = list(matched) if matched else []
+        skill: Skill | None = matched_skills[0] if matched_skills else None
         skill_distilled = False
         distill_result = None
 
@@ -225,13 +226,15 @@ class SkillLoop:
                         on_event=self.on_event,
                     )
                     skill_distilled = skill is not None
+                    if skill is not None:
+                        matched_skills = [skill]
             except Exception as exc:
                 log.warning("scientist distill failed (%s: %s); proceeding without skill",
                             type(exc).__name__, exc)
                 self._emit({"type": "scientist.error",
                             "text": f"distill failed: {type(exc).__name__}"})
 
-        skill_text = self.skill_store.render_skill(skill) if skill else ""
+        skill_text = self._render_skill_playbook(matched_skills)
         skill_name = skill.name if skill else None
 
         # Step 3: supervised round-loop
@@ -340,6 +343,30 @@ class SkillLoop:
             self.on_event(event)
         except Exception:  # never let UI errors kill the loop
             log.exception("on_event handler raised")
+
+    def _render_skill_playbook(self, skills: list[Skill]) -> str:
+        """Render the matched skills for the engineer prompt.
+
+        The matcher returns every skill that independently clears the
+        ``high`` bar. We inject all of them and let the engineer make the
+        final relevance call for THIS task instead of pre-committing to a
+        single match.
+        """
+        if not skills:
+            return ""
+        if len(skills) == 1:
+            return self.skill_store.render_skill(skills[0])
+        parts = [
+            "The matcher found multiple high-fit skills. They are candidates, "
+            "not orders: read each, apply the one(s) genuinely relevant to "
+            "THIS task, and ignore any that do not fit.",
+        ]
+        for skill in skills:
+            parts.append(
+                f"### Candidate skill: {skill.name}\n"
+                + self.skill_store.render_skill(skill)
+            )
+        return "\n\n".join(parts)
 
     @staticmethod
     def _build_engineer_prompt(
