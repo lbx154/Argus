@@ -43,11 +43,10 @@ argus-skill / python -m argus_skill
 
 ```text
 ~/.argus-skill/identity.md
-~/.argus-skill/journal.jsonl
 ~/.argus-skill/skills/
 ~/.argus-skill/projects/<fingerprint>/project.md
 ~/.argus-skill/projects/<fingerprint>/backlog.jsonl
-~/.argus-skill/projects/<fingerprint>/journal.jsonl
+~/.argus-skill/projects/<fingerprint>/memory.jsonl   # 本项目日志（每个项目独立，无全局 journal）
 ~/.argus-skill/projects/<fingerprint>/events.jsonl
 ~/.argus-skill/projects/<fingerprint>/continuous.json
 ```
@@ -91,7 +90,40 @@ L1 engineer round loop 在 `argus_skill/engineer/runner.py`。
 - 运行 acceptance checks：`argus_skill/engineer/checks.py`。
 - backend failure / auth failure / context poisoned / effective progress timeout。
 - 是否清掉 carried Codex thread id。
-- `round.main.completed`、`round.review.completed` 等事件。
+- **Curated-memory checkpoint + 结构化 session roll**（见下）。
+- `round.main.completed`、`round.review.completed`、`session.roll` 等事件。
+
+### Curated working-memory checkpoint（上下文管理 / 反 amnesia loop）
+
+背景：一个 mission 的 Codex session 会被逐轮 `resume`，长 horizon 任务里它会
+涨到几亿 token、被 codex 自动有损压缩上百次，每次压缩丢失工作记忆 → 模型反复
+重读同一批 skill 文档空转（amnesia loop）。修复哲学：**不靠看门狗**，而是让
+session 结构上短命 + 跨 session 边界只交接「经过筛选的有价值记忆」。
+
+实现（`argus_skill/engineer/checkpoint.py` + `runner.py` + `reviewer.py`）：
+
+- `CheckpointState`：小而**硬上限**的工作记忆（goal / done[] / tried_and_failed[]
+  / open_blocker / next_step）。上限在 Python 里强制（不只在 prompt/schema），
+  上限本身就是强制「遗忘/筛选」的机制——删除是解毒，不是丢失（地面真相在磁盘
+  artifact 里，可重新召回）。
+- **作者 = reviewer（记忆审计员）**：reviewer schema 增加 `checkpoint` 对象。
+  engineer 在 turn 末尾按 prompt 输出一段 `HANDOFF:` 提案；reviewer 校验它
+  （对照 checks/artifacts）并 CRUD 出下一份 canonical checkpoint。engineer 提议、
+  reviewer 验证落定。
+- **消费**：runner 每轮把 checkpoint 渲染成「Curated working memory」块 prepend 到
+  engineer prompt（同 failed-tool advisory 的拼接方式，`loop.py` 不动）。
+- **Session roll**：`SupervisedConfig.shift_round_limit`（env
+  `ARGUS_SKILL_SHIFT_ROUND_LIMIT`，默认 8，0=禁用）。一个 thread 活满 N 轮就主动
+  drop，下一轮从 checkpoint 重新播种一个**全新 session**，per-session 上下文有界 →
+  上百次压缩的 runaway 不可能发生。已有的 context-pressure / poisoned-session 清
+  thread 路径现在也带着 checkpoint = 重生而非失忆。
+- **无进展**复用已有的 `planner_report.forward_progress`（reviewer 对照前后
+  checkpoint 整体判断），不新增看门狗。
+- fail-soft：reviewer 漏写/写坏 checkpoint → runner 保留上一份，绝不清空记忆。
+- 持久化：`SupervisedConfig.checkpoint_path`（None=mission 内内存）。当前 `loop.py`
+  未传 path，所以是 mission 内内存级（已足够修复单 mission 内的 amnesia loop）；
+  要跨 mission 续接，给它传一个 project-state 路径即可。
+- 测试：`tests/test_checkpoint.py`、`tests/test_checkpoint_loop.py`。
 
 L2 reviewer 在 `argus_skill/engineer/reviewer.py`。
 

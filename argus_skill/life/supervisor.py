@@ -1348,6 +1348,11 @@ class LifeSupervisor:
                 "skill_distilled": bool(getattr(outcome, "skill_distilled", False)),
                 "had_follow_up": bool(getattr(outcome, "had_follow_up", False)),
                 "completion_summary": self._completion_evidence_from_outcome(outcome),
+                "planner_report": (
+                    getattr(outcome, "planner_report", {})
+                    if isinstance(getattr(outcome, "planner_report", {}), dict)
+                    else {}
+                ),
                 "final_submission_certified": bool(
                     kind == "mission_complete"
                     and self._planner_scope_from_item(item)
@@ -2202,8 +2207,48 @@ class LifeSupervisor:
             line = f"- [{ts}] {e.kind}: {e.title} — {e.summary}"
             extra = getattr(e, "extra", {}) or {}
             if isinstance(extra, dict):
-                evidence = str(extra.get("completion_summary") or "")
-                if extra.get("final_submission_certified") and evidence:
-                    line += f" | final-submission evidence: {evidence[:500]}"
+                if extra.get("final_submission_certified"):
+                    evidence = str(extra.get("completion_summary") or "").strip()
+                    if evidence:
+                        line += f" | final-submission evidence: {evidence[:500]}"
+                if e.kind in ("mission_complete", "mission_failed"):
+                    # Surface the L2 reviewer's own structured briefing so the
+                    # planner attends to *what actually happened*, not just the
+                    # `status=done` field. A mission can be marked done by being
+                    # waved through a blocked/rollback/allowed-failure gate
+                    # without resolving the underlying blocker; this report lets
+                    # the planner avoid re-dispatching no-progress missions.
+                    report = extra.get("planner_report")
+                    if isinstance(report, dict) and report:
+                        rendered = self._render_planner_report(report)
+                        if rendered:
+                            line += "\n" + rendered
             lines.append(line)
         return "\n".join(lines) or "(empty)"
+
+    @staticmethod
+    def _render_planner_report(report: dict) -> str:
+        """Render the reviewer-authored planner briefing as plain lines.
+
+        The reviewer authors a clean structured object; we only select and
+        truncate its fields, never reformat free text or strip logs (the
+        reviewer is instructed to emit clean content). Returns "" when the
+        object carries no usable signal.
+        """
+        def _clean(value: object, limit: int) -> str:
+            return str(value or "").strip()[:limit]
+
+        forward = report.get("forward_progress")
+        headline = _clean(report.get("headline"), 600)
+        blocker = _clean(report.get("blocker"), 1200)
+        recommended = _clean(report.get("recommended_next"), 1200)
+        parts: list[str] = []
+        if isinstance(forward, bool):
+            parts.append(f"    reviewer→planner: forward_progress={forward}")
+        if headline:
+            parts.append(f"    headline: {headline}")
+        if blocker:
+            parts.append(f"    blocker: {blocker}")
+        if recommended:
+            parts.append(f"    recommended_next: {recommended}")
+        return "\n".join(parts)

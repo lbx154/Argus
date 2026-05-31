@@ -49,11 +49,14 @@ def test_global_memory_lazy_creation(isolated_home: Path) -> None:
 def test_global_memory_init_seeds_identity(isolated_home: Path) -> None:
     mem = GlobalMemory.open()
     created = mem.init()
-    assert created == {"identity": True, "journal": True}
+    # Global root seeds only identity; logs are per-project, so init must not
+    # create a global journal file.
+    assert created == {"identity": True}
     assert (isolated_home / "identity.md").read_text(encoding="utf-8")
+    assert not (isolated_home / "journal.jsonl").exists()
     # Idempotent.
     again = mem.init()
-    assert again == {"identity": False, "journal": False}
+    assert again == {"identity": False}
 
 
 def test_global_memory_journal_round_trip(isolated_home: Path) -> None:
@@ -271,7 +274,9 @@ def test_memory_bundle_init_creates_both(
     assert "## Conventions" in card_text
     assert "## Red lines" in card_text
     # idempotent
-    assert bundle.init()["global"] == {"identity": False, "journal": False}
+    assert bundle.init()["global"] == {"identity": False}
+    # Per-project logs only: bundle init must never create a global journal.
+    assert not (bundle.global_mem.root / "journal.jsonl").exists()
 
 
 def test_memory_bundle_render_prelude_excludes_cross_project_journal(
@@ -305,7 +310,7 @@ def test_memory_bundle_render_prelude_excludes_cross_project_journal(
     assert "other projects" not in rendered
 
 
-def test_memory_bundle_journal_reads_are_project_scoped(
+def test_memory_bundle_journal_writes_are_project_only(
     isolated_home: Path, tmp_path: Path
 ) -> None:
     bundle = MemoryBundle.for_cwd(tmp_path)
@@ -324,13 +329,15 @@ def test_memory_bundle_journal_reads_are_project_scoped(
     )
     bundle.journal.append(local)
 
+    # Reads and writes are strictly project-scoped.
     assert [entry.title for entry in bundle.journal.all()] == ["local new"]
     assert [entry.title for entry in bundle.journal.tail(5)] == ["local new"]
     assert bundle.journal.path == bundle.project.memory.path
     assert bundle.journal.total_cost_since(0) == pytest.approx(0.25)
 
+    # The project journal write must NOT be mirrored into the global journal.
     global_titles = [entry.title for entry in bundle.global_mem.journal.tail(5)]
-    assert global_titles == ["global old", "local new"]
+    assert global_titles == ["global old"]
 
 
 def test_memory_bundle_render_prelude_empty_when_nothing_relevant(

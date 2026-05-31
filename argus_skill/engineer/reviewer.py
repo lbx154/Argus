@@ -186,6 +186,7 @@ class Reviewer:
         prev_review_summary: str = "",
         raw_evidence: str = "",
         scope: str = "",
+        prior_checkpoint: dict[str, Any] | None = None,
     ) -> ReviewDecision:
         prompt = self._build_prompt(
             objective=objective,
@@ -201,6 +202,7 @@ class Reviewer:
             prev_review_summary=prev_review_summary,
             raw_evidence=raw_evidence,
             scope=scope,
+            prior_checkpoint=prior_checkpoint,
         )
         try:
             result = self.runner.run_exec(
@@ -303,6 +305,7 @@ class Reviewer:
         prev_review_summary: str = "",
         raw_evidence: str = "",
         scope: str = "",
+        prior_checkpoint: dict[str, Any] | None = None,
     ) -> str:
         error_text = main_error or "none"
         check_text = summarize_checks(checks)
@@ -427,6 +430,33 @@ class Reviewer:
             if raw_evidence.strip()
             else ""
         )
+        # Curated working-memory: show the reviewer the checkpoint it authored
+        # last round so it can do deliberate CRUD (add/update/delete) rather
+        # than re-deriving memory from scratch. The engineer's HANDOFF proposal
+        # arrives inside ``main_summary``; the reviewer validates it against
+        # checks/artifacts and emits the next canonical checkpoint.
+        from .checkpoint import CheckpointState as _CheckpointState
+        prior_cp = _CheckpointState.from_dict(prior_checkpoint or {})
+        if prior_cp.is_empty():
+            prior_checkpoint_block = (
+                "## Curated working memory (checkpoint)\n"
+                "No prior checkpoint yet — author the first one from the "
+                "engineer's HANDOFF and the verified facts of this round.\n\n"
+            )
+        else:
+            _cp_done = "\n".join(f"  - {d}" for d in prior_cp.done) or "  - (none)"
+            _cp_fail = (
+                "\n".join(f"  - {d}" for d in prior_cp.tried_and_failed)
+                or "  - (none)"
+            )
+            prior_checkpoint_block = (
+                "## Curated working memory (checkpoint) — PRIOR\n"
+                f"goal: {prior_cp.goal or '(unset)'}\n"
+                f"done:\n{_cp_done}\n"
+                f"tried_and_failed:\n{_cp_fail}\n"
+                f"open_blocker: {prior_cp.open_blocker or '(none)'}\n"
+                f"next_step: {prior_cp.next_step or '(none)'}\n\n"
+            )
         # Final-submission completion contract. This block replaces the
         # retired hardcoded EMNLP validators: instead of the supervisor
         # running ``validate_full_emnlp_readiness`` and friends, the reviewer
@@ -477,6 +507,7 @@ class Reviewer:
             f"{final_submission_block}"
             f"{rollback_block}\n\n"
             f"{venv_skill_block}\n\n"
+            f"{prior_checkpoint_block}"
             "**Length constraints:**\n"
             "- Be thorough in `round_summary_markdown` — include all relevant details\n"
             "- Use brief bullet points, not lengthy explanations\n"
@@ -489,9 +520,62 @@ class Reviewer:
             "- next_action\n"
             "- round_summary_markdown\n"
             "- completion_summary_markdown\n"
+            "- planner_report (object: forward_progress, headline, blocker,\n"
+            "  recommended_next)\n"
+            "- checkpoint (object: goal, done[], tried_and_failed[],\n"
+            "  open_blocker, next_step)\n"
             "Optional JSON keys (REQUIRED when scope is final_submission):\n"
             "- scope (`bounded` or `final_submission`)\n"
             "- checklist (array of {item, satisfied, evidence})\n\n"
+            "Planner report rules (this object is the ONLY thing the project\n"
+            "planner reads about this mission — keep it a clean, structured,\n"
+            "self-contained briefing, NOT raw logs or terminal output):\n"
+            "- `forward_progress`: boolean. TRUE only if this mission actually\n"
+            "  moved the project closer to the operator goal. Set FALSE when\n"
+            "  the mission merely passed through an allowed blocked / rollback /\n"
+            "  not-launched / gate-blocked escape path, or only renamed/\n"
+            "  refreshed artifacts while the real blocker remains — even if\n"
+            "  `status` is `done`.\n"
+            "- `headline`: one or two plain sentences stating what actually\n"
+            "  changed or was proven this mission. No ANSI codes, no banners,\n"
+            "  no command dumps.\n"
+            "- `blocker`: the single most important unresolved blocker the\n"
+            "  planner must address next, with its root cause and the owning\n"
+            "  stage if known (e.g. `plan-level method defect: all conditions\n"
+            "  emit identical outputs; owning stage = plan`). Empty string if\n"
+            "  nothing blocks forward progress.\n"
+            "- `recommended_next`: the concrete next mission focus you advise\n"
+            "  (e.g. `pivot the method` / `roll back to plan and redesign\n"
+            "  condition separation`), or empty string if the project is done.\n"
+            "  Do NOT recommend re-running an equivalent task that leaves the\n"
+            "  blocker in place.\n\n"
+            "Checkpoint rules (you are the MEMORY AUDITOR; this object becomes\n"
+            "the engineer's ENTIRE working memory next round — the raw session\n"
+            "is dropped, so a fresh engineer sees ONLY this):\n"
+            "- Author the next checkpoint from (a) the PRIOR checkpoint above\n"
+            "  and (b) the engineer's `HANDOFF:` block in its summary. The\n"
+            "  engineer PROPOSES; you VALIDATE and curate. Never copy a claim\n"
+            "  you cannot back with checks/artifacts.\n"
+            "- This is curated working memory, NOT a log. It is hard-capped\n"
+            "  (done ≤ 8, tried_and_failed ≤ 6, short strings). The cap forces\n"
+            "  you to FORGET: keep only items that change what the next session\n"
+            "  does; delete resolved blockers, stale plans, and low-value\n"
+            "  detail. Deletion is correct, not lossy — ground truth stays on\n"
+            "  disk and is re-summonable.\n"
+            "- `goal`: the mission's end goal in one line (carry it forward).\n"
+            "- `done`: only VERIFIED accomplishments, each with the proof\n"
+            "  (command/file). Never list an unverified self-report. If a check\n"
+            "  is `[FAIL]`, the checked objective is NOT done.\n"
+            "- `tried_and_failed`: dead ends with the reason, so the successor\n"
+            "  does not repeat them (prevents a Sisyphus loop). Keep the ones\n"
+            "  tied to the current blocker; drop irrelevant ones.\n"
+            "- `open_blocker`: the single most important unresolved blocker +\n"
+            "  root cause. Do NOT delete it unless it is resolved (move to\n"
+            "  `done`) or replaced by a more specific one.\n"
+            "- `next_step`: the most useful next concrete action.\n"
+            "- Carry forward load-bearing prior items the engineer did not\n"
+            "  mention — your job is to PRESERVE valuable memory across the\n"
+            "  session boundary, only dropping what is genuinely low-value.\n\n"
             "Decision rules:\n"
             "1) Choose `done` ONLY when the main agent's last summary contains\n"
             "   CONCRETE EVIDENCE that the work succeeded: actual command output,\n"
@@ -698,7 +782,50 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
         completion_summary_markdown=completion_summary_markdown,
         scope=_parse_scope(parsed),
         checklist=_parse_checklist(parsed),
+        planner_report=_parse_planner_report(parsed, status=status, reason=reason),
+        checkpoint=_parse_checkpoint(parsed),
     )
+
+
+def _parse_checkpoint(parsed: dict) -> dict[str, Any]:
+    """Parse the reviewer-authored curated working-memory checkpoint.
+
+    Fail-soft: returns ``{}`` when absent/malformed so the runner keeps the
+    prior checkpoint rather than wiping memory on a noisy verdict. Caps are
+    re-enforced downstream by ``CheckpointState.from_dict``.
+    """
+    raw = parsed.get("checkpoint")
+    if not isinstance(raw, dict):
+        return {}
+    return raw
+
+
+def _parse_planner_report(parsed: dict, *, status: str, reason: str) -> dict[str, Any]:
+    """Parse the reviewer's structured, planner-facing briefing (fail-soft).
+
+    The reviewer authors this so the planner routes from a clean structured
+    report. Missing/partial fields are tolerated: we fill sensible defaults
+    derived from the verdict rather than rejecting the whole decision.
+    """
+    raw = parsed.get("planner_report")
+    raw = raw if isinstance(raw, dict) else {}
+    headline = str(raw.get("headline", "") or "").strip()
+    blocker = str(raw.get("blocker", "") or "").strip()
+    recommended_next = str(raw.get("recommended_next", "") or "").strip()
+    fp = raw.get("forward_progress")
+    if isinstance(fp, bool):
+        forward_progress = fp
+    else:
+        # Conservative default: only a clean ``done`` implies progress.
+        forward_progress = status == "done"
+    if not headline:
+        headline = (reason or "").strip()[:600]
+    return {
+        "forward_progress": forward_progress,
+        "headline": headline,
+        "blocker": blocker,
+        "recommended_next": recommended_next,
+    }
 
 
 def _parse_scope(parsed: dict) -> str:

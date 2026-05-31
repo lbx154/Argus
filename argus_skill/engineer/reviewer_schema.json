@@ -35,6 +35,17 @@
       "type": ["string", "null"],
       "enum": ["bounded", "final_submission", null]
     },
+    "planner_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "forward_progress": { "type": "boolean" },
+        "headline": { "type": "string", "maxLength": 600 },
+        "blocker": { "type": "string", "maxLength": 1200 },
+        "recommended_next": { "type": "string", "maxLength": 1200 }
+      },
+      "required": ["forward_progress", "headline", "blocker", "recommended_next"]
+    },
     "checklist": {
       "type": ["array", "null"],
       "maxItems": 200,
@@ -48,6 +59,26 @@
         },
         "required": ["item", "satisfied", "evidence"]
       }
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "goal": { "type": "string", "maxLength": 400 },
+        "done": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "type": "string", "maxLength": 280 }
+        },
+        "tried_and_failed": {
+          "type": "array",
+          "maxItems": 6,
+          "items": { "type": "string", "maxLength": 280 }
+        },
+        "open_blocker": { "type": "string", "maxLength": 800 },
+        "next_step": { "type": "string", "maxLength": 600 }
+      },
+      "required": ["goal", "done", "tried_and_failed", "open_blocker", "next_step"]
     }
   },
   "required": [
@@ -58,6 +89,8 @@
     "round_summary_markdown",
     "completion_summary_markdown",
     "scope",
-    "checklist"
+    "planner_report",
+    "checklist",
+    "checkpoint"
   ]
 }

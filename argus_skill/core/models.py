@@ -118,6 +118,21 @@ class ReviewDecision:
     # ordinary bounded missions.
     scope: str = ""
     checklist: list[dict[str, Any]] = field(default_factory=list)
+    # Planner-facing structured briefing authored by the reviewer. The L4
+    # planner routes the next mission from this clean, structured report
+    # rather than from raw engineer output or noisy verdict prose. Shape:
+    # ``{"forward_progress": bool, "headline": str, "blocker": str,
+    # "recommended_next": str}``. Fail-soft: empty dict when the reviewer
+    # omitted it or the round errored before a verdict.
+    planner_report: dict[str, Any] = field(default_factory=dict)
+    # Curated working-memory checkpoint authored by the reviewer (the memory
+    # auditor) from the engineer's end-of-turn handoff proposal. Carried across
+    # session rolls so a fresh engineer session resumes from a small, curated
+    # handoff instead of a giant compacted history. Shape:
+    # ``{"goal", "done": [...], "tried_and_failed": [...], "open_blocker",
+    # "next_step"}``. Fail-soft: empty dict when the reviewer omitted it or the
+    # round errored before a verdict (runner then keeps the prior checkpoint).
+    checkpoint: dict[str, Any] = field(default_factory=dict)
     # Side-channel: token usage of the reviewer subprocess that produced
     # this decision. Populated by ``MissionReviewer.evaluate``; used by
     # benchmarks/runners to compute USD cost. Not part of the reviewer's

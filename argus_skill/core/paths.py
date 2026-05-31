@@ -8,7 +8,6 @@ Current runtime layout::
 
     ~/.argus-skill/
     ├─ identity.md
-    ├─ journal.jsonl
     ├─ skills/
     │   └─ *_archive/
     └─ projects/
@@ -23,6 +22,11 @@ Current runtime layout::
             ├─ daemon.pid
             ├─ daemon.status.json
             └─ repl.pid
+
+The global root holds only cross-project *identity* and shared skills. The
+journal/log is per-project (``projects/<fingerprint>/memory.jsonl``); there is
+no global journal so no cross-project audit trail accumulates. ``journal_path``
+is retained only for legacy single-project tooling.
 
 Legacy compatibility helpers kept for older tests / tooling:
 

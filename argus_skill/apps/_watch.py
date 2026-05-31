@@ -276,9 +276,14 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
         bundle = life  # MemoryBundle-like
         project_root = Path(getattr(bundle.project, "root"))
         global_root = Path(getattr(bundle, "global_root"))
+        # Split memory: the project journal is memory.jsonl (no global log).
+        journal_file = project_root / "memory.jsonl"
     else:
+        bundle = None
         project_root = Path(life)
         global_root = project_root
+        # Legacy single-project facade keeps its journal at journal.jsonl.
+        journal_file = project_root / "journal.jsonl"
     if not project_root.exists():
         print(f"watch: life-dir not found: {project_root}", file=sys.stderr)
         return 2
@@ -299,7 +304,7 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
         return 2
 
     events_path = project_root / "events.jsonl"
-    journal_path = global_root / "journal.jsonl"
+    journal_path = journal_file
     backlog_path = project_root / "backlog.jsonl"
 
     console = Console()
@@ -318,9 +323,9 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
 
     journal = getattr(bundle, "journal", None)
     if journal is None:
-        from ..life.memory import GlobalMemory
+        from ..life.memory import Journal
 
-        journal = GlobalMemory.open(global_root).journal
+        journal = Journal(journal_path)
     budget_cache = _BudgetLineCache()
     plain_console = None if sys.stdout.isatty() else Console(force_terminal=False, color_system=None)
 

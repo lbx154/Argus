@@ -37,6 +37,7 @@ from ..core.models import (
     RunnerResult,
 )
 from ..core.ports import RunnerBackend
+from .checkpoint import CheckpointState, load_checkpoint, save_checkpoint
 from .checks import all_checks_passed, run_checks
 from .reviewer import Reviewer, ReviewerConfig
 
@@ -81,6 +82,7 @@ _EFFECTIVE_PROGRESS_CHECK_INTERVAL_ENV = (
     "ARGUS_SKILL_EFFECTIVE_PROGRESS_CHECK_INTERVAL_SECONDS"
 )
 _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
+_SHIFT_ROUND_LIMIT_ENV = "ARGUS_SKILL_SHIFT_ROUND_LIMIT"
 _EFFECTIVE_PROGRESS_DEFAULT_TIMEOUT_SECONDS = 60 * 60
 _EFFECTIVE_PROGRESS_DEFAULT_CHECK_INTERVAL_SECONDS = 30.0
 _EFFECTIVE_PROGRESS_WAITING_EVENT_INTERVAL_SECONDS = 120.0
@@ -277,6 +279,18 @@ class SupervisedConfig:
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
     session_id: str | None = None
+    # Curated-memory checkpoint: how many rounds a single Codex thread may live
+    # before it is proactively rolled (dropped) so the next round starts a
+    # fresh session seeded only by the checkpoint. Bounds per-session context
+    # growth to prevent the repeated auto-compaction amnesia loop. 0 disables
+    # the proactive roll (e.g. tests / interactive chat). Env override:
+    # ARGUS_SKILL_SHIFT_ROUND_LIMIT.
+    shift_round_limit: int = field(
+        default_factory=lambda: _env_int(_SHIFT_ROUND_LIMIT_ENV, 8)
+    )
+    # Where to persist the curated checkpoint (cross-mission / crash
+    # continuity). None = in-memory only for this mission.
+    checkpoint_path: Path | None = None
     # Kill a live Codex subprocess if it keeps emitting heartbeat/token
     # noise but makes no effective progress for a long time. Effective
     # progress means either a non-token Codex session event or a project file
@@ -647,9 +661,29 @@ class SupervisedEngineer:
         no_progress_streak = 0
         backend_failure_streak = 0
         current_thread_id: str | None = seed_thread_id
+        # Curated working-memory checkpoint. Loaded once (cross-mission / crash
+        # continuity), carried in memory across rounds, re-authored by the
+        # reviewer each round, and persisted after each verdict. It is what a
+        # *fresh* engineer session reads after a session roll — so a rolled
+        # session resumes from a small curated handoff, never the giant
+        # compacted history that caused the amnesia loop.
+        checkpoint = load_checkpoint(supervised_config.checkpoint_path)
+        # Rounds the current Codex thread has lived for. We proactively roll
+        # (drop) the thread once it reaches the shift limit so no single
+        # session accumulates enough history to trigger codex's lossy
+        # auto-compaction repeatedly. An inherited ``seed_thread_id`` counts as
+        # already-aged from round 1, so a poisoned cross-mission seed rolls
+        # within one shift instead of surviving indefinitely.
+        rounds_on_thread = 0
 
         for round_index in range(1, supervised_config.max_rounds + 1):
             engineer_prompt = engineer_prompt_builder(last_next_action)
+            # Prepend the curated working-memory block (same splice mechanism
+            # as the failed-tool advisory below). This is the engineer's only
+            # memory of prior rounds once the session has been rolled.
+            checkpoint_block = checkpoint.render_for_engineer()
+            if checkpoint_block:
+                engineer_prompt = checkpoint_block + "\n\n" + engineer_prompt
             # Repeated-tool-failure interrupt: if the same tool/command has
             # failed multiple times this mission and we haven't yet
             # nudged the agent about it, splice an advisory at the top
@@ -669,6 +703,30 @@ class SupervisedEngineer:
                             "round": round_index,
                             "text": "repeated tool failures detected — advisory injected",
                         })
+            # Proactive session roll: once the current Codex thread has lived
+            # for the shift limit, drop it so THIS round starts a fresh session
+            # seeded only by the curated checkpoint (prepended above), not the
+            # accumulated history. This is the structural bound that prevents
+            # the repeated-auto-compaction amnesia loop — no watchdog needed.
+            shift_limit = int(getattr(supervised_config, "shift_round_limit", 0) or 0)
+            if (
+                shift_limit > 0
+                and current_thread_id is not None
+                and rounds_on_thread >= shift_limit
+            ):
+                if on_event:
+                    on_event({
+                        "type": "session.roll",
+                        "round": round_index,
+                        "reason": "shift_limit",
+                        "rounds_on_thread": rounds_on_thread,
+                        "text": (
+                            f"rolling codex session after {rounds_on_thread} "
+                            "rounds — fresh session resumes from checkpoint"
+                        ),
+                    })
+                current_thread_id = None
+                rounds_on_thread = 0
             if on_event:
                 on_event({
                     "type": "round.start",
@@ -717,8 +775,17 @@ class SupervisedEngineer:
                 })
 
             if should_clear_thread_id_after_outcome(status="", fatal_error=fatal_error):
+                # Context-pressure / poisoned-session / backend-failure roll.
+                # The checkpoint carries memory across this drop, so a cleared
+                # thread is a clean rebirth, not amnesia.
                 current_thread_id = None
+                rounds_on_thread = 0
             elif new_tid:
+                if new_tid == current_thread_id:
+                    rounds_on_thread += 1
+                else:
+                    # Brand-new thread id (fresh session this round).
+                    rounds_on_thread = 1
                 current_thread_id = new_tid
 
             if fatal_error_looks_like_daemon_stop_request(fatal_error):
@@ -878,6 +945,7 @@ class SupervisedEngineer:
                     engineer_reasoning_summary=engineer_message or "",
                     prev_review_summary=prev_review_summary,
                     scope=scope,
+                    prior_checkpoint=checkpoint.to_dict(),
                 )
             except Exception as exc:  # noqa: BLE001
                 msg = f"reviewer raised {type(exc).__name__}: {exc}"
@@ -892,6 +960,13 @@ class SupervisedEngineer:
                     failure_cause="environmental",
                 )
             review = _coerce_review_for_failed_checks(review, checks_results)
+            # Update curated working memory from the reviewer-authored
+            # checkpoint. Fail-soft: an empty/malformed checkpoint keeps the
+            # prior one rather than wiping memory on a noisy verdict.
+            new_checkpoint = CheckpointState.from_dict(getattr(review, "checkpoint", {}))
+            if not new_checkpoint.is_empty():
+                checkpoint = new_checkpoint.stamped(round_no=round_index)
+                save_checkpoint(supervised_config.checkpoint_path, checkpoint)
             if on_event:
                 on_event({
                     "type": "round.review.completed",

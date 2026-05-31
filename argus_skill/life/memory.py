@@ -1049,11 +1049,16 @@ def _resolve_project_root(
 
 @dataclass
 class GlobalMemory:
-    """Agent-wide identity + journal under ``~/.argus-skill/``.
+    """Agent-wide identity (and shared skills) under ``~/.argus-skill/``.
 
     The directory is *lazy*: nothing is written until you call
     :meth:`init` (idempotent) or perform a write through one of the
     sub-objects (which create their parent dirs on demand).
+
+    The ``journal`` attribute is retained as a lazy, write-on-demand handle
+    for legacy/standalone tooling only. The live daemon never writes it:
+    logs are per-project (``ProjectMemory.memory``) so no cross-project
+    audit trail accumulates. :meth:`init` therefore seeds identity only.
     """
 
     root: Path
@@ -1073,8 +1078,11 @@ class GlobalMemory:
         """Idempotently seed the global directory; returns core files created.
 
         Bundled default skills are also seeded into ``<root>/skills`` as a
-        side effect, but the return shape stays stable for older callers that
-        expect only identity/journal booleans.
+        side effect. The global root holds only cross-project *identity*; it
+        deliberately does **not** seed a global journal. Logs are per-project
+        (``projects/<fingerprint>/memory.jsonl``) so nothing accumulates a
+        cross-project audit trail. The ``journal`` attribute is retained as a
+        lazy, write-on-demand handle for legacy/standalone callers only.
         """
         from ..skills.builtins import seed_builtin_skills
 
@@ -1082,7 +1090,6 @@ class GlobalMemory:
         seed_builtin_skills(self.root / "skills")
         return {
             "identity": self.identity.ensure_default(),
-            "journal": _touch_file(self.journal.path),
         }
 
     def relevant_journal_for(
@@ -1205,8 +1212,14 @@ class MemoryBundle:
         return self.project.backlog
 
     @property
-    def journal(self) -> "_MirroredJournal":
-        return _MirroredJournal(self.global_mem.journal, self.project.memory)
+    def journal(self) -> Journal:
+        """The active log for this run — strictly the project journal.
+
+        Writes and reads both land in ``projects/<fingerprint>/memory.jsonl``.
+        Nothing is mirrored to a global journal: each project owns its own log
+        so no cross-project audit trail (memory poison) can accumulate.
+        """
+        return self.project.memory
 
     @classmethod
     def for_cwd(
@@ -1290,40 +1303,6 @@ class MemoryBundle:
                     f"{entry.summary}"
                 )
         return "\n".join(lines).strip() + "\n"
-
-
-@dataclass
-class _MirroredJournal:
-    """Append to both journals while reading only from the project journal.
-
-    The live REPL / supervisor wants a single journal-shaped object, but
-    workspace isolation requires every read to be scoped to the active
-    project. The global journal remains a write-only operator audit trail;
-    planner/status/prelude/budget reads must not see other workspaces.
-    """
-
-    global_journal: Journal
-    project_journal: Journal
-
-    @property
-    def path(self) -> Path:
-        return self.project_journal.path
-
-    def append(self, entry: JournalEntry) -> None:
-        self.global_journal.append(entry)
-        self.project_journal.append(entry)
-
-    def all(self) -> list[JournalEntry]:
-        return self.project_journal.all()
-
-    def tail(self, n: int) -> list[JournalEntry]:
-        return self.project_journal.tail(n)
-
-    def total_cost_since(self, since_ts: float) -> float:
-        return self.project_journal.total_cost_since(since_ts)
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self.project_journal, name)
 
 
 # ---------------------------------------------------------------------------

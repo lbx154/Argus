@@ -33,7 +33,7 @@ import subprocess
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Protocol
@@ -243,6 +243,10 @@ class _Outcome:
     # reviewer's completion summary for the journal.
     final_submission_certified: bool = False
     completion_evidence: str = ""
+    # Reviewer-authored structured briefing for the project planner. Shape:
+    # ``{"forward_progress": bool, "headline": str, "blocker": str,
+    # "recommended_next": str}``. Empty dict when no reviewer verdict exists.
+    planner_report: dict = field(default_factory=dict)
 
 
 class _MemoryRunner:
@@ -903,9 +907,18 @@ class _CodexSkillLoopRunner:
         # absent rounds / review / non-final scope ⇒ not certified.
         final_submission_certified = False
         completion_evidence = ""
+        # Pull the reviewer's structured planner briefing off the final round
+        # so the supervisor can journal it for the project planner verbatim.
+        planner_report: dict = {}
+        rounds_list = getattr(outcome, "rounds", None) or []
+        if rounds_list:
+            _final_review = getattr(rounds_list[-1], "review", None)
+            if _final_review is not None:
+                report = getattr(_final_review, "planner_report", None)
+                if isinstance(report, dict):
+                    planner_report = report
         if mission_scope == "final_submission":
             final_review = None
-            rounds_list = getattr(outcome, "rounds", None) or []
             if rounds_list:
                 final_review = getattr(rounds_list[-1], "review", None)
             if final_review is not None and getattr(
@@ -927,6 +940,7 @@ class _CodexSkillLoopRunner:
             auth_failure=auth_fail,
             final_submission_certified=final_submission_certified,
             completion_evidence=completion_evidence,
+            planner_report=planner_report,
         )
 
     def _benchmark_direct_execute(
