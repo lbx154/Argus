@@ -71,6 +71,12 @@ class SkillLoopConfig:
     # long-horizon paper execution contract. Replaces the old keyword-based
     # objective sniffing; callers (e.g. the life runner) set it explicitly.
     paper_mission: bool = False
+    # Where to persist the curated working-memory checkpoint so the reviewer's
+    # per-round handoff (goal / done / tried-and-failed / open-blocker /
+    # next-step) survives across missions AND daemon restarts. None = in-memory
+    # only for the current mission (legacy behaviour; e.g. tests / chat). The
+    # life runner sets this to the per-project state-dir checkpoint file.
+    checkpoint_path: Path | None = None
 
     def resolved_reviewer_model(self) -> str:
         return self.reviewer_model or self.engineer_model
@@ -247,6 +253,7 @@ class SkillLoop:
                 backend_failure_threshold=self.config.backend_failure_threshold,
                 backend_failure_backoff_seconds=self.config.backend_failure_backoff_seconds,
                 session_id=self.config.session_id,
+                checkpoint_path=self.config.checkpoint_path,
             ),
             workdir=workdir,
             on_event=self.on_event,

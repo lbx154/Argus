@@ -132,6 +132,29 @@ def _memory_global_root(mem: Any) -> Path:
 def _resolve_global_root(args: argparse.Namespace) -> Path:
     return resolve_life_root(getattr(args, "life_dir", None))
 
+
+def _checkpoint_path_for(args: argparse.Namespace, workdir: Path) -> Path | None:
+    """Per-project curated-checkpoint file in the project state dir.
+
+    Lives next to ``events.jsonl`` / ``memory.jsonl`` under
+    ``<global_root>/projects/<fingerprint>/checkpoint.json`` so the reviewer's
+    per-round handoff survives across missions and daemon restarts, never the
+    git work-tree (which the agent might commit). Set
+    ``ARGUS_SKILL_CHECKPOINT_PERSIST=0`` to opt back into in-memory-only.
+    """
+    if not _env_flag("ARGUS_SKILL_CHECKPOINT_PERSIST", True):
+        return None
+    try:
+        from ..core.project import project_fingerprint
+
+        global_root = _resolve_global_root(args)
+        fingerprint = project_fingerprint(workdir).fingerprint
+        state_dir = global_root / "projects" / fingerprint
+        state_dir.mkdir(parents=True, exist_ok=True)
+        return state_dir / "checkpoint.json"
+    except Exception:  # noqa: BLE001 — never let path resolution break a mission
+        return None
+
 # ---------------------------------------------------------------------------
 # Sink (event rendering)
 # ---------------------------------------------------------------------------
@@ -851,6 +874,13 @@ class _CodexSkillLoopRunner:
             # Defaults True because this runner is the life/EMNLP execution path;
             # an operator can pass ``--no-paper-mission`` to turn it off.
             "paper_mission": getattr(args, "paper_mission", True),
+            # Persist the curated working-memory checkpoint to the per-project
+            # state dir so the reviewer handoff survives across missions and
+            # daemon restarts (cross-session continuity).
+            "checkpoint_path": _checkpoint_path_for(
+                args,
+                Path(args.workdir).expanduser() if args.workdir else Path.cwd(),
+            ),
         }
         try:
             from inspect import signature

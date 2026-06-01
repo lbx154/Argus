@@ -330,6 +330,8 @@ def test_token_roll_disabled_with_zero_limit(
     r2_seeds = [tid for label, tid in backend.resume_history if label == "engineer-r2"]
     assert r2_seeds == ["tid-A1"], r2_seeds
 
+
+def test_backend_failure_retries_without_poisoned_resume_thread(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
@@ -362,3 +364,88 @@ def test_token_roll_disabled_with_zero_limit(
         "engineer-r2",
         "reviewer",
     ]
+
+
+def test_curated_checkpoint_persists_across_missions_via_file(tmp_path: Path) -> None:
+    """With ``checkpoint_path`` set, the reviewer-authored handoff is written to
+    disk in mission A and re-loaded into mission B's first engineer round —
+    realizing the cross-mission / cross-restart handoff file."""
+    ckpt = tmp_path / "state" / "checkpoint.json"
+
+    def _review_with_checkpoint(status: str) -> str:
+        return json.dumps({
+            "status": status,
+            "confidence": 0.95 if status == "done" else 0.4,
+            "reason": "handoff authored",
+            "next_action": "continue" if status == "continue" else "—",
+            "round_summary_markdown": "# r\n",
+            "completion_summary_markdown": "done" if status == "done" else "",
+            "checkpoint": {
+                "goal": "Wire the official BFCL evaluator",
+                "done": ["installed tree_sitter parser deps"],
+                "open_blocker": "no trained adapter checkpoints exist yet",
+                "next_step": "add code/run_benchmark_condition.py runner",
+            },
+        })
+
+    def _make_loop(backend: MemoryBackend, skills: Path) -> SkillLoop:
+        config = SkillLoopConfig(
+            scientist_model="m", engineer_model="m", reviewer_model="m",
+            max_rounds=3, check_commands=[], skill_writeback=False,
+            distill_on_miss=True, backend_failure_backoff_seconds=0,
+            checkpoint_path=ckpt,
+        )
+        return SkillLoop(
+            skills_dir=skills, engineer_runner=backend,
+            reviewer_runner=backend, config=config,
+        )
+
+    backend_a = MemoryBackend()
+    backend_a.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend_a.queue("distiller", CannedResponse(message=SKILL_MD))
+    backend_a.queue("engineer-r1", CannedResponse(message="mission A work", thread_id="A1"))
+    backend_a.queue("reviewer", CannedResponse(message=_review_with_checkpoint("done")))
+    out_a = _make_loop(backend_a, tmp_path / "skillsA").run("task A", workdir=tmp_path)
+    assert out_a.successful
+    assert ckpt.exists()
+    saved = json.loads(ckpt.read_text())
+    assert saved["goal"] == "Wire the official BFCL evaluator"
+    assert saved["next_step"] == "add code/run_benchmark_condition.py runner"
+
+    backend_b = MemoryBackend()
+    backend_b.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend_b.queue("distiller", CannedResponse(message=SKILL_MD))
+    backend_b.queue("engineer-r1", CannedResponse(message="mission B work", thread_id="B1"))
+    backend_b.queue("reviewer", CannedResponse(message=_done_review()))
+    out_b = _make_loop(backend_b, tmp_path / "skillsB").run("task B", workdir=tmp_path)
+    assert out_b.successful
+
+    r1_prompts = [p for label, p, _ in backend_b.history if label == "engineer-r1"]
+    assert r1_prompts, "mission B should have an engineer-r1 call"
+    prompt = r1_prompts[0]
+    assert "CURATED WORKING MEMORY" in prompt
+    assert "Wire the official BFCL evaluator" in prompt
+    assert "add code/run_benchmark_condition.py runner" in prompt
+
+
+def test_no_checkpoint_path_keeps_handoff_in_memory_only(tmp_path: Path) -> None:
+    """Without ``checkpoint_path`` (default None), nothing is written to disk
+    (legacy behaviour preserved)."""
+    def _review_with_cp() -> str:
+        return json.dumps({
+            "status": "done", "confidence": 0.95, "reason": "ok",
+            "next_action": "—", "round_summary_markdown": "# r\n",
+            "completion_summary_markdown": "done",
+            "checkpoint": {"goal": "G", "next_step": "N"},
+        })
+
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("distiller", CannedResponse(message=SKILL_MD))
+    backend.queue("engineer-r1", CannedResponse(message="work", thread_id="A1"))
+    backend.queue("reviewer", CannedResponse(message=_review_with_cp()))
+
+    loop = _build_loop(backend, tmp_path / "skills")
+    out = loop.run("task", workdir=tmp_path)
+    assert out.successful
+    assert not list(tmp_path.rglob("checkpoint.json"))
