@@ -1096,6 +1096,12 @@ class LifeSupervisor:
                 self.memory.journal.append(entry)
                 self._inject_cumulative_cost(entry)
 
+            # Advisory time signals (incubating_time / running_evidence_gap
+            # / writing_idle) are PULLED on demand by --status / cockpit /
+            # telegram digest, not PUSHED into the journal every tick.
+            # See ``advisory_time_signals`` in project_lifecycle.py. The
+            # harness must not spam the journal with non-event facts.
+
             if not is_token_allocatable(status):
                 self._emit_status(
                     f"lifecycle gate: project state={status.state.value}; "

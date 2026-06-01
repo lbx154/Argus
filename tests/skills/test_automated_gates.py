@@ -1,20 +1,13 @@
-"""Integration tests for F3/F4/F5 wiring.
+"""Tests for argus_skill.skills.automated_gates (advisory + structural).
 
-Verifies that:
-
-* ``argus_skill.skills.automated_gates`` correctly maps stages → gates and
-  produces ``GateResult`` from the underlying F3/F4 validators.
-* ``argus_skill.tools.stage_check`` runs the automated gates after its own
-  shell checks (so the daemon's default ``check_commands`` picks them up
-  every engineer round).
-* The new ``argus-skill --evidence-chain-check`` /
-  ``--anti-mediocrity-check`` / ``--lifecycle-status`` CLI flags dispatch
-  correctly.
+Post-c6b11d3 rewrite: gates are now tagged ``structural`` (anti-fraud,
+allowed to block via exit code) or ``advisory`` (facts surfaced to
+reviewer, never block). The tests verify that distinction is honoured
+end-to-end through stage_check.
 """
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -22,9 +15,10 @@ from pathlib import Path
 import pytest
 
 from argus_skill.skills.automated_gates import (
+    GATE_KINDS,
     GateResult,
     STAGE_GATES,
-    all_passed,
+    any_blocking_failure,
     format_results,
     gates_for_stage,
     main as automated_gates_main,
@@ -33,7 +27,7 @@ from argus_skill.skills.automated_gates import (
 
 
 # ---------------------------------------------------------------------------
-# helpers — minimal project skeleton with bundles and a claims TSV
+# helpers
 # ---------------------------------------------------------------------------
 
 
@@ -43,26 +37,20 @@ def _write(p: Path, text: str) -> None:
 
 
 def _write_bundle(
-    root: Path,
-    name: str,
-    *,
-    condition: str = "argus",
-    reward: float = 0.7,
+    root: Path, name: str, *,
+    condition: str = "argus", reward: float = 0.7,
     dataset_id: str = "terminal-bench@2.0",
-    total: int = 89,
-    errored: int = 0,
+    total: int = 89, errored: int = 0,
     tainted: bool = False,
-) -> Path:
+) -> None:
     bundle = root / "benchmarks" / "evidence" / name
     bundle.mkdir(parents=True, exist_ok=True)
-    summary_header = (
+    header = (
         "row_kind\tcondition\treward\tn_total_trials\t"
         "n_completed_trials\tn_errored_trials\n"
     )
-    summary_body = (
-        f"aggregate\t{condition}\t{reward}\t{total}\t{total - errored}\t{errored}\n"
-    )
-    (bundle / "summary.tsv").write_text(summary_header + summary_body, encoding="utf-8")
+    body = f"aggregate\t{condition}\t{reward}\t{total}\t{total - errored}\t{errored}\n"
+    (bundle / "summary.tsv").write_text(header + body, encoding="utf-8")
     build_info = "# Build Info\n- status: completed\n"
     if tainted:
         build_info += "TAINTED — DO NOT CITE AS PERFORMANCE.\n"
@@ -71,10 +59,9 @@ def _write_bundle(
         json.dumps({"dataset_id": dataset_id, "condition": condition}),
         encoding="utf-8",
     )
-    return bundle
 
 
-def _write_claims_tsv(root: Path, rows: list[dict[str, str]]) -> Path:
+def _write_claims_tsv(root: Path, rows: list[dict[str, str]]) -> None:
     cols = [
         "claim_id", "status", "claim",
         "evidence_1", "evidence_2", "evidence_3", "notes",
@@ -82,13 +69,11 @@ def _write_claims_tsv(root: Path, rows: list[dict[str, str]]) -> Path:
     lines = ["\t".join(cols)]
     for row in rows:
         lines.append("\t".join(row.get(c, "") for c in cols))
-    path = root / "paper" / "claims_to_evidence.tsv"
-    _write(path, "\n".join(lines) + "\n")
-    return path
+    _write(root / "paper" / "claims_to_evidence.tsv", "\n".join(lines) + "\n")
 
 
 # ---------------------------------------------------------------------------
-# STAGE_GATES map
+# STAGE_GATES / GATE_KINDS — single source of truth
 # ---------------------------------------------------------------------------
 
 
@@ -97,53 +82,85 @@ def test_stage_gates_map_covers_canonical_stages() -> None:
         "research", "plan", "benchmark",
         "run", "analysis", "draft", "review", "submission",
     ):
-        # Every canonical stage is present in the map (even if it maps to ())
         assert stage in STAGE_GATES
 
 
-def test_research_and_plan_have_no_automated_gates() -> None:
-    # These stages produce no evidence yet, so automated gates are skipped
-    # (the reviewer is the only check).
-    assert gates_for_stage("research") == ()
-    assert gates_for_stage("plan") == ()
-    assert gates_for_stage("benchmark") == ()
+def test_gate_kinds_classify_each_known_gate() -> None:
+    # Every gate in STAGE_GATES must have an entry in GATE_KINDS, otherwise
+    # we can't decide blocking semantics.
+    referenced = {gate for gates in STAGE_GATES.values() for gate in gates}
+    for gate in referenced:
+        assert gate in GATE_KINDS, f"missing kind for {gate!r}"
+
+
+def test_evidence_chain_is_structural() -> None:
+    assert GATE_KINDS["evidence_chain"] == "structural"
+
+
+def test_mediocrity_finding_is_advisory() -> None:
+    # The big architectural invariant: this must NEVER be structural.
+    # Making it structural would re-introduce the c6b11d3 violation.
+    assert GATE_KINDS["mediocrity_finding"] == "advisory"
 
 
 def test_review_and_submission_run_both_gates() -> None:
     for stage in ("review", "submission"):
         gates = set(gates_for_stage(stage))
         assert "evidence_chain" in gates
-        assert "anti_mediocrity" in gates
-
-
-def test_run_stage_only_runs_anti_mediocrity() -> None:
-    assert gates_for_stage("run") == ("anti_mediocrity",)
-
-
-def test_draft_only_runs_evidence_chain() -> None:
-    assert gates_for_stage("draft") == ("evidence_chain",)
-
-
-def test_unknown_stage_returns_empty() -> None:
-    assert gates_for_stage("nonsense") == ()
+        assert "mediocrity_finding" in gates
 
 
 # ---------------------------------------------------------------------------
-# run_stage_gates: end-to-end via fake project
+# GateResult.is_blocking — advisory NEVER blocks
 # ---------------------------------------------------------------------------
 
 
-def test_run_stage_gates_review_clean_project_passes(tmp_path: Path) -> None:
+def test_advisory_finding_never_blocks_even_if_passed_false() -> None:
+    r = GateResult(
+        name="mediocrity_finding", kind="advisory",
+        passed=False, summary="x", detail="y",
+    )
+    # The dataclass allows passed=False for ergonomic reasons but the
+    # runtime semantics are: advisory never blocks.
+    assert r.is_blocking is False
+
+
+def test_structural_failure_blocks() -> None:
+    r = GateResult(
+        name="evidence_chain", kind="structural",
+        passed=False, summary="x", detail="y",
+    )
+    assert r.is_blocking is True
+
+
+def test_structural_pass_does_not_block() -> None:
+    r = GateResult(
+        name="evidence_chain", kind="structural",
+        passed=True, summary="ok", detail="",
+    )
+    assert r.is_blocking is False
+
+
+def test_any_blocking_failure_ignores_advisory() -> None:
+    advisory_fail = GateResult(
+        name="mediocrity_finding", kind="advisory",
+        passed=False, summary="x", detail="y",
+    )
+    structural_pass = GateResult(
+        name="evidence_chain", kind="structural",
+        passed=True, summary="ok", detail="",
+    )
+    assert any_blocking_failure([advisory_fail, structural_pass]) is False
+
+
+# ---------------------------------------------------------------------------
+# run_stage_gates — end-to-end via fake project
+# ---------------------------------------------------------------------------
+
+
+def test_run_stage_gates_review_clean_project_passes_structural(tmp_path: Path) -> None:
     _write_bundle(tmp_path, "argus-bundle", condition="argus", reward=0.72)
     _write_bundle(tmp_path, "bare-bundle", condition="bare", reward=0.60)
-    _write_bundle(
-        tmp_path, "swe-bundle",
-        condition="argus", reward=0.5, dataset_id="swebench-pro@1.0",
-    )
-    _write_bundle(
-        tmp_path, "mla-bundle",
-        condition="argus", reward=0.55, dataset_id="mlagentbench@1.1",
-    )
     _write_claims_tsv(
         tmp_path,
         [
@@ -164,14 +181,13 @@ def test_run_stage_gates_review_clean_project_passes(tmp_path: Path) -> None:
         baseline_condition="bare",
     )
 
-    assert len(results) == 2
     names = [r.name for r in results]
-    assert names == ["evidence_chain", "anti_mediocrity"]
-    assert all_passed(results), [(r.name, r.detail) for r in results]
+    assert names == ["evidence_chain", "mediocrity_finding"]
+    # Structural passes, no block.
+    assert any_blocking_failure(results) is False
 
 
-def test_run_stage_gates_surfaces_evidence_chain_break(tmp_path: Path) -> None:
-    # Cite a path that does not exist.
+def test_run_stage_gates_surfaces_structural_break(tmp_path: Path) -> None:
     _write_claims_tsv(
         tmp_path,
         [
@@ -183,77 +199,56 @@ def test_run_stage_gates_surfaces_evidence_chain_break(tmp_path: Path) -> None:
             }
         ],
     )
-
     results = run_stage_gates(tmp_path, stage="draft")
-
     assert len(results) == 1
     assert results[0].name == "evidence_chain"
-    assert not results[0].passed
-    assert "evidence_path_missing" in results[0].detail
+    assert results[0].is_blocking is True
 
 
-def test_run_stage_gates_surfaces_baseline_not_reproduced(tmp_path: Path) -> None:
-    # Provide proposed but no baseline aggregate.
-    _write_bundle(tmp_path, "argus-bundle", condition="argus", reward=0.72)
-    _write_bundle(
-        tmp_path, "swe-bundle",
-        condition="argus", reward=0.5, dataset_id="swebench-pro@1.0",
-    )
-    _write_bundle(
-        tmp_path, "mla-bundle",
-        condition="argus", reward=0.55, dataset_id="mlagentbench@1.1",
-    )
-
+def test_run_stage_gates_advisory_does_not_block_even_with_zero_baseline(tmp_path: Path) -> None:
+    # No baseline aggregate at all → in the OLD F3 this would block as
+    # "baseline_not_reproduced". In the new advisory model it does NOT.
+    _write_bundle(tmp_path, "p", condition="argus", reward=0.72)
     results = run_stage_gates(
         tmp_path,
         stage="run",
         proposed_condition="argus",
         baseline_condition="bare",
     )
-
     assert len(results) == 1
-    assert results[0].name == "anti_mediocrity"
-    assert not results[0].passed
-    assert "baseline_not_reproduced" in results[0].detail
+    assert results[0].name == "mediocrity_finding"
+    assert results[0].kind == "advisory"
+    assert any_blocking_failure(results) is False
 
 
 # ---------------------------------------------------------------------------
-# format_results — reviewer-facing string
+# format_results — advisory tagged ADVISORY, never FAIL
 # ---------------------------------------------------------------------------
 
 
-def test_format_results_empty_returns_empty_string() -> None:
-    assert format_results([]) == ""
-
-
-def test_format_results_includes_pass_and_fail_blocks() -> None:
+def test_format_results_uses_advisory_label_for_advisory_kind() -> None:
     blocks = format_results(
         [
-            GateResult(name="evidence_chain", passed=True, summary="clean", detail=""),
-            GateResult(name="anti_mediocrity", passed=False, summary="2 fails", detail="details here"),
+            GateResult(name="evidence_chain", kind="structural",
+                       passed=True, summary="clean", detail=""),
+            GateResult(name="mediocrity_finding", kind="advisory",
+                       passed=False, summary="numbers", detail="d"),
         ]
     )
     assert "[PASS] gate:evidence_chain" in blocks
-    assert "[FAIL] gate:anti_mediocrity" in blocks
-    assert "details here" in blocks
+    assert "[ADVISORY] gate:mediocrity_finding" in blocks
+    assert "[FAIL] gate:mediocrity_finding" not in blocks
 
 
 # ---------------------------------------------------------------------------
-# CLI entry — automated_gates module
+# CLI — exit code reflects only structural failures
 # ---------------------------------------------------------------------------
 
 
-def test_automated_gates_cli_exits_zero_on_clean(tmp_path: Path, capsys) -> None:
-    _write_bundle(tmp_path, "argus-bundle", condition="argus", reward=0.72)
-    _write_bundle(tmp_path, "bare-bundle", condition="bare", reward=0.60)
-    _write_bundle(
-        tmp_path, "swe-bundle",
-        condition="argus", reward=0.5, dataset_id="swebench-pro@1.0",
-    )
-    _write_bundle(
-        tmp_path, "mla-bundle",
-        condition="argus", reward=0.55, dataset_id="mlagentbench@1.1",
-    )
+def test_automated_gates_cli_exits_zero_on_advisory_only_bad_numbers(tmp_path: Path, capsys) -> None:
+    # No baseline, proposed numbers terrible — advisory finding will be
+    # ugly, but exit code stays 0.
+    _write_bundle(tmp_path, "p", condition="argus", reward=0.10)
     _write_claims_tsv(
         tmp_path,
         [
@@ -261,11 +256,10 @@ def test_automated_gates_cli_exits_zero_on_clean(tmp_path: Path, capsys) -> None
                 "claim_id": "demo",
                 "status": "current_evidence",
                 "claim": "x",
-                "evidence_1": "benchmarks/evidence/argus-bundle/summary.tsv",
+                "evidence_1": "benchmarks/evidence/p/summary.tsv",
             }
         ],
     )
-
     rc = automated_gates_main(
         [
             "--project-root", str(tmp_path),
@@ -277,19 +271,10 @@ def test_automated_gates_cli_exits_zero_on_clean(tmp_path: Path, capsys) -> None
     out = capsys.readouterr().out
     assert rc == 0
     assert "[PASS] gate:evidence_chain" in out
-    assert "[PASS] gate:anti_mediocrity" in out
+    assert "[ADVISORY] gate:mediocrity_finding" in out
 
 
-def test_automated_gates_cli_research_stage_no_gates(tmp_path: Path, capsys) -> None:
-    rc = automated_gates_main(
-        ["--project-root", str(tmp_path), "--stage", "research"]
-    )
-    out = capsys.readouterr().out
-    assert rc == 0
-    assert "No automated gates configured" in out
-
-
-def test_automated_gates_cli_json_payload(tmp_path: Path, capsys) -> None:
+def test_automated_gates_cli_exits_nonzero_on_structural(tmp_path: Path, capsys) -> None:
     _write_claims_tsv(
         tmp_path,
         [
@@ -301,77 +286,55 @@ def test_automated_gates_cli_json_payload(tmp_path: Path, capsys) -> None:
             }
         ],
     )
-
     rc = automated_gates_main(
-        ["--project-root", str(tmp_path), "--stage", "draft", "--json"]
+        ["--project-root", str(tmp_path), "--stage", "draft"]
     )
     out = capsys.readouterr().out
     assert rc == 1
+    assert "[FAIL] gate:evidence_chain" in out
+
+
+def test_automated_gates_cli_json_includes_kind(tmp_path: Path, capsys) -> None:
+    _write_claims_tsv(tmp_path, [])
+    rc = automated_gates_main(
+        ["--project-root", str(tmp_path), "--stage", "review", "--json"]
+    )
+    out = capsys.readouterr().out
     payload = json.loads(out)
-    assert payload["stage"] == "draft"
-    assert payload["all_passed"] is False
-    assert any(r["name"] == "evidence_chain" for r in payload["results"])
+    for r in payload["results"]:
+        assert r["kind"] in ("structural", "advisory")
+    assert "structural_block" in payload
 
 
 # ---------------------------------------------------------------------------
-# stage_check.py — daemon's default check_commands target
+# stage_check end-to-end — advisory must NOT affect exit code
 # ---------------------------------------------------------------------------
 
 
-def test_stage_check_runs_automated_gates_for_review_stage(
-    tmp_path: Path, capsys, monkeypatch
-) -> None:
-    # Set up a project root with the minimal stage_check shell-check assets +
-    # a clean evidence chain.
+def test_stage_check_advisory_finding_does_not_fail_exit_code(tmp_path: Path) -> None:
     (tmp_path / "research").mkdir()
     (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
-        json.dumps({"current_stage": "review"}), encoding="utf-8"
+        json.dumps({"current_stage": "run"}), encoding="utf-8"
     )
-    _write_bundle(tmp_path, "argus-bundle", condition="argus", reward=0.72)
-    _write_bundle(tmp_path, "bare-bundle", condition="bare", reward=0.60)
-    _write_bundle(
-        tmp_path, "swe-bundle",
-        condition="argus", reward=0.5, dataset_id="swebench-pro@1.0",
-    )
-    _write_bundle(
-        tmp_path, "mla-bundle",
-        condition="argus", reward=0.55, dataset_id="mlagentbench@1.1",
-    )
-    _write_claims_tsv(
-        tmp_path,
-        [
-            {
-                "claim_id": "demo",
-                "status": "current_evidence",
-                "claim": "x",
-                "evidence_1": "benchmarks/evidence/argus-bundle/summary.tsv",
-            }
-        ],
-    )
-    monkeypatch.setenv("ARGUS_SKILL_PROPOSED_CONDITION", "argus")
-    monkeypatch.setenv("ARGUS_SKILL_BASELINE_CONDITION", "bare")
+    # Single bundle: advisory finding will note "1 family, no baseline"
+    # but advisory NEVER blocks.
+    _write_bundle(tmp_path, "p", condition="argus", reward=0.5)
 
     proc = subprocess.run(
         [sys.executable, "-m", "argus_skill.tools.stage_check",
-         "--project-root", str(tmp_path), "--stage", "review"],
-        text=True,
-        capture_output=True,
+         "--project-root", str(tmp_path), "--stage", "run"],
+        text=True, capture_output=True,
     )
 
-    # Shell checks at the review stage will likely fail (no review JSONs),
-    # but the automated gates should appear in stdout and the gates we
-    # care about should be marked PASS.
-    assert "Automated gates for stage 'review'" in proc.stdout
-    assert "evidence_chain" in proc.stdout
-    assert "anti_mediocrity" in proc.stdout
-    # Both gates pass on the clean fixture.
-    assert "✅ evidence_chain" in proc.stdout
-    assert "✅ anti_mediocrity" in proc.stdout
+    # Shell checks at "run" stage will fail (no real venv etc.), so we
+    # don't assert returncode == 0. We assert that the advisory finding
+    # is rendered with the right tag and is reported as an advisory
+    # finding (reviewer rules) in the trailing summary.
+    assert "📋 mediocrity_finding (advisory)" in proc.stdout
+    assert "advisory finding(s)" in proc.stdout
 
 
-def test_stage_check_surfaces_evidence_chain_break(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_stage_check_structural_break_does_fail_exit_code(tmp_path: Path) -> None:
     (tmp_path / "research").mkdir()
     (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
         json.dumps({"current_stage": "draft"}), encoding="utf-8"
@@ -391,88 +354,43 @@ def test_stage_check_surfaces_evidence_chain_break(
     proc = subprocess.run(
         [sys.executable, "-m", "argus_skill.tools.stage_check",
          "--project-root", str(tmp_path), "--stage", "draft"],
-        text=True,
-        capture_output=True,
+        text=True, capture_output=True,
     )
 
-    assert "❌ evidence_chain" in proc.stdout
+    assert "❌ evidence_chain (structural)" in proc.stdout
     assert "evidence_path_missing" in proc.stdout
-    # Non-zero exit because the gate failed.
     assert proc.returncode != 0
 
 
 # ---------------------------------------------------------------------------
-# Top-level argus-skill CLI — F5 lifecycle status flag
+# Top-level argus-skill CLI smoke
 # ---------------------------------------------------------------------------
 
 
 def test_cli_lifecycle_status_on_minimal_project(tmp_path: Path) -> None:
-    # A project root with no evidence and no draft → state should be
-    # incubating (until the 7-day timeout fires, but tmp_path is fresh).
     proc = subprocess.run(
         [sys.executable, "-m", "argus_skill",
          "--lifecycle-status", "--project-root", str(tmp_path)],
-        text=True,
-        capture_output=True,
+        text=True, capture_output=True,
     )
-
     assert proc.returncode == 0, proc.stderr
     assert "project lifecycle (F5)" in proc.stdout
     assert "observed_state    : incubating" in proc.stdout
     assert "token_allocatable : True" in proc.stdout
 
 
-def test_cli_lifecycle_status_running_when_evidence_exists(tmp_path: Path) -> None:
-    _write_bundle(tmp_path, "argus-bundle")
-
-    proc = subprocess.run(
-        [sys.executable, "-m", "argus_skill",
-         "--lifecycle-status", "--project-root", str(tmp_path)],
-        text=True,
-        capture_output=True,
-    )
-
-    assert proc.returncode == 0, proc.stderr
-    assert "observed_state    : running" in proc.stdout
-
-
-def test_cli_evidence_chain_check_passes_on_clean(tmp_path: Path) -> None:
-    _write_bundle(tmp_path, "argus-bundle")
-    _write_claims_tsv(
-        tmp_path,
-        [
-            {
-                "claim_id": "demo",
-                "status": "current_evidence",
-                "claim": "x",
-                "evidence_1": "benchmarks/evidence/argus-bundle/summary.tsv",
-            }
-        ],
-    )
-
-    proc = subprocess.run(
-        [sys.executable, "-m", "argus_skill",
-         "--evidence-chain-check", "--project-root", str(tmp_path)],
-        text=True,
-        capture_output=True,
-    )
-
-    assert proc.returncode == 0, proc.stderr
-    assert "OK" in proc.stdout
-
-
-def test_cli_anti_mediocrity_check_fails_without_baseline(tmp_path: Path) -> None:
-    _write_bundle(tmp_path, "argus-bundle", condition="argus", reward=0.72)
-
+def test_cli_anti_mediocrity_check_exits_zero_even_with_no_baseline(tmp_path: Path) -> None:
+    # The OLD CLI returned 1 on missing baseline. The new advisory CLI
+    # exits 0 — the harness doesn't have an opinion on "missing baseline".
+    _write_bundle(tmp_path, "p", condition="argus", reward=0.72)
     proc = subprocess.run(
         [sys.executable, "-m", "argus_skill",
          "--anti-mediocrity-check",
          "--project-root", str(tmp_path),
          "--proposed-condition", "argus",
          "--baseline-condition", "bare"],
-        text=True,
-        capture_output=True,
+        text=True, capture_output=True,
     )
-
-    assert proc.returncode != 0
-    assert "baseline_not_reproduced" in proc.stdout
+    assert proc.returncode == 0, proc.stderr
+    # The facts are surfaced so reviewer can rule:
+    assert "Reviewer judgement points" in proc.stdout

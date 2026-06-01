@@ -1,4 +1,11 @@
-"""Tests for argus_skill.skills.anti_mediocrity (F3)."""
+"""Tests for argus_skill.skills.anti_mediocrity (advisory fact extractor).
+
+This module used to be the F3 "anti-mediocrity hard gate" with baked-in
+thresholds. It was rewritten after review c6b11d3 into a pure fact
+extractor — no verdicts, no thresholds, no exit-code effects. The tests
+here check that the fact extraction is correct and that nothing in the
+module makes a research-quality judgment.
+"""
 from __future__ import annotations
 
 import json
@@ -8,17 +15,15 @@ import pytest
 
 from argus_skill.skills.anti_mediocrity import (
     AggregateRow,
-    MediocrityIssue,
-    check_baseline_reproduced,
-    check_benchmark_diversity,
-    check_improvement_threshold,
+    MediocrityFinding,
+    collect_mediocrity_finding,
+    format_finding,
     main as anti_mediocrity_main,
-    run_anti_mediocrity_gate,
 )
 
 
 # ---------------------------------------------------------------------------
-# unit-level tests for the three pure validator functions
+# AggregateRow.is_noisy — presentation label, never a verdict
 # ---------------------------------------------------------------------------
 
 
@@ -33,89 +38,82 @@ def _agg(condition: str, reward: float, *, total: int = 89, errored: int = 0) ->
     )
 
 
-def test_baseline_reproduced_pass() -> None:
-    issues = check_baseline_reproduced([_agg("bare-gpt54", 0.66)], "bare-gpt54")
-    assert issues == []
+def test_noisy_flag_fires_at_25pct_errored() -> None:
+    assert _agg("x", 0.5, total=100, errored=25).is_noisy
+    assert _agg("x", 0.5, total=100, errored=24).is_noisy is False
 
 
-def test_baseline_reproduced_fails_when_missing() -> None:
-    issues = check_baseline_reproduced([_agg("argus", 0.7)], "bare-gpt54")
-    codes = {i.code for i in issues}
-    assert "baseline_not_reproduced" in codes
-
-
-def test_baseline_reproduced_fails_when_all_zero_reward() -> None:
-    issues = check_baseline_reproduced([_agg("bare-gpt54", 0.0)], "bare-gpt54")
-    codes = {i.code for i in issues}
-    assert "baseline_zero_reward" in codes
-
-
-def test_baseline_dirty_bundle_does_not_count() -> None:
-    # 50% errored → not clean enough → treated as if baseline is missing.
-    dirty = _agg("bare-gpt54", 0.66, total=10, errored=5)
-    issues = check_baseline_reproduced([dirty], "bare-gpt54")
-    codes = {i.code for i in issues}
-    assert "baseline_not_reproduced" in codes
-
-
-def test_improvement_above_threshold_passes() -> None:
-    aggs = [_agg("argus", 0.70), _agg("bare-gpt54", 0.60)]
-    issues = check_improvement_threshold(aggs, "argus", "bare-gpt54", min_delta=0.02)
-    assert issues == []
-
-
-def test_improvement_below_threshold_flagged() -> None:
-    aggs = [_agg("argus", 0.605), _agg("bare-gpt54", 0.60)]
-    issues = check_improvement_threshold(aggs, "argus", "bare-gpt54", min_delta=0.02)
-    assert len(issues) == 1
-    assert issues[0].code == "improvement_below_threshold"
-    assert issues[0].measured == pytest.approx(0.005, abs=1e-6)
-
-
-def test_improvement_negative_flagged() -> None:
-    aggs = [_agg("argus", 0.50), _agg("bare-gpt54", 0.66)]
-    issues = check_improvement_threshold(aggs, "argus", "bare-gpt54")
-    assert len(issues) == 1
-    assert issues[0].code == "improvement_below_threshold"
-
-
-def test_improvement_missing_proposed_flagged() -> None:
-    aggs = [_agg("bare-gpt54", 0.66)]
-    issues = check_improvement_threshold(aggs, "argus", "bare-gpt54")
-    codes = {i.code for i in issues}
-    assert "proposed_missing" in codes
-
-
-def test_benchmark_diversity_pass() -> None:
-    issues = check_benchmark_diversity(
-        {"terminal-bench@2.0", "swebench-pro@1.0", "mlagentbench@1.1"},
-        min_families=3,
+def test_noisy_flag_safe_on_empty_aggregate() -> None:
+    row = AggregateRow(
+        bundle="x", condition="y",
+        reward=None, n_total_trials=None,
+        n_completed_trials=None, n_errored_trials=None,
     )
-    assert issues == []
-
-
-def test_benchmark_diversity_insufficient_flagged() -> None:
-    issues = check_benchmark_diversity({"terminal-bench@2.0"}, min_families=3)
-    assert len(issues) == 1
-    assert issues[0].code == "benchmark_diversity_insufficient"
-    assert issues[0].measured == 1
-    assert issues[0].threshold == 3
+    assert row.is_noisy is False
 
 
 # ---------------------------------------------------------------------------
-# integration: run_anti_mediocrity_gate against a fake project tree
+# MediocrityFinding properties — pure derivations from facts
+# ---------------------------------------------------------------------------
+
+
+def test_best_proposed_picks_max_reward() -> None:
+    finding = MediocrityFinding(
+        project_root=Path("."),
+        proposed_condition="argus",
+        baseline_condition="bare",
+        aggregates=[
+            _agg("argus", 0.60),
+            _agg("argus", 0.72),
+            _agg("bare", 0.55),
+        ],
+    )
+    assert finding.best_proposed_reward == 0.72
+    assert finding.best_baseline_reward == 0.55
+    assert finding.proposed_minus_baseline == pytest.approx(0.17)
+
+
+def test_finding_handles_missing_condition() -> None:
+    finding = MediocrityFinding(
+        project_root=Path("."),
+        proposed_condition="argus",
+        baseline_condition="bare",
+        aggregates=[_agg("argus", 0.60)],
+    )
+    # No baseline rows → baseline reward is None → delta is None.
+    assert finding.best_baseline_reward is None
+    assert finding.proposed_minus_baseline is None
+
+
+def test_finding_ok_only_reflects_structural_errors() -> None:
+    # No judgment — even with terrible-looking aggregates, ok=True
+    # as long as the read itself succeeded.
+    bad = MediocrityFinding(
+        project_root=Path("."),
+        proposed_condition="argus",
+        baseline_condition="bare",
+        aggregates=[_agg("argus", 0.0), _agg("bare", 0.99)],
+    )
+    assert bad.ok is True
+
+    broken = MediocrityFinding(
+        project_root=Path("."),
+        proposed_condition=None, baseline_condition=None,
+        structural_errors=["could not parse summary.tsv: bad header"],
+    )
+    assert broken.ok is False
+
+
+# ---------------------------------------------------------------------------
+# collect_mediocrity_finding — end-to-end fact extraction
 # ---------------------------------------------------------------------------
 
 
 def _write_bundle(
-    root: Path,
-    name: str,
-    *,
-    condition: str,
-    reward: float,
-    dataset_id: str,
-    total: int = 89,
-    errored: int = 0,
+    root: Path, name: str, *,
+    condition: str = "argus", reward: float = 0.7,
+    dataset_id: str = "terminal-bench@2.0",
+    total: int = 89, errored: int = 0,
 ) -> None:
     bundle = root / "benchmarks" / "evidence" / name
     bundle.mkdir(parents=True, exist_ok=True)
@@ -123,110 +121,141 @@ def _write_bundle(
         "row_kind\tcondition\treward\tn_total_trials\t"
         "n_completed_trials\tn_errored_trials\n"
     )
-    body = (
-        f"aggregate\t{condition}\t{reward}\t{total}\t{total - errored}\t{errored}\n"
-    )
+    body = f"aggregate\t{condition}\t{reward}\t{total}\t{total - errored}\t{errored}\n"
     (bundle / "summary.tsv").write_text(header + body, encoding="utf-8")
-    (bundle / "BUILD_INFO.md").write_text("# Build Info\n", encoding="utf-8")
     (bundle / "manifest.json").write_text(
         json.dumps({"dataset_id": dataset_id, "condition": condition}),
         encoding="utf-8",
     )
 
 
-def test_run_gate_full_pass(tmp_path: Path) -> None:
-    _write_bundle(tmp_path, "argus-bundle", condition="argus", reward=0.72, dataset_id="terminal-bench@2.0")
-    _write_bundle(tmp_path, "bare-bundle", condition="bare", reward=0.60, dataset_id="terminal-bench@2.0")
-    _write_bundle(tmp_path, "swe-bundle", condition="argus", reward=0.45, dataset_id="swebench-pro@1.0")
-    _write_bundle(tmp_path, "mla-bundle", condition="argus", reward=0.50, dataset_id="mlagentbench@1.1")
+def test_collect_finding_surfaces_facts(tmp_path: Path) -> None:
+    _write_bundle(tmp_path, "a", condition="argus", reward=0.72)
+    _write_bundle(tmp_path, "b", condition="bare", reward=0.60)
+    _write_bundle(tmp_path, "c", condition="argus", reward=0.65,
+                  dataset_id="swebench-pro@1.0")
 
-    report = run_anti_mediocrity_gate(
+    finding = collect_mediocrity_finding(
         tmp_path,
         proposed_condition="argus",
         baseline_condition="bare",
-        min_delta=0.02,
-        min_families=3,
     )
 
-    assert report.ok, [(i.code, i.detail) for i in report.issues]
-    assert len(report.aggregates) == 4
+    assert len(finding.aggregates) == 3
+    assert sorted(finding.benchmark_families) == ["swebench-pro@1.0", "terminal-bench@2.0"]
+    assert finding.best_proposed_reward == 0.72
+    assert finding.best_baseline_reward == 0.60
+    assert finding.proposed_minus_baseline == pytest.approx(0.12)
+    # No verdict; no thresholds; ok=True regardless of numbers.
+    assert finding.ok is True
 
 
-def test_run_gate_fails_on_insufficient_delta(tmp_path: Path) -> None:
-    _write_bundle(tmp_path, "argus-bundle", condition="argus", reward=0.605, dataset_id="terminal-bench@2.0")
-    _write_bundle(tmp_path, "bare-bundle", condition="bare", reward=0.600, dataset_id="terminal-bench@2.0")
-    _write_bundle(tmp_path, "swe-bundle", condition="argus", reward=0.45, dataset_id="swebench-pro@1.0")
-    _write_bundle(tmp_path, "mla-bundle", condition="argus", reward=0.50, dataset_id="mlagentbench@1.1")
-
-    report = run_anti_mediocrity_gate(
-        tmp_path,
-        proposed_condition="argus",
-        baseline_condition="bare",
-        min_delta=0.02,
-        min_families=3,
-    )
-
-    codes = {i.code for i in report.issues}
-    assert "improvement_below_threshold" in codes
+def test_collect_finding_with_no_evidence_returns_empty_not_error(tmp_path: Path) -> None:
+    finding = collect_mediocrity_finding(tmp_path)
+    assert finding.aggregates == []
+    assert finding.benchmark_families == []
+    # Critically: ok=True even with zero evidence. The harness does NOT
+    # rule that "no evidence" is a quality problem.
+    assert finding.ok is True
 
 
-def test_run_gate_fails_on_insufficient_benchmark_diversity(tmp_path: Path) -> None:
-    _write_bundle(tmp_path, "argus-bundle", condition="argus", reward=0.72, dataset_id="terminal-bench@2.0")
-    _write_bundle(tmp_path, "bare-bundle", condition="bare", reward=0.60, dataset_id="terminal-bench@2.0")
-
-    report = run_anti_mediocrity_gate(
-        tmp_path,
-        proposed_condition="argus",
-        baseline_condition="bare",
-        min_delta=0.02,
-        min_families=3,
-    )
-
-    codes = {i.code for i in report.issues}
-    assert "benchmark_diversity_insufficient" in codes
+# ---------------------------------------------------------------------------
+# format_finding — reviewer-facing text
+# ---------------------------------------------------------------------------
 
 
-def test_cli_exits_nonzero_on_issues(tmp_path: Path, capsys) -> None:
-    _write_bundle(tmp_path, "single-bundle", condition="argus", reward=0.5, dataset_id="terminal-bench@2.0")
+def test_format_finding_includes_checklist(tmp_path: Path) -> None:
+    _write_bundle(tmp_path, "a", condition="argus", reward=0.72)
+    finding = collect_mediocrity_finding(tmp_path, proposed_condition="argus")
+    text = format_finding(finding)
+    assert "no harness verdict — reviewer rules" in text
+    assert "Reviewer judgement points" in text
+    # The checklist tells the reviewer it's their call:
+    assert "you decide" in text or "reviewer rules" in text
+
+
+def test_format_finding_marks_noisy_aggregates(tmp_path: Path) -> None:
+    _write_bundle(tmp_path, "dirty",
+                  condition="argus", reward=0.7, total=100, errored=40)
+    finding = collect_mediocrity_finding(tmp_path)
+    text = format_finding(finding)
+    assert "[NOISY]" in text
+
+
+# ---------------------------------------------------------------------------
+# CLI — exits 0 except on structural read error
+# ---------------------------------------------------------------------------
+
+
+def test_cli_exits_zero_even_with_terrible_numbers(tmp_path: Path, capsys) -> None:
+    # Proposed reward is WORSE than baseline → still exit 0. The harness
+    # never rules "mediocre"; reviewer does.
+    _write_bundle(tmp_path, "p", condition="argus", reward=0.10)
+    _write_bundle(tmp_path, "b", condition="bare", reward=0.90)
 
     rc = anti_mediocrity_main(
         [
-            "--project-root",
-            str(tmp_path),
-            "--proposed-condition",
-            "argus",
-            "--baseline-condition",
-            "bare",
-            "--min-benchmark-families",
-            "3",
+            "--project-root", str(tmp_path),
+            "--proposed-condition", "argus",
+            "--baseline-condition", "bare",
         ]
     )
     out = capsys.readouterr().out
-    assert rc == 1
-    assert "FAIL" in out
-    assert "baseline_not_reproduced" in out
-    assert "benchmark_diversity_insufficient" in out
+    assert rc == 0
+    # The negative delta IS surfaced — reviewer reads it.
+    assert "proposed - baseline" in out
+    assert "-" in out  # negative sign shows up in formatted delta
 
 
-def test_cli_json_report(tmp_path: Path, capsys) -> None:
-    _write_bundle(tmp_path, "single-bundle", condition="argus", reward=0.5, dataset_id="terminal-bench@2.0")
+def test_cli_exits_zero_on_empty_project(tmp_path: Path, capsys) -> None:
+    rc = anti_mediocrity_main(["--project-root", str(tmp_path)])
+    assert rc == 0
 
+
+def test_cli_json_emits_no_verdict_field(tmp_path: Path, capsys) -> None:
+    _write_bundle(tmp_path, "p", condition="argus", reward=0.10)
     rc = anti_mediocrity_main(
-        [
-            "--project-root",
-            str(tmp_path),
-            "--proposed-condition",
-            "argus",
-            "--baseline-condition",
-            "bare",
-            "--min-benchmark-families",
-            "3",
-            "--json",
-        ]
+        ["--project-root", str(tmp_path), "--json"]
     )
     out = capsys.readouterr().out
-    assert rc == 1
+    assert rc == 0
     payload = json.loads(out)
-    assert payload["ok"] is False
-    assert payload["issue_count"] >= 2
-    assert any(i["code"] == "baseline_not_reproduced" for i in payload["issues"])
+    # Schema must NOT include verdict-style fields like "passed" or "issues".
+    assert "passed" not in payload
+    assert "issues" not in payload
+    assert "issue_count" not in payload
+    # Schema MUST include the facts.
+    assert "best_proposed_reward" in payload
+    assert "best_baseline_reward" in payload
+    assert "proposed_minus_baseline" in payload
+    assert "benchmark_families" in payload
+    assert "aggregates" in payload
+    assert payload["ok"] is True  # structural read succeeded
+
+
+# ---------------------------------------------------------------------------
+# Anti-regression: the module must NOT export old verdict-style names
+# ---------------------------------------------------------------------------
+
+
+def test_old_verdict_api_is_gone() -> None:
+    """Lock in the post-c6b11d3 rewrite: no threshold constants, no
+    check_* / run_*_gate verdict functions, no MediocrityIssue. If any
+    of these are reintroduced, this test fails — and that's a signal
+    the harness is sneaking research judgment back in.
+    """
+    import argus_skill.skills.anti_mediocrity as mod
+    forbidden_names = [
+        "DEFAULT_MIN_DELTA",
+        "DEFAULT_MIN_FAMILIES",
+        "MediocrityIssue",
+        "check_baseline_reproduced",
+        "check_improvement_threshold",
+        "check_benchmark_diversity",
+        "run_anti_mediocrity_gate",
+    ]
+    for name in forbidden_names:
+        assert not hasattr(mod, name), (
+            f"{name!r} is a verdict-style API and must stay deleted "
+            f"(see review/2026-06-01-research-factory-gates-c6b11d3.md)"
+        )

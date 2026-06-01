@@ -234,11 +234,15 @@ def main() -> int:
             print(f"  ⏰ {desc} (timeout)")
             failed += 1
 
-    # 2. Run automated F3 (anti-mediocrity) + F4 (evidence chain) gates
-    #    that apply at this stage. The gate map lives in
-    #    argus_skill.skills.automated_gates.STAGE_GATES.
+    # 2. Run automated F4 (structural) + F3 (advisory) gates that apply
+    #    at this stage. STRUCTURAL gate failures count into the round
+    #    exit code — they are anti-fraud / provenance guards (e.g. broken
+    #    evidence chains). ADVISORY findings (mediocrity facts) NEVER
+    #    count — they are facts the reviewer reads to make their own
+    #    judgment. The gate map + kind lives in
+    #    argus_skill.skills.automated_gates.{STAGE_GATES,GATE_KINDS}.
     from argus_skill.skills.automated_gates import (
-        all_passed as _gates_all_passed,
+        any_blocking_failure as _gates_any_blocking,
         run_stage_gates,
     )
 
@@ -248,15 +252,27 @@ def main() -> int:
         proposed_condition=os.environ.get("ARGUS_SKILL_PROPOSED_CONDITION") or None,
         baseline_condition=os.environ.get("ARGUS_SKILL_BASELINE_CONDITION") or None,
     )
-    gate_failed = 0
+    structural_block = 0
+    advisory_count = 0
+    structural_pass = 0
+    structural_fail = 0
     if gate_results:
         print()
         print(f"🛡  Automated gates for stage '{stage}':")
         for gate in gate_results:
-            mark = "✅" if gate.passed else "❌"
-            print(f"  {mark} {gate.name} — {gate.summary}")
-            if not gate.passed:
-                gate_failed += 1
+            if gate.kind == "advisory":
+                mark = "📋"  # advisory — surface, never block
+                advisory_count += 1
+            elif gate.passed:
+                mark = "✅"
+                structural_pass += 1
+            else:
+                mark = "❌"
+                structural_fail += 1
+                if gate.is_blocking:
+                    structural_block += 1
+            print(f"  {mark} {gate.name} ({gate.kind}) — {gate.summary}")
+            if gate.detail:
                 for line in gate.detail.splitlines():
                     print(f"     {line}")
 
@@ -271,11 +287,16 @@ def main() -> int:
         print()
         print(instructions)
 
-    total_failed = failed + gate_failed
+    # Exit code: shell-check failures + STRUCTURAL gate failures only.
+    # Advisory findings (mediocrity facts) never appear here.
+    total_failed = failed + structural_block
     print(
         f"\n{'✅' if total_failed == 0 else '❌'} "
         f"{passed} shell pass, {failed} shell fail, "
-        f"{len(gate_results) - gate_failed} gate pass, {gate_failed} gate fail"
+        f"{structural_pass} structural-gate pass, "
+        f"{structural_fail} structural-gate fail, "
+        f"{advisory_count} advisory finding(s) "
+        f"(reviewer rules)"
     )
     return 0 if total_failed == 0 else 1
 

@@ -47,11 +47,12 @@ class ProjectState(str, Enum):
     ARCHIVED = "archived"
 
 
-# Default thresholds. Override per-project if needed; supervisor reads
-# these to decide automatic transitions.
-DEFAULT_INCUBATING_MAX_DAYS = 7
-DEFAULT_RUNNING_MAX_DAYS = 14
-DEFAULT_WRITING_MAX_DAYS = 21
+# Default budget-fraction threshold for the auto-quarantine plumbing rule.
+# 80% of the *operator-set budget* with no draft is a budget guard, not a
+# research-quality call: the project is about to run out of money without
+# producing the expected artifact (paper draft). This is the only
+# harness-side numeric threshold that's kept; everything else was moved
+# to advisory signals (see ``advisory_time_signals``).
 DEFAULT_QUARANTINE_BUDGET_FRACTION = 0.80
 
 
@@ -92,10 +93,9 @@ class ProjectStatus:
     has_draft: bool = False
     has_submission_artifact: bool = False
     consecutive_no_progress_ticks: int = 0
-    # Configurable thresholds (defaulted but overridable per-project)
-    incubating_max_days: int = DEFAULT_INCUBATING_MAX_DAYS
-    running_max_days: int = DEFAULT_RUNNING_MAX_DAYS
-    writing_max_days: int = DEFAULT_WRITING_MAX_DAYS
+    # Configurable budget threshold. Time-based thresholds are NOT
+    # configurable here because the harness no longer enforces them;
+    # see ``advisory_time_signals`` for the advisory surface.
     quarantine_budget_fraction: float = DEFAULT_QUARANTINE_BUDGET_FRACTION
 
     def to_dict(self) -> dict:
@@ -185,20 +185,18 @@ def decide_next_state(
             ),
         )
 
-    # 4. State-specific timeouts.
+    # 4. State-specific natural progressions only.
+    #    Earlier versions of this module also auto-quarantined on time
+    #    spent in a stage (incubating>7d, running>14d no new evidence,
+    #    writing>21d). Those constants were research-tempo judgments
+    #    ("21 days writing without submission is too long") which the
+    #    review at review/2026-06-01-research-factory-gates-c6b11d3.md
+    #    correctly flagged as harness-side science verdicts. They were
+    #    removed; ``advisory_time_signals`` below surfaces the same
+    #    numbers as informational signals the planner/reviewer can read,
+    #    without the harness deciding "give up on this project".
     if status.state == ProjectState.INCUBATING:
-        age = _days_since(now, status.created_at) or 0.0
-        if age > status.incubating_max_days and status.last_evidence_at is None:
-            return LifecycleEvent(
-                at=now,
-                from_state=ProjectState.INCUBATING,
-                to_state=ProjectState.QUARANTINED,
-                reason=(
-                    f"incubating {age:.1f}d > {status.incubating_max_days}d "
-                    f"without any evidence"
-                ),
-            )
-        # 5. Natural progression: first evidence appeared → running.
+        # Natural progression: first evidence appeared → running.
         if status.last_evidence_at is not None:
             return LifecycleEvent(
                 at=now,
@@ -208,19 +206,6 @@ def decide_next_state(
             )
 
     elif status.state == ProjectState.RUNNING:
-        # No new evidence for N days while still in running.
-        if status.last_evidence_at is not None:
-            since_evidence = _days_since(now, status.last_evidence_at) or 0.0
-            if since_evidence > status.running_max_days:
-                return LifecycleEvent(
-                    at=now,
-                    from_state=ProjectState.RUNNING,
-                    to_state=ProjectState.QUARANTINED,
-                    reason=(
-                        f"no new evidence for {since_evidence:.1f}d "
-                        f"> {status.running_max_days}d"
-                    ),
-                )
         # Natural progression: draft started → writing.
         if status.has_draft:
             return LifecycleEvent(
@@ -230,28 +215,87 @@ def decide_next_state(
                 reason="draft_started",
             )
 
+    # WRITING: no auto-transitions. The reviewer rules on "done".
+
+    # No transition.
+    return None
+
+
+@dataclass(frozen=True)
+class AdvisorySignal:
+    """A time-based observation about the project, surfaced to planner
+    and reviewer agents. The harness does NOT act on these; they exist
+    to inform the agent.
+    """
+
+    kind: str
+    message: str
+
+    def to_dict(self) -> dict:
+        return {"kind": self.kind, "message": self.message}
+
+
+def advisory_time_signals(
+    status: ProjectStatus, *, now: datetime | None = None
+) -> list[AdvisorySignal]:
+    """Surface time-in-state observations as plain advisory signals.
+
+    Replaces the old hard-coded timeouts. The numbers are reported as
+    facts ("you've been incubating 9.2 days"); the planner/reviewer
+    decides whether that means pivot, push harder, or stay the course.
+    Never blocks dispatch — that's what the harness budget cap is for.
+    """
+    now = now or datetime.now(timezone.utc)
+    signals: list[AdvisorySignal] = []
+
+    if status.state == ProjectState.INCUBATING:
+        age = _days_since(now, status.created_at)
+        if age is not None and status.last_evidence_at is None:
+            signals.append(
+                AdvisorySignal(
+                    kind="incubating_time",
+                    message=(
+                        f"project has been incubating for {age:.1f} days "
+                        f"with no evidence bundle yet"
+                    ),
+                )
+            )
+
+    elif status.state == ProjectState.RUNNING and status.last_evidence_at is not None:
+        since = _days_since(now, status.last_evidence_at)
+        if since is not None and since > 0:
+            signals.append(
+                AdvisorySignal(
+                    kind="running_evidence_gap",
+                    message=(
+                        f"no new evidence bundle in {since:.1f} days; "
+                        f"planner / reviewer: judge whether this matches "
+                        f"the project's experiment cadence"
+                    ),
+                )
+            )
+
     elif status.state == ProjectState.WRITING:
-        # Writing too long without submission artifact.
         anchor = (
             status.last_progress_at
             or status.last_state_change_at
             or status.last_evidence_at
             or status.created_at
         )
-        since_anchor = _days_since(now, anchor) or 0.0
-        if since_anchor > status.writing_max_days:
-            return LifecycleEvent(
-                at=now,
-                from_state=ProjectState.WRITING,
-                to_state=ProjectState.QUARANTINED,
-                reason=(
-                    f"writing stage idle {since_anchor:.1f}d "
-                    f"> {status.writing_max_days}d without submission"
-                ),
+        since = _days_since(now, anchor)
+        if since is not None and since > 0:
+            signals.append(
+                AdvisorySignal(
+                    kind="writing_idle",
+                    message=(
+                        f"writing stage idle {since:.1f} days; "
+                        f"reviewer: judge whether the draft is stuck "
+                        f"or genuinely close to submission"
+                    ),
+                )
             )
 
-    # No transition.
-    return None
+    return signals
 
 
 def apply_event(

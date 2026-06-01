@@ -6,12 +6,11 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from argus_skill.life.project_lifecycle import (
-    DEFAULT_INCUBATING_MAX_DAYS,
-    DEFAULT_RUNNING_MAX_DAYS,
-    DEFAULT_WRITING_MAX_DAYS,
+    AdvisorySignal,
     LifecycleEvent,
     ProjectState,
     ProjectStatus,
+    advisory_time_signals,
     apply_event,
     archive,
     decide_next_state,
@@ -114,38 +113,39 @@ def test_budget_exhaustion_with_draft_does_not_quarantine() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_incubating_timeout_quarantines() -> None:
+def test_incubating_does_not_auto_quarantine_on_age() -> None:
+    """Post-c6b11d3: time-based auto-quarantine was removed because
+    "incubating > 7d is too long" is a research-tempo judgment, not a
+    harness call. The state machine must NOT transition based on age."""
     status = _fresh(state=ProjectState.INCUBATING, last_evidence_at=None)
-    now = _utc("2026-05-01T00:00:00") + timedelta(days=DEFAULT_INCUBATING_MAX_DAYS + 1)
+    now = _utc("2026-05-01T00:00:00") + timedelta(days=365)
     event = decide_next_state(status, now=now)
-    assert event is not None
-    assert event.to_state == ProjectState.QUARANTINED
-    assert "incubating" in event.reason
+    # No transition. The advisory signal exists separately for the agent.
+    assert event is None
 
 
-def test_running_no_new_evidence_timeout_quarantines() -> None:
+def test_running_no_new_evidence_does_not_auto_quarantine() -> None:
     status = _fresh(
         state=ProjectState.RUNNING,
         last_evidence_at=_utc("2026-05-01T00:00:00"),
     )
-    now = _utc("2026-05-01T00:00:00") + timedelta(days=DEFAULT_RUNNING_MAX_DAYS + 1)
+    now = _utc("2026-05-01T00:00:00") + timedelta(days=90)
     event = decide_next_state(status, now=now)
-    assert event is not None
-    assert event.to_state == ProjectState.QUARANTINED
-    assert "no new evidence" in event.reason
+    # No transition — has_draft is False so we don't promote to writing,
+    # and no time-based quarantine fires either.
+    assert event is None
 
 
-def test_writing_idle_timeout_quarantines() -> None:
+def test_writing_idle_does_not_auto_quarantine() -> None:
     status = _fresh(
         state=ProjectState.WRITING,
         has_draft=True,
         last_progress_at=_utc("2026-05-01T00:00:00"),
     )
-    now = _utc("2026-05-01T00:00:00") + timedelta(days=DEFAULT_WRITING_MAX_DAYS + 1)
+    now = _utc("2026-05-01T00:00:00") + timedelta(days=365)
     event = decide_next_state(status, now=now)
-    assert event is not None
-    assert event.to_state == ProjectState.QUARANTINED
-    assert "writing" in event.reason
+    # The reviewer rules on whether the draft is stuck — not the harness.
+    assert event is None
 
 
 # ---------------------------------------------------------------------------
@@ -282,3 +282,74 @@ def test_to_dict_includes_budget_fraction() -> None:
     d = status.to_dict()
     assert d["budget_fraction_spent"] == pytest.approx(0.25)
     assert d["state"] == ProjectState.INCUBATING.value
+
+
+# ---------------------------------------------------------------------------
+# advisory_time_signals — replaces the old hard-coded timeouts
+# ---------------------------------------------------------------------------
+
+
+def test_advisory_signal_for_long_incubation() -> None:
+    status = _fresh(state=ProjectState.INCUBATING)
+    now = _utc("2026-05-01T00:00:00") + timedelta(days=15)
+    signals = advisory_time_signals(status, now=now)
+    assert len(signals) == 1
+    assert signals[0].kind == "incubating_time"
+    assert "incubating" in signals[0].message
+    assert "15" in signals[0].message  # the number is surfaced
+
+
+def test_advisory_signal_for_running_evidence_gap() -> None:
+    status = _fresh(
+        state=ProjectState.RUNNING,
+        last_evidence_at=_utc("2026-05-01T00:00:00"),
+    )
+    now = _utc("2026-05-01T00:00:00") + timedelta(days=20)
+    signals = advisory_time_signals(status, now=now)
+    assert len(signals) == 1
+    assert signals[0].kind == "running_evidence_gap"
+
+
+def test_advisory_signal_for_writing_idle() -> None:
+    status = _fresh(
+        state=ProjectState.WRITING,
+        last_progress_at=_utc("2026-05-01T00:00:00"),
+    )
+    now = _utc("2026-05-01T00:00:00") + timedelta(days=30)
+    signals = advisory_time_signals(status, now=now)
+    assert len(signals) == 1
+    assert signals[0].kind == "writing_idle"
+    # Must explicitly tell reviewer it's THEIR call.
+    assert "reviewer" in signals[0].message.lower()
+
+
+def test_advisory_signals_terminal_states_yield_nothing() -> None:
+    for state in (ProjectState.DONE, ProjectState.ARCHIVED, ProjectState.QUARANTINED):
+        signals = advisory_time_signals(_fresh(state=state))
+        assert signals == []
+
+
+# ---------------------------------------------------------------------------
+# Anti-regression: deleted threshold constants must stay gone
+# ---------------------------------------------------------------------------
+
+
+def test_old_time_threshold_constants_are_gone() -> None:
+    """Post-c6b11d3: ``DEFAULT_INCUBATING_MAX_DAYS`` etc. were research-
+    tempo judgments dressed as constants. They must not reappear; the
+    only allowed harness-side numeric default is the BUDGET fraction
+    (operator-set spending guard, not a quality call)."""
+    import argus_skill.life.project_lifecycle as mod
+    forbidden = [
+        "DEFAULT_INCUBATING_MAX_DAYS",
+        "DEFAULT_RUNNING_MAX_DAYS",
+        "DEFAULT_WRITING_MAX_DAYS",
+    ]
+    for name in forbidden:
+        assert not hasattr(mod, name), (
+            f"{name!r} is a research-tempo threshold — must stay deleted "
+            f"(see review/2026-06-01-research-factory-gates-c6b11d3.md)"
+        )
+
+    # Budget fraction IS allowed — operator-set spending guard.
+    assert hasattr(mod, "DEFAULT_QUARANTINE_BUDGET_FRACTION")

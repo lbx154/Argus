@@ -1493,6 +1493,7 @@ def _cmd_lifecycle_status(args: argparse.Namespace) -> int:
     restarts.
     """
     from ..life.project_lifecycle import (
+        advisory_time_signals,
         decide_next_state,
         infer_observable_status,
         is_token_allocatable,
@@ -1521,6 +1522,7 @@ def _cmd_lifecycle_status(args: argparse.Namespace) -> int:
     overlaid = apply_persisted_to_status(status, persisted)
     event = decide_next_state(overlaid)
     history = load_history(root)
+    signals = advisory_time_signals(overlaid)
 
     print(f"argus-skill — project lifecycle (F5)")
     print(f"  root              : {root}")
@@ -1544,6 +1546,14 @@ def _cmd_lifecycle_status(args: argparse.Namespace) -> int:
             f"{event.from_state.value} → {event.to_state.value} "
             f"({event.reason})"
         )
+
+    # Advisory time signals are facts the AGENT reads to decide whether
+    # to pivot / push / give up. The harness does not act on them.
+    if signals:
+        print(f"  advisory signals  : {len(signals)}  (agent reads, harness does not act)")
+        for sig in signals:
+            print(f"    - [{sig.kind}] {sig.message}")
+
     if history:
         print(f"  history ({len(history)} event(s), most recent first):")
         for ev in reversed(history[-5:]):

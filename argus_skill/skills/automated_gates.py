@@ -1,35 +1,27 @@
-"""Automated gates — F3/F4 integration into the per-round check pipeline.
+"""Stage → gates router (post-c6b11d3 rewrite).
 
-This module is the bridge between the standalone validators
-(:mod:`argus_skill.skills.evidence_chain` F4,
-:mod:`argus_skill.skills.anti_mediocrity` F3) and the existing per-round
-check protocol in :mod:`argus_skill.tools.stage_check` /
-:mod:`argus_skill.engineer.checks`.
+The harness runs two kinds of per-round checks:
 
-For each pipeline stage, ``gates_for_stage(stage)`` returns the list of
-automated gates that should run. The reviewer agent reads the resulting
-findings as additional evidence in its prompt; failed gates inject
-specific, actionable failures rather than vague "needs more work".
+* **Structural** gates (kind=``structural``) — anti-fraud / provenance
+  enforcement. Failure means the artifacts themselves are broken
+  (missing files, dangling claims, forged citations). These DO block
+  the round via stage_check exit code; the reviewer cannot overrule
+  them, and shouldn't want to. Today: ``evidence_chain`` (F4).
 
-Stage-to-gate map (matches stage_check semantics):
+* **Advisory** findings (kind=``advisory``) — surface facts to the
+  reviewer's prompt without making a verdict. The harness never blocks
+  a round on an advisory finding; the reviewer reads the numbers and
+  rules. Today: ``mediocrity_finding`` (formerly F3).
 
-============== =====================================================
-stage          gates run
-============== =====================================================
-research       — (no evidence to validate yet)
-plan           — (no evidence to validate yet)
-benchmark      — (artifacts being prepared, not yet citable)
-run            anti_mediocrity (baseline reproduction, Δ ≥ min_delta,
-               benchmark diversity)
-analysis       evidence_chain, anti_mediocrity
-draft          evidence_chain
-review         evidence_chain, anti_mediocrity
-submission     evidence_chain, anti_mediocrity
-============== =====================================================
+The distinction is enforced by ``GateResult.kind`` + ``stage_check.py``:
+only structural failures count into the exit code.
 
-Stages without configured gates return an empty list. Callers should
-treat that as "the agent layer is the only check at this stage" — the
-absence of an automated gate is NOT a pass.
+Why this matters: the earlier F3 (``c6b11d3``) hard-coded research-quality
+thresholds (``min_delta=0.02``, ``min_families>=3``) and counted them into
+exit code, so the harness was secretly making research-quality verdicts.
+That was rejected in review ``review/2026-06-01-research-factory-gates-
+c6b11d3.md`` per the design philosophy "harness 没有 agent 自己聪明"
+(README "设计哲学" + nssmd/skills/04-harness-vs-agent-boundary.md).
 """
 from __future__ import annotations
 
@@ -39,14 +31,14 @@ from pathlib import Path
 from typing import Literal
 
 from .anti_mediocrity import (
-    DEFAULT_MIN_DELTA,
-    DEFAULT_MIN_FAMILIES,
-    run_anti_mediocrity_gate,
+    collect_mediocrity_finding,
+    format_finding,
 )
 from .evidence_chain import validate_evidence_chain
 
 
-GateName = Literal["evidence_chain", "anti_mediocrity"]
+GateName = Literal["evidence_chain", "mediocrity_finding"]
+GateKind = Literal["structural", "advisory"]
 
 
 # Stage → gates that apply.
@@ -54,27 +46,54 @@ STAGE_GATES: dict[str, tuple[GateName, ...]] = {
     "research": (),
     "plan": (),
     "benchmark": (),
-    "run": ("anti_mediocrity",),
-    "analysis": ("evidence_chain", "anti_mediocrity"),
+    "run": ("mediocrity_finding",),
+    "analysis": ("evidence_chain", "mediocrity_finding"),
     "draft": ("evidence_chain",),
-    "review": ("evidence_chain", "anti_mediocrity"),
-    "submission": ("evidence_chain", "anti_mediocrity"),
+    "review": ("evidence_chain", "mediocrity_finding"),
+    "submission": ("evidence_chain", "mediocrity_finding"),
+}
+
+
+# Which gates are structural (allowed to block via exit code) vs
+# advisory (always exit 0; reviewer rules). Single source of truth.
+GATE_KINDS: dict[GateName, GateKind] = {
+    "evidence_chain": "structural",
+    "mediocrity_finding": "advisory",
 }
 
 
 @dataclass
 class GateResult:
-    """Result of one gate. Mirrors the shape of ``CheckResult`` so it can
-    be folded into the reviewer's existing check list, but stays a
-    plain-Python dataclass so it doesn't pull in engineer/runner imports."""
+    """Result of one gate.
+
+    ``kind`` is the source-of-truth for whether the supervisor should
+    treat this as a hard block:
+
+    * ``structural`` + ``passed=False`` → block the round
+    * ``advisory`` + anything → never block the round; just surface text
+
+    ``passed`` is meaningless for advisory findings (kind=='advisory')
+    and is forced to True by the runner so callers don't accidentally
+    short-circuit on advisory output. The reviewer reads the ``detail``
+    body and rules.
+    """
 
     name: GateName
+    kind: GateKind
     passed: bool
     summary: str
     detail: str
 
+    @property
+    def is_blocking(self) -> bool:
+        """True iff a stage-check caller should count this into exit code."""
+        return self.kind == "structural" and not self.passed
+
     def to_text_block(self) -> str:
-        head = "PASS" if self.passed else "FAIL"
+        if self.kind == "advisory":
+            head = "ADVISORY"
+        else:
+            head = "PASS" if self.passed else "FAIL"
         return (
             f"[{head}] gate:{self.name} — {self.summary}\n"
             f"{self.detail}".rstrip()
@@ -87,10 +106,12 @@ def gates_for_stage(stage: str) -> tuple[GateName, ...]:
 
 
 def _run_evidence_chain(project_root: Path) -> GateResult:
+    """Structural gate: claim → evidence → bundle chain must be intact."""
     report = validate_evidence_chain(project_root)
     if report.ok:
         return GateResult(
             name="evidence_chain",
+            kind="structural",
             passed=True,
             summary=(
                 f"all {report.claims_checked} claim(s) and "
@@ -117,6 +138,7 @@ def _run_evidence_chain(project_root: Path) -> GateResult:
             lines.append(f"    ... and {len(bucket) - 5} more")
     return GateResult(
         name="evidence_chain",
+        kind="structural",
         passed=False,
         summary=(
             f"{len(report.issues)} chain issue(s) across "
@@ -126,51 +148,41 @@ def _run_evidence_chain(project_root: Path) -> GateResult:
     )
 
 
-def _run_anti_mediocrity(
+def _run_mediocrity_finding(
     project_root: Path,
     *,
     proposed_condition: str | None,
     baseline_condition: str | None,
-    min_delta: float,
-    min_families: int,
 ) -> GateResult:
-    report = run_anti_mediocrity_gate(
+    """Advisory finding: surface evidence facts; reviewer rules on quality.
+
+    Never blocks. Even if the underlying read had a structural error,
+    the harness only logs it; the reviewer prompt always sees whatever
+    facts were extractable.
+    """
+    finding = collect_mediocrity_finding(
         project_root,
         proposed_condition=proposed_condition,
         baseline_condition=baseline_condition,
-        min_delta=min_delta,
-        min_families=min_families,
     )
-    if report.ok:
-        agg_count = len(report.aggregates)
-        return GateResult(
-            name="anti_mediocrity",
-            passed=True,
-            summary=(
-                f"baseline reproduced, improvement ≥{min_delta}, "
-                f"≥{min_families} benchmark families (across {agg_count} aggregates)"
-            ),
-            detail="",
-        )
-    lines = [
-        f"{len(report.issues)} anti-mediocrity gate failure(s):",
+    n_agg = len(finding.aggregates)
+    n_fam = len(finding.benchmark_families)
+    delta = finding.proposed_minus_baseline
+    bits = [
+        f"{n_agg} aggregate(s)",
+        f"{n_fam} benchmark family/families",
     ]
-    for issue in report.issues:
-        prefix = f"  [{issue.code}] {issue.detail}"
-        if issue.measured is not None and issue.threshold is not None:
-            prefix += f" (measured={issue.measured}, threshold={issue.threshold})"
-        lines.append(prefix)
-    if not proposed_condition or not baseline_condition:
-        lines.append(
-            "  (note: --proposed-condition and --baseline-condition were "
-            "not supplied; only benchmark-diversity was checked. Pass them "
-            "to run baseline reproduction and Δ-reward gates.)"
-        )
+    if delta is not None:
+        bits.append(f"Δreward={delta:+.4f}")
+    if finding.structural_errors:
+        bits.append(f"{len(finding.structural_errors)} read error(s)")
+    summary = "; ".join(bits)
     return GateResult(
-        name="anti_mediocrity",
-        passed=False,
-        summary=f"{len(report.issues)} gate failure(s)",
-        detail="\n".join(lines),
+        name="mediocrity_finding",
+        kind="advisory",
+        passed=True,  # advisory never blocks; this field is meaningless here
+        summary=summary,
+        detail=format_finding(finding),
     )
 
 
@@ -180,8 +192,6 @@ def run_stage_gates(
     stage: str,
     proposed_condition: str | None = None,
     baseline_condition: str | None = None,
-    min_delta: float = DEFAULT_MIN_DELTA,
-    min_families: int = DEFAULT_MIN_FAMILIES,
 ) -> list[GateResult]:
     """Run every gate applicable to ``stage``. Returns one ``GateResult``
     per gate. Empty list means no gates apply at this stage."""
@@ -190,21 +200,24 @@ def run_stage_gates(
     for gate in gates:
         if gate == "evidence_chain":
             results.append(_run_evidence_chain(project_root))
-        elif gate == "anti_mediocrity":
+        elif gate == "mediocrity_finding":
             results.append(
-                _run_anti_mediocrity(
+                _run_mediocrity_finding(
                     project_root,
                     proposed_condition=proposed_condition,
                     baseline_condition=baseline_condition,
-                    min_delta=min_delta,
-                    min_families=min_families,
                 )
             )
     return results
 
 
-def all_passed(results: list[GateResult]) -> bool:
-    return all(r.passed for r in results)
+def any_blocking_failure(results: list[GateResult]) -> bool:
+    """True iff at least one *structural* gate failed.
+
+    This is the supervisor-facing question. Advisory failures (kind ==
+    'advisory') are never counted: they exist only to inform the reviewer.
+    """
+    return any(r.is_blocking for r in results)
 
 
 def format_results(results: list[GateResult]) -> str:
@@ -226,12 +239,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--proposed-condition", type=str, default=None)
     parser.add_argument("--baseline-condition", type=str, default=None)
-    parser.add_argument(
-        "--min-delta", type=float, default=DEFAULT_MIN_DELTA
-    )
-    parser.add_argument(
-        "--min-benchmark-families", type=int, default=DEFAULT_MIN_FAMILIES
-    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
@@ -240,18 +247,17 @@ def main(argv: list[str] | None = None) -> int:
         stage=args.stage,
         proposed_condition=args.proposed_condition,
         baseline_condition=args.baseline_condition,
-        min_delta=args.min_delta,
-        min_families=args.min_benchmark_families,
     )
 
     if args.json:
         payload = {
             "stage": args.stage,
             "gates_run": [r.name for r in results],
-            "all_passed": all_passed(results),
+            "structural_block": any_blocking_failure(results),
             "results": [
                 {
                     "name": r.name,
+                    "kind": r.kind,
                     "passed": r.passed,
                     "summary": r.summary,
                     "detail": r.detail,
@@ -269,7 +275,9 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(format_results(results))
 
-    return 0 if all_passed(results) else 1
+    # ONLY structural failures count into exit code. Advisory findings
+    # never block; reviewer reads them and decides.
+    return 1 if any_blocking_failure(results) else 0
 
 
 if __name__ == "__main__":  # pragma: no cover
