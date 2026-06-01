@@ -30,6 +30,7 @@
 | 03 | [`push-after`](skills/03-push-after.md) | 一块工作完成后 |
 | **04** | [`harness-vs-agent-boundary`](skills/04-harness-vs-agent-boundary.md) | **Step 0 必读** — 决定一段逻辑该在 harness 还是 agent prompt 里 |
 | **05** | [`read-review-first`](skills/05-read-review-first.md) | **Step 0.5 必读** — session 开头 + 任何看起来"做过类似事"的功能前，必须 `ls review/` |
+| **06** | [`keep-files-small`](skills/06-keep-files-small.md) | **Step 2/3 必读** — 加 50+ 行新逻辑前先问"该不该新建模块"，>1000 行的文件追加必须在 commit 里解释 |
 
 ## 例外
 

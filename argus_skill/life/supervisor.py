@@ -1049,154 +1049,30 @@ class LifeSupervisor:
         return result
 
     # ------------------------------------------------------------------
-    # Self-evolve: surface missing-tool advisories to the agent layer
+    # Self-evolve: thin delegate to SelfEvolveAdvisor
     # ------------------------------------------------------------------
+    # Logic lives in argus_skill/life/self_evolve_advisor.py per
+    # nssmd/skills/06-keep-files-small.md. supervisor.py is already
+    # ~1800 lines; the self-evolve concern (advisory journaling +
+    # dedup + event tailing) belongs in its own module so it can be
+    # discovered + tested + refactored independently.
 
-    _MINT_SKILL_TAG = "mint-skill"
+    _MINT_SKILL_TAG = "mint-skill"  # back-compat: tests import this
 
     def _maybe_journal_self_evolve_advisory(
         self, item: BacklogItem, result: dict[str, Any] | None
     ) -> list[str]:
-        """Detect missing-tool signals and write them to the journal as
-        ``self_evolve.missing_tool_advisory`` entries for the reviewer
-        / planner to act on.
+        """Surface missing-tool patterns as journal advisories.
 
-        Returns the list of tool_name slugs surfaced this round (empty
-        when no signal, or all duplicates of advisories already written
-        recently — so the same signal doesn't spam the journal each
-        tick).
-
-        Note the architectural distinction from prior versions: we no
-        longer auto-enqueue mint-skill BacklogItems. The judgment "is
-        this worth minting" belongs to the agent. The reviewer can
-        recommend a mint-skill mission via its ``next_action`` (the
-        planner then enqueues it in the standard backlog flow); the
-        planner can also batch-enqueue from accumulated advisories
-        during its continuous cycle.
-
-        Fail-soft: any error is logged by the caller and silently
-        skipped — the self-evolve loop must never block the main tick.
+        Thin delegate — see ``self_evolve_advisor.SelfEvolveAdvisor``
+        for the logic. Kept here as a stable method on supervisor so
+        existing tests + monkeypatches don't have to change.
         """
-        # Skip self-recursion: don't surface advisories from a
-        # mint-skill mission's own trajectory (its missing-tool noise
-        # is part of that mission's own work, not a new signal).
-        if self._MINT_SKILL_TAG in (item.tags or []):
-            return []
-
-        from .missing_tool_detector import scan_mission
-
-        result = result or {}
-        agent_messages: list[str] = []
-        check_output_tails: list[str] = []
-        fatal_error: str | None = None
-
-        if isinstance(result.get("agent_messages"), list):
-            agent_messages = [str(m) for m in result["agent_messages"]]
-        outcome = result.get("outcome")
-        if outcome is not None:
-            fatal_error = (
-                getattr(outcome, "fatal_error", None)
-                or str(getattr(outcome, "stop_reason", "") or "")
-                or None
-            )
-        if isinstance(result.get("checks"), list):
-            check_output_tails = [
-                str(getattr(c, "output_tail", "") or "")
-                for c in result["checks"]
-            ]
-        events: list[dict[str, Any]] = list(
-            self._tail_events_for_item(item) or []
-        )
-
-        signals = scan_mission(
-            agent_messages=agent_messages,
-            check_output_tails=check_output_tails,
-            fatal_error=fatal_error,
-            events=events,
-        )
-        if not signals:
-            return []
-
-        # Dedup against advisories already in the recent journal
-        # window so the same signal isn't written every tick.
-        recent_tools = self._recent_self_evolve_advisory_tools(limit=200)
-        surfaced: list[str] = []
-        for sig in signals:
-            if sig.tool_name in recent_tools:
-                continue
-            evidence_lines = "\n".join(f"- {e}" for e in (sig.evidence or ()))
-            entry = JournalEntry.new(
-                kind="self_evolve.missing_tool_advisory",
-                title=f"missing tool: {sig.tool_name}",
-                summary=(
-                    f"{sig.kind}: {sig.context} "
-                    f"(source mission {item.id})\n{evidence_lines}"
-                ),
-                tags=[
-                    "self-evolve",
-                    "advisory",
-                    f"kind:{sig.kind}",
-                    f"tool:{sig.tool_name}",
-                ],
-            )
-            self.memory.journal.append(entry)
-            self._inject_cumulative_cost(entry)
-            recent_tools.add(sig.tool_name)
-            surfaced.append(sig.tool_name)
-        return surfaced
-
-    def _recent_self_evolve_advisory_tools(self, *, limit: int = 200) -> set[str]:
-        """Return tool_name slugs that already have a journal advisory
-        in the recent window (latest ``limit`` entries). Used to dedup
-        per-tick surfacing.
-        """
-        tools: set[str] = set()
-        try:
-            entries = list(self.memory.journal.tail(limit))
-        except Exception:  # noqa: BLE001
-            return tools
-        for entry in entries:
-            if getattr(entry, "kind", "") != "self_evolve.missing_tool_advisory":
-                continue
-            for tag in (getattr(entry, "tags", None) or []):
-                if isinstance(tag, str) and tag.startswith("tool:"):
-                    tools.add(tag.split(":", 1)[1])
-        return tools
-
-    def _tail_events_for_item(self, item: BacklogItem) -> list[dict[str, Any]] | None:
-        """Best-effort: read events.jsonl rows whose ts is between the
-        mission's started_ts and now. Falls back to empty list on any
-        I/O / parse problem (the detector still has the result dict to
-        work with).
-        """
-        try:
-            import json as _json
-            root = getattr(self.memory, "root", None)
-            if root is None:
-                return []
-            events_path = Path(root) / "events.jsonl"
-            if not events_path.exists():
-                return []
-            started = float(item.started_ts or item.ts or 0.0)
-            out: list[dict[str, Any]] = []
-            for line in events_path.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    ev = _json.loads(line)
-                except _json.JSONDecodeError:
-                    continue
-                ts = ev.get("ts")
-                try:
-                    ts_f = float(ts) if ts is not None else 0.0
-                except (TypeError, ValueError):
-                    ts_f = 0.0
-                if started == 0.0 or ts_f >= started:
-                    out.append(ev)
-            return out
-        except Exception:  # noqa: BLE001
-            return []
+        from .self_evolve_advisor import SelfEvolveAdvisor
+        return SelfEvolveAdvisor(
+            memory=self.memory,
+            on_cost=self._inject_cumulative_cost,
+        ).maybe_journal_advisory(item, result)
 
     # ------------------------------------------------------------------
     # F5 project-lifecycle gate
