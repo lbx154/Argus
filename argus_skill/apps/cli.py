@@ -195,6 +195,46 @@ def build_parser() -> argparse.ArgumentParser:
         help="override skills directory (default: global skills root)",
     )
 
+    gates_grp = parser.add_argument_group("research-factory gates")
+    gates_grp.add_argument(
+        "--evidence-chain-check",
+        action="store_true",
+        help="run F4 evidence-chain validator on a project root and exit; "
+             "prints broken chains and exits non-zero if any claim ↔ "
+             "evidence ↔ bundle link is broken",
+    )
+    gates_grp.add_argument(
+        "--anti-mediocrity-check",
+        action="store_true",
+        help="run F3 anti-mediocrity gates (baseline-reproduction, "
+             "Δ-reward, benchmark-diversity) and exit; requires "
+             "--proposed-condition and --baseline-condition to enable "
+             "the comparison gates",
+    )
+    gates_grp.add_argument(
+        "--lifecycle-status",
+        action="store_true",
+        help="print F5 project-lifecycle state derived from project memory "
+             "(incubating/running/writing/quarantined/done/archived) and exit",
+    )
+    gates_grp.add_argument(
+        "--project-root",
+        default=".",
+        help="project root for --evidence-chain-check / "
+             "--anti-mediocrity-check / --lifecycle-status (default cwd)",
+    )
+    gates_grp.add_argument(
+        "--proposed-condition",
+        default=None,
+        help="condition name to evaluate against the baseline for "
+             "--anti-mediocrity-check",
+    )
+    gates_grp.add_argument(
+        "--baseline-condition",
+        default=None,
+        help="baseline condition name for --anti-mediocrity-check",
+    )
+
     return parser
 
 
@@ -987,14 +1027,18 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.skill_cleanse)
         + bool(args.skill_compact)
         + bool(args.export_builtin_skills is not None)
+        + bool(args.evidence_chain_check)
+        + bool(args.anti_mediocrity_check)
+        + bool(args.lifecycle_status)
     )
     if action_flags > 1:
         sys.stderr.write(
             "argus-skill: --daemon / --daemon-fg / --daemon-stop / --status / "
             "--daemon-runbook / --watch / --follow / --notify / --init-identity / "
             "--model-api-status / --init-model-api / --skill-stats / "
-            "--skill-cleanse / --skill-compact / --export-builtin-skills are "
-            "mutually exclusive.\n"
+            "--skill-cleanse / --skill-compact / --export-builtin-skills / "
+            "--evidence-chain-check / --anti-mediocrity-check / --lifecycle-status "
+            "are mutually exclusive.\n"
         )
         return 2
     if args.daemon:
@@ -1035,6 +1079,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.export_builtin_skills is not None:
         return _run_with_path_resolution_errors(
             lambda: _cmd_export_builtin_skills(args)
+        )
+    if args.evidence_chain_check:
+        return _run_with_path_resolution_errors(
+            lambda: _cmd_evidence_chain_check(args)
+        )
+    if args.anti_mediocrity_check:
+        return _run_with_path_resolution_errors(
+            lambda: _cmd_anti_mediocrity_check(args)
+        )
+    if args.lifecycle_status:
+        return _run_with_path_resolution_errors(
+            lambda: _cmd_lifecycle_status(args)
         )
 
     # Default path: drop into the unified life REPL. The REPL itself
@@ -1382,6 +1438,103 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     )
     if skipped and not args.apply:
         print("  hint   : pass --apply to replace existing copied built-in skill files")
+    return 0
+
+
+def _cmd_evidence_chain_check(args: argparse.Namespace) -> int:
+    """Run F4 evidence-chain validator. Exits non-zero on broken chain."""
+    from ..skills.evidence_chain import main as _evidence_chain_main
+
+    return _evidence_chain_main(["--project-root", str(args.project_root)])
+
+
+def _cmd_anti_mediocrity_check(args: argparse.Namespace) -> int:
+    """Run F3 anti-mediocrity gates. Exits non-zero on any gate failure."""
+    from ..skills.anti_mediocrity import main as _anti_mediocrity_main
+
+    argv = ["--project-root", str(args.project_root)]
+    if args.proposed_condition:
+        argv += ["--proposed-condition", str(args.proposed_condition)]
+    if args.baseline_condition:
+        argv += ["--baseline-condition", str(args.baseline_condition)]
+    return _anti_mediocrity_main(argv)
+
+
+def _cmd_lifecycle_status(args: argparse.Namespace) -> int:
+    """Print the F5 ProjectStatus inferred from current project memory.
+
+    Conservatively reads what we can derive without modifying schema:
+    the project's creation time (from memory dir mtime), spent / budget
+    USD (from LifeBudget), and whether ``benchmarks/evidence/`` has any
+    bundle yet. The lifecycle decision is then reported textually.
+    """
+    from datetime import datetime, timezone
+
+    from ..life.project_lifecycle import (
+        ProjectState,
+        ProjectStatus,
+        decide_next_state,
+        is_token_allocatable,
+    )
+
+    root = Path(args.project_root).resolve()
+    if not root.exists():
+        sys.stderr.write(f"argus-skill: project root not found: {root}\n")
+        return 2
+
+    evidence_root = root / "benchmarks" / "evidence"
+    last_evidence_at: datetime | None = None
+    if evidence_root.is_dir():
+        mtimes = [
+            datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
+            for p in evidence_root.iterdir()
+            if p.is_dir()
+        ]
+        if mtimes:
+            last_evidence_at = max(mtimes)
+
+    has_draft = (root / "paper" / "main.tex").exists()
+    has_submission_artifact = (root / "paper" / "main.pdf").exists()
+
+    created_at = datetime.fromtimestamp(root.stat().st_mtime, tz=timezone.utc)
+
+    initial_state = ProjectState.INCUBATING
+    if has_submission_artifact:
+        initial_state = ProjectState.WRITING
+    elif has_draft:
+        initial_state = ProjectState.WRITING
+    elif last_evidence_at is not None:
+        initial_state = ProjectState.RUNNING
+
+    status = ProjectStatus(
+        project_id=root.name,
+        state=initial_state,
+        created_at=created_at,
+        last_evidence_at=last_evidence_at,
+        has_draft=has_draft,
+        has_submission_artifact=has_submission_artifact,
+    )
+
+    event = decide_next_state(status)
+
+    print(f"argus-skill — project lifecycle (F5)")
+    print(f"  root              : {root}")
+    print(f"  observed_state    : {status.state.value}")
+    print(f"  has_draft         : {has_draft}")
+    print(f"  has_submission    : {has_submission_artifact}")
+    print(
+        f"  last_evidence_at  : "
+        f"{last_evidence_at.isoformat() if last_evidence_at else '(none)'}"
+    )
+    print(f"  token_allocatable : {is_token_allocatable(status)}")
+    if event is None:
+        print("  next_action       : no transition warranted at this tick")
+    else:
+        print(
+            f"  next_action       : transition "
+            f"{event.from_state.value} → {event.to_state.value} "
+            f"({event.reason})"
+        )
     return 0
 
 

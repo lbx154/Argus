@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>argus-skill 战略方向：The Research Factory</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --fg: #1a1a1a;
+    --muted: #6b6b6b;
+    --accent: #b31b1b;
+    --accent-2: #1a4a8c;
+    --green: #2d8659;
+    --amber: #c97b1f;
+    --red: #c0392b;
+    --border: #e0ddd6;
+    --code-bg: #f3f1ec;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 40px 32px 80px;
+    font-size: 15px;
+  }
+  h1 {
+    font-size: 30px;
+    margin-bottom: 4px;
+    letter-spacing: -0.5px;
+  }
+  .lede {
+    font-size: 17px;
+    color: var(--muted);
+    border-left: 3px solid var(--accent);
+    padding: 4px 0 4px 16px;
+    margin: 18px 0 36px;
+    line-height: 1.55;
+  }
+  .lede strong { color: var(--fg); }
+  h2 {
+    font-size: 22px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 6px;
+    margin-top: 56px;
+    margin-bottom: 16px;
+  }
+  h2 .num {
+    color: var(--accent);
+    font-weight: 700;
+    margin-right: 10px;
+  }
+  h3 {
+    font-size: 17px;
+    margin-top: 28px;
+    color: var(--accent-2);
+  }
+  h4 { font-size: 15px; margin-top: 22px; margin-bottom: 4px; }
+
+  code, pre {
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    background: var(--code-bg);
+    border-radius: 3px;
+  }
+  code { padding: 1px 6px; font-size: 13px; }
+  pre {
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.5;
+    border: 1px solid var(--border);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 18px 0;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--code-bg);
+    font-weight: 600;
+    font-size: 13px;
+    border-bottom: 2px solid var(--border);
+  }
+  tr:hover td { background: #f7f5ef; }
+
+  .pos-card {
+    background: linear-gradient(135deg, #1a4a8c 0%, #2d5fa0 100%);
+    color: white;
+    padding: 28px 32px;
+    border-radius: 6px;
+    margin: 24px 0 32px;
+  }
+  .pos-card h2 {
+    color: white;
+    border: none;
+    margin: 0 0 12px;
+    font-size: 22px;
+    padding: 0;
+  }
+  .pos-card .vs {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 16px;
+    align-items: center;
+    margin-top: 14px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .pos-card .vs .side {
+    background: rgba(255,255,255,0.08);
+    padding: 14px 16px;
+    border-radius: 4px;
+  }
+  .pos-card .vs .side .label {
+    font-size: 11px;
+    opacity: 0.7;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    display: block;
+    margin-bottom: 4px;
+  }
+  .pos-card .vs .vs-sep {
+    font-size: 11px;
+    opacity: 0.6;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 11px;
+    font-size: 11.5px;
+    font-weight: 600;
+    margin-right: 4px;
+  }
+  .tag.keep { background: #d4edda; color: var(--green); }
+  .tag.cut  { background: #f8d7da; color: var(--red); }
+  .tag.new  { background: #fdf0d5; color: var(--amber); }
+  .tag.phase { background: #e2eaf4; color: var(--accent-2); }
+
+  .callout {
+    background: #fffbeb;
+    border-left: 4px solid var(--amber);
+    padding: 14px 18px;
+    margin: 22px 0;
+    border-radius: 0 4px 4px 0;
+  }
+  .callout.tldr {
+    background: #f0f7fd;
+    border-left-color: var(--accent-2);
+  }
+  .callout.risk {
+    background: #fdecea;
+    border-left-color: var(--red);
+  }
+
+  .feature {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px 20px;
+    margin: 16px 0;
+  }
+  .feature .hdr {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .feature .hdr .id {
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 1px;
+  }
+  .feature .hdr .name {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .feature .why {
+    font-size: 13.5px;
+    color: var(--muted);
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+  }
+
+  .phase-block {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px 22px;
+    margin: 14px 0;
+  }
+  .phase-block h3 {
+    margin-top: 0;
+    border: none;
+    padding-bottom: 0;
+  }
+  .phase-block .meta {
+    color: var(--muted);
+    font-size: 12.5px;
+    margin: 4px 0 12px;
+  }
+
+  ul.checklist {
+    list-style: none;
+    padding-left: 0;
+    margin: 8px 0;
+  }
+  ul.checklist li {
+    padding: 4px 0 4px 24px;
+    position: relative;
+    font-size: 14px;
+  }
+  ul.checklist li::before {
+    content: "☐";
+    position: absolute;
+    left: 2px;
+    color: var(--accent-2);
+    font-weight: 700;
+  }
+
+  .metric-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .metric {
+    background: var(--code-bg);
+    padding: 14px 16px;
+    border-radius: 4px;
+    border-left: 3px solid var(--accent-2);
+  }
+  .metric .name {
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .metric .target {
+    font-size: 18px;
+    font-weight: 700;
+    margin-top: 2px;
+  }
+  .metric .note {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  .footnote {
+    color: var(--muted);
+    font-size: 12.5px;
+    margin-top: 60px;
+    text-align: center;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+</style>
+</head>
+<body>
+
+<h1>argus-skill 战略方向</h1>
+<div class="lede">
+不追 ARIS，做 ARIS <strong>结构上做不到</strong>的事 —— <strong>真正自主运行的论文工厂</strong>。<br>
+一个用户起 N 个研究项目，daemon 在后台帮你跑 90 天，每周一封 Telegram digest，
+最后交付带 evidence 链的 paper draft。
+</div>
+
+<div class="pos-card">
+  <h2>定位 · One-liner</h2>
+  <p style="margin:0; font-size: 15px; opacity: 0.95;">
+    argus-skill is <strong>the autonomous research factory</strong>:
+    you specify direction + budget, the daemon runs experiments for weeks,
+    you get paper drafts with reproducible evidence chains.
+  </p>
+  <div class="vs">
+    <div class="side">
+      <span class="label">ARIS</span>
+      "陪你写一篇论文的<br>周末伙伴"<br>
+      <em style="opacity:0.7; font-size:12px;">人在 host 里调 skill</em>
+    </div>
+    <div class="vs-sep">vs</div>
+    <div class="side">
+      <span class="label">argus-skill</span>
+      "给我 90 天 + $3000<br>自动产出 5 篇 draft"<br>
+      <em style="opacity:0.7; font-size:12px;">daemon 替你跑</em>
+    </div>
+  </div>
+</div>
+
+<h2><span class="num">1.</span>为什么不追 ARIS</h2>
+
+<p>ARIS 走的路是 "skill 库 + MCP + 多 host 适配"，他们 25k stars 月发 11 个 release，正面追只会越追越像一个差的 ARIS。</p>
+
+<p>但 ARIS 的定位有一个<strong>结构性盲点</strong> —— 它叫 "Auto-claude-code-research-<em>in-sleep</em>"，README 反复说 "wake up to find your paper scored"，
+但 ARIS 其实做不到这件事：它需要用户挂着 Claude Code session，host 一关就断；
+没有 cost ledger，跑飞了就跑飞了；没有 watchdog，agent 卡住没人知道；
+没有 benchmark harness，跑分得用户自己手搓。</p>
+
+<p>这恰好就是 argus-skill 已经做了 70% 的事。<strong>所以不该补差距，该把这条路做到极致。</strong></p>
+
+<h2><span class="num">2.</span>留什么 · 砍什么 · 加什么</h2>
+
+<table>
+<tr><th style="width:90px">操作</th><th>对象</th><th>理由</th></tr>
+
+<tr><td><span class="tag keep">保留</span></td><td><code>daemon/life_worker.py</code> + <code>life/supervisor.py</code></td><td>真后台 detach 是 ARIS 做不到的核心壁垒</td></tr>
+<tr><td><span class="tag keep">保留</span></td><td>continuous planner（带 quarantine + no-progress 检测）</td><td>backlog 空了自动生成新任务，这是"工厂"的基础</td></tr>
+<tr><td><span class="tag keep">保留</span></td><td><code>core/pricing.py</code> + LifeBudget</td><td>无 cost ledger 不可能跑 90 天</td></tr>
+<tr><td><span class="tag keep">保留</span></td><td><code>engineer/failed_tool_ledger.py</code> + watchdog</td><td>长程必须的防呆</td></tr>
+<tr><td><span class="tag keep">保留</span></td><td><code>benchmarks/tb2_fullbench_launcher.py</code> + harbor adapter</td><td>真 benchmark harness，反平庸 gate 的硬证据来源</td></tr>
+<tr><td><span class="tag keep">保留</span></td><td><code>life/telegram_bot.py</code> 双向 inbox</td><td>用户不可能 24×7 盯着 daemon，移动端 push/pull 是必需</td></tr>
+<tr><td><span class="tag keep">保留</span></td><td><code>paper/build_*_artifacts.py</code></td><td>evidence 链的产出器</td></tr>
+
+<tr><td><span class="tag cut">砍掉</span></td><td><code>argus_skill/scientist/</code></td><td>跟 engineer 角色重合，且测试已经在漂移</td></tr>
+<tr><td><span class="tag cut">砍掉</span></td><td><code>argus_skill/critic/</code> + iteration_loop 相关</td><td>critic 层已死（11 个测试 skip 是证据），代码该清</td></tr>
+<tr><td><span class="tag cut">砍掉</span></td><td><code>argus_skill/mission/</code> 重叠部分</td><td>mission_engine 跟 supervisor 重叠</td></tr>
+<tr><td><span class="tag cut">砍掉</span></td><td>README 里 "31 个 builtin skill" 营销话术</td><td>数到 ARIS 81 永远算不赢，且很多是 prompt 模板不是 capability</td></tr>
+<tr><td><span class="tag cut">砍掉</span></td><td><code>paper/figures_tables.md</code> 里所有 tainted bundle 引用</td><td>上一轮已标 INVALID，现在彻底删，论文里不能再出现</td></tr>
+<tr><td><span class="tag cut">砍掉</span></td><td>大部分 <code>builtin_skills/</code> 里跟"工厂"无关的 skill</td><td>留下 auto-research-pipeline + benchmark-runner + draft + review 这条主干，其他归 examples/</td></tr>
+
+<tr><td><span class="tag new">新增</span></td><td>多项目并行 backlog（F1）</td><td>"工厂"的字面定义 —— 一次跑多个</td></tr>
+<tr><td><span class="tag new">新增</span></td><td>每周 Telegram digest（F2）</td><td>异步运行必须有 weekly summary</td></tr>
+<tr><td><span class="tag new">新增</span></td><td>anti-mediocrity hard gate（F3）</td><td>当前是 prompt 模糊检查，升级成 Python validator + quarantine</td></tr>
+<tr><td><span class="tag new">新增</span></td><td>evidence chain validator（F4）</td><td>每个 claim 必须钉到 evidence bundle，钉不上就 fail draft</td></tr>
+<tr><td><span class="tag new">新增</span></td><td><code>--project</code> 多租户子目录（F5）</td><td>不同项目不互相污染状态、不混 cost</td></tr>
+</table>
+
+<h2><span class="num">3.</span>5 个 Killer Feature</h2>
+
+<p>这五条都满足两个条件：(1) ARIS 结构上做不到 (2) 我们当前 codebase 已经有基础。</p>
+
+<div class="feature">
+  <div class="hdr">
+    <span class="id">F1</span>
+    <span class="name">多项目并行 backlog</span>
+  </div>
+  <p>一个 daemon 同时跑 N 个研究项目，每个有独立 backlog、cost ledger、evidence bundle 目录。
+  <code>argus-skill --project paper-a --objective "..." --continuous</code> 起一个；
+  <code>argus-skill --project paper-b ...</code> 再起一个；
+  调度器按 token 配额轮转。</p>
+  <p><code>argus-skill --status</code> 列所有项目：哪个 running / 哪个 quarantine / 各花了多少钱。</p>
+  <div class="why"><strong>ARIS 为什么做不到：</strong>per-session 架构，host 一次只能跑一个工作流。</div>
+</div>
+
+<div class="feature">
+  <div class="hdr">
+    <span class="id">F2</span>
+    <span class="name">Weekly Telegram Digest</span>
+  </div>
+  <p>每周一上午 9 点自动 push：本周哪些项目有进展（合并的 PR / 跑通的实验 / 新 evidence bundle）、
+  哪些卡住（连续 N 轮 no-progress）、本周花了 $X / 剩余预算 $Y、推荐用户处理的事项（quarantine 项需要人工拆解 / 新发现的实验机会）。</p>
+  <p>是 inbox 的反向 —— 不是用户 <code>/status</code> 主动查，是 daemon 主动汇报。</p>
+  <div class="why"><strong>ARIS 为什么做不到：</strong>没有持续运行的进程，没有可以汇报的"本周"。</div>
+</div>
+
+<div class="feature">
+  <div class="hdr">
+    <span class="id">F3</span>
+    <span class="name">Anti-mediocrity Hard Gate</span>
+  </div>
+  <p>当前 anti-mediocrity 是 reviewer prompt 里的 5 条 checklist，模糊判断。升级成：</p>
+  <ul style="margin-top:6px;">
+    <li>"基线复现失败" → Python validator 检测 evidence bundle 里有没有至少 1 个 baseline reward &gt; 0 的 trial → 没有则项目 <code>quarantine</code></li>
+    <li>"改进 &lt; 2%" → 比较 proposed vs strongest baseline 的 reward delta → 不达标则 planner 自动 enqueue "重新设计实验" 任务</li>
+    <li>"benchmark &lt; 3 族" → 扫描 manifest.json 的 dataset_id → 不够则 enqueue "选第 3 个 benchmark"</li>
+  </ul>
+  <p>所有判断走 <code>pipeline_contracts.py</code> Python validator，可以单元测试、可以 CI 检查。</p>
+  <div class="why"><strong>ARIS 为什么做不到：</strong>没有 benchmark harness，没有 evidence bundle 概念，"改进 &lt; 2%" 这种判断只能让模型主观看。</div>
+</div>
+
+<div class="feature">
+  <div class="hdr">
+    <span class="id">F4</span>
+    <span class="name">Evidence Chain Validator</span>
+  </div>
+  <p>把 <code>paper/build_*_artifacts.py</code> 那条链强化成硬合约：</p>
+  <ul style="margin-top:6px;">
+    <li>论文 <code>main.tex</code> 里每个数字 → 必须在 <code>claims_to_evidence.tsv</code> 里有 claim_id</li>
+    <li>每个 claim_id → 必须指向 <code>benchmarks/evidence/</code> 下的 bundle</li>
+    <li>每个 bundle → 必须有 <code>BUILD_INFO.md</code>（含 git commit / run id / cost / tainted 标志）</li>
+    <li>断链则 <code>review</code> stage 自动 fail，draft 不能进 <code>submission</code> stage</li>
+  </ul>
+  <p>用户最终交付物是 <strong>paper + reviewable bundle</strong>，审稿人能一键复跑。</p>
+  <div class="why"><strong>ARIS 为什么做不到：</strong>没有 evidence bundle 概念，claim ↔ source 链条不存在。</div>
+</div>
+
+<div class="feature">
+  <div class="hdr">
+    <span class="id">F5</span>
+    <span class="name">Project Lifecycle State Machine</span>
+  </div>
+  <p>项目状态明示化：<code>incubating</code>（idea 阶段）→ <code>running</code>（实验中）→ <code>writing</code>（draft 中）→ <code>quarantined</code>（卡住，待人工）→ <code>done</code>（提交）→ <code>archived</code>。</p>
+  <p>转移规则是 Python 状态机，不是 prompt：</p>
+  <ul style="margin-top:6px;">
+    <li>跑超 14 天没进 writing → 自动 quarantine</li>
+    <li>预算花到 80% 还没进 review → 自动 quarantine</li>
+    <li>quarantine 后 daemon 不再分配 token，等用户 <code>/resume &lt;id&gt;</code> 或 <code>/archive &lt;id&gt;</code></li>
+  </ul>
+  <div class="why"><strong>ARIS 为什么做不到：</strong>per-session 没有"项目"概念，所以也没有项目生命周期。</div>
+</div>
+
+<h2><span class="num">4.</span>3 阶段路线图</h2>
+
+<div class="phase-block">
+  <h3><span class="tag phase">P1</span> 收敛 · 2 周</h3>
+  <p class="meta">把不在新方向上的代码砍掉，让 codebase 反映新定位。不写新 feature。</p>
+  <ul class="checklist">
+    <li>删除 <code>argus_skill/scientist/</code>、<code>argus_skill/critic/</code>、<code>argus_skill/life/iteration_loop.py</code> 相关</li>
+    <li>合并 <code>argus_skill/mission/</code> 到 <code>life/supervisor.py</code></li>
+    <li>砍掉 <code>builtin_skills/</code> 里不在主干（auto-research-pipeline / benchmark-runner / draft / review / submission）上的 skill，归到 <code>examples/</code></li>
+    <li>重写 README：删 "31 个 skill" 营销，立 "autonomous research factory" 定位</li>
+    <li>删 <code>paper/figures_tables.md</code> 和 <code>claims_to_evidence.tsv</code> 里所有 tainted bundle 引用</li>
+    <li>修复 / 删除上一轮 skip 的 11 个 critic-iteration 测试（删除路线）</li>
+  </ul>
+</div>
+
+<div class="phase-block">
+  <h3><span class="tag phase">P2</span> 工厂化 · 3 周</h3>
+  <p class="meta">把 daemon 从"跑 1 个 project"扩到"跑 N 个 project"，加 weekly digest。</p>
+  <ul class="checklist">
+    <li>实现 <strong>F1 多项目 backlog</strong>：<code>--project ID</code>，每项目独立 <code>~/.argus-skill/projects/&lt;id&gt;/</code></li>
+    <li>调度器按 token 配额轮转，<code>--status</code> 列所有项目</li>
+    <li>实现 <strong>F2 weekly digest</strong>：cron 触发 → 聚合每项目状态 → telegram_bot push</li>
+    <li>实现 <strong>F5 项目生命周期</strong>：状态机 + 14 天 / 80% 预算自动 quarantine</li>
+    <li>tests：跑 7 天模拟（fake clock）验证 quarantine + digest 正确触发</li>
+  </ul>
+</div>
+
+<div class="phase-block">
+  <h3><span class="tag phase">P3</span> 硬化产出 · 3 周</h3>
+  <p class="meta">把"输出 paper draft"做到能交给审稿人的程度。</p>
+  <ul class="checklist">
+    <li>实现 <strong>F3 anti-mediocrity hard gate</strong>：基线复现 / Δreward / benchmark 数 三条 Python validator</li>
+    <li>实现 <strong>F4 evidence chain validator</strong>：claim ↔ evidence ↔ bundle ↔ BUILD_INFO 四级硬合约</li>
+    <li>新增 <code>argus-skill --transparency-report &lt;project&gt;</code>：输出该项目的所有 claim → evidence 链 + 所有 tainted 标注</li>
+    <li>把 transparency report 当成项目交付物的一部分，跟 paper.pdf 一起放在 <code>release/</code></li>
+    <li>用一个真项目跑 30 天 end-to-end，验证整套工厂工作</li>
+  </ul>
+</div>
+
+<h2><span class="num">5.</span>成功指标（6 个月）</h2>
+
+<div class="metric-grid">
+  <div class="metric">
+    <div class="name">并行项目数</div>
+    <div class="target">≥ 3 个</div>
+    <div class="note">单个 daemon 同时跑 3 个项目不互相污染</div>
+  </div>
+  <div class="metric">
+    <div class="name">无人值守运行</div>
+    <div class="target">≥ 30 天</div>
+    <div class="note">一次启动后 30 天内不需要 SSH 进去手工干预</div>
+  </div>
+  <div class="metric">
+    <div class="name">Evidence 链完整率</div>
+    <div class="target">100%</div>
+    <div class="note">paper 里每个数字都有 reviewable bundle</div>
+  </div>
+  <div class="metric">
+    <div class="name">单项目成本可预测性</div>
+    <div class="target">误差 ≤ 20%</div>
+    <div class="note">用户预算 $1000，实际花 $800–$1200</div>
+  </div>
+  <div class="metric">
+    <div class="name">Tainted bundle 引用</div>
+    <div class="target">= 0</div>
+    <div class="note">交付物里不能再有 "DO NOT CITE" 标注的 evidence</div>
+  </div>
+  <div class="metric">
+    <div class="name">至少 1 篇真实 paper</div>
+    <div class="target">end-to-end</div>
+    <div class="note">用 argus-skill 跑完整流程产出，作为 reference</div>
+  </div>
+</div>
+
+<h2><span class="num">6.</span>不做什么</h2>
+
+<table>
+<tr><th>不做</th><th>因为</th></tr>
+<tr><td>不抄 ARIS 的 81 个 skill</td><td>很多是 prompt 模板，离开 ARIS 的 workflow 没意义</td></tr>
+<tr><td>不写 Rust CLI 对标 ARIS-Code</td><td>11 个 release/月堆出来的，性价比极低</td></tr>
+<tr><td>不做多 IDE 适配（Cursor / Trae / Antigravity / Copilot CLI）</td><td>我们卖的是 daemon，不是 skill 库，挂到 IDE 反而稀释定位</td></tr>
+<tr><td>不接 11 种 provider</td><td>Azure OpenAI 一档够用，加 OpenAI 直连兜底就行；多 provider 是 ARIS 的卖点不是我们的</td></tr>
+<tr><td>不做 MCP servers</td><td>我们 reviewer 已经是独立 codex 实例，再加一层 MCP 是凭空增加复杂度</td></tr>
+<tr><td>不做 community/papers 收录、awesome 列表、营销</td><td>先把第 1 篇真 paper 跑出来再说</td></tr>
+</table>
+
+<div class="callout tldr">
+<strong>核心赌注：</strong>
+ARIS 的 25k stars 大多数是 "wake up and find your paper scored" 这个故事吸引来的。
+但 ARIS 自己做不到这件事。<br><br>
+如果我们能真的做到 —— <strong>一个用户起 3 个项目，3 个月后真的拿到 3 篇带 reviewable evidence 的 paper draft</strong> —— 那 25k 用户里的 1% 会迁移过来。
+1% × 25k = 250 个高质量用户，比追 81 个 skill 有意义得多。
+</div>
+
+<div class="callout risk">
+<strong>主要风险：</strong>
+30 天无人值守跑通的难度被严重低估。当前 codebase 的 watchdog / failed-tool ledger / cost ledger 都是单 mission 级别的，
+跨 N 项目 N 天的全局调度 + 故障恢复 + 预算分配是真正的工程挑战。<br>
+P2 / P3 各预留 50% buffer。
+</div>
+
+<p class="footnote">
+2026-05-29 · 战略方向 v1<br>
+取代 <code>aris_gap_analysis.html</code> 的"补差距"框架。
+</p>
+
+</body>
+</html>

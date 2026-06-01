@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -233,7 +234,33 @@ def main() -> int:
             print(f"  ⏰ {desc} (timeout)")
             failed += 1
 
-    # 2. Output reviewer checklist for critical stages
+    # 2. Run automated F3 (anti-mediocrity) + F4 (evidence chain) gates
+    #    that apply at this stage. The gate map lives in
+    #    argus_skill.skills.automated_gates.STAGE_GATES.
+    from argus_skill.skills.automated_gates import (
+        all_passed as _gates_all_passed,
+        run_stage_gates,
+    )
+
+    gate_results = run_stage_gates(
+        root,
+        stage=stage,
+        proposed_condition=os.environ.get("ARGUS_SKILL_PROPOSED_CONDITION") or None,
+        baseline_condition=os.environ.get("ARGUS_SKILL_BASELINE_CONDITION") or None,
+    )
+    gate_failed = 0
+    if gate_results:
+        print()
+        print(f"🛡  Automated gates for stage '{stage}':")
+        for gate in gate_results:
+            mark = "✅" if gate.passed else "❌"
+            print(f"  {mark} {gate.name} — {gate.summary}")
+            if not gate.passed:
+                gate_failed += 1
+                for line in gate.detail.splitlines():
+                    print(f"     {line}")
+
+    # 3. Output reviewer checklist for critical stages
     #    Reviewer is a codex agent — it reads the skill and files itself.
     if stage in REVIEWER_CHECKLISTS:
         skill_name, instructions, files = REVIEWER_CHECKLISTS[stage]
@@ -244,8 +271,12 @@ def main() -> int:
         print()
         print(instructions)
 
-    total_failed = failed
-    print(f"\n{'✅' if total_failed == 0 else '❌'} {passed} passed, {total_failed} failed")
+    total_failed = failed + gate_failed
+    print(
+        f"\n{'✅' if total_failed == 0 else '❌'} "
+        f"{passed} shell pass, {failed} shell fail, "
+        f"{len(gate_results) - gate_failed} gate pass, {gate_failed} gate fail"
+    )
     return 0 if total_failed == 0 else 1
 
 
