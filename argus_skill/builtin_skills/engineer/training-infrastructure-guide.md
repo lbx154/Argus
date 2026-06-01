@@ -180,7 +180,35 @@ The headline run must actually *use* the machine.
    leaves an allocated card half-empty and the loop slow. If you must bound cost,
    do it by cutting the number of steps or the model size as a stated choice, not
    by starving an otherwise-idle GPU with tiny batches and short sequences.
-4. **Verify, don't assume.** While the run is live, check actual utilization
+4. **vLLM inference/eval — fill the card, don't trickle.** Benchmark/eval and
+   RL-rollout generation are throughput-bound, and the common failure is a card
+   left at low VRAM and low util% by conservative defaults. When you construct a
+   `vllm.LLM`, set these explicitly instead of trusting library/script defaults:
+   - **`gpu_memory_utilization`** → raise to **0.85–0.92** (a default like `0.55`
+     leaves ~half the KV-cache budget on the table; that alone explains a card
+     sitting at ~55% VRAM). Leave a little headroom only when co-locating other
+     processes on the GPU.
+   - **`max_num_seqs`** (max concurrent sequences) → raise it to **64–256** so
+     continuous batching actually keeps the GPU busy; a value like `8` serializes
+     the work and leaves util in the teens. Don't tie it to a tiny training-style
+     `batch_size`.
+   - **`max_num_batched_tokens`** → raise alongside `max_num_seqs` (e.g.
+     8k–32k) so the scheduler can pack many requests per step.
+   - **`max_model_len`** → size it to the real prompt + generation need; for
+     reasoning evals `max_tokens` (generation cap) must be long enough that
+     answers/CoT are not truncated. A short generation cap silently caps quality,
+     not just speed.
+   - **`tensor_parallel_size = N`** for a model too big for one card, or fan out
+     **one condition per GPU** when each fits — never leave N-1 cards idle.
+   - Prefer **CUDA graphs** (do **not** force `enforce_eager=True` unless a real
+     bug requires it — eager mode disables graph capture and slows generation).
+   - **Feed all tasks at once** and let vLLM batch them; never loop one prompt at
+     a time with a fresh engine. Submit the whole prompt set and stream results.
+   These are defaults to set deliberately per run; if a seeded helper
+   (`code/run_benchmark_condition.py` or similar) hard-codes a low
+   `gpu_memory_utilization` / `max_num_seqs`, raise the defaults or pass larger
+   values rather than inheriting the trickle.
+5. **Verify, don't assume.** While the run is live, check actual utilization
    (`nvidia-smi` or `.venv/bin/python code/gpu_env.py`) at least once and record
    **peak VRAM per GPU, observed GPU util%, and throughput (step time or
    samples/sec)** in the run's `manifest.json`/report. "I launched a distributed
@@ -188,7 +216,7 @@ The headline run must actually *use* the machine.
    few-GB / low-util footprint on a 140GB+ card — or that crawled at a tiny batch
    while the card sat mostly idle between steps — has not used the hardware and
    must be rescaled before it counts.
-5. **Stay unblocked.** Saturating the GPUs does not mean blocking on them:
+6. **Stay unblocked.** Saturating the GPUs does not mean blocking on them:
    submit the heavy job through `argus_skill.tools.subagent --mode supervised`
    and keep working. A healthy `running` job is **not** a failure — see the
    Subagent note below.
