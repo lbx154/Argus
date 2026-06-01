@@ -42,6 +42,19 @@ from .memory import (
     Journal,
     JournalEntry,
 )
+from .project_lifecycle import (
+    ProjectState,
+    apply_event,
+    decide_next_state,
+    infer_observable_status,
+    is_token_allocatable,
+)
+from .project_lifecycle_io import (
+    LifecycleIOError,
+    append_event as _lifecycle_append_event,
+    apply_persisted_to_status,
+    load_persisted as _lifecycle_load_persisted,
+)
 
 log = logging.getLogger(__name__)
 
@@ -1005,7 +1018,137 @@ class LifeSupervisor:
                 )
             return {"status": "iteration_cap", "item_id": item.id}
 
+        # F5 project-lifecycle gate. Recompute observable status from the
+        # project tree, overlay any persisted state (e.g. user quarantine),
+        # then ask the policy engine if a transition is warranted. If the
+        # resulting state is non-allocatable (quarantined/done/archived),
+        # skip this tick — no token budget is spent and the user must
+        # explicitly resume / archive.
+        lifecycle_block = self._maybe_block_on_lifecycle(item)
+        if lifecycle_block is not None:
+            return lifecycle_block
+
         return self._run_one(item)
+
+    # ------------------------------------------------------------------
+    # F5 project-lifecycle gate
+    # ------------------------------------------------------------------
+
+    def _maybe_block_on_lifecycle(
+        self, item: BacklogItem
+    ) -> dict[str, Any] | None:
+        """Run one F5 tick and decide whether to short-circuit dispatch.
+
+        Returns ``None`` when the project is allocatable (supervisor
+        proceeds to ``_run_one``). Returns a status dict when blocked —
+        the daemon treats this like a budget pause.
+
+        Fail-soft: any exception in the lifecycle path is logged and
+        treated as "allocatable" so a corrupt sidecar can never wedge
+        the supervisor.
+        """
+        try:
+            memory_root = Path(getattr(self.memory, "root", None) or ".")
+            project_root = self._project_workdir()
+            spent_usd, budget_usd = self._lifecycle_budget_snapshot()
+
+            status = infer_observable_status(
+                project_root,
+                project_id=memory_root.name,
+                budget_usd=budget_usd,
+                spent_usd=spent_usd,
+            )
+            try:
+                persisted = _lifecycle_load_persisted(memory_root)
+            except LifecycleIOError as exc:
+                log.warning(
+                    "lifecycle sidecar at %s is malformed (%s); "
+                    "treating project as fresh",
+                    memory_root, exc,
+                )
+                persisted = {}
+            status = apply_persisted_to_status(status, persisted)
+
+            event = decide_next_state(status)
+            if event is not None:
+                status = apply_event(status, event)
+                try:
+                    _lifecycle_append_event(
+                        memory_root,
+                        new_status=status,
+                        event=event,
+                    )
+                except OSError as exc:
+                    log.warning(
+                        "could not persist lifecycle transition to %s: %s",
+                        memory_root, exc,
+                    )
+                entry = JournalEntry.new(
+                    kind="lifecycle_transition",
+                    title=(
+                        f"{event.from_state.value} → {event.to_state.value}"
+                    ),
+                    summary=event.reason,
+                    tags=["lifecycle", event.to_state.value],
+                )
+                self.memory.journal.append(entry)
+                self._inject_cumulative_cost(entry)
+
+            if not is_token_allocatable(status):
+                self._emit_status(
+                    f"lifecycle gate: project state={status.state.value}; "
+                    f"backlog item {item.id!r} held"
+                )
+                entry = JournalEntry.new(
+                    kind="lifecycle_block",
+                    title=f"held '{item.title}' (state={status.state.value})",
+                    summary=(
+                        f"project lifecycle is {status.state.value}; "
+                        f"resume with --lifecycle-resume or archive with "
+                        f"--lifecycle-archive"
+                    ),
+                    tags=["lifecycle", status.state.value],
+                )
+                self.memory.journal.append(entry)
+                self._inject_cumulative_cost(entry)
+                return {
+                    "status": "lifecycle_block",
+                    "item_id": item.id,
+                    "lifecycle_state": status.state.value,
+                    "reason": entry.summary,
+                }
+        except Exception:  # noqa: BLE001
+            log.exception("lifecycle gate failed; allowing dispatch")
+        return None
+
+    def _lifecycle_budget_snapshot(self) -> tuple[float, float]:
+        """Best-effort (spent_usd, total_budget_usd) for F5 budget gate.
+
+        LifeBudget tracks per-mission and daily caps; we approximate the
+        project's total budget as ``daily_cap * 30`` (a month of running)
+        and spent as the journal-recorded cumulative cost. If either is
+        unavailable, returns ``(0.0, 0.0)`` and the F5 budget gate stays
+        dormant for that tick.
+        """
+        try:
+            budget = getattr(self.config, "budget", None)
+            if budget is None:
+                return (0.0, 0.0)
+            daily = float(getattr(budget, "daily_cap_usd", 0.0) or 0.0)
+            total = daily * 30.0
+            spent = 0.0
+            try:
+                spent = float(
+                    sum(
+                        float(getattr(e, "cost_usd", 0.0) or 0.0)
+                        for e in self.memory.journal.all()
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                spent = 0.0
+            return (spent, total)
+        except Exception:  # noqa: BLE001
+            return (0.0, 0.0)
 
     # ------------------------------------------------------------------
     # One mission

@@ -218,6 +218,19 @@ def build_parser() -> argparse.ArgumentParser:
              "(incubating/running/writing/quarantined/done/archived) and exit",
     )
     gates_grp.add_argument(
+        "--lifecycle-resume",
+        action="store_true",
+        help="resume a quarantined project; clears persisted quarantine "
+             "state in <life-dir>/lifecycle.json so the supervisor will "
+             "dispatch missions again",
+    )
+    gates_grp.add_argument(
+        "--lifecycle-archive",
+        action="store_true",
+        help="archive the project; supervisor will permanently refuse to "
+             "dispatch missions until --lifecycle-resume is called",
+    )
+    gates_grp.add_argument(
         "--project-root",
         default=".",
         help="project root for --evidence-chain-check / "
@@ -1030,6 +1043,8 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.evidence_chain_check)
         + bool(args.anti_mediocrity_check)
         + bool(args.lifecycle_status)
+        + bool(args.lifecycle_resume)
+        + bool(args.lifecycle_archive)
     )
     if action_flags > 1:
         sys.stderr.write(
@@ -1091,6 +1106,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.lifecycle_status:
         return _run_with_path_resolution_errors(
             lambda: _cmd_lifecycle_status(args)
+        )
+    if args.lifecycle_resume:
+        return _run_with_path_resolution_errors(
+            lambda: _cmd_lifecycle_transition(args, action="resume")
+        )
+    if args.lifecycle_archive:
+        return _run_with_path_resolution_errors(
+            lambda: _cmd_lifecycle_transition(args, action="archive")
         )
 
     # Default path: drop into the unified life REPL. The REPL itself
@@ -1461,20 +1484,24 @@ def _cmd_anti_mediocrity_check(args: argparse.Namespace) -> int:
 
 
 def _cmd_lifecycle_status(args: argparse.Namespace) -> int:
-    """Print the F5 ProjectStatus inferred from current project memory.
+    """Print the F5 ProjectStatus inferred from current project memory
+    plus any persisted quarantine / done / archived state.
 
-    Conservatively reads what we can derive without modifying schema:
-    the project's creation time (from memory dir mtime), spent / budget
-    USD (from LifeBudget), and whether ``benchmarks/evidence/`` has any
-    bundle yet. The lifecycle decision is then reported textually.
+    Reads observable signals (evidence bundles, paper/main.tex|pdf,
+    project mtime) and overlays the persisted state from
+    ``<life-dir>/lifecycle.json`` so quarantine survives daemon
+    restarts.
     """
-    from datetime import datetime, timezone
-
     from ..life.project_lifecycle import (
-        ProjectState,
-        ProjectStatus,
         decide_next_state,
+        infer_observable_status,
         is_token_allocatable,
+    )
+    from ..life.project_lifecycle_io import (
+        LifecycleIOError,
+        apply_persisted_to_status,
+        load_history,
+        load_persisted,
     )
 
     root = Path(args.project_root).resolve()
@@ -1482,51 +1509,33 @@ def _cmd_lifecycle_status(args: argparse.Namespace) -> int:
         sys.stderr.write(f"argus-skill: project root not found: {root}\n")
         return 2
 
-    evidence_root = root / "benchmarks" / "evidence"
-    last_evidence_at: datetime | None = None
-    if evidence_root.is_dir():
-        mtimes = [
-            datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
-            for p in evidence_root.iterdir()
-            if p.is_dir()
-        ]
-        if mtimes:
-            last_evidence_at = max(mtimes)
-
-    has_draft = (root / "paper" / "main.tex").exists()
-    has_submission_artifact = (root / "paper" / "main.pdf").exists()
-
-    created_at = datetime.fromtimestamp(root.stat().st_mtime, tz=timezone.utc)
-
-    initial_state = ProjectState.INCUBATING
-    if has_submission_artifact:
-        initial_state = ProjectState.WRITING
-    elif has_draft:
-        initial_state = ProjectState.WRITING
-    elif last_evidence_at is not None:
-        initial_state = ProjectState.RUNNING
-
-    status = ProjectStatus(
-        project_id=root.name,
-        state=initial_state,
-        created_at=created_at,
-        last_evidence_at=last_evidence_at,
-        has_draft=has_draft,
-        has_submission_artifact=has_submission_artifact,
-    )
-
-    event = decide_next_state(status)
+    status = infer_observable_status(root, project_id=root.name)
+    try:
+        persisted = load_persisted(root)
+    except LifecycleIOError as exc:
+        sys.stderr.write(
+            f"argus-skill: lifecycle sidecar at {root}/lifecycle.json is "
+            f"malformed: {exc}\n"
+        )
+        persisted = {}
+    overlaid = apply_persisted_to_status(status, persisted)
+    event = decide_next_state(overlaid)
+    history = load_history(root)
 
     print(f"argus-skill — project lifecycle (F5)")
     print(f"  root              : {root}")
     print(f"  observed_state    : {status.state.value}")
-    print(f"  has_draft         : {has_draft}")
-    print(f"  has_submission    : {has_submission_artifact}")
+    print(
+        f"  effective_state   : {overlaid.state.value}"
+        + ("  (persisted)" if persisted.get("state") else "")
+    )
+    print(f"  has_draft         : {overlaid.has_draft}")
+    print(f"  has_submission    : {overlaid.has_submission_artifact}")
     print(
         f"  last_evidence_at  : "
-        f"{last_evidence_at.isoformat() if last_evidence_at else '(none)'}"
+        f"{overlaid.last_evidence_at.isoformat() if overlaid.last_evidence_at else '(none)'}"
     )
-    print(f"  token_allocatable : {is_token_allocatable(status)}")
+    print(f"  token_allocatable : {is_token_allocatable(overlaid)}")
     if event is None:
         print("  next_action       : no transition warranted at this tick")
     else:
@@ -1535,6 +1544,74 @@ def _cmd_lifecycle_status(args: argparse.Namespace) -> int:
             f"{event.from_state.value} → {event.to_state.value} "
             f"({event.reason})"
         )
+    if history:
+        print(f"  history ({len(history)} event(s), most recent first):")
+        for ev in reversed(history[-5:]):
+            print(
+                f"    - {ev.at.isoformat()}  "
+                f"{ev.from_state.value} → {ev.to_state.value}  ({ev.reason})"
+            )
+    return 0
+
+
+def _cmd_lifecycle_transition(
+    args: argparse.Namespace, *, action: str
+) -> int:
+    """Handle ``--lifecycle-resume`` and ``--lifecycle-archive``."""
+    from datetime import datetime, timezone
+
+    from ..life.project_lifecycle import (
+        archive as _lifecycle_archive,
+        infer_observable_status,
+        resume as _lifecycle_resume,
+    )
+    from ..life.project_lifecycle_io import (
+        LifecycleIOError,
+        append_event,
+        apply_persisted_to_status,
+        load_persisted,
+    )
+
+    root = Path(args.project_root).resolve()
+    if not root.exists():
+        sys.stderr.write(f"argus-skill: project root not found: {root}\n")
+        return 2
+
+    status = infer_observable_status(root, project_id=root.name)
+    try:
+        persisted = load_persisted(root)
+    except LifecycleIOError as exc:
+        sys.stderr.write(
+            f"argus-skill: lifecycle sidecar malformed: {exc}\n"
+        )
+        return 2
+    status = apply_persisted_to_status(status, persisted)
+
+    now = datetime.now(timezone.utc)
+    try:
+        if action == "resume":
+            new_status, event = _lifecycle_resume(status, now=now)
+        elif action == "archive":
+            new_status, event = _lifecycle_archive(status, now=now)
+        else:
+            raise ValueError(f"unknown lifecycle action {action!r}")
+    except ValueError as exc:
+        sys.stderr.write(f"argus-skill: {exc}\n")
+        return 1
+
+    try:
+        append_event(root, new_status=new_status, event=event)
+    except OSError as exc:
+        sys.stderr.write(f"argus-skill: cannot persist transition: {exc}\n")
+        return 1
+
+    print(
+        f"argus-skill: lifecycle transition "
+        f"{event.from_state.value} → {event.to_state.value} "
+        f"({event.reason})"
+    )
+    print(f"  root  : {root}")
+    print(f"  state : {new_status.state.value}")
     return 0
 
 

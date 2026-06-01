@@ -358,3 +358,78 @@ def tick_all(
         else:
             out.append((apply_event(status, event), event))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Observable status inference — used by the supervisor each tick
+# ---------------------------------------------------------------------------
+
+
+def infer_observable_status(
+    project_root: Path,
+    *,
+    project_id: str | None = None,
+    budget_usd: float = 0.0,
+    spent_usd: float = 0.0,
+) -> ProjectStatus:
+    """Build a :class:`ProjectStatus` from observable signals in
+    ``project_root``. Caller supplies budget numbers (those live in
+    LifeBudget, not the filesystem).
+
+    Signals read:
+
+    * ``project_root`` exists → ``created_at`` from its mtime
+    * newest mtime under ``benchmarks/evidence/`` → ``last_evidence_at``
+    * ``paper/main.tex`` exists → ``has_draft = True``
+    * ``paper/main.pdf`` exists → ``has_submission_artifact = True``
+
+    The initial ``state`` is a heuristic based on the strongest observable
+    signal; the supervisor overlays persisted state on top so a quarantined
+    project stays quarantined across daemon restarts.
+    """
+    project_root = Path(project_root)
+    project_id = project_id or project_root.name
+
+    created_at = datetime.now(timezone.utc)
+    if project_root.exists():
+        created_at = datetime.fromtimestamp(
+            project_root.stat().st_mtime, tz=timezone.utc
+        )
+
+    last_evidence_at: datetime | None = None
+    evidence_root = project_root / "benchmarks" / "evidence"
+    if evidence_root.is_dir():
+        mtimes: list[datetime] = []
+        for child in evidence_root.iterdir():
+            if not child.is_dir():
+                continue
+            mtimes.append(
+                datetime.fromtimestamp(child.stat().st_mtime, tz=timezone.utc)
+            )
+        if mtimes:
+            last_evidence_at = max(mtimes)
+
+    has_draft = (project_root / "paper" / "main.tex").exists()
+    has_submission_artifact = (project_root / "paper" / "main.pdf").exists()
+
+    if has_submission_artifact:
+        initial_state = ProjectState.WRITING
+    elif has_draft:
+        initial_state = ProjectState.WRITING
+    elif last_evidence_at is not None:
+        initial_state = ProjectState.RUNNING
+    else:
+        initial_state = ProjectState.INCUBATING
+
+    return ProjectStatus(
+        project_id=project_id,
+        state=initial_state,
+        created_at=created_at,
+        last_evidence_at=last_evidence_at,
+        last_progress_at=last_evidence_at,
+        last_state_change_at=created_at,
+        budget_usd=float(budget_usd),
+        spent_usd=float(spent_usd),
+        has_draft=has_draft,
+        has_submission_artifact=has_submission_artifact,
+    )
