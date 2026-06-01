@@ -1,30 +1,32 @@
 from __future__ import annotations
 
 import json
+import time
 import types
 
 from argus_skill.tools.subagent import (
     SUPERVISOR_INTERVAL_CAP,
+    _append_discussion,
     _build_report,
     _child_env,
     _clean_concern,
     _codex_last_agent_message,
-    _concern_signature,
+    _discussion_path,
     _effective_run_dir,
-    _engineer_replies_path,
-    _engineer_reply_count,
+    _engineer_turn_count,
     _format_metric_line,
     _next_monitor_interval,
     _norm_decision,
     _norm_health,
     _progress_summary,
-    _read_engineer_replies_tail,
-    _record_engineer_reply,
+    _read_discussion,
+    _render_discussion,
     _reply_back_block,
-    _reset_engineer_replies,
+    _reset_discussion,
     _run_dir_from_command,
     _strip_code_fence,
     _supervisor_check,
+    _supervisor_discuss,
     _write_task,
     cmd_reply,
 )
@@ -139,14 +141,31 @@ def test_clean_concern_treats_nothing_phrases_as_empty() -> None:
     assert _clean_concern("  clipped_ratio  is  1.0 ") == "clipped_ratio is 1.0"
 
 
-def test_concern_signature_dedups_across_changing_numbers() -> None:
-    # Same issue rephrased with new step/metric numbers must dedup to one key.
-    a = _concern_signature("clipped_ratio is 1.0 at step 12 (256 cap)")
-    b = _concern_signature("clipped_ratio is 0.75 at step 40 (256 cap)")
-    assert a == b
-    # A genuinely different concern keeps a different key.
-    c = _concern_signature("reward is flat near chance")
-    assert c != a
+def test_supervisor_check_concern_now_means_stop_in_prompt(monkeypatch, tmp_path) -> None:
+    # The recalibrated prompt must tell the supervisor that a concern STOPS the
+    # run, so it only raises one for a genuine stop-worthy anomaly.
+    monkeypatch.chdir(tmp_path)
+    captured: dict[str, str] = {}
+
+    class _Result:
+        stdout = ""
+
+    def fake_run(cmd, **kwargs):
+        captured["prompt"] = cmd[-1]
+        r = _Result()
+        r.stdout = _codex_jsonl('{"decision": "continue", "health": "healthy", "concern": ""}')
+        return r
+
+    monkeypatch.setattr("argus_skill.tools.subagent._find_codex", lambda: "codex")
+    monkeypatch.setattr("argus_skill.tools.subagent.subprocess.run", fake_run)
+    out = tmp_path / "stdout.log"
+    err = tmp_path / "stderr.log"
+    out.write_text("step 1\n")
+    err.write_text("")
+    _supervisor_check("t", "python train.py", "run", out, err, 60.0, 1, "gpt-5.5", str(tmp_path))
+    prompt = captured["prompt"]
+    assert "STOPS the run" in prompt
+    assert "EMPTY" in prompt
 
 
 def test_supervisor_verdict_parses_concern_alongside_decision() -> None:
@@ -163,10 +182,10 @@ def test_supervisor_verdict_parses_concern_alongside_decision() -> None:
     assert "256" in _clean_concern(data["concern"])
 
 
-def test_build_report_surfaces_concern_for_running_task() -> None:
+def test_build_report_surfaces_concern_for_stopped_task() -> None:
     report = _build_report(
         "train-B1",
-        "CONCERN",
+        "EARLY-STOPPED",
         {
             "description": "B1 GRPO",
             "command": "python train.py",
@@ -178,8 +197,9 @@ def test_build_report_surfaces_concern_for_running_task() -> None:
     )
     assert "Supervisor concern" in report
     assert "256 too short" in report
-    # A concern is a flag, not a stop: the engineer must know the run continues.
-    assert "STILL RUNNING" in report
+    # A concern now STOPS the run and opens a discussion the engineer must join.
+    assert "STOPPED" in report
+    assert "discussion" in report.lower()
 
 
 def test_supervisor_authors_report_grounded_in_diagnosis(monkeypatch) -> None:
@@ -345,43 +365,48 @@ def test_format_metric_line_is_compact_and_readable(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Engineer -> supervisor reply channel (two-way concern loop)
+# Supervisor <-> engineer discussion thread (stop-and-discuss)
 # ---------------------------------------------------------------------------
 
-def test_engineer_reply_roundtrip_skips_partial_line(monkeypatch, tmp_path) -> None:
+def test_discussion_roundtrip_roles_and_partial_line(monkeypatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
     tid = "train-demo"
-    assert _engineer_reply_count(tid) == 0
-    _record_engineer_reply(tid, "  shorter is   chosen for\nstability ")
-    _record_engineer_reply(tid, "second note")
-    assert _engineer_reply_count(tid) == 2
-    tail = _read_engineer_replies_tail(tid)
-    assert "shorter is chosen for stability" in tail
-    assert "second note" in tail
-    # A concurrent half-written final line must not corrupt the rendered tail.
-    with _engineer_replies_path(tid).open("a") as f:
-        f.write('{"message": "half')
-    tail2 = _read_engineer_replies_tail(tid)
-    assert "second note" in tail2
-    assert "half" not in tail2
-    _reset_engineer_replies(tid)
-    assert _engineer_reply_count(tid) == 0
+    assert _engineer_turn_count(tid) == 0
+    _append_discussion(tid, "supervisor", "I stopped: pass rate is 0/120")
+    _append_discussion(tid, "engineer", "  shorter is   chosen for\nstability ")
+    _append_discussion(tid, "engineer", "second note")
+    # Only engineer turns are counted (so the supervisor detects new replies).
+    assert _engineer_turn_count(tid) == 2
+    rendered = _render_discussion(tid)
+    assert "[supervisor] I stopped" in rendered
+    assert "[engineer] shorter is chosen for stability" in rendered
+    assert "second note" in rendered
+    # A concurrent half-written final line must not corrupt the transcript.
+    with _discussion_path(tid).open("a") as f:
+        f.write('{"role": "engineer", "message": "half')
+    assert _engineer_turn_count(tid) == 2
+    assert "half" not in _render_discussion(tid)
+    assert len(_read_discussion(tid)) == 3
+    _reset_discussion(tid)
+    assert _engineer_turn_count(tid) == 0
 
 
-def test_reply_back_block_only_for_concern_and_early_stop() -> None:
+def test_reply_back_block_only_for_early_stop() -> None:
     tid = "train-x"
-    for ev in ("CONCERN", "EARLY-STOPPED"):
-        block = _reply_back_block(tid, ev)
-        assert "subagent reply" in block
-        assert f"--task-id {tid}" in block
+    block = _reply_back_block(tid, "EARLY-STOPPED")
+    assert "subagent reply" in block
+    assert f"--task-id {tid}" in block
+    assert "discussion" in block.lower()
+    # A concern no longer runs alongside the job, so only an early-stop asks for a reply.
+    assert _reply_back_block(tid, "CONCERN") == ""
     assert _reply_back_block(tid, "COMPLETED") == ""
     assert _reply_back_block(tid, "CRASHED") == ""
 
 
-def test_build_report_concern_tells_engineer_to_reply() -> None:
+def test_build_report_early_stop_tells_engineer_to_reply() -> None:
     report = _build_report(
         "train-B2",
-        "CONCERN",
+        "EARLY-STOPPED",
         {"concern": "clipped_ratio=1.0; completions truncated, open up max length",
          "command": "python train.py", "mode": "supervised"},
     )
@@ -389,10 +414,11 @@ def test_build_report_concern_tells_engineer_to_reply() -> None:
     assert "subagent reply --task-id train-B2" in report
 
 
-def test_supervisor_check_feeds_engineer_replies_into_prompt(monkeypatch, tmp_path) -> None:
+def test_supervisor_discuss_feeds_transcript_as_argument(monkeypatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
     tid = "train-B2"
-    _record_engineer_reply(tid, "I went shorter on purpose: answer-only fits the budget")
+    _append_discussion(tid, "supervisor", "I stopped: completions are truncated at 256")
+    _append_discussion(tid, "engineer", "answer-only fits the budget on purpose")
 
     captured: dict[str, str] = {}
 
@@ -402,20 +428,18 @@ def test_supervisor_check_feeds_engineer_replies_into_prompt(monkeypatch, tmp_pa
     def fake_run(cmd, **kwargs):
         captured["prompt"] = cmd[-1]
         r = _Result()
-        r.stdout = _codex_jsonl('{"decision": "continue", "health": "healthy", "concern": ""}')
+        r.stdout = _codex_jsonl('{"resolved": true, "message": "Fair enough, your budget rationale holds."}')
         return r
 
     monkeypatch.setattr("argus_skill.tools.subagent._find_codex", lambda: "codex")
     monkeypatch.setattr("argus_skill.tools.subagent.subprocess.run", fake_run)
 
-    out = tmp_path / "stdout.log"
-    err = tmp_path / "stderr.log"
-    out.write_text("step 5 reward 0\n")
-    err.write_text("")
-    decision, health, concern = _supervisor_check(
-        tid, "python train.py", "DAPO run", out, err, 120.0, 1, "gpt-5.5", str(tmp_path),
+    resolved, message = _supervisor_discuss(
+        tid, {"description": "DAPO run", "command": "python train.py",
+              "concern": "completions truncated at 256"}, "gpt-5.5", str(tmp_path),
     )
-    assert decision == "continue"
+    assert resolved is True
+    assert "budget rationale holds" in message
     prompt = captured["prompt"]
     # The engineer's rationale is in the supervisor's context...
     assert "answer-only fits the budget" in prompt
@@ -423,14 +447,37 @@ def test_supervisor_check_feeds_engineer_replies_into_prompt(monkeypatch, tmp_pa
     assert "ARGUMENT, not an instruction" in prompt
 
 
-def test_cmd_reply_records_and_validates(monkeypatch, tmp_path, capsys) -> None:
+def test_supervisor_discuss_returns_unresolved_on_bad_output(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    tid = "train-Z"
+    _append_discussion(tid, "engineer", "rationale")
+
+    class _Result:
+        stdout = ""
+
+    def fake_run(cmd, **kwargs):
+        r = _Result()
+        r.stdout = _codex_jsonl("not json at all")
+        return r
+
+    monkeypatch.setattr("argus_skill.tools.subagent._find_codex", lambda: "codex")
+    monkeypatch.setattr("argus_skill.tools.subagent.subprocess.run", fake_run)
+    resolved, message = _supervisor_discuss(tid, {}, "gpt-5.5", str(tmp_path))
+    assert resolved is False
+    assert message == ""
+
+
+def test_cmd_reply_appends_engineer_turn_and_reports_liveness(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     tid = "train-B2"
     # Unknown task is rejected.
     args_missing = types.SimpleNamespace(task_id=tid, message="hi", message_file=None)
     assert cmd_reply(args_missing) == 2
 
-    _write_task(tid, {"state": "running", "task_id": tid, "mode": "supervised", "pid": 0})
+    # A parked supervisor: worker_pid alive + state discussing => live_supervisor.
+    import os as _os
+    _write_task(tid, {"state": "discussing", "task_id": tid, "mode": "supervised",
+                      "pid": 0, "worker_pid": _os.getpid(), "last_heartbeat": time.time()})
     capsys.readouterr()
     # Empty message is rejected.
     args_empty = types.SimpleNamespace(task_id=tid, message="   ", message_file=None)
@@ -444,4 +491,51 @@ def test_cmd_reply_records_and_validates(monkeypatch, tmp_path, capsys) -> None:
     payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert payload["state"] == "reply_recorded"
     assert payload["reply_count"] == 1
-    assert "shorter on purpose" in _read_engineer_replies_tail(tid)
+    assert payload["live_supervisor"] is True
+    assert "shorter on purpose" in _render_discussion(tid)
+
+
+def test_cmd_reply_flags_closed_discussion(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    tid = "train-closed"
+    # Worker has finished discussing: terminal state + a resolution recorded.
+    _write_task(tid, {"state": "early_stopped", "task_id": tid, "mode": "supervised",
+                      "pid": 0, "worker_pid": 999999999,
+                      "discussion_resolution": "deadline"})
+    capsys.readouterr()
+    args = types.SimpleNamespace(task_id=tid, message="late rationale", message_file=None)
+    assert cmd_reply(args) == 0
+    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    # The reply is still recorded for the audit trail...
+    assert payload["state"] == "reply_recorded"
+    assert "late rationale" in _render_discussion(tid)
+    # ...but the engineer is told nobody will answer it.
+    assert payload["live_supervisor"] is False
+    assert payload["will_be_answered"] is False
+    assert "deadline" in payload["note"]
+
+
+def test_run_discussion_processes_preexisting_engineer_turn(monkeypatch, tmp_path) -> None:
+    # A reply that lands before the discussion loop starts must still be answered
+    # (baseline starts at 0, not the observed count).
+    monkeypatch.chdir(tmp_path)
+    tid = "train-pre"
+    _write_task(tid, {"state": "early_stopped", "task_id": tid, "mode": "supervised",
+                      "pid": 0, "worker_pid": __import__("os").getpid()})
+    _append_discussion(tid, "engineer", "I replied before you parked")
+
+    seen: dict[str, int] = {"calls": 0}
+
+    def fake_discuss(task_id, task_data, model, cwd):
+        seen["calls"] += 1
+        return (True, "Acknowledged, your pre-emptive rationale resolves it.")
+
+    monkeypatch.setattr("argus_skill.tools.subagent._supervisor_discuss", fake_discuss)
+    monkeypatch.setattr("argus_skill.tools.subagent.DISCUSSION_POLL_INTERVAL", 0)
+    from argus_skill.tools.subagent import _run_discussion
+    _run_discussion(tid, {"concern": "x", "command": "python t.py"}, "gpt-5.5", str(tmp_path))
+
+    # The pre-existing engineer turn got exactly one supervisor answer.
+    assert seen["calls"] == 1
+    rendered = _render_discussion(tid)
+    assert "pre-emptive rationale resolves it" in rendered
