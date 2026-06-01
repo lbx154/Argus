@@ -221,17 +221,7 @@ def _llm_summarize_report(task_id: str, event: str, task_data: dict[str, Any]) -
              "--dangerously-bypass-approvals-and-sandbox", prompt],
             capture_output=True, text=True, timeout=60,
         )
-        for line in result.stdout.strip().splitlines():
-            try:
-                d = json.loads(line)
-                if d.get("type") == "message" and d.get("role") == "assistant":
-                    content = d.get("content", "")
-                    if isinstance(content, list):
-                        texts = [c.get("text", "") for c in content if c.get("type") == "output_text"]
-                        return "\n".join(texts) if texts else ""
-                    return content
-            except json.JSONDecodeError:
-                continue
+        return _codex_last_agent_message(result.stdout)
     except Exception:
         pass
     return ""
@@ -386,7 +376,7 @@ def _run_direct(
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
             proc = subprocess.Popen(
                 command, shell=True, stdout=out, stderr=err,
-                cwd=cwd, start_new_session=True,
+                cwd=cwd, start_new_session=True, env=_child_env(),
             )
             _write_task(task_id, {
                 "state": "running", "task_id": task_id,
@@ -461,6 +451,75 @@ def _tail_file(path: Path, max_chars: int = 3000) -> str:
         return text[-max_chars:] if len(text) > max_chars else text
     except (OSError, FileNotFoundError):
         return ""
+
+
+def _codex_agent_messages(stdout: str) -> list[str]:
+    """Extract all assistant messages from ``codex exec --json`` output.
+
+    Codex emits JSONL (one event per line); each assistant reply arrives as
+    ``{"type": "item.completed", "item": {"type": "agent_message",
+    "text": ...}}``. This mirrors the canonical parser in
+    ``argus_skill.codex_autoloop.codex_runner`` so the subagent supervisor and
+    reporter read the real schema instead of a stale ``messages`` shape.
+    """
+    out: list[str] = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "item.completed":
+            item = event.get("item", {})
+            if isinstance(item, dict) and item.get("type") == "agent_message":
+                text = item.get("text", "")
+                if isinstance(text, str) and text:
+                    out.append(text)
+    return out
+
+
+def _codex_last_agent_message(stdout: str) -> str:
+    """Return the final assistant message (empty string if none)."""
+    messages = _codex_agent_messages(stdout)
+    return messages[-1] if messages else ""
+
+
+def _strip_code_fence(text: str) -> str:
+    """Drop a leading/trailing markdown code fence if the model wrapped JSON."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[-1]
+        if text.rstrip().endswith("```"):
+            text = text.rsplit("```", 1)[0]
+    return text.strip()
+
+
+_QUIET_LOGS_ENV = "ARGUS_SUBAGENT_QUIET_LOGS"
+
+
+def _child_env() -> dict[str, str]:
+    """Environment for spawned task processes with quieter framework logs.
+
+    The captured ``stdout``/``stderr`` feed both the LLM supervisor and the
+    engineer. By default the box exports ``NCCL_DEBUG=INFO``, which floods the
+    logs with hundreds of ``NCCL INFO`` lines per run and drowns the real
+    signal; vLLM/tqdm progress bars do the same on stderr. Quiet those by
+    default so the useful signal survives in the tail windows. Set
+    ``ARGUS_SUBAGENT_QUIET_LOGS=0`` to keep the inherited verbosity untouched.
+    """
+    env = os.environ.copy()
+    if os.environ.get(_QUIET_LOGS_ENV, "1").strip().lower() in {"0", "false", "no"}:
+        return env
+    # Force NCCL down from the inherited INFO default; respect explicit choices
+    # for the others.
+    env["NCCL_DEBUG"] = "WARN"
+    env.setdefault("VLLM_LOGGING_LEVEL", "WARNING")
+    env.setdefault("TQDM_DISABLE", "1")
+    return env
 
 
 def _supervisor_check(
@@ -546,22 +605,19 @@ def _supervisor_check(
              "--dangerously-bypass-approvals-and-sandbox", prompt],
             capture_output=True, text=True, timeout=120, cwd=cwd,
         )
-        # Parse codex output for the agent's response
-        try:
-            output = json.loads(result.stdout)
-            messages = output.get("messages", [])
-            for msg in reversed(messages):
-                if msg.get("role") == "assistant":
-                    text = msg.get("content", "")
-                    if text.startswith("```"):
-                        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-                    data = json.loads(text)
-                    return (
-                        _norm_decision(data.get("decision", "continue")),
-                        _norm_health(data.get("health", "unknown")),
-                    )
-        except (json.JSONDecodeError, KeyError, IndexError):
-            pass
+        # codex emits JSONL; pull the assistant messages and accept the most
+        # recent one that parses into a verdict (tolerates trailing chatter
+        # after the JSON object the prompt asks for).
+        for message in reversed(_codex_agent_messages(result.stdout)):
+            try:
+                data = json.loads(_strip_code_fence(message))
+            except (json.JSONDecodeError, AttributeError):
+                continue
+            if isinstance(data, dict) and "decision" in data:
+                return (
+                    _norm_decision(data.get("decision", "continue")),
+                    _norm_health(data.get("health", "unknown")),
+                )
         return ("continue", "unknown")
     except Exception:
         return ("continue", "unknown")  # On any error, don't intervene
@@ -595,7 +651,7 @@ def _run_supervised(
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
             proc = subprocess.Popen(
                 command, shell=True, stdout=out, stderr=err,
-                cwd=cwd, start_new_session=True,
+                cwd=cwd, start_new_session=True, env=_child_env(),
             )
             _write_task(task_id, {
                 "state": "running", "task_id": task_id,
