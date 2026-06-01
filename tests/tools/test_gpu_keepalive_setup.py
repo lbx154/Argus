@@ -78,6 +78,51 @@ def test_gpu_load_help_exits_clean() -> None:
     assert exc.value.code == 0
 
 
+def test_save_and_load_author_roundtrip(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    path = _wizard._save_author("lbx154", "lbxhaixing154@sjtu.edu.cn")
+    assert path.exists()
+    assert (path.stat().st_mode & 0o777) == 0o600
+    loaded = _wizard._load_existing_author()
+    assert loaded == {"name": "lbx154", "email": "lbxhaixing154@sjtu.edu.cn"}
+
+
+def test_configure_author_prompts_and_sets_git(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    answers = iter(["lbx154", "lbxhaixing154@sjtu.edu.cn"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+    applied: dict[str, str] = {}
+    monkeypatch.setattr(_wizard, "_git_global_identity", lambda: ("", ""))
+    monkeypatch.setattr(
+        _wizard, "_apply_git_identity",
+        lambda name, email: applied.update(name=name, email=email) or True,
+    )
+    result = _wizard._configure_author(None)
+    assert result == {"name": "lbx154", "email": "lbxhaixing154@sjtu.edu.cn"}
+    assert applied == {"name": "lbx154", "email": "lbxhaixing154@sjtu.edu.cn"}
+    assert _wizard._load_existing_author() == result
+
+
+def test_configure_author_skip_when_blank(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")
+    monkeypatch.setattr(_wizard, "_git_global_identity", lambda: ("", ""))
+    monkeypatch.setattr(_wizard, "_apply_git_identity", lambda *a: True)
+    assert _wizard._configure_author(None) is None
+    assert _wizard._load_existing_author() is None
+
+
+def test_configure_author_defaults_from_existing(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    # blank answers -> keep the supplied defaults
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")
+    monkeypatch.setattr(_wizard, "_git_global_identity", lambda: ("", ""))
+    monkeypatch.setattr(_wizard, "_apply_git_identity", lambda *a: True)
+    existing = {"name": "lbx154", "email": "lbxhaixing154@sjtu.edu.cn"}
+    result = _wizard._configure_author(existing)
+    assert result == existing
+
+
 def test_gpu_load_arg_defaults() -> None:
     args = gpu_load._parse_args([])
     assert args.util == 20.0

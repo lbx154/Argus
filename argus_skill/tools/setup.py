@@ -1,6 +1,7 @@
 """Interactive setup wizard for Argus.
 
 Guides the user through configuring:
+0. Author identity (name + email for papers / project commits)
 1. Planner API (model + endpoint)
 2. Engineer API (model + endpoint)
 3. Reviewer API (model + endpoint)
@@ -703,13 +704,103 @@ def _load_existing_gpu() -> dict | None:
         return None
 
 
+# -- Author identity -------------------------------------------------------
+
+
+def _author_config_path() -> Path:
+    return _capabilities_dir() / "author.json"
+
+
+def _load_existing_author() -> dict | None:
+    """Load a previously-saved author identity, if any."""
+    path = _author_config_path()
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _save_author(name: str, email: str) -> Path:
+    """Persist the paper/project author identity."""
+    path = _author_config_path()
+    data = {"name": name, "email": email}
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    os.chmod(path, 0o600)
+    return path
+
+
+def _git_global_identity() -> tuple[str, str]:
+    """Return the current global git (user.name, user.email), or empty strings."""
+    def _read(key: str) -> str:
+        try:
+            out = subprocess.run(
+                ["git", "config", "--global", key],
+                capture_output=True, text=True, timeout=5,
+            )
+            return out.stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            return ""
+    return _read("user.name"), _read("user.email")
+
+
+def _apply_git_identity(name: str, email: str) -> bool:
+    """Set the global git identity so generated project commits are attributed."""
+    try:
+        subprocess.run(["git", "config", "--global", "user.name", name],
+                       check=True, capture_output=True, text=True, timeout=5)
+        subprocess.run(["git", "config", "--global", "user.email", email],
+                       check=True, capture_output=True, text=True, timeout=5)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _configure_author(existing: dict | None) -> dict | None:
+    """Prompt for the author identity used on generated papers / project commits."""
+    print(_dim("  Who authors the generated papers and project commits?"))
+    print(_dim("  Used as the git author for the research workspace and for the"))
+    print(_dim("  camera-ready author block (EMNLP submission PDFs stay anonymous)."))
+    print()
+
+    git_name, git_email = _git_global_identity()
+    default_name = (existing or {}).get("name") or git_name
+    default_email = (existing or {}).get("email") or git_email
+
+    name = _prompt("Author name", default_name)
+    email = _prompt("Author email", default_email)
+
+    if not name and not email:
+        print(_yellow("  Skipped: no author identity provided."))
+        print()
+        return None
+
+    if email and "@" not in email:
+        print(_yellow(f"  Warning: '{email}' does not look like an email address."))
+
+    path = _save_author(name, email)
+    print()
+    print(f"  {_green('✓')} Author identity → {path}")
+    if _apply_git_identity(name, email):
+        print(f"  {_green('✓')} git --global user.name/user.email set")
+    else:
+        print(_yellow("  Could not set global git identity (git unavailable?)"))
+    print()
+    return {"name": name, "email": email}
+
+
 def _summary(routes: dict[str, dict], gpu: dict, keepalive: dict | None = None,
-             experiment_api: bool = False) -> None:
+             experiment_api: bool = False, author: dict | None = None) -> None:
     """Print final summary."""
     print(_bold("═" * 60))
     print(_bold("  Configuration Summary"))
     print(_bold("═" * 60))
     print()
+    if author:
+        who = f"{author.get('name', '')} <{author.get('email', '')}>"
+        print(f"  {_cyan('Author'):30s} {who}")
+        print()
     for name in ("planner", "engineer", "reviewer"):
         r = routes.get(name, {})
         model = r.get("model", "not configured")
@@ -737,6 +828,12 @@ def run_setup() -> int:
 
     existing_routes = _load_existing_routes()
     existing_gpu = _load_existing_gpu()
+    existing_author = _load_existing_author()
+
+    # Step 0: Author identity
+    print(_bold("  Step 0: Author Identity"))
+    print()
+    author = _configure_author(existing_author)
 
     # Step 1: Check if all 3 agents share the same API
     print(_bold("  Step 1: API Configuration"))
@@ -862,7 +959,7 @@ def run_setup() -> int:
     print()
 
     # Summary
-    _summary(routes, gpu_config, keepalive_config, experiment_api)
+    _summary(routes, gpu_config, keepalive_config, experiment_api, author)
 
     print(_green("  ✓ Setup complete! You can now create a research project:"))
     print()
