@@ -536,6 +536,7 @@ class _MemoryRunner:
         preload_injects: list[str] | None = None,
         prelude_context: str = "",
         seed_thread_id: str | None = None,  # noqa: ARG002 — protocol parity
+        scope: str = "",  # noqa: ARG002 — protocol parity
     ) -> _Outcome:
         self._materialize_bootstrap_skeleton(objective)
         ack = f"(memory backend) acknowledged objective: {objective[:80]}"
@@ -733,6 +734,11 @@ class _CodexSkillLoopRunner:
         # latest thread_id and forward it to the next mission.
         self._next_seed_thread_id: str | None = seed_thread_id
         self.last_thread_id: str | None = seed_thread_id
+        # Chat fast-path is operator-REPL-only: enabled per-invocation by
+        # ``_invoke_supervisor`` for human free-text typed at the cockpit.
+        # Defaults False so planner / backlog / daemon missions are never
+        # classified — the harness must not second-guess agent-produced work.
+        self._allow_chat_fast_path: bool = False
 
     def stream_to(self, sink: EventSink):
         """Context manager: temporarily route stream lines to *sink*.
@@ -762,22 +768,51 @@ class _CodexSkillLoopRunner:
         preload_injects: list[str] | None = None,
         prelude_context: str = "",
         seed_thread_id: str | None = None,
+        scope: str = "",
     ) -> _Outcome:
-        # Chat fast-path. Conversational input (greetings, capability
-        # questions, acks) doesn't need matcher → distill → engineer
-        # round-loop → reviewer → critic. A trace before this guard:
-        # "hello" cost $0.10 + 72s, ran `pwd && ls && rg --files && sed
-        # README.md`, then the reviewer rejected it for "doing unrelated
-        # repo inspection". The router below short-circuits to a single
-        # codex call with a chat prompt — no skill machinery, no
-        # reviewer, no writeback. ~$0.001 + ~3s.
-        from ..life.router import is_conversational
-        if is_conversational(objective):
-            return self._chat_quick_reply(
-                objective=objective,
-                sink=sink,
-                seed_thread_id=seed_thread_id,
+        # Chat fast-path (operator-REPL-only; gated by _allow_chat_fast_path).
+        # Conversational input (greetings, capability questions, acks) doesn't
+        # need matcher → distill → engineer round-loop → reviewer. A trace
+        # before this guard: "hello" cost $0.10 + 72s, ran `pwd && ls && rg
+        # --files && sed README.md`, then the reviewer rejected it for "doing
+        # unrelated repo inspection". A cheap model call classifies the message
+        # and, on a clear CHAT answer, short-circuits to a single chat-prompt
+        # codex call — no skill machinery, no reviewer, no writeback.
+        # Cost note: this classifier runs only on interactive operator free
+        # text (never the 7×24 daemon), so its tiny low-reasoning call is not
+        # part of autonomous spend and is not separately metered.
+        if self._allow_chat_fast_path:
+            from ..core.models import RunnerOptions
+            from ..life.router import classify_is_conversational
+
+            _safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
+            _workdir = (
+                Path(self._args.workdir).expanduser()
+                if getattr(self._args, "workdir", None)
+                else Path.cwd()
             )
+
+            def _classify_run_exec(prompt: str) -> Any:
+                return self._backend.run_exec(
+                    prompt=prompt,
+                    options=RunnerOptions(
+                        model=self._args.engineer_model,
+                        reasoning_effort="low",
+                        full_auto=_safe_mode,
+                        skip_git_repo_check=True,
+                        dangerous_yolo=not _safe_mode,
+                        working_dir=str(_workdir),
+                    ),
+                    run_label="router-classify",
+                    resume_thread_id=None,
+                )
+
+            if classify_is_conversational(objective, run_exec=_classify_run_exec):
+                return self._chat_quick_reply(
+                    objective=objective,
+                    sink=sink,
+                    seed_thread_id=seed_thread_id,
+                )
 
         args = self._args
         # 7×24 product: default to dangerous_yolo (no bwrap sandbox).
@@ -872,16 +907,11 @@ class _CodexSkillLoopRunner:
         ledger = FailedToolLedger()
         self._current_sink = sink
         self._current_failure_ledger = ledger
-        objective_lc = (objective or "").lower()
-        mission_scope = (
-            "final_submission"
-            if (
-                "planner_scope: final_submission" in objective_lc
-                or "task scope: final_submission" in objective_lc
-                or "scope: final_submission" in objective_lc
-            )
-            else ""
-        )
+        # Scope is threaded structurally from the planner via the backlog
+        # item's tags (LifeSupervisor passes _planner_scope_from_item(item)).
+        # We no longer re-parse it out of the objective prose — the harness
+        # should consume the structured field, not sniff the rendered text.
+        mission_scope = (scope or "").strip().lower()
         try:
             outcome = loop.run(
                 full_task, workdir=workdir, seed_thread_id=seed,
@@ -1361,6 +1391,7 @@ def _invoke_supervisor(
     continuous: bool = False,
     continuous_objective: str = "",
     open_ended: bool = True,
+    allow_chat_fast_path: bool = False,
 ) -> tuple[dict[str, Any], str | None]:
     ns = argparse.Namespace()
     ns.backend = backend
@@ -1424,6 +1455,11 @@ def _invoke_supervisor(
         runtime_context = runtime_context + "\n---\n\n" + research_context
 
     runner = build_life_runner(ns, seed_thread_id=seed_thread_id)
+    # Chat fast-path is operator-REPL-only: only human free text typed at the
+    # cockpit is eligible. Planner / backlog / daemon missions keep the
+    # runner default (False) so the harness never classifies agent work.
+    if hasattr(runner, "_allow_chat_fast_path"):
+        runner._allow_chat_fast_path = bool(allow_chat_fast_path)
     summary = run_life_supervisor(
         mem=mem,
         runner=runner,
@@ -1707,6 +1743,10 @@ def _free_text_cmd(
         continuous=continuous,
         continuous_objective=body if continuous else "",
         open_ended=chat_state.get("open_ended", True),
+        # Only single-shot operator free text is chat-eligible. In continuous
+        # mode the typed text is a mission objective (and later missions are
+        # planner work), so classification stays off.
+        allow_chat_fast_path=not continuous,
     )
 
 
@@ -1734,6 +1774,7 @@ def _invoke_and_track(
     continuous: bool = False,
     continuous_objective: str = "",
     open_ended: bool = True,
+    allow_chat_fast_path: bool = False,
 ) -> dict[str, Any]:
     """Run the supervisor and persist the resulting codex thread_id back
     into ``chat_state`` so the next mission resumes the same session.
@@ -1759,6 +1800,7 @@ def _invoke_and_track(
         continuous=continuous,
         continuous_objective=continuous_objective,
         open_ended=open_ended,
+        allow_chat_fast_path=allow_chat_fast_path,
     )
     elapsed = time.monotonic() - t0
     chat_state["last_thread_id"] = last_tid

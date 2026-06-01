@@ -45,7 +45,9 @@ class _FakeBackend:
     exit_code: int = 0
     fatal_error: str | None = None
     thread_id: str | None = "tid-chat-1"
+    classify_answer: str = "CHAT"
     calls: list[dict[str, Any]] = field(default_factory=list)
+    classify_calls: list[dict[str, Any]] = field(default_factory=list)
 
     def run_exec(
         self,
@@ -55,6 +57,24 @@ class _FakeBackend:
         run_label: str,
         resume_thread_id: str | None = None,
     ) -> RunnerResult:
+        if run_label == "router-classify":
+            # The chat/task classifier call. Kept in a SEPARATE list so the
+            # existing assertions about chat/pipeline ``calls`` still hold.
+            # Always exit 0 (the classifier itself succeeds; only the chat
+            # reply may fail) and answer with the configured verdict.
+            self.classify_calls.append({
+                "prompt": prompt,
+                "options": options,
+                "run_label": run_label,
+                "resume_thread_id": resume_thread_id,
+            })
+            return RunnerResult(
+                exit_code=0,
+                agent_messages=[self.classify_answer],
+                input_tokens=1,
+                output_tokens=1,
+                thread_id=None,
+            )
         self.calls.append({
             "prompt": prompt,
             "options": options,
@@ -110,6 +130,8 @@ def _make_runner(backend: _FakeBackend) -> Any:
     )
     runner._next_seed_thread_id = None
     runner.last_thread_id = None
+    # Operator-REPL free text is chat-eligible in these unit tests.
+    runner._allow_chat_fast_path = True
     return runner
 
 
@@ -154,15 +176,12 @@ def test_execute_dispatches_to_chat_path_on_chinese_capability_question() -> Non
 
 
 def test_execute_uses_full_pipeline_on_real_task(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A clear engineering task must NOT short-circuit. We monkey-patch
-    ``is_conversational`` to assert it's called and trust its return,
-    plus check that the runner falls through to the SkillLoop path
-    (signalled by an attempt to import / construct one). Constructing
-    SkillLoop with a fake skills_dir + fake backend is heavyweight, so
-    instead we just observe that ``_chat_quick_reply`` is NOT invoked
-    by setting a sentinel that would raise if called.
+    """A clear engineering task must NOT short-circuit. The model
+    classifier answers TASK, so the runner falls through to the
+    SkillLoop path. We assert ``_chat_quick_reply`` is NOT invoked by
+    setting a sentinel that would raise if called.
     """
-    backend = _FakeBackend()
+    backend = _FakeBackend(classify_answer="TASK")
     runner = _make_runner(backend)
     sink = _RecordingSink()
 
@@ -319,6 +338,7 @@ class _ChatRunner:
         sink: Any,
         preload_injects: list[str] | None = None,
         prelude_context: str = "",
+        scope: str = "",
     ) -> _ChatOutcome:
         self.calls.append({"objective": objective})
         sink.handle_event({
@@ -396,7 +416,7 @@ def test_supervisor_still_runs_critic_for_non_chat_outcome(tmp_path: Path) -> No
             self.calls: list[dict[str, Any]] = []
         def execute(self, *, objective: str, sink: Any,
                     preload_injects: list[str] | None = None,
-                    prelude_context: str = "") -> _NonChatOutcome:
+                    prelude_context: str = "", scope: str = "") -> _NonChatOutcome:
             self.calls.append({"objective": objective})
             sink.handle_event({
                 "type": "round.main.completed",

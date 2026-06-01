@@ -510,6 +510,7 @@ class _MissionRunner(Protocol):
         sink: EventSink,
         preload_injects: list[str] | None = None,
         prelude_context: str = "",
+        scope: str = "",
     ) -> Any:  # MissionOutcome
         raise NotImplementedError
 
@@ -1138,6 +1139,7 @@ class LifeSupervisor:
                 objective=item.objective,
                 sink=cost_sink,
                 prelude_context=prelude,
+                scope=self._planner_scope_from_item(item),
             )
         except Exception as exc:  # noqa: BLE001
             exc_str = f"{type(exc).__name__}: {exc}"

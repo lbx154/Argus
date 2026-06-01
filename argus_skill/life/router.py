@@ -1,10 +1,10 @@
 """Pre-mission classifier: separate conversational chat from real tasks.
 
-Background. The original REPL piped every operator message through the
-full mission pipeline:
+Background. The REPL pipes every operator message through the full
+mission pipeline:
 
     matcher → distill (on miss) → engineer round-loop → reviewer →
-    skill writeback → critic iteration
+    skill writeback
 
 That's correct for "build a Python package with strict gates", but it
 is a $0.10 + 30-second misfire for "hello" or "你能干什么". In one
@@ -12,155 +12,110 @@ trace the engineer ran ``pwd && ls && rg --files && sed README.md``
 just to answer a greeting, then the reviewer rejected it for "doing
 unrelated repo inspection" and forced a redo round.
 
-This module is a conservative classifier: false negatives (treating
-chat as a task) are fine — that's existing behavior. False positives
-(treating a real task as chat) skip the round-loop and would lose
-work, so the rules below intentionally bail out on any signal of
-"actual engineering" (file paths, code verbs, long messages).
+Design philosophy — "the harness is not smarter than the agent". The
+chat/task decision used to be a bilingual pile of hand-maintained
+regexes (coding-verb lists, greeting openers, a char cap). Every new
+phrasing meant another regex. That is exactly the kind of harness-side
+cleverness we want gone: the decision is a judgment call, so a model
+makes it. ``classify_is_conversational`` does one cheap model call and
+parses a single-token CHAT/TASK answer.
+
+Conservative by construction: false negatives (a chat treated as a
+task) only cost one needless pipeline run; false positives (a real
+task treated as chat) silently skip the engineer loop and lose work.
+So the classifier biases hard toward TASK — it returns chat ONLY when
+the model answers exactly ``CHAT``, and returns task on any imperative,
+ambiguous, follow-up, repo-dependent message, parse failure, or backend
+error.
+
+This path is REPL/operator-only: it runs solely for free text typed by
+a human at the cockpit prompt (gated by the runner's
+``_allow_chat_fast_path``). Planner / backlog / daemon missions never
+reach it, so the harness never second-guesses agent-produced work.
 
 Public surface:
 
-* ``is_conversational(text)`` — bool, the classifier itself.
+* ``classify_is_conversational(text, *, run_exec)`` — the classifier.
+* ``build_classify_prompt(text)`` — the classifier prompt (exposed for
+  tests / observability).
 * ``build_chat_prompt(...)`` — render the codex system+user prompt for
   the chat fast-path (no Verification block, no tool use).
 """
 from __future__ import annotations
 
-import re
+from typing import Any, Callable
 
-# Hard upper bound. Real tasks almost always carry context/spec that
-# blows past this. Greetings and capability questions stay below.
-_CHAT_MAX_CHARS = 60
-
-# Imperative coding verbs — if the user uses any of these we hand off
-# to the full mission pipeline, no exceptions.
-_CODE_VERB_EN = re.compile(
-    r"\b(?:implement|build|create|fix|refactor|run|test|debug|write|add|"
-    r"remove|update|patch|deploy|install|migrate|optimize|profile|"
-    r"benchmark|review|analyze|generate|integrate|merge|"
-    r"compile|train|investigate|scaffold|setup|set\s+up|configure|"
-    r"port|rewrite|extract|convert|parse|render|serialize)\b",
-    re.IGNORECASE,
-)
-_CODE_VERB_ZH = re.compile(
-    r"(?:写一个|写个|写一下|实现|构建|创建|修复|改一下|改一改|改成|"
-    r"调试|增加|删除|更新|部署|安装|迁移|优化|清理|"
-    r"重构|生成|分析|检查|审查|集成|合并|训练|"
-    r"重启|跑一下|跑个|跑下|测一下|测试|帮我做|帮我写|"
-    r"做一个|做个|帮忙|帮我|完成|继续|接着|执行|"
-    r"提取|转换|解析|渲染|配置|搭建|开发|编译|编写|"
-    r"打开|关闭(?!了))"
+_CLASSIFY_INSTRUCTIONS = (
+    "You are a strict intent classifier for a coding-agent cockpit. "
+    "Read the operator's single message and answer with exactly one "
+    "word — either CHAT or TASK — and nothing else.\n\n"
+    "Answer CHAT only for: greetings, thanks, acknowledgements, "
+    "small talk, or questions about who/what you are or what you can "
+    "do (identity / capability questions).\n\n"
+    "Answer TASK for anything that requests work or could depend on "
+    "the repository: any imperative or coding verb, any file / module "
+    "/ project reference, any follow-up or continuation ('continue', "
+    "'继续', 'fix it', 'run it', 'do the next step', 'try again', "
+    "'proceed'), any bug report, any multi-line or detailed message, "
+    "and anything ambiguous.\n\n"
+    "When in doubt, answer TASK. Output only the single word."
 )
 
-# File / repo references — definitely a task, never chat.
-_FILE_REF = re.compile(
-    r"(?:^|\s|[`'\"])(?:/|\.{1,2}/|src/|tests?/|"
-    r"\.\w{1,5}\b|"
-    r"\b(?:repo|module|codebase|project|package|library|service|app|"
-    r"function|class|method|variable|api|endpoint|database|table)\b)",
-    re.IGNORECASE,
-)
-_FILE_REF_ZH = re.compile(
-    r"(代码|项目|工作区|目录|文件|函数|类|方法|变量|接口|数据库|表|模块|包|库)"
-)
 
-# Explicit chat starts. Each pattern matches the message head only;
-# the leading character class strips lightweight punctuation.
-_LEAD = r"^[\s\.\?!,。？！，~～]*"
-_CHAT_PATTERNS = [re.compile(_LEAD + p, re.IGNORECASE) for p in (
-    r"hi\b",
-    r"hello\b",
-    r"hey\b",
-    r"yo\b",
-    r"thanks?\b",
-    r"thank\s+you\b",
-    r"thx\b",
-    r"ok\b",
-    r"okay\b",
-    r"sure\b",
-    r"cool\b",
-    r"nice\b",
-    r"got\s+it\b",
-    r"who\s+are\s+you\b",
-    r"what\s+can\s+you\b",
-    r"what\s+are\s+you\b",
-    r"are\s+you\b",
-    r"can\s+you\b",
-    r"do\s+you\b",
-)]
-_CHAT_PATTERNS_ZH = [re.compile(_LEAD + p) for p in (
-    r"你好",
-    r"您好",
-    r"嗨",
-    r"哈喽",
-    r"哈罗",
-    r"早安",
-    r"早上好",
-    r"中午好",
-    r"下午好",
-    r"晚上好",
-    r"晚安",
-    r"你是(?!不是要|否要)",
-    r"你叫(?!我)",
-    r"你能(?!不能|否)",
-    r"你有(?:什么|哪些|啥)",
-    r"你会(?:什么|哪些|啥|不会)",
-    r"你的(?:名字|身份|能力|功能|特长|长处|定位|作用|用途)",
-    r"你支持",
-    r"你支不支持",
-    r"你具(?:有|备)",
-    r"你是否(?:具|有|能|能够|可以)",
-    r"你觉得",
-    r"你认为",
-    r"你想",
-    r"介绍(?:一下|下)?(?:你|一下你)",
-    r"自我介绍",
-    r"谢谢",
-    r"多谢",
-    r"辛苦了?",
-    r"好(?:的|啊|呀|嘞)?[\s。.!?]*$",
-    r"行(?:啊|呀)?[\s。.!?]*$",
-    r"知道了?[\s。.!?]*$",
-    r"明白了?[\s。.!?]*$",
-    r"收到[\s。.!?]*$",
-    r"嗯+[\s。.!?]*$",
-    r"啊+[\s。.!?]*$",
-)]
-
-_ALL_CHAT_PATTERNS = _CHAT_PATTERNS + _CHAT_PATTERNS_ZH
+def build_classify_prompt(text: str) -> str:
+    """Render the prompt sent to the model for chat-vs-task classification."""
+    return (
+        f"{_CLASSIFY_INSTRUCTIONS}\n\n"
+        "## Operator message\n"
+        f"{(text or '').strip()}\n\n"
+        "## Your answer (CHAT or TASK)\n"
+    )
 
 
-def is_conversational(text: str) -> bool:
-    """Return True iff ``text`` should bypass the full mission pipeline.
+def _extract_answer(result: Any) -> str:
+    """Pull the model's reply text out of a RunnerResult-shaped object."""
+    msg = getattr(result, "last_agent_message", None)
+    if not msg:
+        msgs = getattr(result, "agent_messages", None) or []
+        msg = msgs[-1] if msgs else ""
+    return str(msg or "")
 
-    Conservative — any whiff of a real task (file paths, code verbs,
-    long messages, multi-line) returns False so the operator's
-    engineering work is never accidentally short-circuited.
+
+def classify_is_conversational(
+    text: str,
+    *,
+    run_exec: Callable[[str], Any],
+) -> bool:
+    """Model-based chat/task classifier.
+
+    ``run_exec`` is a callable that takes the classifier prompt and
+    returns a ``RunnerResult``-shaped object (``agent_messages`` /
+    ``last_agent_message`` + ``exit_code``). Returns True only when the
+    model clearly answers ``CHAT``. Returns False (route to the full
+    mission pipeline) for any task-like answer, parse failure, non-zero
+    exit, or backend exception — false positives lose operator work, so
+    the bias is hard toward TASK.
     """
-    text = (text or "").strip()
-    if not text:
+    cleaned = (text or "").strip()
+    if not cleaned:
         return False
-    if "\n" in text:
+    try:
+        result = run_exec(build_classify_prompt(cleaned))
+    except Exception:  # noqa: BLE001 — any backend error -> treat as task
         return False
-    if len(text) > _CHAT_MAX_CHARS:
+    if int(getattr(result, "exit_code", 0) or 0) != 0:
         return False
-    if _FILE_REF.search(text):
+    answer = _extract_answer(result).strip()
+    if not answer:
         return False
-    if _FILE_REF_ZH.search(text):
-        return False
-    if _CODE_VERB_EN.search(text):
-        return False
-    if _CODE_VERB_ZH.search(text):
-        return False
-    for pat in _ALL_CHAT_PATTERNS:
-        if pat.search(text):
-            return True
-    # Fallback: very short single-utterance ack ("ok", "好", "👍").
-    # Limited to <= 6 chars and <= 2 tokens to avoid catching task
-    # fragments like "fix bug" (which the verb regex also catches).
-    if len(text) <= 6 and len(text.split()) <= 2:
-        return True
-    return False
+    # Take the first alphabetic token only; ignore punctuation / trailers.
+    token = ""
+    for ch in answer:
+        if ch.isalpha():
+            token += ch
+        elif token:
+            break
+    return token.upper() == "CHAT"
 
 
 _CHAT_SYSTEM_INSTRUCTIONS = (
@@ -194,6 +149,7 @@ def build_chat_prompt(*, objective: str, identity_card: str = "") -> str:
 
 
 __all__ = [
-    "is_conversational",
+    "classify_is_conversational",
+    "build_classify_prompt",
     "build_chat_prompt",
 ]

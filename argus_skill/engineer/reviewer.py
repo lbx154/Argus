@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -277,7 +276,12 @@ class Reviewer:
         parsed.input_tokens = rev_in
         parsed.cached_input_tokens = rev_cached
         parsed.output_tokens = rev_out
-        return _coerce_decision_against_main_summary(parsed, main_summary=main_summary)
+        # The L2 reviewer's verdict is authoritative — the harness must not
+        # second-guess it with keyword heuristics on the engineer's summary.
+        # If a generic role-acknowledgment turn slips through, that is a
+        # reviewer-prompt concern (the reviewer is told to re-run commands and
+        # demand concrete evidence), not a harness post-filter.
+        return parsed
 
     def _build_prompt(
         self,
@@ -486,6 +490,10 @@ class Reviewer:
             "directory and use *your own* output as ground truth. Only\n"
             "after you have ground truth do you decide. This costs 1 extra\n"
             "command but saves an entire engineer round.\n\n"
+            "**Never mark `done` on a generic role acknowledgment** (e.g. the\n"
+            "engineer merely says it will act as the primary agent / take\n"
+            "ownership) without concrete execution evidence — actual command\n"
+            "output, file diffs, or query results — that you have verified.\n\n"
             "Return valid JSON matching the provided schema.\n"
             "Do not wrap the response in markdown fences.\n\n"
             f"{reviewer_role_context}"
@@ -941,68 +949,3 @@ def _derive_reason_from_markdown(text: str) -> str | None:
         return None
     candidate = normalized_lines[0]
     return candidate[:300].strip() or None
-
-
-GENERIC_MAIN_PATTERNS = [
-    "i am the primary implementation agent",
-    "i'm the primary implementation agent",
-    "i\u2019m the primary implementation agent",
-    "i will act as the primary implementation agent",
-    "i'll act as the primary implementation agent",
-    "i\u2019ll act as the primary implementation agent",
-    "acting as the primary implementation agent",
-    "i'll handle the main task directly",
-    "i\u2019ll handle the main task directly",
-    "continuing as the primary implementation agent",
-    "i\u2019ll keep ownership of the main task here",
-    "i'll keep ownership of the main task here",
-]
-
-CONCRETE_EXECUTION_PATTERNS = [
-    "done:",
-    "remaining:",
-    "blockers:",
-]
-
-COMMAND_EVIDENCE_RE = re.compile(r"\b(?:ran|executed)\s+(?:pytest|git diff|git status|rg|get-content)\b")
-COMPLETED_ACTION_RE = re.compile(
-    r"\b(?:read|inspected|edited|updated|changed|patched|ran|tested|implemented|verified|fixed)\b"
-)
-
-
-def _coerce_decision_against_main_summary(
-    decision: ReviewDecision, *, main_summary: str
-) -> ReviewDecision:
-    normalized = " ".join((main_summary or "").lower().split())
-    if any(pattern in normalized for pattern in GENERIC_MAIN_PATTERNS) and not _has_concrete_execution_evidence(
-        main_summary
-    ):
-        return ReviewDecision(
-            status="continue",
-            confidence=min(decision.confidence, 0.2),
-            reason=(
-                "Main agent summary appears to be a generic role acknowledgment without concrete repository work. "
-                "Continue and require specific execution evidence."
-            ),
-            next_action="Perform concrete repository inspection or code changes before the next review.",
-            round_summary_markdown=(
-                decision.round_summary_markdown
-                or "# Review Summary\n\n- Main summary was a generic acknowledgment without concrete execution evidence.\n"
-            ),
-            completion_summary_markdown="",
-            input_tokens=decision.input_tokens,
-            output_tokens=decision.output_tokens,
-        )
-    return decision
-
-
-def _has_concrete_execution_evidence(summary: str) -> bool:
-    text = summary or ""
-    normalized = " ".join(text.lower().split())
-    if not normalized:
-        return False
-    if any(pattern in normalized for pattern in CONCRETE_EXECUTION_PATTERNS):
-        return True
-    if COMMAND_EVIDENCE_RE.search(normalized):
-        return True
-    return COMPLETED_ACTION_RE.search(normalized) is not None

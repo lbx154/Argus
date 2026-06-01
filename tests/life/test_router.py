@@ -1,167 +1,120 @@
-"""Tests for the chat-vs-task classifier.
+"""Tests for the model-based chat-vs-task classifier.
 
-The classifier is conservative by design: false negatives (a chat
-treated as a task) are fine, false positives (a real task treated as
-chat) would silently skip the engineer round-loop. Each assertion below
-is anchored to either a clear chat opener (must short-circuit) or a
-realistic task fragment (must NOT short-circuit).
+The classifier replaced a bilingual pile of hand-maintained regexes with
+one cheap model call. It is conservative by construction: false negatives
+(a chat treated as a task) only cost one needless pipeline run, but false
+positives (a real task treated as chat) silently skip the engineer loop
+and lose work. So it returns chat ONLY when the model answers exactly
+``CHAT`` and returns task on any other answer, parse failure, non-zero
+exit, or backend exception.
 """
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
-from argus_skill.life.router import build_chat_prompt, is_conversational
-
-# ---------- positives: clear chat -----------------------------------------
-
-CHAT_MESSAGES_EN = [
-    "hello",
-    "Hi",
-    "hey",
-    "thanks",
-    "thank you",
-    "ok",
-    "okay",
-    "sure",
-    "got it",
-    "who are you",
-    "what can you do",
-    "what are you",
-    "are you alive",
-    "can you help",
-    "do you have memory?",
-]
-
-CHAT_MESSAGES_ZH = [
-    "你好",
-    "您好",
-    "嗨",
-    "哈喽",
-    "早上好",
-    "晚安",
-    "你是什么",
-    "你是谁",
-    "你叫什么",
-    "你能干嘛",
-    "你能做什么",
-    "你有什么能力",
-    "你有什么本事",
-    "你会什么",
-    "你的名字是什么",
-    "你的能力",
-    "你支持中文吗",
-    "你具有什么能力",
-    "你是否具有24小时运行的能力",
-    "你觉得呢",
-    "你认为对吗",
-    "介绍一下你自己",
-    "自我介绍一下",
-    "谢谢",
-    "多谢",
-    "辛苦了",
-    "好的",
-    "好",
-    "行",
-    "知道了",
-    "明白",
-    "收到",
-    "嗯嗯",
-]
+from argus_skill.life.router import (
+    build_chat_prompt,
+    build_classify_prompt,
+    classify_is_conversational,
+)
 
 
-@pytest.mark.parametrize("msg", CHAT_MESSAGES_EN + CHAT_MESSAGES_ZH)
-def test_chat_messages_classified_as_conversational(msg: str) -> None:
-    assert is_conversational(msg), f"expected chat: {msg!r}"
+class _FakeResult:
+    def __init__(
+        self,
+        *,
+        message: str = "",
+        messages: list[str] | None = None,
+        exit_code: int = 0,
+    ) -> None:
+        self.last_agent_message = message
+        if messages is not None:
+            self.agent_messages = messages
+        self.exit_code = exit_code
 
 
-# ---------- negatives: clear engineering tasks ---------------------------
+def _runner(result_or_exc: Any):
+    """Build a run_exec callable returning a canned result (or raising)."""
 
-TASK_MESSAGES = [
-    # English imperatives.
-    "implement a binary tree",
-    "build a Python package called foo",
-    "fix the bug in src/app.py",
-    "refactor the auth module",
-    "run the tests in tests/test_user.py",
-    "debug the failing CI step",
-    "write a CLI for parsing JSON",
-    "add a new endpoint",
-    "remove unused imports",
-    "update the dependency list",
-    "deploy the staging env",
-    "install pytest-cov and configure it",
-    "migrate the database schema",
-    "optimize the inner loop",
-    "review the PR diff",
-    "compile the C extension",
-    "train a small classifier on mnist",
-    "investigate why the daemon hangs",
-    # Chinese imperatives.
-    "写一个 Python 包",
-    "实现一个二叉树",
-    "改一下 src/loop.py 的逻辑",
-    "修复测试里的 bug",
-    "增加一个新的命令",
-    "重构 auth 模块",
-    "跑一下测试看看",
-    "帮我做一个 CLI",
-    "把这个函数提取到工具模块",
-    "清理 dead code",
-    "重启 daemon",
-    "训练一个小模型",
-    "做个消融实验",
-    # File / code references — never chat even if no verb.
-    "src/main.py",
-    "tests/test_user.py 在哪",
-    "this codebase has a bug",
-    "in the repo, where is X",
-    "what does the auth module do",
-    "改 argus_skill/loop.py",
-    "看一下 argus_skill 模块",
-]
+    calls: list[str] = []
+
+    def _run_exec(prompt: str) -> Any:
+        calls.append(prompt)
+        if isinstance(result_or_exc, Exception):
+            raise result_or_exc
+        return result_or_exc
+
+    _run_exec.calls = calls  # type: ignore[attr-defined]
+    return _run_exec
 
 
-@pytest.mark.parametrize("msg", TASK_MESSAGES)
-def test_task_messages_not_classified_as_conversational(msg: str) -> None:
-    assert not is_conversational(msg), f"expected task: {msg!r}"
+# ---------- the model says CHAT -> chat -----------------------------------
+
+@pytest.mark.parametrize("answer", ["CHAT", "chat", " CHAT ", "CHAT.", "Chat\n"])
+def test_clear_chat_answer_is_conversational(answer: str) -> None:
+    assert classify_is_conversational("hello", run_exec=_runner(_FakeResult(message=answer))) is True
 
 
-# ---------- edge cases ----------------------------------------------------
+# ---------- the model says TASK (or anything else) -> task ----------------
 
-def test_empty_string_is_not_chat() -> None:
-    assert is_conversational("") is False
-    assert is_conversational("   ") is False
-
-
-def test_multiline_message_is_not_chat() -> None:
-    # Multi-line messages always carry intent that warrants the
-    # full pipeline — even if the first line looks like a greeting.
-    msg = "hello\nplease implement a feature"
-    assert is_conversational(msg) is False
+@pytest.mark.parametrize(
+    "answer",
+    ["TASK", "task", "TASK — imperative", "I think this is a task", "CHATTER", "", "maybe"],
+)
+def test_non_chat_answer_is_task(answer: str) -> None:
+    assert classify_is_conversational("fix it", run_exec=_runner(_FakeResult(message=answer))) is False
 
 
-def test_long_message_is_not_chat_even_if_friendly() -> None:
-    msg = (
-        "你好啊，能不能麻烦你帮我看一下 src 目录里 loop.py 这个文件"
-        "是不是有什么问题"
-    )
-    assert is_conversational(msg) is False
+# ---------- false-positive safety: terse real tasks must NOT be chat ------
+# These are the dangerous cases the old regex guarded; the classifier must
+# be biased so that a model returning anything but a clean CHAT routes to
+# the pipeline. We assert the contract: a TASK answer -> not conversational.
+
+@pytest.mark.parametrize(
+    "msg",
+    ["fix it", "continue", "继续", "run it", "do the next step", "make it work",
+     "yes, proceed", "ok now fix", "try again", "接着做"],
+)
+def test_terse_imperatives_route_to_pipeline_when_model_says_task(msg: str) -> None:
+    assert classify_is_conversational(msg, run_exec=_runner(_FakeResult(message="TASK"))) is False
 
 
-def test_short_unknown_token_is_chat() -> None:
-    # Conservative fallback: a < 6-char token with no verb/path is
-    # almost certainly a chat ack ("OK!", "👍", "嗯").
-    assert is_conversational("👍") is True
-    assert is_conversational("嗯") is True
+# ---------- robustness: errors / exits / empty input all -> task ----------
+
+def test_backend_exception_is_task() -> None:
+    assert classify_is_conversational("hi", run_exec=_runner(RuntimeError("boom"))) is False
 
 
-# ---------- prompt builder ------------------------------------------------
+def test_nonzero_exit_is_task_even_if_message_says_chat() -> None:
+    res = _FakeResult(message="CHAT", exit_code=1)
+    assert classify_is_conversational("hi", run_exec=_runner(res)) is False
+
+
+def test_empty_input_is_task_without_calling_model() -> None:
+    run = _runner(_FakeResult(message="CHAT"))
+    assert classify_is_conversational("   ", run_exec=run) is False
+    assert run.calls == []  # type: ignore[attr-defined]
+
+
+def test_reads_last_of_agent_messages_when_no_last_message() -> None:
+    res = _FakeResult(message="", messages=["thinking…", "CHAT"])
+    assert classify_is_conversational("hello", run_exec=_runner(res)) is True
+
+
+def test_classify_prompt_contains_message_and_labels() -> None:
+    prompt = build_classify_prompt("你好")
+    assert "你好" in prompt
+    assert "CHAT" in prompt and "TASK" in prompt
+
+
+# ---------- chat prompt builder (unchanged surface) -----------------------
 
 def test_build_chat_prompt_contains_user_message() -> None:
     out = build_chat_prompt(objective="你好")
     assert "你好" in out
     assert "CHAT mode" in out
-    # Must NOT carry the engineer's Verification template.
     assert "Verification" not in out or "OFF" in out
     assert "## Required output" not in out
 
