@@ -1192,10 +1192,70 @@ def daemon_stop_review_decision(
     )
 
 
+_GATE_MARKER = "🛡  Automated gates"
+_GATE_FAIL_LINE_PREFIX = "  ❌ "
+
+
+def _extract_gate_failures(check: CheckResult) -> list[str]:
+    """Pull structured gate failure summaries out of a stage_check
+    ``CheckResult.output_tail``. Returns one short line per failed gate
+    (e.g. ``"gate:evidence_chain — 1 chain issue(s) across 9 claim(s)"``)
+    so the reviewer's next_action can name them specifically instead of
+    saying "the acceptance checks still fail".
+    """
+    tail = (check.output_tail or "")
+    if _GATE_MARKER not in tail:
+        return []
+    lines = tail.splitlines()
+    failures: list[str] = []
+    in_section = False
+    for line in lines:
+        if _GATE_MARKER in line:
+            in_section = True
+            continue
+        if not in_section:
+            continue
+        # Section ends at the next blank line or the next top-level header.
+        stripped = line.rstrip()
+        if not stripped:
+            break
+        if stripped.startswith("📋") or stripped.startswith("❌") or stripped.startswith("✅"):
+            break
+        if line.startswith(_GATE_FAIL_LINE_PREFIX):
+            # "  ❌ evidence_chain — 1 chain issue(s) ..." → strip the prefix.
+            failures.append("gate:" + line[len(_GATE_FAIL_LINE_PREFIX):].strip())
+    return failures
+
+
 def _fallback_failed_check_handoff(checks: list[CheckResult]) -> str:
     failed = [check for check in checks if not check.passed]
     if not failed:
         return ""
+
+    # Surface automated-gate failures specifically so the reviewer's
+    # next_action names which gate vetoed the round (and why), instead of
+    # the generic "rerun the failed command" handoff.
+    gate_failures: list[str] = []
+    for check in failed:
+        gate_failures.extend(_extract_gate_failures(check))
+
+    if gate_failures:
+        lines = [
+            "Automated research-factory gates vetoed this round. "
+            "Address each gate failure listed below before claiming done; "
+            "the gate validators are Python, not LLM heuristics, so the "
+            "fix must change real artifacts (claims_to_evidence.tsv, "
+            "evidence bundles, baseline reproductions, benchmark coverage).",
+        ]
+        for index, failure in enumerate(gate_failures, start=1):
+            lines.append(f"{index}. {failure}")
+        lines.append(
+            "After fixing, rerun "
+            "`python -m argus_skill.tools.stage_check --project-root .` "
+            "and verify the gate section shows ✅ for every gate before "
+            "marking the round done."
+        )
+        return "\n".join(lines)
 
     lines: list[str] = [
         "The acceptance checks still fail. Convert the validator blockers into concrete fixes, "
