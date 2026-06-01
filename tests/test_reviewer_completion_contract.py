@@ -19,7 +19,7 @@ from pathlib import Path
 
 from argus_skill.core.models import ReviewDecision
 from argus_skill.engineer.reviewer import _find_decision_in_messages
-from argus_skill.life.memory import JournalEntry, LifeMemory
+from argus_skill.life.memory import BacklogItem, JournalEntry, LifeMemory
 from argus_skill.life.supervisor import (
     LifeBudget,
     LifeSupervisor,
@@ -172,6 +172,75 @@ def _make_supervisor(tmp_path: Path) -> LifeSupervisor:
         pass
 
     return LifeSupervisor(memory=mem, runner=_Runner(), sink=_Sink(), config=cfg)
+
+
+def _make_supervisor_cfg(tmp_path: Path, **cfg_kwargs) -> LifeSupervisor:
+    mem = LifeMemory.open(tmp_path / "life")
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(), poll_interval_seconds=0.01, **cfg_kwargs
+    )
+
+    class _Sink:
+        def handle_event(self, event: dict) -> None:  # noqa: D401
+            pass
+
+    class _Runner:
+        pass
+
+    return LifeSupervisor(memory=mem, runner=_Runner(), sink=_Sink(), config=cfg)
+
+
+def test_backlog_metadata_paper_guidance_driven_by_explicit_flag(tmp_path: Path) -> None:
+    """Paper-vs-bounded guidance keys on config.paper_mission, not objective text."""
+    # An objective whose prose reads exactly like a paper task...
+    item = BacklogItem.new(
+        title="benchmark stage",
+        objective="Work the EMNLP paper benchmark stage and resolve blockers.",
+        tags=["scope:bounded"],
+    )
+    # ...is treated as a plain bounded task when paper_mission is OFF.
+    sup_off = _make_supervisor_cfg(tmp_path / "off", paper_mission=False)
+    out_off = sup_off._render_backlog_item_metadata(item)
+    assert "bounded_task" in out_off
+    assert "paper_optimization_task" not in out_off
+
+    # ...and gets the long-horizon paper guidance only when paper_mission is ON,
+    # even for a non-papery-looking objective.
+    plain = BacklogItem.new(
+        title="tune loader", objective="optimize the data loader", tags=["scope:bounded"]
+    )
+    sup_on = _make_supervisor_cfg(tmp_path / "on", paper_mission=True)
+    out_on = sup_on._render_backlog_item_metadata(plain)
+    assert "paper_optimization_task" in out_on
+    assert "bounded_task" not in out_on
+
+
+def test_open_ended_is_explicit_flag_not_objective_keywords(tmp_path: Path) -> None:
+    """The post-project_done 'continue forever' behavior keys on config.open_ended.
+
+    Previously the supervisor sniffed the objective text for markers like
+    '7×24'/'ongoing'/'perpetual'. That keyword classifier is gone: an objective
+    full of perpetual-sounding words must NOT implicitly enable open-ended mode,
+    and a terse objective must be able to enable it via the flag.
+    """
+    from argus_skill.life import supervisor as sup_mod
+
+    assert not hasattr(sup_mod, "_objective_is_open_ended")
+
+    perpetual = _make_supervisor_cfg(
+        tmp_path / "kw",
+        continuous=True,
+        continuous_objective="ongoing 7×24 perpetual never-ending self-improvement",
+    )
+    assert perpetual.config.open_ended is False
+
+    terse = _make_supervisor_cfg(
+        tmp_path / "flag",
+        continuous=True,
+        continuous_objective="ship it",
+        open_ended=True,
+    )
+    assert terse.config.open_ended is True
 
 
 def test_journal_gate_true_only_with_certified_entry(tmp_path: Path) -> None:

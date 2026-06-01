@@ -315,6 +315,26 @@ def test_repl_help_matches_documented_command_surface(tmp_path: Path) -> None:
     for name in _ENV_VARS_TO_CLEAR:
         env.pop(name, None)
     env["ARGUS_SKILL_LIFE_BACKEND"] = "memory"
+
+    # The lifetime entry gate refuses to start unless an objective AND at least
+    # one trusted special prompt are configured. Satisfy both for this surface
+    # test: persist an objective at the project root the gate resolves, and seed
+    # a chmod-0644 directive (0664 would be rejected as group-writable).
+    from argus_skill.apps._target_paths import resolve_life_root
+    from argus_skill.life import MemoryBundle
+
+    bundle = MemoryBundle.for_cwd(repo, global_root=resolve_life_root(str(tmp_path)))
+    bundle.init()
+    write_continuous_config(
+        bundle.project.root, enabled=True, objective="keep the cockpit warm"
+    )
+    sp = tmp_path / "special_prompts"
+    sp.mkdir()
+    rule = sp / "10-house-rules.md"
+    rule.write_text("Operational house rules for this box.\n", encoding="utf-8")
+    rule.chmod(0o644)
+    env["ARGUS_SKILL_SPECIAL_PROMPTS_DIR"] = str(sp)
+
     result = subprocess.run(
         [
             sys.executable,

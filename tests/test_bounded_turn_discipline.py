@@ -15,19 +15,21 @@ present in the engineer prompt and does not contradict the long-horizon
 from argus_skill.loop import SkillLoop
 
 
-def _prompt(task: str) -> str:
+def _prompt(task: str, *, paper_mission: bool = False) -> str:
     return SkillLoop._build_engineer_prompt(
         task=task,
         skill_text="",
         next_action=None,
         extra_guidance=None,
+        paper_mission=paper_mission,
     )
 
 
 def test_bounded_turn_discipline_present_for_paper_mission():
     out = _prompt(
         "Work the benchmark stage of the EMNLP paper: build the dataset "
-        "evidence package and resolve all readiness blockers."
+        "evidence package and resolve all readiness blockers.",
+        paper_mission=True,
     )
     assert "## Turn discipline" in out
     # Must tell the engineer to stop after a bounded increment and yield.
@@ -40,7 +42,8 @@ def test_bounded_turn_discipline_present_for_paper_mission():
 def test_long_horizon_contract_does_not_demand_single_marathon_turn():
     out = _prompt(
         "Own the EMNLP paper trajectory: repair manuscript and evidence "
-        "blockers across the run stage."
+        "blockers across the run stage.",
+        paper_mission=True,
     )
     # The long-horizon contract should frame the mission as many bounded turns,
     # not one marathon turn that crams every blocker into a single exec.
@@ -55,3 +58,16 @@ def test_turn_discipline_present_even_for_nonpaper_task():
     # any mission), not gated on the paper-objective heuristic.
     out = _prompt("Refactor the data loader and add unit tests.")
     assert "## Turn discipline" in out
+
+
+def test_long_horizon_contract_gated_on_explicit_flag_not_keywords():
+    # Even an objective that reads exactly like an EMNLP paper task must NOT get
+    # the long-horizon paper contract unless paper_mission is explicitly set.
+    paper_text = (
+        "Own the EMNLP paper trajectory: repair manuscript and evidence blockers."
+    )
+    off = _prompt(paper_text, paper_mission=False)
+    on = _prompt(paper_text, paper_mission=True)
+    assert "## Long-horizon paper execution contract" not in off
+    assert "## Long-horizon paper execution contract" in on
+

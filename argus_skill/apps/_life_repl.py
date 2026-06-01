@@ -831,6 +831,10 @@ class _CodexSkillLoopRunner:
             "dangerous_yolo": not safe_mode,
             "full_auto": safe_mode,
             "skip_git_repo_check": True,
+            # Explicit paper-mission signal (replaces objective keyword sniffing).
+            # Defaults True because this runner is the life/EMNLP execution path;
+            # an operator can pass ``--no-paper-mission`` to turn it off.
+            "paper_mission": getattr(args, "paper_mission", True),
         }
         try:
             from inspect import signature
@@ -1283,6 +1287,7 @@ def run_life_supervisor(
     runtime_context: str = "",
     continuous: bool = False,
     continuous_objective: str = "",
+    open_ended: bool = True,
 ) -> dict[str, Any]:
     """Run ``LifeSupervisor`` with proper signal-handler save/restore.
 
@@ -1324,6 +1329,7 @@ def run_life_supervisor(
             runtime_context=runtime_context,
             continuous=continuous,
             continuous_objective=continuous_objective,
+            open_ended=open_ended,
             telemetry_dir=project_root,
             telemetry_interval_seconds=telemetry_interval_from_env(),
         )
@@ -1354,6 +1360,7 @@ def _invoke_supervisor(
     seed_thread_id: str | None = None,
     continuous: bool = False,
     continuous_objective: str = "",
+    open_ended: bool = True,
 ) -> tuple[dict[str, Any], str | None]:
     ns = argparse.Namespace()
     ns.backend = backend
@@ -1431,6 +1438,7 @@ def _invoke_supervisor(
         runtime_context=runtime_context,
         continuous=continuous,
         continuous_objective=continuous_objective,
+        open_ended=open_ended,
     )
     final_thread_id = getattr(runner, "last_thread_id", None)
     return summary, final_thread_id
@@ -1698,6 +1706,7 @@ def _free_text_cmd(
         quiet=False,
         continuous=continuous,
         continuous_objective=body if continuous else "",
+        open_ended=chat_state.get("open_ended", True),
     )
 
 
@@ -1724,6 +1733,7 @@ def _invoke_and_track(
     quiet: bool,
     continuous: bool = False,
     continuous_objective: str = "",
+    open_ended: bool = True,
 ) -> dict[str, Any]:
     """Run the supervisor and persist the resulting codex thread_id back
     into ``chat_state`` so the next mission resumes the same session.
@@ -1748,6 +1758,7 @@ def _invoke_and_track(
         seed_thread_id=seed,
         continuous=continuous,
         continuous_objective=continuous_objective,
+        open_ended=open_ended,
     )
     elapsed = time.monotonic() - t0
     chat_state["last_thread_id"] = last_tid
@@ -1987,6 +1998,9 @@ def _seed_chat_state(
         # REPL-local only — does not affect the background daemon.
         "config": dict(_CONFIG_DEFAULTS),
         "continuous_objective": objective or disk_objective,
+        # Lifetime semantics: keep generating work after project_done unless
+        # the operator launched with --bounded.
+        "open_ended": not bool(getattr(args, "bounded", False)),
     }
     chat_state["config"]["continuous"] = continuous
     chat_state["continuous_state"] = ContinuousConfigState(

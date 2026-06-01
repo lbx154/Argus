@@ -23,7 +23,6 @@ End-to-end shape:
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -39,26 +38,6 @@ from .skills.store import Skill, SkillStore
 
 log = logging.getLogger(__name__)
 
-_PAPER_OBJECTIVE_SUBSTRINGS = (
-    "academic paper",
-    "camera-ready",
-    "citation",
-    "latex",
-    "long paper",
-    "main.pdf",
-    "main.tex",
-    "make_paper",
-    "manuscript",
-    "paper/",
-    "paper draft",
-    "publication-ready",
-    "submission-ready",
-    "validate-full-emnlp",
-    "正文",
-    "论文",
-    "投稿",
-)
-_PAPER_OBJECTIVE_WORDS = {"acl", "emnlp"}
 
 
 @dataclass
@@ -87,6 +66,11 @@ class SkillLoopConfig:
     dangerous_yolo: bool = False
     extra_args: list[str] | None = None
     session_id: str | None = None
+    # Explicit signal that this mission is a long-horizon academic-paper /
+    # EMNLP-submission task. When True the engineer prompt carries the
+    # long-horizon paper execution contract. Replaces the old keyword-based
+    # objective sniffing; callers (e.g. the life runner) set it explicitly.
+    paper_mission: bool = False
 
     def resolved_reviewer_model(self) -> str:
         return self.reviewer_model or self.engineer_model
@@ -249,6 +233,7 @@ class SkillLoop:
                 skill_text=skill_text,
                 next_action=next_action,
                 extra_guidance=extra,
+                paper_mission=self.config.paper_mission,
             )
 
         status, rounds, final_message, reason, last_thread_id = self.supervised.run(
@@ -364,12 +349,13 @@ class SkillLoop:
         skill_text: str,
         next_action: str | None,
         extra_guidance: list[str] | None = None,
+        paper_mission: bool = False,
     ) -> str:
         sections: list[str] = []
         if skill_text:
             sections.append("## Skill playbook (read first)\n" + skill_text)
         sections.append("## Task\n" + task)
-        if SkillLoop._looks_like_paper_objective(task):
+        if paper_mission:
             sections.append(
                 "## Long-horizon paper execution contract\n"
                 "This is not a one-file bounded patch. Treat the engineer as the\n"
@@ -476,14 +462,6 @@ class SkillLoop:
             "section (≤8 bullets) describing what you changed."
         )
         return "\n\n".join(sections)
-
-    @staticmethod
-    def _looks_like_paper_objective(text: str) -> bool:
-        normalized = str(text or "").casefold()
-        if any(marker in normalized for marker in _PAPER_OBJECTIVE_SUBSTRINGS):
-            return True
-        tokens = set(re.findall(r"[a-z0-9]+", normalized))
-        return bool(tokens & _PAPER_OBJECTIVE_WORDS)
 
     def _collect_extra_guidance(self) -> list[str]:
         if self.extra_guidance_provider is None:

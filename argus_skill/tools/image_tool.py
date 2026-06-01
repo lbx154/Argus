@@ -223,11 +223,10 @@ def _sha256_file(path: Path) -> str:
 def _sha256_prompt_file(path: Path) -> str:
     """Canonical prompt hash: always hash the raw file bytes on disk.
 
-    This MUST match how ``pipeline_contracts.validate_image2_figures``
-    computes the hash.  Never use ``_sha256_text(text.strip())`` for
-    prompt hashes stored in manifests, provenance, or sidecars — the
-    validator reads the file as raw bytes, so stripped-text hashes will
-    silently mismatch and block the pipeline forever.
+    Never use ``_sha256_text(text.strip())`` for prompt hashes stored in
+    manifests, provenance, or sidecars — downstream consumers read the
+    file as raw bytes, so stripped-text hashes will silently mismatch and
+    block the pipeline forever.
     """
     return _sha256_file(path)
 

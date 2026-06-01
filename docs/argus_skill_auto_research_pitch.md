@@ -20,7 +20,7 @@
 - Research brief -> literature/source discovery -> idea provenance -> code reuse plan.
 - Benchmark/task design -> full-scale runs -> ablations/failure analysis -> canonical result tables.
 - Claim graph -> result-to-claim audit -> figure/table generation -> LaTeX paper.
-- Format preflight -> academic-language review -> visual layout review -> submission assurance -> final validate-full-emnlp gate.
+- Format preflight -> academic-language review -> visual layout review -> submission assurance -> final L2 reviewer full-pipeline checklist certification.
 
 ## Slide 5: Concrete Capabilities Today
 - Full-scale evidence gate: blocks pilot PDFs and requires completed scored rows for all required methods/baselines.
@@ -43,7 +43,7 @@
 - It is a platform bet: each failed paper teaches the skill library and gates, improving the next autonomous research attempt.
 
 ## Slide 8: Near-Term Roadmap
-- Produce one flagship auto-research paper that passes validate-full-emnlp end to end.
+- Produce one flagship auto-research paper that passes the full-pipeline reviewer certification (research -> submission) end to end.
 - Add a live dashboard for daemon state, evidence gaps, page budget, and review blockers.
 - Expand benchmark sourcing beyond synthetic tasks into public/frontier suites where feasible.
 - Build mentor-in-the-loop checkpoints: idea shortlist, experiment design, claim calibration, final paper go/no-go.

@@ -220,10 +220,24 @@ export ARGUS_SKILL_TELEGRAM_CHAT_ID="123456789"
 
 ## Daemon：7×24 自主运行
 
+> **启动前置（硬门禁）**：进 cockpit 或启动 daemon 前，必须同时配好两样东西，否则 `argus-skill` 直接 `exit 2` 并打印指引：
+> 1. **mission objective** —— 用 `--continuous --objective "<目标>"` 提供（会持久化到 `continuous.json`，之后再启动可省略）；
+> 2. **至少一个 special prompt** —— 在 `~/.argus-skill/special_prompts/` 放一个 `*.md`（机器/部署的操作规则，比如 GPU、路径、调度），文件须属主本人且**不可 group/world-writable**：
+>    ```bash
+>    mkdir -p ~/.argus-skill/special_prompts
+>    printf 'Operational house rules for this box.\n' > ~/.argus-skill/special_prompts/10-house-rules.md
+>    chmod 0644 ~/.argus-skill/special_prompts/10-house-rules.md
+>    ```
+> 这取代了一切“从 objective 文本猜任务类型”的隐式逻辑：agent 必须被显式告知它的目标和这台机器的规则。只读 / admin 命令（`--status`、`--watch`、`--skill-stats`…）不受门禁限制。
+
 ```bash
-# 启动
+# 启动（默认 open-ended：project_done 后继续生成新工作，永续运行）
 argus-skill --daemon --continuous \
   --objective "Complete the EMNLP paper on world models for agent action selection"
+
+# 有界一次性目标：planner 认证 project_done 后硬停
+argus-skill --daemon --continuous --bounded \
+  --objective "Add a unit-test suite for the data loader"
 
 # 管理
 argus-skill --status          # 查看状态
@@ -280,7 +294,7 @@ argus_skill/
 │   ├── subagent.py        # 子 agent 系统
 │   └── new_auto_research_project.py  # 项目创建
 ├── skills/
-│   ├── pipeline_contracts.py  # 全部 validator (validate-full-emnlp 等)
+│   ├── pipeline_contracts.py  # manifest/freshness/policy artifact 构建-修复工具 (质量 gate 由 reviewer checklist 决定)
 │   └── store.py           # skill 匹配器
 ├── engineer/
 │   ├── runner.py           # SupervisedEngineer 轮次循环

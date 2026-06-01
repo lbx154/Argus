@@ -15,7 +15,6 @@ from .models import CodexRunResult
 from .runner_backend import (
     BACKEND_CLAUDE,
     BACKEND_COPILOT,
-    BACKEND_CODEX,
     DEFAULT_RUNNER_BACKEND,
     RunnerBackend,
     default_runner_bin,

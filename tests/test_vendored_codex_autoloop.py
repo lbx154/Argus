@@ -54,3 +54,22 @@ def test_codex_backend_resolver_uses_vendored_module() -> None:
         "normalize_runner_backend",
     ):
         assert required in deps, f"resolver missing {required}"
+
+
+def test_codex_autoloop_package_init_is_thin() -> None:
+    """The vendored package must not eagerly import the deleted legacy stack.
+
+    Only the low-level CLI driver (codex_runner/runner_backend/models)
+    survives; importing the package must not pull in an orchestrator,
+    telegram/feishu daemon, or a second reviewer/planner.
+    """
+    import argus_skill.codex_autoloop as pkg
+
+    assert pkg.__all__ == []
+    for legacy in (
+        "AutoLoopOrchestrator",
+        "AutoLoopConfig",
+        "LoopEngine",
+        "LoopConfig",
+    ):
+        assert not hasattr(pkg, legacy), f"legacy symbol leaked: {legacy}"

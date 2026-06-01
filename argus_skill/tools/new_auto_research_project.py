@@ -421,9 +421,21 @@ def create_project(config: LaunchConfig) -> LaunchResult:
     git_commit = init_git(project_dir, project_name) if config.init_git else None
     daemon_output = ""
     status_output = ""
+    daemon_started = False
     if config.start_daemon:
-        daemon_output = start_daemon(project_dir, agents_md)
-        status_output = status(project_dir)
+        try:
+            daemon_output = start_daemon(project_dir, agents_md)
+            status_output = status(project_dir)
+            daemon_started = True
+        except LaunchError as exc:
+            # Most likely the lifetime entry gate (missing operator special
+            # prompt): the project is fully created, only the auto-start is
+            # deferred until the operator configures their house rules.
+            daemon_output = (
+                "daemon NOT auto-started — finish the operator setup, then run "
+                "`argus-skill --daemon --continuous --objective \"...\"` yourself.\n"
+                f"{exc}"
+            )
     return LaunchResult(
         project_dir=project_dir,
         agents_path=agents_path,
@@ -431,7 +443,7 @@ def create_project(config: LaunchConfig) -> LaunchResult:
         project_name=project_name,
         version=version,
         domain=config.domain,
-        daemon_started=config.start_daemon,
+        daemon_started=daemon_started,
         git_commit=git_commit,
         daemon_output=daemon_output,
         status_output=status_output,

@@ -97,6 +97,10 @@ class LifeWorkerConfig:
     project_workdir: Path | None = None
     continuous: bool = False
     continuous_objective: str = ""
+    # When True (the default for the lifetime daemon) the supervisor keeps the
+    # mission alive after the planner certifies ``project_done`` instead of
+    # hard-stopping. Set False (via ``--bounded``) for a one-shot bounded goal.
+    continuous_open_ended: bool = True
     # Post-engineer check commands run by the reviewer agent after each
     # engineer round.  For EMNLP projects these auto-refresh manifest and
     # freshness so the reviewer sees up-to-date validation state without
@@ -328,6 +332,7 @@ def _config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
         "project_workdir": str(config.project_workdir) if config.project_workdir is not None else "",
         "continuous": config.continuous,
         "continuous_objective": config.continuous_objective,
+        "continuous_open_ended": config.continuous_open_ended,
     }
 
 
@@ -368,6 +373,7 @@ def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         log_path=Path(log_path).expanduser() if log_path else None,
         continuous=bool(data.get("continuous")),
         continuous_objective=str(data.get("continuous_objective") or ""),
+        continuous_open_ended=bool(data.get("continuous_open_ended", True)),
     )
 
 
@@ -843,6 +849,7 @@ class LifeWorker:
             runtime_context=_worker_runtime_context(cfg),
             continuous=init_continuous,
             continuous_objective=init_objective,
+            open_ended=cfg.continuous_open_ended,
             continuous_config_provider=_continuous_provider,
             planner_runtime_context_provider=self._planner_runtime_context,
             planner_restart_handler=self._planner_restart_handler,

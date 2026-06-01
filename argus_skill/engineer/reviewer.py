@@ -124,22 +124,14 @@ def _should_include_academic_paper_review_skill(
             raw_evidence,
         ]
     ).lower()
-    paper_markers = (
-        "paper/main.tex",
-        "paper/main.pdf",
-        "main.pdf",
-        "manuscript",
-        "academic paper",
-        "paper draft",
-        "emnlp",
-        "acl",
-        "latex",
-    )
+    # Keyword-based "is this a paper?" sniffing was removed; gate purely on the
+    # strong paper-completion evidence tokens below (final_submission,
+    # references.bib, compiled main.pdf, the assurance/review artifacts, …),
+    # which only appear in academic-paper review contexts.
     complete_markers = (
         "final_submission",
         "submission-ready",
         "publication quality",
-        "validate-full-emnlp",
         "submission_assurance",
         "paper_draft_report",
         "format_preflight",
@@ -149,9 +141,7 @@ def _should_include_academic_paper_review_skill(
         "compiled pdf",
         "main.pdf",
     )
-    return any(marker in context for marker in paper_markers) and any(
-        marker in context for marker in complete_markers
-    )
+    return any(marker in context for marker in complete_markers)
 
 
 class Reviewer:

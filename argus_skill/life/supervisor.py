@@ -28,8 +28,6 @@ from __future__ import annotations
 import logging
 import os
 import re
-import subprocess
-import sys
 import threading
 import time
 import unicodedata
@@ -196,76 +194,9 @@ _PLANNER_RECENT_FAILURE_STATUS = "no_progress"
 _FOLLOWUP_CRITIC_MIN_IMPACT_SCORE = 5
 _PLANNER_SCOPE_BOUNDED = "bounded"
 _PLANNER_SCOPE_FINAL_SUBMISSION = "final_submission"
-_FULL_EMNLP_GATE_COMMAND = (
+_FULL_EMNLP_GATE_DESCRIPTION = (
     "the L2 reviewer's full pipeline checklist (research → submission)"
 )
-_OPEN_ENDED_OBJECTIVE_MARKERS = (
-    "open-ended",
-    "self-improvement",
-    "ongoing",
-    "always-on",
-    "always on",
-    "7x24",
-    "7×24",
-    "24/7",
-    "perpetual",
-    "never-ending",
-    "never ending",
-)
-_PAPER_LONG_HORIZON_OBJECTIVE_SUBSTRINGS = (
-    "academic paper",
-    "camera-ready",
-    "citation",
-    "latex",
-    "long paper",
-    "main.pdf",
-    "main.tex",
-    "make_paper",
-    "manuscript",
-    "paper/",
-    "paper draft",
-    "publication-ready",
-    "submission-ready",
-    "validate-full-emnlp",
-    "正文",
-    "论文",
-    "投稿",
-)
-_PAPER_LONG_HORIZON_OBJECTIVE_WORDS = {"acl", "emnlp"}
-
-
-def _objective_is_open_ended(objective: str) -> bool:
-    normalized = _normalize_planner_text(objective)
-    return any(marker in normalized for marker in _OPEN_ENDED_OBJECTIVE_MARKERS)
-
-
-def _objective_requires_full_emnlp_gate(objective: str) -> bool:
-    raw = str(objective or "").casefold()
-    normalized = _normalize_planner_text(objective)
-    venue_marker = "emnlp" in normalized or "acl" in normalized
-    final_marker = any(
-        marker in raw
-        for marker in (
-            "submission",
-            "submit",
-            "submission-ready",
-            "camera-ready",
-            "paper",
-            "long paper",
-            "投稿",
-            "论文",
-            "投递",
-        )
-    )
-    return venue_marker and final_marker
-
-
-def _objective_is_paper_long_horizon(objective: str) -> bool:
-    normalized = _normalize_planner_text(objective)
-    if any(marker in normalized for marker in _PAPER_LONG_HORIZON_OBJECTIVE_SUBSTRINGS):
-        return True
-    tokens = set(re.findall(r"[a-z0-9]+", normalized))
-    return bool(tokens & _PAPER_LONG_HORIZON_OBJECTIVE_WORDS)
 
 
 def _is_emnlp_finalization_objective(text: str) -> bool:
@@ -518,6 +449,23 @@ class LifeSupervisorConfig:
     # budget / stop_event fires.
     continuous: bool = False
     continuous_objective: str = ""
+    # Explicit mission-type signals (replace the old keyword sniffing of the
+    # objective text). ``paper_mission`` toggles the long-horizon paper guidance
+    # the planner hands to bounded items; ``full_emnlp_gate`` requires the L2
+    # reviewer's full-pipeline checklist to be certified before ``project_done``
+    # is honoured (and drives the auto-stop once that gate passes). Both default
+    # True because the life supervisor is the autonomous EMNLP-research driver;
+    # set them False for non-paper continuous missions.
+    paper_mission: bool = True
+    full_emnlp_gate: bool = True
+    # ``open_ended`` controls what happens when the planner certifies
+    # ``project_done`` on a continuous mission: when True the supervisor does
+    # NOT hard-stop — it logs a planner retry and keeps the mission alive so the
+    # 7×24 lifetime agent keeps generating new work. Replaces the old keyword
+    # sniffing of the objective text ("ongoing"/"perpetual"/"7×24"/…). Defaults
+    # False at this low level (honour project_done); the daemon/REPL entry paths
+    # default it True unless ``--bounded`` is passed.
+    open_ended: bool = False
     # Optional callback returning ``(enabled, objective)`` — the
     # supervisor calls it each iteration to hot-reload from disk or
     # elsewhere. When ``None``, the static ``continuous`` /
@@ -779,9 +727,7 @@ class LifeSupervisor:
             if (
                 self.config.continuous
                 and self.config.continuous_objective
-                and _objective_requires_full_emnlp_gate(
-                    self.config.continuous_objective
-                )
+                and self.config.full_emnlp_gate
                 and self._journal_has_full_emnlp_gate_success()
             ):
                 self._emit_status(
@@ -825,9 +771,7 @@ class LifeSupervisor:
                     # project is done — don't ask the planner to invent
                     # more work.
                     if (
-                        _objective_requires_full_emnlp_gate(
-                            self.config.continuous_objective
-                        )
+                        self.config.full_emnlp_gate
                         and self._journal_has_full_emnlp_gate_success()
                     ):
                         self._emit_status(
@@ -1501,15 +1445,7 @@ class LifeSupervisor:
         scope = self._planner_scope_from_item(item)
         if not scope and not item.tags:
             return ""
-        paper_context = "\n".join((
-            str(getattr(item, "title", "") or ""),
-            str(getattr(item, "objective", "") or ""),
-            str(getattr(self.config, "continuous_objective", "") or ""),
-        ))
-        is_paper_long_horizon = (
-            _objective_is_paper_long_horizon(paper_context)
-            or _objective_requires_full_emnlp_gate(paper_context)
-        )
+        is_paper_long_horizon = self.config.paper_mission
         lines = ["## Backlog item metadata"]
         if scope:
             lines.append(f"- planner_scope: {scope}")
@@ -1517,7 +1453,7 @@ class LifeSupervisor:
             lines.append("- tags: " + ", ".join(item.tags))
         if scope == _PLANNER_SCOPE_FINAL_SUBMISSION:
             lines.append(
-                f"- final_submission_gate: {_FULL_EMNLP_GATE_COMMAND} must be "
+                f"- final_submission_gate: {_FULL_EMNLP_GATE_DESCRIPTION} must be "
                 "fully satisfied (every checklist item certified by the reviewer "
                 "with concrete evidence) before this item can be marked done."
             )
@@ -1775,7 +1711,7 @@ class LifeSupervisor:
 
         if (
             verdict.project_done
-            and _objective_requires_full_emnlp_gate(self.config.continuous_objective)
+            and self.config.full_emnlp_gate
             and not self._journal_has_full_emnlp_gate_success()
         ):
             from ..planner import TaskSpec
@@ -1814,7 +1750,7 @@ class LifeSupervisor:
                 ],
             )
 
-        if verdict.project_done and _objective_is_open_ended(self.config.continuous_objective):
+        if verdict.project_done and self.config.open_ended:
             self._emit({
                 "type": "life.planner.verdict",
                 "cycle": self._planning_cycles,

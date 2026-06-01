@@ -467,11 +467,13 @@ def test_handoff_config_payload_round_trips(tmp_path: Path) -> None:
         log_path=tmp_path / "daemon.log",
         continuous=True,
         continuous_objective="keep improving",
+        continuous_open_ended=False,
     )
 
     restored = _config_from_payload(_config_payload(cfg))
 
     assert restored == cfg
+    assert restored.continuous_open_ended is False
 
 
 def test_handoff_lock_wait_retries_until_available(
@@ -669,6 +671,7 @@ def test_worker_runtime_context_surfaces_operator_special_prompts(
     sp.mkdir()
     (sp / "10-gpu.md").write_text("Free the keep-alive before training.",
                                   encoding="utf-8")
+    (sp / "10-gpu.md").chmod(0o644)
     monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(sp))
     cfg = LifeWorkerConfig(life_dir=tmp_path, backend="memory")
 

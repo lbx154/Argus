@@ -87,8 +87,51 @@ def render_special_prompts_context() -> str:
     return "\n\n".join(parts)
 
 
+def describe_special_prompt_gate() -> tuple[bool, str]:
+    """Return ``(ok, message)`` for the launch-time special-prompt gate.
+
+    ``ok`` is True when at least one trusted directive is loadable. When
+    False, ``message`` is an actionable diagnostic that distinguishes
+    "no directory / no files" from "files present but rejected by the
+    trust check" (symlink / wrong owner / group-or-world-writable), so an
+    operator hitting the umask-0664 pitfall gets exact ``chmod`` guidance.
+    """
+    directory = special_prompts_dir()
+    if load_special_prompts():
+        return True, ""
+    if not directory.is_dir():
+        return False, (
+            f"no operator special prompts configured — create at least one "
+            f"house-rules directive:\n"
+            f"  mkdir -p {directory}\n"
+            f"  printf 'Operational house rules for this box.\\n' > "
+            f"{directory}/10-house-rules.md\n"
+            f"  chmod 0644 {directory}/10-house-rules.md\n"
+            f"(override the location with $ARGUS_SKILL_SPECIAL_PROMPTS_DIR)"
+        )
+    md_files = [p for p in directory.glob("*.md") if not p.is_symlink()]
+    if not md_files:
+        return False, (
+            f"no operator special prompts found in {directory} — drop at least "
+            f"one *.md directive there (mode 0644, owned by you)."
+        )
+    return False, (
+        f"special prompts in {directory} were all rejected by the trust check. "
+        f"Each *.md must be a regular file, owned by the directory owner, and "
+        f"NOT group/world-writable. Fix with:\n"
+        f"  chmod 0644 {directory}/*.md"
+    )
+
+
+def has_trusted_special_prompt() -> bool:
+    """True when at least one trusted operator directive is loadable."""
+    return bool(load_special_prompts())
+
+
 __all__ = [
     "special_prompts_dir",
     "load_special_prompts",
     "render_special_prompts_context",
+    "describe_special_prompt_gate",
+    "has_trusted_special_prompt",
 ]

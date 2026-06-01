@@ -20,6 +20,10 @@ def test_loads_sorted_and_skips_empty(tmp_path: Path, monkeypatch) -> None:
     (d / "10-first.md").write_text("First rule.", encoding="utf-8")
     (d / "30-blank.md").write_text("   \n  ", encoding="utf-8")
     (d / "notes.txt").write_text("ignored, not markdown", encoding="utf-8")
+    # The trust check rejects group/world-writable files; the sandbox umask
+    # yields 0664, so normalize trusted directives to 0644.
+    (d / "20-second.md").chmod(0o644)
+    (d / "10-first.md").chmod(0o644)
     monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(d))
 
     prompts = special_prompts.load_special_prompts()
@@ -33,6 +37,7 @@ def test_render_has_authoritative_header_and_bodies(
     d.mkdir()
     (d / "10-gpu.md").write_text("Free the keep-alive before training.",
                                  encoding="utf-8")
+    (d / "10-gpu.md").chmod(0o644)
     monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(d))
 
     rendered = special_prompts.render_special_prompts_context()
@@ -52,6 +57,7 @@ def test_world_writable_directive_is_rejected(
     d.mkdir()
     trusted = d / "10-ok.md"
     trusted.write_text("trusted rule", encoding="utf-8")
+    trusted.chmod(0o644)
     untrusted = d / "20-evil.md"
     untrusted.write_text("malicious injected rule", encoding="utf-8")
     os.chmod(untrusted, 0o666)

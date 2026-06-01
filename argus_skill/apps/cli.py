@@ -91,6 +91,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="continuous improvement objective (used with --continuous)",
     )
+    daemon_grp.add_argument(
+        "--bounded",
+        action="store_true",
+        help="treat the mission as a bounded one-shot goal: hard-stop once the "
+             "planner certifies project_done (default: open-ended — the agent "
+             "keeps generating new work forever)",
+    )
 
     cockpit_grp = parser.add_argument_group("cockpit")
     cockpit_grp.add_argument(
@@ -209,6 +216,42 @@ def _resolve_project_bundle(args: argparse.Namespace):
     from ..life import MemoryBundle
 
     return MemoryBundle.for_cwd(Path.cwd(), global_root=_resolve_global_root(args))
+
+
+def _lifetime_entry_error(args: argparse.Namespace) -> str:
+    """Return an actionable error if the lifetime agent is under-configured.
+
+    The lifetime daemon / cockpit refuses to start unless the operator has
+    explicitly supplied BOTH a mission objective and at least one trusted
+    special prompt (machine house rules). This replaces any implicit guessing:
+    the agent must be told its mission and its operating rules up front.
+
+    The objective is satisfied by ``--objective`` (which requires
+    ``--continuous``) or by a previously-persisted ``continuous.json`` for the
+    current project. Returns ``""`` when both requirements are met.
+    """
+    from ..daemon.life_worker import read_continuous_config
+    from ..life.special_prompts import describe_special_prompt_gate
+
+    objective = str(getattr(args, "objective", "") or "").strip()
+    if not objective:
+        try:
+            bundle = _resolve_project_bundle(args)
+            _, persisted = read_continuous_config(bundle.project.root)
+            objective = persisted.strip()
+        except Exception:  # noqa: BLE001 — under-configured path resolution
+            objective = ""
+    if not objective:
+        return (
+            "no mission objective configured — the lifetime agent must be told "
+            "what to work on. Launch with `--continuous --objective \"<goal>\"` "
+            "(persisted to <life_dir>/continuous.json for later runs)."
+        )
+
+    ok, detail = describe_special_prompt_gate()
+    if not ok:
+        return detail
+    return ""
 
 
 def _resolve_follow_events_path(args: argparse.Namespace) -> Path:
@@ -998,6 +1041,11 @@ def main(argv: list[str] | None = None) -> int:
     # auto-spawns a background daemon (unless ``--no-daemon`` was given
     # or one is already alive) so the agent keeps draining the backlog
     # 24/7 even after the operator detaches.
+    entry_error = _lifetime_entry_error(args)
+    if entry_error:
+        sys.stderr.write(f"argus-skill: {entry_error}\n")
+        return 2
+
     from ._life_repl import run_life_chat_loop
 
     from ..tools.capability_vault import resolve_route_model
@@ -1028,6 +1076,7 @@ def main(argv: list[str] | None = None) -> int:
         no_daemon=bool(args.no_daemon),
         continuous=bool(args.continuous),
         objective=str(getattr(args, "objective", "") or ""),
+        bounded=bool(getattr(args, "bounded", False)),
     )
     return _run_with_path_resolution_errors(lambda: run_life_chat_loop(repl_args))
 
@@ -1078,6 +1127,7 @@ def _build_worker_config(args: argparse.Namespace):
         poll_interval=float(os.environ.get("ARGUS_SKILL_DAEMON_POLL_S", "5.0")),
         continuous=getattr(args, "continuous", False),
         continuous_objective=getattr(args, "objective", ""),
+        continuous_open_ended=not bool(getattr(args, "bounded", False)),
     )
 
 
@@ -1091,6 +1141,10 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
     )
     if continuous_error:
         sys.stderr.write(f"argus-skill: {continuous_error}\n")
+        return 2
+    entry_error = _lifetime_entry_error(args)
+    if entry_error:
+        sys.stderr.write(f"argus-skill: {entry_error}\n")
         return 2
     cfg = _build_worker_config(args)
     if foreground:
