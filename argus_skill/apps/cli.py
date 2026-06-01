@@ -1720,6 +1720,53 @@ def _render_lifecycle_status_lines(workdir: Path) -> list[str]:
     return lines
 
 
+def _render_mid_mission_progress_lines(bundle: Any, *, current_item_id: str | None) -> list[str]:
+    """Tail events.jsonl for the currently-running mission and surface
+    the last 3-5 events as quick-read progress. Fail-soft.
+
+    Opt #3: avoids the operator needing to `tail -f events.jsonl`
+    just to see what the current 26-minute mission is actually doing.
+    """
+    if not current_item_id:
+        return []
+    try:
+        import json as _json
+        project_root = Path(bundle.project.root)
+        events_path = project_root / "events.jsonl"
+        if not events_path.exists():
+            return []
+        with events_path.open("rb") as fh:
+            fh.seek(0, 2)
+            end = fh.tell()
+            read_chunk = min(end, 64 * 1024)
+            fh.seek(end - read_chunk)
+            raw_tail = fh.read().decode("utf-8", errors="replace")
+        tail_lines = [ln for ln in raw_tail.splitlines() if ln.strip()][-200:]
+        events: list[dict[str, Any]] = []
+        for line in tail_lines:
+            try:
+                events.append(_json.loads(line))
+            except _json.JSONDecodeError:
+                continue
+        recent = events[-4:]
+        if not recent:
+            return []
+    except Exception:  # noqa: BLE001
+        return []
+
+    lines = ["  in_flight:"]
+    for ev in recent:
+        actor = ev.get("actor", "") or ev.get("agent_layer", "")
+        kind = ev.get("kind", "") or ev.get("type", "")
+        text = (ev.get("text") or ev.get("output_excerpt") or "")
+        excerpt = text.replace("\n", " ").strip()
+        if len(excerpt) > 110:
+            excerpt = excerpt[:107] + "..."
+        head = f"{actor or '<no-actor>'} {kind}".strip()
+        lines.append(f"    {head[:38]:38s} {excerpt}")
+    return lines
+
+
 def _render_stage_budget_lines(bundle: Any, *, current_stage: str | None) -> list[str]:
     """Render per-stage budget snapshot for --status. Facts-only; the
     reviewer / planner agent decides whether to act on advisories.
@@ -1907,6 +1954,17 @@ def _cmd_status(args: argparse.Namespace) -> int:
     # what to do; harness does not auto-quarantine on spend.
     budget_lines = _render_stage_budget_lines(bundle, current_stage=current_stage)
     for line in budget_lines:
+        print(line)
+
+    # Mid-mission progress (Opt #3). Tails events.jsonl for the
+    # currently-running mission so the operator doesn't need to
+    # `tail -f` a separate file to see what the long mission is
+    # actually doing right now.
+    running_id = (
+        getattr(current_running, "id", None) if current_running else None
+    )
+    progress_lines = _render_mid_mission_progress_lines(bundle, current_item_id=running_id)
+    for line in progress_lines:
         print(line)
 
     if journal_tail:
