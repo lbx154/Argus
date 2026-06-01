@@ -151,7 +151,7 @@ def test_supervisor_check_concern_now_means_stop_in_prompt(monkeypatch, tmp_path
         stdout = ""
 
     def fake_run(cmd, **kwargs):
-        captured["prompt"] = cmd[-1]
+        captured["prompt"] = kwargs.get("input", "")
         r = _Result()
         r.stdout = _codex_jsonl('{"decision": "continue", "health": "healthy", "concern": ""}')
         return r
@@ -426,7 +426,7 @@ def test_supervisor_discuss_feeds_transcript_as_argument(monkeypatch, tmp_path) 
         stdout = ""
 
     def fake_run(cmd, **kwargs):
-        captured["prompt"] = cmd[-1]
+        captured["prompt"] = kwargs.get("input", "")
         r = _Result()
         r.stdout = _codex_jsonl('{"resolved": true, "message": "Fair enough, your budget rationale holds."}')
         return r
@@ -434,7 +434,7 @@ def test_supervisor_discuss_feeds_transcript_as_argument(monkeypatch, tmp_path) 
     monkeypatch.setattr("argus_skill.tools.subagent._find_codex", lambda: "codex")
     monkeypatch.setattr("argus_skill.tools.subagent.subprocess.run", fake_run)
 
-    resolved, message = _supervisor_discuss(
+    resolved, message, _tid = _supervisor_discuss(
         tid, {"description": "DAPO run", "command": "python train.py",
               "concern": "completions truncated at 256"}, "gpt-5.5", str(tmp_path),
     )
@@ -462,7 +462,7 @@ def test_supervisor_discuss_returns_unresolved_on_bad_output(monkeypatch, tmp_pa
 
     monkeypatch.setattr("argus_skill.tools.subagent._find_codex", lambda: "codex")
     monkeypatch.setattr("argus_skill.tools.subagent.subprocess.run", fake_run)
-    resolved, message = _supervisor_discuss(tid, {}, "gpt-5.5", str(tmp_path))
+    resolved, message, _tid = _supervisor_discuss(tid, {}, "gpt-5.5", str(tmp_path))
     assert resolved is False
     assert message == ""
 
@@ -526,9 +526,9 @@ def test_run_discussion_processes_preexisting_engineer_turn(monkeypatch, tmp_pat
 
     seen: dict[str, int] = {"calls": 0}
 
-    def fake_discuss(task_id, task_data, model, cwd):
+    def fake_discuss(task_id, task_data, model, cwd, thread_id=None):
         seen["calls"] += 1
-        return (True, "Acknowledged, your pre-emptive rationale resolves it.")
+        return (True, "Acknowledged, your pre-emptive rationale resolves it.", thread_id)
 
     monkeypatch.setattr("argus_skill.tools.subagent._supervisor_discuss", fake_discuss)
     monkeypatch.setattr("argus_skill.tools.subagent.DISCUSSION_POLL_INTERVAL", 0)
@@ -539,3 +539,172 @@ def test_run_discussion_processes_preexisting_engineer_turn(monkeypatch, tmp_pat
     assert seen["calls"] == 1
     rendered = _render_discussion(tid)
     assert "pre-emptive rationale resolves it" in rendered
+
+
+# ---------------------------------------------------------------------------
+# Redesign: persistent thread, forced-discussion gate, experiment memory
+# ---------------------------------------------------------------------------
+
+import argparse  # noqa: E402
+
+from argus_skill.tools import subagent as _sub  # noqa: E402
+
+
+def test_run_codex_resumes_thread_and_streams_prompt(monkeypatch, tmp_path) -> None:
+    # A persistent supervisor turn must `exec resume <thread_id>` and stream the
+    # prompt via stdin (never positionally), and surface the thread id back.
+    calls: dict[str, object] = {}
+
+    class _Result:
+        returncode = 0
+        stdout = ""
+
+    def fake_run(cmd, **kwargs):
+        calls["cmd"] = cmd
+        calls["input"] = kwargs.get("input")
+        r = _Result()
+        r.stdout = (
+            json.dumps({"type": "thread.started", "thread_id": "TID-123"}) + "\n"
+            + _codex_jsonl('{"decision": "continue"}')
+        )
+        return r
+
+    monkeypatch.setattr(_sub, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(_sub.subprocess, "run", fake_run)
+    msgs, tid = _sub._run_codex("PROMPT-BODY", "gpt-5.5", str(tmp_path), thread_id="TID-123")
+    assert tid == "TID-123"
+    assert calls["input"] == "PROMPT-BODY"
+    assert "resume" in calls["cmd"]
+    assert "TID-123" in calls["cmd"]
+    assert calls["cmd"][-1] == "-"  # prompt streamed via stdin
+    assert "PROMPT-BODY" not in calls["cmd"]
+
+
+def test_run_codex_retries_fresh_when_resume_empty(monkeypatch, tmp_path) -> None:
+    # A resume that yields no agent message (expired session) retries once fresh.
+    seq = []
+
+    class _Result:
+        returncode = 1
+        stdout = ""
+
+    def fake_run(cmd, **kwargs):
+        seq.append("resume" in cmd)
+        r = _Result()
+        if "resume" in cmd:
+            r.stdout = ""  # session gone, nothing back
+        else:
+            r.returncode = 0
+            r.stdout = _codex_jsonl('{"decision": "continue"}')
+        return r
+
+    monkeypatch.setattr(_sub, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(_sub.subprocess, "run", fake_run)
+    msgs, tid = _sub._run_codex("P", "gpt-5.5", str(tmp_path), thread_id="DEAD")
+    assert seq == [True, False]  # resumed, then retried fresh
+    assert msgs  # got a message from the fresh run
+
+
+def test_open_discussion_blockers_only_counts_live_fresh(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    me = __import__("os").getpid()
+    # Live + fresh -> blocks.
+    _write_task("live", {"state": "discussing", "task_id": "live",
+                         "worker_pid": me, "last_heartbeat": time.time()})
+    # Dead pid -> ignored.
+    _write_task("dead", {"state": "discussing", "task_id": "dead",
+                         "worker_pid": 999999, "last_heartbeat": time.time()})
+    # Stale heartbeat -> ignored.
+    _write_task("stale", {"state": "discussing", "task_id": "stale",
+                          "worker_pid": me, "last_heartbeat": time.time() - 99999})
+    ids = {t["task_id"] for t in _sub._open_discussion_blockers()}
+    assert ids == {"live"}
+
+
+def _submit_args(**kw) -> argparse.Namespace:
+    base = dict(task_id="x", description="d", command="echo hi", mode="direct",
+                timeout=10, monitor_interval=120, model="gpt-5.5", run_dir=None,
+                cwd=None, override_discussion=None, clear_stop=False)
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+def test_cmd_submit_blocks_on_open_discussion(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    me = __import__("os").getpid()
+    _write_task("blk", {"state": "discussing", "task_id": "blk", "worker_pid": me,
+                        "last_heartbeat": time.time(), "concern": "truncation",
+                        "run_dir": str(tmp_path / "runs/blk")})
+    # Guard: fork must never be reached when blocked.
+    monkeypatch.setattr(_sub.os, "fork", lambda: (_ for _ in ()).throw(AssertionError("forked")))
+    rc = _sub.cmd_submit(_submit_args(task_id="new"))
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert out["blocking_task"] == "blk"
+    assert "truncation" in out["supervisor_concern"]
+
+
+def test_cmd_submit_override_records_and_proceeds(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    me = __import__("os").getpid()
+    _write_task("blk", {"state": "discussing", "task_id": "blk", "worker_pid": me,
+                        "last_heartbeat": time.time(), "concern": "truncation"})
+    monkeypatch.setattr(_sub.os, "fork", lambda: 4242)  # pretend parent
+    rc = _sub.cmd_submit(_submit_args(task_id="new", override_discussion="I checked, proceed"))
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0 and out["state"] == "submitted"
+    ledger = (tmp_path / _sub.EXPERIMENT_HISTORY_REL).read_text()
+    assert "DISCUSSION-OVERRIDE" in ledger
+    assert "I checked, proceed" in ledger
+
+
+def test_cmd_submit_refuses_poisoned_stop(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    rd = tmp_path / "runs" / "r1"
+    rd.mkdir(parents=True)
+    (rd / "STOP").write_text("old")
+    monkeypatch.setattr(_sub.os, "fork", lambda: (_ for _ in ()).throw(AssertionError("forked")))
+    rc = _sub.cmd_submit(_submit_args(task_id="r", run_dir=str(rd)))
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1 and "STOP" in out["error"]
+    # --clear-stop removes it and proceeds.
+    monkeypatch.setattr(_sub.os, "fork", lambda: 4242)
+    rc = _sub.cmd_submit(_submit_args(task_id="r", run_dir=str(rd), clear_stop=True))
+    assert rc == 0
+    assert not (rd / "STOP").exists()
+
+
+def test_persist_experiment_record_writes_artifacts_and_dedups(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    tid = "exp1"
+    rd = tmp_path / "runs" / "exp1"
+    rd.mkdir(parents=True)
+    _append_discussion(tid, "supervisor", "stopped: truncation")
+    td = {"run_id": "exp1-1", "task_id": tid, "state": "early_stopped",
+          "command": "python train.py", "run_dir": str(rd),
+          "concern": "truncation", "discussion_resolution": "resolved"}
+    _sub._persist_experiment_record(tid, "EARLY-STOPPED", td, str(tmp_path),
+                                    verdict_text="Raise the cap and re-test.")
+    assert (rd / "SUPERVISOR_VERDICT.md").exists()
+    assert "Raise the cap" in (rd / "SUPERVISOR_VERDICT.md").read_text()
+    assert (rd / "DISCUSSION.md").exists()
+    ledger = tmp_path / _sub.EXPERIMENT_HISTORY_REL
+    assert ledger.exists()
+    assert len(ledger.read_text().strip().splitlines()) == 1
+    # Idempotent on run_id.
+    _sub._persist_experiment_record(tid, "EARLY-STOPPED", td, str(tmp_path))
+    assert len(ledger.read_text().strip().splitlines()) == 1
+
+
+def test_cmd_status_surfaces_open_discussion(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    me = __import__("os").getpid()
+    _write_task("d", {"state": "discussing", "task_id": "d", "worker_pid": me,
+                      "pid": me, "last_heartbeat": time.time(),
+                      "run_dir": str(tmp_path / "runs/d")})
+    rc = _sub.cmd_status(argparse.Namespace(task_id="d"))
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert "ACTION_REQUIRED" in out
+    assert "DISCUSSION.md" in out["discussion_file"]
+    assert "reply --task-id d" in out["reply_with"]

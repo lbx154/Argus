@@ -44,6 +44,7 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -129,9 +130,21 @@ SUPERVISOR_INTERVAL_CAP = 900
 # transcript instead of exiting. These bound that discussion so a worker never
 # parks forever waiting on an engineer that is busy or never replies.
 DISCUSSION_POLL_INTERVAL = 20      # seconds between checks for a new engineer turn
-DISCUSSION_FIRST_REPLY_TIMEOUT = 300   # give up if the engineer never engages (5 min)
-DISCUSSION_DEADLINE_S = 1800       # hard cap on the whole discussion once engaged (30 min)
+DISCUSSION_FIRST_REPLY_TIMEOUT = 1800  # give up if the engineer never engages (30 min)
+DISCUSSION_DEADLINE_S = 7200       # hard cap on the whole discussion once engaged (2 h)
 MAX_SUPERVISOR_TURNS = 6           # cap supervisor LLM replies so a loop can't run away
+# A parked supervisor refreshes ``last_heartbeat`` every poll. A discussion whose
+# heartbeat is older than this is treated as abandoned (worker hung/dead) so it
+# never wedges the relaunch gate forever. Sized to clear the worst-case gap
+# between heartbeats: one poll plus a resume-then-fresh codex retry (~2x120s).
+DISCUSSION_STALE_AFTER_S = 600
+# Reuse one persistent codex supervisor thread for at most this many checks, then
+# rotate to a fresh thread seeded with a short summary so a multi-hour run never
+# overflows the context window.
+SUPERVISOR_THREAD_MAX_CHECKS = 12
+# Append-only, project-local ledger of every supervised experiment so a future
+# engineer mission can learn why past runs succeeded or failed.
+EXPERIMENT_HISTORY_REL = "research/EXPERIMENT_HISTORY.jsonl"
 
 
 def _next_monitor_interval(
@@ -560,9 +573,15 @@ def _queue_to_inbox(report: str, task_id: str = "subagent") -> None:
         alert_path.write_text(report + "\n")
 
 
-def _alert_engineer(task_id: str, event: str, task_data: dict[str, Any]) -> None:
-    """Send a structured report to engineer via the project inbox."""
-    _queue_to_inbox(_build_report(task_id, event, task_data), task_id)
+def _alert_engineer(task_id: str, event: str, task_data: dict[str, Any]) -> str:
+    """Send a structured report to engineer via the project inbox.
+
+    Returns the report text so callers can also persist it as the durable,
+    co-located supervisor verdict for the experiment.
+    """
+    report = _build_report(task_id, event, task_data)
+    _queue_to_inbox(report, task_id)
+    return report
 
 
 # ---------------------------------------------------------------------------
@@ -762,6 +781,269 @@ def _strip_code_fence(text: str) -> str:
     return text.strip()
 
 
+def _codex_thread_id(stdout: str) -> str | None:
+    """Extract the codex thread/session id from a ``codex exec --json`` stream."""
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "thread.started" and event.get("thread_id"):
+            return str(event["thread_id"])
+        sid = event.get("session_id") or event.get("sessionId")
+        if isinstance(sid, str) and sid.strip():
+            return sid
+    return None
+
+
+def _run_codex(
+    prompt: str,
+    model: str,
+    cwd: str,
+    thread_id: str | None = None,
+    timeout: int = 120,
+) -> tuple[list[str], str | None]:
+    """Run one (optionally resumed) codex turn; return (agent_messages, thread_id).
+
+    Persistent supervisor: when ``thread_id`` is given the turn RESUMES that codex
+    session, so the supervisor carries its full run-observation history and the
+    discussion transcript across checks instead of re-deriving context from
+    scratch each call. The prompt is streamed via stdin so it never appears in
+    process lists and multiline survives intact. If a resume yields nothing (an
+    expired/missing session), it retries once on a fresh thread so a lost session
+    never blinds the supervisor. Never raises — returns ([], thread_id) on error.
+    """
+    codex = _find_codex()
+
+    def _exec(tid: str | None) -> subprocess.CompletedProcess[str]:
+        cmd = [codex, "exec"]
+        if tid:
+            cmd.append("resume")
+        cmd += ["--json", "-m", model, "--skip-git-repo-check",
+                "--dangerously-bypass-approvals-and-sandbox"]
+        if tid:
+            cmd.append(tid)
+        cmd.append("-")  # stream prompt via stdin
+        return subprocess.run(
+            cmd, input=prompt, capture_output=True, text=True,
+            timeout=timeout, cwd=cwd,
+        )
+
+    try:
+        result = _exec(thread_id)
+    except Exception:
+        return ([], thread_id)
+    msgs = _codex_agent_messages(result.stdout)
+    new_tid = _codex_thread_id(result.stdout) or thread_id
+    if thread_id and not msgs:
+        # Resume produced nothing — the session is likely gone. Retry once fresh
+        # so the supervisor keeps working (a new thread is seeded by the caller's
+        # prompt, which already includes the run signals).
+        try:
+            result = _exec(None)
+            msgs = _codex_agent_messages(result.stdout)
+            new_tid = _codex_thread_id(result.stdout)
+        except Exception:
+            return ([], None)
+    return (msgs, new_tid)
+
+
+def _terminate_proc(proc: "subprocess.Popen[Any]", grace: float = 10.0) -> None:
+    """Stop a run's whole process group, escalating SIGTERM -> SIGKILL.
+
+    Run commands launch with ``start_new_session=True``, so the GPU training
+    children share ``proc.pid`` as their process-group leader. Killing the GROUP
+    (not just the shell) is what actually frees VRAM on an early-stop/timeout;
+    terminating only the shell can orphan the trainer and leak the GPU.
+    """
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        try:
+            proc.terminate()
+        except OSError:
+            pass
+    try:
+        proc.wait(timeout=grace)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        try:
+            proc.kill()
+        except OSError:
+            pass
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _mirror_discussion_md(task_id: str, run_dir: str | None) -> None:
+    """Re-render a human-readable ``DISCUSSION.md`` in the run dir from the
+    canonical ``discussion.jsonl``. The jsonl stays the single source of truth
+    (locking, turn counts); the markdown is an atomic full re-render co-located
+    with the experiment so the engineer reads/participates in one obvious file.
+    """
+    if not run_dir:
+        return
+    turns = _read_discussion(task_id)
+    if not turns:
+        return
+    lines = [f"# Supervisor / engineer discussion — {task_id}",
+             "",
+             "_Reply with_ "
+             f"`python -m argus_skill.tools.subagent reply --task-id {task_id} "
+             '--message "..."`. _The run stays stopped until the supervisor marks '
+             'the concern resolved._',
+             ""]
+    for t in turns:
+        role = t.get("role", "engineer")
+        ts = t.get("ts")
+        when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if isinstance(ts, (int, float)) else ""
+        who = "🤖 supervisor" if role == "supervisor" else "🛠️ engineer"
+        lines.append(f"### {who} — {when}".rstrip(" —"))
+        lines.append("")
+        lines.append(str(t.get("message", "")).strip())
+        lines.append("")
+    try:
+        p = Path(run_dir) / "DISCUSSION.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".md.tmp")
+        tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        os.replace(tmp, p)
+    except OSError:
+        pass
+
+
+def _append_experiment_history(cwd: str, record: dict[str, Any]) -> None:
+    """Idempotently append one experiment row to the project ledger.
+
+    Dedup on ``run_id`` so retries / terminal-event reprocessing never double
+    count. This is the durable, project-local memory a future engineer scans to
+    learn why past runs succeeded or failed.
+    """
+    try:
+        path = Path(cwd) / EXPERIMENT_HISTORY_REL
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rid = record.get("run_id")
+        if rid and path.exists():
+            for line in path.read_text(encoding="utf-8").splitlines():
+                try:
+                    if json.loads(line).get("run_id") == rid:
+                        return  # already recorded
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+        with path.open("a", encoding="utf-8") as f:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                except OSError:
+                    pass
+            f.write(json.dumps(record) + "\n")
+            f.flush()
+            if fcntl is not None:
+                try:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+    except OSError:
+        pass
+
+
+def _persist_experiment_record(
+    task_id: str,
+    event: str,
+    td: dict[str, Any],
+    cwd: str,
+    verdict_text: str = "",
+) -> None:
+    """Co-locate durable supervisor artifacts with the experiment + append the
+    project ledger, so a future engineer can review why this run succeeded or
+    failed long after the supervisor process exits. Pure plumbing: the supervisor
+    codex authors the verdict prose; Python only writes files.
+    """
+    run_dir = td.get("run_dir")
+    metrics = _progress_summary(_effective_run_dir(td)) or {}
+    headline = ""
+    for m in metrics.get("metrics", []) or []:
+        if "reward" in m:
+            label = m.get("dataset") or m.get("condition") or "aggregate"
+            headline = f"{label} reward={m['reward']}"
+            break
+    record = {
+        "run_id": td.get("run_id") or task_id,
+        "task_id": task_id,
+        "event": event,
+        "state": td.get("state"),
+        "command": td.get("command", ""),
+        "run_dir": run_dir,
+        "supervisor_concern": td.get("concern") or td.get("last_supervisor_concern", ""),
+        "stop_reason": td.get("stop_reason", ""),
+        "discussion_resolution": td.get("discussion_resolution", ""),
+        "headline_metric": headline,
+        "run_state": metrics.get("state", ""),
+        "ts": time.time(),
+    }
+    _append_experiment_history(cwd, record)
+    if not run_dir:
+        return
+    try:
+        rp = Path(run_dir)
+        rp.mkdir(parents=True, exist_ok=True)
+        sup_log = td.get("supervisor_log")
+        if sup_log and Path(sup_log).exists():
+            (rp / "SUPERVISOR_LOG.jsonl").write_text(
+                Path(sup_log).read_text(encoding="utf-8"), encoding="utf-8")
+        _mirror_discussion_md(task_id, run_dir)
+        vt = (verdict_text or "").strip()
+        if not vt:
+            vt = (f"Event: {event}\n"
+                  f"Concern: {record['supervisor_concern'] or 'none'}\n"
+                  f"Stop reason: {record['stop_reason'] or 'n/a'}\n"
+                  f"Resolution: {record['discussion_resolution'] or 'n/a'}\n"
+                  f"Headline: {headline or 'n/a'}")
+        (rp / "SUPERVISOR_VERDICT.md").write_text(
+            f"# Supervisor verdict — {task_id} [{event}]\n\n{vt}\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _open_discussion_blockers() -> list[dict[str, Any]]:
+    """Tasks with a LIVE parked supervisor still waiting on the engineer.
+
+    Liveness uses worker_pid-alive AND a fresh heartbeat (not pid alone), so a
+    hung or dead supervisor, or PID reuse, never wedges new launches forever.
+    """
+    blockers: list[dict[str, Any]] = []
+    now = time.time()
+    for t in _list_tasks():
+        if t.get("state") != "discussing":
+            continue
+        # The liveness pid for a parked discussion is the WORKER (the forked
+        # process running the discussion loop), never the killed experiment pid —
+        # falling back to that could false-block on PID reuse.
+        wpid = t.get("worker_pid") or 0
+        hb = t.get("last_heartbeat")
+        # Require a numeric, fresh heartbeat. A record stuck in "discussing" with
+        # no heartbeat (a worker that died before its first poll) must NOT wedge
+        # the gate forever, so a missing heartbeat is treated as stale.
+        fresh = isinstance(hb, (int, float)) and (now - hb < DISCUSSION_STALE_AFTER_S)
+        alive = bool(wpid and _is_pid_alive(wpid))
+        if alive and fresh:
+            blockers.append(t)
+    return blockers
+
+
 _QUIET_LOGS_ENV = "ARGUS_SUBAGENT_QUIET_LOGS"
 
 
@@ -856,17 +1138,20 @@ def _supervisor_check(
     model: str,
     cwd: str,
     run_dir: str | None = None,
-) -> tuple[str, str, str]:
+    thread_id: str | None = None,
+) -> tuple[str, str, str, str | None]:
     """Call codex to check training/eval progress.
 
-    Returns ``(decision, health, concern)`` where decision is
+    Returns ``(decision, health, concern, thread_id)`` where decision is
     ``continue`` / ``early_stop`` / ``save_checkpoint``, health is
     ``healthy`` / ``degrading`` / ``stuck`` / ``diverging`` / ``unknown``, and
     concern is a free-text note (possibly empty) the supervisor wants the
     engineer to re-discuss even when the run is progressing normally.
-    """
-    codex = _find_codex()
 
+    ``thread_id`` resumes a persistent codex session so the supervisor keeps the
+    whole run's observation history in context across checks; the (possibly new)
+    thread id is returned for the next check.
+    """
     stdout_tail = _tail_file(stdout_path, 2000)
     stderr_tail = _tail_file(stderr_path, 1000)
 
@@ -938,16 +1223,11 @@ def _supervisor_check(
     )
 
     try:
-        result = subprocess.run(
-            [codex, "exec", "--json", "-m", model,
-             "--skip-git-repo-check", "--ephemeral",
-             "--dangerously-bypass-approvals-and-sandbox", prompt],
-            capture_output=True, text=True, timeout=120, cwd=cwd,
-        )
+        messages, thread_id = _run_codex(prompt, model, cwd, thread_id, timeout=120)
         # codex emits JSONL; pull the assistant messages and accept the most
         # recent one that parses into a verdict (tolerates trailing chatter
         # after the JSON object the prompt asks for).
-        for message in reversed(_codex_agent_messages(result.stdout)):
+        for message in reversed(messages):
             try:
                 data = json.loads(_strip_code_fence(message))
             except (json.JSONDecodeError, AttributeError):
@@ -957,10 +1237,11 @@ def _supervisor_check(
                     _norm_decision(data.get("decision", "continue")),
                     _norm_health(data.get("health", "unknown")),
                     _clean_concern(data.get("concern", "")),
+                    thread_id,
                 )
-        return ("continue", "unknown", "")
+        return ("continue", "unknown", "", thread_id)
     except Exception:
-        return ("continue", "unknown", "")  # On any error, don't intervene
+        return ("continue", "unknown", "", thread_id)  # On any error, don't intervene
 
 
 def _supervisor_discuss(
@@ -968,16 +1249,17 @@ def _supervisor_discuss(
     task_data: dict[str, Any],
     model: str,
     cwd: str,
-) -> tuple[bool, str]:
+    thread_id: str | None = None,
+) -> tuple[bool, str, str | None]:
     """Answer the engineer's latest reply on a stopped run's discussion thread.
 
     The run is already halted. The supervisor reads the full shared transcript
     plus the run signals and decides whether the engineer's rationale resolves
-    its concern. Returns ``(resolved, message)``; the message becomes the next
-    supervisor turn in the transcript. The engineer's words are framed as an
-    ARGUMENT to weigh, not an instruction to obey.
+    its concern. Returns ``(resolved, message, thread_id)``; the message becomes
+    the next supervisor turn in the transcript. The engineer's words are framed
+    as an ARGUMENT to weigh, not an instruction to obey. ``thread_id`` resumes
+    the same persistent supervisor session used during the run.
     """
-    codex = _find_codex()
     description = task_data.get("description", "")
     command = task_data.get("command", "")
     concern = task_data.get("concern", "") or task_data.get("last_supervisor_concern", "")
@@ -1013,13 +1295,8 @@ def _supervisor_discuss(
         "Only output the JSON, nothing else."
     )
     try:
-        result = subprocess.run(
-            [codex, "exec", "--json", "-m", model,
-             "--skip-git-repo-check", "--ephemeral",
-             "--dangerously-bypass-approvals-and-sandbox", prompt],
-            capture_output=True, text=True, timeout=120, cwd=cwd,
-        )
-        for message in reversed(_codex_agent_messages(result.stdout)):
+        messages, thread_id = _run_codex(prompt, model, cwd, thread_id, timeout=120)
+        for message in reversed(messages):
             try:
                 data = json.loads(_strip_code_fence(message))
             except (json.JSONDecodeError, AttributeError):
@@ -1027,10 +1304,10 @@ def _supervisor_discuss(
             if isinstance(data, dict) and "message" in data:
                 msg = " ".join(str(data.get("message", "")).split())
                 if msg:
-                    return (bool(data.get("resolved", False)), msg)
-        return (False, "")
+                    return (bool(data.get("resolved", False)), msg, thread_id)
+        return (False, "", thread_id)
     except Exception:
-        return (False, "")
+        return (False, "", thread_id)
 
 
 def _run_discussion(
@@ -1038,6 +1315,8 @@ def _run_discussion(
     task_data: dict[str, Any],
     model: str,
     cwd: str,
+    run_dir: str | None = None,
+    thread_id: str | None = None,
 ) -> None:
     """Park after an early-stop and discuss with the engineer until resolved.
 
@@ -1053,6 +1332,7 @@ def _run_discussion(
         "until we agree here."
     ).strip()
     _append_discussion(task_id, "supervisor", opening)
+    _mirror_discussion_md(task_id, run_dir)
     # The engineer is alerted via the EARLY-STOPPED report (sent by the caller),
     # which points at this transcript and the `subagent reply` command.
 
@@ -1073,6 +1353,8 @@ def _run_discussion(
             task["state"] = "discussing"
             task["worker_pid"] = os.getpid()
             task["discussion_path"] = str(_discussion_path(task_id))
+            if thread_id:
+                task["supervisor_thread_id"] = thread_id
             task["last_heartbeat"] = time.time()
             _write_task(task_id, task)
 
@@ -1094,7 +1376,8 @@ def _run_discussion(
             # while the LLM runs may not be in this prompt, so leave it for the
             # next iteration (worst case it is answered twice — never dropped).
             baseline = count
-            resolved, message = _supervisor_discuss(task_id, task_data, model, cwd)
+            resolved, message, thread_id = _supervisor_discuss(
+                task_id, task_data, model, cwd, thread_id)
             if not message:
                 message = (
                     "I could not formulate a reply (LLM error); my stop still "
@@ -1102,6 +1385,7 @@ def _run_discussion(
                 )
                 resolved = True
             _append_discussion(task_id, "supervisor", message)
+            _mirror_discussion_md(task_id, run_dir)
             _queue_to_inbox(
                 f"## Discussion: {task_id}\n\n**Supervisor reply** "
                 f"({'resolved' if resolved else 'still open'}): {message}\n\n"
@@ -1133,13 +1417,17 @@ def _run_discussion(
                         "see the early-stop report.",
         }.get(resolution, "Closing the discussion; the run stays stopped.")
         _append_discussion(task_id, "supervisor", closing)
+        _mirror_discussion_md(task_id, run_dir)
     finally:
         td = _read_task(task_id) or dict(task_data)
         td["state"] = "early_stopped"
         td["discussion_resolution"] = resolution
         td["discussion_path"] = str(_discussion_path(task_id))
+        if thread_id:
+            td["supervisor_thread_id"] = thread_id
         td["last_heartbeat"] = time.time()
         _write_task(task_id, td)
+        _mirror_discussion_md(task_id, run_dir)
 
 
 def _run_supervised(
@@ -1163,6 +1451,8 @@ def _run_supervised(
     _reset_discussion(task_id)
 
     start_time = time.time()
+    run_id = f"{task_id}-{int(start_time)}"
+    supervisor_thread_id: str | None = None
     # Resolve run_dir once relative to the task cwd so the supervisor reads the
     # right progress/status and writes STOP where RunWriter watches.
     resolved_run_dir: str | None = None
@@ -1176,7 +1466,7 @@ def _run_supervised(
                 cwd=cwd, start_new_session=True, env=_child_env(),
             )
             _write_task(task_id, {
-                "state": "running", "task_id": task_id,
+                "state": "running", "task_id": task_id, "run_id": run_id,
                 "description": description, "command": command,
                 "pid": proc.pid, "worker_pid": os.getpid(),
                 "started_at": time.time(), "mode": "supervised",
@@ -1206,31 +1496,35 @@ def _run_supervised(
 
                 elapsed = time.time() - start_time
                 if elapsed > timeout:
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=10)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
+                    _terminate_proc(proc)
                     td = {
-                        "state": "timeout", "task_id": task_id,
+                        "state": "timeout", "task_id": task_id, "run_id": run_id,
                         "description": description, "command": command,
                         "pid": proc.pid, "timeout_seconds": timeout,
                         "elapsed_seconds": round(elapsed, 1),
                         "completed_at": time.time(), "mode": "supervised",
+                        "run_dir": resolved_run_dir,
+                        "supervisor_log": str(supervisor_log),
                     }
                     _write_task(task_id, td)
-                    _alert_engineer(task_id, "TIMEOUT", td)
+                    report = _alert_engineer(task_id, "TIMEOUT", td)
+                    _persist_experiment_record(task_id, "TIMEOUT", td, cwd, report)
                     return
 
                 # Supervisor LLM check
                 check_number += 1
                 out.flush()
                 err.flush()
-                decision, health, concern = _supervisor_check(
+                decision, health, concern, supervisor_thread_id = _supervisor_check(
                     task_id, command, description,
                     stdout_path, stderr_path, elapsed, check_number,
-                    model, cwd, resolved_run_dir,
+                    model, cwd, resolved_run_dir, supervisor_thread_id,
                 )
+                # Rotate the persistent supervisor thread every N checks so a
+                # multi-hour run never overflows the codex context window; the
+                # next check seeds a fresh thread from the current run signals.
+                if check_number % SUPERVISOR_THREAD_MAX_CHECKS == 0:
+                    supervisor_thread_id = None
 
                 # Log supervisor decision
                 entry = {
@@ -1259,11 +1553,11 @@ def _run_supervised(
                 stop_now = decision == "early_stop"
                 if concern and not stop_now:
                     check_number += 1
-                    c_decision, c_health, c_concern = _supervisor_check(
+                    c_decision, c_health, c_concern, supervisor_thread_id = _supervisor_check(
                         task_id, command, description,
                         stdout_path, stderr_path,
                         time.time() - start_time, check_number,
-                        model, cwd, resolved_run_dir,
+                        model, cwd, resolved_run_dir, supervisor_thread_id,
                     )
                     with supervisor_log.open("a") as sl:
                         sl.write(json.dumps({
@@ -1299,11 +1593,16 @@ def _run_supervised(
 
                 # Stop-worthy anomaly: STOP the run, then stay alive and discuss.
                 # Write STOP into the run dir (experiment_io RunWriter watches
-                # <run_dir>/STOP) and cwd for back-compat.
+                # <run_dir>/STOP). Scope the flag to the run dir so a per-run
+                # early-stop never drops a project-global STOP at cwd that could
+                # poison unrelated runs or linger as stale root-owned cruft.
+                # Only fall back to cwd when the run dir is unknown, so the
+                # early-stop still has somewhere to land.
                 stop_note = f"Early-stopped by supervisor at check #{check_number}\n"
-                stop_targets = {Path(cwd) / "STOP"}
                 if resolved_run_dir:
-                    stop_targets.add(Path(resolved_run_dir) / "STOP")
+                    stop_targets = {Path(resolved_run_dir) / "STOP"}
+                else:
+                    stop_targets = {Path(cwd) / "STOP"}
                 for stop_file in stop_targets:
                     try:
                         stop_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1313,24 +1612,22 @@ def _run_supervised(
                 try:
                     proc.wait(timeout=30)
                 except subprocess.TimeoutExpired:
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=10)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
+                    _terminate_proc(proc)
                 td = {
-                    "state": "discussing", "task_id": task_id,
+                    "state": "discussing", "task_id": task_id, "run_id": run_id,
                     "description": description, "command": command,
                     "pid": proc.pid, "worker_pid": os.getpid(),
                     "exit_code": proc.returncode,
                     "elapsed_seconds": round(time.time() - start_time, 1),
                     "completed_at": time.time(), "mode": "supervised",
+                    "last_heartbeat": time.time(),
                     "supervisor_checks": check_number,
                     "stop_reason": "supervisor early-stop",
                     "concern": concern,
                     "last_supervisor_health": health,
                     "last_supervisor_decision": decision,
                     "run_dir": resolved_run_dir,
+                    "supervisor_thread_id": supervisor_thread_id,
                     "discussion_path": str(_discussion_path(task_id)),
                     "stdout_tail": _tail_file(stdout_path, 3000),
                     "stderr_tail": _tail_file(stderr_path, 3000),
@@ -1340,8 +1637,12 @@ def _run_supervised(
                 _write_task(task_id, td)
                 # The handoff report tells the engineer the run is stopped and to
                 # reply on the discussion thread; then we park and discuss.
-                _alert_engineer(task_id, "EARLY-STOPPED", td)
-                _run_discussion(task_id, td, model, cwd)
+                report = _alert_engineer(task_id, "EARLY-STOPPED", td)
+                _run_discussion(task_id, td, model, cwd,
+                                resolved_run_dir, supervisor_thread_id)
+                final_td = _read_task(task_id) or td
+                _persist_experiment_record(
+                    task_id, "EARLY-STOPPED", final_td, cwd, report)
                 return
 
         # Process exited naturally
@@ -1350,7 +1651,7 @@ def _run_supervised(
         stderr_tail = _tail_file(stderr_path, 3000)
         td = {
             "state": "done" if proc.returncode == 0 else "error",
-            "task_id": task_id, "description": description,
+            "task_id": task_id, "run_id": run_id, "description": description,
             "command": command, "exit_code": proc.returncode,
             "elapsed_seconds": elapsed, "completed_at": time.time(),
             "pid": proc.pid, "mode": "supervised",
@@ -1364,18 +1665,22 @@ def _run_supervised(
             "supervisor_log": str(supervisor_log),
         }
         _write_task(task_id, td)
-        _alert_engineer(task_id, "COMPLETED" if proc.returncode == 0 else "FAILED", td)
+        event = "COMPLETED" if proc.returncode == 0 else "FAILED"
+        report = _alert_engineer(task_id, event, td)
+        _persist_experiment_record(task_id, event, td, cwd, report)
 
     except Exception as exc:
         td = {
-            "state": "error", "task_id": task_id,
+            "state": "error", "task_id": task_id, "run_id": run_id,
             "description": description, "command": command,
             "error": f"{type(exc).__name__}: {exc}",
             "elapsed_seconds": round(time.time() - start_time, 1),
             "completed_at": time.time(), "mode": "supervised",
+            "run_dir": resolved_run_dir,
         }
         _write_task(task_id, td)
-        _alert_engineer(task_id, "CRASHED", td)
+        report = _alert_engineer(task_id, "CRASHED", td)
+        _persist_experiment_record(task_id, "CRASHED", td, cwd, report)
 
 
 # ---------------------------------------------------------------------------
@@ -1407,6 +1712,59 @@ def cmd_submit(args: argparse.Namespace) -> int:
         rp = Path(run_dir)
         run_dir = str(rp if rp.is_absolute() else Path(cwd) / rp)
 
+    # Forced-discussion gate: while a supervisor is parked on an OPEN discussion
+    # (it stopped a run and is waiting on the engineer), block launching new runs
+    # so a concern can never be bypassed by silently starting something else. The
+    # `reply` command is never blocked. A stale/dead supervisor does not wedge
+    # this (liveness = live pid + fresh heartbeat). Break-glass: --override-discussion.
+    override = getattr(args, "override_discussion", None)
+    blockers = _open_discussion_blockers()
+    if blockers and not override:
+        b = blockers[0]
+        rd = b.get("run_dir")
+        print(json.dumps({
+            "error": "blocked: a supervisor stopped a run and is waiting for your reply",
+            "blocking_task": b.get("task_id"),
+            "supervisor_concern": b.get("concern") or b.get("last_supervisor_concern", ""),
+            "discussion_file": (str(Path(rd) / "DISCUSSION.md") if rd else b.get("discussion_path")),
+            "reply_with": (
+                "python -m argus_skill.tools.subagent reply --task-id "
+                f"{b.get('task_id')} --message \"<your rationale>\""
+            ),
+            "hint": (
+                "Read the discussion and reply first. Only if you have a deliberate "
+                "reason to proceed anyway, re-run submit with "
+                "--override-discussion \"<reason>\"."
+            ),
+        }))
+        return 1
+    if override and blockers:
+        for b in blockers:
+            _append_experiment_history(cwd, {
+                "run_id": f"override-{b.get('task_id')}-{int(time.time())}",
+                "task_id": b.get("task_id"), "event": "DISCUSSION-OVERRIDE",
+                "override_reason": override, "ts": time.time(),
+            })
+
+    # STOP preflight: a leftover run_dir/STOP would make RunWriter abort this run
+    # the instant it starts. Refuse rather than silently waste a launch; --clear-stop
+    # removes it to reuse the directory deliberately.
+    if run_dir:
+        stop_path = Path(run_dir) / "STOP"
+        if stop_path.exists():
+            if getattr(args, "clear_stop", False):
+                try:
+                    stop_path.unlink()
+                except OSError:
+                    pass
+            else:
+                print(json.dumps({
+                    "error": "stale STOP file in run_dir would abort this run immediately",
+                    "stop_file": str(stop_path),
+                    "hint": "Use a fresh --run-dir, or pass --clear-stop to remove it and reuse this directory.",
+                }))
+                return 1
+
     # Write initial state
     _write_task(task_id, {
         "state": "starting",
@@ -1421,17 +1779,17 @@ def cmd_submit(args: argparse.Namespace) -> int:
     # Fork: parent returns immediately
     pid = os.fork()
     if pid > 0:
-        # Update with child pid
-        _write_task(task_id, {
-            "state": "running",
-            "task_id": task_id,
-            "description": args.description,
-            "command": args.command,
-            "mode": mode,
-            "run_dir": run_dir,
-            "pid": pid,
-            "submitted_at": time.time(),
-        })
+        # The forked child owns the rich, evolving task record (it writes
+        # "running" with the real training pid + heartbeats). The parent must NOT
+        # clobber that with a stale snapshot — it only merges in the worker pid.
+        rec = _read_task(task_id) or {
+            "state": "running", "task_id": task_id,
+            "description": args.description, "command": args.command,
+            "mode": mode, "run_dir": run_dir, "submitted_at": time.time(),
+        }
+        rec["worker_pid"] = pid
+        rec.setdefault("pid", pid)
+        _write_task(task_id, rec)
         print(json.dumps({
             "state": "submitted",
             "task_id": task_id,
@@ -1607,6 +1965,23 @@ def cmd_status(args: argparse.Namespace) -> int:
     if progress:
         task["progress"] = progress
 
+    # An open discussion is the single most action-required state: the supervisor
+    # STOPPED a run and is waiting on the engineer. Surface it loudly with the
+    # exact reply command and the co-located discussion file, and note that new
+    # launches are blocked until it resolves.
+    if task.get("state") == "discussing":
+        rd = task.get("run_dir")
+        task["ACTION_REQUIRED"] = (
+            "Supervisor STOPPED this run and is WAITING for your reply. Read the "
+            "discussion and reply BEFORE relaunching anything — new `submit`s are "
+            "blocked until this concern resolves."
+        )
+        task["discussion_file"] = (
+            str(Path(rd) / "DISCUSSION.md") if rd else task.get("discussion_path"))
+        task["reply_with"] = (
+            "python -m argus_skill.tools.subagent reply --task-id "
+            f"{args.task_id} --message \"<your rationale>\"")
+
     print(json.dumps(task, indent=2))
     state = task.get("state")
     if state in _FAILED_STATES:
@@ -1634,8 +2009,10 @@ def cmd_list(args: argparse.Namespace) -> int:
     running = [t for t in tasks if t.get("state") == "running"]
     done = [t for t in tasks if t.get("state") == "done"]
     errors = [t for t in tasks if t.get("state") in ("error", "crashed", "timeout")]
+    discussing = [t for t in tasks if t.get("state") == "discussing"]
 
-    print(f"Sub-agents: {len(running)} running, {len(done)} done, {len(errors)} failed")
+    print(f"Sub-agents: {len(running)} running, {len(done)} done, "
+          f"{len(errors)} failed, {len(discussing)} awaiting your reply")
     print()
     for t in tasks:
         state = t.get("state", "?")
@@ -1643,9 +2020,16 @@ def cmd_list(args: argparse.Namespace) -> int:
         desc = t.get("description", "")[:60]
         elapsed = t.get("elapsed_seconds", "")
         icon = {"done": "✅", "running": "⏳", "error": "❌",
-                "crashed": "💀", "timeout": "⏰", "early_stopped": "🛑"}.get(state, "?")
+                "crashed": "💀", "timeout": "⏰", "early_stopped": "🛑",
+                "discussing": "💬"}.get(state, "?")
         elapsed_str = f" ({elapsed:.0f}s)" if isinstance(elapsed, (int, float)) else ""
         print(f"  {icon} {tid}: {state}{elapsed_str} — {desc}")
+        if state == "discussing":
+            rd = t.get("run_dir")
+            df = str(Path(rd) / "DISCUSSION.md") if rd else t.get("discussion_path", "")
+            print(f"      ⚠ supervisor is WAITING for your reply — see {df}")
+            print(f"        reply: python -m argus_skill.tools.subagent reply "
+                  f"--task-id {tid} --message \"...\"")
         metric_line = _format_metric_line(_progress_summary(_effective_run_dir(t)))
         if metric_line:
             print(f"      ↳ {metric_line}")
@@ -1709,6 +2093,7 @@ def cmd_reply(args: argparse.Namespace) -> int:
         return 2
 
     path = _append_discussion(args.task_id, "engineer", message)
+    _mirror_discussion_md(args.task_id, task.get("run_dir"))
     # The parked supervisor is the worker process; it watches the transcript.
     worker_pid = task.get("worker_pid") or task.get("pid") or 0
     last_hb = task.get("last_heartbeat")
@@ -1773,8 +2158,15 @@ def main() -> int:
                           help="Run directory whose progress.jsonl/status.json the "
                                "supervisor reads and where it writes STOP on early-stop")
     p_submit.add_argument("--cwd", default=None)
+    p_submit.add_argument("--override-discussion", default=None, metavar="REASON",
+                          help="Break-glass: launch even though a supervisor is "
+                               "parked on an open discussion. Records REASON to the "
+                               "experiment ledger.")
+    p_submit.add_argument("--clear-stop", action="store_true",
+                          help="Remove a leftover run_dir/STOP before launching "
+                               "(otherwise submit refuses a poisoned run dir).")
 
-    p_status = sub.add_parser("status", help="Check one task's status")
+    p_status = sub.add_parser("status", help="Show task status")
     p_status.add_argument("--task-id", required=True)
 
     p_list = sub.add_parser("list", help="List all tasks")
@@ -1795,9 +2187,6 @@ def main() -> int:
                               "supervisor's suggested alternative)")
     p_reply.add_argument("--message-file", default=None,
                          help="Read the reply from a file ('-' for stdin); "
-                              "use for rationales with quotes/newlines")
-    p_reply.add_argument("--message-file", default=None,
-                         help="Read the message from a file ('-' for stdin); "
                               "use for rationales with quotes/newlines")
 
     args = parser.parse_args()

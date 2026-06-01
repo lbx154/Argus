@@ -260,6 +260,22 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="experiments/runs/<run_id>/preflight.txt (per run)",
         ),
         ChecklistItem(
+            id="run.model_instruct_not_base",
+            statement=(
+                "Every method/baseline that must follow prompts, format answers, "
+                "or do reasoning RL/eval runs on an INSTRUCTION-TUNED checkpoint "
+                "(`-Instruct`/`-Chat`/`-IT`), not the same-size base/pretrained "
+                "model — e.g. `Qwen3.5-9B-Instruct`, not `Qwen3.5-9B-base`. A base "
+                "checkpoint has no instruction-following prior, so near-chance or "
+                "format-collapsed outputs read as a dead method when the real "
+                "cause is the wrong model. The manifest's declared model id and "
+                "the preflight weights path must name the instruct variant. A base "
+                "model is acceptable only when the experiment is explicitly about "
+                "base-model behaviour and says so; otherwise fail this item."
+            ),
+            evidence_hint="experiments/<run>/manifest.json model id ends in an instruct/chat variant",
+        ),
+        ChecklistItem(
             id="run.manifests",
             statement=(
                 "Each long-running experiment writes manifest.json, status.json, "
