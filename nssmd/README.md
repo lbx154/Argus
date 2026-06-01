@@ -14,10 +14,11 @@
 ## 工作流（每次改动顺序执行）
 
 1. **Step 0 · 对照哲学** — 读 README 的"设计哲学"段 + skill 04，问自己"我要加的这段代码是科研判断还是笨管道？"。是判断 → 不写代码，写 checklist 给 reviewer。是管道 → 继续。
-2. **Step 1 · pull** — 按 [`skills/00-pull-first.md`](skills/00-pull-first.md)。
-3. **Step 2 · 写测试 + 实现** — 按 [`skills/01-test-driven-additions.md`](skills/01-test-driven-additions.md)。
-4. **Step 3 · 接入现有钩子** — 按 [`skills/02-integration-via-existing-hooks.md`](skills/02-integration-via-existing-hooks.md)。绝不新建并行 daemon / supervisor。
-5. **Step 4 · push** — 按 [`skills/03-push-after.md`](skills/03-push-after.md)。
+2. **Step 0.5 · 读 review** — 按 [`skills/05-read-review-first.md`](skills/05-read-review-first.md)。`ls review/` 看是否有针对你前一次提交的裁决；维护方在 `review/` 写的判定是有约束力的法律，不是建议。漏读 = 重犯。
+3. **Step 1 · pull** — 按 [`skills/00-pull-first.md`](skills/00-pull-first.md)。
+4. **Step 2 · 写测试 + 实现** — 按 [`skills/01-test-driven-additions.md`](skills/01-test-driven-additions.md)。
+5. **Step 3 · 接入现有钩子** — 按 [`skills/02-integration-via-existing-hooks.md`](skills/02-integration-via-existing-hooks.md)。绝不新建并行 daemon / supervisor。
+6. **Step 4 · push** — 按 [`skills/03-push-after.md`](skills/03-push-after.md)。
 
 ## Skill 索引
 
@@ -28,6 +29,7 @@
 | 02 | [`integration-via-existing-hooks`](skills/02-integration-via-existing-hooks.md) | 把新模块接进 runtime 时 |
 | 03 | [`push-after`](skills/03-push-after.md) | 一块工作完成后 |
 | **04** | [`harness-vs-agent-boundary`](skills/04-harness-vs-agent-boundary.md) | **Step 0 必读** — 决定一段逻辑该在 harness 还是 agent prompt 里 |
+| **05** | [`read-review-first`](skills/05-read-review-first.md) | **Step 0.5 必读** — session 开头 + 任何看起来"做过类似事"的功能前，必须 `ls review/` |
 
 ## 例外
 

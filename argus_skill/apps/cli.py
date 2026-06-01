@@ -1625,6 +1625,145 @@ def _cmd_lifecycle_transition(
     return 0
 
 
+def _resolve_research_workdir(bundle: Any) -> Path:
+    """Find where the actual research project lives (paper/ benchmarks/
+    research/ etc.) for surfaces like --status that need to inspect
+    research artifacts, not the life-dir state.
+
+    Resolution order (matches supervisor._project_workdir):
+
+    1. ``ARGUS_SKILL_WORKDIR`` env var (operator override)
+    2. ``<bundle.project.root>/code/`` if it exists (the
+       ``new_auto_research_project`` layout seeds code under code/)
+    3. ``bundle.project.root`` (life dir; may not have research/ but
+       at worst the gates render empty findings, never crash)
+    """
+    env_workdir = os.environ.get("ARGUS_SKILL_WORKDIR", "").strip()
+    if env_workdir:
+        return Path(env_workdir).expanduser()
+    project_root = Path(bundle.project.root)
+    code = project_root / "code"
+    if code.is_dir():
+        return code
+    return project_root
+
+
+def _read_current_stage(workdir: Path) -> str | None:
+    """Best-effort read of ``research/PIPELINE_STATE.json``. None if
+    the project hasn't reached stage tracking yet."""
+    state_path = workdir / "research" / "PIPELINE_STATE.json"
+    if not state_path.exists():
+        return None
+    try:
+        import json as _json
+        data = _json.loads(state_path.read_text(encoding="utf-8"))
+        stage = data.get("current_stage")
+        return str(stage) if stage else None
+    except (OSError, ValueError):
+        return None
+
+
+def _render_lifecycle_status_lines(workdir: Path) -> list[str]:
+    """Render the F5 lifecycle block for --status / cockpit.
+
+    Pure projection of observable + persisted state through the F5
+    state machine. Returns the lines to print (no I/O of its own).
+    Fail-soft: any error returns an empty list — --status must not
+    crash on a missing or corrupt lifecycle sidecar.
+    """
+    try:
+        from ..life.project_lifecycle import (
+            advisory_time_signals,
+            infer_observable_status,
+            is_token_allocatable,
+        )
+        from ..life.project_lifecycle_io import (
+            LifecycleIOError,
+            apply_persisted_to_status,
+            load_persisted,
+        )
+    except Exception:  # noqa: BLE001
+        return []
+
+    # ``infer_observable_status`` tolerates a non-existent workdir
+    # (returns an INCUBATING status using "now" as created_at), so we
+    # do NOT early-return when the dir is missing — that's the normal
+    # state for a freshly-bound project that hasn't started yet.
+
+    try:
+        status = infer_observable_status(workdir, project_id=workdir.name)
+        try:
+            persisted = load_persisted(workdir)
+        except LifecycleIOError:
+            persisted = {}
+        overlaid = apply_persisted_to_status(status, persisted)
+        signals = advisory_time_signals(overlaid)
+    except Exception:  # noqa: BLE001
+        return []
+
+    lines: list[str] = []
+    lines.append("  lifecycle:")
+    state_label = overlaid.state.value
+    if persisted.get("state"):
+        state_label += "  (persisted)"
+    lines.append(f"    state         : {state_label}")
+    lines.append(
+        f"    allocatable   : {is_token_allocatable(overlaid)}"
+    )
+    if signals:
+        lines.append(
+            f"    advisory      : {len(signals)} signal(s) "
+            f"(agent reads, harness does not act)"
+        )
+        for sig in signals:
+            lines.append(f"      - [{sig.kind}] {sig.message}")
+    return lines
+
+
+def _render_gate_snapshot_lines(workdir: Path, stage: str | None) -> list[str]:
+    """Render the structural/advisory gate snapshot for --status.
+
+    Runs the F3/F4 gates against the current pipeline stage and shows
+    each result with its kind. Structural failures are marked ❌;
+    advisory findings are marked 📋 (never failure). Fail-soft.
+    """
+    if not stage:
+        return []
+    try:
+        from ..skills.automated_gates import (
+            gates_for_stage,
+            run_stage_gates,
+        )
+    except Exception:  # noqa: BLE001
+        return []
+
+    if not gates_for_stage(stage):
+        return [f"  gates @ {stage}: (no gates configured at this stage)"]
+
+    try:
+        results = run_stage_gates(
+            workdir,
+            stage=stage,
+            proposed_condition=os.environ.get("ARGUS_SKILL_PROPOSED_CONDITION") or None,
+            baseline_condition=os.environ.get("ARGUS_SKILL_BASELINE_CONDITION") or None,
+        )
+    except Exception:  # noqa: BLE001
+        return [f"  gates @ {stage}: (snapshot failed; rerun stage_check)"]
+
+    lines = [f"  gates @ {stage}:"]
+    for gate in results:
+        if gate.kind == "advisory":
+            mark = "📋"
+        elif gate.passed:
+            mark = "✅"
+        else:
+            mark = "❌"
+        lines.append(
+            f"    {mark} {gate.name} ({gate.kind}) — {gate.summary}"
+        )
+    return lines
+
+
 def _cmd_status(args: argparse.Namespace) -> int:
     from ..daemon.life_worker import (
         format_budget_status,
@@ -1707,6 +1846,19 @@ def _cmd_status(args: argparse.Namespace) -> int:
         print(f"    done_reason: {cont.done_reason}")
     if cont.done_at:
         print(f"    done_at: {cont.done_at}")
+
+    # Lifecycle (F5) + gate snapshot (F3 advisory / F4 structural).
+    # Both are projections of observable state — surfacing facts the
+    # agent already acts on; the harness makes no decision here.
+    research_workdir = _resolve_research_workdir(bundle)
+    lifecycle_lines = _render_lifecycle_status_lines(research_workdir)
+    for line in lifecycle_lines:
+        print(line)
+    current_stage = _read_current_stage(research_workdir)
+    gate_lines = _render_gate_snapshot_lines(research_workdir, current_stage)
+    for line in gate_lines:
+        print(line)
+
     if journal_tail:
         print("  recent   :")
         for entry in journal_tail:
