@@ -159,3 +159,21 @@ def test_figure_renderer_is_deterministic(tmp_path: Path) -> None:
         "figure_renderer.py is non-deterministic; two runs of the same "
         "spec produced different SVG"
     )
+
+
+def test_seed_builtin_skills_copies_bundled_scripts(tmp_path: Path) -> None:
+    """seed_builtin_skills must copy *_scripts/ assets (e.g.
+    figure_renderer.py) alongside the skill markdown. Without this the
+    skill prompt would reference a script that's missing in the seeded
+    project workspace."""
+    from argus_skill.skills.builtins import seed_builtin_skills
+
+    seed_builtin_skills(tmp_path)
+    renderer = tmp_path / "engineer" / "figure_spec_scripts" / "figure_renderer.py"
+    assert renderer.exists(), (
+        "figure_renderer.py was NOT seeded into the workspace — the "
+        "bundled-script copy path is broken"
+    )
+    # Sanity: the seeded copy is byte-identical to the in-tree source
+    in_tree = BUILTIN_ROOT / "engineer" / "figure_spec_scripts" / "figure_renderer.py"
+    assert renderer.read_bytes() == in_tree.read_bytes()

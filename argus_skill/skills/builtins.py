@@ -54,6 +54,25 @@ def _iter_builtin_skill_resources(
             yield from _iter_builtin_skill_resources(entry, f"{relative_name}/")
         elif entry.name.endswith(".md"):
             yield relative_name, entry.read_text(encoding="utf-8")
+        elif _is_bundled_script(prefix, entry.name):
+            # Scripts that ship alongside a skill (e.g.
+            # engineer/figure_spec_scripts/figure_renderer.py) live in
+            # ``*_scripts/`` subdirs and are seeded verbatim so the
+            # skill can invoke them in the project workspace.
+            yield relative_name, entry.read_text(encoding="utf-8")
+
+
+_BUNDLED_SCRIPT_EXTENSIONS = (".py", ".json", ".sh")
+
+
+def _is_bundled_script(prefix: str, filename: str) -> bool:
+    """A file is a bundled-script asset iff it lives under a
+    ``*_scripts/`` directory and has a known script extension."""
+    if not any(filename.endswith(ext) for ext in _BUNDLED_SCRIPT_EXTENSIONS):
+        return False
+    # ``prefix`` ends with "/" by construction; split into segments.
+    segments = [s for s in prefix.split("/") if s]
+    return any(seg.endswith("_scripts") for seg in segments)
 
 
 # ---------------------------------------------------------------------------
@@ -138,8 +157,13 @@ def seed_builtin_skills_for_domain(
 
 
 def builtin_skill_count() -> int:
-    """Return the number of bundled default skills."""
-    return sum(1 for _ in iter_builtin_skill_texts())
+    """Return the number of bundled default skill markdown files.
+
+    Skill *markdown* only — bundled scripts (e.g. figure_spec_scripts/
+    figure_renderer.py) are excluded because they're assets attached
+    to a skill, not skills in their own right.
+    """
+    return sum(1 for name, _ in iter_builtin_skill_texts() if name.endswith(".md"))
 
 
 def seed_builtin_skills(skills_dir: Path, *, overwrite: bool = False) -> dict[str, bool]:
@@ -153,7 +177,8 @@ def seed_builtin_skills(skills_dir: Path, *, overwrite: bool = False) -> dict[st
     skills_dir.mkdir(parents=True, exist_ok=True)
     created: dict[str, bool] = {}
     for filename, text in iter_builtin_skill_texts():
-        _validate_builtin(filename, text)
+        if filename.endswith(".md"):
+            _validate_builtin(filename, text)
         dest = skills_dir / filename
         if dest.exists() and not overwrite:
             created[filename] = False
