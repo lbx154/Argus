@@ -1033,98 +1033,6 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
     )
 
 
-def _vision_issues(
-    vision_review: dict[str, Any],
-    *,
-    deterministic: Mapping[str, Any] | None = None,
-) -> list[dict[str, Any]]:
-    issues: list[dict[str, Any]] = []
-    page_flow_contract = {}
-    if deterministic is not None and isinstance(deterministic.get("page_flow_contract"), Mapping):
-        page_flow_contract = dict(deterministic["page_flow_contract"])
-    for field, severity in (("blocking_issues", "major"), ("major_issues", "major")):
-        raw_items = vision_review.get(field)
-        if not isinstance(raw_items, list):
-            continue
-        for index, item in enumerate(raw_items):
-            if isinstance(item, dict):
-                text = str(item.get("issue") or item.get("description") or item.get("rationale") or "").strip()
-                action = _normalize_action(item.get("action")) or "rebalance_columns"
-                page = _int_or_none(item.get("page"))
-                target = str(item.get("target") or "").strip() or None
-                visual_evidence = str(item.get("visual_evidence") or "").strip() or None
-                guidance = _guidance_from_vision_item(item)
-            else:
-                text = str(item).strip()
-                action = "rebalance_columns"
-                page = None
-                target = None
-                visual_evidence = None
-                guidance = None
-            if text:
-                issue = _issue(
-                    f"vision_{field}_{index}",
-                    severity,
-                    text,
-                    page=page,
-                    hard_gate=True,
-                    action=action,
-                    target=target,
-                )
-                if visual_evidence:
-                    issue["visual_evidence"] = visual_evidence
-                if guidance:
-                    issue["guidance"] = guidance
-                if _is_post_body_trailing_whitespace_issue(
-                    issue,
-                    raw_item=item if isinstance(item, Mapping) else {},
-                    page_flow_contract=page_flow_contract,
-                ):
-                    issue["severity"] = "minor"
-                    issue.pop("hard_gate", None)
-                    issue["code"] = f"vision_advisory_{field}_{index}"
-                    issue["message"] = (
-                        issue["message"]
-                        + " Advisory only: the formal post-body page contract already passes, "
-                        "so final References/Appendix trailing whitespace should not drive a "
-                        "blocking layout loop by itself."
-                    )
-                elif _is_advisory_visual_polish_issue(
-                    issue,
-                    raw_item=item if isinstance(item, Mapping) else {},
-                    page_flow_contract=page_flow_contract,
-                ):
-                    issue["severity"] = "minor"
-                    issue.pop("hard_gate", None)
-                    issue["code"] = f"vision_advisory_{field}_{index}"
-                    issue["message"] = (
-                        issue["message"]
-                        + " Advisory only: this is subjective visual polish without a "
-                        "specific readability, clipping, overlap, missing-content, or "
-                        "page-flow defect, so it should not drive a blocking layout loop."
-                    )
-                issues.append(issue)
-    return issues
-
-
-def _vision_score_should_block(
-    *,
-    vision_score: float,
-    vision_issues: Sequence[Mapping[str, Any]],
-    deterministic: Mapping[str, Any],
-    threshold: float,
-) -> bool:
-    if vision_score >= threshold:
-        return True
-    deterministic_score = _float_or_none(deterministic.get("score_1_to_5"))
-    if deterministic_score is None or deterministic_score < threshold:
-        return True
-    return any(
-        issue.get("severity") == "blocking" or issue.get("hard_gate")
-        for issue in vision_issues
-    )
-
-
 def _is_advisory_visual_polish_issue(
     issue: Mapping[str, Any],
     *,
@@ -1261,34 +1169,6 @@ def _is_post_body_trailing_whitespace_issue(
         "missing content",
     )
     return not any(term in haystack for term in separate_readability_defects)
-
-
-def _revision_directives(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    directives: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
-    for issue in issues:
-        if issue.get("severity") == "minor" and not issue.get("hard_gate"):
-            continue
-        action = _normalize_action(issue.get("action")) or "rebalance_columns"
-        target = str(issue.get("target") or issue.get("page") or "paper/main.tex")
-        key = (action, target)
-        if key in seen:
-            continue
-        seen.add(key)
-        directives.append(
-            {
-                "action": action,
-                "target": target,
-                "rationale": issue["message"],
-                "expected_effect": _expected_effect(action),
-                "implementation_guidance": _implementation_guidance(
-                    issue=issue,
-                    action=action,
-                    target=target,
-                ),
-            }
-        )
-    return directives
 
 
 def _guidance_from_vision_item(item: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -1628,17 +1508,6 @@ def _expected_effect(action: str) -> str:
         "fix_reference_boundary": "keep references on a clean page after the body",
     }
     return effects.get(action, "improve final paper layout")
-
-
-def _criterion_scores(value: object) -> dict[str, float]:
-    if not isinstance(value, dict):
-        return {}
-    scores: dict[str, float] = {}
-    for key, raw in value.items():
-        score = _float_or_none(raw)
-        if score is not None:
-            scores[str(key)] = max(1.0, min(5.0, round(score, 2)))
-    return scores
 
 
 def _issue(

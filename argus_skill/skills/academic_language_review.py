@@ -892,93 +892,6 @@ def _review_prompt(
     )
 
 
-def _merge_model_review(
-    *,
-    model_review: dict[str, Any],
-    section_scores: dict[str, float],
-    required_checks: dict[str, bool],
-    evidence_spans: list[dict[str, Any]],
-    issues: list[dict[str, Any]],
-    fallback_score: float,
-) -> float:
-    score = _float_or_none(model_review.get("score_1_to_5"))
-    if score is None:
-        issues.append(
-            _issue(
-                "model_review_missing_score",
-                "blocking",
-                "reviewer model did not return score_1_to_5",
-                hard_gate=True,
-                action="rewrite_introduction",
-            )
-        )
-        score = fallback_score
-
-    raw_section_scores = model_review.get("section_scores")
-    if not isinstance(raw_section_scores, dict):
-        issues.append(
-            _issue(
-                "model_review_missing_section_scores",
-                "blocking",
-                "reviewer model did not return section_scores",
-                hard_gate=True,
-                action="rewrite_introduction",
-            )
-        )
-    else:
-        for key in SECTION_SCORE_KEYS:
-            model_score = _float_or_none(raw_section_scores.get(key))
-            if model_score is None:
-                issues.append(
-                    _issue(
-                        "model_review_missing_section_score",
-                        "blocking",
-                        f"reviewer model did not score {key}",
-                        hard_gate=True,
-                        action=_section_action(key),
-                    )
-                )
-            else:
-                section_scores[key] = min(
-                    float(section_scores.get(key, 5.0)),
-                    max(1.0, min(5.0, model_score)),
-                )
-
-    raw_checks = model_review.get("required_checks")
-    if not isinstance(raw_checks, dict):
-        issues.append(
-            _issue(
-                "model_review_missing_required_checks",
-                "blocking",
-                "reviewer model did not return required_checks",
-                hard_gate=True,
-                action="rewrite_introduction",
-            )
-        )
-    else:
-        for key in REQUIRED_CHECK_KEYS:
-            required_checks[key] = required_checks.get(key) is True and raw_checks.get(key) is True
-
-    raw_spans = model_review.get("evidence_spans")
-    if not isinstance(raw_spans, list) or not raw_spans:
-        issues.append(
-            _issue(
-                "model_review_missing_evidence_spans",
-                "blocking",
-                "reviewer model must quote evidence spans from the reviewed source",
-                hard_gate=True,
-                action="rewrite_introduction",
-            )
-        )
-    else:
-        for raw_span in raw_spans:
-            if isinstance(raw_span, dict):
-                evidence_spans.append(dict(raw_span))
-
-    issues.extend(_model_issues(model_review))
-    return max(1.0, min(5.0, score))
-
-
 def _model_issues(model_review: dict[str, Any]) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     for field, severity in (("blocking_issues", "blocking"), ("major_issues", "major")):
@@ -1006,49 +919,6 @@ def _model_issues(model_review: dict[str, Any]) -> list[dict[str, Any]]:
                     )
                 )
     return issues
-
-
-def _revision_directives(
-    issues: list[dict[str, Any]],
-    model_review: dict[str, Any] | None,
-) -> list[dict[str, Any]]:
-    directives: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
-
-    def add(action: str, target: str, rationale: str, expected_effect: str | None = None) -> None:
-        action, target = _canonical_directive(action, target, rationale)
-        key = (action, target)
-        if key in seen:
-            return
-        seen.add(key)
-        directives.append(
-            {
-                "action": action,
-                "target": target,
-                "rationale": rationale,
-                "expected_effect": expected_effect or _expected_effect(action),
-            }
-        )
-
-    if model_review is not None and isinstance(model_review.get("revision_directives"), list):
-        for raw_directive in model_review["revision_directives"]:
-            if not isinstance(raw_directive, dict):
-                continue
-            action = _normalize_action(raw_directive.get("action"))
-            if action is None:
-                continue
-            target = str(raw_directive.get("target") or "paper/main.tex")
-            rationale = str(raw_directive.get("rationale") or "").strip()
-            expected = str(raw_directive.get("expected_effect") or "").strip()
-            add(action, target, rationale or "address model-identified prose issue", expected or None)
-
-    for issue in issues:
-        if issue.get("severity") == "minor" and not issue.get("hard_gate"):
-            continue
-        action = _normalize_action(issue.get("action")) or "calibrate_claim"
-        target = str(issue.get("target") or "paper/main.tex")
-        add(action, target, str(issue.get("message") or "revise academic prose"))
-    return directives
 
 
 def _canonical_directive(action: str, target: str, rationale: str) -> tuple[str, str]:
@@ -1209,15 +1079,6 @@ def _missing_section_action(key: str) -> str:
         "experiments": "add_evidence_sentence",
         "limitations": "add_limitation_scope",
     }.get(key, "calibrate_claim")
-
-
-def _final_score(score: float, section_scores: Mapping[str, object]) -> float:
-    candidates = [max(1.0, min(5.0, score))]
-    for key in SECTION_SCORE_KEYS:
-        section_score = _float_or_none(section_scores.get(key))
-        if section_score is not None:
-            candidates.append(section_score)
-    return round(max(1.0, min(5.0, min(candidates))), 2)
 
 
 def _round_scores(scores: Mapping[str, object]) -> dict[str, float]:
