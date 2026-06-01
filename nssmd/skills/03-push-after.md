@@ -69,7 +69,7 @@ git push --force-with-lease origin main
 - ❌ `🤖 Generated with [Claude Code]`
 
 **只用**：
-- ✅ `Co-Authored-By: nssmd <2581235653@sjtu.DEU.CN>`
+- ✅ `Co-Authored-By: nssmd <2581235653@sjtu.edu.cn>`
 
 ## Subject line 模板
 
