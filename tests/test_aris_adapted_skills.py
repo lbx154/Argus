@@ -1,0 +1,161 @@
+"""Contract tests for built-in skill files.
+
+Lock in two invariants:
+
+1. Every ``argus_skill/builtin_skills/**/*.md`` file has a YAML
+   frontmatter block with at minimum ``name`` and ``description``.
+2. The three skills copied from ARIS (``citation-audit``,
+   ``paper-claim-audit``, ``figure-spec``) are present and well-formed,
+   and the figure-spec renderer script is importable + runs.
+
+This prevents accidental drift of the skill bundle and catches the
+"someone added a skill without frontmatter so the matcher silently
+ignores it" failure mode.
+"""
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+BUILTIN_ROOT = Path(__file__).resolve().parents[1] / "argus_skill" / "builtin_skills"
+
+
+def _iter_skill_md_files() -> list[Path]:
+    return [p for p in BUILTIN_ROOT.rglob("*.md")]
+
+
+def _parse_frontmatter(text: str) -> dict[str, str] | None:
+    """Cheap YAML frontmatter parser — accepts the subset our skills use
+    (``key: value`` lines between two ``---`` delimiters)."""
+    if not text.startswith("---\n"):
+        return None
+    end = text.find("\n---", 4)
+    if end == -1:
+        return None
+    block = text[4:end]
+    out: dict[str, str] = {}
+    for line in block.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        out[key.strip()] = value.strip()
+    return out
+
+
+def test_every_builtin_skill_has_frontmatter() -> None:
+    failures: list[str] = []
+    for md in _iter_skill_md_files():
+        text = md.read_text(encoding="utf-8")
+        fm = _parse_frontmatter(text)
+        if fm is None:
+            failures.append(f"{md.relative_to(BUILTIN_ROOT)}: no frontmatter")
+            continue
+        if not fm.get("name"):
+            failures.append(f"{md.relative_to(BUILTIN_ROOT)}: missing name")
+        if not fm.get("description"):
+            failures.append(f"{md.relative_to(BUILTIN_ROOT)}: missing description")
+    assert failures == [], "Skills with invalid frontmatter:\n  " + "\n  ".join(failures)
+
+
+@pytest.mark.parametrize(
+    "skill_path,expected_name",
+    [
+        ("engineer/citation-audit.md", "Citation Audit"),
+        ("engineer/paper-claim-audit.md", "Paper Claim Audit"),
+        ("engineer/figure-spec.md", "Figure Spec (deterministic SVG)"),
+    ],
+)
+def test_aris_adapted_skills_are_present(skill_path: str, expected_name: str) -> None:
+    md = BUILTIN_ROOT / skill_path
+    assert md.exists(), f"missing adapted skill: {skill_path}"
+    fm = _parse_frontmatter(md.read_text(encoding="utf-8"))
+    assert fm is not None
+    assert fm["name"] == expected_name
+    # scientist_model must be 5.5 (matches the rest of the bundle's standard)
+    assert fm.get("scientist_model") == "gpt-5.5", (
+        f"{skill_path}: scientist_model should be gpt-5.5, "
+        f"got {fm.get('scientist_model')!r}"
+    )
+
+
+def test_figure_renderer_script_is_present_and_importable() -> None:
+    renderer = BUILTIN_ROOT / "engineer" / "figure_spec_scripts" / "figure_renderer.py"
+    assert renderer.exists(), "figure_renderer.py missing — figure-spec skill is broken"
+    # Subprocess-import so we don't pollute the parent process's modules.
+    proc = subprocess.run(
+        [sys.executable, "-c",
+         f"import importlib.util, sys; "
+         f"spec = importlib.util.spec_from_file_location('fr', '{renderer}'); "
+         f"mod = importlib.util.module_from_spec(spec); "
+         f"spec.loader.exec_module(mod); "
+         f"print('OK')"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, (
+        f"figure_renderer.py is not importable:\n"
+        f"  stdout: {proc.stdout}\n  stderr: {proc.stderr}"
+    )
+
+
+def test_figure_renderer_round_trip_render(tmp_path: Path) -> None:
+    renderer = BUILTIN_ROOT / "engineer" / "figure_spec_scripts" / "figure_renderer.py"
+    spec = tmp_path / "spec.json"
+    spec.write_text(
+        json.dumps(
+            {
+                "title": "Smoke",
+                "width": 400,
+                "height": 200,
+                "nodes": [
+                    {"id": "a", "label": "A", "x": 100, "y": 100, "shape": "rounded", "color": 0},
+                    {"id": "b", "label": "B", "x": 300, "y": 100, "shape": "rounded", "color": 1},
+                ],
+                "edges": [{"from": "a", "to": "b", "label": "go"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    out = tmp_path / "out.svg"
+
+    proc = subprocess.run(
+        [sys.executable, str(renderer), "render", str(spec), "--output", str(out)],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert out.exists()
+    body = out.read_text(encoding="utf-8")
+    # Sanity: SVG with both nodes labeled
+    assert body.startswith("<svg")
+    assert ">A<" in body
+    assert ">B<" in body
+
+
+def test_figure_renderer_is_deterministic(tmp_path: Path) -> None:
+    """Same spec → byte-identical SVG. This is the core promise of the
+    figure-spec skill vs AI image generation."""
+    renderer = BUILTIN_ROOT / "engineer" / "figure_spec_scripts" / "figure_renderer.py"
+    spec = tmp_path / "spec.json"
+    spec.write_text(
+        json.dumps({"title": "Det", "width": 300, "height": 200,
+                    "nodes": [{"id": "x", "label": "X", "x": 100, "y": 100, "color": 0}],
+                    "edges": []}),
+        encoding="utf-8",
+    )
+    out1 = tmp_path / "a.svg"
+    out2 = tmp_path / "b.svg"
+    for out in (out1, out2):
+        proc = subprocess.run(
+            [sys.executable, str(renderer), "render", str(spec), "--output", str(out)],
+            capture_output=True, text=True,
+        )
+        assert proc.returncode == 0, proc.stderr
+    assert out1.read_bytes() == out2.read_bytes(), (
+        "figure_renderer.py is non-deterministic; two runs of the same "
+        "spec produced different SVG"
+    )

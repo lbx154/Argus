@@ -2,7 +2,7 @@
   "artifact_name": "slm_llm_human_hierarchy",
   "artifact_version": 1,
   "hierarchy_label": "SLM->LLM->HUMAN",
-  "repo_root": "/root/argus-skill",
+  "repo_root": "/home/xinjiezhang/zimo/argus-skill",
   "rows": [
     {
       "claim": "SLM->LLM->HUMAN tier 1: the small-model baseline is grounded in the tracked bare-gpt54-mini TB2 run.",
