@@ -10,22 +10,41 @@ created_at: 2026-06-01T00:00:00+00:00
 # Mint Skill (Signal A · auto-evolve)
 
 > Argus self-evolve loop, layer L2 ("mint a new skill the agent lacked").
-> Triggered by the trajectory detector in
-> `argus_skill.life.missing_tool_detector`. Validated by
-> `argus_skill.skills.mint_skill_validator`.
-> Sits inside the standard backlog → mission → reviewer flow; respects
-> all gates (lifecycle, budget, F4 evidence_chain, D1 gate veto).
+>
+> **Trigger path (post skill-04 redesign):** the supervisor's
+> trajectory detector writes
+> ``self_evolve.missing_tool_advisory`` journal entries when it
+> detects missing-tool patterns (structural regex grep — pure
+> plumbing). The **reviewer or planner agent** reads recent
+> advisories and decides whether to request a mint-skill mission.
+> The harness no longer auto-enqueues; the judgment "is this worth
+> minting / was it a typo / did we work around it" belongs to the
+> agent, not the harness.
+>
+> Sits inside the standard backlog → mission → reviewer flow once
+> the agent enqueues; respects all gates (lifecycle, budget, F4
+> evidence_chain, D1 gate veto).
 
-## When YOU are invoked
+## How a mint-skill mission gets started
 
-The supervisor enqueued this mission with `tags=["mint-skill", ...]`
-because a previous mission's trajectory contained a missing-tool
-signal — e.g. `pdftotext: command not found`, `ModuleNotFoundError:
-No module named 'pdfplumber'`, or an explicit `I don't have a tool
-to X`.
+Two paths, both agent-driven:
 
-The objective text gives you the slug + context. Your job is to
-**produce a held-out-passing skill**, NOT to satisfy a model judge.
+1. **Reviewer-requested**: the reviewer at end of a mission reads
+   the advisory in journal, decides it's a real capability gap, and
+   includes a recommendation in its ``next_action`` (e.g.
+   "enqueue mint-skill: pdftotext — used 3 times, blocking PDF
+   ingestion"). The planner picks this up in its next cycle and
+   enqueues a BacklogItem.
+
+2. **Planner-batched**: in continuous mode, the planner scans
+   recent ``self_evolve.missing_tool_advisory`` journal entries on
+   each cycle, decides which ones are worth minting (based on
+   recurrence count, alignment with project goal, blacklist
+   filtering), and enqueues mint-skill BacklogItems in batch.
+
+Either way, by the time YOU (the engineer minting) are invoked,
+there's a BacklogItem with ``tags=["mint-skill", ...]`` whose
+objective references the missing tool's slug + context.
 
 ## Blacklist — DO NOT mint these skill kinds
 

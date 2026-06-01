@@ -1,47 +1,37 @@
-"""Tests for the self-evolve hook in LifeSupervisor._maybe_enqueue_mint_skill.
+"""Tests for the self-evolve advisory hook in
+LifeSupervisor._maybe_journal_self_evolve_advisory.
 
-We can't easily spin a full SupervisedEngineer in a unit test (it'd need
-a real codex backend), so the tests exercise the helper directly with a
-fake supervisor stub. The helper does pure plumbing — read mission
-result + events.jsonl, run detector, dedup vs backlog, append BacklogItem
-— so a unit test that asserts BacklogItem appears in memory.backlog is
-sufficient. End-to-end smoke (real daemon → real mint mission) is
-covered by manual daemon runs.
+Post-redesign (skill 04 boundary fix): the harness no longer
+auto-enqueues mint-skill BacklogItems. It writes journal advisories
+of kind ``self_evolve.missing_tool_advisory``; the reviewer / planner
+agent decides whether to act on them. The detector is structural
+(harness plumbing); the mint decision is judgment (agent's call).
+
+Mirrors how F3 mediocrity_finding surfaces facts to the reviewer
+without ruling.
 """
 from __future__ import annotations
 
 import json
+import time as _time
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 
-# ---------------------------------------------------------------------------
-# Build a minimal supervisor stub that uses the real method
-# ---------------------------------------------------------------------------
-
-
 def _make_stub_supervisor(tmp_path: Path):
-    """Build a LifeSupervisor with only what _maybe_enqueue_mint_skill needs.
-
-    The helper touches: self.memory.backlog (add + all), self.memory.journal
-    (append), self._inject_cumulative_cost (logging), and reads
-    <memory.root>/events.jsonl.
-    """
+    """Build a LifeSupervisor instance with only what the advisory
+    hook needs. Avoids the full __init__ machinery."""
     from argus_skill.life.memory import LifeMemory
     from argus_skill.life.supervisor import LifeSupervisor
 
     mem = LifeMemory.open(tmp_path)
     mem.init()
 
-    # Build the bare-minimum supervisor instance.  We avoid the full
-    # LifeSupervisor(__init__) machinery (which wants a real runner)
-    # by constructing the object via __new__ and bolting on just what
-    # the hook reads.
     sup = LifeSupervisor.__new__(LifeSupervisor)
     sup.memory = mem
-    sup._inject_cumulative_cost = lambda entry: None  # noop for tests
+    sup._inject_cumulative_cost = lambda entry: None
     sup._emit_status = lambda *a, **kw: None
     sup._MINT_SKILL_TAG = LifeSupervisor._MINT_SKILL_TAG
     return sup, mem
@@ -57,117 +47,112 @@ def _make_backlog_item(title: str = "test-mission", tags: list[str] | None = Non
 
 
 # ---------------------------------------------------------------------------
-# Happy path: mission produced a missing-tool signal → enqueued
+# Happy path: missing tool → advisory journal entry (NOT a BacklogItem)
 # ---------------------------------------------------------------------------
 
 
-def test_hook_enqueues_mint_skill_for_command_not_found(tmp_path: Path) -> None:
+def test_hook_writes_advisory_for_command_not_found(tmp_path: Path) -> None:
     sup, mem = _make_stub_supervisor(tmp_path)
     item = _make_backlog_item()
     result = {
         "agent_messages": [
-            "I tried to convert the PDF.\n"
             "/bin/bash: line 1: pdftotext: command not found\n"
         ],
     }
-    enqueued = sup._maybe_enqueue_mint_skill(item, result)
-    assert "pdftotext" in enqueued
+    surfaced = sup._maybe_journal_self_evolve_advisory(item, result)
+    assert "pdftotext" in surfaced
 
-    # BacklogItem now exists with mint-skill tag.
-    minted = [
-        i for i in mem.backlog.all()
-        if "mint-skill" in (i.tags or [])
-    ]
-    assert len(minted) == 1
-    assert minted[0].title == "mint-skill: pdftotext"
-    assert "Mint a skill" in minted[0].objective
-    assert minted[0].priority == 50  # higher than default 100
+    # Journal got an advisory entry
+    journal_kinds = [e.kind for e in mem.journal.all()]
+    assert "self_evolve.missing_tool_advisory" in journal_kinds
+
+    # CRITICAL: NO BacklogItem was enqueued (judgment moved to agent)
+    backlog = mem.backlog.all()
+    assert not any(
+        "mint-skill" in (i.tags or []) for i in backlog
+    ), "harness must not auto-enqueue mint-skill missions"
 
 
-def test_hook_enqueues_for_module_not_found(tmp_path: Path) -> None:
+def test_hook_writes_advisory_for_module_not_found(tmp_path: Path) -> None:
     sup, mem = _make_stub_supervisor(tmp_path)
     item = _make_backlog_item()
     result = {
         "agent_messages": [
-            "Traceback (most recent call last):\n"
-            "  File ...\n"
             "ModuleNotFoundError: No module named 'pdfplumber'\n"
         ],
     }
-    sup._maybe_enqueue_mint_skill(item, result)
+    surfaced = sup._maybe_journal_self_evolve_advisory(item, result)
+    assert "pdfplumber" in surfaced
 
-    minted = [
-        i for i in mem.backlog.all()
-        if "mint-skill" in (i.tags or [])
+    advisories = [
+        e for e in mem.journal.all()
+        if e.kind == "self_evolve.missing_tool_advisory"
     ]
-    assert len(minted) == 1
-    assert "pdfplumber" in minted[0].title
+    assert len(advisories) == 1
+    assert "pdfplumber" in advisories[0].title
+    # Tags include tool:<name> so the dedup helper can find it.
+    assert "tool:pdfplumber" in advisories[0].tags
 
 
 # ---------------------------------------------------------------------------
-# Dedup: in-flight mint-skill mission for same tool not re-enqueued
+# Dedup: same tool already advised in journal → not re-surfaced this tick
 # ---------------------------------------------------------------------------
 
 
-def test_hook_dedups_against_inflight_mint_skill(tmp_path: Path) -> None:
-    from argus_skill.life.memory import BacklogItem
-
+def test_hook_dedups_against_recent_advisory(tmp_path: Path) -> None:
     sup, mem = _make_stub_supervisor(tmp_path)
-    # Pre-seed an in-flight mint-skill mission for pdftotext.
-    mem.backlog.add(BacklogItem.new(
-        title="mint-skill: pdftotext",
-        objective="(in flight)",
-        tags=["mint-skill"],
-    ))
+    item1 = _make_backlog_item(title="mission-1")
 
-    item = _make_backlog_item()
-    result = {
-        "agent_messages": [
-            "/bin/bash: line 1: pdftotext: command not found\n"
-        ],
-    }
-    enqueued = sup._maybe_enqueue_mint_skill(item, result)
-    assert enqueued == []
+    # First tick surfaces the advisory
+    sup._maybe_journal_self_evolve_advisory(
+        item1, {"agent_messages": ["No such cmd: pdftotext: command not found"]}
+    )
 
-    # Only the originally seeded item should remain (no duplicate).
-    minted = [
-        i for i in mem.backlog.all()
-        if "mint-skill" in (i.tags or [])
+    # Second tick with same signal → NOT re-surfaced
+    item2 = _make_backlog_item(title="mission-2")
+    surfaced = sup._maybe_journal_self_evolve_advisory(
+        item2, {"agent_messages": ["Tried again: pdftotext: command not found"]}
+    )
+    assert surfaced == []
+
+    # Only one advisory total
+    advisories = [
+        e for e in mem.journal.all()
+        if e.kind == "self_evolve.missing_tool_advisory"
     ]
-    assert len(minted) == 1
+    assert len(advisories) == 1
 
 
 # ---------------------------------------------------------------------------
-# Anti-recursion: mint-skill missions don't recursively enqueue
+# Anti-recursion: mint-skill missions don't surface their own missing tools
 # ---------------------------------------------------------------------------
 
 
-def test_hook_does_not_recurse_on_mint_skill_missions(tmp_path: Path) -> None:
+def test_hook_does_not_surface_from_mint_skill_missions(tmp_path: Path) -> None:
     sup, mem = _make_stub_supervisor(tmp_path)
-    # The "source" item IS a mint-skill mission. Its own trajectory
-    # might include 'command not found' (because the candidate script
-    # crashes during minting), but we MUST NOT enqueue a meta-mint-skill.
+    # The "source" item IS a mint-skill mission. Its trajectory likely
+    # includes 'command not found' (because the candidate script
+    # crashes during minting) — we MUST NOT surface those as new
+    # advisories (would create infinite reflection on minting itself).
     item = _make_backlog_item(
         title="mint-skill: pdftotext",
         tags=["mint-skill", "self-evolve"],
     )
-    result = {
-        "agent_messages": [
-            "ModuleNotFoundError: No module named 'pdfplumber'\n"
-        ],
-    }
-    enqueued = sup._maybe_enqueue_mint_skill(item, result)
-    assert enqueued == []
+    surfaced = sup._maybe_journal_self_evolve_advisory(
+        item,
+        {"agent_messages": ["ModuleNotFoundError: No module named 'pdfplumber'"]},
+    )
+    assert surfaced == []
 
-    minted = [
-        i for i in mem.backlog.all()
-        if "mint-skill" in (i.tags or [])
+    advisories = [
+        e for e in mem.journal.all()
+        if e.kind == "self_evolve.missing_tool_advisory"
     ]
-    assert minted == []
+    assert advisories == []
 
 
 # ---------------------------------------------------------------------------
-# No signal → nothing enqueued
+# No signal → no advisory
 # ---------------------------------------------------------------------------
 
 
@@ -177,57 +162,55 @@ def test_hook_noop_when_no_missing_tool(tmp_path: Path) -> None:
     result = {
         "agent_messages": ["Everything worked fine. Tests pass."],
     }
-    enqueued = sup._maybe_enqueue_mint_skill(item, result)
-    assert enqueued == []
+    surfaced = sup._maybe_journal_self_evolve_advisory(item, result)
+    assert surfaced == []
+    # No advisory journal entry and no BacklogItem either.
+    assert all(
+        e.kind != "self_evolve.missing_tool_advisory"
+        for e in mem.journal.all()
+    )
     assert mem.backlog.all() == []
 
 
 def test_hook_noop_on_empty_result(tmp_path: Path) -> None:
     sup, mem = _make_stub_supervisor(tmp_path)
     item = _make_backlog_item()
-    enqueued = sup._maybe_enqueue_mint_skill(item, None)
-    assert enqueued == []
+    surfaced = sup._maybe_journal_self_evolve_advisory(item, None)
+    assert surfaced == []
 
 
 # ---------------------------------------------------------------------------
-# Events.jsonl ingestion (for command_execution events the runner emits)
+# Events.jsonl: exit_code 127 → surfaces from events
 # ---------------------------------------------------------------------------
 
 
 def test_hook_reads_events_jsonl_for_exit_code_127(tmp_path: Path) -> None:
-    import time as _time
-
     sup, mem = _make_stub_supervisor(tmp_path)
     item = _make_backlog_item()
-    # Event ts must be >= item.ts (the helper filters to events that
-    # happened after the mission started). Stamp the event in the
-    # future so it always passes the filter regardless of test clock.
+    # Event ts must be >= item.ts; use future ts so test is robust.
     event_ts = _time.time() + 60.0
     events_path = Path(mem.root) / "events.jsonl"
     events_path.write_text(
-        "\n".join([
-            json.dumps({"type": "engineer.progress",
-                        "kind": "command_execution",
-                        "text": "/bin/bash -lc \"ocrmypdf in.pdf out.pdf\"",
-                        "exit_code": 127,
-                        "output_excerpt": "/bin/bash: ocrmypdf: command not found",
-                        "ts": event_ts}),
-        ]) + "\n",
+        json.dumps({
+            "type": "engineer.progress",
+            "kind": "command_execution",
+            "text": "/bin/bash -lc \"ocrmypdf in.pdf out.pdf\"",
+            "exit_code": 127,
+            "output_excerpt": "/bin/bash: ocrmypdf: command not found",
+            "ts": event_ts,
+        }) + "\n",
         encoding="utf-8",
     )
-    # The result dict itself has no signal — only events.jsonl does.
-    enqueued = sup._maybe_enqueue_mint_skill(item, {})
-    # Detector picks up "ocrmypdf" from the bash error AND from the
-    # exit_code=127 synthetic signal; dedup keeps one slug.
-    assert "ocrmypdf" in enqueued
+    surfaced = sup._maybe_journal_self_evolve_advisory(item, {})
+    assert "ocrmypdf" in surfaced
 
 
 # ---------------------------------------------------------------------------
-# Multiple distinct missing tools in one mission → multiple enqueues
+# Multiple distinct missing tools → multiple advisories
 # ---------------------------------------------------------------------------
 
 
-def test_hook_enqueues_one_per_distinct_tool(tmp_path: Path) -> None:
+def test_hook_surfaces_one_advisory_per_distinct_tool(tmp_path: Path) -> None:
     sup, mem = _make_stub_supervisor(tmp_path)
     item = _make_backlog_item()
     result = {
@@ -236,26 +219,36 @@ def test_hook_enqueues_one_per_distinct_tool(tmp_path: Path) -> None:
             "/bin/bash: line 2: convert: command not found\n"
         ],
     }
-    enqueued = sup._maybe_enqueue_mint_skill(item, result)
-    assert set(enqueued) == {"wandb", "convert"}
+    surfaced = sup._maybe_journal_self_evolve_advisory(item, result)
+    assert set(surfaced) == {"wandb", "convert"}
 
-    minted_titles = sorted(
-        i.title for i in mem.backlog.all()
-        if "mint-skill" in (i.tags or [])
+    advisories = [
+        e for e in mem.journal.all()
+        if e.kind == "self_evolve.missing_tool_advisory"
+    ]
+    titles = sorted(e.title for e in advisories)
+    assert titles == ["missing tool: convert", "missing tool: wandb"]
+
+
+# ---------------------------------------------------------------------------
+# Anti-regression: old enqueue API must stay gone
+# ---------------------------------------------------------------------------
+
+
+def test_old_enqueue_api_is_gone() -> None:
+    """The pre-skill-04 design auto-enqueued BacklogItems from harness.
+    That's a judgment harness shouldn't make. Lock in the demoted API
+    so a future "convenient" re-introduction trips this test.
+    """
+    from argus_skill.life.supervisor import LifeSupervisor
+    forbidden = (
+        "_maybe_enqueue_mint_skill",
+        "_enqueue_mint_skill_item",
+        "_inflight_mint_skill_tools",
     )
-    assert minted_titles == ["mint-skill: convert", "mint-skill: wandb"]
-
-
-# ---------------------------------------------------------------------------
-# Journal entry recorded when enqueue happens
-# ---------------------------------------------------------------------------
-
-
-def test_hook_journals_self_evolve_event(tmp_path: Path) -> None:
-    sup, mem = _make_stub_supervisor(tmp_path)
-    item = _make_backlog_item()
-    result = {"agent_messages": ["ModuleNotFoundError: No module named 'foo'\n"]}
-    sup._maybe_enqueue_mint_skill(item, result)
-
-    journal_kinds = [e.kind for e in mem.journal.all()]
-    assert "self_evolve.mint_enqueued" in journal_kinds
+    for name in forbidden:
+        assert not hasattr(LifeSupervisor, name), (
+            f"{name} is the old auto-enqueue API; harness must only "
+            f"surface advisories. Reviewer / planner agent decides "
+            f"whether to enqueue mint-skill missions."
+        )

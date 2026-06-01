@@ -1033,37 +1033,53 @@ class LifeSupervisor:
         result = self._run_one(item)
 
         # Self-evolve hook (Signal A): scan the just-finished mission's
-        # observable surface for missing-tool patterns. For each one
-        # detected, enqueue a mint-skill mission unless one is already
-        # in flight. Pure structural detection — no judgment about
-        # whether the missing tool is "worth" minting (the mint-skill
-        # prompt + held-out validator decide that).
+        # observable surface for missing-tool patterns. **Detection is
+        # structural** (regex pattern grep — pure plumbing) but **the
+        # mint decision is judgment** ("is this worth minting? was it
+        # a typo? did we just work around it?"). Per skill 04, harness
+        # only does the structural half. We write each detected signal
+        # as a journal advisory; the reviewer / planner reads recent
+        # advisories and decides whether to request a mint-skill
+        # mission. This mirrors how F3 mediocrity_finding surfaces
+        # facts to the reviewer without ruling.
         try:
-            self._maybe_enqueue_mint_skill(item, result)
+            self._maybe_journal_self_evolve_advisory(item, result)
         except Exception:  # noqa: BLE001 — never let self-evolve crash tick
-            log.exception("self-evolve hook raised; tick continues")
+            log.exception("self-evolve advisory hook raised; tick continues")
         return result
 
     # ------------------------------------------------------------------
-    # Self-evolve: enqueue mint-skill missions for missing tools
+    # Self-evolve: surface missing-tool advisories to the agent layer
     # ------------------------------------------------------------------
 
     _MINT_SKILL_TAG = "mint-skill"
 
-    def _maybe_enqueue_mint_skill(
+    def _maybe_journal_self_evolve_advisory(
         self, item: BacklogItem, result: dict[str, Any] | None
     ) -> list[str]:
-        """Detect missing-tool signals in the just-finished mission and
-        enqueue a mint-skill mission per unique signal.
+        """Detect missing-tool signals and write them to the journal as
+        ``self_evolve.missing_tool_advisory`` entries for the reviewer
+        / planner to act on.
 
-        Returns the list of tool_names enqueued (empty when no signal
-        or all duplicates of in-flight mint-skill missions).
+        Returns the list of tool_name slugs surfaced this round (empty
+        when no signal, or all duplicates of advisories already written
+        recently — so the same signal doesn't spam the journal each
+        tick).
+
+        Note the architectural distinction from prior versions: we no
+        longer auto-enqueue mint-skill BacklogItems. The judgment "is
+        this worth minting" belongs to the agent. The reviewer can
+        recommend a mint-skill mission via its ``next_action`` (the
+        planner then enqueues it in the standard backlog flow); the
+        planner can also batch-enqueue from accumulated advisories
+        during its continuous cycle.
 
         Fail-soft: any error is logged by the caller and silently
         skipped — the self-evolve loop must never block the main tick.
         """
-        # Skip self-recursion: don't try to mint a skill in response to
-        # a mint-skill mission's own trajectory.
+        # Skip self-recursion: don't surface advisories from a
+        # mint-skill mission's own trajectory (its missing-tool noise
+        # is part of that mission's own work, not a new signal).
         if self._MINT_SKILL_TAG in (item.tags or []):
             return []
 
@@ -1074,8 +1090,6 @@ class LifeSupervisor:
         check_output_tails: list[str] = []
         fatal_error: str | None = None
 
-        # The result dict shape varies by code path; pull what's safely
-        # available. Future runner refactors should consolidate this.
         if isinstance(result.get("agent_messages"), list):
             agent_messages = [str(m) for m in result["agent_messages"]]
         outcome = result.get("outcome")
@@ -1090,9 +1104,6 @@ class LifeSupervisor:
                 str(getattr(c, "output_tail", "") or "")
                 for c in result["checks"]
             ]
-        # Tail the project's events.jsonl for this mission window if it
-        # exists; that's where command_execution events with exit_code
-        # land. Fail-soft on missing file / parse errors.
         events: list[dict[str, Any]] = list(
             self._tail_events_for_item(item) or []
         )
@@ -1106,74 +1117,51 @@ class LifeSupervisor:
         if not signals:
             return []
 
-        existing = self._inflight_mint_skill_tools()
-        enqueued: list[str] = []
+        # Dedup against advisories already in the recent journal
+        # window so the same signal isn't written every tick.
+        recent_tools = self._recent_self_evolve_advisory_tools(limit=200)
+        surfaced: list[str] = []
         for sig in signals:
-            if sig.tool_name in existing:
+            if sig.tool_name in recent_tools:
                 continue
-            self._enqueue_mint_skill_item(sig, source_item=item)
-            existing.add(sig.tool_name)
-            enqueued.append(sig.tool_name)
-
-        if enqueued:
+            evidence_lines = "\n".join(f"- {e}" for e in (sig.evidence or ()))
             entry = JournalEntry.new(
-                kind="self_evolve.mint_enqueued",
-                title=f"enqueued {len(enqueued)} mint-skill mission(s)",
-                summary=", ".join(enqueued),
-                tags=["self-evolve", "mint-skill"],
+                kind="self_evolve.missing_tool_advisory",
+                title=f"missing tool: {sig.tool_name}",
+                summary=(
+                    f"{sig.kind}: {sig.context} "
+                    f"(source mission {item.id})\n{evidence_lines}"
+                ),
+                tags=[
+                    "self-evolve",
+                    "advisory",
+                    f"kind:{sig.kind}",
+                    f"tool:{sig.tool_name}",
+                ],
             )
             self.memory.journal.append(entry)
             self._inject_cumulative_cost(entry)
-        return enqueued
+            recent_tools.add(sig.tool_name)
+            surfaced.append(sig.tool_name)
+        return surfaced
 
-    def _inflight_mint_skill_tools(self) -> set[str]:
-        """Return tool_name slugs that already have a pending/running
-        mint-skill mission, so we don't double-enqueue."""
+    def _recent_self_evolve_advisory_tools(self, *, limit: int = 200) -> set[str]:
+        """Return tool_name slugs that already have a journal advisory
+        in the recent window (latest ``limit`` entries). Used to dedup
+        per-tick surfacing.
+        """
         tools: set[str] = set()
         try:
-            for backlog_item in self.memory.backlog.all():
-                if backlog_item.status not in ("pending", "running"):
-                    continue
-                if self._MINT_SKILL_TAG not in (backlog_item.tags or []):
-                    continue
-                title = backlog_item.title or ""
-                if title.startswith("mint-skill:"):
-                    tool = title.split(":", 1)[1].strip()
-                    if tool:
-                        tools.add(tool)
+            entries = list(self.memory.journal.tail(limit))
         except Exception:  # noqa: BLE001
-            log.exception("inflight mint-skill scan raised; assuming none")
+            return tools
+        for entry in entries:
+            if getattr(entry, "kind", "") != "self_evolve.missing_tool_advisory":
+                continue
+            for tag in (getattr(entry, "tags", None) or []):
+                if isinstance(tag, str) and tag.startswith("tool:"):
+                    tools.add(tag.split(":", 1)[1])
         return tools
-
-    def _enqueue_mint_skill_item(
-        self, sig: Any, *, source_item: BacklogItem
-    ) -> BacklogItem:
-        """Build + add a BacklogItem for one missing-tool signal."""
-        evidence_lines = "\n".join(f"- {e}" for e in (sig.evidence or ()))
-        objective = (
-            f"Mint a skill that covers the missing tool {sig.tool_name!r}.\n"
-            f"Kind: {sig.kind}\n"
-            f"Context: {sig.context}\n"
-            f"Trajectory evidence:\n{evidence_lines}\n\n"
-            f"Source mission: {source_item.id} — {source_item.title}\n\n"
-            f"Follow argus_builtin_skills/engineer/mint-skill.md. "
-            f"Blacklist-check first (reviewer/judgment skills are NOT "
-            f"mintable). Dedup vs existing skills. Write candidate skill "
-            f"md + scripts. Provide ≥3 held-out fixtures under "
-            f".argus-fixtures/<slug>/. Run "
-            f"`python -m argus_skill.skills.mint_skill_validator` until "
-            f"it exits 0. Iterate up to 5 rounds; if still failing, "
-            f"finalize as blocked and the operator decides."
-        )
-        new_item = BacklogItem.new(
-            title=f"mint-skill: {sig.tool_name}",
-            objective=objective,
-            priority=50,  # higher than default 100 (smaller = higher)
-            tags=[self._MINT_SKILL_TAG, "self-evolve", f"kind:{sig.kind}"],
-            iterate=False,  # don't auto-iterate mint missions
-        )
-        self.memory.backlog.add(new_item)
-        return new_item
 
     def _tail_events_for_item(self, item: BacklogItem) -> list[dict[str, Any]] | None:
         """Best-effort: read events.jsonl rows whose ts is between the
