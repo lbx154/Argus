@@ -6,9 +6,13 @@ from argus_skill.tools.subagent import (
     SUPERVISOR_INTERVAL_CAP,
     _child_env,
     _codex_last_agent_message,
+    _effective_run_dir,
+    _format_metric_line,
     _next_monitor_interval,
     _norm_decision,
     _norm_health,
+    _progress_summary,
+    _run_dir_from_command,
     _strip_code_fence,
 )
 
@@ -158,4 +162,67 @@ def test_child_env_respects_explicit_vllm_and_opt_out(monkeypatch) -> None:
     # Opt-out leaves the inherited environment untouched.
     assert env["NCCL_DEBUG"] == "INFO"
     assert env["VLLM_LOGGING_LEVEL"] == "DEBUG"
+
+
+def test_run_dir_parsed_from_command_space_and_equals() -> None:
+    cmd = ("python -m argus_skill.tools.gpu_lease run -- env CUDA_VISIBLE_DEVICES=0 "
+           ".venv/bin/python code/run_benchmark_condition.py --method B0 "
+           "--run-dir experiments/runs/full-B0-math500 --use-runwriter")
+    assert _run_dir_from_command(cmd) == "experiments/runs/full-B0-math500"
+    assert _run_dir_from_command("foo --run-dir=out/x bar") == "out/x"
+    assert _run_dir_from_command("no run dir here") is None
+    assert _run_dir_from_command("") is None
+
+
+def test_effective_run_dir_falls_back_to_command() -> None:
+    # Stored run_dir wins.
+    assert _effective_run_dir(
+        {"run_dir": "/abs/path", "command": "x --run-dir other"}) == "/abs/path"
+    # Otherwise recovered from the command (the black-box case).
+    assert _effective_run_dir(
+        {"command": "x --run-dir experiments/runs/foo"}) == "experiments/runs/foo"
+    assert _effective_run_dir({"command": "x"}) is None
+
+
+def test_progress_summary_surfaces_status_and_reward(tmp_path) -> None:
+    rd = tmp_path / "run"
+    rd.mkdir()
+    (rd / "progress.jsonl").write_text(
+        '{"event": "start"}\n{"event": "done"}\n', encoding="utf-8")
+    (rd / "results.jsonl").write_text('{"r": 1}\n{"r": 0}\n', encoding="utf-8")
+    (rd / "status.json").write_text(
+        json.dumps({"state": "running", "method": "B0"}), encoding="utf-8")
+    (rd / "summary.tsv").write_text(
+        "row_kind\tcondition\tdataset_id\treward\tn_total_trials\t"
+        "n_completed_trials\tn_errored_trials\n"
+        "aggregate\tB0\tmath500\t0.539773\t176\t176\t0\n",
+        encoding="utf-8")
+    summ = _progress_summary(str(rd))
+    assert summ["progress_rows"] == 2
+    assert summ["result_rows"] == 2
+    assert summ["state"] == "running"
+    assert summ["method"] == "B0"
+    assert summ["metrics"][0]["reward"] == 0.539773
+    assert summ["metrics"][0]["completed"] == 176
+    assert summ["metrics"][0]["total"] == 176
+    assert summ["metrics"][0]["errored"] == 0
+
+
+def test_progress_summary_empty_for_missing_dir() -> None:
+    assert _progress_summary(None) == {}
+    assert _progress_summary("/nonexistent/run/dir/xyz") == {}
+
+
+def test_format_metric_line_is_compact_and_readable(tmp_path) -> None:
+    summ = {
+        "state": "completed",
+        "metrics": [{"dataset": "bfcl", "reward": 0.3333, "completed": 240,
+                     "total": 240, "errored": 0}],
+    }
+    line = _format_metric_line(summ)
+    assert "completed" in line
+    assert "bfcl" in line
+    assert "reward=0.3333" in line
+    assert "240/240" in line
+    assert _format_metric_line({}) == ""
 

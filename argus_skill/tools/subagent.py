@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -250,6 +251,33 @@ def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
     if checks:
         lines.append(f"- **Supervisor checks**: {checks}")
 
+    # Headline results pulled from the structured run dir (reward / completed /
+    # errored) so the engineer sees the actual numbers instead of having to
+    # decode a noisy stdout tail.
+    run_summary = _progress_summary(_effective_run_dir(task_data))
+    if run_summary:
+        lines.append("")
+        lines.append("**Results**:")
+        if run_summary.get("state"):
+            lines.append(f"- run state: {run_summary['state']}")
+        for m in run_summary.get("metrics", []):
+            label = m.get("dataset") or m.get("condition") or "aggregate"
+            bits = []
+            if "reward" in m:
+                bits.append(f"reward={m['reward']}")
+            if "completed" in m and "total" in m:
+                bits.append(f"completed={m['completed']}/{m['total']}")
+            if "errored" in m:
+                bits.append(f"errored={m['errored']}")
+            lines.append(f"- {label}: {', '.join(bits)}")
+        if not run_summary.get("metrics"):
+            rows = run_summary.get("progress_rows")
+            if rows is not None:
+                lines.append(f"- progress rows: {rows}")
+            res = run_summary.get("result_rows")
+            if res is not None:
+                lines.append(f"- result rows: {res}")
+
     # Paths for engineer to inspect
     lines.append("")
     lines.append("**Artifact paths**:")
@@ -364,6 +392,7 @@ def _run_direct(
     description: str,
     timeout: int,
     cwd: str,
+    run_dir: str | None = None,
 ) -> None:
     """Run command directly via Popen. No LLM involved."""
     log_dir = REGISTRY_DIR / f"{task_id}_logs"
@@ -383,6 +412,7 @@ def _run_direct(
                 "description": description, "command": command,
                 "pid": proc.pid, "worker_pid": os.getpid(),
                 "started_at": time.time(), "mode": "direct",
+                "run_dir": run_dir,
                 "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
             })
             try:
@@ -398,6 +428,7 @@ def _run_direct(
                     "pid": proc.pid, "timeout_seconds": timeout,
                     "elapsed_seconds": round(time.time() - start_time, 1),
                     "completed_at": time.time(), "mode": "direct",
+                    "run_dir": run_dir,
                     "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
                 }
                 _write_task(task_id, td)
@@ -413,6 +444,7 @@ def _run_direct(
             "command": command, "exit_code": proc.returncode,
             "elapsed_seconds": elapsed, "completed_at": time.time(),
             "pid": proc.pid, "mode": "direct",
+            "run_dir": run_dir,
             "stdout_tail": stdout_tail, "stderr_tail": stderr_tail,
             "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
         }
@@ -426,6 +458,7 @@ def _run_direct(
             "error": f"{type(exc).__name__}: {exc}",
             "elapsed_seconds": round(time.time() - start_time, 1),
             "completed_at": time.time(), "mode": "direct",
+            "run_dir": run_dir,
         }
         _write_task(task_id, td)
         _alert_engineer(task_id, "CRASHED", td)
@@ -520,6 +553,65 @@ def _child_env() -> dict[str, str]:
     env.setdefault("VLLM_LOGGING_LEVEL", "WARNING")
     env.setdefault("TQDM_DISABLE", "1")
     return env
+
+
+def _run_dir_from_command(command: str) -> str | None:
+    """Best-effort extract ``--run-dir <path>`` from a task command.
+
+    Experiment/eval commands already carry ``--run-dir`` (the RunWriter output
+    dir with progress.jsonl/status.json/summary.tsv). The engineer routinely
+    forgets to ALSO pass it to ``subagent submit``, which left status/report
+    blind to the structured signals -- the "black box" symptom. Parsing it back
+    out of the command makes every such task observable without extra wiring.
+    """
+    if not command or "--run-dir" not in command:
+        return None
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+    for i, tok in enumerate(tokens):
+        if tok == "--run-dir" and i + 1 < len(tokens):
+            return tokens[i + 1]
+        if tok.startswith("--run-dir="):
+            return tok.split("=", 1)[1]
+    return None
+
+
+def _effective_run_dir(task: dict[str, Any]) -> str | None:
+    """Run dir for a task record, recovering it from the command if unstored.
+
+    Tasks submitted before run_dir auto-capture (or whose terminal record
+    dropped the field) still carry ``--run-dir`` in their command, so reads
+    stay observable without a re-submit.
+    """
+    return task.get("run_dir") or _run_dir_from_command(task.get("command", ""))
+
+
+def _format_metric_line(summary: dict[str, Any]) -> str:
+    """Compact one-line headline (state + reward + completed/total) or ''."""
+    if not summary:
+        return ""
+    parts: list[str] = []
+    if summary.get("state"):
+        parts.append(str(summary["state"]))
+    for m in summary.get("metrics", []):
+        seg = []
+        if "reward" in m:
+            try:
+                seg.append(f"reward={float(m['reward']):.4g}")
+            except (TypeError, ValueError):
+                seg.append(f"reward={m['reward']}")
+        if "completed" in m and "total" in m:
+            seg.append(f"{m['completed']}/{m['total']}")
+        if m.get("errored"):
+            seg.append(f"{m['errored']} err")
+        if seg:
+            label = m.get("dataset") or m.get("condition") or ""
+            parts.append((f"{label} " if label else "") + " ".join(seg))
+    if not summary.get("metrics") and summary.get("progress_rows"):
+        parts.append(f"{summary['progress_rows']} progress rows")
+    return " | ".join(parts)
 
 
 def _supervisor_check(
@@ -816,6 +908,16 @@ def cmd_submit(args: argparse.Namespace) -> int:
     cwd = args.cwd or os.getcwd()
     mode = getattr(args, "mode", "direct") or "direct"
 
+    # Resolve the run directory: prefer an explicit --run-dir, else recover it
+    # from the command itself (commands already carry --run-dir). Store it as an
+    # absolute path so status/report can read progress.jsonl/status.json/
+    # summary.tsv regardless of the caller's cwd -- this is what makes the run
+    # observable instead of a black box.
+    run_dir = getattr(args, "run_dir", None) or _run_dir_from_command(args.command)
+    if run_dir:
+        rp = Path(run_dir)
+        run_dir = str(rp if rp.is_absolute() else Path(cwd) / rp)
+
     # Write initial state
     _write_task(task_id, {
         "state": "starting",
@@ -823,6 +925,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
         "description": args.description,
         "command": args.command,
         "mode": mode,
+        "run_dir": run_dir,
         "submitted_at": time.time(),
     })
 
@@ -836,6 +939,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "description": args.description,
             "command": args.command,
             "mode": mode,
+            "run_dir": run_dir,
             "pid": pid,
             "submitted_at": time.time(),
         })
@@ -844,6 +948,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "task_id": task_id,
             "pid": pid,
             "mode": mode,
+            "run_dir": run_dir,
             "description": args.description,
             "check_with": f"python -m argus_skill.tools.subagent status --task-id {task_id}",
         }))
@@ -865,7 +970,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             monitor_interval=getattr(args, "monitor_interval", 120) or 120,
             model=getattr(args, "model", SUPERVISOR_MODEL) or SUPERVISOR_MODEL,
             cwd=cwd,
-            run_dir=getattr(args, "run_dir", None),
+            run_dir=run_dir,
         )
     else:
         _run_direct(
@@ -874,6 +979,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             description=args.description,
             timeout=args.timeout,
             cwd=cwd,
+            run_dir=run_dir,
         )
     os._exit(0)
 
@@ -884,6 +990,41 @@ def cmd_submit(args: argparse.Namespace) -> int:
 # non-error. Only genuine failures get a non-zero exit.
 _OK_STATES = frozenset({"done", "running", "starting", "early_stopped"})
 _FAILED_STATES = frozenset({"error", "crashed", "timeout"})
+
+
+def _read_status_json(base: Path) -> dict[str, Any]:
+    """Read the RunWriter status.json (state/method/task_count/elapsed)."""
+    path = base / "status.json"
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _read_summary_tsv(base: Path) -> list[dict[str, Any]]:
+    """Parse aggregate rows from summary.tsv (the headline reward/score)."""
+    path = base / "summary.tsv"
+    if not path.exists():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    if len(lines) < 2:
+        return []
+    header = lines[0].split("\t")
+    rows: list[dict[str, Any]] = []
+    for line in lines[1:]:
+        if not line.strip():
+            continue
+        cells = line.split("\t")
+        row = dict(zip(header, cells))
+        if row.get("row_kind") == "aggregate":
+            rows.append(row)
+    return rows
 
 
 def _progress_summary(run_dir: str | None) -> dict[str, Any]:
@@ -914,6 +1055,37 @@ def _progress_summary(run_dir: str | None) -> dict[str, Any]:
             summary["result_rows"] = sum(1 for _ in results.open(encoding="utf-8"))
         except OSError:
             pass
+    # Headline state + score: the numbers that turn a "black box" run into an
+    # observable one. status.json gives run state/method; summary.tsv carries
+    # the aggregate reward and completed/errored counts.
+    status = _read_status_json(base)
+    for key in ("state", "method"):
+        if status.get(key) is not None:
+            summary[key] = status[key]
+    aggregates = _read_summary_tsv(base)
+    if aggregates:
+        metrics = []
+        for row in aggregates:
+            entry: dict[str, Any] = {}
+            for src, dst, cast in (
+                ("condition", "condition", str),
+                ("dataset_id", "dataset", str),
+                ("reward", "reward", float),
+                ("n_total_trials", "total", int),
+                ("n_completed_trials", "completed", int),
+                ("n_errored_trials", "errored", int),
+            ):
+                val = row.get(src)
+                if val in (None, ""):
+                    continue
+                try:
+                    entry[dst] = cast(val)
+                except (TypeError, ValueError):
+                    entry[dst] = val
+            if entry:
+                metrics.append(entry)
+        if metrics:
+            summary["metrics"] = metrics
     return summary
 
 
@@ -942,7 +1114,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     # poll tells the engineer whether the job is alive and advancing, without
     # it having to hand-inspect progress.jsonl/status.json itself.
     task["live"] = bool(pid and _is_pid_alive(pid))
-    progress = _progress_summary(task.get("run_dir"))
+    progress = _progress_summary(_effective_run_dir(task))
     if progress:
         task["progress"] = progress
 
@@ -985,6 +1157,9 @@ def cmd_list(args: argparse.Namespace) -> int:
                 "crashed": "💀", "timeout": "⏰", "early_stopped": "🛑"}.get(state, "?")
         elapsed_str = f" ({elapsed:.0f}s)" if isinstance(elapsed, (int, float)) else ""
         print(f"  {icon} {tid}: {state}{elapsed_str} — {desc}")
+        metric_line = _format_metric_line(_progress_summary(_effective_run_dir(t)))
+        if metric_line:
+            print(f"      ↳ {metric_line}")
 
     return 0
 
