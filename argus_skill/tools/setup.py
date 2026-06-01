@@ -361,6 +361,97 @@ def _write_special_prompt(name: str, body: str) -> Path:
     return path
 
 
+# -- Experiment use of the configured model API ----------------------------
+
+_EXPERIMENT_API_PROMPT_NAME = "30-experiment-api.md"
+
+
+def _experiment_api_prompt_path() -> Path:
+    return _special_prompts_dir() / _EXPERIMENT_API_PROMPT_NAME
+
+
+def _render_experiment_api_prompt() -> str:
+    """Operator special-prompt body authorizing API use inside experiments."""
+    return (
+        "# Experiment use of the configured model API (allowed)\n\n"
+        "The model API in `~/.argus-skill/capabilities/model_api.json` is "
+        "APPROVED for use **inside experiments**, not just for your own "
+        "engineer/reviewer reasoning. You may call it as a working component of "
+        "the research method, for example:\n\n"
+        "- an **LLM reward / preference model** in RL experiments "
+        "(RLHF/RLVR/RLAIF style),\n"
+        "- an **LLM-as-judge / verifier** for scoring rollouts or grading "
+        "outputs,\n"
+        "- **synthetic data / preference-pair generation**, prompt evaluation, "
+        "or labeling.\n\n"
+        "## How to call it\n\n"
+        "The mission process already has the credentials exported into the "
+        "environment by the framework — use them, do NOT paste keys into code "
+        "or config:\n\n"
+        "- `OPENAI_API_KEY`, `OPENAI_BASE_URL` — the default (engineer) route.\n"
+        "- `ARGUS_SKILL_TEXT_MODELS` — comma-separated text model id(s) you may "
+        "use.\n"
+        "- For route-specific needs, read the vault routes "
+        "(`~/.argus-skill/capabilities/model_api.json`, "
+        "`capabilities.model_api.routes.*`) programmatically; never echo the "
+        "key to logs, stdout, or files.\n\n"
+        "Use the standard OpenAI-compatible client pointed at `OPENAI_BASE_URL` "
+        "with `OPENAI_API_KEY`.\n\n"
+        "## Guardrails\n\n"
+        "- **Budget-aware.** These calls cost money and count against the "
+        "per-mission / daily caps. Cache responses, batch, and pick the "
+        "cheapest adequate model (prefer a `*-mini` text route when one is "
+        "configured). Don't spin unbounded judge/reward loops.\n"
+        "- **No secret leakage.** Never write the API key, base URL, vault "
+        "path, or any route/provider/deployment detail into the paper prose, "
+        "figures, sidecars, commits, or logs. Read from env at runtime only.\n"
+        "- **Methodological honesty.** If an API model is part of the method "
+        "(reward model, judge, data generator), describe it as such in the "
+        "paper at the appropriate abstraction level (e.g., \"an LLM-based "
+        "reward model\"), and keep the **evaluation benchmarks independent and "
+        "real** — do not let the same model that provides the reward also be "
+        "the sole judge of success in a way that inflates claims. Report the "
+        "judge/reward setup so results are reproducible in spirit.\n"
+        "- This permission is about USING the API as a tool in experiments; it "
+        "does not relax any evidence-quality, baseline-strength, or "
+        "anti-mediocrity requirement.\n"
+    )
+
+
+def _configure_experiment_api(routes: dict[str, dict]) -> bool:
+    """Ask whether experiments may call the configured model API; persist prompt."""
+    print(_cyan("  ── Experiment API access ──"))
+    print()
+    has_api = any((routes.get(r) or {}).get("api_key") for r in ("engineer", "text", "reviewer"))
+    if not has_api:
+        print(_dim("  No model API configured; skipping."))
+        print()
+        return False
+
+    print(_dim("  Allow experiments to CALL the configured model API as a"))
+    print(_dim("  working component (e.g. an LLM reward model / judge, synthetic"))
+    print(_dim("  data generation), not just for the agents' own reasoning?"))
+    print(_dim("  Credentials are read from the environment at runtime; keys are"))
+    print(_dim("  never written into code, the paper, or logs."))
+    print()
+
+    default_enable = "y" if _experiment_api_prompt_path().exists() else "n"
+    enable = _prompt("Allow API use inside experiments (reward/judge/etc.)? (y/N)",
+                     default_enable)
+    if enable.lower() not in ("y", "yes"):
+        print(_dim("  Experiment API use not authorized."))
+        print()
+        return False
+
+    path = _write_special_prompt(_EXPERIMENT_API_PROMPT_NAME, _render_experiment_api_prompt())
+    print()
+    print(f"  {_green('✓')} Operator prompt   → {path}")
+    print(_dim("    (this also satisfies the launch gate's required special "
+               "prompt)"))
+    print()
+    return True
+
+
 def _configure_gpu_keepalive(
     gpus: list[dict], gpu_config: dict, existing: dict | None,
 ) -> dict | None:
@@ -612,7 +703,8 @@ def _load_existing_gpu() -> dict | None:
         return None
 
 
-def _summary(routes: dict[str, dict], gpu: dict, keepalive: dict | None = None) -> None:
+def _summary(routes: dict[str, dict], gpu: dict, keepalive: dict | None = None,
+             experiment_api: bool = False) -> None:
     """Print final summary."""
     print(_bold("═" * 60))
     print(_bold("  Configuration Summary"))
@@ -634,6 +726,8 @@ def _summary(routes: dict[str, dict], gpu: dict, keepalive: dict | None = None) 
         print(f"  {_cyan('GPU keep-alive'):30s} holding device(s) {held}")
     else:
         print(f"  {_cyan('GPU keep-alive'):30s} {_dim('disabled')}")
+    state = "allowed" if experiment_api else "not authorized"
+    print(f"  {_cyan('Experiment API use'):30s} {state}")
     print()
 
 
@@ -717,6 +811,11 @@ def run_setup() -> int:
         )
         routes["text"] = routes["engineer"]
 
+    # Step 1b: Experiment API access
+    print(_bold("  Step 1b: Experiment API access"))
+    print()
+    experiment_api = _configure_experiment_api(routes)
+
     # Step 2: GPU
     print(_bold("  Step 2: GPU Resources"))
     print()
@@ -763,7 +862,7 @@ def run_setup() -> int:
     print()
 
     # Summary
-    _summary(routes, gpu_config, keepalive_config)
+    _summary(routes, gpu_config, keepalive_config, experiment_api)
 
     print(_green("  ✓ Setup complete! You can now create a research project:"))
     print()

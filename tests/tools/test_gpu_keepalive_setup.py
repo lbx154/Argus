@@ -87,3 +87,45 @@ def test_gpu_load_arg_defaults() -> None:
     assert args2.gpus == "0,2"
     assert args2.mem == 5.0
     assert args2.util == 15.0
+
+
+def test_experiment_api_prompt_content() -> None:
+    body = _wizard._render_experiment_api_prompt()
+    assert "reward" in body.lower()
+    assert "judge" in body.lower()
+    assert "OPENAI_API_KEY" in body
+    # must not relax rigor and must forbid key leakage
+    assert "anti-mediocrity" in body.lower()
+    assert "Never write the API key" in body
+
+
+def test_configure_experiment_api_writes_prompt(tmp_path: Path, monkeypatch) -> None:
+    sp_dir = tmp_path / "special_prompts"
+    monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(sp_dir))
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "y")
+    from argus_skill.life import special_prompts
+
+    ok = _wizard._configure_experiment_api({"engineer": {"api_key": "sk-x"}})
+    assert ok is True
+    path = sp_dir / "30-experiment-api.md"
+    assert path.exists()
+    assert (path.stat().st_mode & 0o022) == 0  # not group/world-writable
+    assert "30-experiment-api" in dict(special_prompts.load_special_prompts())
+
+
+def test_configure_experiment_api_skips_without_api(tmp_path: Path, monkeypatch) -> None:
+    sp_dir = tmp_path / "special_prompts"
+    monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(sp_dir))
+    # no api_key in any route -> skip, never prompt
+    ok = _wizard._configure_experiment_api({"engineer": {}})
+    assert ok is False
+    assert not (sp_dir / "30-experiment-api.md").exists()
+
+
+def test_configure_experiment_api_decline(tmp_path: Path, monkeypatch) -> None:
+    sp_dir = tmp_path / "special_prompts"
+    monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(sp_dir))
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "n")
+    ok = _wizard._configure_experiment_api({"engineer": {"api_key": "sk-x"}})
+    assert ok is False
+    assert not (sp_dir / "30-experiment-api.md").exists()

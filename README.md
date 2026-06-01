@@ -146,14 +146,17 @@ argus-skill --setup
 向导会依次引导你配置：
 
 1. **三个 Agent 的 API**（Planner / Engineer / Reviewer）— 支持共享或独立配置
-2. **GPU 资源分配** — 自动检测所有 GPU，选择分配给 Argus 的设备
-3. **GPU Keep-Alive（防回收）** — 询问这台机器是否会回收空闲 GPU、需要占用几张。
+2. **实验 API 授权** — 询问是否允许实验中调用配置好的模型 API（例如当 LLM
+   reward 模型 / judge、合成数据生成），而不仅用于 agent 自身推理。开启后写一个
+   operator special prompt；凭证运行时从环境变量读取，绝不写进代码/论文/日志。
+3. **GPU 资源分配** — 自动检测所有 GPU，选择分配给 Argus 的设备
+4. **GPU Keep-Alive（防回收）** — 询问这台机器是否会回收空闲 GPU、需要占用几张。
    托管/云主机常会回收空闲 GPU，导致长论文跑被回收、进度丢失。开启后 Argus
    会用一个低占空比的 keep-alive 加载器在安静期（只调 API/写作）占住显卡；真正
    跑实验时由 `gpu_lease` 自动让位、跑完再 re-park。向导会写好
    `~/.argus-skill/capabilities/gpu_keepalive.json` 和一个 operator special
    prompt（同时满足 daemon 启动门禁所需的 special prompt）。
-4. **Codex CLI 配置** — 用你刚输入的同一把 API key/base_url 自动写好
+5. **Codex CLI 配置** — 用你刚输入的同一把 API key/base_url 自动写好
    `~/.codex/config.toml` 和 `~/.codex/auth.json`（已存在的文件会备份成
    `*.bak` 后才覆盖；不想覆盖直接回车）
 
@@ -169,6 +172,11 @@ argus-skill --setup
   Planner model [gpt-5.4]:
   Engineer model [gpt-5.4]:
   Reviewer model [gpt-5.4]:
+
+  Step 1b: Experiment API access
+  ── Experiment API access ──
+  Allow API use inside experiments (reward/judge/etc.)? (y/N) [n]: y
+  ✓ Operator prompt   → ~/.argus-skill/special_prompts/30-experiment-api.md
 
   Step 2: GPU Resources
   Available GPUs:
