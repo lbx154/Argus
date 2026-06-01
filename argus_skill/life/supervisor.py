@@ -1565,6 +1565,32 @@ class LifeSupervisor:
                 "count": len(out),
                 "messages": out,
             })
+            # Opt #4: persistent absorption record. Earlier the inbox
+            # drain only injected operator nudges into the engineer's
+            # one-round prompt + emitted a transient event. That
+            # gave the operator no way to confirm "did the daemon
+            # actually see my notify?" hours later. Now we write a
+            # ``inbox.injected`` journal entry per drain so the
+            # operator (via --status / --watch / cockpit) can verify
+            # absorption, and the feedback-parser skill (run later
+            # by the engineer/planner agent) has a stable record to
+            # iterate over for L1 polish / L2 mint decisions.
+            try:
+                summary = " | ".join(
+                    (m if len(m) < 80 else m[:77] + "...") for m in out
+                )
+                entry = JournalEntry.new(
+                    kind="inbox.injected",
+                    title=f"{len(out)} operator message(s) injected",
+                    summary=summary,
+                    tags=["inbox", "feedback"],
+                )
+                self.memory.journal.append(entry)
+                self._inject_cumulative_cost(entry)
+            except Exception:  # noqa: BLE001
+                log.exception(
+                    "inbox journal-write failed; messages still injected to engineer"
+                )
         return out
 
     def _maybe_stop(self) -> str:

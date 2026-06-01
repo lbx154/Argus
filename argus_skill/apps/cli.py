@@ -1720,6 +1720,38 @@ def _render_lifecycle_status_lines(workdir: Path) -> list[str]:
     return lines
 
 
+def _render_inbox_injection_lines(bundle: Any, *, limit: int = 3) -> list[str]:
+    """Surface recent inbox-injection journal entries (Opt #4).
+
+    Lets the operator confirm that `argus-skill --notify "..."` was
+    seen by the daemon and injected into a mission prompt. Returns
+    [] when no inbox.injected entries exist.
+    """
+    try:
+        entries = list(bundle.journal.tail(50))
+    except Exception:  # noqa: BLE001
+        return []
+    injected = [
+        e for e in entries
+        if getattr(e, "kind", "") == "inbox.injected"
+    ][-limit:]
+    if not injected:
+        return []
+    lines = ["  inbox (last injections):"]
+    for e in injected:
+        ts = getattr(e, "ts", 0.0)
+        try:
+            import datetime as _dt
+            stamp = _dt.datetime.fromtimestamp(float(ts)).strftime("%H:%M:%S")
+        except Exception:  # noqa: BLE001
+            stamp = "?"
+        summary = (getattr(e, "summary", "") or "").replace("\n", " ")
+        if len(summary) > 100:
+            summary = summary[:97] + "..."
+        lines.append(f"    {stamp}  {summary}")
+    return lines
+
+
 def _render_mid_mission_progress_lines(bundle: Any, *, current_item_id: str | None) -> list[str]:
     """Tail events.jsonl for the currently-running mission and surface
     the last 3-5 events as quick-read progress. Fail-soft.
@@ -1965,6 +1997,13 @@ def _cmd_status(args: argparse.Namespace) -> int:
     )
     progress_lines = _render_mid_mission_progress_lines(bundle, current_item_id=running_id)
     for line in progress_lines:
+        print(line)
+
+    # Inbox injections (Opt #4). Operator can now confirm via --status
+    # that their --notify messages were seen by the daemon and woven
+    # into a mission prompt (vs disappearing into the void).
+    inbox_lines = _render_inbox_injection_lines(bundle)
+    for line in inbox_lines:
         print(line)
 
     if journal_tail:
