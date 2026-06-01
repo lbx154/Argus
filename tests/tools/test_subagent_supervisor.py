@@ -172,6 +172,53 @@ def test_build_report_surfaces_concern_for_running_task() -> None:
     assert "STILL RUNNING" in report
 
 
+def test_supervisor_authors_report_grounded_in_diagnosis(monkeypatch) -> None:
+    # The summary + next step must be authored from the supervisor's own
+    # diagnosis, not a signal-blind summarizer that only sees stdout.
+    from argus_skill.tools import subagent as sub
+
+    captured: dict[str, str] = {}
+
+    class _Result:
+        stdout = ""
+
+    def fake_run(cmd, **kwargs):
+        captured["prompt"] = cmd[-1]
+        r = _Result()
+        r.stdout = _codex_jsonl(
+            "I stopped B2 because completions were truncated, not formatted. "
+            "Next step: raise max_completion_length and re-check termination."
+        )
+        return r
+
+    monkeypatch.setattr(sub, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(sub.subprocess, "run", fake_run)
+
+    out = sub._supervisor_summarize_report(
+        "train-B2",
+        "EARLY-STOPPED",
+        {
+            "concern": (
+                "clipped_ratio=1.0 and mean_terminated_length=0; generations are "
+                "truncated rather than formatted answers"
+            ),
+            "stop_reason": "supervisor early-stop",
+            "last_supervisor_decision": "early_stop",
+            "last_supervisor_health": "degrading",
+            "command": "python train.py",
+        },
+    )
+    prompt = captured["prompt"]
+    # The supervisor's diagnosis is fed into the report it authors...
+    assert "clipped_ratio=1.0" in prompt
+    assert "early-stop" in prompt.lower()
+    # ...and the next step is steered to the root cause, not a blind rerun.
+    assert "root cause" in prompt.lower()
+    assert "rerunning unchanged" in prompt.lower()
+    # The authored report is returned.
+    assert "max_completion_length" in out
+
+
 def test_verdict_survives_trailing_non_json_chatter() -> None:
     # If codex emits the verdict and then a trailing prose message, the most
     # recent *parseable* verdict must still win (not a no-op continue/unknown).

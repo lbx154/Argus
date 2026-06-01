@@ -205,8 +205,16 @@ def _concern_signature(concern: str) -> str:
     )
 
 
-def _llm_summarize_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
-    """Use LLM to generate a concise, insightful report for the engineer."""
+def _supervisor_summarize_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
+    """Have the supervisor author its own handoff report to the engineer.
+
+    The supervisor watched the run and (for an early-stop or concern) decided
+    why it intervened, so it — not a separate, signal-blind summarizer — writes
+    the report AND the next step. Its own diagnosis (concern / stop_reason /
+    verdict trail) is fed in alongside the run signals so the next step follows
+    from the reason instead of defaulting to a mechanical "remove the STOP file
+    and rerun".
+    """
     codex = _find_codex()
     stdout_tail = task_data.get("stdout_tail", "")[-2000:]
     stderr_tail = task_data.get("stderr_tail", "")[-1000:]
@@ -215,9 +223,29 @@ def _llm_summarize_report(task_id: str, event: str, task_data: dict[str, Any]) -
     description = task_data.get("description", "")
     exit_code = task_data.get("exit_code", "N/A")
     checks = task_data.get("supervisor_checks", 0)
+    concern = task_data.get("concern", "") or task_data.get("last_supervisor_concern", "")
+    stop_reason = task_data.get("stop_reason", "")
+    decision = task_data.get("last_supervisor_decision", "")
+    health = task_data.get("last_supervisor_health", "")
+
+    # Structured run signals — the same clean channel the periodic checks read.
+    run_dir = _effective_run_dir(task_data)
+    progress_tail = status_tail = ""
+    if run_dir:
+        base = Path(run_dir)
+        if (base / "progress.jsonl").exists():
+            progress_tail = _tail_file(base / "progress.jsonl", 1200)
+        if (base / "status.json").exists():
+            status_tail = _tail_file(base / "status.json", 800)
+    sup_log = task_data.get("supervisor_log", "")
+    verdict_tail = ""
+    if sup_log and Path(sup_log).exists():
+        verdict_tail = _tail_file(Path(sup_log), 800)
 
     prompt = (
-        f"You are a subagent reporting to the engineer. Generate a concise report.\n\n"
+        "You are the supervisor agent that has monitored this GPU run from the\n"
+        "start. You make the call here and you write the handoff report that goes\n"
+        "to the engineer — speak in the first person as the supervisor.\n\n"
         f"Task: {task_id}\n"
         f"Description: {description}\n"
         f"Event: {event}\n"
@@ -226,11 +254,25 @@ def _llm_summarize_report(task_id: str, event: str, task_data: dict[str, Any]) -
     )
     if checks:
         prompt += f"Supervisor checks: {checks}\n"
+    if decision:
+        prompt += f"Your last decision: {decision} | health: {health}\n"
+    if stop_reason:
+        prompt += f"Mechanical stop reason: {stop_reason}\n"
+    if concern:
+        prompt += (
+            "YOUR DIAGNOSIS (authoritative — this is WHY; ground the report and "
+            f"next step in it): {concern}\n"
+        )
+    if verdict_tail:
+        prompt += f"\n=== your recent verdicts (supervisor.jsonl tail) ===\n{verdict_tail}\n"
+    if progress_tail:
+        prompt += f"\n=== progress.jsonl (tail) ===\n{progress_tail}\n"
+    if status_tail:
+        prompt += f"\n=== status.json ===\n{status_tail}\n"
     prompt += f"\n=== stdout (last 2000 chars) ===\n{stdout_tail}\n"
     if stderr_tail and event != "COMPLETED":
         prompt += f"\n=== stderr (last 1000 chars) ===\n{stderr_tail}\n"
 
-    # Paths
     log_dir = REGISTRY_DIR / f"{task_id}_logs"
     prompt += (
         f"\nArtifact paths:\n"
@@ -238,16 +280,23 @@ def _llm_summarize_report(task_id: str, event: str, task_data: dict[str, Any]) -
         f"- stderr: {task_data.get('stderr_log', str(log_dir / 'stderr.log'))}\n"
         f"- task record: {_registry_path(task_id)}\n"
     )
-    sup_log = task_data.get("supervisor_log", "")
     if sup_log:
         prompt += f"- supervisor log: {sup_log}\n"
+    if run_dir:
+        prompt += f"- run dir: {run_dir}\n"
 
     prompt += (
-        "\nWrite a report in markdown for the engineer. Include:\n"
-        "1. One-sentence summary of what happened\n"
-        "2. Key metrics extracted from stdout (loss, accuracy, steps, etc.)\n"
-        "3. All artifact paths the engineer needs to inspect\n"
-        "4. Concrete next action the engineer should take\n"
+        "\nWrite your handoff report to the engineer in markdown:\n"
+        "1. One sentence: what happened and — if you stopped or flagged it — WHY,\n"
+        "   grounded in your diagnosis above. Do NOT reduce an early-stop to 'a STOP\n"
+        "   file appeared'; say what was actually wrong.\n"
+        "2. Key metrics from the signals (reward, loss, steps, clipped_ratio,\n"
+        "   response/completion length, KL, etc.).\n"
+        "3. Artifact paths the engineer should inspect.\n"
+        "4. The concrete next step that FOLLOWS FROM YOUR DIAGNOSIS. If you stopped\n"
+        "   for a quality issue (truncation/clipping, reward collapse, degenerate\n"
+        "   outputs), the next step must address that root cause — do not default to\n"
+        "   rerunning unchanged. If the run is healthy/complete, say how to use it.\n"
         "Keep it under 300 words. Be direct and actionable."
     )
 
@@ -256,7 +305,7 @@ def _llm_summarize_report(task_id: str, event: str, task_data: dict[str, Any]) -
             [codex, "exec", "--json", "-m", SUPERVISOR_MODEL,
              "--skip-git-repo-check", "--ephemeral",
              "--dangerously-bypass-approvals-and-sandbox", prompt],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=90,
         )
         return _codex_last_agent_message(result.stdout)
     except Exception:
@@ -265,17 +314,19 @@ def _llm_summarize_report(task_id: str, event: str, task_data: dict[str, Any]) -
 
 
 def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
-    """Build a report for engineer. Uses LLM if available, falls back to template."""
+    """Build a report for engineer. The supervisor authors the summary when a
+    codex backend is available; falls back to a deterministic template."""
     # A supervisor concern is surfaced verbatim on every path so it survives the
-    # LLM summarizer too (e.g. when an early-stop carries an explanatory concern).
+    # supervisor's own prose too (e.g. when an early-stop carries a diagnosis).
     concern = task_data.get("concern", "") or task_data.get("last_supervisor_concern", "")
     concern_block = f"**Supervisor concern**: {concern}\n\n" if concern else ""
     # A CONCERN is a mid-run flag whose whole point is the supervisor's own
-    # words; skip the stdout-summarizing LLM path so the concern stays front and
-    # center instead of being paraphrased away.
+    # words; skip the authored summary so the concern stays front and center
+    # instead of being paraphrased away.
     if event != "CONCERN":
-        # Try LLM summary first
-        llm_report = _llm_summarize_report(task_id, event, task_data)
+        # The supervisor — which watched the run and made the call — writes the
+        # summary and the next step, grounded in its own diagnosis.
+        llm_report = _supervisor_summarize_report(task_id, event, task_data)
         if llm_report and len(llm_report) > 50:
             return f"## Subagent Report: {task_id} [{event}]\n\n{concern_block}{llm_report}"
 
