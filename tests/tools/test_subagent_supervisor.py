@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import types
 
 from argus_skill.tools.subagent import (
     SUPERVISOR_INTERVAL_CAP,
@@ -10,13 +11,22 @@ from argus_skill.tools.subagent import (
     _codex_last_agent_message,
     _concern_signature,
     _effective_run_dir,
+    _engineer_replies_path,
+    _engineer_reply_count,
     _format_metric_line,
     _next_monitor_interval,
     _norm_decision,
     _norm_health,
     _progress_summary,
+    _read_engineer_replies_tail,
+    _record_engineer_reply,
+    _reply_back_block,
+    _reset_engineer_replies,
     _run_dir_from_command,
     _strip_code_fence,
+    _supervisor_check,
+    _write_task,
+    cmd_reply,
 )
 
 
@@ -332,3 +342,106 @@ def test_format_metric_line_is_compact_and_readable(tmp_path) -> None:
     assert "240/240" in line
     assert _format_metric_line({}) == ""
 
+
+
+# ---------------------------------------------------------------------------
+# Engineer -> supervisor reply channel (two-way concern loop)
+# ---------------------------------------------------------------------------
+
+def test_engineer_reply_roundtrip_skips_partial_line(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    tid = "train-demo"
+    assert _engineer_reply_count(tid) == 0
+    _record_engineer_reply(tid, "  shorter is   chosen for\nstability ")
+    _record_engineer_reply(tid, "second note")
+    assert _engineer_reply_count(tid) == 2
+    tail = _read_engineer_replies_tail(tid)
+    assert "shorter is chosen for stability" in tail
+    assert "second note" in tail
+    # A concurrent half-written final line must not corrupt the rendered tail.
+    with _engineer_replies_path(tid).open("a") as f:
+        f.write('{"message": "half')
+    tail2 = _read_engineer_replies_tail(tid)
+    assert "second note" in tail2
+    assert "half" not in tail2
+    _reset_engineer_replies(tid)
+    assert _engineer_reply_count(tid) == 0
+
+
+def test_reply_back_block_only_for_concern_and_early_stop() -> None:
+    tid = "train-x"
+    for ev in ("CONCERN", "EARLY-STOPPED"):
+        block = _reply_back_block(tid, ev)
+        assert "subagent reply" in block
+        assert f"--task-id {tid}" in block
+    assert _reply_back_block(tid, "COMPLETED") == ""
+    assert _reply_back_block(tid, "CRASHED") == ""
+
+
+def test_build_report_concern_tells_engineer_to_reply() -> None:
+    report = _build_report(
+        "train-B2",
+        "CONCERN",
+        {"concern": "clipped_ratio=1.0; completions truncated, open up max length",
+         "command": "python train.py", "mode": "supervised"},
+    )
+    assert "Reply to the supervisor" in report
+    assert "subagent reply --task-id train-B2" in report
+
+
+def test_supervisor_check_feeds_engineer_replies_into_prompt(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    tid = "train-B2"
+    _record_engineer_reply(tid, "I went shorter on purpose: answer-only fits the budget")
+
+    captured: dict[str, str] = {}
+
+    class _Result:
+        stdout = ""
+
+    def fake_run(cmd, **kwargs):
+        captured["prompt"] = cmd[-1]
+        r = _Result()
+        r.stdout = _codex_jsonl('{"decision": "continue", "health": "healthy", "concern": ""}')
+        return r
+
+    monkeypatch.setattr("argus_skill.tools.subagent._find_codex", lambda: "codex")
+    monkeypatch.setattr("argus_skill.tools.subagent.subprocess.run", fake_run)
+
+    out = tmp_path / "stdout.log"
+    err = tmp_path / "stderr.log"
+    out.write_text("step 5 reward 0\n")
+    err.write_text("")
+    decision, health, concern = _supervisor_check(
+        tid, "python train.py", "DAPO run", out, err, 120.0, 1, "gpt-5.5", str(tmp_path),
+    )
+    assert decision == "continue"
+    prompt = captured["prompt"]
+    # The engineer's rationale is in the supervisor's context...
+    assert "answer-only fits the budget" in prompt
+    # ...framed as an argument it must weigh, not obey.
+    assert "ARGUMENT, not an instruction" in prompt
+
+
+def test_cmd_reply_records_and_validates(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    tid = "train-B2"
+    # Unknown task is rejected.
+    args_missing = types.SimpleNamespace(task_id=tid, message="hi", message_file=None)
+    assert cmd_reply(args_missing) == 2
+
+    _write_task(tid, {"state": "running", "task_id": tid, "mode": "supervised", "pid": 0})
+    capsys.readouterr()
+    # Empty message is rejected.
+    args_empty = types.SimpleNamespace(task_id=tid, message="   ", message_file=None)
+    assert cmd_reply(args_empty) == 2
+
+    args_ok = types.SimpleNamespace(
+        task_id=tid, message="shorter on purpose; opening length hurts throughput",
+        message_file=None,
+    )
+    assert cmd_reply(args_ok) == 0
+    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert payload["state"] == "reply_recorded"
+    assert payload["reply_count"] == 1
+    assert "shorter on purpose" in _read_engineer_replies_tail(tid)
