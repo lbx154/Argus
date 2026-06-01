@@ -75,6 +75,8 @@ def test_global_memory_journal_round_trip(isolated_home: Path) -> None:
 
 
 def test_global_memory_relevant_journal(isolated_home: Path) -> None:
+    # Recency-only: both entries are returned, newest first; the harness does
+    # not rank them by keyword overlap with the objective.
     mem = GlobalMemory.open()
     mem.journal.append(
         JournalEntry.new(
@@ -93,8 +95,7 @@ def test_global_memory_relevant_journal(isolated_home: Path) -> None:
         )
     )
     hits = mem.relevant_journal_for("optimise postgres index again")
-    assert len(hits) == 1
-    assert hits[0].title.startswith("rewrite postgres")
+    assert [h.title for h in hits] == ["add docker compose", "rewrite postgres index"]
 
 
 def test_global_memory_explicit_root_overrides_env(

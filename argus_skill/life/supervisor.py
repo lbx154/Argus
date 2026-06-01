@@ -212,14 +212,16 @@ _FULL_EMNLP_GATE_DESCRIPTION = (
 )
 
 
-def _is_emnlp_finalization_objective(text: str) -> bool:
-    """True when an objective is a project-final ``final_submission`` task.
+def _legacy_final_submission_marker(text: str) -> bool:
+    """Legacy backlog migration: recognize the ``final_submission`` scope from
+    objective prose.
 
-    Used by the planner dedupe so a fresh final-submission readiness task can
-    be re-queued even after a previous one was marked ``done`` (completion is
-    re-certified by the reviewer each time, not cached). Keys on the
-    ``final_submission`` scope marker rather than retired validator command
-    names.
+    New backlog items always carry the structured ``scope:final_submission``
+    tag (see ``_planner_task_tags``). This prose recognizer exists ONLY so a
+    daemon that resumes a backlog persisted by an older build — whose items may
+    have the marker only in their objective text — still exempts a ``done``
+    final-submission task from planner dedupe. It is a one-shot format bridge,
+    not a runtime relevance/completion judgment.
     """
     normalized = _normalize_planner_text(text)
     return (
@@ -1586,6 +1588,16 @@ class LifeSupervisor:
                 return _PLANNER_SCOPE_BOUNDED
         return ""
 
+    @classmethod
+    def _item_is_final_submission(cls, item: BacklogItem) -> bool:
+        """True when a backlog item is a project-final ``final_submission``
+        task. Prefers the structured ``scope:final_submission`` tag; falls back
+        to the legacy objective-prose marker only for items persisted before
+        scope tagging existed (resumed-daemon compatibility)."""
+        if cls._planner_scope_from_item(item) == _PLANNER_SCOPE_FINAL_SUBMISSION:
+            return True
+        return _legacy_final_submission_marker(getattr(item, "objective", "") or "")
+
     def _render_backlog_item_metadata(self, item: BacklogItem) -> str:
         scope = self._planner_scope_from_item(item)
         if not scope and not item.tags:
@@ -2082,7 +2094,7 @@ class LifeSupervisor:
                 continue
             if (
                 existing.status == "done"
-                and _is_emnlp_finalization_objective(existing.objective)
+                and self._item_is_final_submission(existing)
             ):
                 continue
             signature = _planner_task_signature(existing.title, existing.objective)

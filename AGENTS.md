@@ -40,7 +40,7 @@ argus-skill / python -m argus_skill
 - `argus_skill/apps/_life_repl.py`: 交互 cockpit，也包含真实 mission runner `_CodexSkillLoopRunner` 和 memory backend runner。单个 backlog item 最终就是从这里进 `SkillLoop`。
 - `argus_skill/life/router.py`: operator 自由文本的 chat-vs-task 路由。**不再用关键词/正则分类**（历史的 `is_conversational` 用 60 字符上限 + 中英文正则猜“这是闲聊吗”，harness 比 agent 聪明）。现在 `classify_is_conversational(text, *, run_exec)` 做一次低 reasoning 的模型调用，只有模型精确回答 `CHAT` 才返回 True，其余（TASK / 模糊 / 空 / 非零退出 / 异常）一律按 task 走完整 pipeline——bias 向 task，宁可多跑也不误吞任务。**只有 operator 在 REPL 里直接敲的自由文本**才会被分类（`_CodexSkillLoopRunner._allow_chat_fast_path`，默认 False，仅 `_invoke_supervisor` 在 `_free_text_cmd` 非 continuous 路径置 True）；planner / `/add` backlog / daemon 的任何任务都不分类，否则就是 harness 二次猜 planner。
 - `argus_skill/daemon/life_worker.py`: detached daemon 版本的同一套逻辑。这里管 `continuous.json` 热加载、pid lock、blue/green handoff、daemon status、预算环境变量。
-- `argus_skill/life/memory.py`: 磁盘状态。global root 默认 `~/.argus-skill/`，project state 默认 `~/.argus-skill/projects/<fingerprint>/`。
+- `argus_skill/life/memory.py`: 磁盘状态。global root 默认 `~/.argus-skill/`，project state 默认 `~/.argus-skill/projects/<fingerprint>/`。注入 mission 前的 “memory context” prelude(`render_prelude`)走**纯 recency**：surface 最近 N 条 journal(按所传 journal 做 project 隔离),**不再用关键词 Jaccard 给“相关性”打分**——“哪段过往工作相关”是 agent 读这段(标了 non-authoritative 的)advisory 后自己判断的,不是 harness 用词面重叠去猜。`relevant_journal_for` / `_score_journal` 的 `min_score` 参数保留但忽略。
 
 常见状态文件：
 
@@ -135,15 +135,16 @@ L2 reviewer 在 `argus_skill/engineer/reviewer.py`。
 - reviewer prompt。
 - `reviewer_schema.json` 结构化输出。
 - `parse_decision_text` / JSON verdict。
-- 对近完成论文任务自动注入 `academic-paper-peer-review-benchmark.md`。
+- 对近完成论文任务自动注入 `academic-paper-peer-review-benchmark.md`：注入与否**按结构化 stage/scope 裁决**（`is_final_submission or stage in {review, submission}`），不再用关键词扫 objective/evidence 里的 `main.pdf`/`references.bib` 之类 token。`draft` 阶段不注入,避免初稿阶段被过早套上终审标准。
 - reviewer-to-engineer handoff skill：`reviewer-engineer-handoff.md`。
 
-> **不再有 harness 关键词改判。** 历史上 `reviewer.py` 有个
+> **不再有 harness 关键词改判，也不再从 prose 猜 scope。** 历史上 `reviewer.py` 有个
 > `_coerce_decision_against_main_summary`，会用关键词正则扫 engineer 的 summary，
 > 把 reviewer 的 `done` 强行改成 `continue`（harness 比 agent 聪明，违背设计哲学）。
 > 该函数连同它的 `GENERIC_MAIN_PATTERNS` / `CONCRETE_EXECUTION_PATTERNS` 等正则常量
 > 已全部删除。需要“别在没有执行证据时判 done”的约束，现在写进 reviewer prompt
-> 由 L2 自己判断，而不是 harness 事后覆盖裁决。
+> 由 L2 自己判断，而不是 harness 事后覆盖裁决。`is_final_submission` 现在**只认结构化
+> scope**（`scope == final_submission`，归一化时 `-`→`_`),删掉了过去 `"scope: final_submission" in objective` 这类 prose 兜底——scope 由 planner 以 backlog tag 形式一路透传到 reviewer。
 
 如果 reviewer 老是误判：
 
@@ -351,7 +352,7 @@ contract 要求非数据类 paper-facing figure 通过 image-2/codex-image2 路�
 - `full_emnlp_gate` 这个**显式 config flag**（不再从 objective 文本猜）决定：`project_done` 前必须有一次被 reviewer 认证的 full-pipeline gate 通过记录。非论文的 continuous mission 可把它置 False。
 - `_journal_has_full_emnlp_gate_success(...)`: 在 journal 里查这条认证记录（`final_submission_certified=True`）。
 - `_plan_next_work(...)`: 若 planner 在尚未认证时就报 `project_done`，这里把它的裁决**替换**成一个 `scope=final_submission` 的 “Prove final submission readiness” 任务，交回 L2 reviewer 做整链认证。
-- **scope 是结构化透传的，不再从 prose 里二次解析。** backlog item 的 `scope`（`final_submission` / `bounded` / 空）由 `_planner_scope_from_item(item)`（读 `item.tags`）算出，经 `MissionExecutor.execute(..., scope=...)` 一路传到 `_CodexSkillLoopRunner` 和 reviewer。runner 不再从 objective prose 猜 `mission_scope`，reviewer 把结构化 scope 当 final-submission 信号的首要来源（保留的 prose fallback 仅作冗余防御）。
+- **scope 是结构化透传的，不再从 prose 里二次解析。** backlog item 的 `scope`（`final_submission` / `bounded` / 空）由 `_planner_scope_from_item(item)`（读 `item.tags`）算出，经 `MissionExecutor.execute(..., scope=...)` 一路传到 `_CodexSkillLoopRunner` 和 reviewer。runner 不再从 objective prose 猜 `mission_scope`，reviewer 也只认结构化 scope(prose fallback 已删)。planner 去重里“`done` 的 final-submission 任务不挡新任务入队”这条豁免,也改走结构化的 `_item_is_final_submission(item)`(读 tag);`_legacy_final_submission_marker(text)` 只作为**老 backlog 迁移**兜底——给“tag 出现前持久化、只在 objective prose 里带 marker”的旧 item 用,保证 resume 的 daemon 不回归,新 item 一律带 tag。
 
 所以：
 

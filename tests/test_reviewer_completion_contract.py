@@ -279,15 +279,42 @@ def test_journal_gate_ignores_stale_validator_text(tmp_path: Path) -> None:
     assert sup._journal_has_full_emnlp_gate_success() is False
 
 
-def test_is_emnlp_finalization_objective_keys_on_scope() -> None:
-    from argus_skill.life.supervisor import _is_emnlp_finalization_objective
+def test_item_is_final_submission_prefers_structured_tag() -> None:
+    from argus_skill.life.memory import BacklogItem
+    from argus_skill.life.supervisor import (
+        LifeSupervisor,
+        _legacy_final_submission_marker,
+    )
 
-    assert _is_emnlp_finalization_objective(
-        "Project-final task. Scope: final_submission. Complete the pipeline."
-    ) is True
-    assert _is_emnlp_finalization_objective(
+    # Structured scope tag is the primary signal — objective prose is
+    # irrelevant when the tag is present.
+    tagged = BacklogItem.new(
+        title="Prove final submission readiness",
+        objective="anything at all",
+        tags=["planner", "scope:final_submission"],
+    )
+    assert LifeSupervisor._item_is_final_submission(tagged) is True
+
+    bounded = BacklogItem.new(
+        title="t",
+        objective="add a unit test for the parser",
+        tags=["planner", "scope:bounded"],
+    )
+    assert LifeSupervisor._item_is_final_submission(bounded) is False
+
+    # Legacy items (persisted before scope tagging) fall back to the
+    # objective-prose marker so resumed daemons don't regress.
+    legacy = BacklogItem.new(
+        title="t",
+        objective="Project-final task. Scope: final_submission. Complete the pipeline.",
+        tags=[],
+    )
+    assert LifeSupervisor._item_is_final_submission(legacy) is True
+
+    # The legacy recognizer keys on the marker, not arbitrary prose.
+    assert _legacy_final_submission_marker(
         "## Backlog item metadata\n- planner_scope: final_submission"
     ) is True
-    assert _is_emnlp_finalization_objective(
+    assert _legacy_final_submission_marker(
         "Bounded task: add a unit test for the parser."
     ) is False

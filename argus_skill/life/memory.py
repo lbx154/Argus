@@ -15,9 +15,11 @@ Three storage shapes:
   captures repo-specific conventions and red lines.
 
 The :class:`LifeMemory` facade bundles the global files plus a small
-retrieval helper that returns the most-relevant N journal entries for a
-new objective via word-overlap (keyword Jaccard). Recency is a
-tiebreaker.
+retrieval helper that returns the most recent N journal entries as
+advisory context. The harness deliberately does NOT score prior missions
+for "relevance" to the objective — judging which past work matters is the
+agent's job, not the harness's. We surface recent entries (project-scoped)
+and let the agent decide; the block is injected non-authoritatively.
 
 This module has **no LLM dependency** so it's testable and importable
 in any environment (we use it from the CLI even when the API key is
@@ -27,7 +29,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import tempfile
 import time
 import uuid
@@ -843,37 +844,14 @@ class ProjectCard:
 # ---------------------------------------------------------------------------
 # Retrieval
 # ---------------------------------------------------------------------------
-
-_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]+")
-
-# Tiny English stopword list — keeps Jaccard from matching on filler.
-# We do NOT pull in NLTK; this is a few dozen words, deliberately small.
-_STOPWORDS = frozenset(
-    """a an the and or but if then else of to for from in on at by with as is are was
-    were be been being have has had do does did this that these those it its his her
-    him she they them their there here can could should would may might will shall not
-    no yes than too very also just only own same so such other any some all into out
-    over under up down off about above below between through during before after when
-    while where why how what which who whom add use using used uses make made get got
-    set put run ran new old via etc""".split()
-)
-
-
-def _tokens(s: str) -> set[str]:
-    return {
-        t.lower()
-        for t in _TOKEN_RE.findall(s)
-        if len(t) >= 3 and t.lower() not in _STOPWORDS
-    }
-
-
-def _jaccard(a: set[str], b: set[str]) -> float:
-    if not a or not b:
-        return 0.0
-    inter = len(a & b)
-    if not inter:
-        return 0.0
-    return inter / len(a | b)
+#
+# Recency-only. The harness used to score prior missions by keyword-Jaccard
+# overlap against the objective, but lexical "overlap = relevance" is a
+# judgment the harness has no business making: it can drop a semantically
+# relevant entry that shares no keywords, or surface lexically-similar noise.
+# Relevance is the agent's call. We hand it the most recent entries (within a
+# bounded window, project-scoped by which journal is passed) as advisory
+# context and let it decide.
 
 
 # ---------------------------------------------------------------------------
@@ -929,31 +907,22 @@ class LifeMemory:
         min_score: float = 0.05,
         recency_n: int = 30,
     ) -> list[JournalEntry]:
-        """Return up to ``max_entries`` journal entries most relevant to
-        ``objective``, scored by token-Jaccard against title+summary+tags.
+        """Return up to ``max_entries`` of the most recent journal entries
+        as advisory context for the current mission.
 
-        Only the most-recent ``recency_n`` entries are considered, both
-        for cost and because old context is usually less relevant. If no
-        entry meets ``min_score`` we return an empty list rather than
-        injecting noise.
+        Recency-only: the harness does not rank entries by lexical
+        "relevance" to ``objective`` — that judgment belongs to the agent,
+        which reads the injected (non-authoritative) block and ignores what
+        does not apply. ``objective`` and ``min_score`` are accepted for
+        backward compatibility and intentionally unused.
         """
-        recent = self.journal.tail(recency_n)
-        if not recent:
-            return []
-        obj_tokens = _tokens(objective)
-        if not obj_tokens:
-            return []
-        scored: list[tuple[float, float, JournalEntry]] = []
-        for entry in recent:
-            entry_tokens = _tokens(
-                " ".join([entry.title, entry.summary, " ".join(entry.tags)])
-            )
-            score = _jaccard(obj_tokens, entry_tokens)
-            if score >= min_score:
-                scored.append((score, entry.ts, entry))
-        # sort: higher score first, recency tiebreaker
-        scored.sort(key=lambda t: (-t[0], -t[1]))
-        return [e for _, _, e in scored[:max_entries]]
+        return _score_journal(
+            self.journal,
+            objective,
+            max_entries=max_entries,
+            min_score=min_score,
+            recency_n=recency_n,
+        )
 
     # ------------------------------------------------------------------
     # Prompt rendering
@@ -995,7 +964,7 @@ class LifeMemory:
             lines.append(identity.strip())
         if relevant:
             lines.append("")
-            lines.append("#### Possibly-relevant prior missions")
+            lines.append("#### Recent prior missions")
             for entry in relevant:
                 # one-paragraph compact form
                 ts_iso = time.strftime("%Y-%m-%d", time.localtime(entry.ts))
@@ -1295,7 +1264,7 @@ class MemoryBundle:
             lines.append(project_card)
         if project_hits:
             lines.append("")
-            lines.append("#### Possibly-relevant prior runs (this project)")
+            lines.append("#### Recent prior runs (this project)")
             for entry in project_hits:
                 ts_iso = time.strftime("%Y-%m-%d", time.localtime(entry.ts))
                 lines.append(
@@ -1325,19 +1294,15 @@ def _score_journal(
     min_score: float,
     recency_n: int,
 ) -> list[JournalEntry]:
+    # Recency-only retrieval. ``objective``/``min_score`` are accepted for
+    # backward compatibility and intentionally ignored — the harness no
+    # longer scores prior missions for relevance (that is the agent's call).
+    # We return the most recent entries (newest first), bounded by both
+    # ``recency_n`` (how far back to look) and ``max_entries`` (how many to
+    # surface).
+    del objective, min_score
     recent = journal.tail(recency_n)
     if not recent:
         return []
-    obj_tokens = _tokens(objective)
-    if not obj_tokens:
-        return []
-    scored: list[tuple[float, float, JournalEntry]] = []
-    for entry in recent:
-        entry_tokens = _tokens(
-            " ".join([entry.title, entry.summary, " ".join(entry.tags)])
-        )
-        score = _jaccard(obj_tokens, entry_tokens)
-        if score >= min_score:
-            scored.append((score, entry.ts, entry))
-    scored.sort(key=lambda t: (-t[0], -t[1]))
-    return [e for _, _, e in scored[:max_entries]]
+    # tail() yields oldest→newest; surface newest first.
+    return list(reversed(recent))[:max_entries]

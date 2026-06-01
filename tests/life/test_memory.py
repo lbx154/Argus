@@ -304,7 +304,10 @@ def test_life_memory_init(tmp_path: Path) -> None:
     assert (tmp_path / "backlog.jsonl").exists()
 
 
-def test_relevant_journal_keyword_overlap(tmp_path: Path) -> None:
+def test_relevant_journal_returns_most_recent(tmp_path: Path) -> None:
+    # Recency-only retrieval: the harness no longer ranks entries by lexical
+    # overlap with the objective. It surfaces the most recent entries and
+    # lets the agent judge relevance.
     mem = LifeMemory.open(tmp_path)
     mem.init()
     mem.journal.append(
@@ -336,20 +339,23 @@ def test_relevant_journal_keyword_overlap(tmp_path: Path) -> None:
         max_entries=2,
     )
     assert len(hits) == 2
-    titles = {h.title for h in hits}
-    # Both auth-tagged entries should be selected; CSS one excluded.
-    assert "CSS tweaks" not in titles
-    assert any("uthent" in t for t in titles)
+    titles = [h.title for h in hits]
+    # Newest first; the two most recent are returned regardless of keywords.
+    assert titles == ["Authentication retry attempt", "CSS tweaks"]
+    # The oldest entry falls outside the max_entries window.
+    assert "Refactored authentication module" not in titles
 
 
-def test_relevant_journal_returns_empty_when_no_overlap(tmp_path: Path) -> None:
+def test_relevant_journal_recency_ignores_overlap(tmp_path: Path) -> None:
+    # An entry with no lexical overlap is still surfaced — relevance is the
+    # agent's call, not the harness's.
     mem = LifeMemory.open(tmp_path)
     mem.init()
     mem.journal.append(
         JournalEntry.new(kind="x", title="Pancake recipe", summary="Mix flour with milk.")
     )
     hits = mem.relevant_journal_for("Add a database migration to users table")
-    assert hits == []
+    assert [h.title for h in hits] == ["Pancake recipe"]
 
 
 def test_render_prelude_marks_non_authoritative(tmp_path: Path) -> None:

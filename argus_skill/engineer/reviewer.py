@@ -74,25 +74,8 @@ def _load_academic_paper_review_skill() -> str:
     )
 
 
-def _format_academic_paper_review_skill_block(
-    *,
-    objective: str,
-    operator_messages: list[str],
-    planner_review_instruction: str,
-    main_summary: str,
-    active_skill_id: str | None,
-    check_text: str,
-    raw_evidence: str,
-) -> str:
-    if not _should_include_academic_paper_review_skill(
-        objective=objective,
-        operator_messages=operator_messages,
-        planner_review_instruction=planner_review_instruction,
-        main_summary=main_summary,
-        active_skill_id=active_skill_id,
-        check_text=check_text,
-        raw_evidence=raw_evidence,
-    ):
+def _format_academic_paper_review_skill_block(*, include: bool) -> str:
+    if not include:
         return ""
     skill = _load_academic_paper_review_skill()
     return (
@@ -102,45 +85,8 @@ def _format_academic_paper_review_skill_block(
     )
 
 
-def _should_include_academic_paper_review_skill(
-    *,
-    objective: str,
-    operator_messages: list[str],
-    planner_review_instruction: str,
-    main_summary: str,
-    active_skill_id: str | None,
-    check_text: str,
-    raw_evidence: str,
-) -> bool:
-    context = "\n".join(
-        [
-            objective,
-            "\n".join(operator_messages),
-            planner_review_instruction,
-            main_summary,
-            active_skill_id or "",
-            check_text,
-            raw_evidence,
-        ]
-    ).lower()
-    # Keyword-based "is this a paper?" sniffing was removed; gate purely on the
-    # strong paper-completion evidence tokens below (final_submission,
-    # references.bib, compiled main.pdf, the assurance/review artifacts, …),
-    # which only appear in academic-paper review contexts.
-    complete_markers = (
-        "final_submission",
-        "submission-ready",
-        "publication quality",
-        "submission_assurance",
-        "paper_draft_report",
-        "format_preflight",
-        "academic_language_review",
-        "layout_review",
-        "references.bib",
-        "compiled pdf",
-        "main.pdf",
-    )
-    return any(marker in context for marker in complete_markers)
+
+
 
 
 class Reviewer:
@@ -309,15 +255,6 @@ class Reviewer:
             _REVIEWER_ROLE_FALLBACK,
         )
         handoff_skill = _load_reviewer_engineer_handoff_skill()
-        paper_review_skill_block = _format_academic_paper_review_skill_block(
-            objective=objective,
-            operator_messages=operator_messages,
-            planner_review_instruction=planner_review_instruction,
-            main_summary=main_summary,
-            active_skill_id=active_skill_id,
-            check_text=check_text,
-            raw_evidence=raw_evidence,
-        )
         # Role-mission matcher (same primitive engineer/planner use). It
         # surfaces ADAPTIVE reviewer skills (stage-specific review playbooks)
         # plus cross-role engineer references on top of the fixed
@@ -342,18 +279,27 @@ class Reviewer:
         from pathlib import Path as _Path
 
         stage = current_stage(_Path.cwd())
-        scope_normalized = (scope or "").strip().lower()
-        objective_lc = (objective or "").lower()
-        is_final_submission = (
-            scope_normalized == "final_submission"
-            or "planner_scope: final_submission" in objective_lc
-            or "task scope: final_submission" in objective_lc
-            or "scope: final_submission" in objective_lc
-        )
+        # Structured scope only. The planner threads scope=final_submission as
+        # a backlog tag all the way here; we no longer sniff the objective
+        # prose for "scope: final_submission" markers. Normalize the same way
+        # the planner does (lower + hyphen→underscore) so callers that pass
+        # "final-submission" still match.
+        scope_normalized = (scope or "").strip().lower().replace("-", "_")
+        is_final_submission = scope_normalized == "final_submission"
         if is_final_submission or stage == "submission":
             stage_checklist = format_full_pipeline_checklist(role="reviewer")
         else:
             stage_checklist = format_stage_checklist(stage, role="reviewer")
+
+        # Academic peer-review benchmark skill: advisory rubric for reviewing
+        # a near-complete manuscript. Gate it on the structured stage/scope
+        # signal — final_submission, or the paper-writing stages (review /
+        # submission) — instead of keyword-sniffing the objective/evidence
+        # for tokens like "main.pdf". `draft` is excluded so mid-production
+        # drafting isn't held to final peer-review standards prematurely.
+        paper_review_skill_block = _format_academic_paper_review_skill_block(
+            include=is_final_submission or stage in {"review", "submission"},
+        )
 
         # Always-on project-venv reminder for the reviewer too: a round
         # summary that says "I skipped X because the package is missing"
