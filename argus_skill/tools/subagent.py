@@ -169,6 +169,42 @@ def _norm_health(value: object) -> str:
     return token if token in _VALID_HEALTH else "unknown"
 
 
+_EMPTY_CONCERNS = {
+    "", "none", "n/a", "na", "null", "nil", "-", "no concern",
+    "no concerns", "nothing", "no issues", "no issue",
+}
+_EMPTY_CONCERN_PREFIXES = (
+    "no concern", "no issue", "nothing notewor", "nothing to report",
+    "nothing of note", "all good", "all healthy", "looks healthy",
+    "no anomal", "no problem",
+)
+
+
+def _clean_concern(value: object) -> str:
+    """Normalize a supervisor concern note; empty when nothing noteworthy.
+
+    The supervisor may flag any anomaly worth the engineer re-discussing even
+    when the run is healthy. Treat the common "nothing to report" phrasings as
+    empty so they do not spam the engineer's inbox.
+    """
+    text = " ".join(str(value or "").split())
+    low = text.lower().strip(".")
+    if low in _EMPTY_CONCERNS or low.startswith(_EMPTY_CONCERN_PREFIXES):
+        return ""
+    return text[:600]
+
+
+def _concern_signature(concern: str) -> str:
+    """Stable dedup key for a concern: lowercase letters only.
+
+    Strips digits/punctuation so the same issue rephrased with changing step
+    numbers, elapsed times, or metric values dedups to one engineer alert.
+    """
+    return " ".join(
+        "".join(c for c in concern.lower() if c.isalpha() or c.isspace()).split()
+    )
+
+
 def _llm_summarize_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
     """Use LLM to generate a concise, insightful report for the engineer."""
     codex = _find_codex()
@@ -230,13 +266,25 @@ def _llm_summarize_report(task_id: str, event: str, task_data: dict[str, Any]) -
 
 def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
     """Build a report for engineer. Uses LLM if available, falls back to template."""
-    # Try LLM summary first
-    llm_report = _llm_summarize_report(task_id, event, task_data)
-    if llm_report and len(llm_report) > 50:
-        return f"## Subagent Report: {task_id} [{event}]\n\n{llm_report}"
+    # A supervisor concern is surfaced verbatim on every path so it survives the
+    # LLM summarizer too (e.g. when an early-stop carries an explanatory concern).
+    concern = task_data.get("concern", "") or task_data.get("last_supervisor_concern", "")
+    concern_block = f"**Supervisor concern**: {concern}\n\n" if concern else ""
+    # A CONCERN is a mid-run flag whose whole point is the supervisor's own
+    # words; skip the stdout-summarizing LLM path so the concern stays front and
+    # center instead of being paraphrased away.
+    if event != "CONCERN":
+        # Try LLM summary first
+        llm_report = _llm_summarize_report(task_id, event, task_data)
+        if llm_report and len(llm_report) > 50:
+            return f"## Subagent Report: {task_id} [{event}]\n\n{concern_block}{llm_report}"
 
     # Fallback: template-based report
     lines = [f"## Subagent Report: {task_id}", f"**Event**: {event}", ""]
+
+    if concern:
+        lines.append(f"**Supervisor concern**: {concern}")
+        lines.append("")
 
     desc = task_data.get("description", "")
     cmd = task_data.get("command", "")
@@ -312,6 +360,8 @@ def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
         lines.append("**Next action**: collect results from the paths above, update PIPELINE_STATE, and continue pipeline.")
     elif event == "EARLY-STOPPED":
         lines.append("**Next action**: inspect supervisor log for stop reason, check if idea needs revision or if hyperparameters need adjustment.")
+    elif event == "CONCERN":
+        lines.append("**Next action**: the run is STILL RUNNING — this is a flag, not a stop. Re-discuss the supervisor concern above: decide whether to adjust hyperparameters/data/approach (you may need to stop and re-submit with new settings) or to dismiss it with a brief rationale.")
     else:
         lines.append("**Next action**: inspect stderr for root cause, fix, and re-submit if needed.")
 
@@ -625,12 +675,14 @@ def _supervisor_check(
     model: str,
     cwd: str,
     run_dir: str | None = None,
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     """Call codex to check training/eval progress.
 
-    Returns ``(decision, health)`` where decision is
-    ``continue`` / ``early_stop`` / ``save_checkpoint`` and health is
-    ``healthy`` / ``degrading`` / ``stuck`` / ``diverging`` / ``unknown``.
+    Returns ``(decision, health, concern)`` where decision is
+    ``continue`` / ``early_stop`` / ``save_checkpoint``, health is
+    ``healthy`` / ``degrading`` / ``stuck`` / ``diverging`` / ``unknown``, and
+    concern is a free-text note (possibly empty) the supervisor wants the
+    engineer to re-discuss even when the run is progressing normally.
     """
     codex = _find_codex()
 
@@ -677,9 +729,22 @@ def _supervisor_check(
         "  Do NOT treat a noisy/rising policy loss as failure — RL loss is not SFT loss.\n"
         "- Any run: watch for CUDA OOM, tracebacks, stalls (no new steps for a long\n"
         "  stretch), or throughput collapse.\n\n"
+        "Beyond pass/fail, you are the engineer's eyes on this run. If ANYTHING\n"
+        "looks off, suboptimal, or worth a second opinion — even when the run is\n"
+        "NOT failing and you decide to continue — raise it in 'concern' so the\n"
+        "engineer can re-discuss the experiment. Examples worth flagging: reward\n"
+        "flat/low or near chance, completion length saturating the cap\n"
+        "(clipping/truncation, e.g. a high clipped_ratio), suspicious or too-small\n"
+        "hyperparameters (max length, steps, lr, batch, num generations),\n"
+        "data/format problems, reward-hacking, low sample diversity, or anything\n"
+        "that could weaken the eventual paper. Use your own judgement — you are\n"
+        "not limited to the stop conditions below. Leave 'concern' as an empty\n"
+        "string only when nothing is noteworthy. A concern does NOT stop the run;\n"
+        "it just flags the issue for the engineer.\n\n"
         "Respond with EXACTLY one JSON object:\n"
         '{"decision": "continue" or "early_stop" or "save_checkpoint",\n'
-        ' "reason": "one sentence explaining why",\n'
+        ' "reason": "one sentence explaining the decision",\n'
+        ' "concern": "" or "1-2 sentences flagging anything the engineer should re-discuss",\n'
         ' "metrics": {"step": ..., "loss": ..., "reward": ..., "kl": ..., "resp_len": ...},\n'
         ' "health": "healthy" or "degrading" or "stuck" or "diverging"}\n\n'
         "Decision rules:\n"
@@ -687,6 +752,8 @@ def _supervisor_check(
         "- early_stop: NaN/inf, CUDA OOM, KL blow-up, reward collapse, response-length\n"
         "  collapse, or no progress for a long stretch of total steps.\n"
         "- save_checkpoint: a notable improvement milestone reached.\n"
+        "Note: 'continue' with a non-empty 'concern' is the right answer for a run\n"
+        "that is progressing but has a quality issue worth the engineer's attention.\n"
         "Only output the JSON, nothing else."
     )
 
@@ -709,10 +776,11 @@ def _supervisor_check(
                 return (
                     _norm_decision(data.get("decision", "continue")),
                     _norm_health(data.get("health", "unknown")),
+                    _clean_concern(data.get("concern", "")),
                 )
-        return ("continue", "unknown")
+        return ("continue", "unknown", "")
     except Exception:
-        return ("continue", "unknown")  # On any error, don't intervene
+        return ("continue", "unknown", "")  # On any error, don't intervene
 
 
 def _run_supervised(
@@ -757,6 +825,13 @@ def _run_supervised(
             })
 
             check_number = 0
+            # Latest supervisor verdict, kept in scope for the terminal records
+            # below (the loop may never run if the process exits immediately).
+            decision, health, concern = "continue", "unknown", ""
+            # Track the last concern we surfaced so a persistent issue is raised
+            # to the engineer once, not on every interval. Reset on a clean check
+            # so a recurrence after recovery alerts again.
+            last_concern_sig = ""
             # Health-adaptive backoff: start at the configured interval (capped),
             # then double while healthy (save supervisor tokens), snap back to the
             # base interval the moment health degrades.
@@ -793,7 +868,7 @@ def _run_supervised(
                 check_number += 1
                 out.flush()
                 err.flush()
-                decision, health = _supervisor_check(
+                decision, health, concern = _supervisor_check(
                     task_id, command, description,
                     stdout_path, stderr_path, elapsed, check_number,
                     model, cwd, resolved_run_dir,
@@ -803,6 +878,7 @@ def _run_supervised(
                 entry = {
                     "check": check_number, "elapsed_s": round(elapsed, 1),
                     "decision": decision, "health": health,
+                    "concern": concern,
                     "interval_s": current_interval, "timestamp": time.time(),
                 }
                 with supervisor_log.open("a") as sl:
@@ -813,13 +889,47 @@ def _run_supervised(
                 task["last_supervisor_check"] = check_number
                 task["last_supervisor_decision"] = decision
                 task["last_supervisor_health"] = health
+                task["last_supervisor_concern"] = concern
                 task["elapsed_seconds"] = round(elapsed, 1)
                 _write_task(task_id, task)
 
-                # Back off while healthy, tighten the moment health degrades.
-                current_interval = _next_monitor_interval(
-                    health, current_interval, monitor_interval,
-                )
+                # Surface a mid-run concern to the engineer WITHOUT stopping the
+                # run. early_stop already alerts below, so skip the duplicate.
+                # Dedup on a digit-stripped signature so a persistent issue is
+                # raised once even if rephrased with new step/metric numbers.
+                if concern and decision != "early_stop":
+                    concern_sig = _concern_signature(concern)
+                    if concern_sig != last_concern_sig:
+                        last_concern_sig = concern_sig
+                        concern_td = dict(task)
+                        concern_td.update({
+                            "description": description, "command": command,
+                            "mode": "supervised", "concern": concern,
+                            "supervisor_checks": check_number,
+                            "elapsed_seconds": round(elapsed, 1),
+                            "run_dir": resolved_run_dir,
+                            "stdout_log": str(stdout_path),
+                            "stderr_log": str(stderr_path),
+                            "supervisor_log": str(supervisor_log),
+                            "stdout_tail": _tail_file(stdout_path, 2000),
+                        })
+                        _alert_engineer(task_id, "CONCERN", concern_td)
+                elif not concern:
+                    # Clean check: allow an identical concern to alert again if it
+                    # recurs after the run appears to recover.
+                    last_concern_sig = ""
+
+                # Back off while healthy, tighten the moment health degrades. An
+                # open concern is the supervisor asking for attention, so hold at
+                # the base interval rather than widening (without stopping).
+                if concern:
+                    current_interval = min(
+                        max(monitor_interval, 1), SUPERVISOR_INTERVAL_CAP,
+                    )
+                else:
+                    current_interval = _next_monitor_interval(
+                        health, current_interval, monitor_interval,
+                    )
 
                 if decision == "early_stop":
                     # Send STOP signal. Write into the run dir (experiment_io
@@ -850,6 +960,10 @@ def _run_supervised(
                         "completed_at": time.time(), "mode": "supervised",
                         "supervisor_checks": check_number,
                         "stop_reason": "supervisor early-stop",
+                        "concern": concern,
+                        "last_supervisor_health": health,
+                        "last_supervisor_decision": decision,
+                        "run_dir": resolved_run_dir,
                         "stdout_tail": _tail_file(stdout_path, 3000),
                         "stderr_tail": _tail_file(stderr_path, 3000),
                         "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
@@ -870,6 +984,10 @@ def _run_supervised(
             "elapsed_seconds": elapsed, "completed_at": time.time(),
             "pid": proc.pid, "mode": "supervised",
             "supervisor_checks": check_number,
+            "concern": concern,
+            "last_supervisor_health": health,
+            "last_supervisor_decision": decision,
+            "run_dir": resolved_run_dir,
             "stdout_tail": stdout_tail, "stderr_tail": stderr_tail,
             "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
             "supervisor_log": str(supervisor_log),

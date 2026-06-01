@@ -4,8 +4,11 @@ import json
 
 from argus_skill.tools.subagent import (
     SUPERVISOR_INTERVAL_CAP,
+    _build_report,
     _child_env,
+    _clean_concern,
     _codex_last_agent_message,
+    _concern_signature,
     _effective_run_dir,
     _format_metric_line,
     _next_monitor_interval,
@@ -111,6 +114,62 @@ def test_supervisor_verdict_json_survives_round_trip() -> None:
     data = json.loads(_strip_code_fence(msg))
     assert _norm_decision(data["decision"]) == "early_stop"
     assert _norm_health(data["health"]) == "diverging"
+
+
+def test_clean_concern_treats_nothing_phrases_as_empty() -> None:
+    assert _clean_concern("none") == ""
+    assert _clean_concern("  ") == ""
+    assert _clean_concern("No concerns.") == ""
+    assert _clean_concern(None) == ""
+    # Broadened no-op phrasings the supervisor might emit.
+    assert _clean_concern("No concerns at this time") == ""
+    assert _clean_concern("Nothing noteworthy.") == ""
+    assert _clean_concern("All good, healthy progress") == ""
+    # A real concern is normalized (whitespace collapsed) but preserved.
+    assert _clean_concern("  clipped_ratio  is  1.0 ") == "clipped_ratio is 1.0"
+
+
+def test_concern_signature_dedups_across_changing_numbers() -> None:
+    # Same issue rephrased with new step/metric numbers must dedup to one key.
+    a = _concern_signature("clipped_ratio is 1.0 at step 12 (256 cap)")
+    b = _concern_signature("clipped_ratio is 0.75 at step 40 (256 cap)")
+    assert a == b
+    # A genuinely different concern keeps a different key.
+    c = _concern_signature("reward is flat near chance")
+    assert c != a
+
+
+def test_supervisor_verdict_parses_concern_alongside_decision() -> None:
+    # A run can be healthy/continue yet still carry a concern for the engineer.
+    verdict = (
+        '{"decision": "continue", "health": "healthy",'
+        ' "concern": "clipped_ratio is 1.0; max_completion_length 256 truncates'
+        ' the math reasoning"}'
+    )
+    stdout = _codex_jsonl(verdict)
+    data = json.loads(_strip_code_fence(_codex_last_agent_message(stdout)))
+    assert _norm_decision(data["decision"]) == "continue"
+    assert _norm_health(data["health"]) == "healthy"
+    assert "256" in _clean_concern(data["concern"])
+
+
+def test_build_report_surfaces_concern_for_running_task() -> None:
+    report = _build_report(
+        "train-B1",
+        "CONCERN",
+        {
+            "description": "B1 GRPO",
+            "command": "python train.py",
+            "concern": "clipped_ratio is 1.0; 256 too short",
+            "mode": "supervised",
+            "elapsed_seconds": 120,
+            "run_dir": None,
+        },
+    )
+    assert "Supervisor concern" in report
+    assert "256 too short" in report
+    # A concern is a flag, not a stop: the engineer must know the run continues.
+    assert "STILL RUNNING" in report
 
 
 def test_verdict_survives_trailing_non_json_chatter() -> None:
