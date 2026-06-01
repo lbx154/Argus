@@ -147,7 +147,13 @@ argus-skill --setup
 
 1. **三个 Agent 的 API**（Planner / Engineer / Reviewer）— 支持共享或独立配置
 2. **GPU 资源分配** — 自动检测所有 GPU，选择分配给 Argus 的设备
-3. **Codex CLI 配置** — 用你刚输入的同一把 API key/base_url 自动写好
+3. **GPU Keep-Alive（防回收）** — 询问这台机器是否会回收空闲 GPU、需要占用几张。
+   托管/云主机常会回收空闲 GPU，导致长论文跑被回收、进度丢失。开启后 Argus
+   会用一个低占空比的 keep-alive 加载器在安静期（只调 API/写作）占住显卡；真正
+   跑实验时由 `gpu_lease` 自动让位、跑完再 re-park。向导会写好
+   `~/.argus-skill/capabilities/gpu_keepalive.json` 和一个 operator special
+   prompt（同时满足 daemon 启动门禁所需的 special prompt）。
+4. **Codex CLI 配置** — 用你刚输入的同一把 API key/base_url 自动写好
    `~/.codex/config.toml` 和 `~/.codex/auth.json`（已存在的文件会备份成
    `*.bak` 后才覆盖；不想覆盖直接回车）
 
@@ -172,12 +178,30 @@ argus-skill --setup
   Devices to allocate (e.g. 6 or 0,1,2) [6]: 6
   ✓ Allocated: device(s) 6 (1 GPU, 179 GB total)
 
+  ── GPU Keep-Alive (anti-reclaim) ──
+  Does this machine reclaim idle GPUs? Enable keep-alive? (y/N) [n]: y
+  How many GPUs to hold (of allocated [6]) [1]: 1
+  VRAM % to hold per GPU [10]:
+  Best-effort GPU utilization % [20]:
+  Python interpreter for the loader (needs torch+CUDA) [/opt/conda/envs/ptca/bin/python]:
+  ✓ Keep-alive config → ~/.argus-skill/capabilities/gpu_keepalive.json
+  ✓ Operator prompt   → ~/.argus-skill/special_prompts/20-gpu-keepalive.md
+  Start the keep-alive now (hold the cards)? (y/N) [n]: y
+  ✓ Keep-alive started (pid 12345).
+
   Step 3: Codex CLI Configuration
   ✓ codex config → /root/.codex/config.toml
   ✓ codex auth   → /root/.codex/auth.json
 
   ✓ Setup complete!
 ```
+
+> Keep-alive 细节：加载器是独立脚本 `argus_skill/tools/gpu_load.py`（仅依赖
+> `torch`，与 Argus 框架解耦，可用单独的 torch 环境解释器运行）。它把
+> `--gpus` 当作**物理 GPU id**，在 import torch 前自行设好 `CUDA_VISIBLE_DEVICES`。
+> 真正的 GPU 任务务必通过 `python -m argus_skill.tools.gpu_lease run -- <cmd>`
+> 运行，切勿手动 kill 加载器。`--util` 只是尽力而为的活动目标，若仍被回收可调高
+> `--util`/`--mem` 或调低 `--interval`。
 
 ### 3. 创建研究项目
 

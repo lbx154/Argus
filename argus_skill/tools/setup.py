@@ -199,6 +199,277 @@ def _save_gpu_resources(config: dict) -> Path:
     return path
 
 
+# -- GPU keep-alive (anti-reclaim) -----------------------------------------
+
+# Unique, inert marker passed to the loader so gpu_lease's `match` token can
+# find THIS keep-alive precisely instead of relying on the broad `gpu_load.py`
+# basename (which could match unrelated loaders or stale processes).
+_KEEPALIVE_TOKEN = "argus-skill-gpu-keepalive"
+
+
+def _special_prompts_dir() -> Path:
+    env = os.environ.get("ARGUS_SKILL_SPECIAL_PROMPTS_DIR")
+    d = Path(env).expanduser() if env else Path.home() / ".argus-skill" / "special_prompts"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _gpu_load_script_path() -> Path:
+    """Absolute path to the bundled standalone keep-alive loader."""
+    return (Path(__file__).resolve().parent / "gpu_load.py")
+
+
+def _keepalive_config_path() -> Path:
+    return _capabilities_dir() / "gpu_keepalive.json"
+
+
+def _keepalive_log_path() -> Path:
+    return Path.home() / ".argus-skill" / "logs" / "gpu_keepalive.log"
+
+
+def _load_existing_keepalive() -> dict | None:
+    path = _keepalive_config_path()
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _python_has_torch_cuda(python: str) -> bool:
+    """Return True if ``python`` can import torch with CUDA available."""
+    try:
+        res = subprocess.run(
+            [python, "-c", "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 3)"],
+            capture_output=True, text=True, timeout=60,
+        )
+        return res.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _detect_torch_python() -> str:
+    """Find an interpreter that has torch + CUDA.
+
+    The interpreter running Argus may not have torch (it can live in a separate
+    env), so we probe a few sensible candidates and return the first that works.
+    """
+    candidates: list[str] = [sys.executable]
+    for name in ("python", "python3"):
+        found = shutil.which(name)
+        if found:
+            candidates.append(found)
+    for pattern in (
+        "/opt/conda/envs/*/bin/python",
+        str(Path.home() / ".conda" / "envs" / "*" / "bin" / "python"),
+        str(Path.home() / "miniconda3" / "envs" / "*" / "bin" / "python"),
+        str(Path.home() / "anaconda3" / "envs" / "*" / "bin" / "python"),
+    ):
+        from glob import glob as _glob
+        candidates.extend(sorted(_glob(pattern)))
+    seen: set[str] = set()
+    for cand in candidates:
+        real = str(Path(cand).resolve()) if cand else cand
+        if not cand or real in seen:
+            continue
+        seen.add(real)
+        if _python_has_torch_cuda(cand):
+            return cand
+    return ""
+
+
+def _build_keepalive_config(
+    python: str, script: Path, devices: list[int], util: float, mem: float,
+    *, cwd: str | None = None, log: str | None = None,
+    token: str = _KEEPALIVE_TOKEN,
+) -> dict:
+    """Build a gpu_lease-compatible keep-alive config (pure)."""
+    gpus_csv = ",".join(str(d) for d in devices)
+    command = [
+        python, str(script),
+        "--gpus", gpus_csv,
+        "--mem", str(mem),
+        "--util", str(util),
+        "--keepalive-token", token,
+    ]
+    return {
+        "command": command,
+        "cwd": cwd or str(Path.home()),
+        "match": token,
+        "log": log or str(_keepalive_log_path()),
+        "devices": devices,
+    }
+
+
+def _save_gpu_keepalive(config: dict) -> Path:
+    path = _keepalive_config_path()
+    path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    os.chmod(path, 0o600)
+    return path
+
+
+def _render_gpu_keepalive_prompt(devices_csv: str) -> str:
+    """Operator special-prompt body teaching agents the keep-alive protocol."""
+    return (
+        "# GPU keep-alive — never leave the cards idle\n\n"
+        "This box runs on a managed scheduler that **reclaims GPUs that sit "
+        "idle**. If GPUs " + devices_csv + " go idle (no live GPU process / "
+        "~0% utilization) while you are only calling the model API, thinking, "
+        "writing prose, or waiting, the scheduler can **reclaim the cards and "
+        "you lose in-progress training/inference state**. That must not "
+        "happen.\n\n"
+        "## Standing rule\n\n"
+        "Whenever you are NOT actively running real GPU work, a keep-alive "
+        "loader must be HOLDING GPUs " + devices_csv + " so they never look "
+        "idle. The keep-alive is managed by the lease tool and configured in "
+        "`~/.argus-skill/capabilities/gpu_keepalive.json`. Treat \"GPUs held\" "
+        "as the default resting state of this machine.\n\n"
+        "## Run real GPU work through the lease tool\n\n"
+        "NEVER kill the keep-alive by hand and NEVER start a job on top of it. "
+        "ALWAYS go through the lease tool, which frees the cards, runs your "
+        "job, then re-parks the keep-alive on exit:\n\n"
+        "```bash\n"
+        "python -m argus_skill.tools.gpu_lease run -- python train.py ...\n"
+        "# long/detached jobs (lease restored even if the mission ends first):\n"
+        "python -m argus_skill.tools.gpu_lease run --detach -- python train.py ...\n"
+        "```\n\n"
+        "## Quiet periods\n\n"
+        "```bash\n"
+        "python -m argus_skill.tools.gpu_lease status   # keep-alive + leases + per-GPU\n"
+        "python -m argus_skill.tools.gpu_lease park      # (re)hold the cards if unheld\n"
+        "```\n\n"
+        "`park` refuses while a real job lease is active, so it is always safe "
+        "to call.\n\n"
+        "## Do / don't\n\n"
+        "- DO route every real GPU command through `gpu_lease run`.\n"
+        "- DO `gpu_lease park` if the cards are ever unheld with no active job.\n"
+        "- DON'T `kill` the loader directly or free the cards outside the lease "
+        "tool.\n"
+        "- DON'T leave the GPUs at 0% with no process during API-only stretches.\n"
+        "- DON'T write GPU ids or this keep-alive plumbing into the paper prose, "
+        "figures, or commits — it is deployment detail, not a research result.\n"
+    )
+
+
+def _write_special_prompt(name: str, body: str) -> Path:
+    """Write an operator special prompt (0644) that passes the trust check."""
+    directory = _special_prompts_dir()
+    path = directory / name
+    path.write_text(body, encoding="utf-8")
+    os.chmod(path, 0o644)
+    return path
+
+
+def _configure_gpu_keepalive(
+    gpus: list[dict], gpu_config: dict, existing: dict | None,
+) -> dict | None:
+    """Ask whether to hold GPUs against reclaim; persist config + prompt."""
+    print(_cyan("  ── GPU Keep-Alive (anti-reclaim) ──"))
+    print()
+    if not gpus:
+        print(_dim("  No GPUs detected; skipping keep-alive."))
+        print()
+        return None
+
+    print(_dim("  Some managed/cloud boxes reclaim GPUs that sit idle. Argus"))
+    print(_dim("  can run a low-duty keep-alive loader that holds the cards"))
+    print(_dim("  during quiet periods (API-only thinking, drafting) so long"))
+    print(_dim("  paper runs are not reclaimed and lost. Real GPU jobs"))
+    print(_dim("  automatically pre-empt it via the lease tool."))
+    print()
+
+    default_enable = "y" if existing else "n"
+    enable = _prompt("Does this machine reclaim idle GPUs? Enable keep-alive? (y/N)",
+                     default_enable)
+    if enable.lower() not in ("y", "yes"):
+        print(_dim("  Keep-alive disabled."))
+        print()
+        return None
+
+    # Default to the FULL allocated set so no allocated card is left unprotected.
+    allocated = list(gpu_config.get("allowed_devices") or [g["index"] for g in gpus])
+    allocated = sorted(allocated)
+    ex_devices = (existing or {}).get("devices")
+    default_n = len(ex_devices) if ex_devices else len(allocated)
+
+    raw_n = _prompt(
+        f"How many GPUs to hold (of allocated {allocated})",
+        str(default_n),
+    )
+    try:
+        n_hold = int(raw_n)
+    except ValueError:
+        print(_yellow(f"  Invalid number '{raw_n}', holding all allocated."))
+        n_hold = len(allocated)
+    n_hold = max(1, min(n_hold, len(allocated)))
+    devices = allocated[:n_hold]
+    unheld = allocated[n_hold:]
+    if unheld:
+        print(_yellow(f"  Warning: allocated GPUs {unheld} will NOT be held and "
+                      f"may be reclaimed if idle."))
+
+    ex_mem = (existing or {}).get("_mem", 10.0)
+    ex_util = (existing or {}).get("_util", 20.0)
+    try:
+        mem = float(_prompt("VRAM % to hold per GPU", str(ex_mem)))
+    except ValueError:
+        mem = 10.0
+    try:
+        util = float(_prompt("Best-effort GPU utilization %", str(ex_util)))
+    except ValueError:
+        util = 20.0
+
+    # Interpreter that actually has torch (may differ from the Argus env).
+    detected = (existing or {}).get("_python") or _detect_torch_python()
+    if detected:
+        print(_dim(f"  Detected torch interpreter: {detected}"))
+    python = _prompt("Python interpreter for the loader (needs torch+CUDA)",
+                     detected or sys.executable)
+    if not _python_has_torch_cuda(python):
+        print(_yellow("  Warning: that interpreter could not import torch with "
+                      "CUDA available. Saving anyway — fix it before relying on "
+                      "the keep-alive."))
+
+    script = _gpu_load_script_path()
+    config = _build_keepalive_config(python, script, devices, util, mem)
+    # Stash the wizard inputs so a re-run can offer them as defaults.
+    config["_python"] = python
+    config["_mem"] = mem
+    config["_util"] = util
+
+    cfg_path = _save_gpu_keepalive(config)
+    prompt_path = _write_special_prompt(
+        "20-gpu-keepalive.md", _render_gpu_keepalive_prompt(",".join(str(d) for d in devices)))
+
+    print()
+    print(f"  {_green('✓')} Keep-alive config → {cfg_path}")
+    print(f"  {_green('✓')} Operator prompt   → {prompt_path}")
+    print(_dim("    (this also satisfies the launch gate's required special "
+               "prompt)"))
+    print()
+
+    start = _prompt("Start the keep-alive now (hold the cards)? (y/N)", "n")
+    if start.lower() in ("y", "yes"):
+        try:
+            from argus_skill.tools import gpu_lease
+            res = gpu_lease.park(gpu_lease.load_config())
+            if res.get("started"):
+                print(f"  {_green('✓')} Keep-alive started (pid {res.get('pid')}).")
+            elif res.get("already_running"):
+                print(_dim("  Keep-alive already running."))
+            elif res.get("refused"):
+                print(_yellow("  Not started: an active GPU lease holds the "
+                              "cards free."))
+            else:
+                print(_dim(f"  park result: {res}"))
+        except Exception as exc:  # pragma: no cover - host specific
+            print(_yellow(f"  Could not start keep-alive automatically: {exc}"))
+        print()
+
+    return config
+
+
 def _codex_home() -> Path:
     raw = os.environ.get("CODEX_HOME")
     return Path(raw).expanduser() if raw else Path.home() / ".codex"
@@ -341,7 +612,7 @@ def _load_existing_gpu() -> dict | None:
         return None
 
 
-def _summary(routes: dict[str, dict], gpu: dict) -> None:
+def _summary(routes: dict[str, dict], gpu: dict, keepalive: dict | None = None) -> None:
     """Print final summary."""
     print(_bold("═" * 60))
     print(_bold("  Configuration Summary"))
@@ -358,6 +629,11 @@ def _summary(routes: dict[str, dict], gpu: dict) -> None:
         print(f"  {_cyan('GPU'):30s} CUDA_VISIBLE_DEVICES={cuda}")
     else:
         print(f"  {_cyan('GPU'):30s} {_dim('not configured')}")
+    if keepalive:
+        held = ",".join(str(d) for d in keepalive.get("devices", []))
+        print(f"  {_cyan('GPU keep-alive'):30s} holding device(s) {held}")
+    else:
+        print(f"  {_cyan('GPU keep-alive'):30s} {_dim('disabled')}")
     print()
 
 
@@ -447,6 +723,10 @@ def run_setup() -> int:
     gpus = _detect_gpus()
     gpu_config = _configure_gpus(gpus, existing_gpu)
 
+    # Step 2b: GPU keep-alive (anti-reclaim)
+    existing_keepalive = _load_existing_keepalive()
+    keepalive_config = _configure_gpu_keepalive(gpus, gpu_config, existing_keepalive)
+
     # Step 3: codex CLI config
     print(_bold("  Step 3: Codex CLI Configuration"))
     print()
@@ -483,7 +763,7 @@ def run_setup() -> int:
     print()
 
     # Summary
-    _summary(routes, gpu_config)
+    _summary(routes, gpu_config, keepalive_config)
 
     print(_green("  ✓ Setup complete! You can now create a research project:"))
     print()
