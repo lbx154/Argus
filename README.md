@@ -1,11 +1,12 @@
 <h1 align="center">Argus</h1>
 
-<p align="center"><strong>面向学术论文全流程的自主研究智能体系统</strong></p>
+<p align="center"><strong>一个完全独立于人类、自己做科研的 research assistant</strong></p>
 <p align="center"><em>Autonomous Research Generation & Understanding System</em></p>
 
 <p align="center">
-从选题到投稿，Argus 是一个 7×24 自主运行的学术研究 agent，<br>
-能独立完成文献调研、实验设计、基准测试、结果分析、论文撰写和投稿审查全流程。
+给它一个目标和这台机器的规则，剩下的它自己来：<br>
+选题、调研、设计实验、在真实 benchmark 上跑、分析、写 LaTeX、自审、改稿、直到投稿就绪。<br>
+没有人在回路里逐步审批。
 </p>
 
 ```text
@@ -19,43 +20,59 @@
 
 ---
 
-## 核心能力
+## 我们在做什么
 
-Argus 不是一个"帮你润色论文"的工具——它是一个**完整的自主研究系统**：
+Argus 不是一个"帮你润色论文"的工具，也不是一条把 prompt 串起来的流水线。它是一个 **7×24 自主运行的 research assistant**：你只需要告诉它**做什么**（objective）和**这台机器的规则**（special prompt——GPU、路径、调度约束），它就独立地把一篇论文从无到有做出来——而且做科研所需的每一个**判断**都是 agent 自己下的，不是 harness 替它下的。
 
-- 🔍 **自主选题**：从 arXiv、Semantic Scholar、机器之心等多源搜索，发现真实研究空白
-- 📐 **实验设计**：生成可执行的实验计划，含假设、基线、消融、预算
-- 🧪 **自动实验**：在真实公开 benchmark 上运行全部条件（proposed + baselines + ablations）
-- 📊 **结果分析**：从原始数据生成 claim-evidence 映射、统计检验、图表
-- ✍️ **论文撰写**：ACL/EMNLP 格式的完整 LaTeX 论文，含 image-2 概念图生成
-- 🔬 **多层审查**：分阶段 reviewer checklist + 最终 EMNLP peer review 模拟
-- 📮 **投稿就绪**：结构检查 + 科学质量审查全部通过才停止
+## 设计哲学（先读这一节）
 
-## 架构：三层 Agent
+整个系统建立在一句话上：
+
+> **harness 没有 agent 自己聪明。**
+
+所以我们严格区分两类东西：
+
+| | 谁负责 | 例子 |
+|---|---|---|
+| **科研判断** | **Agent**（engineer / reviewer / planner） | 这个 idea 平不平庸？这段过往工作相不相关？实验做完了没？基线够不够强？该投了吗？ |
+| **领域无关的管道** | **Harness** | 预算/限速、磁盘持久化与记忆、调度与 daemon、结构化 I/O、防造假的诚信护栏 |
+
+**Harness 只做后者，而且只做后者。** 它是一根又粗又笨的管子，把任务喂给 agent、把产物存下来、按预算和节奏调度——它**不**用关键词/正则去猜"这是不是论文任务""这个目标是不是要永续跑""哪段记忆相关""这篇 idea 够不够格"。每一次"用词面去二次判断 agent"的诱惑，我们都把它删掉，换成**结构化信号**或**交还给 agent**。因为只要 harness 开始替 agent 做科研判断，它就成了天花板——而它远没有 agent 聪明。
+
+这条哲学的几个直接后果：
+
+- **没有关键词分类。** operator 的自由文本是 chat 还是 task，由一次模型调用判断，不是 60 字符上限 + 中英文正则。任务类型（论文/有界/永续）由**显式参数和结构化 tag** 决定，不从 objective 文本里猜。
+- **没有单独的 validator / 硬编码完成门。** "项目做完了没"是 **L2 reviewer 对照 stage checklist 的裁决**，不是 harness 跑一串正则去判定。退役的 EMNLP validator 已删除——reviewer 是唯一的事实来源。
+- **"反平庸"是 reviewer 的判断，不是 harness 的规则。** checklist 里写的是"至少显式否决一个平庸/已有的 idea 并给出理由"这类**要求 reviewer 去核**的陈述，harness 不去数 improvement 百分比、不去匹配关键词。
+- **记忆是纯 recency 的中立管道。** 注入给 agent 的"过往工作"上下文按时间倒序给最近 N 条（按项目隔离、标注 non-authoritative），**不**用关键词 Jaccard 替 agent 猜"哪条相关"——相关性是 agent 读完自己判断的。
+- **唯一正当的"硬规则"是防造假护栏。** 必须用真实公开 benchmark、不许重复行灌水、要留审计包——这些约束的是**作弊**，不是科研选择，所以它们留在 harness 里是合理的。
+- **入口必须显式配置。** 启动 daemon / 进 cockpit 前，必须同时给出 (1) mission objective 和 (2) 至少一个受信任的 special prompt。缺任何一个直接 `exit 2`——我们绝不让 agent 在"不知道目标、不知道机器规则"的情况下空跑或靠猜。
+
+## 架构：三层 Agent + 笨管道
 
 ```
-┌─────────────────────────────────────────────┐
-│                  Planner                     │
-│  读 PIPELINE_STATE + gate snapshot           │
-│  决定下一个任务，分配给 Engineer              │
-└──────────────┬──────────────────────────────┘
-               │ 任务 + skill
-               ▼
-┌─────────────────────────────────────────────┐
-│                 Engineer                     │
-│  执行任务：搜论文、写代码、跑实验、写论文     │
-│  工作目录和 Reviewer 共享                    │
-└──────────────┬──────────────────────────────┘
-               │ 输出 + check_commands 结果
-               ▼
-┌─────────────────────────────────────────────┐
-│                 Reviewer                     │
-│  按当前 stage 的 checklist 审查              │
-│  done / continue(附具体修复指令) / blocked   │
-└─────────────────────────────────────────────┘
+        ┌──────────── Harness（领域无关的管道）─────────────┐
+        │  预算/限速 · 持久化&记忆 · 调度&daemon ·           │
+        │  结构化 I/O · 防造假诚信护栏                        │
+        └───────────────────────┬────────────────────────────┘
+                                 │ 喂任务 / 存产物 / 按预算调度
+   ┌─────────────────────────────┼─────────────────────────────┐
+   ▼                             ▼                             ▼
+┌─────────┐   任务+skill   ┌──────────┐   产物+check   ┌──────────┐
+│ Planner │──────────────▶│ Engineer │──────────────▶│ Reviewer │
+│  (L4)   │               │   (L1)   │               │   (L2)   │
+│ 排下一  │◀──────────────│ 搜文献/  │◀──────────────│ 对照 stage│
+│ 个任务  │  done 后续派   │ 写代码/  │ done/continue/ │ checklist │
+└─────────┘               │ 跑实验/  │ blocked        │ 裁决      │
+                          │ 写论文   │ (+具体修复指令) └──────────┘
+                          └──────────┘
 ```
 
-三个 agent 都是 codex agent（gpt-5.4），Reviewer 有 shell 访问权，可以自己读文件、跑 validator。
+- 三个 agent 都是 codex agent（默认 `gpt-5.4`）。Reviewer 有 shell 访问权，能自己读文件、跑检查，不依赖 harness 替它读。
+- **Planner（L4）** 在 continuous 模式下 backlog 空了就排新任务；project 还差认证时把"完成"裁决改派成认证任务。
+- **Engineer（L1）** 单轮执行：搜论文、写代码、跑实验、写 LaTeX；工作目录和 reviewer 共享。
+- **Reviewer（L2）** 按当前 stage 的 checklist 审查，给 `done` / `continue`（附具体修复指令）/ `blocked`。**它是项目是否完成的唯一事实来源。**
+- 历史上的 L3 critic 逐轮打磨层已移除——验收完全交给 L2 reviewer。
 
 ## 8-Stage 研究 Pipeline
 
@@ -63,54 +80,29 @@ Argus 不是一个"帮你润色论文"的工具——它是一个**完整的自�
 research → plan → benchmark → run → analysis → draft → review → submission
 ```
 
-| Stage | Engineer 做什么 | Reviewer 审什么 | 严格度 |
-|-------|----------------|----------------|--------|
-| **research** | 文献搜索（arXiv + Semantic Scholar + 机器之心）、写 brief | 问题清晰度、文献覆盖、趋势转化 | 中等 |
-| **plan** | 实验计划、下载参考代码、反平庸筛选 | 方法竞争力、基线强度、代码调研、可行性 | 中等 |
-| **benchmark** | 准备 benchmark 数据、验证 gold answer | 来源真实性、覆盖度≥3族、可复现 | 中等 |
-| **run** | 跑全部条件、复现至少1个强基线 | 统计显著性、ablation 公平性、效果量 | 中等 |
-| **analysis** | 生成结果报告、claim 映射、图表 | 数字一致性、claim 溯源、图表质量 | 中等 |
-| **draft** | 写 LaTeX、生成 image-2 概念图、编译 PDF | 结构完整性（宽松，能推进就行） | 宽松 |
-| **review** | 学术语言审查、排版审查、基础设施泄露检查 | layout/语言/引用/页数/infra泄露 | 较严 |
-| **submission** | 最终 gate 检查、submission assurance | **完整 EMNLP peer review**（score 5+ 才过） | 最严 |
+每个 stage 的产物由 engineer 产出，由 reviewer 对照该 stage 的 checklist 裁决是否推进。下表的"reviewer 关注点"是 checklist 的**陈述**——由 reviewer agent 去核，**不是** harness 的正则：
 
-### 反平庸机制
+| Stage | Engineer 做什么 | Reviewer 对照 checklist 核什么 |
+|-------|----------------|--------------------------------|
+| **research** | 文献搜索（arXiv + Semantic Scholar + 机器之心）、写 brief、写 idea 否决日志 | 问题清晰度、文献覆盖、是否显式否决了平庸 idea、GO/NO-GO |
+| **plan** | 实验计划、下载参考代码并读、设计消融 | 方法竞争力、基线强度、代码确实读了、可行性 |
+| **benchmark** | 准备真实 benchmark 数据、验证 gold answer | 来源真实性、覆盖度、可复现 |
+| **run** | 跑全部条件、复现至少一个强基线 | 统计显著性、ablation 公平性、效果量 |
+| **analysis** | 结果报告、claim→evidence 映射、图表 | 数字一致性、claim 溯源、图表质量 |
+| **draft** | 写 LaTeX、生成概念图、编译 PDF | 结构完整性（能推进就行） |
+| **review** | 学术语言审查、排版审查、基础设施泄露检查 | layout/语言/引用/页数/infra 泄露 |
+| **submission** | 最终 gate 自查、submission assurance | 完整 EMNLP peer review，reviewer 判达标才停 |
 
-Argus 不会生产"灌水论文"：
+> 注意：这张表里没有"严格度"数值，也没有"improvement < 2% 就拒"这类硬阈值。"够不够格"是 reviewer 读了产物之后的判断；harness 只负责把产物递过去、把裁决记下来。
 
-- **Anti-mediocrity gate**：5 条拒绝标准（minor variant / 无理由组合 / manufactured gap / <2% improvement / trivial baseline 能达到）
-- **必须下载参考代码**：对 top-3 相关论文 `git clone` 并读代码，不是只读摘要
-- **强基线要求**：至少复现 1 个已发表方法作为 baseline（不是只比 random）
-- **真实 benchmark**：≥3 个独立 benchmark 家族，禁止合成数据作为主证据
+## 内置 Skill
 
-## 31 个内置 Skill
+Skill 是给 agent 复用的横向能力（playbook），不是 harness 的判断逻辑。按角色分两个目录：
 
-Skills 按角色分两个目录：
+- **Engineer skills（25 个）**：编排（`auto-research-pipeline` 主入口、`emnlp-paper-skill-router`）、文献（`arxiv-paper-search`、`semantic-scholar-search`、`research-ideation`）、规划（`research-brief-to-experiment-plan`、`ablation-planner`、`training-infrastructure-guide`）、实验（`agent-research-benchmark-runner`、`experiment-audit`）、分析（`research-results-analysis-and-figures`、`result-to-claim`、`claims-evidence-audit`）、写作（`emnlp-paper-drafting`、`paper-illustration-image2`、`paper-framework-figure-studio-pro` 等）、审查与提交（`emnlp-format-preflight`、`emnlp-academic-language-review`、`research-submission-assurance-gate`）、角色（`argus-engineer-role`、`argus-planner-role`）。
+- **Reviewer skills（6 个）**：`experiment-plan-review`（plan）、`experiment-results-review`（run）、`academic-paper-peer-review-benchmark`（draft 宽松 / submission 严格）、`emnlp-academic-language-review`（review）、`argus-reviewer-role`、`reviewer-engineer-handoff`。
 
-### Engineer Skills（25 个）
-
-| 类别 | Skills |
-|------|--------|
-| 编排 | `auto-research-pipeline` (主入口), `emnlp-paper-skill-router` |
-| 文献 | `arxiv-paper-search`, `semantic-scholar-search`, `research-ideation` |
-| 规划 | `research-brief-to-experiment-plan`, `ablation-planner`, `training-infrastructure-guide` |
-| 实验 | `agent-research-benchmark-runner`, `experiment-audit` |
-| 分析 | `research-results-analysis-and-figures`, `result-to-claim`, `claims-evidence-audit` |
-| 写作 | `emnlp-paper-drafting`, `paper-exemplar-pdf-learning`, `paper-illustration-image2`, `paper-framework-figure-studio-pro` |
-| 审查 | `emnlp-format-preflight`, `emnlp-paper-infrastructure-review`, `emnlp-academic-language-review`, `paper-review-revision-loop` |
-| 提交 | `research-submission-assurance-gate` |
-| 角色 | `argus-engineer-role`, `argus-planner-role` |
-
-### Reviewer Skills（6 个）
-
-| Skill | 用于 Stage |
-|-------|-----------|
-| `experiment-plan-review` | plan |
-| `experiment-results-review` | run |
-| `academic-paper-peer-review-benchmark` | draft (宽松) / submission (严格) |
-| `emnlp-academic-language-review` | review |
-| `argus-reviewer-role` | 全局 |
-| `reviewer-engineer-handoff` | 全局 |
+miss 的能力由 distiller 在线蒸馏（复用 engineer backend，不是独立 agent）。
 
 ## 快速开始
 
@@ -119,14 +111,11 @@ Skills 按角色分两个目录：
 **Python ≥ 3.11** + **Codex CLI**（OpenAI 官方非交互推理 CLI）：
 
 ```bash
-# Codex CLI 是 npm 全局包
 npm install -g @openai/codex
 codex --version   # 验证可用
 ```
 
-> 注意：ArgusBot 的 `codex_autoloop` 监督循环模块已经**内置**在本仓库里
-> （见 `argus_skill/codex_autoloop/`），**不需要**再单独安装 ArgusBot
-> 或使用任何 `[codex]` extra —— `pip install argus-skill`（下一步）就已经包含 codex 后端。
+> `codex_autoloop` 监督循环已 **vendored** 在本仓库（`argus_skill/codex_autoloop/`），无需单独安装 ArgusBot。
 
 ### 2. 安装
 
@@ -179,9 +168,7 @@ argus-skill --setup
   Do all 3 agents share the same API endpoint? (y/n) [y]: y
   API Base URL: https://api.openai.com/v1/
   API Key: sk-...
-  Planner model [gpt-5.4]:
-  Engineer model [gpt-5.4]:
-  Reviewer model [gpt-5.4]:
+  Planner / Engineer / Reviewer model [gpt-5.4]:
 
   Step 1b: Experiment API access
   ── Experiment API access ──
@@ -189,12 +176,8 @@ argus-skill --setup
   ✓ Operator prompt   → ~/.argus-skill/special_prompts/30-experiment-api.md
 
   Step 2: GPU Resources
-  Available GPUs:
-    [0] NVIDIA B200 (179 GB)
-    ...
-    [7] NVIDIA B200 (179 GB)
-  Devices to allocate (e.g. 6 or 0,1,2) [6]: 6
-  ✓ Allocated: device(s) 6 (1 GPU, 179 GB total)
+  Available GPUs:  [0] NVIDIA B200 (179 GB) ... [7] NVIDIA B200 (179 GB)
+  Devices to allocate [6]: 6
 
   ── GPU Keep-Alive (anti-reclaim) ──
   Does this machine reclaim idle GPUs? Enable keep-alive? (y/N) [n]: y
@@ -208,8 +191,7 @@ argus-skill --setup
   ✓ Keep-alive started (pid 12345).
 
   Step 3: Codex CLI Configuration
-  ✓ codex config → /root/.codex/config.toml
-  ✓ codex auth   → /root/.codex/auth.json
+  ✓ codex config / auth written
 
   ✓ Setup complete!
 ```
@@ -221,7 +203,7 @@ argus-skill --setup
 > 运行，切勿手动 kill 加载器。`--util` 只是尽力而为的活动目标，若仍被回收可调高
 > `--util`/`--mem` 或调低 `--interval`。
 
-### 3. 创建研究项目
+### 4. 创建研究项目
 
 ```bash
 python -m argus_skill.tools.new_auto_research_project \
@@ -229,26 +211,9 @@ python -m argus_skill.tools.new_auto_research_project \
   --objective "World Model for Agent Action Selection"
 ```
 
-系统自动创建项目目录、导出内置 skill、初始化 PIPELINE_STATE，并启动 7×24 daemon
-（默认即启动；如只想建目录不启 daemon 加 `--no-start`）。
+自动创建项目目录、导出内置 skill、初始化 PIPELINE_STATE，并启动 7×24 daemon（加 `--no-start` 只建目录不启）。常用参数见 `--help`：`--objective`（主目标）、`--non-goals`、`--compute-budget`、`--project-dir`、`--no-start`、`--no-git`、`--dry-run`。
 
-常用参数（完整列表见 `python -m argus_skill.tools.new_auto_research_project --help`）：
-
-| 参数 | 说明 |
-|------|------|
-| `version` | 位置参数，例如 `15` 或 `v15`；省略则自动选下一个可用版本号 |
-| `--parent` | 版本化 workspace 的父目录 |
-| `--project-dir` | 直接指定项目目录，跳过 `parent + version` 命名 |
-| `--objective` | 项目主目标（写入 `AGENTS.md` 和 daemon objective） |
-| `--non-goals` | 显式 non-goals |
-| `--compute-budget` | 项目特定的算力 / API 预算和停机条件 |
-| `--template` | 自定义 AGENTS 模板，默认使用内置 |
-| `--domain` | 仅加载指定 domain 的 skill 包（当前内置 domain 注册表为空，等同于不传） |
-| `--no-start` | 创建项目但不启动 daemon |
-| `--no-git` | 跳过 `git init/add/commit` |
-| `--dry-run` | 仅打印将要创建的路径/版本号，不落盘 |
-
-### 4. 监控进度
+### 5. 监控进度
 
 ```bash
 argus-skill --status    # 当前状态
@@ -262,18 +227,18 @@ export ARGUS_SKILL_TELEGRAM_CHAT_ID="123456789"
 
 ## Daemon：7×24 自主运行
 
-> **启动前置（硬门禁）**：进 cockpit 或启动 daemon 前，必须同时配好两样东西，否则 `argus-skill` 直接 `exit 2` 并打印指引：
-> 1. **mission objective** —— 用 `--continuous --objective "<目标>"` 提供（会持久化到 `continuous.json`，之后再启动可省略）；
-> 2. **至少一个 special prompt** —— 在 `~/.argus-skill/special_prompts/` 放一个 `*.md`（机器/部署的操作规则，比如 GPU、路径、调度），文件须属主本人且**不可 group/world-writable**：
+> **启动硬门禁**：进 cockpit 或启动 daemon 前，必须同时配好两样东西，否则 `argus-skill` 直接 `exit 2` 并打印指引——
+> 1. **mission objective**：用 `--continuous --objective "<目标>"` 提供（持久化到 `continuous.json`，之后可省略）；
+> 2. **至少一个 special prompt**：在 `~/.argus-skill/special_prompts/` 放一个 `*.md`（这台机器/部署的操作规则：GPU、路径、调度），文件须属主本人且不可 group/world-writable。
 >    ```bash
 >    mkdir -p ~/.argus-skill/special_prompts
 >    printf 'Operational house rules for this box.\n' > ~/.argus-skill/special_prompts/10-house-rules.md
 >    chmod 0644 ~/.argus-skill/special_prompts/10-house-rules.md
 >    ```
-> 这取代了一切“从 objective 文本猜任务类型”的隐式逻辑：agent 必须被显式告知它的目标和这台机器的规则。只读 / admin 命令（`--status`、`--watch`、`--skill-stats`…）不受门禁限制。
+> 这取代了一切"从 objective 文本猜任务类型"的隐式逻辑——agent 必须被**显式**告知目标和机器规则。只读 / admin 命令（`--status`、`--watch`…）不受门禁限制。
 
 ```bash
-# 启动（默认 open-ended：project_done 后继续生成新工作，永续运行）
+# 默认 open-ended：planner 认证 project_done 后继续生成新工作，永续运行
 argus-skill --daemon --continuous \
   --objective "Complete the EMNLP paper on world models for agent action selection"
 
@@ -281,17 +246,14 @@ argus-skill --daemon --continuous \
 argus-skill --daemon --continuous --bounded \
   --objective "Add a unit-test suite for the data loader"
 
-# 管理
 argus-skill --status          # 查看状态
 argus-skill --daemon-stop     # 优雅停止
 argus-skill --daemon-runbook  # 升级清单
 ```
 
-Daemon 特性：
-- **POSIX double-fork** — 关闭终端、断开 SSH 不影响运行
-- **自动 gate 检查** — 全部检查通过后自动停止，不浪费 API
-- **预算控制** — 单任务/每日预算上限
-- **Telegram 远程控制** — 发消息 nudge 当前任务或添加新工作
+> open-ended vs `--bounded` 是**显式开关**（`LifeSupervisorConfig.open_ended`），取代了过去从 objective 里猜 `7×24`/`ongoing`/`perpetual` 关键词的做法。
+
+Daemon 特性：POSIX double-fork（断 SSH 不影响）、预算控制（单任务/每日上限，纯管道）、Telegram 远程 nudge / 加任务。
 
 ### systemd 部署
 
@@ -327,28 +289,32 @@ WantedBy=multi-user.target
 ```
 argus_skill/
 ├── builtin_skills/
-│   ├── engineer/          # 25 个 engineer skills
-│   ├── reviewer/          # 6 个 reviewer skills
+│   ├── engineer/          # 25 个 engineer skill（agent 的 playbook）
+│   ├── reviewer/          # 6 个 reviewer skill
 │   └── *.md               # 项目模板
 ├── tools/
 │   ├── stage_check.py     # 分阶段 shell 检查 + reviewer checklist
-│   ├── image_tool.py      # image-2 概念图生成
+│   ├── image_tool.py      # 概念图生成
 │   ├── subagent.py        # 子 agent 系统
-│   └── new_auto_research_project.py  # 项目创建
+│   └── new_auto_research_project.py
 ├── skills/
-│   ├── pipeline_contracts.py  # manifest/freshness/policy artifact 构建-修复工具 (质量 gate 由 reviewer checklist 决定)
-│   └── store.py           # skill 匹配器
+│   ├── pipeline_contracts.py  # manifest/freshness artifact 构建-修复（不是质量 gate）
+│   ├── stage_checklists.py    # reviewer 对照的 stage checklist（裁决在 reviewer）
+│   └── store.py               # skill 匹配器
 ├── engineer/
-│   ├── runner.py           # SupervisedEngineer 轮次循环
-│   ├── reviewer.py         # Reviewer agent
-│   └── checks.py           # check_commands 执行器
+│   ├── runner.py          # L1 engineer 轮次循环
+│   ├── reviewer.py        # L2 reviewer（唯一完成事实来源）
+│   └── checks.py          # check_commands 执行器
 ├── life/
-│   ├── supervisor.py       # Mission 编排 + Planner
-│   └── memory.py           # 持久化状态
+│   ├── supervisor.py      # backlog / 预算 / L4 planner（领域无关编排）
+│   ├── memory.py          # 持久化状态 + 纯 recency 记忆注入
+│   └── special_prompts.py # 受信任的机器规则加载
 ├── daemon/
-│   └── life_worker.py      # 7×24 daemon worker
-└── loop.py                 # SkillLoop — matcher × engineer × reviewer
+│   └── life_worker.py     # 7×24 daemon worker
+└── loop.py                # SkillLoop — matcher × engineer × reviewer
 ```
+
+> 想改"什么时候算完成 / 还差认证时派什么"，改的是 reviewer checklist 和 `supervisor.py` 的 planner 改派分支——**不要**在 harness 里加关键词判断。
 
 ## 测试
 
@@ -363,6 +329,6 @@ MIT — see [LICENSE](LICENSE).
 
 ## Provenance
 
-- [skill-agent](https://github.com/lbx154/skill-agent): skill 匹配、distiller
-- [ArgusBot](https://github.com/waltstephen/ArgusBot) (MIT)：reviewer 循环、codex runner —— `codex_autoloop` 模块已 **vendored** 到 `argus_skill/codex_autoloop/`（含上游 LICENSE 与 `_VENDORED.md` 注明 commit/sha；详见该目录）
-- 新代码: auto-research pipeline, stage_check, builtin skills, image-2 集成
+- [skill-agent](https://github.com/lbx154/skill-agent)：skill 匹配、distiller
+- [ArgusBot](https://github.com/waltstephen/ArgusBot) (MIT)：reviewer 循环、codex runner —— `codex_autoloop` 已 **vendored** 到 `argus_skill/codex_autoloop/`（含上游 LICENSE 与 `_VENDORED.md`）
+- 新代码：auto-research pipeline、stage_check、builtin skills、image-2 集成
