@@ -14,6 +14,7 @@ from argus_skill.life.project_lifecycle import (
     apply_event,
     archive,
     decide_next_state,
+    infer_observable_status,
     is_token_allocatable,
     resume,
     tick_all,
@@ -353,3 +354,56 @@ def test_old_time_threshold_constants_are_gone() -> None:
 
     # Budget fraction IS allowed — operator-set spending guard.
     assert hasattr(mod, "DEFAULT_QUARANTINE_BUDGET_FRACTION")
+
+
+# ---------------------------------------------------------------------------
+# Opt #5: PIPELINE_STATE.json secondary signal
+# ---------------------------------------------------------------------------
+
+
+def _seed_pipeline_state(root, stage: str) -> None:
+    import json as _json
+    state_dir = root / "research"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "PIPELINE_STATE.json").write_text(
+        _json.dumps({"current_stage": stage}), encoding="utf-8"
+    )
+
+
+def test_pipeline_state_benchmark_promotes_to_running(tmp_path) -> None:
+    _seed_pipeline_state(tmp_path, "benchmark")
+    status = infer_observable_status(tmp_path)
+    assert status.state == ProjectState.RUNNING
+
+
+def test_pipeline_state_draft_promotes_to_writing(tmp_path) -> None:
+    _seed_pipeline_state(tmp_path, "draft")
+    status = infer_observable_status(tmp_path)
+    assert status.state == ProjectState.WRITING
+
+
+def test_pipeline_state_research_keeps_incubating(tmp_path) -> None:
+    _seed_pipeline_state(tmp_path, "research")
+    status = infer_observable_status(tmp_path)
+    # research stage has no evidence yet and no draft — incubating is correct
+    assert status.state == ProjectState.INCUBATING
+
+
+def test_filesystem_evidence_still_wins_over_pipeline_state(tmp_path) -> None:
+    # Pipeline says "plan" (would map to running) but draft exists
+    # (paper/main.tex), so WRITING wins.
+    _seed_pipeline_state(tmp_path, "plan")
+    (tmp_path / "paper").mkdir()
+    (tmp_path / "paper" / "main.tex").write_text("\\documentclass{article}\n", encoding="utf-8")
+    status = infer_observable_status(tmp_path)
+    assert status.state == ProjectState.WRITING
+
+
+def test_malformed_pipeline_state_falls_back_to_fs_only(tmp_path) -> None:
+    (tmp_path / "research").mkdir()
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        "{not valid", encoding="utf-8"
+    )
+    status = infer_observable_status(tmp_path)
+    # Fresh dir, no evidence, no draft → incubating (and not a crash)
+    assert status.state == ProjectState.INCUBATING

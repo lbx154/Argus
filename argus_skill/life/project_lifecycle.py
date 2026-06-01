@@ -456,12 +456,30 @@ def infer_observable_status(
     has_draft = (project_root / "paper" / "main.tex").exists()
     has_submission_artifact = (project_root / "paper" / "main.pdf").exists()
 
+    # Opt #5: PIPELINE_STATE.json as a secondary signal — if the agent
+    # has advanced the pipeline state (research → plan → benchmark →
+    # ... → submission), reflect that in lifecycle state even when the
+    # filesystem-derived signals haven't caught up yet (e.g. benchmark
+    # stage in progress but benchmarks/evidence/ still empty because
+    # the agent is still building bundles). Pre-Opt-#5 these would
+    # disagree, confusing the cockpit.
+    pipeline_stage = _read_pipeline_stage(project_root)
+    pipeline_inferred: ProjectState | None = None
+    if pipeline_stage in ("draft", "review", "submission"):
+        pipeline_inferred = ProjectState.WRITING
+    elif pipeline_stage in ("plan", "benchmark", "run", "analysis"):
+        pipeline_inferred = ProjectState.RUNNING
+
     if has_submission_artifact:
         initial_state = ProjectState.WRITING
     elif has_draft:
         initial_state = ProjectState.WRITING
     elif last_evidence_at is not None:
         initial_state = ProjectState.RUNNING
+    elif pipeline_inferred is not None:
+        # No filesystem evidence yet but PIPELINE_STATE says we're
+        # past incubating — promote.
+        initial_state = pipeline_inferred
     else:
         initial_state = ProjectState.INCUBATING
 
@@ -477,3 +495,22 @@ def infer_observable_status(
         has_draft=has_draft,
         has_submission_artifact=has_submission_artifact,
     )
+
+
+def _read_pipeline_stage(project_root: Path) -> str | None:
+    """Best-effort: read current_stage from research/PIPELINE_STATE.json.
+    Returns None on missing / malformed file. Duplicates the slim
+    helper in argus_skill.life.stage_budget so this module has no
+    cross-import dependency."""
+    import json as _json
+    path = project_root / "research" / "PIPELINE_STATE.json"
+    if not path.exists():
+        return None
+    try:
+        data = _json.loads(path.read_text(encoding="utf-8"))
+        stage = data.get("current_stage")
+        if isinstance(stage, str) and stage.strip():
+            return stage.strip().lower()
+    except (OSError, _json.JSONDecodeError):
+        return None
+    return None
