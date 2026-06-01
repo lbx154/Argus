@@ -154,14 +154,41 @@ The headline run must actually *use* the machine.
    ≳70% of each GPU's memory in steady state). Reach it by scaling, in order:
    model size → per-device batch size / sequence length → less aggressive
    quantization. Use **bf16**, **gradient checkpointing**, and
-   **flash-attention** so the headroom goes to useful work, not waste.
-3. **Verify, don't assume.** While the run is live, check actual utilization
+   **flash-attention** so the headroom goes to useful work, not waste. A run
+   that trains at a few-GB footprint on a 140GB+ card is the single most common
+   failure mode here — treat it as a blocker, not a default.
+3. **Maximize throughput — train FAST, don't crawl.** A job that uses a GPU but
+   inches along (tiny per-device batch, short sequences, `num_generations=2`)
+   wastes the allocation as badly as an idle card *and* slows every iteration of
+   the research loop. Push the knobs UP to the largest values that fit and keep
+   step-time low / samples-per-second high:
+   - **Per-device batch size + gradient accumulation** → raise the effective
+     batch until VRAM is full; bigger batches mean fewer, fatter steps and far
+     better card utilization than many tiny ones.
+   - **Sequence / `max_len` (prompt + completion)** → set it as large as the
+     task genuinely needs. For reasoning RL the completion budget must be big
+     enough that generations are **not** truncated: a saturating `clipped_ratio`
+     or completions pinned at the cap means `max_completion_length` is too
+     **small** — raise it, do not shrink it to "save tokens".
+   - **GRPO/PPO/RLVR rollouts** → increase `num_generations` / group size and the
+     rollout/prompt batch; more parallel rollouts per step both fill memory and
+     give a stronger advantage estimate.
+   - Prefer **sequence packing**, **bf16**, **flash-attention**, and a
+     **vLLM-backed generation** path so the extra memory converts into speed.
+   Going deliberately small to be "cheap" or "stable" is justified **only** as a
+   smoke run or a documented research/ablation reason — never as the default that
+   leaves an allocated card half-empty and the loop slow. If you must bound cost,
+   do it by cutting the number of steps or the model size as a stated choice, not
+   by starving an otherwise-idle GPU with tiny batches and short sequences.
+4. **Verify, don't assume.** While the run is live, check actual utilization
    (`nvidia-smi` or `.venv/bin/python code/gpu_env.py`) at least once and record
-   **peak VRAM per GPU and observed GPU util%** in the run's
-   `manifest.json`/report. "I launched a distributed command" is not evidence;
-   measured utilization is. A run that trained at a few-GB / low-util footprint
-   on a 140GB+ card has not used the hardware and must be rescaled.
-4. **Stay unblocked.** Saturating the GPUs does not mean blocking on them:
+   **peak VRAM per GPU, observed GPU util%, and throughput (step time or
+   samples/sec)** in the run's `manifest.json`/report. "I launched a distributed
+   command" is not evidence; measured utilization is. A run that trained at a
+   few-GB / low-util footprint on a 140GB+ card — or that crawled at a tiny batch
+   while the card sat mostly idle between steps — has not used the hardware and
+   must be rescaled before it counts.
+5. **Stay unblocked.** Saturating the GPUs does not mean blocking on them:
    submit the heavy job through `argus_skill.tools.subagent --mode supervised`
    and keep working. A healthy `running` job is **not** a failure — see the
    Subagent note below.
