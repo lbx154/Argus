@@ -867,6 +867,34 @@ class LifeWorker:
             planner_runner=getattr(runner, "backend", None),
         )
 
+        # Vault pre-flight: refuse to start daemon if a required
+        # model_api route is misconfigured (e.g. wrong deployment
+        # name → 404 on every mission, observed 2026-06-01: 47 min /
+        # $2.50 doom loop). The codex backend is the only one that
+        # talks to the real model API; memory backend (tests) skips.
+        # Operator override via ARGUS_SKILL_SKIP_VAULT_PREFLIGHT=1.
+        if (
+            cfg.backend == "codex"
+            and os.environ.get("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "").strip() not in ("1", "true", "yes")
+        ):
+            from ..core.vault_preflight import (
+                check_routes as _vault_preflight_check,
+                format_report as _vault_preflight_format,
+            )
+            try:
+                preflight = _vault_preflight_check()
+            except Exception as exc:  # noqa: BLE001 - never fail-start on preflight infra bug
+                log.warning("vault preflight infra failed; proceeding: %s", exc)
+                preflight = None
+            if preflight is not None and not preflight.ok:
+                sys.stderr.write(_vault_preflight_format(preflight) + "\n")
+                sys.stderr.write(
+                    "argus-skill: daemon refused to start due to vault preflight "
+                    "failure. Fix the routes above, or set "
+                    "ARGUS_SKILL_SKIP_VAULT_PREFLIGHT=1 to bypass.\n"
+                )
+                return 2
+
         log.info(
             "daemon: ready (life_dir=%s backend=%s pid=%d)",
             runtime_root, cfg.backend, os.getpid(),
