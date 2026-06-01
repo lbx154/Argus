@@ -104,6 +104,7 @@ Execute the experiment plan for an agent-science paper. This is the argus-skill-
    - Inspect existing `experiments/*/status.json` and `pid` before launching duplicates.
    - If a background run completed, collect outputs and update status in the same mission before doing any unrelated work.
    - If still running, record exact resume instructions and continue with independent analysis or paper work.
+   - Matrix substantially complete, only a background tail left: when every required condition is either collected or still running in the background under a supervised subagent, and the ONLY remaining run-stage work is that near-complete tail finishing (no launchable conditions left), do NOT block the mission polling it. Collect every already-complete condition, record a one-line collect checkpoint for the tail (its supervised subagent reports completion on its own), and proceed NON-BLOCKINGLY into analysis/draft prep (results_table/significance generators against the expected schema, figures, RESULTS_REPORT skeleton, intro/method/related-work). The run-stage gate (full matrix) is still only declared satisfied once the tail completes and is collected — overlapping the next stage's prep does not skip that gate.
    - If the user reports the experiment design is wrong, create the `STOP` file, wait for `run_cancelled` or terminate the recorded PID, and revise the plan before relaunching.
 
 7. Update research tracking:

@@ -41,12 +41,14 @@ research → plan → benchmark → run → analysis → draft → review → su
 1. **Read `research/PIPELINE_STATE.json`** — what is the current stage?
 2. **Read `AGENTS.md`** — what are the project rules?
 3. **Assign work for the CURRENT stage** — do not skip ahead. If research is pending, the mission is literature search, not running experiments.
+   - **Non-blocking overlap exception**: if the current stage's only remaining work is a long-running job already executing in the background under a supervised subagent (e.g. the experiment matrix is fully launched and all conditions are collected except a near-complete tail still running), do NOT queue another mission whose sole action is to poll/wait on it — that subagent reports its own completion. Instead queue the next stage's overlap-safe preparatory work that the pipeline explicitly allows to begin while experiments run (analysis scaffolding + figure/table/significance generators written against the expected results schema; draft intro/method/related-work). This OVERLAPS the tail; it does not skip the gate — the current stage is still only marked done once its checklist passes (e.g. the full matrix completes).
 4. **One mission at a time** — prefer one focused mission over a scatter of micro-tasks.
 5. **Include concrete acceptance criteria** — tell Engineer exactly what artifacts to produce and how to verify.
 
 ## Rules
 
 - **Never skip stages.** If research/plan are not done, do not assign experiment work.
+- **Never queue a pure-wait mission.** A background subagent run reports its own completion; do not spin a mission whose only action is to poll `... status` on a job that is already running. When the current stage's launchable work is exhausted and only a background tail remains, overlap the next stage's non-blocking prep (analysis/draft) instead of parking an engineer on a poll loop. Marking the stage done still waits for its checklist gate — overlap ≠ skip.
 - **Demand innovation.** If the plan has no genuine insight, send it back. "Apply X to Y" is not research.
 - **GPU tasks use subagent.** Tell Engineer to submit long tasks via `python -m argus_skill.tools.subagent submit --mode supervised`.
 - **project_done = true** only when all 8 stages are done AND the final gate passes.
