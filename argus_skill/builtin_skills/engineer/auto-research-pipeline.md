@@ -160,6 +160,7 @@ research → plan → benchmark → run → analysis → draft → review → su
   1. Submit full run: `python -m argus_skill.tools.subagent submit --task-id train-full --mode supervised --run-dir experiments/train-full --command '...'`
   2. While waiting: start drafting paper structure, write method section, prepare figure templates
   3. When subagent reports completion → fill in actual results
+- **Long-tail = parallelize, do not poll-wait**. If the remaining matrix conditions are progressing slowly, never loop on `... status`. Record a one-line resume checkpoint and either (a) fill idle GPUs by launching the next unstarted condition / raising concurrency on under-utilized runs so the tail overlaps, or (b) advance independent analysis/draft scaffolding. Repeatedly polling status while GPUs sit idle is the single biggest throughput leak in the run stage.
 - Use approved frameworks (vLLM, LLaMA-Factory, etc.)
 - Write status.json, progress.jsonl, raw results
 - Gate: smoke results validate idea direction; full results pass experiment-results-review
