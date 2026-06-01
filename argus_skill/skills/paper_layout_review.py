@@ -138,16 +138,18 @@ def generate_layout_review(
     tex_text = tex_path.read_text(encoding="utf-8", errors="replace") if tex_path.is_file() else ""
     log_text = log_path.read_text(encoding="utf-8", errors="replace") if log_path.is_file() else ""
 
+    # The deterministic layout heuristic is ADVISORY context for the vision
+    # reviewer only. The harness no longer scores or gates paper layout from it:
+    # whether the layout is acceptable (e.g. where the Conclusion sits) is the
+    # reviewer agent's call against the stage checklist. We surface neutral page
+    # facts and feed the heuristic to the vision model, but emit no quality verdict.
     deterministic = _deterministic_assessment(
         tex_text=tex_text,
         log_text=log_text,
         layout_text=layout_text,
         threshold=threshold,
     )
-    issues.extend(deterministic["issues"])
-    criteria_scores = dict(deterministic["criteria_scores"])
-    score = float(deterministic["score_1_to_5"])
-    review_method = "heuristic_only"
+    review_method = "facts_only"
     vision_review: dict[str, Any] | None = None
 
     if review_mode == "vision":
@@ -175,69 +177,51 @@ def generate_layout_review(
                     _issue(
                         "vision_review_unavailable",
                         "blocking",
-                        f"vision model could not score the rendered PDF pages: {_redact(str(exc))}",
+                        f"vision model could not review the rendered PDF pages: {_redact(str(exc))}",
                         action="rebalance_columns",
                     )
                 )
             else:
-                review_method = "hybrid_vision_heuristic"
-                vision_score = _float_or_none(vision_review.get("score_1_to_5"))
-                if vision_score is None:
-                    issues.append(
-                        _issue(
-                            "vision_review_missing_score",
-                            "blocking",
-                            "vision review did not return score_1_to_5",
-                            action="rebalance_columns",
-                        )
-                    )
-                criteria_scores.update(_criterion_scores(vision_review.get("criteria_scores")))
-                vision_issues = _vision_issues(vision_review, deterministic=deterministic)
-                issues.extend(vision_issues)
-                if vision_score is not None and _vision_score_should_block(
-                    vision_score=vision_score,
-                    vision_issues=vision_issues,
-                    deterministic=deterministic,
-                    threshold=threshold,
-                ):
-                    score = min(score, max(1.0, min(5.0, vision_score)))
+                review_method = "vision_advisory"
     elif review_mode != "heuristic":
         raise LayoutReviewError(f"unsupported review_mode {review_mode!r}")
 
-    score = max(1.0, min(5.0, round(score, 2)))
-    hard_issues = [issue for issue in issues if issue.get("severity") == "blocking" or issue.get("hard_gate")]
+    page_flow = (
+        deterministic.get("page_flow_contract", {}) if isinstance(deterministic, dict) else {}
+    )
+    facts = {
+        "page_count": page_flow.get("page_count"),
+        "conclusion_page": page_flow.get("conclusion_page"),
+        "references_page": page_flow.get("references_page"),
+        "layout_text_extracted": bool(layout_text.strip()),
+    }
+    # ``structural_status`` reflects only whether the tool could produce facts
+    # (missing/un-renderable PDF, vision model unavailable). It is NOT a quality
+    # verdict.
     blocking_issues = [issue for issue in issues if issue.get("severity") == "blocking"]
-    needs_revision = bool(hard_issues) or score < threshold
-    verdict = "PASS"
-    if any(issue.get("severity") == "blocking" for issue in issues):
-        verdict = "BLOCKED"
-    elif needs_revision:
-        verdict = "FAIL"
+    structural_status = "blocked" if blocking_issues else "ok"
 
-    directives = _revision_directives(issues)
     result: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_by": LAYOUT_REVIEW_GENERATED_BY,
         "created_at": datetime.now(UTC).isoformat(),
         "iteration": iteration,
         "review_method": review_method,
-        "verdict": verdict,
-        "score_1_to_5": score,
-        "threshold": threshold,
-        "needs_revision": needs_revision,
+        "decision_authority": "agent_checklist",
+        "harness_verdict": None,
+        "no_harness_quality_verdict": True,
+        "structural_status": structural_status,
         "pdf_path": str(PAPER_MAIN_PDF_PATH),
         "pdf_sha256": pdf_sha256,
         "page_snapshots": page_snapshots,
         "render_error": render_error,
-        "layout_text_extracted": bool(layout_text.strip()),
-        "criteria_scores": criteria_scores,
-        "page_flow_contract": deterministic.get("page_flow_contract", {}),
+        "facts": facts,
         "issues": issues,
         "blocking_issues": blocking_issues,
-        "revision_directives": directives,
         "review_policy": {
-            "pass_requires_vision": True,
-            "max_recommended_iterations": 3,
+            "decision_authority": "reviewer agent decides against the stage checklist; "
+            "the harness reports page facts and relays the vision reviewer's advisory "
+            "findings, and emits no quality verdict",
             "allowed_directive_actions": sorted(ALLOWED_DIRECTIVE_ACTIONS),
         },
     }
@@ -1742,48 +1726,26 @@ def _layout_review_markdown(result: dict[str, Any]) -> str:
     lines = [
         "# Layout Review",
         "",
-        f"- Verdict: `{result['verdict']}`",
-        f"- Score: `{result['score_1_to_5']}` / 5 (threshold `{result['threshold']}`)",
-        f"- Review method: `{result['review_method']}`",
-        f"- Needs revision: `{result['needs_revision']}`",
+        "- Decision authority: `agent_checklist` (the reviewer agent decides; "
+        "the harness emits no quality verdict)",
+        f"- Structural status: `{result.get('structural_status', 'ok')}`",
+        f"- Review method: `{result.get('review_method', 'facts_only')}`",
         "",
     ]
+    facts = result.get("facts")
+    if isinstance(facts, dict) and facts:
+        lines.extend(["## Facts", ""])
+        for key in sorted(facts):
+            lines.append(f"- `{key}`: {facts[key]}")
+        lines.append("")
     issues = result.get("issues")
     if isinstance(issues, list) and issues:
-        lines.extend(["## Issues", ""])
+        lines.extend(["## Structural issues", ""])
         for issue in issues:
             if not isinstance(issue, dict):
                 continue
             page = f" page {issue['page']}:" if "page" in issue else ""
             lines.append(f"- `{issue.get('severity', 'unknown')}`{page} {issue.get('message', '')}")
-        lines.append("")
-    directives = result.get("revision_directives")
-    if isinstance(directives, list) and directives:
-        lines.extend(["## Revision directives", ""])
-        for directive in directives:
-            if not isinstance(directive, dict):
-                continue
-            lines.append(
-                f"- `{directive.get('action', 'revise')}` on `{directive.get('target', 'paper/main.tex')}`: "
-                f"{directive.get('rationale', '')}"
-            )
-            guidance = directive.get("implementation_guidance")
-            if isinstance(guidance, dict):
-                root_cause = guidance.get("root_cause")
-                visual_goal = guidance.get("visual_goal")
-                source_targets = guidance.get("source_targets")
-                specific_edits = guidance.get("specific_edits")
-                verification = guidance.get("verification")
-                if root_cause:
-                    lines.append(f"  - Root cause: {root_cause}")
-                if isinstance(source_targets, list) and source_targets:
-                    lines.append("  - Source targets: " + "; ".join(str(item) for item in source_targets))
-                if isinstance(specific_edits, list) and specific_edits:
-                    lines.append("  - Specific edits: " + "; ".join(str(item) for item in specific_edits))
-                if visual_goal:
-                    lines.append(f"  - Visual goal: {visual_goal}")
-                if isinstance(verification, list) and verification:
-                    lines.append("  - Verification: " + "; ".join(str(item) for item in verification))
         lines.append("")
     return "\n".join(lines)
 
@@ -1807,9 +1769,7 @@ def _append_history(root: Path, path: Path, result: dict[str, Any]) -> None:
         "generated_by": result.get("generated_by"),
         "iteration": result.get("iteration"),
         "review_method": result.get("review_method"),
-        "verdict": result.get("verdict"),
-        "score_1_to_5": result.get("score_1_to_5"),
-        "needs_revision": result.get("needs_revision"),
+        "structural_status": result.get("structural_status"),
         "pdf_sha256": result.get("pdf_sha256"),
         "vision_model": (result.get("vision_review") or {}).get("model")
         if isinstance(result.get("vision_review"), dict)
@@ -1889,7 +1849,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stderr.write(f"argus-skill paper-layout-review: {_redact(str(exc))}\n")
         return 2
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if result.get("verdict") == "PASS" else 1
+    return 0 if result.get("structural_status") == "ok" else 1
 
 
 if __name__ == "__main__":  # pragma: no cover

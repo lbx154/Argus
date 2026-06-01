@@ -111,9 +111,16 @@ def test_inspect_project_bootstrap_detects_research_profile(
     assert "pyproject.toml" not in preflight.bootstrap_objective
 
 
-def test_inspect_project_bootstrap_detects_research_objective_hint(
+def test_inspect_project_bootstrap_ignores_objective_keywords(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Philosophy: the harness must NOT sniff the objective text for keywords
+    # like "emnlp" / "auto-research" to choose a research scaffold. Without a
+    # structured research profile, a research-sounding objective falls back to
+    # the GENERIC bootstrap — the agent decides the science, not the harness.
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
     repo_dir = tmp_path / "empty-repo"
     repo_dir.mkdir()
 
@@ -123,9 +130,10 @@ def test_inspect_project_bootstrap_detects_research_objective_hint(
     )
 
     assert preflight.should_bootstrap is True
-    assert "research bootstrap mission" in preflight.bootstrap_objective.lower()
-    assert "research/EXPERIMENT_PLAN.md" in preflight.bootstrap_objective
-    assert "research bootstrap requested" in preflight.event_text
+    # Generic bootstrap, NOT the research seed.
+    assert "pyproject.toml" in preflight.bootstrap_objective
+    assert "research bootstrap mission" not in preflight.bootstrap_objective.lower()
+    assert "research bootstrap requested" not in preflight.event_text
 
 
 def test_inspect_project_bootstrap_heals_partial_research_seed(

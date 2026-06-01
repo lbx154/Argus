@@ -213,20 +213,6 @@ DEFAULT_VALIDATION_REPAIR_MODES: dict[str, str] = {
     "freshness": "regenerate stale generated artifacts and refresh recorded input hashes",
     "experiment_evidence": "run full-scale benchmark experiments and required baselines",
     "claim_graph": "repair claim graph evidence bindings or soften unsupported claims",
-    "content_sufficiency": (
-        "add source-backed framing, method detail, evidence-backed analysis, "
-        "ablations, failure studies, or runs"
-    ),
-    "exemplar_suitability": "replace unsuitable style exemplars with vetted EMNLP/ACL exemplars",
-    "exemplar_structure": "reset paper skeleton to the exemplar-derived structure blueprint",
-    "figure_table_style": "redesign figures and tables from the figure-table style guide",
-    "format_layout": "repair LaTeX format, page flow, floats, captions, and overfull boxes",
-    "layout_vision": "revise rendered PDF layout and rerun the vision layout reviewer",
-    "academic_language": "rewrite prose through the model-backed academic-language reviewer",
-    "paper_infrastructure": (
-        "remove reader-facing local environment/device/config leaks and rerun the "
-        "model-backed paper infrastructure reviewer"
-    ),
     "artifact_manifest": "refresh artifact manifest schemas, sources, digests, and TSV columns",
 }
 

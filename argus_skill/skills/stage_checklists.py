@@ -408,6 +408,25 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
             evidence_hint="paper/main.tex Related Work section",
         ),
+        ChecklistItem(
+            id="review.language",
+            statement=(
+                "Academic prose reads like a real EMNLP paper, not generic agent "
+                "output: the Abstract states problem, gap, method, evidence, and "
+                "implication (no result-first opening, no validator-checklist "
+                "phrasing); the Introduction grounds the gap in cited prior work, "
+                "then gives the method insight, a quantified result preview, and a "
+                "contribution roadmap before Related Work; the Method/Setup lets an "
+                "outside reviewer identify the evaluated system, baselines, task "
+                "source, metrics, evaluated model/backend, and budget; every "
+                "headline claim is tied to reported evidence; no unsupported hype, "
+                "template LLM openings, or repeated not-X-but-Y caveats. The "
+                "model-backed reviewer (academic_language_review) is advisory "
+                "input — this checklist, judged by the reviewer agent, is the "
+                "source of truth."
+            ),
+            evidence_hint="paper/main.tex Abstract/Introduction/Method + paper/ACADEMIC_LANGUAGE_REVIEW.json (advisory)",
+        ),
     ),
     "submission": _checklist(
         ChecklistItem(

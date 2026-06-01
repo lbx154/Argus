@@ -284,14 +284,26 @@ def generate_academic_language_review(
             )
         )
 
+    # The deterministic heuristic is ADVISORY input for the reviewer agent only.
+    # The harness no longer scores or gates paper quality from it: whether the
+    # prose is good enough is the reviewer agent's call against the stage
+    # checklist. We surface neutral measurements as facts, relay TODO/placeholder
+    # markers as a publication-integrity finding, and feed the heuristic signals
+    # to the model reviewer as context — but emit no harness quality verdict.
     deterministic = _deterministic_assessment(combined_source)
-    issues.extend(deterministic["issues"])
-    section_scores = dict(deterministic["section_scores"])
-    required_checks = dict(deterministic["required_checks"])
-    score = float(deterministic["score_1_to_5"])
-    review_method = "heuristic_only"
+    facts = _neutral_language_facts(combined_source)
+    integrity_findings: list[dict[str, Any]] = []
+    if facts.get("placeholder_marker_count"):
+        integrity_findings.append(
+            _issue(
+                "placeholder_text_remaining",
+                "major",
+                "manuscript still contains TODO/TBD/placeholder markers",
+                action="delete_filler",
+            )
+        )
+    review_method = "facts_only"
     model_review: dict[str, Any] | None = None
-    evidence_spans: list[dict[str, Any]] = []
 
     if review_mode == "model":
         try:
@@ -308,93 +320,43 @@ def generate_academic_language_review(
                 _issue(
                     "model_review_unavailable",
                     "blocking",
-                    f"text reviewer could not score paper prose: {_redact(str(exc))}",
+                    f"text reviewer could not review paper prose: {_redact(str(exc))}",
                     hard_gate=True,
                     action="rewrite_introduction",
                 )
             )
         else:
-            review_method = "hybrid_llm_heuristic"
-            score = _merge_model_review(
-                model_review=model_review,
-                section_scores=section_scores,
-                required_checks=required_checks,
-                evidence_spans=evidence_spans,
-                issues=issues,
-                fallback_score=score,
-            )
+            review_method = "model_advisory"
     elif review_mode != "heuristic":
         raise AcademicLanguageReviewError(f"unsupported review_mode {review_mode!r}")
 
-    for key in SECTION_SCORE_KEYS:
-        section_score = _float_or_none(section_scores.get(key))
-        if section_score is None:
-            issues.append(
-                _issue(
-                    "missing_section_score",
-                    "blocking",
-                    f"academic-language review must score section {key!r}",
-                    hard_gate=True,
-                    action="rewrite_introduction",
-                )
-            )
-        elif section_score < threshold:
-            issues.append(
-                _issue(
-                    "low_section_score",
-                    "major",
-                    f"section score {key}={section_score:g} is below {threshold:g}",
-                    hard_gate=True,
-                    action=_section_action(key),
-                )
-            )
-
-    missing_checks = [key for key in REQUIRED_CHECK_KEYS if required_checks.get(key) is not True]
-    for key in missing_checks:
-        issues.append(
-            _issue(
-                "failed_academic_required_check",
-                "major",
-                f"required academic-language check {key!r} is not satisfied",
-                hard_gate=True,
-                action=_check_action(key),
-            )
-        )
-
-    hard_issues = [issue for issue in issues if issue.get("severity") == "blocking" or issue.get("hard_gate")]
+    # ``structural_status`` reflects only whether the tool could produce facts
+    # (missing manuscript source / model unavailable). It is NOT a quality
+    # verdict.
     blocking_issues = [issue for issue in issues if issue.get("severity") == "blocking"]
-    score = _final_score(score, section_scores)
-    needs_revision = bool(hard_issues) or score < threshold
-    verdict = "PASS"
-    if blocking_issues:
-        verdict = "BLOCKED"
-    elif needs_revision:
-        verdict = "FAIL"
+    structural_status = "blocked" if blocking_issues else "ok"
 
-    directives = [] if verdict == "PASS" else _revision_directives(issues, model_review)
     result: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_by": ACADEMIC_LANGUAGE_REVIEW_GENERATED_BY,
         "created_at": datetime.now(UTC).isoformat(),
         "iteration": iteration,
         "review_method": review_method,
-        "verdict": verdict,
-        "score_1_to_5": score,
-        "threshold": threshold,
-        "needs_revision": needs_revision,
+        "decision_authority": "agent_checklist",
+        "harness_verdict": None,
+        "no_harness_quality_verdict": True,
+        "structural_status": structural_status,
+        "facts": facts,
+        "integrity_findings": integrity_findings,
         "source_snapshots": source_snapshots,
         "reviewed_source_count": len(source_snapshots),
-        "section_scores": _round_scores(section_scores),
-        "required_checks": required_checks,
-        "evidence_spans": evidence_spans,
         "issues": issues,
         "blocking_issues": blocking_issues,
-        "revision_directives": directives,
         "review_policy": {
-            "rubric": "emnlp-academic-language-v1",
-            "pass_requires_model": True,
-            "min_evidence_spans": len(SECTION_SCORE_KEYS),
-            "allowed_directive_actions": sorted(ALLOWED_DIRECTIVE_ACTIONS),
+            "rubric": "emnlp-academic-language-v2",
+            "decision_authority": "reviewer agent decides against the stage checklist; "
+            "the harness reports facts and relays the model reviewer's advisory "
+            "findings, and emits no quality verdict",
             "adapted_from": "AI-Research-SKILLs MIT workflow concepts, no exemplar prose copied",
         },
     }
@@ -406,6 +368,22 @@ def generate_academic_language_review(
         _write_text(root / ACADEMIC_LANGUAGE_REVIEW_MD_PATH, _review_markdown(result))
         _append_history(root, ACADEMIC_LANGUAGE_REVIEW_HISTORY_PATH, result)
     return result
+
+
+def _neutral_language_facts(tex_text: str) -> dict[str, Any]:
+    """Extract neutral measurements (no quality judgment) for the agent to read."""
+    plain = _latex_to_plain_text(tex_text)
+    abstract_plain = _latex_to_plain_text(_extract_environment(tex_text, "abstract"))
+    placeholder_count = len(
+        re.findall(r"\b(?:TODO|TBD|placeholder)\b", _strip_latex_comments(tex_text))
+    )
+    return {
+        "abstract_word_count": _word_count(abstract_plain),
+        "abstract_sentence_count": _sentence_count(abstract_plain) if abstract_plain.strip() else 0,
+        "section_titles": _extract_section_titles(tex_text),
+        "body_word_count": _word_count(plain),
+        "placeholder_marker_count": placeholder_count,
+    }
 
 
 def collect_latex_source_paths(
@@ -2004,42 +1982,37 @@ def _review_markdown(result: dict[str, Any]) -> str:
     lines = [
         "# Academic Language Review",
         "",
-        f"- Verdict: `{result['verdict']}`",
-        f"- Score: `{result['score_1_to_5']}` / 5 (threshold `{result['threshold']}`)",
-        f"- Review method: `{result['review_method']}`",
-        f"- Needs revision: `{result['needs_revision']}`",
+        "- Decision authority: `agent_checklist` (the reviewer agent decides; "
+        "the harness emits no quality verdict)",
+        f"- Structural status: `{result.get('structural_status', 'ok')}`",
+        f"- Review method: `{result.get('review_method', 'facts_only')}`",
         "",
     ]
+    facts = result.get("facts")
+    if isinstance(facts, dict) and facts:
+        lines.extend(["## Facts", ""])
+        for key in sorted(facts):
+            value = facts[key]
+            if isinstance(value, list):
+                value = ", ".join(str(item) for item in value)
+            lines.append(f"- `{key}`: {value}")
+        lines.append("")
+    findings = result.get("integrity_findings")
+    if isinstance(findings, list) and findings:
+        lines.extend(["## Integrity findings", ""])
+        for finding in findings:
+            if isinstance(finding, dict):
+                lines.append(
+                    f"- `{finding.get('severity', 'unknown')}` {finding.get('message', '')}"
+                )
+        lines.append("")
     issues = result.get("issues")
     if isinstance(issues, list) and issues:
-        lines.extend(["## Issues", ""])
+        lines.extend(["## Structural issues", ""])
         for issue in issues:
             if not isinstance(issue, dict):
                 continue
             lines.append(f"- `{issue.get('severity', 'unknown')}` {issue.get('message', '')}")
-            spans = issue.get("evidence_spans")
-            if isinstance(spans, list):
-                for span in spans[:6]:
-                    if not isinstance(span, dict):
-                        continue
-                    line = span.get("line")
-                    term = span.get("term")
-                    quote = str(span.get("quote") or "").strip()
-                    if line is None or not term:
-                        continue
-                    lines.append(f"  - line {line}: `{term}` in \"{quote[:180]}\"")
-        lines.append("")
-    directives = result.get("revision_directives")
-    if isinstance(directives, list) and directives:
-        lines.extend(["## Revision directives", ""])
-        for directive in directives:
-            if not isinstance(directive, dict):
-                continue
-            lines.append(
-                f"- `{directive.get('action', 'revise')}` on "
-                f"`{directive.get('target', 'paper/main.tex')}`: "
-                f"{directive.get('rationale', '')}"
-            )
         lines.append("")
     return "\n".join(lines)
 
@@ -2063,9 +2036,7 @@ def _append_history(root: Path, path: Path, result: dict[str, Any]) -> None:
         "generated_by": result.get("generated_by"),
         "iteration": result.get("iteration"),
         "review_method": result.get("review_method"),
-        "verdict": result.get("verdict"),
-        "score_1_to_5": result.get("score_1_to_5"),
-        "needs_revision": result.get("needs_revision"),
+        "structural_status": result.get("structural_status"),
         "model": (result.get("model_review") or {}).get("model")
         if isinstance(result.get("model_review"), dict)
         else None,
@@ -2140,7 +2111,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stderr.write(f"argus-skill academic-language-review: {_redact(str(exc))}\n")
         return 2
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if result.get("verdict") == "PASS" else 1
+    return 0 if result.get("structural_status") == "ok" else 1
 
 
 if __name__ == "__main__":  # pragma: no cover

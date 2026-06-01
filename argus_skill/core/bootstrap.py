@@ -97,7 +97,14 @@ def inspect_project_bootstrap(
     *,
     objective_hint: str = "",
 ) -> BootstrapPreflight:
-    """Classify ``project_root`` for an empty-project bootstrap task."""
+    """Classify ``project_root`` for an empty-project bootstrap task.
+
+    ``objective_hint`` is accepted for caller compatibility but intentionally
+    ignored: the harness must not infer mission type from objective prose. The
+    research-vs-generic choice is driven solely by the structured research
+    profile (see ``_should_bootstrap_research``).
+    """
+    del objective_hint
     root = Path(project_root).expanduser()
     has_git = (root / ".git").exists()
     build_manifests = tuple(
@@ -124,10 +131,7 @@ def inspect_project_bootstrap(
     bootstrap_objective = ""
     event_text = ""
     research_profile = load_research_profile()
-    research_requested = _should_bootstrap_research(
-        research_profile,
-        objective_hint=objective_hint,
-    )
+    research_requested = _should_bootstrap_research(research_profile)
     generic_empty = not has_git and not build_manifests and not readmes and not source_files
     research_incomplete = bool(research_missing_artifacts)
     should_bootstrap = (
@@ -218,27 +222,17 @@ def _package_slug(name: str) -> str:
     return slug or "project"
 
 
-def _should_bootstrap_research(
-    profile: object | None,
-    *,
-    objective_hint: str,
-) -> bool:
-    low = objective_hint.casefold()
-    research_keywords = (
-        "auto-research",
-        "emnlp",
-        "acl",
-        "research bootstrap",
-        "research mission",
-        "research profile",
-        "pipeline state",
-        "experiment plan",
-        "claims to test",
-        "go/no-go",
-    )
-    if profile is not None:
-        return True
-    return any(keyword in low for keyword in research_keywords)
+def _should_bootstrap_research(profile: object | None) -> bool:
+    """Whether to seed a research scaffold instead of a generic project.
+
+    Driven SOLELY by the structured research profile (``load_research_profile``).
+    The harness must not sniff the objective text for keywords like "emnlp" /
+    "auto-research" to guess the mission type — that is the agent's domain, and
+    keyword-matching the objective is exactly the harness-overreach this project
+    has been removing. If an operator wants a research scaffold, they configure a
+    research profile; otherwise an empty root gets the generic bootstrap.
+    """
+    return profile is not None
 
 
 def _research_bootstrap_objective(root: Path, *, profile_name: str = "") -> str:

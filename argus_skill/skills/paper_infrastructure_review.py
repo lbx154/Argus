@@ -31,7 +31,6 @@ from ._review_contract_constants import (
 from .academic_language_review import (
     PAPER_MAIN_TEX_PATH,
     _append_history,
-    _float_or_none,
     _numbered_source_excerpt,
     _parse_json_object_from_text,
     _read_source_texts,
@@ -122,8 +121,8 @@ def generate_paper_infrastructure_review(
     evidence_spans: list[dict[str, Any]] = []
     checked_scope: list[str] = []
     model_review: dict[str, Any] | None = None
-    score = 1.0
-    leak_free = False
+    leak_free: bool | None = None
+    leak_findings: list[dict[str, Any]] = []
 
     if source_text_by_path and not blocking_issues:
         try:
@@ -144,7 +143,6 @@ def generate_paper_infrastructure_review(
             issues.append(issue)
             blocking_issues.append(issue)
         else:
-            score = _float_or_none(model_review.get("score_1_to_5")) or 1.0
             leak_free = model_review.get("leak_free") is True
             checked_scope = [
                 str(item).strip()
@@ -159,21 +157,16 @@ def generate_paper_infrastructure_review(
             blocking_issues.extend(_dict_list(model_review.get("blocking_issues")))
             major_issues.extend(_dict_list(model_review.get("major_issues")))
             directives.extend(_dict_list(model_review.get("revision_directives")))
-            if not evidence_spans:
-                issue = _issue(
-                    "model_review_missing_evidence_spans",
-                    "major",
-                    (
-                        "reviewer model returned no quote evidence spans; rerun the "
-                        "model-backed infrastructure review with explicit evidence "
-                        "from the inspected manuscript scopes"
-                    ),
-                    action="rewrite_setup_as_paper_facing",
-                )
-                issues.append(issue)
-                major_issues.append(issue)
-            if model_review.get("verdict") == "FAIL" or not leak_free:
-                issues.append(
+            # The reviewer MODEL (an agent) reports leak findings; the harness
+            # relays them as publication-safety findings. It does NOT convert
+            # them into a harness-authored quality verdict/score — whether the
+            # manuscript is acceptable is the reviewer agent's call against the
+            # checklist, informed by these findings.
+            leak_findings = _dict_list(model_review.get("major_issues")) + _dict_list(
+                model_review.get("blocking_issues")
+            )
+            if leak_free is False:
+                leak_findings.append(
                     _issue(
                         "paper_infrastructure_leak_reported",
                         "major",
@@ -191,36 +184,23 @@ def generate_paper_infrastructure_review(
         issues.append(issue)
         blocking_issues.append(issue)
 
-    model_decision = ""
-    if isinstance(model_review, dict):
-        model_decision = str(model_review.get("pass_or_revise") or "").strip().casefold()
-    needs_revision = (
-        bool(blocking_issues)
-        or bool(major_issues)
-        or bool(directives)
-        or not leak_free
-        or score < threshold
-        or model_decision not in {"", "pass"}
-    )
-    verdict = "PASS"
-    if blocking_issues:
-        verdict = "BLOCKED"
-    elif needs_revision:
-        verdict = "FAIL"
-    if verdict == "PASS":
-        directives = []
+    # ``structural_status`` reflects only whether the tool could produce facts
+    # (missing manuscript source / model unavailable). It is NOT a quality
+    # verdict. The harness emits no PASS/FAIL on paper quality here.
+    structural_status = "blocked" if blocking_issues else "ok"
 
     result: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_by": PAPER_INFRASTRUCTURE_REVIEW_GENERATED_BY,
         "created_at": datetime.now(UTC).isoformat(),
         "iteration": iteration,
         "review_method": "llm_text_reviewer",
-        "verdict": verdict,
-        "score_1_to_5": round(float(score), 2),
-        "threshold": threshold,
-        "needs_revision": needs_revision,
+        "decision_authority": "agent_checklist",
+        "harness_verdict": None,
+        "no_harness_quality_verdict": True,
+        "structural_status": structural_status,
         "leak_free": leak_free,
+        "leak_findings": leak_findings,
         "checked_scope": checked_scope,
         "source_snapshots": source_snapshots,
         "reviewed_source_count": len(source_snapshots),
@@ -230,9 +210,9 @@ def generate_paper_infrastructure_review(
         "major_issues": major_issues,
         "revision_directives": directives,
         "review_policy": {
-            "rubric": "paper-facing-infrastructure-leak-v1",
-            "pass_requires_model": True,
-            "minimum_score": threshold,
+            "rubric": "paper-facing-infrastructure-leak-v2",
+            "decision_authority": "reviewer agent decides against the stage checklist; "
+            "the harness reports leak findings only and emits no quality verdict",
             "required_checked_scope": list(REQUIRED_CHECKED_SCOPES),
             "allowed_directive_actions": sorted(ALLOWED_DIRECTIVE_ACTIONS),
             "paper_facing_target": "title, abstract, body prose, captions, tables, and appendix prose",
@@ -363,16 +343,25 @@ def _review_markdown(result: dict[str, Any]) -> str:
     lines = [
         "# Paper Infrastructure Review",
         "",
-        f"- Verdict: `{result['verdict']}`",
-        f"- Score: `{result['score_1_to_5']}` / 5 (threshold `{result['threshold']}`)",
+        "- Decision authority: `agent_checklist` (the reviewer agent decides; "
+        "the harness emits no quality verdict)",
+        f"- Structural status: `{result['structural_status']}`",
         f"- Review method: `{result['review_method']}`",
-        f"- Leak free: `{result['leak_free']}`",
-        f"- Needs revision: `{result['needs_revision']}`",
+        f"- Leak free (reviewer model): `{result['leak_free']}`",
         "",
     ]
+    leak_findings = result.get("leak_findings")
+    if isinstance(leak_findings, list) and leak_findings:
+        lines.extend(["## Leak findings", ""])
+        for finding in leak_findings:
+            if isinstance(finding, dict):
+                lines.append(
+                    f"- `{finding.get('severity', 'unknown')}` {finding.get('message', '')}"
+                )
+        lines.append("")
     issues = result.get("issues")
     if isinstance(issues, list) and issues:
-        lines.extend(["## Issues", ""])
+        lines.extend(["## Structural issues", ""])
         for issue in issues:
             if isinstance(issue, dict):
                 lines.append(f"- `{issue.get('severity', 'unknown')}` {issue.get('message', '')}")
@@ -501,7 +490,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stderr.write(f"argus-skill paper-infrastructure-review: {_redact(str(exc))}\n")
         return 2
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if result.get("verdict") == "PASS" else 1
+    # Exit nonzero only when the tool could not produce facts (structural /
+    # tool failure), never as a harness quality verdict.
+    return 0 if result.get("structural_status") == "ok" else 1
 
 
 if __name__ == "__main__":  # pragma: no cover

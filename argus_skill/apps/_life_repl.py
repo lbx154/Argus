@@ -270,34 +270,6 @@ class _MemoryRunner:
         self.workdir: Path | None = None
 
     @staticmethod
-    def _looks_like_bootstrap_objective(objective: str) -> bool:
-        low = str(objective).casefold()
-        return (
-            "bootstrap this empty project root" in low
-            or "bootstrap empty project root" in low
-            or ("git init" in low and "pyproject.toml" in low and "readme.md" in low)
-        )
-
-    @staticmethod
-    def _looks_like_research_bootstrap_objective(objective: str) -> bool:
-        low = str(objective).casefold()
-        return any(
-            token in low
-            for token in (
-                "research bootstrap mission",
-                "seed a research bootstrap mission",
-                "auto-research",
-                "emnlp",
-                "research/pipeline_state.json",
-                "research/research_brief.md",
-                "research/experiment_plan.md",
-                "research/claims_to_test.md",
-                "research/go_no_go.md",
-                "experiments/benchmark_provenance.md",
-            )
-        )
-
-    @staticmethod
     def _write_text(path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
@@ -455,12 +427,21 @@ class _MemoryRunner:
         workdir = self.workdir
         if workdir is None:
             return
-        if self._looks_like_research_bootstrap_objective(objective):
+        # Whether (and which kind of) scaffold to seed is decided by the
+        # STRUCTURED preflight + research profile, never by sniffing the
+        # objective text for keywords like "emnlp" / "auto-research". The
+        # harness must not guess mission type from prose — that is the agent's
+        # call, and the research scaffold is opt-in via a configured profile.
+        from ..core.bootstrap import inspect_project_bootstrap
+        from ..life.research_profile import load_research_profile
+
+        root = Path(workdir).expanduser()
+        preflight = inspect_project_bootstrap(root)
+        if not preflight.should_bootstrap:
+            return
+        if load_research_profile() is not None:
             self._materialize_research_bootstrap_seed(objective)
             return
-        if not self._looks_like_bootstrap_objective(objective):
-            return
-        root = Path(workdir).expanduser()
         root.mkdir(parents=True, exist_ok=True)
 
         git_dir = root / ".git"

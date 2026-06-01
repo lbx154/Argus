@@ -1,18 +1,16 @@
-"""Shared validation policy vocabulary for auto-research gates."""
+"""Shared validation policy vocabulary for auto-research gates.
+
+This taxonomy is intentionally restricted to STRUCTURAL and ANTI-FABRICATION
+failure classes. Paper-quality concerns (prose, layout, length, figure style,
+section placement) are deliberately absent: deciding whether a paper is good is
+the reviewer agent's job against the stage checklist, not a harness taxonomy.
+"""
 from __future__ import annotations
 
 VALIDATION_FAILURE_CLASSES: tuple[str, ...] = (
     "freshness",
     "experiment_evidence",
     "claim_graph",
-    "content_sufficiency",
-    "exemplar_suitability",
-    "exemplar_structure",
-    "figure_table_style",
-    "format_layout",
-    "layout_vision",
-    "academic_language",
-    "paper_infrastructure",
     "artifact_manifest",
 )
 
@@ -30,67 +28,12 @@ DEFAULT_VALIDATION_ISSUE_PREFIXES: dict[str, tuple[str, ...]] = {
         "unsupported_result_ratio",
         "method_result_number_mismatch",
         "hosted_model_contradicts_no_external_model_claim",
-        "single_source_benchmark",
-        "insufficient_executed_benchmark_sources",
-        "missing_benchmark",
         "benchmark_provenance",
     ),
     "claim_graph": ("claim_graph", "claim_", "unsupported_claim", "evidence_gap"),
-    "content_sufficiency": (
-        "missing_main_content_pages",
-        "abstract_too_short",
-        "introduction_too_short",
-        "thin_introduction_depth_signal",
-        "introduction_missing_literature_hooks",
-        "introduction_missing_contribution_roadmap",
-        "introduction_missing_quantified_result_preview",
-        "method_section_too_short",
-        "experimental_setup_too_short",
-        "underlength_emnlp_paper",
-        "rendered_pdf_underlength",
-        "rendered_main_body_underfilled",
-        "references_before_full_body",
-        "appendix_before_page_9",
-        "references_share_page_with_body_sections",
-        "insufficient_rendered_reference_pages",
-        "draft_not_submission_quality",
-    ),
-    "exemplar_suitability": ("exemplar_suitability", "style_exemplar_suitability"),
-    "exemplar_structure": ("style_structure", "structure_", "unmapped_final_section"),
-    "figure_table_style": ("figure_table_style", "style_guide_", "float_inventory"),
-    "format_layout": (
-        "severe_overfull_hbox",
-        "code_like_display_label",
-        "table_caption",
-        "body_figure",
-        "non_data_",
-        "image2_",
-        "missing_image2_",
-        "mismatched_image2_",
-        "too_many_body_figures",
-        "too_many_wide_body_figures",
-        "missing_paired_significance",
-        "conceptual_body_figure",
-        "noncanonical_latex_output",
-    ),
-    "layout_vision": ("layout_", "stale_layout", "low_layout", "pass_layout_review"),
-    "academic_language": (
-        "academic_",
-        "stale_academic",
-        "low_academic",
-        "pass_academic_language_review",
-        "missing_experiment_model",
-    ),
-    "paper_infrastructure": (
-        "paper_infrastructure",
-        "stale_paper_infrastructure",
-        "low_paper_infrastructure",
-        "pass_paper_infrastructure_review",
-    ),
     "artifact_manifest": ("artifact_", "manifest_", "generated_artifact"),
 }
 
 VALIDATION_REPAIR_MODE_REQUIRED_TOKENS: dict[str, tuple[str, ...]] = {
     "experiment_evidence": ("experiment", "benchmark", "run"),
-    "content_sufficiency": ("evidence", "experiment", "ablation", "failure", "analysis"),
 }
