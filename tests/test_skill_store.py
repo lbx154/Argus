@@ -118,6 +118,55 @@ def test_find_relevant_keyword_fallback_when_runner_fails(tmp_path: Path) -> Non
     assert matched[0].name == "set-up-nginx"
 
 
+def test_find_relevant_keyword_fallback_when_runner_returns_fatal(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    _write_skill(skills_dir, "set-up-nginx", "configure nginx static site", "nginx")
+
+    backend = MemoryBackend()
+    backend.queue(
+        "matcher",
+        CannedResponse(
+            exit_code=1,
+            fatal_error=(
+                "unexpected status 404 Not Found: "
+                "The API deployment for this resource does not exist."
+            ),
+        ),
+    )
+    store = SkillStore(skills_dir, runner=backend, matcher_model="m")
+
+    matched, tokens = store.find_relevant("install nginx and serve a static site")
+
+    assert matched is not None
+    assert matched[0].name == "set-up-nginx"
+    assert tokens == 0
+    assert store.last_match_input_tokens == 0
+    assert store.last_match_output_tokens == 0
+
+
+def test_find_relevant_fatal_without_keyword_match_returns_none(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    _write_skill(skills_dir, "audit-html", "review HTML", "html")
+
+    backend = MemoryBackend()
+    backend.queue(
+        "matcher",
+        CannedResponse(exit_code=1, fatal_error="502 Bad Gateway"),
+    )
+    store = SkillStore(skills_dir, runner=backend, matcher_model="m")
+
+    matched, tokens = store.find_relevant("install nginx and serve a static site")
+
+    assert matched is None
+    assert tokens == 0
+    assert store.last_match_input_tokens == 0
+    assert store.last_match_output_tokens == 0
+
+
 def test_find_relevant_cache_hit_resets_previous_token_counts(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     _write_skill(skills_dir, "set-up-nginx", "configure nginx static site", "nginx")

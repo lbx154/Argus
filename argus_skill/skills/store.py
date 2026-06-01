@@ -685,9 +685,9 @@ class SkillStore:
                 self._cache_match(cache_key, [])
                 return None, 0
 
-            # A non-zero exit / fatal error is a hard infrastructure failure,
-            # not a "no match" — propagate it (distinct from the keyword
-            # fallback taken when the backend itself raises).
+            # The matcher is an optional recall helper. Treat a subprocess
+            # fatal result the same as a backend exception so a bad matcher
+            # route cannot prevent the actual role mission from starting.
             if result.fatal_error or result.exit_code != 0:
                 err = result.fatal_error or f"exit_code={result.exit_code}"
                 stderr_tail = (
@@ -699,11 +699,17 @@ class SkillStore:
                 if on_event:
                     on_event({"type": "match.error",
                               "text": f"matcher subprocess failed: {err}"
-                                      + (f" — {stderr_tail}" if stderr_tail else "")})
-                raise RuntimeError(
-                    f"skill matcher failed: {err}"
-                    + (f" — {stderr_tail}" if stderr_tail else "")
-                )
+                                      + (f" — {stderr_tail}" if stderr_tail else "")
+                                      + " — falling back to keyword overlap"})
+                kw = self._keyword_fallback(task_description, summaries=summaries)
+                self._last_match_input_tokens = 0
+                self._last_match_cached_input_tokens = 0
+                self._last_match_output_tokens = 0
+                if kw:
+                    self._cache_match(cache_key, kw)
+                    return kw, 0
+                self._cache_match(cache_key, [])
+                return None, 0
             in_tok += int(getattr(result, "input_tokens", 0) or 0)
             cached_tok += int(getattr(result, "cached_input_tokens", 0) or 0)
             out_tok += int(getattr(result, "output_tokens", 0) or 0)
