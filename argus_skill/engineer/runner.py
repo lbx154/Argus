@@ -83,6 +83,14 @@ _EFFECTIVE_PROGRESS_CHECK_INTERVAL_ENV = (
 )
 _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
 _SHIFT_ROUND_LIMIT_ENV = "ARGUS_SKILL_SHIFT_ROUND_LIMIT"
+_THREAD_TOKEN_LIMIT_ENV = "ARGUS_SKILL_THREAD_TOKEN_LIMIT"
+# Coarse upper bound on the input-token size a single resumed Codex thread may
+# reach before it is rolled. A healthy fresh round is ~0.7M and a couple of
+# legitimate work rounds reach ~2M; the amnesia/re-read loop lived at 5-7M
+# where codex's lossy auto-compaction kicks in. 4M sits between normal
+# operation and the bloat zone. Tunable via ARGUS_SKILL_THREAD_TOKEN_LIMIT
+# (0 disables the token roll).
+_DEFAULT_THREAD_TOKEN_LIMIT = 4_000_000
 _EFFECTIVE_PROGRESS_DEFAULT_TIMEOUT_SECONDS = 60 * 60
 _EFFECTIVE_PROGRESS_DEFAULT_CHECK_INTERVAL_SECONDS = 30.0
 _EFFECTIVE_PROGRESS_WAITING_EVENT_INTERVAL_SECONDS = 120.0
@@ -287,6 +295,18 @@ class SupervisedConfig:
     # ARGUS_SKILL_SHIFT_ROUND_LIMIT.
     shift_round_limit: int = field(
         default_factory=lambda: _env_int(_SHIFT_ROUND_LIMIT_ENV, 8)
+    )
+    # Cross-mission context bound. The Codex thread is resumed across (often
+    # short) missions, so the per-mission ``shift_round_limit`` counter resets
+    # before it can fire and the thread grows unbounded until codex performs a
+    # lossy auto-compaction (the amnesia/re-read loop). This caps the thread by
+    # the previous round's reported input-token count instead of round count,
+    # so an inherited bloated thread is dropped on its first round. 0 disables.
+    # Env override: ARGUS_SKILL_THREAD_TOKEN_LIMIT.
+    thread_token_limit: int = field(
+        default_factory=lambda: _env_int(
+            _THREAD_TOKEN_LIMIT_ENV, _DEFAULT_THREAD_TOKEN_LIMIT
+        )
     )
     # Where to persist the curated checkpoint (cross-mission / crash
     # continuity). None = in-memory only for this mission.
@@ -668,13 +688,19 @@ class SupervisedEngineer:
         # session resumes from a small curated handoff, never the giant
         # compacted history that caused the amnesia loop.
         checkpoint = load_checkpoint(supervised_config.checkpoint_path)
-        # Rounds the current Codex thread has lived for. We proactively roll
-        # (drop) the thread once it reaches the shift limit so no single
-        # session accumulates enough history to trigger codex's lossy
-        # auto-compaction repeatedly. An inherited ``seed_thread_id`` counts as
-        # already-aged from round 1, so a poisoned cross-mission seed rolls
-        # within one shift instead of surviving indefinitely.
+        # Rounds the current Codex thread has lived for *this mission*. We
+        # proactively roll (drop) the thread once it reaches the shift limit so
+        # no single session accumulates enough history to repeatedly trigger
+        # codex's lossy auto-compaction. NOTE: this counter resets each mission,
+        # so it only bounds *within-mission* growth. The cross-mission bound
+        # (a thread resumed across many short missions) is the token-size roll
+        # in the loop below — see ``thread_token_limit``.
         rounds_on_thread = 0
+        # Input-token count reported by the previous engineer round. Used by the
+        # token-size session roll to detect (and drop) a thread that has grown
+        # past the model's usable context. 0 on the first round of a mission, so
+        # a normally-sized inherited thread is still resumed.
+        last_input_tokens = 0
 
         for round_index in range(1, supervised_config.max_rounds + 1):
             engineer_prompt = engineer_prompt_builder(last_next_action)
@@ -703,6 +729,37 @@ class SupervisedEngineer:
                             "round": round_index,
                             "text": "repeated tool failures detected — advisory injected",
                         })
+            # Token-size session roll: the cross-mission counterpart to the
+            # round-count roll below. A thread resumed across many short
+            # missions carries the entire cross-mission transcript while
+            # ``rounds_on_thread`` keeps resetting, so the round-count roll
+            # never fires and the thread bloats past the model's usable
+            # context — forcing codex's *lossy* auto-compaction and the
+            # amnesia/re-read loop. Bounding by the previous round's reported
+            # input-token count catches an inherited bloated thread on its first
+            # round and drops it; subsequent rounds (and missions) then continue
+            # on fresh, small threads. ``last_input_tokens`` is 0 on round 1 of
+            # a fresh mission, so a normally-sized inherited thread is resumed.
+            token_limit = int(getattr(supervised_config, "thread_token_limit", 0) or 0)
+            if (
+                token_limit > 0
+                and current_thread_id is not None
+                and last_input_tokens >= token_limit
+            ):
+                if on_event:
+                    on_event({
+                        "type": "session.roll",
+                        "round": round_index,
+                        "reason": "token_limit",
+                        "input_tokens": last_input_tokens,
+                        "text": (
+                            f"rolling codex session: prior round used "
+                            f"{last_input_tokens} input tokens (>= {token_limit}) "
+                            "— fresh session resumes from checkpoint"
+                        ),
+                    })
+                current_thread_id = None
+                rounds_on_thread = 0
             # Proactive session roll: once the current Codex thread has lived
             # for the shift limit, drop it so THIS round starts a fresh session
             # seeded only by the curated checkpoint (prepended above), not the
@@ -750,6 +807,8 @@ class SupervisedEngineer:
             round_thread_id = new_tid or current_thread_id
             engineer_message = engineer_result.last_agent_message or ""
             last_engineer_message = engineer_message or last_engineer_message
+            # Feed the token-size session roll at the top of the next round.
+            last_input_tokens = int(getattr(engineer_result, "input_tokens", 0) or 0)
 
             # Phase-2 instrumentation: emit ``round.main.completed`` so the
             # supervisor's _CostTrackingSink can fold engineer-side token

@@ -245,7 +245,91 @@ def test_resume_thread_id_clears_after_fatal_empty_output_mission(
     assert [tid for label, tid in backend2.resume_history if label == "engineer-r1"] == [None]
 
 
-def test_backend_failure_retries_without_poisoned_resume_thread(tmp_path: Path) -> None:
+def test_thread_rolls_when_prior_round_exceeds_token_limit(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """A resumed thread that reports input_tokens >= the configured limit must
+    be dropped: the next round starts a fresh session (resume=None) instead of
+    resuming the bloated thread. This bounds the cross-mission thread growth
+    that otherwise forces codex's lossy auto-compaction (the amnesia loop)."""
+    monkeypatch.setenv("ARGUS_SKILL_THREAD_TOKEN_LIMIT", "1000")
+
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("distiller", CannedResponse(message=SKILL_MD))
+    # Round 1 succeeds but reports a bloated context (>= 1000 token cap).
+    backend.queue("engineer-r1", CannedResponse(
+        message="round 1 work", thread_id="tid-A1", input_tokens=5000,
+    ))
+    backend.queue("reviewer", CannedResponse(message=_continue_review()))
+    backend.queue("engineer-r2", CannedResponse(
+        message="round 2 work", thread_id="tid-A2", input_tokens=200,
+    ))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    loop = _build_loop(backend, tmp_path / "skills")
+    out = loop.run("task", workdir=tmp_path)
+
+    assert out.successful
+    r1_seeds = [tid for label, tid in backend.resume_history if label == "engineer-r1"]
+    r2_seeds = [tid for label, tid in backend.resume_history if label == "engineer-r2"]
+    assert r1_seeds == [None], r1_seeds
+    # Round 1 used 5000 input tokens (>= 1000), so round 2 must NOT resume it.
+    assert r2_seeds == [None], r2_seeds
+
+
+def test_thread_resumes_when_token_limit_not_reached(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Below the cap, the normal cross-round resume must be preserved."""
+    monkeypatch.setenv("ARGUS_SKILL_THREAD_TOKEN_LIMIT", "100000")
+
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("distiller", CannedResponse(message=SKILL_MD))
+    backend.queue("engineer-r1", CannedResponse(
+        message="round 1 work", thread_id="tid-A1", input_tokens=5000,
+    ))
+    backend.queue("reviewer", CannedResponse(message=_continue_review()))
+    backend.queue("engineer-r2", CannedResponse(
+        message="round 2 work", thread_id="tid-A2", input_tokens=6000,
+    ))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    loop = _build_loop(backend, tmp_path / "skills")
+    out = loop.run("task", workdir=tmp_path)
+
+    assert out.successful
+    r2_seeds = [tid for label, tid in backend.resume_history if label == "engineer-r2"]
+    # 5000 < 100000 cap → round 2 resumes round 1's thread as usual.
+    assert r2_seeds == ["tid-A1"], r2_seeds
+
+
+def test_token_roll_disabled_with_zero_limit(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """A 0 limit disables the token roll even for huge contexts."""
+    monkeypatch.setenv("ARGUS_SKILL_THREAD_TOKEN_LIMIT", "0")
+
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("distiller", CannedResponse(message=SKILL_MD))
+    backend.queue("engineer-r1", CannedResponse(
+        message="round 1 work", thread_id="tid-A1", input_tokens=10_000_000,
+    ))
+    backend.queue("reviewer", CannedResponse(message=_continue_review()))
+    backend.queue("engineer-r2", CannedResponse(
+        message="round 2 work", thread_id="tid-A2", input_tokens=10_000_000,
+    ))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    loop = _build_loop(backend, tmp_path / "skills")
+    out = loop.run("task", workdir=tmp_path)
+
+    assert out.successful
+    r2_seeds = [tid for label, tid in backend.resume_history if label == "engineer-r2"]
+    assert r2_seeds == ["tid-A1"], r2_seeds
+
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
