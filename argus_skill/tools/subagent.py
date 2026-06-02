@@ -146,6 +146,44 @@ SUPERVISOR_THREAD_MAX_CHECKS = 12
 # engineer mission can learn why past runs succeeded or failed.
 EXPERIMENT_HISTORY_REL = "research/EXPERIMENT_HISTORY.jsonl"
 
+# Built-in skill that arms the supervisor with concrete RL-collapse signatures so
+# its (still model-made) judgement is grounded, not vibes. Loaded once and
+# injected into the supervisor prompt; the call stays the model's.
+_RL_COLLAPSE_SKILL_REL = "engineer/rl-training-collapse-diagnosis.md"
+_RL_COLLAPSE_GUIDANCE_CACHE: str | None = None
+
+
+def _strip_skill_frontmatter(text: str) -> str:
+    """Drop a leading ``---`` YAML-ish frontmatter block from a skill markdown."""
+    if text.startswith("---"):
+        parts = text.split("\n---", 1)
+        if len(parts) == 2:
+            return parts[1].lstrip("\n")
+    return text
+
+
+def _rl_collapse_guidance() -> str:
+    """Body of the RL-collapse-diagnosis skill, cached and fail-soft.
+
+    Returns an empty string if the skill cannot be loaded for any reason so the
+    supervisor never crashes just because a guidance file moved.
+    """
+    global _RL_COLLAPSE_GUIDANCE_CACHE
+    if _RL_COLLAPSE_GUIDANCE_CACHE is not None:
+        return _RL_COLLAPSE_GUIDANCE_CACHE
+    text = ""
+    try:
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "builtin_skills"
+            / _RL_COLLAPSE_SKILL_REL
+        )
+        text = _strip_skill_frontmatter(path.read_text(encoding="utf-8")).strip()
+    except Exception:
+        text = ""
+    _RL_COLLAPSE_GUIDANCE_CACHE = text
+    return text
+
 
 def _next_monitor_interval(
     health: str,
@@ -405,10 +443,16 @@ def _supervisor_summarize_report(task_id: str, event: str, task_data: dict[str, 
         "2. Key metrics from the signals (reward, loss, steps, clipped_ratio,\n"
         "   response/completion length, KL, etc.).\n"
         "3. Artifact paths the engineer should inspect.\n"
-        "4. The concrete next step that FOLLOWS FROM YOUR DIAGNOSIS. If you stopped\n"
-        "   for a quality issue (truncation/clipping, reward collapse, degenerate\n"
-        "   outputs), the next step must address that root cause — do not default to\n"
-        "   rerunning unchanged. If the run is healthy/complete, say how to use it.\n"
+        "4. The concrete next step that FOLLOWS FROM YOUR DIAGNOSIS. Read the\n"
+        "   hyperparameter flags in the Command above and name the SPECIFIC flag(s)\n"
+        "   and value(s) to change (e.g. 'raise --num-generations 2 -> 6',\n"
+        "   '--max-completion-length 256 -> 512', 'lower --learning-rate 1e-5 ->\n"
+        "   3e-6'), or the specific code/reward/prompt fix if the cause is not a\n"
+        "   flag. If you stopped for a quality issue (truncation/clipping, reward\n"
+        "   collapse, degenerate outputs), the next step must address that root cause\n"
+        "   with a named change — do not default to rerunning unchanged and\n"
+        "   do not stop at 'mark it no-go'. If the run is healthy/complete, say how\n"
+        "   to use it.\n"
         "Keep it under 300 words. Be direct and actionable."
     )
 
@@ -438,8 +482,10 @@ def _reply_back_block(task_id: str, event: str) -> str:
     discussion = _discussion_path(task_id)
     cli = (
         '${ARGUS_SKILL_PYTHON:-python3} -m argus_skill.tools.subagent reply '
-        f'--task-id {task_id} --message "<why you will act this way, and why NOT '
-        'the supervisor\'s suggested alternative>"'
+        f'--task-id {task_id} --message "<your root-cause diagnosis + the SPECIFIC '
+        'parameter/code change you will make (e.g. num_generations 2->6, '
+        'max_completion_length 256->512, fix reward extraction), OR a reasoned '
+        'pushback on why the supervisor is wrong>"'
     )
     where = (
         "The run is STOPPED and the supervisor is WAITING on the discussion "
@@ -448,9 +494,12 @@ def _reply_back_block(task_id: str, event: str) -> str:
         "Nothing resumes until you reply, so do not move on silently."
     )
     return (
-        "\n\n**Reply to the supervisor (required)**: send your rationale back so "
-        "the discussion is two-way — do not silently act against the advice. "
-        f"{where}\n```bash\n{cli}\n```"
+        "\n\n**Reply to the supervisor (required)**: do NOT just agree and mark the "
+        "run no-go. Actually diagnose the root cause and decide a concrete fix — "
+        "name the specific hyperparameter(s) or code/reward/prompt change you will "
+        "make next, or push back with reasoning if you think the run was fine. Send "
+        "that back so the discussion is two-way and converges on a real fix; do not "
+        f"silently act against the advice. {where}\n```bash\n{cli}\n```"
     )
 
 
@@ -1195,6 +1244,24 @@ def _supervisor_check(
         "  Do NOT treat a noisy/rising policy loss as failure — RL loss is not SFT loss.\n"
         "- Any run: watch for CUDA OOM, tracebacks, stalls (no new steps for a long\n"
         "  stretch), or throughput collapse.\n\n"
+    )
+
+    # Arm the supervisor with concrete RL-collapse criteria. This is reference
+    # knowledge, not a hard rule engine: the decision below is still yours.
+    rl_guidance = _rl_collapse_guidance()
+    if rl_guidance:
+        prompt += (
+            "=== reference: when an RL run has COLLAPSED (read before deciding) ===\n"
+            "Use this only when the run is RL post-training (PPO/GRPO/RLVR/DPO-style).\n"
+            "It tells you which signals mean a dead learning signal vs. normal noise,\n"
+            "and how to tell a transient early dip from a sustained tail-window\n"
+            "collapse. It does not override your judgement; weigh it against what the\n"
+            "actual logs above show.\n\n"
+            f"{rl_guidance}\n\n"
+            "=== end reference ===\n\n"
+        )
+
+    prompt += (
         "IMPORTANT — raising a 'concern' now STOPS the run immediately and opens a\n"
         "discussion with the engineer. So a concern is no longer a soft 'FYI' — it\n"
         "is a decision to HALT and re-plan. Only raise a concern when the run is\n"
@@ -1208,11 +1275,22 @@ def _supervisor_check(
         "if not perfect, and even if you have a minor cosmetic note — leave\n"
         "'concern' EMPTY and continue; do NOT stop a healthy run over nitpicks.\n"
         "Use your own judgement on what is stop-worthy.\n\n"
+        "When you DO raise a concern, be a hyperparameter engineer, not just an\n"
+        "alarm. The launch Command above contains the run's actual hyperparameters\n"
+        "(flags like --learning-rate, --num-generations, --max-completion-length,\n"
+        "--kl-coef/--beta, --temperature, --max-steps, etc.). Read them, decide\n"
+        "which specific flag(s) most likely caused the failure you see, and name\n"
+        "them in the concern with a concrete suggested change, e.g. 'num_generations=2\n"
+        "is too few for GRPO group contrast — try 4-8' or 'completions pinned at\n"
+        "max_completion_length=256 — raise to 512'. A concern that only names the\n"
+        "symptom ('reward collapsed') without pointing at a parameter or code cause\n"
+        "the engineer can act on is half-done.\n\n"
         "Respond with EXACTLY one JSON object:\n"
         '{"decision": "continue" or "early_stop" or "save_checkpoint",\n'
         ' "reason": "one sentence explaining the decision",\n'
-        ' "concern": "" or "1-2 sentences naming the stop-worthy anomaly and what\n'
-        '   the engineer should re-discuss before relaunching",\n'
+        ' "concern": "" or "1-2 sentences naming the stop-worthy anomaly AND the\n'
+        '   specific launch-command flag/value (or code cause) to change before\n'
+        '   relaunching",\n'
         ' "metrics": {"step": ..., "loss": ..., "reward": ..., "kl": ..., "resp_len": ...},\n'
         ' "health": "healthy" or "degrading" or "stuck" or "diverging"}\n\n'
         "Decision rules:\n"
@@ -1287,8 +1365,14 @@ def _supervisor_discuss(
         "agree on the path forward), or do you still disagree? If you still\n"
         "disagree, push back with a concrete counter-argument that addresses their\n"
         "reasoning directly — do not just repeat your original wording. Be brief\n"
-        "and concrete. The run stays stopped either way; relaunching is the\n"
-        "engineer's call.\n\n"
+        "and concrete. Talk in terms of the actual hyperparameters in the Command\n"
+        "above: confirm or challenge the specific flag/value the engineer proposes\n"
+        "to change (e.g. agree that raising num_generations 2->6 restores group\n"
+        "contrast, or warn that their lr is still too high). 'Resolved' means you\n"
+        "and the engineer have converged on a CONCRETE fix (a named parameter/code\n"
+        "change), not merely that you both agree the run was bad — do not accept a\n"
+        "bare 'mark it no-go' with no forward fix as resolution. The run stays\n"
+        "stopped either way; relaunching is the engineer's call.\n\n"
         "Respond with EXACTLY one JSON object:\n"
         '{"resolved": true or false,\n'
         ' "message": "your reply to the engineer (2-5 sentences)"}\n'
@@ -1327,9 +1411,10 @@ def _run_discussion(
     """
     concern = task_data.get("concern", "") or task_data.get("last_supervisor_concern", "")
     opening = (
-        f"I stopped this run. {concern} Reply with how you want to proceed (relaunch "
-        "with a fix, abandon, or push back) and your reasoning — nothing resumes "
-        "until we agree here."
+        f"I stopped this run. {concern} Reply with your root-cause diagnosis and the "
+        "specific parameter/code change you'll make to fix it (or a reasoned pushback) "
+        "— don't just agree it's no-go. Nothing resumes until we agree on a concrete "
+        "fix here."
     ).strip()
     _append_discussion(task_id, "supervisor", opening)
     _mirror_discussion_md(task_id, run_dir)

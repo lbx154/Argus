@@ -1,0 +1,141 @@
+---
+name: rl-training-collapse-diagnosis
+description: "Decide when an in-flight RL post-training run (PPO/GRPO/RLVR/DPO-style reasoning RL) has collapsed and is no longer worth continuing. Gives the supervisor agent concrete, signal-grounded collapse signatures, the transient-vs-sustained judgment, and how to map a verdict to continue / raise-concern. Use while watching live training logs (progress.jsonl / trainer stdout), not for offline eval scoring."
+category: training-monitoring
+version: "1.0"
+scientist_model: gpt-5.5
+created_at: "2026-06-02T00:00:00+00:00"
+---
+
+# RL Training Collapse Diagnosis
+
+You are watching a live RL post-training run and must decide whether it has
+**collapsed**. Collapse means the run can no longer learn anything useful, so
+every additional step burns GPU for nothing and the resulting checkpoint is not
+valid evidence. This skill is the *criteria*; the call is still yours. Judge the
+signals, do not pattern-match a single noisy log line.
+
+The cardinal rule of RL monitoring: **RL loss is not SFT loss.** A noisy or even
+rising policy loss is normal and is NOT a failure. Never stop an RL run just
+because "loss went up". Judge by the *learning signal* (reward variance,
+gradient, KL, entropy, output quality), not by loss magnitude.
+
+## What "collapse" actually is
+
+In policy-gradient RL (and especially group-relative methods like GRPO/RLVR),
+learning requires a **non-degenerate advantage signal**. If every sample in a
+group earns the same reward, the advantage is zero, the gradient is zero, and
+the policy stops moving. So the deepest collapse signature is not "bad numbers"
+— it is **the learning signal going to zero or going degenerate**. Map what you
+see to one of the families below.
+
+## Collapse signatures
+
+Read these off `progress.jsonl` / trainer stdout. Field names vary by trainer;
+match on meaning, not exact keys.
+
+1. **Reward-variance death (the most important, and the most missed).**
+   - `reward_std → 0`, `frac_reward_zero_std → 1` (or per-group reward std all 0).
+   - In GRPO/RLVR this means *zero advantage* ⇒ zero gradient ⇒ no learning.
+   - Two distinct causes, same fatal symptom:
+     - **all-wrong collapse**: reward pinned at the floor (e.g. correctness
+       reward stuck at 0). Task too hard, or the reward/answer extraction is
+       broken so *correct* completions still score 0.
+     - **all-right / saturated collapse**: reward pinned at the ceiling. Task
+       too easy or reward-hacked; nothing left to learn.
+   - A correctness/verifier reward whose mean is stuck at 0 for the whole tail
+     window while completions *look* plausible is a screaming sign the reward
+     extractor (boxed-answer parse, answer normalization, gold matching) is
+     broken — not that the model is hopeless.
+
+2. **Gradient / update death.**
+   - `grad_norm → 0` and `loss → exactly 0` sustained.
+   - Exactly-zero policy loss is NOT convergence in RL — it almost always means
+     advantages are all zero (see #1), i.e. the optimizer has nothing to push on.
+
+3. **KL blow-up / policy divergence.**
+   - KL to the reference policy climbing without bound, often with reward
+     briefly spiking then outputs turning to gibberish. The policy has walked
+     off the manifold; results are invalid even if a transient reward looks good.
+
+4. **Entropy pathology.**
+   - `entropy → 0`: mode collapse / deterministic repetition (one canned output).
+   - `entropy` pinned high with **no reward gain** over a long stretch: the
+     policy is flailing, not exploring productively.
+
+5. **Completion-length collapse.**
+   - `mean_completion_length → 0` (empty/degenerate outputs), or
+   - length **pinned at the cap** with high `clipped_ratio` (e.g. ≳ 0.25):
+     completions are truncated, so boxed answers / final answers are cut off and
+     the comparison is between truncated junk. This invalidates the reward.
+
+6. **Format / parse collapse.**
+   - `format_reward` decaying and/or the parseable-answer rate (boxed-answer
+     extraction) trending to 0: the model stopped emitting the structure the
+     verifier needs, so correctness reward can never fire.
+
+7. **Reward hacking (reward UP, but fake).**
+   - Reward rises while outputs degenerate: length exploits, repetition, copying
+     the prompt, emitting the answer format without real reasoning, KL drifting.
+   - Do not be fooled by a rising reward curve alone — sanity-check the actual
+     completions in the log tail.
+
+8. **Throughput stall.**
+   - No new optimizer steps / frozen heartbeat / step_time exploding / OOM or
+     traceback in stderr. Distinct from collapse but equally stop-worthy.
+
+## The transient-vs-sustained judgment (this is where your judgment matters)
+
+A single bad log line is not collapse. The same number means different things
+depending on *when* and *for how long*:
+
+- **Early / warmup zeros are usually fine.** At the very start, all completions
+  may be wrong (reward floor) or the trainer may be ramping; reward_std can be 0
+  for a few steps and then recover as the policy finds a gradient. Do not stop on
+  step-1 zeros.
+- **Tail-window persistence is collapse.** If the *last several* logged steps
+  (a tail window, not one point) all show zero reward variance + zero gradient +
+  zero correctness reward, the run has flatlined and will not recover on its own.
+  This is the case that must be stopped — early "health passed" markers computed
+  from only the first 2–3 logs are exactly how a dead run sneaks through.
+- **Recoverable dip vs trend.** A one-step spike in KL or a momentary length dip
+  that recovers is degrading, not collapsed. A monotone trend over the tail
+  window is collapse.
+- **Direction of the reward signal matters more than its level.** Low-but-rising
+  reward with healthy variance = keep going. Higher-but-flat reward with zero
+  variance = dead.
+
+Concrete worked example (the failure this skill exists to catch): an RLVR run
+emits a healthy first two logs (nonzero reward std), an early health gate marks
+it "passed", then the final ~10 steps all read `reward_std=0`,
+`frac_reward_zero_std=1`, `grad_norm=0`, `loss=0`, and correctness/boxed reward
+mean `=0`, while format reward is a small constant. Verdict: **collapsed**
+(reward-variance death + gradient death + parse/answer-extraction failure). The
+early marker is irrelevant; the tail window is what counts. Stop it.
+
+## Mapping a verdict to your decision
+
+Stopping is expensive (it halts the run and opens a discussion with the
+engineer), so only stop on a *genuine, sustained* collapse — but do stop, do not
+let a flatlined run burn to completion.
+
+- **Sustained collapse signature across the tail window** → raise a `concern`
+  (this halts the run). In the concern, name (a) which signature fired, (b) the
+  most likely upstream cause, and (c) what the engineer should re-check before
+  relaunching. Useful causes to point at, by signature:
+  - reward-variance death / correctness reward stuck at 0 → prompt format,
+    answer normalization, boxed/answer **extraction and gold-matching**, reward
+    function wiring, task difficulty / curriculum.
+  - KL blow-up → KL coefficient / target, learning rate, clipping range.
+  - entropy collapse → entropy bonus, temperature/top-p, lr too high.
+  - length pinned at cap / high clip ratio → max_completion_length, truncation,
+    length penalty.
+  - reward hacking → reward shaping, length/ format reward weighting, add a
+    verifier check.
+- **Transient / early / recoverable, or low-but-rising with real variance** →
+  `continue`, leave `concern` empty, and mark health `degrading` or `stuck` so
+  the next check tightens the interval and watches the tail window.
+- **Crash / OOM / NaN / frozen throughput** → stop regardless of reward shape.
+
+Do not stop a run that is merely imperfect (slightly noisy, a cosmetic warning,
+RL loss wiggling). Reserve the halt for real collapse or wasted spend.

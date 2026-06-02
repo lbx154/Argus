@@ -168,6 +168,44 @@ def test_supervisor_check_concern_now_means_stop_in_prompt(monkeypatch, tmp_path
     assert "EMPTY" in prompt
 
 
+def test_supervisor_check_injects_rl_collapse_guidance(monkeypatch, tmp_path) -> None:
+    # The supervisor prompt must carry the RL-collapse-diagnosis skill so the
+    # model's stop/continue call is grounded in concrete collapse signatures
+    # (e.g. tail-window reward-variance death) rather than vibes.
+    monkeypatch.chdir(tmp_path)
+    captured: dict[str, str] = {}
+
+    class _Result:
+        stdout = ""
+
+    def fake_run(cmd, **kwargs):
+        captured["prompt"] = kwargs.get("input", "")
+        r = _Result()
+        r.stdout = _codex_jsonl('{"decision": "continue", "health": "healthy", "concern": ""}')
+        return r
+
+    monkeypatch.setattr("argus_skill.tools.subagent._find_codex", lambda: "codex")
+    monkeypatch.setattr("argus_skill.tools.subagent.subprocess.run", fake_run)
+    out = tmp_path / "stdout.log"
+    err = tmp_path / "stderr.log"
+    out.write_text("step 1\n")
+    err.write_text("")
+    _supervisor_check("t", "python train.py", "run", out, err, 60.0, 1, "gpt-5.5", str(tmp_path))
+    prompt = captured["prompt"]
+    assert "when an RL run has COLLAPSED" in prompt
+    # The transient-vs-sustained judgement is the crux of the skill.
+    assert "tail-window" in prompt or "tail window" in prompt.lower()
+
+
+def test_rl_collapse_guidance_loads_and_strips_frontmatter() -> None:
+    from argus_skill.tools.subagent import _rl_collapse_guidance
+
+    guidance = _rl_collapse_guidance()
+    assert guidance, "RL collapse guidance should load from the bundled skill"
+    assert not guidance.startswith("---"), "YAML frontmatter must be stripped"
+    assert "reward-variance death" in guidance.lower()
+
+
 def test_supervisor_verdict_parses_concern_alongside_decision() -> None:
     # A run can be healthy/continue yet still carry a concern for the engineer.
     verdict = (
@@ -708,3 +746,77 @@ def test_cmd_status_surfaces_open_discussion(monkeypatch, tmp_path, capsys) -> N
     assert "ACTION_REQUIRED" in out
     assert "DISCUSSION.md" in out["discussion_file"]
     assert "reply --task-id d" in out["reply_with"]
+
+
+def test_supervisor_check_prompt_demands_parameter_level_concern(monkeypatch, tmp_path) -> None:
+    # A stop must point the engineer at a specific flag/value to change, not just
+    # name the symptom — the supervisor reads the launch command's hyperparameters.
+    monkeypatch.chdir(tmp_path)
+    captured: dict[str, str] = {}
+
+    class _Result:
+        stdout = ""
+
+    def fake_run(cmd, **kwargs):
+        captured["prompt"] = kwargs.get("input", "")
+        r = _Result()
+        r.stdout = _codex_jsonl('{"decision": "continue", "health": "healthy", "concern": ""}')
+        return r
+
+    monkeypatch.setattr("argus_skill.tools.subagent._find_codex", lambda: "codex")
+    monkeypatch.setattr("argus_skill.tools.subagent.subprocess.run", fake_run)
+    out = tmp_path / "stdout.log"
+    err = tmp_path / "stderr.log"
+    out.write_text("step 1\n")
+    err.write_text("")
+    _supervisor_check(
+        "t", "python train.py --num-generations 2 --learning-rate 1e-5",
+        "run", out, err, 60.0, 1, "gpt-5.5", str(tmp_path),
+    )
+    prompt = captured["prompt"]
+    assert "hyperparameter engineer" in prompt
+    assert "suggested change" in prompt
+    # The concern field itself must ask for the specific flag/value to change.
+    assert "specific launch-command flag/value" in prompt
+
+
+def test_reply_back_block_demands_concrete_fix_not_bare_agreement() -> None:
+    block = _reply_back_block("train-x", "EARLY-STOPPED")
+    # Asserted contract preserved.
+    assert "subagent reply" in block
+    assert "--task-id train-x" in block
+    assert "discussion" in block.lower()
+    # New: the engineer must diagnose + name a concrete change, not just agree no-go.
+    assert "no-go" in block.lower()
+    assert "root cause" in block.lower()
+    assert "hyperparameter" in block.lower()
+
+
+def test_supervisor_discuss_prompt_requires_concrete_fix_resolution(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    tid = "train-fix"
+    _append_discussion(tid, "engineer", "agree, it's no-go")
+    captured: dict[str, str] = {}
+
+    class _Result:
+        stdout = ""
+
+    def fake_run(cmd, **kwargs):
+        captured["prompt"] = kwargs.get("input", "")
+        r = _Result()
+        r.stdout = _codex_jsonl('{"resolved": false, "message": "name the parameter change first"}')
+        return r
+
+    monkeypatch.setattr("argus_skill.tools.subagent._find_codex", lambda: "codex")
+    monkeypatch.setattr("argus_skill.tools.subagent.subprocess.run", fake_run)
+    _supervisor_discuss(
+        tid,
+        {"description": "GRPO run", "command": "python train.py --num-generations 2",
+         "concern": "reward collapse"},
+        "gpt-5.5", str(tmp_path),
+    )
+    prompt = captured["prompt"]
+    assert "CONCRETE fix" in prompt
+    assert "no-go" in prompt.lower()
+    # It should reason in terms of the actual hyperparameters.
+    assert "hyperparameters in the Command" in prompt
