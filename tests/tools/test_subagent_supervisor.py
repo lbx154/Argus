@@ -820,3 +820,235 @@ def test_supervisor_discuss_prompt_requires_concrete_fix_resolution(monkeypatch,
     assert "no-go" in prompt.lower()
     # It should reason in terms of the actual hyperparameters.
     assert "hyperparameters in the Command" in prompt
+
+
+# --- Pre-launch RL config preflight -----------------------------------------
+
+def test_rl_training_gate_matches_rl_launches_only() -> None:
+    from argus_skill.tools.subagent import _looks_like_rl_training
+
+    assert _looks_like_rl_training(
+        ".venv/bin/python code/train_rl_lora_adapter.py --num-generations 2")
+    assert _looks_like_rl_training("python t.py --method MGR_RLVR --rollouts 8")
+    assert _looks_like_rl_training("python grpo_train.py")
+    # Non-RL commands must not pay the preflight cost.
+    assert not _looks_like_rl_training("python code/eval.py --benchmark geneval")
+    assert not _looks_like_rl_training("python sft_train.py --epochs 3")
+    assert not _looks_like_rl_training("")
+
+
+def test_parse_launch_flags_normalizes_space_and_equals_forms() -> None:
+    from argus_skill.tools.subagent import _parse_launch_flags
+
+    flags = _parse_launch_flags(
+        "python x.py --num-generations 2 --max-completion-length=256 "
+        "--load-in-4bit --method MGR_RLVR")
+    assert flags["num_generations"] == "2"
+    assert flags["max_completion_length"] == "256"
+    # A bare boolean flag becomes "true".
+    assert flags["load_in_4bit"] == "true"
+    assert flags["method"] == "MGR_RLVR"
+    # Malformed input never raises.
+    assert _parse_launch_flags("python 'unterminated") == {}
+
+
+def test_preflight_prompt_hard_blocks_only_mechanical_degeneracy(monkeypatch, tmp_path) -> None:
+    # The preflight must instruct the model to block ONLY mechanically-unlearnable
+    # configs (e.g. GRPO group<=1) and explicitly NOT block a maybe-short
+    # max_completion_length, which is data-dependent and left to the in-flight check.
+    from argus_skill.tools import subagent as sub
+
+    captured: dict[str, str] = {}
+
+    class _Result:
+        stdout = ""
+
+    def fake_run(cmd, **kwargs):
+        captured["prompt"] = kwargs.get("input", "") or cmd[-1]
+        r = _Result()
+        r.stdout = _codex_jsonl('{"reject": false, "reason": "ok", "concern": ""}')
+        return r
+
+    monkeypatch.setattr(sub, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(sub.subprocess, "run", fake_run)
+    sub._supervisor_preflight(
+        "t", "python train.py --num-generations 1", "GRPO smoke", "gpt-5.5", str(tmp_path))
+    prompt = captured["prompt"]
+    assert "MECHANICALLY UNLEARNABLE" in prompt
+    assert "num_generations" in prompt
+    # Untrusted-input defense and the don't-block-on-length carve-out.
+    assert "UNTRUSTED" in prompt
+    assert "max_completion_length" in prompt
+
+
+def test_preflight_rejects_degenerate_group_with_actionable_fix(monkeypatch, tmp_path) -> None:
+    from argus_skill.tools import subagent as sub
+
+    class _Result:
+        stdout = ""
+
+    def fake_run(cmd, **kwargs):
+        r = _Result()
+        r.stdout = _codex_jsonl(
+            '{"reject": true, "reason": "GRPO group of 1 has zero advantage",'
+            ' "concern": "num_generations=1 -> 8 because a GRPO group of 1 has'
+            ' identically zero advantage"}')
+        return r
+
+    monkeypatch.setattr(sub, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(sub.subprocess, "run", fake_run)
+    reject, concern = sub._supervisor_preflight(
+        "t", "python train.py --num-generations 1 --method GRPO", "smoke",
+        "gpt-5.5", str(tmp_path))
+    assert reject is True
+    assert "num_generations" in concern
+
+
+def test_preflight_reject_without_actionable_fix_is_noop(monkeypatch, tmp_path) -> None:
+    # A vague reject with no concrete fix must NOT wedge a launch.
+    from argus_skill.tools import subagent as sub
+
+    class _Result:
+        stdout = ""
+
+    def fake_run(cmd, **kwargs):
+        r = _Result()
+        r.stdout = _codex_jsonl('{"reject": true, "reason": "bad", "concern": ""}')
+        return r
+
+    monkeypatch.setattr(sub, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(sub.subprocess, "run", fake_run)
+    reject, concern = sub._supervisor_preflight(
+        "t", "python train.py --num-generations 1", "smoke", "gpt-5.5", str(tmp_path))
+    assert reject is False
+    assert concern == ""
+
+
+def test_preflight_fails_soft_on_unparseable_verdict(monkeypatch, tmp_path) -> None:
+    from argus_skill.tools import subagent as sub
+
+    class _Result:
+        stdout = ""
+
+    def fake_run(cmd, **kwargs):
+        r = _Result()
+        r.stdout = _codex_jsonl("the config looks fine to me, no JSON here")
+        return r
+
+    monkeypatch.setattr(sub, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(sub.subprocess, "run", fake_run)
+    reject, concern = sub._supervisor_preflight(
+        "t", "python train.py --num-generations 1", "smoke", "gpt-5.5", str(tmp_path))
+    assert reject is False
+    assert concern == ""
+
+
+def test_preflight_discussion_opening_signals_pre_launch_block(monkeypatch, tmp_path) -> None:
+    # The engineer-facing opening must make clear nothing launched (pre-launch
+    # block) and demand a concrete parameter fix, not mere agreement.
+    monkeypatch.chdir(tmp_path)
+    tid = "pf-task"
+    _write_task(tid, {"state": "discussing", "task_id": tid, "mode": "supervised",
+                      "pid": 0, "worker_pid": __import__("os").getpid()})
+
+    def fake_discuss(task_id, task_data, model, cwd, thread_id=None):
+        return (True, "I'll set num_generations=8.", thread_id)
+
+    monkeypatch.setattr("argus_skill.tools.subagent._supervisor_discuss", fake_discuss)
+    monkeypatch.setattr("argus_skill.tools.subagent.DISCUSSION_POLL_INTERVAL", 0)
+    from argus_skill.tools.subagent import _run_discussion
+    td = {
+        "preflight": True,
+        "concern": "num_generations=1 -> 8 because a GRPO group of 1 has zero advantage",
+        "command": "python train.py --num-generations 1",
+    }
+    _append_discussion(tid, "engineer", "Why blocked? I'll fix it.")
+    _run_discussion(tid, td, "gpt-5.5", str(tmp_path))
+    rendered = _render_discussion(tid)
+    assert "BEFORE launch" in rendered
+    # The non-preflight wording ("I stopped this run") must NOT be used.
+    assert "I stopped this run" not in rendered
+
+
+def test_nonpreflight_discussion_opening_uses_stopped_wording(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    tid = "rt-task"
+    _write_task(tid, {"state": "discussing", "task_id": tid, "mode": "supervised",
+                      "pid": 0, "worker_pid": __import__("os").getpid()})
+
+    def fake_discuss(task_id, task_data, model, cwd, thread_id=None):
+        return (True, "ack", thread_id)
+
+    monkeypatch.setattr("argus_skill.tools.subagent._supervisor_discuss", fake_discuss)
+    monkeypatch.setattr("argus_skill.tools.subagent.DISCUSSION_POLL_INTERVAL", 0)
+    from argus_skill.tools.subagent import _run_discussion
+    _append_discussion(tid, "engineer", "ack, fixing")
+    _run_discussion(tid, {"concern": "x", "command": "python t.py"}, "gpt-5.5", str(tmp_path))
+    rendered = _render_discussion(tid)
+    assert "I stopped this run" in rendered
+    assert "BEFORE launch" not in rendered
+
+
+def test_preflight_strict_bool_reject_fails_soft(monkeypatch, tmp_path) -> None:
+    # A non-bool "reject" (string "false", 1, etc.) is an LLM formatting hiccup
+    # and must NEVER hard-block a launch.
+    from argus_skill.tools import subagent as sub
+
+    class _Result:
+        stdout = ""
+
+    def make_run(payload):
+        def fake_run(cmd, **kwargs):
+            r = _Result()
+            r.stdout = _codex_jsonl(payload)
+            return r
+        return fake_run
+
+    monkeypatch.setattr(sub, "_find_codex", lambda: "codex")
+    for payload in (
+        '{"reject": "true", "concern": "num_generations=1 -> 8"}',
+        '{"reject": 1, "concern": "num_generations=1 -> 8"}',
+    ):
+        monkeypatch.setattr(sub.subprocess, "run", make_run(payload))
+        reject, concern = sub._supervisor_preflight(
+            "t", "python train.py --num-generations 1", "smoke", "gpt-5.5", str(tmp_path))
+        assert reject is False, payload
+        assert concern == ""
+
+
+def test_preflight_reject_without_flagref_concern_is_noop(monkeypatch, tmp_path) -> None:
+    # A non-empty but non-actionable concern (no flag/value reference) must not
+    # wedge a launch — the contract requires a concrete flag+value to change.
+    from argus_skill.tools import subagent as sub
+
+    class _Result:
+        stdout = ""
+
+    def fake_run(cmd, **kwargs):
+        r = _Result()
+        r.stdout = _codex_jsonl(
+            '{"reject": true, "reason": "bad", "concern": "this config is hopeless"}')
+        return r
+
+    monkeypatch.setattr(sub, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(sub.subprocess, "run", fake_run)
+    reject, concern = sub._supervisor_preflight(
+        "t", "python train.py --num-generations 1", "smoke", "gpt-5.5", str(tmp_path))
+    assert reject is False
+    assert concern == ""
+
+
+def test_preflight_reject_td_omits_run_dir_and_reads_no_stale_metrics(tmp_path) -> None:
+    # A preflight reject never launched: _effective_run_dir must NOT recover a
+    # run dir from the command's --run-dir (which could hold a prior run's
+    # metrics), preserving the no-phantom-run invariant.
+    from argus_skill.tools.subagent import _effective_run_dir
+
+    td = {
+        "preflight": True,
+        "command": "python train.py --num-generations 1 --run-dir /tmp/old_run",
+    }
+    assert _effective_run_dir(td) is None
+    # A real launched task still recovers its run dir from the command.
+    td2 = {"command": "python train.py --run-dir /tmp/live_run"}
+    assert _effective_run_dir(td2) == "/tmp/live_run"
