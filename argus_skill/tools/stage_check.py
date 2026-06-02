@@ -104,6 +104,15 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "7. Benchmark adequacy — ≥3 independent real benchmark families?\n"
         "8. Infrastructure choice — is the right training/inference framework selected?\n"
         "9. Feasibility — can this be executed with available resources?\n"
+        "10. RL config sanity (RL post-training plans only) — if the method is "
+        "PPO/GRPO/RLVR/DPO/reasoning-RL, is the config learnable at a glance? "
+        "Group size/num_generations >=4 (never 1) for within-group contrast; a "
+        "reward that varies across rollouts (not constant-by-construction) with a "
+        "validated answer-extractor; max_completion_length long enough for gold "
+        "answers; RL-scale LR (<< SFT) with sane KL/clip; enough steps to show "
+        "learning; init/warm-start matched to the reward. BLOCK structurally "
+        "unlearnable RL configs before any GPU spend (see the skill's RL "
+        "post-training auto-fails).\n"
         "If research taste is missing (no insight, just engineering), BLOCK the plan.",
         ["research/EXPERIMENT_PLAN.md", "research/IDEA_REJECTION_LOG.md",
          "research/CODE_STUDY_NOTES.md", "research/BASELINE_AND_BENCHMARK_PLAN.md"],

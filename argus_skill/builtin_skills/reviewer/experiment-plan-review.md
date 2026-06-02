@@ -15,9 +15,11 @@ Review an experiment plan as a senior ML researcher would before approving compu
 - A bad plan wastes weeks of compute. Be strict on design, lenient on prose.
 - If the plan would produce unconvincing evidence even if executed perfectly, reject it.
 
-## Five review dimensions
+## Review dimensions
 
-Score each 1–5. Score 3+ on all dimensions = pass.
+Score each 1–5. Score 3+ on all applicable dimensions = pass. Dimensions 1–5
+always apply; dimension 6 (RL config sanity) applies only to RL/preference
+post-training plans — omit `rl_config_sanity` from the output for non-RL plans.
 
 1. **Method competitiveness**
    - Is the proposed method a plausible contribution, or is it too trivial (bag-of-words, logistic regression) for the target venue?
@@ -47,6 +49,40 @@ Score each 1–5. Score 3+ on all dimensions = pass.
    - Is the scope appropriate for the target venue (not too narrow, not too broad)?
    - Are there clear success/failure criteria defined before running?
 
+6. **RL training-configuration sanity** *(score only if the method is RL/preference post-training — PPO/GRPO/RLVR/DPO/reasoning RL; skip for non-RL plans)*
+
+   The plan should already pin the RL config (group size, sampling, lengths,
+   optimizer, KL, reward, init). A senior RL researcher can tell at a glance
+   whether a config can possibly produce a learning signal. Reject configs that
+   are structurally unlearnable *before* burning GPU. Check:
+   - **Group / advantage signal (GRPO/RLVR/PPO):** is the group size
+     (`num_generations` / rollouts per prompt) large enough to create
+     within-group reward contrast? 2 is almost always too few (near-zero
+     advantage → zero gradient); want ≥4, typically 8–16. PPO needs a critic or
+     a sound advantage estimator, not a constant baseline.
+   - **Reward variance by construction:** at the *current policy's* competence,
+     will the reward actually vary across samples, or is it all-or-nothing on a
+     set that is too hard (reward pinned at 0) or too easy (pinned at max)? A
+     reward that is constant for every rollout gives zero advantage. Is there a
+     difficulty/curriculum match, and a verifiable correctness signal (not just
+     length/format that is trivially hackable)?
+   - **Reward plumbing:** if the reward depends on extracting a final answer
+     (`\boxed{}`, tool call, AST), does the plan verify the extractor +
+     gold-matching actually fire on real outputs? Unverified extraction silently
+     yields zero reward.
+   - **Sampling / length:** is `max_completion_length` long enough for the task
+     (reasoning/CoT often needs 1k–4k; 256 truncates math/code answers and kills
+     boxed parsing)? Is sampling temperature high enough to explore (≈0 → no
+     reward variance) but not degenerate?
+   - **Optimization:** is the RL learning rate appropriate (RL LR ≪ SFT LR;
+     e.g. 1e-6–1e-5 LoRA, lower full-tune — a SFT-scale LR diverges the policy)?
+     Are KL coefficient / clip range present and sane for the algorithm? Is
+     `max_steps` enough to show learning rather than only a smoke?
+   - **Model init:** does the backbone match the reward? Reasoning/format RL on a
+     bare base model with no format adherence (or a missing/incorrect chat
+     template) makes the format/correctness reward never fire — plan an SFT /
+     format warm-start when the reward needs a specific output structure.
+
 ## Output format
 
 Return JSON:
@@ -59,7 +95,8 @@ Return JSON:
     "baseline_strength": 1-5,
     "evaluation_fairness": 1-5,
     "benchmark_adequacy": 1-5,
-    "feasibility": 1-5
+    "feasibility": 1-5,
+    "rl_config_sanity": 1-5
   },
   "issues": ["specific issue 1", "specific issue 2"],
   "verdict": "one sentence overall judgment",
@@ -75,6 +112,25 @@ Return JSON:
 - No evaluation metrics defined
 - Custom training loop when an established framework would work (see training-infrastructure-guide.md)
 - Custom model.generate() loop for >100 examples when vLLM/SGLang would work (see inference-infrastructure-guide.md)
+
+### RL post-training auto-fails (structurally unlearnable configs)
+For PPO/GRPO/RLVR/DPO/reasoning-RL plans, reject before any GPU spend if:
+- GRPO/group method with group size (`num_generations`) of 1 — no within-group
+  contrast is possible, so the advantage is identically zero. A group size of 2
+  is a red flag that must be justified, not a default.
+- The reward function is provably constant over the planned data at the starting
+  policy (zero reward variance by construction → zero gradient).
+- `max_completion_length` is shorter than the benchmark's gold-answer / required
+  reasoning length, so correct answers are truncated and the reward can never fire.
+- A correctness/verifier reward depends on answer extraction (`\boxed{}`, tool
+  call, AST) with no plan to validate the extractor + gold-matching on real
+  outputs.
+- The RL learning rate is at SFT scale (will diverge the policy), or `max_steps`
+  is so small the run is only a smoke yet is presented as paper evidence.
+- Reasoning/format RL on a base (non-instruct) checkpoint with no SFT/format
+  warm-start, so the format/correctness reward never fires from a cold start.
+See `argus_builtin_skills/engineer/rl-training-collapse-diagnosis.md` for the
+matching in-flight collapse signatures these configs produce.
 
 ## Infrastructure check
 If the plan involves training (SFT, RLHF, DPO, RL, pretraining, adapter tuning):

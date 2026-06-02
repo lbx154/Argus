@@ -245,3 +245,24 @@ def test_run_stage_checklist_demands_score_variance() -> None:
     items = STAGE_CHECKLISTS["run"]
     ids = {item.id for item in items}
     assert "run.score_variance" in ids
+
+
+# --- RL plan-config sanity item --------------------------------------------
+
+
+def test_plan_stage_checklist_has_conditional_rl_config_item() -> None:
+    """The plan stage must let the L2 reviewer tick an RL-config sanity item so
+    structurally-unlearnable RL configs (e.g. group size 1, zero-variance
+    reward) are caught before any GPU is spent.
+    """
+
+    items = STAGE_CHECKLISTS["plan"]
+    by_id = {item.id: item for item in items}
+    assert "plan.rl_config" in by_id
+    item = by_id["plan.rl_config"]
+    # Conditional so it never blocks a non-RL plan.
+    assert "only if" in item.statement.lower()
+    assert "N/A for non-RL" in item.statement
+    # Names the at-a-glance failure modes.
+    assert "num_generations" in item.statement
+    assert "max_completion_length" in item.statement

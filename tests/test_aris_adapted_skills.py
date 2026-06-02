@@ -177,3 +177,21 @@ def test_seed_builtin_skills_copies_bundled_scripts(tmp_path: Path) -> None:
     # Sanity: the seeded copy is byte-identical to the in-tree source
     in_tree = BUILTIN_ROOT / "engineer" / "figure_spec_scripts" / "figure_renderer.py"
     assert renderer.read_bytes() == in_tree.read_bytes()
+
+
+def test_plan_review_skill_has_rl_config_sanity_section() -> None:
+    """The plan-review skill must teach the L2 reviewer to reject
+    structurally-unlearnable RL configs at the plan stage (before GPU spend).
+    """
+
+    md = BUILTIN_ROOT / "reviewer" / "experiment-plan-review.md"
+    text = md.read_text(encoding="utf-8")
+    # The scored 6th dimension + its output key.
+    assert "RL training-configuration sanity" in text
+    assert "rl_config_sanity" in text
+    # The hard-blocker auto-fails for at-a-glance rejects.
+    assert "RL post-training auto-fails" in text
+    assert "num_generations" in text
+    assert "max_completion_length" in text
+    # Cross-references the in-flight collapse skill.
+    assert "rl-training-collapse-diagnosis.md" in text

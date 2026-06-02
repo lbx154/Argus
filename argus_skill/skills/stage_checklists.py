@@ -177,6 +177,29 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "`code/references/<chosen-framework>/`"
             ),
         ),
+        ChecklistItem(
+            id="plan.rl_config",
+            statement=(
+                "If (and only if) the method is RL / preference post-training "
+                "(PPO/GRPO/RLVR/DPO/reasoning-RL), the plan pins a learnable RL "
+                "config a senior RL researcher would approve at a glance: group "
+                "size / `num_generations` large enough for within-group reward "
+                "contrast (>=4, never 1); a reward that actually varies across "
+                "rollouts at the starting policy (not constant-by-construction) "
+                "with a verifiable correctness signal and a validated "
+                "answer-extractor; `max_completion_length` long enough for the "
+                "benchmark's gold answers; an RL-scale learning rate (<< SFT) "
+                "with sane KL/clip; enough steps to show learning (not just a "
+                "smoke); and an init/warm-start matched to the reward (no "
+                "cold-start format RL on a bare base model). N/A for non-RL plans."
+            ),
+            evidence_hint=(
+                "research/EXPERIMENT_PLAN.md `## RL config` / training config + "
+                "argus_builtin_skills/reviewer/experiment-plan-review.md "
+                "(RL post-training auto-fails) + "
+                "argus_builtin_skills/engineer/rl-training-collapse-diagnosis.md"
+            ),
+        ),
     ),
     "benchmark": _checklist(
         ChecklistItem(
