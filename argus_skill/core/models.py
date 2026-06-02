@@ -122,7 +122,10 @@ class ReviewDecision:
     # planner routes the next mission from this clean, structured report
     # rather than from raw engineer output or noisy verdict prose. Shape:
     # ``{"forward_progress": bool, "headline": str, "blocker": str,
-    # "recommended_next": str}``. Fail-soft: empty dict when the reviewer
+    # "recommended_next": str, "evidence_files": [{"path", "why"}]}``. The
+    # ``evidence_files`` point the planner at the concrete artifacts (source
+    # script, data provenance, metric series, NO_GO docs) to OPEN and read
+    # before routing the next mission. Fail-soft: empty dict when the reviewer
     # omitted it or the round errored before a verdict.
     planner_report: dict[str, Any] = field(default_factory=dict)
     # Curated working-memory checkpoint authored by the reviewer (the memory

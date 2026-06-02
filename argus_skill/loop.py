@@ -39,6 +39,14 @@ from .skills.store import Skill, SkillStore
 log = logging.getLogger(__name__)
 
 
+# Terminal mission statuses that represent a genuine learning failure (as
+# opposed to success or an environmental/backend abort). ``error`` is excluded
+# because it is a runner/backend failure, not a content lesson about the task.
+# These only BOUND the failure window — whether a failure actually teaches a
+# skill is the REVIEWER's call (``failure_cause == "skill_gap"`` + a
+# non-empty ``mission_lesson``), never a status heuristic.
+_REVISABLE_FAILURE_STATUSES = frozenset({"blocked", "max_rounds", "no_progress"})
+
 
 @dataclass
 class SkillLoopConfig:
@@ -61,6 +69,12 @@ class SkillLoopConfig:
     distill_on_miss: bool = False
     # Scientist layer disabled — engineer does all work, reviewer verifies.
     skill_revise_on_writeback: bool = False
+    # Self-evolution from FAILURE: when a mission terminates without success
+    # (blocked / max_rounds / no_progress) on a matched own-role skill, merge
+    # the reviewer's structured failure lesson back into that skill so the next
+    # mission inherits the lesson. Complements writeback (which learns only from
+    # success). Best-effort, deduplicated, and skips freshly-distilled skills.
+    skill_revise_on_failure: bool = False
     full_auto: bool = True
     skip_git_repo_check: bool = True
     dangerous_yolo: bool = False
@@ -282,6 +296,42 @@ class SkillLoop:
                 self._emit({"type": "skill.writeback.error",
                             "text": f"writeback failed: {type(exc).__name__}"})
 
+        # Step 4a: confirm a PROVISIONAL skill that just proved itself. A
+        # provisional skill is "born but unproven"; it earns permanent
+        # retention only when a LATER mission REUSES it (matched, not freshly
+        # distilled this mission) and that mission succeeds.
+        if (
+            status == "done"
+            and skill is not None
+            and not skill_distilled
+            and getattr(skill, "provisional", False)
+        ):
+            try:
+                if self.skill_store.confirm_provisional(skill):
+                    self._emit({"type": "skill.confirmed",
+                                "text": f"confirmed provisional skill {skill.name} "
+                                        f"after a successful reuse"})
+            except Exception as exc:  # noqa: BLE001 — never break the loop
+                log.warning("confirm_provisional failed (%s: %s)",
+                            type(exc).__name__, exc)
+
+        # Step 4b: self-evolution from FAILURE — REVIEWER-DRIVEN. The reviewer
+        # (not a status heuristic) decides whether a failure carries a fixable,
+        # reusable lesson (``failure_cause == "skill_gap"`` + ``mission_lesson``)
+        # vs a dead idea (``method_failure`` → no lesson). The status set only
+        # bounds the window to genuinely-failed missions.
+        elif (
+            status in _REVISABLE_FAILURE_STATUSES
+            and self.config.skill_revise_on_failure
+        ):
+            self._evolve_skill_from_failure(
+                skill=skill,
+                skill_distilled=skill_distilled,
+                skill_task=skill_task,
+                status=status,
+                rounds=rounds,
+            )
+
         outcome = LoopOutcome(
             status=status,
             rounds=rounds,
@@ -497,6 +547,222 @@ class SkillLoop:
                 lines.append(r.review.round_summary_markdown.strip())
             lines.append("")
         return "\n".join(lines).strip()
+
+    # ------------------------------------------------------------------
+    # Self-evolution from failure
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _find_reviewer_lesson(rounds: list[RoundRecord]) -> tuple[str, str] | None:
+        """Return the most recent reviewer-decided ``(lesson, cause)`` for a
+        fixable failure, or ``None`` when the reviewer attributed no fixable
+        ``skill_gap``.
+
+        We scan rounds back-to-front because the terminal round may merely be
+        a ``continue`` (e.g. a ``max_rounds`` stop) while the substantive
+        ``skill_gap`` postmortem — the corrected hyperparameter/config regime —
+        was authored a round or two earlier. The reviewer OWNS this decision:
+        we never synthesize a lesson from raw logs.
+        """
+        for rec in reversed(rounds or []):
+            review = getattr(rec, "review", None)
+            if review is None:
+                continue
+            cause = (getattr(review, "failure_cause", "") or "").strip()
+            lesson = (getattr(review, "mission_lesson", "") or "").strip()
+            if cause == "skill_gap" and lesson:
+                return lesson, cause
+        return None
+
+    @staticmethod
+    def _lesson_sidecar_path(skill: Skill) -> Path | None:
+        path = getattr(skill, "path", None)
+        if not path:
+            return None
+        path = Path(path)
+        return path.parent / f".{path.stem}.failure_lessons.json"
+
+    @classmethod
+    def _lesson_already_applied(cls, skill: Skill, lesson_hash: str) -> bool:
+        sidecar = cls._lesson_sidecar_path(skill)
+        if sidecar is None or not sidecar.exists():
+            return False
+        try:
+            import json
+
+            data = json.loads(sidecar.read_text(encoding="utf-8"))
+            return lesson_hash in set(data.get("applied", []))
+        except Exception:  # noqa: BLE001 — dedup is best-effort
+            return False
+
+    @classmethod
+    def _record_applied_lesson(cls, skill: Skill, lesson_hash: str) -> None:
+        sidecar = cls._lesson_sidecar_path(skill)
+        if sidecar is None:
+            return
+        try:
+            import json
+
+            applied: list[str] = []
+            if sidecar.exists():
+                applied = list(
+                    json.loads(sidecar.read_text(encoding="utf-8")).get("applied", [])
+                )
+            if lesson_hash not in applied:
+                applied.append(lesson_hash)
+            # Keep only the most recent hashes so the sidecar stays small.
+            applied = applied[-200:]
+            sidecar.parent.mkdir(parents=True, exist_ok=True)
+            sidecar.write_text(
+                json.dumps({"applied": applied}), encoding="utf-8"
+            )
+        except Exception:  # noqa: BLE001 — dedup is best-effort
+            log.debug("failed to record applied failure lesson", exc_info=True)
+
+    def _evolve_skill_from_failure(
+        self,
+        *,
+        skill: Skill | None,
+        skill_distilled: bool,
+        skill_task: str,
+        status: str,
+        rounds: list[RoundRecord],
+    ) -> None:
+        """Reviewer-driven self-evolution on a failed mission.
+
+        The reviewer decides IF there is a fixable lesson; this method only
+        routes it to the right skill based on the skill's ORIGIN this mission:
+
+        * no matched skill        -> birth a fresh PROVISIONAL skill from it.
+        * skill born this mission -> its first outing failed, so it is unproven:
+          mark it provisional and merge the lesson into it.
+        * reused (matched) skill  -> teach it the lesson; if it was itself a
+          provisional skill, charge a reuse failure (archived after threshold).
+        """
+        try:
+            found = self._find_reviewer_lesson(rounds)
+            if found is None:
+                # The reviewer attributed no fixable skill_gap (e.g. a genuine
+                # method_failure / dead idea, or an environmental abort). Do
+                # NOT manufacture a skill — that is exactly the false-learning
+                # the operator wants to avoid.
+                return
+            lesson, _cause = found
+
+            if skill is None:
+                self._birth_provisional_skill(skill_task=skill_task, lesson=lesson)
+                return
+
+            if skill_distilled:
+                # Fresh skill whose very first mission failed -> unproven.
+                try:
+                    if self.skill_store.mark_provisional(skill):
+                        self._emit({"type": "skill.provisional.marked",
+                                    "text": f"marked freshly-distilled {skill.name} "
+                                            f"provisional (unproven first outing)"})
+                except Exception:  # noqa: BLE001
+                    log.debug("mark_provisional failed", exc_info=True)
+                self._merge_lesson(skill, skill_task, lesson, status)
+                return
+
+            # Reused, previously-matched skill.
+            self._merge_lesson(skill, skill_task, lesson, status)
+            if getattr(skill, "provisional", False):
+                # An unproven provisional skill failed again on reuse. We have
+                # already tried to improve it with the lesson; charge the
+                # failure so it is archived once it crosses the prune threshold.
+                try:
+                    self.skill_store.record_provisional_failure(
+                        skill, on_event=self.on_event
+                    )
+                except Exception:  # noqa: BLE001
+                    log.debug("record_provisional_failure failed", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 — never break the loop
+            log.warning("failure self-evolution failed (%s: %s)",
+                        type(exc).__name__, exc)
+            self._emit({"type": "skill.lesson.error",
+                        "text": f"failure self-evolution failed: {type(exc).__name__}"})
+
+    def _merge_lesson(
+        self, skill: Skill, skill_task: str, lesson: str, status: str
+    ) -> bool:
+        """Deduplicate then merge a reviewer lesson into an existing skill."""
+        import hashlib
+
+        lesson_hash = hashlib.sha1(
+            " ".join(lesson.lower().split()).encode("utf-8")
+        ).hexdigest()
+        if self._lesson_already_applied(skill, lesson_hash):
+            self._emit({"type": "skill.lesson.skipped_duplicate",
+                        "text": f"{skill.name}: failure lesson already applied"})
+            return False
+        updated = self.skill_store.promote_lesson(
+            skill=skill,
+            lesson_text=lesson,
+            task_description=skill_task,
+            distiller=self.distiller,
+            scientist_model=self.config.scientist_model,
+            on_event=self.on_event,
+        )
+        if updated:
+            self._record_applied_lesson(skill, lesson_hash)
+            self._emit({"type": "skill.lesson",
+                        "text": f"merged reviewer lesson into {skill.name} "
+                                f"v{skill.version} (status={status})"})
+        else:
+            self._emit({"type": "skill.lesson.rejected",
+                        "text": f"{skill.name}: revise gate rejected the lesson"})
+        return updated
+
+    def _birth_provisional_skill(self, *, skill_task: str, lesson: str) -> None:
+        """Expand a reviewer lesson into a full playbook and persist it as a
+        PROVISIONAL skill (proven only by a later successful reuse)."""
+        if not self.config.distill_on_miss:
+            # Birthing requires the distiller path; honor the same master flag.
+            return
+        augmented = (
+            f"{skill_task}\n\n"
+            f"A prior attempt at this objective FAILED. The reviewer diagnosed "
+            f"a FIXABLE skill/configuration gap (not a dead idea) and distilled "
+            f"this corrective lesson:\n\n{lesson}\n\n"
+            f"Produce a reusable playbook that encodes the corrected approach so "
+            f"a future mission avoids this failure."
+        )
+        try:
+            distill_result = self.distiller.distill(
+                task_description=augmented,
+                config=DistillerConfig(
+                    model=self.config.scientist_model,
+                    reasoning_effort=self.config.scientist_reasoning_effort,
+                    extra_args=self.config.extra_args,
+                    skip_git_repo_check=self.config.skip_git_repo_check,
+                    full_auto=self.config.full_auto,
+                ),
+                on_event=self.on_event,
+            )
+            raw = (distill_result.last_agent_message or "").strip()
+            if not raw:
+                self._emit({"type": "skill.lesson.error",
+                            "text": "provisional birth: distiller returned empty"})
+                return
+            new_skill = self.skill_store.save_distilled(
+                task_description=skill_task,
+                raw_distill_output=raw,
+                scientist_model=self.config.scientist_model,
+                on_event=self.on_event,
+                provisional=True,
+            )
+            if new_skill is not None:
+                self._emit({"type": "skill.provisional.born",
+                            "text": f"distilled provisional skill {new_skill.name} "
+                                    f"from a reviewer failure lesson"})
+            else:
+                self._emit({"type": "skill.lesson.rejected",
+                            "text": "provisional birth rejected by quality gate"})
+        except Exception as exc:  # noqa: BLE001 — never break the loop
+            log.warning("provisional skill birth failed (%s: %s)",
+                        type(exc).__name__, exc)
+            self._emit({"type": "skill.lesson.error",
+                        "text": f"provisional birth failed: {type(exc).__name__}"})
 
 
 __all__ = ["SkillLoop", "SkillLoopConfig"]

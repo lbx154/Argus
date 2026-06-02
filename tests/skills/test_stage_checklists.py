@@ -128,6 +128,7 @@ def test_stage_checklist_completeness() -> None:
     run_ids = {item.id for item in STAGE_CHECKLISTS["run"]}
     assert "run.matrix" in run_ids
     assert "run.scale" in run_ids
+    assert "run.rl_hparams_executed_sane" in run_ids
 
     analysis_ids = {item.id for item in STAGE_CHECKLISTS["analysis"]}
     assert "analysis.claims" in analysis_ids
@@ -245,6 +246,34 @@ def test_run_stage_checklist_demands_score_variance() -> None:
     items = STAGE_CHECKLISTS["run"]
     ids = {item.id for item in items}
     assert "run.score_variance" in ids
+
+
+def test_run_stage_checklist_guards_no_go_attribution() -> None:
+    """A no-go on an RL method must not retire the IDEA until the EXECUTED run's
+    hyperparameters are confirmed sane, so a misconfigured run (truncated
+    rollouts, zero reward variance, gate gamed by terse `answer_only` outputs)
+    is not mistaken for a dead method.
+    """
+
+    items = STAGE_CHECKLISTS["run"]
+    by_id = {item.id: item for item in items}
+    assert "run.rl_hparams_executed_sane" in by_id
+    item = by_id["run.rl_hparams_executed_sane"]
+    statement = item.statement
+    # Conditional so it never blocks a non-RL run.
+    assert "only if" in statement.lower()
+    assert "N/A for non-RL" in statement
+    # Judges the EXECUTED run, not merely a plan match.
+    assert "EXECUTED" in statement
+    assert "max_completion_length" in statement
+    assert "num_generations" in statement
+    # Names the gaming anti-pattern and the truncation/variance failure modes.
+    assert "answer_only" in statement
+    assert "truncat" in statement.lower()
+    assert "reward variance" in statement.lower()
+    # Bounds the loop: a fair run can still retire the method.
+    for verdict in ("misconfigured_run", "method_failure", "infeasible_under_budget"):
+        assert verdict in statement
 
 
 # --- RL plan-config sanity item --------------------------------------------

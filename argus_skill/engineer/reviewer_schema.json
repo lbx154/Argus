@@ -31,6 +31,23 @@
       "type": "string",
       "maxLength": 5000
     },
+    "failure_cause": {
+      "type": ["string", "null"],
+      "enum": [
+        "skill_gap",
+        "execution_mistake",
+        "ambiguous_objective",
+        "environmental",
+        "method_failure",
+        "unknown",
+        "",
+        null
+      ]
+    },
+    "mission_lesson": {
+      "type": ["string", "null"],
+      "maxLength": 4000
+    },
     "scope": {
       "type": ["string", "null"],
       "enum": ["bounded", "final_submission", null]
@@ -42,7 +59,20 @@
         "forward_progress": { "type": "boolean" },
         "headline": { "type": "string", "maxLength": 600 },
         "blocker": { "type": "string", "maxLength": 1200 },
-        "recommended_next": { "type": "string", "maxLength": 1200 }
+        "recommended_next": { "type": "string", "maxLength": 1200 },
+        "evidence_files": {
+          "type": ["array", "null"],
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string", "maxLength": 400 },
+              "why": { "type": "string", "maxLength": 600 }
+            },
+            "required": ["path", "why"]
+          }
+        }
       },
       "required": ["forward_progress", "headline", "blocker", "recommended_next"]
     },

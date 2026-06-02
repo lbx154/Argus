@@ -867,6 +867,10 @@ class _CodexSkillLoopRunner:
                 "ARGUS_SKILL_DISTILL_ON_MISS",
                 default=not benchmark_mode,
             ),
+            "skill_revise_on_failure": _env_flag(
+                "ARGUS_SKILL_SKILL_REVISE_ON_FAILURE",
+                default=not benchmark_mode,
+            ),
             "dangerous_yolo": not safe_mode,
             "full_auto": safe_mode,
             "skip_git_repo_check": True,

@@ -139,6 +139,14 @@ class Skill:
     created_at: str = ""
     task_history: list[str] = field(default_factory=list)
     path: str = ""
+    # Provisional skills are born from a FAILURE (reviewer-attributed
+    # ``skill_gap``) and are *unproven*: they are retained for good only
+    # after a later mission REUSES them and succeeds (``confirm``). Until
+    # then they accumulate ``provisional_failures`` on each non-environmental
+    # reuse failure and are archived once that count crosses the prune
+    # threshold. Absent in legacy frontmatter -> ``False`` (confirmed).
+    provisional: bool = False
+    provisional_failures: int = 0
 
     def render(self) -> str:
         history = ""
@@ -148,6 +156,13 @@ class Skill:
                 for t in self.task_history[-10:]
             )
             history = f"task_history:\n{items}\n"
+        # Only serialize provisional bookkeeping when meaningful so confirmed
+        # skills keep their historical frontmatter byte-for-byte stable.
+        provisional_lines = ""
+        if self.provisional:
+            provisional_lines += "provisional: true\n"
+        if self.provisional_failures:
+            provisional_lines += f"provisional_failures: {int(self.provisional_failures)}\n"
         return (
             f"---\n"
             f"name: {self.name}\n"
@@ -156,6 +171,7 @@ class Skill:
             f"version: {self.version}\n"
             f"scientist_model: {self.scientist_model}\n"
             f"created_at: {self.created_at}\n"
+            f"{provisional_lines}"
             f"{history}"
             f"---\n\n"
             f"{self.content}"
@@ -194,6 +210,11 @@ class Skill:
             created_at=_get("created_at"),
             task_history=history,
             path=path,
+            provisional=_get("provisional").strip().strip('"').strip("'").lower()
+            in {"true", "yes", "1"},
+            provisional_failures=_parse_skill_version(_get("provisional_failures"))
+            if _get("provisional_failures")
+            else 0,
         )
 
 
@@ -266,7 +287,12 @@ class SkillStore:
         summaries: list[dict] = []
         seen: set[str] = set()
         for p in sorted(self.skills_dir.rglob("*.md")):
-            if any(part.startswith(".") for part in p.relative_to(self.skills_dir).parts):
+            rel = p.relative_to(self.skills_dir)
+            # Skip dotfiles AND the archive tree — archived (pruned/retired)
+            # skills must never re-enter the matcher candidate pool.
+            if any(
+                part.startswith(".") or part == "_archive" for part in rel.parts
+            ):
                 continue
             key = str(p)
             seen.add(key)
@@ -302,6 +328,7 @@ class SkillStore:
                 "task_history": skill.task_history[:5],
                 "path": str(p),
                 "role": skill_role,
+                "provisional": skill.provisional,
             }
             self._summary_cache[key] = (st.st_mtime_ns, st.st_size, summary)
             summaries.append(summary)
@@ -352,6 +379,7 @@ class SkillStore:
         scientist_model: str,
         on_event: "Callable[[dict], None] | None" = None,
         enforce_quality_gate: bool = True,
+        provisional: bool = False,
     ) -> "Skill | None":
         """Parse the raw scientist output, validate quality, and persist.
 
@@ -405,6 +433,7 @@ class SkillStore:
             scientist_model=scientist_model,
             created_at=datetime.now(timezone.utc).isoformat(),
             task_history=[],
+            provisional=bool(provisional),
         )
         append_task_history(skill, task_description)
         self.save(skill)
@@ -491,6 +520,82 @@ class SkillStore:
             scientist_model=scientist_model,
             on_event=on_event,
         )
+
+    # ------------------------------------------------------------------
+    # Provisional skill lifecycle (born from a reviewer-attributed
+    # ``skill_gap`` failure; proven only by a later successful REUSE).
+    # ------------------------------------------------------------------
+
+    _PROVISIONAL_PRUNE_THRESHOLD = 2
+
+    def mark_provisional(self, skill: Skill) -> bool:
+        """Flag an already-persisted skill as unproven. No-op if already set
+        or if the skill has no on-disk path. Returns whether a write happened."""
+        if not skill.path or skill.provisional:
+            return False
+        skill.provisional = True
+        self.save(skill)
+        return True
+
+    def confirm_provisional(self, skill: Skill) -> bool:
+        """Promote a provisional skill to confirmed after a successful reuse.
+
+        Clears the failure counter. No-op (returns ``False``) for skills that
+        were already confirmed so the common success path stays cheap.
+        """
+        if not skill.path or not skill.provisional:
+            return False
+        skill.provisional = False
+        skill.provisional_failures = 0
+        self.save(skill)
+        return True
+
+    def record_provisional_failure(
+        self,
+        skill: Skill,
+        *,
+        on_event: "Callable[[dict], None] | None" = None,
+    ) -> str:
+        """Charge one non-environmental reuse failure against a provisional
+        skill. Archives it once the failure count crosses the prune
+        threshold. Returns ``"counted"``, ``"archived"`` or ``"noop"``.
+        """
+        if not skill.path or not skill.provisional:
+            return "noop"
+        skill.provisional_failures = int(skill.provisional_failures) + 1
+        if skill.provisional_failures >= self._PROVISIONAL_PRUNE_THRESHOLD:
+            from .lifecycle import archive_skill  # local import: avoid cycle
+
+            archived = archive_skill(skill.path)
+            self._summary_cache.pop(str(skill.path), None)
+            self._match_cache.clear()
+            if on_event is not None:
+                try:
+                    on_event({
+                        "type": "skill.provisional.retired",
+                        "skill_name": skill.name,
+                        "failures": skill.provisional_failures,
+                        "text": f"archived unproven provisional skill {skill.name} "
+                                f"after {skill.provisional_failures} reuse failures"
+                                + (f" -> {archived}" if archived else ""),
+                    })
+                except Exception:  # noqa: BLE001
+                    log.debug("skill.provisional.retired emit failed", exc_info=True)
+            return "archived"
+        self.save(skill)
+        if on_event is not None:
+            try:
+                on_event({
+                    "type": "skill.provisional.failed",
+                    "skill_name": skill.name,
+                    "failures": skill.provisional_failures,
+                    "text": f"provisional skill {skill.name} reuse failure "
+                            f"{skill.provisional_failures}/{self._PROVISIONAL_PRUNE_THRESHOLD}",
+                })
+            except Exception:  # noqa: BLE001
+                log.debug("skill.provisional.failed emit failed", exc_info=True)
+        return "counted"
+
 
     def _revise_via_distiller(
         self,

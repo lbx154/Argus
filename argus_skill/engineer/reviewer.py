@@ -465,12 +465,19 @@ class Reviewer:
             "- round_summary_markdown\n"
             "- completion_summary_markdown\n"
             "- planner_report (object: forward_progress, headline, blocker,\n"
-            "  recommended_next)\n"
+            "  recommended_next, evidence_files[{path, why}])\n"
             "- checkpoint (object: goal, done[], tried_and_failed[],\n"
             "  open_blocker, next_step)\n"
             "Optional JSON keys (REQUIRED when scope is final_submission):\n"
             "- scope (`bounded` or `final_submission`)\n"
-            "- checklist (array of {item, satisfied, evidence})\n\n"
+            "- checklist (array of {item, satisfied, evidence})\n"
+            "Optional JSON keys (emit on any non-`done` verdict — see\n"
+            "SKILL-EVOLUTION SIGNAL below):\n"
+            "- failure_cause (`skill_gap` | `execution_mistake` |\n"
+            "  `ambiguous_objective` | `environmental` | `method_failure` |\n"
+            "  `unknown`)\n"
+            "- mission_lesson (string; non-empty ONLY when failure_cause is\n"
+            "  `skill_gap`)\n\n"
             "Planner report rules (this object is the ONLY thing the project\n"
             "planner reads about this mission — keep it a clean, structured,\n"
             "self-contained briefing, NOT raw logs or terminal output):\n"
@@ -492,7 +499,77 @@ class Reviewer:
             "  (e.g. `pivot the method` / `roll back to plan and redesign\n"
             "  condition separation`), or empty string if the project is done.\n"
             "  Do NOT recommend re-running an equivalent task that leaves the\n"
-            "  blocker in place.\n\n"
+            "  blocker in place.\n"
+            "- `evidence_files`: array of {path, why} (≤8) — the SPECIFIC files\n"
+            "  the planner must OPEN to understand/diagnose what happened. Use\n"
+            "  ABSOLUTE paths or project-root-relative paths the planner can open\n"
+            "  from the project root. For a failed / no-progress / surprising run\n"
+            "  this is REQUIRED and must point at the real evidence, not just a\n"
+            "  generated summary: the run dir's `status.json` / `progress.jsonl`,\n"
+            "  any supervisor handoff/verdict, the training/eval SOURCE script,\n"
+            "  the DATA-PROVENANCE file (which dataset/rows the run consumed and\n"
+            "  where they came from), the reward/metric diagnostics, and any\n"
+            "  mechanical `*_NO_GO.md`. `why` says in one phrase what the planner\n"
+            "  will learn by reading it. Empty array only when nothing on disk\n"
+            "  would help the planner (e.g. a trivially-done doc task).\n"
+            "- RUN-HEALTH AUTHORITY: a mechanical health-gate / `*_NO_GO.md` /\n"
+            "  `status.json state=failed` that was produced by a METRIC THRESHOLD\n"
+            "  (e.g. one tail step's `clipped_ratio`, a short-window reward dip) is\n"
+            "  ADVISORY, NOT the verdict. Judge run health from the METRIC TREND\n"
+            "  and the supervisor's handoff. Do NOT set `forward_progress=false`\n"
+            "  or recommend a relaunch SOLELY because a mechanical terminal gate\n"
+            "  tripped — only a real failure (crash/OOM/NaN/timeout/collapsing\n"
+            "  trend) or genuinely-unusable evidence justifies that.\n"
+            "- GRADUATION POLICY (stop the smoke-thrash): a smoke / micro-run\n"
+            "  (tiny `max_steps`, `num_generations=2`, a handful of rows) only\n"
+            "  validates that the harness WIRING runs — it is never paper\n"
+            "  evidence. Once a smoke proves the pipeline executes, the next\n"
+            "  mission must be EITHER (a) launch the real pilot/full training\n"
+            "  (scale steps/data/generations up), OR (b) diagnose a NAMED\n"
+            "  root-cause hypothesis from the evidence_files. Recommending yet\n"
+            "  another equivalent micro-smoke with only a threshold/flag tweak is\n"
+            "  `forward_progress=false` unless it explicitly tests a named\n"
+            "  hypothesis.\n"
+            "- NO-GO ATTRIBUTION (never falsify an IDEA on a misconfigured run):\n"
+            "  when an RL / post-training method UNDERPERFORMS a baseline (a no-go\n"
+            "  / negative delta), an underperformance result retires or pivots\n"
+            "  away from the METHOD/IDEA only AFTER you confirm the EXECUTED run\n"
+            "  was a fair, well-configured run — read its manifest + rollout\n"
+            "  diagnostics, do not just trust that it matched a (possibly\n"
+            "  underpowered) plan. Label the outcome `misconfigured_run`,\n"
+            "  `method_failure`, or `infeasible_under_budget`. If training\n"
+            "  rollouts truncated (completions pinned at `max_completion_length`,\n"
+            "  high clipping) so reasoning never finished, per-group reward\n"
+            "  variance was ~0 (zero advantage ⇒ zero gradient), the LR/steps/\n"
+            "  `num_generations` were below an RL-scale regime, or the length/\n"
+            "  clipping gate was kept green by forcing terse/`answer_only`\n"
+            "  rollouts that suppress reasoning the task needs, it is\n"
+            "  `misconfigured_run`: roll back and re-run with corrected\n"
+            "  hyperparameters, do NOT record the idea as dead. Only after ONE\n"
+            "  corrected, sane-regime run STILL loses may you treat it as\n"
+            "  `method_failure`. Do not demand endless reruns: once a fair run\n"
+            "  exists, or the sane regime is unreachable within budget\n"
+            "  (`infeasible_under_budget`), let the verdict stand.\n\n"
+            "- SKILL-EVOLUTION SIGNAL (you decide whether a failure should\n"
+            "  teach a skill — do NOT leave this to a status heuristic): on any\n"
+            "  non-`done` verdict, set `failure_cause` to one of `skill_gap`,\n"
+            "  `execution_mistake`, `ambiguous_objective`, `environmental`,\n"
+            "  `method_failure`, or `unknown`. Use `skill_gap` when the failure\n"
+            "  was a FIXABLE knowledge/configuration gap that a future mission\n"
+            "  could avoid if it knew better — e.g. an RL run that lost because\n"
+            "  of underpowered/wrong HYPERPARAMETERS, truncated rollouts, a\n"
+            "  reward/length-gate gamed by `answer_only`, a wrong model/base vs\n"
+            "  instruct, or a missing methodology step (this is the\n"
+            "  `misconfigured_run` case above). Use `method_failure` ONLY when\n"
+            "  the IDEA itself is genuinely dead after a fair, sane-regime run —\n"
+            "  there is NO reusable fix, so do not emit a lesson. For\n"
+            "  `skill_gap` ONLY, also emit `mission_lesson`: a concise, GENERAL,\n"
+            "  reusable paragraph (not a transcript) stating the corrected\n"
+            "  approach and the concrete regime/threshold to use next time (e.g.\n"
+            "  'For 14B RLVR on reasoning tasks, set max_completion_length>=N,\n"
+            "  steps>=M, num_generations>=K; never cap rollouts below the\n"
+            "  task's reasoning length or per-group reward variance collapses\n"
+            "  to zero'). Leave `mission_lesson` empty for every other cause.\n\n"
             "Checkpoint rules (you are the MEMORY AUDITOR; this object becomes\n"
             "the engineer's ENTIRE working memory next round — the raw session\n"
             "is dropped, so a fresh engineer sees ONLY this):\n"
@@ -728,6 +805,8 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
         checklist=_parse_checklist(parsed),
         planner_report=_parse_planner_report(parsed, status=status, reason=reason),
         checkpoint=_parse_checkpoint(parsed),
+        failure_cause=_parse_failure_cause(parsed),
+        mission_lesson=_parse_mission_lesson(parsed),
     )
 
 
@@ -764,11 +843,30 @@ def _parse_planner_report(parsed: dict, *, status: str, reason: str) -> dict[str
         forward_progress = status == "done"
     if not headline:
         headline = (reason or "").strip()[:600]
+    # Concrete artifacts the planner should OPEN to diagnose what happened
+    # (source files, data provenance, NO_GO docs, metric series). Parsed
+    # fail-soft: a malformed list/entry is dropped, never rejected.
+    evidence_files: list[dict[str, str]] = []
+    raw_ev = raw.get("evidence_files")
+    if isinstance(raw_ev, list):
+        for entry in raw_ev:
+            if not isinstance(entry, dict):
+                continue
+            path = str(entry.get("path", "") or "").strip()
+            if not path:
+                continue
+            evidence_files.append({
+                "path": path[:400],
+                "why": str(entry.get("why", "") or "").strip()[:600],
+            })
+            if len(evidence_files) >= 8:
+                break
     return {
         "forward_progress": forward_progress,
         "headline": headline,
         "blocker": blocker,
         "recommended_next": recommended_next,
+        "evidence_files": evidence_files,
     }
 
 
@@ -778,6 +876,38 @@ def _parse_scope(parsed: dict) -> str:
         normalized = value.strip().lower()
         if normalized in {"bounded", "final_submission"}:
             return normalized
+    return ""
+
+
+_VALID_FAILURE_CAUSES = frozenset({
+    "skill_gap",
+    "execution_mistake",
+    "ambiguous_objective",
+    "environmental",
+    "method_failure",
+    "unknown",
+})
+
+
+def _parse_failure_cause(parsed: dict) -> str:
+    """Reviewer's classification of *why* a round failed. Fail-soft: any
+    missing/null/unrecognized value normalizes to ``""`` so the skill
+    evolution layer simply does nothing rather than acting on noise."""
+    value = parsed.get("failure_cause")
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in _VALID_FAILURE_CAUSES:
+            return normalized
+    return ""
+
+
+def _parse_mission_lesson(parsed: dict) -> str:
+    """Reviewer-authored, reusable lesson emitted alongside a ``skill_gap``
+    failure (e.g. the corrected hyperparameter regime for an RL run).
+    Capped and fail-soft."""
+    value = parsed.get("mission_lesson")
+    if isinstance(value, str):
+        return value.strip()[:4000]
     return ""
 
 

@@ -2418,4 +2418,15 @@ class LifeSupervisor:
             parts.append(f"    blocker: {blocker}")
         if recommended:
             parts.append(f"    recommended_next: {recommended}")
+        evidence = report.get("evidence_files")
+        if isinstance(evidence, list) and evidence:
+            parts.append("    evidence_files the planner MUST open before replanning:")
+            for entry in evidence[:8]:
+                if not isinstance(entry, dict):
+                    continue
+                path = _clean(entry.get("path"), 400)
+                if not path:
+                    continue
+                why = _clean(entry.get("why"), 600)
+                parts.append(f"      - {path}" + (f"  — {why}" if why else ""))
         return "\n".join(parts)

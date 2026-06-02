@@ -345,6 +345,55 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 " | sort -u | wc -l` should be > 1 per file with >3 rows"
             ),
         ),
+        ChecklistItem(
+            id="run.rl_hparams_executed_sane",
+            statement=(
+                "If (and only if) the method is RL / preference post-training "
+                "(PPO/GRPO/RLVR/DPO/reasoning-RL), an underperformance / no-go "
+                "result (a negative delta vs the baseline) may retire, pivot away "
+                "from, or declare dead that method ONLY after the EXECUTED run is "
+                "confirmed to be a fair, well-configured run — judged from the "
+                "run's OWN manifest/training-config and empirical rollout "
+                "diagnostics, not merely from the fact that it matched the plan (a "
+                "plan can itself be underpowered). The manifest must expose the "
+                "ACTUAL executed knobs (training `max_completion_length`/rollout "
+                "length, `num_generations`, `max_steps`/horizon, learning rate, "
+                "KL/clip) AND empirical health: completion-length p50/p95/max, "
+                "truncation/clipping rate, per-group reward variance (or fraction "
+                "of zero-variance groups), and answer-parse failure rate. "
+                "Classify the outcome as exactly one of `misconfigured_run`, "
+                "`method_failure`, or `infeasible_under_budget`. Fail this item "
+                "and require a corrected re-run (do NOT record the idea as dead) "
+                "when the executed run is `misconfigured_run` — e.g. training "
+                "rollouts truncate (completions pinned at the cap / high clipping) "
+                "so the reasoning never finishes, per-group reward variance is ~0 "
+                "so the advantage and gradient are zero, the LR/steps/group size "
+                "are below an RL-scale regime, or the length/clipping health-gate "
+                "was kept green by forcing terse / `answer_only` rollouts that "
+                "SUPPRESS the reasoning the task needs instead of giving the "
+                "policy room and raising the cap (answer-only is fine when the "
+                "task genuinely needs no rollout reasoning; it is gaming only when "
+                "it hides truncation the task would otherwise suffer). Only after "
+                "ONE corrected, sane-regime run (low truncation under the intended "
+                "template, non-degenerate reward variance, RL-scale LR, "
+                "`num_generations` >= 4, enough steps to show movement) STILL "
+                "loses may the result be treated as `method_failure` and the "
+                "method retired. If that sane regime is unreachable within the "
+                "compute/API budget, record `infeasible_under_budget` (not an "
+                "experimental refutation of the idea). Do not demand endless "
+                "reruns: once one fair run exists, or the regime is infeasible, "
+                "let the verdict stand, and never authorize another rerun without "
+                "a named, artifact-backed diagnosis (generic 'more scale' is not "
+                "one). N/A for non-RL methods."
+            ),
+            evidence_hint=(
+                "experiments/<run>/manifest.json executed RL knobs + "
+                "progress.jsonl completion-length / truncation / reward-variance "
+                "diagnostics, compared with research/EXPERIMENT_PLAN.md "
+                "`## RL config`; see "
+                "argus_builtin_skills/engineer/rl-training-collapse-diagnosis.md"
+            ),
+        ),
     ),
     "analysis": _checklist(
         ChecklistItem(

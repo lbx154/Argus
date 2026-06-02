@@ -605,7 +605,16 @@ def _supervisor_summarize_report(task_id: str, event: str, task_data: dict[str, 
         "   with a named change — do not default to rerunning unchanged and\n"
         "   do not stop at 'mark it no-go'. If the run is healthy/complete, say how\n"
         "   to use it.\n"
-        "Keep it under 300 words. Be direct and actionable."
+        "5. Final health verdict (YOU are the authority on run health): end with a\n"
+        "   line `Final health verdict: usable | unusable | inconclusive` plus a\n"
+        "   short reason from the metric TREND. A mechanical health-gate or\n"
+        "   `*_NO_GO.md` / `status.json state=failed` that fired on a single\n"
+        "   metric-threshold breach (e.g. one tail step's clipped_ratio, a brief\n"
+        "   reward dip) is ADVISORY ONLY — it does NOT override your judgement. If\n"
+        "   the trend is actually healthy and the run produced usable signal,\n"
+        "   call it `usable` and tell the engineer NOT to discard it or relaunch an\n"
+        "   equivalent smoke just because the mechanical gate said no-go.\n"
+        "Keep it under 320 words. Be direct and actionable."
     )
 
     try:
