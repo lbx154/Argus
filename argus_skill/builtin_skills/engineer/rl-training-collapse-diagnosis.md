@@ -1,19 +1,45 @@
 ---
 name: rl-training-collapse-diagnosis
-description: "Decide when an in-flight RL post-training run (PPO/GRPO/RLVR/DPO-style reasoning RL) has collapsed and is no longer worth continuing. Gives the supervisor agent concrete, signal-grounded collapse signatures, the transient-vs-sustained judgment, and how to map a verdict to continue / raise-concern. Use while watching live training logs (progress.jsonl / trainer stdout), not for offline eval scoring."
-category: training-monitoring
-version: "1.0"
+description: "The authority on RL / preference post-training (PPO/GRPO/RLVR/DPO-style reasoning RL) run HEALTH and the hyperparameters that govern it: rollout reward variance, KL/clip, num_generations, max_completion_length / rollout length, learning rate, steps/horizon, truncation & answer-parse rates. Use it THREE times: (1) BEFORE launching an RL run, to set those knobs to non-degenerate values so the run is learnable; (2) WHILE watching live training logs (progress.jsonl / trainer stdout), to judge continue vs raise-concern; (3) WHEN a method underperforms / no-go, to attribute the cause — `misconfigured_run` (re-run, don't kill the idea) vs `method_failure` vs `infeasible_under_budget` — BEFORE retiring the idea. NOT for plain SFT/supervised-loss debugging, and NOT for offline benchmark/eval scoring unrelated to training-run health."
+category: rl-posttraining-run-diagnosis
+version: "1.1"
 scientist_model: gpt-5.5
 created_at: "2026-06-02T00:00:00+00:00"
 ---
 
 # RL Training Collapse Diagnosis
 
-You are watching a live RL post-training run and must decide whether it has
-**collapsed**. Collapse means the run can no longer learn anything useful, so
-every additional step burns GPU for nothing and the resulting checkpoint is not
-valid evidence. This skill is the *criteria*; the call is still yours. Judge the
-signals, do not pattern-match a single noisy log line.
+This skill is the authority on whether an RL / preference post-training run is a
+**fair, learnable run** — and on the hyperparameters that decide that. Collapse
+means the run can no longer learn anything useful, so every additional step
+burns GPU for nothing and the resulting checkpoint is not valid evidence. This
+skill is the *criteria*; the call is still yours. Judge the signals, do not
+pattern-match a single noisy log line.
+
+## When to use (config-time, monitoring-time, AND verdict-time)
+
+- **Before launching an RL run (config-time):** read the collapse signatures
+  below and set the knobs so the run is *structurally learnable* — most
+  importantly a `max_completion_length` / rollout length large enough that the
+  reasoning finishes (low truncation under the intended template),
+  `num_generations` >= 4 so per-group reward variance can be non-zero, an
+  RL-scale learning rate, and enough steps to show movement. A run that is
+  doomed by its config wastes the whole GPU budget and then masquerades as a
+  dead idea.
+- **While the run is live (monitoring-time):** map the streaming
+  `progress.jsonl` / trainer stdout onto the signatures and decide continue vs
+  raise-concern.
+- **When judging an underperformance / no-go (verdict-time):** before retiring
+  or pivoting away from the METHOD, confirm the executed run was fair using the
+  same signatures; classify `misconfigured_run` / `method_failure` /
+  `infeasible_under_budget`. A `misconfigured_run` is re-run with the named
+  correction — the idea is NOT recorded dead. Only after one fair run still
+  loses is `method_failure` justified.
+
+## When NOT to use
+
+Plain SFT / supervised fine-tuning loss debugging, generic offline benchmark or
+eval scoring that is not about a training run's health, or non-RL methods.
 
 The cardinal rule of RL monitoring: **RL loss is not SFT loss.** A noisy or even
 rising policy loss is normal and is NOT a failure. Never stop an RL run just
