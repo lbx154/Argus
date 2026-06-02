@@ -726,6 +726,11 @@ class LifeWorker:
             if _code_dir not in _pp_parts:
                 _pp_parts.append(_code_dir)
                 os.environ["PYTHONPATH"] = os.pathsep.join(_pp_parts)
+            # Expose the project root so the in-process reviewer/planner (and the
+            # engineer subprocess, which inherits this env) resolve the SAME root
+            # for the per-project harness overlay (.argus/harness/). The daemon
+            # itself runs at cwd=/, so bare Path.cwd() would be wrong here.
+            os.environ["ARGUS_SKILL_PROJECT_ROOT"] = str(self.config.project_workdir.resolve())
 
         # Strip the env-based ``GIT_CONFIG_*`` config-injection family from the
         # env handed to child codex shells. The codex sandbox forwards an

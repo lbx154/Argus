@@ -276,9 +276,10 @@ class Reviewer:
             format_full_pipeline_checklist,
             format_stage_checklist,
         )
-        from pathlib import Path as _Path
+        from ..skills.harness_overlay import resolve_project_root
 
-        stage = current_stage(_Path.cwd())
+        _proot = resolve_project_root()
+        stage = current_stage(_proot)
         # Structured scope only. The planner threads scope=final_submission as
         # a backlog tag all the way here; we no longer sniff the objective
         # prose for "scope: final_submission" markers. Normalize the same way
@@ -287,9 +288,9 @@ class Reviewer:
         scope_normalized = (scope or "").strip().lower().replace("-", "_")
         is_final_submission = scope_normalized == "final_submission"
         if is_final_submission or stage == "submission":
-            stage_checklist = format_full_pipeline_checklist(role="reviewer")
+            stage_checklist = format_full_pipeline_checklist(role="reviewer", project_root=_proot)
         else:
-            stage_checklist = format_stage_checklist(stage, role="reviewer")
+            stage_checklist = format_stage_checklist(stage, role="reviewer", project_root=_proot)
 
         # Academic peer-review benchmark skill: advisory rubric for reviewing
         # a near-complete manuscript. Gate it on the structured stage/scope

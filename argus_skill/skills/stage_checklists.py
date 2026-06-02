@@ -675,15 +675,134 @@ def rollback_stage(
     return str(state_path)
 
 
-def _render_items(items: Iterable[ChecklistItem]) -> str:
+def _render_items(
+    items: Iterable[ChecklistItem],
+    annotations: dict[str, list[str]] | None = None,
+) -> str:
+    annotations = annotations or {}
     lines: list[str] = []
     for item in items:
         lines.append(f"- [ ] **{item.id}** — {item.statement}")
         lines.append(f"      _evidence to look at:_ `{item.evidence_hint}`")
+        for note in annotations.get(item.id, ()):  # project self-authored notes
+            lines.append(f"      _project note (self-authored, revertible):_ {note}")
     return "\n".join(lines)
 
 
-def format_stage_checklist(stage: str, *, role: str = "engineer") -> str:
+def _overlay_for(stage: str, role: str, project_root) -> tuple[tuple[ChecklistItem, ...], dict[str, list[str]]]:
+    """Return (extra items to append, {floor_item_id: [annotation, ...]}).
+
+    Reads the project's ACTIVE harness overlay fresh (hot-reload). Fail-open: any
+    error yields no overlay so the framework floor still renders. Entries are
+    RE-VALIDATED on read (caps, valid op/role, no floor-id collision, length
+    limits, protected-floor policy) so a hand-edited or recovered ``active.json``
+    that bypassed the write-time validators still cannot corrupt or bloat the
+    prompt or weaken the floor.
+    """
+
+    try:
+        from . import harness_overlay as _ho
+        entries = _ho.active_checklist_items(project_root, stage=stage, role=role)
+    except Exception:  # noqa: BLE001 - overlay must never break prompt building
+        return (), {}
+    floor_ids = {it.id for items in STAGE_CHECKLISTS.values() for it in items}
+    protected = _ho.PROTECTED_ITEM_IDS
+    extra: list[ChecklistItem] = []
+    annotations: dict[str, list[str]] = {}
+    for e in entries:
+        if len(extra) >= _ho.MAX_ITEMS:
+            break
+        op = (e.get("op") or "").strip().lower()
+        if op not in _ho.VALID_OPS:
+            continue
+        item_id = str(e.get("id") or "").strip()
+        if not item_id:
+            continue
+        if op == "add":
+            if item_id in floor_ids:  # collision with a framework floor item
+                continue
+            statement = str(e.get("statement") or "").strip()[: _ho.MAX_STATEMENT_LEN]
+            evidence = str(e.get("evidence_hint") or "").strip()[: _ho.MAX_STATEMENT_LEN]
+            if not statement:
+                continue
+            extra.append(ChecklistItem(id=item_id, statement=statement, evidence_hint=evidence))
+        elif op == "amend":
+            if item_id not in floor_ids:
+                continue
+            note = str(e.get("note") or "").strip()[: _ho.MAX_STATEMENT_LEN]
+            if note:
+                if item_id in protected:
+                    note = f"additional requirement (cannot waive this floor item): {note}"
+                annotations.setdefault(item_id, []).append(note)
+        elif op == "supersede":
+            # Additive only: a supersede may impose a STRICTER project-specific
+            # requirement, never relax the floor. Protected items are never
+            # superseded. Rendered as an additional requirement, not an override.
+            if item_id not in floor_ids or item_id in protected:
+                continue
+            stmt = str(e.get("statement") or "").strip()[: _ho.MAX_STATEMENT_LEN]
+            if stmt:
+                annotations.setdefault(item_id, []).append(
+                    f"additional project requirement (does not relax the item above): {stmt}"
+                )
+    return tuple(extra), annotations
+
+
+def _house_rules_block(role: str, project_root) -> str:
+    """Render the project's ACTIVE self-authored house rules for ``role``."""
+
+    try:
+        from . import harness_overlay as _ho
+        rules = _ho.active_prompt_rules(project_root, role=role)
+    except Exception:  # noqa: BLE001
+        return ""
+    cleaned: list[str] = []
+    for r in rules:
+        text = str(r.get("text") or "").strip()[: _ho.MAX_RULE_LEN]
+        if text:
+            cleaned.append(text)
+        if len(cleaned) >= _ho.MAX_RULES:
+            break
+    if not cleaned:
+        return ""
+    lines = ["## Project house rules (self-authored, revertible)"]
+    for text in cleaned:
+        lines.append(f"- {text}")
+    return "\n".join(lines)
+
+
+_FLOOR_STATEMENT = (
+    "## Harness floor (non-negotiable)\n"
+    "The project-authored items and house rules above are ADDITIVE. They may "
+    "tighten but never relax the framework: they cannot waive evidence-binding, "
+    "permit fabricated or placeholder results, drop variance/seed reporting, or "
+    "lower the done criteria. On any conflict, the framework checklist wins."
+)
+
+
+def _augment(body: str, role: str, project_root, *, overlay_present: bool = False) -> str:
+    """Append the house-rules block and floor statement to a rendered checklist.
+
+    The floor statement is asserted whenever the project overlay contributed
+    anything (added/annotated items or house rules), so the "additive only,
+    framework wins on conflict" guardrail always accompanies self-authored edits.
+    """
+
+    house = _house_rules_block(role, project_root)
+    parts = [body]
+    if house:
+        parts.append(house)
+    if overlay_present or house:
+        parts.append(_FLOOR_STATEMENT)
+    return "\n\n".join(parts)
+
+
+def format_stage_checklist(
+    stage: str,
+    *,
+    role: str = "engineer",
+    project_root=None,
+) -> str:
     """Render the checklist for ``stage`` as prompt-injectable markdown.
 
     ``role`` controls the framing line at the top:
@@ -692,6 +811,11 @@ def format_stage_checklist(stage: str, *, role: str = "engineer") -> str:
     * ``reviewer`` — "tick these items off based on artifacts you read"
     * ``critic`` / ``planner`` — "use this to decide whether more rounds add value"
 
+    ``project_root`` locates the per-project harness overlay (``.argus/harness/``);
+    when ``None`` it is resolved from ``ARGUS_SKILL_PROJECT_ROOT`` / cwd. The
+    overlay is read fresh on every call so agent edits hot-reload with no daemon
+    restart.
+
     An unknown stage or role still renders a usable block (empty body
     with a one-line note) so the caller does not need to special-case.
     """
@@ -699,6 +823,8 @@ def format_stage_checklist(stage: str, *, role: str = "engineer") -> str:
     stage_norm = _normalize_stage(stage)
     items = STAGE_CHECKLISTS.get(stage_norm, ())
     role_norm = (role or "engineer").strip().lower()
+    extra, annotations = _overlay_for(stage_norm, role_norm, project_root)
+    items = tuple(items) + extra
     if not items:
         return (
             f"## Stage checklist ({stage_norm or 'unknown'})\n"
@@ -728,14 +854,19 @@ def format_stage_checklist(stage: str, *, role: str = "engineer") -> str:
             "reads files directly."
         )
 
-    return (
+    body = (
         f"## Stage checklist ({stage_norm})\n"
         f"{framing}\n\n"
-        f"{_render_items(items)}"
+        f"{_render_items(items, annotations)}"
     )
+    return _augment(body, role_norm, project_root, overlay_present=bool(extra or annotations))
 
 
-def format_full_pipeline_checklist(*, role: str = "reviewer") -> str:
+def format_full_pipeline_checklist(
+    *,
+    role: str = "reviewer",
+    project_root=None,
+) -> str:
     """Render every stage's checklist concatenated, for final submission review."""
 
     role_norm = (role or "reviewer").strip().lower()
@@ -753,9 +884,13 @@ def format_full_pipeline_checklist(*, role: str = "reviewer") -> str:
         )
 
     blocks = [header]
+    overlay_present = False
     for stage in CANONICAL_STAGE_ORDER:
-        items = STAGE_CHECKLISTS.get(stage, ())
+        extra, annotations = _overlay_for(stage, role_norm, project_root)
+        if extra or annotations:
+            overlay_present = True
+        items = tuple(STAGE_CHECKLISTS.get(stage, ())) + extra
         if not items:
             continue
-        blocks.append(f"### {stage}\n{_render_items(items)}")
-    return "\n\n".join(blocks)
+        blocks.append(f"### {stage}\n{_render_items(items, annotations)}")
+    return _augment("\n\n".join(blocks), role_norm, project_root, overlay_present=overlay_present)

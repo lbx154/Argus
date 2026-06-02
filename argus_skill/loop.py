@@ -463,7 +463,7 @@ class SkillLoop:
                 + "\n\n".join(extra_guidance)
             )
         from .skills.stage_checklists import current_stage, format_stage_checklist
-        from pathlib import Path as _Path
+        from .skills.harness_overlay import resolve_project_root
 
         # Always-on project-venv reminder. Injected for every stage / every
         # round so the agent never has an excuse for `import X` failures or
@@ -479,8 +479,9 @@ class SkillLoop:
         except Exception:  # noqa: BLE001 - defensive; missing skill is non-fatal
             pass
 
-        stage = current_stage(_Path.cwd())
-        stage_checklist = format_stage_checklist(stage, role="engineer")
+        _proot = resolve_project_root()
+        stage = current_stage(_proot)
+        stage_checklist = format_stage_checklist(stage, role="engineer", project_root=_proot)
         if stage_checklist:
             sections.append(stage_checklist)
         sections.append(

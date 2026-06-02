@@ -414,10 +414,11 @@ class Planner:
             current_stage,
             format_stage_checklist,
         )
-        from pathlib import Path as _Path
+        from ..skills.harness_overlay import resolve_project_root
 
-        stage = current_stage(_Path.cwd())
-        stage_checklist = format_stage_checklist(stage, role="planner")
+        _proot = resolve_project_root()
+        stage = current_stage(_proot)
+        stage_checklist = format_stage_checklist(stage, role="planner", project_root=_proot)
         stage_idx = (
             CANONICAL_STAGE_ORDER.index(stage)
             if stage in CANONICAL_STAGE_ORDER
