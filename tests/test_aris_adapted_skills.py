@@ -196,7 +196,10 @@ def test_plan_review_skill_has_rl_config_sanity_section() -> None:
     # Concrete length-budget yardsticks so the reviewer can actually JUDGE
     # "max_len too short" instead of eyeballing it.
     assert "p95" in text
-    assert "Reference budgets" in text
+    assert "Reference floors" in text
     assert "auto-reject" in text
+    # Asymmetric-error stance: default to the max the budget allows.
+    assert "as large as the context window" in text
+    assert "floor, not a target" in text
     # Cross-references the in-flight collapse skill.
     assert "rl-training-collapse-diagnosis.md" in text

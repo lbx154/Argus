@@ -70,32 +70,42 @@ post-training plans — omit `rl_config_sanity` from the output for non-RL plans
      (`\boxed{}`, tool call, AST), does the plan verify the extractor +
      gold-matching actually fire on real outputs? Unverified extraction silently
      yields zero reward.
-   - **Sampling / length — judge against a concrete budget, do not eyeball:**
-     A `max_completion_length` that truncates the response before the rewarded
-     token (`\boxed{}`, `</answer>`, final tool call, closing code fence) makes
-     the reward unobtainable *no matter how good the policy is*. To judge it,
-     estimate the required output length and compare with headroom:
-       1. Identify the benchmark's output type and look up / tokenize a handful
-          of gold answers (or reference CoT traces) to get a length distribution.
-       2. The config's `max_completion_length` must comfortably exceed the **p95**
-          required length (≈1.5–2× the typical length), because RL rollouts run
-          *longer* than greedy gold answers (exploration, rambling), and the
-          rewarded token must survive.
-     Reference budgets (tokens, as a sanity anchor — adjust to the actual data):
-       - Short-answer / classification (label, single number): 32–128 ok.
-       - Grade-school math with CoT (GSM8K-style): 256–512; <256 is suspect.
-       - Competition math / multi-step reasoning (MATH, AIME, olympiad): 1k–4k;
-         **256–512 is an auto-reject** — the `\boxed{}` is routinely truncated.
-       - Code generation (full program / function + tests): 1k–4k+ depending on
-         task; a single short function may fit in 512, a repo-level task will not.
-       - Agentic / tool-use / multi-turn: 2k–8k+; budget for tool call syntax
-         and observations, not just the final answer.
-       - Long-form generation (proofs, essays, plans): size to the target length.
+   - **Sampling / length — default to the maximum the budget allows:**
+     The length error is *asymmetric*. Truncating the response before the
+     rewarded token (`\boxed{}`, `</answer>`, final tool call, closing code
+     fence) makes the reward unobtainable *no matter how good the policy is* — a
+     correctness killer. Setting it larger only costs compute/memory/throughput,
+     which is a tunable, not a correctness risk. So the right default is to set
+     `max_completion_length` **as large as the context window and step/compute
+     budget allow**, not to trim it to "just enough". Err long, never short.
+     The estimated need is a **floor, not a target** — use it only to catch a
+     config that is obviously too short:
+        1. Identify the benchmark's output type and look up / tokenize a handful
+           of gold answers (or reference CoT traces) to get a length distribution.
+        2. `max_completion_length` must comfortably clear the **p95** required
+           length (≥1.5–2×), because RL rollouts run *longer* than greedy gold
+           answers (exploration, rambling) and the rewarded token must survive —
+           but going well beyond p95 (up to the context/compute ceiling) is
+           fine and usually preferred for reasoning.
+     Reference floors (tokens — the minimum below which to reject; prefer higher):
+        - Short-answer / classification (label, single number): 32–128 floor.
+        - Grade-school math with CoT (GSM8K-style): ≥256–512; <256 is suspect.
+        - Competition math / multi-step reasoning (MATH, AIME, olympiad): ≥1k–4k;
+          **256–512 is an auto-reject** — the `\boxed{}` is routinely truncated.
+        - Code generation (full program / function + tests): ≥1k–4k depending on
+          task; a single short function may fit in 512, a repo-level task will not.
+        - Agentic / tool-use / multi-turn: ≥2k–8k; budget for tool call syntax
+          and observations, not just the final answer.
+        - Long-form generation (proofs, essays, plans): ≥ the target length.
      If the plan pins `max_completion_length` *below* these for the chosen
-     benchmark, flag it as a hard length issue and name the value it should be.
-     Also check sampling temperature is high enough to explore (≈0 → no reward
-     variance) but not degenerate, and that `max_prompt_length` + completion fits
-     the model's context window (otherwise rollouts silently truncate the prompt).
+     benchmark, flag it as a hard length issue and name the value it should be
+     (point it at the context/compute ceiling, not merely the floor). The only
+     legitimate reason to cap it short is an explicit compute-throughput
+     tradeoff that the plan justifies *and* that still clears the p95 floor; an
+     unexplained short cap is a red flag. Also check sampling temperature is high
+     enough to explore (≈0 → no reward variance) but not degenerate, and that
+     `max_prompt_length` + completion fits the model's context window (otherwise
+     rollouts silently truncate the prompt).
    - **Optimization:** is the RL learning rate appropriate (RL LR ≪ SFT LR;
      e.g. 1e-6–1e-5 LoRA, lower full-tune — a SFT-scale LR diverges the policy)?
      Are KL coefficient / clip range present and sane for the algorithm? Is
