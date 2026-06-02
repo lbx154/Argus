@@ -21,10 +21,18 @@ Use it when the SAME class of mistake recurs and a skill alone has not fixed it:
   `num_generations`) → add a `run`-stage engineer item that forces you to log and
   sanity-check those knobs against the `rl-training-collapse-diagnosis` skill
   BEFORE launching.
-- The reviewer keeps passing single-seed RL deltas as real → propose a reviewer
-  amend on `run.score_variance` requiring ≥3 seeds (lands in *pending* until you
-  promote it — see safety below).
+- The reviewer keeps declaring an RL idea DEAD off a run whose hyperparameters
+  were never in a learnable regime → propose a reviewer amend on
+  `run.method_diagnosis_recall` requiring the verdict to confirm, via the
+  matched `rl-training-collapse-diagnosis` skill, that lr / `max_completion_length`
+  / KL were sane before attributing `method_failure` (lands in *pending* until
+  you promote it — see safety below).
 - You keep needing a check the checklist never asks for → add the item.
+
+Pick the check from YOUR observed failures and the matched method skill — do not
+import generic ML folklore. (E.g. multi-seed averaging is standard in small-env
+deep RL but is usually neither standard nor affordable for full-scale LLM RL
+post-training; whether to require it is a judgement for the run, not a default.)
 
 Do NOT use it for one-off, this-task-only notes (those go in `AGENTS.md`) or for
 reusable knowledge (distill a normal skill instead).
@@ -38,9 +46,9 @@ python -m argus_skill.tools.harness_evolve add-item \
   --reason "RL collapse last mission traced to an unlogged, oversized max_completion_length."
 
 python -m argus_skill.tools.harness_evolve amend-item \
-  --id run.score_variance --role reviewer \
-  --note "For RL/preference runs require >=3 seeds before accepting an improvement." \
-  --reason "Single-seed RL deltas were within noise last mission."
+  --id run.method_diagnosis_recall --role reviewer \
+  --note "Before labelling an RL idea method_failure, confirm via rl-training-collapse-diagnosis that lr, max_completion_length and KL were in a learnable regime; a misconfigured run is not a dead idea." \
+  --reason "Last mission an idea was killed off a run with an oversized max_completion_length."
 
 python -m argus_skill.tools.harness_evolve add-rule \
   --role engineer --id eng.rl_preflight \
@@ -48,7 +56,7 @@ python -m argus_skill.tools.harness_evolve add-rule \
   --reason "Recurring misconfiguration."
 
 python -m argus_skill.tools.harness_evolve list      # see active + pending
-python -m argus_skill.tools.harness_evolve promote --id run.score_variance
+python -m argus_skill.tools.harness_evolve promote --id run.method_diagnosis_recall
 python -m argus_skill.tools.harness_evolve revert --id run.hparam_log
 python -m argus_skill.tools.harness_evolve reset      # clear everything
 ```
@@ -56,7 +64,7 @@ python -m argus_skill.tools.harness_evolve reset      # clear everything
 ## Safety model (read before using)
 - **Floor is immutable.** You can ADD items, ANNOTATE existing items (strengthen),
   or ADD house rules. You can never delete or weaken a protected integrity item
-  (evidence binding, no fabrication, variance/seed reporting, instruct-not-base,
+  (evidence binding, no fabrication, non-stub scored-row variance, instruct-not-base,
   honest go/no-go, the done criteria). Attempts are rejected.
 - **Additive only.** Overlay items can tighten the bar, never relax it. On any
   conflict the framework checklist wins.

@@ -74,11 +74,11 @@ def test_reviewer_change_lands_in_pending_not_active(project):
     entry = ho.add_checklist_item(
         project,
         item={"id": "run.score_variance", "stage": "run", "role": "reviewer",
-              "op": "amend", "note": "require >=3 seeds", "reason": "noise"},
+              "op": "amend", "note": "confirm learnable-regime knobs", "reason": "noise"},
         known_stages=stages, known_item_ids=ids,
     )
     assert entry["state"] == "pending"
-    assert "require >=3 seeds" not in format_stage_checklist("run", role="reviewer", project_root=project)
+    assert "confirm learnable-regime knobs" not in format_stage_checklist("run", role="reviewer", project_root=project)
 
 
 def test_promote_pending_then_renders_and_covers_full_pipeline(project):
@@ -86,13 +86,13 @@ def test_promote_pending_then_renders_and_covers_full_pipeline(project):
     ho.add_checklist_item(
         project,
         item={"id": "run.score_variance", "stage": "run", "role": "reviewer",
-              "op": "amend", "note": "require >=3 seeds", "reason": "noise"},
+              "op": "amend", "note": "confirm learnable-regime knobs", "reason": "noise"},
         known_stages=stages, known_item_ids=ids,
     )
     assert ho.promote(project, entry_id="run.score_variance")
-    assert "require >=3 seeds" in format_stage_checklist("run", role="reviewer", project_root=project)
+    assert "confirm learnable-regime knobs" in format_stage_checklist("run", role="reviewer", project_root=project)
     # the submission gate (full pipeline) must also reflect the overlay
-    assert "require >=3 seeds" in format_full_pipeline_checklist(role="reviewer", project_root=project)
+    assert "confirm learnable-regime knobs" in format_full_pipeline_checklist(role="reviewer", project_root=project)
 
 
 def test_protected_item_cannot_be_superseded(project):
