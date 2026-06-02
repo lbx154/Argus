@@ -193,5 +193,10 @@ def test_plan_review_skill_has_rl_config_sanity_section() -> None:
     assert "RL post-training auto-fails" in text
     assert "num_generations" in text
     assert "max_completion_length" in text
+    # Concrete length-budget yardsticks so the reviewer can actually JUDGE
+    # "max_len too short" instead of eyeballing it.
+    assert "p95" in text
+    assert "Reference budgets" in text
+    assert "auto-reject" in text
     # Cross-references the in-flight collapse skill.
     assert "rl-training-collapse-diagnosis.md" in text
