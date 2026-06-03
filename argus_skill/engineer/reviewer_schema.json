@@ -74,7 +74,7 @@
           }
         }
       },
-      "required": ["forward_progress", "headline", "blocker", "recommended_next"]
+      "required": ["forward_progress", "headline", "blocker", "recommended_next", "evidence_files"]
     },
     "checklist": {
       "type": ["array", "null"],
@@ -118,6 +118,8 @@
     "next_action",
     "round_summary_markdown",
     "completion_summary_markdown",
+    "failure_cause",
+    "mission_lesson",
     "scope",
     "planner_report",
     "checklist",
