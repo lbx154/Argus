@@ -338,6 +338,7 @@ def test_run_stage_gates_review_clean_project_passes_structural(tmp_path: Path) 
         "reviewer_simulation",
         "experiment_audit",
         "exemplar_grounding",
+        "run_evidence_health",
     ]
     # Structural passes, no block.
     assert any_blocking_failure(results) is False
@@ -377,9 +378,9 @@ def test_run_stage_gates_advisory_does_not_block_even_with_zero_baseline(tmp_pat
         proposed_condition="argus",
         baseline_condition="bare",
     )
-    assert len(results) == 1
-    assert results[0].name == "mediocrity_finding"
-    assert results[0].kind == "advisory"
+    assert {r.name for r in results} == {"mediocrity_finding", "run_evidence_health"}
+    advisory = next(r for r in results if r.name == "mediocrity_finding")
+    assert advisory.kind == "advisory"
     assert any_blocking_failure(results) is False
 
 

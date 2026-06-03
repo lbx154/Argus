@@ -39,6 +39,7 @@ from .exemplar_grounding import validate_exemplar_grounding
 from .experiment_audit_gate import validate_experiment_audit
 from .paper_structural_minimums import validate_paper_structural_minimums
 from .reviewer_simulation import validate_reviewer_simulation
+from .run_evidence_health import validate_run_evidence_health
 
 
 GateName = Literal[
@@ -48,6 +49,7 @@ GateName = Literal[
     "reviewer_simulation",
     "experiment_audit",
     "exemplar_grounding",
+    "run_evidence_health",
 ]
 GateKind = Literal["structural", "advisory"]
 
@@ -81,15 +83,24 @@ GateKind = Literal["structural", "advisory"]
 # v1 failure mode "doesn't even count as 八股" was this gate missing —
 # the paper-exemplar-pdf-learning skill already specified the artifacts;
 # nobody enforced.
+#
+# ``run_evidence_health`` walks evidence bundles for
+# ``raw_status: "call_failed"`` in per-task verifier outputs.
+# ``summary.tsv``'s ``n_errored_trials`` doesn't count verifier-side
+# API failures, so bundles with ~30% call_failed can still report
+# accepted=True/reward=1 across the board. Empirical: this gate
+# immediately flagged 3 bundles in this repo (100%/89%/100% call_failed)
+# whose rewards had been silently cited.
 STAGE_GATES: dict[str, tuple[GateName, ...]] = {
     "research": (),
     "plan": (),
     "benchmark": (),
-    "run": ("mediocrity_finding",),
+    "run": ("mediocrity_finding", "run_evidence_health"),
     "analysis": (
         "evidence_chain",
         "mediocrity_finding",
         "experiment_audit",
+        "run_evidence_health",
     ),
     "draft": (
         "evidence_chain",
@@ -103,6 +114,7 @@ STAGE_GATES: dict[str, tuple[GateName, ...]] = {
         "reviewer_simulation",
         "experiment_audit",
         "exemplar_grounding",
+        "run_evidence_health",
     ),
     "submission": (
         "evidence_chain",
@@ -111,6 +123,7 @@ STAGE_GATES: dict[str, tuple[GateName, ...]] = {
         "reviewer_simulation",
         "experiment_audit",
         "exemplar_grounding",
+        "run_evidence_health",
     ),
 }
 
@@ -124,6 +137,7 @@ GATE_KINDS: dict[GateName, GateKind] = {
     "reviewer_simulation": "structural",
     "experiment_audit": "structural",
     "exemplar_grounding": "structural",
+    "run_evidence_health": "structural",
 }
 
 
@@ -248,6 +262,34 @@ def _run_mediocrity_finding(
         passed=True,  # advisory never blocks; this field is meaningless here
         summary=summary,
         detail=format_finding(finding),
+    )
+
+
+def _run_run_evidence_health(project_root: Path) -> GateResult:
+    """Structural gate: per-bundle verifier call_failed rate must stay
+    below the threshold. Empty workdir / no bundles → pass (no-op)."""
+    report = validate_run_evidence_health(project_root)
+    bundle_summary = ", ".join(
+        f"{b.bundle_name}={b.ctrf_call_failed}/{b.ctrf_total}"
+        for b in report.bundles[:3]
+    ) or "no bundles"
+    if report.ok:
+        return GateResult(
+            name="run_evidence_health",
+            kind="structural",
+            passed=True,
+            summary=f"{len(report.bundles)} bundle(s) clean ({bundle_summary})",
+            detail="",
+        )
+    return GateResult(
+        name="run_evidence_health",
+        kind="structural",
+        passed=False,
+        summary=(
+            f"{len(report.issues)} bundle(s) with high call_failed rate; "
+            f"first: {bundle_summary}"
+        ),
+        detail=report.to_text(),
     )
 
 
@@ -415,6 +457,8 @@ def run_stage_gates(
                 project_root,
                 require_conformance=(stage == "submission"),
             ))
+        elif gate == "run_evidence_health":
+            results.append(_run_run_evidence_health(project_root))
     return results
 
 
