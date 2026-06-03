@@ -376,6 +376,34 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "argus_builtin_skills/engineer/rl-training-collapse-diagnosis.md"
             ),
         ),
+        ChecklistItem(
+            id="run.gpu_saturation",
+            statement=(
+                "GPU-bound training / inference runs must actually saturate the "
+                "allocated cards per the Hardware saturation contract in "
+                "`argus_builtin_skills/engineer/training-infrastructure-guide.md`. "
+                "Two things are required: (1) the run RECORDS real hardware "
+                "telemetry — peak VRAM per GPU, observed GPU util%, and throughput "
+                "(step time or samples/sec) — in its manifest/status/progress, not "
+                "left null or absent; and (2) those numbers show MEANINGFUL "
+                "saturation on every allocated card — aim for ≳70% VRAM in steady "
+                "state. A run that leaves allocated A100/H100-class cards "
+                "persistently idle or at ≲55% VRAM (e.g. a `gpu_memory_utilization` "
+                "/ batch / `num_generations` / sequence-length default left low) is "
+                "wasted budget: fail this item and require the engineer to raise the "
+                "saturation knobs and rerun, rather than band-aiding the generated "
+                "run scripts. N/A only for API-route / no-GPU experiments, or a run "
+                "explicitly bounded as a smoke/ablation that records the deliberate "
+                "reason for going small."
+            ),
+            evidence_hint=(
+                "experiments/<run>/{manifest,status}.json or progress.jsonl record "
+                "peak_vram / gpu_util% / throughput per card; cross-check "
+                "`nvidia-smi` during the run shows ≳70% VRAM on allocated GPUs. "
+                "See argus_builtin_skills/engineer/training-infrastructure-guide.md "
+                "(Hardware saturation contract)."
+            ),
+        ),
     ),
     "analysis": _checklist(
         ChecklistItem(
