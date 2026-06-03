@@ -39,6 +39,7 @@ from .exemplar_grounding import validate_exemplar_grounding
 from .experiment_audit_gate import validate_experiment_audit
 from .paper_structural_minimums import validate_paper_structural_minimums
 from .reviewer_simulation import validate_reviewer_simulation
+from .rl_training_plots import validate_rl_training_plots
 from .run_evidence_health import validate_run_evidence_health
 
 
@@ -50,6 +51,7 @@ GateName = Literal[
     "experiment_audit",
     "exemplar_grounding",
     "run_evidence_health",
+    "rl_training_plots",
 ]
 GateKind = Literal["structural", "advisory"]
 
@@ -91,16 +93,22 @@ GateKind = Literal["structural", "advisory"]
 # accepted=True/reward=1 across the board. Empirical: this gate
 # immediately flagged 3 bundles in this repo (100%/89%/100% call_failed)
 # whose rewards had been silently cited.
+# ``rl_training_plots`` enforces that completed RL optimizer-step training
+# runs carry a training-curve plot under their own ``plots/`` dir, so the
+# run is visually monitorable evidence. It is ADVISORY at ``run`` (surface
+# a repair queue while experiments still evolve, never block) and
+# STRUCTURAL at ``analysis`` (by analysis the run is about to be cited).
 STAGE_GATES: dict[str, tuple[GateName, ...]] = {
     "research": (),
     "plan": (),
     "benchmark": (),
-    "run": ("mediocrity_finding", "run_evidence_health"),
+    "run": ("mediocrity_finding", "run_evidence_health", "rl_training_plots"),
     "analysis": (
         "evidence_chain",
         "mediocrity_finding",
         "experiment_audit",
         "run_evidence_health",
+        "rl_training_plots",
     ),
     "draft": (
         "evidence_chain",
@@ -138,6 +146,11 @@ GATE_KINDS: dict[GateName, GateKind] = {
     "experiment_audit": "structural",
     "exemplar_grounding": "structural",
     "run_evidence_health": "structural",
+    # rl_training_plots is dual-kind: advisory at `run`, structural at
+    # `analysis`. The per-call kind in _run_rl_training_plots is the source
+    # of truth (GateResult.kind drives blocking); this entry records its
+    # strongest form for documentation.
+    "rl_training_plots": "structural",
 }
 
 
@@ -288,6 +301,53 @@ def _run_run_evidence_health(project_root: Path) -> GateResult:
         summary=(
             f"{len(report.issues)} bundle(s) with high call_failed rate; "
             f"first: {bundle_summary}"
+        ),
+        detail=report.to_text(),
+    )
+
+
+def _run_rl_training_plots(
+    project_root: Path, *, structural: bool
+) -> GateResult:
+    """RL training-curve plot gate. ADVISORY at `run`, STRUCTURAL at
+    `analysis`. Structural failure means a completed RL optimizer run is
+    missing its training-curve plot under plots/. No eligible runs → pass
+    (no-op)."""
+    report = validate_rl_training_plots(project_root)
+    kind: GateKind = "structural" if structural else "advisory"
+    n_elig = len(report.eligible)
+    n_miss = len(report.missing)
+    if kind == "advisory":
+        if n_miss:
+            summary = (
+                f"{n_miss}/{n_elig} completed RL run(s) missing training-curve "
+                "plot (advisory — emit plots/ curves to make them monitorable)"
+            )
+        else:
+            summary = f"{n_elig} completed RL run(s) all have curve plots"
+        return GateResult(
+            name="rl_training_plots",
+            kind="advisory",
+            passed=True,  # advisory never blocks; field meaningless
+            summary=summary,
+            detail=report.to_text() if report.eligible else "",
+        )
+    # structural (analysis stage)
+    if report.ok:
+        return GateResult(
+            name="rl_training_plots",
+            kind="structural",
+            passed=True,
+            summary=f"{n_elig} completed RL run(s) all carry a curve plot",
+            detail="",
+        )
+    return GateResult(
+        name="rl_training_plots",
+        kind="structural",
+        passed=False,
+        summary=(
+            f"{n_miss}/{n_elig} completed RL optimizer run(s) have no "
+            "training-curve plot — cannot cite an unmonitorable run as evidence"
         ),
         detail=report.to_text(),
     )
@@ -459,6 +519,12 @@ def run_stage_gates(
             ))
         elif gate == "run_evidence_health":
             results.append(_run_run_evidence_health(project_root))
+        elif gate == "rl_training_plots":
+            # advisory at `run`, structural at `analysis`.
+            results.append(_run_rl_training_plots(
+                project_root,
+                structural=(stage == "analysis"),
+            ))
     return results
 
 

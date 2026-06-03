@@ -55,6 +55,34 @@ the policy stops moving. So the deepest collapse signature is not "bad numbers"
 — it is **the learning signal going to zero or going degenerate**. Map what you
 see to one of the families below.
 
+## Mandatory: emit a live training-curve plot (every RL run)
+
+**Hard requirement — every RL optimizer-step run MUST produce a training-curve
+plot so the run is visually monitorable; a completed run with no curve is not
+citable evidence.** The harness enforces this: `rl_training_plots` is advisory
+at the `run` stage and **structural (blocking) at the `analysis` stage**, so an
+unplotted completed optimizer run cannot be carried into analysis.
+
+Contract the runner must satisfy:
+
+- Write/refresh a curve image into **`<run_dir>/plots/training_curve.png`**
+  (`.pdf`/`.svg` also accepted; the filename must contain a curve token such
+  as `training_curve` / `optimizer_metrics` / `reward_curve`).
+- Plot the collapse-relevant series **vs optimizer step**, sourced from the
+  run's own `progress.jsonl` / `verl_metrics.jsonl`: at minimum
+  `reward_mean` (+ `reward_std`/`frac_reward_zero_std`), `pg_loss`,
+  `grad_norm`, `kl`, `entropy`, and `throughput`.
+- **Refresh it live** during training (e.g. every N optimizer steps from the
+  monitoring loop) and write a final version at completion — do not defer all
+  plotting to the analysis stage. Live curves are how you (and the operator)
+  judge continue-vs-raise-concern in real time.
+- Keep it a thin wrapper over the framework's own logger output; do not
+  hand-roll a training loop to produce it.
+
+This plot is infrastructure, not a paper figure — it lives under the run dir
+and is part of run-stage evidence. Paper-facing figures are still produced
+separately by the results-analysis-and-figures skill.
+
 ## Collapse signatures
 
 Read these off `progress.jsonl` / trainer stdout. Field names vary by trainer;
