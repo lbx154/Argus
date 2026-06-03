@@ -167,6 +167,16 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "   review, or submission-package tasks while their upstream stage's\n"
     "   checklist items are still unchecked. Queue the current-stage mission\n"
     "   instead; the host will refuse premature gated downstream tasks.\n"
+    "   EXCEPTION — parallel paper-drafting during `run`/`analysis`: when a\n"
+    "   long-running experiment is already launched and progressing\n"
+    "   independently in the background, you MAY (and should) queue a bounded\n"
+    "   paper-DRAFTING mission in parallel even though `current_stage` is still\n"
+    "   `run` or `analysis`. See the '## Parallel paper-drafting track' block\n"
+    "   below for the exact rules. Such a drafting mission does NOT advance\n"
+    "   `current_stage`, does NOT satisfy any downstream checklist/gate, and\n"
+    "   must leave `research/PIPELINE_STATE.json` untouched. This exception is\n"
+    "   ONLY for writing manuscript prose with placeholders — never for\n"
+    "   marking a stage done or fabricating results.\n"
     "8) Keep planning lightweight. Inspect enough to route the next mission, but\n"
     "   do not run long pytest suites, full experiments, full paper compilation,\n"
     "   or broad artifact repair inside the planner. Queue that work for the\n"
@@ -425,6 +435,82 @@ class Planner:
             else 0
         )
         earlier_stages = ", ".join(CANONICAL_STAGE_ORDER[:stage_idx]) or "(none)"
+
+        # Parallel paper-drafting track: while a long experiment grinds in the
+        # background during `run`/`analysis`, drafting manuscript prose is not
+        # gated behind run/analysis (the draft/review/submission evidence gates
+        # only fire once current_stage advances). Surface an explicit permission
+        # block + the draft-stage checklist so the planner can keep the loop
+        # productive instead of babysitting the run. Prose-only, never advances
+        # the stage pointer; final-number integrity is preserved via placeholders.
+        parallel_drafting_block = ""
+        if stage in ("run", "analysis"):
+            draft_checklist = format_stage_checklist(
+                "draft", role="planner", project_root=_proot
+            )
+            analysis_caveat = (
+                "- You are at `analysis`: the `evidence_chain` gate is already "
+                "STRUCTURAL here, so any claim/evidence artifact a drafting "
+                "mission touches must stay internally consistent or remain "
+                "explicitly placeholder-only — do not introduce unsupported "
+                "quantified claims.\n"
+                if stage == "analysis"
+                else "- You are at `run`: no paper-structural gate fires yet, so "
+                "drafting prose is unblocked; the integrity rules below still "
+                "apply so the draft is not anti-fabrication debt later.\n"
+            )
+            parallel_drafting_block = (
+                "## Parallel paper-drafting track (run/analysis only)\n"
+                f"`current_stage` is `{stage}`. If a long-running experiment is "
+                "already launched and progressing on its own in the background, "
+                "rounds spent ONLY waiting on it are wasted budget. You MAY and "
+                "SHOULD queue ONE bounded paper-DRAFTING mission in parallel that "
+                "writes/extends `paper/main.tex` (and section files): "
+                "Introduction, Related Work, Background, Problem Definition, "
+                "Method/Approach narrative, Experimental-Setup description, and "
+                "Results-section SCAFFOLDING. There is no results-dependency "
+                "restriction on WHICH sections may be drafted.\n\n"
+                "Hard rules for a parallel drafting mission:\n"
+                "1. It does NOT advance the pipeline. Do NOT edit "
+                "`research/PIPELINE_STATE.json`; do NOT mark `run`, `analysis`, "
+                "`draft`, `review`, or `submission` ready/done. Leave "
+                "`current_stage` unchanged.\n"
+                "2. INTEGRITY (drafting is allowed, fabricating is not): you may "
+                "draft any section including Results before final numbers exist, "
+                "but every final metric, comparison, significance test, or "
+                "outcome-dependent claim MUST be an explicit `TBD`/`PLACEHOLDER` "
+                "token or clearly-conditional scaffold text. Never invent numbers "
+                "or imply a completed outcome. The draft/review/submission "
+                "evidence + anti-fabrication gates still enforce this later.\n"
+                "3. Maintain a placeholder ledger: have the mission keep "
+                "`paper/RESULT_PLACEHOLDERS.md` listing each placeholder, its "
+                "owning source artifact, and the backfill condition, so a later "
+                "analysis/draft mission can find and fill every TBD.\n"
+                "4. Ground before/with drafting: if exemplar/style grounding "
+                "artifacts do not exist yet, the mission's first step is to study "
+                "the exemplars and write the blueprint (the `exemplar_grounding` "
+                "gate is structural at draft — pre-empting it avoids a later "
+                "rewrite). This is not a results restriction.\n"
+                "5. Do NOT let drafting starve experiment monitoring: the mission "
+                "(or the next cycle) must still do one lightweight run-health "
+                "check on the live run each cycle.\n"
+                f"{analysis_caveat}"
+                "6. REVIEWER FRAMING — phrase the mission `objective` so the L2 "
+                "reviewer judges it ONLY by the requested draft artifacts and "
+                "placeholder integrity, NOT by run/analysis-stage advancement. "
+                "State plainly in the objective: 'Bounded overlap paper-drafting "
+                "mission while current_stage stays `" + stage + "`; the "
+                "run/analysis-stage checklist and gates are BACKGROUND context "
+                "only and must not be treated as acceptance for this mission "
+                "unless the background run has catastrophically failed; judge "
+                "completion by the paper sections written and by placeholder "
+                "integrity (no fabricated numbers).'\n\n"
+                "Draft-stage checklist (for shaping the drafting mission scope; "
+                "do NOT mark its items done while current_stage is `" + stage
+                + "`):\n"
+                f"{draft_checklist}\n"
+            )
+
         upstream_rollback_block = (
             "## Upstream defect detection and rollback\n"
             f"Current stage according to `research/PIPELINE_STATE.json`: `{stage}`.\n"
@@ -489,6 +575,8 @@ class Planner:
             + matched_planner_skill_block
             + upstream_rollback_block
             + "\n"
+            + parallel_drafting_block
+            + ("\n" if parallel_drafting_block else "")
             + _PLANNER_SYSTEM_PREAMBLE
             + "\n\nOperator's continuous goal:\n"
             + continuous_objective.strip()

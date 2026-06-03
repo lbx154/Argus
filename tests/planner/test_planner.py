@@ -153,3 +153,67 @@ def test_plan_next_returns_error_verdict_on_runner_exception() -> None:
     )
     assert verdict.project_done is False
     assert verdict.error
+
+
+# ---------------------------------------------------------------------------
+# Parallel paper-drafting track (run/analysis only) — _build_planner_prompt
+# ---------------------------------------------------------------------------
+
+
+def _prompt_for_stage(monkeypatch, tmp_path, stage: str) -> str:
+    """Build the planner prompt with current_stage pinned to ``stage``."""
+    from argus_skill.skills import stage_checklists, harness_overlay
+
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda *_a, **_k: stage)
+    monkeypatch.setattr(
+        stage_checklists,
+        "format_stage_checklist",
+        lambda s, **_k: f"<<CHECKLIST:{s}>>",
+    )
+    monkeypatch.setattr(
+        harness_overlay, "resolve_project_root", lambda *_a, **_k: tmp_path
+    )
+    return Planner._build_planner_prompt(
+        continuous_objective="write the EMNLP paper",
+        journal_tail="",
+        budget_remaining_usd=50.0,
+        planning_cycle=0,
+        runtime_change_summary="",
+    )
+
+
+def test_parallel_drafting_block_present_at_run(monkeypatch, tmp_path) -> None:
+    prompt = _prompt_for_stage(monkeypatch, tmp_path, "run")
+    assert "## Parallel paper-drafting track" in prompt
+    # Draft-stage checklist is surfaced for scoping.
+    assert "<<CHECKLIST:draft>>" in prompt
+    # Integrity + non-advancement guardrails are present.
+    assert "PIPELINE_STATE.json" in prompt
+    assert "RESULT_PLACEHOLDERS.md" in prompt
+    assert "TBD" in prompt
+    # Reviewer framing names the current stage as background-only.
+    assert "BACKGROUND context only" in prompt
+
+
+def test_parallel_drafting_block_present_at_analysis(monkeypatch, tmp_path) -> None:
+    prompt = _prompt_for_stage(monkeypatch, tmp_path, "analysis")
+    assert "## Parallel paper-drafting track" in prompt
+    assert "<<CHECKLIST:draft>>" in prompt
+    # analysis-stage gets the evidence_chain structural caveat.
+    assert "evidence_chain" in prompt
+
+
+def test_parallel_drafting_block_absent_outside_run_analysis(
+    monkeypatch, tmp_path
+) -> None:
+    for stage in ("research", "plan", "benchmark", "draft", "review", "submission"):
+        prompt = _prompt_for_stage(monkeypatch, tmp_path, stage)
+        assert "## Parallel paper-drafting track (run/analysis only)" not in prompt, stage
+        assert "RESULT_PLACEHOLDERS.md" not in prompt, stage
+
+
+def test_rule7_exception_documented_in_preamble() -> None:
+    from argus_skill.planner.planner import _PLANNER_SYSTEM_PREAMBLE
+
+    assert "Parallel paper-drafting track" in _PLANNER_SYSTEM_PREAMBLE
+    assert "EXCEPTION" in _PLANNER_SYSTEM_PREAMBLE
