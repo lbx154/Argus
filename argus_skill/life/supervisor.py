@@ -941,7 +941,14 @@ class LifeSupervisor:
     def _recent_no_progress_failures(self) -> dict[tuple[str, str], JournalEntry]:
         """Return recent failed task signatures quarantined from replanning."""
         try:
-            recent_entries = self.memory.journal.tail(_PLANNER_RECENT_HISTORY_WINDOW)
+            # Read a wider tail and drop Signal-B failure-observation rows
+            # (counting plumbing) so they can't push real no-progress
+            # failures out of the quarantine window.
+            recent_entries = [
+                e
+                for e in self.memory.journal.tail(_PLANNER_RECENT_HISTORY_WINDOW * 4)
+                if getattr(e, "kind", "") != "self_evolve.failure_observation"
+            ][-_PLANNER_RECENT_HISTORY_WINDOW:]
         except Exception:  # noqa: BLE001
             log.exception("life supervisor: failed to read recent journal for planner")
             return {}
@@ -1046,6 +1053,16 @@ class LifeSupervisor:
             self._maybe_journal_self_evolve_advisory(item, result)
         except Exception:  # noqa: BLE001 — never let self-evolve crash tick
             log.exception("self-evolve advisory hook raised; tick continues")
+        # Self-evolve hook (Signal B): scan for INFRA-FAILURE patterns that
+        # recur across missions. Where Signal A flags a missing tool, Signal
+        # B flags the same failure CLASS (CUDA OOM, vLLM engine-init, NCCL,
+        # ...) recurring across N distinct missions — misconfigs of existing
+        # tools that Signal A skips. Detection + counting is structural; the
+        # mint decision stays with the reviewer/planner.
+        try:
+            self._maybe_journal_recurring_failure_advisory(item, result)
+        except Exception:  # noqa: BLE001 — never let self-evolve crash tick
+            log.exception("recurring-failure advisory hook raised; tick continues")
         return result
 
     # ------------------------------------------------------------------
@@ -1070,6 +1087,20 @@ class LifeSupervisor:
         """
         from .self_evolve_advisor import SelfEvolveAdvisor
         return SelfEvolveAdvisor(
+            memory=self.memory,
+            on_cost=self._inject_cumulative_cost,
+        ).maybe_journal_advisory(item, result)
+
+    def _maybe_journal_recurring_failure_advisory(
+        self, item: BacklogItem, result: dict[str, Any] | None
+    ) -> list[str]:
+        """Surface recurring infra-failure patterns as journal advisories.
+
+        Thin delegate — see ``recurring_failure_advisor.RecurringFailureAdvisor``
+        (Signal B). Kept as a stable supervisor method for tests/monkeypatch.
+        """
+        from .recurring_failure_advisor import RecurringFailureAdvisor
+        return RecurringFailureAdvisor(
             memory=self.memory,
             on_cost=self._inject_cumulative_cost,
         ).maybe_journal_advisory(item, result)
@@ -2364,7 +2395,15 @@ class LifeSupervisor:
     def _render_journal_for_planner(self) -> str:
         """Render recent journal entries for the planner's context."""
         try:
-            entries = self.memory.journal.tail(20)
+            # Read a larger tail and drop low-level Signal-B failure-
+            # observation rows (counting plumbing) BEFORE truncating, so a
+            # burst of observations can't crowd out real mission outcomes /
+            # advisories. The recurring-failure *advisory* itself is kept.
+            entries = [
+                e
+                for e in self.memory.journal.tail(80)
+                if getattr(e, "kind", "") != "self_evolve.failure_observation"
+            ][-20:]
         except Exception:  # noqa: BLE001
             return ""
         lines: list[str] = []
