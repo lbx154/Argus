@@ -36,6 +36,87 @@ def _write(p: Path, text: str) -> None:
     p.write_text(text, encoding="utf-8")
 
 
+def _seed_minimal_paper(root: Path) -> None:
+    """Seed the bare minimum paper that satisfies paper_structural_minimums,
+    so tests targeting evidence_chain / mediocrity_finding aren't blocked
+    by the new structural-floor gate that lives at draft+ stages."""
+    from argus_skill.skills.paper_structural_minimums import MIN_INTEXT_CITES
+    from argus_skill.skills.reviewer_simulation import (
+        MIN_QUESTIONS,
+        QUESTIONS_FILENAME,
+    )
+    import os
+    paper = root / "paper"
+    figs = paper / "figures"
+    figs.mkdir(parents=True, exist_ok=True)
+    (figs / "fig1.pdf").write_bytes(b"%PDF-1.4 stub\n")
+    (figs / "teaser.png").write_bytes(b"\x89PNG\r\n")
+    (figs / "pipeline.png").write_bytes(b"\x89PNG\r\n")
+    (figs / "IMAGE2_FIGURES.json").write_text(
+        json.dumps({"figures": [
+            {"name": "teaser_hero", "file": "paper/figures/teaser.png"},
+            {"name": "pipeline_overview", "file": "paper/figures/pipeline.png"},
+        ]}),
+        encoding="utf-8",
+    )
+    cite_block = ", ".join(f"\\cite{{w{i}}}" for i in range(MIN_INTEXT_CITES))
+    main_tex = paper / "main.tex"
+    main_tex.write_text(
+        r"\documentclass{article}\begin{document}" + "\n"
+        + r"\includegraphics{figures/fig1.pdf}" + "\n"
+        + cite_block + "\n"
+        + r"\section{Related Work}" + "\n"
+        + ("Prior work. " * 120) + "\n"
+        + r"\section{Conclusion}" + "\nEnd.\n"
+        + r"\end{document}" + "\n",
+        encoding="utf-8",
+    )
+    (paper / "refs.bib").write_text(
+        "\n".join(
+            f"@article{{w{i}, title={{T}}, author={{A}}, year={{2024}}}}"
+            for i in range(MIN_INTEXT_CITES)
+        ),
+        encoding="utf-8",
+    )
+    qpath = paper / QUESTIONS_FILENAME
+    qpath.write_text(
+        json.dumps({
+            "schema_version": 1,
+            "questions": [
+                {
+                    "id": f"Q{i}",
+                    "question": f"placeholder reviewer question {i}",
+                    "severity": ("critical", "major", "minor")[i % 3],
+                    "addressed_in_section": f"section {i % 3 + 1}",
+                    "addressed_evidence": "see paragraph",
+                }
+                for i in range(MIN_QUESTIONS)
+            ],
+        }),
+        encoding="utf-8",
+    )
+    # Ensure questions mtime >= main.tex mtime (freshness check)
+    later = main_tex.stat().st_mtime + 5
+    os.utime(qpath, (later, later))
+    # Minimal experiment-audit artifacts
+    (paper / "EXPERIMENT_AUDIT.md").write_text("# audit stub\n", encoding="utf-8")
+    (paper / "EXPERIMENT_AUDIT.json").write_text(
+        json.dumps({
+            "auditor": "reviewer-route-xhigh",
+            "integrity_status": "pass",
+            "checks": {
+                "gt_provenance":      {"status": "pass", "details": "dataset GT"},
+                "score_normalization": {"status": "pass", "details": "raw scores only"},
+                "result_existence":    {"status": "pass", "details": "all match"},
+                "dead_code":           {"status": "pass", "details": "all called"},
+                "scope":               {"status": "pass", "details": "sufficient"},
+                "eval_type": "real_gt",
+            },
+        }),
+        encoding="utf-8",
+    )
+
+
 def _write_bundle(
     root: Path, name: str, *,
     condition: str = "argus", reward: float = 0.7,
@@ -173,6 +254,7 @@ def test_run_stage_gates_review_clean_project_passes_structural(tmp_path: Path) 
             }
         ],
     )
+    _seed_minimal_paper(tmp_path)
 
     results = run_stage_gates(
         tmp_path,
@@ -182,7 +264,13 @@ def test_run_stage_gates_review_clean_project_passes_structural(tmp_path: Path) 
     )
 
     names = [r.name for r in results]
-    assert names == ["evidence_chain", "mediocrity_finding"]
+    assert names == [
+        "evidence_chain",
+        "mediocrity_finding",
+        "paper_structural_minimums",
+        "reviewer_simulation",
+        "experiment_audit",
+    ]
     # Structural passes, no block.
     assert any_blocking_failure(results) is False
 
@@ -199,10 +287,12 @@ def test_run_stage_gates_surfaces_structural_break(tmp_path: Path) -> None:
             }
         ],
     )
+    _seed_minimal_paper(tmp_path)
     results = run_stage_gates(tmp_path, stage="draft")
-    assert len(results) == 1
-    assert results[0].name == "evidence_chain"
-    assert results[0].is_blocking is True
+    names = [r.name for r in results]
+    assert names == ["evidence_chain", "paper_structural_minimums"]
+    chain_result = next(r for r in results if r.name == "evidence_chain")
+    assert chain_result.is_blocking is True
 
 
 def test_run_stage_gates_advisory_does_not_block_even_with_zero_baseline(tmp_path: Path) -> None:
@@ -260,6 +350,7 @@ def test_automated_gates_cli_exits_zero_on_advisory_only_bad_numbers(tmp_path: P
             }
         ],
     )
+    _seed_minimal_paper(tmp_path)
     rc = automated_gates_main(
         [
             "--project-root", str(tmp_path),

@@ -45,6 +45,29 @@ Improve an existing paper draft using an external-review mindset. This adapts AR
    - Any missing evidence or citations.
    - Any claims that should be softened or removed.
 
+3a. Write `paper/REVIEWER_QUESTIONS.json` (BLOCKING — `reviewer_simulation` structural gate at review/submission stages will reject the round if this is missing, has <10 questions, has any question whose `addressed_in_section` is empty, or is older than `paper/main.tex`):
+
+   ```json
+   {
+     "schema_version": 1,
+     "generated_at": "<UTC ISO timestamp>",
+     "questions": [
+       {
+         "id": "Q1",
+         "question": "Why is the baseline only random-prompt, not SOTA?",
+         "severity": "critical",
+         "addressed_in_section": "5.2 Baselines",
+         "addressed_evidence": "Table 3 shows SOTA reproduction at row 4."
+       }
+     ]
+   }
+   ```
+
+   - At least 10 questions. Channel the hostile reviewer from `kill-argument.md` — ask the things an EMNLP reviewer 2 in a bad mood would ask.
+   - `severity` must be one of `critical`, `major`, `minor`.
+   - Every question must have a non-empty `addressed_in_section` pointing to where the paper now answers it (or `limitations` / `appendix B` if the answer is "we punt"). An unaddressed question = a reviewer-facing blocker.
+   - Regenerate this file after every prose-changing edit; otherwise the freshness check (`mtime(REVIEWER_QUESTIONS.json) >= mtime(paper/main.tex)`) fails.
+
 4. Apply fixes:
    - Fix critical claim/evidence issues first.
    - Prefer conservative language over unsupported expansion.

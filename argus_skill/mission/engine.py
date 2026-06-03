@@ -129,21 +129,11 @@ class MissionLoopEngine:
                     exit_code=engineer_result.exit_code,
                 )
                 if self.event_sink is not None:
-                    self.event_sink({
-                        "type": "round.review.completed",
-                        "round_index": round_index,
-                        "session_id": self.config.mission_id or None,
-                        "status": review.status,
-                        "confidence": review.confidence,
-                        "reason": review.reason,
-                        "next_action": review.next_action,
-                        "input_tokens": 0,
-                        "cached_input_tokens": 0,
-                        "output_tokens": 0,
-                        "usage_scope": "delta",
-                        "review_skipped": True,
-                        "failure_cause": review.failure_cause,
-                    })
+                    self.event_sink(review.to_event_payload(
+                        round_index=round_index,
+                        session_id=self.config.mission_id or None,
+                        review_skipped=True,
+                    ))
                 rounds.append(
                     MissionRoundRecord(
                         round_index=round_index,
@@ -172,20 +162,11 @@ class MissionLoopEngine:
                 )
                 prev_review_summary = review.round_summary_markdown or review.reason or ""
                 if self.event_sink is not None:
-                    self.event_sink({
-                        "type": "round.review.completed",
-                        "round_index": round_index,
-                        "session_id": self.config.mission_id or None,
-                        "status": review.status,
-                        "confidence": review.confidence,
-                        "reason": review.reason,
-                        "next_action": review.next_action,
-                        "input_tokens": 0,
-                        "cached_input_tokens": 0,
-                        "output_tokens": 0,
-                        "usage_scope": "delta",
-                        "review_skipped": True,
-                    })
+                    self.event_sink(review.to_event_payload(
+                        round_index=round_index,
+                        session_id=self.config.mission_id or None,
+                        review_skipped=True,
+                    ))
                 rounds.append(
                     MissionRoundRecord(
                         round_index=round_index,
@@ -236,19 +217,10 @@ class MissionLoopEngine:
             )
 
             if self.event_sink is not None:
-                self.event_sink({
-                    "type": "round.review.completed",
-                    "round_index": round_index,
-                    "session_id": self.config.mission_id or None,
-                    "status": review.status,
-                    "confidence": review.confidence,
-                    "reason": review.reason,
-                    "next_action": review.next_action,
-                    "input_tokens": review.input_tokens,
-                    "cached_input_tokens": review.cached_input_tokens,
-                    "output_tokens": review.output_tokens,
-                    "usage_scope": "delta",
-                })
+                self.event_sink(review.to_event_payload(
+                    round_index=round_index,
+                    session_id=self.config.mission_id or None,
+                ))
 
             if review.mission_lesson and callable(self.config.on_skill_lesson):
                 try:

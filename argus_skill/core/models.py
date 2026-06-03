@@ -164,6 +164,51 @@ class ReviewDecision:
                 return False
         return True
 
+    def to_event_payload(self, **extras: Any) -> dict[str, Any]:
+        """Build the full ``round.review.completed`` event dict.
+
+        The reviewer JSON schema requires 11 top-level fields. Earlier
+        emit sites in runner/engine forwarded only 6, silently dropping
+        ``checklist`` (per-item structured eval), ``planner_report``
+        (planner-facing briefing), ``mission_lesson``, ``scope``,
+        ``checkpoint``, and ``verification_summary``. That made postmortem
+        of "why did reviewer let this pass?" impossible from events.jsonl.
+
+        Token counts are read off ``self``, so the synthesized verdicts
+        for daemon-stop / backend-failure paths (zero tokens) and the
+        genuine LLM verdict (real tokens) flow through the same payload
+        builder.
+
+        ``extras`` are merged in last so callers can attach call-site-
+        specific fields (``round_max``, ``session_id``, ``review_skipped``,
+        ``text``, ``type``) without losing them to a key collision.
+        """
+        payload: dict[str, Any] = {
+            "type": "round.review.completed",
+            "status": self.status,
+            "confidence": self.confidence,
+            "reason": self.reason,
+            "next_action": self.next_action,
+            "round_summary_markdown": self.round_summary_markdown or "",
+            "completion_summary_markdown": self.completion_summary_markdown or "",
+            "failure_cause": self.failure_cause or "",
+            # Previously dropped — these are the structured-eval fields
+            # the reviewer is REQUIRED to emit per reviewer_schema.json.
+            "mission_lesson": self.mission_lesson or "",
+            "verification_summary": self.verification_summary or "",
+            "scope": self.scope or "",
+            "checklist": list(self.checklist or []),
+            "planner_report": dict(self.planner_report or {}),
+            "checkpoint": dict(self.checkpoint or {}),
+            # Token bookkeeping (cost-tracking sinks read these).
+            "input_tokens": int(self.input_tokens or 0),
+            "cached_input_tokens": int(self.cached_input_tokens or 0),
+            "output_tokens": int(self.output_tokens or 0),
+            "usage_scope": "delta",
+        }
+        payload.update(extras)
+        return payload
+
 
 @dataclass
 class RoundRecord:

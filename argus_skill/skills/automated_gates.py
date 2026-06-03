@@ -35,22 +35,65 @@ from .anti_mediocrity import (
     format_finding,
 )
 from .evidence_chain import validate_evidence_chain
+from .experiment_audit_gate import validate_experiment_audit
+from .paper_structural_minimums import validate_paper_structural_minimums
+from .reviewer_simulation import validate_reviewer_simulation
 
 
-GateName = Literal["evidence_chain", "mediocrity_finding"]
+GateName = Literal[
+    "evidence_chain",
+    "mediocrity_finding",
+    "paper_structural_minimums",
+    "reviewer_simulation",
+    "experiment_audit",
+]
 GateKind = Literal["structural", "advisory"]
 
 
 # Stage → gates that apply.
+#
+# ``paper_structural_minimums`` is the venue-floor anti-fab gate: 0 figures,
+# 0 in-text cites, missing Related Work, etc. It runs as soon as a draft
+# exists (draft + review + submission). It's structural, not quality:
+# thresholds are well below EMNLP norms so the gate only fires on genuinely
+# broken drafts. The reviewer still rules on whether a *formed* paper is
+# good enough.
+#
+# ``reviewer_simulation`` forces the agent to produce a machine-readable
+# reviewer-question list at the review+submission gates. Without it the
+# agent can claim "I reviewed the draft" without ever simulating any
+# hostile reviewer objection. Structural floor (≥10 questions, each
+# addressed) — quality of the questions is reviewer's call.
+#
+# ``experiment_audit`` requires the reviewer/experiment-audit skill's
+# JSON+MD artifacts at analysis / review / submission. Anti-fab: the
+# gate only enforces that the audit exists and is structured; the
+# verdict itself (pass/warn/fail) is the reviewer's call.
 STAGE_GATES: dict[str, tuple[GateName, ...]] = {
     "research": (),
     "plan": (),
     "benchmark": (),
     "run": ("mediocrity_finding",),
-    "analysis": ("evidence_chain", "mediocrity_finding"),
-    "draft": ("evidence_chain",),
-    "review": ("evidence_chain", "mediocrity_finding"),
-    "submission": ("evidence_chain", "mediocrity_finding"),
+    "analysis": (
+        "evidence_chain",
+        "mediocrity_finding",
+        "experiment_audit",
+    ),
+    "draft": ("evidence_chain", "paper_structural_minimums"),
+    "review": (
+        "evidence_chain",
+        "mediocrity_finding",
+        "paper_structural_minimums",
+        "reviewer_simulation",
+        "experiment_audit",
+    ),
+    "submission": (
+        "evidence_chain",
+        "mediocrity_finding",
+        "paper_structural_minimums",
+        "reviewer_simulation",
+        "experiment_audit",
+    ),
 }
 
 
@@ -59,6 +102,9 @@ STAGE_GATES: dict[str, tuple[GateName, ...]] = {
 GATE_KINDS: dict[GateName, GateKind] = {
     "evidence_chain": "structural",
     "mediocrity_finding": "advisory",
+    "paper_structural_minimums": "structural",
+    "reviewer_simulation": "structural",
+    "experiment_audit": "structural",
 }
 
 
@@ -186,6 +232,101 @@ def _run_mediocrity_finding(
     )
 
 
+def _run_experiment_audit(project_root: Path) -> GateResult:
+    """Structural gate: paper/EXPERIMENT_AUDIT.{md,json} must exist and
+    cover the five required integrity checks. Verdict text (pass/warn/
+    fail) is read off the JSON; the gate itself does not score it."""
+    report = validate_experiment_audit(project_root)
+    if report.ok:
+        return GateResult(
+            name="experiment_audit",
+            kind="structural",
+            passed=True,
+            summary=(
+                f"integrity_status={report.integrity_status}; "
+                f"{len(report.checks_present)} of "
+                f"{len({'gt_provenance','score_normalization','result_existence','dead_code','scope'})} "
+                "required checks present"
+            ),
+            detail="",
+        )
+    return GateResult(
+        name="experiment_audit",
+        kind="structural",
+        passed=False,
+        summary=(
+            f"{len(report.issues)} experiment-audit contract violation(s); "
+            f"integrity_status={report.integrity_status or 'unknown'}"
+        ),
+        detail=report.to_text(),
+    )
+
+
+def _run_reviewer_simulation(project_root: Path) -> GateResult:
+    """Structural gate: REVIEWER_QUESTIONS.json must exist, be non-trivial,
+    every question must be addressed, and not be stale vs main.tex."""
+    report = validate_reviewer_simulation(project_root)
+    if report.ok:
+        sev = ", ".join(f"{k}={v}" for k, v in sorted(report.severities.items()))
+        return GateResult(
+            name="reviewer_simulation",
+            kind="structural",
+            passed=True,
+            summary=(
+                f"{report.questions_found} reviewer question(s), all "
+                f"addressed ({sev or 'no severities'})"
+            ),
+            detail="",
+        )
+    return GateResult(
+        name="reviewer_simulation",
+        kind="structural",
+        passed=False,
+        summary=(
+            f"{len(report.issues)} reviewer-simulation violation(s); "
+            f"{report.questions_found} question(s), "
+            f"{report.addressed_count} addressed"
+        ),
+        detail=report.to_text(),
+    )
+
+
+def _run_paper_structural_minimums(project_root: Path) -> GateResult:
+    """Structural gate: paper must meet venue-floor structural minimums.
+
+    Floor only — figure count, in-text cite count, refs.bib cited count,
+    Related Work presence, Conclusion presence. Thresholds are well below
+    EMNLP/ACL norms (e.g. 8 cites when a real paper has 35+) so this gate
+    fires only on genuinely broken drafts. Quality (is 12 cites enough for
+    *this* topic?) remains the reviewer's call.
+    """
+    report = validate_paper_structural_minimums(project_root)
+    if report.ok:
+        return GateResult(
+            name="paper_structural_minimums",
+            kind="structural",
+            passed=True,
+            summary=(
+                f"{report.figures_found} figure(s), "
+                f"{len(report.cite_keys)} unique cite(s), "
+                f"{report.bib_entries_cited}/{report.bib_entries} bib cited, "
+                f"related-work {report.related_work_chars} chars"
+            ),
+            detail="",
+        )
+    return GateResult(
+        name="paper_structural_minimums",
+        kind="structural",
+        passed=False,
+        summary=(
+            f"{len(report.issues)} structural minimum(s) violated "
+            f"({report.figures_found} figure(s), "
+            f"{len(report.cite_keys)} cite(s))"
+        ),
+        detail=report.to_text(),
+    )
+
+
 def run_stage_gates(
     project_root: Path,
     *,
@@ -208,6 +349,12 @@ def run_stage_gates(
                     baseline_condition=baseline_condition,
                 )
             )
+        elif gate == "paper_structural_minimums":
+            results.append(_run_paper_structural_minimums(project_root))
+        elif gate == "reviewer_simulation":
+            results.append(_run_reviewer_simulation(project_root))
+        elif gate == "experiment_audit":
+            results.append(_run_experiment_audit(project_root))
     return results
 
 

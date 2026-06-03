@@ -14,6 +14,15 @@ and **gpt-image-2** as the raster renderer via the configured codex/image backen
 
 For EMNLP/ACL paper projects, data/metric/result plots are the only figures that may be locally scripted. Every other paper-facing figure, including method overviews, architecture/system diagrams, schematics, qualitative/example visuals, teasers, and explanatory diagrams, must be generated through this image-2 workflow and registered in `paper/figures/IMAGE2_FIGURES.json`; never substitute matplotlib, TikZ, SVG/PIL/HTML canvas, screenshots, cleaned PDFs, or manual vector redraws for those non-data figures.
 
+## Structural-gate contract (BLOCKING)
+
+The `paper_structural_minimums` harness gate at draft/review/submission stages requires `paper/figures/IMAGE2_FIGURES.json` to contain BOTH:
+
+- a **teaser/hero/Figure-1** entry (name contains `teaser`, `hero`, `figure1`, `figure_1`, `fig1`, or `fig_1`)
+- a **pipeline/method/architecture** entry (name contains `pipeline`, `method`, `architecture`, `framework`, `overview`, `system`, `workflow`, or `schematic`)
+
+Each entry's `file` field must resolve to a real raster on disk; phantom paths do not satisfy the gate. Skipping either category means the draft round will exit non-zero and the supervisor will send the engineer back. Generate both figures before declaring the draft complete — there is no `--skip-figures` escape hatch.
+
 ## Core Design Philosophy
 
 ```text

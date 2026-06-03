@@ -200,6 +200,26 @@ def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
     return max(minimum, value)
 
 
+def _review_event_payload(
+    review: ReviewDecision,
+    *,
+    round_index: int,
+    round_max: int,
+    text: str,
+    review_skipped: bool = False,
+) -> dict[str, object]:
+    """Adapter — runner adds ``round_max`` / ``text`` / ``review_skipped``
+    on top of the canonical reviewer payload. The reviewer JSON schema's
+    full field set lives in ``ReviewDecision.to_event_payload``; this
+    keeps engineer-runner and mission-engine emit sites consistent."""
+    return review.to_event_payload(
+        round_index=round_index,
+        round_max=round_max,
+        text=text,
+        review_skipped=review_skipped,
+    )
+
+
 def should_clear_thread_id_after_outcome(*, status: str, fatal_error: str | None) -> bool:
     """Return True when the carried Codex thread id should be cleared."""
     return (
@@ -853,24 +873,13 @@ class SupervisedEngineer:
                     exit_code=getattr(engineer_result, "exit_code", 0),
                 )
                 if on_event:
-                    on_event({
-                        "type": "round.review.completed",
-                        "round_index": round_index,
-                        "round_max": supervised_config.max_rounds,
-                        "status": review.status,
-                        "confidence": review.confidence,
-                        "reason": review.reason,
-                        "next_action": review.next_action,
-                        "round_summary_markdown": review.round_summary_markdown,
-                        "completion_summary_markdown": review.completion_summary_markdown,
-                        "failure_cause": review.failure_cause,
-                        "input_tokens": 0,
-                        "cached_input_tokens": 0,
-                        "output_tokens": 0,
-                        "usage_scope": "delta",
-                        "review_skipped": True,
-                        "text": "review: skipped (daemon stop requested)",
-                    })
+                    on_event(_review_event_payload(
+                        review,
+                        round_index=round_index,
+                        round_max=supervised_config.max_rounds,
+                        text="review: skipped (daemon stop requested)",
+                        review_skipped=True,
+                    ))
                 rounds.append(RoundRecord(
                     round_index=round_index,
                     engineer_message=engineer_message,
@@ -897,27 +906,16 @@ class SupervisedEngineer:
                     threshold=supervised_config.backend_failure_threshold,
                 )
                 if on_event:
-                    on_event({
-                        "type": "round.review.completed",
-                        "round_index": round_index,
-                        "round_max": supervised_config.max_rounds,
-                        "status": review.status,
-                        "confidence": review.confidence,
-                        "reason": review.reason,
-                        "next_action": review.next_action,
-                        "round_summary_markdown": review.round_summary_markdown,
-                        "completion_summary_markdown": review.completion_summary_markdown,
-                        "failure_cause": review.failure_cause,
-                        "input_tokens": 0,
-                        "cached_input_tokens": 0,
-                        "output_tokens": 0,
-                        "usage_scope": "delta",
-                        "review_skipped": True,
-                        "text": (
+                    on_event(_review_event_payload(
+                        review,
+                        round_index=round_index,
+                        round_max=supervised_config.max_rounds,
+                        text=(
                             "review: skipped (backend failure) — "
                             f"{review.reason}"
                         ),
-                    })
+                        review_skipped=True,
+                    ))
                 rounds.append(RoundRecord(
                     round_index=round_index,
                     engineer_message=engineer_message,
@@ -1027,25 +1025,12 @@ class SupervisedEngineer:
                 checkpoint = new_checkpoint.stamped(round_no=round_index)
                 save_checkpoint(supervised_config.checkpoint_path, checkpoint)
             if on_event:
-                on_event({
-                    "type": "round.review.completed",
-                    "round_index": round_index,
-                    "round_max": supervised_config.max_rounds,
-                    "status": review.status,
-                    "confidence": review.confidence,
-                    "reason": review.reason,
-                    "next_action": review.next_action,
-                    "round_summary_markdown": getattr(review, "round_summary_markdown", "") or "",
-                    "completion_summary_markdown": getattr(review, "completion_summary_markdown", "") or "",
-                    "failure_cause": getattr(review, "failure_cause", "") or "",
-                    "input_tokens": int(getattr(review, "input_tokens", 0) or 0),
-                    "cached_input_tokens": int(
-                        getattr(review, "cached_input_tokens", 0) or 0
-                    ),
-                    "output_tokens": int(getattr(review, "output_tokens", 0) or 0),
-                    "usage_scope": "delta",
-                    "text": f"review: {review.status} (conf={review.confidence:.2f}) — {review.reason}",
-                })
+                on_event(_review_event_payload(
+                    review,
+                    round_index=round_index,
+                    round_max=supervised_config.max_rounds,
+                    text=f"review: {review.status} (conf={review.confidence:.2f}) — {review.reason}",
+                ))
             rounds.append(RoundRecord(
                 round_index=round_index,
                 engineer_message=engineer_message,
