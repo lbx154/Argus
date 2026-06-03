@@ -115,6 +115,73 @@ def _seed_minimal_paper(root: Path) -> None:
         }),
         encoding="utf-8",
     )
+    # Minimal exemplar-grounding artifacts (study top-venue exemplars).
+    import hashlib as _hl
+    style = paper / "style_ref"
+    style.mkdir(parents=True, exist_ok=True)
+    exemplars = []
+    for slug in ("best2024-x", "samedir2024-y"):
+        d = style / "exemplars" / slug
+        d.mkdir(parents=True, exist_ok=True)
+        body = f"%PDF-1.4 fake {slug}\n".encode()
+        (d / "paper.pdf").write_bytes(body)
+        exemplars.append({
+            "slug": slug,
+            "title": f"Toy {slug}",
+            "url": f"https://arxiv.org/abs/0000.{slug}",
+            "venue": "EMNLP",
+            "year": 2024,
+            "source_type": "arxiv",
+            "open_access": True,
+            "license": "arxiv",
+            "pdf_storage_policy": "local",
+            "usage": "structural_style_only",
+            "no_prose_copy": True,
+            "local_pdf": f"paper/style_ref/exemplars/{slug}/paper.pdf",
+            "pdf_sha256": _hl.sha256(body).hexdigest(),
+            "text_extract": "",
+            "structural_profile": {
+                "figure_inventory": [
+                    {"id": "fig1", "type": "teaser"},
+                    {"id": "fig2", "type": "pipeline"},
+                ],
+                "section_count": 6,
+            },
+        })
+    (style / "EXEMPLAR.json").write_text(
+        json.dumps({"exemplar_schema_version": 2, "exemplars": exemplars}),
+        encoding="utf-8",
+    )
+    (style / "STYLE_PROFILE.md").write_text(
+        "# Style Profile\n\n" + ("Structural lesson. " * 200),
+        encoding="utf-8",
+    )
+    (style / "EXEMPLAR_SUITABILITY.json").write_text(
+        json.dumps({
+            "verdict": "PASS",
+            "primary_exemplar": "best2024-x",
+            "no_prose_copy_attestation": True,
+        }),
+        encoding="utf-8",
+    )
+    (style / "PAPER_STRUCTURE_BLUEPRINT.md").write_text(
+        "# Blueprint\n\n" + ("Section role and page budget. " * 80),
+        encoding="utf-8",
+    )
+    (style / "STRUCTURE_CONFORMANCE.json").write_text(
+        json.dumps({
+            "conformance_schema_version": 1,
+            "verdict": "PASS",
+            "no_prose_copy_attestation": True,
+            "exemplar_lessons": ["L1", "L2"],
+            "section_mappings": [
+                {"section": "Introduction",
+                 "maps_to_exemplar_phase": "intro",
+                 "evidence_sources": ["x"], "exemplar_lesson": "y"},
+            ],
+        }),
+        encoding="utf-8",
+    )
 
 
 def _write_bundle(
@@ -270,6 +337,7 @@ def test_run_stage_gates_review_clean_project_passes_structural(tmp_path: Path) 
         "paper_structural_minimums",
         "reviewer_simulation",
         "experiment_audit",
+        "exemplar_grounding",
     ]
     # Structural passes, no block.
     assert any_blocking_failure(results) is False
@@ -290,7 +358,11 @@ def test_run_stage_gates_surfaces_structural_break(tmp_path: Path) -> None:
     _seed_minimal_paper(tmp_path)
     results = run_stage_gates(tmp_path, stage="draft")
     names = [r.name for r in results]
-    assert names == ["evidence_chain", "paper_structural_minimums"]
+    assert names == [
+        "evidence_chain",
+        "paper_structural_minimums",
+        "exemplar_grounding",
+    ]
     chain_result = next(r for r in results if r.name == "evidence_chain")
     assert chain_result.is_blocking is True
 

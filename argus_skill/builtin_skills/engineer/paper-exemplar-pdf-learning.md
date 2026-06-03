@@ -13,6 +13,21 @@ Paper Exemplar PDF Learning
 ## Description
 Use real top-conference papers as formatting and structure references before writing a new paper. URL-only exemplars are not enough: an agent that has not inspected a real PDF often cannot infer what a reviewable EMNLP/ACL paper looks like.
 
+## Structural-gate contract (BLOCKING at draft / review / submission)
+
+The `exemplar_grounding` harness gate hard-blocks the round unless every artifact below exists with the listed shape. This closes the v1 failure mode where the agent "freestyled" the paper structure without studying any exemplar.
+
+| Artifact | Required at | Floor |
+|---|---|---|
+| `paper/style_ref/EXEMPLAR.json` | draft+ | `exemplar_schema_version=2`, ≥2 entries, each with `title`/`url`/`venue`/`year`/`local_pdf` (file on disk)/`pdf_sha256` (non-empty)/`structural_profile` |
+| `structural_profile.figure_inventory` (or `figures` / `figure_table_inventory`) in EVERY exemplar | draft+ | non-empty — record what figures/tables the exemplar uses so this paper can mirror the plan |
+| `paper/style_ref/STYLE_PROFILE.md` | draft+ | ≥2000 chars (no one-line stubs) |
+| `paper/style_ref/EXEMPLAR_SUITABILITY.json` | draft+ | `verdict=="PASS"`, `primary_exemplar` matches a slug in EXEMPLAR.json, `no_prose_copy_attestation=true` |
+| `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` | draft+ | ≥1500 chars |
+| `paper/style_ref/STRUCTURE_CONFORMANCE.json` | submission | `conformance_schema_version=1`, `verdict=="PASS"`, `section_mappings` non-empty |
+
+If a candidate exemplar does not pass suitability, fetch a better one — do not draft from a bad template. Hand-typed EXEMPLAR entries without an actual local PDF are detected (path-exists check + sha256 floor).
+
 ## When to use
 - Before EMNLP/ACL paper drafting begins.
 - When `paper/style_ref/EXEMPLAR.json` exists but only contains URLs or metadata.
