@@ -32,6 +32,49 @@ one; bootstrap is an explicit operator decision via
 
 ## Workflow
 
+### Step 0 -- backfill from engineer-produced lit artifacts
+
+In practice the engineer often uses codex's native web search and writes
+`paper/refs.bib` plus optional `research/LIT_MATRIX.tsv` directly,
+without invoking the four named ingestion skills that have the per-skill
+wiki hook. The result is that `sources/papers/` stays at 0 even though
+the engineer consulted real papers.
+
+Before doing any synthesis, backfill the wiki from whatever literature
+artifacts the engineer produced this mission:
+
+```python
+from pathlib import Path
+from argus_skill.wiki.store import WikiStore
+from argus_skill.wiki.ingest import ingest_refs_bib, ingest_lit_matrix
+
+wiki_root = Path(".autors/<project>/wiki")
+store = WikiStore(wiki_root)
+
+refs_bib = Path("paper/refs.bib")
+if refs_bib.exists():
+    written = ingest_refs_bib(
+        store,
+        bib_path=refs_bib,
+        ingested_by=f"wiki-curator@mission-{mission_id}",
+    )
+    # written is a list of newly created source paths; already-present
+    # sources are silently skipped because sources are immutable.
+
+lit_matrix = Path("research/LIT_MATRIX.tsv")
+if lit_matrix.exists():
+    ingest_lit_matrix(store, tsv_path=lit_matrix)
+```
+
+This converts each BibTeX entry into an immutable
+`sources/papers/<key>.md` card with the verbatim BibTeX stanza as body.
+The `relevance_to_*` column of `LIT_MATRIX.tsv`, if present, is appended
+to the matching source body as a provenance line. No judgment is added at
+this step; the BibTeX entry is a fact, not a claim about importance.
+Synthesis into `pages/techniques/*` remains your job in Steps 1-2.
+
+Skip Step 0 silently if neither file exists.
+
 ### Step 1 -- survey what changed
 
 List `sources/papers/`, `sources/repos/`, and `sources/runs/` files

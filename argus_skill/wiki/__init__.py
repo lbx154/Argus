@@ -9,3 +9,5 @@ See docs/IDEA_WIKI_DESIGN.md for the design. Module surface:
 - bootstrap: initialize .autors/<project>/wiki/ from templates
 """
 from __future__ import annotations
+
+from .ingest import ingest_lit_matrix, ingest_refs_bib  # noqa: F401
