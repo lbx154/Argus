@@ -70,3 +70,50 @@ blockers at the reviewer gate.
    and no large-scale inference (record the skip in
    `research/RESEARCH_BRIEF.md`); otherwise the reviewer fails the
    `research.infra_shortlist` and `plan.infra_choice` items.
+
+## Mission-close RunCard (wiki side-effect)
+
+If `.autors/<project>/wiki/` exists, the FINAL step of any mission that
+produced training/eval artifacts is to append a RunCard under
+`sources/runs/<run-id>.md`. Fill in the structured fields only --
+`suspected_cause` and `next_action` are reviewer prose and stay empty.
+
+```python
+from datetime import date
+from pathlib import Path
+from argus_skill.wiki.store import WikiStore
+from argus_skill.wiki.schema import SourceRun
+
+wiki_root = Path(".autors") / "<project>" / "wiki"
+if wiki_root.exists():
+    store = WikiStore(wiki_root)
+    run = SourceRun(
+        id=f"runs/{date.today().isoformat()}-{mission_id}",
+        mission_id=mission_id,
+        git_commit=current_git_sha,
+        project="<project>",
+        config_path=str(config_path),
+        dataset=dataset_name,
+        metrics={"train_loss_final": final_loss, "eval_score": eval_score},
+        artifacts={
+            "curves": str(curves_png_path),
+            "sample_grid": str(grid_png_path),
+        },
+        outcome=outcome,  # "success" | "partial" | "failure"
+        failure_signature=failure_sig or "",  # short stable label
+        suspected_cause="",  # reviewer fills
+        next_action="",      # reviewer fills
+        body="",
+    )
+    try:
+        store.write_source(run)
+    except FileExistsError:
+        pass
+```
+
+Pick `failure_signature` to be a short stable string that another
+mission would produce verbatim for the same failure pattern, for
+example `nan-after-step-12k-grpo-asym-clip`, not a free-form sentence.
+This field is what later cross-project pattern detection (M1) will
+match on; writing it correctly now is the low-cost forward-compatible
+move.
