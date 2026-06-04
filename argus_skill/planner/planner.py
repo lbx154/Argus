@@ -680,6 +680,7 @@ def _load_json_object_with_schema(
     *,
     required_keys: tuple[str, ...],
 ) -> tuple[dict, str] | None:
+    latest: tuple[dict, str] | None = None
     for blob in _iter_json_objects(text):
         try:
             data = json.loads(blob)
@@ -688,8 +689,8 @@ def _load_json_object_with_schema(
         if not isinstance(data, dict):
             continue
         if all(key in data for key in required_keys):
-            return data, blob
-    return None
+            latest = (data, blob)
+    return latest
 
 
 def _parse_json_bool(value: object, default: bool) -> bool:

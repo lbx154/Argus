@@ -74,6 +74,40 @@ def test_parse_planner_text_emits_task_specs() -> None:
     assert spec.scope == "bounded"
 
 
+def test_parse_planner_text_uses_latest_json_verdict() -> None:
+    placeholder = json.dumps({
+        "project_done": False,
+        "reason": "inspecting before routing",
+        "restart_daemon": False,
+        "waiting": False,
+        "new_tasks": [],
+    })
+    final = json.dumps({
+        "project_done": False,
+        "reason": "route the no-go pivot",
+        "restart_daemon": False,
+        "waiting": False,
+        "new_tasks": [{
+            "title": "Rollback and pivot the failed positive method plan",
+            "impact_score": 5,
+            "impact_area": "requirement_gap",
+            "evidence": "research/CLAIM_REPAIR_NO_GO.md blocks the positive claim",
+            "scope": "bounded",
+            "objective": (
+                "Roll back to plan, inspect the no-go evidence, and produce "
+                "the next pivot plan."
+            ),
+        }],
+    })
+
+    v = parse_planner_text(placeholder + "\n" + final)
+
+    assert not v.error
+    assert len(v.new_tasks) == 1
+    assert v.reason == "route the no-go pivot"
+    assert v.new_tasks[0].title == "Rollback and pivot the failed positive method plan"
+
+
 def test_parse_planner_text_returns_error_verdict_on_garbage() -> None:
     v = parse_planner_text("not json at all")
     assert v.project_done is False
