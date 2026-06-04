@@ -23,9 +23,20 @@ pattern-match a single noisy log line.
   importantly a `max_completion_length` / rollout length large enough that the
   reasoning finishes (low truncation under the intended template),
   `num_generations` >= 4 so per-group reward variance can be non-zero, an
-  RL-scale learning rate, and enough steps to show movement. A run that is
-  doomed by its config wastes the whole GPU budget and then masquerades as a
-  dead idea.
+  RL-scale learning rate, and enough steps to show movement. **Equally
+  decisive, and the most-forgotten knob: the training-set itself must be large
+  and diverse enough that the policy cannot simply memorise it.** Admitting
+  only a handful of distinct task ids — especially with curriculum repeats over
+  the same ids — guarantees the policy reaches every answer within a few steps,
+  reward pins at the ceiling, per-group advantage goes to zero, and the rest of
+  the run is zero-gradient busywork that *looks* like a strong reward curve.
+  Treat the count of admitted/distinct tasks as a first-class learnability
+  precondition: it must be large relative to `num_generations` x batch x steps
+  so the model keeps meeting *unseen* problems, not the same few on repeat. A
+  small pure slice that satisfies a curriculum/purity filter is NOT a substitute
+  for diversity — a clean 10-problem set is a memorisation trap, not a fair run.
+  A run that is doomed by its config (or its tiny dataset) wastes the whole GPU
+  budget and then masquerades as a dead idea.
 - **While the run is live (monitoring-time):** map the streaming
   `progress.jsonl` / trainer stdout onto the signatures and decide continue vs
   raise-concern.
@@ -117,7 +128,11 @@ match on meaning, not exact keys.
        reward stuck at 0). Task too hard, or the reward/answer extraction is
        broken so *correct* completions still score 0.
      - **all-right / saturated collapse**: reward pinned at the ceiling. Task
-       too easy or reward-hacked; nothing left to learn.
+       too easy, reward-hacked, **or the admitted training set is so small the
+       policy has memorised every problem** (a handful of distinct task ids,
+       or curriculum repeats over the same ids); nothing left to learn. Check
+       the distinct-task count, not just the reward level — a high flat reward
+       on 10 memorised problems is collapse, not success.
    - A correctness/verifier reward whose mean is stuck at 0 for the whole tail
      window while completions *look* plausible is a screaming sign the reward
      extractor (boxed-answer parse, answer normalization, gold matching) is
@@ -200,7 +215,8 @@ let a flatlined run burn to completion.
   relaunching. Useful causes to point at, by signature:
   - reward-variance death / correctness reward stuck at 0 → prompt format,
     answer normalization, boxed/answer **extraction and gold-matching**, reward
-    function wiring, task difficulty / curriculum.
+    function wiring, task difficulty / curriculum, **training-set size /
+    distinct-task diversity (memorisation on a tiny admitted set)**.
   - KL blow-up → KL coefficient / target, learning rate, clipping range.
   - entropy collapse → entropy bonus, temperature/top-p, lr too high.
   - length pinned at cap / high clip ratio → max_completion_length, truncation,
