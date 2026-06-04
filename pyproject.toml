@@ -60,6 +60,7 @@ packages = ["argus_skill"]
 "argus_skill/engineer/reviewer_schema.json" = "argus_skill/engineer/reviewer_schema.json"
 "argus_skill/planner/planner_schema.json" = "argus_skill/planner/planner_schema.json"
 "argus_skill/builtin_skills" = "argus_skill/builtin_skills"
+"argus_skill/wiki/templates" = "argus_skill/wiki/templates"
 "argus_skill/codex_autoloop" = "argus_skill/codex_autoloop"
 
 [tool.hatch.build.targets.sdist]
