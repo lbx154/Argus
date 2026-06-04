@@ -194,7 +194,18 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "RL-scale learning rate (<< SFT) "
                 "with sane KL/clip; enough steps to show learning (not just a "
                 "smoke); and an init/warm-start matched to the reward (no "
-                "cold-start format RL on a bare base model). N/A for non-RL plans."
+                "cold-start format RL on a bare base model). If the plan claims "
+                "RL LEARNING / GENERALISATION, the admitted training set + "
+                "curriculum must carry enough DISTINCT-TASK DIVERSITY to make "
+                "that claim meaningful: a set so small or so repeated that a "
+                "handful of distinct task ids cover all rollouts (e.g. a few "
+                "admitted ids with curriculum-repeat over the same ids) is a "
+                "memorisation regime, the same non-learnable class as "
+                "`num_generations=1` — fail it for a learning claim. A tiny / "
+                "repeated set is acceptable ONLY if the plan explicitly bounds "
+                "the objective to a smoke/wiring/warmup or an avowed "
+                "memorisation experiment, not general learning. N/A for non-RL "
+                "plans."
             ),
             evidence_hint=(
                 "research/EXPERIMENT_PLAN.md `## RL config` / training config + "
@@ -372,6 +383,47 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "experiments/<run>/manifest.json executed knobs + progress.jsonl "
                 "diagnostics, read THROUGH the matched method-diagnosis skill; "
                 "for RL see "
+                "argus_builtin_skills/engineer/rl-training-collapse-diagnosis.md"
+            ),
+        ),
+        ChecklistItem(
+            id="run.learning_validity",
+            statement=(
+                "The MIRROR of method_diagnosis_recall, guarding the opposite "
+                "error: before citing a high / rising / flat / stable reward (or "
+                "any metric trend) as evidence that a run is healthy / "
+                "learning / successful, JUSTIFY that inference — do not treat a "
+                "good-looking reward as success by default. The reviewer must "
+                "rule out the invalid explanations for the signal using the "
+                "matched `*-diagnosis` / `*-collapse` skill (for RL/preference "
+                "post-training, `rl-training-collapse-diagnosis`) and the "
+                "harness's advisory run-health signals: memorisation of a tiny "
+                "admitted / curriculum-repeated set (check the DISTINCT-TASK "
+                "count, not just the reward level), reward-ceiling saturation, "
+                "zero-advantage / zero-variance collapse, a buffer-diluted "
+                "variance metric that only LOOKS healthy "
+                "(`variance_metric_masks_saturation`), evaluator leakage, and "
+                "reward hacking. Treat advisory tokens such as "
+                "`low_task_diversity`, `reward_ceiling_saturation`, "
+                "`variance_metric_masks_saturation`, `zero_advantage` as facts "
+                "to ADDRESS with evidence, NOT as automatic verdicts. You MAY "
+                "mark this satisfied for a legitimately easy / converged run or "
+                "an intentionally tiny / smoke / memorisation-bounded run, but "
+                "ONLY with evidence that NARROWS the claim accordingly — e.g. "
+                "held-out / generalisation evidence, distinct-task coverage "
+                "sufficient for the stated claim, non-saturated "
+                "advantage/variance, or an explicit statement that the result "
+                "shows only 'solves this fixed small set', not general learning. "
+                "An unqualified 'healthy / converged' verdict on a saturated, "
+                "memorised, or reward-hacked run is NOT satisfied. N/A when no "
+                "metric trend is being used as evidence of learning/success "
+                "(e.g. a pure infra/wiring probe), or no method-specific "
+                "diagnosis skill applies."
+            ),
+            evidence_hint=(
+                "experiments/<run>/progress.jsonl reward/advantage/variance "
+                "series + the rl_training_health advisory signals + the "
+                "distinct-task id count from reward_trace.jsonl, read THROUGH "
                 "argus_builtin_skills/engineer/rl-training-collapse-diagnosis.md"
             ),
         ),

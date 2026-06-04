@@ -292,3 +292,44 @@ def test_plan_stage_checklist_has_conditional_rl_config_item() -> None:
     # Names the at-a-glance failure modes.
     assert "num_generations" in item.statement
     assert "max_completion_length" in item.statement
+
+
+def test_run_stage_checklist_has_learning_validity_mirror_item() -> None:
+    """The run stage must carry the MIRROR of method_diagnosis_recall: a
+    domain-agnostic item that forces the reviewer to justify the reward->learning
+    inference (rule out memorisation / saturation / reward-hacking) before
+    accepting a run as healthy. This closes the looks-healthy blind spot without
+    hardcoding numeric research thresholds.
+    """
+
+    items = STAGE_CHECKLISTS["run"]
+    by_id = {item.id: item for item in items}
+    assert "run.learning_validity" in by_id
+    statement = by_id["run.learning_validity"].statement
+    # Guards the positive (looks-healthy) direction, not the dead direction.
+    assert "memori" in statement.lower()
+    assert "distinct" in statement.lower()
+    # Treats advisory signals as facts to address, not as automatic verdicts.
+    assert "low_task_diversity" in statement
+    assert "variance_metric_masks_saturation" in statement
+    # Domain-agnostic: points at a diagnosis SKILL, no hardcoded RL knobs / numbers.
+    assert "diagnosis" in statement.lower()
+    assert "num_generations" not in statement
+    assert "max_completion_length" not in statement
+    # Has an escape hatch so legitimately-easy/converged runs are not blanket-vetoed.
+    assert "N/A" in statement
+
+
+def test_plan_rl_config_item_requires_training_set_diversity() -> None:
+    """The RL-config sanity item must also name training-set / distinct-task
+    diversity as a learnability precondition, conditioned on the claimed
+    objective so it does not blanket-fail intentional smoke / memorisation runs.
+    """
+
+    items = STAGE_CHECKLISTS["plan"]
+    by_id = {item.id: item for item in items}
+    statement = by_id["plan.rl_config"].statement
+    assert "diversity" in statement.lower() or "distinct-task" in statement.lower()
+    assert "memorisation" in statement.lower()
+    # Objective-conditioned escape: tiny/smoke/memorisation runs still allowed.
+    assert "smoke" in statement.lower()
