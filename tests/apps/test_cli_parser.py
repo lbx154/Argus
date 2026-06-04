@@ -1,8 +1,9 @@
 """Argument-parser tests for the unified ``argus-skill`` entry point.
 
-The 7×24 pivot stripped ``run`` and ``list-skills`` subcommands. These
-tests pin down the surface so a future refactor cannot silently
-re-introduce them.
+The 7x24 pivot stripped legacy ``run`` and ``list-skills`` subcommands.
+These tests pin down the surface so a future refactor cannot silently
+re-introduce them; the idea-wiki admin path is the only supported
+subcommand.
 """
 from __future__ import annotations
 
@@ -13,15 +14,12 @@ import pytest
 from argus_skill.apps.cli import build_parser, main
 
 
-def test_parser_has_no_subcommands():
+def test_parser_has_only_wiki_subcommand():
     p = build_parser()
-    actions = p._actions  # noqa: SLF001
-    has_subparsers = any(
-        action.__class__.__name__ == "_SubParsersAction" for action in actions
-    )
-    assert not has_subparsers, (
-        "argus-skill is a single 7×24 entry point — no subcommands."
-    )
+    args = p.parse_args(["wiki", "init", "demo"])
+    assert args.command == "wiki"
+    assert args.wiki_cmd == "init"
+    assert args.project == "demo"
 
 
 def test_parser_rejects_legacy_run_subcommand():
@@ -34,6 +32,18 @@ def test_parser_rejects_legacy_list_skills_subcommand():
     p = build_parser()
     with pytest.raises(SystemExit):
         p.parse_args(["list-skills"])
+
+
+def test_main_wiki_init(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    rc = main(["wiki", "init", "demo"])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert (tmp_path / ".autors" / "demo" / "wiki" / "data" / "schema.yaml").exists()
+    assert (tmp_path / ".autors" / "demo" / "wiki" / "query_pack.md").exists()
+    assert "wiki ready at" in out
 
 
 def test_parser_accepts_no_daemon_flag():

@@ -10,8 +10,10 @@ one entry point — ``argus-skill`` — which:
 
 Top-level flags control daemon lifecycle and read-only operator help
 (``--daemon``, ``--daemon-fg``, ``--daemon-stop``, ``--status``,
-``--daemon-runbook``, ``--no-daemon``). There are no subcommands; the
-REPL and backlog are the single workflow.
+``--daemon-runbook``, ``--no-daemon``). The only subcommand is a small
+admin helper for explicitly bootstrapping per-project idea wikis:
+``argus-skill wiki init <project>``. The REPL and backlog remain the
+single runtime workflow.
 """
 from __future__ import annotations
 
@@ -246,6 +248,27 @@ def build_parser() -> argparse.ArgumentParser:
         "--baseline-condition",
         default=None,
         help="baseline condition name for --anti-mediocrity-check",
+    )
+
+    subparsers = parser.add_subparsers(dest="command")
+    wiki_parser = subparsers.add_parser(
+        "wiki",
+        help="Per-project idea-wiki operations",
+    )
+    wiki_sub = wiki_parser.add_subparsers(dest="wiki_cmd", required=True)
+    init_parser = wiki_sub.add_parser(
+        "init",
+        help="Initialize .autors/<project>/wiki/ from templates",
+    )
+    init_parser.add_argument(
+        "project",
+        help="Project slug (becomes .autors/<project>/wiki)",
+    )
+    init_parser.add_argument(
+        "--base",
+        type=Path,
+        default=Path.cwd(),
+        help="Base directory (default: cwd)",
     )
 
     return parser
@@ -1045,6 +1068,7 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.lifecycle_status)
         + bool(args.lifecycle_resume)
         + bool(args.lifecycle_archive)
+        + bool(getattr(args, "command", None))
     )
     if action_flags > 1:
         sys.stderr.write(
@@ -1052,10 +1076,13 @@ def main(argv: list[str] | None = None) -> int:
             "--daemon-runbook / --watch / --follow / --notify / --init-identity / "
             "--model-api-status / --init-model-api / --skill-stats / "
             "--skill-cleanse / --skill-compact / --export-builtin-skills / "
-            "--evidence-chain-check / --anti-mediocrity-check / --lifecycle-status "
+            "--evidence-chain-check / --anti-mediocrity-check / --lifecycle-status / "
+            "wiki subcommands "
             "are mutually exclusive.\n"
         )
         return 2
+    if args.command == "wiki" and args.wiki_cmd == "init":
+        return _run_with_path_resolution_errors(lambda: _cmd_wiki_init(args))
     if args.daemon:
         return _run_with_path_resolution_errors(
             lambda: _cmd_daemon_start(args, foreground=False)
@@ -1358,6 +1385,14 @@ def _cmd_notify(args: argparse.Namespace) -> int:
 def _cmd_init_identity(args: argparse.Namespace) -> int:
     from ._init_identity import run_init_identity
     return run_init_identity(_resolve_global_root(args))
+
+
+def _cmd_wiki_init(args: argparse.Namespace) -> int:
+    from ..wiki.bootstrap import init_wiki
+
+    root = init_wiki(args.project, base=args.base)
+    print(f"wiki ready at {root}")
+    return 0
 
 
 def _model_api_env(args: argparse.Namespace) -> dict[str, str]:
