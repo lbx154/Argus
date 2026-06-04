@@ -135,3 +135,34 @@ def test_ingest_lit_matrix_skips_papers_not_in_sources(
     tsv.write_text(SAMPLE_TSV, encoding="utf-8")
     enriched_count = ingest_lit_matrix(wiki, tsv_path=tsv)
     assert enriched_count == 0
+
+
+def test_ingest_lit_matrix_matches_punctuation_only_key_drift(
+    wiki: WikiStore,
+    tmp_path: Path,
+):
+    bib = tmp_path / "refs.bib"
+    bib.write_text(
+        """
+@article{wallace2023diffusiondpo,
+  title={Diffusion Model Alignment Using Direct Preference Optimization},
+  author={Wallace, Bram},
+  year={2023},
+  url={https://arxiv.org/abs/2311.12908}
+}
+""",
+        encoding="utf-8",
+    )
+    ingest_refs_bib(wiki, bib_path=bib, ingested_by="x")
+
+    tsv = tmp_path / "LIT_MATRIX.tsv"
+    tsv.write_text(
+        "id\tyear\ttype\tvenue\turl\trelevance_to_demo\n"
+        "wallace2023diffusion_dpo\t2023\trecent\tarXiv\t"
+        "https://arxiv.org/abs/2311.12908\tPreference-optimization anchor.\n",
+        encoding="utf-8",
+    )
+    enriched_count = ingest_lit_matrix(wiki, tsv_path=tsv)
+    assert enriched_count == 1
+    src = wiki.read_source(SourcePaper, "papers/wallace2023diffusiondpo")
+    assert "Preference-optimization anchor." in src.body

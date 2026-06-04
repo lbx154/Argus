@@ -95,7 +95,7 @@ def ingest_lit_matrix(
             relevance = (row.get(relevance_col) or "").strip()
             if not key or not relevance:
                 continue
-            path = store.root / "sources" / "papers" / f"{key}.md"
+            path = _paper_source_path_for_key(store, key)
             if not path.exists():
                 continue
             src = parse_frontmatter(path.read_text(encoding="utf-8"), SourcePaper)
@@ -106,6 +106,28 @@ def ingest_lit_matrix(
             path.write_text(serialize_frontmatter(updated), encoding="utf-8")
             enriched += 1
     return enriched
+
+
+def _paper_source_path_for_key(store: WikiStore, key: str) -> Path:
+    direct = store.root / "sources" / "papers" / f"{key}.md"
+    if direct.exists():
+        return direct
+    normalized = _normalize_key(key)
+    if not normalized:
+        return direct
+    papers_root = store.root / "sources" / "papers"
+    matches = [
+        candidate
+        for candidate in papers_root.glob("*.md")
+        if _normalize_key(candidate.stem) == normalized
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    return direct
+
+
+def _normalize_key(key: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", key.lower())
 
 
 def _iter_bib_entries(text: str) -> list[str]:
