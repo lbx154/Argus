@@ -589,6 +589,40 @@ class Planner:
                     f"{planner_match.block}\n\n"
                 )
 
+        # ------------------------------------------------------------------
+        # Idea-wiki block. Surface only when the project actually has a wiki
+        # (parasitic auto-collection: no wiki means nothing has been written
+        # yet, and we do not want to nag). Pure read; planner never writes.
+        # ------------------------------------------------------------------
+        wiki_block = ""
+        autors_root = _proot / ".autors"
+        wiki_candidates = (
+            sorted(autors_root.glob("*/wiki")) if autors_root.exists() else []
+        )
+        wiki_candidates = [
+            w for w in wiki_candidates if (w / "query_pack.md").exists()
+        ]
+        if wiki_candidates:
+            parts: list[str] = ["## Idea wiki (read-only)\n"]
+            for wiki_root in wiki_candidates:
+                project_name = wiki_root.parent.name
+                parts.append(f"### project: {project_name}\n")
+                pack = (wiki_root / "query_pack.md").read_text(encoding="utf-8")
+                parts.append("#### query_pack.md\n")
+                parts.append(pack.strip() + "\n\n")
+                for name in ("stale-watchlist.md", "open-contradictions.md"):
+                    qf = wiki_root / "queries" / name
+                    if qf.exists():
+                        parts.append(f"#### queries/{name}\n")
+                        parts.append(qf.read_text(encoding="utf-8").strip() + "\n\n")
+            parts.append(
+                "If backlog is empty, you MAY use the stale watchlist or open "
+                "contradictions to seed an `idea-creator` mission. Read-only: "
+                "do not write to the wiki yourself; the reviewer's "
+                "`wiki-curator` skill handles all writes.\n"
+            )
+            wiki_block = "".join(parts)
+
         return (
             format_role_context(
                 "Argus planner role skill",
@@ -602,6 +636,8 @@ class Planner:
             + "\n"
             + parallel_drafting_block
             + ("\n" if parallel_drafting_block else "")
+            + wiki_block
+            + ("\n" if wiki_block else "")
             + _PLANNER_SYSTEM_PREAMBLE
             + "\n\nOperator's continuous goal:\n"
             + continuous_objective.strip()
@@ -847,5 +883,4 @@ def parse_planner_text(text: str) -> PlannerVerdict:
 # ---------------------------------------------------------------------------
 # Objective rendering for the next cycle
 # ---------------------------------------------------------------------------
-
 
