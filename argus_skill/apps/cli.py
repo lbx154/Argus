@@ -11,9 +11,10 @@ one entry point — ``argus-skill`` — which:
 Top-level flags control daemon lifecycle and read-only operator help
 (``--daemon``, ``--daemon-fg``, ``--daemon-stop``, ``--status``,
 ``--daemon-runbook``, ``--no-daemon``). The only subcommand is a small
-admin helper for explicitly bootstrapping per-project idea wikis:
-``argus-skill wiki init <project>``. The REPL and backlog remain the
-single runtime workflow.
+admin helper for explicitly bootstrapping and backfilling per-project
+idea wikis: ``argus-skill wiki init <project>`` and
+``argus-skill wiki ingest --wiki <path>``. The REPL and backlog remain
+the single runtime workflow.
 """
 from __future__ import annotations
 
@@ -269,6 +270,34 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path.cwd(),
         help="Base directory (default: cwd)",
+    )
+    ingest_parser = wiki_sub.add_parser(
+        "ingest",
+        help="Backfill sources/papers/ from paper/refs.bib (+ optional LIT_MATRIX.tsv)",
+    )
+    ingest_parser.add_argument(
+        "--wiki",
+        type=Path,
+        required=True,
+        help="Path to .autors/<project>/wiki/",
+    )
+    ingest_parser.add_argument(
+        "--refs",
+        type=Path,
+        help="Path to refs.bib (default: <project-root>/paper/refs.bib if it exists)",
+    )
+    ingest_parser.add_argument(
+        "--lit-matrix",
+        type=Path,
+        help=(
+            "Path to LIT_MATRIX.tsv (default: "
+            "<project-root>/research/LIT_MATRIX.tsv if it exists)"
+        ),
+    )
+    ingest_parser.add_argument(
+        "--ingested-by",
+        default="wiki-curator@manual-backfill",
+        help="Provenance string for the ingested_by frontmatter field",
     )
 
     return parser
@@ -1083,6 +1112,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.command == "wiki" and args.wiki_cmd == "init":
         return _run_with_path_resolution_errors(lambda: _cmd_wiki_init(args))
+    if args.command == "wiki" and args.wiki_cmd == "ingest":
+        return _run_with_path_resolution_errors(lambda: _cmd_wiki_ingest(args))
     if args.daemon:
         return _run_with_path_resolution_errors(
             lambda: _cmd_daemon_start(args, foreground=False)
@@ -1392,6 +1423,50 @@ def _cmd_wiki_init(args: argparse.Namespace) -> int:
 
     root = init_wiki(args.project, base=args.base)
     print(f"wiki ready at {root}")
+    return 0
+
+
+def _project_root_for_wiki_path(wiki: Path) -> Path:
+    wiki = wiki.expanduser()
+    resolved = wiki.resolve() if wiki.exists() else wiki.absolute()
+    if (
+        resolved.name == "wiki"
+        and resolved.parent.parent.name == ".autors"
+    ):
+        return resolved.parent.parent.parent
+    return resolved.parent.parent
+
+
+def _cmd_wiki_ingest(args: argparse.Namespace) -> int:
+    from ..wiki.ingest import ingest_lit_matrix, ingest_refs_bib
+    from ..wiki.store import WikiStore
+
+    wiki = args.wiki.expanduser()
+    store = WikiStore(wiki)
+    project_root = _project_root_for_wiki_path(wiki)
+    refs = args.refs.expanduser() if args.refs else project_root / "paper" / "refs.bib"
+    lit = (
+        args.lit_matrix.expanduser()
+        if args.lit_matrix
+        else project_root / "research" / "LIT_MATRIX.tsv"
+    )
+
+    if refs.exists():
+        written = ingest_refs_bib(
+            store,
+            bib_path=refs,
+            ingested_by=args.ingested_by,
+        )
+        print(f"ingested {len(written)} new source(s) from {refs}")
+    else:
+        print(f"no refs.bib at {refs}, skipping bib ingest")
+
+    if lit.exists():
+        enriched = ingest_lit_matrix(store, tsv_path=lit)
+        print(f"enriched {enriched} source(s) from {lit}")
+    else:
+        print(f"no LIT_MATRIX.tsv at {lit}, skipping enrichment")
+
     return 0
 
 
