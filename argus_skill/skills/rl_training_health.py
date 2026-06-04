@@ -73,6 +73,10 @@ _ENTROPY_DECAY_RATIO = 0.5   # last <= ratio*first over tail = declining
 _DIVERSITY_UNIQUE_MAX = 16   # <= this many unique ids ...
 _DIVERSITY_REPEAT_MIN = 8    # ... with >= this many rollouts per id = memorising
 _KL_BLOWUP_RATIO = 5.0       # last kl >= ratio*first over tail = diverging
+_VARIANCE_OK_FRAC = 0.5      # frac_reward_zero_std below this *looks* healthy;
+#                              buffer aggregation can read ~0 even when batches
+#                              are saturated, so a low value here next to ceiling
+#                              saturation is a masked-collapse contradiction.
 
 
 def _is_finite_number(value: object) -> bool:
@@ -114,6 +118,10 @@ class RunHealth:
             )
         if "reward_std_last" in f:
             reward_bits.append(f"std_last={f['reward_std_last']:.4f}")
+        if "frac_reward_zero_std_last" in f:
+            reward_bits.append(
+                f"frac_reward_zero_std_last={f['frac_reward_zero_std_last']:.3f}"
+            )
         if reward_bits:
             lines.append("  reward: " + " ".join(reward_bits))
         adv_grad = []
@@ -331,6 +339,7 @@ def _collect_facts(run_dir: Path, state: str, steps: int) -> RunHealth:
     opt_rows = [r for r in prog_rows if r.get("event") == "optimizer_step"]
     reward_means: list[float] = []
     reward_std_last: float | None = None
+    frac_zero_std_last: float | None = None
     ceiling_steps_prog = 0
     for row in opt_rows[-TAIL_WINDOW:]:
         stats = row.get("reward_trace_stats")
@@ -344,12 +353,17 @@ def _collect_facts(run_dir: Path, state: str, steps: int) -> RunHealth:
         rs = stats.get("reward_std")
         if _is_finite_number(rs):
             reward_std_last = float(rs)
+        fz = stats.get("frac_reward_zero_std")
+        if _is_finite_number(fz):
+            frac_zero_std_last = float(fz)
     if reward_means:
         facts["reward_mean_last"] = reward_means[-1]
         facts["reward_mean_min"] = min(reward_means)
         facts["reward_mean_max"] = max(reward_means)
     if reward_std_last is not None:
         facts["reward_std_last"] = reward_std_last
+    if frac_zero_std_last is not None:
+        facts["frac_reward_zero_std_last"] = frac_zero_std_last
     ceiling_hits = max(ceiling_steps_verl, ceiling_steps_prog)
     if reward_means or verl_tail:
         facts["reward_ceiling_hits"] = ceiling_hits
@@ -398,6 +412,14 @@ def _collect_facts(run_dir: Path, state: str, steps: int) -> RunHealth:
         signals.append("near_zero_grad_norm")
     if sustained and ceiling_hits >= 2:
         signals.append("reward_ceiling_saturation")
+    # buffer-diluted variance metric can read ~0 while batches are saturated;
+    # flag the contradiction so a low frac_reward_zero_std is not read as "healthy".
+    if (
+        "reward_ceiling_saturation" in signals
+        and frac_zero_std_last is not None
+        and frac_zero_std_last < _VARIANCE_OK_FRAC
+    ):
+        signals.append("variance_metric_masks_saturation")
     if sustained and reward_means and max(reward_means) <= _REWARD_FLOOR:
         signals.append("reward_floor_stuck")
     if entropies:

@@ -187,6 +187,7 @@ def test_rollback_stage_moves_state_machine_backward(tmp_path: Path) -> None:
 
 def test_rollback_stage_rejects_forward_or_same_target(tmp_path: Path) -> None:
     import pytest as _pytest
+
     from argus_skill.skills.stage_checklists import rollback_stage
 
     research_dir = tmp_path / "research"

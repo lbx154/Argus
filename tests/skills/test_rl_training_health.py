@@ -30,6 +30,7 @@ def _write_run(
     admitted: int | None = None,
     minimum: int | None = None,
     partial_final_verl: bool = False,
+    frac_zero_std: float = 0.0,
 ) -> Path:
     run_dir = project_root / "experiments" / "runs" / name
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -77,7 +78,7 @@ def _write_run(
                     "reward_trace_stats": {
                         "reward_mean": reward_means[i],
                         "reward_std": 0.3,
-                        "frac_reward_zero_std": 0.0,
+                        "frac_reward_zero_std": frac_zero_std,
                     },
                 }
             )
@@ -125,8 +126,28 @@ def test_saturated_run_flags_signals(tmp_path: Path) -> None:
     assert "near_zero_grad_norm" in sig
     assert "reward_ceiling_saturation" in sig
     assert "low_task_diversity" in sig
+    # frac_reward_zero_std reads 0.0 (looks healthy) while reward is at the
+    # ceiling -> the contradiction must be surfaced, not silently trusted.
+    assert "variance_metric_masks_saturation" in sig
     # entropy 0.5 -> 0.08 is a >50% decline, last is also below the low cap
     assert "low_entropy" in sig or "entropy_declining" in sig
+
+
+def test_high_frac_zero_std_does_not_emit_masking_signal(tmp_path: Path) -> None:
+    # honest variance metric (frac high) at the ceiling: ceiling saturation may
+    # fire, but the masking-contradiction signal must NOT — nothing is masked.
+    _write_run(
+        tmp_path,
+        "optimizer_honest_frac",
+        steps=TAIL_WINDOW,
+        adv_spans=[0.0] * TAIL_WINDOW,
+        reward_means=[1.0] * TAIL_WINDOW,
+        frac_zero_std=1.0,
+    )
+    report = validate_rl_training_health(tmp_path)
+    sig = report.runs[0].signals
+    assert "reward_ceiling_saturation" in sig
+    assert "variance_metric_masks_saturation" not in sig
 
 
 def test_zero_advantage_only_last_step_is_not_sustained(tmp_path: Path) -> None:

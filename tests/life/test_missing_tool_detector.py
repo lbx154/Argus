@@ -4,15 +4,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from argus_skill.life.missing_tool_detector import (
-    MissingToolSignal,
     scan_events_jsonl,
     scan_mission,
     scan_text,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shell command-not-found patterns

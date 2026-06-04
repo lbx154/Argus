@@ -30,12 +30,11 @@ the next action.
 """
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Iterable
 
 
 class ProjectState(str, Enum):

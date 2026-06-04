@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from argus_skill.life.project_lifecycle import (
-    AdvisorySignal,
     LifecycleEvent,
     ProjectState,
     ProjectStatus,

@@ -43,7 +43,6 @@ import uuid
 from pathlib import Path
 from typing import Iterable, Iterator
 
-
 # -- config -----------------------------------------------------------------
 
 def _config_path() -> Path:
@@ -586,11 +585,14 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = load_config()
     if args.cmd == "status":
-        _print(status(cfg)); return 0
+        _print(status(cfg))
+        return 0
     if args.cmd == "claim":
-        _print(claim(cfg, timeout=args.timeout)); return 0
+        _print(claim(cfg, timeout=args.timeout))
+        return 0
     if args.cmd == "park":
-        _print(park(cfg, force=args.force)); return 0
+        _print(park(cfg, force=args.force))
+        return 0
     if args.cmd in ("run", "_supervise"):
         command = list(args.command)
         if command and command[0] == "--":

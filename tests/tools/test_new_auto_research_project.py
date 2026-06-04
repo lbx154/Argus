@@ -4,6 +4,7 @@ import json
 import py_compile
 from pathlib import Path
 
+import argus_skill.tools.new_auto_research_project as narp
 from argus_skill.skills.builtins import builtin_skill_count
 from argus_skill.tools.new_auto_research_project import (
     LaunchConfig,
@@ -14,7 +15,6 @@ from argus_skill.tools.new_auto_research_project import (
     next_version,
     render_agents_md,
 )
-import argus_skill.tools.new_auto_research_project as narp
 
 
 def test_extract_copy_ready_agents_md_omits_skill_frontmatter() -> None:

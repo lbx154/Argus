@@ -30,6 +30,7 @@ from typing import Any, Callable
 
 from .failure_signature_detector import scan_failure_signatures
 from .memory import JournalEntry, LifeMemory
+
 # Reuse Signal A's anti-recursion tag + result-unpacking + event-tailing
 # so both advisors agree on what a "mint mission" is and how to read a
 # mission result.

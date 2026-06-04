@@ -251,7 +251,6 @@ def main() -> int:
     #    judgment. The gate map + kind lives in
     #    argus_skill.skills.automated_gates.{STAGE_GATES,GATE_KINDS}.
     from argus_skill.skills.automated_gates import (
-        any_blocking_failure as _gates_any_blocking,
         run_stage_gates,
     )
 

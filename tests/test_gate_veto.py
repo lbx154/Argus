@@ -14,15 +14,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 from argus_skill.core.models import CheckResult, ReviewDecision
 from argus_skill.engineer.runner import (
     _coerce_review_for_failed_checks,
     _extract_gate_failures,
     _fallback_failed_check_handoff,
 )
-
 
 # ---------------------------------------------------------------------------
 # _extract_gate_failures: parse stage_check output_tail

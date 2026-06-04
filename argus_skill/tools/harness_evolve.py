@@ -37,7 +37,6 @@ Usage (run from inside a mission; project root auto-resolved):
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 

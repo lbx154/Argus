@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from argus_skill.skills.pipeline_contracts import (
     cli_command_handlers,
+)
+from argus_skill.skills.pipeline_contracts import (
     main as pipeline_contracts_main,
 )
-
 
 # The artifact build/repair utilities are NOT quality gates; skills instruct the
 # agent to run them to construct manifest/freshness/policy artifacts (and forbid

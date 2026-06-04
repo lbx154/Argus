@@ -26,7 +26,6 @@ from argus_skill.life.supervisor import (
     LifeSupervisorConfig,
 )
 
-
 # ---------------------------------------------------------------------------
 # ReviewDecision.final_submission_certified
 # ---------------------------------------------------------------------------

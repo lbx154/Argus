@@ -31,8 +31,8 @@ from .core.models import LoopOutcome, RoundRecord
 from .core.ports import RunnerBackend
 from .engineer.reviewer import Reviewer, ReviewerConfig
 from .engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
-from .scientist.distiller import Distiller, DistillerConfig
 from .missions import EngineerMission
+from .scientist.distiller import Distiller, DistillerConfig
 from .skills.role_match import render_skill_playbook
 from .skills.store import Skill, SkillStore
 
@@ -462,8 +462,8 @@ class SkillLoop:
                 "## Operator guidance (injected since last round)\n"
                 + "\n\n".join(extra_guidance)
             )
-        from .skills.stage_checklists import current_stage, format_stage_checklist
         from .skills.harness_overlay import resolve_project_root
+        from .skills.stage_checklists import current_stage, format_stage_checklist
 
         # Always-on project-venv reminder. Injected for every stage / every
         # round so the agent never has an excuse for `import X` failures or

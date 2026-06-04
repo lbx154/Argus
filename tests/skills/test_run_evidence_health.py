@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 from argus_skill.skills.run_evidence_health import (
-    MAX_CALL_FAILED_FRACTION,
     validate_run_evidence_health,
 )
 

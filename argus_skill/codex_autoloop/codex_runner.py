@@ -20,7 +20,6 @@ from .runner_backend import (
     default_runner_bin,
 )
 
-
 EventCallback = Callable[[str, str], None]
 InactivityDecision = Literal["continue", "restart"]
 

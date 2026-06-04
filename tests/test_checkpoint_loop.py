@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill import SkillLoop, SkillLoopConfig, SkillStore
+from argus_skill import SkillLoop, SkillLoopConfig
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
 
 SKILL_MD = (

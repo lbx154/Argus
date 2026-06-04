@@ -10,8 +10,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from argus_skill.skills.paper_structural_minimums import (
     MIN_CITED_BIB_ENTRIES,
     MIN_FIGURES,

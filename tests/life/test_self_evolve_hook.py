@@ -15,9 +15,6 @@ from __future__ import annotations
 import json
 import time as _time
 from pathlib import Path
-from typing import Any
-
-import pytest
 
 
 def _make_stub_supervisor(tmp_path: Path):

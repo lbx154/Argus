@@ -77,8 +77,8 @@ grad-norm, reward ceiling/floor hits, entropy trend, and training-set
 diversity (unique `task_id` count vs rollout rows). It emits neutral signal
 tokens — `zero_advantage`, `near_zero_grad_norm`, `reward_ceiling_saturation`,
 `reward_floor_stuck`, `entropy_declining`, `low_task_diversity`,
-`kl_blowup_candidate`, `nan_or_inf_metric` — that map onto the signatures
-below.
+`variance_metric_masks_saturation`, `kl_blowup_candidate`, `nan_or_inf_metric`
+— that map onto the signatures below.
 
 That gate is a **fact extractor, not the authority**: it never blocks and
 never rules. The authority is this skill plus your judgment. Read its numbers,
@@ -137,6 +137,18 @@ match on meaning, not exact keys.
      window while completions *look* plausible is a screaming sign the reward
      extractor (boxed-answer parse, answer normalization, gold matching) is
      broken — not that the model is hopeless.
+   - **`frac_reward_zero_std` reads differently depending on how it is
+     aggregated — do not trust a low value as an all-clear.** Computed
+     per-group on one batch (e.g. at curriculum screening) it honestly reads
+     `1.0` when every group is saturated. But the *same* saturation can read
+     `~0.0` when the metric is averaged over a sliding rollout buffer that
+     mixes many steps/groups: a handful of still-varying groups dilute the
+     fraction toward zero even though the policy has already memorised the set.
+     So `frac_reward_zero_std ≈ 0` during training is **not** proof of healthy
+     variance. Cross-check with the advantage span, the per-group/per-family
+     reward std on the latest batch, and the distinct-task count before you
+     call variance "healthy" — that buffer-diluted `0.0` is exactly how a
+     memorised tiny-set run gets mislabelled healthy.
 
 2. **Gradient / update death.**
    - `grad_norm → 0` and `loss → exactly 0` sustained.

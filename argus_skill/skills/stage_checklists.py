@@ -20,7 +20,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-
 CANONICAL_STAGE_ORDER: tuple[str, ...] = (
     "research",
     "plan",

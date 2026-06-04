@@ -29,11 +29,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Callable, Iterable
 
 # Routes the daemon actually uses. Any route in vault but NOT in this

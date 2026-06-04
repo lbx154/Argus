@@ -2,17 +2,15 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
-
-import pytest
 
 from argus_skill.skills.mint_skill_validator import (
     MIN_FIXTURE_CASES,
-    main as validator_main,
     validate_candidate_skill,
 )
-
+from argus_skill.skills.mint_skill_validator import (
+    main as validator_main,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers — build a minimal skill + fixture tree

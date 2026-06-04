@@ -3,12 +3,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from argus_skill.skills.evidence_chain import (
-    ChainIssue,
-    ChainReport,
     main as evidence_chain_main,
+)
+from argus_skill.skills.evidence_chain import (
     validate_evidence_chain,
 )
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Literal
 
-
 RunnerBackend = Literal["codex", "claude", "copilot"]
 
 BACKEND_CODEX: RunnerBackend = "codex"

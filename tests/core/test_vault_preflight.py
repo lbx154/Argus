@@ -3,20 +3,15 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any
-
-import pytest
 
 from argus_skill.core.vault_preflight import (
-    DEFAULT_OPTIONAL_ROUTES,
     DEFAULT_REQUIRED_ROUTES,
-    PreflightReport,
-    RouteCheck,
     check_routes,
     format_report,
+)
+from argus_skill.core.vault_preflight import (
     main as preflight_main,
 )
-
 
 # ---------------------------------------------------------------------------
 # Stub route loader + probe so tests don't hit the network

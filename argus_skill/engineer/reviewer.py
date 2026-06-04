@@ -270,13 +270,13 @@ class Reviewer:
                     "(read first; apply the relevant one(s)):\n"
                     f"{review_match.block}\n\n"
                 )
+        from ..skills.harness_overlay import resolve_project_root
         from ..skills.stage_checklists import (
             CANONICAL_STAGE_ORDER,
             current_stage,
             format_full_pipeline_checklist,
             format_stage_checklist,
         )
-        from ..skills.harness_overlay import resolve_project_root
 
         _proot = resolve_project_root()
         stage = current_stage(_proot)

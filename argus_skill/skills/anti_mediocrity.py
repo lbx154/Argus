@@ -40,10 +40,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
 
 DEFAULT_EVIDENCE_ROOT = Path("benchmarks/evidence")
 # Aggregates with this fraction or more errored trials are flagged in the

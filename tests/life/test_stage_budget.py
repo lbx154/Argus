@@ -11,8 +11,6 @@ import pytest
 from argus_skill.life.stage_budget import (
     DEFAULT_ADVISORY_FRACTION,
     KNOWN_STAGES,
-    StageBudgetSnapshot,
-    StageSpendSignal,
     compute_snapshot,
     read_pipeline_stage,
 )

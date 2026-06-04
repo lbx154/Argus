@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-
 ReviewStatus = Literal["done", "continue", "blocked"]
 PlanWorkstreamStatus = Literal["done", "in_progress", "todo", "blocked"]
 PlanMode = Literal["off", "auto", "record"]

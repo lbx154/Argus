@@ -39,7 +39,6 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-
 # --- Layout -----------------------------------------------------------------
 
 OVERLAY_DIRNAME = ".argus"

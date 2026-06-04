@@ -1125,9 +1125,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(f"argus-skill: {entry_error}\n")
         return 2
 
-    from ._life_repl import run_life_chat_loop
-
     from ..tools.capability_vault import resolve_route_model
+    from ._life_repl import run_life_chat_loop
 
     repl_args = argparse.Namespace(
         life_dir=args.life_dir,
@@ -1524,7 +1523,7 @@ def _cmd_lifecycle_status(args: argparse.Namespace) -> int:
     history = load_history(root)
     signals = advisory_time_signals(overlaid)
 
-    print(f"argus-skill — project lifecycle (F5)")
+    print("argus-skill — project lifecycle (F5)")
     print(f"  root              : {root}")
     print(f"  observed_state    : {status.state.value}")
     print(
@@ -1572,7 +1571,11 @@ def _cmd_lifecycle_transition(
 
     from ..life.project_lifecycle import (
         archive as _lifecycle_archive,
+    )
+    from ..life.project_lifecycle import (
         infer_observable_status,
+    )
+    from ..life.project_lifecycle import (
         resume as _lifecycle_resume,
     )
     from ..life.project_lifecycle_io import (

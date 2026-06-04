@@ -12,15 +12,12 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 
-import pytest
-
 from argus_skill.apps.cli import (
     _read_current_stage,
     _render_gate_snapshot_lines,
     _render_lifecycle_status_lines,
     _resolve_research_workdir,
 )
-
 
 # ---------------------------------------------------------------------------
 # _resolve_research_workdir

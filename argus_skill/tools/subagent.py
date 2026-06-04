@@ -748,13 +748,13 @@ def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
         last_lines = stdout_tail.strip().splitlines()[-5:]
         lines.append("")
         lines.append("**Last output**:")
-        for l in last_lines:
-            lines.append(f"  {l}")
+        for line in last_lines:
+            lines.append(f"  {line}")
     if stderr_tail and event != "COMPLETED":
         last_err = stderr_tail.strip().splitlines()[-3:]
         lines.append("**Last errors**:")
-        for l in last_err:
-            lines.append(f"  {l}")
+        for line in last_err:
+            lines.append(f"  {line}")
 
     # Action guidance
     lines.append("")
@@ -771,9 +771,9 @@ def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
 def _queue_to_inbox(report: str, task_id: str = "subagent") -> None:
     """Queue a message to the project inbox; fall back to a file on failure."""
     try:
-        from ..core.project import project_fingerprint
-        from ..core.paths import global_root
         from ..apps._inbox import queue_inbox_message
+        from ..core.paths import global_root
+        from ..core.project import project_fingerprint
         ident = project_fingerprint()
         life_dir = global_root() / "projects" / ident.fingerprint
         queue_inbox_message(life_dir, report, source="subagent")
@@ -2493,13 +2493,13 @@ def main() -> int:
     p_status = sub.add_parser("status", help="Show task status")
     p_status.add_argument("--task-id", required=True)
 
-    p_list = sub.add_parser("list", help="List all tasks")
+    sub.add_parser("list", help="List all tasks")
 
     p_wait = sub.add_parser("wait", help="Wait for a task to complete")
     p_wait.add_argument("--task-id", required=True)
     p_wait.add_argument("--timeout", type=int, default=3600)
 
-    p_clean = sub.add_parser("clean", help="Remove completed task records")
+    sub.add_parser("clean", help="Remove completed task records")
 
     p_reply = sub.add_parser(
         "reply",

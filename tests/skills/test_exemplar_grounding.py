@@ -7,11 +7,8 @@ import hashlib
 import json
 from pathlib import Path
 
-import pytest
-
 from argus_skill.skills.exemplar_grounding import (
     MIN_BLUEPRINT_CHARS,
-    MIN_EXEMPLARS,
     MIN_STYLE_PROFILE_CHARS,
     validate_exemplar_grounding,
 )

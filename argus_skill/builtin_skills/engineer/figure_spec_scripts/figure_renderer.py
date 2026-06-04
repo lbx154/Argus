@@ -18,9 +18,8 @@ import os
 import re
 import sys
 from pathlib import Path
-from xml.etree.ElementTree import Element, SubElement, tostring
 from xml.dom.minidom import parseString
-
+from xml.etree.ElementTree import Element, SubElement, tostring
 
 # ============================================================
 # Constants & Defaults
@@ -201,11 +200,11 @@ def validate_spec(spec: dict) -> list:
     st = spec.get("style", {})
     fs = st.get("font_size")
     if fs is not None and (isinstance(fs, bool) or not isinstance(fs, (int, float)) or fs <= 0):
-        issues.append(f"CRITICAL: style.font_size must be a positive number")
+        issues.append("CRITICAL: style.font_size must be a positive number")
     pal = st.get("palette")
     if pal is not None:
         if not isinstance(pal, list) or len(pal) == 0:
-            issues.append(f"CRITICAL: style.palette must be a non-empty list of hex colors")
+            issues.append("CRITICAL: style.palette must be a non-empty list of hex colors")
         else:
             for pi, pc in enumerate(pal):
                 if not isinstance(pc, str) or not HEX_COLOR_RE.match(pc):

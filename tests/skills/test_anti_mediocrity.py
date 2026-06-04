@@ -18,9 +18,10 @@ from argus_skill.skills.anti_mediocrity import (
     MediocrityFinding,
     collect_mediocrity_finding,
     format_finding,
+)
+from argus_skill.skills.anti_mediocrity import (
     main as anti_mediocrity_main,
 )
-
 
 # ---------------------------------------------------------------------------
 # AggregateRow.is_noisy — presentation label, never a verdict

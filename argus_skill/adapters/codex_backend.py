@@ -155,6 +155,8 @@ def _import_argusbot():
     try:
         from argus_skill.codex_autoloop.codex_runner import (
             CodexRunner,
+        )
+        from argus_skill.codex_autoloop.codex_runner import (
             RunnerOptions as ArgusRunnerOptions,
         )
         from argus_skill.codex_autoloop.runner_backend import (
@@ -169,6 +171,8 @@ def _import_argusbot():
         try:
             from codex_autoloop.codex_runner import (  # type: ignore[no-redef]
                 CodexRunner,
+            )
+            from codex_autoloop.codex_runner import (
                 RunnerOptions as ArgusRunnerOptions,
             )
             from codex_autoloop.runner_backend import (  # type: ignore[no-redef]
