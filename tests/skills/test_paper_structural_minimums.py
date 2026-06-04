@@ -224,6 +224,30 @@ def test_includegraphics_referencing_missing_file_does_not_count(tmp_path: Path)
     assert "ghost.pdf" in report.figures_missing_files
 
 
+def test_image2_entry_with_figure_id_field_classifies(tmp_path: Path) -> None:
+    """Live v2 paper-framework-figure-studio-pro writes ``figure_id``
+    (not ``name``) in IMAGE2_FIGURES.json. The gate must accept either
+    that or the ``id`` fallback."""
+    _seed_minimal_passing_paper(tmp_path)
+    (tmp_path / "paper" / "figures" / "pipeline_diagram.png").write_bytes(b"\x89PNG\r\n")
+    (tmp_path / "paper" / "figures" / "fig1_teaser.png").write_bytes(b"\x89PNG\r\n")
+    (tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json").write_text(
+        json.dumps({"figures": [
+            # studio-pro style: figure_id, not name; pipeline keyword only
+            {"figure_id": "pipeline_diagram_v2",
+             "output_path": "paper/figures/pipeline_diagram.png"},
+            # also test plain `id` fallback; teaser keyword only
+            {"id": "fig1_teaser_hero",
+             "file": "paper/figures/fig1_teaser.png"},
+        ]}),
+        encoding="utf-8",
+    )
+    report = validate_paper_structural_minimums(tmp_path)
+    assert report.has_pipeline_figure is True
+    assert report.has_teaser_figure is True
+    assert report.ok, report.to_text()
+
+
 def test_includegraphics_resolves_with_or_without_extension(tmp_path: Path) -> None:
     paper = tmp_path / "paper"
     (paper / "figures").mkdir(parents=True)

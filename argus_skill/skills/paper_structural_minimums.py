@@ -249,7 +249,16 @@ def _scan_image2_manifest(paper_dir: Path) -> tuple[
     for entry in figures:
         if not isinstance(entry, dict):
             continue
-        name = str(entry.get("name") or "").strip()
+        # Accept any of the conventional id fields. paper-illustration-image2
+        # writes ``name``; paper-framework-figure-studio-pro writes
+        # ``figure_id``; some downstream tools use ``id``. The role
+        # classifier doesn't care which key carried it.
+        name = str(
+            entry.get("name")
+            or entry.get("figure_id")
+            or entry.get("id")
+            or ""
+        ).strip()
         if not name:
             continue
         file_field = str(entry.get("file") or entry.get("output_path") or "").strip()
