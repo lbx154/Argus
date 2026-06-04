@@ -479,17 +479,17 @@ def promote(project_root: Path | str | None, *, entry_id: str) -> bool:
     """Move a single entry from pending to active (gated adoption)."""
 
     pending = load_overlay(project_root, state="pending")
-    moved: dict[str, Any] | None = None
+    moved: tuple[str, dict[str, Any]] | None = None
     for key in ("checklist_items", "prompt_rules"):
         for e in pending.get(key, []):
             if isinstance(e, dict) and e.get("id") == entry_id:
-                moved = (key, e)  # type: ignore[assignment]
+                moved = (key, e)
                 break
         if moved is not None:
             break
     if moved is None:
         return False
-    key, entry = moved  # type: ignore[misc]
+    key, entry = moved
     # Active-first then pending-remove: a crash between the two writes leaves a
     # harmless active+pending duplicate rather than losing the entry entirely.
     active = load_overlay(project_root, state="active")

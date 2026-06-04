@@ -39,6 +39,7 @@ import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypeGuard
 
 # Shared run-discovery policy lives in rl_training_plots so the two RL
 # gates can never drift apart on what counts as an optimizer run.
@@ -79,7 +80,7 @@ _VARIANCE_OK_FRAC = 0.5      # frac_reward_zero_std below this *looks* healthy;
 #                              saturation is a masked-collapse contradiction.
 
 
-def _is_finite_number(value: object) -> bool:
+def _is_finite_number(value: object) -> TypeGuard[int | float]:
     return isinstance(value, (int, float)) and math.isfinite(float(value))
 
 

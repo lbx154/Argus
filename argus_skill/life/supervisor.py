@@ -33,7 +33,7 @@ import time
 import unicodedata
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from ..core.ports import EventSink
 from ..core.pricing import price_for, usd_for_tokens
@@ -1147,7 +1147,7 @@ class LifeSupervisor:
         """
         from .self_evolve_advisor import SelfEvolveAdvisor
         return SelfEvolveAdvisor(
-            memory=self.memory,
+            memory=cast(Any, self.memory),
             on_cost=self._inject_cumulative_cost,
         ).maybe_journal_advisory(item, result)
 
@@ -1161,7 +1161,7 @@ class LifeSupervisor:
         """
         from .recurring_failure_advisor import RecurringFailureAdvisor
         return RecurringFailureAdvisor(
-            memory=self.memory,
+            memory=cast(Any, self.memory),
             on_cost=self._inject_cumulative_cost,
         ).maybe_journal_advisory(item, result)
 

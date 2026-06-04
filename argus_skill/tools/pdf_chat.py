@@ -125,7 +125,9 @@ def _extract_with_pdftotext(pdf: Path) -> tuple[str, int]:
 
 
 def _extract_with_pypdf(pdf: Path) -> tuple[str, int]:
-    import pypdf  # local import — only needed in fallback
+    import importlib
+
+    pypdf = importlib.import_module("pypdf")
     reader = pypdf.PdfReader(str(pdf))
     pages = []
     for i, p in enumerate(reader.pages):
@@ -182,8 +184,8 @@ def view_head(view: PaperView) -> dict[str, object]:
 
 def view_brief(view: PaperView) -> dict[str, object]:
     """Abstract + first ~600 chars of Introduction."""
-    abstract = view_section(view, "Abstract").get("text", "")
-    intro = view_section(view, "Introduction").get("text", "")
+    abstract = str(view_section(view, "Abstract").get("text", ""))
+    intro = str(view_section(view, "Introduction").get("text", ""))
     return {
         "source": view.source,
         "abstract": (abstract or "").strip()[:2000],

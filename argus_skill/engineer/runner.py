@@ -1358,13 +1358,13 @@ def _fallback_failed_check_handoff(checks: list[CheckResult]) -> str:
         )
         return "\n".join(lines)
 
-    lines: list[str] = [
+    fallback_lines: list[str] = [
         "The acceptance checks still fail. Convert the validator blockers into concrete fixes, "
         "then rerun the exact failed command before claiming completion.",
     ]
     for index, check in enumerate(failed, start=1):
-        lines.append(f"{index}. `{check.command}` exited {check.exit_code}.")
-    return "\n".join(lines)
+        fallback_lines.append(f"{index}. `{check.command}` exited {check.exit_code}.")
+    return "\n".join(fallback_lines)
 
 
 def _coerce_review_for_failed_checks(

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import pytest
 
@@ -24,8 +25,8 @@ def _utc(dt: str) -> datetime:
     return datetime.fromisoformat(dt).replace(tzinfo=timezone.utc)
 
 
-def _fresh(state: ProjectState = ProjectState.INCUBATING, **overrides) -> ProjectStatus:
-    base = dict(
+def _fresh(state: ProjectState = ProjectState.INCUBATING, **overrides: Any) -> ProjectStatus:
+    base: dict[str, Any] = dict(
         project_id="proj-1",
         state=state,
         created_at=_utc("2026-05-01T00:00:00"),

@@ -58,28 +58,6 @@ except ImportError:  # pragma: no cover - non-POSIX fallback
     fcntl = None  # type: ignore[assignment]
 
 
-def _list_tasks() -> list[dict[str, Any]]:
-    if not REGISTRY_DIR.exists():
-        return []
-    tasks = []
-    for f in sorted(REGISTRY_DIR.glob("*.json")):
-        if f.name.endswith(".tmp"):
-            continue
-        try:
-            tasks.append(json.loads(f.read_text(encoding="utf-8")))
-        except (json.JSONDecodeError, OSError):
-            pass
-    return tasks
-
-
-def _is_pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-        return True
-    except (OSError, ProcessLookupError):
-        return False
-
-
 """Unified sub-agent system for delegating long-running tasks.
 
 Two execution modes:
@@ -2235,19 +2213,24 @@ def _progress_summary(run_dir: str | None) -> dict[str, Any]:
         metrics = []
         for row in aggregates:
             entry: dict[str, Any] = {}
-            for src, dst, cast in (
-                ("condition", "condition", str),
-                ("dataset_id", "dataset", str),
-                ("reward", "reward", float),
-                ("n_total_trials", "total", int),
-                ("n_completed_trials", "completed", int),
-                ("n_errored_trials", "errored", int),
+            for src, dst, cast_name in (
+                ("condition", "condition", "str"),
+                ("dataset_id", "dataset", "str"),
+                ("reward", "reward", "float"),
+                ("n_total_trials", "total", "int"),
+                ("n_completed_trials", "completed", "int"),
+                ("n_errored_trials", "errored", "int"),
             ):
                 val = row.get(src)
                 if val in (None, ""):
                     continue
                 try:
-                    entry[dst] = cast(val)
+                    if cast_name == "float":
+                        entry[dst] = float(str(val))
+                    elif cast_name == "int":
+                        entry[dst] = int(str(val))
+                    else:
+                        entry[dst] = str(val)
                 except (TypeError, ValueError):
                     entry[dst] = val
             if entry:

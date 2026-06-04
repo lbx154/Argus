@@ -40,7 +40,7 @@ dependencies = [
 codex = []
 dev = [
   "build>=1",
-  "mypy>=1.8",
+  "mypy>=1.8,<2",
   "pytest>=7",
   "ruff>=0.4",
 ]
@@ -125,5 +125,13 @@ module = ["codex_autoloop.*", "argus_skill.codex_autoloop.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["benchmarks.*"]
+module = ["torch"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+  "argus_skill.builtin_skills.engineer.figure_spec_scripts.*",
+  "argus_skill.tools.project_templates.code.*",
+  "tests.*",
+]
 ignore_errors = true

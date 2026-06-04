@@ -373,9 +373,9 @@ def claim(cfg: dict, *, timeout: float = 20.0) -> dict:
 
 
 def _start_keepalive(cfg: dict) -> dict:
-    command = list(cfg["command"])
-    cwd = cfg.get("cwd") or str(Path.home())
-    log_path = Path(cfg.get("log") or _DEFAULT_CONFIG["log"]).expanduser()
+    command = [str(part) for part in cfg["command"]]
+    cwd = str(cfg.get("cwd") or Path.home())
+    log_path = Path(str(cfg.get("log") or _DEFAULT_CONFIG["log"])).expanduser()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with open(log_path, "ab") as log_fh:
         proc = subprocess.Popen(

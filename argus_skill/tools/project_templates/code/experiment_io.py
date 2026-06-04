@@ -39,7 +39,7 @@ import sys
 import time
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal
 
 # Field names the reviewer's full-scale evidence check accepts for each row.
 METHOD_FIELDS = ("method", "condition", "variant", "baseline", "condition_name")
@@ -163,7 +163,7 @@ class RunWriter:
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
         tb: TracebackType | None,
-    ) -> bool:
+    ) -> Literal[False]:
         if exc_type is RunCancelled:
             self._finalize("cancelled")
             self._close()
