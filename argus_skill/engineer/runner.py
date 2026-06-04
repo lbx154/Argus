@@ -74,6 +74,11 @@ _BACKEND_FAILURE_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
 )
 
 _EFFECTIVE_PROGRESS_TIMEOUT_MARKER = "effective progress timeout"
+# Distinct marker for the in-round auto-compaction amnesia loop (a busy-but-
+# unproductive churn, not a silent stall). Kept separate from the timeout
+# marker so fatal-error metrics/searches don't conflate the two failure modes,
+# while still reusing the same recoverable between-round handling.
+_COMPACTION_THRASH_MARKER = "compaction thrash"
 _RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
 _DAEMON_STOP_INTERRUPT_RE = re.compile(r"^external interrupt:\s*daemon stop requested\b")
 
@@ -84,6 +89,7 @@ _EFFECTIVE_PROGRESS_CHECK_INTERVAL_ENV = (
 _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
 _SHIFT_ROUND_LIMIT_ENV = "ARGUS_SKILL_SHIFT_ROUND_LIMIT"
 _THREAD_TOKEN_LIMIT_ENV = "ARGUS_SKILL_THREAD_TOKEN_LIMIT"
+_ROUND_COMPACTION_LIMIT_ENV = "ARGUS_SKILL_ROUND_COMPACTION_LIMIT"
 # Coarse upper bound on the input-token size a single resumed Codex thread may
 # reach before it is rolled. A healthy fresh round is ~0.7M and a couple of
 # legitimate work rounds reach ~2M; the amnesia/re-read loop lived at 5-7M
@@ -92,10 +98,23 @@ _THREAD_TOKEN_LIMIT_ENV = "ARGUS_SKILL_THREAD_TOKEN_LIMIT"
 # (0 disables the token roll).
 _DEFAULT_THREAD_TOKEN_LIMIT = 4_000_000
 _EFFECTIVE_PROGRESS_DEFAULT_TIMEOUT_SECONDS = 60 * 60
+# A single engineer round should essentially never reach Codex auto-compaction:
+# the runner proactively rolls the session every ``shift_round_limit`` rounds
+# and at ``thread_token_limit`` input tokens precisely to stay below it. So a
+# handful of ``compacted`` events *within one round* means that anti-amnesia
+# design has already been defeated and the round is in the re-read/re-emit
+# amnesia loop. We keep the default at 3 (not 1) to tolerate an occasional
+# benign compaction. Set ARGUS_SKILL_ROUND_COMPACTION_LIMIT=0 to disable.
+_DEFAULT_ROUND_COMPACTION_LIMIT = 3
 _EFFECTIVE_PROGRESS_DEFAULT_CHECK_INTERVAL_SECONDS = 30.0
 _EFFECTIVE_PROGRESS_WAITING_EVENT_INTERVAL_SECONDS = 120.0
 _RUNNER_DEFAULT_HARD_IDLE_SECONDS = 60 * 60
 _CODEX_SESSION_EVENT_IGNORED_PAYLOAD_TYPES = {"token_count"}
+# Top-level Codex session event type written when the agent auto-compacts its
+# context. A compaction is the *opposite* of progress (it discards context and
+# triggers a re-read loop), so it never counts as effective progress and is
+# tallied separately to detect the in-round amnesia thrash.
+_CODEX_COMPACTION_EVENT_TYPE = "compacted"
 _PROJECT_PROGRESS_IGNORE_DIRS = {
     ".git",
     ".hg",
@@ -170,6 +189,13 @@ def fatal_error_looks_like_effective_progress_timeout(fatal_error: str | None) -
     return _EFFECTIVE_PROGRESS_TIMEOUT_MARKER in str(fatal_error).strip().casefold()
 
 
+def fatal_error_looks_like_compaction_thrash(fatal_error: str | None) -> bool:
+    """Return True when the watchdog stopped an in-round auto-compaction loop."""
+    if not fatal_error:
+        return False
+    return _COMPACTION_THRASH_MARKER in str(fatal_error).strip().casefold()
+
+
 def fatal_error_looks_like_daemon_stop_request(fatal_error: str | None) -> bool:
     """Return True for intentional daemon shutdown interrupts."""
     if not fatal_error:
@@ -226,6 +252,7 @@ def should_clear_thread_id_after_outcome(*, status: str, fatal_error: str | None
         str(status).strip().casefold() == "no_progress"
         or _fatal_error_looks_like_poisoned_session(fatal_error)
         or fatal_error_looks_like_effective_progress_timeout(fatal_error)
+        or fatal_error_looks_like_compaction_thrash(fatal_error)
         or fatal_error_looks_like_backend_failure(fatal_error)
     )
 
@@ -236,6 +263,10 @@ def _runner_result_has_successful_work_signal(
     engineer_message: str,
 ) -> bool:
     if fatal_error_looks_like_effective_progress_timeout(
+        getattr(result, "fatal_error", None)
+    ):
+        return False
+    if fatal_error_looks_like_compaction_thrash(
         getattr(result, "fatal_error", None)
     ):
         return False
@@ -368,10 +399,28 @@ class SupervisedConfig:
             _RUNNER_DEFAULT_HARD_IDLE_SECONDS,
         )
     )
+    # Interrupt a round once its Codex session auto-compacts this many times
+    # within the single round (the in-round amnesia-loop signature). Set
+    # ARGUS_SKILL_ROUND_COMPACTION_LIMIT=0 to disable.
+    round_compaction_limit: int = field(
+        default_factory=lambda: _env_int(
+            _ROUND_COMPACTION_LIMIT_ENV,
+            _DEFAULT_ROUND_COMPACTION_LIMIT,
+        )
+    )
 
 
 class _AdvisoryLedger(Protocol):
     def render_advisory(self) -> str: ...
+
+
+@dataclass(frozen=True)
+class _SessionReadResult:
+    """Outcome of tailing the new region of one Codex session jsonl."""
+
+    progressed: bool
+    compactions: int
+    consumed_bytes: int
 
 
 class _EffectiveProgressWatchdog:
@@ -391,6 +440,7 @@ class _EffectiveProgressWatchdog:
         check_interval_seconds: float,
         on_event: Callable[[dict], None] | None = None,
         run_label: str | None = None,
+        compaction_limit: int = 0,
         now: float | None = None,
     ) -> None:
         self.workdir = Path(workdir).expanduser().resolve()
@@ -398,11 +448,14 @@ class _EffectiveProgressWatchdog:
         self.check_interval_seconds = max(1.0, float(check_interval_seconds or 1.0))
         self.on_event = on_event
         self.run_label = run_label
+        self.compaction_limit = max(0, int(compaction_limit or 0))
         self.started_at = time.time() if now is None else float(now)
         self.last_effective_progress_at = self.started_at
         self._last_check_at = 0.0
         self._interrupt_reason: str | None = None
         self._interrupted_event_sent = False
+        self._compaction_thrash_event_sent = False
+        self._compaction_count = 0
         self._last_waiting_event_at = 0.0
         self._project_signature = self._latest_project_signature()
         self._session_root = _codex_sessions_root()
@@ -423,6 +476,19 @@ class _EffectiveProgressWatchdog:
         except Exception:  # noqa: BLE001 - watchdog must never crash a runner
             log.debug("effective progress watchdog check failed", exc_info=True)
             return None
+
+        if (
+            self.compaction_limit
+            and self._compaction_count >= self.compaction_limit
+        ):
+            self._interrupt_reason = (
+                "compaction thrash: codex auto-compaction amnesia loop — "
+                f"{self._compaction_count} compactions within one round "
+                f"(limit {self.compaction_limit}); rolling to a fresh "
+                "checkpoint-seeded session"
+            )
+            self._emit_compaction_thrash_event()
+            return self._interrupt_reason
 
         idle_seconds = time.time() - self.last_effective_progress_at
         if idle_seconds < self.timeout_seconds:
@@ -463,6 +529,21 @@ class _EffectiveProgressWatchdog:
             })
         except Exception:  # noqa: BLE001
             log.debug("effective progress watchdog event failed", exc_info=True)
+
+    def _emit_compaction_thrash_event(self) -> None:
+        if self._compaction_thrash_event_sent or self.on_event is None:
+            return
+        self._compaction_thrash_event_sent = True
+        try:
+            self.on_event({
+                "type": "round.watchdog.compaction_thrash",
+                "run_label": self.run_label,
+                "compaction_count": int(self._compaction_count),
+                "limit": int(self.compaction_limit),
+                "text": self._interrupt_reason,
+            })
+        except Exception:  # noqa: BLE001
+            log.debug("compaction thrash watchdog event failed", exc_info=True)
 
     def _emit_waiting_event(self, idle_seconds: float) -> None:
         if self.on_event is None:
@@ -572,9 +653,15 @@ class _EffectiveProgressWatchdog:
             if not self._session_relevant(path):
                 self._session_offsets[path] = stat.st_size
                 continue
-            if self._read_effective_session_events(path, previous_offset):
+            result = self._read_effective_session_events(path, previous_offset)
+            if result.progressed:
                 progressed = True
-            self._session_offsets[path] = stat.st_size
+            if result.compactions:
+                self._compaction_count += result.compactions
+            # Advance only past fully newline-terminated lines so a partially
+            # written trailing line is re-read (and its eventual ``compacted``
+            # event is never silently skipped) on the next poll.
+            self._session_offsets[path] = previous_offset + result.consumed_bytes
         return progressed
 
     def _session_relevant(self, path: Path) -> bool:
@@ -585,16 +672,34 @@ class _EffectiveProgressWatchdog:
             return True
         return False
 
-    def _read_effective_session_events(self, path: Path, offset: int) -> bool:
+    def _read_effective_session_events(
+        self, path: Path, offset: int
+    ) -> _SessionReadResult:
         try:
-            with path.open("r", encoding="utf-8", errors="replace") as fh:
+            with path.open("rb") as fh:
                 fh.seek(max(0, offset))
-                for line in fh:
-                    if _is_effective_codex_session_line(line):
-                        return True
+                data = fh.read()
         except OSError:
-            return False
-        return False
+            return _SessionReadResult(progressed=False, compactions=0, consumed_bytes=0)
+        last_newline = data.rfind(b"\n")
+        if last_newline < 0:
+            # No complete line yet; leave the offset untouched.
+            return _SessionReadResult(progressed=False, compactions=0, consumed_bytes=0)
+        complete = data[: last_newline + 1]
+        progressed = False
+        compactions = 0
+        for raw in complete.splitlines():
+            line = raw.decode("utf-8", errors="replace")
+            if _is_codex_compaction_line(line):
+                compactions += 1
+                continue
+            if _is_effective_codex_session_line(line):
+                progressed = True
+        return _SessionReadResult(
+            progressed=progressed,
+            compactions=compactions,
+            consumed_bytes=len(complete),
+        )
 
 
 def _codex_sessions_root() -> Path | None:
@@ -638,6 +743,20 @@ def _session_cwd_matches(path: Path, workdir: Path) -> bool:
     return False
 
 
+def _is_codex_compaction_line(line: str) -> bool:
+    """Return True for a top-level Codex auto-compaction session event."""
+    text = line.strip()
+    if not text:
+        return False
+    try:
+        event = json.loads(text)
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(event, dict):
+        return False
+    return str(event.get("type") or "") == _CODEX_COMPACTION_EVENT_TYPE
+
+
 def _is_effective_codex_session_line(line: str) -> bool:
     text = line.strip()
     if not text:
@@ -648,7 +767,12 @@ def _is_effective_codex_session_line(line: str) -> bool:
         return False
     if not isinstance(event, dict):
         return False
-    if str(event.get("type") or "") == "token_count":
+    event_type = str(event.get("type") or "")
+    if event_type == "token_count":
+        return False
+    # A compaction is the opposite of progress: it discards context and kicks
+    # off a re-read loop. It must never reset the effective-progress timer.
+    if event_type == _CODEX_COMPACTION_EVENT_TYPE:
         return False
     payload = event.get("payload")
     if isinstance(payload, dict):
@@ -1144,6 +1268,7 @@ class SupervisedEngineer:
                     ),
                     on_event=on_event,
                     run_label=run_label,
+                    compaction_limit=supervised_config.round_compaction_limit,
                 )
                 effective_progress_provider = effective_progress_watchdog.interrupt_reason
         try:
@@ -1403,6 +1528,7 @@ __all__ = [
     "fatal_error_looks_like_backend_failure",
     "fatal_error_looks_like_daemon_stop_request",
     "fatal_error_looks_like_effective_progress_timeout",
+    "fatal_error_looks_like_compaction_thrash",
     "fatal_error_looks_like_recoverable_reconnect",
     "should_clear_thread_id_after_outcome",
 ]
