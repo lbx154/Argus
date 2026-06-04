@@ -39,9 +39,9 @@ from .exemplar_grounding import validate_exemplar_grounding
 from .experiment_audit_gate import validate_experiment_audit
 from .paper_structural_minimums import validate_paper_structural_minimums
 from .reviewer_simulation import validate_reviewer_simulation
+from .rl_training_health import validate_rl_training_health
 from .rl_training_plots import validate_rl_training_plots
 from .run_evidence_health import validate_run_evidence_health
-
 
 GateName = Literal[
     "evidence_chain",
@@ -52,6 +52,7 @@ GateName = Literal[
     "exemplar_grounding",
     "run_evidence_health",
     "rl_training_plots",
+    "rl_training_health",
 ]
 GateKind = Literal["structural", "advisory"]
 
@@ -98,17 +99,31 @@ GateKind = Literal["structural", "advisory"]
 # run is visually monitorable evidence. It is ADVISORY at ``run`` (surface
 # a repair queue while experiments still evolve, never block) and
 # STRUCTURAL at ``analysis`` (by analysis the run is about to be cited).
+#
+# ``rl_training_health`` reads each live/completed optimizer run's own
+# verl_metrics/progress/reward_trace and surfaces the collapse-relevant
+# numbers (advantage span, grad-norm, reward ceiling/floor, entropy trend,
+# training-set diversity) as the reviewer-facing facts that
+# rl-training-collapse-diagnosis.md needs. ADVISORY at ``run`` and
+# ``analysis``: it never blocks and never renders a quality verdict — a
+# saturated run is still real evidence the reviewer may interpret.
 STAGE_GATES: dict[str, tuple[GateName, ...]] = {
     "research": (),
     "plan": (),
     "benchmark": (),
-    "run": ("mediocrity_finding", "run_evidence_health", "rl_training_plots"),
+    "run": (
+        "mediocrity_finding",
+        "run_evidence_health",
+        "rl_training_plots",
+        "rl_training_health",
+    ),
     "analysis": (
         "evidence_chain",
         "mediocrity_finding",
         "experiment_audit",
         "run_evidence_health",
         "rl_training_plots",
+        "rl_training_health",
     ),
     "draft": (
         "evidence_chain",
@@ -151,6 +166,7 @@ GATE_KINDS: dict[GateName, GateKind] = {
     # of truth (GateResult.kind drives blocking); this entry records its
     # strongest form for documentation.
     "rl_training_plots": "structural",
+    "rl_training_health": "advisory",
 }
 
 
@@ -353,6 +369,37 @@ def _run_rl_training_plots(
     )
 
 
+def _run_rl_training_health(project_root: Path) -> GateResult:
+    """Advisory finding: surface each live/completed RL optimizer run's
+    collapse-relevant numbers (advantage span, grad-norm, reward
+    ceiling/floor, entropy trend, training-set diversity) so the reviewer
+    can apply rl-training-collapse-diagnosis.md. Never blocks; never
+    renders a verdict. No eligible runs → no-op."""
+    report = validate_rl_training_health(project_root)
+    n = len(report.runs)
+    flagged = report.flagged
+    if not n:
+        summary = "no live/completed RL optimizer runs to inspect"
+    elif flagged:
+        bits = ", ".join(
+            f"{r.run_name}[{','.join(r.signals)}]" for r in flagged[:3]
+        )
+        more = f" (+{len(flagged) - 3} more)" if len(flagged) > 3 else ""
+        summary = (
+            f"{len(flagged)}/{n} RL run(s) show collapse-relevant signal(s): "
+            f"{bits}{more} — reviewer rules continue vs concern"
+        )
+    else:
+        summary = f"{n} RL run(s) inspected; no collapse-relevant signals"
+    return GateResult(
+        name="rl_training_health",
+        kind="advisory",
+        passed=True,  # advisory never blocks; field meaningless
+        summary=summary,
+        detail=report.to_text() if n else "",
+    )
+
+
 def _run_exemplar_grounding(
     project_root: Path, *, require_conformance: bool
 ) -> GateResult:
@@ -525,6 +572,8 @@ def run_stage_gates(
                 project_root,
                 structural=(stage == "analysis"),
             ))
+        elif gate == "rl_training_health":
+            results.append(_run_rl_training_health(project_root))
     return results
 
 

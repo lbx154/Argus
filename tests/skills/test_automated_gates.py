@@ -12,19 +12,18 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 from argus_skill.skills.automated_gates import (
     GATE_KINDS,
-    GateResult,
     STAGE_GATES,
+    GateResult,
     any_blocking_failure,
     format_results,
     gates_for_stage,
-    main as automated_gates_main,
     run_stage_gates,
 )
-
+from argus_skill.skills.automated_gates import (
+    main as automated_gates_main,
+)
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -40,12 +39,13 @@ def _seed_minimal_paper(root: Path) -> None:
     """Seed the bare minimum paper that satisfies paper_structural_minimums,
     so tests targeting evidence_chain / mediocrity_finding aren't blocked
     by the new structural-floor gate that lives at draft+ stages."""
+    import os
+
     from argus_skill.skills.paper_structural_minimums import MIN_INTEXT_CITES
     from argus_skill.skills.reviewer_simulation import (
         MIN_QUESTIONS,
         QUESTIONS_FILENAME,
     )
-    import os
     paper = root / "paper"
     figs = paper / "figures"
     figs.mkdir(parents=True, exist_ok=True)
@@ -379,7 +379,8 @@ def test_run_stage_gates_advisory_does_not_block_even_with_zero_baseline(tmp_pat
         baseline_condition="bare",
     )
     assert {r.name for r in results} == {
-        "mediocrity_finding", "run_evidence_health", "rl_training_plots"
+        "mediocrity_finding", "run_evidence_health", "rl_training_plots",
+        "rl_training_health",
     }
     advisory = next(r for r in results if r.name == "mediocrity_finding")
     assert advisory.kind == "advisory"
@@ -462,7 +463,7 @@ def test_automated_gates_cli_exits_nonzero_on_structural(tmp_path: Path, capsys)
 
 def test_automated_gates_cli_json_includes_kind(tmp_path: Path, capsys) -> None:
     _write_claims_tsv(tmp_path, [])
-    rc = automated_gates_main(
+    automated_gates_main(
         ["--project-root", str(tmp_path), "--stage", "review", "--json"]
     )
     out = capsys.readouterr().out

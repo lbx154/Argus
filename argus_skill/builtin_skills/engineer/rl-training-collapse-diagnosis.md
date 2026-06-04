@@ -55,6 +55,27 @@ the policy stops moving. So the deepest collapse signature is not "bad numbers"
 — it is **the learning signal going to zero or going degenerate**. Map what you
 see to one of the families below.
 
+## The harness pre-computes these signals for you (advisory)
+
+You do not have to scrape the raw logs by hand. At the `run` and `analysis`
+stages the harness runs an **advisory** gate, `rl_training_health`, that reads
+each live/completed optimizer run's own `verl_metrics.jsonl` /
+`progress.jsonl` / `reward_trace.jsonl` and prints the collapse-relevant
+numbers over the tail window into your review context: advantage span,
+grad-norm, reward ceiling/floor hits, entropy trend, and training-set
+diversity (unique `task_id` count vs rollout rows). It emits neutral signal
+tokens — `zero_advantage`, `near_zero_grad_norm`, `reward_ceiling_saturation`,
+`reward_floor_stuck`, `entropy_declining`, `low_task_diversity`,
+`kl_blowup_candidate`, `nan_or_inf_metric` — that map onto the signatures
+below.
+
+That gate is a **fact extractor, not the authority**: it never blocks and
+never rules. The authority is this skill plus your judgment. Read its numbers,
+apply the transient-vs-sustained test below, and decide continue vs concern. A
+`low_task_diversity` + `reward_ceiling_saturation` pair, for instance, is the
+fingerprint of memorising a tiny admitted-id set — confirm it against the
+`unique_task_ids` line before you trust a high reward.
+
 ## Mandatory: emit a live training-curve plot (every RL run)
 
 **Hard requirement — every RL optimizer-step run MUST produce a training-curve
