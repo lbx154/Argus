@@ -31,11 +31,11 @@ import sys
 import threading
 import time
 import uuid
+from collections.abc import MutableMapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from collections.abc import MutableMapping
 
 from ..core import paths as core_paths
 from ..core.bootstrap import inspect_project_bootstrap
@@ -884,6 +884,8 @@ class LifeWorker:
         ):
             from ..core.vault_preflight import (
                 check_routes as _vault_preflight_check,
+            )
+            from ..core.vault_preflight import (
                 format_report as _vault_preflight_format,
             )
             try:
@@ -920,6 +922,7 @@ class LifeWorker:
             log.exception("daemon: failed to start telegram poller; continuing")
 
         while not self._stop.is_set():
+            summary: dict = {}
             try:
                 summary = sup.run()
                 test_signature_path = os.environ.get(
@@ -949,7 +952,19 @@ class LifeWorker:
             sup._planning_cycles = 0
             if self._stop.is_set():
                 break
-            self._stop.wait(timeout=cfg.poll_interval)
+            # Honor the supervisor's suggested backoff (escalating while it is
+            # idle awaiting an external job). The sleep is wakeable: it returns
+            # early on stop, or when the user inbox grows — so /add and /nudge
+            # stay responsive even during a long await-external backoff.
+            try:
+                suggested = float(summary.get("suggested_sleep") or 0.0)
+            except Exception:  # noqa: BLE001
+                suggested = 0.0
+            self._wakeable_sleep(
+                max(float(cfg.poll_interval), suggested),
+                cfg.poll_interval,
+                runtime_root,
+            )
 
         log.info(
             "daemon: stopping cleanly (uptime=%.1fs missions=%d)",
@@ -957,6 +972,39 @@ class LifeWorker:
             self._missions_completed,
         )
         return 0
+
+    def _wakeable_sleep(
+        self,
+        total_seconds: float,
+        poll_interval: float,
+        runtime_root: Path,
+    ) -> None:
+        """Sleep up to ``total_seconds``, waking early on stop or new inbox input.
+
+        The sleep is chunked into ``poll_interval`` slices so a stop request or
+        a freshly ``/add``'d / ``/nudge``'d message (which appends to the
+        project ``inbox.jsonl``) interrupts a long backoff promptly.
+        """
+        if total_seconds <= 0:
+            return
+        chunk = max(0.5, float(poll_interval))
+        inbox = Path(runtime_root) / "inbox.jsonl"
+
+        def _inbox_size() -> int:
+            try:
+                return inbox.stat().st_size
+            except OSError:
+                return 0
+
+        baseline = _inbox_size()
+        remaining = float(total_seconds)
+        while remaining > 0 and not self._stop.is_set():
+            self._stop.wait(timeout=min(chunk, remaining))
+            if self._stop.is_set():
+                return
+            if _inbox_size() != baseline:
+                return  # new user input — re-drain immediately
+            remaining -= chunk
 
     def _planner_runtime_context(self) -> str:
         if not _auto_handoff_enabled() or not self._source_signature:
@@ -1085,7 +1133,7 @@ def _worker_runtime_context(cfg: LifeWorkerConfig) -> str:
     """Return static context injected into daemon-driven missions."""
     from ..life.research_profile import render_research_profile_context
     from ..life.special_prompts import render_special_prompts_context
-    from ..tools.capability_vault import format_gpu_context, format_api_context
+    from ..tools.capability_vault import format_api_context, format_gpu_context
 
     # Operator directives ("special prompts") are machine-specific house
     # rules; they lead the runtime context so the agent sees them first.

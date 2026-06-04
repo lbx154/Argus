@@ -43,6 +43,7 @@ from .memory import (
     JournalEntry,
 )
 from .project_lifecycle import (
+    LifecycleEvent,
     ProjectState,
     apply_event,
     decide_next_state,
@@ -51,8 +52,15 @@ from .project_lifecycle import (
 )
 from .project_lifecycle_io import (
     LifecycleIOError,
-    append_event as _lifecycle_append_event,
     apply_persisted_to_status,
+)
+from .project_lifecycle_io import (
+    append_event as _lifecycle_append_event,
+)
+from .project_lifecycle_io import (
+    lifecycle_path as _lifecycle_path,
+)
+from .project_lifecycle_io import (
     load_persisted as _lifecycle_load_persisted,
 )
 
@@ -207,6 +215,29 @@ _PLANNER_RECENT_FAILURE_STATUS = "no_progress"
 _FOLLOWUP_CRITIC_MIN_IMPACT_SCORE = 5
 _PLANNER_SCOPE_BOUNDED = "bounded"
 _PLANNER_SCOPE_FINAL_SUBMISSION = "final_submission"
+
+# Plan-cycle outcome sentinels returned by ``_plan_next_work`` and consumed
+# by ``run()``. Kept as a small named set (not bare string literals scattered
+# across call sites) so the control flow stays auditable.
+_PLAN_TASKS_ADDED = "tasks_added"
+_PLAN_PROJECT_DONE = "project_done"
+_PLAN_RETRY = "planner_retry"
+_PLAN_HANDOFF = "daemon_handoff"
+_PLAN_ERROR = "planner_error"
+_PLAN_AWAITING = "awaiting_external"
+
+# Idle backoff for the "no new work" outcomes (awaiting-external / planner
+# retry / planner error). Each consecutive idle plan-cycle doubles the host's
+# re-check sleep, capped — so a project correctly waiting on a live external
+# job (or a planner that keeps finding nothing) is polled every few minutes,
+# not continuously. Reset to 0 the moment real work runs.
+_IDLE_BACKOFF_BASE_SECONDS = 15.0
+_IDLE_BACKOFF_CAP_SECONDS = 300.0
+
+# Re-emit an unchanged lifecycle-block status/journal line at most this often
+# (a heartbeat) so a long-lived blocked state stays visible without spamming
+# the journal every tick.
+_LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
 _FULL_EMNLP_GATE_DESCRIPTION = (
     "the L2 reviewer's full pipeline checklist (research → submission)"
 )
@@ -579,6 +610,16 @@ class LifeSupervisor:
         self.skill_store = skill_store
         self._missions_started = 0
         self._planning_cycles = 0
+        # Idle backoff state (await-external / repeated no-work planner cycles).
+        # Persists across daemon outer-loop iterations (the supervisor instance
+        # is reused) so backoff escalates while the project waits, and resets
+        # the moment a real mission runs.
+        self._consecutive_idle_planner_cycles = 0
+        self._suggested_sleep_s = 0.0
+        # Lifecycle-block log-hygiene state: suppress identical held-state
+        # emits except on change or a slow heartbeat.
+        self._last_lifecycle_block_sig: tuple[str, str] | None = None
+        self._last_lifecycle_block_at = 0.0
         self._reap_orphans_on_startup()
 
     def _reap_orphans_on_startup(self) -> None:
@@ -802,6 +843,13 @@ class LifeSupervisor:
                     if planned == "planner_retry":
                         stopped_by = "planner_retry"
                         break
+                    if planned == _PLAN_AWAITING:
+                        # Planner intentionally idled awaiting an external job.
+                        # Return cleanly with a suggested backoff so the daemon
+                        # outer loop sleeps (escalating) before re-checking,
+                        # instead of make-work or a tight re-plan spin.
+                        stopped_by = _PLAN_AWAITING
+                        break
                     if planned is True:
                         continue  # new items in backlog, loop around
                     if planned is False:
@@ -825,6 +873,8 @@ class LifeSupervisor:
                     break
                 continue
             results.append(outcome)
+            # A real mission ran: clear any accumulated no-work backoff.
+            self._reset_idle_backoff()
             # Auth failure flagged by _run_one: propagate immediately
             if outcome.get("auth_failure"):
                 stopped_by = "auth_failure"
@@ -843,8 +893,17 @@ class LifeSupervisor:
             # Stop conditions that ``tick`` signals via the result dict
             # (budget pause leaves the item PENDING on purpose so a
             # later supervisor run can retry — but for THIS run we must
-            # not spin on the same blocked item).
-            if outcome.get("status") in {"budget_pause", "iteration_cap"}:
+            # not spin on the same blocked item).  ``lifecycle_block`` is
+            # the same shape: the F5 gate leaves the item PENDING and
+            # asks for human resume/archive, so we must break out instead
+            # of re-ticking the same held item every loop (which would
+            # busy-spin ``infer_observable_status`` at 100% CPU). The
+            # daemon's outer loop re-enters after ``poll_interval``.
+            if outcome.get("status") in {
+                "budget_pause",
+                "iteration_cap",
+                "lifecycle_block",
+            }:
                 stopped_by = outcome.get("status", "")
                 break
         return {
@@ -852,6 +911,7 @@ class LifeSupervisor:
             "planning_cycles": self._planning_cycles,
             "results": results,
             "stopped_by": stopped_by,
+            "suggested_sleep": self._suggested_sleep_s,
         }
 
     def _fail_running_items_after_supervisor_error(self, error: str) -> list[str]:
@@ -1109,6 +1169,69 @@ class LifeSupervisor:
     # F5 project-lifecycle gate
     # ------------------------------------------------------------------
 
+    def _lifecycle_root(self) -> Path:
+        """Directory holding this project's ``lifecycle.json`` sidecar.
+
+        Prefer the per-project telemetry/life dir so lifecycle state is
+        isolated per project. Fall back to the global memory root when no
+        telemetry dir is configured (non-daemon ``life run`` / tests), which
+        preserves the historical single-file behavior.
+        """
+        tdir = getattr(self.config, "telemetry_dir", None)
+        if tdir is not None:
+            return Path(tdir)
+        return Path(getattr(self.memory, "root", None) or ".")
+
+    def _migrate_global_lifecycle_if_needed(self, per_root: Path) -> None:
+        """One-time carry-over of the legacy GLOBAL lifecycle sidecar.
+
+        Historically lifecycle.json lived under the global memory root and was
+        (incorrectly) shared across projects. When a per-project dir is now in
+        use and has no sidecar yet, copy the legacy global file in once, then
+        retire the global file (rename to ``*.migrated``) so future projects
+        start clean instead of inheriting a mis-keyed shared state. Best-effort
+        and idempotent; only runs in the per-project (telemetry_dir) regime.
+        """
+        if getattr(self.config, "telemetry_dir", None) is None:
+            return
+        if getattr(self, "_lifecycle_migrated", False):
+            return
+        self._lifecycle_migrated = True
+        try:
+            per_file = _lifecycle_path(per_root)
+            if per_file.exists():
+                return
+            global_root = Path(getattr(self.memory, "root", None) or ".")
+            if global_root == per_root:
+                return
+            global_file = _lifecycle_path(global_root)
+            if not global_file.exists():
+                return
+            per_root.mkdir(parents=True, exist_ok=True)
+            data = global_file.read_text(encoding="utf-8")
+            tmp = per_file.with_name(per_file.name + ".tmp")
+            tmp.write_text(data, encoding="utf-8")
+            os.replace(tmp, per_file)
+            try:
+                global_file.replace(
+                    global_file.with_name(global_file.name + ".migrated")
+                )
+            except OSError:
+                log.warning(
+                    "lifecycle: copied global sidecar to %s but could not "
+                    "retire %s; future projects may inherit it",
+                    per_file, global_file,
+                )
+            log.info(
+                "lifecycle: migrated legacy global sidecar into per-project "
+                "dir %s", per_file,
+            )
+        except Exception:  # noqa: BLE001
+            log.exception(
+                "lifecycle migration failed; continuing with fresh "
+                "per-project state"
+            )
+
     def _maybe_block_on_lifecycle(
         self, item: BacklogItem
     ) -> dict[str, Any] | None:
@@ -1123,7 +1246,8 @@ class LifeSupervisor:
         the supervisor.
         """
         try:
-            memory_root = Path(getattr(self.memory, "root", None) or ".")
+            memory_root = self._lifecycle_root()
+            self._migrate_global_lifecycle_if_needed(memory_root)
             project_root = self._project_workdir()
             spent_usd, budget_usd = self._lifecycle_budget_snapshot()
 
@@ -1144,7 +1268,76 @@ class LifeSupervisor:
                 persisted = {}
             status = apply_persisted_to_status(status, persisted)
 
+            # EMNLP completion authority is the L2 reviewer's
+            # ``final_submission`` certification — NOT the mere presence
+            # of ``paper/main.pdf`` (which the agent compiles for format
+            # preflight long before the draft is submission-ready). The
+            # generic F5 rule ``submission_artifact_present -> DONE`` is
+            # therefore premature for an uncertified full-EMNLP mission,
+            # and DONE is terminal + non-allocatable, so it permanently
+            # starves the project of tokens. Defer to the reviewer:
+            #
+            #   (a) repair an already-persisted bad DONE back to WRITING
+            #       once (preserving history via append_event), and
+            #   (b) suppress a fresh ``submission_artifact_present`` DONE
+            #       transition *before* it is applied/journaled/persisted
+            #       so we don't re-fire + spam the journal every tick.
+            #
+            # When the reviewer truly certifies, supervisor.run() auto-
+            # stops via ``_journal_has_full_emnlp_gate_success`` instead.
+            uncertified_full_emnlp = (
+                self.config.full_emnlp_gate
+                and not self._journal_has_full_emnlp_gate_success()
+            )
+            if (
+                uncertified_full_emnlp
+                and status.state == ProjectState.DONE
+                and persisted.get("state") == ProjectState.DONE.value
+            ):
+                from datetime import datetime, timezone
+
+                repair_event = LifecycleEvent(
+                    at=datetime.now(timezone.utc),
+                    from_state=ProjectState.DONE,
+                    to_state=ProjectState.WRITING,
+                    reason="full_emnlp_gate_not_certified",
+                )
+                status = apply_event(status, repair_event)
+                try:
+                    _lifecycle_append_event(
+                        memory_root,
+                        new_status=status,
+                        event=repair_event,
+                    )
+                except OSError as exc:
+                    log.warning(
+                        "could not repair premature-DONE lifecycle "
+                        "sidecar at %s: %s",
+                        memory_root, exc,
+                    )
+                entry = JournalEntry.new(
+                    kind="lifecycle_transition",
+                    title="done → writing",
+                    summary=(
+                        "premature DONE from preflight main.pdf repaired; "
+                        "EMNLP final_submission not yet reviewer-certified"
+                    ),
+                    tags=["lifecycle", ProjectState.WRITING.value],
+                )
+                self.memory.journal.append(entry)
+                self._inject_cumulative_cost(entry)
+
             event = decide_next_state(status)
+            if (
+                uncertified_full_emnlp
+                and event is not None
+                and event.to_state == ProjectState.DONE
+                and event.reason == "submission_artifact_present"
+            ):
+                # Suppress non-persistently: drop the event entirely so it
+                # is never applied, journaled, or persisted. The project
+                # stays WRITING (allocatable) until the reviewer certifies.
+                event = None
             if event is not None:
                 status = apply_event(status, event)
                 try:
@@ -1176,27 +1369,47 @@ class LifeSupervisor:
             # harness must not spam the journal with non-event facts.
 
             if not is_token_allocatable(status):
-                self._emit_status(
-                    f"lifecycle gate: project state={status.state.value}; "
-                    f"backlog item {item.id!r} held"
+                # Log hygiene: the held-item status/journal line is identical
+                # every tick a project sits in the same non-allocatable state.
+                # Emit + journal only when the (state, item) signature changes
+                # or a heartbeat interval elapses — otherwise a long block used
+                # to flood events.jsonl / activity.log with tens of thousands
+                # of identical lines. Dispatch behavior is unchanged: we always
+                # return the block dict.
+                state_value = status.state.value
+                sig = (state_value, item.id)
+                now = time.monotonic()
+                reason = (
+                    f"project lifecycle is {state_value}; "
+                    f"resume with --lifecycle-resume or archive with "
+                    f"--lifecycle-archive"
                 )
-                entry = JournalEntry.new(
-                    kind="lifecycle_block",
-                    title=f"held '{item.title}' (state={status.state.value})",
-                    summary=(
-                        f"project lifecycle is {status.state.value}; "
-                        f"resume with --lifecycle-resume or archive with "
-                        f"--lifecycle-archive"
-                    ),
-                    tags=["lifecycle", status.state.value],
+                last_sig = getattr(self, "_last_lifecycle_block_sig", None)
+                last_at = getattr(self, "_last_lifecycle_block_at", 0.0)
+                should_emit = (
+                    sig != last_sig
+                    or (now - last_at) >= _LIFECYCLE_BLOCK_HEARTBEAT_SECONDS
                 )
-                self.memory.journal.append(entry)
-                self._inject_cumulative_cost(entry)
+                if should_emit:
+                    self._last_lifecycle_block_sig = sig
+                    self._last_lifecycle_block_at = now
+                    self._emit_status(
+                        f"lifecycle gate: project state={state_value}; "
+                        f"backlog item {item.id!r} held"
+                    )
+                    entry = JournalEntry.new(
+                        kind="lifecycle_block",
+                        title=f"held '{item.title}' (state={state_value})",
+                        summary=reason,
+                        tags=["lifecycle", state_value],
+                    )
+                    self.memory.journal.append(entry)
+                    self._inject_cumulative_cost(entry)
                 return {
                     "status": "lifecycle_block",
                     "item_id": item.id,
-                    "lifecycle_state": status.state.value,
-                    "reason": entry.summary,
+                    "lifecycle_state": state_value,
+                    "reason": reason,
                 }
         except Exception:  # noqa: BLE001
             log.exception("lifecycle gate failed; allowing dispatch")
@@ -1666,6 +1879,25 @@ class LifeSupervisor:
     def _emit_status(self, text: str) -> None:
         self._emit({"type": "life.status", "text": text})
 
+    def _idle_backoff_seconds(self) -> float:
+        """Exponential re-check sleep for consecutive no-work plan-cycles.
+
+        ``_consecutive_idle_planner_cycles`` is incremented by the caller
+        BEFORE calling this; cycle 1 → base, doubling each cycle, capped.
+        """
+        n = max(1, int(self._consecutive_idle_planner_cycles))
+        return min(_IDLE_BACKOFF_CAP_SECONDS, _IDLE_BACKOFF_BASE_SECONDS * (2 ** (n - 1)))
+
+    def _reset_idle_backoff(self) -> None:
+        self._consecutive_idle_planner_cycles = 0
+        self._suggested_sleep_s = 0.0
+
+    def _enter_idle_backoff(self) -> float:
+        """Register one more no-work plan-cycle and return the suggested sleep."""
+        self._consecutive_idle_planner_cycles += 1
+        self._suggested_sleep_s = self._idle_backoff_seconds()
+        return self._suggested_sleep_s
+
     def _planner_task_tags(self, task: Any) -> list[str]:
         scope = self._normalize_planner_scope(getattr(task, "scope", ""))
         return ["planner", f"scope:{scope}"]
@@ -1966,7 +2198,52 @@ class LifeSupervisor:
                 dispatch_journal_entry(entry)
             except Exception:  # noqa: BLE001
                 log.exception("notify dispatch failed; continuing")
-            return None
+            # A planner error is a no-work outcome: back off before retrying so
+            # a persistently-failing planner cannot spin every poll interval.
+            self._enter_idle_backoff()
+            return _PLAN_ERROR
+
+        # First-class await-external: the planner intentionally idled because
+        # the project is blocked on a live, nonterminal external job and there
+        # is no new high-impact work. NOT an error, NOT make-work — record a
+        # lightweight waiting entry and back off (escalating) before re-checking.
+        if verdict.waiting:
+            sleep_s = self._enter_idle_backoff()
+            reason = verdict.waiting_reason or verdict.reason or "awaiting external job"
+            self._emit({
+                "type": "life.planner.waiting",
+                "cycle": self._planning_cycles,
+                "reason": reason,
+                "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
+                "suggested_sleep_s": sleep_s,
+                "input_tokens": verdict.input_tokens,
+                "cached_input_tokens": verdict.cached_input_tokens,
+                "output_tokens": verdict.output_tokens,
+                "cost_usd": planner_cost_usd,
+            })
+            self._emit_status(f"awaiting external job: {reason}")
+            entry = JournalEntry.new(
+                kind="planner_waiting",
+                title=f"planner cycle #{self._planning_cycles}",
+                summary=f"awaiting external job; backoff {sleep_s:.0f}s :: {reason}",
+                tags=["life", "planner", "awaiting"],
+                cost_usd=planner_cost_usd,
+                extra={
+                    "agent_layer": "planner",
+                    "waiting": True,
+                    "reason": reason,
+                    "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
+                    "suggested_sleep_s": sleep_s,
+                },
+            )
+            self.memory.journal.append(entry)
+            self._inject_cumulative_cost(entry)
+            try:
+                from .notify import dispatch_journal_entry
+                dispatch_journal_entry(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("notify dispatch failed; continuing")
+            return _PLAN_AWAITING
 
         # The planner's tasks are trusted. Deterministic gate-repair is only
         # used as a fallback when the planner itself fails (verdict.error above).
@@ -2155,7 +2432,8 @@ class LifeSupervisor:
                 self._emit_status("daemon_handoff")
                 return "daemon_handoff"
             self._emit_status("planner requested daemon restart but host did not restart")
-            return None
+            self._enter_idle_backoff()
+            return _PLAN_ERROR
 
         if not verdict.new_tasks:
             self._emit({
@@ -2185,7 +2463,10 @@ class LifeSupervisor:
                 dispatch_journal_entry(entry)
             except Exception:  # noqa: BLE001
                 log.exception("notify dispatch failed; continuing")
-            return None
+            # No tasks, no waiting flag, not done: a degenerate no-work cycle.
+            # Back off so repeated empty plans cannot spin the daemon.
+            self._enter_idle_backoff()
+            return _PLAN_ERROR
 
         try:
             existing_items = self.memory.backlog.all()
@@ -2376,6 +2657,9 @@ class LifeSupervisor:
         ):
             self._emit_status("daemon_handoff")
             return "daemon_handoff"
+        # Real new work was queued: clear the no-work backoff so the next cycle
+        # runs promptly.
+        self._reset_idle_backoff()
         return True
 
     def _item_iteration_cycles(self) -> int:

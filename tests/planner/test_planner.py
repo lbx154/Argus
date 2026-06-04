@@ -9,18 +9,11 @@ deleted along with the dead code.
 from __future__ import annotations
 
 import json
-import sys
-import time
-from pathlib import Path
-from types import SimpleNamespace
-
-import pytest
 
 from argus_skill.core.models import RunnerResult
 from argus_skill.planner import (
     Planner,
     PlannerConfig,
-    PlannerVerdict,
     TaskSpec,
     parse_planner_text,
 )
@@ -85,6 +78,38 @@ def test_parse_planner_text_returns_error_verdict_on_garbage() -> None:
     v = parse_planner_text("not json at all")
     assert v.project_done is False
     assert v.error or v.new_tasks == []
+
+
+def test_parse_planner_text_waiting_is_not_error() -> None:
+    # First-class await-external: planner intentionally idles with no tasks
+    # and no done. This must NOT be reported as an error (which would spin /
+    # make-work); it is a clean waiting outcome.
+    txt = json.dumps({
+        "project_done": False,
+        "reason": "training run still in progress; nothing higher-impact to do",
+        "new_tasks": [],
+        "waiting": True,
+        "waiting_reason": "CV-GRPO run 2b510 at step 40/200, not terminal",
+    })
+    v = parse_planner_text(txt)
+    assert v.waiting is True
+    assert v.project_done is False
+    assert v.new_tasks == []
+    assert not v.error
+    assert "CV-GRPO" in v.waiting_reason
+
+
+def test_parse_planner_text_no_tasks_without_waiting_is_error() -> None:
+    # No tasks, not done, and waiting NOT set → still treated as a degenerate
+    # planner output (error), preserving the original safety net.
+    txt = json.dumps({
+        "project_done": False,
+        "reason": "hmm",
+        "new_tasks": [],
+    })
+    v = parse_planner_text(txt)
+    assert v.waiting is False
+    assert v.error
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +187,7 @@ def test_plan_next_returns_error_verdict_on_runner_exception() -> None:
 
 def _prompt_for_stage(monkeypatch, tmp_path, stage: str) -> str:
     """Build the planner prompt with current_stage pinned to ``stage``."""
-    from argus_skill.skills import stage_checklists, harness_overlay
+    from argus_skill.skills import harness_overlay, stage_checklists
 
     monkeypatch.setattr(stage_checklists, "current_stage", lambda *_a, **_k: stage)
     monkeypatch.setattr(

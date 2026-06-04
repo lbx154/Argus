@@ -304,6 +304,17 @@ class SupervisedConfig:
     check_commands: list[str] = field(default_factory=list)
     check_timeout_seconds: int = 600
     no_progress_threshold: int = 2  # consecutive rounds with no engineer message before bailing
+    # Consecutive ``continue`` rounds where the reviewer EXPLICITLY reports
+    # ``forward_progress == false`` (engineer is active but the reviewer judges
+    # the project did not actually advance) before bailing as ``no_progress``.
+    # This is the SEMANTIC stall guard, distinct from ``no_progress_threshold``
+    # which only counts rounds with no engineer output at all. Only an explicit
+    # boolean ``false`` counts — a missing/omitted field never does — so a
+    # reviewer/schema hiccup can never falsely kill a healthy long mission.
+    # Set high so it catches genuine runaway spins (the observed pathology was
+    # 17–19 fruitless rounds) while leaving ample room for legitimate staged
+    # setup / status-polling rounds. 0 disables it.
+    stall_threshold: int = 8
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
     session_id: str | None = None
@@ -699,6 +710,7 @@ class SupervisedEngineer:
         last_engineer_message = ""
         last_next_action: str | None = None
         no_progress_streak = 0
+        semantic_stall_streak = 0
         backend_failure_streak = 0
         current_thread_id: str | None = seed_thread_id
         # Curated working-memory checkpoint. Loaded once (cross-mission / crash
@@ -1017,6 +1029,37 @@ class SupervisedEngineer:
                     failure_cause="environmental",
                 )
             review = _coerce_review_for_failed_checks(review, checks_results)
+            # SEMANTIC stall tracking: the engineer can stay busy (non-empty
+            # messages, so ``no_progress_streak`` keeps resetting) yet make no
+            # real advance round after round. The reviewer reports this via
+            # ``planner_report.forward_progress``. Count only EXPLICIT boolean
+            # ``False`` on a ``continue`` round — a missing/omitted field is
+            # treated as "unknown", never as a stall — so a reviewer or schema
+            # hiccup cannot falsely kill a healthy long-running mission.
+            # ``_classify`` bails as ``no_progress`` once it crosses
+            # ``stall_threshold``.
+            planner_report = getattr(review, "planner_report", None)
+            raw_forward_progress = (
+                planner_report.get("forward_progress")
+                if isinstance(planner_report, dict)
+                else None
+            )
+            if review.status == "continue" and raw_forward_progress is False:
+                semantic_stall_streak += 1
+                if on_event and semantic_stall_streak > 0:
+                    on_event({
+                        "type": "round.stall",
+                        "round_index": round_index,
+                        "round_max": supervised_config.max_rounds,
+                        "semantic_stall_streak": semantic_stall_streak,
+                        "stall_threshold": supervised_config.stall_threshold,
+                        "text": (
+                            f"no forward progress {semantic_stall_streak}/"
+                            f"{supervised_config.stall_threshold} rounds"
+                        ),
+                    })
+            else:
+                semantic_stall_streak = 0
             # Update curated working memory from the reviewer-authored
             # checkpoint. Fail-soft: an empty/malformed checkpoint keeps the
             # prior one rather than wiping memory on a noisy verdict.
@@ -1045,6 +1088,8 @@ class SupervisedEngineer:
                 checks_results=checks_results,
                 no_progress_streak=no_progress_streak,
                 no_progress_threshold=supervised_config.no_progress_threshold,
+                semantic_stall_streak=semantic_stall_streak,
+                stall_threshold=supervised_config.stall_threshold,
                 round_index=round_index,
                 max_rounds=supervised_config.max_rounds,
             )
@@ -1149,8 +1194,10 @@ class SupervisedEngineer:
         checks_results: list[CheckResult],
         no_progress_streak: int,
         no_progress_threshold: int,
+        semantic_stall_streak: int = 0,
+        stall_threshold: int = 0,
         round_index: int,
-        max_rounds: int,  # noqa: ARG004 — kept for API symmetry / future heuristics
+        max_rounds: int,
     ) -> tuple[LoopStatus | None, str]:
         if review.status == "done" and (not checks_results or all_checks_passed(checks_results)):
             return "done", review.reason or "Reviewer judged the objective complete."
@@ -1161,6 +1208,16 @@ class SupervisedEngineer:
                 "no_progress",
                 "Engineer produced no effective output for "
                 f"{no_progress_streak} consecutive rounds.",
+            )
+        if (
+            stall_threshold > 0
+            and semantic_stall_streak >= stall_threshold
+            and round_index < max_rounds
+        ):
+            return (
+                "no_progress",
+                "Reviewer reported no forward progress for "
+                f"{semantic_stall_streak} consecutive rounds.",
             )
         # done but checks failed — treat as continue (reviewer was wrong /
         # checks discovered residual gap).

@@ -78,6 +78,13 @@ class PlannerVerdict:
     cached_input_tokens: int = 0
     output_tokens: int = 0
     error: str = ""
+    # ``waiting`` is a first-class, intentional idle outcome: the project is
+    # correctly blocked on a live, nonterminal external long-running job (e.g.
+    # a training run) and there is no genuinely new high-impact work to queue.
+    # It is NOT an error and NOT make-work — the host backs off and re-checks
+    # later. ``project_done`` stays False; ``new_tasks`` stays empty.
+    waiting: bool = False
+    waiting_reason: str = ""
 
 
 _PLANNER_SYSTEM_PREAMBLE = (
@@ -104,6 +111,9 @@ _PLANNER_SYSTEM_PREAMBLE = (
     '  "reason": "<one sentence justification>",\n'
     '  "restart_daemon": <true|false>,\n'
     '  "restart_reason": "<why a fresh daemon is needed, or empty string>",\n'
+    '  "waiting": <true|false>,\n'
+    '  "waiting_reason": "<if waiting=true: the live external job you are '
+    "waiting on and why no new work is queued; else empty string>\",\n"
     '  "new_tasks": [\n'
     "    {\n"
     '      "title": "<short imperative title>",\n'
@@ -244,14 +254,29 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "   is no forward progress and burns budget.\n"
     "18) Do ALL inspection with your tools BEFORE you emit the final JSON. The\n"
     "   final JSON is a committed decision, not a status update. Returning\n"
-    "   `project_done=false` with `new_tasks=[]` and `restart_daemon=false` is\n"
-    "   INVALID — never emit a placeholder verdict whose `reason` says you are\n"
-    "   'inspecting', 'deciding', or 'about to' route a mission. By the time you\n"
-    "   output JSON you MUST have finished inspecting and either (a) committed at\n"
-    "   least one concrete task, (b) set `project_done=true`, or (c) set\n"
-    "   `restart_daemon=true`. If you are unsure what the next mission is, default\n"
-    "   to one bounded current-stage gate mission derived from the stage\n"
-    "   checklist — do not stall.\n"
+    "   `project_done=false` with `new_tasks=[]`, `restart_daemon=false`, and\n"
+    "   `waiting=false` is INVALID — never emit a placeholder verdict whose\n"
+    "   `reason` says you are 'inspecting', 'deciding', or 'about to' route a\n"
+    "   mission. By the time you output JSON you MUST have finished inspecting\n"
+    "   and either (a) committed at least one concrete task, (b) set\n"
+    "   `project_done=true`, (c) set `restart_daemon=true`, or (d) set\n"
+    "   `waiting=true` (see rule 18b). If you are unsure what the next mission\n"
+    "   is, default to one bounded current-stage gate mission derived from the\n"
+    "   stage checklist — do not stall.\n"
+    "18b) WAITING (the correct way to idle, instead of make-work): set\n"
+    "   `waiting=true` with `new_tasks=[]` and `project_done=false` ONLY when\n"
+    "   ALL hold: (i) a tracked long-running EXTERNAL job (e.g. a verl/training\n"
+    "   or eval run) is live and NONTERMINAL — confirmed from its status.json /\n"
+    "   progress.jsonl, not guessed; (ii) the single allowed parallel paper-\n"
+    "   drafting mission (rule 7 exception) is ALREADY queued/running or recently\n"
+    "   completed; and (iii) you inspected the value horizons and there is NO\n"
+    "   genuinely high-impact task left that does not depend on that job\n"
+    "   finishing. `waiting=true` is a first-class, intentional idle: the host\n"
+    "   backs off and re-checks later WITHOUT burning a mission. Do NOT use\n"
+    "   `waiting=true` to dodge real, available work — inventing a low-value\n"
+    "   'harden/prepare/scaffold while X runs' mission is WORSE than waiting, but\n"
+    "   skipping genuinely-ready work by claiming waiting is also wrong. Put the\n"
+    "   job id/path and current progress in `waiting_reason`.\n"
     "19) Output JSON ONLY. No prose around it. No markdown fences.\n"
 )
 
@@ -419,12 +444,12 @@ class Planner:
             "Keep searching for valuable work; do not spend tokens on "
             "low-value polish just to keep the loop busy."
         )
+        from ..skills.harness_overlay import resolve_project_root
         from ..skills.stage_checklists import (
             CANONICAL_STAGE_ORDER,
             current_stage,
             format_stage_checklist,
         )
-        from ..skills.harness_overlay import resolve_project_root
 
         _proot = resolve_project_root()
         stage = current_stage(_proot)
@@ -734,6 +759,8 @@ def parse_planner_text(text: str) -> PlannerVerdict:
     restart_reason = str(data.get("restart_reason", "")).strip()
     if restart_daemon and not restart_reason:
         restart_reason = reason or "planner requested daemon restart"
+    waiting = _parse_json_bool(data.get("waiting", False), False)
+    waiting_reason = str(data.get("waiting_reason", "")).strip() or reason
     tasks_raw = data.get("new_tasks") or []
     new_tasks: list[TaskSpec] = []
     raw_task_count = len(tasks_raw) if isinstance(tasks_raw, list) else 0
@@ -773,6 +800,22 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             new_tasks=[],
             raw_text=blob,
             error="planner claimed project_done=true with tasks",
+        )
+    # Explicit, intentional idle: the project is correctly waiting on a live
+    # external job and the planner found no genuinely new high-impact work.
+    # Honored ONLY when not also claiming done/restart and no concrete tasks
+    # were accepted — real tasks always win over waiting. This is NOT an error
+    # (it bypasses the "no concrete tasks" retry/churn path below).
+    if waiting and not project_done and not restart_daemon and not new_tasks:
+        if not waiting_reason:
+            waiting_reason = "awaiting a live external job; no new high-impact work"
+        return PlannerVerdict(
+            project_done=False,
+            reason=waiting_reason,
+            new_tasks=[],
+            raw_text=blob,
+            waiting=True,
+            waiting_reason=waiting_reason,
         )
     if not project_done and not new_tasks and not restart_daemon:
         # Inconsistent: not done but no tasks → retry later, don't mark done.

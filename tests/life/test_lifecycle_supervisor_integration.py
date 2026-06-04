@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -37,7 +37,6 @@ from argus_skill.life.project_lifecycle_io import (
     load_persisted,
     write_persisted,
 )
-
 
 # ---------------------------------------------------------------------------
 # infer_observable_status
@@ -283,3 +282,194 @@ def test_cli_mutual_exclusion_blocks_two_lifecycle_flags(tmp_path: Path) -> None
     )
     assert proc.returncode == 2
     assert "mutually exclusive" in proc.stderr
+
+
+# ---------------------------------------------------------------------------
+# F5 gate: EMNLP completion-authority guard (premature-DONE from preflight PDF)
+# ---------------------------------------------------------------------------
+#
+# The lifecycle gate must NOT terminate a full-EMNLP project just because a
+# ``paper/main.pdf`` exists (it is compiled for format preflight long before
+# the draft is submission-ready). DONE is terminal + non-allocatable, so a
+# premature flip starves the project of tokens forever. The supervisor defers
+# to the L2 reviewer's ``final_submission`` certification instead.
+from types import SimpleNamespace  # noqa: E402
+
+from argus_skill.life.supervisor import LifeSupervisor  # noqa: E402
+
+
+class _GateStub:
+    """Minimal stand-in driving ``_maybe_block_on_lifecycle`` in isolation."""
+
+    def __init__(
+        self,
+        *,
+        project_root: Path,
+        memory_root: Path,
+        full_emnlp_gate: bool,
+        certified: bool,
+    ) -> None:
+        memory_root.mkdir(parents=True, exist_ok=True)
+        self.config = SimpleNamespace(full_emnlp_gate=full_emnlp_gate)
+        self.journal_entries: list[object] = []
+        self.emitted: list[str] = []
+        self.memory = SimpleNamespace(
+            root=memory_root,
+            journal=SimpleNamespace(append=self.journal_entries.append),
+        )
+        self._project_root = project_root
+        self._certified = certified
+
+    # --- methods _maybe_block_on_lifecycle depends on ---
+    def _project_workdir(self) -> Path:
+        return self._project_root
+
+    def _lifecycle_root(self) -> Path:
+        return self.memory.root
+
+    def _migrate_global_lifecycle_if_needed(self, per_root: Path) -> None:
+        return None
+
+    def _lifecycle_budget_snapshot(self) -> tuple[float, float]:
+        return (0.0, 0.0)
+
+    def _journal_has_full_emnlp_gate_success(self) -> bool:
+        return self._certified
+
+    def _emit_status(self, text: str) -> None:
+        self.emitted.append(text)
+
+    def _inject_cumulative_cost(self, entry: object) -> None:  # noqa: D401
+        return None
+
+    def block(self):
+        item = SimpleNamespace(id="item-1", title="finish paper")
+        return LifeSupervisor._maybe_block_on_lifecycle(self, item)
+
+
+def _with_preflight_pdf(tmp_path: Path) -> Path:
+    project_root = tmp_path / "project"
+    (project_root / "paper").mkdir(parents=True)
+    (project_root / "paper" / "main.pdf").write_text("pdf", encoding="utf-8")
+    return project_root
+
+
+def _journal_kinds(stub: _GateStub) -> list[str]:
+    return [getattr(e, "kind", None) for e in stub.journal_entries]
+
+
+def test_gate_suppresses_premature_done_for_uncertified_emnlp(tmp_path: Path) -> None:
+    # main.pdf exists but reviewer has NOT certified → no DONE, dispatch
+    # proceeds, and the suppressed transition is never journaled/persisted.
+    stub = _GateStub(
+        project_root=_with_preflight_pdf(tmp_path),
+        memory_root=tmp_path / "mem",
+        full_emnlp_gate=True,
+        certified=False,
+    )
+    result = stub.block()
+    assert result is None  # allocatable → dispatch proceeds
+    assert "lifecycle_transition" not in _journal_kinds(stub)
+    assert "lifecycle_block" not in _journal_kinds(stub)
+    # nothing premature was persisted
+    assert load_persisted(tmp_path / "mem") == {}
+
+
+def test_gate_repairs_existing_persisted_done_once(tmp_path: Path) -> None:
+    memory_root = tmp_path / "mem"
+    memory_root.mkdir()
+    # Seed a pre-existing bad DONE with prior history (as the live wedge had).
+    write_persisted(
+        memory_root,
+        status=_status(ProjectState.DONE),
+        history=[
+            LifecycleEvent(
+                at=datetime.now(timezone.utc),
+                from_state=ProjectState.WRITING,
+                to_state=ProjectState.DONE,
+                reason="submission_artifact_present",
+            )
+        ],
+    )
+    stub = _GateStub(
+        project_root=_with_preflight_pdf(tmp_path),
+        memory_root=memory_root,
+        full_emnlp_gate=True,
+        certified=False,
+    )
+    result = stub.block()
+    assert result is None  # repaired → allocatable
+    persisted = load_persisted(memory_root)
+    assert persisted["state"] == "writing"  # repaired
+    # repair preserved prior history and appended the repair event
+    history = load_history(memory_root)
+    assert history[-1].to_state == ProjectState.WRITING
+    assert history[-1].reason == "full_emnlp_gate_not_certified"
+    assert any(h.reason == "submission_artifact_present" for h in history)
+    assert "lifecycle_transition" in _journal_kinds(stub)
+
+    # A second tick must NOT repair again or re-spam the journal: persisted
+    # is now WRITING, decide_next_state re-fires DONE which is suppressed.
+    stub2 = _GateStub(
+        project_root=stub._project_root,
+        memory_root=memory_root,
+        full_emnlp_gate=True,
+        certified=False,
+    )
+    assert stub2.block() is None
+    assert "lifecycle_transition" not in _journal_kinds(stub2)
+    assert load_persisted(memory_root)["state"] == "writing"
+
+
+def test_gate_allows_done_when_reviewer_certified(tmp_path: Path) -> None:
+    # full_emnlp_gate True AND certified → the PDF→DONE transition stands,
+    # so the project is correctly terminated and dispatch is blocked.
+    stub = _GateStub(
+        project_root=_with_preflight_pdf(tmp_path),
+        memory_root=tmp_path / "mem",
+        full_emnlp_gate=True,
+        certified=True,
+    )
+    result = stub.block()
+    assert result is not None
+    assert result["status"] == "lifecycle_block"
+    assert result["lifecycle_state"] == "done"
+
+
+def test_gate_keeps_legacy_done_when_gate_disabled(tmp_path: Path) -> None:
+    # Non-EMNLP mission (full_emnlp_gate False): old behavior is unchanged —
+    # main.pdf still promotes to terminal DONE and blocks.
+    stub = _GateStub(
+        project_root=_with_preflight_pdf(tmp_path),
+        memory_root=tmp_path / "mem",
+        full_emnlp_gate=False,
+        certified=False,
+    )
+    result = stub.block()
+    assert result is not None
+    assert result["lifecycle_state"] == "done"
+
+
+def test_lifecycle_block_is_deduped_across_repeated_ticks(tmp_path: Path) -> None:
+    # Cut #2 log hygiene: a project sitting in the same blocked state must emit
+    # the held-item status + journal line only ONCE, not on every tick — this
+    # is what used to flood events.jsonl / activity.log with tens of thousands
+    # of identical lines. Dispatch behavior is unchanged: every call still
+    # returns the block dict so the supervisor keeps holding the item.
+    stub = _GateStub(
+        project_root=_with_preflight_pdf(tmp_path),
+        memory_root=tmp_path / "mem",
+        full_emnlp_gate=False,
+        certified=False,
+    )
+    results = [stub.block() for _ in range(5)]
+    assert all(r is not None and r["status"] == "lifecycle_block" for r in results)
+
+    gate_lines = [t for t in stub.emitted if "lifecycle gate" in t]
+    assert len(gate_lines) == 1
+
+    block_journal = [
+        e for e in stub.journal_entries
+        if getattr(e, "kind", "") == "lifecycle_block"
+    ]
+    assert len(block_journal) == 1

@@ -7,6 +7,8 @@
     "reason",
     "restart_daemon",
     "restart_reason",
+    "waiting",
+    "waiting_reason",
     "new_tasks"
   ],
   "properties": {
@@ -21,6 +23,12 @@
       "type": "boolean"
     },
     "restart_reason": {
+      "type": "string"
+    },
+    "waiting": {
+      "type": "boolean"
+    },
+    "waiting_reason": {
       "type": "string"
     },
     "new_tasks": {
