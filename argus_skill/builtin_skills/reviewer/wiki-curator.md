@@ -81,21 +81,53 @@ List `sources/papers/`, `sources/repos/`, and `sources/runs/` files
 whose `ingested_at` matches this mission's date OR whose `ingested_by`
 field references this mission's id.
 
-### Step 2 -- decide whether judgment is needed
+### Step 2 -- mechanical scratch lift + selective candidate promotion
 
-For each new source, ask:
+The wiki is NOT a journal, but the scratch tier exists exactly so the
+wiki can grow without overcommitting to judgment. Be liberal with
+scratch creation; conservative with candidate/stable promotion.
 
-- Is this an external technique that might transfer beyond this mission?
-  If yes, it may deserve a `pages/techniques/*.md` card.
-- Does this contradict another source already in the wiki, or a claim
-  the engineer relied on this mission? If yes, write or update a
-  `pages/conflicts/*.md` card.
-- Does the new RunCard's `failure_signature` match an earlier RunCard
-  in this project's `sources/runs/`? If yes, write or update a
-  `pages/patterns/*.md` card.
+**Mechanical (always do this)**:
 
-If none of the above is true, write nothing. The wiki is not a log;
-silence is correct when there is no judgment to add.
+For each NEWLY added source this mission (from Step 1):
+
+- `sources/papers/<key>.md` -> create or refresh
+  `pages/techniques/<key>.md` with:
+    - `status: scratch`
+    - `title`: copied from the source title
+    - `sources: ["papers/<key>.md"]`
+    - `tags`: best-effort 1-3 tags from controlled vocab
+      (`.autors/<project>/wiki/data/tags.yaml`); empty list if unclear
+    - `reviewer_note`: the `relevance:` line from the source body
+      (M0.1 ingest_lit_matrix appends it), or empty
+    - `confidence: low`
+    - `created_at: <today>`, `last_reviewed_at: <today>`
+- `sources/runs/<run-id>.md` with `outcome=failure` and a non-empty
+  `failure_signature` that matches the signature of a prior run in
+  this project -> create or refresh `pages/patterns/<signature>.md`
+  with `status: scratch`, `related_runs` listing both run IDs.
+
+If a scratch page for this source already exists, leave it alone
+(scratch is the agent's first guess; do not overwrite it mechanically
+on every mission).
+
+**Judgment-required (do only when justified)**:
+
+- `scratch -> candidate` promotion: this mission found additional
+  evidence (a second source supporting the same technique, a run that
+  exercises it, etc). Write the `Why now?` reasoning into
+  `reviewer_note` so a future reviewer can re-evaluate.
+- `candidate -> stable` promotion: at least two independent sources OR
+  at least one run with measurable benefit; reviewer is willing to
+  certify that the planner may act on this card.
+- `pages/conflicts/<slug>.md` creation: this mission encountered two
+  sources whose claims are inverted on the same variable, for example
+  the engineer's `WIKI-HANDOFF: conflict candidate` note.
+- Demotion (`candidate -> scratch`, `stable -> candidate`): new
+  evidence undermines the card.
+
+If none of the judgment cases apply this mission, do not force a
+candidate/stable; the mechanical scratch lift above is enough.
 
 ### Step 3 -- write or update pages
 
