@@ -68,6 +68,8 @@ def _seed_minimal_paper(root: Path) -> None:
         + r"\section{Related Work}" + "\n"
         + ("Prior work. " * 120) + "\n"
         + r"\section{Conclusion}" + "\nEnd.\n"
+        + r"\appendix" + "\n"
+        + r"\section{Reproducibility}" + "\nDetails.\n"
         + r"\end{document}" + "\n",
         encoding="utf-8",
     )

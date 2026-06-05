@@ -55,6 +55,9 @@ def _seed_minimal_passing_paper(root: Path) -> None:
 """ + related_text + r"""
 \section{Conclusion}
 We conclude.
+\appendix
+\section{Reproducibility Details}
+Hyperparameters and prompts.
 \end{document}
 """,
         encoding="utf-8",
@@ -81,6 +84,66 @@ def test_minimal_passing_paper_is_ok(tmp_path: Path) -> None:
     assert report.bib_entries_cited >= MIN_CITED_BIB_ENTRIES
     assert report.related_work_chars >= MIN_RELATED_WORK_CHARS
     assert report.has_conclusion
+
+
+def test_appendix_required_via_appendix_command(tmp_path: Path) -> None:
+    """`\\appendix` LaTeX command in the seed already — verify it passes."""
+    _seed_minimal_passing_paper(tmp_path)
+    report = validate_paper_structural_minimums(tmp_path)
+    assert report.has_appendix
+    assert report.ok, report.to_text()
+
+
+def test_appendix_required_via_section_title(tmp_path: Path) -> None:
+    """`\\section{Appendix ...}` (no `\\appendix` command) also counts."""
+    _seed_minimal_passing_paper(tmp_path)
+    paper = tmp_path / "paper"
+    cite_block = ", ".join(f"\\cite{{work{i}}}" for i in range(MIN_INTEXT_CITES))
+    (paper / "main.tex").write_text(
+        r"""\documentclass{article}
+\begin{document}
+\section{Introduction}
+\includegraphics{figures/fig1.pdf}
+""" + cite_block + r"""
+\section{Related Work}
+""" + ("Prior work. " * 120) + r"""
+\section{Conclusion}
+End.
+\section{Appendix A: Reproducibility Details}
+Hyperparameters.
+\end{document}
+""",
+        encoding="utf-8",
+    )
+    report = validate_paper_structural_minimums(tmp_path)
+    assert report.has_appendix
+    assert report.ok, report.to_text()
+
+
+def test_no_appendix_fails(tmp_path: Path) -> None:
+    """Operator policy: every paper must ship with an appendix. A paper
+    that has every other floor met but no appendix must fail."""
+    _seed_minimal_passing_paper(tmp_path)
+    paper = tmp_path / "paper"
+    cite_block = ", ".join(f"\\cite{{work{i}}}" for i in range(MIN_INTEXT_CITES))
+    (paper / "main.tex").write_text(
+        r"""\documentclass{article}
+\begin{document}
+\section{Introduction}
+\includegraphics{figures/fig1.pdf}
+""" + cite_block + r"""
+\section{Related Work}
+""" + ("Prior work. " * 120) + r"""
+\section{Conclusion}
+End.
+\end{document}
+""",
+        encoding="utf-8",
+    )
+    report = validate_paper_structural_minimums(tmp_path)
+    assert not report.has_appendix
+    codes = {i.code for i in report.issues}
+    assert "no_appendix_section" in codes
 
 
 def test_v1_style_paper_no_figures_no_cites_fails(tmp_path: Path) -> None:
@@ -115,6 +178,7 @@ We conclude.
     assert "too_few_citations" in codes
     assert "too_few_bib_entries_cited" in codes
     assert "no_related_work_section" in codes
+    assert "no_appendix_section" in codes
     # v1 also never ran image-2 / framework-figure skills → manifest absent
     assert "missing_image2_manifest" in codes
 
@@ -302,7 +366,10 @@ def test_section_files_are_scanned(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (sections / "conclusion.tex").write_text(
-        r"\section{Conclusion}" + "\nDone.\n", encoding="utf-8",
+        r"\section{Conclusion}" + "\nDone.\n"
+        + r"\appendix" + "\n"
+        + r"\section{Reproducibility}" + "\nDetails.\n",
+        encoding="utf-8",
     )
     # bib that covers the cites
     (paper / "references.bib").write_text(
@@ -351,7 +418,7 @@ def test_related_work_too_short_fails(tmp_path: Path) -> None:
     _seed_minimal_passing_paper(tmp_path)
     # Replace with a paper that has a Related Work header but ~0 body.
     paper = tmp_path / "paper"
-    cite_block = ", ".join(f"\\cite{{w{i}}}" for i in range(MIN_INTEXT_CITES))
+    cite_block = ", ".join(f"\\cite{{work{i}}}" for i in range(MIN_INTEXT_CITES))
     (paper / "main.tex").write_text(
         r"""\documentclass{article}\begin{document}
 \section{Introduction}
@@ -392,6 +459,9 @@ def test_alt_section_titles_recognised(tmp_path: Path) -> None:
 """ + ("Padding. " * 120) + r"""
 \section{Conclusions}
 Done.
+\appendix
+\section{Reproducibility}
+Settings.
 \end{document}
 """,
         encoding="utf-8",

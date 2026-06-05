@@ -23,6 +23,8 @@ The `paper_structural_minimums` harness gate at draft/review/submission stages r
 
 Each entry's `file` field must resolve to a real raster on disk; phantom paths do not satisfy the gate. Skipping either category means the draft round will exit non-zero and the supervisor will send the engineer back. Generate both figures before declaring the draft complete — there is no `--skip-figures` escape hatch.
 
+**Appendix is now also mandatory** (operator policy 2026-06-05): every `paper/main.tex` must include either the LaTeX `\appendix` command OR a `\section{Appendix...}` block (Appendices / Supplementary Material / Reproducibility Appendix all count). Put prompts, hyperparameter tables, additional results, or failure cases there. Missing appendix fails `paper_structural_minimums` with `no_appendix_section`.
+
 ## Core Design Philosophy
 
 ```text

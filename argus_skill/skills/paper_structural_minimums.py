@@ -60,12 +60,16 @@ _PIPELINE_KEYWORDS = (
 # ``\section*{Related Work and Background}`` still counts.
 _RELATED_WORK_TITLES = ("related work", "background and related work", "prior work")
 _CONCLUSION_TITLES = ("conclusion", "conclusions", "discussion and conclusion")
+_APPENDIX_TITLES = ("appendix", "appendices", "supplementary material",
+                    "reproducibility appendix")
 
 
 _RE_INCLUDEGRAPHICS = re.compile(r"\\includegraphics\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
 _RE_CITE = re.compile(r"\\cite[a-zA-Z*]*\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
 _RE_SECTION = re.compile(r"\\section\*?\s*\{([^}]+)\}")
 _RE_BIBKEY = re.compile(r"^\s*@\w+\s*\{\s*([^,\s]+)\s*,", re.MULTILINE)
+# `\appendix` command turns subsequent \section into Appendix A, B, …
+_RE_APPENDIX_CMD = re.compile(r"\\appendix\b")
 
 
 @dataclass
@@ -84,6 +88,7 @@ class StructuralReport:
     bib_entries_cited: int = 0
     related_work_chars: int = 0
     has_conclusion: bool = False
+    has_appendix: bool = False
     image2_manifest_path: Path | None = None
     has_teaser_figure: bool = False
     has_pipeline_figure: bool = False
@@ -120,6 +125,7 @@ class StructuralReport:
         )
         lines.append(f"  related-work prose chars: {self.related_work_chars}")
         lines.append(f"  has conclusion: {self.has_conclusion}")
+        lines.append(f"  has appendix: {self.has_appendix}")
         lines.append(
             f"  image2 teaser/hero figure: {self.has_teaser_figure}; "
             f"pipeline/method figure: {self.has_pipeline_figure}"
@@ -472,6 +478,28 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
             StructuralIssue(
                 code="no_conclusion_section",
                 detail="no \\section{Conclusion} (or equivalent) found",
+            )
+        )
+
+    # Appendix (operator policy: every paper must ship with an appendix —
+    # reproducibility details, prompts, additional results, failure cases).
+    # Accept either the LaTeX ``\appendix`` command (which converts the
+    # next \section into Appendix A) OR a section titled Appendix /
+    # Appendices / Supplementary Material / Reproducibility Appendix.
+    has_appendix_cmd = bool(_RE_APPENDIX_CMD.search(tex))
+    has_appendix_section = _section_span(tex, _APPENDIX_TITLES) is not None
+    report.has_appendix = has_appendix_cmd or has_appendix_section
+    if not report.has_appendix:
+        report.issues.append(
+            StructuralIssue(
+                code="no_appendix_section",
+                detail=(
+                    "no appendix found — operator policy: every paper must "
+                    "include an appendix (reproducibility details, prompts, "
+                    "additional results, or failure cases). Add either "
+                    "\\appendix before the supplementary sections, or a "
+                    "\\section{Appendix} block after References"
+                ),
             )
         )
 
