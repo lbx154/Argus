@@ -45,15 +45,22 @@ from pathlib import Path
 # Re-use pdf_chat's extraction so we don't fork the pdftotext/pypdf logic.
 from .pdf_chat import _extract  # type: ignore[attr-defined]
 
-# Same heading detector as pdf_chat — keep a local copy so this module
-# stays usable even if pdf_chat's regex changes.
+# Review-mode ACL PDFs often include line numbers and two-column spillover
+# on the same extracted line, so section headings may appear either at the
+# start of a line or after a wide intra-line gap. We therefore accept an
+# optional line-number / section-number prefix and stop the match before the
+# next wide spacing run instead of requiring a clean one-column line.
 _RE_SECTION_HEAD = re.compile(
-    r"^\s*((?:[A-Z]\.|[0-9]+(?:\.[0-9]+)*)?\s*"
-    r"(?:Abstract|Introduction|Background|Related Work|Method(?:s|ology)?|"
+    r"(?m)(?:^|\x0c|[ \t]{6,})[ \t]*"
+    r"(?:(?:\d+|[A-Z])\s+){0,3}"
+    r"((?:Abstract|Introduction|Background|Related Works?|Method(?:s|ology)?|"
     r"Approach|Model|Experiments?|Experimental Setup|Setup|Results?|"
-    r"Analysis|Ablations?|Discussion|Limitations?|Conclusions?|"
-    r"References|Bibliography|Appendix(?:\s*[A-Z])?|Acknowledg(?:e?)ments?))\s*$",
-    re.MULTILINE | re.IGNORECASE,
+    r"Analysis|Ablations?|Discussion|Failure Cases?|Limitations?|"
+    r"Ethical Considerations?|Conclusions?|References|Bibliography|"
+    r"Reproducibility Appendix|Appendix(?:\s*[A-Z])?|"
+    r"Acknowledg(?:e?)ments?))"
+    r"(?=(?:[ \t]{2,}|\s*$))",
+    re.IGNORECASE,
 )
 
 _RE_FIGURE_REF = re.compile(
@@ -121,6 +128,46 @@ def _find_section_chars(spans, title_keywords) -> int:
     return 0
 
 
+def _canonical_section_title(title: str) -> str:
+    """Map literal headings to coarse venue-level section buckets."""
+    t = re.sub(r"\s+", " ", title.strip().lower())
+    if t.startswith("abstract"):
+        return "abstract"
+    if t.startswith("introduction") or t.startswith("background"):
+        return "introduction"
+    if t.startswith("related work") or t.startswith("related works"):
+        return "related work"
+    if (
+        t.startswith("method")
+        or t.startswith("approach")
+        or t.startswith("model")
+    ):
+        return "method"
+    if t.startswith("experiment") or t.startswith("setup"):
+        return "experiments"
+    if (
+        t.startswith("result")
+        or t.startswith("analysis")
+        or t.startswith("ablation")
+        or t.startswith("discussion")
+        or t.startswith("failure case")
+    ):
+        return "results_and_analysis"
+    if t.startswith("conclusion"):
+        return "conclusion"
+    if (
+        t.startswith("limitation")
+        or t.startswith("ethical consideration")
+        or t.startswith("acknowledg")
+    ):
+        return "end_matter"
+    if t.startswith("reference") or t.startswith("bibliography"):
+        return "references"
+    if "appendix" in t:
+        return "appendix"
+    return t
+
+
 def _page_of_offset(text: str, offset: int) -> int:
     """Pages are split on form-feed ``\\x0c``. Return 1-indexed page number."""
     if offset <= 0:
@@ -149,8 +196,9 @@ def extract_format_facts(pdf_path: Path) -> FormatFacts:
 
     spans = _section_spans(text)
     facts.section_titles = [t for t, _, _ in spans]
-    # De-duplicate near-identical titles (e.g. case + whitespace variants)
-    facts.section_count = len({t.strip().lower() for t in facts.section_titles})
+    facts.section_count = len(
+        {_canonical_section_title(t) for t in facts.section_titles}
+    )
 
     # Figures / tables (in-text references)
     facts.figure_count, facts.figure_max_index = _count_unique_indexed(
