@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -215,6 +216,84 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def _is_bounded_reward_survey_scope(project_root: Path, *, requested_stage: str) -> bool:
+    if requested_stage != "research":
+        return False
+    state = _read_json(project_root / "research" / "PIPELINE_STATE.json")
+    if not isinstance(state, dict):
+        return False
+    stage_name = str(state.get("current_stage") or state.get("stage") or "research")
+    return state.get("scope") == "bounded_train_free_reward_survey" and stage_name == "research"
+
+
+def _bounded_reward_survey_findings(project_root: Path) -> list[str]:
+    findings: list[str] = []
+    report = project_root / "reports" / "process_terminal_reward_survey_20260605.md"
+    if not report.exists() or report.stat().st_size == 0:
+        findings.append("bounded survey report is missing or empty")
+        report_text = ""
+    else:
+        report_text = report.read_text(encoding="utf-8")
+
+    if report_text:
+        header_ok = all(
+            part in report_text
+            for part in (
+                "Compact reward decomposition",
+                "Key tradeoffs",
+                "Explicit comparison to Bagel components",
+            )
+        )
+        if not header_ok:
+            findings.append("bounded survey table missing formula/tradeoff/Bagel-comparison columns")
+
+        paper_rows = [
+            line for line in report_text.splitlines()
+            if re.match(r"^\| [0-9]+ \|", line)
+        ]
+        if not (5 <= len(paper_rows) <= 7):
+            findings.append(f"bounded survey table has {len(paper_rows)} paper rows; expected 5-7")
+
+        improvement_rows = [
+            line for line in report_text.splitlines()
+            if re.match(r"^[1-5]\. \*\*", line)
+        ]
+        if not (3 <= len(improvement_rows) <= 5):
+            findings.append(
+                f"bounded survey has {len(improvement_rows)} ranked improvements; expected 3-5"
+            )
+    else:
+        paper_rows = []
+
+    refs = project_root / "paper" / "refs.bib"
+    if not refs.exists() or "@" not in refs.read_text(encoding="utf-8", errors="ignore"):
+        findings.append("bounded survey BibTeX refs are missing or empty at paper/refs.bib")
+
+    source_dir = project_root / ".autors" / "unify_RL_argus" / "wiki" / "sources" / "papers"
+    source_cards = sorted(source_dir.glob("*.md")) if source_dir.exists() else []
+    complete_source_cards = 0
+    malformed_cards: list[Path] = []
+    for card in source_cards:
+        body = card.read_text(encoding="utf-8", errors="ignore")
+        if (
+            "url:" not in body
+            or "@" not in body
+            or ("Decomposition summary" not in body and "decomposition_summary" not in body)
+            or ("Bagel relevance" not in body and "bagel_relevance" not in body)
+        ):
+            malformed_cards.append(card)
+        else:
+            complete_source_cards += 1
+    if complete_source_cards < len(paper_rows):
+        findings.append(
+            "bounded survey wiki paper source cards are incomplete: "
+            f"{complete_source_cards} complete card(s) for {len(paper_rows)} cited paper row(s)"
+        )
+    if source_cards and not complete_source_cards and malformed_cards:
+        findings.append(f"bounded survey wiki source cards missing required fields: {malformed_cards[0]}")
+    return findings
+
+
 def _format_blockers(payload: dict[str, Any], *, max_items: int = 4) -> str:
     blockers = payload.get("blockers")
     if not isinstance(blockers, list) or not blockers:
@@ -231,23 +310,8 @@ def _format_blockers(payload: dict[str, Any], *, max_items: int = 4) -> str:
     return "; ".join(part for part in rendered if part)
 
 
-def _blocked_pipeline_findings(project_root: Path, *, requested_stage: str) -> list[str]:
+def _benchmark_external_findings(project_root: Path) -> list[str]:
     findings: list[str] = []
-    state = _read_json(project_root / "research" / "PIPELINE_STATE.json")
-    if isinstance(state, dict):
-        if state.get("status") == "blocked":
-            reason = state.get("last_gate", {}).get("reason") if isinstance(state.get("last_gate"), dict) else ""
-            findings.append(f"pipeline status is blocked: {reason or 'no reason recorded'}")
-        stages = state.get("stages")
-        if isinstance(stages, dict):
-            for stage_name in {str(state.get("current_stage") or ""), requested_stage}:
-                if not stage_name:
-                    continue
-                stage_payload = stages.get(stage_name)
-                if isinstance(stage_payload, dict) and stage_payload.get("status") == "blocked":
-                    reason = stage_payload.get("reason") or stage_payload.get("gate") or "no reason recorded"
-                    findings.append(f"stage {stage_name!r} status is blocked: {reason}")
-
     provenance = _read_json(project_root / "experiments" / "BENCHMARK_PROVENANCE.json")
     if isinstance(provenance, dict):
         viability = provenance.get("plan_viability")
@@ -276,6 +340,28 @@ def _blocked_pipeline_findings(project_root: Path, *, requested_stage: str) -> l
         if payload.get("passed") is False:
             details = _format_blockers(payload)
             findings.append(f"{label} is blocked" + (f": {details}" if details else ""))
+    return findings
+
+
+def _blocked_pipeline_findings(project_root: Path, *, requested_stage: str) -> list[str]:
+    findings: list[str] = []
+    state = _read_json(project_root / "research" / "PIPELINE_STATE.json")
+    if isinstance(state, dict):
+        if state.get("status") == "blocked":
+            reason = state.get("last_gate", {}).get("reason") if isinstance(state.get("last_gate"), dict) else ""
+            findings.append(f"pipeline status is blocked: {reason or 'no reason recorded'}")
+        stages = state.get("stages")
+        if isinstance(stages, dict):
+            for stage_name in {str(state.get("current_stage") or ""), requested_stage}:
+                if not stage_name:
+                    continue
+                stage_payload = stages.get(stage_name)
+                if isinstance(stage_payload, dict) and stage_payload.get("status") == "blocked":
+                    reason = stage_payload.get("reason") or stage_payload.get("gate") or "no reason recorded"
+                    findings.append(f"stage {stage_name!r} status is blocked: {reason}")
+
+    if not _is_bounded_reward_survey_scope(project_root, requested_stage=requested_stage):
+        findings.extend(_benchmark_external_findings(project_root))
     return findings
 
 
@@ -325,6 +411,24 @@ def main() -> int:
         print("🚫 Fail-closed pipeline state:")
         for finding in blocked_findings:
             print(f"  ❌ {finding}")
+
+    bounded_survey_failures: list[str] = []
+    benchmark_external_notes: list[str] = []
+    if _is_bounded_reward_survey_scope(root, requested_stage=stage):
+        bounded_survey_failures = _bounded_reward_survey_findings(root)
+        benchmark_external_notes = _benchmark_external_findings(root)
+        print()
+        print("📌 Bounded reward-survey scope:")
+        if bounded_survey_failures:
+            for finding in bounded_survey_failures:
+                print(f"  ❌ {finding}")
+        else:
+            print("  ✅ bounded survey artifacts complete")
+        if benchmark_external_notes:
+            print()
+            print("ℹ️  External benchmark notes (non-blocking for bounded reward survey):")
+            for finding in benchmark_external_notes:
+                print(f"  • {finding}")
 
     # 2. Run automated F4 (structural) + F3 (advisory) gates that apply
     #    at this stage. STRUCTURAL gate failures count into the round
@@ -381,13 +485,15 @@ def main() -> int:
 
     # Exit code: shell-check failures + STRUCTURAL gate failures only.
     # Advisory findings (mediocrity facts) never appear here.
-    total_failed = failed + structural_block + blocked_state_fail
+    bounded_survey_fail = len(bounded_survey_failures)
+    total_failed = failed + structural_block + blocked_state_fail + bounded_survey_fail
     print(
         f"\n{'✅' if total_failed == 0 else '❌'} "
         f"{passed} shell pass, {failed} shell fail, "
         f"{structural_pass} structural-gate pass, "
         f"{structural_fail} structural-gate fail, "
         f"{blocked_state_fail} fail-closed state finding(s), "
+        f"{bounded_survey_fail} bounded-survey finding(s), "
         f"{advisory_count} advisory finding(s) "
         f"(reviewer rules)"
     )
