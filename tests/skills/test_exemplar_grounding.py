@@ -18,7 +18,8 @@ def _sha(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
 
-def _seed_exemplar(root: Path, slug: str, *, with_figs: bool = True) -> dict:
+def _seed_exemplar(root: Path, slug: str, *, with_figs: bool = True,
+                   facts: dict | None = None) -> dict:
     """Create exemplars/<slug>/paper.pdf + return the EXEMPLAR.json entry."""
     d = root / "paper" / "style_ref" / "exemplars" / slug
     d.mkdir(parents=True, exist_ok=True)
@@ -32,6 +33,18 @@ def _seed_exemplar(root: Path, slug: str, *, with_figs: bool = True) -> dict:
             {"id": "fig2", "type": "pipeline"},
             {"id": "tab1", "type": "results_table"},
         ]
+    # Default format_facts that pass the diff tolerance against the
+    # paper's seeded facts. Real values come from
+    # argus_skill.tools.format_facts on a real PDF.
+    default_facts = {
+        "total_pages": 8,
+        "section_count": 6,
+        "figure_count": 3,
+        "table_count": 2,
+        "citations_per_page": 5.0,
+        "body_pages_before_references": 7,
+    }
+    entry_facts = facts if facts is not None else default_facts
     return {
         "slug": slug,
         "title": f"Toy paper {slug}",
@@ -48,6 +61,7 @@ def _seed_exemplar(root: Path, slug: str, *, with_figs: bool = True) -> dict:
         "pdf_sha256": _sha(body),
         "text_extract": "",
         "structural_profile": profile,
+        "format_facts": entry_facts,
     }
 
 
@@ -104,6 +118,19 @@ def _seed_passing(root: Path, *, with_conformance: bool = False) -> None:
             }),
             encoding="utf-8",
         )
+    # Paper's own format facts — close enough to exemplar defaults to
+    # stay within tolerance.
+    (root / "paper" / "PAPER_FORMAT_FACTS.json").write_text(
+        json.dumps({
+            "total_pages": 7,
+            "section_count": 6,
+            "figure_count": 3,
+            "table_count": 2,
+            "citations_per_page": 4.5,
+            "body_pages_before_references": 6,
+        }),
+        encoding="utf-8",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -299,6 +326,103 @@ def test_conformance_empty_section_mappings_fails(tmp_path: Path) -> None:
     report = validate_exemplar_grounding(tmp_path, require_conformance=True)
     codes = {i.code for i in report.issues}
     assert "structure_conformance_empty_section_mappings" in codes
+
+
+# ---------------------------------------------------------------------------
+# Format-facts conformance — the v2 follow-up that catches "passes text
+# checks but doesn't look like a same-venue paper"
+# ---------------------------------------------------------------------------
+
+
+def test_missing_paper_format_facts_fails(tmp_path: Path) -> None:
+    _seed_passing(tmp_path)
+    (tmp_path / "paper" / "PAPER_FORMAT_FACTS.json").unlink()
+    report = validate_exemplar_grounding(tmp_path)
+    codes = {i.code for i in report.issues}
+    assert "missing_paper_format_facts" in codes
+
+
+def test_exemplar_missing_format_facts_fails(tmp_path: Path) -> None:
+    _seed_passing(tmp_path)
+    data = json.loads((tmp_path / "paper/style_ref/EXEMPLAR.json").read_text())
+    for entry in data["exemplars"]:
+        entry.pop("format_facts", None)
+        entry.pop("format_facts_path", None)
+    (tmp_path / "paper/style_ref/EXEMPLAR.json").write_text(
+        json.dumps(data), encoding="utf-8",
+    )
+    report = validate_exemplar_grounding(tmp_path)
+    codes = [i.code for i in report.issues]
+    assert codes.count("exemplar_missing_format_facts") == 2
+
+
+def test_exemplar_format_facts_from_sidecar_file(tmp_path: Path) -> None:
+    """format_facts can live in EXEMPLAR.json inline OR in a sidecar
+    file referenced by format_facts_path. Both must work."""
+    _seed_passing(tmp_path)
+    data = json.loads((tmp_path / "paper/style_ref/EXEMPLAR.json").read_text())
+    sidecar = tmp_path / "paper/style_ref/exemplars/best2024-awesome/format_facts.json"
+    sidecar.write_text(
+        json.dumps(data["exemplars"][0]["format_facts"]), encoding="utf-8",
+    )
+    data["exemplars"][0].pop("format_facts")
+    data["exemplars"][0]["format_facts_path"] = (
+        "paper/style_ref/exemplars/best2024-awesome/format_facts.json"
+    )
+    (tmp_path / "paper/style_ref/EXEMPLAR.json").write_text(
+        json.dumps(data), encoding="utf-8",
+    )
+    report = validate_exemplar_grounding(tmp_path)
+    assert report.ok, report.to_text()
+
+
+def test_format_facts_divergence_fails(tmp_path: Path) -> None:
+    """Paper's facts wildly off from primary exemplar's must fail the
+    conformance check. We simulate by making the paper claim to be 1
+    page when the exemplar is 8."""
+    _seed_passing(tmp_path)
+    (tmp_path / "paper" / "PAPER_FORMAT_FACTS.json").write_text(
+        json.dumps({
+            "total_pages": 1,
+            "section_count": 1,
+            "figure_count": 0,
+            "table_count": 0,
+            "citations_per_page": 0.0,
+            "body_pages_before_references": 1,
+        }),
+        encoding="utf-8",
+    )
+    report = validate_exemplar_grounding(tmp_path)
+    codes = {i.code for i in report.issues}
+    assert "format_facts_diverge_from_primary_exemplar" in codes
+    assert report.format_diff_findings
+    off = [f for f in report.format_diff_findings if not f["within_tolerance"]]
+    assert len(off) >= 3
+
+
+def test_format_facts_within_tolerance_passes(tmp_path: Path) -> None:
+    _seed_passing(tmp_path)
+    report = validate_exemplar_grounding(tmp_path)
+    assert report.ok, report.to_text()
+    assert report.format_diff_findings
+    assert all(f["within_tolerance"] for f in report.format_diff_findings)
+    assert report.paper_format_facts_present is True
+
+
+def test_format_facts_skipped_when_primary_unset(tmp_path: Path) -> None:
+    """If primary_exemplar slug doesn't match anything in EXEMPLAR.json,
+    the slug-unknown error fires AND the format-diff is skipped (no
+    primary facts to diff against)."""
+    _seed_passing(tmp_path)
+    s = json.loads((tmp_path / "paper/style_ref/EXEMPLAR_SUITABILITY.json").read_text())
+    s["primary_exemplar"] = "nonexistent-slug"
+    (tmp_path / "paper/style_ref/EXEMPLAR_SUITABILITY.json").write_text(
+        json.dumps(s), encoding="utf-8",
+    )
+    report = validate_exemplar_grounding(tmp_path)
+    codes = {i.code for i in report.issues}
+    assert "primary_exemplar_unknown_slug" in codes
+    assert "format_facts_diverge_from_primary_exemplar" not in codes
 
 
 # ---------------------------------------------------------------------------

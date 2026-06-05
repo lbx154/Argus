@@ -147,6 +147,12 @@ def _seed_minimal_paper(root: Path) -> None:
                 ],
                 "section_count": 6,
             },
+            "format_facts": {
+                "total_pages": 8, "section_count": 6,
+                "figure_count": 3, "table_count": 2,
+                "citations_per_page": 5.0,
+                "body_pages_before_references": 7,
+            },
         })
     (style / "EXEMPLAR.json").write_text(
         json.dumps({"exemplar_schema_version": 2, "exemplars": exemplars}),
@@ -179,6 +185,15 @@ def _seed_minimal_paper(root: Path) -> None:
                  "maps_to_exemplar_phase": "intro",
                  "evidence_sources": ["x"], "exemplar_lesson": "y"},
             ],
+        }),
+        encoding="utf-8",
+    )
+    (paper / "PAPER_FORMAT_FACTS.json").write_text(
+        json.dumps({
+            "total_pages": 7, "section_count": 6,
+            "figure_count": 3, "table_count": 2,
+            "citations_per_page": 4.5,
+            "body_pages_before_references": 6,
         }),
         encoding="utf-8",
     )

@@ -32,6 +32,24 @@ At submission stage only, additionally:
   ``section_mappings`` array — proves the final LaTeX section order
   was kept aligned with the blueprint.
 
+**Format-conformance check** (added 2026-06-05):
+
+  Pure-text exemplar grounding wasn't enough — v2 produced a passing
+  STRUCTURE_CONFORMANCE.json while still leaving real format problems
+  in the paper. The gate now also requires:
+
+  * Each exemplar entry contains a ``format_facts`` object (or
+    ``format_facts_path`` pointing at one) — produced by
+    ``argus_skill.tools.format_facts``.
+  * ``paper/PAPER_FORMAT_FACTS.json`` exists (the paper's own facts,
+    same shape).
+  * For draft+ stages: the paper's format facts are within tolerance of
+    the primary exemplar's on ``total_pages`` / ``section_count`` /
+    ``figure_count`` / ``table_count`` / ``citations_per_page`` /
+    ``body_pages_before_references``. Tolerances are intentionally
+    generous (see ``argus_skill.tools.format_facts.DEFAULT_TOLERANCES``);
+    the goal is "ballpark same venue", not byte-identical.
+
 This is structural / anti-fab. We do NOT score whether the exemplars
 are "the right" exemplars or whether the style profile is "deep
 enough" beyond a character floor — those are quality judgments and
@@ -47,9 +65,15 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..tools.format_facts import (
+    DEFAULT_TOLERANCES,
+    diff_against_exemplar,
+)
+
 MIN_EXEMPLARS = 2
 MIN_STYLE_PROFILE_CHARS = 2000
 MIN_BLUEPRINT_CHARS = 1500
+PAPER_FORMAT_FACTS_PATH = "paper/PAPER_FORMAT_FACTS.json"
 FIGURE_INVENTORY_KEYS = (
     "figure_inventory",
     "figures",
@@ -75,6 +99,8 @@ class GroundingReport:
     blueprint_chars: int = 0
     has_conformance_json: bool = False
     conformance_section_mappings: int = 0
+    paper_format_facts_present: bool = False
+    format_diff_findings: list[dict] = field(default_factory=list)
     issues: list[GroundingIssue] = field(default_factory=list)
 
     @property
@@ -103,6 +129,18 @@ class GroundingReport:
             f"  STRUCTURE_CONFORMANCE.json present: {self.has_conformance_json}"
             f" ({self.conformance_section_mappings} section mapping(s))"
         )
+        lines.append(
+            f"  PAPER_FORMAT_FACTS.json present: {self.paper_format_facts_present}"
+        )
+        if self.format_diff_findings:
+            lines.append("  format diff vs primary exemplar:")
+            for f in self.format_diff_findings:
+                mark = "ok" if f.get("within_tolerance") else "OFF"
+                lines.append(
+                    f"    [{mark}] {f.get('field')}: paper={f.get('paper_value')} "
+                    f"exemplar={f.get('exemplar_value')} "
+                    f"Δabs={f.get('delta_abs')} Δrel={f.get('delta_rel')}"
+                )
         return "\n".join(lines)
 
 
@@ -445,7 +483,110 @@ def validate_exemplar_grounding(
                         ),
                     ))
 
+    # ------------------------------------------------------------------
+    # Format-facts conformance: each exemplar must have format_facts,
+    # and the paper's own format facts must be in the same ballpark as
+    # the primary exemplar's. This is what catches "PDF compiled clean
+    # but doesn't look like a same-venue paper" — the gap text-only
+    # exemplar grounding kept missing.
+    # ------------------------------------------------------------------
+    primary_facts: dict | None = None
+    for entry in exemplars:
+        slug = _exemplar_slug(entry)
+        facts = _load_exemplar_format_facts(entry, project_root)
+        if facts is None:
+            report.issues.append(GroundingIssue(
+                code="exemplar_missing_format_facts",
+                detail=(
+                    f"exemplar {slug!r} has no format_facts (inline) and "
+                    "no format_facts_path; run "
+                    "`python -m argus_skill.tools.format_facts <local_pdf> "
+                    "--write paper/style_ref/exemplars/<slug>/format_facts.json` "
+                    "and reference it from EXEMPLAR.json"
+                ),
+            ))
+            continue
+        if report.primary_exemplar and slug == report.primary_exemplar:
+            primary_facts = facts
+
+    paper_facts_path = project_root / PAPER_FORMAT_FACTS_PATH
+    if not paper_facts_path.exists():
+        report.issues.append(GroundingIssue(
+            code="missing_paper_format_facts",
+            detail=(
+                f"{PAPER_FORMAT_FACTS_PATH} not found — run "
+                "`python -m argus_skill.tools.format_facts paper/main.pdf "
+                f"--write {PAPER_FORMAT_FACTS_PATH}` after every PDF rebuild"
+            ),
+        ))
+    else:
+        try:
+            paper_facts = json.loads(paper_facts_path.read_text(encoding="utf-8"))
+            report.paper_format_facts_present = True
+        except (OSError, json.JSONDecodeError) as exc:
+            report.issues.append(GroundingIssue(
+                code="malformed_paper_format_facts",
+                detail=f"{PAPER_FORMAT_FACTS_PATH}: {exc}",
+            ))
+            paper_facts = None
+
+        if paper_facts is not None and primary_facts is not None:
+            findings = diff_against_exemplar(
+                paper_facts, primary_facts, DEFAULT_TOLERANCES,
+            )
+            report.format_diff_findings = [
+                {
+                    "field": f.field,
+                    "paper_value": f.paper_value,
+                    "exemplar_value": f.exemplar_value,
+                    "delta_abs": f.delta_abs,
+                    "delta_rel": f.delta_rel,
+                    "within_tolerance": f.within_tolerance,
+                }
+                for f in findings
+            ]
+            offenders = [f for f in findings if not f.within_tolerance]
+            if offenders:
+                spans = "; ".join(
+                    f"{f.field}: paper={f.paper_value} vs "
+                    f"exemplar={f.exemplar_value} (Δrel={f.delta_rel})"
+                    for f in offenders
+                )
+                report.issues.append(GroundingIssue(
+                    code="format_facts_diverge_from_primary_exemplar",
+                    detail=(
+                        f"{len(offenders)} format field(s) outside tolerance "
+                        f"of primary exemplar {report.primary_exemplar!r}: "
+                        f"{spans}. Tolerances are intentionally loose; "
+                        "exceeding them means the paper does not look like a "
+                        "same-venue paper. Fix by adjusting section lengths, "
+                        "figure/table count, or citation density to mirror "
+                        "the exemplar."
+                    ),
+                ))
+
     return report
+
+
+def _load_exemplar_format_facts(entry: dict, project_root: Path) -> dict | None:
+    """Read an exemplar's format_facts, either inline or from a sidecar
+    file. Returns None when neither is present."""
+    inline = entry.get("format_facts")
+    if isinstance(inline, dict) and inline:
+        return inline
+    path_field = entry.get("format_facts_path")
+    if not path_field:
+        return None
+    candidates = [Path(path_field)]
+    if not candidates[0].is_absolute():
+        candidates.insert(0, project_root / path_field)
+    for c in candidates:
+        if c.exists():
+            try:
+                return json.loads(c.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                return None
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:
