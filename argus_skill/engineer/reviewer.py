@@ -39,6 +39,7 @@ SCHEMA_PATH = str(Path(__file__).with_name("reviewer_schema.json"))
 _REVIEWER_ROLE_SKILL = "argus-reviewer-role.md"
 _REVIEWER_ENGINEER_HANDOFF_SKILL = "reviewer-engineer-handoff.md"
 _ACADEMIC_PAPER_REVIEW_SKILL = "academic-paper-peer-review-benchmark.md"
+_WIKI_CURATOR_SKILL = "wiki-curator.md"
 _REVIEWER_ROLE_FALLBACK = """# Argus Reviewer Role
 
 The Reviewer is argus-skill's evidence gate. Decide done/continue/blocked from
@@ -60,6 +61,12 @@ quality, literature/citations, reproducibility, writing, format/layout, and the
 strongest reviewer objection. Any remaining major actionable reviewer objection
 means `continue`, not `done`.
 """
+_WIKI_CURATOR_FALLBACK = """# Wiki Curator
+
+If a project wiki exists, run the curator pass at mission close: backfill
+sources from literature artifacts, lift new sources into scratch pages, and
+regenerate/validate query indexes.
+"""
 
 
 def _load_reviewer_engineer_handoff_skill() -> str:
@@ -72,6 +79,21 @@ def _load_academic_paper_review_skill() -> str:
     return load_builtin_skill_text(
         _ACADEMIC_PAPER_REVIEW_SKILL, _ACADEMIC_PAPER_REVIEW_FALLBACK
     )
+
+
+def _load_wiki_curator_skill_if_present() -> str | None:
+    """Return wiki-curator skill text when the current project has a wiki.
+
+    The adaptive reviewer matcher has empirically missed this skill for
+    diagnostic/debugging objectives, so wiki-curator is fixed context whenever
+    `.autors/*/wiki/` exists in the current project.
+    """
+    autors = Path.cwd() / ".autors"
+    if not autors.exists():
+        return None
+    if not any((p / "wiki").is_dir() for p in autors.iterdir() if p.is_dir()):
+        return None
+    return load_builtin_skill_text(_WIKI_CURATOR_SKILL, _WIKI_CURATOR_FALLBACK)
 
 
 def _format_academic_paper_review_skill_block(*, include: bool) -> str:
@@ -301,6 +323,13 @@ class Reviewer:
         paper_review_skill_block = _format_academic_paper_review_skill_block(
             include=is_final_submission or stage in {"review", "submission"},
         )
+        wiki_curator_text = _load_wiki_curator_skill_if_present()
+        wiki_curator_skill_block = (
+            "## Wiki curator (fixed when a wiki exists -- run as part of this verdict)\n\n"
+            f"{wiki_curator_text}\n\n"
+            if wiki_curator_text
+            else ""
+        )
 
         # Always-on project-venv reminder for the reviewer too: a round
         # summary that says "I skipped X because the package is missing"
@@ -447,6 +476,7 @@ class Reviewer:
             "Reviewer-to-engineer handoff skill:\n"
             f"{handoff_skill}\n\n"
             f"{paper_review_skill_block}"
+            f"{wiki_curator_skill_block}"
             f"{matched_review_skill_block}"
             f"{stage_checklist}\n\n"
             f"{final_submission_block}"
