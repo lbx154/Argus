@@ -1375,6 +1375,9 @@ def run_life_supervisor(
             continuous=continuous,
             continuous_objective=continuous_objective,
             open_ended=open_ended,
+            # M0.4 (same as daemon life_worker.py): bounded mode disables
+            # the full EMNLP pipeline gate.
+            full_emnlp_gate=not open_ended,
             telemetry_dir=project_root,
             telemetry_interval_seconds=telemetry_interval_from_env(),
         )
