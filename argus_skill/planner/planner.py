@@ -621,6 +621,34 @@ class Planner:
                 "do not write to the wiki yourself; the reviewer's "
                 "`wiki-curator` skill handles all writes.\n"
             )
+            # M0.3: suggest a wiki_collect mission when cooldown has elapsed.
+            # This is a suggestion in the planner prompt, not a harness-enforced
+            # action; the planner still decides.
+            from datetime import datetime, timezone
+            from ..wiki.bot_state import cooldown_elapsed, load_bot_state
+
+            collect_cooldown_hours = 12.0
+            for wiki_root in wiki_candidates:
+                bot_state_path = wiki_root / "data" / "bot_state.json"
+                state = load_bot_state(bot_state_path)
+                if cooldown_elapsed(
+                    last_collected_at=state.last_collected_at,
+                    now=datetime.now(timezone.utc),
+                    hours=collect_cooldown_hours,
+                ):
+                    parts.append(
+                        f"### wiki_collect suggestion ({wiki_root.parent.name})\n"
+                        f"The wiki's collector cooldown of {collect_cooldown_hours:.0f}h "
+                        f"has elapsed since the last collect "
+                        f"(last_collected_at={state.last_collected_at}). "
+                        "If the active backlog has space, consider enqueueing one "
+                        "`wiki_collect` mission with the `wiki-collector` engineer "
+                        "skill. It is a small, train-free background mission that "
+                        "derives 5-10 queries from project state and ingests new "
+                        "arxiv / github hits into sources/*. The reviewer's "
+                        "wiki-curator handles promotion on the same mission's "
+                        "reviewer pass.\n"
+                    )
             wiki_block = "".join(parts)
 
         return (
@@ -883,4 +911,3 @@ def parse_planner_text(text: str) -> PlannerVerdict:
 # ---------------------------------------------------------------------------
 # Objective rendering for the next cycle
 # ---------------------------------------------------------------------------
-
