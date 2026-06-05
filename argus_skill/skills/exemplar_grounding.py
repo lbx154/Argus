@@ -521,7 +521,9 @@ def validate_exemplar_grounding(
         ))
     else:
         try:
-            paper_facts = json.loads(paper_facts_path.read_text(encoding="utf-8"))
+            paper_facts = _normalize_facts(
+                json.loads(paper_facts_path.read_text(encoding="utf-8"))
+            )
             report.paper_format_facts_present = True
         except (OSError, json.JSONDecodeError) as exc:
             report.issues.append(GroundingIssue(
@@ -570,10 +572,11 @@ def validate_exemplar_grounding(
 
 def _load_exemplar_format_facts(entry: dict, project_root: Path) -> dict | None:
     """Read an exemplar's format_facts, either inline or from a sidecar
-    file. Returns None when neither is present."""
+    file. Returns None when neither is present. Output is always the
+    flat-shape dict the diff helper expects (see ``_normalize_facts``)."""
     inline = entry.get("format_facts")
     if isinstance(inline, dict) and inline:
-        return inline
+        return _normalize_facts(inline)
     path_field = entry.get("format_facts_path")
     if not path_field:
         return None
@@ -583,10 +586,59 @@ def _load_exemplar_format_facts(entry: dict, project_root: Path) -> dict | None:
     for c in candidates:
         if c.exists():
             try:
-                return json.loads(c.read_text(encoding="utf-8"))
+                return _normalize_facts(
+                    json.loads(c.read_text(encoding="utf-8"))
+                )
             except (OSError, json.JSONDecodeError):
                 return None
     return None
+
+
+def _normalize_facts(raw: dict) -> dict:
+    """Flatten format-facts payload to the shape diff_against_exemplar
+    expects.
+
+    Accepts three shapes:
+
+    1. **Flat** (what ``argus_skill.tools.format_facts`` emits): ``raw``
+       already has ``total_pages``/``figure_count``/etc at the top level.
+    2. **Tool-wrapped**: ``raw['tool_output']`` carries the flat dict.
+       Agent skills wrap the raw tool output when they want to attach
+       sidecar metadata (manual audits, notes).
+    3. **Manual override**: ``raw['manual_page_audit']`` carries
+       human-corrected values for fields the regex extractor got wrong
+       (typical for unusual ACL/EMNLP PDFs where ``References`` doesn't
+       land on its own line). Manual values win — that's exactly why
+       the agent recorded them.
+
+    Returned dict is the union: tool output as base, manual_page_audit
+    overrides on top, with any inline top-level keys taking precedence
+    over both.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: dict = {}
+    tool_output = raw.get("tool_output")
+    if isinstance(tool_output, dict):
+        out.update(tool_output)
+    manual = raw.get("manual_page_audit")
+    if isinstance(manual, dict):
+        # Only carry over numeric/quantitative keys; ignore audit
+        # metadata flags like ``authoritative_for_acl_page_boundaries``.
+        for k, v in manual.items():
+            if isinstance(v, (int, float)) and v is not None:
+                out[k] = v
+    # Top-level numeric keys take final precedence (covers shape 1 and
+    # also lets the agent surface a corrected value at the top level).
+    for k, v in raw.items():
+        if k in ("tool_output", "manual_page_audit", "note", "source"):
+            continue
+        if isinstance(v, (int, float, str, bool, list)) and v is not None:
+            out.setdefault(k, v)
+            # numeric overrides:
+            if isinstance(v, (int, float)):
+                out[k] = v
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:

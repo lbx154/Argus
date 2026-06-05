@@ -409,6 +409,43 @@ def test_format_facts_within_tolerance_passes(tmp_path: Path) -> None:
     assert report.paper_format_facts_present is True
 
 
+def test_paper_format_facts_tool_wrapped_shape_accepted(tmp_path: Path) -> None:
+    """Agent skills sometimes wrap the raw tool output inside
+    ``tool_output`` and attach a ``manual_page_audit`` override (e.g.
+    when the regex extractor misreads the ACL ``References`` page).
+    The gate must accept this shape and prefer the manual audit's
+    numeric overrides — that's exactly why the agent recorded them."""
+    _seed_passing(tmp_path)
+    (tmp_path / "paper" / "PAPER_FORMAT_FACTS.json").write_text(
+        json.dumps({
+            "source": "paper/main.pdf",
+            "tool_output": {
+                "total_pages": 11,
+                "section_count": 0,
+                "figure_count": 3,
+                "table_count": 2,
+                "citations_per_page": 4.5,
+                "body_pages_before_references": 11,
+            },
+            "manual_page_audit": {
+                "authoritative_for_acl_page_boundaries": True,
+                "conclusion_page": 8,
+                "references_page": 9,
+                "body_pages_before_references": 8,
+            },
+            "note": "Raw helper mis-detected ACL ref boundary; manual is canonical.",
+        }),
+        encoding="utf-8",
+    )
+    report = validate_exemplar_grounding(tmp_path)
+    assert report.paper_format_facts_present
+    by_field = {f["field"]: f for f in report.format_diff_findings}
+    # manual audit (8) overrides tool_output (11) on body_pages_before_references
+    assert by_field["body_pages_before_references"]["paper_value"] == 8.0
+    # tool_output (11) used where manual audit absent
+    assert by_field["total_pages"]["paper_value"] == 11.0
+
+
 def test_format_facts_skipped_when_primary_unset(tmp_path: Path) -> None:
     """If primary_exemplar slug doesn't match anything in EXEMPLAR.json,
     the slug-unknown error fires AND the format-diff is skipped (no
