@@ -12,6 +12,7 @@ def test_planner_prompt_includes_wiki_block_when_present(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
     wiki = tmp_path / ".autors" / "demo" / "wiki"
     (wiki / "queries").mkdir(parents=True)
     (wiki / "query_pack.md").write_text("# pack\nhello\n")
@@ -36,6 +37,7 @@ def test_planner_prompt_omits_wiki_block_when_absent(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
     prompt = Planner._build_planner_prompt(
         continuous_objective="research X",
         journal_tail="",
@@ -45,3 +47,56 @@ def test_planner_prompt_omits_wiki_block_when_absent(
         mission=None,
     )
     assert "Idea wiki" not in prompt
+
+
+def test_planner_prompt_does_not_warn_when_query_pack_diagnosis_refs_exist(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
+    wiki = tmp_path / ".autors" / "demo" / "wiki"
+    (wiki / "queries").mkdir(parents=True)
+    (tmp_path / "diagnosis").mkdir()
+    (tmp_path / "diagnosis" / "operator_only_external_blocker_lock_20260605.json").write_text("{}\n")
+    (tmp_path / "diagnosis" / "stage_check_terminal_manifest_20260605.json").write_text("{}\n")
+    (wiki / "query_pack.md").write_text(
+        "Read diagnosis/operator_only_external_blocker_lock_20260605.json and "
+        "diagnosis/stage_check_terminal_manifest_20260605.json before reentry.\n"
+    )
+
+    prompt = Planner._build_planner_prompt(
+        continuous_objective="research X",
+        journal_tail="",
+        budget_remaining_usd=10.0,
+        planning_cycle=0,
+        runtime_change_summary="",
+        mission=None,
+    )
+
+    assert "missing diagnosis refs from query_pack.md" not in prompt
+
+
+def test_planner_prompt_warns_when_query_pack_diagnosis_refs_are_stale(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
+    wiki = tmp_path / ".autors" / "demo" / "wiki"
+    (wiki / "queries").mkdir(parents=True)
+    (wiki / "query_pack.md").write_text(
+        "Read diagnosis/operator_only_external_blocker_lock_20260605.json before reentry.\n"
+    )
+
+    prompt = Planner._build_planner_prompt(
+        continuous_objective="research X",
+        journal_tail="",
+        budget_remaining_usd=10.0,
+        planning_cycle=0,
+        runtime_change_summary="",
+        mission=None,
+    )
+
+    assert "missing diagnosis refs from query_pack.md" in prompt
+    assert "diagnosis/operator_only_external_blocker_lock_20260605.json" in prompt

@@ -25,6 +25,7 @@ agent is doing one thing, then the next, like a person.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -2018,6 +2019,65 @@ class LifeSupervisor:
                 return True
         return False
 
+    def _operator_only_external_blocker_wait_reason(self) -> str:
+        """Return a waiting reason for an operator-only external blocker.
+
+        This is intentionally *not* a benchmark validator. It only reads the
+        lock file written by a prior bounded diagnostic mission and checks
+        whether any declared external target has appeared. If none has, local
+        engineering is exhausted and the planner should not spin by injecting
+        another ``final_submission`` proof task.
+        """
+        project_root = self._project_workdir()
+        lock_path = project_root / "diagnosis" / "operator_only_external_blocker_lock_20260605.json"
+        if not lock_path.exists():
+            return ""
+        try:
+            payload = json.loads(lock_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return ""
+        if not isinstance(payload, dict):
+            return ""
+        if payload.get("local_engineer_action_required_before_mount") is not False:
+            return ""
+        required = payload.get("required_external_targets")
+        if not isinstance(required, list) or not required:
+            return ""
+        present = [
+            str(item)
+            for item in required
+            if isinstance(item, str) and (project_root / item).exists()
+        ]
+        if present:
+            return ""
+        missing_count = sum(1 for item in required if isinstance(item, str))
+        owner = payload.get("next_owner") or "operator/data owner"
+        verdict = payload.get("canonical_viability_verdict") or "external artifacts missing"
+        return (
+            f"operator-only external benchmark blocker: {verdict}; "
+            f"{missing_count} required external target(s) still absent; "
+            f"next owner is {owner}"
+        )
+
+    def _defer_project_done_for_operator_external_blocker(self, verdict: Any) -> Any:
+        if not (
+            getattr(verdict, "project_done", False)
+            and self.config.full_emnlp_gate
+            and not self._journal_has_full_emnlp_gate_success()
+        ):
+            return verdict
+        wait_reason = self._operator_only_external_blocker_wait_reason()
+        if not wait_reason:
+            return verdict
+        return replace(
+            verdict,
+            project_done=False,
+            waiting=True,
+            waiting_reason=wait_reason,
+            reason=wait_reason,
+            new_tasks=[],
+        )
+
     # ------------------------------------------------------------------
     # Iteration loop
     # ------------------------------------------------------------------
@@ -2202,6 +2262,8 @@ class LifeSupervisor:
             # a persistently-failing planner cannot spin every poll interval.
             self._enter_idle_backoff()
             return _PLAN_ERROR
+
+        verdict = self._defer_project_done_for_operator_external_blocker(verdict)
 
         # First-class await-external: the planner intentionally idled because
         # the project is blocked on a live, nonterminal external job and there

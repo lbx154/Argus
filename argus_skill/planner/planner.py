@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -428,6 +429,19 @@ class Planner:
         )
 
     @staticmethod
+    def _missing_query_pack_diagnosis_refs(project_root: Path, query_pack_text: str) -> list[str]:
+        refs = sorted(
+            {
+                match.group(0).rstrip("`),.;:")
+                for match in re.finditer(
+                    r"diagnosis/[A-Za-z0-9_./-]+\.(?:json|md)",
+                    str(query_pack_text),
+                )
+            }
+        )
+        return [ref for ref in refs if not (project_root / ref).exists()]
+
+    @staticmethod
     def _build_planner_prompt(
         *,
         continuous_objective: str,
@@ -610,6 +624,16 @@ class Planner:
                 pack = (wiki_root / "query_pack.md").read_text(encoding="utf-8")
                 parts.append("#### query_pack.md\n")
                 parts.append(pack.strip() + "\n\n")
+                missing_refs = Planner._missing_query_pack_diagnosis_refs(_proot, pack)
+                if missing_refs:
+                    parts.append("#### missing diagnosis refs from query_pack.md\n")
+                    for ref in missing_refs:
+                        parts.append(f"- `{ref}`\n")
+                    parts.append(
+                        "Repair by restoring the referenced diagnosis file or updating "
+                        "query_pack.md to a current path before routing missions that "
+                        "depend on those instructions.\n\n"
+                    )
                 for name in ("stale-watchlist.md", "open-contradictions.md"):
                     qf = wiki_root / "queries" / name
                     if qf.exists():
