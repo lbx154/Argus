@@ -71,6 +71,28 @@ blockers at the reviewer gate.
    `research/RESEARCH_BRIEF.md`); otherwise the reviewer fails the
    `research.infra_shortlist` and `plan.infra_choice` items.
 
+## Consult the project wiki before non-trivial work
+
+If `.autors/<project>/wiki/` exists, BEFORE doing any non-trivial work,
+read these files (they are short):
+
+- `.autors/<project>/wiki/query_pack.md` -- entry-point summary
+- `.autors/<project>/wiki/queries/by-status.md` -- what is already known
+- `.autors/<project>/wiki/queries/by-tag.md` -- find related techniques
+- `.autors/<project>/wiki/queries/open-contradictions.md` -- known
+  unresolved disagreements
+- `.autors/<project>/wiki/queries/stale-watchlist.md` -- what has not
+  been revisited in a while
+
+The wiki is the project's accumulated memory of techniques worth
+watching, contradictions noticed across sources, and cross-mission
+patterns. If a technique-to-watch card is directly relevant to your
+mission, cite it in your output (`see pages/techniques/<id>.md`).
+
+If your mission ends up discovering a new technique / conflict /
+pattern, drop a one-paragraph note for the reviewer in your final
+summary (the reviewer's wiki-curator will turn it into a page).
+
 ## Mission-close RunCard (wiki side-effect)
 
 If `.autors/<project>/wiki/` exists, the FINAL step of any mission that
