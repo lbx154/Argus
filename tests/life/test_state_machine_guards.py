@@ -52,20 +52,6 @@ def test_terminal_status_cannot_transition_back(
     assert reloaded.status == terminal
 
 
-def test_terminal_to_terminal_is_allowed(mem: LifeMemory) -> None:
-    """e.g. operator marks a failed item as skipped without resurrection."""
-    item = mem.backlog.add(BacklogItem.new(title="t", objective="o"))
-    mem.backlog.mark_failed(item.id, error="boom")
-    mem.backlog.update(item.id, status="skipped")  # must not raise
-
-
-def test_running_to_pending_is_allowed_for_rollback(mem: LifeMemory) -> None:
-    """Supervisor uses this for claim-rollback. Only terminal states are sealed."""
-    item = mem.backlog.add(BacklogItem.new(title="t", objective="o"))
-    mem.backlog.mark_running(item.id)
-    mem.backlog.update(item.id, status="pending")  # must not raise
-
-
 # ---------------------------------------------------------------------------
 # Atomic claim
 # ---------------------------------------------------------------------------

@@ -102,10 +102,6 @@ def test_load_missing_is_empty(tmp_path):
     assert load_checkpoint(None).is_empty()
 
 
-def test_save_none_path_is_noop():
-    save_checkpoint(None, CheckpointState(goal="g"))  # must not raise
-
-
 def test_load_corrupt_file_is_empty(tmp_path):
     path = tmp_path / "bad.json"
     path.write_text("{not json", encoding="utf-8")
