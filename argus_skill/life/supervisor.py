@@ -70,6 +70,24 @@ log = logging.getLogger(__name__)
 _price_for = price_for
 
 
+def _operator_only_blocker_paths_for_project(project_root: Path) -> list[Path]:
+    """Return existing operator-only external-blocker artifact paths.
+
+    Looks for `diagnosis/operator_only_external_blocker*.json` so both the
+    legacy dated lock file and the undated generic filename match. Returned
+    newest first by mtime; empty list when none.
+    """
+    diagnosis = project_root / "diagnosis"
+    if not diagnosis.is_dir():
+        return []
+    candidates: list[Path] = []
+    for path in diagnosis.glob("operator_only_external_blocker*.json"):
+        if path.is_file():
+            candidates.append(path)
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates
+
+
 class _MemoryView(Protocol):
     @property
     def backlog(self) -> Any: ...
@@ -2022,42 +2040,43 @@ class LifeSupervisor:
     def _operator_only_external_blocker_wait_reason(self) -> str:
         """Return a waiting reason for an operator-only external blocker.
 
-        This is intentionally *not* a benchmark validator. It only reads the
-        lock file written by a prior bounded diagnostic mission and checks
-        whether any declared external target has appeared. If none has, local
-        engineering is exhausted and the planner should not spin by injecting
-        another ``final_submission`` proof task.
+        Generic: scans for operator-only external blocker artifacts,
+        validates that local engineering is exhausted, and returns a human
+        reason string. Empty string when nothing matches or when local action
+        is still required.
         """
         project_root = self._project_workdir()
-        lock_path = project_root / "diagnosis" / "operator_only_external_blocker_lock_20260605.json"
-        if not lock_path.exists():
-            return ""
-        try:
-            payload = json.loads(lock_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return ""
-        if not isinstance(payload, dict):
-            return ""
-        if payload.get("local_engineer_action_required_before_mount") is not False:
-            return ""
-        required = payload.get("required_external_targets")
-        if not isinstance(required, list) or not required:
-            return ""
-        present = [
-            str(item)
-            for item in required
-            if isinstance(item, str) and (project_root / item).exists()
-        ]
-        if present:
-            return ""
-        missing_count = sum(1 for item in required if isinstance(item, str))
-        owner = payload.get("next_owner") or "operator/data owner"
-        verdict = payload.get("canonical_viability_verdict") or "external artifacts missing"
-        return (
-            f"operator-only external benchmark blocker: {verdict}; "
-            f"{missing_count} required external target(s) still absent; "
-            f"next owner is {owner}"
-        )
+        for lock_path in _operator_only_blocker_paths_for_project(project_root):
+            try:
+                payload = json.loads(lock_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("local_engineer_action_required_before_mount") is not False:
+                continue
+            required = payload.get("required_external_targets")
+            if not isinstance(required, list) or not required:
+                continue
+            present = [
+                str(item)
+                for item in required
+                if isinstance(item, str) and (project_root / item).exists()
+            ]
+            if present:
+                continue
+            missing_count = sum(1 for item in required if isinstance(item, str))
+            owner = payload.get("next_owner") or "operator/data owner"
+            verdict = (
+                payload.get("canonical_viability_verdict")
+                or "external artifacts missing"
+            )
+            return (
+                f"operator-only external benchmark blocker ({lock_path.name}): "
+                f"{verdict}; {missing_count} required external target(s) still "
+                f"absent; next owner is {owner}"
+            )
+        return ""
 
     def _defer_project_done_for_operator_external_blocker(self, verdict: Any) -> Any:
         if not (
