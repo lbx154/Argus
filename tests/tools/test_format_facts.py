@@ -14,6 +14,7 @@ from argus_skill.tools.format_facts import (
     diff_against_exemplar,
     extract_format_facts,
 )
+
 # Re-use pdf_chat's PDF builder so we test against real (toy) PDFs, not
 # golden fixtures.
 from tests.tools.test_pdf_chat import _build_pdf  # type: ignore

@@ -36,14 +36,12 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shutil
-import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 # Re-use pdf_chat's extraction so we don't fork the pdftotext/pypdf logic.
-from .pdf_chat import _extract  # type: ignore[attr-defined]
+from .pdf_chat import _extract
 
 # Review-mode ACL PDFs often include line numbers and two-column spillover
 # on the same extracted line, so section headings may appear either at the
