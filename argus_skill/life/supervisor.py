@@ -88,6 +88,41 @@ def _operator_only_blocker_paths_for_project(project_root: Path) -> list[Path]:
     return candidates
 
 
+def _operator_only_external_blocker_wait_reason_for_project(project_root: Path) -> str:
+    """Return a wait reason for an operator-only external blocker artifact."""
+    for lock_path in _operator_only_blocker_paths_for_project(project_root):
+        try:
+            payload = json.loads(lock_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if payload.get("local_engineer_action_required_before_mount") is not False:
+            continue
+        required = payload.get("required_external_targets")
+        if not isinstance(required, list) or not required:
+            continue
+        present = [
+            str(item)
+            for item in required
+            if isinstance(item, str) and (project_root / item).exists()
+        ]
+        if present:
+            continue
+        missing_count = sum(1 for item in required if isinstance(item, str))
+        owner = payload.get("next_owner") or "operator/data owner"
+        verdict = (
+            payload.get("canonical_viability_verdict")
+            or "external artifacts missing"
+        )
+        return (
+            f"operator-only external benchmark blocker ({lock_path.name}): "
+            f"{verdict}; {missing_count} required external target(s) still "
+            f"absent; next owner is {owner}"
+        )
+    return ""
+
+
 class _MemoryView(Protocol):
     @property
     def backlog(self) -> Any: ...
@@ -2045,38 +2080,38 @@ class LifeSupervisor:
         reason string. Empty string when nothing matches or when local action
         is still required.
         """
-        project_root = self._project_workdir()
-        for lock_path in _operator_only_blocker_paths_for_project(project_root):
-            try:
-                payload = json.loads(lock_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                continue
-            if not isinstance(payload, dict):
-                continue
-            if payload.get("local_engineer_action_required_before_mount") is not False:
-                continue
-            required = payload.get("required_external_targets")
-            if not isinstance(required, list) or not required:
-                continue
-            present = [
-                str(item)
-                for item in required
-                if isinstance(item, str) and (project_root / item).exists()
-            ]
-            if present:
-                continue
-            missing_count = sum(1 for item in required if isinstance(item, str))
-            owner = payload.get("next_owner") or "operator/data owner"
-            verdict = (
-                payload.get("canonical_viability_verdict")
-                or "external artifacts missing"
-            )
-            return (
-                f"operator-only external benchmark blocker ({lock_path.name}): "
-                f"{verdict}; {missing_count} required external target(s) still "
-                f"absent; next owner is {owner}"
-            )
-        return ""
+        return _operator_only_external_blocker_wait_reason_for_project(
+            self._project_workdir()
+        )
+
+    @staticmethod
+    def _operator_external_blocker_short_circuit_decision(
+        *, project_root: Path
+    ) -> Any | None:
+        """Return a waiting verdict before planner runs when operator-only
+        external artifacts are still absent.
+        """
+        reason = _operator_only_external_blocker_wait_reason_for_project(project_root)
+        if not reason:
+            return None
+        from ..planner.planner import PlannerVerdict
+
+        return PlannerVerdict(
+            project_done=False,
+            reason=(
+                f"{reason}; skipping planner cycle to avoid impossible "
+                "repair-task loop"
+            ),
+            waiting=True,
+            waiting_reason=(
+                f"{reason}; skipping planner cycle to avoid impossible "
+                "repair-task loop"
+            ),
+            new_tasks=[],
+            input_tokens=0,
+            cached_input_tokens=0,
+            output_tokens=0,
+        )
 
     def _defer_project_done_for_operator_external_blocker(self, verdict: Any) -> Any:
         if not (
@@ -2159,6 +2194,44 @@ class LifeSupervisor:
     # Planner — continuous improvement mode
     # ------------------------------------------------------------------
 
+    def _record_planner_waiting(self, verdict: Any, *, planner_cost_usd: float) -> str:
+        sleep_s = self._enter_idle_backoff()
+        reason = verdict.waiting_reason or verdict.reason or "awaiting external job"
+        self._emit({
+            "type": "life.planner.waiting",
+            "cycle": self._planning_cycles,
+            "reason": reason,
+            "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
+            "suggested_sleep_s": sleep_s,
+            "input_tokens": getattr(verdict, "input_tokens", 0),
+            "cached_input_tokens": getattr(verdict, "cached_input_tokens", 0),
+            "output_tokens": getattr(verdict, "output_tokens", 0),
+            "cost_usd": planner_cost_usd,
+        })
+        self._emit_status(f"awaiting external job: {reason}")
+        entry = JournalEntry.new(
+            kind="planner_waiting",
+            title=f"planner cycle #{self._planning_cycles}",
+            summary=f"awaiting external job; backoff {sleep_s:.0f}s :: {reason}",
+            tags=["life", "planner", "awaiting"],
+            cost_usd=planner_cost_usd,
+            extra={
+                "agent_layer": "planner",
+                "waiting": True,
+                "reason": reason,
+                "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
+                "suggested_sleep_s": sleep_s,
+            },
+        )
+        self.memory.journal.append(entry)
+        self._inject_cumulative_cost(entry)
+        try:
+            from .notify import dispatch_journal_entry
+            dispatch_journal_entry(entry)
+        except Exception:  # noqa: BLE001
+            log.exception("notify dispatch failed; continuing")
+        return _PLAN_AWAITING
+
     def _plan_next_work(self) -> bool | None | str:
         """Call the planner to generate new backlog items.
 
@@ -2191,6 +2264,15 @@ class LifeSupervisor:
             "cycle": self._planning_cycles,
             "objective": self.config.continuous_objective[:200],
         })
+
+        short_circuit = self._operator_external_blocker_short_circuit_decision(
+            project_root=self._project_workdir(),
+        )
+        if short_circuit is not None:
+            return self._record_planner_waiting(
+                short_circuit,
+                planner_cost_usd=0.0,
+            )
 
         journal_tail = self._render_journal_for_planner()
         remaining = self.config.budget.remaining_today(self.memory.journal)
@@ -2289,42 +2371,10 @@ class LifeSupervisor:
         # is no new high-impact work. NOT an error, NOT make-work — record a
         # lightweight waiting entry and back off (escalating) before re-checking.
         if verdict.waiting:
-            sleep_s = self._enter_idle_backoff()
-            reason = verdict.waiting_reason or verdict.reason or "awaiting external job"
-            self._emit({
-                "type": "life.planner.waiting",
-                "cycle": self._planning_cycles,
-                "reason": reason,
-                "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
-                "suggested_sleep_s": sleep_s,
-                "input_tokens": verdict.input_tokens,
-                "cached_input_tokens": verdict.cached_input_tokens,
-                "output_tokens": verdict.output_tokens,
-                "cost_usd": planner_cost_usd,
-            })
-            self._emit_status(f"awaiting external job: {reason}")
-            entry = JournalEntry.new(
-                kind="planner_waiting",
-                title=f"planner cycle #{self._planning_cycles}",
-                summary=f"awaiting external job; backoff {sleep_s:.0f}s :: {reason}",
-                tags=["life", "planner", "awaiting"],
-                cost_usd=planner_cost_usd,
-                extra={
-                    "agent_layer": "planner",
-                    "waiting": True,
-                    "reason": reason,
-                    "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
-                    "suggested_sleep_s": sleep_s,
-                },
+            return self._record_planner_waiting(
+                verdict,
+                planner_cost_usd=planner_cost_usd,
             )
-            self.memory.journal.append(entry)
-            self._inject_cumulative_cost(entry)
-            try:
-                from .notify import dispatch_journal_entry
-                dispatch_journal_entry(entry)
-            except Exception:  # noqa: BLE001
-                log.exception("notify dispatch failed; continuing")
-            return _PLAN_AWAITING
 
         # The planner's tasks are trusted. Deterministic gate-repair is only
         # used as a fallback when the planner itself fails (verdict.error above).

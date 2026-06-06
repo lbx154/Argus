@@ -84,3 +84,99 @@ def test_picks_most_recent_when_multiple(tmp_path: Path):
     paths = _operator_only_blocker_paths_for_project(tmp_path)
     # Most recent first.
     assert paths[0] == p2
+
+
+def test_short_circuit_emits_waiting_without_calling_planner(
+    tmp_path: Path,
+    monkeypatch,
+):
+    """If an external blocker artifact is present, supervisor must not call
+    planner.plan_next this cycle; it should emit a waiting decision."""
+    monkeypatch.chdir(tmp_path)
+    _write_blocker(
+        tmp_path,
+        "operator_only_external_blocker_20260605.json",
+        {
+            "local_engineer_action_required_before_mount": False,
+            "required_external_targets": ["data/eval/wise.csv"],
+            "canonical_viability_verdict": "blocked: data missing",
+            "next_owner": "operator",
+        },
+    )
+    from argus_skill.life.supervisor import LifeSupervisor
+
+    short_circuit = LifeSupervisor._operator_external_blocker_short_circuit_decision(
+        project_root=tmp_path,
+    )
+    assert short_circuit is not None
+    assert getattr(short_circuit, "waiting", False) is True
+    assert "operator-only" in (
+        getattr(short_circuit, "waiting_reason", "")
+        or getattr(short_circuit, "reason", "")
+    )
+    assert getattr(short_circuit, "task_count", 0) == 0
+
+
+def test_short_circuit_returns_none_without_blocker(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    from argus_skill.life.supervisor import LifeSupervisor
+
+    assert LifeSupervisor._operator_external_blocker_short_circuit_decision(
+        project_root=tmp_path,
+    ) is None
+
+
+def test_plan_next_work_short_circuits_before_planner_runner(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    _write_blocker(
+        project,
+        "operator_only_external_blocker_20260605.json",
+        {
+            "local_engineer_action_required_before_mount": False,
+            "required_external_targets": ["data/eval/wise.csv"],
+            "canonical_viability_verdict": "blocked: data missing",
+            "next_owner": "operator",
+        },
+    )
+
+    from argus_skill.life.memory import LifeMemory
+    from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+
+    mem = LifeMemory.open(tmp_path / "life")
+    mem.init()
+    events: list[dict] = []
+
+    class _Sink:
+        def handle_event(self, event: dict) -> None:
+            events.append(event)
+
+    class _Runner:
+        pass
+
+    class _PlannerRunnerThatMustNotBeCalled:
+        def run_exec(self, **_kwargs):  # pragma: no cover - proves no call
+            raise AssertionError("planner runner should not be called")
+
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_Runner(),
+        sink=_Sink(),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(),
+            poll_interval_seconds=0.01,
+            project_worktree=project,
+            continuous=True,
+            continuous_objective="bounded survey",
+        ),
+        planner_runner=_PlannerRunnerThatMustNotBeCalled(),
+    )
+
+    result = sup._plan_next_work()
+
+    assert result == "awaiting_external"
+    assert any(e.get("type") == "life.planner.waiting" for e in events)
+    assert mem.journal.tail(1)[0].kind == "planner_waiting"
