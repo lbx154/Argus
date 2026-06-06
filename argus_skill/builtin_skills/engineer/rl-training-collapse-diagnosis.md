@@ -37,8 +37,7 @@ pattern-match a single noisy log line.
   for diversity — a clean 10-problem set is a memorisation trap, not a fair run.
   A run that is doomed by its config (or its tiny dataset) wastes the whole GPU
   budget and then masquerades as a dead idea.
-- **While the run is live (monitoring-time):** map the streaming
-  `progress.jsonl` / trainer stdout onto the signatures and decide continue vs
+- **While the run is live (monitoring-time):** map the streaming  `progress.jsonl` / trainer stdout onto the signatures and decide continue vs
   raise-concern.
 - **When judging an underperformance / no-go (verdict-time):** before retiring
   or pivoting away from the METHOD, confirm the executed run was fair using the
@@ -46,6 +45,36 @@ pattern-match a single noisy log line.
   `infeasible_under_budget`. A `misconfigured_run` is re-run with the named
   correction — the idea is NOT recorded dead. Only after one fair run still
   loses is `method_failure` justified.
+
+## 🔒 Pre-launch RUN CONTRACT + feasibility packet (make the above mechanical)
+
+The diversity / non-saturation preconditions above are exactly what kept getting
+discovered *after* a multi-hour full run, by which point a step-555 run is
+cancelled. Make them a **provenance gate the launcher cannot skip**, via
+`argus_skill.skills.run_contract`:
+
+1. **Freeze the contract at plan stage** — the single source of truth for the
+   locked knobs (model, LR, group size / `num_generations`, total steps, batch,
+   and the curriculum's content hash + distinct-task count + seed):
+   `python -m argus_skill.skills.run_contract freeze --project-root . --model <instruct-id> --lr <lr> --group-size <g> --total-steps <n> --batch-size <b> --curriculum <admitted_slice.json> --seed <s> --scale full`.
+   It writes `research/RUN_CONTRACT.json` with a `contract_hash`.
+2. **Probe the EXACT curriculum the full run will consume** (same admitted slice,
+   post-decontamination, with the real repetition factor) for a short run, then
+   build the packet:
+   `python -m argus_skill.skills.run_contract build-packet --project-root . --run-dir <probe_run> --curriculum <admitted_slice.json> --total-steps <n> --batch-size <b> --group-size <g> --out research/FEASIBILITY_PACKET.json`.
+   The packet records distinct-task-vs-rollout-volume diversity and the probe's
+   reward/advantage stats. If the curriculum saturates or is too repeated, FIX
+   the curriculum now — do not launch.
+3. **Launch full runs citing the contract + packet + curriculum hash.** The
+   `subagent` pre-launch interlock REFUSES a `scale=full` RL launch that drifts
+   from the contract (LR / group size / steps / curriculum) or lacks a valid
+   packet. Pass `--run-contract research/RUN_CONTRACT.json --feasibility-packet
+   research/FEASIBILITY_PACKET.json --curriculum-hash <hash>` (the launcher must
+   compute the hash of the materialised curriculum). Dry-check first with
+   `python -m argus_skill.skills.run_contract check-launch ...`.
+
+A run that is intentionally a tiny/memorisation/wiring probe sets `smoke_only`
+in the packet and must NOT be cited as general-learning evidence.
 
 ## When NOT to use
 
