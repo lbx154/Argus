@@ -4,6 +4,9 @@ The unify_RL_argus bounded survey loop escalated into repeated "Prove
 final submission readiness" missions because LifeSupervisorConfig inherited
 `full_emnlp_gate=True` even when CLI bounded mode set open_ended=False.
 """
+# Regression test for the M0.5 boolean-inversion fix on top of M0.4.
+# The expression must use the same polarity as open_ended / continuous_open_ended
+# (NO `not`): bounded -> open_ended=False -> full_emnlp_gate=False.
 from __future__ import annotations
 
 import inspect
@@ -14,9 +17,11 @@ from argus_skill.daemon.life_worker import LifeWorker
 
 def test_daemon_bounded_mode_disables_full_emnlp_gate():
     src = inspect.getsource(LifeWorker.run_forever)
-    assert "full_emnlp_gate=not cfg.continuous_open_ended" in src
+    assert "full_emnlp_gate=cfg.continuous_open_ended" in src
+    assert "full_emnlp_gate=not cfg.continuous_open_ended" not in src
 
 
 def test_repl_bounded_mode_disables_full_emnlp_gate():
     src = inspect.getsource(_life_repl.run_life_supervisor)
-    assert "full_emnlp_gate=not open_ended" in src
+    assert "full_emnlp_gate=open_ended" in src
+    assert "full_emnlp_gate=not open_ended" not in src

@@ -855,10 +855,10 @@ class LifeWorker:
             continuous=init_continuous,
             continuous_objective=init_objective,
             open_ended=cfg.continuous_open_ended,
-            # M0.4: bounded mode disables the full EMNLP pipeline gate.
-            # Without this, --bounded missions can loop on "Prove final
-            # submission readiness" after a bounded non-paper project_done.
-            full_emnlp_gate=not cfg.continuous_open_ended,
+            # M0.5: M0.4 had this inverted. continuous_open_ended already
+            # encodes "True when NOT --bounded"; that is the same polarity as
+            # full_emnlp_gate ("True when paper-pipeline gating should fire").
+            full_emnlp_gate=cfg.continuous_open_ended,
             continuous_config_provider=_continuous_provider,
             planner_runtime_context_provider=self._planner_runtime_context,
             planner_restart_handler=self._planner_restart_handler,
