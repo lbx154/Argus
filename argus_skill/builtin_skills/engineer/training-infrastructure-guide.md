@@ -144,6 +144,15 @@ produces a result no main-conference reviewer will believe.
 Allocated GPUs that sit idle or near-idle are wasted compute and a blocker.
 The headline run must actually *use* the machine.
 
+> **Before a `scale=full` RL/training launch also clear the RUN CONTRACT gate**
+> (`argus_skill.skills.run_contract`): the run must execute exactly the frozen
+> `research/RUN_CONTRACT.json` knobs (no LR / `num_generations` / steps /
+> curriculum drift) and cite a feasibility packet proving the exact curriculum is
+> non-saturating. The `subagent` pre-launch interlock refuses a drifting or
+> contract-less full-scale RL launch. See `rl-training-collapse-diagnosis` for
+> the freeze → probe → launch flow. Saturating the GPU on a curriculum that
+> collapses to zero advantage is still wasted budget.
+
 1. **Use every allocated GPU.** If `gpu_env.visible_devices()` reports N GPUs,
    the headline run must drive all N — one distributed job across them
    (torchrun / accelerate / DeepSpeed / FSDP, or vLLM `--tensor-parallel-size N`

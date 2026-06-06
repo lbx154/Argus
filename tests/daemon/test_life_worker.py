@@ -706,6 +706,27 @@ def test_handoff_source_signature_reads_test_override_file(
     assert life_worker_mod._source_signature() == "beta"
 
 
+def test_source_signature_includes_builtin_skill_markdown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A skill edit changes engineer/reviewer behavior, so the daemon staleness
+    # signature must cover builtin_skills/**/*.md, not just *.py + pyproject.
+    monkeypatch.delenv(
+        life_worker_mod._TEST_SOURCE_SIGNATURE_FILE_ENV, raising=False)
+    pkg_root = Path(life_worker_mod.__file__).resolve().parents[1]
+    tmp_skill = pkg_root / "builtin_skills" / "engineer" / "_sigtest_tmp_skill.md"
+    baseline = life_worker_mod._source_signature()
+    assert len(baseline) == 64  # sha256 hex digest
+    tmp_skill.write_text(
+        "---\nname: sigtest\n---\n# sigtest\nbody\n", encoding="utf-8")
+    try:
+        changed = life_worker_mod._source_signature()
+    finally:
+        tmp_skill.unlink()
+    assert changed != baseline
+    assert life_worker_mod._source_signature() == baseline
+
+
 def test_handoff_child_publishes_standby_then_runs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

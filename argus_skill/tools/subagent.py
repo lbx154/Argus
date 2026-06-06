@@ -185,6 +185,91 @@ def _looks_like_rl_training(command: str) -> bool:
     return any(tok in c for tok in _RL_TRAINING_HINTS)
 
 
+def _is_full_scale_rl(command: str) -> bool:
+    """True for an explicit ``--scale full`` RL training launch — the only case
+    the deterministic RUN_CONTRACT interlock applies to. Pilots / smoke runs
+    (scale != full) launch freely; only a full-scale run must cite a frozen,
+    feasibility-probed contract."""
+    if not _looks_like_rl_training(command):
+        return False
+    return _parse_launch_flags(command).get("scale", "").strip().lower() == "full"
+
+
+# Aliases the same logical knob may appear under in a launch command.
+_KNOB_ALIASES: dict[str, tuple[str, ...]] = {
+    "lr": ("lr", "learning_rate"),
+    "group_size": ("group_size", "num_generations", "rollouts", "rollout_n"),
+    "total_steps": ("total_steps", "total_training_steps", "max_steps", "steps"),
+    "batch_size": ("batch_size", "train_batch_size"),
+    "model_id": ("model", "model_id", "model_path"),
+    "curriculum_hash": ("curriculum_hash",),
+    "run_contract": ("run_contract", "contract"),
+    "feasibility_packet": ("feasibility_packet", "packet"),
+}
+
+
+def _flag(flags: dict[str, str], logical: str) -> str | None:
+    for alias in _KNOB_ALIASES.get(logical, (logical,)):
+        if alias in flags:
+            return flags[alias]
+    return None
+
+
+def _run_contract_preflight(command: str, cwd: str) -> tuple[bool, str]:
+    """Deterministic provenance interlock for a ``scale=full`` RL launch.
+
+    Refuses a full-scale launch that is not a faithful, feasibility-probed
+    execution of the frozen ``research/RUN_CONTRACT.json`` (drift in LR / group
+    size / steps / curriculum, or a missing/invalid feasibility packet). This is
+    provenance/consistency enforcement, NOT a scientific verdict — adequacy stays
+    with the L2 reviewer. Fail-soft: any unexpected error yields ``(False, "")``
+    so a framework bug can never wedge a launch.
+    """
+    try:
+        from ..skills import run_contract as rc
+
+        flags = _parse_launch_flags(command)
+
+        def _to_float(v: str | None) -> float | None:
+            try:
+                return float(v) if v is not None else None
+            except ValueError:
+                return None
+
+        def _to_int(v: str | None) -> int | None:
+            try:
+                return int(float(v)) if v is not None else None
+            except ValueError:
+                return None
+
+        knobs = rc.LaunchKnobs(
+            lr=_to_float(_flag(flags, "lr")),
+            group_size=_to_int(_flag(flags, "group_size")),
+            total_steps=_to_int(_flag(flags, "total_steps")),
+            batch_size=_to_int(_flag(flags, "batch_size")),
+            model_id=_flag(flags, "model_id"),
+            curriculum_hash=_flag(flags, "curriculum_hash"),
+        )
+        base = Path(cwd)
+        contract_rel = _flag(flags, "run_contract") or rc.DEFAULT_RUN_CONTRACT_PATH
+        contract_path = Path(contract_rel)
+        if not contract_path.is_absolute():
+            contract_path = base / contract_path
+        packet_rel = _flag(flags, "feasibility_packet")
+        packet_path: Path | None = None
+        if packet_rel:
+            packet_path = Path(packet_rel)
+            if not packet_path.is_absolute():
+                packet_path = base / packet_path
+        return rc.check_full_run_launch(
+            contract_path=contract_path,
+            packet_path=packet_path,
+            knobs=knobs,
+        )
+    except Exception:
+        return (False, "")
+
+
 def _parse_launch_flags(command: str) -> dict[str, str]:
     """Best-effort ``--flag value`` / ``--flag=value`` table from a shell command.
 
@@ -1715,9 +1800,18 @@ def _run_supervised(
                 "run_dir": resolved_run_dir,
                 "supervisor_log": str(supervisor_log),
             })
-            reject, pf_concern = _supervisor_preflight(
-                task_id, command, description, model, cwd,
-            )
+            # (A) Deterministic provenance interlock FIRST (cheap, no LLM): a
+            # scale=full RL launch must faithfully execute the frozen, feasibility-
+            # probed RUN_CONTRACT. (B) Then the LLM config preflight for
+            # mechanically-degenerate configs. Either reject routes through the
+            # same stop+discussion machinery below.
+            reject, pf_concern = (False, "")
+            if _is_full_scale_rl(command):
+                reject, pf_concern = _run_contract_preflight(command, cwd)
+            if not reject:
+                reject, pf_concern = _supervisor_preflight(
+                    task_id, command, description, model, cwd,
+                )
             if reject:
                 with supervisor_log.open("a") as sl:
                     sl.write(json.dumps({

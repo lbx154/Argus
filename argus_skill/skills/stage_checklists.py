@@ -214,6 +214,28 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "argus_builtin_skills/engineer/rl-training-collapse-diagnosis.md"
             ),
         ),
+        ChecklistItem(
+            id="plan.run_contract",
+            statement=(
+                "If the project runs training (RL / SFT / post-training), the "
+                "plan freeze emits a machine-readable RUN CONTRACT "
+                "(research/RUN_CONTRACT.json) that is the SINGLE SOURCE OF "
+                "TRUTH for the locked launch knobs: instruct model id, learning "
+                "rate, group size / num_generations, total steps, train batch "
+                "size, and the curriculum (slice id + content hash + "
+                "distinct-task count + seed). It carries a contract_hash over "
+                "those fields so every full-scale run manifest can cite a "
+                "provenance anchor. Freeze it with `python -m "
+                "argus_skill.skills.run_contract freeze ...`. Without it the "
+                "launch knobs drift from the plan (e.g. an LR copied from a "
+                "framework reference doc) and a multi-hour run gets retired "
+                "post-hoc. N/A for projects with no training run."
+            ),
+            evidence_hint=(
+                "research/RUN_CONTRACT.json (non-empty, self-consistent "
+                "contract_hash) consistent with research/EXPERIMENT_PLAN.md"
+            ),
+        ),
     ),
     "benchmark": _checklist(
         ChecklistItem(
@@ -453,6 +475,49 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "`nvidia-smi` during the run shows ≳70% VRAM on allocated GPUs. "
                 "See argus_builtin_skills/engineer/training-infrastructure-guide.md "
                 "(Hardware saturation contract)."
+            ),
+        ),
+        ChecklistItem(
+            id="run.plan_execution_contract_match",
+            statement=(
+                "Every full-scale (`scale=full`) training run faithfully "
+                "EXECUTES the frozen research/RUN_CONTRACT.json: the run "
+                "manifest cites the contract_hash, and the launched learning "
+                "rate, group size / num_generations, total steps, batch size, "
+                "model id, and curriculum hash match the contract — no drift. "
+                "The subagent pre-launch interlock refuses a drifting or "
+                "contract-less full-scale RL launch, so a run that reached GPU "
+                "without a matching contract is wasted budget. Re-verify with "
+                "`python -m argus_skill.skills.run_contract check-launch ...`. "
+                "This is a provenance/anti-drift check, not a science verdict. "
+                "N/A for non-training projects or explicitly-bounded pilots."
+            ),
+            evidence_hint=(
+                "experiments/<run>/manifest.json contract_hash matches "
+                "research/RUN_CONTRACT.json; launched knobs == contract"
+            ),
+        ),
+        ChecklistItem(
+            id="run.curriculum_feasibility_packet",
+            statement=(
+                "Before each full-scale run committed GPU, a FEASIBILITY "
+                "PACKET was produced on the EXACT curriculum the run consumes "
+                "(same content hash, post-decontamination, with the real "
+                "repetition factor): it shows the distinct-task count is large "
+                "vs the planned rollout volume (NOT a memorisation regime) AND "
+                "a short probe was non-saturating (advantage span > 0, reward "
+                "not pinned at the ceiling, within-group reward contrast "
+                "present) — OR the run is explicitly labelled smoke_only and is "
+                "NOT cited as general-learning evidence. This closes the gap "
+                "where a readiness screen validated a different slice than the "
+                "full run consumed, so the run saturated mid-flight at zero "
+                "advantage. Build/check with `python -m "
+                "argus_skill.skills.run_contract build-packet` then "
+                "`check-launch`. N/A for non-training projects."
+            ),
+            evidence_hint=(
+                "feasibility packet JSON whose curriculum_hash == the run's, "
+                "tied to research/RUN_CONTRACT.json"
             ),
         ),
     ),

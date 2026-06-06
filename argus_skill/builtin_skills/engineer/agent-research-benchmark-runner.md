@@ -63,6 +63,16 @@ Execute the experiment plan for an agent-science paper. This is the argus-skill-
 4. Run in stages — use subagent for GPU tasks:
    - Start with a smoke run that is cheap and fast.
    - Only launch full baselines/ablations after smoke passes.
+   - **Before any `scale=full` RL/training launch, clear the RUN CONTRACT gate.**
+     The frozen `research/RUN_CONTRACT.json` is the single source of truth for the
+     launch knobs (LR, group size / `num_generations`, total steps, batch, model,
+     curriculum hash); the launch must match it and cite a feasibility packet
+     proving the EXACT curriculum is non-saturating. The `subagent` pre-launch
+     interlock REFUSES a drifting or contract-less full-scale RL launch, so pass
+     `--run-contract research/RUN_CONTRACT.json --feasibility-packet <packet.json>
+     --curriculum-hash <hash>` and dry-check with `python -m
+     argus_skill.skills.run_contract check-launch ...`. See the
+     `rl-training-collapse-diagnosis` skill for the freeze → probe → launch flow.
    - **CRITICAL: use the subagent system for any GPU training/inference/evaluation >60s:**
      ```bash
      python -m argus_skill.tools.subagent submit \

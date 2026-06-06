@@ -280,7 +280,13 @@ def _handoff_max_generations() -> int:
 
 
 def _source_signature() -> str:
-    """Content hash of runtime files that require a daemon restart."""
+    """Content hash of runtime files that require a daemon restart.
+
+    Covers both Python runtime code and the behavior-defining built-in skill
+    markdown: a skill edit changes how the engineer/reviewer act, so the daemon
+    is just as stale against a skill change as against a ``.py`` change and the
+    auto-handoff signature must notice it.
+    """
     test_signature_path = os.environ.get(_TEST_SOURCE_SIGNATURE_FILE_ENV, "").strip()
     if test_signature_path:
         try:
@@ -290,6 +296,7 @@ def _source_signature() -> str:
     package_root = Path(__file__).resolve().parents[1]
     repo_root = package_root.parent
     paths: list[Path] = sorted(package_root.rglob("*.py"))
+    paths += sorted((package_root / "builtin_skills").rglob("*.md"))
     pyproject = repo_root / "pyproject.toml"
     if pyproject.exists():
         paths.append(pyproject)

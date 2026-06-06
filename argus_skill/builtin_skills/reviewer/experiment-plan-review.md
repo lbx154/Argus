@@ -172,6 +172,15 @@ If the plan involves training (SFT, RLHF, DPO, RL, pretraining, adapter tuning):
 - Does it name a specific framework (LLaMA-Factory, TRL, SLIME, OpenRLHF, etc.)?
 - If it plans a custom training loop, is there a justification for why no framework works?
 - Flag as issue if it plans to write training from scratch without justification.
+- **RUN CONTRACT (single source of truth, anti-drift):** before approving GPU
+  budget, require the plan freeze to emit a machine-readable
+  `research/RUN_CONTRACT.json` (via `python -m argus_skill.skills.run_contract
+  freeze ...`) locking the model id, LR, group size / `num_generations`, total
+  steps, batch size, and the curriculum content hash + distinct-task count +
+  seed, with a self-consistent `contract_hash`. This is what later forces the
+  launcher to execute exactly the frozen knobs (no LR copied from a reference
+  doc, no `num_generations` drift) and forces a feasibility probe on the exact
+  curriculum. Flag as issue if a training plan has no frozen RUN_CONTRACT.
 
 If the plan involves inference on >100 examples:
 - Does it plan to use vLLM, SGLang, TGI, or an API with batching?
