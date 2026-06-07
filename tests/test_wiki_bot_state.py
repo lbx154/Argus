@@ -5,6 +5,7 @@ from pathlib import Path
 
 from argus_skill.wiki.bot_state import (
     BotState,
+    collect_backoff_hours,
     cooldown_elapsed,
     load_bot_state,
     save_bot_state,
@@ -73,3 +74,15 @@ def test_save_bot_state_is_atomic(tmp_path: Path):
 
     assert load_bot_state(path).last_collected_at == now
     assert list(tmp_path.glob("*.tmp-*")) == []
+
+
+def test_failed_collect_uses_short_backoff():
+    now = datetime(2026, 6, 5, 12, 0, 0, tzinfo=timezone.utc)
+    state = BotState(last_attempted_at=now, consecutive_failures=1)
+    assert collect_backoff_hours(state) < 12.0
+
+
+def test_successful_collect_uses_full_backoff():
+    now = datetime(2026, 6, 5, 12, 0, 0, tzinfo=timezone.utc)
+    state = BotState(last_collected_at=now, last_attempted_at=now, consecutive_failures=0)
+    assert collect_backoff_hours(state) == 12.0

@@ -109,11 +109,12 @@ from argus_skill.wiki.bot_state import load_bot_state, save_bot_state
 
 path = Path(".autors/<project>/wiki/data/bot_state.json")
 state = load_bot_state(path)
-state.last_collected_at = datetime.now(timezone.utc)
+state.last_attempted_at = datetime.now(timezone.utc)
 state.last_query_seed = "; ".join(queries)  # for next-time diversity
 if hit_count == 0:
     state.consecutive_failures += 1
 else:
+    state.last_collected_at = state.last_attempted_at
     state.consecutive_failures = 0
 save_bot_state(path, state)
 ```

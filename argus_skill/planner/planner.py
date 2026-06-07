@@ -649,17 +649,13 @@ class Planner:
             # This is a suggestion in the planner prompt, not a harness-enforced
             # action; the planner still decides.
             from datetime import datetime, timezone
-            from ..wiki.bot_state import cooldown_elapsed, load_bot_state
+            from ..wiki.bot_state import collect_backoff_hours, collect_cooldown_elapsed, load_bot_state
 
-            collect_cooldown_hours = 12.0
             for wiki_root in wiki_candidates:
                 bot_state_path = wiki_root / "data" / "bot_state.json"
                 state = load_bot_state(bot_state_path)
-                if cooldown_elapsed(
-                    last_collected_at=state.last_collected_at,
-                    now=datetime.now(timezone.utc),
-                    hours=collect_cooldown_hours,
-                ):
+                if collect_cooldown_elapsed(state=state, now=datetime.now(timezone.utc)):
+                    collect_cooldown_hours = collect_backoff_hours(state)
                     parts.append(
                         f"### wiki_collect suggestion ({wiki_root.parent.name})\n"
                         f"The wiki's collector cooldown of {collect_cooldown_hours:.0f}h "

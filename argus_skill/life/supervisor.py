@@ -2272,6 +2272,100 @@ class LifeSupervisor:
             log.exception("notify dispatch failed; continuing")
         return _PLAN_AWAITING
 
+    def _wiki_collect_task_if_due_under_blocker(self) -> Any | None:
+        project_root = self._project_workdir()
+        if not _operator_only_external_blocker_wait_reason_for_project(project_root):
+            return None
+        autors = project_root / ".autors"
+        if not autors.is_dir():
+            return None
+        from datetime import datetime, timezone
+        from ..planner import TaskSpec
+        from ..wiki.bootstrap import is_initialized_wiki
+        from ..wiki.bot_state import collect_cooldown_elapsed, load_bot_state
+
+        now = datetime.now(timezone.utc)
+        for candidate in sorted(autors.glob("*/wiki")):
+            if not is_initialized_wiki(candidate):
+                continue
+            state = load_bot_state(candidate / "data" / "bot_state.json")
+            if not collect_cooldown_elapsed(state=state, now=now):
+                continue
+            project_name = candidate.parent.name
+            return TaskSpec(
+                title=f"wiki_collect: refresh {project_name} idea wiki",
+                objective=(
+                    "wiki_collect mission. Use the `wiki-collector` engineer "
+                    "skill to derive 5-10 project-state search queries, ingest "
+                    "new paper/repo sources into `.autors/"
+                    f"{project_name}/wiki/sources/`, and update "
+                    "`data/bot_state.json`. This mission is allowed while the "
+                    "project is externally blocked because it is train-free and "
+                    "uses the shared per-mission budget. Do not run GPU work."
+                ),
+                impact_score=4,
+                impact_area="discovery",
+                evidence="collector cooldown elapsed while project waits on external artifacts",
+                scope=_PLANNER_SCOPE_BOUNDED,
+            )
+        return None
+
+    def _enqueue_wiki_collect_task(self, task: Any) -> bool:
+        item = BacklogItem.new(
+            title=task.title,
+            objective=task.objective,
+            priority=100,
+            tags=[*self._planner_task_tags(task), "wiki_collect"],
+            iterate=True,
+            iteration_max_cycles=1,
+            iteration_budget_usd=min(self._item_iteration_budget(), 5.0),
+        )
+        self.memory.backlog.add(item)
+        self._emit({
+            "type": "life.planner.task_added",
+            "cycle": self._planning_cycles,
+            "item_id": item.id,
+            "title": item.title,
+            "impact_score": task.impact_score,
+            "impact_area": task.impact_area,
+        })
+        self._emit({
+            "type": "life.planner.verdict",
+            "cycle": self._planning_cycles,
+            "project_done": False,
+            "reason": "external blocker present; scheduling one wiki_collect escape-valve mission",
+            "task_count": 1,
+            "enqueued_tasks": 1,
+            "skipped_duplicate_tasks": 0,
+            "skipped_recent_failure_tasks": 0,
+            "enqueued_titles": [item.title],
+            "enqueued_impact_scores": [task.impact_score],
+            "skipped_duplicate_titles": [],
+            "skipped_recent_failure_titles": [],
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0,
+            "cost_usd": 0.0,
+        })
+        entry = JournalEntry.new(
+            kind="planner_cycle",
+            title=f"planner cycle #{self._planning_cycles}",
+            summary=f"enqueued 1 wiki_collect task: {item.title}",
+            tags=["life", "planner", "wiki_collect"],
+            cost_usd=0.0,
+            extra={
+                "agent_layer": "planner",
+                "objective": self.config.continuous_objective[:200],
+                "proposed_tasks": 1,
+                "enqueued_tasks": 1,
+                "enqueued_titles": [item.title],
+                "wiki_collect_escape_valve": True,
+            },
+        )
+        self.memory.journal.append(entry)
+        self._inject_cumulative_cost(entry)
+        return True
+
     def _plan_next_work(self) -> bool | None | str:
         """Call the planner to generate new backlog items.
 
@@ -2280,6 +2374,17 @@ class LifeSupervisor:
         ``"daemon_handoff"`` if the planner asked the host to restart,
         and ``None`` when the planner fails and should be retried later.
         """
+        self._planning_cycles += 1
+        self._emit({
+            "type": "life.planner.start",
+            "cycle": self._planning_cycles,
+            "objective": self.config.continuous_objective[:200],
+        })
+
+        wiki_collect_task = self._wiki_collect_task_if_due_under_blocker()
+        if wiki_collect_task is not None:
+            return self._enqueue_wiki_collect_task(wiki_collect_task)
+
         if self.planner_runner is None:
             self._emit_status("planner error: no planner runner wired; retry later")
             entry = JournalEntry.new(
@@ -2297,13 +2402,6 @@ class LifeSupervisor:
             except Exception:  # noqa: BLE001
                 log.exception("notify dispatch failed; continuing")
             return None
-
-        self._planning_cycles += 1
-        self._emit({
-            "type": "life.planner.start",
-            "cycle": self._planning_cycles,
-            "objective": self.config.continuous_objective[:200],
-        })
 
         short_circuit = self._operator_external_blocker_short_circuit_decision(
             project_root=self._project_workdir(),
