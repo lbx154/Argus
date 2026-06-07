@@ -1317,6 +1317,14 @@ def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = 
 # Supervisor driver (used by both `life run` and chat-mode free text)
 # ---------------------------------------------------------------------------
 
+def _repl_check_commands_for_open_ended(commands: list[str], *, open_ended: bool) -> list[str]:
+    from ..daemon.life_worker import _apply_bounded_to_check_commands
+
+    # WHY M0.7: REPL-launched bounded missions share the same root cause as
+    # daemon missions; stage_check must receive --bounded at acceptance time.
+    return _apply_bounded_to_check_commands(commands, bounded=not open_ended)
+
+
 def _build_repl_supervisor_config(
     *,
     per_mission_cap_usd: float,
@@ -1472,6 +1480,10 @@ def _invoke_supervisor(
     # too small for "implement + test + polish" tasks that need many
     # tool calls. Override via ARGUS_SKILL_MAX_ROUNDS.
     ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "500"))
+    ns.check_commands = _repl_check_commands_for_open_ended(
+        list(getattr(ns, "check_commands", []) or []),
+        open_ended=open_ended,
+    )
 
     # Runtime context injected into every mission prelude so the agent
     # knows its own backend, models, and budget constraints at runtime.

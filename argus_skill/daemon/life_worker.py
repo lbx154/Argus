@@ -110,6 +110,20 @@ class LifeWorkerConfig:
     ])
 
 
+def _apply_bounded_to_check_commands(commands: list[str], *, bounded: bool) -> list[str]:
+    # WHY M0.7: --bounded previously reached supervisor project_done logic
+    # but not the reviewer acceptance gate, so stage_check kept blocking
+    # train-free diagnostics on paper-pipeline benchmark readiness.
+    if not bounded:
+        return list(commands)
+    out: list[str] = []
+    for cmd in commands:
+        if "stage_check" in cmd and "--bounded" not in cmd:
+            cmd = cmd + " --bounded"
+        out.append(cmd)
+    return out
+
+
 _HANDOFF_CONFIG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_CONFIG"
 _HANDOFF_READY_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_READY"
 _HANDOFF_TOKEN_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_TOKEN"
@@ -1107,7 +1121,12 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     ns.plan_mode = os.environ.get("ARGUS_SKILL_PLAN_MODE", "auto")
     ns.plan_model = os.environ.get("ARGUS_SKILL_PLAN_MODEL")
     ns.check = []
-    ns.check_commands = list(cfg.check_commands)
+    # WHY M0.7: bounded daemon missions must pass --bounded into
+    # stage_check; otherwise the reviewer loops on irrelevant paper gates.
+    ns.check_commands = _apply_bounded_to_check_commands(
+        list(cfg.check_commands),
+        bounded=not cfg.continuous_open_ended,
+    )
     ns.color = None
     ns.verbose = False
     ns.quiet = True
