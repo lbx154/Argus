@@ -1,7 +1,11 @@
 """File I/O for sources/ (immutable) and pages/ (mutable)."""
 from __future__ import annotations
 
+import os
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 from typing import TypeVar
 
 from .schema import (
@@ -32,39 +36,83 @@ def wiki_root_for_project(project: str, *, base: Path | None = None) -> Path:
     return base / ".autors" / project / "wiki"
 
 
+def _validate_stem(stem: str) -> str:
+    normalized = stem.strip().replace("/", "__")
+    if (
+        not normalized
+        or "\\" in normalized
+        or ".." in normalized
+        or normalized.startswith(".")
+    ):
+        raise ValueError(f"invalid wiki id stem: {stem!r}")
+    return normalized
+
+
+def _stem_from_id(item_id: str) -> str:
+    stem = item_id.split("/", 1)[1] if "/" in item_id else item_id
+    return _validate_stem(stem)
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+
 class WikiStore:
     def __init__(self, root: Path):
         self.root = root
 
+    @contextmanager
+    def _wiki_lock(self) -> Iterator[None]:
+        import fcntl
+
+        lock_path = self.root / "data" / ".wiki.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+", encoding="utf-8") as fh:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
     # ---- sources ---------------------------------------------------------
     def write_source(self, src: SourcePaper | SourceRepo | SourceRun) -> Path:
         subdir = _SOURCE_SUBDIR[type(src)]
-        # src.id is e.g. "papers/2406.12345"; strip prefix to get filename stem.
-        stem = src.id.split("/", 1)[1] if "/" in src.id else src.id
+        stem = _stem_from_id(src.id)
         path = self.root / "sources" / subdir / f"{stem}.md"
-        if path.exists():
-            raise FileExistsError(f"sources are immutable: {path} already exists")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(serialize_frontmatter(src), encoding="utf-8")
+        with self._wiki_lock():
+            if path.exists():
+                raise FileExistsError(f"sources are immutable: {path} already exists")
+            _atomic_write_text(path, serialize_frontmatter(src))
         return path
 
     def read_source(self, cls: type[T], source_id: str) -> T:
         subdir = _SOURCE_SUBDIR[cls]
-        stem = source_id.split("/", 1)[1] if "/" in source_id else source_id
+        stem = _stem_from_id(source_id)
         path = self.root / "sources" / subdir / f"{stem}.md"
         return parse_frontmatter(path.read_text(encoding="utf-8"), cls)
 
     # ---- pages -----------------------------------------------------------
     def write_page(self, card: PageCard) -> Path:
         subdir = _PAGE_SUBDIR[card.type]
-        path = self.root / "pages" / subdir / f"{card.id}.md"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(serialize_frontmatter(card), encoding="utf-8")
+        stem = _validate_stem(card.id)
+        path = self.root / "pages" / subdir / f"{stem}.md"
+        with self._wiki_lock():
+            _atomic_write_text(path, serialize_frontmatter(card))
         return path
 
     def read_page(self, card_type: str, card_id: str) -> PageCard:
         subdir = _PAGE_SUBDIR[card_type]
-        path = self.root / "pages" / subdir / f"{card_id}.md"
+        stem = _validate_stem(card_id)
+        path = self.root / "pages" / subdir / f"{stem}.md"
         return parse_frontmatter(path.read_text(encoding="utf-8"), PageCard)
 
     def iter_pages(self) -> list[PageCard]:
