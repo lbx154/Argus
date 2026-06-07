@@ -290,6 +290,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="stage-check")
     parser.add_argument("--project-root", type=Path, default=Path("."))
     parser.add_argument("--stage", default=None)
+    # WHY M0.7: bounded diagnostic/survey missions cannot satisfy broad
+    # paper-pipeline benchmark readiness; this flag downgrades only those
+    # state findings while structural anti-fraud gates still block below.
+    parser.add_argument("--bounded", action="store_true")
     args = parser.parse_args()
 
     root = args.project_root.resolve()
@@ -325,12 +329,20 @@ def main() -> int:
             failed += 1
 
     blocked_findings = _blocked_pipeline_findings(root, requested_stage=stage)
-    blocked_state_fail = len(blocked_findings)
+    # WHY M0.7: the root cause was bounded missions looping because
+    # paper-pipeline blocked state was counted as a hard per-round failure.
+    # In bounded mode it is advisory only; structural gates are unchanged.
+    blocked_state_fail = 0 if args.bounded else len(blocked_findings)
+    bounded_state_advisory = len(blocked_findings) if args.bounded else 0
     if blocked_findings:
         print()
-        print("🚫 Fail-closed pipeline state:")
+        print(
+            "📋 Advisory paper-pipeline state:"
+            if args.bounded
+            else "🚫 Fail-closed pipeline state:"
+        )
         for finding in blocked_findings:
-            print(f"  ❌ {finding}")
+            print(f"  {'📋' if args.bounded else '❌'} {finding}")
 
     # 2. Run automated F4 (structural) + F3 (advisory) gates that apply
     #    at this stage. STRUCTURAL gate failures count into the round
@@ -351,7 +363,7 @@ def main() -> int:
         baseline_condition=os.environ.get("ARGUS_SKILL_BASELINE_CONDITION") or None,
     )
     structural_block = 0
-    advisory_count = 0
+    advisory_count = bounded_state_advisory
     structural_pass = 0
     structural_fail = 0
     if gate_results:
