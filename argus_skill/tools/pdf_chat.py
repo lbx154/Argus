@@ -139,7 +139,12 @@ def _extract_with_pypdf(pdf: Path) -> tuple[str, int]:
 def _extract(pdf: Path) -> tuple[str, int]:
     if shutil.which("pdftotext"):
         try:
-            return _extract_with_pdftotext(pdf)
+            text, page_count = _extract_with_pdftotext(pdf)
+            # WHY M0.7 full-sweep: some pdftotext builds drop simple
+            # reportlab heading lines, which makes section extraction empty.
+            # Fall back to pypdf only in that broken-heading case.
+            if _RE_SECTION_HEAD.search(text):
+                return text, page_count
         except (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired):
             pass
     return _extract_with_pypdf(pdf)

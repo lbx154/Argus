@@ -2163,7 +2163,13 @@ _FAILED_STATES = frozenset({"error", "crashed", "timeout"})
 def _read_status_json(base: Path) -> dict[str, Any]:
     """Read the RunWriter status.json (state/method/task_count/elapsed)."""
     path = base / "status.json"
-    if not path.exists():
+    # WHY M0.7 full-sweep: status paths can be stale or permission-blocked;
+    # status rendering must degrade to empty instead of crashing.
+    try:
+        status_exists = path.exists()
+    except OSError:
+        status_exists = False
+    if not status_exists:
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -2175,7 +2181,13 @@ def _read_status_json(base: Path) -> dict[str, Any]:
 def _read_summary_tsv(base: Path) -> list[dict[str, Any]]:
     """Parse aggregate rows from summary.tsv (the headline reward/score)."""
     path = base / "summary.tsv"
-    if not path.exists():
+    # WHY M0.7 full-sweep: summary paths share the same stale-run-dir failure
+    # mode as status/progress files, so treat inaccessible paths as absent.
+    try:
+        summary_exists = path.exists()
+    except OSError:
+        summary_exists = False
+    if not summary_exists:
         return []
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -2202,7 +2214,13 @@ def _progress_summary(run_dir: str | None) -> dict[str, Any]:
         return summary
     base = Path(run_dir)
     progress = base / "progress.jsonl"
-    if progress.exists():
+    # WHY M0.7 full-sweep: status rendering must be best-effort for stale or
+    # inaccessible run paths; Path.exists() itself can raise PermissionError.
+    try:
+        progress_exists = progress.exists()
+    except OSError:
+        progress_exists = False
+    if progress_exists:
         try:
             lines = progress.read_text(encoding="utf-8").splitlines()
             summary["progress_rows"] = len(lines)
@@ -2218,7 +2236,13 @@ def _progress_summary(run_dir: str | None) -> dict[str, Any]:
         except OSError:
             pass
     results = base / "results.jsonl"
-    if results.exists():
+    # WHY M0.7 full-sweep: mirror the progress path guard so a missing or
+    # permission-blocked run dir never crashes `subagent status`.
+    try:
+        results_exists = results.exists()
+    except OSError:
+        results_exists = False
+    if results_exists:
         try:
             summary["result_rows"] = sum(1 for _ in results.open(encoding="utf-8"))
         except OSError:
