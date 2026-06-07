@@ -94,7 +94,11 @@ def _operator_only_external_blocker_wait_reason_for_project(project_root: Path) 
         try:
             payload = json.loads(lock_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
-            continue
+            return (
+                f"operator-only external blocker {lock_path.name} is present "
+                "but unreadable (malformed JSON); treating as active blocker "
+                "pending operator fix"
+            )
         if not isinstance(payload, dict):
             continue
         if payload.get("local_engineer_action_required_before_mount") is not False:
@@ -102,23 +106,23 @@ def _operator_only_external_blocker_wait_reason_for_project(project_root: Path) 
         required = payload.get("required_external_targets")
         if not isinstance(required, list) or not required:
             continue
-        present = [
+        missing = [
             str(item)
             for item in required
-            if isinstance(item, str) and (project_root / item).exists()
+            if isinstance(item, str) and not (project_root / item).exists()
         ]
-        if present:
+        if not missing:
             continue
-        missing_count = sum(1 for item in required if isinstance(item, str))
         owner = payload.get("next_owner") or "operator/data owner"
         verdict = (
             payload.get("canonical_viability_verdict")
             or "external artifacts missing"
         )
+        sample_missing = ", ".join(missing[:4])
         return (
             f"operator-only external benchmark blocker ({lock_path.name}): "
-            f"{verdict}; {missing_count} required external target(s) still "
-            f"absent; next owner is {owner}"
+            f"{verdict}; {len(missing)} required external target(s) still "
+            f"absent ({sample_missing}); next owner is {owner}"
         )
     return ""
 

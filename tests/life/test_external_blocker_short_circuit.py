@@ -4,7 +4,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.life.supervisor import _operator_only_blocker_paths_for_project
+from argus_skill.life.supervisor import (
+    _operator_only_blocker_paths_for_project,
+    _operator_only_external_blocker_wait_reason_for_project,
+)
 
 
 def _write_blocker(project_root: Path, filename: str, payload: dict) -> Path:
@@ -180,3 +183,59 @@ def test_plan_next_work_short_circuits_before_planner_runner(tmp_path: Path):
     assert result == "awaiting_external"
     assert any(e.get("type") == "life.planner.waiting" for e in events)
     assert mem.journal.tail(1)[0].kind == "planner_waiting"
+
+
+def test_blocker_waits_until_all_targets_present(tmp_path: Path):
+    _write_blocker(
+        tmp_path,
+        "operator_only_external_blocker_20260605.json",
+        {
+            "local_engineer_action_required_before_mount": False,
+            "required_external_targets": ["data/eval/a.csv", "data/eval/b.csv"],
+        },
+    )
+    (tmp_path / "data" / "eval").mkdir(parents=True)
+    (tmp_path / "data" / "eval" / "a.csv").write_text("ok\n", encoding="utf-8")
+
+    reason = _operator_only_external_blocker_wait_reason_for_project(tmp_path)
+
+    assert reason
+    assert "b.csv" in reason
+
+
+def test_blocker_resolves_when_all_targets_present(tmp_path: Path):
+    _write_blocker(
+        tmp_path,
+        "operator_only_external_blocker_20260605.json",
+        {
+            "local_engineer_action_required_before_mount": False,
+            "required_external_targets": ["data/eval/a.csv", "data/eval/b.csv"],
+        },
+    )
+    (tmp_path / "data" / "eval").mkdir(parents=True)
+    (tmp_path / "data" / "eval" / "a.csv").write_text("ok\n", encoding="utf-8")
+    (tmp_path / "data" / "eval" / "b.csv").write_text("ok\n", encoding="utf-8")
+
+    assert _operator_only_external_blocker_wait_reason_for_project(tmp_path) == ""
+
+
+def test_malformed_blocker_json_is_treated_as_waiting(tmp_path: Path):
+    diagnosis = tmp_path / "diagnosis"
+    diagnosis.mkdir()
+    (diagnosis / "operator_only_external_blocker_x.json").write_text("{", encoding="utf-8")
+
+    reason = _operator_only_external_blocker_wait_reason_for_project(tmp_path)
+
+    assert reason
+    assert "malformed JSON" in reason
+
+
+def test_blocker_tmp_file_is_ignored(tmp_path: Path):
+    diagnosis = tmp_path / "diagnosis"
+    diagnosis.mkdir()
+    (diagnosis / "operator_only_external_blocker_x.json.tmp").write_text(
+        "{",
+        encoding="utf-8",
+    )
+
+    assert _operator_only_external_blocker_wait_reason_for_project(tmp_path) == ""
