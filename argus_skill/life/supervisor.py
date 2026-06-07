@@ -1804,6 +1804,7 @@ class LifeSupervisor:
             },
         )
         self.memory.journal.append(entry)
+        self._persist_final_submission_cert_if_needed(entry)
         self._inject_cumulative_cost(entry)
         try:
             from .notify import dispatch_journal_entry
@@ -2062,6 +2063,8 @@ class LifeSupervisor:
         Fail-closed: only an explicit certified entry counts. We scan the
         recent journal tail for such an entry.
         """
+        if self._final_submission_cert_path().exists():
+            return True
         try:
             entries = self.memory.journal.tail(50)
         except Exception:  # noqa: BLE001
@@ -2075,6 +2078,39 @@ class LifeSupervisor:
             ):
                 return True
         return False
+
+    def _final_submission_cert_path(self) -> Path:
+        root = Path(
+            getattr(self.config, "telemetry_dir", None)
+            or getattr(self.memory, "root", None)
+            or "."
+        )
+        return root / "final_submission_certified.json"
+
+    def _persist_final_submission_cert_if_needed(self, entry: JournalEntry) -> None:
+        extra = getattr(entry, "extra", {}) or {}
+        if not (
+            getattr(entry, "kind", "") == "mission_complete"
+            and isinstance(extra, dict)
+            and extra.get("final_submission_certified") is True
+        ):
+            return
+        path = self._final_submission_cert_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
+        payload = {
+            "certified_at": getattr(entry, "ts", time.time()),
+            "journal_entry_id": getattr(entry, "id", ""),
+            "title": getattr(entry, "title", ""),
+        }
+        try:
+            tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            os.replace(tmp, path)
+        finally:
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
 
     def _operator_only_external_blocker_wait_reason(self) -> str:
         """Return a waiting reason for an operator-only external blocker.

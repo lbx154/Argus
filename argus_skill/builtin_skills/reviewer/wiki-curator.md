@@ -53,17 +53,19 @@ store = WikiStore(wiki_root)
 
 refs_bib = Path("paper/refs.bib")
 if refs_bib.exists():
-    written = ingest_refs_bib(
+    bib_result = ingest_refs_bib(
         store,
         bib_path=refs_bib,
         ingested_by=f"wiki-curator@mission-{mission_id}",
     )
-    # written is a list of newly created source paths; already-present
-    # sources are silently skipped because sources are immutable.
+    # bib_result.written is newly created source paths; already-present
+    # sources are skipped because sources are immutable. Treat
+    # bib_result.warnings as isolated warnings, not mission blockers.
 
 lit_matrix = Path("research/LIT_MATRIX.tsv")
 if lit_matrix.exists():
-    ingest_lit_matrix(store, tsv_path=lit_matrix)
+    lit_result = ingest_lit_matrix(store, tsv_path=lit_matrix)
+    # lit_result.warnings are isolated wiki-maintenance warnings.
 ```
 
 This converts each BibTeX entry into an immutable
@@ -74,6 +76,11 @@ this step; the BibTeX entry is a fact, not a claim about importance.
 Synthesis into `pages/techniques/*` remains your job in Steps 1-2.
 
 Skip Step 0 silently if neither file exists.
+
+**Recovery policy:** backfill warnings are isolated wiki-maintenance
+warnings that should be summarized in your reviewer note. They MUST NOT
+block the mission verdict unless the mission objective is explicitly wiki
+repair or wiki maintenance.
 
 ### Step 1 -- survey what changed
 

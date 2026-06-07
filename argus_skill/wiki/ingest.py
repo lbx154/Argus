@@ -13,6 +13,7 @@ import csv
 import hashlib
 import json
 import re
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
@@ -25,6 +26,14 @@ _ARXIV_URL_RE = re.compile(
     flags=re.IGNORECASE,
 )
 _DOI_URL_RE = re.compile(r"(?:doi\.org/)(?P<doi>10\.[^?#\s]+)", flags=re.IGNORECASE)
+
+
+@dataclass
+class IngestResult:
+    written: list[Path] = field(default_factory=list)
+    enriched_count: int = 0
+    skipped: int = 0
+    warnings: list[str] = field(default_factory=list)
 
 
 def parse_bib_entries(text: str) -> list[dict[str, str]]:
@@ -65,7 +74,7 @@ def ingest_refs_bib(
     bib_path: Path,
     ingested_by: str,
     today: date | None = None,
-) -> list[Path]:
+) -> IngestResult:
     """Write one immutable `sources/papers/<key>.md` per BibTeX entry.
 
     Returns newly written paths. Already-present sources are skipped.
@@ -73,51 +82,60 @@ def ingest_refs_bib(
     """
     today = today or date.today()
     text = bib_path.read_text(encoding="utf-8")
-    written: list[Path] = []
+    result = IngestResult()
     for entry in parse_bib_entries(text):
-        key = entry.get("key", "").strip()
-        if not key:
-            continue
-        canonical = canonical_paper_id(
-            url=entry.get("url"),
-            doi=entry.get("doi"),
-            key=key,
-        )
-        title = entry.get("title", "").strip() or "(untitled)"
-        url = entry.get("url", "").strip() or "about:blank"
-        stanza = _reconstruct_stanza(entry)
-        src = SourcePaper(
-            id=f"papers/{canonical}",
-            url=url,
-            title=title,
-            ingested_at=today,
-            ingested_by=ingested_by,
-            checksum=_checksum(stanza),
-            body=stanza,
-        )
-        with store._wiki_lock():
-            aliases = _load_aliases(store)
-            existing = aliases.get(key)
-            if existing and _paper_source_path_for_key(store, existing).exists():
+        try:
+            key = entry.get("key", "").strip()
+            if not key:
+                result.skipped += 1
                 continue
-            aliases[key] = canonical
-            canonical_path = store.root / "sources" / "papers" / f"{canonical}.md"
-            if canonical_path.exists():
+            canonical = canonical_paper_id(
+                url=entry.get("url"),
+                doi=entry.get("doi"),
+                key=key,
+            )
+            title = entry.get("title", "").strip() or "(untitled)"
+            url = entry.get("url", "").strip() or "about:blank"
+            stanza = _reconstruct_stanza(entry)
+            src = SourcePaper(
+                id=f"papers/{canonical}",
+                url=url,
+                title=title,
+                ingested_at=today,
+                ingested_by=ingested_by,
+                checksum=_checksum(stanza),
+                body=stanza,
+            )
+            with store._wiki_lock():
+                aliases = _load_aliases(store)
+                existing = aliases.get(key)
+                if existing and _paper_source_path_for_key(store, existing).exists():
+                    result.skipped += 1
+                    continue
+                aliases[key] = canonical
+                canonical_path = store.root / "sources" / "papers" / f"{canonical}.md"
+                if canonical_path.exists():
+                    _save_aliases(store, aliases)
+                    result.skipped += 1
+                    continue
+                _atomic_write_text(canonical_path, serialize_frontmatter(src))
                 _save_aliases(store, aliases)
-                continue
-            _atomic_write_text(canonical_path, serialize_frontmatter(src))
-            _save_aliases(store, aliases)
-            written.append(canonical_path)
-    return written
+                result.written.append(canonical_path)
+        except Exception as exc:  # noqa: BLE001
+            result.skipped += 1
+            result.warnings.append(
+                f"skipped bib entry {entry.get('key', '<unknown>')}: {type(exc).__name__}: {exc}"
+            )
+    return result
 
 
 def ingest_lit_matrix(
     store: WikiStore,
     *,
     tsv_path: Path,
-) -> int:
+) -> IngestResult:
     """Append LIT_MATRIX relevance text to matching existing paper sources."""
-    enriched = 0
+    result = IngestResult()
     with tsv_path.open(encoding="utf-8") as fh:
         reader = csv.DictReader(fh, delimiter="\t")
         relevance_col = next(
@@ -125,33 +143,43 @@ def ingest_lit_matrix(
             None,
         )
         if relevance_col is None:
-            return 0
+            return result
         for row in reader:
             key = (row.get("id") or "").strip()
-            relevance = (row.get(relevance_col) or "").strip()
-            if not key or not relevance:
+            try:
+                relevance = (row.get(relevance_col) or "").strip()
+                if not key or not relevance:
+                    result.skipped += 1
+                    continue
+                canonical = canonical_paper_id(
+                    url=(row.get("url") or "").strip() or None,
+                    doi=None,
+                    key=key,
+                )
+                path = _paper_source_path_for_key(store, key)
+                if not path.exists():
+                    path = _paper_source_path_for_key(store, canonical)
+                if not path.exists():
+                    result.skipped += 1
+                    continue
+                src = parse_frontmatter(path.read_text(encoding="utf-8"), SourcePaper)
+                if relevance in src.body:
+                    result.skipped += 1
+                    continue
+                new_body = (src.body + f"\n\nrelevance: {relevance}").strip()
+                updated = SourcePaper(**{**src.__dict__, "body": new_body})
+                _atomic_write_text(path, serialize_frontmatter(updated))
+                aliases = _load_aliases(store)
+                aliases[key] = path.stem
+                _save_aliases(store, aliases)
+                result.enriched_count += 1
+            except Exception as exc:  # noqa: BLE001
+                result.skipped += 1
+                result.warnings.append(
+                    f"skipped LIT_MATRIX row {key or '<unknown>'}: {type(exc).__name__}: {exc}"
+                )
                 continue
-            canonical = canonical_paper_id(
-                url=(row.get("url") or "").strip() or None,
-                doi=None,
-                key=key,
-            )
-            path = _paper_source_path_for_key(store, key)
-            if not path.exists():
-                path = _paper_source_path_for_key(store, canonical)
-            if not path.exists():
-                continue
-            src = parse_frontmatter(path.read_text(encoding="utf-8"), SourcePaper)
-            if relevance in src.body:
-                continue
-            new_body = (src.body + f"\n\nrelevance: {relevance}").strip()
-            updated = SourcePaper(**{**src.__dict__, "body": new_body})
-            _atomic_write_text(path, serialize_frontmatter(updated))
-            aliases = _load_aliases(store)
-            aliases[key] = path.stem
-            _save_aliases(store, aliases)
-            enriched += 1
-    return enriched
+    return result
 
 
 def _paper_source_path_for_key(store: WikiStore, key: str) -> Path:

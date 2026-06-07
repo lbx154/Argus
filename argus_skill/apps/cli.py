@@ -1475,18 +1475,22 @@ def _cmd_wiki_ingest(args: argparse.Namespace) -> int:
     )
 
     if refs.exists():
-        written = ingest_refs_bib(
+        bib_result = ingest_refs_bib(
             store,
             bib_path=refs,
             ingested_by=args.ingested_by,
         )
-        print(f"ingested {len(written)} new source(s) from {refs}")
+        print(f"ingested {len(bib_result.written)} new source(s) from {refs}")
+        for warning in bib_result.warnings:
+            sys.stderr.write(f"warning: {warning}\n")
     else:
         print(f"no refs.bib at {refs}, skipping bib ingest")
 
     if lit.exists():
-        enriched = ingest_lit_matrix(store, tsv_path=lit)
-        print(f"enriched {enriched} source(s) from {lit}")
+        lit_result = ingest_lit_matrix(store, tsv_path=lit)
+        print(f"enriched {lit_result.enriched_count} source(s) from {lit}")
+        for warning in lit_result.warnings:
+            sys.stderr.write(f"warning: {warning}\n")
     else:
         print(f"no LIT_MATRIX.tsv at {lit}, skipping enrichment")
 

@@ -59,8 +59,8 @@ def test_ingest_same_paper_two_keys_makes_one_source(tmp_path: Path):
         encoding="utf-8",
     )
     written = ingest_refs_bib(store, bib_path=bib, ingested_by="test")
-    assert len(written) == 1
-    assert written[0].name == "arxiv-1707.06347.md"
+    assert len(written.written) == 1
+    assert written.written[0].name == "arxiv-1707.06347.md"
     aliases = json.loads((store.root / "data" / "paper_aliases.json").read_text())
     assert aliases["schulman2017ppo"] == "arxiv-1707.06347"
     assert aliases["ppo_arxiv"] == "arxiv-1707.06347"
@@ -81,7 +81,7 @@ def test_ingest_idempotent_with_alias_index(tmp_path: Path):
     )
     first = ingest_refs_bib(store, bib_path=bib, ingested_by="test")
     second = ingest_refs_bib(store, bib_path=bib, ingested_by="test")
-    assert len(first) == 1
-    assert second == []
+    assert len(first.written) == 1
+    assert second.written == []
     aliases = json.loads((store.root / "data" / "paper_aliases.json").read_text())
     assert aliases == {"schulman2017ppo": "arxiv-1707.06347"}

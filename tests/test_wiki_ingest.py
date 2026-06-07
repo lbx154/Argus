@@ -105,9 +105,9 @@ def test_ingest_refs_bib_writes_one_source_per_entry(wiki: WikiStore, tmp_path: 
         bib_path=bib,
         ingested_by="wiki-curator@test-mission",
     )
-    assert len(written) == 3
+    assert len(written.written) == 3
     # Files exist on disk with the expected paths
-    for path in written:
+    for path in written.written:
         assert path.exists()
     # Round-trip the first one
     src = wiki.read_source(SourcePaper, "papers/doi-10.1007__bf00992696")
@@ -121,8 +121,8 @@ def test_ingest_refs_bib_is_idempotent(wiki: WikiStore, tmp_path: Path):
     bib.write_text(SAMPLE_BIB, encoding="utf-8")
     first = ingest_refs_bib(wiki, bib_path=bib, ingested_by="x")
     second = ingest_refs_bib(wiki, bib_path=bib, ingested_by="x")
-    assert len(first) == 3
-    assert len(second) == 0  # sources are immutable; second call skips all
+    assert len(first.written) == 3
+    assert len(second.written) == 0  # sources are immutable; second call skips all
 
 
 def test_ingest_lit_matrix_appends_relevance_to_source_body(
@@ -135,8 +135,8 @@ def test_ingest_lit_matrix_appends_relevance_to_source_body(
 
     tsv = tmp_path / "LIT_MATRIX.tsv"
     tsv.write_text(SAMPLE_TSV, encoding="utf-8")
-    enriched_count = ingest_lit_matrix(wiki, tsv_path=tsv)
-    assert enriched_count == 3
+    result = ingest_lit_matrix(wiki, tsv_path=tsv)
+    assert result.enriched_count == 3
     src = wiki.read_source(SourcePaper, "papers/arxiv-1707.06347")
     assert "KL/clipping/update stability anchor." in src.body
 
@@ -149,8 +149,8 @@ def test_ingest_lit_matrix_skips_papers_not_in_sources(
     # target -> enrichment should be a no-op, not an error.
     tsv = tmp_path / "LIT_MATRIX.tsv"
     tsv.write_text(SAMPLE_TSV, encoding="utf-8")
-    enriched_count = ingest_lit_matrix(wiki, tsv_path=tsv)
-    assert enriched_count == 0
+    result = ingest_lit_matrix(wiki, tsv_path=tsv)
+    assert result.enriched_count == 0
 
 
 def test_ingest_lit_matrix_matches_punctuation_only_key_drift(
@@ -178,7 +178,41 @@ def test_ingest_lit_matrix_matches_punctuation_only_key_drift(
         "https://arxiv.org/abs/2311.12908\tPreference-optimization anchor.\n",
         encoding="utf-8",
     )
-    enriched_count = ingest_lit_matrix(wiki, tsv_path=tsv)
-    assert enriched_count == 1
+    result = ingest_lit_matrix(wiki, tsv_path=tsv)
+    assert result.enriched_count == 1
     src = wiki.read_source(SourcePaper, "papers/arxiv-2311.12908")
     assert "Preference-optimization anchor." in src.body
+
+
+def test_ingest_lit_matrix_continues_past_one_bad_source(
+    wiki: WikiStore,
+    tmp_path: Path,
+):
+    good = SourcePaper(
+        id="papers/good2026",
+        url="https://example.test/good",
+        title="Good",
+        ingested_at=date(2026, 6, 4),
+        ingested_by="test",
+        checksum="sha256:good",
+        body="@misc{good2026, title={Good}}",
+    )
+    wiki.write_source(good)
+    bad_path = wiki.root / "sources" / "papers" / "bad2026.md"
+    bad_path.write_text("not frontmatter", encoding="utf-8")
+
+    tsv = tmp_path / "LIT_MATRIX.tsv"
+    tsv.write_text(
+        "id\tyear\ttype\tvenue\turl\trelevance_to_demo\n"
+        "bad2026\t2026\trecent\tX\thttps://example.test/bad\tBad relevance.\n"
+        "good2026\t2026\trecent\tX\thttps://example.test/good\tGood relevance.\n",
+        encoding="utf-8",
+    )
+
+    result = ingest_lit_matrix(wiki, tsv_path=tsv)
+
+    assert result.enriched_count == 1
+    assert result.warnings
+    assert "bad2026" in result.warnings[0]
+    src = wiki.read_source(SourcePaper, "papers/good2026")
+    assert "Good relevance." in src.body
