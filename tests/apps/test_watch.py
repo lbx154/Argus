@@ -25,6 +25,15 @@ from argus_skill.core import project
 from argus_skill.daemon.life_worker import read_continuous_state
 
 
+def _subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    shim = Path(__file__).resolve().parents[1] / "subprocess_sitecustomize"
+    env["PYTHONPATH"] = str(shim) + (
+        os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
+    )
+    return env
+
+
 def _write_events(path: Path, events: list[dict[str, object]], *, mode: str = "w") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     blob = "\n".join(json.dumps(event, sort_keys=True) for event in events)
@@ -361,7 +370,7 @@ def test_watch_subprocess_renders_inbox_guidance_and_keeps_offset(tmp_path: Path
     )
     before = offset_path.read_text(encoding="utf-8")
 
-    env = os.environ.copy()
+    env = _subprocess_env()
     env.update({
         "PYTHONUNBUFFERED": "1",
         "ARGUS_SKILL_PER_MISSION_CAP_USD": "2.5",
@@ -501,7 +510,7 @@ def test_watch_subprocess_redirected_output_flushes_and_exits_on_sigterm(
     )
 
     output_path = tmp_path / "watch.out"
-    env = os.environ.copy()
+    env = _subprocess_env()
     env.update({
         "PYTHONUNBUFFERED": "1",
         "ARGUS_SKILL_PER_MISSION_CAP_USD": "2.5",
@@ -573,7 +582,7 @@ def test_watch_subprocess_shows_paused_budget_when_exhausted(tmp_path: Path) -> 
         ],
     )
 
-    env = os.environ.copy()
+    env = _subprocess_env()
     env.update({
         "PYTHONUNBUFFERED": "1",
         "ARGUS_SKILL_PER_MISSION_CAP_USD": "2.5",

@@ -12,6 +12,10 @@ import pytest
 def _run_cli(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    shim = Path(__file__).resolve().parents[1] / "subprocess_sitecustomize"
+    env["PYTHONPATH"] = str(shim) + (
+        os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
+    )
     return subprocess.run(
         [sys.executable, "-m", "argus_skill", *args],
         cwd=cwd,

@@ -1317,6 +1317,46 @@ def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = 
 # Supervisor driver (used by both `life run` and chat-mode free text)
 # ---------------------------------------------------------------------------
 
+def _build_repl_supervisor_config(
+    *,
+    per_mission_cap_usd: float,
+    daily_cap_usd: float,
+    once: bool,
+    max_missions: int,
+    project_worktree: Path | None,
+    stop_event: threading.Event,
+    project_root: Path,
+    runtime_context: str,
+    continuous: bool,
+    continuous_objective: str,
+    open_ended: bool,
+) -> LifeSupervisorConfig:
+    from ..life.telemetry import telemetry_interval_from_env
+
+    return LifeSupervisorConfig(
+        budget=LifeBudget(
+            per_mission_cap_usd=per_mission_cap_usd,
+            daily_cap_usd=daily_cap_usd,
+            max_missions=1 if once else max_missions,
+        ),
+        poll_interval_seconds=2.0,
+        project_worktree=(
+            Path(project_worktree).expanduser()
+            if project_worktree is not None
+            else None
+        ),
+        stop_event=stop_event,
+        user_inbox=_inbox_drainer_for(project_root),
+        runtime_context=runtime_context,
+        continuous=continuous,
+        continuous_objective=continuous_objective,
+        open_ended=open_ended,
+        full_emnlp_gate=open_ended,
+        telemetry_dir=project_root,
+        telemetry_interval_seconds=telemetry_interval_from_env(),
+    )
+
+
 def run_life_supervisor(
     *,
     mem: _SplitMemory,
@@ -1352,34 +1392,21 @@ def run_life_supervisor(
 
     try:
         from ..life.event_log import JsonlEventSink
-        from ..life.telemetry import telemetry_interval_from_env
-
         stderr_sink = LifeStderrSink(quiet=quiet)
         project_root = _memory_project_root(mem)
         sink = JsonlEventSink(stderr_sink, life_dir=project_root)
-        cfg = LifeSupervisorConfig(
-            budget=LifeBudget(
-                per_mission_cap_usd=per_mission_cap_usd,
-                daily_cap_usd=daily_cap_usd,
-                max_missions=1 if once else max_missions,
-            ),
-            poll_interval_seconds=2.0,
-            project_worktree=(
-                Path(project_worktree).expanduser()
-                if project_worktree is not None
-                else None
-            ),
+        cfg = _build_repl_supervisor_config(
+            per_mission_cap_usd=per_mission_cap_usd,
+            daily_cap_usd=daily_cap_usd,
+            once=once,
+            max_missions=max_missions,
+            project_worktree=project_worktree,
             stop_event=stop_event,
-            user_inbox=_inbox_drainer_for(project_root),
+            project_root=project_root,
             runtime_context=runtime_context,
             continuous=continuous,
             continuous_objective=continuous_objective,
             open_ended=open_ended,
-            # M0.5: open_ended already has the same polarity as the full
-            # EMNLP gate (False when launched with --bounded).
-            full_emnlp_gate=open_ended,
-            telemetry_dir=project_root,
-            telemetry_interval_seconds=telemetry_interval_from_env(),
         )
         sup = LifeSupervisor(
             memory=mem,
