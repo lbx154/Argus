@@ -100,3 +100,23 @@ def test_open_contradictions_lists_conflict_cards_without_resolution(wiki: WikiS
     rebuild_indexes(wiki, today=date(2026, 6, 4))
     body = (wiki.root / "queries" / "open-contradictions.md").read_text()
     assert "open-c" in body
+
+
+def test_index_rebuild_atomic_on_failure(wiki: WikiStore, monkeypatch: pytest.MonkeyPatch):
+    qroot = wiki.root / "queries"
+    for name in ("by-status.md", "by-tag.md", "stale-watchlist.md", "open-contradictions.md"):
+        (qroot / name).write_text(f"OLD {name}\n", encoding="utf-8")
+
+    import argus_skill.wiki.index as wiki_index
+
+    def boom(_pages):
+        raise RuntimeError("render failed")
+
+    monkeypatch.setattr(wiki_index, "_render_by_tag", boom)
+    with pytest.raises(RuntimeError, match="render failed"):
+        rebuild_indexes(wiki, today=date(2026, 6, 4))
+
+    for name in ("by-status.md", "by-tag.md", "stale-watchlist.md", "open-contradictions.md"):
+        assert (qroot / name).read_text(encoding="utf-8") == f"OLD {name}\n"
+    assert list(wiki.root.glob("queries*.new-*")) == []
+    assert list(qroot.glob("*.tmp-*")) == []

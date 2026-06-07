@@ -299,6 +299,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="wiki-curator@manual-backfill",
         help="Provenance string for the ingested_by frontmatter field",
     )
+    ingest_parser.add_argument(
+        "--init",
+        action="store_true",
+        help="Initialize the wiki path before ingesting if it is missing",
+    )
 
     return parser
 
@@ -1438,10 +1443,28 @@ def _project_root_for_wiki_path(wiki: Path) -> Path:
 
 
 def _cmd_wiki_ingest(args: argparse.Namespace) -> int:
+    from ..wiki.bootstrap import init_wiki, is_initialized_wiki
     from ..wiki.ingest import ingest_lit_matrix, ingest_refs_bib
     from ..wiki.store import WikiStore
 
     wiki = args.wiki.expanduser()
+    if not is_initialized_wiki(wiki):
+        if args.init:
+            project_root = _project_root_for_wiki_path(wiki)
+            if wiki.name == "wiki" and wiki.parent.name:
+                init_wiki(wiki.parent.name, base=project_root)
+            else:
+                sys.stderr.write(f"argus-skill: cannot infer project from --wiki {wiki}\n")
+                return 2
+        else:
+            sys.stderr.write(
+                f"argus-skill: {wiki} is not an initialized wiki; "
+                "run `argus-skill wiki init <project>` or pass --init\n"
+            )
+            return 2
+    if not is_initialized_wiki(wiki):
+        sys.stderr.write(f"argus-skill: failed to initialize wiki at {wiki}\n")
+        return 2
     store = WikiStore(wiki)
     project_root = _project_root_for_wiki_path(wiki)
     refs = args.refs.expanduser() if args.refs else project_root / "paper" / "refs.bib"

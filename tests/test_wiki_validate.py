@@ -20,8 +20,12 @@ def wiki(tmp_path: Path) -> WikiStore:
         "pages/techniques",
         "pages/conflicts",
         "pages/patterns",
+        "data",
+        "queries",
     ):
         (root / sub).mkdir(parents=True, exist_ok=True)
+    (root / "data" / "schema.yaml").write_text("# schema\n", encoding="utf-8")
+    (root / "query_pack.md").write_text("# pack\n", encoding="utf-8")
     return WikiStore(root)
 
 
@@ -76,3 +80,20 @@ def test_dangling_source_ref_fails(wiki: WikiStore):
     wiki.write_page(card)
     with pytest.raises(ValidationError, match="dangling source"):
         validate_wiki(wiki)
+
+
+def test_validate_structure_flags_missing_schema(tmp_path: Path):
+    root = tmp_path / ".autors" / "demo" / "wiki"
+    (root / "sources" / "papers").mkdir(parents=True)
+    (root / "pages" / "techniques").mkdir(parents=True)
+    (root / "query_pack.md").write_text("# pack\n", encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="schema.yaml"):
+        validate_wiki(WikiStore(root))
+
+
+def test_validate_structure_ok_for_initialized(tmp_path: Path):
+    from argus_skill.wiki.bootstrap import init_wiki
+
+    root = init_wiki("demo", base=tmp_path)
+    validate_wiki(WikiStore(root))

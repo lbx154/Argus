@@ -6,6 +6,7 @@ import pytest
 
 from argus_skill.engineer.reviewer import _load_wiki_curator_skill_if_present
 from argus_skill.engineer.reviewer import Reviewer
+from argus_skill.wiki.bootstrap import init_wiki
 
 
 def test_returns_skill_text_when_wiki_present(
@@ -13,8 +14,7 @@ def test_returns_skill_text_when_wiki_present(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".autors" / "demo" / "wiki" / "queries").mkdir(parents=True)
-    (tmp_path / ".autors" / "demo" / "wiki" / "query_pack.md").write_text("# pack")
+    init_wiki("demo", base=tmp_path)
     text = _load_wiki_curator_skill_if_present()
     assert text is not None
     assert "wiki-curator" in text.lower() or "Wiki Curator" in text
@@ -26,13 +26,21 @@ def test_returns_none_when_no_wiki(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert text is None
 
 
+def test_curator_not_loaded_for_uninitialized_wiki(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".autors" / "demo" / "wiki").mkdir(parents=True)
+    assert _load_wiki_curator_skill_if_present() is None
+
+
 def test_reviewer_prompt_includes_fixed_wiki_curator_when_wiki_present(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".autors" / "demo" / "wiki" / "queries").mkdir(parents=True)
-    (tmp_path / ".autors" / "demo" / "wiki" / "query_pack.md").write_text("# pack")
+    init_wiki("demo", base=tmp_path)
     reviewer = Reviewer(runner=object())
 
     prompt = reviewer._build_prompt(

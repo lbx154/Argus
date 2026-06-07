@@ -26,6 +26,25 @@ _FILES = {
 }
 
 
+def is_initialized_wiki(root: Path) -> bool:
+    required_dirs = (
+        "sources",
+        "sources/papers",
+        "sources/repos",
+        "sources/runs",
+        "pages",
+        "pages/techniques",
+        "pages/conflicts",
+        "pages/patterns",
+        "queries",
+        "data",
+    )
+    required_files = ("data/schema.yaml", "query_pack.md")
+    return all((root / rel).is_dir() for rel in required_dirs) and all(
+        (root / rel).is_file() for rel in required_files
+    )
+
+
 def init_wiki(project: str, *, base: Path | None = None) -> Path:
     base = base or Path.cwd()
     root = base / ".autors" / project / "wiki"

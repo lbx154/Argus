@@ -30,6 +30,7 @@ def test_parser_accepts_wiki_ingest_subcommand(tmp_path: Path):
     assert args.wiki_cmd == "ingest"
     assert args.wiki == wiki
     assert args.ingested_by == "wiki-curator@manual-backfill"
+    assert args.init is False
 
 
 def test_parser_rejects_legacy_run_subcommand():
@@ -105,9 +106,49 @@ def test_main_wiki_ingest_backfills_refs_and_lit_matrix(
     assert rc == 0
     assert "ingested 1 new source(s)" in out
     assert "enriched 1 source(s)" in out
-    src = WikiStore(wiki).read_source(SourcePaper, "papers/demo2026")
+    src = WikiStore(wiki).read_source(SourcePaper, "papers/arxiv-2601.00001")
     assert src.ingested_by == "test"
     assert "Useful." in src.body
+
+
+def test_wiki_ingest_rejects_uninitialized_path(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    wiki = tmp_path / ".autors" / "demo" / "wiki"
+    refs = tmp_path / "refs.bib"
+    refs.write_text("@misc{x, title={x}}\n", encoding="utf-8")
+
+    rc = main(["wiki", "ingest", "--wiki", str(wiki), "--refs", str(refs)])
+    captured = capsys.readouterr()
+
+    assert rc != 0
+    assert "not an initialized wiki" in captured.err
+    assert not wiki.exists()
+
+
+def test_wiki_ingest_init_flag_bootstraps(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    wiki = tmp_path / ".autors" / "demo" / "wiki"
+    refs = tmp_path / "refs.bib"
+    refs.write_text(
+        """
+@misc{x,
+  title={X},
+  url={https://arxiv.org/abs/2601.00002}
+}
+""",
+        encoding="utf-8",
+    )
+
+    rc = main(["wiki", "ingest", "--wiki", str(wiki), "--refs", str(refs), "--init"])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert (wiki / "data" / "schema.yaml").exists()
+    assert "ingested 1 new source(s)" in out
 
 
 def test_parser_accepts_no_daemon_flag():

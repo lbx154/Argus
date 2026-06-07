@@ -10,25 +10,22 @@ from datetime import date
 from typing import Iterable
 
 from .schema import PageCard
-from .store import WikiStore
+from .store import WikiStore, _atomic_write_text
 
 
 def rebuild_indexes(store: WikiStore, *, today: date | None = None) -> None:
     today = today or date.today()
     pages = store.iter_pages()
     qroot = store.root / "queries"
+    rendered = {
+        "by-status.md": _render_by_status(pages),
+        "by-tag.md": _render_by_tag(pages),
+        "stale-watchlist.md": _render_stale_watchlist(pages, today),
+        "open-contradictions.md": _render_open_contradictions(pages),
+    }
     qroot.mkdir(parents=True, exist_ok=True)
-
-    (qroot / "by-status.md").write_text(_render_by_status(pages), encoding="utf-8")
-    (qroot / "by-tag.md").write_text(_render_by_tag(pages), encoding="utf-8")
-    (qroot / "stale-watchlist.md").write_text(
-        _render_stale_watchlist(pages, today),
-        encoding="utf-8",
-    )
-    (qroot / "open-contradictions.md").write_text(
-        _render_open_contradictions(pages),
-        encoding="utf-8",
-    )
+    for name, body in rendered.items():
+        _atomic_write_text(qroot / name, body)
 
 
 def _render_by_status(pages: Iterable[PageCard]) -> str:

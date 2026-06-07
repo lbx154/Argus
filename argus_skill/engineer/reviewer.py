@@ -91,7 +91,10 @@ def _load_wiki_curator_skill_if_present() -> str | None:
     autors = Path.cwd() / ".autors"
     if not autors.exists():
         return None
-    if not any((p / "wiki").is_dir() for p in autors.iterdir() if p.is_dir()):
+    from ..wiki.bootstrap import is_initialized_wiki
+    if not any(
+        is_initialized_wiki(p / "wiki") for p in autors.iterdir() if p.is_dir()
+    ):
         return None
     return load_builtin_skill_text(_WIKI_CURATOR_SKILL, _WIKI_CURATOR_FALLBACK)
 
