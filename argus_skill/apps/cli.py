@@ -304,6 +304,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Initialize the wiki path before ingesting if it is missing",
     )
+    migrate_parser = wiki_sub.add_parser(
+        "migrate",
+        help="Run one-shot wiki migrations such as sources/*.md -> sources/notes/",
+    )
+    migrate_parser.add_argument(
+        "--wiki",
+        type=Path,
+        required=True,
+        help="Path to .autors/<project>/wiki/",
+    )
 
     return parser
 
@@ -1119,6 +1129,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_wiki_init(args))
     if args.command == "wiki" and args.wiki_cmd == "ingest":
         return _run_with_path_resolution_errors(lambda: _cmd_wiki_ingest(args))
+    if args.command == "wiki" and args.wiki_cmd == "migrate":
+        return _run_with_path_resolution_errors(lambda: _cmd_wiki_migrate(args))
     if args.daemon:
         return _run_with_path_resolution_errors(
             lambda: _cmd_daemon_start(args, foreground=False)
@@ -1494,6 +1506,20 @@ def _cmd_wiki_ingest(args: argparse.Namespace) -> int:
     else:
         print(f"no LIT_MATRIX.tsv at {lit}, skipping enrichment")
 
+    return 0
+
+
+def _cmd_wiki_migrate(args: argparse.Namespace) -> int:
+    from ..wiki.bootstrap import is_initialized_wiki
+    from ..wiki.migrate import migrate_orphan_sources
+    from ..wiki.store import WikiStore
+
+    wiki = args.wiki.expanduser()
+    if not is_initialized_wiki(wiki):
+        sys.stderr.write(f"argus-skill: {wiki} is not an initialized wiki\n")
+        return 2
+    moved = migrate_orphan_sources(WikiStore(wiki))
+    print(f"migrated {len(moved)} orphan source note(s)")
     return 0
 
 

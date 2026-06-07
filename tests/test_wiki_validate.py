@@ -17,6 +17,7 @@ def wiki(tmp_path: Path) -> WikiStore:
         "sources/papers",
         "sources/repos",
         "sources/runs",
+        "sources/notes",
         "pages/techniques",
         "pages/conflicts",
         "pages/patterns",
@@ -97,3 +98,13 @@ def test_validate_structure_ok_for_initialized(tmp_path: Path):
 
     root = init_wiki("demo", base=tmp_path)
     validate_wiki(WikiStore(root))
+
+
+def test_validate_warns_on_root_orphan(tmp_path: Path):
+    from argus_skill.wiki.bootstrap import init_wiki
+
+    root = init_wiki("demo", base=tmp_path)
+    (root / "sources" / "stage_check_note.md").write_text("orphan\n", encoding="utf-8")
+
+    with pytest.warns(UserWarning, match="root-level source orphan"):
+        validate_wiki(WikiStore(root))

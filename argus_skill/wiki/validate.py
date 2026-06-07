@@ -1,6 +1,8 @@
 """Schema and link-integrity validation for a wiki tree."""
 from __future__ import annotations
 
+import warnings
+
 from .bootstrap import is_initialized_wiki
 from .store import WikiStore
 
@@ -17,6 +19,7 @@ def validate_wiki_structure(store: WikiStore) -> None:
         "sources/papers",
         "sources/repos",
         "sources/runs",
+        "sources/notes",
         "pages",
         "pages/techniques",
         "pages/conflicts",
@@ -36,6 +39,12 @@ def validate_wiki_structure(store: WikiStore) -> None:
 def validate_wiki(store: WikiStore) -> None:
     validate_wiki_structure(store)
     sources_root = store.root / "sources"
+    for orphan in sorted(sources_root.glob("*.md")):
+        warnings.warn(
+            f"root-level source orphan ignored by wiki indexes: {orphan.name}",
+            UserWarning,
+            stacklevel=2,
+        )
     for card in store.iter_pages():
         for ref in card.sources:
             # ref is e.g. "papers/2406.12345.md"; resolve under sources/.

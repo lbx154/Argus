@@ -26,6 +26,8 @@ sources:
     required: [id, mission_id, git_commit, project, config_path, dataset,
                metrics, artifacts, outcome]
     optional: [failure_signature, suspected_cause, next_action]
+  note:
+    required: [id, title, mission_id, created_at, tags]
 
 valid_status: [scratch, candidate, stable]
 valid_confidence: [low, med, high]

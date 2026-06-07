@@ -96,9 +96,22 @@ summary (the reviewer's wiki-curator will turn it into a page).
 ## Mission-close RunCard (wiki side-effect)
 
 If `.autors/<project>/wiki/` exists, the FINAL step of any mission that
-produced training/eval artifacts is to append a RunCard under
-`sources/runs/<run-id>.md`. Fill in the structured fields only --
-`suspected_cause` and `next_action` are reviewer prose and stay empty.
+produced real training/eval artifacts is to append a RunCard under
+`sources/runs/<run-id>.md`.
+
+RunCard eligibility checklist:
+
+- `metrics` is non-empty with real loss/score/eval numbers, OR
+- `artifacts` is non-empty with real checkpoint / sample grid / curve
+  paths.
+
+If BOTH `metrics` and `artifacts` would be empty, DO NOT write a
+RunCard. Stage-check, handoff, blocker, repair, or wait-state missions
+must write an operational note under `sources/notes/` instead. Never
+write these notes to `sources/runs/` or directly under `sources/`.
+
+Fill in the structured RunCard fields only -- `suspected_cause` and
+`next_action` are reviewer prose and stay empty.
 
 ```python
 from datetime import date
@@ -139,3 +152,32 @@ example `nan-after-step-12k-grpo-asym-clip`, not a free-form sentence.
 This field is what later cross-project pattern detection (M1) will
 match on; writing it correctly now is the low-cost forward-compatible
 move.
+
+## Operational note (wiki side-effect)
+
+If `.autors/<project>/wiki/` exists and the mission produced an
+operational observation rather than a real metric/artifact run, write a
+SourceNote under `sources/notes/<date>-<slug>.md`:
+
+```python
+from datetime import date
+from pathlib import Path
+from argus_skill.wiki.store import WikiStore
+from argus_skill.wiki.schema import SourceNote
+
+wiki_root = Path(".autors") / "<project>" / "wiki"
+if wiki_root.exists():
+    store = WikiStore(wiki_root)
+    note = SourceNote(
+        id=f"notes/{date.today().isoformat()}-{short_slug}",
+        title=note_title,
+        mission_id=mission_id,
+        created_at=date.today(),
+        tags=["operation"],
+        body=short_markdown_note,
+    )
+    try:
+        store.write_source(note)
+    except FileExistsError:
+        pass
+```

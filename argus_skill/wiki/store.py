@@ -10,6 +10,7 @@ from typing import TypeVar
 
 from .schema import (
     PageCard,
+    SourceNote,
     SourcePaper,
     SourceRepo,
     SourceRun,
@@ -17,12 +18,13 @@ from .schema import (
     serialize_frontmatter,
 )
 
-T = TypeVar("T", SourcePaper, SourceRepo, SourceRun)
+T = TypeVar("T", SourcePaper, SourceRepo, SourceRun, SourceNote)
 
 _SOURCE_SUBDIR = {
     SourcePaper: "papers",
     SourceRepo: "repos",
     SourceRun: "runs",
+    SourceNote: "notes",
 }
 _PAGE_SUBDIR = {
     "technique": "techniques",
@@ -84,7 +86,7 @@ class WikiStore:
                 fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
     # ---- sources ---------------------------------------------------------
-    def write_source(self, src: SourcePaper | SourceRepo | SourceRun) -> Path:
+    def write_source(self, src: SourcePaper | SourceRepo | SourceRun | SourceNote) -> Path:
         subdir = _SOURCE_SUBDIR[type(src)]
         stem = _stem_from_id(src.id)
         path = self.root / "sources" / subdir / f"{stem}.md"
@@ -131,4 +133,13 @@ class WikiStore:
             return out
         for md in sorted(runs_root.rglob("*.md")):
             out.append(parse_frontmatter(md.read_text(encoding="utf-8"), SourceRun))
+        return out
+
+    def iter_note_sources(self) -> list[SourceNote]:
+        out: list[SourceNote] = []
+        notes_root = self.root / "sources" / "notes"
+        if not notes_root.exists():
+            return out
+        for md in sorted(notes_root.rglob("*.md")):
+            out.append(parse_frontmatter(md.read_text(encoding="utf-8"), SourceNote))
         return out

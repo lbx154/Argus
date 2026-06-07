@@ -6,6 +6,7 @@ import pytest
 
 from argus_skill.wiki.schema import (
     PageCard,
+    SourceNote,
     SourcePaper,
     SourceRun,
     parse_frontmatter,
@@ -96,3 +97,18 @@ def test_source_run_with_metrics():
     assert "failure_signature: nan-after-12k-grpo" in text
     parsed = parse_frontmatter(text, SourceRun)
     assert parsed == run
+
+
+def test_source_note_roundtrip():
+    note = SourceNote(
+        id="notes/2026-06-06-stage-check-terminal",
+        title="Stage check terminal blocker",
+        mission_id="mission-abc",
+        created_at=date(2026, 6, 6),
+        tags=["stage-check", "operator-blocker"],
+        body="Operational observation.",
+    )
+    text = serialize_frontmatter(note)
+    assert "id: notes/2026-06-06-stage-check-terminal" in text
+    parsed = parse_frontmatter(text, SourceNote)
+    assert parsed == note

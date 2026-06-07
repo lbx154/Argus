@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.wiki.schema import PageCard, SourcePaper
+from argus_skill.wiki.schema import PageCard, SourceNote, SourcePaper
 from argus_skill.wiki.store import (
     WikiStore,
     wiki_root_for_project,
@@ -97,3 +97,32 @@ def test_write_and_overwrite_page(tmp_wiki: Path):
     loaded = store.read_page("technique", "tech-x")
     assert loaded.status == "candidate"
     assert loaded.body == "v2"
+
+
+def test_write_and_iter_note_sources(tmp_wiki: Path):
+    store = WikiStore(tmp_wiki)
+    note = SourceNote(
+        id="notes/2026-06-06-note",
+        title="note",
+        mission_id="m1",
+        created_at=date(2026, 6, 6),
+        tags=["ops"],
+        body="body",
+    )
+    path = store.write_source(note)
+    assert path == tmp_wiki / "sources" / "notes" / "2026-06-06-note.md"
+    assert store.iter_note_sources() == [note]
+
+
+def test_note_id_validated(tmp_wiki: Path):
+    store = WikiStore(tmp_wiki)
+    note = SourceNote(
+        id="notes/../../evil",
+        title="bad",
+        mission_id="m1",
+        created_at=date(2026, 6, 6),
+        tags=[],
+        body="body",
+    )
+    with pytest.raises(ValueError):
+        store.write_source(note)

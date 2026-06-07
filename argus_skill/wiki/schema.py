@@ -102,10 +102,20 @@ class SourceRun:
             raise ValueError(f"outcome must be one of {_VALID_OUTCOMES}, got {self.outcome!r}")
 
 
-T = TypeVar("T", PageCard, SourcePaper, SourceRepo, SourceRun)
+@dataclass
+class SourceNote:
+    id: str
+    title: str
+    mission_id: str
+    created_at: date
+    tags: list[str]
+    body: str
 
 
-def serialize_frontmatter(card: PageCard | SourcePaper | SourceRepo | SourceRun) -> str:
+T = TypeVar("T", PageCard, SourcePaper, SourceRepo, SourceRun, SourceNote)
+
+
+def serialize_frontmatter(card: PageCard | SourcePaper | SourceRepo | SourceRun | SourceNote) -> str:
     data = asdict(card)
     body = data.pop("body", "") or ""
     # PyYAML serializes dates as ISO automatically; sort_keys=False keeps dataclass order.
