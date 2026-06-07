@@ -61,12 +61,14 @@ from datetime import date
 from pathlib import Path
 from argus_skill.wiki.store import WikiStore
 from argus_skill.wiki.schema import SourcePaper, SourceRepo
+from argus_skill.wiki.ingest import canonical_paper_id
 
 store = WikiStore(Path(".autors/<project>/wiki"))
 
 # Paper hit
+paper_stem = canonical_paper_id(url=arxiv_url, doi=doi_or_none, key=paper_key)
 src = SourcePaper(
-    id=f"papers/{arxiv_id}",
+    id=f"papers/{paper_stem}",
     url=arxiv_url,
     title=paper_title,
     ingested_at=date.today(),

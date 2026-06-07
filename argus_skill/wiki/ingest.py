@@ -11,12 +11,20 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import json
 import re
 from datetime import date
 from pathlib import Path
 
 from .schema import SourcePaper, parse_frontmatter, serialize_frontmatter
-from .store import WikiStore
+from .store import WikiStore, _atomic_write_text
+
+
+_ARXIV_URL_RE = re.compile(
+    r"arxiv\.org/(?:abs|pdf)/(?P<id>[^?#\s]+)",
+    flags=re.IGNORECASE,
+)
+_DOI_URL_RE = re.compile(r"(?:doi\.org/)(?P<doi>10\.[^?#\s]+)", flags=re.IGNORECASE)
 
 
 def parse_bib_entries(text: str) -> list[dict[str, str]]:
@@ -34,6 +42,21 @@ def parse_bib_entries(text: str) -> list[dict[str, str]]:
             parsed["url"] = f"https://doi.org/{parsed['doi']}"
         entries.append(parsed)
     return entries
+
+
+def canonical_paper_id(*, url: str | None, doi: str | None, key: str) -> str:
+    """Return the canonical source stem for a paper.
+
+    Priority: arXiv URL, DOI, then BibTeX key. Returned values are safe
+    filename stems accepted by `WikiStore`.
+    """
+    arxiv_id = _arxiv_id_from_url(url or "")
+    if arxiv_id:
+        return f"arxiv-{_safe_component(_strip_arxiv_version(arxiv_id))}"
+    doi_value = (doi or "").strip() or _doi_from_url(url or "")
+    if doi_value:
+        return "doi-" + _safe_component(doi_value.lower())
+    return _safe_component(key)
 
 
 def ingest_refs_bib(
@@ -55,11 +78,16 @@ def ingest_refs_bib(
         key = entry.get("key", "").strip()
         if not key:
             continue
+        canonical = canonical_paper_id(
+            url=entry.get("url"),
+            doi=entry.get("doi"),
+            key=key,
+        )
         title = entry.get("title", "").strip() or "(untitled)"
         url = entry.get("url", "").strip() or "about:blank"
         stanza = _reconstruct_stanza(entry)
         src = SourcePaper(
-            id=f"papers/{key}",
+            id=f"papers/{canonical}",
             url=url,
             title=title,
             ingested_at=today,
@@ -67,11 +95,19 @@ def ingest_refs_bib(
             checksum=_checksum(stanza),
             body=stanza,
         )
-        try:
-            path = store.write_source(src)
-        except FileExistsError:
-            continue
-        written.append(path)
+        with store._wiki_lock():
+            aliases = _load_aliases(store)
+            existing = aliases.get(key)
+            if existing and _paper_source_path_for_key(store, existing).exists():
+                continue
+            aliases[key] = canonical
+            canonical_path = store.root / "sources" / "papers" / f"{canonical}.md"
+            if canonical_path.exists():
+                _save_aliases(store, aliases)
+                continue
+            _atomic_write_text(canonical_path, serialize_frontmatter(src))
+            _save_aliases(store, aliases)
+            written.append(canonical_path)
     return written
 
 
@@ -95,7 +131,14 @@ def ingest_lit_matrix(
             relevance = (row.get(relevance_col) or "").strip()
             if not key or not relevance:
                 continue
+            canonical = canonical_paper_id(
+                url=(row.get("url") or "").strip() or None,
+                doi=None,
+                key=key,
+            )
             path = _paper_source_path_for_key(store, key)
+            if not path.exists():
+                path = _paper_source_path_for_key(store, canonical)
             if not path.exists():
                 continue
             src = parse_frontmatter(path.read_text(encoding="utf-8"), SourcePaper)
@@ -103,12 +146,20 @@ def ingest_lit_matrix(
                 continue
             new_body = (src.body + f"\n\nrelevance: {relevance}").strip()
             updated = SourcePaper(**{**src.__dict__, "body": new_body})
-            path.write_text(serialize_frontmatter(updated), encoding="utf-8")
+            _atomic_write_text(path, serialize_frontmatter(updated))
+            aliases = _load_aliases(store)
+            aliases[key] = path.stem
+            _save_aliases(store, aliases)
             enriched += 1
     return enriched
 
 
 def _paper_source_path_for_key(store: WikiStore, key: str) -> Path:
+    aliases = _load_aliases(store)
+    if key in aliases:
+        alias_path = store.root / "sources" / "papers" / f"{aliases[key]}.md"
+        if alias_path.exists():
+            return alias_path
     direct = store.root / "sources" / "papers" / f"{key}.md"
     if direct.exists():
         return direct
@@ -128,6 +179,58 @@ def _paper_source_path_for_key(store: WikiStore, key: str) -> Path:
 
 def _normalize_key(key: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", key.lower())
+
+
+def _alias_path(store: WikiStore) -> Path:
+    return store.root / "data" / "paper_aliases.json"
+
+
+def _load_aliases(store: WikiStore) -> dict[str, str]:
+    path = _alias_path(store)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return {
+        str(k): str(v)
+        for k, v in data.items()
+        if isinstance(k, str) and isinstance(v, str)
+    } if isinstance(data, dict) else {}
+
+
+def _save_aliases(store: WikiStore, aliases: dict[str, str]) -> None:
+    text = json.dumps(dict(sorted(aliases.items())), indent=2, sort_keys=True)
+    _atomic_write_text(_alias_path(store), text + "\n")
+
+
+def _arxiv_id_from_url(url: str) -> str:
+    match = _ARXIV_URL_RE.search(url)
+    if not match:
+        return ""
+    value = match.group("id").strip()
+    if value.endswith(".pdf"):
+        value = value[:-4]
+    return value
+
+
+def _doi_from_url(url: str) -> str:
+    match = _DOI_URL_RE.search(url)
+    return match.group("doi").strip() if match else ""
+
+
+def _strip_arxiv_version(arxiv_id: str) -> str:
+    return re.sub(r"v\d+$", "", arxiv_id.strip(), flags=re.IGNORECASE)
+
+
+def _safe_component(value: str) -> str:
+    cleaned = value.strip().replace("/", "__").replace("\\", "__")
+    cleaned = re.sub(r"\s+", "_", cleaned)
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", cleaned).strip("_").lower()
+    if not cleaned:
+        raise ValueError("paper id is empty after normalization")
+    if ".." in cleaned or cleaned.startswith("."):
+        raise ValueError(f"invalid paper id after normalization: {value!r}")
+    return cleaned
 
 
 def _iter_bib_entries(text: str) -> list[str]:
@@ -165,7 +268,11 @@ def _iter_bib_entries(text: str) -> list[str]:
                     end = pos + 1
                     break
         if end is None:
-            break
+            next_at = text.find("@", at + 1)
+            if next_at < 0:
+                break
+            idx = next_at
+            continue
         entries.append(text[at:end])
         idx = end
     return entries

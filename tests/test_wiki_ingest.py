@@ -81,6 +81,22 @@ def test_parse_bib_handles_missing_url_via_doi():
     assert williams["url"].startswith("https://doi.org/10.1007/BF00992696")
 
 
+def test_parse_bib_resyncs_after_unclosed_entry():
+    entries = parse_bib_entries(
+        """
+@article{broken,
+  title={This entry never closes},
+
+@article{valid2026,
+  title={Valid Entry},
+  year={2026},
+  url={https://arxiv.org/abs/2601.00001}
+}
+"""
+    )
+    assert [entry["key"] for entry in entries] == ["valid2026"]
+
+
 def test_ingest_refs_bib_writes_one_source_per_entry(wiki: WikiStore, tmp_path: Path):
     bib = tmp_path / "refs.bib"
     bib.write_text(SAMPLE_BIB, encoding="utf-8")
@@ -94,7 +110,7 @@ def test_ingest_refs_bib_writes_one_source_per_entry(wiki: WikiStore, tmp_path: 
     for path in written:
         assert path.exists()
     # Round-trip the first one
-    src = wiki.read_source(SourcePaper, "papers/williams1992reinforce")
+    src = wiki.read_source(SourcePaper, "papers/doi-10.1007__bf00992696")
     assert src.title.startswith("Simple statistical")
     assert src.url.startswith("https://doi.org/")
     assert src.ingested_by == "wiki-curator@test-mission"
@@ -121,7 +137,7 @@ def test_ingest_lit_matrix_appends_relevance_to_source_body(
     tsv.write_text(SAMPLE_TSV, encoding="utf-8")
     enriched_count = ingest_lit_matrix(wiki, tsv_path=tsv)
     assert enriched_count == 3
-    src = wiki.read_source(SourcePaper, "papers/schulman2017ppo")
+    src = wiki.read_source(SourcePaper, "papers/arxiv-1707.06347")
     assert "KL/clipping/update stability anchor." in src.body
 
 
@@ -164,5 +180,5 @@ def test_ingest_lit_matrix_matches_punctuation_only_key_drift(
     )
     enriched_count = ingest_lit_matrix(wiki, tsv_path=tsv)
     assert enriched_count == 1
-    src = wiki.read_source(SourcePaper, "papers/wallace2023diffusiondpo")
+    src = wiki.read_source(SourcePaper, "papers/arxiv-2311.12908")
     assert "Preference-optimization anchor." in src.body
