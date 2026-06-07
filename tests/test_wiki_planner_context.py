@@ -100,3 +100,28 @@ def test_planner_prompt_warns_when_query_pack_diagnosis_refs_are_stale(
 
     assert "missing diagnosis refs from query_pack.md" in prompt
     assert "diagnosis/operator_only_external_blocker_lock_20260605.json" in prompt
+
+
+def test_planner_prompt_build_survives_corrupt_bot_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
+    wiki = tmp_path / ".autors" / "demo" / "wiki"
+    (wiki / "queries").mkdir(parents=True)
+    (wiki / "data").mkdir()
+    (wiki / "query_pack.md").write_text("# pack\n")
+    (wiki / "data" / "bot_state.json").write_text("{", encoding="utf-8")
+
+    prompt = Planner._build_planner_prompt(
+        continuous_objective="research X",
+        journal_tail="",
+        budget_remaining_usd=10.0,
+        planning_cycle=0,
+        runtime_change_summary="",
+        mission=None,
+    )
+
+    assert "Idea wiki" in prompt
+    assert list((wiki / "data").glob("bot_state.json.corrupt-*"))

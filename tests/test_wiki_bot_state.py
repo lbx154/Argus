@@ -50,3 +50,26 @@ def test_cooldown_elapsed_true_when_old():
 def test_cooldown_elapsed_true_when_never_collected():
     now = datetime(2026, 6, 5, 12, 0, 0, tzinfo=timezone.utc)
     assert cooldown_elapsed(last_collected_at=None, now=now, hours=12) is True
+
+
+def test_load_bot_state_tolerates_corrupt_json(tmp_path: Path):
+    path = tmp_path / "bot_state.json"
+    path.write_text("{", encoding="utf-8")
+
+    state = load_bot_state(path)
+
+    assert state.last_collected_at is None
+    assert state.consecutive_failures == 0
+    assert "corrupt" in state.notes
+    assert not path.exists()
+    assert list(tmp_path.glob("bot_state.json.corrupt-*"))
+
+
+def test_save_bot_state_is_atomic(tmp_path: Path):
+    path = tmp_path / "bot_state.json"
+    now = datetime(2026, 6, 5, 12, 0, 0, tzinfo=timezone.utc)
+
+    save_bot_state(path, BotState(last_collected_at=now, last_query_seed="x"))
+
+    assert load_bot_state(path).last_collected_at == now
+    assert list(tmp_path.glob("*.tmp-*")) == []
