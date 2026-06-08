@@ -87,7 +87,7 @@ def test_status_separates_active_queue_from_history(
             daily_cap_usd=50.0,
         ),
     )
-    monkeypatch.setattr("argus_skill.apps.cli._check_logout_survival", lambda status: None)
+    monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
 
     rc = _cmd_status(Namespace(life_dir=str(life_root)))
     out = capsys.readouterr().out
@@ -122,7 +122,7 @@ def test_status_shows_active_work_when_present(
             daily_cap_usd=50.0,
         ),
     )
-    monkeypatch.setattr("argus_skill.apps.cli._check_logout_survival", lambda status: None)
+    monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
 
     rc = _cmd_status(Namespace(life_dir=str(life_root)))
     out = capsys.readouterr().out
@@ -159,7 +159,7 @@ def test_status_shows_latest_mission_telemetry(
             daily_cap_usd=50.0,
         ),
     )
-    monkeypatch.setattr("argus_skill.apps.cli._check_logout_survival", lambda status: None)
+    monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
     project_root = MemoryBundle.for_cwd(repo, global_root=life_root).project.root
     from argus_skill.life.telemetry import TelemetryRecorder
 
@@ -222,7 +222,7 @@ def test_status_shows_planner_activity_when_backlog_and_telemetry_are_idle(
             daily_cap_usd=50.0,
         ),
     )
-    monkeypatch.setattr("argus_skill.apps.cli._check_logout_survival", lambda status: None)
+    monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
     monkeypatch.setattr(
         "argus_skill.life.telemetry.collect_descendant_processes",
         lambda pid, limit=12: {
@@ -256,7 +256,7 @@ def test_follow_heartbeat_includes_latest_telemetry(
     life_dir.mkdir()
     events_path = life_dir / "events.jsonl"
     events_path.write_text("", encoding="utf-8")
-    monkeypatch.setattr(cli_mod, "_daemon_alive_for_events_path", lambda path: True)
+    monkeypatch.setattr(cli_mod._follow, "_daemon_alive_for_events_path", lambda path: True)
     TelemetryRecorder(life_dir).record({
         "running": True,
         "seq": 3,
@@ -300,7 +300,7 @@ def test_status_uses_env_caps_and_pauses_when_budget_exhausted(
             daily_cap_usd=99.0,
         ),
     )
-    monkeypatch.setattr("argus_skill.apps.cli._check_logout_survival", lambda status: None)
+    monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
 
     rc = _cmd_status(Namespace(life_dir=str(life_root)))
     out = capsys.readouterr().out
@@ -337,7 +337,7 @@ def test_status_prefers_latest_running_item_and_works_offline(
             daily_cap_usd=50.0,
         ),
     )
-    monkeypatch.setattr("argus_skill.apps.cli._check_logout_survival", lambda status: None)
+    monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
 
     rc = _cmd_status(Namespace(life_dir=str(home)))
     out = capsys.readouterr().out
@@ -394,7 +394,7 @@ def test_check_logout_survival_handles_probe_matrix(
     expected: str | None,
 ) -> None:
     status = Namespace(alive=True, pid=4321)
-    monkeypatch.setattr(cli_mod.sys, "platform", platform)
+    monkeypatch.setattr(cli_mod._core.sys, "platform", platform)
     if platform == "linux":
         monkeypatch.setattr(getpass, "getuser", lambda: "codex")
 
@@ -449,7 +449,7 @@ def test_status_survival_line_follows_probe_result(
         ),
     )
     monkeypatch.setattr(
-        "argus_skill.apps.cli._check_logout_survival",
+        "argus_skill.apps.cli._core._check_logout_survival",
         lambda status: survival_msg,
     )
 
