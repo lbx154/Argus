@@ -397,7 +397,7 @@ def test_run_stage_gates_advisory_does_not_block_even_with_zero_baseline(tmp_pat
     )
     assert {r.name for r in results} == {
         "mediocrity_finding", "run_evidence_health", "rl_training_plots",
-        "rl_training_health",
+        "rl_training_health", "method_differentiation",
     }
     advisory = next(r for r in results if r.name == "mediocrity_finding")
     assert advisory.kind == "advisory"
