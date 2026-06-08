@@ -156,8 +156,8 @@ def test_supervisor_check_concern_now_means_stop_in_prompt(monkeypatch, tmp_path
         r.stdout = _codex_jsonl('{"decision": "continue", "health": "healthy", "concern": ""}')
         return r
 
-    monkeypatch.setattr("argus_skill.tools.subagent._find_codex", lambda: "codex")
-    monkeypatch.setattr("argus_skill.tools.subagent.subprocess.run", fake_run)
+    monkeypatch.setattr("argus_skill.tools.subagent._core._find_codex", lambda: "codex")
+    monkeypatch.setattr("argus_skill.tools.subagent._core.subprocess.run", fake_run)
     out = tmp_path / "stdout.log"
     err = tmp_path / "stderr.log"
     out.write_text("step 1\n")
@@ -184,8 +184,8 @@ def test_supervisor_check_injects_rl_collapse_guidance(monkeypatch, tmp_path) ->
         r.stdout = _codex_jsonl('{"decision": "continue", "health": "healthy", "concern": ""}')
         return r
 
-    monkeypatch.setattr("argus_skill.tools.subagent._find_codex", lambda: "codex")
-    monkeypatch.setattr("argus_skill.tools.subagent.subprocess.run", fake_run)
+    monkeypatch.setattr("argus_skill.tools.subagent._core._find_codex", lambda: "codex")
+    monkeypatch.setattr("argus_skill.tools.subagent._core.subprocess.run", fake_run)
     out = tmp_path / "stdout.log"
     err = tmp_path / "stderr.log"
     out.write_text("step 1\n")
@@ -259,8 +259,8 @@ def test_supervisor_authors_report_grounded_in_diagnosis(monkeypatch) -> None:
         )
         return r
 
-    monkeypatch.setattr(sub, "_find_codex", lambda: "codex")
-    monkeypatch.setattr(sub.subprocess, "run", fake_run)
+    monkeypatch.setattr(sub._core, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(sub._core.subprocess, "run", fake_run)
 
     out = sub._supervisor_summarize_report(
         "train-B2",
@@ -469,8 +469,8 @@ def test_supervisor_discuss_feeds_transcript_as_argument(monkeypatch, tmp_path) 
         r.stdout = _codex_jsonl('{"resolved": true, "message": "Fair enough, your budget rationale holds."}')
         return r
 
-    monkeypatch.setattr("argus_skill.tools.subagent._find_codex", lambda: "codex")
-    monkeypatch.setattr("argus_skill.tools.subagent.subprocess.run", fake_run)
+    monkeypatch.setattr("argus_skill.tools.subagent._core._find_codex", lambda: "codex")
+    monkeypatch.setattr("argus_skill.tools.subagent._core.subprocess.run", fake_run)
 
     resolved, message, _tid = _supervisor_discuss(
         tid, {"description": "DAPO run", "command": "python train.py",
@@ -498,8 +498,8 @@ def test_supervisor_discuss_returns_unresolved_on_bad_output(monkeypatch, tmp_pa
         r.stdout = _codex_jsonl("not json at all")
         return r
 
-    monkeypatch.setattr("argus_skill.tools.subagent._find_codex", lambda: "codex")
-    monkeypatch.setattr("argus_skill.tools.subagent.subprocess.run", fake_run)
+    monkeypatch.setattr("argus_skill.tools.subagent._core._find_codex", lambda: "codex")
+    monkeypatch.setattr("argus_skill.tools.subagent._core.subprocess.run", fake_run)
     resolved, message, _tid = _supervisor_discuss(tid, {}, "gpt-5.5", str(tmp_path))
     assert resolved is False
     assert message == ""
@@ -568,8 +568,8 @@ def test_run_discussion_processes_preexisting_engineer_turn(monkeypatch, tmp_pat
         seen["calls"] += 1
         return (True, "Acknowledged, your pre-emptive rationale resolves it.", thread_id)
 
-    monkeypatch.setattr("argus_skill.tools.subagent._supervisor_discuss", fake_discuss)
-    monkeypatch.setattr("argus_skill.tools.subagent.DISCUSSION_POLL_INTERVAL", 0)
+    monkeypatch.setattr("argus_skill.tools.subagent._core._supervisor_discuss", fake_discuss)
+    monkeypatch.setattr("argus_skill.tools.subagent._core.DISCUSSION_POLL_INTERVAL", 0)
     from argus_skill.tools.subagent import _run_discussion
     _run_discussion(tid, {"concern": "x", "command": "python t.py"}, "gpt-5.5", str(tmp_path))
 
@@ -607,8 +607,8 @@ def test_run_codex_resumes_thread_and_streams_prompt(monkeypatch, tmp_path) -> N
         )
         return r
 
-    monkeypatch.setattr(_sub, "_find_codex", lambda: "codex")
-    monkeypatch.setattr(_sub.subprocess, "run", fake_run)
+    monkeypatch.setattr(_sub._core, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(_sub._core.subprocess, "run", fake_run)
     msgs, tid = _sub._run_codex("PROMPT-BODY", "gpt-5.5", str(tmp_path), thread_id="TID-123")
     assert tid == "TID-123"
     assert calls["input"] == "PROMPT-BODY"
@@ -636,8 +636,8 @@ def test_run_codex_retries_fresh_when_resume_empty(monkeypatch, tmp_path) -> Non
             r.stdout = _codex_jsonl('{"decision": "continue"}')
         return r
 
-    monkeypatch.setattr(_sub, "_find_codex", lambda: "codex")
-    monkeypatch.setattr(_sub.subprocess, "run", fake_run)
+    monkeypatch.setattr(_sub._core, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(_sub._core.subprocess, "run", fake_run)
     msgs, tid = _sub._run_codex("P", "gpt-5.5", str(tmp_path), thread_id="DEAD")
     assert seq == [True, False]  # resumed, then retried fresh
     assert msgs  # got a message from the fresh run
@@ -674,7 +674,7 @@ def test_cmd_submit_blocks_on_open_discussion(monkeypatch, tmp_path, capsys) -> 
                         "last_heartbeat": time.time(), "concern": "truncation",
                         "run_dir": str(tmp_path / "runs/blk")})
     # Guard: fork must never be reached when blocked.
-    monkeypatch.setattr(_sub.os, "fork", lambda: (_ for _ in ()).throw(AssertionError("forked")))
+    monkeypatch.setattr(_sub._cli.os, "fork", lambda: (_ for _ in ()).throw(AssertionError("forked")))
     rc = _sub.cmd_submit(_submit_args(task_id="new"))
     out = json.loads(capsys.readouterr().out)
     assert rc == 1
@@ -687,7 +687,7 @@ def test_cmd_submit_override_records_and_proceeds(monkeypatch, tmp_path, capsys)
     me = __import__("os").getpid()
     _write_task("blk", {"state": "discussing", "task_id": "blk", "worker_pid": me,
                         "last_heartbeat": time.time(), "concern": "truncation"})
-    monkeypatch.setattr(_sub.os, "fork", lambda: 4242)  # pretend parent
+    monkeypatch.setattr(_sub._cli.os, "fork", lambda: 4242)  # pretend parent
     rc = _sub.cmd_submit(_submit_args(task_id="new", override_discussion="I checked, proceed"))
     out = json.loads(capsys.readouterr().out)
     assert rc == 0 and out["state"] == "submitted"
@@ -701,12 +701,12 @@ def test_cmd_submit_refuses_poisoned_stop(monkeypatch, tmp_path, capsys) -> None
     rd = tmp_path / "runs" / "r1"
     rd.mkdir(parents=True)
     (rd / "STOP").write_text("old")
-    monkeypatch.setattr(_sub.os, "fork", lambda: (_ for _ in ()).throw(AssertionError("forked")))
+    monkeypatch.setattr(_sub._cli.os, "fork", lambda: (_ for _ in ()).throw(AssertionError("forked")))
     rc = _sub.cmd_submit(_submit_args(task_id="r", run_dir=str(rd)))
     out = json.loads(capsys.readouterr().out)
     assert rc == 1 and "STOP" in out["error"]
     # --clear-stop removes it and proceeds.
-    monkeypatch.setattr(_sub.os, "fork", lambda: 4242)
+    monkeypatch.setattr(_sub._cli.os, "fork", lambda: 4242)
     rc = _sub.cmd_submit(_submit_args(task_id="r", run_dir=str(rd), clear_stop=True))
     assert rc == 0
     assert not (rd / "STOP").exists()
@@ -763,8 +763,8 @@ def test_supervisor_check_prompt_demands_parameter_level_concern(monkeypatch, tm
         r.stdout = _codex_jsonl('{"decision": "continue", "health": "healthy", "concern": ""}')
         return r
 
-    monkeypatch.setattr("argus_skill.tools.subagent._find_codex", lambda: "codex")
-    monkeypatch.setattr("argus_skill.tools.subagent.subprocess.run", fake_run)
+    monkeypatch.setattr("argus_skill.tools.subagent._core._find_codex", lambda: "codex")
+    monkeypatch.setattr("argus_skill.tools.subagent._core.subprocess.run", fake_run)
     out = tmp_path / "stdout.log"
     err = tmp_path / "stderr.log"
     out.write_text("step 1\n")
@@ -807,8 +807,8 @@ def test_supervisor_discuss_prompt_requires_concrete_fix_resolution(monkeypatch,
         r.stdout = _codex_jsonl('{"resolved": false, "message": "name the parameter change first"}')
         return r
 
-    monkeypatch.setattr("argus_skill.tools.subagent._find_codex", lambda: "codex")
-    monkeypatch.setattr("argus_skill.tools.subagent.subprocess.run", fake_run)
+    monkeypatch.setattr("argus_skill.tools.subagent._core._find_codex", lambda: "codex")
+    monkeypatch.setattr("argus_skill.tools.subagent._core.subprocess.run", fake_run)
     _supervisor_discuss(
         tid,
         {"description": "GRPO run", "command": "python train.py --num-generations 2",
@@ -869,8 +869,8 @@ def test_preflight_prompt_hard_blocks_only_mechanical_degeneracy(monkeypatch, tm
         r.stdout = _codex_jsonl('{"reject": false, "reason": "ok", "concern": ""}')
         return r
 
-    monkeypatch.setattr(sub, "_find_codex", lambda: "codex")
-    monkeypatch.setattr(sub.subprocess, "run", fake_run)
+    monkeypatch.setattr(sub._core, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(sub._core.subprocess, "run", fake_run)
     sub._supervisor_preflight(
         "t", "python train.py --num-generations 1", "GRPO smoke", "gpt-5.5", str(tmp_path))
     prompt = captured["prompt"]
@@ -895,8 +895,8 @@ def test_preflight_rejects_degenerate_group_with_actionable_fix(monkeypatch, tmp
             ' identically zero advantage"}')
         return r
 
-    monkeypatch.setattr(sub, "_find_codex", lambda: "codex")
-    monkeypatch.setattr(sub.subprocess, "run", fake_run)
+    monkeypatch.setattr(sub._core, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(sub._core.subprocess, "run", fake_run)
     reject, concern = sub._supervisor_preflight(
         "t", "python train.py --num-generations 1 --method GRPO", "smoke",
         "gpt-5.5", str(tmp_path))
@@ -916,8 +916,8 @@ def test_preflight_reject_without_actionable_fix_is_noop(monkeypatch, tmp_path) 
         r.stdout = _codex_jsonl('{"reject": true, "reason": "bad", "concern": ""}')
         return r
 
-    monkeypatch.setattr(sub, "_find_codex", lambda: "codex")
-    monkeypatch.setattr(sub.subprocess, "run", fake_run)
+    monkeypatch.setattr(sub._core, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(sub._core.subprocess, "run", fake_run)
     reject, concern = sub._supervisor_preflight(
         "t", "python train.py --num-generations 1", "smoke", "gpt-5.5", str(tmp_path))
     assert reject is False
@@ -935,8 +935,8 @@ def test_preflight_fails_soft_on_unparseable_verdict(monkeypatch, tmp_path) -> N
         r.stdout = _codex_jsonl("the config looks fine to me, no JSON here")
         return r
 
-    monkeypatch.setattr(sub, "_find_codex", lambda: "codex")
-    monkeypatch.setattr(sub.subprocess, "run", fake_run)
+    monkeypatch.setattr(sub._core, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(sub._core.subprocess, "run", fake_run)
     reject, concern = sub._supervisor_preflight(
         "t", "python train.py --num-generations 1", "smoke", "gpt-5.5", str(tmp_path))
     assert reject is False
@@ -954,8 +954,8 @@ def test_preflight_discussion_opening_signals_pre_launch_block(monkeypatch, tmp_
     def fake_discuss(task_id, task_data, model, cwd, thread_id=None):
         return (True, "I'll set num_generations=8.", thread_id)
 
-    monkeypatch.setattr("argus_skill.tools.subagent._supervisor_discuss", fake_discuss)
-    monkeypatch.setattr("argus_skill.tools.subagent.DISCUSSION_POLL_INTERVAL", 0)
+    monkeypatch.setattr("argus_skill.tools.subagent._core._supervisor_discuss", fake_discuss)
+    monkeypatch.setattr("argus_skill.tools.subagent._core.DISCUSSION_POLL_INTERVAL", 0)
     from argus_skill.tools.subagent import _run_discussion
     td = {
         "preflight": True,
@@ -979,8 +979,8 @@ def test_nonpreflight_discussion_opening_uses_stopped_wording(monkeypatch, tmp_p
     def fake_discuss(task_id, task_data, model, cwd, thread_id=None):
         return (True, "ack", thread_id)
 
-    monkeypatch.setattr("argus_skill.tools.subagent._supervisor_discuss", fake_discuss)
-    monkeypatch.setattr("argus_skill.tools.subagent.DISCUSSION_POLL_INTERVAL", 0)
+    monkeypatch.setattr("argus_skill.tools.subagent._core._supervisor_discuss", fake_discuss)
+    monkeypatch.setattr("argus_skill.tools.subagent._core.DISCUSSION_POLL_INTERVAL", 0)
     from argus_skill.tools.subagent import _run_discussion
     _append_discussion(tid, "engineer", "ack, fixing")
     _run_discussion(tid, {"concern": "x", "command": "python t.py"}, "gpt-5.5", str(tmp_path))
@@ -1004,12 +1004,12 @@ def test_preflight_strict_bool_reject_fails_soft(monkeypatch, tmp_path) -> None:
             return r
         return fake_run
 
-    monkeypatch.setattr(sub, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(sub._core, "_find_codex", lambda: "codex")
     for payload in (
         '{"reject": "true", "concern": "num_generations=1 -> 8"}',
         '{"reject": 1, "concern": "num_generations=1 -> 8"}',
     ):
-        monkeypatch.setattr(sub.subprocess, "run", make_run(payload))
+        monkeypatch.setattr(sub._core.subprocess, "run", make_run(payload))
         reject, concern = sub._supervisor_preflight(
             "t", "python train.py --num-generations 1", "smoke", "gpt-5.5", str(tmp_path))
         assert reject is False, payload
@@ -1030,8 +1030,8 @@ def test_preflight_reject_without_flagref_concern_is_noop(monkeypatch, tmp_path)
             '{"reject": true, "reason": "bad", "concern": "this config is hopeless"}')
         return r
 
-    monkeypatch.setattr(sub, "_find_codex", lambda: "codex")
-    monkeypatch.setattr(sub.subprocess, "run", fake_run)
+    monkeypatch.setattr(sub._core, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(sub._core.subprocess, "run", fake_run)
     reject, concern = sub._supervisor_preflight(
         "t", "python train.py --num-generations 1", "smoke", "gpt-5.5", str(tmp_path))
     assert reject is False
