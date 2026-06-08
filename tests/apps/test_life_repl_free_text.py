@@ -99,8 +99,8 @@ def test_invoke_supervisor_uses_global_skills_root(
         captured["project_worktree"] = kwargs["project_worktree"]
         return {"missions_run": 0}
 
-    monkeypatch.setattr(_life_repl, "build_life_runner", fake_build_life_runner)
-    monkeypatch.setattr(_life_repl, "run_life_supervisor", fake_run_life_supervisor)
+    monkeypatch.setattr(_life_repl._core, "build_life_runner", fake_build_life_runner)
+    monkeypatch.setattr(_life_repl._core, "run_life_supervisor", fake_run_life_supervisor)
 
     summary, last_thread_id = _life_repl._invoke_supervisor(
         mem=bundle,
@@ -143,7 +143,7 @@ def test_invoke_supervisor_injects_research_profile(
         last_thread_id: str | None = None
 
     monkeypatch.setattr(
-        _life_repl,
+        _life_repl._core,
         "build_life_runner",
         lambda ns, *, seed_thread_id=None: DummyRunner(),
     )
@@ -153,7 +153,7 @@ def test_invoke_supervisor_injects_research_profile(
         captured["project_worktree"] = kwargs["project_worktree"]
         return {"missions_run": 0}
 
-    monkeypatch.setattr(_life_repl, "run_life_supervisor", fake_run_life_supervisor)
+    monkeypatch.setattr(_life_repl._core, "run_life_supervisor", fake_run_life_supervisor)
 
     _life_repl._invoke_supervisor(
         mem=bundle,
@@ -226,7 +226,7 @@ def test_invoke_and_track_clears_stale_thread_id_on_poisoned_outcome(
     }
 
     with patch.object(
-        _life_repl,
+        _life_repl._core,
         "_invoke_supervisor",
         return_value=({"missions_run": 1}, None),
     ):
@@ -278,7 +278,7 @@ def test_free_text_runs_just_typed_objective_not_older_pending(
         captured["head_obj"] = head.objective if head else None
         return {"missions_run": 1, "total_cost_usd": 0.0}
 
-    with patch.object(_life_repl, "_invoke_and_track", side_effect=fake_invoke):
+    with patch.object(_life_repl._core, "_invoke_and_track", side_effect=fake_invoke):
         _life_repl._free_text_cmd(mem, "你好", chat_state={"backend": "memory"})
 
     pending = mem.backlog.pending()
@@ -303,7 +303,7 @@ def test_free_text_beats_aggressive_priority_zero_pending(mem: LifeMemory) -> No
         captured["head_obj"] = head.objective if head else None
         return {"missions_run": 1, "total_cost_usd": 0.0}
 
-    with patch.object(_life_repl, "_invoke_and_track", side_effect=fake_invoke):
+    with patch.object(_life_repl._core, "_invoke_and_track", side_effect=fake_invoke):
         _life_repl._free_text_cmd(mem, "right now please", chat_state={"backend": "memory"})
 
     assert captured["head_obj"] == "right now please"
@@ -469,7 +469,7 @@ def test_run_life_chat_loop_releases_lock_on_exit(
     project_root = MemoryBundle.for_cwd(repo, global_root=life_dir).project.root
 
     # Patch the inner loop to be a no-op so we just exercise lock+release.
-    with patch.object(_life_repl, "_run_life_chat_loop_locked", return_value=0):
+    with patch.object(_life_repl._core, "_run_life_chat_loop_locked", return_value=0):
         ns = argparse.Namespace(life_dir=str(life_dir), color="never", verbose=None)
         rc = _life_repl.run_life_chat_loop(ns)
     assert rc == 0
@@ -626,7 +626,7 @@ def test_free_text_uses_config_defaults(mem: LifeMemory) -> None:
         "backend": "memory",
         "config": {"iterate": False, "cycles": 2, "budget": 5.0},
     }
-    with patch.object(_life_repl, "_invoke_and_track", side_effect=fake_invoke):
+    with patch.object(_life_repl._core, "_invoke_and_track", side_effect=fake_invoke):
         _life_repl._free_text_cmd(mem, "deploy it", chat_state=chat_state)
 
     head: BacklogItem = captured["head"]
@@ -648,7 +648,7 @@ def test_free_text_inline_flags_override_config(mem: LifeMemory) -> None:
         "backend": "memory",
         "config": {"iterate": True, "cycles": 2, "budget": 5.0},
     }
-    with patch.object(_life_repl, "_invoke_and_track", side_effect=fake_invoke):
+    with patch.object(_life_repl._core, "_invoke_and_track", side_effect=fake_invoke):
         _life_repl._free_text_cmd(mem, "--cycles=8 refactor the API", chat_state=chat_state)
 
     head: BacklogItem = captured["head"]
