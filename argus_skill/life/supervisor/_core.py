@@ -28,22 +28,18 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
-import threading
 import time
-import unicodedata
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
-from ..core.ports import EventSink
-from ..core.pricing import price_for, usd_for_tokens
-from .memory import (
+from ...core.ports import EventSink
+from ...core.pricing import price_for, usd_for_tokens
+from ..memory import (
     BacklogItem,
-    Journal,
     JournalEntry,
 )
-from .project_lifecycle import (
+from ..project_lifecycle import (
     LifecycleEvent,
     ProjectState,
     apply_event,
@@ -51,18 +47,33 @@ from .project_lifecycle import (
     infer_observable_status,
     is_token_allocatable,
 )
-from .project_lifecycle_io import (
+from ..project_lifecycle_io import (
     LifecycleIOError,
     apply_persisted_to_status,
 )
-from .project_lifecycle_io import (
+from ..project_lifecycle_io import (
     append_event as _lifecycle_append_event,
 )
-from .project_lifecycle_io import (
+from ..project_lifecycle_io import (
     lifecycle_path as _lifecycle_path,
 )
-from .project_lifecycle_io import (
+from ..project_lifecycle_io import (
     load_persisted as _lifecycle_load_persisted,
+)
+from ._config import (
+    LifeSupervisorConfig,
+    _MemoryView,
+    _MissionRunner,
+)
+from ._cost import _CostTrackingSink
+from ._helpers import (
+    _entry_task_signature,
+    _is_recent_no_progress_failure,
+    _legacy_final_submission_marker,
+    _normalize_planner_text,
+    _operator_only_external_blocker_wait_reason_for_project,
+    _planner_task_signature,
+    _sanitize_planner_task_text,
 )
 
 log = logging.getLogger(__name__)
@@ -70,201 +81,20 @@ log = logging.getLogger(__name__)
 _price_for = price_for
 
 
-def _operator_only_blocker_paths_for_project(project_root: Path) -> list[Path]:
-    """Return existing operator-only external-blocker artifact paths.
 
-    Looks for `diagnosis/operator_only_external_blocker*.json` so both the
-    legacy dated lock file and the undated generic filename match. Returned
-    newest first by mtime; empty list when none.
-    """
-    diagnosis = project_root / "diagnosis"
-    if not diagnosis.is_dir():
-        return []
-    candidates: list[Path] = []
-    for path in diagnosis.glob("operator_only_external_blocker*.json"):
-        if path.is_file():
-            candidates.append(path)
-    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return candidates
-
-
-def _operator_only_external_blocker_wait_reason_for_project(project_root: Path) -> str:
-    """Return a wait reason for an operator-only external blocker artifact."""
-    for lock_path in _operator_only_blocker_paths_for_project(project_root):
-        try:
-            payload = json.loads(lock_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return (
-                f"operator-only external blocker {lock_path.name} is present "
-                "but unreadable (malformed JSON); treating as active blocker "
-                "pending operator fix"
-            )
-        if not isinstance(payload, dict):
-            continue
-        if payload.get("local_engineer_action_required_before_mount") is not False:
-            continue
-        required = payload.get("required_external_targets")
-        if not isinstance(required, list) or not required:
-            continue
-        missing = [
-            str(item)
-            for item in required
-            if isinstance(item, str) and not (project_root / item).exists()
-        ]
-        if not missing:
-            continue
-        owner = payload.get("next_owner") or "operator/data owner"
-        verdict = (
-            payload.get("canonical_viability_verdict")
-            or "external artifacts missing"
-        )
-        sample_missing = ", ".join(missing[:4])
-        return (
-            f"operator-only external benchmark blocker ({lock_path.name}): "
-            f"{verdict}; {len(missing)} required external target(s) still "
-            f"absent ({sample_missing}); next owner is {owner}"
-        )
-    return ""
-
-
-class _MemoryView(Protocol):
-    @property
-    def backlog(self) -> Any: ...
-
-    @property
-    def journal(self) -> Any: ...
-
-    def render_prelude(self, *, objective: str) -> str: ...
 
 
 # ---------------------------------------------------------------------------
 # Budget
 # ---------------------------------------------------------------------------
 
-@dataclass
-class LifeBudget:
-    """Layered cost / iteration limits.
-
-    Enforcement points:
-
-    1. **Preflight per-mission cap**: before starting a backlog item we
-       refuse if ``item.max_cost_usd > per_mission_cap_usd`` OR if
-       ``daily_remaining < per_mission_cap_usd``. Either condition
-       pauses the supervisor with a journal entry — we do not silently
-       trim caps.
-    2. **Daily cap**: cumulative ``cost_usd`` from journal entries
-       whose timestamp is ≥ start-of-current-day-local. The supervisor
-       refreshes this number on each loop tick so a long-running
-       supervisor honours UTC day rollover.
-    3. **Iteration cap**: hard count of autonomous missions completed
-       in this supervisor run (NOT cumulative across restarts). Once
-       reached, supervisor exits cleanly even if backlog is non-empty.
-
-    Field semantics:
-
-    - ``per_mission_cap_usd``: the highest a single mission is allowed
-      to cost (sum of engineer + reviewer + scientist tokens × prices).
-    - ``daily_cap_usd``: ceiling on summed cost of mission entries in
-      ``journal.jsonl`` whose timestamp falls in the current local day.
-    - ``max_missions``: hard cap on missions run by THIS supervisor
-      process (resets per ``LifeSupervisor`` instance).
-    """
-
-    per_mission_cap_usd: float = 30.0
-    daily_cap_usd: float = 180.0
-    max_missions: int = 6
-
-    def remaining_today(self, journal: Journal, *, now: float | None = None) -> float:
-        """USD remaining in today's budget."""
-        now = now if now is not None else time.time()
-        # Local day start.
-        local = time.localtime(now)
-        day_start = time.mktime(
-            (local.tm_year, local.tm_mon, local.tm_mday, 0, 0, 0, 0, 0, -1)
-        )
-        spent = journal.total_cost_since(day_start)
-        return max(0.0, float(self.daily_cap_usd) - float(spent))
-
-    def can_start(
-        self,
-        *,
-        item: BacklogItem,
-        journal: Journal,
-        now: float | None = None,
-    ) -> tuple[bool, str]:
-        """Return ``(allowed, reason)``. ``reason`` is empty when allowed.
-
-        We do NOT refuse a mission just because ``item.max_cost_usd``
-        exceeds ``per_mission_cap_usd`` — that's a daemon-vs-item
-        misconfiguration and a 7×24 product should keep working. The
-        per-mission cap is enforced inside the supervisor by clamping
-        the effective per-mission budget (see
-        ``LifeSupervisor._effective_per_mission_cap``); this method
-        only blocks on the *daily* budget envelope, which is the real
-        bottom line.
-        """
-        remain = self.remaining_today(journal, now=now)
-        # Use the smaller of (operator-requested mission budget, our
-        # per-mission cap) when comparing to daily remaining — same
-        # number the supervisor will actually permit.
-        effective_cap = min(item.max_cost_usd, self.per_mission_cap_usd)
-        if remain < effective_cap:
-            return False, (
-                f"daily budget remaining ${remain:.2f} < "
-                f"effective mission cap ${effective_cap:.2f}"
-            )
-        return True, ""
 
 
 # ---------------------------------------------------------------------------
 # Cost-tracking sink wrapper
 # ---------------------------------------------------------------------------
 
-def _normalize_planner_text(text: str) -> str:
-    """Normalize planner task text for duplicate detection."""
-    normalized = unicodedata.normalize("NFKC", str(text))
-    return re.sub(r"\s+", " ", normalized).strip().casefold()
 
-
-def _sanitize_planner_task_text(text: str) -> str:
-    """Remove stale host-specific entry paths from planner-generated missions."""
-    value = str(text)
-    command_replacements = {
-        (
-            "PYTHONPATH=/home/argustest/argus-skill "
-            "/home/argustest/miniconda3/bin/python -m argus_skill"
-        ): '"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill',
-        (
-            "PYTHONPATH=/home/argustest/argus-skill "
-            "python -m argus_skill"
-        ): '"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill',
-        (
-            "/home/argustest/miniconda3/bin/python -m argus_skill"
-        ): '"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill',
-    }
-    for old, new in command_replacements.items():
-        value = value.replace(old, new)
-    path_replacements = {
-        "`/home/argustest/research.md`": "the operator-provided research playbook if present",
-        "/home/argustest/research.md": "the operator-provided research playbook if present",
-        "`/home/argustest/argus-skill`": "the active Argus source/package",
-        "/home/argustest/argus-skill": "the active Argus source/package",
-        (
-            "`/root/Auto-claude-code-research-in-sleep/skills/"
-            "paper-illustration-image2/SKILL.md`"
-        ): "`argus_builtin_skills/engineer/paper-illustration-image2.md`",
-        (
-            "/root/Auto-claude-code-research-in-sleep/skills/"
-            "paper-illustration-image2/SKILL.md"
-        ): "argus_builtin_skills/engineer/paper-illustration-image2.md",
-    }
-    for old, new in path_replacements.items():
-        value = value.replace(old, new)
-    return value
-
-
-def _planner_task_signature(title: str, objective: str) -> tuple[str, str]:
-    return (_normalize_planner_text(title), _normalize_planner_text(objective))
 
 
 _PLANNER_DEDUP_STATUSES = {"pending", "running", "done"}
@@ -301,322 +131,17 @@ _FULL_EMNLP_GATE_DESCRIPTION = (
 )
 
 
-def _legacy_final_submission_marker(text: str) -> bool:
-    """Legacy backlog migration: recognize the ``final_submission`` scope from
-    objective prose.
-
-    New backlog items always carry the structured ``scope:final_submission``
-    tag (see ``_planner_task_tags``). This prose recognizer exists ONLY so a
-    daemon that resumes a backlog persisted by an older build — whose items may
-    have the marker only in their objective text — still exempts a ``done``
-    final-submission task from planner dedupe. It is a one-shot format bridge,
-    not a runtime relevance/completion judgment.
-    """
-    normalized = _normalize_planner_text(text)
-    return (
-        "scope: final_submission" in normalized
-        or "planner_scope: final_submission" in normalized
-    )
 
 
-def _entry_task_signature(entry: JournalEntry) -> tuple[str, str] | None:
-    extra = getattr(entry, "extra", {}) or {}
-    signature = extra.get("planner_task_signature")
-    title = ""
-    objective = ""
-    if isinstance(signature, dict):
-        title = str(signature.get("title", "") or "")
-        objective = str(signature.get("objective", "") or "")
-    elif isinstance(signature, (list, tuple)) and len(signature) >= 2:
-        title = str(signature[0] or "")
-        objective = str(signature[1] or "")
-    else:
-        title = str(extra.get("title") or entry.title or "")
-        objective = str(extra.get("objective") or "")
-    normalized_title = _normalize_planner_text(title)
-    normalized_objective = _normalize_planner_text(objective)
-    if not normalized_title and not normalized_objective:
-        return None
-    return normalized_title, normalized_objective
-
-
-def _is_recent_no_progress_failure(entry: JournalEntry) -> bool:
-    if entry.kind != "mission_failed":
-        return False
-    extra = getattr(entry, "extra", {}) or {}
-    terminal_status = str(
-        extra.get("terminal_status")
-        or extra.get("status")
-        or extra.get("failure_status")
-        or ""
-    ).strip().casefold()
-    return terminal_status == _PLANNER_RECENT_FAILURE_STATUS
-
-
-class _CostTrackingSink:
-    """Wraps an ``EventSink`` to accumulate token counts.
-
-    The mission engine emits ``round.main.completed`` and
-    ``round.review.completed`` events that already carry per-call
-    ``input_tokens`` / ``output_tokens`` (Phase-2 instrumentation). We
-    fold them into running totals and forward every event downstream
-    unchanged.
-    """
-
-    def __init__(
-        self,
-        downstream: EventSink,
-        *,
-        engineer_model: str,
-        reviewer_model: str,
-        on_phase_change: Any = None,  # Callable[[str, dict], None] | None
-    ) -> None:
-        self.downstream = downstream
-        self.engineer_model = engineer_model
-        self.reviewer_model = reviewer_model
-        self.engineer_input_tokens = 0
-        self.engineer_output_tokens = 0
-        self.reviewer_input_tokens = 0
-        self.reviewer_output_tokens = 0
-        self._on_phase_change = on_phase_change
-        self._reviewer_notified = False
-        self._engineer_round_count = 0
-        self.engineer_cached_input_tokens = 0
-        self.reviewer_cached_input_tokens = 0
-        self._cumulative_usage_baselines: dict[
-            tuple[str, str], tuple[int, int, int]
-        ] = {}
-
-    def handle_event(self, event: dict[str, Any]) -> None:
-        try:
-            kind = event.get("type") if isinstance(event, dict) else None
-            if kind == "round.main.completed":
-                in_tok, cached_tok, out_tok = self._usage_delta(
-                    event,
-                    layer="engineer",
-                )
-                self.engineer_input_tokens += in_tok
-                self.engineer_cached_input_tokens += cached_tok
-                self.engineer_output_tokens += out_tok
-                self._engineer_round_count += 1
-            elif kind == "round.review.started":
-                if not self._reviewer_notified and self._on_phase_change:
-                    self._reviewer_notified = True
-                    try:
-                        self._on_phase_change("reviewer", {
-                            "round_index": event.get("round_index", 0),
-                            "status": "started",
-                            "engineer_rounds": self._engineer_round_count,
-                        })
-                    except Exception:  # noqa: BLE001
-                        log.debug("phase change callback failed", exc_info=True)
-            elif kind == "round.review.completed":
-                in_tok, cached_tok, out_tok = self._usage_delta(
-                    event,
-                    layer="reviewer",
-                )
-                self.reviewer_input_tokens += in_tok
-                self.reviewer_cached_input_tokens += cached_tok
-                self.reviewer_output_tokens += out_tok
-        except Exception:  # noqa: BLE001
-            log.debug("cost-tracking sink ignored malformed event", exc_info=True)
-        # Always forward.
-        try:
-            self.downstream.handle_event(event)
-        except Exception:  # noqa: BLE001
-            log.exception("downstream event sink raised; continuing")
-
-    def handle_stream_line(self, stream: str, line: str) -> None:  # noqa: ARG002
-        """Forward stream lines when the downstream sink supports them."""
-        try:
-            handler = getattr(self.downstream, "handle_stream_line", None)
-            if handler is not None:
-                handler(stream, line)
-        except Exception:  # noqa: BLE001
-            log.exception("downstream stream handler raised; continuing")
-
-    def close(self) -> None:
-        try:
-            closer = getattr(self.downstream, "close", None)
-            if closer is not None:
-                closer()
-        except Exception:  # noqa: BLE001
-            log.exception("downstream close raised; continuing")
-
-    def total_usd(self) -> float:
-        return self.engineer_usd() + self.reviewer_usd()
-
-    def engineer_usd(self) -> float:
-        return usd_for_tokens(
-            self.engineer_model,
-            self.engineer_input_tokens,
-            self.engineer_cached_input_tokens,
-            self.engineer_output_tokens,
-            price_lookup=price_for,
-        )
-
-    def reviewer_usd(self) -> float:
-        return usd_for_tokens(
-            self.reviewer_model,
-            self.reviewer_input_tokens,
-            self.reviewer_cached_input_tokens,
-            self.reviewer_output_tokens,
-            price_lookup=price_for,
-        )
-
-    def total_input_tokens(self) -> int:
-        return self.engineer_input_tokens + self.reviewer_input_tokens
-
-    def total_output_tokens(self) -> int:
-        return self.engineer_output_tokens + self.reviewer_output_tokens
-
-    def _usage_delta(
-        self,
-        event: dict[str, Any],
-        *,
-        layer: str,
-    ) -> tuple[int, int, int]:
-        raw = (
-            int(event.get("input_tokens", 0) or 0),
-            int(event.get("cached_input_tokens", 0) or 0),
-            int(event.get("output_tokens", 0) or 0),
-        )
-        if str(event.get("usage_scope") or "delta").lower() != "cumulative":
-            return raw
-
-        session_id = str(
-            event.get("session_id")
-            or event.get("thread_id")
-            or event.get("actor")
-            or "__global__"
-        )
-        key = (layer, session_id)
-        previous = self._cumulative_usage_baselines.get(key)
-        self._cumulative_usage_baselines[key] = raw
-        if previous is None:
-            return raw
-        delta = (
-            raw[0] - previous[0],
-            raw[1] - previous[1],
-            raw[2] - previous[2],
-        )
-        if any(value < 0 for value in delta):
-            log.debug(
-                "cumulative usage decreased; treating current event as fresh delta "
-                "(layer=%s, session_id=%s, previous=%s, current=%s)",
-                layer,
-                session_id,
-                previous,
-                raw,
-            )
-            return raw
-        return delta
 
 
 # ---------------------------------------------------------------------------
 # Supervisor
 # ---------------------------------------------------------------------------
 
-@dataclass
-class LifeSupervisorConfig:
-    """Knobs for one ``LifeSupervisor`` run."""
-
-    budget: LifeBudget = field(default_factory=LifeBudget)
-    poll_interval_seconds: float = 5.0
-    # The real repository worktree for this project. When present, the
-    # supervisor should run engineer / planner work there instead of in
-    # the life metadata directory.
-    project_worktree: Path | None = None
-    # Highest-level kill switch — the supervisor checks this between
-    # missions. The CLI sets it on SIGTERM/SIGINT.
-    stop_event: threading.Event | None = None
-    # Optional callable consulted at the start of every mission; should
-    # return one pending operator nudge per call (or ``None`` when the
-    # bus is empty). The supervisor splices each message into the
-    # prelude_context so the engineer sees it as live operator
-    # guidance. The default ``None`` disables the bus.
-    user_inbox: Any = None  # Callable[[], str | None] | None
-    # Runtime context injected into the prelude of every mission so
-    # the agent knows its own backend, models, and budget constraints.
-    # Set by the REPL / daemon worker; empty string disables injection.
-    runtime_context: str = ""
-    # Defaults for tasks generated by the continuous planner. Manual backlog
-    # items already use the BacklogItem defaults; keep planner-generated work
-    # equally capable instead of cutting it off after one local polish cycle.
-    planner_task_iteration_max_cycles: int = 6
-    planner_task_iteration_budget_usd: float = 30.0
-    # --- Continuous improvement mode -----------------------------------
-    # When enabled, the supervisor does not exit when the backlog is
-    # empty. Instead it invokes the planner to inspect the
-    # project and generate the next batch of tasks. The supervisor
-    # only stops when the planner declares the project done, or when
-    # budget / stop_event fires.
-    continuous: bool = False
-    continuous_objective: str = ""
-    # Explicit mission-type signals (replace the old keyword sniffing of the
-    # objective text). ``paper_mission`` toggles the long-horizon paper guidance
-    # the planner hands to bounded items; ``full_emnlp_gate`` requires the L2
-    # reviewer's full-pipeline checklist to be certified before ``project_done``
-    # is honoured (and drives the auto-stop once that gate passes). Both default
-    # True because the life supervisor is the autonomous EMNLP-research driver;
-    # set them False for non-paper continuous missions.
-    paper_mission: bool = True
-    full_emnlp_gate: bool = True
-    # ``open_ended`` controls what happens when the planner certifies
-    # ``project_done`` on a continuous mission: when True the supervisor does
-    # NOT hard-stop — it logs a planner retry and keeps the mission alive so the
-    # 7×24 lifetime agent keeps generating new work. Replaces the old keyword
-    # sniffing of the objective text ("ongoing"/"perpetual"/"7×24"/…). Defaults
-    # False at this low level (honour project_done); the daemon/REPL entry paths
-    # default it True unless ``--bounded`` is passed.
-    open_ended: bool = False
-    # Optional callback returning ``(enabled, objective)`` — the
-    # supervisor calls it each iteration to hot-reload from disk or
-    # elsewhere. When ``None``, the static ``continuous`` /
-    # ``continuous_objective`` fields are used unchanged.
-    continuous_config_provider: Any = None  # Callable[[], tuple[bool, str]] | None
-    # Optional callback consulted immediately before each continuous
-    # planner cycle. Return a non-empty stop reason to let the host
-    # process defer planning and yield control, e.g. for daemon handoff.
-    planner_cycle_gate: Any = None  # Callable[[], str] | None
-    # Optional context injected into the planner prompt. The daemon uses
-    # this to tell L4 that runtime source changed without making another
-    # agent call.
-    planner_runtime_context_provider: Any = None  # Callable[[], str] | None
-    # Optional handler invoked only when the planner verdict explicitly
-    # requests a daemon restart. Return True when the host is yielding.
-    planner_restart_handler: Any = None  # Callable[[str], bool] | None
-    # Optional mission-boundary hook. The host may use this to perform
-    # process-level actions that are only safe between missions (for example
-    # blue/green handoff after the agent modifies its own daemon/runtime
-    # architecture). Return a non-empty stop reason to end this drain pass.
-    post_mission_hook: Any = None  # Callable[[dict[str, Any]], str] | None
-    # Optional runtime directory for mission telemetry. When set, the
-    # supervisor starts a daemon-owned heartbeat around runner.execute()
-    # so long-running shell experiments still show process/artifact progress.
-    telemetry_dir: Path | None = None
-    telemetry_interval_seconds: float = 10.0
 
 
 # ----- thin protocol describing what we need from a MissionExecutor --------
-
-class _MissionRunner(Protocol):
-    """Structural type for the MissionExecutor we drive.
-
-    We keep this loose so tests can substitute a fake without dragging
-    ArgusBot in. Real callers pass an ``argus_skill.daemon.mission_executor.MissionExecutor``.
-    """
-
-    def execute(
-        self,
-        *,
-        objective: str,
-        sink: EventSink,
-        preload_injects: list[str] | None = None,
-        prelude_context: str = "",
-        scope: str = "",
-    ) -> Any:  # MissionOutcome
-        raise NotImplementedError
 
 
 class LifeSupervisor:
@@ -722,7 +247,7 @@ class LifeSupervisor:
                 log.exception("life supervisor: failed to journal orphan %s", it.id)
             self._inject_cumulative_cost(entry)
             try:
-                from .notify import dispatch_journal_entry
+                from ..notify import dispatch_journal_entry
                 dispatch_journal_entry(entry)
             except Exception:  # noqa: BLE001
                 log.exception("notify dispatch failed; continuing")
@@ -806,8 +331,8 @@ class LifeSupervisor:
         return Path.cwd()
 
     def _planner_config(self):
-        from ..planner import PlannerConfig
-        from ..tools.capability_vault import resolve_route_model
+        from ...planner import PlannerConfig
+        from ...tools.capability_vault import resolve_route_model
 
         safe_mode = self._safe_mode_enabled()
         return PlannerConfig(
@@ -1124,7 +649,7 @@ class LifeSupervisor:
             self.memory.journal.append(entry)
             self._inject_cumulative_cost(entry)
             try:
-                from .notify import dispatch_journal_entry
+                from ..notify import dispatch_journal_entry
                 dispatch_journal_entry(entry)
             except Exception:  # noqa: BLE001
                 log.exception("notify dispatch failed; continuing")
@@ -1203,7 +728,7 @@ class LifeSupervisor:
         for the logic. Kept here as a stable method on supervisor so
         existing tests + monkeypatches don't have to change.
         """
-        from .self_evolve_advisor import SelfEvolveAdvisor
+        from ..self_evolve_advisor import SelfEvolveAdvisor
         return SelfEvolveAdvisor(
             memory=cast(Any, self.memory),
             on_cost=self._inject_cumulative_cost,
@@ -1217,7 +742,7 @@ class LifeSupervisor:
         Thin delegate — see ``recurring_failure_advisor.RecurringFailureAdvisor``
         (Signal B). Kept as a stable supervisor method for tests/monkeypatch.
         """
-        from .recurring_failure_advisor import RecurringFailureAdvisor
+        from ..recurring_failure_advisor import RecurringFailureAdvisor
         return RecurringFailureAdvisor(
             memory=cast(Any, self.memory),
             on_cost=self._inject_cumulative_cost,
@@ -1567,7 +1092,7 @@ class LifeSupervisor:
             )
             self.memory.journal.append(start_entry)
             self._inject_cumulative_cost(start_entry)
-            from .notify import dispatch_journal_entry
+            from ..notify import dispatch_journal_entry
             dispatch_journal_entry(start_entry)
         except Exception:  # noqa: BLE001
             log.debug("mission_started notify failed; non-critical")
@@ -1581,7 +1106,7 @@ class LifeSupervisor:
                     "agent_layer": layer,
                     "round_index": info.get("round_index", 0),
                 })
-                from .notify import dispatch_journal_entry
+                from ..notify import dispatch_journal_entry
                 entry = JournalEntry.new(
                     kind="phase_change",
                     title=item.title,
@@ -1613,7 +1138,7 @@ class LifeSupervisor:
         telemetry_monitor: Any = None
         if self.config.telemetry_dir is not None:
             try:
-                from .telemetry import MissionTelemetryMonitor
+                from ..telemetry import MissionTelemetryMonitor
                 telemetry_monitor = MissionTelemetryMonitor(
                     life_dir=self.config.telemetry_dir,
                     workdir=self._project_workdir(),
@@ -1655,7 +1180,7 @@ class LifeSupervisor:
 
         # Emit per-layer completion notifications with actual costs
         try:
-            from .notify import dispatch_journal_entry
+            from ..notify import dispatch_journal_entry
             eng_usd = cost_sink.engineer_usd()
             rev_usd = cost_sink.reviewer_usd()
             # L1 engineer completed
@@ -1807,7 +1332,7 @@ class LifeSupervisor:
         self._persist_final_submission_cert_if_needed(entry)
         self._inject_cumulative_cost(entry)
         try:
-            from .notify import dispatch_journal_entry
+            from ..notify import dispatch_journal_entry
             dispatch_journal_entry(entry)
         except Exception:  # noqa: BLE001
             log.exception("notify dispatch failed; continuing")
@@ -2134,7 +1659,7 @@ class LifeSupervisor:
         reason = _operator_only_external_blocker_wait_reason_for_project(project_root)
         if not reason:
             return None
-        from ..planner.planner import PlannerVerdict
+        from ...planner.planner import PlannerVerdict
 
         return PlannerVerdict(
             project_done=False,
@@ -2266,7 +1791,7 @@ class LifeSupervisor:
         self.memory.journal.append(entry)
         self._inject_cumulative_cost(entry)
         try:
-            from .notify import dispatch_journal_entry
+            from ..notify import dispatch_journal_entry
             dispatch_journal_entry(entry)
         except Exception:  # noqa: BLE001
             log.exception("notify dispatch failed; continuing")
@@ -2281,9 +1806,9 @@ class LifeSupervisor:
             return None
         from datetime import datetime, timezone
 
-        from ..planner import TaskSpec
-        from ..wiki.bootstrap import is_initialized_wiki
-        from ..wiki.bot_state import collect_cooldown_elapsed, load_bot_state
+        from ...planner import TaskSpec
+        from ...wiki.bootstrap import is_initialized_wiki
+        from ...wiki.bot_state import collect_cooldown_elapsed, load_bot_state
 
         now = datetime.now(timezone.utc)
         for candidate in sorted(autors.glob("*/wiki")):
@@ -2398,7 +1923,7 @@ class LifeSupervisor:
             self.memory.journal.append(entry)
             self._inject_cumulative_cost(entry)
             try:
-                from .notify import dispatch_journal_entry
+                from ..notify import dispatch_journal_entry
                 dispatch_journal_entry(entry)
             except Exception:  # noqa: BLE001
                 log.exception("notify dispatch failed; continuing")
@@ -2426,7 +1951,7 @@ class LifeSupervisor:
         remaining = self.config.budget.remaining_today(self.memory.journal)
 
         try:
-            from ..planner import Planner
+            from ...planner import Planner
 
             planner = Planner(self.planner_runner, skill_store=self.skill_store)
             # Enable streaming so planner output flows through the event sink
@@ -2466,7 +1991,7 @@ class LifeSupervisor:
             self.memory.journal.append(entry)
             self._inject_cumulative_cost(entry)
             try:
-                from .notify import dispatch_journal_entry
+                from ..notify import dispatch_journal_entry
                 dispatch_journal_entry(entry)
             except Exception:  # noqa: BLE001
                 log.exception("notify dispatch failed; continuing")
@@ -2503,7 +2028,7 @@ class LifeSupervisor:
             self.memory.journal.append(entry)
             self._inject_cumulative_cost(entry)
             try:
-                from .notify import dispatch_journal_entry
+                from ..notify import dispatch_journal_entry
                 dispatch_journal_entry(entry)
             except Exception:  # noqa: BLE001
                 log.exception("notify dispatch failed; continuing")
@@ -2532,7 +2057,7 @@ class LifeSupervisor:
             and self.config.full_emnlp_gate
             and not self._journal_has_full_emnlp_gate_success()
         ):
-            from ..planner import TaskSpec
+            from ...planner import TaskSpec
 
             verdict = replace(
                 verdict,
@@ -2610,7 +2135,7 @@ class LifeSupervisor:
             self.memory.journal.append(entry)
             self._inject_cumulative_cost(entry)
             try:
-                from .notify import dispatch_journal_entry
+                from ..notify import dispatch_journal_entry
                 dispatch_journal_entry(entry)
             except Exception:  # noqa: BLE001
                 log.exception("notify dispatch failed; continuing")
@@ -2652,7 +2177,7 @@ class LifeSupervisor:
             self.memory.journal.append(entry)
             self._inject_cumulative_cost(entry)
             try:
-                from .notify import dispatch_journal_entry
+                from ..notify import dispatch_journal_entry
                 dispatch_journal_entry(entry)
             except Exception:  # noqa: BLE001
                 log.exception("notify dispatch failed; continuing")
@@ -2703,7 +2228,7 @@ class LifeSupervisor:
             self.memory.journal.append(entry)
             self._inject_cumulative_cost(entry)
             try:
-                from .notify import dispatch_journal_entry
+                from ..notify import dispatch_journal_entry
                 dispatch_journal_entry(entry)
             except Exception:  # noqa: BLE001
                 log.exception("notify dispatch failed; continuing")
@@ -2738,7 +2263,7 @@ class LifeSupervisor:
             self.memory.journal.append(entry)
             self._inject_cumulative_cost(entry)
             try:
-                from .notify import dispatch_journal_entry
+                from ..notify import dispatch_journal_entry
                 dispatch_journal_entry(entry)
             except Exception:  # noqa: BLE001
                 log.exception("notify dispatch failed; continuing")
@@ -2927,7 +2452,7 @@ class LifeSupervisor:
         self.memory.journal.append(entry)
         self._inject_cumulative_cost(entry)
         try:
-            from .notify import dispatch_journal_entry
+            from ..notify import dispatch_journal_entry
             dispatch_journal_entry(entry)
         except Exception:  # noqa: BLE001
             log.exception("notify dispatch failed; continuing")
