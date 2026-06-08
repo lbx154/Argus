@@ -1,0 +1,34 @@
+# argus-skill idea-wiki -- required/optional fields per card type.
+# Mirrors the Python dataclasses in argus_skill.wiki.schema; if the two
+# drift, fix the YAML to match the dataclasses.
+
+pages:
+  technique:
+    required: [id, type, status, title, tags, sources, confidence,
+               created_at, last_reviewed_at]
+    optional: [related_runs, related_projects, revisit_after, reviewer_note]
+  conflict:
+    required: [id, type, status, title, sources, confidence,
+               created_at, last_reviewed_at]
+    optional: [tags, related_runs, related_projects, reviewer_note,
+               resolved_by_run]
+  pattern:
+    required: [id, type, status, title, related_runs, confidence,
+               created_at, last_reviewed_at]
+    optional: [tags, sources, related_projects, reviewer_note]
+
+sources:
+  paper:
+    required: [id, url, title, ingested_at, ingested_by, checksum]
+  repo:
+    required: [id, url, title, ingested_at, ingested_by, checksum]
+  run:
+    required: [id, mission_id, git_commit, project, config_path, dataset,
+               metrics, artifacts, outcome]
+    optional: [failure_signature, suspected_cause, next_action]
+  note:
+    required: [id, title, mission_id, created_at, tags]
+
+valid_status: [scratch, candidate, stable]
+valid_confidence: [low, med, high]
+valid_outcome: [success, partial, failure]

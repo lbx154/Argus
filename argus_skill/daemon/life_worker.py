@@ -110,6 +110,20 @@ class LifeWorkerConfig:
     ])
 
 
+def _apply_bounded_to_check_commands(commands: list[str], *, bounded: bool) -> list[str]:
+    # WHY M0.7: --bounded previously reached supervisor project_done logic
+    # but not the reviewer acceptance gate, so stage_check kept blocking
+    # train-free diagnostics on paper-pipeline benchmark readiness.
+    if not bounded:
+        return list(commands)
+    out: list[str] = []
+    for cmd in commands:
+        if "stage_check" in cmd and "--bounded" not in cmd:
+            cmd = cmd + " --bounded"
+        out.append(cmd)
+    return out
+
+
 _HANDOFF_CONFIG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_CONFIG"
 _HANDOFF_READY_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_READY"
 _HANDOFF_TOKEN_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_TOKEN"
@@ -782,7 +796,6 @@ class LifeWorker:
         # backlog goes empty or the budget caps. Then we sleep
         # poll_interval seconds and try again — items may have been
         # /add'd from a coexisting REPL.
-        from ..apps._life_repl import _inbox_drainer_for
         from ..life.activity_log import ActivityLogSink
         from ..life.event_log import JsonlEventSink
 
@@ -819,8 +832,6 @@ class LifeWorker:
         # Build a config provider that reads continuous.json from disk,
         # so the REPL can enable/disable continuous mode while the daemon
         # is running — no daemon restart needed.
-        from ..life.telemetry import telemetry_interval_from_env
-
         def _continuous_provider() -> tuple[bool, str]:
             enabled, objective = read_continuous_config(runtime_root)
             if continuous_mode_error(cfg.backend, enabled, objective):
@@ -845,29 +856,16 @@ class LifeWorker:
                 objective=init_objective,
             )
 
-        sup_cfg = LifeSupervisorConfig(
-            budget=LifeBudget(
-                per_mission_cap_usd=cfg.per_mission_cap_usd,
-                daily_cap_usd=cfg.daily_cap_usd,
-                # Soft cap per drain pass; we re-loop forever anyway.
-                max_missions=64,
-            ),
-            planner_task_iteration_max_cycles=cfg.planner_task_iteration_max_cycles,
-            planner_task_iteration_budget_usd=cfg.planner_task_iteration_budget_usd,
-            poll_interval_seconds=2.0,
-            project_worktree=cfg.project_workdir,
+        sup_cfg = _build_supervisor_config(
+            cfg,
+            runtime_root=runtime_root,
             stop_event=self._stop,
-            user_inbox=_inbox_drainer_for(runtime_root),
-            runtime_context=_worker_runtime_context(cfg),
-            continuous=init_continuous,
-            continuous_objective=init_objective,
-            open_ended=cfg.continuous_open_ended,
-            continuous_config_provider=_continuous_provider,
+            init_continuous=init_continuous,
+            init_objective=init_objective,
+            continuous_provider=_continuous_provider,
             planner_runtime_context_provider=self._planner_runtime_context,
             planner_restart_handler=self._planner_restart_handler,
             post_mission_hook=self._post_mission_hook,
-            telemetry_dir=runtime_root,
-            telemetry_interval_seconds=telemetry_interval_from_env(),
         )
         sup = LifeSupervisor(
             memory=mem,
@@ -1129,7 +1127,12 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     ns.plan_mode = os.environ.get("ARGUS_SKILL_PLAN_MODE", "auto")
     ns.plan_model = os.environ.get("ARGUS_SKILL_PLAN_MODEL")
     ns.check = []
-    ns.check_commands = list(cfg.check_commands)
+    # WHY M0.7: bounded daemon missions must pass --bounded into
+    # stage_check; otherwise the reviewer loops on irrelevant paper gates.
+    ns.check_commands = _apply_bounded_to_check_commands(
+        list(cfg.check_commands),
+        bounded=not cfg.continuous_open_ended,
+    )
     ns.color = None
     ns.verbose = False
     ns.quiet = True
@@ -1200,6 +1203,47 @@ def _worker_runtime_context(cfg: LifeWorkerConfig) -> str:
     if special_context:
         return special_context + "\n\n---\n\n" + body
     return body
+
+
+def _build_supervisor_config(
+    cfg: LifeWorkerConfig,
+    *,
+    runtime_root: Path,
+    stop_event: Any,
+    init_continuous: bool,
+    init_objective: str,
+    continuous_provider: Any,
+    planner_runtime_context_provider: Any,
+    planner_restart_handler: Any,
+    post_mission_hook: Any,
+) -> LifeSupervisorConfig:
+    from ..apps._life_repl import _inbox_drainer_for
+    from ..life.telemetry import telemetry_interval_from_env
+
+    return LifeSupervisorConfig(
+        budget=LifeBudget(
+            per_mission_cap_usd=cfg.per_mission_cap_usd,
+            daily_cap_usd=cfg.daily_cap_usd,
+            max_missions=64,
+        ),
+        planner_task_iteration_max_cycles=cfg.planner_task_iteration_max_cycles,
+        planner_task_iteration_budget_usd=cfg.planner_task_iteration_budget_usd,
+        poll_interval_seconds=2.0,
+        project_worktree=cfg.project_workdir,
+        stop_event=stop_event,
+        user_inbox=_inbox_drainer_for(runtime_root),
+        runtime_context=_worker_runtime_context(cfg),
+        continuous=init_continuous,
+        continuous_objective=init_objective,
+        open_ended=cfg.continuous_open_ended,
+        full_emnlp_gate=cfg.continuous_open_ended,
+        continuous_config_provider=continuous_provider,
+        planner_runtime_context_provider=planner_runtime_context_provider,
+        planner_restart_handler=planner_restart_handler,
+        post_mission_hook=post_mission_hook,
+        telemetry_dir=runtime_root,
+        telemetry_interval_seconds=telemetry_interval_from_env(),
+    )
 
 
 class _DaemonSink:

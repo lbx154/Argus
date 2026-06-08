@@ -139,12 +139,30 @@ def _extract_with_pypdf(pdf: Path) -> tuple[str, int]:
 
 
 def _extract(pdf: Path) -> tuple[str, int]:
+    pdftotext_result: tuple[str, int] | None = None
     if shutil.which("pdftotext"):
         try:
-            return _extract_with_pdftotext(pdf)
+            pdftotext_result = _extract_with_pdftotext(pdf)
         except (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired):
-            pass
-    return _extract_with_pypdf(pdf)
+            pdftotext_result = None
+        else:
+            # Fast path: pdftotext already produced detectable section heads.
+            if _RE_SECTION_HEAD.search(pdftotext_result[0]):
+                return pdftotext_result
+    # pdftotext is absent/failed, or produced no detectable headings (some
+    # builds drop simple reportlab heading lines). Try pypdf as a fallback —
+    # but never let a missing optional dependency, or a pypdf result that is
+    # no better, discard a usable pdftotext extraction.
+    try:
+        pypdf_result = _extract_with_pypdf(pdf)
+    except Exception:  # noqa: BLE001 — pypdf is optional and may fail to parse
+        if pdftotext_result is not None:
+            return pdftotext_result
+        raise
+    if pdftotext_result is not None and not _RE_SECTION_HEAD.search(pypdf_result[0]):
+        # pypdf did not recover headings either; keep the richer -layout text.
+        return pdftotext_result
+    return pypdf_result
 
 
 def _detect_sections(text: str) -> list[SectionHit]:

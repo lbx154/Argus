@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -435,6 +436,19 @@ class Planner:
         )
 
     @staticmethod
+    def _missing_query_pack_diagnosis_refs(project_root: Path, query_pack_text: str) -> list[str]:
+        refs = sorted(
+            {
+                match.group(0).rstrip("`),.;:")
+                for match in re.finditer(
+                    r"diagnosis/[A-Za-z0-9_./-]+\.(?:json|md)",
+                    str(query_pack_text),
+                )
+            }
+        )
+        return [ref for ref in refs if not (project_root / ref).exists()]
+
+    @staticmethod
     def _build_planner_prompt(
         *,
         continuous_objective: str,
@@ -596,6 +610,79 @@ class Planner:
                     f"{planner_match.block}\n\n"
                 )
 
+        # ------------------------------------------------------------------
+        # Idea-wiki block. Surface only when the project actually has a wiki
+        # (parasitic auto-collection: no wiki means nothing has been written
+        # yet, and we do not want to nag). Pure read; planner never writes.
+        # ------------------------------------------------------------------
+        wiki_block = ""
+        autors_root = _proot / ".autors"
+        wiki_candidates = (
+            sorted(autors_root.glob("*/wiki")) if autors_root.exists() else []
+        )
+        wiki_candidates = [
+            w for w in wiki_candidates if (w / "query_pack.md").exists()
+        ]
+        if wiki_candidates:
+            parts: list[str] = ["## Idea wiki (read-only)\n"]
+            for wiki_root in wiki_candidates:
+                project_name = wiki_root.parent.name
+                parts.append(f"### project: {project_name}\n")
+                pack = (wiki_root / "query_pack.md").read_text(encoding="utf-8")
+                parts.append("#### query_pack.md\n")
+                parts.append(pack.strip() + "\n\n")
+                missing_refs = Planner._missing_query_pack_diagnosis_refs(_proot, pack)
+                if missing_refs:
+                    parts.append("#### missing diagnosis refs from query_pack.md\n")
+                    for ref in missing_refs:
+                        parts.append(f"- `{ref}`\n")
+                    parts.append(
+                        "Repair by restoring the referenced diagnosis file or updating "
+                        "query_pack.md to a current path before routing missions that "
+                        "depend on those instructions.\n\n"
+                    )
+                for name in ("stale-watchlist.md", "open-contradictions.md"):
+                    qf = wiki_root / "queries" / name
+                    if qf.exists():
+                        parts.append(f"#### queries/{name}\n")
+                        parts.append(qf.read_text(encoding="utf-8").strip() + "\n\n")
+            parts.append(
+                "If backlog is empty, you MAY use the stale watchlist or open "
+                "contradictions to seed an `idea-creator` mission. Read-only: "
+                "do not write to the wiki yourself; the reviewer's "
+                "`wiki-curator` skill handles all writes.\n"
+            )
+            # M0.3: suggest a wiki_collect mission when cooldown has elapsed.
+            # This is a suggestion in the planner prompt, not a harness-enforced
+            # action; the planner still decides.
+            from datetime import datetime, timezone
+
+            from ..wiki.bot_state import (
+                collect_backoff_hours,
+                collect_cooldown_elapsed,
+                load_bot_state,
+            )
+
+            for wiki_root in wiki_candidates:
+                bot_state_path = wiki_root / "data" / "bot_state.json"
+                state = load_bot_state(bot_state_path)
+                if collect_cooldown_elapsed(state=state, now=datetime.now(timezone.utc)):
+                    collect_cooldown_hours = collect_backoff_hours(state)
+                    parts.append(
+                        f"### wiki_collect suggestion ({wiki_root.parent.name})\n"
+                        f"The wiki's collector cooldown of {collect_cooldown_hours:.0f}h "
+                        f"has elapsed since the last collect "
+                        f"(last_collected_at={state.last_collected_at}). "
+                        "If the active backlog has space, consider enqueueing one "
+                        "`wiki_collect` mission with the `wiki-collector` engineer "
+                        "skill. It is a small, train-free background mission that "
+                        "derives 5-10 queries from project state and ingests new "
+                        "arxiv / github hits into sources/*. The reviewer's "
+                        "wiki-curator handles promotion on the same mission's "
+                        "reviewer pass.\n"
+                    )
+            wiki_block = "".join(parts)
+
         return (
             format_role_context(
                 "Argus planner role skill",
@@ -609,6 +696,8 @@ class Planner:
             + "\n"
             + parallel_drafting_block
             + ("\n" if parallel_drafting_block else "")
+            + wiki_block
+            + ("\n" if wiki_block else "")
             + _PLANNER_SYSTEM_PREAMBLE
             + "\n\nOperator's continuous goal:\n"
             + continuous_objective.strip()
@@ -855,5 +944,3 @@ def parse_planner_text(text: str) -> PlannerVerdict:
 # ---------------------------------------------------------------------------
 # Objective rendering for the next cycle
 # ---------------------------------------------------------------------------
-
-

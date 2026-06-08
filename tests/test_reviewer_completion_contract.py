@@ -25,6 +25,7 @@ from argus_skill.life.supervisor import (
     LifeSupervisor,
     LifeSupervisorConfig,
 )
+from argus_skill.planner import PlannerVerdict
 
 # ---------------------------------------------------------------------------
 # ReviewDecision.final_submission_certified
@@ -276,6 +277,70 @@ def test_journal_gate_ignores_stale_validator_text(tmp_path: Path) -> None:
         extra={"completion_summary": "validate-full-emnlp exited 0"},
     ))
     assert sup._journal_has_full_emnlp_gate_success() is False
+
+
+def _write_operator_external_lock(root: Path, *, target_exists: bool = False) -> None:
+    lock_dir = root / "diagnosis"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    target = "reports/external/score.jsonl"
+    if target_exists:
+        (root / target).parent.mkdir(parents=True, exist_ok=True)
+        (root / target).write_text("{}\n", encoding="utf-8")
+    (lock_dir / "operator_only_external_blocker_lock_20260605.json").write_text(
+        json.dumps(
+            {
+                "local_engineer_action_required_before_mount": False,
+                "canonical_viability_verdict": "blocked_plan_stage_benchmark_package_viability",
+                "next_owner": "operator_data_owner",
+                "required_external_targets": [target],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_project_done_becomes_waiting_for_operator_only_external_blocker(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _write_operator_external_lock(project)
+    sup = _make_supervisor_cfg(tmp_path / "life", project_worktree=project, full_emnlp_gate=True)
+    verdict = PlannerVerdict(project_done=True, reason="local work complete")
+
+    converted = sup._defer_project_done_for_operator_external_blocker(verdict)
+
+    assert converted.project_done is False
+    assert converted.waiting is True
+    assert converted.new_tasks == []
+    assert "operator-only external benchmark blocker" in converted.waiting_reason
+
+
+def test_project_done_still_requires_final_submission_guard_without_external_lock(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    sup = _make_supervisor_cfg(tmp_path / "life", project_worktree=project, full_emnlp_gate=True)
+    verdict = PlannerVerdict(project_done=True, reason="paper ready")
+
+    converted = sup._defer_project_done_for_operator_external_blocker(verdict)
+
+    assert converted.project_done is True
+    assert converted.waiting is False
+
+
+def test_project_done_still_requires_final_submission_guard_after_reentry(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _write_operator_external_lock(project, target_exists=True)
+    sup = _make_supervisor_cfg(tmp_path / "life", project_worktree=project, full_emnlp_gate=True)
+    verdict = PlannerVerdict(project_done=True, reason="paper ready")
+
+    converted = sup._defer_project_done_for_operator_external_blocker(verdict)
+
+    assert converted.project_done is True
+    assert converted.waiting is False
 
 
 def test_item_is_final_submission_prefers_structured_tag() -> None:

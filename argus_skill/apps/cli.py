@@ -10,8 +10,11 @@ one entry point — ``argus-skill`` — which:
 
 Top-level flags control daemon lifecycle and read-only operator help
 (``--daemon``, ``--daemon-fg``, ``--daemon-stop``, ``--status``,
-``--daemon-runbook``, ``--no-daemon``). There are no subcommands; the
-REPL and backlog are the single workflow.
+``--daemon-runbook``, ``--no-daemon``). The only subcommand is a small
+admin helper for explicitly bootstrapping and backfilling per-project
+idea wikis: ``argus-skill wiki init <project>`` and
+``argus-skill wiki ingest --wiki <path>``. The REPL and backlog remain
+the single runtime workflow.
 """
 from __future__ import annotations
 
@@ -37,6 +40,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="argus-skill",
         description="argus-skill — 7×24 supervised lifetime coding agent",
+        # Disable prefix abbreviation so a subcommand flag like
+        # ``wiki ingest --init`` is not rejected as an ambiguous abbreviation
+        # of top-level options (``--init-identity`` / ``--init-model-api``).
+        # argparse pre-scans every option-like token against the top-level
+        # parser before delegating to a subparser; with abbreviation enabled
+        # that mis-classifies ``--init`` and exits 2 on Python <= 3.12.
+        allow_abbrev=False,
     )
     parser.add_argument(
         "--version",
@@ -246,6 +256,70 @@ def build_parser() -> argparse.ArgumentParser:
         "--baseline-condition",
         default=None,
         help="baseline condition name for --anti-mediocrity-check",
+    )
+
+    subparsers = parser.add_subparsers(dest="command")
+    wiki_parser = subparsers.add_parser(
+        "wiki",
+        help="Per-project idea-wiki operations",
+    )
+    wiki_sub = wiki_parser.add_subparsers(dest="wiki_cmd", required=True)
+    init_parser = wiki_sub.add_parser(
+        "init",
+        help="Initialize .autors/<project>/wiki/ from templates",
+    )
+    init_parser.add_argument(
+        "project",
+        help="Project slug (becomes .autors/<project>/wiki)",
+    )
+    init_parser.add_argument(
+        "--base",
+        type=Path,
+        default=Path.cwd(),
+        help="Base directory (default: cwd)",
+    )
+    ingest_parser = wiki_sub.add_parser(
+        "ingest",
+        help="Backfill sources/papers/ from paper/refs.bib (+ optional LIT_MATRIX.tsv)",
+    )
+    ingest_parser.add_argument(
+        "--wiki",
+        type=Path,
+        required=True,
+        help="Path to .autors/<project>/wiki/",
+    )
+    ingest_parser.add_argument(
+        "--refs",
+        type=Path,
+        help="Path to refs.bib (default: <project-root>/paper/refs.bib if it exists)",
+    )
+    ingest_parser.add_argument(
+        "--lit-matrix",
+        type=Path,
+        help=(
+            "Path to LIT_MATRIX.tsv (default: "
+            "<project-root>/research/LIT_MATRIX.tsv if it exists)"
+        ),
+    )
+    ingest_parser.add_argument(
+        "--ingested-by",
+        default="wiki-curator@manual-backfill",
+        help="Provenance string for the ingested_by frontmatter field",
+    )
+    ingest_parser.add_argument(
+        "--init",
+        action="store_true",
+        help="Initialize the wiki path before ingesting if it is missing",
+    )
+    migrate_parser = wiki_sub.add_parser(
+        "migrate",
+        help="Run one-shot wiki migrations such as sources/*.md -> sources/notes/",
+    )
+    migrate_parser.add_argument(
+        "--wiki",
+        type=Path,
+        required=True,
+        help="Path to .autors/<project>/wiki/",
     )
 
     return parser
@@ -1045,6 +1119,7 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.lifecycle_status)
         + bool(args.lifecycle_resume)
         + bool(args.lifecycle_archive)
+        + bool(getattr(args, "command", None))
     )
     if action_flags > 1:
         sys.stderr.write(
@@ -1052,10 +1127,17 @@ def main(argv: list[str] | None = None) -> int:
             "--daemon-runbook / --watch / --follow / --notify / --init-identity / "
             "--model-api-status / --init-model-api / --skill-stats / "
             "--skill-cleanse / --skill-compact / --export-builtin-skills / "
-            "--evidence-chain-check / --anti-mediocrity-check / --lifecycle-status "
+            "--evidence-chain-check / --anti-mediocrity-check / --lifecycle-status / "
+            "wiki subcommands "
             "are mutually exclusive.\n"
         )
         return 2
+    if args.command == "wiki" and args.wiki_cmd == "init":
+        return _run_with_path_resolution_errors(lambda: _cmd_wiki_init(args))
+    if args.command == "wiki" and args.wiki_cmd == "ingest":
+        return _run_with_path_resolution_errors(lambda: _cmd_wiki_ingest(args))
+    if args.command == "wiki" and args.wiki_cmd == "migrate":
+        return _run_with_path_resolution_errors(lambda: _cmd_wiki_migrate(args))
     if args.daemon:
         return _run_with_path_resolution_errors(
             lambda: _cmd_daemon_start(args, foreground=False)
@@ -1357,6 +1439,94 @@ def _cmd_notify(args: argparse.Namespace) -> int:
 def _cmd_init_identity(args: argparse.Namespace) -> int:
     from ._init_identity import run_init_identity
     return run_init_identity(_resolve_global_root(args))
+
+
+def _cmd_wiki_init(args: argparse.Namespace) -> int:
+    from ..wiki.bootstrap import init_wiki
+
+    root = init_wiki(args.project, base=args.base)
+    print(f"wiki ready at {root}")
+    return 0
+
+
+def _project_root_for_wiki_path(wiki: Path) -> Path:
+    wiki = wiki.expanduser()
+    resolved = wiki.resolve() if wiki.exists() else wiki.absolute()
+    if (
+        resolved.name == "wiki"
+        and resolved.parent.parent.name == ".autors"
+    ):
+        return resolved.parent.parent.parent
+    return resolved.parent.parent
+
+
+def _cmd_wiki_ingest(args: argparse.Namespace) -> int:
+    from ..wiki.bootstrap import init_wiki, is_initialized_wiki
+    from ..wiki.ingest import ingest_lit_matrix, ingest_refs_bib
+    from ..wiki.store import WikiStore
+
+    wiki = args.wiki.expanduser()
+    if not is_initialized_wiki(wiki):
+        if args.init:
+            project_root = _project_root_for_wiki_path(wiki)
+            if wiki.name == "wiki" and wiki.parent.name:
+                init_wiki(wiki.parent.name, base=project_root)
+            else:
+                sys.stderr.write(f"argus-skill: cannot infer project from --wiki {wiki}\n")
+                return 2
+        else:
+            sys.stderr.write(
+                f"argus-skill: {wiki} is not an initialized wiki; "
+                "run `argus-skill wiki init <project>` or pass --init\n"
+            )
+            return 2
+    if not is_initialized_wiki(wiki):
+        sys.stderr.write(f"argus-skill: failed to initialize wiki at {wiki}\n")
+        return 2
+    store = WikiStore(wiki)
+    project_root = _project_root_for_wiki_path(wiki)
+    refs = args.refs.expanduser() if args.refs else project_root / "paper" / "refs.bib"
+    lit = (
+        args.lit_matrix.expanduser()
+        if args.lit_matrix
+        else project_root / "research" / "LIT_MATRIX.tsv"
+    )
+
+    if refs.exists():
+        bib_result = ingest_refs_bib(
+            store,
+            bib_path=refs,
+            ingested_by=args.ingested_by,
+        )
+        print(f"ingested {len(bib_result.written)} new source(s) from {refs}")
+        for warning in bib_result.warnings:
+            sys.stderr.write(f"warning: {warning}\n")
+    else:
+        print(f"no refs.bib at {refs}, skipping bib ingest")
+
+    if lit.exists():
+        lit_result = ingest_lit_matrix(store, tsv_path=lit)
+        print(f"enriched {lit_result.enriched_count} source(s) from {lit}")
+        for warning in lit_result.warnings:
+            sys.stderr.write(f"warning: {warning}\n")
+    else:
+        print(f"no LIT_MATRIX.tsv at {lit}, skipping enrichment")
+
+    return 0
+
+
+def _cmd_wiki_migrate(args: argparse.Namespace) -> int:
+    from ..wiki.bootstrap import is_initialized_wiki
+    from ..wiki.migrate import migrate_orphan_sources
+    from ..wiki.store import WikiStore
+
+    wiki = args.wiki.expanduser()
+    if not is_initialized_wiki(wiki):
+        sys.stderr.write(f"argus-skill: {wiki} is not an initialized wiki\n")
+        return 2
+    moved = migrate_orphan_sources(WikiStore(wiki))
+    print(f"migrated {len(moved)} orphan source note(s)")
+    return 0
 
 
 def _model_api_env(args: argparse.Namespace) -> dict[str, str]:

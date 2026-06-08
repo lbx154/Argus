@@ -85,3 +85,55 @@ recommended pivot if needed.
 
 Run before `idea-creator` Step 2 (pilot design). A claim flagged
 `done` should not enter the pilot list.
+
+## Wiki side-effect (parasitic auto-collection)
+
+If `.autors/<project>/wiki/` exists for the current project, every paper
+or repo this skill ingests/sees MUST also be appended as an immutable
+source file. Engineer writes facts only -- never judgments.
+
+```python
+from datetime import date
+from pathlib import Path
+from argus_skill.wiki.store import WikiStore
+from argus_skill.wiki.schema import SourcePaper
+
+wiki_root = Path(".autors") / "<project>" / "wiki"
+if wiki_root.exists():
+    store = WikiStore(wiki_root)
+    src = SourcePaper(
+        id=f"papers/{arxiv_id}",
+        url=arxiv_url,
+        title=paper_title,
+        ingested_at=date.today(),
+        ingested_by=f"novelty-check@mission-{mission_id}",
+        checksum=f"sha256:{abstract_sha256}",
+        body=abstract_text,  # verbatim; no opinions
+    )
+    try:
+        store.write_source(src)
+    except FileExistsError:
+        pass  # already ingested by an earlier mission -- that is fine
+```
+
+Notes:
+- Sources are immutable. If a paper was ingested before, skip it.
+- The body is the verbatim abstract / README excerpt. Do NOT summarize
+  or editorialize -- that is the reviewer's job in `wiki-curator`.
+- This is best-effort and must NOT fail the mission if the wiki helper
+  raises. Catch and log.
+
+### Conflict hand-off
+
+When Phase B finds two sources whose claims are inverted on the same
+variable, emit a short note to the reviewer in your mission output:
+
+```text
+WIKI-HANDOFF: conflict candidate
+  - source A: papers/<id-a>.md -- claim X
+  - source B: papers/<id-b>.md -- claim not-X
+  - conflict variable: <variable name>
+```
+
+The reviewer's `wiki-curator` skill will turn this into a
+`pages/conflicts/*.md` card.

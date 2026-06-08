@@ -1,8 +1,9 @@
 """Argument-parser tests for the unified ``argus-skill`` entry point.
 
-The 7×24 pivot stripped ``run`` and ``list-skills`` subcommands. These
-tests pin down the surface so a future refactor cannot silently
-re-introduce them.
+The 7x24 pivot stripped legacy ``run`` and ``list-skills`` subcommands.
+These tests pin down the surface so a future refactor cannot silently
+re-introduce them; the idea-wiki admin path is the only supported
+subcommand.
 """
 from __future__ import annotations
 
@@ -13,15 +14,23 @@ import pytest
 from argus_skill.apps.cli import build_parser, main
 
 
-def test_parser_has_no_subcommands():
+def test_parser_has_only_wiki_subcommand():
     p = build_parser()
-    actions = p._actions  # noqa: SLF001
-    has_subparsers = any(
-        action.__class__.__name__ == "_SubParsersAction" for action in actions
-    )
-    assert not has_subparsers, (
-        "argus-skill is a single 7×24 entry point — no subcommands."
-    )
+    args = p.parse_args(["wiki", "init", "demo"])
+    assert args.command == "wiki"
+    assert args.wiki_cmd == "init"
+    assert args.project == "demo"
+
+
+def test_parser_accepts_wiki_ingest_subcommand(tmp_path: Path):
+    p = build_parser()
+    wiki = tmp_path / ".autors" / "demo" / "wiki"
+    args = p.parse_args(["wiki", "ingest", "--wiki", str(wiki)])
+    assert args.command == "wiki"
+    assert args.wiki_cmd == "ingest"
+    assert args.wiki == wiki
+    assert args.ingested_by == "wiki-curator@manual-backfill"
+    assert args.init is False
 
 
 def test_parser_rejects_legacy_run_subcommand():
@@ -34,6 +43,112 @@ def test_parser_rejects_legacy_list_skills_subcommand():
     p = build_parser()
     with pytest.raises(SystemExit):
         p.parse_args(["list-skills"])
+
+
+def test_main_wiki_init(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    rc = main(["wiki", "init", "demo"])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert (tmp_path / ".autors" / "demo" / "wiki" / "data" / "schema.yaml").exists()
+    assert (tmp_path / ".autors" / "demo" / "wiki" / "query_pack.md").exists()
+    assert "wiki ready at" in out
+
+
+def test_main_wiki_ingest_backfills_refs_and_lit_matrix(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    from argus_skill.wiki.bootstrap import init_wiki
+    from argus_skill.wiki.schema import SourcePaper
+    from argus_skill.wiki.store import WikiStore
+
+    wiki = init_wiki("demo", base=tmp_path)
+    refs = tmp_path / "paper" / "refs.bib"
+    refs.parent.mkdir()
+    refs.write_text(
+        """
+@article{demo2026,
+  title={Demo Paper},
+  author={Doe, Jane},
+  year={2026},
+  url={https://arxiv.org/abs/2601.00001}
+}
+""",
+        encoding="utf-8",
+    )
+    lit = tmp_path / "research" / "LIT_MATRIX.tsv"
+    lit.parent.mkdir()
+    lit.write_text(
+        "id\tyear\ttype\tvenue\turl\trelevance_to_demo\n"
+        "demo2026\t2026\trecent\tarXiv\thttps://arxiv.org/abs/2601.00001\tUseful.\n",
+        encoding="utf-8",
+    )
+
+    rc = main(
+        [
+            "wiki",
+            "ingest",
+            "--wiki",
+            str(wiki),
+            "--refs",
+            str(refs),
+            "--lit-matrix",
+            str(lit),
+            "--ingested-by",
+            "test",
+        ]
+    )
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "ingested 1 new source(s)" in out
+    assert "enriched 1 source(s)" in out
+    src = WikiStore(wiki).read_source(SourcePaper, "papers/arxiv-2601.00001")
+    assert src.ingested_by == "test"
+    assert "Useful." in src.body
+
+
+def test_wiki_ingest_rejects_uninitialized_path(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    wiki = tmp_path / ".autors" / "demo" / "wiki"
+    refs = tmp_path / "refs.bib"
+    refs.write_text("@misc{x, title={x}}\n", encoding="utf-8")
+
+    rc = main(["wiki", "ingest", "--wiki", str(wiki), "--refs", str(refs)])
+    captured = capsys.readouterr()
+
+    assert rc != 0
+    assert "not an initialized wiki" in captured.err
+    assert not wiki.exists()
+
+
+def test_wiki_ingest_init_flag_bootstraps(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    wiki = tmp_path / ".autors" / "demo" / "wiki"
+    refs = tmp_path / "refs.bib"
+    refs.write_text(
+        """
+@misc{x,
+  title={X},
+  url={https://arxiv.org/abs/2601.00002}
+}
+""",
+        encoding="utf-8",
+    )
+
+    rc = main(["wiki", "ingest", "--wiki", str(wiki), "--refs", str(refs), "--init"])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert (wiki / "data" / "schema.yaml").exists()
+    assert "ingested 1 new source(s)" in out
 
 
 def test_parser_accepts_no_daemon_flag():
@@ -219,3 +334,26 @@ def test_main_rejects_launch_without_special_prompt(
     assert rc == 2
     assert called["hit"] is False
     assert "special prompt" in capsys.readouterr().err.lower()
+
+
+def test_wiki_ingest_init_flag_parses_without_abbreviation_collision():
+    # Regression: top-level ``--init-identity`` / ``--init-model-api`` must not
+    # turn the ``wiki ingest --init`` subcommand flag into an "ambiguous
+    # option" on Python <= 3.12 (argparse pre-scans tokens against the parent
+    # parser). The parent parser is built with ``allow_abbrev=False``.
+    p = build_parser()
+    args = p.parse_args(
+        ["wiki", "ingest", "--wiki", "/tmp/w", "--refs", "/tmp/r.bib", "--init"]
+    )
+    assert args.command == "wiki"
+    assert args.wiki_cmd == "ingest"
+    assert args.init is True
+
+
+def test_top_level_abbreviation_is_disabled():
+    # ``allow_abbrev=False`` means abbreviated top-level flags are rejected
+    # rather than silently expanded — this is what prevents the ``--init``
+    # ambiguity from re-appearing as new ``--init-*`` flags are added.
+    p = build_parser()
+    with pytest.raises(SystemExit):
+        p.parse_args(["--objec", "x"])

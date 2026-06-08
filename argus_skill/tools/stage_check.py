@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 STAGE_ORDER = [
     "research", "plan", "benchmark", "run",
@@ -204,11 +205,95 @@ def _get_current_stage(project_root: Path) -> str:
         return "research"
 
 
+def _read_json(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _format_blockers(payload: dict[str, Any], *, max_items: int = 4) -> str:
+    blockers = payload.get("blockers")
+    if not isinstance(blockers, list) or not blockers:
+        return ""
+    rendered: list[str] = []
+    for item in blockers[:max_items]:
+        if not isinstance(item, dict):
+            continue
+        family = item.get("family_id")
+        bid = item.get("id")
+        message = item.get("message")
+        prefix = ".".join(str(part) for part in (family, bid) if part)
+        rendered.append(f"{prefix}: {message}" if message else prefix)
+    return "; ".join(part for part in rendered if part)
+
+
+def _benchmark_external_findings(project_root: Path) -> list[str]:
+    findings: list[str] = []
+    provenance = _read_json(project_root / "experiments" / "BENCHMARK_PROVENANCE.json")
+    if isinstance(provenance, dict):
+        viability = provenance.get("plan_viability")
+        if isinstance(viability, dict):
+            status = viability.get("status")
+            if status == "blocked_plan_stage_benchmark_package_viability":
+                reason = viability.get("reason") or "benchmark package viability is blocked"
+                findings.append(f"plan viability is blocked: {reason}")
+            count = viability.get("local_authentic_scored_family_count")
+            minimum = viability.get("minimum_required_family_count")
+            if isinstance(count, int) and isinstance(minimum, int) and count < minimum:
+                findings.append(
+                    "local authentic scored benchmark family count below minimum: "
+                    f"{count} < {minimum}"
+                )
+
+    gate_files = (
+        ("benchmark access review", project_root / "experiments" / "BENCHMARK_ACCESS_REVIEW.json"),
+        ("benchmark artifact bundle", project_root / "experiments" / "BENCHMARK_ARTIFACT_BUNDLE_STATUS.json"),
+        ("benchmark evaluator authenticity", project_root / "experiments" / "BENCHMARK_EVALUATOR_AUTHENTICITY.json"),
+    )
+    for label, path in gate_files:
+        payload = _read_json(path)
+        if not isinstance(payload, dict) or "passed" not in payload:
+            continue
+        if payload.get("passed") is False:
+            details = _format_blockers(payload)
+            findings.append(f"{label} is blocked" + (f": {details}" if details else ""))
+    return findings
+
+
+def _blocked_pipeline_findings(project_root: Path, *, requested_stage: str) -> list[str]:
+    findings: list[str] = []
+    state = _read_json(project_root / "research" / "PIPELINE_STATE.json")
+    if isinstance(state, dict):
+        if state.get("status") == "blocked":
+            reason = state.get("last_gate", {}).get("reason") if isinstance(state.get("last_gate"), dict) else ""
+            findings.append(f"pipeline status is blocked: {reason or 'no reason recorded'}")
+        stages = state.get("stages")
+        if isinstance(stages, dict):
+            for stage_name in {str(state.get("current_stage") or ""), requested_stage}:
+                if not stage_name:
+                    continue
+                stage_payload = stages.get(stage_name)
+                if isinstance(stage_payload, dict) and stage_payload.get("status") == "blocked":
+                    reason = stage_payload.get("reason") or stage_payload.get("gate") or "no reason recorded"
+                    findings.append(f"stage {stage_name!r} status is blocked: {reason}")
+
+    findings.extend(_benchmark_external_findings(project_root))
+    return findings
+
+
 def main() -> int:
     import argparse
     parser = argparse.ArgumentParser(prog="stage-check")
     parser.add_argument("--project-root", type=Path, default=Path("."))
     parser.add_argument("--stage", default=None)
+    # WHY M0.7: bounded diagnostic/survey missions cannot satisfy broad
+    # paper-pipeline benchmark readiness; this flag downgrades only those
+    # state findings while structural anti-fraud gates still block below.
+    parser.add_argument("--bounded", action="store_true")
     args = parser.parse_args()
 
     root = args.project_root.resolve()
@@ -243,6 +328,22 @@ def main() -> int:
             print(f"  ⏰ {desc} (timeout)")
             failed += 1
 
+    blocked_findings = _blocked_pipeline_findings(root, requested_stage=stage)
+    # WHY M0.7: the root cause was bounded missions looping because
+    # paper-pipeline blocked state was counted as a hard per-round failure.
+    # In bounded mode it is advisory only; structural gates are unchanged.
+    blocked_state_fail = 0 if args.bounded else len(blocked_findings)
+    bounded_state_advisory = len(blocked_findings) if args.bounded else 0
+    if blocked_findings:
+        print()
+        print(
+            "📋 Advisory paper-pipeline state:"
+            if args.bounded
+            else "🚫 Fail-closed pipeline state:"
+        )
+        for finding in blocked_findings:
+            print(f"  {'📋' if args.bounded else '❌'} {finding}")
+
     # 2. Run automated F4 (structural) + F3 (advisory) gates that apply
     #    at this stage. STRUCTURAL gate failures count into the round
     #    exit code — they are anti-fraud / provenance guards (e.g. broken
@@ -261,7 +362,7 @@ def main() -> int:
         baseline_condition=os.environ.get("ARGUS_SKILL_BASELINE_CONDITION") or None,
     )
     structural_block = 0
-    advisory_count = 0
+    advisory_count = bounded_state_advisory
     structural_pass = 0
     structural_fail = 0
     if gate_results:
@@ -297,12 +398,13 @@ def main() -> int:
 
     # Exit code: shell-check failures + STRUCTURAL gate failures only.
     # Advisory findings (mediocrity facts) never appear here.
-    total_failed = failed + structural_block
+    total_failed = failed + structural_block + blocked_state_fail
     print(
         f"\n{'✅' if total_failed == 0 else '❌'} "
         f"{passed} shell pass, {failed} shell fail, "
         f"{structural_pass} structural-gate pass, "
         f"{structural_fail} structural-gate fail, "
+        f"{blocked_state_fail} fail-closed state finding(s), "
         f"{advisory_count} advisory finding(s) "
         f"(reviewer rules)"
     )
