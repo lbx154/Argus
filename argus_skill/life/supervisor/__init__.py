@@ -1,0 +1,78 @@
+"""LifeSupervisor harness (split into a package; API re-exported)."""
+from __future__ import annotations
+
+from ._config import (
+    LifeBudget,
+    LifeSupervisorConfig,
+    _MemoryView,
+    _MissionRunner,
+)
+from ._core import (
+    _FOLLOWUP_CRITIC_MIN_IMPACT_SCORE,
+    _FULL_EMNLP_GATE_DESCRIPTION,
+    _IDLE_BACKOFF_BASE_SECONDS,
+    _IDLE_BACKOFF_CAP_SECONDS,
+    _LIFECYCLE_BLOCK_HEARTBEAT_SECONDS,
+    _PLAN_AWAITING,
+    _PLAN_ERROR,
+    _PLAN_HANDOFF,
+    _PLAN_PROJECT_DONE,
+    _PLAN_RETRY,
+    _PLAN_TASKS_ADDED,
+    _PLANNER_DEDUP_STATUSES,
+    _PLANNER_RECENT_FAILURE_STATUS,
+    _PLANNER_RECENT_HISTORY_WINDOW,
+    _PLANNER_SCOPE_BOUNDED,
+    _PLANNER_SCOPE_FINAL_SUBMISSION,
+    LifeSupervisor,
+    _price_for,
+    log,
+)
+from ._cost import (
+    _CostTrackingSink,
+)
+from ._helpers import (
+    _entry_task_signature,
+    _is_recent_no_progress_failure,
+    _legacy_final_submission_marker,
+    _normalize_planner_text,
+    _operator_only_blocker_paths_for_project,
+    _operator_only_external_blocker_wait_reason_for_project,
+    _planner_task_signature,
+    _sanitize_planner_task_text,
+)
+
+__all__ = [
+    "_operator_only_blocker_paths_for_project",
+    "_operator_only_external_blocker_wait_reason_for_project",
+    "_normalize_planner_text",
+    "_sanitize_planner_task_text",
+    "_planner_task_signature",
+    "_legacy_final_submission_marker",
+    "_entry_task_signature",
+    "_is_recent_no_progress_failure",
+    "_MemoryView",
+    "LifeBudget",
+    "LifeSupervisorConfig",
+    "_MissionRunner",
+    "_CostTrackingSink",
+    "log",
+    "_price_for",
+    "_PLANNER_DEDUP_STATUSES",
+    "_PLANNER_RECENT_HISTORY_WINDOW",
+    "_PLANNER_RECENT_FAILURE_STATUS",
+    "_FOLLOWUP_CRITIC_MIN_IMPACT_SCORE",
+    "_PLANNER_SCOPE_BOUNDED",
+    "_PLANNER_SCOPE_FINAL_SUBMISSION",
+    "_PLAN_TASKS_ADDED",
+    "_PLAN_PROJECT_DONE",
+    "_PLAN_RETRY",
+    "_PLAN_HANDOFF",
+    "_PLAN_ERROR",
+    "_PLAN_AWAITING",
+    "_IDLE_BACKOFF_BASE_SECONDS",
+    "_IDLE_BACKOFF_CAP_SECONDS",
+    "_LIFECYCLE_BLOCK_HEARTBEAT_SECONDS",
+    "_FULL_EMNLP_GATE_DESCRIPTION",
+    "LifeSupervisor",
+]
