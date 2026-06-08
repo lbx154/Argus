@@ -147,3 +147,24 @@ def test_release_parks_only_when_last_lease(tmp_path: Path, monkeypatch) -> None
     assert res1["parked"] is False and parked["n"] == 0
     res2 = gpu_lease._release({"match": "gpu_load.py"}, "b")
     assert res2["parked"] is True and parked["n"] == 1
+
+
+def test_write_lease_ttl_zero_sets_expiry(tmp_path, monkeypatch):
+    # Regression: ttl=0 is falsy; `if ttl` wrongly recorded expires_at=None
+    # (never expires). A 0 TTL must still produce a concrete expiry.
+    import json as _json
+
+    _isolate_state(tmp_path, monkeypatch)
+    gpu_lease._write_lease("z", "agent", pid=None, ttl=0, gpus="")
+    meta = _json.loads((gpu_lease._leases_dir() / "z.json").read_text())
+    assert meta["ttl_seconds"] == 0
+    assert meta["expires_at"] is not None
+
+
+def test_write_lease_ttl_none_has_no_expiry(tmp_path, monkeypatch):
+    import json as _json
+
+    _isolate_state(tmp_path, monkeypatch)
+    gpu_lease._write_lease("n", "agent", pid=None, ttl=None, gpus="")
+    meta = _json.loads((gpu_lease._leases_dir() / "n.json").read_text())
+    assert meta["expires_at"] is None

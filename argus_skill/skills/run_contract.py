@@ -252,6 +252,23 @@ class FeasibilityPacket:
         return self.prompt_volume / float(self.distinct_tasks)
 
 
+def _packet_bool(value: object) -> bool:
+    """Strict boolean read for a feasibility packet.
+
+    ``smoke_only`` waives the diversity/non-saturation anti-fraud checks, so it
+    fails closed: only a genuine ``true`` (bool, ``1``, or the string
+    ``"true"``) waives. ``bool("false")`` would otherwise be truthy and silently
+    exempt a full run from the gate.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value == 1
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes"}
+    return False
+
+
 def load_feasibility_packet(
     path: Path,
 ) -> tuple[FeasibilityPacket | None, list[ContractIssue]]:
@@ -286,7 +303,7 @@ def load_feasibility_packet(
             frac_reward_zero_std=float(raw.get("frac_reward_zero_std", 0.0)),
             probe_steps=int(raw["probe_steps"]),
             probe_run_dir=str(raw.get("probe_run_dir", "")),
-            smoke_only=bool(raw.get("smoke_only", False)),
+            smoke_only=_packet_bool(raw.get("smoke_only", False)),
             notes=str(raw.get("notes", "")),
             schema_version=int(raw.get("schema_version", PACKET_SCHEMA_VERSION)),
         )

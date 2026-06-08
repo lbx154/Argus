@@ -278,3 +278,31 @@ def test_cli_freeze_and_check(tmp_path, capsys):
     assert (tmp_path / DEFAULT_RUN_CONTRACT_PATH).exists()
     loaded, issues = load_run_contract(tmp_path / DEFAULT_RUN_CONTRACT_PATH)
     assert loaded is not None and not any(i.code.startswith("contract_hash") for i in issues)
+
+
+def test_packet_string_false_smoke_only_does_not_waive(tmp_path):
+    # Regression: bool("false") is True in Python. A packet that records the
+    # *string* "false" must NOT waive the diversity/saturation anti-fraud
+    # checks (fail-closed).
+    c = _contract(distinct_tasks=50, curriculum_hash="e" * 64)
+    p = tmp_path / "packet.json"
+    raw = _good_packet(curriculum_hash="e" * 64, distinct_tasks=50)
+    raw["smoke_only"] = "false"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+    packet, _ = load_feasibility_packet(p)
+    assert packet is not None
+    assert packet.smoke_only is False
+    # low-diversity check still fires (not waived).
+    assert validate_feasibility_packet(packet, c) != []
+
+
+def test_packet_bool_true_variants_waive(tmp_path):
+    c = _contract(distinct_tasks=50, curriculum_hash="e" * 64)
+    for truthy in (True, "true", "True", 1):
+        p = tmp_path / "packet.json"
+        raw = _good_packet(curriculum_hash="e" * 64, distinct_tasks=50)
+        raw["smoke_only"] = truthy
+        p.write_text(json.dumps(raw), encoding="utf-8")
+        packet, _ = load_feasibility_packet(p)
+        assert packet is not None and packet.smoke_only is True
+        assert validate_feasibility_packet(packet, c) == []
