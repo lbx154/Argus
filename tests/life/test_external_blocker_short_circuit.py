@@ -5,12 +5,12 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from argus_skill.wiki.bootstrap import init_wiki
-from argus_skill.wiki.bot_state import BotState, save_bot_state
 from argus_skill.life.supervisor import (
     _operator_only_blocker_paths_for_project,
     _operator_only_external_blocker_wait_reason_for_project,
 )
+from argus_skill.wiki.bootstrap import init_wiki
+from argus_skill.wiki.bot_state import BotState, save_bot_state
 
 
 def _write_blocker(project_root: Path, filename: str, payload: dict) -> Path:
@@ -347,3 +347,63 @@ def test_blocker_tmp_file_is_ignored(tmp_path: Path):
     )
 
     assert _operator_only_external_blocker_wait_reason_for_project(tmp_path) == ""
+
+
+def test_bounded_mission_does_not_short_circuit_on_external_blocker(tmp_path: Path):
+    """Regression: with ``full_emnlp_gate=False`` (a ``--bounded`` mission), an
+    operator-only external blocker must NOT short-circuit the planner cycle.
+
+    Otherwise a bounded diagnostic/survey mission can never reach
+    ``project_done`` and waits forever on external artifacts it does not need.
+    Here, with the short-circuit correctly bypassed and no planner runner
+    wired, ``_plan_next_work`` falls through to the "no planner runner" path
+    instead of emitting an ``awaiting_external`` waiting verdict.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    _write_blocker(
+        project,
+        "operator_only_external_blocker_20260605.json",
+        {
+            "local_engineer_action_required_before_mount": False,
+            "required_external_targets": ["data/eval/wise.csv"],
+            "canonical_viability_verdict": "blocked: data missing",
+            "next_owner": "operator",
+        },
+    )
+
+    from argus_skill.life.memory import LifeMemory
+    from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+
+    mem = LifeMemory.open(tmp_path / "life")
+    mem.init()
+    events: list[dict] = []
+
+    class _Sink:
+        def handle_event(self, event: dict) -> None:
+            events.append(event)
+
+    class _Runner:
+        pass
+
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_Runner(),
+        sink=_Sink(),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(),
+            poll_interval_seconds=0.01,
+            project_worktree=project,
+            continuous=True,
+            continuous_objective="bounded survey",
+            full_emnlp_gate=False,
+        ),
+        planner_runner=None,
+    )
+
+    result = sup._plan_next_work()
+
+    # Short-circuit bypassed: NOT awaiting_external / planner_waiting.
+    assert result != "awaiting_external"
+    assert not any(e.get("type") == "life.planner.waiting" for e in events)
+    assert mem.journal.tail(1)[0].kind != "planner_waiting"

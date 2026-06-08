@@ -789,7 +789,6 @@ class LifeWorker:
         # backlog goes empty or the budget caps. Then we sleep
         # poll_interval seconds and try again — items may have been
         # /add'd from a coexisting REPL.
-        from ..apps._life_repl import _inbox_drainer_for
         from ..life.activity_log import ActivityLogSink
         from ..life.event_log import JsonlEventSink
 

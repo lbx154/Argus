@@ -334,3 +334,26 @@ def test_main_rejects_launch_without_special_prompt(
     assert rc == 2
     assert called["hit"] is False
     assert "special prompt" in capsys.readouterr().err.lower()
+
+
+def test_wiki_ingest_init_flag_parses_without_abbreviation_collision():
+    # Regression: top-level ``--init-identity`` / ``--init-model-api`` must not
+    # turn the ``wiki ingest --init`` subcommand flag into an "ambiguous
+    # option" on Python <= 3.12 (argparse pre-scans tokens against the parent
+    # parser). The parent parser is built with ``allow_abbrev=False``.
+    p = build_parser()
+    args = p.parse_args(
+        ["wiki", "ingest", "--wiki", "/tmp/w", "--refs", "/tmp/r.bib", "--init"]
+    )
+    assert args.command == "wiki"
+    assert args.wiki_cmd == "ingest"
+    assert args.init is True
+
+
+def test_top_level_abbreviation_is_disabled():
+    # ``allow_abbrev=False`` means abbreviated top-level flags are rejected
+    # rather than silently expanded — this is what prevents the ``--init``
+    # ambiguity from re-appearing as new ``--init-*`` flags are added.
+    p = build_parser()
+    with pytest.raises(SystemExit):
+        p.parse_args(["--objec", "x"])

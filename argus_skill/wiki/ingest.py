@@ -20,7 +20,6 @@ from pathlib import Path
 from .schema import SourcePaper, parse_frontmatter, serialize_frontmatter
 from .store import WikiStore, _atomic_write_text
 
-
 _ARXIV_URL_RE = re.compile(
     r"arxiv\.org/(?:abs|pdf)/(?P<id>[^?#\s]+)",
     flags=re.IGNORECASE,
@@ -156,23 +155,24 @@ def ingest_lit_matrix(
                     doi=None,
                     key=key,
                 )
-                path = _paper_source_path_for_key(store, key)
-                if not path.exists():
-                    path = _paper_source_path_for_key(store, canonical)
-                if not path.exists():
-                    result.skipped += 1
-                    continue
-                src = parse_frontmatter(path.read_text(encoding="utf-8"), SourcePaper)
-                if relevance in src.body:
-                    result.skipped += 1
-                    continue
-                new_body = (src.body + f"\n\nrelevance: {relevance}").strip()
-                updated = SourcePaper(**{**src.__dict__, "body": new_body})
-                _atomic_write_text(path, serialize_frontmatter(updated))
-                aliases = _load_aliases(store)
-                aliases[key] = path.stem
-                _save_aliases(store, aliases)
-                result.enriched_count += 1
+                with store._wiki_lock():
+                    path = _paper_source_path_for_key(store, key)
+                    if not path.exists():
+                        path = _paper_source_path_for_key(store, canonical)
+                    if not path.exists():
+                        result.skipped += 1
+                        continue
+                    src = parse_frontmatter(path.read_text(encoding="utf-8"), SourcePaper)
+                    if relevance in src.body:
+                        result.skipped += 1
+                        continue
+                    new_body = (src.body + f"\n\nrelevance: {relevance}").strip()
+                    updated = SourcePaper(**{**src.__dict__, "body": new_body})
+                    _atomic_write_text(path, serialize_frontmatter(updated))
+                    aliases = _load_aliases(store)
+                    aliases[key] = path.stem
+                    _save_aliases(store, aliases)
+                    result.enriched_count += 1
             except Exception as exc:  # noqa: BLE001
                 result.skipped += 1
                 result.warnings.append(

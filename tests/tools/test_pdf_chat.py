@@ -234,3 +234,58 @@ def test_cli_section_subcommand(tiny_pdf: Path) -> None:
     )
     assert proc.returncode == 0, proc.stderr
     assert "functional" in proc.stdout.lower()
+
+
+# ---------------------------------------------------------------------------
+# _extract fallback hardening (regression: do not crash / discard text when
+# pdftotext succeeds but produces no detectable section heads).
+# ---------------------------------------------------------------------------
+
+
+def test_extract_keeps_pdftotext_text_when_pypdf_unavailable(monkeypatch) -> None:
+    from argus_skill.tools import pdf_chat
+
+    monkeypatch.setattr(pdf_chat.shutil, "which", lambda _name: "/usr/bin/pdftotext")
+    monkeypatch.setattr(
+        pdf_chat, "_extract_with_pdftotext", lambda _pdf: ("body without any heads", 3)
+    )
+
+    def _boom(_pdf):
+        raise ModuleNotFoundError("No module named 'pypdf'")
+
+    monkeypatch.setattr(pdf_chat, "_extract_with_pypdf", _boom)
+
+    text, pages = pdf_chat._extract(Path("/nonexistent.pdf"))
+    assert text == "body without any heads"
+    assert pages == 3
+
+
+def test_extract_uses_pypdf_when_it_recovers_headings(monkeypatch) -> None:
+    from argus_skill.tools import pdf_chat
+
+    monkeypatch.setattr(pdf_chat.shutil, "which", lambda _name: "/usr/bin/pdftotext")
+    monkeypatch.setattr(
+        pdf_chat, "_extract_with_pdftotext", lambda _pdf: ("garbled no heads", 2)
+    )
+    monkeypatch.setattr(
+        pdf_chat, "_extract_with_pypdf", lambda _pdf: ("Abstract\nrecovered body", 2)
+    )
+
+    text, _pages = pdf_chat._extract(Path("/nonexistent.pdf"))
+    assert text == "Abstract\nrecovered body"
+
+
+def test_extract_keeps_pdftotext_when_pypdf_no_better(monkeypatch) -> None:
+    from argus_skill.tools import pdf_chat
+
+    monkeypatch.setattr(pdf_chat.shutil, "which", lambda _name: "/usr/bin/pdftotext")
+    monkeypatch.setattr(
+        pdf_chat, "_extract_with_pdftotext", lambda _pdf: ("rich layout text", 4)
+    )
+    monkeypatch.setattr(
+        pdf_chat, "_extract_with_pypdf", lambda _pdf: ("worse text", 4)
+    )
+
+    text, pages = pdf_chat._extract(Path("/nonexistent.pdf"))
+    assert text == "rich layout text"
+    assert pages == 4

@@ -13,7 +13,10 @@ def migrate_orphan_sources(store: WikiStore) -> list[Path]:
 
     These files were produced by early operational missions before the wiki
     had a note source bucket. The migration preserves the original markdown as
-    the note body and removes the root orphan after a successful write.
+    the note body and removes the root orphan **only after** the note is
+    successfully written. If a note with the same stem already exists (notes
+    are immutable), the orphan is left in place untouched rather than deleted,
+    so its content is never silently lost on a stem collision.
     """
     sources_root = store.root / "sources"
     if not sources_root.exists():
@@ -33,7 +36,9 @@ def migrate_orphan_sources(store: WikiStore) -> list[Path]:
         try:
             target = store.write_source(note)
         except FileExistsError:
-            target = store.root / "sources" / "notes" / f"{stem}.md"
+            # A different note already occupies this stem. Do not delete the
+            # orphan — that would discard its body. Leave it for manual review.
+            continue
         orphan.unlink()
         moved.append(target)
     return moved

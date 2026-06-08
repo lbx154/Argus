@@ -13,7 +13,6 @@ from argus_skill.wiki.ingest import (
 from argus_skill.wiki.schema import SourcePaper
 from argus_skill.wiki.store import WikiStore
 
-
 SAMPLE_BIB = """
 @article{williams1992reinforce,
   title={Simple statistical gradient-following algorithms for connectionist reinforcement learning},

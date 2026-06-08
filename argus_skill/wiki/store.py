@@ -5,8 +5,7 @@ import os
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
-from typing import TypeVar
+from typing import Iterator, TypeVar
 
 from .schema import (
     PageCard,

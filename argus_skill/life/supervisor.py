@@ -2280,6 +2280,7 @@ class LifeSupervisor:
         if not autors.is_dir():
             return None
         from datetime import datetime, timezone
+
         from ..planner import TaskSpec
         from ..wiki.bootstrap import is_initialized_wiki
         from ..wiki.bot_state import collect_cooldown_elapsed, load_bot_state
@@ -2403,9 +2404,18 @@ class LifeSupervisor:
                 log.exception("notify dispatch failed; continuing")
             return None
 
-        short_circuit = self._operator_external_blocker_short_circuit_decision(
-            project_root=self._project_workdir(),
-        )
+        # Only skip the planner on an operator-only external blocker when the
+        # full EMNLP gate is active. A ``--bounded`` mission
+        # (``full_emnlp_gate=False``) does not require the external benchmark
+        # targets, so it must fall through to the planner and reach its own
+        # ``project_done`` instead of waiting forever on artifacts it never
+        # needs. Mirrors the gating in
+        # ``_defer_project_done_for_operator_external_blocker``.
+        short_circuit = None
+        if self.config.full_emnlp_gate:
+            short_circuit = self._operator_external_blocker_short_circuit_decision(
+                project_root=self._project_workdir(),
+            )
         if short_circuit is not None:
             return self._record_planner_waiting(
                 short_circuit,

@@ -649,7 +649,12 @@ class Planner:
             # This is a suggestion in the planner prompt, not a harness-enforced
             # action; the planner still decides.
             from datetime import datetime, timezone
-            from ..wiki.bot_state import collect_backoff_hours, collect_cooldown_elapsed, load_bot_state
+
+            from ..wiki.bot_state import (
+                collect_backoff_hours,
+                collect_cooldown_elapsed,
+                load_bot_state,
+            )
 
             for wiki_root in wiki_candidates:
                 bot_state_path = wiki_root / "data" / "bot_state.json"
