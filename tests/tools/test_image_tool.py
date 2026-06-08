@@ -205,6 +205,60 @@ def test_sync_paper_metadata_writes_manifest_and_provenance(tmp_path: Path) -> N
     assert (figures / "method.png.inspect.json").exists()
 
 
+def test_sync_paper_metadata_accepts_raw_file_prompt_hash_with_stripped_sidecar_prompt(
+    tmp_path: Path,
+) -> None:
+    figures = tmp_path / "paper" / "figures"
+    figures.mkdir(parents=True)
+    prompt_path = figures / "method.prompt.txt"
+    prompt = image_tool.render_paper_figure_prompt(figure_title="SkillCycle").strip()
+    prompt_path.write_text(prompt + "\n", encoding="utf-8")
+    output_path = figures / "method.png"
+    output_path.write_bytes(_PNG_BYTES)
+    info = image_tool.inspect_image(output_path)
+    prompt_sha = hashlib.sha256(prompt_path.read_bytes()).hexdigest()
+    output_path.with_suffix(output_path.suffix + ".json").write_text(
+        json.dumps(
+            {
+                "model": "gpt-image-2",
+                "created_at_unix": 1700000000,
+                "prompt": prompt,
+                "prompt_path": "paper/figures/method.prompt.txt",
+                "prompt_sha256": prompt_sha,
+                "output_path": "paper/figures/method.png",
+                "output_sha256": info["sha256"],
+                "requested_size": "1536x1024",
+                "image": info,
+                "api": {"endpoint": "/images/generations"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output_path.with_suffix(output_path.suffix + ".review.json").write_text(
+        json.dumps(
+            {
+                "image": info,
+                "model": "gpt-5.4",
+                "endpoint": "/responses",
+                "review": "score_1_to_5: 5\nkeep_or_regenerate: keep",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    entry = image_tool.sync_paper_metadata(
+        project_root=tmp_path,
+        image=Path("paper/figures/method.png"),
+        prompt_file=Path("paper/figures/method.prompt.txt"),
+        figure_id="method-overview",
+        figure_type="method",
+    )
+
+    assert entry["prompt_sha256"] == prompt_sha
+
+
 def test_generate_image_writes_artifact_and_secret_free_sidecar(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -833,7 +833,14 @@ def _require_matching_prompt(
     raw_prompt = sidecar.get("prompt")
     if not isinstance(raw_prompt, str) or not raw_prompt.strip():
         raise ImageToolError("generation sidecar must preserve the exact prompt text")
-    if _sha256_text(raw_prompt) != prompt_sha:
+    raw_prompt_hashes = {
+        _sha256_text(raw_prompt),
+        _sha256_text(raw_prompt.strip()),
+        _sha256_text(raw_prompt.rstrip("\n")),
+    }
+    if prompt_sha not in raw_prompt_hashes and not (
+        raw_prompt_hashes & _prompt_hash_variants(prompt_file)
+    ):
         raise ImageToolError("generation sidecar prompt text hash does not match prompt_sha256")
     return prompt_text, prompt_sha
 
