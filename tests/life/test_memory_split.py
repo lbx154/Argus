@@ -428,7 +428,7 @@ def test_cli_status_and_prelude_are_project_scoped(
             backend=None,
         ),
     )
-    monkeypatch.setattr("argus_skill.apps.cli._check_logout_survival", lambda status: None)
+    monkeypatch.setattr("argus_skill.apps.cli._core._check_logout_survival", lambda status: None)
 
     monkeypatch.chdir(repo_a)
     rc_a = main(["--status"])

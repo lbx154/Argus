@@ -23,306 +23,25 @@ import json
 import os
 import sys
 import time
-from collections import deque
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
-from ..core import paths as core_paths
-from ..life.status import count_backlog_statuses, select_current_running_item
-from ._inbox import count_pending_inbox_messages, format_inbox_event, queue_inbox_message
-from ._target_paths import resolve_life_root
-
-
-def build_parser() -> argparse.ArgumentParser:
-    from .. import __version__
-    from ..skills.builtins import DEFAULT_PROJECT_BUILTIN_SKILLS_DIR
-
-    parser = argparse.ArgumentParser(
-        prog="argus-skill",
-        description="argus-skill — 7×24 supervised lifetime coding agent",
-        # Disable prefix abbreviation so a subcommand flag like
-        # ``wiki ingest --init`` is not rejected as an ambiguous abbreviation
-        # of top-level options (``--init-identity`` / ``--init-model-api``).
-        # argparse pre-scans every option-like token against the top-level
-        # parser before delegating to a subparser; with abbreviation enabled
-        # that mis-classifies ``--init`` and exits 2 on Python <= 3.12.
-        allow_abbrev=False,
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"argus-skill {__version__}",
-    )
-
-    daemon_grp = parser.add_argument_group("7×24 daemon")
-    daemon_grp.add_argument(
-        "--daemon",
-        action="store_true",
-        help="start a detached background worker that drains the backlog forever",
-    )
-    daemon_grp.add_argument(
-        "--daemon-fg",
-        action="store_true",
-        help="run the worker in the foreground (for systemd / debugging)",
-    )
-    daemon_grp.add_argument(
-        "--daemon-stop",
-        action="store_true",
-        help="send SIGTERM to the current project's daemon",
-    )
-    daemon_grp.add_argument(
-        "--status",
-        action="store_true",
-        help="print the current project daemon + backlog status and exit",
-    )
-    daemon_grp.add_argument(
-        "--daemon-runbook",
-        action="store_true",
-        help="print the daemon-safe upgrade / restart playbook and exit",
-    )
-    daemon_grp.add_argument(
-        "--no-daemon",
-        action="store_true",
-        help="skip auto-spawning the background daemon when entering the REPL",
-    )
-    daemon_grp.add_argument(
-        "--life-dir",
-        default=None,
-        help="override the global argus-skill root (default: ~/.argus-skill)",
-    )
-    daemon_grp.add_argument(
-        "--continuous",
-        action="store_true",
-        help="enable continuous planner mode (daemon generates new tasks "
-             "when backlog is empty)",
-    )
-    daemon_grp.add_argument(
-        "--objective",
-        default="",
-        help="continuous improvement objective (used with --continuous)",
-    )
-    daemon_grp.add_argument(
-        "--bounded",
-        action="store_true",
-        help="treat the mission as a bounded one-shot goal: hard-stop once the "
-             "planner certifies project_done (default: open-ended — the agent "
-             "keeps generating new work forever)",
-    )
-
-    cockpit_grp = parser.add_argument_group("cockpit")
-    cockpit_grp.add_argument(
-        "--watch",
-        action="store_true",
-        help="open the live read-only cockpit for the current project",
-    )
-    cockpit_grp.add_argument(
-        "--notify",
-        metavar="MSG",
-        help="append a nudge message to the supervisor's inbox (the next "
-             "engineer round picks it up as operator guidance)",
-    )
-    cockpit_grp.add_argument(
-        "--follow",
-        action="store_true",
-        help="stream daemon events to terminal in real-time "
-             "(like tail -f, Ctrl-C to stop)",
-    )
-    cockpit_grp.add_argument(
-        "--init-identity",
-        action="store_true",
-        help="run the interactive identity-card wizard "
-             "(never overwrites an existing card)",
-    )
-
-    capability_grp = parser.add_argument_group("capability config")
-    capability_grp.add_argument(
-        "--setup",
-        action="store_true",
-        help="run the interactive setup wizard (API + GPU configuration)",
-    )
-    capability_grp.add_argument(
-        "--model-api-status",
-        action="store_true",
-        help="print the unified model/image API capability status without secrets",
-    )
-    capability_grp.add_argument(
-        "--init-model-api",
-        action="store_true",
-        help="import OPENAI_* / Codex config into the private capability vault "
-             "(~/.argus-skill/capabilities/model_api.json, mode 0600)",
-    )
-
-    skills_grp = parser.add_argument_group("skill admin")
-    skills_grp.add_argument(
-        "--skill-stats",
-        action="store_true",
-        help="print empirical skill effectiveness report (hit-rate, "
-             "mean rounds with/without skill) and exit",
-    )
-    skills_grp.add_argument(
-        "--skill-stats-json",
-        action="store_true",
-        help="render the skill-stats output as JSON instead of plain text",
-    )
-    skills_grp.add_argument(
-        "--skill-cleanse",
-        action="store_true",
-        help="strip historic 'Memory context' boilerplate from existing skill "
-             "task_history entries (idempotent migration)",
-    )
-    skills_grp.add_argument(
-        "--skill-compact",
-        action="store_true",
-        help="cluster near-duplicate skills and propose archiving redundant "
-             "ones; pass --apply to actually archive (otherwise dry-run)",
-    )
-    skills_grp.add_argument(
-        "--export-builtin-skills",
-        nargs="?",
-        const=DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
-        default=None,
-        metavar="DIR",
-        help="copy packaged built-in skill markdown into DIR for a project "
-             "(default: ./argus_builtin_skills; preserves existing files)",
-    )
-    skills_grp.add_argument(
-        "--apply",
-        action="store_true",
-        help="with --skill-compact / --skill-cleanse: actually mutate disk "
-             "(default is dry-run); with --export-builtin-skills: replace "
-             "existing copied built-in files",
-    )
-    skills_grp.add_argument(
-        "--sim-threshold",
-        type=float,
-        default=None,
-        help="cosine-similarity threshold for --skill-compact clustering "
-             "(default 0.55)",
-    )
-    skills_grp.add_argument(
-        "--skills-dir",
-        default=None,
-        help="override skills directory (default: global skills root)",
-    )
-
-    gates_grp = parser.add_argument_group("research-factory gates")
-    gates_grp.add_argument(
-        "--evidence-chain-check",
-        action="store_true",
-        help="run F4 evidence-chain validator on a project root and exit; "
-             "prints broken chains and exits non-zero if any claim ↔ "
-             "evidence ↔ bundle link is broken",
-    )
-    gates_grp.add_argument(
-        "--anti-mediocrity-check",
-        action="store_true",
-        help="run F3 anti-mediocrity gates (baseline-reproduction, "
-             "Δ-reward, benchmark-diversity) and exit; requires "
-             "--proposed-condition and --baseline-condition to enable "
-             "the comparison gates",
-    )
-    gates_grp.add_argument(
-        "--lifecycle-status",
-        action="store_true",
-        help="print F5 project-lifecycle state derived from project memory "
-             "(incubating/running/writing/quarantined/done/archived) and exit",
-    )
-    gates_grp.add_argument(
-        "--lifecycle-resume",
-        action="store_true",
-        help="resume a quarantined project; clears persisted quarantine "
-             "state in <life-dir>/lifecycle.json so the supervisor will "
-             "dispatch missions again",
-    )
-    gates_grp.add_argument(
-        "--lifecycle-archive",
-        action="store_true",
-        help="archive the project; supervisor will permanently refuse to "
-             "dispatch missions until --lifecycle-resume is called",
-    )
-    gates_grp.add_argument(
-        "--project-root",
-        default=".",
-        help="project root for --evidence-chain-check / "
-             "--anti-mediocrity-check / --lifecycle-status (default cwd)",
-    )
-    gates_grp.add_argument(
-        "--proposed-condition",
-        default=None,
-        help="condition name to evaluate against the baseline for "
-             "--anti-mediocrity-check",
-    )
-    gates_grp.add_argument(
-        "--baseline-condition",
-        default=None,
-        help="baseline condition name for --anti-mediocrity-check",
-    )
-
-    subparsers = parser.add_subparsers(dest="command")
-    wiki_parser = subparsers.add_parser(
-        "wiki",
-        help="Per-project idea-wiki operations",
-    )
-    wiki_sub = wiki_parser.add_subparsers(dest="wiki_cmd", required=True)
-    init_parser = wiki_sub.add_parser(
-        "init",
-        help="Initialize .autors/<project>/wiki/ from templates",
-    )
-    init_parser.add_argument(
-        "project",
-        help="Project slug (becomes .autors/<project>/wiki)",
-    )
-    init_parser.add_argument(
-        "--base",
-        type=Path,
-        default=Path.cwd(),
-        help="Base directory (default: cwd)",
-    )
-    ingest_parser = wiki_sub.add_parser(
-        "ingest",
-        help="Backfill sources/papers/ from paper/refs.bib (+ optional LIT_MATRIX.tsv)",
-    )
-    ingest_parser.add_argument(
-        "--wiki",
-        type=Path,
-        required=True,
-        help="Path to .autors/<project>/wiki/",
-    )
-    ingest_parser.add_argument(
-        "--refs",
-        type=Path,
-        help="Path to refs.bib (default: <project-root>/paper/refs.bib if it exists)",
-    )
-    ingest_parser.add_argument(
-        "--lit-matrix",
-        type=Path,
-        help=(
-            "Path to LIT_MATRIX.tsv (default: "
-            "<project-root>/research/LIT_MATRIX.tsv if it exists)"
-        ),
-    )
-    ingest_parser.add_argument(
-        "--ingested-by",
-        default="wiki-curator@manual-backfill",
-        help="Provenance string for the ingested_by frontmatter field",
-    )
-    ingest_parser.add_argument(
-        "--init",
-        action="store_true",
-        help="Initialize the wiki path before ingesting if it is missing",
-    )
-    migrate_parser = wiki_sub.add_parser(
-        "migrate",
-        help="Run one-shot wiki migrations such as sources/*.md -> sources/notes/",
-    )
-    migrate_parser.add_argument(
-        "--wiki",
-        type=Path,
-        required=True,
-        help="Path to .autors/<project>/wiki/",
-    )
-
-    return parser
+from ...core import paths as core_paths
+from ...life.status import count_backlog_statuses, select_current_running_item
+from .._inbox import count_pending_inbox_messages, queue_inbox_message
+from .._target_paths import resolve_life_root
+from ._follow import (
+    _clean_follow_text,
+    _follow_layer_from_event,
+    _format_daemon_activity_status_lines,
+    _format_follow_event,
+    _format_follow_heartbeat,
+    _format_telemetry_status_lines,
+    _read_backlog_rows,
+    _resolve_follow_events_path,
+    _select_backlog_row_by_id,
+)
+from ._parser import build_parser
 
 
 def _continuous_contract_error(
@@ -331,7 +50,7 @@ def _continuous_contract_error(
     objective: str,
     backend: str,
 ) -> str:
-    from ..daemon.life_worker import continuous_mode_error
+    from ...daemon.life_worker import continuous_mode_error
     return continuous_mode_error(backend, continuous, objective)
 
 
@@ -340,7 +59,7 @@ def _resolve_global_root(args: argparse.Namespace) -> Path:
 
 
 def _resolve_project_bundle(args: argparse.Namespace):
-    from ..life import MemoryBundle
+    from ...life import MemoryBundle
 
     return MemoryBundle.for_cwd(Path.cwd(), global_root=_resolve_global_root(args))
 
@@ -357,8 +76,8 @@ def _lifetime_entry_error(args: argparse.Namespace) -> str:
     ``--continuous``) or by a previously-persisted ``continuous.json`` for the
     current project. Returns ``""`` when both requirements are met.
     """
-    from ..daemon.life_worker import read_continuous_config
-    from ..life.special_prompts import describe_special_prompt_gate
+    from ...daemon.life_worker import read_continuous_config
+    from ...life.special_prompts import describe_special_prompt_gate
 
     objective = str(getattr(args, "objective", "") or "").strip()
     if not objective:
@@ -381,703 +100,38 @@ def _lifetime_entry_error(args: argparse.Namespace) -> str:
     return ""
 
 
-def _resolve_follow_events_path(args: argparse.Namespace) -> Path:
-    if args.life_dir:
-        explicit = core_paths.resolve_runtime_path(args.life_dir, context="--life-dir")
-        if explicit.name == "events.jsonl":
-            return explicit
-    bundle = _resolve_project_bundle(args)
-    return bundle.project.root / "events.jsonl"
 
-
-_FOLLOW_LAYER_LABELS = {
-    "engineer": "L1 工程师",
-    "reviewer": "L2 审查员",
-    # critic layer removed,
-    "planner": "L4 规划师",
-}
 _FOLLOW_HEARTBEAT_SECONDS = 20.0
 
 
-def _follow_layer_label(layer: str | None) -> str:
-    return _FOLLOW_LAYER_LABELS.get(layer or "", layer or "agent")
 
 
-def _follow_layer_from_event(event: dict, current: str) -> str:
-    layer = event.get("agent_layer")
-    if isinstance(layer, str) and layer:
-        return layer
-    etype = str(event.get("type") or "")
-    if etype in {"life.mission.started", "loop.start", "round.start", "round.main.completed"}:
-        return "engineer"
-    if etype in {"round.review.started", "round.review.completed"}:
-        return "reviewer"
-    if etype in {"life.iteration.critic", "life.iteration.continued"}:
-        return "critic"
-    if etype.startswith("life.planner."):
-        return "planner"
-    return current
 
 
-def _clean_follow_text(text: str, *, limit: int = 220) -> str:
-    import re
 
-    text = str(text or "")
-    text = re.sub(r"```[a-zA-Z0-9_-]*", " ", text)
-    text = text.replace("```", " ")
-    text = re.sub(r"\[([^\]]+)\]\(\(?[^)\n]+\)?\)", r"\1", text)
-    text = " ".join(text.split())
-    if len(text) <= limit:
-        return text
-    return text[: max(1, limit - 1)].rstrip() + "…"
 
 
-def _verification_summary(text: str) -> str | None:
-    lowered = text.lower()
-    if "verification" not in lowered and "verbatim" not in lowered:
-        return None
-    parts: list[str] = []
-    if "[100%]" in text or " passed" in lowered:
-        parts.append("tests passed")
-    if "All checks passed!" in text:
-        parts.append("ruff passed")
-    if "Success: no issues found" in text:
-        parts.append("mypy passed")
-    elif "python -m mypy" in text or "note:" in text:
-        parts.append("mypy completed")
-    if not parts:
-        return None
-    return "✅ 验证：" + " · ".join(dict.fromkeys(parts))
 
 
-def _json_object_from_text(text: str) -> dict | None:
-    import json
 
-    stripped = str(text or "").strip()
-    if not stripped:
-        return None
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start < 0 or end <= start:
-        return None
-    try:
-        data = json.loads(stripped[start:end + 1])
-    except (TypeError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
 
 
-def _select_backlog_row_by_id(
-    rows: Sequence[dict[str, Any]],
-    item_id: str,
-) -> dict[str, Any] | None:
-    for row in rows:
-        if str(row.get("id") or "") == item_id:
-            return row
-    return None
 
 
-def _read_backlog_rows(backlog_path: Path) -> list[dict[str, Any]]:
-    import json
 
-    rows: list[dict[str, Any]] = []
-    try:
-        with backlog_path.open("r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rows.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-    except OSError:
-        return []
-    return rows
 
 
-def _format_follow_mission_context(
-    event: dict,
-    *,
-    mission_context: dict[str, str] | None = None,
-) -> list[str]:
-    context = mission_context or {}
-    item_id = str(event.get("item_id") or context.get("item_id") or "")
-    title = str(event.get("title") or context.get("title") or "")
-    objective = str(event.get("objective") or context.get("objective") or "")
-    bits = [f"item_id={item_id or '-'}"]
-    bits.append(
-        f"title={_clean_follow_text(title, limit=90) if title else '-'}"
-    )
-    bits.append(
-        f"objective={_clean_follow_text(objective, limit=120) if objective else '-'}"
-    )
-    return bits
 
 
-def _format_follow_agent_message(layer: str, text: str) -> str:
-    summary = _verification_summary(text)
-    if summary:
-        return summary
-    data = _json_object_from_text(text)
-    if data:
-        if layer == "reviewer":
-            status = data.get("status", "?")
-            conf = data.get("confidence")
-            reason = _clean_follow_text(str(data.get("reason") or ""), limit=140)
-            conf_part = f" · conf={conf}" if conf is not None else ""
-            return f"💭 reviewer verdict: {status}{conf_part}" + (
-                f" · {reason}" if reason else ""
-            )
-        if layer == "critic":
-            stop = bool(data.get("stop"))
-            improvements = data.get("improvements") or []
-            count = len(improvements) if isinstance(improvements, list) else 0
-            reason = _clean_follow_text(str(data.get("reason") or ""), limit=140)
-            verdict = "stop" if stop else f"continue · {count} improvement(s)"
-            return f"💭 critic verdict: {verdict}" + (f" · {reason}" if reason else "")
-        if layer == "planner":
-            done = bool(data.get("project_done"))
-            tasks = data.get("new_tasks") or []
-            count = len(tasks) if isinstance(tasks, list) else 0
-            reason = _clean_follow_text(str(data.get("reason") or ""), limit=140)
-            verdict = "project done" if done else f"queue {count} task(s)"
-            return f"💭 planner verdict: {verdict}" + (f" · {reason}" if reason else "")
-    return "💭 " + _clean_follow_text(text, limit=240)
 
 
-def _format_follow_command(event: dict) -> str:
-    from ..life.notify import _annotate_progress_result, _parse_command
 
-    event_for_render = dict(event)
-    cmd = str(event.get("text") or "")
-    parsed = _parse_command(cmd)
-    excerpt = str(event.get("output_excerpt") or "")
-    compact = excerpt
-    if "pytest" in cmd and "[100%]" in excerpt:
-        compact = "pytest passed [100%]"
-    elif "ruff check" in cmd and "All checks passed!" in excerpt:
-        compact = "All checks passed!"
-    elif "mypy" in cmd and "Success: no issues found" in excerpt:
-        compact = "mypy passed"
-    elif "mypy" in cmd and "note:" in excerpt:
-        compact = "mypy completed (notes omitted)"
-    elif parsed.startswith(("📖", "🔍", "📁", "📂", "🔎")) and not _command_failed(event):
-        compact = ""
-    if compact:
-        event_for_render["output_excerpt"] = compact
-    else:
-        event_for_render.pop("output_excerpt", None)
-    return _annotate_progress_result(parsed, event_for_render)
 
 
-def _format_bytes(value: Any) -> str:
-    try:
-        amount = float(value)
-    except (TypeError, ValueError):
-        amount = 0.0
-    sign = "+" if amount > 0 else "-" if amount < 0 else ""
-    amount = abs(amount)
-    units = ("B", "KiB", "MiB", "GiB")
-    unit = units[0]
-    for unit in units:
-        if amount < 1024 or unit == units[-1]:
-            break
-        amount /= 1024
-    if unit == "B":
-        body = f"{int(amount)} {unit}"
-    else:
-        body = f"{amount:.1f} {unit}"
-    return f"{sign}{body}" if sign else body
 
 
-def _telemetry_age(event: dict[str, Any], *, now: float | None = None) -> float:
-    now = time.time() if now is None else now
-    try:
-        ts = float(event.get("ts") or 0.0)
-    except (TypeError, ValueError):
-        ts = 0.0
-    return max(0.0, now - ts) if ts > 0 else 0.0
 
 
-def _format_telemetry_process_bits(event: dict[str, Any], *, limit: int = 2) -> str:
-    raw_processes = event.get("processes") or []
-    processes = raw_processes if isinstance(raw_processes, list) else []
-    bits: list[str] = []
-    for proc in processes[:limit]:
-        if not isinstance(proc, dict):
-            continue
-        cmd = str(proc.get("cmd") or proc.get("argv0") or "").strip()
-        if cmd:
-            bits.append(_clean_follow_text(cmd, limit=90))
-    truncated = int(event.get("processes_truncated") or 0)
-    total = int(event.get("process_count") or len(processes))
-    if truncated:
-        bits.append(f"+{truncated} more")
-    if not bits and total:
-        bits.append(f"{total} descendant process(es)")
-    return " · ".join(bits)
-
-
-def _format_telemetry_file_bits(event: dict[str, Any], *, limit: int = 3) -> str:
-    raw_files = event.get("files") or []
-    files = raw_files if isinstance(raw_files, list) else []
-    bits: list[str] = []
-    for item in files[:limit]:
-        if not isinstance(item, dict):
-            continue
-        path = _clean_follow_text(str(item.get("path") or "?"), limit=70)
-        if item.get("new_lines") is not None:
-            detail = f"+{int(item.get('new_lines') or 0)} lines"
-        elif item.get("size_delta") not in (None, 0):
-            detail = _format_bytes(item.get("size_delta"))
-        else:
-            detail = _format_bytes(item.get("size"))
-        bits.append(f"{path} {detail}")
-    changed = int(event.get("files_changed") or len(files))
-    if changed > len(bits):
-        bits.append(f"+{changed - len(bits)} files")
-    return " · ".join(bits)
-
-
-def _format_telemetry_inline(event: dict[str, Any] | None) -> str:
-    if not event:
-        return ""
-    age = _telemetry_age(event)
-    if age > 120:
-        return f"telemetry stale ({_format_short_duration(age)} old)"
-    running = bool(event.get("running"))
-    run_for = _format_short_duration(float(event.get("running_seconds") or 0.0))
-    state = f"telemetry {'running' if running else 'idle'}"
-    bits = [state, f"updated {_format_short_duration(age)} ago"]
-    if running:
-        bits.append(f"mission {run_for}")
-    procs = _format_telemetry_process_bits(event, limit=1)
-    if procs:
-        bits.append(f"proc: {procs}")
-    files = _format_telemetry_file_bits(event, limit=2)
-    if files:
-        bits.append(f"artifacts: {files}")
-    return " · ".join(bits)
-
-
-def _format_telemetry_status_lines(event: dict[str, Any] | None) -> list[str]:
-    if not event:
-        return []
-    age = _telemetry_age(event)
-    running = bool(event.get("running"))
-    run_for = _format_short_duration(float(event.get("running_seconds") or 0.0))
-    seq = event.get("seq", "?")
-    if running:
-        state = f"running · mission {run_for} · updated {_format_short_duration(age)} ago · seq {seq}"
-    else:
-        state = f"idle · last mission {run_for} · updated {_format_short_duration(age)} ago · seq {seq}"
-    lines = [f"    state    : {state}"]
-    if event.get("item_id"):
-        lines.append(f"    item     : {event.get('item_id')}")
-    procs = _format_telemetry_process_bits(event, limit=3)
-    if procs:
-        lines.append(f"    proc     : {procs}")
-    files = _format_telemetry_file_bits(event, limit=4)
-    if files:
-        lines.append(f"    artifacts: {files}")
-    scan_bits = [
-        f"{int(event.get('scanned_files') or 0)} files",
-        f"{int(event.get('scan_ms') or 0)} ms",
-    ]
-    if event.get("scan_truncated"):
-        scan_bits.append("truncated")
-    lines.append(f"    scan     : {' · '.join(scan_bits)}")
-    return lines
-
-
-def _read_recent_jsonl_events(
-    path: Path,
-    *,
-    limit: int = 80,
-    max_bytes: int = 256 * 1024,
-) -> list[dict[str, Any]]:
-    """Read a bounded JSONL tail without scanning the whole event log."""
-    if limit <= 0:
-        return []
-    rows: deque[dict[str, Any]] = deque(maxlen=limit)
-    try:
-        with path.open("rb") as fh:
-            size = fh.seek(0, os.SEEK_END)
-            start = max(0, size - max(1, int(max_bytes)))
-            fh.seek(start)
-            raw = fh.read()
-    except OSError:
-        return []
-    if start:
-        _, sep, raw = raw.partition(b"\n")
-        if not sep:
-            return []
-    for raw_line in raw.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            continue
-        if isinstance(event, dict):
-            rows.append(event)
-    return list(rows)
-
-
-def _read_recent_project_events(life_dir: Path, *, limit: int = 80) -> list[dict[str, Any]]:
-    events = _read_recent_jsonl_events(life_dir / "events.jsonl", limit=limit)
-    if events:
-        return events
-    return _read_recent_jsonl_events(life_dir / "events.jsonl.1", limit=limit)
-
-
-def _activity_layer_from_event(event: dict[str, Any]) -> str | None:
-    layer = event.get("agent_layer")
-    if isinstance(layer, str) and layer:
-        return layer
-    etype = str(event.get("type") or "")
-    if etype.startswith("life.planner."):
-        return "planner"
-    if etype in {"life.iteration.critic", "life.iteration.continued"}:
-        return "critic"
-    if etype in {"round.review.started", "round.review.completed"}:
-        return "reviewer"
-    if etype in {
-        "life.mission.started",
-        "loop.start",
-        "round.start",
-        "round.main.completed",
-        "loop.done",
-    }:
-        return "engineer"
-    return None
-
-
-def _latest_activity_event(events: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
-    for event in reversed(events):
-        etype = str(event.get("type") or "")
-        if etype == "life.telemetry":
-            continue
-        if etype.startswith("life.") or etype in {
-            "engineer.progress",
-            "loop.start",
-            "round.start",
-            "round.main.completed",
-            "round.review.started",
-            "round.review.completed",
-            "match.info",
-        }:
-            return event
-    return None
-
-
-def _looks_like_agent_process(proc: dict[str, Any]) -> bool:
-    cmd = str(proc.get("cmd") or proc.get("argv0") or "").lower()
-    return "codex exec" in cmd or "@openai/codex" in cmd
-
-
-def _format_activity_process_bits(processes: Sequence[dict[str, Any]], *, limit: int = 3) -> str:
-    bits: list[str] = []
-    for proc in processes[:limit]:
-        cmd = str(proc.get("cmd") or proc.get("argv0") or "").strip()
-        if cmd:
-            bits.append(_clean_follow_text(cmd, limit=90))
-    if len(processes) > len(bits):
-        bits.append(f"+{len(processes) - len(bits)} more")
-    return " · ".join(bits)
-
-
-def _format_activity_event(event: dict[str, Any]) -> str:
-    etype = str(event.get("type") or "event")
-    kind = str(event.get("kind") or "")
-    actor = str(event.get("actor") or "")
-    status = str(event.get("status") or "")
-    label = kind or etype
-    if actor:
-        label = f"{actor} {label}"
-    if status:
-        label = f"{label} {status}"
-    text = (
-        event.get("text")
-        or event.get("title")
-        or event.get("reason")
-        or event.get("objective")
-        or event.get("error")
-        or ""
-    )
-    if text:
-        return _clean_follow_text(f"{label} · {text}", limit=160)
-    return _clean_follow_text(label, limit=160)
-
-
-def _format_daemon_activity_status_lines(
-    status: Any,
-    *,
-    life_dir: Path,
-    telemetry_event: dict[str, Any] | None,
-) -> list[str]:
-    """Expose planner/critic subprocess activity that mission telemetry cannot see."""
-    if not (getattr(status, "alive", False) and getattr(status, "pid", None) is not None):
-        return []
-    if telemetry_event and bool(telemetry_event.get("running")):
-        return []
-
-    recent_events = _read_recent_project_events(life_dir)
-    latest_event = _latest_activity_event(recent_events)
-    try:
-        from ..life.telemetry import collect_descendant_processes
-
-        proc_snapshot = collect_descendant_processes(int(status.pid), limit=12)
-    except Exception:  # noqa: BLE001
-        proc_snapshot = {"processes": [], "process_count": 0, "processes_truncated": 0}
-    raw_processes = proc_snapshot.get("processes") or []
-    processes = raw_processes if isinstance(raw_processes, list) else []
-    agent_processes = [
-        proc for proc in processes
-        if isinstance(proc, dict) and _looks_like_agent_process(proc)
-    ]
-    if not agent_processes:
-        return []
-
-    layer = None
-    for event in reversed(recent_events):
-        layer = _activity_layer_from_event(event)
-        if layer:
-            break
-    layer = layer or "agent"
-
-    state_bits = [
-        f"{layer} active",
-        f"{len(agent_processes)} agent process(es)",
-    ]
-    if latest_event is not None:
-        state_bits.append(
-            f"last event {_format_short_duration(_telemetry_age(latest_event))} ago"
-        )
-    if proc_snapshot.get("processes_truncated"):
-        state_bits.append(f"+{int(proc_snapshot.get('processes_truncated') or 0)} hidden")
-
-    lines = [f"    state    : {' · '.join(state_bits)}"]
-    procs = _format_activity_process_bits(agent_processes)
-    if procs:
-        lines.append(f"    proc     : {procs}")
-    if latest_event is not None:
-        lines.append(f"    last     : {_format_activity_event(latest_event)}")
-    return lines
-
-
-def _format_follow_planner_task_added(event: dict) -> str:
-    bits = ["added"]
-    if event.get("item_id"):
-        bits.append(f"item_id={event['item_id']}")
-    if event.get("title"):
-        bits.append(f"title={_clean_follow_text(str(event['title']), limit=90)}")
-    if event.get("objective"):
-        bits.append(f"objective={_clean_follow_text(str(event['objective']), limit=120)}")
-    return f"📋 [{_follow_layer_label('planner')}] " + " · ".join(bits)
-
-
-def _format_follow_planner_task_skipped(event: dict) -> str:
-    skip_category = str(event.get("skip_category") or "")
-    if skip_category == "recent_no_progress_failure":
-        bits = ["quarantined recent no-progress failure"]
-    else:
-        bits = ["skipped duplicate"]
-    if event.get("title"):
-        bits.append(f"title={_clean_follow_text(str(event['title']), limit=90)}")
-    if event.get("objective"):
-        bits.append(f"objective={_clean_follow_text(str(event['objective']), limit=120)}")
-    if event.get("matched_item_id"):
-        bits.append(f"matched_item_id={event['matched_item_id']}")
-    if event.get("matched_title"):
-        bits.append(f"matched_title={_clean_follow_text(str(event['matched_title']), limit=90)}")
-    if event.get("matched_status"):
-        bits.append(f"matched_status={event['matched_status']}")
-    if event.get("matched_stop_reason"):
-        bits.append(
-            f"matched_stop_reason={_clean_follow_text(str(event['matched_stop_reason']), limit=120)}"
-        )
-    if event.get("skip_category"):
-        bits.append(f"skip_category={event['skip_category']}")
-    reason = _clean_follow_text(str(event.get("reason") or ""), limit=140)
-    if reason:
-        bits.append(f"reason={reason}")
-    return f"⏭️ [{_follow_layer_label('planner')}] " + " · ".join(bits)
-
-
-def _command_failed(event: dict) -> bool:
-    status = str(event.get("status") or "").lower()
-    exit_code = event.get("exit_code")
-    return status == "failed" or (
-        isinstance(exit_code, int) and exit_code not in (0, None)
-    )
-
-
-def _format_follow_event(
-    event: dict,
-    current_layer: str,
-    *,
-    mission_context: dict[str, str] | None = None,
-) -> str | None:
-    inbox_line = format_inbox_event(event) if isinstance(event, dict) else None
-    if inbox_line is not None:
-        return f"  {inbox_line}"
-
-    etype = str(event.get("type") or "")
-    layer = _follow_layer_from_event(event, current_layer)
-    label = _follow_layer_label(layer)
-
-    if etype == "engineer.progress":
-        kind = str(event.get("kind") or "")
-        text = str(event.get("text") or "")
-        if not text:
-            return None
-        if kind == "agent_message":
-            return f"  [{label}] {_format_follow_agent_message(layer, text)}"
-        if kind == "command_execution":
-            return f"  [{label}] {_format_follow_command(event)}"
-        if kind == "reasoning":
-            if os.environ.get("ARGUS_SKILL_SHOW_REASONING", "0").lower() not in (
-                "1", "true", "yes", "on",
-            ):
-                return None
-            return f"  [{label}] 🧠 {_clean_follow_text(text, limit=180)}"
-        return f"  [{label}] ▸ {_clean_follow_text(text, limit=160)}"
-
-    if etype == "life.telemetry":
-        inline = _format_telemetry_inline(event)
-        return f"  📡 {inline}" if inline else None
-
-    if etype == "life.mission.started":
-        bits = ["started", *_format_follow_mission_context(event, mission_context=mission_context)]
-        return f"\n🚀 [{_follow_layer_label('engineer')}] " + " · ".join(bits)
-
-    if etype == "life.phase.started":
-        bits = [f"进入 [{label}]"]
-        if event.get("round_index"):
-            bits.append(f"round={event['round_index']}")
-        if event.get("iteration_cycle"):
-            bits.append(
-                f"iteration={event['iteration_cycle']}/{event.get('iteration_max', '?')}"
-            )
-        return "🔄 " + " · ".join(bits)
-
-    if etype == "round.review.started":
-        return f"🔄 进入 [{_follow_layer_label('reviewer')}] · round={event.get('round_index', '?')}"
-
-    if etype == "round.main.completed":
-        return f"✅ [{_follow_layer_label('engineer')}] completed · round={event.get('round_index', '?')}"
-
-    if etype == "round.review.completed":
-        status = event.get("status", "?")
-        conf = event.get("confidence")
-        reason = _clean_follow_text(str(event.get("reason") or ""), limit=140)
-        conf_part = f" · conf={conf:.2f}" if isinstance(conf, (int, float)) else ""
-        return f"✅ [{_follow_layer_label('reviewer')}] completed · status={status}{conf_part}" + (
-            f" · {reason}" if reason else ""
-        )
-
-    if etype == "life.iteration.critic":
-        stop = bool(event.get("stop"))
-        count = int(event.get("improvement_count") or 0)
-        reason = _clean_follow_text(str(event.get("reason") or ""), limit=150)
-        verdict = "stop" if stop else f"continue · {count} improvement(s)"
-        return f"👔 [{_follow_layer_label('critic')}] {verdict}" + (
-            f" · {reason}" if reason else ""
-        )
-
-    if etype == "life.iteration.continued":
-        return f"🔁 [{_follow_layer_label('critic')}] queued next iteration · cycle={event.get('cycles_done', '?')}/{event.get('cycles_max', '?')}"
-
-    if etype == "life.planner.start":
-        obj = _clean_follow_text(str(event.get("objective") or ""), limit=120)
-        return f"\n📋 [{_follow_layer_label('planner')}] planning" + (
-            f" · {obj}" if obj else ""
-        )
-
-    if etype == "life.planner.verdict":
-        if event.get("project_done"):
-            return f"🏁 [{_follow_layer_label('planner')}] project done"
-        return f"📋 [{_follow_layer_label('planner')}] queued {event.get('enqueued_tasks', event.get('task_count', '?'))} task(s)"
-
-    if etype == "life.planner.task_added":
-        return _format_follow_planner_task_added(event)
-
-    if etype == "life.planner.task_skipped":
-        return _format_follow_planner_task_skipped(event)
-
-    if etype == "life.planner.error":
-        return f"⚠️ [{_follow_layer_label('planner')}] planner error · {_clean_follow_text(str(event.get('error') or event.get('text') or ''), limit=160)}"
-
-    if etype == "life.mission.completed":
-        status = event.get("status", "?")
-        raw_iteration = event.get("iteration")
-        iter_info = raw_iteration if isinstance(raw_iteration, dict) else {}
-        if iter_info.get("requeued"):
-            bits = ["mission round complete", "requeued by critic", f"status={status}"]
-        else:
-            bits = [
-                "mission complete",
-                f"status={status}",
-                f"success={event.get('success')}",
-            ]
-        bits.extend(_format_follow_mission_context(event, mission_context=mission_context))
-        return "✅ " + " · ".join(bits)
-
-    if etype == "life.mission.failed":
-        return f"❌ mission failed · {_clean_follow_text(str(event.get('reason') or event.get('error') or ''), limit=160)}"
-
-    if etype == "loop.start":
-        return f"▶️ [{_follow_layer_label('engineer')}] {_clean_follow_text(str(event.get('text') or ''), limit=180)}"
-
-    if etype == "round.start":
-        return f"▶️ [{_follow_layer_label('engineer')}] {event.get('text', 'round started')}"
-
-    if etype == "loop.done":
-        return f"🏁 loop done · {_clean_follow_text(str(event.get('text') or ''), limit=160)}"
-
-    return None
-
-
-def _daemon_alive_for_events_path(events_path: Path) -> bool | None:
-    pid_path = events_path.parent / "daemon.pid"
-    try:
-        pid = int(pid_path.read_text(encoding="utf-8").strip())
-    except (OSError, ValueError):
-        return None
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return None
-    return True
-
-
-def _format_follow_heartbeat(events_path: Path, current_layer: str, idle_seconds: float) -> str:
-    alive = _daemon_alive_for_events_path(events_path)
-    if alive is True:
-        state = "daemon alive"
-    elif alive is False:
-        state = "daemon not running"
-    else:
-        state = "daemon state unknown"
-    telemetry = ""
-    try:
-        from ..life.telemetry import read_latest_telemetry
-        telemetry = _format_telemetry_inline(read_latest_telemetry(events_path.parent))
-    except Exception:  # noqa: BLE001
-        telemetry = ""
-    tail = telemetry or "normal during LLM calls"
-    return (
-        f"  ⏳ [{_follow_layer_label(current_layer)}] waiting "
-        f"{_format_short_duration(idle_seconds)} without new events · {state} · "
-        f"{tail}"
-    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1161,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.init_identity:
         return _run_with_path_resolution_errors(lambda: _cmd_init_identity(args))
     if args.setup:
-        from ..tools.setup import run_setup
+        from ...tools.setup import run_setup
         return run_setup()
     if args.model_api_status:
         return _run_with_path_resolution_errors(lambda: _cmd_model_api_status(args))
@@ -1207,8 +261,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(f"argus-skill: {entry_error}\n")
         return 2
 
-    from ..tools.capability_vault import resolve_route_model
-    from ._life_repl import run_life_chat_loop
+    from ...tools.capability_vault import resolve_route_model
+    from .._life_repl import run_life_chat_loop
 
     repl_args = argparse.Namespace(
         life_dir=args.life_dir,
@@ -1250,13 +304,13 @@ def _resolve_life_dir(args: argparse.Namespace) -> Path:
 
 
 def _build_worker_config(args: argparse.Namespace):
-    from ..daemon.life_worker import LifeWorkerConfig
+    from ...daemon.life_worker import LifeWorkerConfig
     bundle = _resolve_project_bundle(args)
     backend = getattr(args, "backend", None) or os.environ.get(
         "ARGUS_SKILL_LIFE_BACKEND",
         "codex",
     )
-    from ..tools.capability_vault import resolve_route_model
+    from ...tools.capability_vault import resolve_route_model
 
     return LifeWorkerConfig(
         life_dir=bundle.project.root,
@@ -1292,7 +346,7 @@ def _build_worker_config(args: argparse.Namespace):
 
 
 def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
-    from ..daemon.life_worker import run_foreground, spawn_detached_daemon
+    from ...daemon.life_worker import run_foreground, spawn_detached_daemon
     backend_default = os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
     continuous_error = _continuous_contract_error(
         continuous=bool(getattr(args, "continuous", False)),
@@ -1313,13 +367,13 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
 
 
 def _cmd_daemon_stop(args: argparse.Namespace) -> int:
-    from ..daemon.life_worker import stop_daemon
+    from ...daemon.life_worker import stop_daemon
     bundle = _resolve_project_bundle(args)
     return stop_daemon(bundle.project.root)
 
 
 def _cmd_watch(args: argparse.Namespace) -> int:
-    from ._watch import run_watch
+    from .._watch import run_watch
     return run_watch(_resolve_project_bundle(args))
 
 
@@ -1437,12 +491,12 @@ def _cmd_notify(args: argparse.Namespace) -> int:
 
 
 def _cmd_init_identity(args: argparse.Namespace) -> int:
-    from ._init_identity import run_init_identity
+    from .._init_identity import run_init_identity
     return run_init_identity(_resolve_global_root(args))
 
 
 def _cmd_wiki_init(args: argparse.Namespace) -> int:
-    from ..wiki.bootstrap import init_wiki
+    from ...wiki.bootstrap import init_wiki
 
     root = init_wiki(args.project, base=args.base)
     print(f"wiki ready at {root}")
@@ -1461,9 +515,9 @@ def _project_root_for_wiki_path(wiki: Path) -> Path:
 
 
 def _cmd_wiki_ingest(args: argparse.Namespace) -> int:
-    from ..wiki.bootstrap import init_wiki, is_initialized_wiki
-    from ..wiki.ingest import ingest_lit_matrix, ingest_refs_bib
-    from ..wiki.store import WikiStore
+    from ...wiki.bootstrap import init_wiki, is_initialized_wiki
+    from ...wiki.ingest import ingest_lit_matrix, ingest_refs_bib
+    from ...wiki.store import WikiStore
 
     wiki = args.wiki.expanduser()
     if not is_initialized_wiki(wiki):
@@ -1516,9 +570,9 @@ def _cmd_wiki_ingest(args: argparse.Namespace) -> int:
 
 
 def _cmd_wiki_migrate(args: argparse.Namespace) -> int:
-    from ..wiki.bootstrap import is_initialized_wiki
-    from ..wiki.migrate import migrate_orphan_sources
-    from ..wiki.store import WikiStore
+    from ...wiki.bootstrap import is_initialized_wiki
+    from ...wiki.migrate import migrate_orphan_sources
+    from ...wiki.store import WikiStore
 
     wiki = args.wiki.expanduser()
     if not is_initialized_wiki(wiki):
@@ -1538,16 +592,15 @@ def _model_api_env(args: argparse.Namespace) -> dict[str, str]:
 
 
 def _cmd_model_api_status(args: argparse.Namespace) -> int:
-    import json
 
-    from ..tools.capability_vault import status_payload
+    from ...tools.capability_vault import status_payload
 
     print(json.dumps(status_payload(_model_api_env(args)), indent=2, sort_keys=True))
     return 0
 
 
 def _cmd_init_model_api(args: argparse.Namespace) -> int:
-    from ..tools.capability_vault import bootstrap_model_api_vault
+    from ...tools.capability_vault import bootstrap_model_api_vault
 
     path = bootstrap_model_api_vault(_model_api_env(args))
     print(f"argus-skill: model API capability saved at {path} (0600, secret not printed)")
@@ -1569,7 +622,7 @@ def _run_with_path_resolution_errors(action) -> int:
 
 
 def _cmd_skill_stats(args: argparse.Namespace) -> int:
-    from ._skill_stats import run_skill_stats
+    from .._skill_stats import run_skill_stats
     return run_skill_stats(
         _resolve_project_bundle(args).project.root,
         as_json=bool(args.skill_stats_json),
@@ -1577,7 +630,7 @@ def _cmd_skill_stats(args: argparse.Namespace) -> int:
 
 
 def _cmd_skill_cleanse(args: argparse.Namespace) -> int:
-    from ._skill_cleanse import run_cleanse
+    from .._skill_cleanse import run_cleanse
     return run_cleanse(
         _resolve_skills_dir(args),
         dry_run=not bool(args.apply),
@@ -1585,7 +638,7 @@ def _cmd_skill_cleanse(args: argparse.Namespace) -> int:
 
 
 def _cmd_skill_compact(args: argparse.Namespace) -> int:
-    from ..scientist.compactor import DEFAULT_SIM_THRESHOLD, run_compact
+    from ...scientist.compactor import DEFAULT_SIM_THRESHOLD, run_compact
     threshold = (
         float(args.sim_threshold)
         if args.sim_threshold is not None
@@ -1599,7 +652,7 @@ def _cmd_skill_compact(args: argparse.Namespace) -> int:
 
 
 def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
-    from ..skills.builtins import (
+    from ...skills.builtins import (
         DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
         builtin_skill_source_path,
         seed_builtin_skills,
@@ -1635,14 +688,14 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
 
 def _cmd_evidence_chain_check(args: argparse.Namespace) -> int:
     """Run F4 evidence-chain validator. Exits non-zero on broken chain."""
-    from ..skills.evidence_chain import main as _evidence_chain_main
+    from ...skills.evidence_chain import main as _evidence_chain_main
 
     return _evidence_chain_main(["--project-root", str(args.project_root)])
 
 
 def _cmd_anti_mediocrity_check(args: argparse.Namespace) -> int:
     """Run F3 anti-mediocrity gates. Exits non-zero on any gate failure."""
-    from ..skills.anti_mediocrity import main as _anti_mediocrity_main
+    from ...skills.anti_mediocrity import main as _anti_mediocrity_main
 
     argv = ["--project-root", str(args.project_root)]
     if args.proposed_condition:
@@ -1661,13 +714,13 @@ def _cmd_lifecycle_status(args: argparse.Namespace) -> int:
     ``<life-dir>/lifecycle.json`` so quarantine survives daemon
     restarts.
     """
-    from ..life.project_lifecycle import (
+    from ...life.project_lifecycle import (
         advisory_time_signals,
         decide_next_state,
         infer_observable_status,
         is_token_allocatable,
     )
-    from ..life.project_lifecycle_io import (
+    from ...life.project_lifecycle_io import (
         LifecycleIOError,
         apply_persisted_to_status,
         load_history,
@@ -1739,16 +792,16 @@ def _cmd_lifecycle_transition(
     """Handle ``--lifecycle-resume`` and ``--lifecycle-archive``."""
     from datetime import datetime, timezone
 
-    from ..life.project_lifecycle import (
+    from ...life.project_lifecycle import (
         archive as _lifecycle_archive,
     )
-    from ..life.project_lifecycle import (
+    from ...life.project_lifecycle import (
         infer_observable_status,
     )
-    from ..life.project_lifecycle import (
+    from ...life.project_lifecycle import (
         resume as _lifecycle_resume,
     )
-    from ..life.project_lifecycle_io import (
+    from ...life.project_lifecycle_io import (
         LifecycleIOError,
         append_event,
         apply_persisted_to_status,
@@ -1845,12 +898,12 @@ def _render_lifecycle_status_lines(workdir: Path) -> list[str]:
     crash on a missing or corrupt lifecycle sidecar.
     """
     try:
-        from ..life.project_lifecycle import (
+        from ...life.project_lifecycle import (
             advisory_time_signals,
             infer_observable_status,
             is_token_allocatable,
         )
-        from ..life.project_lifecycle_io import (
+        from ...life.project_lifecycle_io import (
             LifecycleIOError,
             apply_persisted_to_status,
             load_persisted,
@@ -1977,11 +1030,11 @@ def _render_stage_budget_lines(bundle: Any, *, current_stage: str | None) -> lis
     reviewer / planner agent decides whether to act on advisories.
     Fail-soft: any error returns []."""
     try:
-        from ..life.stage_budget import compute_snapshot
+        from ...life.stage_budget import compute_snapshot
     except Exception:  # noqa: BLE001
         return []
     try:
-        from ..daemon.life_worker import resolve_effective_budget
+        from ...daemon.life_worker import resolve_effective_budget
         eff = resolve_effective_budget()
         total_budget = float(getattr(eff, "daily_cap_usd", 180.0) or 180.0)
     except Exception:  # noqa: BLE001
@@ -2024,7 +1077,7 @@ def _render_gate_snapshot_lines(workdir: Path, stage: str | None) -> list[str]:
     if not stage:
         return []
     try:
-        from ..skills.automated_gates import (
+        from ...skills.automated_gates import (
             gates_for_stage,
             run_stage_gates,
         )
@@ -2059,7 +1112,7 @@ def _render_gate_snapshot_lines(workdir: Path, stage: str | None) -> list[str]:
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
-    from ..daemon.life_worker import (
+    from ...daemon.life_worker import (
         format_budget_status,
         read_continuous_state,
         read_daemon_status,
@@ -2094,7 +1147,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
             f"{_clean_follow_text(str(getattr(current_running, 'objective', '')), limit=120)}"
         )
     try:
-        from ..life.telemetry import read_latest_telemetry
+        from ...life.telemetry import read_latest_telemetry
         telemetry_event = read_latest_telemetry(bundle.project.root)
         telemetry_lines = _format_telemetry_status_lines(telemetry_event)
     except Exception:  # noqa: BLE001
@@ -2191,7 +1244,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
 
 def _cmd_daemon_runbook(args: argparse.Namespace) -> int:
     bundle = _resolve_project_bundle(args)
-    from ..daemon.life_worker import read_daemon_status
+    from ...daemon.life_worker import read_daemon_status
 
     status = read_daemon_status(bundle.project.root)
     lines = [
