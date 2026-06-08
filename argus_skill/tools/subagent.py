@@ -450,6 +450,26 @@ def _norm_health(value: object) -> str:
     return token if token in _VALID_HEALTH else "unknown"
 
 
+def _coerce_bool(value: object, *, default: bool = False) -> bool:
+    """Interpret a model-supplied JSON value as a boolean.
+
+    ``bool("false")`` is ``True`` in Python, so a model that emits the *string*
+    ``"false"`` would otherwise be read as true. Map the common textual forms
+    explicitly; anything unrecognised falls back to ``default``.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        token = value.strip().lower()
+        if token in {"true", "1", "yes", "y"}:
+            return True
+        if token in {"false", "0", "no", "n", ""}:
+            return False
+    return default
+
+
 _EMPTY_CONCERNS = {
     "", "none", "n/a", "na", "null", "nil", "-", "no concern",
     "no concerns", "nothing", "no issues", "no issue",
@@ -941,11 +961,10 @@ def _run_direct(
             try:
                 proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
+                # Kill the whole process group, not just the shell: the command
+                # runs with start_new_session=True, so a GPU trainer it spawned
+                # would otherwise survive the timeout and leak the GPU.
+                _terminate_proc(proc)
                 td = {"state": "timeout", "task_id": task_id,
                     "description": description, "command": command,
                     "pid": proc.pid, "timeout_seconds": timeout,
@@ -1618,7 +1637,7 @@ def _supervisor_discuss(
             if isinstance(data, dict) and "message" in data:
                 msg = " ".join(str(data.get("message", "")).split())
                 if msg:
-                    return (bool(data.get("resolved", False)), msg, thread_id)
+                    return (_coerce_bool(data.get("resolved", False)), msg, thread_id)
         return (False, "", thread_id)
     except Exception:
         return (False, "", thread_id)

@@ -304,7 +304,7 @@ def _write_lease(lease_id: str, owner: str, pid: int | None,
         "gpus": gpus,
         "created_at": time.time(),
         "ttl_seconds": ttl,
-        "expires_at": (time.time() + ttl) if ttl else None,
+        "expires_at": (time.time() + ttl) if ttl is not None else None,
     }
     path = _leases_dir() / f"{lease_id}.json"
     tmp = path.with_suffix(".json.tmp")
@@ -481,7 +481,7 @@ def run(cfg: dict, command: list[str], *, detach: bool, owner: str,
             "-m", "argus_skill.tools.gpu_lease", "_supervise",
             "--lease", lease_id, "--owner", owner, "--gpus", gpus,
         ]
-        if ttl:
+        if ttl is not None:
             sup_cmd += ["--ttl", str(ttl)]
         sup_cmd += ["--", *command]
         with open(log_path, "ab") as log_fh:

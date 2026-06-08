@@ -71,7 +71,7 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     ],
     "submission": [
         _PIPELINE_CHECK,
-        ("Reviewer marked submission stage done", "test -f research/PIPELINE_STATE.json && grep -q '\"submission\".*\"status\": *\"done\"' research/PIPELINE_STATE.json"),
+        ("Reviewer marked submission stage done", "test -f research/PIPELINE_STATE.json && python3 -c \"import json,sys; d=json.load(open('research/PIPELINE_STATE.json')); st=(d.get('stages') or {}).get('submission') or {}; sys.exit(0 if str(st.get('status','')).lower()=='done' else 1)\""),
     ],
 }
 

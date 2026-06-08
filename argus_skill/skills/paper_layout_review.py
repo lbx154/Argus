@@ -362,9 +362,21 @@ def _render_pdf_pages_with_mutool(
         raise LayoutReviewError(stderr[:500] or f"mutool exited {completed.returncode}")
 
 
+def _page_number_from_snapshot(path: Path) -> int:
+    """Extract the integer page number from a ``page-<n>.png`` snapshot name.
+
+    pdftoppm zero-pads inconsistently across versions / page counts, so sorting
+    the globbed filenames lexicographically can order ``page-10`` before
+    ``page-2``. Sort by the parsed number instead.
+    """
+    match = re.search(r"(\d+)", path.stem)
+    return int(match.group(1)) if match else 0
+
+
 def _collect_page_snapshots(root: Path, output_dir: Path, *, renderer: str) -> list[dict[str, Any]]:
     snapshots: list[dict[str, Any]] = []
-    for index, path in enumerate(sorted(output_dir.glob("page-*.png")), start=1):
+    pages = sorted(output_dir.glob("page-*.png"), key=_page_number_from_snapshot)
+    for index, path in enumerate(pages, start=1):
         snapshots.append(
             {
                 "page": index,
