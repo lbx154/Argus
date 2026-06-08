@@ -58,6 +58,25 @@ def test_detects_flash_attn_unavailable() -> None:
     )
 
 
+def test_detects_image_generation_unknown_model() -> None:
+    text = (
+        "argus-skill image-tool: API request failed (400) at "
+        "/images/generations: {\"error\":{\"code\":\"unknown_model\","
+        "\"message\":\"Unknown model: gpt-image-2\"}}"
+    )
+    sigs = scan_failure_signatures(agent_messages=[text])
+    assert [s.signature for s in sigs] == ["image_generation_model_unavailable"]
+    assert sigs[0].category == "external_capability"
+
+
+def test_detects_image_generation_deployment_not_found() -> None:
+    text = (
+        "POST /openai/deployments/gpt-image-2/images/generations failed: "
+        "DeploymentNotFound: The API deployment for this resource does not exist"
+    )
+    assert "image_generation_model_unavailable" in _sigs(text)
+
+
 # ---------------------------------------------------------------------------
 # Generic wrappers: detected alone, suppressed when a specific sig co-occurs
 # ---------------------------------------------------------------------------

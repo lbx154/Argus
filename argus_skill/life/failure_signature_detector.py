@@ -135,6 +135,23 @@ _PATTERNS: tuple[tuple[str, str, str, bool, "re.Pattern[str]"], ...] = (
             re.IGNORECASE,
         ),
     ),
+    (
+        "image_generation_model_unavailable",
+        "external_capability",
+        "Image generation route rejected configured model/deployment",
+        False,
+        re.compile(
+            r"(?:/images/generations|image[_ -]?tool|image generation|"
+            r"gpt-image-[\w.-]*).*?(?:unknown_model|Unknown model|"
+            r"DeploymentNotFound|deployment[- ]?not[- ]?found|"
+            r"Resource not found)"
+            r"|(?:unknown_model|Unknown model|DeploymentNotFound|"
+            r"deployment[- ]?not[- ]?found|Resource not found).*?"
+            r"(?:/images/generations|image[_ -]?tool|image generation|"
+            r"gpt-image-[\w.-]*)",
+            re.IGNORECASE | re.DOTALL,
+        ),
+    ),
 )
 
 

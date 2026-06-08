@@ -36,6 +36,13 @@ def _item(title: str, tags: list[str] | None = None):
 
 
 _OOM = {"agent_messages": ["torch.OutOfMemoryError: CUDA out of memory."]}
+_IMAGE_UNKNOWN_MODEL = {
+    "agent_messages": [
+        "argus-skill image-tool: API request failed (400) at "
+        "/images/generations: {\"error\":{\"code\":\"unknown_model\","
+        "\"message\":\"Unknown model: gpt-image-2\"}}"
+    ]
+}
 
 
 def _obs(mem) -> list:
@@ -137,6 +144,29 @@ def test_distinct_signatures_counted_separately(tmp_path: Path) -> None:
     sigs = {t.split(":", 1)[1]
             for a in _adv(mem) for t in a.tags if t.startswith("sig:")}
     assert sigs == {"cuda_oom"}
+
+
+def test_image_route_recurrence_surfaces_external_capability_advisory(
+    tmp_path: Path,
+) -> None:
+    sup, mem = _make_stub_supervisor(tmp_path)
+
+    for i in range(2):
+        sup._maybe_journal_recurring_failure_advisory(
+            _item(f"image-route-{i}"), _IMAGE_UNKNOWN_MODEL
+        )
+    surfaced = sup._maybe_journal_recurring_failure_advisory(
+        _item("image-route-2"), _IMAGE_UNKNOWN_MODEL
+    )
+
+    assert surfaced == ["image_generation_model_unavailable"]
+    advisories = _adv(mem)
+    assert len(advisories) == 1
+    assert "external capability blocker" in advisories[0].title
+    assert "operator/provider dependency" in advisories[0].summary
+    assert "blind-retrying" in advisories[0].summary
+    assert "external-capability" in advisories[0].tags
+    assert "sig:image_generation_model_unavailable" in advisories[0].tags
 
 
 # ---------------------------------------------------------------------------

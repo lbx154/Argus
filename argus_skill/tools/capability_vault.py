@@ -250,6 +250,37 @@ def _payload_routes(payload: dict[str, Any]) -> dict[str, Any]:
     return routes if isinstance(routes, dict) else {}
 
 
+def _apply_route_env_overrides(
+    route: str,
+    loaded: ModelApiRoute,
+    env: Mapping[str, str],
+) -> ModelApiRoute:
+    """Apply explicit process overrides to a loaded route.
+
+    The capability vault remains the authorization boundary, but documented
+    per-route environment variables such as ``ARGUS_SKILL_IMAGE_MODEL`` must be
+    able to override deployment names for one command invocation. Without this
+    overlay, an operator cannot diagnose or temporarily repair a stale image
+    deployment name without editing the vault itself.
+    """
+    updates: dict[str, Any] = {}
+    for field_name, attr_name, source_name in (
+        ("api_key", "api_key", "key_source"),
+        ("base_url", "base_url", "base_url_source"),
+        ("model", "model", "model_source"),
+    ):
+        value, value_source = _route_env_value(env, route, field_name)
+        if value:
+            updates[attr_name] = value
+            updates[source_name] = value_source
+    wire_api, _wire_source = _route_env_value(env, route, "wire_api")
+    if wire_api:
+        updates["wire_api"] = wire_api
+    if not updates:
+        return loaded
+    return ModelApiRoute(**{**loaded.__dict__, **updates})
+
+
 def _legacy_route_from_payload(
     route: str,
     payload: dict[str, Any],
@@ -384,9 +415,11 @@ def load_model_api_route(
     for candidate in _ROUTE_FALLBACKS.get(route, (route,)):
         from_vault = _route_from_vault(candidate, payload, path)
         if from_vault is not None:
+            loaded = from_vault
             if candidate == route:
-                return from_vault
-            return ModelApiRoute(**{**from_vault.__dict__, "name": route})
+                return _apply_route_env_overrides(route, loaded, source)
+            loaded = ModelApiRoute(**{**from_vault.__dict__, "name": route})
+            return _apply_route_env_overrides(route, loaded, source)
     if path.exists() and _payload_routes(payload):
         return None
     if _has_vault_grant(payload, path):

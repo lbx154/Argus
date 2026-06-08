@@ -473,3 +473,81 @@ def test_lifecycle_block_is_deduped_across_repeated_ticks(tmp_path: Path) -> Non
         if getattr(e, "kind", "") == "lifecycle_block"
     ]
     assert len(block_journal) == 1
+
+
+def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> None:
+    from argus_skill.core.models import RunnerResult
+    from argus_skill.life.memory import LifeMemory
+    from argus_skill.planner import PlannerConfig
+
+    class _Budget:
+        def remaining_today(self, _journal) -> float:
+            return 100.0
+
+    class _PlannerRunner:
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            payload = {
+                "project_done": False,
+                "reason": "provider image route is blocked",
+                "restart_daemon": False,
+                "restart_reason": "",
+                "waiting": True,
+                "waiting_reason": (
+                    "paper/figures/IMAGE2_OPERATOR_ACTION_REQUIRED.md documents "
+                    "the image generation unknown_model external capability "
+                    "blocker; all local high-impact work is exhausted"
+                ),
+                "new_tasks": [],
+            }
+            return RunnerResult(
+                exit_code=0,
+                agent_messages=[json.dumps(payload)],
+                stdout_lines=[],
+                stderr_lines=[],
+                thread_id=None,
+                fatal_error=None,
+                input_tokens=0,
+                cached_input_tokens=0,
+                output_tokens=0,
+            )
+
+    mem = LifeMemory.open(tmp_path)
+    mem.init()
+    sup = LifeSupervisor.__new__(LifeSupervisor)
+    sup.memory = mem
+    sup.config = SimpleNamespace(
+        continuous_objective="finish draft gate",
+        budget=_Budget(),
+        full_emnlp_gate=False,
+    )
+    sup.planner_runner = _PlannerRunner()
+    sup.skill_store = None
+    sup.runner = SimpleNamespace(stream_to=None)
+    sup.sink = None
+    sup.reviewer_model = "gpt-5.5"
+    sup._planning_cycles = 0
+    sup._consecutive_idle_planner_cycles = 0
+    sup._suggested_sleep_s = 0.0
+    emitted: list[object] = []
+    statuses: list[str] = []
+    sup._emit = emitted.append
+    sup._emit_status = statuses.append
+    sup._inject_cumulative_cost = lambda entry: None
+    sup._render_journal_for_planner = lambda: ""
+    sup._planner_project_context = lambda: ""
+    sup._planner_config = lambda: PlannerConfig(
+        working_dir=str(tmp_path),
+        skip_git_repo_check=True,
+        full_auto=True,
+        dangerous_yolo=False,
+    )
+
+    assert LifeSupervisor._plan_next_work(sup) == "awaiting_external"
+
+    assert any(s.startswith("awaiting external dependency:") for s in statuses)
+    waiting_entries = [
+        e for e in mem.journal.all() if e.kind == "planner_waiting"
+    ]
+    assert len(waiting_entries) == 1
+    assert "awaiting external dependency; backoff" in waiting_entries[0].summary
+    assert "IMAGE2_OPERATOR_ACTION_REQUIRED.md" in waiting_entries[0].summary
