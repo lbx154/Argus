@@ -133,6 +133,26 @@ def test_parse_planner_text_waiting_is_not_error() -> None:
     assert "CV-GRPO" in v.waiting_reason
 
 
+def test_parse_planner_text_waiting_external_capability_blocker_is_not_error() -> None:
+    txt = json.dumps({
+        "project_done": False,
+        "reason": "image route remains a provider-side blocker",
+        "new_tasks": [],
+        "waiting": True,
+        "waiting_reason": (
+            "paper/figures/IMAGE2_OPERATOR_ACTION_REQUIRED.md documents the "
+            "non-local image generation unknown_model blocker; all local draft "
+            "work is exhausted"
+        ),
+    })
+    v = parse_planner_text(txt)
+    assert v.waiting is True
+    assert v.project_done is False
+    assert v.new_tasks == []
+    assert not v.error
+    assert "IMAGE2_OPERATOR_ACTION_REQUIRED.md" in v.waiting_reason
+
+
 def test_parse_planner_text_no_tasks_without_waiting_is_error() -> None:
     # No tasks, not done, and waiting NOT set → still treated as a degenerate
     # planner output (error), preserving the original safety net.
@@ -276,3 +296,11 @@ def test_rule7_exception_documented_in_preamble() -> None:
 
     assert "Parallel paper-drafting track" in _PLANNER_SYSTEM_PREAMBLE
     assert "EXCEPTION" in _PLANNER_SYSTEM_PREAMBLE
+
+
+def test_waiting_external_capability_documented_in_preamble() -> None:
+    from argus_skill.planner.planner import _PLANNER_SYSTEM_PREAMBLE
+
+    assert "external capability blocker" in _PLANNER_SYSTEM_PREAMBLE
+    assert "written escalation/action artifact" in _PLANNER_SYSTEM_PREAMBLE
+    assert "operator action" in _PLANNER_SYSTEM_PREAMBLE

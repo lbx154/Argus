@@ -207,6 +207,27 @@ class RecurringFailureAdvisor:
     @staticmethod
     def _build_advisory_entry(sig: Any, count: int) -> JournalEntry:
         evidence_lines = "\n".join(f"- {x}" for x in (sig.evidence or ()))
+        if getattr(sig, "category", "") == "external_capability":
+            return JournalEntry.new(
+                kind=ADVISORY_KIND,
+                title=f"recurring external capability blocker: {sig.signature} (×{count})",
+                summary=(
+                    f"The external capability blocker '{sig.signature}' "
+                    f"({sig.context}) has now recurred across {count} distinct "
+                    f"missions. Treat this as an operator/provider dependency "
+                    f"until the documented capability route changes; do not "
+                    f"keep blind-retrying the same failing call or fabricate "
+                    f"local fallback artifacts.\n{evidence_lines}"
+                ),
+                tags=[
+                    "self-evolve",
+                    "advisory",
+                    "recurring-failure",
+                    "external-capability",
+                    f"sig:{sig.signature}",
+                    f"category:{sig.category}",
+                ],
+            )
         return JournalEntry.new(
             kind=ADVISORY_KIND,
             title=f"recurring infra failure: {sig.signature} (×{count})",

@@ -1761,7 +1761,7 @@ class LifeSupervisor:
 
     def _record_planner_waiting(self, verdict: Any, *, planner_cost_usd: float) -> str:
         sleep_s = self._enter_idle_backoff()
-        reason = verdict.waiting_reason or verdict.reason or "awaiting external job"
+        reason = verdict.waiting_reason or verdict.reason or "awaiting external dependency"
         self._emit({
             "type": "life.planner.waiting",
             "cycle": self._planning_cycles,
@@ -1773,11 +1773,12 @@ class LifeSupervisor:
             "output_tokens": getattr(verdict, "output_tokens", 0),
             "cost_usd": planner_cost_usd,
         })
-        self._emit_status(f"awaiting external job: {reason}")
+        self._emit_status(f"awaiting external dependency: {reason}")
         entry = JournalEntry.new(
             kind="planner_waiting",
             title=f"planner cycle #{self._planning_cycles}",
-            summary=f"awaiting external job; backoff {sleep_s:.0f}s :: {reason}",
+            summary=f"awaiting external dependency; backoff {sleep_s:.0f}s :: {reason}",
+
             tags=["life", "planner", "awaiting"],
             cost_usd=planner_cost_usd,
             extra={

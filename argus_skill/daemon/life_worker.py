@@ -958,7 +958,7 @@ class LifeWorker:
             if self._stop.is_set():
                 break
             # Honor the supervisor's suggested backoff (escalating while it is
-            # idle awaiting an external job). The sleep is wakeable: it returns
+            # idle awaiting an external dependency). The sleep is wakeable: it returns
             # early on stop, or when the user inbox grows — so /add and /nudge
             # stay responsive even during a long await-external backoff.
             try:
