@@ -131,6 +131,10 @@ module = ["torch"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["yaml"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = [
   "argus_skill.builtin_skills.engineer.figure_spec_scripts.*",
   "argus_skill.tools.project_templates.code.*",
