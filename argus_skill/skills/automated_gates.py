@@ -37,6 +37,7 @@ from .anti_mediocrity import (
 from .evidence_chain import validate_evidence_chain
 from .exemplar_grounding import validate_exemplar_grounding
 from .experiment_audit_gate import validate_experiment_audit
+from .method_differentiation import validate_method_differentiation
 from .paper_structural_minimums import validate_paper_structural_minimums
 from .reviewer_simulation import validate_reviewer_simulation
 from .rl_training_health import validate_rl_training_health
@@ -53,6 +54,7 @@ GateName = Literal[
     "run_evidence_health",
     "rl_training_plots",
     "rl_training_health",
+    "method_differentiation",
 ]
 GateKind = Literal["structural", "advisory"]
 
@@ -107,6 +109,19 @@ GateKind = Literal["structural", "advisory"]
 # rl-training-collapse-diagnosis.md needs. ADVISORY at ``run`` and
 # ``analysis``: it never blocks and never renders a quality verdict — a
 # saturated run is still real evidence the reviewer may interpret.
+#
+# ``method_differentiation`` catches the failure where the *proposed method is
+# not actually different from the baseline* — a real run, real data, real
+# matrix, but a no-op treatment. It diffs each (proposed, baseline) condition's
+# ``config_snapshot.json`` and compares their aggregate reward outcomes, and
+# flags two shapes: a relabelled duplicate (identical command, two condition
+# labels) and a reward-function-name-only swap whose reward outcomes are
+# statistically indistinguishable. ADVISORY at ``run`` (surface early so the
+# reviewer can kill a no-op before it burns more GPU); at ``analysis`` a
+# mechanical duplicate is STRUCTURAL (you cannot cite "method vs baseline" when
+# the two are the same command), while the probabilistic no-op-suspected signal
+# stays advisory because train-reward equivalence alone is not proof — the
+# benefit could show only in held-out eval, which is the reviewer's call.
 STAGE_GATES: dict[str, tuple[GateName, ...]] = {
     "research": (),
     "plan": (),
@@ -116,6 +131,7 @@ STAGE_GATES: dict[str, tuple[GateName, ...]] = {
         "run_evidence_health",
         "rl_training_plots",
         "rl_training_health",
+        "method_differentiation",
     ),
     "analysis": (
         "evidence_chain",
@@ -124,6 +140,7 @@ STAGE_GATES: dict[str, tuple[GateName, ...]] = {
         "run_evidence_health",
         "rl_training_plots",
         "rl_training_health",
+        "method_differentiation",
     ),
     "draft": (
         "evidence_chain",
@@ -167,6 +184,10 @@ GATE_KINDS: dict[GateName, GateKind] = {
     # strongest form for documentation.
     "rl_training_plots": "structural",
     "rl_training_health": "advisory",
+    # method_differentiation is dual-kind: advisory at `run`, structural at
+    # `analysis` (only the mechanical duplicate-condition case blocks). The
+    # per-call kind in _run_method_differentiation is the source of truth.
+    "method_differentiation": "structural",
 }
 
 
@@ -400,6 +421,102 @@ def _run_rl_training_health(project_root: Path) -> GateResult:
     )
 
 
+def _run_method_differentiation(
+    project_root: Path,
+    *,
+    proposed_condition: str | None,
+    baseline_condition: str | None,
+    structural: bool,
+) -> GateResult:
+    """No-op / undifferentiated-treatment detector. ADVISORY at ``run``;
+    at ``analysis`` a mechanical ``duplicate_condition`` (identical command,
+    two condition labels) is STRUCTURAL. The probabilistic
+    ``no_op_suspected`` signal (reward-fn-name-only swap + indistinguishable
+    reward outcomes) is always advisory — train-reward equivalence is not
+    proof the method does nothing; the reviewer rules (and may route back to
+    ``run`` to prove the reward functions differ). No comparable
+    proposed/baseline pair → pass (no-op)."""
+    report = validate_method_differentiation(
+        project_root,
+        proposed_condition=proposed_condition,
+        baseline_condition=baseline_condition,
+    )
+    duplicates = report.duplicate_pairs
+    no_ops = report.no_op_pairs
+    detail = report.to_text() if report.pairs else ""
+
+    if structural:
+        if duplicates:
+            names = ", ".join(
+                f"{p.proposed_condition}≡{p.baseline_condition}" for p in duplicates[:3]
+            )
+            extra = (
+                f"; also {len(no_ops)} no-op-suspected pair(s)" if no_ops else ""
+            )
+            return GateResult(
+                name="method_differentiation",
+                kind="structural",
+                passed=False,
+                summary=(
+                    f"{len(duplicates)} condition pair(s) are the same command "
+                    f"under two labels ({names}) — cannot cite as method vs "
+                    f"baseline{extra}"
+                ),
+                detail=detail,
+            )
+        if no_ops:
+            names = ", ".join(
+                f"{p.proposed_condition} vs {p.baseline_condition}" for p in no_ops[:3]
+            )
+            return GateResult(
+                name="method_differentiation",
+                kind="advisory",
+                passed=True,  # advisory: reviewer rules (held-out eval may differ)
+                summary=(
+                    f"{len(no_ops)} pair(s) look like a no-op treatment "
+                    f"(reward-fn-name-only + indistinguishable outcomes): {names} "
+                    "— prove the reward functions differ before citing"
+                ),
+                detail=detail,
+            )
+        return GateResult(
+            name="method_differentiation",
+            kind="structural",
+            passed=True,
+            summary=(
+                f"{len(report.pairs)} proposed/baseline pair(s) are "
+                "differentiated" if report.pairs
+                else "no comparable proposed/baseline condition pair"
+            ),
+            detail="",
+        )
+
+    # advisory (run stage): surface no-op / duplicate findings, never block.
+    flags = duplicates + [p for p in no_ops if p not in duplicates]
+    if flags:
+        bits = ", ".join(
+            f"{p.proposed_condition} vs {p.baseline_condition}"
+            f"[{'duplicate' if p.duplicate_condition else 'no-op?'}]"
+            for p in flags[:3]
+        )
+        summary = (
+            f"{len(flags)}/{len(report.pairs)} pair(s) show no differentiation "
+            f"from baseline: {bits} — verify the treatment actually changes the "
+            "reward/advantage before spending more GPU"
+        )
+    elif report.pairs:
+        summary = f"{len(report.pairs)} proposed/baseline pair(s) are differentiated"
+    else:
+        summary = "no comparable proposed/baseline condition pair to inspect"
+    return GateResult(
+        name="method_differentiation",
+        kind="advisory",
+        passed=True,  # advisory never blocks; field meaningless
+        summary=summary,
+        detail=detail,
+    )
+
+
 def _run_exemplar_grounding(
     project_root: Path, *, require_conformance: bool
 ) -> GateResult:
@@ -574,6 +691,14 @@ def run_stage_gates(
             ))
         elif gate == "rl_training_health":
             results.append(_run_rl_training_health(project_root))
+        elif gate == "method_differentiation":
+            # advisory at `run`, structural (duplicate-only) at `analysis`.
+            results.append(_run_method_differentiation(
+                project_root,
+                proposed_condition=proposed_condition,
+                baseline_condition=baseline_condition,
+                structural=(stage == "analysis"),
+            ))
     return results
 
 
