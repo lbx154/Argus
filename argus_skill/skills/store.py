@@ -741,6 +741,25 @@ class SkillStore:
         # keyword pre-filter). Large pools are split into deterministic
         # batches and the matches unioned, so cost is bounded without ever
         # silently dropping a candidate.
+        #
+        # Optional BM25 prefilter: when the pool is large enough that the
+        # matcher prompt would crowd the small-router context window, we
+        # cheaply prune to top-K candidates first. Threshold is env-tunable
+        # via ``ARGUS_SKILL_BM25_PREFILTER_THRESHOLD`` (default 200), so the
+        # default behaviour at our current N=50 is unchanged. See
+        # ``argus_skill/skills/bm25_prefilter.py`` for the rationale.
+        from .bm25_prefilter import bm25_prefilter, is_prefilter_enabled
+        pre_n = len(summaries)
+        if is_prefilter_enabled(pre_n):
+            summaries = bm25_prefilter(task_description, summaries)
+            if on_event and len(summaries) < pre_n:
+                on_event({
+                    "type": "match.info",
+                    "text": (
+                        f"BM25 prefilter narrowed pool {pre_n}→{len(summaries)} "
+                        "candidates before LLM matcher"
+                    ),
+                })
         batches = self._candidate_batches(summaries)
         if on_event:
             names = ", ".join(s.get("name", "?") for s in summaries[:5])

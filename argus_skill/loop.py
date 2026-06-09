@@ -96,6 +96,21 @@ class SkillLoopConfig:
         return self.reviewer_model or self.engineer_model
 
     def resolved_matcher_model(self) -> str:
+        """Resolve the skill matcher model with env override.
+
+        Precedence (highest first):
+          1. ``ARGUS_SKILL_MATCHER_MODEL`` env var — operator override.
+             Set to a cheap router (e.g. ``gpt-4o-mini``, ``haiku-3.5``)
+             to slash selection cost: at our N=50 a single matcher call
+             is ~180k input tokens, ~80% cheaper on gpt-4o-mini than on
+             gpt-5.4 with negligible accuracy loss.
+          2. ``matcher_model`` field (constructor / config).
+          3. ``engineer_model`` fallback — backwards-compatible default.
+        """
+        import os
+        env = os.environ.get("ARGUS_SKILL_MATCHER_MODEL", "").strip()
+        if env:
+            return env
         return self.matcher_model or self.engineer_model
 
 
