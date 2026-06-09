@@ -125,8 +125,8 @@ def _ingest_sources(wiki_root: Path, *, mission_id: str, emit: EventSink) -> int
 
     Returns count of new sources/papers/*.md files written.
     """
+    from .ingest import ingest_lit_matrix, ingest_refs_bib
     from .store import WikiStore
-    from .ingest import ingest_refs_bib, ingest_lit_matrix
 
     store = WikiStore(wiki_root)
     written = 0
@@ -217,7 +217,7 @@ def _mechanical_scratch_lift(wiki_root: Path, *, mission_id: str, emit: EventSin
             ),
         )
 
-        ok = _safe(lambda c=card: store.write_page(c),
+        ok = _safe(lambda: store.write_page(card),
                    what=f"write_page {key}", emit=emit)
         if ok is not None:
             written += 1
@@ -226,8 +226,8 @@ def _mechanical_scratch_lift(wiki_root: Path, *, mission_id: str, emit: EventSin
 
 
 def _rebuild_indexes(wiki_root: Path, *, emit: EventSink) -> None:
-    from .store import WikiStore
     from .index import rebuild_indexes
+    from .store import WikiStore
     store = WikiStore(wiki_root)
     _safe(lambda: rebuild_indexes(store), what="rebuild_indexes", emit=emit)
 

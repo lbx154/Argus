@@ -1,14 +1,12 @@
 """Tests for argus_skill.wiki.auto_hooks — harness-driven wiki maintenance."""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 
 from argus_skill.wiki.auto_hooks import discover_wikis, run_post_mission_hooks
 from argus_skill.wiki.bootstrap import init_wiki
-
 
 SAMPLE_BIB = """
 @article{smith2025attention,
