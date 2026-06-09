@@ -342,6 +342,30 @@ class SkillLoop:
             workdir=str(workdir),
             last_thread_id=last_thread_id,
         )
+        # Step 4c: wiki harness hooks — back-fill sources, mechanically
+        # lift unjudged sources/papers/* into scratch pages/techniques/*,
+        # rebuild queries indexes, then run mechanical promotion based on
+        # cross-RunCard references. See argus_skill/wiki/auto_hooks.py
+        # for the diagnosis and design references (SkillEvolBench,
+        # EverOS, mem0 v3). Fail-open: NEVER blocks a verdict.
+        try:
+            from .wiki.auto_hooks import run_post_mission_hooks
+            from .wiki.promotion import mechanical_promote
+            mission_id = (
+                self.config.session_id
+                or (last_thread_id or "")[:12]
+                or "unknown"
+            )
+            hook_summary = run_post_mission_hooks(
+                workdir,
+                mission_id=mission_id,
+                success=(status == "done"),
+                emit=self.on_event,
+            )
+            for wiki_path in hook_summary.keys():
+                mechanical_promote(Path(wiki_path), emit=self.on_event)
+        except Exception:  # noqa: BLE001 — wiki maintenance must never block
+            log.debug("wiki post-mission hooks raised", exc_info=True)
         # Effectiveness telemetry — one structured event per mission so
         # operators can compute hit-rate, mean-rounds-with-skill, and
         # mean-rounds-without-skill from events.jsonl alone.
