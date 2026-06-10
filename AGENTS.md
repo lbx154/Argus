@@ -94,6 +94,7 @@ L1 engineer round loop 在 `argus_skill/engineer/runner.py`。
 - backend failure / auth failure / context poisoned / effective progress timeout。
 - 是否清掉 carried Codex thread id。
 - **Curated-memory checkpoint + 结构化 session roll**（见下）。
+- **Background-subagent advisory + cadence wait**（见下）。
 - `round.main.completed`、`round.review.completed`、`session.roll` 等事件。
 
 ### Curated working-memory checkpoint（上下文管理 / 反 amnesia loop）
@@ -127,6 +128,36 @@ session 结构上短命 + 跨 session 边界只交接「经过筛选的有价值
   未传 path，所以是 mission 内内存级（已足够修复单 mission 内的 amnesia loop）；
   要跨 mission 续接，给它传一个 project-state 路径即可。
 - 测试：`tests/test_checkpoint.py`、`tests/test_checkpoint_loop.py`。
+
+### Background-subagent advisory + cadence wait（别空转盯长实验）
+
+背景：mission 用 subagent 工具 `--mode supervised` 起一个长跑（如 veRL GRPO
+训练）后，那个 job 已经有自己**独立的 supervisor** 每隔 `monitor_interval` 查健康、
+崩了能 early-stop、终态会往 inbox 发报告。但 L1 engineer 往往每一轮都去重新轮询同
+一个健康 run（实测 RL pilot 出现过几百轮只在重读 `status.json` + 写 `MONITOR_*.md`），
+被长程 GPU 实验阻塞，而不是去推进不依赖它的独立工作。
+
+实现（`argus_skill/engineer/background_subagents.py` + `runner.py` + `reviewer.py`）：
+
+- `background_subagents.py`（dependency-free，仿 `failed_tool_ledger.py`）：读
+  `<workdir>/.argus_subagents/*.json` 注册表，把在跑的 job 分成 `self_watched`
+  （supervised + 健康 + registry mtime 新鲜 + 无 concern + decision≠early_stop）和
+  `needs_attention`（direct 模式 / discussing / degrading|stuck|diverging / 有
+  concern / supervisor 心跳过期 / worker pid 已死）。
+- **消费**：runner 每轮把 `render_background_subagents_advisory(workdir)` 渲染成一段
+  advisory prepend 到 engineer prompt（同 checkpoint / failed-tool advisory 的拼接），
+  并把同一段作为 `background_context` 传给 `reviewer.evaluate` —— reviewer 据此把
+  `next_action` 引导到独立工作而非"再 poll 一次"（不强制 `forward_progress` 值，避免
+  误触发 stall 退出）。注册表为空 → advisory 为 ""，零行为变化。
+- **Agent 主导的 cadence 等待**（"只按 supervisor 节奏复查"）：advisory 告诉 agent，
+  若只剩等待可回复 `WAIT_FOR_SUBAGENT: <task_id>`。runner 检测到该 sentinel 且命中一个
+  self-watched in-flight job 时，**跳过昂贵的 checks+reviewer 轮**，按该 job 的
+  supervisor 节奏（`monitor_interval`，clamp 到 30–900s）休眠，job 到终态会提前唤醒。
+  是 **agent 显式选择**等待，不是 harness 替它决定。sentinel 命中不到自看护 job 时被
+  忽略（退回正常 reviewed 轮），stale/误发不会挂住循环。
+- 开关：`SupervisedConfig.background_subagent_advisory`（env
+  `ARGUS_SKILL_BG_SUBAGENT_ADVISORY`，默认 on，0 关闭）。
+- 测试：`tests/test_background_subagents.py`、`tests/test_runner_background_subagents.py`。
 
 L2 reviewer 在 `argus_skill/engineer/reviewer.py`。
 

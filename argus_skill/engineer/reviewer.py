@@ -147,6 +147,7 @@ class Reviewer:
         raw_evidence: str = "",
         scope: str = "",
         prior_checkpoint: dict[str, Any] | None = None,
+        background_context: str = "",
     ) -> ReviewDecision:
         prompt = self._build_prompt(
             objective=objective,
@@ -163,6 +164,7 @@ class Reviewer:
             raw_evidence=raw_evidence,
             scope=scope,
             prior_checkpoint=prior_checkpoint,
+            background_context=background_context,
         )
         try:
             result = self.runner.run_exec(
@@ -271,6 +273,7 @@ class Reviewer:
         raw_evidence: str = "",
         scope: str = "",
         prior_checkpoint: dict[str, Any] | None = None,
+        background_context: str = "",
     ) -> str:
         error_text = main_error or "none"
         check_text = summarize_checks(checks)
@@ -403,6 +406,25 @@ class Reviewer:
             if raw_evidence.strip()
             else ""
         )
+        # Background-subagent context (rendered by the engineer/runner from the
+        # live ``.argus_subagents`` registry). Present only when this mission has
+        # in-flight subagents. A SUPERVISED subagent advancing on its own is NOT
+        # by itself the engineer's forward progress, so we steer next_action away
+        # from "poll again" toward independent work (or an explicit cadence
+        # yield) without forcing a forward_progress value.
+        background_block = ""
+        if background_context.strip():
+            background_block = (
+                f"\n{background_context.strip()}\n\n"
+                "Reviewer note on the above: these are SUPERVISED subagents with "
+                "their own independent supervisor, so their autonomous progress is "
+                "NOT by itself the engineer's forward progress. If the engineer only "
+                "re-polled a healthy self-watched subagent this round, steer "
+                "`next_action` to advance independent work that does not depend on "
+                "it — or, if nothing else can proceed, to yield with "
+                "`WAIT_FOR_SUBAGENT: <task_id>` — rather than prescribing another "
+                "poll.\n"
+            )
         # Curated working-memory: show the reviewer the checkpoint it authored
         # last round so it can do deliberate CRUD (add/update/delete) rather
         # than re-deriving memory from scratch. The engineer's HANDOFF proposal
@@ -725,6 +747,7 @@ class Reviewer:
             f"Round: {round_index}\n"
             f"Session ID: {session_id or 'none'}\n"
             f"{shared_context_block}"
+            f"{background_block}"
             f"Main agent fatal error: {error_text}\n\n"
             "Main agent last summary:\n"
             f"{main_summary}\n\n"
