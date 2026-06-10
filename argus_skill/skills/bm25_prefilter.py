@@ -49,7 +49,7 @@ import math
 import os
 import re
 from collections import Counter
-from typing import Any, Sequence
+from typing import Sequence
 
 log = logging.getLogger(__name__)
 
@@ -144,7 +144,7 @@ def _bm25_rank(
         return []
 
     # Document frequencies
-    df: dict[str, int] = Counter()
+    df: Counter[str] = Counter()
     for tokens in docs:
         df.update(set(tokens))
 

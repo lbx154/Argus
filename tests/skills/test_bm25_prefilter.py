@@ -1,7 +1,6 @@
 """Tests for argus_skill.skills.bm25_prefilter — optional matcher prefilter."""
 from __future__ import annotations
 
-import os
 from collections.abc import Iterator
 
 import pytest
