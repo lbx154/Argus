@@ -37,6 +37,12 @@ from ..core.models import (
     RunnerResult,
 )
 from ..core.ports import RunnerBackend
+from .background_subagents import (
+    find_waitable_subagent,
+    parse_wait_sentinel,
+    render_background_subagents_advisory,
+    wait_for_subagent_cadence,
+)
 from .checkpoint import CheckpointState, load_checkpoint, save_checkpoint
 from .checks import all_checks_passed, run_checks
 from .reviewer import Reviewer, ReviewerConfig
@@ -90,6 +96,10 @@ _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
 _SHIFT_ROUND_LIMIT_ENV = "ARGUS_SKILL_SHIFT_ROUND_LIMIT"
 _THREAD_TOKEN_LIMIT_ENV = "ARGUS_SKILL_THREAD_TOKEN_LIMIT"
 _ROUND_COMPACTION_LIMIT_ENV = "ARGUS_SKILL_ROUND_COMPACTION_LIMIT"
+# Toggle for the background-subagent advisory + agent-driven cadence wait. When
+# unset/true, each round surfaces in-flight supervised subagents so the engineer
+# does not babysit a self-watched run. Set to 0 to disable (e.g. tests).
+_BG_SUBAGENT_ADVISORY_ENV = "ARGUS_SKILL_BG_SUBAGENT_ADVISORY"
 # Coarse upper bound on the input-token size a single resumed Codex thread may
 # reach before it is rolled. A healthy fresh round is ~0.7M and a couple of
 # legitimate work rounds reach ~2M; the amnesia/re-read loop lived at 5-7M
@@ -224,6 +234,13 @@ def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
     except ValueError:
         return default
     return max(minimum, value)
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def _review_event_payload(
@@ -407,6 +424,14 @@ class SupervisedConfig:
             _ROUND_COMPACTION_LIMIT_ENV,
             _DEFAULT_ROUND_COMPACTION_LIMIT,
         )
+    )
+    # Surface in-flight SUPERVISED subagents (read from
+    # ``<workdir>/.argus_subagents``) in the engineer prompt each round so the
+    # agent does not burn rounds babysitting a self-watched long job, and can
+    # yield to its supervisor cadence via ``WAIT_FOR_SUBAGENT:`` instead of
+    # busy-polling. Env override: ARGUS_SKILL_BG_SUBAGENT_ADVISORY (0 disables).
+    background_subagent_advisory: bool = field(
+        default_factory=lambda: _env_bool(_BG_SUBAGENT_ADVISORY_ENV, True)
     )
 
 
@@ -885,6 +910,27 @@ class SupervisedEngineer:
                             "round": round_index,
                             "text": "repeated tool failures detected — advisory injected",
                         })
+            # Background-subagent advisory: if this mission launched long jobs as
+            # SUPERVISED subagents, surface them so the engineer does not spend
+            # the round babysitting a self-watched run (its own supervisor
+            # already watches it and reports on terminal). Same splice mechanism
+            # as the blocks above. Recomputed each round so it reflects the live
+            # registry, and reused for the reviewer so its forward_progress /
+            # next_action judgement is aligned. Never breaks the loop.
+            background_advisory = ""
+            if supervised_config.background_subagent_advisory:
+                try:
+                    background_advisory = render_background_subagents_advisory(workdir)
+                except Exception:  # noqa: BLE001 — advisory must never break the loop
+                    background_advisory = ""
+                if background_advisory:
+                    engineer_prompt = background_advisory + "\n\n" + engineer_prompt
+                    if on_event:
+                        on_event({
+                            "type": "engineer.background_subagents",
+                            "round": round_index,
+                            "text": "background subagent advisory injected",
+                        })
             # Token-size session roll: the cross-mission counterpart to the
             # round-count roll below. A thread resumed across many short
             # missions carries the entire cross-mission transcript while
@@ -1088,6 +1134,48 @@ class SupervisedEngineer:
                 last_next_action = review.next_action
                 continue
 
+            # Agent-driven cadence yield: if the engineer's entire action this
+            # round was a ``WAIT_FOR_SUBAGENT: <id>`` request naming a currently
+            # self-watched in-flight subagent, skip the expensive checks+reviewer
+            # round and sleep on that subagent's supervisor cadence (waking early
+            # if it reaches terminal). This is how the loop honours the advisory's
+            # "do not re-poll a self-watched run every round" guidance — the agent
+            # explicitly chose to wait, the harness does not decide it. A sentinel
+            # naming an unknown / not-self-watched job is ignored (falls through to
+            # a normal reviewed round) so a stale request can never hang the loop.
+            if supervised_config.background_subagent_advisory:
+                wait_task_id = parse_wait_sentinel(engineer_message)
+                if wait_task_id and find_waitable_subagent(workdir, wait_task_id) is not None:
+                    if on_event:
+                        on_event({
+                            "type": "round.background_wait.started",
+                            "round_index": round_index,
+                            "round_max": supervised_config.max_rounds,
+                            "text": f"yielding to supervised subagent cadence: {wait_task_id}",
+                        })
+                    try:
+                        wait_reason, waited_s = wait_for_subagent_cadence(
+                            workdir, wait_task_id
+                        )
+                    except Exception as exc:  # noqa: BLE001 — a wait must never break the loop
+                        wait_reason, waited_s = f"error:{type(exc).__name__}", 0.0
+                    if on_event:
+                        on_event({
+                            "type": "round.background_wait.completed",
+                            "round_index": round_index,
+                            "round_max": supervised_config.max_rounds,
+                            "text": (
+                                f"resumed after {waited_s:.0f}s ({wait_reason}) "
+                                f"waiting on {wait_task_id}"
+                            ),
+                        })
+                    # A deliberate yield is neither progress nor a stall: reset the
+                    # no-progress streak and re-assess fresh next round (the next
+                    # round's advisory reflects the post-wait registry state).
+                    no_progress_streak = 0
+                    last_next_action = None
+                    continue
+
             backend_failure_streak = 0
             if not _runner_result_has_successful_work_signal(
                 engineer_result, engineer_message=engineer_message
@@ -1139,6 +1227,7 @@ class SupervisedEngineer:
                     prev_review_summary=prev_review_summary,
                     scope=scope,
                     prior_checkpoint=checkpoint.to_dict(),
+                    background_context=background_advisory,
                 )
             except Exception as exc:  # noqa: BLE001
                 msg = f"reviewer raised {type(exc).__name__}: {exc}"
