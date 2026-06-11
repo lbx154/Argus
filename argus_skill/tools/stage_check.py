@@ -71,7 +71,16 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     ],
     "submission": [
         _PIPELINE_CHECK,
-        ("Reviewer marked submission stage done", "test -f research/PIPELINE_STATE.json && python3 -c \"import json,sys; d=json.load(open('research/PIPELINE_STATE.json')); st=(d.get('stages') or {}).get('submission') or {}; sys.exit(0 if str(st.get('status','')).lower()=='done' else 1)\""),
+        # Accept either `ready` or `done` here. The submission stage is unique:
+        # the reviewer can only flip `submission.status` from `ready` -> `done`
+        # AFTER `stage_check --stage submission` passes. Requiring `done` at
+        # check-time creates a tautological deadlock — observed empirically
+        # on agent-multimodal-reasoning-v1 as a 15-round / 9-hour polish
+        # loop where the reviewer kept rejecting because submission wasn't
+        # `done`, and engineer kept failing because reviewer wouldn't verdict.
+        # `ready` here means upstream stages are done and the cursor is at
+        # this stage; the verdict itself is what promotes to `done`.
+        ("Submission stage is ready or done", "test -f research/PIPELINE_STATE.json && python3 -c \"import json,sys; d=json.load(open('research/PIPELINE_STATE.json')); st=(d.get('stages') or {}).get('submission') or {}; sys.exit(0 if str(st.get('status','')).lower() in ('ready','done') else 1)\""),
     ],
 }
 
