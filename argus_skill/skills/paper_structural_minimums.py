@@ -67,6 +67,11 @@ _APPENDIX_TITLES = ("appendix", "appendices", "supplementary material",
 _RE_INCLUDEGRAPHICS = re.compile(r"\\includegraphics\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
 _RE_CITE = re.compile(r"\\cite[a-zA-Z*]*\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
 _RE_SECTION = re.compile(r"\\section\*?\s*\{([^}]+)\}")
+# `\label{fig:foo}` inside a `figure` environment — used to cross-check
+# that figures appearing in main.tex have a placeholder in
+# paper/DRAFT_OUTLINE.md (the Draft-first contract). See
+# argus_skill/skills/draft_outline.py for context.
+_RE_FIG_LABEL = re.compile(r"\\label\s*\{\s*fig:([^}]+?)\s*\}")
 _RE_BIBKEY = re.compile(r"^\s*@\w+\s*\{\s*([^,\s]+)\s*,", re.MULTILINE)
 # `\appendix` command turns subsequent \section into Appendix A, B, …
 _RE_APPENDIX_CMD = re.compile(r"\\appendix\b")
@@ -352,6 +357,28 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
                 ),
             )
         )
+
+    # Draft-first cross-check. Every `\label{fig:foo}` in main.tex should
+    # correspond to a placeholder in paper/DRAFT_OUTLINE.md. Orphans (in
+    # tex but not in outline) imply the figure was added ad-hoc instead of
+    # filling a pre-declared slot — which is exactly the failure mode that
+    # produced the multimodal-v1 polish-loop drift. We surface them as
+    # structural issues, not as a hard gate, so the calling site decides
+    # severity.
+    fig_labels = sorted({m.group(1).strip() for m in _RE_FIG_LABEL.finditer(tex)})
+    try:
+        from .draft_outline import cross_check_figure_ids, load_outline
+        outline = load_outline(project_root)
+        for orphan in cross_check_figure_ids(outline, fig_labels):
+            report.issues.append(
+                StructuralIssue(
+                    code="draft_outline_figure_orphan",
+                    detail=orphan.message,
+                )
+            )
+    except Exception:  # noqa: BLE001
+        # never let the cross-check break structural validation itself
+        pass
 
     # IMAGE2_FIGURES.json role coverage. Teaser/hero anchors the
     # contribution; pipeline/method explains how the system works. EMNLP

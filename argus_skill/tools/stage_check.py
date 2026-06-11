@@ -41,6 +41,13 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Idea rejection log exists", "test -f research/IDEA_REJECTION_LOG.md"),
         ("Code study notes exist", "test -f research/CODE_STUDY_NOTES.md"),
         ("Baseline plan exists", "test -f research/BASELINE_AND_BENCHMARK_PLAN.md"),
+        # Draft-first contract: paper/DRAFT_OUTLINE.md must exist by the
+        # end of plan stage so figures and experiments downstream have
+        # placeholders to fill instead of being invented ad-hoc. The
+        # validator is permissive (issues, not exceptions); shelling out
+        # to a one-liner keeps stage_check's check format consistent.
+        ("Draft outline filled (>= 3 figures, >= 1 experiment)",
+         "python3 -c \"from argus_skill.skills.draft_outline import load_outline, validate_outline; from pathlib import Path; o=load_outline(Path('.')); issues=validate_outline(o); blockers=[i for i in issues if i.severity in ('missing','unfilled')]; print('\\n'.join(i.message for i in blockers)); import sys; sys.exit(0 if not blockers else 1)\""),
     ],
     "benchmark": [
         _PIPELINE_CHECK,

@@ -114,6 +114,7 @@ MANIFEST_GENERATED_EXCLUDED_PATHS = {
     ARTIFACT_MANIFEST_PATH.as_posix(),
     ARTIFACT_FRESHNESS_JSON_PATH.as_posix(),
 }
+NONTERMINAL_RUN_TERMINAL_STATES = {"completed", "failed", "cancelled"}
 MANIFEST_CANONICAL_RESEARCH_PATHS = {
     "research/RESEARCH_BRIEF.md",
     "research/LITERATURE_REVIEW.md",
@@ -130,6 +131,11 @@ MANIFEST_CANONICAL_RESEARCH_PATHS = {
     "research/NOVELTY_MAP.md",
     "research/RELATED_WORK_BLOCKERS.md",
     "research/PIPELINE_STATE.json",
+    # Draft-first contract: paper/DRAFT_OUTLINE.md is the single source
+    # of truth for figure / experiment / section placeholders. Plan stage
+    # owns its creation; benchmark/run/draft stages fill the placeholders.
+    # See argus_skill/skills/draft_outline.py.
+    "paper/DRAFT_OUTLINE.md",
 }
 MANIFEST_SOURCE_PREFERENCES: dict[str, tuple[str, ...]] = {
     "paper/CLAIM_GRAPH.json": (
@@ -468,7 +474,12 @@ def refresh_artifact_freshness(project_root: Path) -> list[ContractIssue]:
             if not isinstance(raw_record, dict):
                 continue
             normalized = _normalize_manifest_path(raw_record.get("path"))
-            if normalized and normalized not in MANIFEST_GENERATED_EXCLUDED_PATHS:
+            if not normalized or normalized in MANIFEST_GENERATED_EXCLUDED_PATHS:
+                continue
+            resolved = _resolve_manifest_path(root, normalized)
+            if resolved is not None and _is_excluded_manifest_discovery_path(root, resolved):
+                continue
+            if normalized:
                 existing_records[normalized] = raw_record
 
     manifest = _try_read_json_object(root / ARTIFACT_MANIFEST_PATH) or {}
@@ -478,13 +489,17 @@ def refresh_artifact_freshness(project_root: Path) -> list[ContractIssue]:
         if not isinstance(raw_entry, dict):
             continue
         normalized = _normalize_manifest_path(raw_entry.get("path"))
-        if normalized:
+        resolved = _resolve_manifest_path(root, normalized) if normalized else None
+        if normalized and not (resolved is not None and _is_excluded_manifest_discovery_path(root, resolved)):
             canonical_paths.add(normalized)
     for raw_entry in manifest.get("generated_artifacts", []):
         if not isinstance(raw_entry, dict):
             continue
         normalized = _normalize_manifest_path(raw_entry.get("path"))
         if not normalized:
+            continue
+        resolved = _resolve_manifest_path(root, normalized)
+        if resolved is not None and _is_excluded_manifest_discovery_path(root, resolved):
             continue
         generated_sources[normalized] = _normalized_path_list(raw_entry.get("sources"))
 
@@ -500,7 +515,7 @@ def refresh_artifact_freshness(project_root: Path) -> list[ContractIssue]:
     records: list[dict[str, Any]] = []
     for normalized in sorted(paths):
         resolved = _resolve_manifest_path(root, normalized)
-        if resolved is None or not resolved.is_file():
+        if resolved is None or not resolved.is_file() or _is_excluded_manifest_discovery_path(root, resolved):
             continue
         role = "canonical" if normalized in canonical_paths else "generated"
         record: dict[str, Any] = {
@@ -776,6 +791,9 @@ def validate_artifact_freshness(project_root: Path) -> list[ContractIssue]:
                 )
             )
             continue
+        if _is_excluded_manifest_discovery_path(root, resolved):
+            records_by_path.pop(normalized, None)
+            continue
         if resolved.is_file() and resolved.suffix.lower() != ".pdf":
             expected_sha = _lower_text(raw_record.get("sha256"))
             if not _is_sha256_hex(expected_sha):
@@ -1032,7 +1050,7 @@ def _coerce_manifest_entries(
         if normalized in MANIFEST_GENERATED_EXCLUDED_PATHS:
             continue
         resolved = _resolve_manifest_path(root, normalized)
-        if resolved is None or not resolved.is_file():
+        if resolved is None or not resolved.is_file() or _is_excluded_manifest_discovery_path(root, resolved):
             continue
         seen.add(normalized)
         entry["path"] = normalized
@@ -1114,7 +1132,7 @@ def _discover_manifest_artifact_files(root: Path) -> list[tuple[str, Path, str]]
         if not base_path.is_dir():
             continue
         for path in sorted(base_path.rglob("*")):
-            if not path.is_file() or _is_excluded_manifest_discovery_path(path):
+            if not path.is_file() or _is_excluded_manifest_discovery_path(root, path):
                 continue
             if path.suffix.lower() not in MANIFEST_DISCOVERY_SUFFIXES:
                 continue
@@ -1128,8 +1146,38 @@ def _discover_manifest_artifact_files(root: Path) -> list[tuple[str, Path, str]]
     return candidates
 
 
-def _is_excluded_manifest_discovery_path(path: Path) -> bool:
-    return any(part in MANIFEST_DISCOVERY_EXCLUDED_DIRS for part in path.parts)
+def _is_excluded_manifest_discovery_path(root: Path, path: Path) -> bool:
+    return any(part in MANIFEST_DISCOVERY_EXCLUDED_DIRS for part in path.parts) or _is_nonterminal_run_artifact(root, path)
+
+
+def _is_nonterminal_run_artifact(root: Path, path: Path) -> bool:
+    run_root = _run_root_for_manifest_path(root, path)
+    if run_root is None:
+        return False
+    status_path = run_root / "status.json"
+    if not status_path.exists():
+        return False
+    try:
+        status_payload = _read_json_object(status_path)
+    except ValueError:
+        return True
+    state = str(status_payload.get("state", "")).strip().lower()
+    if not state:
+        return True
+    return state not in NONTERMINAL_RUN_TERMINAL_STATES
+
+
+def _run_root_for_manifest_path(root: Path, path: Path) -> Path | None:
+    try:
+        relative = path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return None
+    parts = relative.parts
+    if len(parts) >= 3 and parts[0] == "experiments" and parts[1] == "runs":
+        return root / parts[0] / parts[1] / parts[2]
+    if len(parts) >= 2 and parts[0] == "runs":
+        return root / parts[0] / parts[1]
+    return None
 
 
 def _manifest_discovery_section(path: str) -> str | None:
@@ -1157,7 +1205,11 @@ def _add_missing_source_entries(
             if source in all_paths:
                 continue
             resolved = _resolve_manifest_path(root, source)
-            if resolved is None or not resolved.is_file():
+            if (
+                resolved is None
+                or not resolved.is_file()
+                or _is_excluded_manifest_discovery_path(root, resolved)
+            ):
                 continue
             source_entry: dict[str, Any] = {"path": source}
             _refresh_manifest_entry_file_fields(source_entry, resolved)
