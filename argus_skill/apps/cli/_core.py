@@ -192,6 +192,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_wiki_ingest(args))
     if args.command == "wiki" and args.wiki_cmd == "migrate":
         return _run_with_path_resolution_errors(lambda: _cmd_wiki_migrate(args))
+    if args.command == "query":
+        return _run_with_path_resolution_errors(lambda: _cmd_query(args))
     if args.daemon:
         return _run_with_path_resolution_errors(
             lambda: _cmd_daemon_start(args, foreground=False)
@@ -580,6 +582,25 @@ def _cmd_wiki_migrate(args: argparse.Namespace) -> int:
         return 2
     moved = migrate_orphan_sources(WikiStore(wiki))
     print(f"migrated {len(moved)} orphan source note(s)")
+    return 0
+
+
+def _cmd_query(args: argparse.Namespace) -> int:
+    """``argus-skill query <text>`` — unified trajectory + skills + wiki search."""
+    import json as _json
+
+    from ...tools.query_unified import render_text, unified_query
+
+    q = " ".join(args.text)
+    result = unified_query(
+        q,
+        top_k=int(getattr(args, "top_k", 5) or 5),
+        auto_index=not bool(getattr(args, "no_index", False)),
+    )
+    if getattr(args, "json", False):
+        print(_json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(render_text(result))
     return 0
 
 
