@@ -958,10 +958,43 @@ def _run_vision_review(
     return parsed
 
 
+def _venue_neutral_signals(deterministic: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of the deterministic signals with the kept-name page-flow
+    booleans renamed to venue-neutral keys.
+
+    ``page_flow_contract`` keeps the historical EMNLP-literal key names
+    ``conclusion_by_page_8`` / ``references_on_or_after_page_9`` (internal
+    readers depend on them), but for a non-EMNLP venue those names are
+    misleading when serialized into the vision-model hint (e.g. a page-8 AAAI
+    references paper would read ``references_on_or_after_page_9: true``). This
+    renames them only in the copy fed to the prompt, so the model sees a hint
+    consistent with the venue page numbers in the prose.
+    """
+    import copy
+
+    det = copy.deepcopy(deterministic)
+    pfc = det.get("page_flow_contract") if isinstance(det, dict) else None
+    if isinstance(pfc, dict):
+        if "conclusion_by_page_8" in pfc:
+            pfc["conclusion_within_budget"] = pfc.pop("conclusion_by_page_8")
+        if "references_on_or_after_page_9" in pfc:
+            pfc["references_after_body"] = pfc.pop("references_on_or_after_page_9")
+    return det
+
+
 def _vision_prompt(
     *, deterministic: dict[str, Any], threshold: float, venue: VenueProfile
 ) -> str:
     allowed_actions = ", ".join(sorted(ALLOWED_DIRECTIVE_ACTIONS))
+    if venue.key == "EMNLP":
+        # EMNLP keeps the EXACT original prompt so the model input and the
+        # persisted prompt_sha256 / input hash are byte-identical.
+        return _vision_prompt_emnlp_literal(
+            deterministic=deterministic, threshold=threshold
+        )
+    # Non-EMNLP: feed the model venue-neutral page-flow key names so the hint
+    # is not self-contradictory with the venue page numbers in the prose.
+    deterministic = _venue_neutral_signals(deterministic)
     vn = venue.display_name
     cmax = venue.conclusion_max_page         # Conclusion must land by this page
     cmin = venue.conclusion_underfill_page   # before this => underfilled body
@@ -1046,6 +1079,109 @@ def _vision_prompt(
         f"page {rmin}.\n\n"
         f"Submission contract to enforce: conclusion by page {cmax}, {end_matter}, "
         f"References before Appendix, References/Appendix on page {rmin} or later with no total-page cap, "
+        "no Overfull hbox above 5pt, <=5 body figures, at most one "
+        "full-width figure*, meaningful figure/table anchors across the middle body when they improve readability, table "
+        "captions with numerical headlines, readable research-style tables, adaptive/landscape "
+        "image-2 raster conceptual figures rather than 1024x1024 squares, and no weird fonts, tiny labels, heavy "
+        "gradients, photorealism, or code-like labels in paper-facing visuals.\n\n"
+        "Return strict JSON only, no markdown. Use this schema: score_1_to_5 (number), "
+        "criteria_scores object with typography/table_readability/float_balance/page_flow/"
+        "figure_quality/submission_standardness, blocking_issues list, major_issues list, "
+        "revision_directives list, and pass_or_revise as pass or revise. Each blocking_issues and "
+        "major_issues item must be an object with issue, page, target, visual_evidence, action, and "
+        "guidance. The guidance object must include root_cause, source_targets, specific_edits, "
+        "visual_goal, and verification. Each revision_directives item must have action, target, "
+        "rationale, expected_effect, and implementation_guidance with the same concrete fields. "
+        f"Allowed action values: {allowed_actions}. A score below {threshold:g} or any major "
+        "visual defect means revise.\n\n"
+        f"Deterministic layout signals:\n{json.dumps(deterministic, ensure_ascii=False)[:6000]}"
+    )
+
+
+def _vision_prompt_emnlp_literal(
+    *, deterministic: dict[str, Any], threshold: float
+) -> str:
+    """The original EMNLP vision prompt, kept verbatim so EMNLP projects emit a
+    byte-identical model input and persisted prompt hash."""
+    allowed_actions = ", ".join(sorted(ALLOWED_DIRECTIVE_ACTIONS))
+    return (
+        "Role: You are an independent visual reviewer for an EMNLP 2026 paper that is being "
+        "prepared for submission. Your job is to judge the rendered PDF screenshots as a polished, "
+        "standard two-column conference paper: visual beauty, professional layout, readability, "
+        "and compliance with EMNLP/ACL paper norms. Do not act as the author and do not excuse "
+        "ugly artifacts; be as strict as a proceedings layout reviewer.\n\n"
+        "Review task: inspect the screenshots page by page, using the deterministic signals below "
+        "as concrete hints. Penalize any page that looks non-submission-ready: large blank lower-page "
+        "regions before the body boundary, float-dump pages, cramped or plain audit-style tables, table/body overlap, tiny "
+        "unreadable fonts, awkward two-column imbalance, captions detached from content, weak page "
+        "flow, square or low-quality figures, non-human code-like labels, snake_case labels, heavy "
+        "gradients, photorealism, or visuals that look like debug artifacts rather than EMNLP paper "
+        "figures. A pre-body-boundary page with only a couple of small tables and a large empty area "
+        "is a hard visual failure even if LaTeX compiles. Final References/Appendix pages are "
+        "post-body pages: when Conclusion is by page 8 and References/Appendix start on page 9 or "
+        "later, natural trailing whitespace on the last appendix/reference page is advisory unless "
+        "there is a separate readability defect such as overlap, detached captions, missing required "
+        "content, or unreadably tiny tables. Official ACL/EMNLP anonymous review-mode line numbers from "
+        "`\\usepackage[review]{acl}` are acceptable submission artifacts and must not be treated as "
+        "debug gutters. Penalize only nonstandard duplicate line-number overlays, margin counters "
+        "unrelated to ACL review mode, or post-processing artifacts. Do not turn a small amount of "
+        "post-body whitespace into repeated revision churn when the formal page contract already "
+        "passes: conclusion by page 8, Limitations/Ethics after conclusion, and References/Appendix "
+        "on page 9 or later.\n\n"
+        "Make the feedback concrete for the next engineer/tool call: every blocking or major issue "
+        "must name the page number when visible, the visual target (for example: page 6 lower half, "
+        "Table 3, Figure 1 labels, references page), the visual evidence you saw, and the specific "
+        "source-level action needed. Prefer fixes that rewrite/rebalance manuscript flow, merge or "
+        "remove low-value floats, split unreadable tables, or regenerate poor figures; do not suggest "
+        "cosmetic page-break shuffling when the real defect is weak prose/float integration. "
+        "Figure repair policy: distinguish data/metric/result plots from non-data figures. "
+        "Data/metric/result plots may be regenerated from canonical data with local scripts or "
+        "vector exports when larger typography is needed; never require image-2 for benchmark-effect, "
+        "metric, result, or canonical-TSV plots merely because their labels are small. Every other paper-facing figure, "
+        "including Figure 1, teaser, overview, method/framework/system/pipeline schematics, "
+        "architecture diagrams, qualitative/example visuals, and explanatory conceptual figures, "
+        "must remain an actual image-2/codex-image2 raster recorded in IMAGE2_FIGURES.json. For "
+        "non-data figure defects, recommend LaTeX placement/size changes or regeneration through "
+        "the image-2 prompt/select/review route; never suggest vector PDF/SVG/TikZ/matplotlib/PIL/"
+        "manual redraws, local vectorization, screenshots, cropping, downsampling, resaving, or "
+        "overwriting the accepted raster. Treat Figure 1/overview/teaser/method figures as "
+        "non-data unless the screenshot and caption clearly identify a metric/result plot. "
+        "Never repair the eight-page body boundary by inserting `\\clearpage`, `\\newpage`, "
+        "`\\pagebreak`, or `\\FloatBarrier` immediately before Conclusion; that can leave page 8 "
+        "mostly blank and then push Conclusion to page 9 after minor float changes. Use section "
+        "ordering, prose tightening/expansion, and float placement instead.\n\n"
+        "Complete improvement guidance is mandatory, not optional. For every blocking or major issue, "
+        "provide enough repair guidance that an engineer can act without re-interpreting the screenshot: "
+        "root_cause, source_targets (LaTeX/generator/table/figure files or section names to edit), "
+        "specific_edits (ordered concrete edits, not vague advice), visual_goal, and verification "
+        "steps after recompilation. The guidance must say whether to delete filler, merge/split/move "
+        "specific floats, rewrite nearby prose, regenerate a figure, or change table styling. If the "
+        "page is ugly because the paper is underfilled or padded with audit-like content, say exactly "
+        "which body section should be expanded with source-backed narrative and which low-value "
+        "artifact/table should move to appendix or be deleted. Valid expansion targets include "
+        "literature-grounded Introduction/Related Work framing, benchmark or Method detail, and "
+        "evidence-backed Results/Analysis/Ablation material; generic motivation is filler. For any "
+        "single table cluster, choose one dominant repair action: merge low-density redundant tables "
+        "or split an unreadably dense table, but do not issue contradictory merge and split directives "
+        "for the same appendix/table target in the same review.\n\n"
+        "Reference boundary guidance: if References or Bibliography starts on the same rendered page as "
+        "Conclusion, Limitations, Ethics, or release/reproducibility body text, do not automatically call "
+        "the body overlong and do not ask for generic section shortening. Determine the direction from "
+        "the page: if the body is visibly underfilled, References start before page 9, "
+        "or Appendix material starts before page 9, "
+        "require source-backed body expansion, a meaningful late visual anchor, or a clean "
+        "reference/appendix-page break after the body; if body content actually runs past page 8, then require trimming. "
+        "A manual `\\clearpage`, `\\newpage`, `\\pagebreak`, or `\\FloatBarrier` immediately before "
+        "References is not an acceptable fix while the Conclusion starts before page 7 or References "
+        "still start before page 9; remove that break and fix content/page flow first. "
+        "Shortening an underfilled body makes the early-References defect worse. Do not require "
+        "References to begin exactly on page 9: page 10 or later is acceptable when the body and "
+        "body-adjacent end matter occupy page 9 naturally, and the total page count after the body "
+        "is uncapped. Treat page-9 whitespace after Limitations/Ethics as at most a minor style note "
+        "unless it reflects a forced break, Conclusion after page 8, or References/Appendix before "
+        "page 9.\n\n"
+        "Submission contract to enforce: conclusion by page 8, Limitations/Ethics after conclusion, "
+        "References before Appendix, References/Appendix on page 9 or later with no total-page cap, "
         "no Overfull hbox above 5pt, <=5 body figures, at most one "
         "full-width figure*, meaningful figure/table anchors across the middle body when they improve readability, table "
         "captions with numerical headlines, readable research-style tables, adaptive/landscape "

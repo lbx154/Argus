@@ -112,3 +112,18 @@ def test_venue_excluded_skill_files_resolves_from_project(tmp_path: Path) -> Non
     # Default (no target_venue) is EMNLP -> excludes the AAAI siblings.
     _write_state(tmp_path / "e", {})
     assert "aaai-paper-drafting.md" in venue_excluded_skill_files(tmp_path / "e")
+
+
+def test_venue_skill_files_resolve_to_real_builtin_skills() -> None:
+    # Guards against rename drift: if a venue skill .md is renamed without
+    # updating venue_skill_files, the cross-venue exclusion silently becomes a
+    # no-op. Assert every listed basename exists as a real built-in skill file.
+    from argus_skill.skills.builtins import iter_builtin_skill_texts
+
+    on_disk = {Path(p).name for p, _ in iter_builtin_skill_texts()}
+    for profile in (EMNLP_PROFILE, AAAI_PROFILE):
+        for fname in profile.venue_skill_files:
+            assert fname in on_disk, (
+                f"{profile.key} venue_skill_files lists {fname!r} but no such "
+                "builtin skill exists — the matcher exclusion would be a no-op"
+            )

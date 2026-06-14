@@ -166,3 +166,61 @@ def test_stage_check_allows_minimal_unblocked_plan(
     assert status == 0
     assert "Fail-closed pipeline state" not in out
     assert "0 fail-closed state finding(s)" in out
+
+
+def test_missing_draft_outline_fails_closed_at_plan(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    # A complete plan with NO paper/DRAFT_OUTLINE.md must fail closed via the
+    # in-process _plan_outline_findings (negative path for the draft-first gate).
+    _seed_plan_files(tmp_path)
+    _write_json(
+        tmp_path / "research" / "PIPELINE_STATE.json",
+        {"current_stage": "plan", "status": "active", "stages": {"plan": {"status": "done"}}},
+    )
+    _write_json(
+        tmp_path / "experiments" / "BENCHMARK_PROVENANCE.json",
+        {"plan_viability": {"status": "ready",
+                            "local_authentic_scored_family_count": 3,
+                            "minimum_required_family_count": 3}},
+    )
+    for name in (
+        "BENCHMARK_ACCESS_REVIEW.json",
+        "BENCHMARK_ARTIFACT_BUNDLE_STATUS.json",
+        "BENCHMARK_EVALUATOR_AUTHENTICITY.json",
+    ):
+        _write_json(tmp_path / "experiments" / name, {"passed": True, "blockers": []})
+
+    monkeypatch.setattr(sys, "argv", ["stage-check", "--project-root", str(tmp_path), "--stage", "plan"])
+    status = stage_check.main()
+    out = capsys.readouterr().out
+
+    assert status == 1
+    assert "draft outline:" in out
+    assert "Fail-closed pipeline state" in out
+
+
+def test_missing_draft_outline_is_advisory_when_bounded(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    # Bounded missions downgrade the outline finding to advisory (status 0).
+    _seed_plan_files(tmp_path)
+    _write_json(
+        tmp_path / "research" / "PIPELINE_STATE.json",
+        {"current_stage": "plan", "status": "active"},
+    )
+    monkeypatch.setattr(
+        sys, "argv",
+        ["stage-check", "--project-root", str(tmp_path), "--stage", "plan", "--bounded"],
+    )
+    status = stage_check.main()
+    out = capsys.readouterr().out
+
+    assert status == 0
+    assert "draft outline:" in out
+    assert "Advisory paper-pipeline state" in out
+    assert "0 fail-closed state finding(s)" in out

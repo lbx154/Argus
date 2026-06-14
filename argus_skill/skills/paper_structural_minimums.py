@@ -77,11 +77,15 @@ _RE_BIBKEY = re.compile(r"^\s*@\w+\s*\{\s*([^,\s]+)\s*,", re.MULTILINE)
 _RE_APPENDIX_CMD = re.compile(r"\\appendix\b")
 
 # AAAI-only preamble/compliance probes (used only when the venue profile asks).
-_RE_PDFINFO = re.compile(r"\\pdfinfo\s*\{")
+# _RE_PDFINFO requires the mandatory /TemplateVersion key inside the block (an
+# empty \pdfinfo{} is non-compliant); [^}]* spans newlines since [^}] includes \n.
+_RE_PDFINFO = re.compile(r"\\pdfinfo\s*\{[^}]*TemplateVersion")
 _RE_BIBLIOGRAPHYSTYLE = re.compile(r"\\bibliographystyle\s*\{")
 _RE_USEPACKAGE = re.compile(r"\\usepackage\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}")
 _RE_NOCOPYRIGHT = re.compile(r"\\nocopyright\b")
-_REPRO_CHECKLIST_TITLES = ("reproducibility checklist", "reproducibility")
+# Require the literal "checklist" — a bare "Reproducibility Statement"/"appendix"
+# is not the AAAI Reproducibility Checklist.
+_REPRO_CHECKLIST_TITLES = ("reproducibility checklist",)
 
 
 @dataclass
@@ -572,9 +576,9 @@ def _append_venue_compliance_issues(
                 code="missing_aaai_style_package",
                 detail=(
                     f"main.tex does not \\usepackage{{{style_package}}} — a "
-                    f"{getattr(venue, 'display_name', 'venue')} paper must use "
-                    f"\\documentclass[letterpaper]{{article}} with the official "
-                    f"{style_package}.sty style file (and times/helvet/courier)"
+                    f"{getattr(venue, 'display_name', 'venue')} paper must load the "
+                    f"official {style_package}.sty style file (with "
+                    "\\documentclass[letterpaper]{article} and times/helvet/courier)"
                 ),
             )
         )
