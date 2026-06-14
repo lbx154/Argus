@@ -209,8 +209,16 @@ class SkillLoop:
         skill_task = (objective_for_skill or task).strip() or task
         self._emit({"type": "loop.start", "text": f"task: {skill_task[:120]}"})
 
-        # Step 1: matcher (role mission — shared scaffold across all roles)
-        match = self.engineer_mission.match(skill_task)
+        # Step 1: matcher (role mission — shared scaffold across all roles).
+        # Suppress the other venue's paper skills so an AAAI project never
+        # matches the EMNLP drafting/preflight/router/review skills (and the
+        # newly-added AAAI siblings never dilute EMNLP matching). Resolves
+        # from research/PIPELINE_STATE.json target_venue; EMNLP by default.
+        from .skills.venue_profiles import venue_excluded_skill_files
+
+        match = self.engineer_mission.match(
+            skill_task, extra_exclude=venue_excluded_skill_files(workdir)
+        )
         matcher_tokens = match.input_tokens + match.output_tokens
         matcher_input_tokens = match.input_tokens
         matcher_cached_input_tokens = match.cached_input_tokens

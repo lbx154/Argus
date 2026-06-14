@@ -291,7 +291,12 @@ class Reviewer:
         # is already hard-wired into this prompt.
         matched_review_skill_block = ""
         if self.skill_store is not None:
-            review_match = self.mission.match(objective)
+            from ..skills.harness_overlay import resolve_project_root as _rpr
+            from ..skills.venue_profiles import venue_excluded_skill_files
+
+            review_match = self.mission.match(
+                objective, extra_exclude=venue_excluded_skill_files(_rpr())
+            )
             if review_match.block:
                 matched_review_skill_block = (
                     "Matched reviewer skill(s) for this objective "

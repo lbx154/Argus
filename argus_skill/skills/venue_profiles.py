@@ -111,6 +111,14 @@ class VenueProfile:
     # convenience: secondary keys that resolve to this profile
     aliases: tuple[str, ...] = field(default_factory=tuple)
 
+    # Built-in skill files (basenames) that are SPECIFIC to this venue. The
+    # cross-venue matcher filter suppresses the *other* venue's files so an
+    # AAAI project never matches the EMNLP drafting/preflight/router/review
+    # skills and vice versa (and so the AAAI siblings never dilute EMNLP
+    # matching). Venue-neutral skills (infrastructure review, image-2, figure
+    # studio, audits) are NOT listed here and stay matchable for both.
+    venue_skill_files: tuple[str, ...] = ()
+
     def page_budget_line(self) -> str:
         """One-line page-budget description for agent-facing prose."""
         return (
@@ -198,6 +206,12 @@ EMNLP_PROFILE = VenueProfile(
     reviewer_persona="EMNLP",
     review_skill_path="reviewer/emnlp-academic-language-review.md",
     aliases=("ACL", "ARR", "FINDINGS"),
+    venue_skill_files=(
+        "emnlp-paper-drafting.md",
+        "emnlp-format-preflight.md",
+        "emnlp-paper-skill-router.md",
+        "emnlp-academic-language-review.md",
+    ),
 )
 
 AAAI_PROFILE = VenueProfile(
@@ -236,6 +250,12 @@ AAAI_PROFILE = VenueProfile(
     abstract_word_floor=150,
     abstract_word_floor_is_hard=False,
     aliases=(),
+    venue_skill_files=(
+        "aaai-paper-drafting.md",
+        "aaai-format-preflight.md",
+        "aaai-paper-skill-router.md",
+        "aaai-academic-language-review.md",
+    ),
 )
 
 
@@ -296,6 +316,27 @@ def resolve_venue_profile(project_root: Path) -> VenueProfile:
     return get_venue_profile(_venue_key_from_pipeline_state(project_root))
 
 
+def cross_venue_excluded_skill_files(active: VenueProfile) -> set[str]:
+    """Skill-file basenames to hide from the matcher for ``active``.
+
+    Returns every *other* venue's venue-specific skill files so an AAAI
+    project never matches the EMNLP drafting/preflight/router/review skills
+    (and vice versa), and so each venue's siblings never dilute the other's
+    matching. Venue-neutral skills are never excluded.
+    """
+    excluded: set[str] = set()
+    for profile in VENUE_PROFILES.values():
+        if profile.key != active.key:
+            excluded.update(profile.venue_skill_files)
+    return excluded
+
+
+def venue_excluded_skill_files(project_root: Path) -> set[str]:
+    """Convenience: resolve the venue for ``project_root`` and return the
+    cross-venue skill-file exclusion set for the matcher."""
+    return cross_venue_excluded_skill_files(resolve_venue_profile(project_root))
+
+
 __all__ = [
     "VenueProfile",
     "EMNLP_PROFILE",
@@ -304,4 +345,6 @@ __all__ = [
     "DEFAULT_VENUE_KEY",
     "get_venue_profile",
     "resolve_venue_profile",
+    "cross_venue_excluded_skill_files",
+    "venue_excluded_skill_files",
 ]
