@@ -17,6 +17,7 @@ from ..tools.capability_vault import (
 _PROFILE_ENV = "ARGUS_SKILL_RESEARCH_PROFILE"
 _PROFILE_PATH_ENV = "ARGUS_SKILL_RESEARCH_PROFILE_PATH"
 _EMNLP2026_PROFILE = "emnlp2026-tierharness"
+_AAAI2026_PROFILE = "aaai2026-tierharness"
 _DEFAULT_TEXT_MODELS = "gpt-5.5,gpt-5.5"
 _DEFAULT_IMAGE_MODEL = "gpt-image-2"
 _SHARED_MODEL_CACHE_ROOT_ENV = "ARGUS_SKILL_SHARED_MODEL_CACHE_ROOT"
@@ -334,6 +335,43 @@ Planning discipline:
 """
 
 
+_AAAI2026_FORMAT_ADDENDUM = """
+
+AAAI 2026 format rules (override the venue defaults above):
+- Use the official AAAI Press style (aaai2026.sty + aaai2026.bst), two-column,
+  with `\\documentclass[letterpaper]{article}` + `\\usepackage[submission]{aaai2026}`
+  (camera-ready uses `\\usepackage{aaai2026}`), the mandatory `\\pdfinfo` block,
+  and Times font. Do NOT use acl.sty / acl-style-files.
+- Body is 7 pages of technical content; References and the Reproducibility
+  Checklist go on additional, uncounted pages (Conclusion by page 7, References
+  on page 8 or later, no cap after the body).
+- AAAI has no mandatory Limitations or Ethics sections; a Reproducibility
+  Checklist IS required, placed after the References.
+- Never emit `\\bibliographystyle` — aaai2026.sty sets it and a manual command
+  errors. Do not load hyperref or navigator, and never use `\\nocopyright`.
+- The anonymous author block renders as "Anonymous submission" via the
+  `[submission]` option; AAAI has no official abstract word limit.
+"""
+
+
+def _default_aaai2026_profile() -> str:
+    base = (
+        _default_emnlp2026_profile()
+        .replace("EMNLP 2026 TierHarness project", "AAAI 2026 TierHarness project")
+        .replace("Produce an EMNLP 2026 paper", "Produce an AAAI 2026 paper")
+        .replace("even when they mention EMNLP", "even when they mention AAAI")
+    )
+    return base + _AAAI2026_FORMAT_ADDENDUM
+
+
+# Registry mapping a profile name to its built-in prose builder. Unknown names
+# fall back to the generic "use ARGUS_SKILL_RESEARCH_PROFILE_PATH" message.
+_PROFILE_REGISTRY = {
+    _EMNLP2026_PROFILE: _default_emnlp2026_profile,
+    _AAAI2026_PROFILE: _default_aaai2026_profile,
+}
+
+
 def load_research_profile(
     env: Mapping[str, str] | None = None,
 ) -> ResearchProfile | None:
@@ -346,7 +384,8 @@ def load_research_profile(
     name = _env_text(source, _PROFILE_ENV)
     if not name:
         return None
-    if name != _EMNLP2026_PROFILE:
+    builder = _PROFILE_REGISTRY.get(name)
+    if builder is None:
         text = (
             "## Research profile\n"
             f"- Active profile: {name}\n"
@@ -355,7 +394,7 @@ def load_research_profile(
         )
         return ResearchProfile(name=name, text=text, sha256=_sha256(text))
 
-    text = _default_emnlp2026_profile()
+    text = builder()
     return ResearchProfile(name=name, text=text, sha256=_sha256(text))
 
 
