@@ -213,6 +213,39 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
 }
 
 
+def _reviewer_checklist_for(
+    stage: str, venue: Any
+) -> tuple[str, str, list[str]] | None:
+    """Return the venue-adjusted (skill, instructions, files) for a stage.
+
+    EMNLP returns the static template byte-for-byte. For other venues the
+    load-bearing reviewer-skill filename, the page-budget line, and the
+    reviewer-persona references are rewritten from the profile so an AAAI
+    reviewer is not pointed at the EMNLP skill or told to enforce ACL pages.
+    """
+    entry = REVIEWER_CHECKLISTS.get(stage)
+    if entry is None:
+        return None
+    skill, instructions, files = entry
+    if getattr(venue, "key", "EMNLP") == "EMNLP":
+        return skill, instructions, files
+    persona = venue.reviewer_persona
+    if skill == "reviewer/emnlp-academic-language-review.md":
+        skill = venue.review_skill_path
+    instructions = (
+        instructions.replace("an actual EMNLP reviewer", f"an actual {persona} reviewer")
+        .replace("EMNLP reviewers find", f"{persona} reviewers find")
+        .replace("Reject at EMNLP", f"Reject at {persona}")
+        .replace("support an EMNLP paper", f"support an {persona} paper")
+        .replace("ACL format, page budget", f"{persona} format, page budget")
+        .replace(
+            "body ≤8 pages, conclusion on page 8, references start page 9+",
+            venue.page_budget_line(),
+        )
+    )
+    return skill, instructions, files
+
+
 def _get_current_stage(project_root: Path) -> str:
     state_path = project_root / "research" / "PIPELINE_STATE.json"
     if not state_path.exists():
@@ -345,6 +378,9 @@ def main() -> int:
     stage = args.stage or _get_current_stage(root)
     python = sys.executable
 
+    from argus_skill.skills.venue_profiles import resolve_venue_profile
+    venue = resolve_venue_profile(root)
+
     print(f"📋 Stage: {stage}")
     print()
 
@@ -432,8 +468,9 @@ def main() -> int:
 
     # 3. Output reviewer checklist for critical stages
     #    Reviewer is a codex agent — it reads the skill and files itself.
-    if stage in REVIEWER_CHECKLISTS:
-        skill_name, instructions, files = REVIEWER_CHECKLISTS[stage]
+    reviewer_checklist = _reviewer_checklist_for(stage, venue)
+    if reviewer_checklist is not None:
+        skill_name, instructions, files = reviewer_checklist
         print()
         print(f"📋 REVIEWER CHECKLIST for stage '{stage}'")
         print(f"   Load skill: argus_builtin_skills/{skill_name}")

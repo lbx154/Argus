@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from .venue_profiles import VenueProfile, get_venue_profile, resolve_venue_profile
+
 CANONICAL_STAGE_ORDER: tuple[str, ...] = (
     "research",
     "plan",
@@ -941,6 +943,54 @@ def _augment(body: str, role: str, project_root, *, overlay_present: bool = Fals
     return "\n\n".join(parts)
 
 
+def _resolve_checklist_venue(project_root) -> VenueProfile:
+    """Resolve the venue profile for checklist rendering.
+
+    ``project_root`` may be None (resolved from env/cwd, matching how the
+    overlay locates the project). resolve_venue_profile fails open to EMNLP
+    when no PIPELINE_STATE/target_venue is present, so EMNLP renders the
+    floor byte-identically.
+    """
+    import os
+
+    if project_root is None:
+        project_root = os.environ.get("ARGUS_SKILL_PROJECT_ROOT") or "."
+    try:
+        return resolve_venue_profile(Path(project_root))
+    except Exception:  # noqa: BLE001 - venue resolution must never break prompts
+        return get_venue_profile(None)
+
+
+def _apply_venue_to_checklist_body(body: str, venue: VenueProfile) -> str:
+    """Rewrite the EMNLP-literal floor items for a non-EMNLP venue.
+
+    The floor (``STAGE_CHECKLISTS``) is authored EMNLP-first. ``harness_overlay``
+    is additive-only and cannot relax the floor, so the venue switch MUST happen
+    here in the framework floor itself — otherwise an AAAI paper is failed by the
+    EMNLP page-9 / "Anonymous EMNLP Submission" floor. EMNLP renders unchanged.
+    """
+    if venue.key == "EMNLP":
+        return body
+    persona = venue.reviewer_persona
+    page_phrase = (
+        f"up to {venue.body_page_limit} pages, References starts on "
+        f"page {venue.references_min_page} or later"
+    )
+    substitutions = {
+        "EMNLP/ACL long-paper sections": f"{venue.display_name} two-column paper sections",
+        "Conclusion, Limitations, Ethics, Reproducibility appendix": venue.draft_section_tail(),
+        "7.5-8.0 pages, References starts on page 9 or later": page_phrase,
+        "reads like a real EMNLP paper": f"reads like a real {persona} paper",
+        "anonymous EMNLP/ACL author block": f"anonymous {persona} author block",
+        "'Anonymous EMNLP Submission' + acl review mode": (
+            f"'{venue.anon_author_string}' + {venue.style_package} submission mode"
+        ),
+    }
+    for old, new in substitutions.items():
+        body = body.replace(old, new)
+    return body
+
+
 def format_stage_checklist(
     stage: str,
     *,
@@ -1003,6 +1053,7 @@ def format_stage_checklist(
         f"{framing}\n\n"
         f"{_render_items(items, annotations)}"
     )
+    body = _apply_venue_to_checklist_body(body, _resolve_checklist_venue(project_root))
     return _augment(body, role_norm, project_root, overlay_present=bool(extra or annotations))
 
 
@@ -1037,4 +1088,7 @@ def format_full_pipeline_checklist(
         if not items:
             continue
         blocks.append(f"### {stage}\n{_render_items(items, annotations)}")
-    return _augment("\n\n".join(blocks), role_norm, project_root, overlay_present=overlay_present)
+    body = _apply_venue_to_checklist_body(
+        "\n\n".join(blocks), _resolve_checklist_venue(project_root)
+    )
+    return _augment(body, role_norm, project_root, overlay_present=overlay_present)

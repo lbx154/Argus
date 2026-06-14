@@ -119,6 +119,57 @@ class VenueProfile:
             f"{self.references_min_page}+ (material after References is uncapped)"
         )
 
+    def end_matter_boundary_pattern(self) -> str:
+        """Regex for post-Conclusion body end-matter that must NOT share a
+        rendered page with References.
+
+        Returns the same set for both venues: AAAI mandates none of these,
+        but if an author includes a Limitations/Ethics section it is still
+        body matter. AAAI's reproducibility checklist legitimately follows
+        References, so it is deliberately excluded here.
+        """
+        terms = (
+            "Limitations",
+            "Ethical Considerations",
+            "Ethics",
+            "Release and Reproducibility",
+        )
+        return r"\b(?:" + "|".join(terms) + r")\b"
+
+    def end_matter_prose(self) -> str:
+        """Human description of what legitimately follows the Conclusion."""
+        if self.mandatory_end_sections:
+            return f"{' and '.join(self.mandatory_end_sections)} after the Conclusion"
+        if self.requires_reproducibility_checklist:
+            return (
+                "the reproducibility checklist after the References "
+                "(no mandatory Limitations/Ethics)"
+            )
+        return "any end matter after the Conclusion"
+
+    def review_linenumber_prose(self) -> str:
+        """Describe the venue's legitimate anonymous-review line-number artifact."""
+        return (
+            f"Anonymous review-mode line numbers from `{self.review_mode_macro}` are "
+            "acceptable submission artifacts and must not be treated as debug gutters."
+        )
+
+    def draft_section_tail(self) -> str:
+        """The end-of-paper section order after the main body, for prose.
+
+        EMNLP: Conclusion + Limitations + Ethics + Reproducibility appendix.
+        AAAI: Conclusion, then References, then a Reproducibility Checklist
+        (no mandatory Limitations/Ethics).
+        """
+        if self.mandatory_end_sections:
+            tail = ", ".join(self.mandatory_end_sections)
+            return f"Conclusion, {tail}, Reproducibility appendix"
+        if self.requires_reproducibility_checklist:
+            return "Conclusion, then References, then a Reproducibility Checklist"
+        return "Conclusion"
+
+
+
 
 # ---------------------------------------------------------------------------
 # Built-in profiles

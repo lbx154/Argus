@@ -1,0 +1,63 @@
+"""Venue-awareness of the framework floor checklists.
+
+The floor is authored EMNLP-first and harness_overlay cannot relax it, so the
+AAAI venue switch must happen in the floor itself. EMNLP must render the floor
+byte-identically; AAAI must rewrite the page budget, end-matter order, and the
+anonymity block.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from argus_skill.skills.stage_checklists import (
+    format_full_pipeline_checklist,
+    format_stage_checklist,
+)
+
+
+def _project(tmp_path: Path, venue: str | None) -> Path:
+    (tmp_path / "research").mkdir(parents=True, exist_ok=True)
+    payload = {"current_stage": "draft"}
+    if venue is not None:
+        payload["target_venue"] = venue
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
+    return tmp_path
+
+
+def test_emnlp_floor_is_byte_identical(tmp_path: Path) -> None:
+    # No target_venue and explicit EMNLP must render the same floor text.
+    default = format_stage_checklist("draft", role="reviewer", project_root=_project(tmp_path / "a", None))
+    emnlp = format_stage_checklist("draft", role="reviewer", project_root=_project(tmp_path / "b", "EMNLP"))
+    assert default == emnlp
+    assert "EMNLP/ACL long-paper sections" in emnlp
+    assert "References starts on page 9 or later" in emnlp
+
+
+def test_aaai_floor_rewrites_page_budget_and_sections(tmp_path: Path) -> None:
+    root = _project(tmp_path, "AAAI")
+    draft = format_stage_checklist("draft", role="reviewer", project_root=root)
+    assert "AAAI 2026 two-column paper sections" in draft
+    assert "up to 7 pages, References starts on page 8 or later" in draft
+    # AAAI does not mandate Limitations/Ethics as a body end section.
+    assert "Limitations, Ethics, Reproducibility appendix" not in draft
+    assert "Reproducibility Checklist" in draft
+    # No leftover EMNLP page-9 floor.
+    assert "References starts on page 9 or later" not in draft
+
+
+def test_aaai_submission_anonymity_block(tmp_path: Path) -> None:
+    root = _project(tmp_path, "AAAI")
+    sub = format_stage_checklist("submission", role="reviewer", project_root=root)
+    assert "Anonymous submission" in sub
+    assert "aaai2026 submission mode" in sub
+    assert "Anonymous EMNLP Submission" not in sub
+
+
+def test_full_pipeline_checklist_is_venue_aware(tmp_path: Path) -> None:
+    aaai = format_full_pipeline_checklist(role="reviewer", project_root=_project(tmp_path, "AAAI"))
+    assert "Anonymous submission" in aaai
+    assert "up to 7 pages" in aaai
+    assert "Anonymous EMNLP Submission" not in aaai

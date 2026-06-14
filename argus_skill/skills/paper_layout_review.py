@@ -34,6 +34,7 @@ from ._review_contract_constants import (
     review_sha256_json,
     review_sha256_text,
 )
+from .venue_profiles import VenueProfile, resolve_venue_profile
 
 PAPER_MAIN_PDF_PATH = Path("paper/main.pdf")
 PAPER_MAIN_TEX_PATH = Path("paper/main.tex")
@@ -89,10 +90,12 @@ def generate_layout_review(
     iteration: int | None = None,
     write: bool = True,
     env: Mapping[str, str] | None = None,
+    venue: VenueProfile | None = None,
 ) -> dict[str, Any]:
     """Review the compiled paper layout and optionally persist review artifacts."""
 
     root = Path(project_root)
+    profile = venue or resolve_venue_profile(root)
     threshold = max(float(threshold), MIN_LAYOUT_SCORE)
     iteration = iteration or _next_iteration(root)
     issues: list[dict[str, Any]] = []
@@ -148,6 +151,7 @@ def generate_layout_review(
         log_text=log_text,
         layout_text=layout_text,
         threshold=threshold,
+        venue=profile,
     )
     review_method = "facts_only"
     vision_review: dict[str, Any] | None = None
@@ -171,6 +175,7 @@ def generate_layout_review(
                     threshold=threshold,
                     env=env,
                     timeout=timeout,
+                    venue=profile,
                 )
             except (ImageToolError, LayoutReviewError) as exc:
                 issues.append(
@@ -531,6 +536,7 @@ def _deterministic_assessment(
     log_text: str,
     layout_text: str,
     threshold: float,
+    venue: VenueProfile,
 ) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
     penalty = 0.0
@@ -574,8 +580,8 @@ def _deterministic_assessment(
                 "forced_page_break_before_conclusion",
                 "major",
                 (
-                    "manual page break immediately before Conclusion can strand page 8 "
-                    "mostly blank or push Conclusion to page 9; rebalance body content and "
+                    f"manual page break immediately before Conclusion can strand page {venue.conclusion_max_page} "
+                    f"mostly blank or push Conclusion to page {venue.conclusion_max_page + 1}; rebalance body content and "
                     "floats instead of forcing the section break"
                 ),
                 hard_gate=True,
@@ -643,15 +649,16 @@ def _deterministic_assessment(
 
     layout_pages = _layout_pages(layout_text)
     conclusion_page = _first_layout_page_matching(layout_pages, r"\bConclusion\b")
-    if conclusion_page is not None and conclusion_page < 7:
+    if conclusion_page is not None and conclusion_page < venue.conclusion_underfill_page:
         penalty += 0.7
         issues.append(
             _issue(
                 "rendered_main_body_underfilled",
                 "major",
                 (
-                    "Conclusion starts before page 7, so the paper has not visibly filled "
-                    "the eight-page EMNLP body budget; add source-backed body content before "
+                    f"Conclusion starts before page {venue.conclusion_underfill_page}, so "
+                    f"the paper has not visibly filled the {venue.body_page_limit}-page "
+                    f"{venue.display_name} body budget; add source-backed body content before "
                     "the Conclusion instead of padding after it"
                 ),
                 page=conclusion_page,
@@ -660,16 +667,16 @@ def _deterministic_assessment(
                 target=f"page {conclusion_page} early Conclusion",
             )
         )
-    elif conclusion_page is not None and conclusion_page > 8:
+    elif conclusion_page is not None and conclusion_page > venue.conclusion_max_page:
         penalty += 0.7
         issues.append(
             _issue(
                 "conclusion_after_page_8",
                 "major",
                 (
-                    "Conclusion starts after page 8, so the paper exceeds the EMNLP "
-                    "main-body page budget; move low-value body material to the appendix "
-                    "or tighten prose without deleting evidence"
+                    f"Conclusion starts after page {venue.conclusion_max_page}, so the paper "
+                    f"exceeds the {venue.display_name} main-body page budget; move low-value "
+                    "body material to the appendix or tighten prose without deleting evidence"
                 ),
                 page=conclusion_page,
                 hard_gate=True,
@@ -687,23 +694,25 @@ def _deterministic_assessment(
         rf"(?m)(?:^\s*|\s{{6,}}){LAYOUT_HEADING_LINE_NUMBER_PREFIX}"
         r"(?:Reproducibility\s+Appendix|Appendix)\b",
     )
+    # NOTE: the dict keys ``conclusion_by_page_8`` / ``references_on_or_after_page_9``
+    # are read by name downstream (advisory/whitespace helpers); their names are
+    # kept stable for compatibility, but the VALUES are now venue-relative
+    # (page 8/9 for EMNLP, 7/8 for AAAI).
     page_flow_contract = {
         "page_count": len(layout_pages),
         "conclusion_page": conclusion_page,
         "references_page": references_page,
         "appendix_page": appendix_page,
-        "conclusion_by_page_8": conclusion_page is None or conclusion_page <= 8,
-        "references_on_or_after_page_9": references_page is None or references_page >= 9,
+        "conclusion_by_page_8": conclusion_page is None or conclusion_page <= venue.conclusion_max_page,
+        "references_on_or_after_page_9": references_page is None or references_page >= venue.references_min_page,
         "post_body_pages_uncapped": True,
     }
     if references_page is not None:
         reference_page_text = layout_pages[references_page - 1]
         has_conclusion_on_reference_page = bool(re.search(r"\bConclusion\b", reference_page_text))
+        end_matter_pattern = venue.end_matter_boundary_pattern()
         has_body_end_matter_on_reference_page = bool(
-            re.search(
-                r"\b(?:Limitations|Ethical Considerations|Ethics|Release and Reproducibility)\b",
-                reference_page_text,
-            )
+            end_matter_pattern and re.search(end_matter_pattern, reference_page_text)
         )
         formal_boundary_passes = bool(
             page_flow_contract["conclusion_by_page_8"]
@@ -720,8 +729,9 @@ def _deterministic_assessment(
                     (
                         "References begin on the same rendered page as body end matter; "
                         "fix the body/reference boundary without generic shortening. "
-                        "Do not hard-separate post-conclusion Limitations/Ethics from References "
-                        "when Conclusion is by page 8 and References start on page 9 or later"
+                        "Do not hard-separate post-conclusion end matter from References "
+                        f"when Conclusion is by page {venue.conclusion_max_page} and "
+                        f"References start on page {venue.references_min_page} or later"
                     ),
                     page=references_page,
                     hard_gate=True,
@@ -729,15 +739,16 @@ def _deterministic_assessment(
                     target=f"page {references_page} References boundary",
                 )
             )
-        elif references_page < 9:
+        elif references_page < venue.references_min_page:
             penalty += 0.7
             issues.append(
                 _issue(
                     "references_before_full_body",
                     "major",
                     (
-                        "References begin before the paper visibly fills the long-paper body budget; "
-                        "an eight-page EMNLP body should push references to page 9 or later; "
+                        "References begin before the paper visibly fills the body budget; "
+                        f"a {venue.body_page_limit}-page {venue.display_name} body should push "
+                        f"references to page {venue.references_min_page} or later; "
                         "expand from verified evidence instead of padding"
                     ),
                     page=references_page,
@@ -747,8 +758,8 @@ def _deterministic_assessment(
                 )
             )
     if _forced_break_before_references(tex_text) and (
-        (references_page is not None and references_page < 9)
-        or (conclusion_page is not None and conclusion_page < 7)
+        (references_page is not None and references_page < venue.references_min_page)
+        or (conclusion_page is not None and conclusion_page < venue.conclusion_underfill_page)
     ):
         penalty += 0.8
         issues.append(
@@ -758,7 +769,7 @@ def _deterministic_assessment(
                 (
                     "manual page break immediately before References is masking an underfilled "
                     "body; remove the break and add source-backed body or post-conclusion scope "
-                    "content until References naturally start on page 9 or later"
+                    f"content until References naturally start on page {venue.references_min_page} or later"
                 ),
                 page=references_page,
                 hard_gate=True,
@@ -894,10 +905,11 @@ def _run_vision_review(
     threshold: float,
     env: Mapping[str, str] | None,
     timeout: float,
+    venue: VenueProfile,
 ) -> dict[str, Any]:
     route = _require_route("image_review", env)
     selected = page_snapshots
-    prompt = _vision_prompt(deterministic=deterministic, threshold=threshold)
+    prompt = _vision_prompt(deterministic=deterministic, threshold=threshold, venue=venue)
     content: list[dict[str, Any]] = [
         {
             "type": "input_text",
@@ -946,32 +958,40 @@ def _run_vision_review(
     return parsed
 
 
-def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
+def _vision_prompt(
+    *, deterministic: dict[str, Any], threshold: float, venue: VenueProfile
+) -> str:
     allowed_actions = ", ".join(sorted(ALLOWED_DIRECTIVE_ACTIONS))
+    vn = venue.display_name
+    cmax = venue.conclusion_max_page         # Conclusion must land by this page
+    cmin = venue.conclusion_underfill_page   # before this => underfilled body
+    rmin = venue.references_min_page          # References on/after this page
+    bpl = venue.body_page_limit
+    end_matter = venue.end_matter_prose()
+    review_lines = venue.review_linenumber_prose()
     return (
-        "Role: You are an independent visual reviewer for an EMNLP 2026 paper that is being "
+        f"Role: You are an independent visual reviewer for an {vn} paper that is being "
         "prepared for submission. Your job is to judge the rendered PDF screenshots as a polished, "
         "standard two-column conference paper: visual beauty, professional layout, readability, "
-        "and compliance with EMNLP/ACL paper norms. Do not act as the author and do not excuse "
+        f"and compliance with {vn} paper norms. Do not act as the author and do not excuse "
         "ugly artifacts; be as strict as a proceedings layout reviewer.\n\n"
         "Review task: inspect the screenshots page by page, using the deterministic signals below "
         "as concrete hints. Penalize any page that looks non-submission-ready: large blank lower-page "
         "regions before the body boundary, float-dump pages, cramped or plain audit-style tables, table/body overlap, tiny "
         "unreadable fonts, awkward two-column imbalance, captions detached from content, weak page "
         "flow, square or low-quality figures, non-human code-like labels, snake_case labels, heavy "
-        "gradients, photorealism, or visuals that look like debug artifacts rather than EMNLP paper "
+        f"gradients, photorealism, or visuals that look like debug artifacts rather than {vn} paper "
         "figures. A pre-body-boundary page with only a couple of small tables and a large empty area "
         "is a hard visual failure even if LaTeX compiles. Final References/Appendix pages are "
-        "post-body pages: when Conclusion is by page 8 and References/Appendix start on page 9 or "
+        f"post-body pages: when Conclusion is by page {cmax} and References/Appendix start on page {rmin} or "
         "later, natural trailing whitespace on the last appendix/reference page is advisory unless "
         "there is a separate readability defect such as overlap, detached captions, missing required "
-        "content, or unreadably tiny tables. Official ACL/EMNLP anonymous review-mode line numbers from "
-        "`\\usepackage[review]{acl}` are acceptable submission artifacts and must not be treated as "
-        "debug gutters. Penalize only nonstandard duplicate line-number overlays, margin counters "
-        "unrelated to ACL review mode, or post-processing artifacts. Do not turn a small amount of "
+        f"content, or unreadably tiny tables. {review_lines} "
+        "Penalize only nonstandard duplicate line-number overlays, margin counters "
+        "unrelated to review mode, or post-processing artifacts. Do not turn a small amount of "
         "post-body whitespace into repeated revision churn when the formal page contract already "
-        "passes: conclusion by page 8, Limitations/Ethics after conclusion, and References/Appendix "
-        "on page 9 or later.\n\n"
+        f"passes: conclusion by page {cmax}, {end_matter}, and References/Appendix "
+        f"on page {rmin} or later.\n\n"
         "Make the feedback concrete for the next engineer/tool call: every blocking or major issue "
         "must name the page number when visible, the visual target (for example: page 6 lower half, "
         "Table 3, Figure 1 labels, references page), the visual evidence you saw, and the specific "
@@ -990,9 +1010,9 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "manual redraws, local vectorization, screenshots, cropping, downsampling, resaving, or "
         "overwriting the accepted raster. Treat Figure 1/overview/teaser/method figures as "
         "non-data unless the screenshot and caption clearly identify a metric/result plot. "
-        "Never repair the eight-page body boundary by inserting `\\clearpage`, `\\newpage`, "
-        "`\\pagebreak`, or `\\FloatBarrier` immediately before Conclusion; that can leave page 8 "
-        "mostly blank and then push Conclusion to page 9 after minor float changes. Use section "
+        f"Never repair the {bpl}-page body boundary by inserting `\\clearpage`, `\\newpage`, "
+        f"`\\pagebreak`, or `\\FloatBarrier` immediately before Conclusion; that can leave page {cmax} "
+        f"mostly blank and then push Conclusion to page {cmax + 1} after minor float changes. Use section "
         "ordering, prose tightening/expansion, and float placement instead.\n\n"
         "Complete improvement guidance is mandatory, not optional. For every blocking or major issue, "
         "provide enough repair guidance that an engineer can act without re-interpreting the screenshot: "
@@ -1009,23 +1029,23 @@ def _vision_prompt(*, deterministic: dict[str, Any], threshold: float) -> str:
         "or split an unreadably dense table, but do not issue contradictory merge and split directives "
         "for the same appendix/table target in the same review.\n\n"
         "Reference boundary guidance: if References or Bibliography starts on the same rendered page as "
-        "Conclusion, Limitations, Ethics, or release/reproducibility body text, do not automatically call "
+        "Conclusion or post-conclusion body end matter, do not automatically call "
         "the body overlong and do not ask for generic section shortening. Determine the direction from "
-        "the page: if the body is visibly underfilled, References start before page 9, "
-        "or Appendix material starts before page 9, "
+        f"the page: if the body is visibly underfilled, References start before page {rmin}, "
+        f"or Appendix material starts before page {rmin}, "
         "require source-backed body expansion, a meaningful late visual anchor, or a clean "
-        "reference/appendix-page break after the body; if body content actually runs past page 8, then require trimming. "
+        f"reference/appendix-page break after the body; if body content actually runs past page {cmax}, then require trimming. "
         "A manual `\\clearpage`, `\\newpage`, `\\pagebreak`, or `\\FloatBarrier` immediately before "
-        "References is not an acceptable fix while the Conclusion starts before page 7 or References "
-        "still start before page 9; remove that break and fix content/page flow first. "
+        f"References is not an acceptable fix while the Conclusion starts before page {cmin} or References "
+        f"still start before page {rmin}; remove that break and fix content/page flow first. "
         "Shortening an underfilled body makes the early-References defect worse. Do not require "
-        "References to begin exactly on page 9: page 10 or later is acceptable when the body and "
-        "body-adjacent end matter occupy page 9 naturally, and the total page count after the body "
-        "is uncapped. Treat page-9 whitespace after Limitations/Ethics as at most a minor style note "
-        "unless it reflects a forced break, Conclusion after page 8, or References/Appendix before "
-        "page 9.\n\n"
-        "Submission contract to enforce: conclusion by page 8, Limitations/Ethics after conclusion, "
-        "References before Appendix, References/Appendix on page 9 or later with no total-page cap, "
+        f"References to begin exactly on page {rmin}: page {rmin + 1} or later is acceptable when the body and "
+        f"body-adjacent end matter occupy page {rmin} naturally, and the total page count after the body "
+        f"is uncapped. Treat page-{rmin} whitespace after end matter as at most a minor style note "
+        f"unless it reflects a forced break, Conclusion after page {cmax}, or References/Appendix before "
+        f"page {rmin}.\n\n"
+        f"Submission contract to enforce: conclusion by page {cmax}, {end_matter}, "
+        f"References before Appendix, References/Appendix on page {rmin} or later with no total-page cap, "
         "no Overfull hbox above 5pt, <=5 body figures, at most one "
         "full-width figure*, meaningful figure/table anchors across the middle body when they improve readability, table "
         "captions with numerical headlines, readable research-style tables, adaptive/landscape "
@@ -1248,7 +1268,7 @@ def _implementation_guidance(
         guidance.get("root_cause"),
         issue.get("visual_evidence"),
         issue.get("message"),
-    ) or "The rendered PDF page does not meet EMNLP/ACL visual submission standards."
+    ) or "The rendered PDF page does not meet two-column conference visual submission standards."
     source_targets = _text_list(guidance.get("source_targets"))
     if not source_targets:
         source_targets = _default_source_targets(target)
@@ -1316,17 +1336,17 @@ def _default_specific_edit(action: str, target: str) -> str:
         "merge_tables": f"Merge redundant low-density tables around {target_text} into one stronger reader-facing table with a numerical takeaway caption.",
         "move_float": f"Move the float around {target_text} next to the paragraph that discusses it, or rewrite the nearby prose/float order so the page is not a float dump.",
         "resize_figure": f"Resize or recrop the figure at {target_text} so labels remain readable and columns stay balanced.",
-        "regenerate_figure": f"Regenerate the figure at {target_text} with a cleaner EMNLP-style layout, readable labels, and no debug/code-facing visual artifacts.",
+        "regenerate_figure": f"Regenerate the figure at {target_text} with a cleaner publication-quality layout, readable labels, and no debug/code-facing visual artifacts.",
         "replace_code_label": f"Replace code-like labels around {target_text} with human-readable paper labels in the figure/table source and caption.",
         "tighten_paragraph": f"Tighten paragraphs around {target_text} without adding unsupported claims; use the freed space to restore balanced page flow.",
-        "trim_or_move_content": f"Trim or move low-value body material around {target_text} so Conclusion lands on page 8 while preserving evidence-bearing claims.",
+        "trim_or_move_content": f"Trim or move low-value body material around {target_text} so the Conclusion lands within the body page budget while preserving evidence-bearing claims.",
         "delete_low_value_content": f"Delete or move low-value audit/checklist content around {target_text}; replace body space only with exemplar-aligned evidence narrative if needed.",
         "rebalance_columns": f"Rebalance text and floats around {target_text} by editing source order, paragraph length, and float placement rather than adding filler.",
         "fix_overfull_box": f"Fix the source line/table/figure causing overflow at {target_text}; do not hide it with unreadably small fonts.",
-        "fix_bibliography_appendix_order": f"Move References before Appendix and keep Limitations/Ethics after Conclusion around {target_text}.",
+        "fix_bibliography_appendix_order": f"Move References before Appendix and keep post-Conclusion end matter ahead of References around {target_text}.",
         "fix_reference_boundary": f"Separate References from body text at {target_text}; if the body is underfilled, add source-backed body content or a meaningful late visual anchor before using a clean reference break.",
     }
-    return edits.get(action, f"Revise {target_text} so the rendered page has polished EMNLP/ACL layout.")
+    return edits.get(action, f"Revise {target_text} so the rendered page has polished two-column conference layout.")
 
 
 def _is_non_data_figure_layout_item(item: Mapping[str, Any]) -> bool:
@@ -1516,7 +1536,7 @@ def _expected_effect(action: str) -> str:
         "delete_low_value_content": "remove filler that damages layout",
         "rebalance_columns": "improve visual balance across columns/pages",
         "fix_overfull_box": "remove visible text/table overflow",
-        "fix_bibliography_appendix_order": "restore ACL/EMNLP section order",
+        "fix_bibliography_appendix_order": "restore conference section order",
         "fix_reference_boundary": "keep references on a clean page after the body",
     }
     return effects.get(action, "improve final paper layout")
