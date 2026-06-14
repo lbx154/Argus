@@ -38,7 +38,7 @@ import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Callable, Iterable, Iterator
 
 _SCHEMA_VERSION = 1
 
@@ -168,7 +168,8 @@ def _extract_codex(path: Path) -> Iterator[Row]:
     session_id = path.stem
     for obj in _iter_jsonl(path):
         # codex 0.x shape: top-level {timestamp, type, payload: {...}}
-        payload = obj.get("payload") if isinstance(obj.get("payload"), dict) else obj
+        raw_payload = obj.get("payload")
+        payload = raw_payload if isinstance(raw_payload, dict) else obj
         kind = payload.get("type") or obj.get("type") or obj.get("role") or "event"
         ts = obj.get("timestamp") or obj.get("ts") or payload.get("timestamp")
         uuid = payload.get("id") or obj.get("id") or obj.get("uuid")
@@ -250,7 +251,7 @@ def _extract_argus_decisions(path: Path) -> Iterator[Row]:
         )
 
 
-_SOURCE_EXTRACTORS: dict[str, callable] = {
+_SOURCE_EXTRACTORS: dict[str, Callable[[Path], Iterator[Row]]] = {
     "codex": _extract_codex,
     "argus_inbox": _extract_argus_inbox,
     "argus_decisions": _extract_argus_decisions,

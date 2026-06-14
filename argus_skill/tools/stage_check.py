@@ -41,13 +41,16 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Idea rejection log exists", "test -f research/IDEA_REJECTION_LOG.md"),
         ("Code study notes exist", "test -f research/CODE_STUDY_NOTES.md"),
         ("Baseline plan exists", "test -f research/BASELINE_AND_BENCHMARK_PLAN.md"),
-        # Draft-first contract: paper/DRAFT_OUTLINE.md must exist by the
-        # end of plan stage so figures and experiments downstream have
-        # placeholders to fill instead of being invented ad-hoc. The
-        # validator is permissive (issues, not exceptions); shelling out
-        # to a one-liner keeps stage_check's check format consistent.
-        ("Draft outline filled (>= 3 figures, >= 1 experiment)",
-         "python3 -c \"from argus_skill.skills.draft_outline import load_outline, validate_outline; from pathlib import Path; o=load_outline(Path('.')); issues=validate_outline(o); blockers=[i for i in issues if i.severity in ('missing','unfilled')]; print('\\n'.join(i.message for i in blockers)); import sys; sys.exit(0 if not blockers else 1)\""),
+        # NOTE: the draft-first contract (paper/DRAFT_OUTLINE.md must be
+        # filled by the end of plan stage) is enforced in-process via
+        # `_plan_outline_findings`, not as a shell check. Two reasons:
+        #   1. it must respect `--bounded` (a bounded survey/diagnostic
+        #      mission is not expected to carry a full paper outline), and
+        #      shell checks always count toward the exit code; findings
+        #      flow through the M0.7 bounded downgrade.
+        #   2. calling the validator in-process avoids a `python3 -c`
+        #      subprocess that depends on `argus_skill` being importable by
+        #      whatever `python3` happens to resolve to on PATH.
     ],
     "benchmark": [
         _PIPELINE_CHECK,
@@ -210,6 +213,39 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
 }
 
 
+def _reviewer_checklist_for(
+    stage: str, venue: Any
+) -> tuple[str, str, list[str]] | None:
+    """Return the venue-adjusted (skill, instructions, files) for a stage.
+
+    EMNLP returns the static template byte-for-byte. For other venues the
+    load-bearing reviewer-skill filename, the page-budget line, and the
+    reviewer-persona references are rewritten from the profile so an AAAI
+    reviewer is not pointed at the EMNLP skill or told to enforce ACL pages.
+    """
+    entry = REVIEWER_CHECKLISTS.get(stage)
+    if entry is None:
+        return None
+    skill, instructions, files = entry
+    if getattr(venue, "key", "EMNLP") == "EMNLP":
+        return skill, instructions, files
+    persona = venue.reviewer_persona
+    if skill == "reviewer/emnlp-academic-language-review.md":
+        skill = venue.review_skill_path
+    instructions = (
+        instructions.replace("an actual EMNLP reviewer", f"an actual {persona} reviewer")
+        .replace("EMNLP reviewers find", f"{persona} reviewers find")
+        .replace("Reject at EMNLP", f"Reject at {persona}")
+        .replace("support an EMNLP paper", f"support an {persona} paper")
+        .replace("ACL format, page budget", f"{persona} format, page budget")
+        .replace(
+            "body ≤8 pages, conclusion on page 8, references start page 9+",
+            venue.page_budget_line(),
+        )
+    )
+    return skill, instructions, files
+
+
 def _get_current_stage(project_root: Path) -> str:
     state_path = project_root / "research" / "PIPELINE_STATE.json"
     if not state_path.exists():
@@ -280,6 +316,30 @@ def _benchmark_external_findings(project_root: Path) -> list[str]:
     return findings
 
 
+def _plan_outline_findings(project_root: Path) -> list[str]:
+    """Blocking draft-outline issues (missing / underfilled) as findings.
+
+    The draft-first contract requires ``paper/DRAFT_OUTLINE.md`` to be
+    filled by the end of the plan stage so downstream figures/experiments
+    fill declared placeholders instead of being invented ad-hoc. We surface
+    the validator's ``missing`` / ``unfilled`` issues as findings here so
+    they flow through the same M0.7 bounded downgrade as the other
+    paper-pipeline-readiness findings: fail-closed in normal mode, advisory
+    under ``--bounded``. Soft (``incomplete``) issues are intentionally not
+    returned — the validator is permissive by design.
+    """
+    try:
+        from argus_skill.skills.draft_outline import load_outline, validate_outline
+    except Exception:
+        return []
+    issues = validate_outline(load_outline(project_root))
+    return [
+        f"draft outline: {issue.message}"
+        for issue in issues
+        if issue.severity in ("missing", "unfilled")
+    ]
+
+
 def _blocked_pipeline_findings(project_root: Path, *, requested_stage: str) -> list[str]:
     findings: list[str] = []
     state = _read_json(project_root / "research" / "PIPELINE_STATE.json")
@@ -298,6 +358,8 @@ def _blocked_pipeline_findings(project_root: Path, *, requested_stage: str) -> l
                     findings.append(f"stage {stage_name!r} status is blocked: {reason}")
 
     findings.extend(_benchmark_external_findings(project_root))
+    if requested_stage == "plan":
+        findings.extend(_plan_outline_findings(project_root))
     return findings
 
 
@@ -315,6 +377,9 @@ def main() -> int:
     root = args.project_root.resolve()
     stage = args.stage or _get_current_stage(root)
     python = sys.executable
+
+    from argus_skill.skills.venue_profiles import resolve_venue_profile
+    venue = resolve_venue_profile(root)
 
     print(f"📋 Stage: {stage}")
     print()
@@ -403,8 +468,9 @@ def main() -> int:
 
     # 3. Output reviewer checklist for critical stages
     #    Reviewer is a codex agent — it reads the skill and files itself.
-    if stage in REVIEWER_CHECKLISTS:
-        skill_name, instructions, files = REVIEWER_CHECKLISTS[stage]
+    reviewer_checklist = _reviewer_checklist_for(stage, venue)
+    if reviewer_checklist is not None:
+        skill_name, instructions, files = reviewer_checklist
         print()
         print(f"📋 REVIEWER CHECKLIST for stage '{stage}'")
         print(f"   Load skill: argus_builtin_skills/{skill_name}")

@@ -250,6 +250,9 @@ def generate_academic_language_review(
     """Review paper prose and optionally persist review artifacts."""
 
     root = Path(project_root)
+    from .venue_profiles import resolve_venue_profile
+
+    venue = resolve_venue_profile(root)
     threshold = max(float(threshold), MIN_ACADEMIC_LANGUAGE_SCORE)
     iteration = iteration or _next_iteration(root)
     source_paths, missing_sources = collect_latex_source_paths(root)
@@ -353,7 +356,7 @@ def generate_academic_language_review(
         "issues": issues,
         "blocking_issues": blocking_issues,
         "review_policy": {
-            "rubric": "emnlp-academic-language-v2",
+            "rubric": venue.academic_language_rubric_id,
             "decision_authority": "reviewer agent decides against the stage checklist; "
             "the harness reports facts and relays the model reviewer's advisory "
             "findings, and emits no quality verdict",

@@ -273,7 +273,7 @@ def render_text(result: dict[str, Any]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     """Standalone entry: ``python -m argus_skill.tools.query_unified <text>``."""
-    import argparse, sys
+    import argparse
 
     p = argparse.ArgumentParser(prog="argus-skill query")
     p.add_argument("query", nargs="+", help="search text (whitespace-joined)")

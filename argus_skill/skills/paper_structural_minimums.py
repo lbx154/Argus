@@ -76,6 +76,17 @@ _RE_BIBKEY = re.compile(r"^\s*@\w+\s*\{\s*([^,\s]+)\s*,", re.MULTILINE)
 # `\appendix` command turns subsequent \section into Appendix A, B, …
 _RE_APPENDIX_CMD = re.compile(r"\\appendix\b")
 
+# AAAI-only preamble/compliance probes (used only when the venue profile asks).
+# _RE_PDFINFO requires the mandatory /TemplateVersion key inside the block (an
+# empty \pdfinfo{} is non-compliant); [^}]* spans newlines since [^}] includes \n.
+_RE_PDFINFO = re.compile(r"\\pdfinfo\s*\{[^}]*TemplateVersion")
+_RE_BIBLIOGRAPHYSTYLE = re.compile(r"\\bibliographystyle\s*\{")
+_RE_USEPACKAGE = re.compile(r"\\usepackage\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}")
+_RE_NOCOPYRIGHT = re.compile(r"\\nocopyright\b")
+# Require the literal "checklist" — a bare "Reproducibility Statement"/"appendix"
+# is not the AAAI Reproducibility Checklist.
+_REPRO_CHECKLIST_TITLES = ("reproducibility checklist",)
+
 
 @dataclass
 class StructuralIssue:
@@ -314,6 +325,9 @@ def _read_bib(paper_dir: Path) -> tuple[int, set[str]]:
 
 
 def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
+    from .venue_profiles import resolve_venue_profile
+
+    venue = resolve_venue_profile(project_root)
     main_tex = _find_main_tex(project_root)
     if main_tex is None:
         report = StructuralReport(main_tex_path=None)
@@ -530,7 +544,114 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
             )
         )
 
+    # Venue-specific LaTeX-compliance checks. Gated entirely behind the venue
+    # profile's flags, so EMNLP/ACL projects (the default) never see them. They
+    # activate only for venues whose preamble contract differs — currently
+    # AAAI, whose aaai2026.sty is strict.
+    _append_venue_compliance_issues(report, tex, venue)
+
     return report
+
+
+def _append_venue_compliance_issues(
+    report: StructuralReport, tex: str, venue: object
+) -> None:
+    """Append AAAI-style preamble/compliance issues when the profile requires.
+
+    All checks are guarded by individual VenueProfile flags rather than a
+    hardcoded ``venue == AAAI`` so the contract lives in one place. EMNLP's
+    profile leaves every flag off, so no issue here ever fires for EMNLP.
+    """
+    used_packages: set[str] = set()
+    for m in _RE_USEPACKAGE.finditer(tex):
+        for name in m.group(1).split(","):
+            cleaned = name.strip()
+            if cleaned:
+                used_packages.add(cleaned)
+
+    style_package = getattr(venue, "style_package", "")
+    if getattr(venue, "requires_style_package", False) and style_package not in used_packages:
+        report.issues.append(
+            StructuralIssue(
+                code="missing_aaai_style_package",
+                detail=(
+                    f"main.tex does not \\usepackage{{{style_package}}} — a "
+                    f"{getattr(venue, 'display_name', 'venue')} paper must load the "
+                    f"official {style_package}.sty style file (with "
+                    "\\documentclass[letterpaper]{article} and times/helvet/courier)"
+                ),
+            )
+        )
+
+    if getattr(venue, "requires_pdfinfo", False) and not _RE_PDFINFO.search(tex):
+        report.issues.append(
+            StructuralIssue(
+                code="missing_pdfinfo_block",
+                detail=(
+                    "main.tex is missing the mandatory \\pdfinfo{...} block "
+                    "(with /TemplateVersion). Copy it verbatim from the official "
+                    f"{getattr(venue, 'display_name', 'venue')} template — "
+                    f"{style_package}.sty requires it"
+                ),
+            )
+        )
+
+    if not getattr(venue, "emit_bibliographystyle", True) and _RE_BIBLIOGRAPHYSTYLE.search(tex):
+        report.issues.append(
+            StructuralIssue(
+                code="forbidden_bibliographystyle",
+                detail=(
+                    "main.tex emits a \\bibliographystyle command, but "
+                    f"{style_package}.sty already sets the bibliography style; a "
+                    "manual \\bibliographystyle raises 'Illegal, another "
+                    "\\bibstyle command'. Remove it and use \\bibliography{...} "
+                    f"with {style_package}.bst"
+                ),
+            )
+        )
+
+    forbidden = sorted(
+        p for p in getattr(venue, "forbidden_packages", ()) if p in used_packages
+    )
+    if forbidden:
+        report.issues.append(
+            StructuralIssue(
+                code="forbidden_package_present",
+                detail=(
+                    f"main.tex loads package(s) incompatible with {style_package}.sty: "
+                    f"{', '.join(forbidden)}. Remove them — they break the official "
+                    f"{getattr(venue, 'display_name', 'venue')} style"
+                ),
+            )
+        )
+
+    if getattr(venue, "forbids_nocopyright", False) and _RE_NOCOPYRIGHT.search(tex):
+        report.issues.append(
+            StructuralIssue(
+                code="uses_nocopyright",
+                detail=(
+                    "main.tex uses \\nocopyright, which is forbidden for "
+                    f"{getattr(venue, 'display_name', 'venue')} — the copyright "
+                    "notice is part of the style and may not be disabled"
+                ),
+            )
+        )
+
+    if (
+        getattr(venue, "requires_reproducibility_checklist", False)
+        and _section_span(tex, _REPRO_CHECKLIST_TITLES) is None
+    ):
+        report.issues.append(
+            StructuralIssue(
+                code="missing_reproducibility_checklist",
+                detail=(
+                    "no Reproducibility Checklist section found — "
+                    f"{getattr(venue, 'display_name', 'venue')} requires the "
+                    "reproducibility checklist in the PDF after References. Add a "
+                    "\\section*{Reproducibility Checklist} answering the official items"
+                ),
+            )
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
