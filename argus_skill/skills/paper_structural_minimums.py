@@ -363,7 +363,7 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
                 code="no_figures",
                 detail=(
                     f"only {report.figures_found} \\includegraphics figure(s) "
-                    f"resolve to real files (minimum {MIN_FIGURES}); EMNLP/ACL "
+                    f"resolve to real files (minimum {MIN_FIGURES}); research "
                     "papers require at least one figure or system diagram — "
                     "invoke the figure-spec, paper-illustration-image2, or "
                     "paper-framework-figure-studio-pro skill before declaring "
@@ -426,7 +426,7 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
                     code="missing_teaser_figure",
                     detail=(
                         "no teaser/hero/Figure-1 entry in IMAGE2_FIGURES.json — "
-                        "EMNLP/ACL drafts need a contribution-anchoring teaser; "
+                        "research drafts need a contribution-anchoring teaser; "
                         "run the paper-illustration-image2 skill with a name "
                         "containing 'teaser', 'hero', or 'figure1'"
                     ),
@@ -491,7 +491,7 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
                 code="no_related_work_section",
                 detail=(
                     "no \\section{Related Work} (or equivalent) found — every "
-                    "EMNLP/ACL paper requires one"
+                    "research paper requires one"
                 ),
             )
         )
@@ -505,7 +505,7 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
                     detail=(
                         f"Related Work section is only "
                         f"{report.related_work_chars} chars (minimum "
-                        f"{MIN_RELATED_WORK_CHARS}, ≈ one paragraph); EMNLP "
+                        f"{MIN_RELATED_WORK_CHARS}, ≈ one paragraph); the "
                         "norm is ≥1 page"
                     ),
                 )
