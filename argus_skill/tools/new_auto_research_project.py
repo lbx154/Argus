@@ -101,6 +101,7 @@ class LaunchConfig:
     non_goals: str | None = None
     compute_budget: str | None = None
     domain: str | None = None  # e.g. "cv", "multimodal", "agent", "infra"
+    venue: str = "EMNLP"  # target publication venue: "EMNLP" | "AAAI"
     start_daemon: bool = True
     init_git: bool = True
     dry_run: bool = False
@@ -403,6 +404,7 @@ def create_project(config: LaunchConfig) -> LaunchResult:
         project_dir,
         project_name=project_name,
         objective=_continuous_objective_from_agents(agents_md),
+        venue=config.venue,
         overwrite=True,
     )
     project_venv: Path | None = None
@@ -493,6 +495,7 @@ def seed_research_bootstrap(
     *,
     project_name: str,
     objective: str,
+    venue: str = "EMNLP",
     overwrite: bool = True,
 ) -> dict[Path, bool]:
     """Write the initial auto-research ledger without claiming readiness.
@@ -503,7 +506,9 @@ def seed_research_bootstrap(
     stable files to extend, while all downstream stages remain non-successful
     until real literature, benchmark, run, and paper artifacts exist.
     """
-    files = _research_bootstrap_files(project_name=project_name, objective=objective)
+    files = _research_bootstrap_files(
+        project_name=project_name, objective=objective, venue=venue
+    )
     result: dict[Path, bool] = {}
     for relative_name, text in files.items():
         target = project_dir / relative_name
@@ -520,11 +525,23 @@ def seed_research_bootstrap(
     return result
 
 
-def _research_bootstrap_files(*, project_name: str, objective: str) -> dict[str, str]:
+def _research_bootstrap_files(
+    *, project_name: str, objective: str, venue: str = "EMNLP"
+) -> dict[str, str]:
+    from ..skills.venue_profiles import get_venue_profile
+
+    profile = get_venue_profile(venue)
+    # Preserve the historical EMNLP brief wording byte-for-byte; only
+    # diverge when a non-EMNLP venue is explicitly requested.
+    venue_brief_line = (
+        "EMNLP/ACL long paper"
+        if profile.key == "EMNLP"
+        else f"{profile.display_name} two-column paper ({profile.body_page_limit}-page body)"
+    )
     pipeline_state = {
         "current_stage": "research",
         "objective": objective,
-        "target_venue": "EMNLP",
+        "target_venue": profile.key,
         "paper_scope": "long-paper",
         "stages": {
             "research": {
@@ -566,7 +583,7 @@ def _research_bootstrap_files(*, project_name: str, objective: str) -> dict[str,
             "# Research Brief\n\n"
             f"- Project: `{project_name}`\n"
             f"- Research direction (from operator): {objective}\n"
-            "- Target venue: EMNLP/ACL long paper\n"
+            f"- Target venue: {venue_brief_line}\n"
             "- Current stage: research\n\n"
             "## IMPORTANT: This is a DIRECTION, not a plan\n\n"
             "The operator gave you a research DIRECTION, not a paper plan. "
@@ -990,6 +1007,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--venue",
+        choices=["emnlp", "aaai"],
+        default="emnlp",
+        help=(
+            "target publication venue (default: emnlp). Selects the format "
+            "contract — page budget, mandatory sections, LaTeX style, "
+            "anonymity block, and reviewer rubric — written into "
+            "research/PIPELINE_STATE.json's `target_venue`."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="print the resolved project path/version without creating files",
@@ -1024,6 +1052,7 @@ def main(argv: list[str] | None = None) -> int:
         non_goals=args.non_goals,
         compute_budget=args.compute_budget,
         domain=domain,
+        venue=args.venue,
         start_daemon=not args.no_start,
         init_git=not args.no_git,
         dry_run=args.dry_run,

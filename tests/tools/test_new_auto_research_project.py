@@ -142,6 +142,24 @@ def test_default_objective_is_coherent_paper_submission_goal() -> None:
     assert "submission package" in objective
 
 
+def test_bootstrap_default_venue_is_emnlp_byte_identical() -> None:
+    files = narp._research_bootstrap_files(project_name="x", objective="obj")
+    state = json.loads(files["research/PIPELINE_STATE.json"])
+    assert state["target_venue"] == "EMNLP"
+    assert "- Target venue: EMNLP/ACL long paper\n" in files["research/RESEARCH_BRIEF.md"]
+
+
+def test_bootstrap_aaai_venue_sets_target_and_brief() -> None:
+    files = narp._research_bootstrap_files(
+        project_name="x", objective="obj", venue="aaai"
+    )
+    state = json.loads(files["research/PIPELINE_STATE.json"])
+    assert state["target_venue"] == "AAAI"
+    brief = files["research/RESEARCH_BRIEF.md"]
+    assert "AAAI 2026" in brief
+    assert "EMNLP/ACL long paper" not in brief
+
+
 def test_create_project_without_daemon_exports_template_and_skills(tmp_path: Path) -> None:
     result = create_project(
         LaunchConfig(
