@@ -45,3 +45,17 @@ jobs:
 
       - name: Run CLI smoke check
         run: python -m argus_skill --help >/dev/null
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --quiet build
+          python -m build
+
+      - name: Install built wheel into a clean venv and smoke-test it
+        run: |
+          python -m venv /tmp/wheel-venv
+          /tmp/wheel-venv/bin/pip install --quiet dist/*.whl
+          /tmp/wheel-venv/bin/argus-skill --help >/dev/null
+          # Import + load builtin skills from the INSTALLED package (run from /
+          # so the source tree is not on sys.path), proving data files shipped.
+          cd / && /tmp/wheel-venv/bin/python -c "import argus_skill, os; assert 'site-packages' in os.path.dirname(argus_skill.__file__); from argus_skill.skills.builtins import builtin_skill_count; assert builtin_skill_count() >= 50, builtin_skill_count()"
