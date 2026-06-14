@@ -10,7 +10,6 @@ from argus_skill.skills.draft_outline import (
     validate_outline,
 )
 
-
 _GOOD_OUTLINE = """\
 ---
 outline_version: 1

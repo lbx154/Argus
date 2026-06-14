@@ -41,13 +41,16 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Idea rejection log exists", "test -f research/IDEA_REJECTION_LOG.md"),
         ("Code study notes exist", "test -f research/CODE_STUDY_NOTES.md"),
         ("Baseline plan exists", "test -f research/BASELINE_AND_BENCHMARK_PLAN.md"),
-        # Draft-first contract: paper/DRAFT_OUTLINE.md must exist by the
-        # end of plan stage so figures and experiments downstream have
-        # placeholders to fill instead of being invented ad-hoc. The
-        # validator is permissive (issues, not exceptions); shelling out
-        # to a one-liner keeps stage_check's check format consistent.
-        ("Draft outline filled (>= 3 figures, >= 1 experiment)",
-         "python3 -c \"from argus_skill.skills.draft_outline import load_outline, validate_outline; from pathlib import Path; o=load_outline(Path('.')); issues=validate_outline(o); blockers=[i for i in issues if i.severity in ('missing','unfilled')]; print('\\n'.join(i.message for i in blockers)); import sys; sys.exit(0 if not blockers else 1)\""),
+        # NOTE: the draft-first contract (paper/DRAFT_OUTLINE.md must be
+        # filled by the end of plan stage) is enforced in-process via
+        # `_plan_outline_findings`, not as a shell check. Two reasons:
+        #   1. it must respect `--bounded` (a bounded survey/diagnostic
+        #      mission is not expected to carry a full paper outline), and
+        #      shell checks always count toward the exit code; findings
+        #      flow through the M0.7 bounded downgrade.
+        #   2. calling the validator in-process avoids a `python3 -c`
+        #      subprocess that depends on `argus_skill` being importable by
+        #      whatever `python3` happens to resolve to on PATH.
     ],
     "benchmark": [
         _PIPELINE_CHECK,
@@ -280,6 +283,30 @@ def _benchmark_external_findings(project_root: Path) -> list[str]:
     return findings
 
 
+def _plan_outline_findings(project_root: Path) -> list[str]:
+    """Blocking draft-outline issues (missing / underfilled) as findings.
+
+    The draft-first contract requires ``paper/DRAFT_OUTLINE.md`` to be
+    filled by the end of the plan stage so downstream figures/experiments
+    fill declared placeholders instead of being invented ad-hoc. We surface
+    the validator's ``missing`` / ``unfilled`` issues as findings here so
+    they flow through the same M0.7 bounded downgrade as the other
+    paper-pipeline-readiness findings: fail-closed in normal mode, advisory
+    under ``--bounded``. Soft (``incomplete``) issues are intentionally not
+    returned — the validator is permissive by design.
+    """
+    try:
+        from argus_skill.skills.draft_outline import load_outline, validate_outline
+    except Exception:
+        return []
+    issues = validate_outline(load_outline(project_root))
+    return [
+        f"draft outline: {issue.message}"
+        for issue in issues
+        if issue.severity in ("missing", "unfilled")
+    ]
+
+
 def _blocked_pipeline_findings(project_root: Path, *, requested_stage: str) -> list[str]:
     findings: list[str] = []
     state = _read_json(project_root / "research" / "PIPELINE_STATE.json")
@@ -298,6 +325,8 @@ def _blocked_pipeline_findings(project_root: Path, *, requested_stage: str) -> l
                     findings.append(f"stage {stage_name!r} status is blocked: {reason}")
 
     findings.extend(_benchmark_external_findings(project_root))
+    if requested_stage == "plan":
+        findings.extend(_plan_outline_findings(project_root))
     return findings
 
 

@@ -26,6 +26,44 @@ def _seed_plan_files(root: Path) -> None:
         _write(root / path)
 
 
+def _seed_valid_draft_outline(root: Path) -> None:
+    """A complete plan now carries a filled paper/DRAFT_OUTLINE.md
+    (≥4 sections, ≥3 figures, ≥1 experiment) under the draft-first contract."""
+    _write(
+        root / "paper" / "DRAFT_OUTLINE.md",
+        "---\n"
+        "outline_version: 1\n"
+        "---\n\n"
+        "## Sections\n"
+        "- title: Introduction\n"
+        "  goal: motivate\n"
+        "- title: Method\n"
+        "  goal: describe\n"
+        "- title: Experiments\n"
+        "  goal: setup\n"
+        "- title: Conclusion\n"
+        "  goal: wrap up\n\n"
+        "## Figures\n"
+        "- id: F1_teaser\n"
+        "  style_ref: X Fig.1\n"
+        "  data_source: data/a.jsonl\n"
+        "  caption_placeholder: teaser\n"
+        "- id: F2_results\n"
+        "  style_ref: Y Tab.2\n"
+        "  data_source: paper/artifacts/results_table.tsv\n"
+        "  caption_placeholder: results\n"
+        "- id: F3_ablation\n"
+        "  style_ref: Z Fig.3\n"
+        "  data_source: paper/artifacts/ablation.tsv\n"
+        "  caption_placeholder: ablation\n\n"
+        "## Experiments\n"
+        "- id: E1_main\n"
+        "  cell_spec: 3 models x 2 conditions\n"
+        "  expected_metric: accuracy\n"
+        "  n_seeds: 3\n",
+    )
+
+
 def _seed_benchmark_blockers(root: Path) -> None:
     _write_json(
         root / "experiments" / "BENCHMARK_PROVENANCE.json",
@@ -95,6 +133,7 @@ def test_stage_check_allows_minimal_unblocked_plan(
     capsys,
 ) -> None:
     _seed_plan_files(tmp_path)
+    _seed_valid_draft_outline(tmp_path)
     _write_json(
         tmp_path / "research" / "PIPELINE_STATE.json",
         {
