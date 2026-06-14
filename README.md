@@ -208,10 +208,13 @@ argus-skill --setup
 ```bash
 python -m argus_skill.tools.new_auto_research_project \
   --parent ~/research \
+  --venue aaai \
   --objective "World Model for Agent Action Selection"
 ```
 
-自动创建项目目录、导出内置 skill、初始化 PIPELINE_STATE，并启动 7×24 daemon（加 `--no-start` 只建目录不启）。常用参数见 `--help`：`--objective`（主目标）、`--non-goals`、`--compute-budget`、`--project-dir`、`--no-start`、`--no-git`、`--dry-run`。
+自动创建项目目录、导出内置 skill、初始化 PIPELINE_STATE，并启动 7×24 daemon（加 `--no-start` 只建目录不启）。常用参数见 `--help`：`--objective`（主目标）、`--non-goals`、`--compute-budget`、`--project-dir`、`--venue {emnlp,aaai}`（目标会议格式，默认 `emnlp`）、`--no-start`、`--no-git`、`--dry-run`。
+
+> **会议格式（`--venue`）**：决定整套排版契约——页数预算、必需章节、LaTeX 模板/样式、匿名作者块、reviewer rubric——写进 `PIPELINE_STATE.json` 的 `target_venue`。`emnlp`（默认）= ACL/EMNLP 8 页正文、References 第 9 页起、强制 Limitations/Ethics、acl.sty。`aaai` = AAAI-2026 两栏 7 页正文、References 第 8 页起、References 后接 Reproducibility Checklist、aaai2026.sty（不要 `\bibliographystyle`，禁 hyperref/navigator/`\nocopyright`）。所有格式 gate、stage checklist 与 reviewer skill 都按 `target_venue` 自动切换；EMNLP 行为保持不变。
 
 ### 5. 监控进度
 
