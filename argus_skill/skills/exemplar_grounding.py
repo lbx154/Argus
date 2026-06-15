@@ -191,7 +191,7 @@ def validate_exemplar_grounding(
                 code="missing_style_ref_dir",
                 detail=(
                     "paper/style_ref/ not found — run the paper-exemplar-"
-                    "pdf-learning skill to fetch 2+ top-venue EMNLP/ACL "
+                    "pdf-learning skill to fetch 2+ top-venue (target-venue) "
                     "exemplars BEFORE drafting"
                 ),
             )],
@@ -245,7 +245,7 @@ def validate_exemplar_grounding(
             code="too_few_exemplars",
             detail=(
                 f"only {report.exemplar_count} exemplar(s) "
-                f"(minimum {MIN_EXEMPLARS}); EMNLP/ACL drafts need at "
+                f"(minimum {MIN_EXEMPLARS}); research drafts need at "
                 "least one recent best/outstanding paper plus one same-"
                 "direction paper"
             ),

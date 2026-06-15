@@ -55,13 +55,10 @@ Repository = "https://github.com/lbx154/argus-skill"
 
 [tool.hatch.build.targets.wheel]
 packages = ["argus_skill"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"argus_skill/engineer/reviewer_schema.json" = "argus_skill/engineer/reviewer_schema.json"
-"argus_skill/planner/planner_schema.json" = "argus_skill/planner/planner_schema.json"
-"argus_skill/builtin_skills" = "argus_skill/builtin_skills"
-"argus_skill/wiki/templates" = "argus_skill/wiki/templates"
-"argus_skill/codex_autoloop" = "argus_skill/codex_autoloop"
+# NOTE: hatchling's `packages` already vendors every file under argus_skill/
+# (builtin_skills/*.md, the *_schema.json, wiki/templates, codex_autoloop), so
+# no force-include is needed. Force-including those package dirs would re-add
+# their __init__.py and fail the build with a duplicate-path error.
 
 [tool.hatch.build.targets.sdist]
 include = [

@@ -91,7 +91,7 @@ research → plan → benchmark → run → analysis → draft → review → su
 | **analysis** | 结果报告、claim→evidence 映射、图表 | 数字一致性、claim 溯源、图表质量 |
 | **draft** | 写 LaTeX、生成概念图、编译 PDF | 结构完整性（能推进就行） |
 | **review** | 学术语言审查、排版审查、基础设施泄露检查 | layout/语言/引用/页数/infra 泄露 |
-| **submission** | 最终 gate 自查、submission assurance | 完整 EMNLP peer review，reviewer 判达标才停 |
+| **submission** | 最终 gate 自查、submission assurance | 完整 venue peer review（按 `target_venue` 选 EMNLP/AAAI 标准），reviewer 判达标才停 |
 
 > 注意：这张表里没有"严格度"数值，也没有"improvement < 2% 就拒"这类硬阈值。"够不够格"是 reviewer 读了产物之后的判断；harness 只负责把产物递过去、把裁决记下来。
 
@@ -99,8 +99,8 @@ research → plan → benchmark → run → analysis → draft → review → su
 
 Skill 是给 agent 复用的横向能力（playbook），不是 harness 的判断逻辑。按角色分两个目录：
 
-- **Engineer skills（25 个）**：编排（`auto-research-pipeline` 主入口、`emnlp-paper-skill-router`）、文献（`arxiv-paper-search`、`semantic-scholar-search`、`research-ideation`）、规划（`research-brief-to-experiment-plan`、`ablation-planner`、`training-infrastructure-guide`）、实验（`agent-research-benchmark-runner`、`experiment-audit`）、分析（`research-results-analysis-and-figures`、`result-to-claim`、`claims-evidence-audit`）、写作（`emnlp-paper-drafting`、`paper-illustration-image2`、`paper-framework-figure-studio-pro` 等）、审查与提交（`emnlp-format-preflight`、`emnlp-academic-language-review`、`research-submission-assurance-gate`）、角色（`argus-engineer-role`、`argus-planner-role`）。
-- **Reviewer skills（6 个）**：`experiment-plan-review`（plan）、`experiment-results-review`（run）、`academic-paper-peer-review-benchmark`（draft 宽松 / submission 严格）、`emnlp-academic-language-review`（review）、`argus-reviewer-role`、`reviewer-engineer-handoff`。
+- **Engineer skills（42 个）**：编排（`auto-research-pipeline` 主入口、`emnlp-paper-skill-router` / `aaai-paper-skill-router`）、文献（`arxiv-paper-search`、`semantic-scholar-search`、`research-ideation`）、规划（`research-brief-to-experiment-plan`、`ablation-planner`、`training-infrastructure-guide`）、实验（`agent-research-benchmark-runner`、`experiment-audit`）、分析（`research-results-analysis-and-figures`、`result-to-claim`、`claims-evidence-audit`）、写作（`emnlp-paper-drafting` / `aaai-paper-drafting`、`paper-illustration-image2`、`paper-framework-figure-studio-pro` 等）、审查与提交（`emnlp-format-preflight` / `aaai-format-preflight`、`paper-infrastructure-review`、`research-submission-assurance-gate`）、角色（`argus-engineer-role`、`argus-planner-role`）。会议格式相关的 skill（drafting / format-preflight / skill-router / academic-language-review）按 `target_venue` 自动只暴露对应 venue 的那套。
+- **Reviewer skills（10 个）**：`experiment-plan-review`（plan）、`experiment-results-review`（run）、`academic-paper-peer-review-benchmark`（draft 宽松 / submission 严格）、`emnlp-academic-language-review` / `aaai-academic-language-review`（review，按 venue）、`argus-reviewer-role`、`reviewer-engineer-handoff`。
 
 miss 的能力由 distiller 在线蒸馏（复用 engineer backend，不是独立 agent）。
 

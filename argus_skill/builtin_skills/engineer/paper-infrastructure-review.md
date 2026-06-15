@@ -1,6 +1,6 @@
 ---
-name: EMNLP Paper Infrastructure Review
-description: Run the model-backed gate that rejects reader-facing local environment, device, cache, path, and Argus/Codex configuration leaks in an EMNLP/ACL manuscript.
+name: Paper Infrastructure Review
+description: Run the model-backed gate that rejects reader-facing local environment, device, cache, path, and Argus/Codex configuration leaks in a research manuscript (venue-neutral; used by both EMNLP and AAAI pipelines).
 category: paper-review
 version: 1
 scientist_model: gpt-5.5
@@ -8,7 +8,7 @@ created_at: 2026-05-27T00:00:00+00:00
 ---
 
 ## Title
-EMNLP Paper Infrastructure Review
+Paper Infrastructure Review
 
 ## Description
 Use this skill when a paper may contain local execution details that do not belong in reader-facing manuscript prose. The check is intentionally delegated to the reviewer model through `paper_infrastructure_review`; do not add ad hoc grep/regex filters for every possible device, cache, or route string.

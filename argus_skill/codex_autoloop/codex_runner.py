@@ -660,7 +660,14 @@ class CodexRunner:
             process.wait(timeout=10.0)
         except subprocess.TimeoutExpired:
             process.kill()
-            process.wait(timeout=5.0)
+            # A child stuck in uninterruptible sleep (D-state) / under ptrace may
+            # not be reaped immediately even after SIGKILL, so this wait can time
+            # out again. Mirror CPython's subprocess.run: swallow it and give up
+            # gracefully rather than letting it abort the caller.
+            try:
+                process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                pass
 
     @staticmethod
     def _stream_name(stream: str, run_label: str | None) -> str:
