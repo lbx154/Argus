@@ -186,6 +186,8 @@ def _blocked_pipeline_findings(project_root: Path, *, requested_stage: str) -> l
 
 def main() -> int:
     import argparse
+    import importlib
+
     parser = argparse.ArgumentParser(prog="stage-check")
     parser.add_argument("--project-root", type=Path, default=Path("."))
     parser.add_argument("--stage", default=None)
@@ -193,16 +195,51 @@ def main() -> int:
     # paper-pipeline benchmark readiness; this flag downgrades only those
     # state findings while structural anti-fraud gates still block below.
     parser.add_argument("--bounded", action="store_true")
+    # Vertical selector: which vertical's stage_list / shell_checks /
+    # reviewer_checklists to use. Defaults to "research" for backward
+    # compatibility (the only vertical that existed before vertical-split).
+    # Auto-detected from research/PIPELINE_STATE.json `vertical` field if
+    # present and `--vertical` is not given.
+    parser.add_argument(
+        "--vertical", default=None,
+        help="Vertical to load stages from (research|speedrun|...). "
+             "Defaults to PIPELINE_STATE.vertical field or 'research'.",
+    )
     args = parser.parse_args()
 
     root = args.project_root.resolve()
     stage = args.stage or _get_current_stage(root)
     python = sys.executable
 
-    from argus_skill.skills.venue_profiles import resolve_venue_profile
-    venue = resolve_venue_profile(root)
+    # Resolve vertical: CLI flag > PIPELINE_STATE.json `vertical` field > "research"
+    vertical_name = args.vertical
+    if vertical_name is None:
+        state = _read_json(root / "research" / "PIPELINE_STATE.json") or {}
+        vertical_name = state.get("vertical") or "research"
+        # Strip "speedrun-needed" / "research-needed" sentinels back to bare name
+        vertical_name = str(vertical_name).split("-needed", 1)[0]
 
-    print(f"📋 Stage: {stage}")
+    # Late-bind the stage tables so non-default verticals don't pull paper
+    # imports they don't need. Module-level re-exports (STAGE_ORDER etc.)
+    # remain pointed at the research vertical for backward compat.
+    global STAGE_CHECKS, STAGE_ORDER, REVIEWER_CHECKLISTS  # noqa: PLW0603
+    try:
+        vmod = importlib.import_module(f"argus_skill.verticals.{vertical_name}.stages")
+    except ImportError as exc:
+        print(f"❌ unknown vertical {vertical_name!r}: {exc}", file=sys.stderr)
+        return 2
+    STAGE_CHECKS = vmod.STAGE_CHECKS
+    STAGE_ORDER = vmod.STAGE_ORDER
+    REVIEWER_CHECKLISTS = vmod.REVIEWER_CHECKLISTS
+
+    # venue_profiles is research-vertical-specific; skip it for other verticals.
+    if vertical_name == "research":
+        from argus_skill.skills.venue_profiles import resolve_venue_profile
+        venue = resolve_venue_profile(root)
+    else:
+        venue = None
+
+    print(f"📋 Stage: {stage}  (vertical: {vertical_name})")
     print()
 
     # 1. Run shell checks
