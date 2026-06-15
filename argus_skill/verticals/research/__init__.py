@@ -68,7 +68,7 @@ from ...skills.paper_structural_minimums import (
 # ---------------------------------------------------------------------------
 # Paper-specific pipeline (stage definitions + checks)
 # ---------------------------------------------------------------------------
-from ...tools.stage_check import (
+from .stages import (
     REVIEWER_CHECKLISTS,
     STAGE_CHECKS,
     STAGE_ORDER,
