@@ -476,6 +476,40 @@ class SkillLoop:
         _banner = vertical_role_banner(_vmod, "engineer")
         if _banner:
             sections.append(_banner)
+        # Stage-aware SETUP action control (deterministic safety net). General:
+        # keyed purely on the pipeline stage, NOT on any task/benchmark. At the
+        # setup stage (pre-optimize) the optimize banner's pull toward an
+        # edit→score hill-climb is PREMATURE — the only deliverable is
+        # profiling + the ground-truth gate. Inject a hard override right under
+        # the banner so it suppresses that pull before the engineer acts.
+        from .skills.ground_truth import GROUND_TRUTH_RELPATH
+        from .skills.stage_checklists import current_stage as _current_stage
+
+        try:
+            _stage_now = _current_stage(_proot)
+        except Exception:  # noqa: BLE001 — stage read is best-effort
+            _stage_now = None
+        if _stage_now == "setup":
+            sections.append(
+                "## SETUP STAGE — action control (HARD OVERRIDE)\n"
+                "The active stage is `setup` (pre-optimize). Any optimize/"
+                "speedrun framing above that pulls you toward an edit→score "
+                "hill-climb does NOT apply yet — ignore that pull until the "
+                "stage advances past setup. At this stage you are FORBIDDEN "
+                "from:\n"
+                "- running `./eval_solution.sh` (or any scorer) to TUNE or "
+                "chase the metric, and\n"
+                "- editing the recipe / training script to improve the score.\n\n"
+                "Your ONLY deliverables at setup are: (1) PROFILE the run to "
+                "find the real binding constraint with measured numbers, and "
+                "(2) write the verified picture into `"
+                + GROUND_TRUTH_RELPATH
+                + "`. You MAY run the scorer/recipe exactly ONCE, read-only, "
+                "to capture a baseline measurement for the profile — never to "
+                "tune. Scoring-to-tune or recipe edits to chase the number are "
+                "out of scope until setup is complete and the stage advances "
+                "to optimize."
+            )
         from .skills.ground_truth import ground_truth_mandate
 
         sections.append(ground_truth_mandate("engineer").rstrip())
@@ -533,7 +567,7 @@ class SkillLoop:
                 + "\n\n".join(extra_guidance)
             )
         from .skills.harness_overlay import resolve_project_root
-        from .skills.stage_checklists import current_stage, format_stage_checklist
+        from .skills.stage_checklists import format_stage_checklist
 
         # Always-on project-venv reminder. Injected for every stage / every
         # round so the agent never has an excuse for `import X` failures or
@@ -550,8 +584,14 @@ class SkillLoop:
             pass
 
         _proot = resolve_project_root()
-        stage = current_stage(_proot)
-        stage_checklist = format_stage_checklist(stage, role="engineer", project_root=_proot)
+        # Reuse the stage resolved (guarded) near the top of this builder so a
+        # broken state read degrades to "no stage checklist" instead of raising.
+        stage = _stage_now
+        stage_checklist = (
+            format_stage_checklist(stage, role="engineer", project_root=_proot)
+            if stage
+            else ""
+        )
         if stage_checklist:
             sections.append(stage_checklist)
         sections.append(

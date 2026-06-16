@@ -1,12 +1,12 @@
 ## Subagent Report: train-B1 [EARLY-STOPPED]
 
-I early-stopped B1 because `clipped_ratio` hit 1.0 and the 256-token completion cap is too short, so the run is training on truncated/clipped generations rather than a usable GRPO signal.
+I early-stopped B1 because `clipped_ratio` saturated at 1.0 under a 256-token completion cap, so the run was training on truncated GRPO rollouts rather than valid completions.
 
 **Key metrics**
-- Duration: 120s; exit code: N/A because I stopped it.
-- `clipped_ratio`: 1.0.
-- Completion/response length: capped at 256 and too short for this task; treat saturation/truncation as the root cause.
-- Reward/loss/KL/step trend: not visible in the captured stdout tail here; inspect the logs before comparing secondary metrics.
+- Duration: 120s; exit code: N/A because I stopped the run.
+- `clipped_ratio`: 1.0, saturated.
+- Completion/response length: capped at 256, which is too short and is the root cause.
+- Reward, loss, steps, and KL: not available in the captured stdout tail, so do not use them to excuse or override the clipping failure.
 
 **Artifacts to inspect**
 - stdout: `.argus_subagents/train-B1_logs/stdout.log`
@@ -14,6 +14,6 @@ I early-stopped B1 because `clipped_ratio` hit 1.0 and the 256-token completion 
 - task record: `.argus_subagents/train-B1.json`
 
 **Next step**
-Relaunch B1 only after raising the completion budget: change `--max-completion-length 256 -> 512` (or the equivalent `max_completion_length` value in `train.py`/config if the launcher does not expose the flag). Keep the other GRPO hyperparameters unchanged for that retry so the engineer can isolate whether the clipping and truncation clear; do not rerun the same 256-token setup.
+Relaunch B1 only after increasing the completion budget: change `--max-completion-length 256 -> 512`. The recorded command was `python train.py`, so if that flag is currently hidden in `train.py` or a config file, set the equivalent `max_completion_length` default to `512` before launch. Keep the other GRPO knobs unchanged for this retry so the engineer can isolate whether saturated clipping clears; do not rerun the same 256-token setup.
 
-Final health verdict: unusable — the early metric trend is saturated clipping (`clipped_ratio=1.0`) at a too-short 256 completion cap, so this run should not be used as a successful B1 training signal.
+Final health verdict: unusable - the metric trend is saturated clipping (`clipped_ratio=1.0`) caused by a too-short completion cap, so this run is not a usable B1 training signal.
