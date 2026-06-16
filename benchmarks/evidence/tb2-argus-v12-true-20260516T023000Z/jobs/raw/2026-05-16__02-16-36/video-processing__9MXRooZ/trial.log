@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/video-processing:20251031: docker inspect returned 1
-Trial video-processing__9MXRooZ failed: Docker compose command failed for environment video-processing. Command: docker compose --project-name video-processing__9mxrooz --project-directory /home/argustest/.cache/harbor/tasks/QU8iD2bMsFXumTCQhnBiGz/video-processing/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

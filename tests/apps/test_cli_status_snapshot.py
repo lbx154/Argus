@@ -166,9 +166,9 @@ def _write_claims_tsv(root: Path, rows: list[dict[str, str]]) -> None:
 
 def test_gate_snapshot_review_stage_shows_both_kinds(tmp_path: Path) -> None:
     _write_bundle(tmp_path, "a", condition="argus", reward=0.72,
-                  dataset_id="terminal-bench@2.0")
+                  dataset_id="harbor-bench@1.0")
     _write_bundle(tmp_path, "b", condition="bare", reward=0.60,
-                  dataset_id="terminal-bench@2.0")
+                  dataset_id="harbor-bench@1.0")
     _write_claims_tsv(tmp_path, [
         {
             "claim_id": "demo",

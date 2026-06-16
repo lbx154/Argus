@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/torch-pipeline-parallelism:20251031: docker inspect returned 1
-Trial torch-pipeline-parallelism__p3TiZAb failed: Docker compose command failed for environment torch-pipeline-parallelism. Command: docker compose --project-name torch-pipeline-parallelism__p3tizab --project-directory /home/argustest/.cache/harbor/tasks/K56RXLv9fW76nGzkYythKB/torch-pipeline-parallelism/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

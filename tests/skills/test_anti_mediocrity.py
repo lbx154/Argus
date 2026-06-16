@@ -113,7 +113,7 @@ def test_finding_ok_only_reflects_structural_errors() -> None:
 def _write_bundle(
     root: Path, name: str, *,
     condition: str = "argus", reward: float = 0.7,
-    dataset_id: str = "terminal-bench@2.0",
+    dataset_id: str = "harbor-bench@1.0",
     total: int = 89, errored: int = 0,
 ) -> None:
     bundle = root / "benchmarks" / "evidence" / name
@@ -143,7 +143,7 @@ def test_collect_finding_surfaces_facts(tmp_path: Path) -> None:
     )
 
     assert len(finding.aggregates) == 3
-    assert sorted(finding.benchmark_families) == ["swebench-pro@1.0", "terminal-bench@2.0"]
+    assert sorted(finding.benchmark_families) == ["harbor-bench@1.0", "swebench-pro@1.0"]
     assert finding.best_proposed_reward == 0.72
     assert finding.best_baseline_reward == 0.60
     assert finding.proposed_minus_baseline == pytest.approx(0.12)

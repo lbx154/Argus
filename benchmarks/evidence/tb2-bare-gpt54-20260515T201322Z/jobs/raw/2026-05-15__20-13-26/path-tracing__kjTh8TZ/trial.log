@@ -1,4 +1,0 @@
-Trial path-tracing__kjTh8TZ failed: Docker compose command failed for environment path-tracing. Command: docker compose --project-name path-tracing__kjth8tz --project-directory /home/argustest/.cache/harbor/tasks/9BGkwkiZs6r3NTmoLCLzr9/path-tracing/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network path-tracing__kjth8tz_default  Creating
- Network path-tracing__kjth8tz_default  Error
-failed to create network path-tracing__kjth8tz_default: Error response from daemon: all predefined address pools have been fully subnetted
-. Stderr: None. 

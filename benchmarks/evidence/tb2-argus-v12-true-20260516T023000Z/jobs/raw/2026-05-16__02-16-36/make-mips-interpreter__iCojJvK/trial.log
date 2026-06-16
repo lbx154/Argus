@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/make-mips-interpreter:20251031: docker inspect returned 1
-Trial make-mips-interpreter__iCojJvK failed: Docker compose command failed for environment make-mips-interpreter. Command: docker compose --project-name make-mips-interpreter__icojjvk --project-directory /home/argustest/.cache/harbor/tasks/LeNjAXy6fbV5X852Td8iV9/make-mips-interpreter/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

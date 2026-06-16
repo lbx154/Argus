@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/sam-cell-seg:20251031: docker inspect returned 1
-Trial sam-cell-seg__uEBc9Wy failed: Docker compose command failed for environment sam-cell-seg. Command: docker compose --project-name sam-cell-seg__uebc9wy --project-directory /home/argustest/.cache/harbor/tasks/n9EXHRQn8C4KGZQgXQEvZU/sam-cell-seg/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

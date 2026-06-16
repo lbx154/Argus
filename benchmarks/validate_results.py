@@ -9,8 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from benchmarks.prompt_only_tb2.summarize_runs import _manual_intervention_recorded
-
 REQUIRED_BUNDLE_FILES = {
     "BUILD_INFO.md",
     "PLAN.md",
@@ -36,10 +34,6 @@ PATH_LIKE_COLUMNS = {
     "stderr_log",
     "verification_log",
 }
-OPTIONAL_TB2_EXPORT_PATH_COLUMNS = {
-    "agent_dir",
-    "verifier_dir",
-}
 
 STUDY_SUMMARY_COLUMNS = {
     "zero_touch_success",
@@ -50,44 +44,13 @@ STUDY_SUMMARY_COLUMNS = {
     "intervention_severity",
 }
 
-STUDY_BUNDLE_PREFIXES = (
-    "prompt-only-tb2-smoke-",
-    "tb2-manual-followup-",
-)
-
-TB2_EXPORT_BUNDLE_TYPE = "tb2_fullbench_export"
+# Archive roots that may be absent or hold no checked-in bundles without
+# failing validation: ``benchmarks/results`` is ignored generated scratch, and
+# ``benchmarks/evidence`` is the canonical archive root, which legitimately
+# holds no bundles when none are currently checked in.
 OPTIONAL_GENERATED_ROOTS = {
     Path("benchmarks/results"),
-}
-TB2_EXPORT_REQUIRED_COLUMNS = {
-    "row_kind",
-    "job_id",
-    "condition",
-    "bundle_dir",
-    "result_json",
-    "job_log",
-    "trial_log",
-    "metadata_json",
-    "verification_log",
-    "verification_reward_txt",
-    "verification_ctrf_json",
-    "agent_dir",
-    "verifier_dir",
-    "reward",
-    "wall_minutes",
-    "status",
-    "exception_kind",
-    "exception_count",
-    "infra_failure_kind",
-    "infra_failure_count",
-    "input_tokens",
-    "cached_input_tokens",
-    "output_tokens",
-    "cost_usd",
-    "input_tokens_missing_cause",
-    "cached_input_tokens_missing_cause",
-    "output_tokens_missing_cause",
-    "cost_usd_missing_cause",
+    Path("benchmarks/evidence"),
 }
 
 
@@ -181,111 +144,9 @@ def _validate_summary(summary_path: Path) -> list[ValidationIssue]:
     return issues
 
 
-def _validate_study_summary(summary_path: Path, bundle_dir: Path) -> list[ValidationIssue]:
-    if not bundle_dir.name.startswith(STUDY_BUNDLE_PREFIXES):
-        return []
-
-    issues: list[ValidationIssue] = []
-    try:
-        with summary_path.open("r", encoding="utf-8", newline="") as fh:
-            rows = list(csv.DictReader(fh, delimiter="\t"))
-    except OSError as exc:
-        return [ValidationIssue(path=summary_path, message=f"unable to read study summary: {exc}")]
-
-    header = set(rows[0].keys()) if rows else set()
-    missing = sorted(STUDY_SUMMARY_COLUMNS.difference(header))
-    if missing:
-        issues.append(
-            ValidationIssue(
-                path=summary_path,
-                message="missing required study columns: " + ", ".join(missing),
-            )
-        )
-        return issues
-
-    for row_index, row in enumerate(rows, start=1):
-        for column in sorted(STUDY_SUMMARY_COLUMNS):
-            text = str(row.get(column) or "").strip()
-            if not text:
-                issues.append(
-                    ValidationIssue(
-                        path=summary_path,
-                        message=f"study row {row_index} missing required field: {column}",
-                    )
-                )
-        needs_human = str(row.get("needs_human") or "").strip().lower()
-        zero_touch = str(row.get("zero_touch_success") or "").strip().lower()
-        if needs_human in {"false", "0", "no", "n"} and zero_touch in {"false", "0", "no", "n"}:
-            if not _manual_intervention_recorded(row):
-                issues.append(
-                    ValidationIssue(
-                        path=summary_path,
-                        message=(
-                            f"study row {row_index} contradicts needs_human=False with zero_touch_success=False"
-                        ),
-                    )
-                )
-    return issues
-
-
-def _validate_tb2_export_summary(summary_path: Path, bundle_dir: Path) -> list[ValidationIssue]:
-    if _bundle_type(bundle_dir) != TB2_EXPORT_BUNDLE_TYPE:
-        return []
-
-    issues: list[ValidationIssue] = []
-    try:
-        with summary_path.open("r", encoding="utf-8", newline="") as fh:
-            rows = list(csv.DictReader(fh, delimiter="\t"))
-    except OSError as exc:
-        return [ValidationIssue(path=summary_path, message=f"unable to read TB2 export summary: {exc}")]
-
-    header = set(rows[0].keys()) if rows else set()
-    missing = sorted(TB2_EXPORT_REQUIRED_COLUMNS.difference(header))
-    if missing:
-        issues.append(
-            ValidationIssue(
-                path=summary_path,
-                message="missing required TB2 export columns: " + ", ".join(missing),
-            )
-        )
-        return issues
-
-    for row_index, row in enumerate(rows, start=1):
-        for column in ("reward", "wall_minutes", "exception_kind", "infra_failure_kind", "status"):
-            if not str(row.get(column) or "").strip():
-                issues.append(
-                    ValidationIssue(
-                        path=summary_path,
-                        message=f"TB2 export row {row_index} missing required field: {column}",
-                    )
-                )
-        for token_column, cause_column in (
-            ("input_tokens", "input_tokens_missing_cause"),
-            ("cached_input_tokens", "cached_input_tokens_missing_cause"),
-            ("output_tokens", "output_tokens_missing_cause"),
-            ("cost_usd", "cost_usd_missing_cause"),
-        ):
-            token_text = str(row.get(token_column) or "").strip()
-            cause_text = str(row.get(cause_column) or "").strip()
-            if not token_text and not cause_text:
-                issues.append(
-                    ValidationIssue(
-                        path=summary_path,
-                        message=(
-                            f"TB2 export row {row_index} missing value and missing-cause for {token_column}"
-                        ),
-                    )
-                )
-    return issues
-
-
 def _validate_index_paths(bundle_dir: Path, rows: Iterable[dict[str, Any]]) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    optional_columns = (
-        OPTIONAL_TB2_EXPORT_PATH_COLUMNS
-        if _bundle_type(bundle_dir) == TB2_EXPORT_BUNDLE_TYPE
-        else set()
-    )
+    optional_columns: set[str] = set()
     for row_index, row in enumerate(rows, start=1):
         for column, value in row.items():
             if column not in PATH_LIKE_COLUMNS:
@@ -348,8 +209,6 @@ def validate_bundle_dir(bundle_dir: Path) -> list[ValidationIssue]:
     summary_path = bundle_dir / "summary.tsv"
     if summary_path.exists():
         issues.extend(_validate_summary(summary_path))
-        issues.extend(_validate_study_summary(summary_path, bundle_dir))
-        issues.extend(_validate_tb2_export_summary(summary_path, bundle_dir))
 
     return issues
 

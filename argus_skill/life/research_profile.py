@@ -247,21 +247,16 @@ Paper hypotheses to test:
 2. TierHarness uses this hierarchy through budgeted escalation: cheap model
    work first, LLM/reviewer repair only after objective verifier failure, and
    human attention only after autonomous repair is exhausted.
-3. TierHarness should target Terminal-Bench v2 SOTA or strong competitive
-   reward with lower token cost and lower human-attention cost.
-4. Current agent benchmarks under-report human interaction. The project must
+3. Current agent benchmarks under-report human interaction. The project must
    define and measure zero-touch success, human turns after assignment, active
    attention minutes, manual commands, intervention severity, and rescue rate.
-5. Multi-agent structure is necessary where single-agent loops self-satisfy,
+4. Multi-agent structure is necessary where single-agent loops self-satisfy,
    ignore verifier evidence, or fail to repair hard tasks.
-6. The planner can propose trivial objectives; prevent that by requiring every
+5. The planner can propose trivial objectives; prevent that by requiring every
    planned task to create or improve a concrete artifact under benchmarks/,
    experiments/, paper/, figures/, docs/, or tests/, with measurable acceptance.
 
 Evidence and anti-fabrication rules:
-- Terminal-Bench success must be read from /logs/verifier/reward.txt or an
-  equivalent official reward artifact, not only from the verifier process exit
-  code.
 - Every experimental claim must cite a local artifact path containing raw
   reward, model id, token counters, prompt/config hash, command, commit or
   working-tree manifest, started/ended timestamps, and logs.
@@ -276,8 +271,6 @@ Evidence and anti-fabrication rules:
   deliverable away from a submission-quality empirical paper.
 - If evidence is missing, create a task to collect it; never fill gaps with
   estimates or optimistic prose.
-- Distinguish official Harbor/TB2 benchmark results from prompt-only
-  operator-mode smoke tests. Do not conflate the two.
 - Final EMNLP completion is a separate `final_submission` scope. The project is
   not done until the L2 reviewer certifies the full pipeline checklist (research
   → submission) as `done` — every checklist item satisfied with concrete

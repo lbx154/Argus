@@ -10,5 +10,4 @@ Contract:
 - `stdout.log` and `stderr.log` capture the run output
 - `status.json` records launch/running/completed state
 
-Use the wrappers in `benchmarks/run-fullbench-tb2.sh` and the condition
-scripts in `benchmarks/run-fullbench-v12-*.sh` to start new runs.
+Launch new runs through the Harbor adapter (`benchmarks/harbor_adapter.py`).

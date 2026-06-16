@@ -1,4 +1,0 @@
-Trial polyglot-c-py__ZWEsLuY failed: Docker compose command failed for environment polyglot-c-py. Command: docker compose --project-name polyglot-c-py__zwesluy --project-directory /home/argustest/.cache/harbor/tasks/mQoDwFSymGYHYWpETANa3y/polyglot-c-py/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network polyglot-c-py__zwesluy_default  Creating
- Network polyglot-c-py__zwesluy_default  Error
-failed to create network polyglot-c-py__zwesluy_default: Error response from daemon: all predefined address pools have been fully subnetted
-. Stderr: None. 

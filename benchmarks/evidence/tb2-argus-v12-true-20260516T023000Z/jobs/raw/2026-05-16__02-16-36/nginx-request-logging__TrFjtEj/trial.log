@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/nginx-request-logging:20251031: docker inspect returned 1
-Trial nginx-request-logging__TrFjtEj failed: Docker compose command failed for environment nginx-request-logging. Command: docker compose --project-name nginx-request-logging__trfjtej --project-directory /home/argustest/.cache/harbor/tasks/eUViXxKXCzTue7ywZW59ct/nginx-request-logging/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

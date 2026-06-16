@@ -254,7 +254,7 @@ argus-skill 是 <em>"自带 runner 的 Python 包"</em>——能力都被绑死�
 <tr>
 <td>A8</td>
 <td><strong>真 benchmark 跑分基础设施</strong></td>
-<td><code>benchmarks/tb2_fullbench_launcher.py</code> + <code>benchmarks/prompt_only_tb2/</code> + harbor adapter，能跑 terminal-bench v2 全 89 trial；<code>paper/build_*_artifacts.py</code> 把 raw run 转 TSV/CSV/JSON</td>
+<td><code>benchmarks/harbor_adapter.py</code>（harbor adapter）+ <code>benchmarks/validate_results.py</code>，能跑 benchmark 全套 trial 并校验 evidence bundle</td>
 <td>ARIS 没有自己的 benchmark harness，靠 community 论文里各自手跑</td>
 </tr>
 

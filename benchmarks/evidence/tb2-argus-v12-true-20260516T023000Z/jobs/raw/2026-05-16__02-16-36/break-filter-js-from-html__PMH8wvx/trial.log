@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/break-filter-js-from-html:20251031: docker inspect returned 1
-Trial break-filter-js-from-html__PMH8wvx failed: Docker compose command failed for environment break-filter-js-from-html. Command: docker compose --project-name break-filter-js-from-html__pmh8wvx --project-directory /home/argustest/.cache/harbor/tasks/JQfDtvG4qqL3QfwErWynWU/break-filter-js-from-html/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

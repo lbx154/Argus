@@ -1,4 +1,0 @@
-Trial protein-assembly__KrmKDCG failed: Docker compose command failed for environment protein-assembly. Command: docker compose --project-name protein-assembly__krmkdcg --project-directory /home/argustest/.cache/harbor/tasks/mJUNThPAPTj7sAa9DCoPrh/protein-assembly/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network protein-assembly__krmkdcg_default  Creating
- Network protein-assembly__krmkdcg_default  Error
-failed to create network protein-assembly__krmkdcg_default: Error response from daemon: all predefined address pools have been fully subnetted
-. Stderr: None. 

@@ -57,7 +57,7 @@ Before adding any code to argus_skill/, ask:
 1. **Identify the fact** the agent would use to make the call.
    - e.g. "What's the baseline reward?" "How many benchmark families are present?" "How long has this been in writing?"
 2. **Compute and surface the fact** as a structured finding, never a pass/fail verdict.
-   - The harness prints: `"baseline best aggregate reward = 0.62, proposed = 0.66, delta = +0.04, families covered = [tb2@2.0, swebpro@1.0]"`
+   - The harness prints: `"baseline best aggregate reward = 0.62, proposed = 0.66, delta = +0.04, families covered = [harbor-bench@1.0, swebpro@1.0]"`
    - The harness does NOT print: `"FAIL: improvement below 0.02 threshold"`.
 3. **Route the finding to the reviewer's prompt** via the existing CheckResult.output_tail / stage_check stdout path.
 4. **Never let the finding affect the exit code** of stage_check, unless it's a structural / anti-fraud check (see the table above).

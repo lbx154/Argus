@@ -22,8 +22,6 @@ htmlcov/
 
 # scratch
 benchmarks/results/
-benchmarks/prompt_only_tb2/generated/
-benchmarks/prompt_only_tb2/runs/
 .tmp_pytest/
 tmp-review-skills/
 tmp-skill-a/

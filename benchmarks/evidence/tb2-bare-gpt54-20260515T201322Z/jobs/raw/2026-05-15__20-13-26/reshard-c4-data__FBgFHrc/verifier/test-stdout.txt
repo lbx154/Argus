@@ -1,147 +1,0 @@
-Downloading pygments (1.2MiB)
-Downloading aiohttp (1.7MiB)
-Downloading hf-xet (4.3MiB)
-Downloading pandas (10.4MiB)
-Downloading numpy (15.9MiB)
-Downloading pyarrow (46.6MiB)
- Downloading hf-xet
- Downloading aiohttp
- Downloading pygments
- Downloading pyarrow
- Downloading pandas
- Downloading numpy
-Installed 46 packages in 21.08s
-============================= test session starts ==============================
-platform linux -- Python 3.13.7, pytest-8.4.1, pluggy-1.6.0
-rootdir: /tests
-plugins: anyio-4.13.0, json-ctrf-0.3.5
-collected 1 item
-
-../tests/test_outputs.py .                                               [100%]
-
-=============================== warnings summary ===============================
-test_outputs.py::test_compress_decompress_workflow
-  /root/.cache/uv/archive-v0/TyZAvmJ6RNvngoEVZ6qKy/lib/python3.13/site-packages/huggingface_hub/file_download.py:1842: DeprecationWarning: hf_xet.download_files() is deprecated. Use XetSession().new_file_download_group().start_download_file() instead.
-    xet_get(
-
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-==================================== PASSES ====================================
-______________________ test_compress_decompress_workflow _______________________
----------------------------- Captured stdout setup -----------------------------
-Generating test data.
-Generated mini-shard 1/10000
-Generated mini-shard 101/10000
-Generated mini-shard 201/10000
-Generated mini-shard 301/10000
-Generated mini-shard 401/10000
-Generated mini-shard 501/10000
-Generated mini-shard 601/10000
-Generated mini-shard 701/10000
-Generated mini-shard 801/10000
-Generated mini-shard 901/10000
-Generated mini-shard 1001/10000
-Generated mini-shard 1101/10000
-Generated mini-shard 1201/10000
-Generated mini-shard 1301/10000
-Generated mini-shard 1401/10000
-Generated mini-shard 1501/10000
-Generated mini-shard 1601/10000
-Generated mini-shard 1701/10000
-Generated mini-shard 1801/10000
-Generated mini-shard 1901/10000
-Generated mini-shard 2001/10000
-Generated mini-shard 2101/10000
-Generated mini-shard 2201/10000
-Generated mini-shard 2301/10000
-Generated mini-shard 2401/10000
-Generated mini-shard 2501/10000
-Generated mini-shard 2601/10000
-Generated mini-shard 2701/10000
-Generated mini-shard 2801/10000
-Generated mini-shard 2901/10000
-Generated mini-shard 3001/10000
-Generated mini-shard 3101/10000
-Generated mini-shard 3201/10000
-Generated mini-shard 3301/10000
-Generated mini-shard 3401/10000
-Generated mini-shard 3501/10000
-Generated mini-shard 3601/10000
-Generated mini-shard 3701/10000
-Generated mini-shard 3801/10000
-Generated mini-shard 3901/10000
-Generated mini-shard 4001/10000
-Generated mini-shard 4101/10000
-Generated mini-shard 4201/10000
-Generated mini-shard 4301/10000
-Generated mini-shard 4401/10000
-Generated mini-shard 4501/10000
-Generated mini-shard 4601/10000
-Generated mini-shard 4701/10000
-Generated mini-shard 4801/10000
-Generated mini-shard 4901/10000
-Generated mini-shard 5001/10000
-Generated mini-shard 5101/10000
-Generated mini-shard 5201/10000
-Generated mini-shard 5301/10000
-Generated mini-shard 5401/10000
-Generated mini-shard 5501/10000
-Generated mini-shard 5601/10000
-Generated mini-shard 5701/10000
-Generated mini-shard 5801/10000
-Generated mini-shard 5901/10000
-Generated mini-shard 6001/10000
-Generated mini-shard 6101/10000
-Generated mini-shard 6201/10000
-Generated mini-shard 6301/10000
-Generated mini-shard 6401/10000
-Generated mini-shard 6501/10000
-Generated mini-shard 6601/10000
-Generated mini-shard 6701/10000
-Generated mini-shard 6801/10000
-Generated mini-shard 6901/10000
-Generated mini-shard 7001/10000
-Generated mini-shard 7101/10000
-Generated mini-shard 7201/10000
-Generated mini-shard 7301/10000
-Generated mini-shard 7401/10000
-Generated mini-shard 7501/10000
-Generated mini-shard 7601/10000
-Generated mini-shard 7701/10000
-Generated mini-shard 7801/10000
-Generated mini-shard 7901/10000
-Generated mini-shard 8001/10000
-Generated mini-shard 8101/10000
-Generated mini-shard 8201/10000
-Generated mini-shard 8301/10000
-Generated mini-shard 8401/10000
-Generated mini-shard 8501/10000
-Generated mini-shard 8601/10000
-Generated mini-shard 8701/10000
-Generated mini-shard 8801/10000
-Generated mini-shard 8901/10000
-Generated mini-shard 9001/10000
-Generated mini-shard 9101/10000
-Generated mini-shard 9201/10000
-Generated mini-shard 9301/10000
-Generated mini-shard 9401/10000
-Generated mini-shard 9501/10000
-Generated mini-shard 9601/10000
-Generated mini-shard 9701/10000
-Generated mini-shard 9801/10000
-Generated 9898 test files
----------------------------- Captured stderr setup -----------------------------
-Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
-Generating train split: 0 examples [00:00, ? examples/s]Generating train split: 4628 examples [00:00, 44578.04 examples/s]Generating train split: 18508 examples [00:00, 59367.31 examples/s]Generating train split: 27549 examples [00:00, 62959.18 examples/s]Generating train split: 36548 examples [00:00, 55425.91 examples/s]Generating train split: 45801 examples [00:00, 43549.36 examples/s]Generating train split: 50561 examples [00:01, 44002.33 examples/s]Generating train split: 55346 examples [00:01, 44306.24 examples/s]Generating train split: 64252 examples [00:01, 45110.40 examples/s]Generating train split: 73564 examples [00:01, 48421.47 examples/s]Generating train split: 82514 examples [00:01, 46418.84 examples/s]Generating train split: 91794 examples [00:01, 44237.25 examples/s]Generating train split: 100921 examples [00:02, 45279.57 examples/s]Generating train split: 110011 examples [00:02, 42271.54 examples/s]Generating train split: 114448 examples [00:02, 38371.59 examples/s]Generating train split: 119080 examples [00:02, 39748.62 examples/s]Generating train split: 128199 examples [00:02, 45015.29 examples/s]Generating train split: 132871 examples [00:03, 35074.59 examples/s]Generating train split: 137465 examples [00:03, 31514.51 examples/s]Generating train split: 142093 examples [00:03, 30706.23 examples/s]Generating train split: 146537 examples [00:03, 31017.66 examples/s]Generating train split: 151171 examples [00:03, 27186.38 examples/s]Generating train split: 160125 examples [00:03, 33618.51 examples/s]Generating train split: 169418 examples [00:04, 35020.16 examples/s]Generating train split: 174224 examples [00:04, 34530.20 examples/s]Generating train split: 183305 examples [00:04, 38034.36 examples/s]Generating train split: 196759 examples [00:04, 47202.92 examples/s]Generating train split: 205928 examples [00:04, 45979.37 examples/s]Generating train split: 219465 examples [00:05, 41274.59 examples/s]Generating train split: 228662 examples [00:05, 47654.34 examples/s]Generating train split: 237429 examples [00:05, 32488.44 examples/s]Generating train split: 242080 examples [00:06, 28528.83 examples/s]Generating train split: 255874 examples [00:06, 35950.06 examples/s]Generating train split: 264806 examples [00:06, 40249.55 examples/s]Generating train split: 274149 examples [00:06, 42277.84 examples/s]Generating train split: 283387 examples [00:06, 46602.60 examples/s]Generating train split: 292646 examples [00:07, 45635.73 examples/s]Generating train split: 301743 examples [00:07, 40819.45 examples/s]Generating train split: 315368 examples [00:07, 51099.59 examples/s]Generating train split: 328806 examples [00:08, 41494.46 examples/s]Generating train split: 338040 examples [00:08, 37979.06 examples/s]Generating train split: 351738 examples [00:08, 47179.03 examples/s]Generating train split: 356318 examples [00:08, 41168.78 examples/s]
------------------------------- Captured log setup ------------------------------
-WARNING  huggingface_hub.utils._http:_http.py:904 Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
------------------------------ Captured stdout call -----------------------------
-Installing dependencies with uv sync...
-uv sync failed: error: No `pyproject.toml` found in current directory or any parent directory
-
-Running compress script: /app/compress.py /app/c4_test_46454ea6-9a04-4b1f-84f0-2bf1f0870562/ /app/c4_test_8ec091dc-c0f5-4528-97f0-81af9d1e8136/
-Compression test passed. Now testing decompression.
-Running decompress script: /app/decompress.py /app/c4_test_8ec091dc-c0f5-4528-97f0-81af9d1e8136/
-Successfully verified 9898 files match original hashes
-=========================== short test summary info ============================
-PASSED ../tests/test_outputs.py::test_compress_decompress_workflow
-=================== 1 passed, 1 warning in 241.40s (0:04:01) ===================

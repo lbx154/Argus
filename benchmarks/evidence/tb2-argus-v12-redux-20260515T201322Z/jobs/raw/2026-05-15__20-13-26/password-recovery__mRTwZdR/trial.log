@@ -1,4 +1,0 @@
-Trial password-recovery__mRTwZdR failed: Docker compose command failed for environment password-recovery. Command: docker compose --project-name password-recovery__mrtwzdr --project-directory /home/argustest/.cache/harbor/tasks/7w8vEz8xG5Rmh59QkrpMp2/password-recovery/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network password-recovery__mrtwzdr_default  Creating
- Network password-recovery__mrtwzdr_default  Error
-failed to create network password-recovery__mrtwzdr_default: Error response from daemon: all predefined address pools have been fully subnetted
-. Stderr: None. 

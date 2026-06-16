@@ -1,4 +1,0 @@
-Trial kv-store-grpc__ZmCQu3c failed: Docker compose command failed for environment kv-store-grpc. Command: docker compose --project-name kv-store-grpc__zmcqu3c --project-directory /home/argustest/.cache/harbor/tasks/JGX6wXigbfSgX6m298mcKW/kv-store-grpc/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network kv-store-grpc__zmcqu3c_default  Creating
- Network kv-store-grpc__zmcqu3c_default  Error
-failed to create network kv-store-grpc__zmcqu3c_default: Error response from daemon: all predefined address pools have been fully subnetted
-. Stderr: None. 

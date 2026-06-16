@@ -1,4 +1,0 @@
-Trial extract-moves-from-video__kohEvSo failed: Docker compose command failed for environment extract-moves-from-video. Command: docker compose --project-name extract-moves-from-video__kohevso --project-directory /home/argustest/.cache/harbor/tasks/bDZ3NNHZSFq2MH6CzCTykb/extract-moves-from-video/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network extract-moves-from-video__kohevso_default  Creating
- Network extract-moves-from-video__kohevso_default  Error
-failed to create network extract-moves-from-video__kohevso_default: Error response from daemon: all predefined address pools have been fully subnetted
-. Stderr: None. 

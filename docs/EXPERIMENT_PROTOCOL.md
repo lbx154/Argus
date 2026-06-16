@@ -8,7 +8,7 @@
 
 ## 1. 实验目录结构（强制）
 
-每次实验必须创建一个可验证的证据 bundle。活跃试跑留在忽略的 scratch 目录里（例如 `benchmarks/prompt_only_tb2/runs/` 或旧式 `benchmarks/results/`），但提交级证据必须整理到 `benchmarks/evidence/<bundle-name>/`，下面**必须**包含：
+每次实验必须创建一个可验证的证据 bundle。活跃试跑留在忽略的 scratch 目录里（例如 `benchmarks/results/`），但提交级证据必须整理到 `benchmarks/evidence/<bundle-name>/`，下面**必须**包含：
 
 | 文件 | 内容 | 必填 |
 |---|---|---|

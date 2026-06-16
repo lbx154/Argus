@@ -1,4 +1,0 @@
-Trial torch-tensor-parallelism__JbHD9rM failed: Docker compose command failed for environment torch-tensor-parallelism. Command: docker compose --project-name torch-tensor-parallelism__jbhd9rm --project-directory /home/argustest/.cache/harbor/tasks/8njYn5Af8tPLKjM5cFeNvR/torch-tensor-parallelism/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network torch-tensor-parallelism__jbhd9rm_default  Creating
- Network torch-tensor-parallelism__jbhd9rm_default  Error
-failed to create network torch-tensor-parallelism__jbhd9rm_default: Error response from daemon: all predefined address pools have been fully subnetted
-. Stderr: None. 

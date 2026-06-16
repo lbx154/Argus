@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/multi-source-data-merger:20251031: docker inspect returned 1
-Trial multi-source-data-merger__E7iGY9N failed: Docker compose command failed for environment multi-source-data-merger. Command: docker compose --project-name multi-source-data-merger__e7igy9n --project-directory /home/argustest/.cache/harbor/tasks/cMPqfgxjNH2qnnDVdWSFb8/multi-source-data-merger/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

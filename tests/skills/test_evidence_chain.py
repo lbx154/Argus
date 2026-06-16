@@ -176,7 +176,7 @@ def test_missing_tsv_returns_single_issue(tmp_path: Path) -> None:
 
 def test_paper_artifact_path_does_not_require_build_info(tmp_path: Path) -> None:
     (tmp_path / "paper" / "artifacts").mkdir(parents=True)
-    (tmp_path / "paper" / "artifacts" / "tb2_comparison.tsv").write_text(
+    (tmp_path / "paper" / "artifacts" / "benchmark_comparison.tsv").write_text(
         "row_id\ndemo\n", encoding="utf-8"
     )
     _write_claims_tsv(
@@ -186,7 +186,7 @@ def test_paper_artifact_path_does_not_require_build_info(tmp_path: Path) -> None
                 "claim_id": "artifact-only",
                 "status": "current_evidence",
                 "claim": "raw artifact, no bundle",
-                "evidence_1": "paper/artifacts/tb2_comparison.tsv",
+                "evidence_1": "paper/artifacts/benchmark_comparison.tsv",
             }
         ],
     )
