@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/financial-document-processor:20251031: docker inspect returned 1
-Trial financial-document-processor__GxJvHYa failed: Docker compose command failed for environment financial-document-processor. Command: docker compose --project-name financial-document-processor__gxjvhya --project-directory /home/argustest/.cache/harbor/tasks/T9eC49XFCYopUM2bDKgar3/financial-document-processor/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

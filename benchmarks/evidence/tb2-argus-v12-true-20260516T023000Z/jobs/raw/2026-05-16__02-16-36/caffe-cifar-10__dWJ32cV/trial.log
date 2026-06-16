@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/caffe-cifar-10:20251031: docker inspect returned 1
-Trial caffe-cifar-10__dWJ32cV failed: Docker compose command failed for environment caffe-cifar-10. Command: docker compose --project-name caffe-cifar-10__dwj32cv --project-directory /home/argustest/.cache/harbor/tasks/XUcCMQRrLoqxtCV4Hc9F2a/caffe-cifar-10/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

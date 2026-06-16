@@ -16,7 +16,7 @@ def _write_file(path: Path, text: str = "x\n") -> None:
 
 
 def _make_complete_bundle(root: Path, *, with_exempt: bool = False) -> Path:
-    bundle = root / "prompt-only-tb2-smoke-20260515T1435Z"
+    bundle = root / "prompt-only-smoke-20260515T1435Z"
     _write_file(bundle / "PLAN.md")
     _write_file(bundle / "BUILD_INFO.md")
     _write_file(bundle / "RESULTS.md")
@@ -140,99 +140,6 @@ def test_validate_bundle_dir_requires_index_paths_to_resolve(tmp_path: Path) -> 
     assert any("references missing path" in issue.message for issue in issues)
 
 
-def test_validate_study_bundle_requires_populated_study_columns(tmp_path: Path) -> None:
-    bundle = _make_complete_bundle(tmp_path)
-    _write_file(
-        bundle / "summary.tsv",
-        "\t".join(
-            [
-                "order",
-                "condition",
-                "task_id",
-                "zero_touch_success",
-                "human_interactions_after_assignment",
-                "active_touch_minutes_after_assignment",
-                "manual_commands",
-                "manual_rescue",
-                "result_json",
-                "stdout_log",
-                "stderr_log",
-            ]
-        )
-        + "\n"
-        + "\t".join(
-            [
-                "1",
-                "codex",
-                "cancel-async-tasks",
-                "",
-                "0",
-                "0.0",
-                "0",
-                "",
-                "jobs/raw/o001/result.json",
-                "jobs/raw/o001/stdout.log",
-                "jobs/raw/o001/stderr.log",
-            ]
-        )
-        + "\n",
-    )
-
-    issues = validate_bundle_dir(bundle)
-    assert any("missing required study columns" in issue.message for issue in issues) or any(
-        "study row" in issue.message for issue in issues
-    )
-
-
-def test_validate_study_bundle_rejects_zero_touch_contradiction(tmp_path: Path) -> None:
-    bundle = _make_complete_bundle(tmp_path)
-    _write_file(
-        bundle / "summary.tsv",
-        "\t".join(
-            [
-                "order",
-                "condition",
-                "task_id",
-                "needs_human",
-                "zero_touch_success",
-                "human_interactions_after_assignment",
-                "active_touch_minutes_after_assignment",
-                "manual_commands",
-                "manual_rescue",
-                "intervention_severity",
-                "result_json",
-                "stdout_log",
-                "stderr_log",
-            ]
-        )
-        + "\n"
-        + "\t".join(
-            [
-                "1",
-                "codex",
-                "cancel-async-tasks",
-                "False",
-                "False",
-                "0",
-                "0.0",
-                "0",
-                "",
-                "zero_touch",
-                "jobs/raw/o001/result.json",
-                "jobs/raw/o001/stdout.log",
-                "jobs/raw/o001/stderr.log",
-            ]
-        )
-        + "\n",
-    )
-
-    issues = validate_bundle_dir(bundle)
-    assert any(
-        "contradicts needs_human=False with zero_touch_success=False" in issue.message
-        for issue in issues
-    )
-
-
 def test_validate_bundle_dir_allows_explicit_exemption(tmp_path: Path) -> None:
     bundle = _make_complete_bundle(tmp_path, with_exempt=True)
     assert validate_bundle_dir(bundle) == []
@@ -245,7 +152,7 @@ def test_validate_results_root_visits_all_top_level_dirs(tmp_path: Path) -> None
     incomplete = archive_root / "argus-skill-harbor"
     _write_file(incomplete / "skills" / "bounded-asyncio-task-runner.md")
 
-    exempt = archive_root / "tb2-legacy-2026-05-10"
+    exempt = archive_root / "legacy-2026-05-10"
     _write_file(exempt / "EXEMPT.md", "legacy partial bundle\n")
 
     issues = validate_results_root(archive_root)

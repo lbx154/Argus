@@ -1,6 +1,6 @@
 # User Study Protocol
 
-This document defines the annotation rubric for prompt-only TB2 evidence bundles.
+This document defines the annotation rubric for prompt-only evidence bundles.
 It applies to both `results.csv`-style exports and checked-in archive bundles
 under `benchmarks/evidence/`.
 

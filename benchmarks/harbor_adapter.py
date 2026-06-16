@@ -8,7 +8,7 @@ adds the multi-round engineer-reviewer loop.
 A-lite design summary (post rubber-duck critique 2026-05-04):
   * matcher / distiller / reviewer all run **on the host** (cheap
     OPENAI_API_KEY calls). No need to install argus-skill inside every
-    TB v2 image.
+    benchmark image.
   * **engineer rounds run inside the Harbor container** via
     ``environment.exec`` calling the same ``codex exec`` CLI that
     Harbor's stock agent uses.
@@ -18,7 +18,7 @@ A-lite design summary (post rubber-duck critique 2026-05-04):
     feedback, and (if not done) inject the feedback into the next
     round's prompt.
 
-Time budget (TB v2 typical: 600s/task):
+Time budget (benchmark typical: 600s/task):
   * distill: ≤ 120s
   * each engineer round: ≤ 200s (inherits Harbor's per-exec timeout)
   * each reviewer call: ≤ 60s
@@ -29,12 +29,12 @@ Launch::
     OPENAI_API_KEY=... OPENAI_BASE_URL=... \\
     PYTHONPATH=$(pwd) \\
     harbor run \\
-        --dataset terminal-bench@2.0 \\
+        --dataset <your-dataset> \\
         --agent-import-path benchmarks.harbor_adapter:ArgusSkillCodex \\
         --model openai/gpt-5.4-mini \\
         --ak reasoning_effort=high \\
         -n 4 -k 1 \\
-        --jobs-dir runs/argus-skill-codex-tb2
+        --jobs-dir runs/argus-skill-codex
 
 Ablation env vars:
   ``ARGUS_SKILL_HARBOR_NO_SKILL=1``    — skip matcher+distill (reviewer-only)
@@ -68,12 +68,12 @@ Ablation env vars:
                                            verifier auto-run (default ON). When
                                            ON we exec ``bash /tests/test.sh``
                                            after each round (only if the file
-                                           exists — self-skips on non-TB
-                                           datasets) and surface it to the
+                                           exists — self-skips when the
+                                           file is absent) and surface it to the
                                            reviewer with "ground truth, trust
                                            this and not the engineer" framing.
   ``ARGUS_SKILL_HARBOR_VERIFIER_PASS_SHORT_CIRCUIT=1`` — benchmark-fast path:
-                                           when the official TB verifier passes,
+                                           when the official verifier passes,
                                            skip the reviewer and mark the round
                                            done. Default OFF so faithful
                                            historical reproductions opt in
@@ -90,7 +90,7 @@ Defaults (post-v12 restoration 2026-05-22):
   V12_VERIFIER  = ON                      — bash /tests/test.sh ground truth
   SKIP_CLEAN_REVIEWER = OFF               — reviewer runs every round (v12)
   Reviewer verdict "continue" → R2 retry (v12 behaviour).
-These reproduce the v12 fullbench run (TB v2, 2026-05-06, reward 0.5955).
+These reproduce the v12 fullbench run (2026-05-06, reward 0.5955).
 Note: v12 cost tracking was broken — $0.139/trial was undercounted.
 Full cost tracking (2026-05-22): engineer (all sessions) + scientist + reviewer
   tokens are summed and priced via LiteLLM in run(), then set on context so
@@ -140,9 +140,9 @@ log = logging.getLogger(__name__)
 
 _DEFAULT_DISTILL_BUDGET = 120.0          # seconds, host-side matcher+distill cap
 # Reviewer budget — empirical: gpt-5.4 @ reasoning_effort=high can take
-# 100–150 s on TB v2 fix-tasks (see benchmarks/results/tb2-ablation-2026-05-10/
-# RESULTS.md, finding 1: 6/6 reviewer calls timed out at 60 s and silently
-# degraded to "continue"). 180 s gives the reviewer room to actually answer.
+# 100–150 s on benchmark fix-tasks (earlier runs at a 60 s budget saw 6/6
+# reviewer calls time out at the cap and silently degrade to "continue").
+# 180 s gives the reviewer room to actually answer.
 # Callers that need the old budget can still set ARGUS_SKILL_HARBOR_REVIEWER_BUDGET=60.
 _DEFAULT_REVIEWER_BUDGET = 180.0         # seconds, per reviewer call
 _DEFAULT_ROUND_TIMEOUT = 600             # seconds, per in-container engineer call
@@ -171,9 +171,9 @@ def _default_skills_dir() -> Path:
 
 # --- v12 phase-4 evidence pipeline -----------------------------------------
 #
-# In v12 (benchmarks/results/tb2-fullbench-2026-05-06-v12, reward 0.5955,
-# $0.139/trial — the best TB v2 result on record) every reviewer call saw a
-# "Raw verification evidence:" block with three sub-sections grounded in
+# In v12 (reward 0.5955, $0.139/trial — the best result on record) every
+# reviewer call saw a "Raw verification evidence:" block with three
+# sub-sections grounded in
 # real container state, not just the engineer's prose:
 #
 #   1. engineer self-report (verbatim)  — the engineer's last agent_message
@@ -187,8 +187,8 @@ def _default_skills_dir() -> Path:
 #
 # The original code for this was a working-tree change at v12 runtime that
 # never got committed, then was lost in subsequent refactors. We restore
-# it here, hardcoded for TB v2 (verifier path is TB-specific; self-skips
-# when /tests/test.sh is absent so non-TB datasets are unaffected).
+# it here, hardcoded for the benchmark (verifier path is benchmark-specific;
+# self-skips when /tests/test.sh is absent so other datasets are unaffected).
 _V12_VERIFIER_CMD = "bash /tests/test.sh"
 _V12_VERIFIER_REWARD_MARKER = "__ARGUS_TB_REWARD__="
 _V12_VERIFIER_TIMEOUT_SEC = 600
@@ -728,7 +728,7 @@ def _do_host_prep(instruction: str) -> _HostPrep:
                     # SkillStore.save_distilled returns None when the quality
                     # gate rejects the distilled skill (see SkillStore tests).
                     # Don't call .render() on None — that's the bug surfaced
-                    # by tb2-ablation-2026-05-10 A2_full. Use the raw distill
+                    # by an earlier ablation run. Use the raw distill
                     # output as a hint, but record the truthful reason.
                     log.info("save_distilled rejected by quality gate; using raw text")
                     fallback_reason = "skill_gate_rejected"
@@ -1064,7 +1064,7 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
                     # evidence" — runtime probe + official verifier — so
                     # the reviewer sees something grounded in container
                     # state, not just the engineer's prose. Each
-                    # collector self-skips on absence/error so non-TB
+                    # collector self-skips on absence/error so other
                     # datasets (no /tests/test.sh) degrade gracefully to
                     # "engineer self-report only".
                     runtime_probe: str | None = None
@@ -1725,15 +1725,15 @@ class ArgusSkillCodex(_HarborCodex):  # type: ignore[misc,valid-type]
         env: dict[str, str],
         timeout_sec: int = _V12_VERIFIER_TIMEOUT_SEC,
     ) -> dict | None:
-        """v12 phase-4: run the TB v2 official verifier (``bash /tests/test.sh``).
+        """v12 phase-4: run the benchmark's official verifier (``bash /tests/test.sh``).
 
-        Self-skips when ``/tests/test.sh`` is absent (non-TB datasets,
+        Self-skips when ``/tests/test.sh`` is absent (other datasets,
         which is fine — those use their own evidence path). Returns a
         CheckResult-shaped dict, or ``None`` if the script doesn't
         exist.
         """
         try:
-            # Probe existence first so non-TB-v2 datasets don't end up
+            # Probe existence first so datasets without it don't end up
             # with a noisy "FAIL exit=127" verifier entry.
             probe = await environment.exec(
                 command="test -f /tests/test.sh && echo exists || echo missing",

@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/raman-fitting:20251031: docker inspect returned 1
-Trial raman-fitting__HPdLoJp failed: Docker compose command failed for environment raman-fitting. Command: docker compose --project-name raman-fitting__hpdlojp --project-directory /home/argustest/.cache/harbor/tasks/kWbDWup9MzjJLPn6gz9P6H/raman-fitting/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

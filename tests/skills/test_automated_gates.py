@@ -204,7 +204,7 @@ def _seed_minimal_paper(root: Path) -> None:
 def _write_bundle(
     root: Path, name: str, *,
     condition: str = "argus", reward: float = 0.7,
-    dataset_id: str = "terminal-bench@2.0",
+    dataset_id: str = "harbor-bench@1.0",
     total: int = 89, errored: int = 0,
     tainted: bool = False,
 ) -> None:
@@ -332,7 +332,7 @@ def test_run_stage_gates_review_clean_project_passes_structural(tmp_path: Path) 
             {
                 "claim_id": "demo",
                 "status": "current_evidence",
-                "claim": "Argus beats bare on TB2",
+                "claim": "Argus beats bare on the benchmark",
                 "evidence_1": "benchmarks/evidence/argus-bundle/summary.tsv",
                 "evidence_2": "benchmarks/evidence/bare-bundle/summary.tsv",
             }

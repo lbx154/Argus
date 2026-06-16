@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/large-scale-text-editing:20251031: docker inspect returned 1
-Trial large-scale-text-editing__GZjusQh failed: Docker compose command failed for environment large-scale-text-editing. Command: docker compose --project-name large-scale-text-editing__gzjusqh --project-directory /home/argustest/.cache/harbor/tasks/S2VRUfRKCUQ2hWH9KJzsbK/large-scale-text-editing/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

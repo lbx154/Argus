@@ -37,7 +37,7 @@ export ARGUS_SKILL_HARBOR_SKILLS_DIR="$EXP_DIR/skills"
 export ARGUS_SKILL_HARBOR_DECISIONS_LOG="$DECISIONS_LOG"
 export ARGUS_SKILL_HARBOR_DISTILL_BUDGET=120
 export ARGUS_SKILL_HARBOR_REVIEWER_BUDGET=60
-# SWE-Bench-Pro tasks need longer rounds than TerminalBench:
+# SWE-Bench-Pro tasks need longer rounds than short terminal-command tasks:
 # multi-file repo edits take time. 1800s/round + max_rounds=2 = 60min cap.
 export ARGUS_SKILL_HARBOR_ROUND_TIMEOUT=1800
 export ARGUS_SKILL_HARBOR_MAX_ROUNDS=2

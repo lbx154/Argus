@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/git-leak-recovery:20251031: docker inspect returned 1
-Trial git-leak-recovery__uxLHqVo failed: Docker compose command failed for environment git-leak-recovery. Command: docker compose --project-name git-leak-recovery__uxlhqvo --project-directory /home/argustest/.cache/harbor/tasks/mig33pqGgsU4uNZ5dgPebg/git-leak-recovery/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/polyglot-rust-c:20251031: docker inspect returned 1
-Trial polyglot-rust-c__ppDU9MS failed: Docker compose command failed for environment polyglot-rust-c. Command: docker compose --project-name polyglot-rust-c__ppdu9ms --project-directory /home/argustest/.cache/harbor/tasks/hf6AShq4ZZHdwGTt8JGpEG/polyglot-rust-c/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

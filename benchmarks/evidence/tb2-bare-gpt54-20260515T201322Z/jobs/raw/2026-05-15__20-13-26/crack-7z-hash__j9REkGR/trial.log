@@ -1,4 +1,0 @@
-Trial crack-7z-hash__j9REkGR failed: Docker compose command failed for environment crack-7z-hash. Command: docker compose --project-name crack-7z-hash__j9rekgr --project-directory /home/argustest/.cache/harbor/tasks/MAyhSNHCZegJvZuPyTitjJ/crack-7z-hash/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network crack-7z-hash__j9rekgr_default  Creating
- Network crack-7z-hash__j9rekgr_default  Error
-failed to create network crack-7z-hash__j9rekgr_default: Error response from daemon: all predefined address pools have been fully subnetted
-. Stderr: None. 

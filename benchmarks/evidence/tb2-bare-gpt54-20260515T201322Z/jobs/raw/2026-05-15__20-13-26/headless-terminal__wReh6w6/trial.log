@@ -1,4 +1,0 @@
-Trial headless-terminal__wReh6w6 failed: Docker compose command failed for environment headless-terminal. Command: docker compose --project-name headless-terminal__wreh6w6 --project-directory /home/argustest/.cache/harbor/tasks/KSwQXLapvDLmcHTvZcJVQG/headless-terminal/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network headless-terminal__wreh6w6_default  Creating
- Network headless-terminal__wreh6w6_default  Error
-failed to create network headless-terminal__wreh6w6_default: Error response from daemon: all predefined address pools have been fully subnetted
-. Stderr: None. 

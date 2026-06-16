@@ -1,4 +1,0 @@
-Trial modernize-scientific-stack__GC4cJbE failed: Docker compose command failed for environment modernize-scientific-stack. Command: docker compose --project-name modernize-scientific-stack__gc4cjbe --project-directory /home/argustest/.cache/harbor/tasks/n9YQuCoRJFAyCD3Zs6amRV/modernize-scientific-stack/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network modernize-scientific-stack__gc4cjbe_default  Creating
- Network modernize-scientific-stack__gc4cjbe_default  Error
-failed to create network modernize-scientific-stack__gc4cjbe_default: Error response from daemon: all predefined address pools have been fully subnetted
-. Stderr: None. 

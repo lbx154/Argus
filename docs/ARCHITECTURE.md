@@ -102,20 +102,6 @@ startup/init.
 5. **Writeback (on done).** `SkillStore.writeback_from_trajectory`
    updates the skill history so the matcher sees the successful path.
 
-## Paper Evidence Hierarchy
-
-The paper workspace uses an SLM->LLM->HUMAN evidence ladder, but the ladder is
-checked in as a generated artifact package rather than left as a loose claim.
-The current local sources are:
-
-- SLM: `experiments/tb2-bare-gpt54-mini-20260515T212131Z/manifest.json`
-- LLM: `benchmarks/evidence/tb2-bare-gpt54-20260515T201322Z/summary.tsv`
-- HUMAN: `benchmarks/evidence/tb2-manual-followup-20260515T202500Z/summary.tsv`
-- Generated table: `paper/artifacts/slm_llm_human_hierarchy.tsv`
-
-That package is intentionally evidence-preserving. It describes the three tiers
-without turning the framing into a new quantitative claim.
-
 ## Tests as living docs
 
 The smoke tests in `tests/test_loop_smoke.py` still document the main

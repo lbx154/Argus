@@ -453,7 +453,7 @@ ARGUS_SKILL_DAILY_CAP_USD=180
 
 仓库自带一些 benchmark/evidence 目录，用于本项目论文或 regression：
 
-- `benchmarks/`: TB2/SWEBenchPro/prompt-only runners、report、archive helpers。
+- `benchmarks/`: SWEBenchPro/prompt-only runners、report、archive helpers。
 - `benchmarks/evidence/`: 归档实验证据。
 - `experiments/`: 本地实验输出。
 - `paper/`: 这个仓库自己的 claim-to-evidence paper workspace，不等同于每个外部 research project 的 `paper/main.tex` pipeline，但命名会重叠。

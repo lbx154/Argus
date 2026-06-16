@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/cobol-modernization:20251031: docker inspect returned 1
-Trial cobol-modernization__Q3kpP2W failed: Docker compose command failed for environment cobol-modernization. Command: docker compose --project-name cobol-modernization__q3kpp2w --project-directory /home/argustest/.cache/harbor/tasks/SmKKTsxNnHaHqhzng8SrD2/cobol-modernization/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

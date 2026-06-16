@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/code-from-image:20251031: docker inspect returned 1
-Trial code-from-image__9fGpDM7 failed: Docker compose command failed for environment code-from-image. Command: docker compose --project-name code-from-image__9fgpdm7 --project-directory /home/argustest/.cache/harbor/tasks/KRPXswDf2LBuozQgKhCqnG/code-from-image/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

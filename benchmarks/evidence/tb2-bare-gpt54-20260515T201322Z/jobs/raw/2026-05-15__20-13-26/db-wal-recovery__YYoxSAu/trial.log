@@ -1,4 +1,0 @@
-Trial db-wal-recovery__YYoxSAu failed: Docker compose command failed for environment db-wal-recovery. Command: docker compose --project-name db-wal-recovery__yyoxsau --project-directory /home/argustest/.cache/harbor/tasks/X4QTPPGhjzjJSVbTTETRUK/db-wal-recovery/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  Network db-wal-recovery__yyoxsau_default  Creating
- Network db-wal-recovery__yyoxsau_default  Error
-failed to create network db-wal-recovery__yyoxsau_default: Error response from daemon: all predefined address pools have been fully subnetted
-. Stderr: None. 

@@ -13,5 +13,5 @@ Usage:
 
 This module mirrors the layering of `harbor_adapter.py` so the
 engineer/reviewer/skill-cache configuration is byte-identical to the
-TerminalBench setup.
+harbor-adapter benchmark setup.
 """

@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/gcode-to-text:20251031: docker inspect returned 1
-Trial gcode-to-text__SGuP6JH failed: Docker compose command failed for environment gcode-to-text. Command: docker compose --project-name gcode-to-text__sgup6jh --project-directory /home/argustest/.cache/harbor/tasks/JK5CeLoen6gxrbEkrjQ94D/gcode-to-text/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

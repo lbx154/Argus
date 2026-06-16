@@ -9,7 +9,7 @@ is bogus.
 
 Empirical observation (the bundle this gate was written against):
 
-* ``benchmarks/evidence/prompt-only-tb2-smoke-20260515T1435Z/`` has 29
+* a prompt-only study bundle had 29
   ``ctrf.json`` files; **7 (24%)** carry ``raw_status: "call_failed"``,
   yet ``summary.tsv`` reports ``accepted=True, reward=1`` for all 12
   tasks. A paper claiming "method X reaches reward=1" off this bundle

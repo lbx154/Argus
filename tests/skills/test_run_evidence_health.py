@@ -97,8 +97,8 @@ def test_at_or_above_threshold_fails(tmp_path: Path) -> None:
 
 
 def test_v1_style_100pct_fails(tmp_path: Path) -> None:
-    """The 100% call_failed case that was found live in
-    benchmarks/evidence/tb2-argus-v12-redux-… (this gate's motivation)."""
+    """The 100% call_failed case that was found live in a
+    detached fullbench evidence bundle (this gate's motivation)."""
     _seed_bundle(tmp_path, "totally-broken", ctrf_total=12, n_failed=12)
     report = validate_run_evidence_health(tmp_path)
     assert not report.ok
@@ -130,7 +130,7 @@ def test_one_broken_bundle_does_not_taint_clean_bundle(tmp_path: Path) -> None:
 
 
 def test_nested_raw_status_detected(tmp_path: Path) -> None:
-    """The actual TB2 ctrf.json puts raw_status deep inside
+    """The actual benchmark ctrf.json puts raw_status deep inside
     results.tests[*]. Walker must find it at any depth."""
     bundle = tmp_path / "benchmarks" / "evidence" / "deep-nesting"
     ctrf = bundle / "jobs" / "raw" / "t0" / "verifier" / "ctrf.json"

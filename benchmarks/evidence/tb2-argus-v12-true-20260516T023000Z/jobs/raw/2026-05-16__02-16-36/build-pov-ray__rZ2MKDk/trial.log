@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/build-pov-ray:20251031: docker inspect returned 1
-Trial build-pov-ray__rZ2MKDk failed: Docker compose command failed for environment build-pov-ray. Command: docker compose --project-name build-pov-ray__rz2mkdk --project-directory /home/argustest/.cache/harbor/tasks/H9EGgCK3p6caXKKnhsqu6a/build-pov-ray/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 

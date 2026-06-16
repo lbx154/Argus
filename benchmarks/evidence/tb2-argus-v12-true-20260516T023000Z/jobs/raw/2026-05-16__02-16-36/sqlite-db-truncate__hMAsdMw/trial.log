@@ -1,4 +1,0 @@
-Skipping image OS validation for alexgshaw/sqlite-db-truncate:20251031: docker inspect returned 1
-Trial sqlite-db-truncate__hMAsdMw failed: Docker compose command failed for environment sqlite-db-truncate. Command: docker compose --project-name sqlite-db-truncate__hmasdmw --project-directory /home/argustest/.cache/harbor/tasks/2hEZAwigfHAA5cnDNAJvfT/sqlite-db-truncate/environment -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-base.yaml -f /home/argustest/miniconda3/lib/python3.13/site-packages/harbor/environments/docker/docker-compose-prebuilt.yaml up --detach --wait. Return code: 1. Stdout:  main Pulling 
-error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
-. Stderr: None. 
