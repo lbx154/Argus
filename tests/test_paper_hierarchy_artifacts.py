@@ -37,12 +37,19 @@ def test_hierarchy_generator_writes_expected_artifacts(tmp_path: Path) -> None:
     assert payload["artifact_version"] == 1
 
 
-def test_hierarchy_generator_cli_produces_checked_in_artifact() -> None:
+def test_hierarchy_generator_cli_produces_checked_in_artifact(tmp_path: Path) -> None:
     repo = _repo_root()
     script = repo / "paper" / "build_hierarchy_artifacts.py"
-    subprocess.run([sys.executable, str(script)], cwd=repo, check=True, text=True, capture_output=True)
+    # Write to tmp_path, NOT paper/artifacts/ — the latter is git-tracked and the
+    # script stamps an absolute repo_root into the JSON, so running against the
+    # real dir pollutes the working tree with a spurious diff.
+    out_dir = tmp_path / "artifacts"
+    subprocess.run(
+        [sys.executable, str(script), "--output-dir", str(out_dir)],
+        cwd=repo, check=True, text=True, capture_output=True,
+    )
 
-    artifact = repo / "paper" / "artifacts" / "slm_llm_human_hierarchy.tsv"
+    artifact = out_dir / "slm_llm_human_hierarchy.tsv"
     assert artifact.exists()
     content = artifact.read_text(encoding="utf-8")
     assert "SLM->LLM->HUMAN" in content

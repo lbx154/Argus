@@ -1,4 +1,4 @@
-"""Generate final academic-language review artifacts for EMNLP papers."""
+"""Generate final academic-language review artifacts for EMNLP/AAAI papers."""
 from __future__ import annotations
 
 import argparse
@@ -29,6 +29,7 @@ from ._review_contract_constants import (
     review_sha256_json,
     review_sha256_text,
 )
+from .venue_profiles import VenueProfile, resolve_venue_profile
 
 PAPER_MAIN_TEX_PATH = Path("paper/main.tex")
 ACADEMIC_LANGUAGE_REVIEW_JSON_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW.json")
@@ -250,8 +251,6 @@ def generate_academic_language_review(
     """Review paper prose and optionally persist review artifacts."""
 
     root = Path(project_root)
-    from .venue_profiles import resolve_venue_profile
-
     venue = resolve_venue_profile(root)
     threshold = max(float(threshold), MIN_ACADEMIC_LANGUAGE_SCORE)
     iteration = iteration or _next_iteration(root)
@@ -317,6 +316,7 @@ def generate_academic_language_review(
                 threshold=threshold,
                 env=env,
                 timeout=timeout,
+                venue=venue,
             )
         except (ImageToolError, AcademicLanguageReviewError) as exc:
             issues.append(
@@ -742,12 +742,14 @@ def _run_model_review(
     threshold: float,
     env: Mapping[str, str] | None,
     timeout: float,
+    venue: VenueProfile,
 ) -> dict[str, Any]:
     route = _require_route("reviewer", env)
     prompt = _review_prompt(
         source_text_by_path=source_text_by_path,
         deterministic=deterministic,
         threshold=threshold,
+        venue=venue,
     )
     prompt_sha256 = review_sha256_text(prompt)
     endpoint = "/responses"
@@ -797,10 +799,30 @@ def _review_prompt(
     source_text_by_path: Mapping[str, str],
     deterministic: dict[str, Any],
     threshold: float,
+    venue: VenueProfile,
 ) -> str:
     source_context = _review_source_context(source_text_by_path)
+    # Venue-local strings. EMNLP reproduces the exact original tokens so its
+    # prompt (and the persisted prompt_sha256) stays byte-identical; AAAI uses
+    # the resolved persona / page budget / abstract policy.
+    if venue.key == "EMNLP":
+        persona_label = "EMNLP long paper"
+        abstract_standard = (
+            f"Apply this ACL/EMNLP standard: abstracts under {MIN_REVIEW_ABSTRACT_WORDS} words are too thin. "
+        )
+        body_budget_phrase = "eight-page body budget"
+        intro_label = "EMNLP"
+    else:
+        persona_label = f"{venue.reviewer_persona} paper"
+        abstract_standard = (
+            f"{venue.reviewer_persona} sets no official abstract word limit, so treat any abstract "
+            "word target as advisory only and judge the abstract on whether it states problem, gap, "
+            "method, result, and implication rather than on a fixed minimum length. "
+        )
+        body_budget_phrase = f"{venue.body_page_limit}-page body budget"
+        intro_label = venue.reviewer_persona
     return (
-        "You are the final academic-language reviewer for an EMNLP long paper. "
+        f"You are the final academic-language reviewer for an {persona_label}. "
         "Reject papers that read like generic agent output: template LLM openings, "
         "unsupported hype, vague claims, weak contribution framing, experiment dumps "
         "without a What/Why/So-What story, ungrouped related work, repeated "
@@ -840,17 +862,17 @@ def _review_prompt(
         "engineer/reviewer, require the manuscript to redesign the table. Reject "
         "a paper whose abstract reads like a validator checklist, starts with a numeric "
         "result before the problem/gap, or spends its scarce space on defensive caveats "
-        "instead of problem, method, result, and implication. Apply this ACL/EMNLP "
-        f"standard: abstracts under {MIN_REVIEW_ABSTRACT_WORDS} words are too thin. "
+        "instead of problem, method, result, and implication. "
+        f"{abstract_standard}"
         "Introduction word count is only a reviewer signal, not a pass/fail rule: "
         "reject short or long introductions when they are missing the problem, "
         "literature gap, method insight, quantified evidence preview, contribution "
         "roadmap, or scope; do not reject solely because a word counter is below a "
-        "fixed target when the rendered paper uses the eight-page body budget well. "
+        f"fixed target when the rendered paper uses the {body_budget_phrase} well. "
         "Reject an Introduction that has fewer than three separate cited "
         "prior-work/benchmark hooks before Related Work; packing many keys into "
         "one or two citation macros does not create a normal literature-grounded "
-        "opening. A normal EMNLP introduction should use citations to establish "
+        f"opening. A normal {intro_label} introduction should use citations to establish "
         "the gap, then explain the method insight, quantified evidence preview, "
         "and contribution roadmap in natural prose. Also reject introductions "
         "fragmented into many 50--80 word validator-shaped paragraphs or repeated "

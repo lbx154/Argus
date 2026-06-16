@@ -26,8 +26,11 @@ Write a paper draft from local evidence. This adapts ARIS paper-writing/paper-pl
 ## How to solve
 1. Set the venue contract before writing:
    - Target the `AAAI-2026 main technical track` two-column paper by default unless the operator explicitly asks for a different track.
-   - Use the official AAAI Author Kit, not a generic `article` class on its own. Obtain `aaai2026.sty` and `aaai2026.bst` from the official AAAI-2026 author instructions / Author Kit. **Do NOT clone `acl-org/acl-style-files`** and do not reuse a different conference's style.
-   - Record the exact Author Kit source URL and download date in `paper/TEMPLATE_SOURCE.md`.
+   - Use the official AAAI Author Kit, not a generic `article` class on its own. Obtain `aaai2026.sty` and `aaai2026.bst` in this order of preference, then record the exact source URL, retrieval date, and the sha256 of `aaai2026.sty` in `paper/TEMPLATE_SOURCE.md`:
+     1. **Operator-provided / local kit (check first):** if a house-rule special prompt or the project already names a local AAAI kit path, copy `aaai2026.sty`/`aaai2026.bst` from there.
+     2. **Official (authoritative for submission):** download the AAAI-26 Author Kit / LaTeX style from the AAAI-26 submission-instructions page (`https://aaai.org/conference/aaai/aaai-26/` → Author Kit) or the official AAAI 2026 Overleaf template; copy `aaai2026.sty`/`aaai2026.bst` into `paper/`.
+     3. **Local-compile fallback (only if the official kit cannot be fetched in this environment):** `git clone --depth 1 https://github.com/lizhemin15/AAAI-2026-Latex-Unified paper/aaai-kit` and copy its `aaai2026.sty`/`aaai2026.bst`. This is a community MIRROR — it lets you compile and iterate locally, but `aaai2026.sty` MUST NOT be modified (a modified style sheet causes desk rejection), so before declaring submission-ready you MUST diff the fallback `.sty` against the official kit and switch to the official file. Record `source: mirror (unverified)` in `paper/TEMPLATE_SOURCE.md` so the reviewer/preflight can flag it.
+     **Do NOT clone `acl-org/acl-style-files`** and do not reuse a different conference's style.
    - Copy the preamble from the kit. The `/TemplateVersion` string must be copied verbatim from the kit, not hardcoded blindly:
      ```latex
      \documentclass[letterpaper]{article}
