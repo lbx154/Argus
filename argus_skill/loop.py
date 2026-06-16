@@ -476,6 +476,9 @@ class SkillLoop:
         _banner = vertical_role_banner(_vmod, "engineer")
         if _banner:
             sections.append(_banner)
+        from .skills.ground_truth import ground_truth_mandate
+
+        sections.append(ground_truth_mandate("engineer").rstrip())
         if skill_text:
             sections.append("## Skill playbook (read first)\n" + skill_text)
         sections.append("## Task\n" + task)

@@ -506,8 +506,11 @@ class Reviewer:
             # final-submission certification — judge only the vertical's metric.
             rollback_block = ""
             final_submission_block = ""
+        from ..skills.ground_truth import ground_truth_mandate
+
         return (
-            optimize_banner
+            ground_truth_mandate("reviewer")
+            + optimize_banner
             + "You are the reviewer sub-agent for an argus-skill autoloop run.\n"
             "Decide whether the objective is fully complete.\n\n"
             "**You have shell access via your tools.** When the main agent's\n"
