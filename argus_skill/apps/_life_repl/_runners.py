@@ -648,19 +648,38 @@ class _CodexSkillLoopRunner:
         except (TypeError, ValueError):
             pass
         config = self._SkillLoopConfig(**config_kwargs)
+        workdir = (
+            Path(args.workdir).expanduser() if args.workdir else Path.cwd()
+        )
+        # Opt-in LONG-TAILED SIMULATED HUMAN OPERATOR (default OFF). When
+        # ARGUS_SKILL_SIMULATED_OPERATOR=1 the env-gated helper returns a
+        # provider that injects one grounded, long-tailed operator message per
+        # engineer round (rendered by the loop as "## Operator guidance"). With
+        # the flag OFF it returns None and the loop is built exactly as before,
+        # so existing behaviour/tests are unchanged. Never raises into a mission.
+        extra_guidance_provider = None
+        try:
+            from ...life.operator_sim import operator_guidance_provider_from_env
+
+            extra_guidance_provider = operator_guidance_provider_from_env(
+                project_root=workdir,
+                objective=objective,
+                runner=self._backend,
+                model=args.engineer_model,
+            )
+        except Exception:  # noqa: BLE001 — wiring must never break a mission
+            extra_guidance_provider = None
         loop = self._SkillLoop(
             skills_dir=Path(args.skills_dir),
             engineer_runner=self._backend,
             reviewer_runner=self._backend,
             config=config,
             on_event=sink.handle_event,
+            extra_guidance_provider=extra_guidance_provider,
         )
         full_task = objective
         if prelude_context:
             full_task = f"{prelude_context}\n---\n## Live objective\n{objective}"
-        workdir = (
-            Path(args.workdir).expanduser() if args.workdir else Path.cwd()
-        )
         # Use the seed for the first execute() of this runner; subsequent
         # execute() calls (LifeSupervisor may run several missions in one
         # supervisor.run()) chain off the previous mission's last thread_id.
