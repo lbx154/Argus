@@ -661,11 +661,29 @@ class _CodexSkillLoopRunner:
         try:
             from ...life.operator_sim import operator_guidance_provider_from_env
 
+            # GROUNDING (Bug 1): the run's real telemetry does NOT live in the
+            # git work-tree. The daemon/REPL fan events out to
+            # ``<life_dir>/events.jsonl`` in the per-project state dir, right
+            # next to the per-round reviewer ``checkpoint.json``. So derive the
+            # trace path from the checkpoint's parent dir; only fall back to a
+            # work-tree-local events.jsonl when checkpoint persistence is off.
+            operator_checkpoint_path = _checkpoint_path_for(args, workdir)
+            if operator_checkpoint_path is not None:
+                operator_trace_path = operator_checkpoint_path.parent / "events.jsonl"
+            else:
+                operator_trace_path = workdir / "events.jsonl"
+
             extra_guidance_provider = operator_guidance_provider_from_env(
                 project_root=workdir,
                 objective=objective,
                 runner=self._backend,
                 model=args.engineer_model,
+                # GROUNDING (Bug 1): see the run's real progress.
+                trace_path=operator_trace_path,
+                checkpoint_path=operator_checkpoint_path,
+                # OBSERVABILITY (Bug 2): emit a marker event per intervention
+                # into the same sink that feeds events.jsonl.
+                on_event=sink.handle_event,
             )
         except Exception:  # noqa: BLE001 — wiring must never break a mission
             extra_guidance_provider = None
