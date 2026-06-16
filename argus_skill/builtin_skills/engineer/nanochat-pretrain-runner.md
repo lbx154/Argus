@@ -16,6 +16,36 @@ Execute the NANOCHAT TASK as an L1 engineer: minimize the **validation bits-per-
 ## The task in one paragraph
 BPB = average bits to encode each byte of held-out text; it is tokenizer-independent, so it is the clean quality signal for a from-scratch LM. The shared harness `lib.py` (tokenizer, dataloader, `evaluate_bpb`, `TIME_BUDGET=300`) is **frozen**. You write `solutions/<name>.py` which imports `lib`, trains for up to 300s on one A100, and prints `val_bpb:` on the held-out shard. You may change **only the training recipe inside your solution** (architecture, optimizer, LR schedule, data order, batch/seq sizing, init, etc.). You may **NOT** touch `lib.py`, the eval, the val set (`shard_06542`), or the budget. The reward that counts is what the **verifier** measures by re-running your solution, never your self-reported number.
 
+## Setup stage — establish ground truth FIRST (before any tuning)
+Before you touch the recipe to chase the score, you MUST diagnose what
+ACTUALLY limits val bpb under the fixed 300s/A100 budget and write that
+diagnosis into `research/GROUND_TRUTH.md`. This is the **first required
+deliverable** of the mission — a gate, not paperwork to backfill. Do NOT
+start editing `solution.py` to move the number until that measured
+diagnosis exists.
+1. **Run a baseline / profiling pass.** Run the re-measured baseline (and/or
+   one smoke run of the current recipe) to completion under the real
+   protocol — get behavior from a real run, not from a guess about how it
+   ought to behave.
+2. **FIND and READ the raw telemetry yourself.** The run EMITS telemetry —
+   the `val_bpb:`-vs-step trajectory, GPU utilization, step time, steps
+   completed, tokens seen, peak VRAM. Go get it wherever it lands (the seed
+   logs, `progress.jsonl`, `RUN_REPORT.md`, `nvidia-smi` during the run).
+   Read the ACTUAL numbers — do not assume them. (Where the box lives and
+   how to reach it are already pinned in the house rules above; the point
+   here is simply: the run emits telemetry, so go read it.)
+3. **Diagnose the binding constraint with measured numbers.** From that
+   telemetry, name WHAT ACTUALLY LIMITS val bpb under the budget: is the run
+   compute/throughput-bound (low util%, few steps for the wall-clock),
+   capacity-bound (loss flat with budget to spare), undertrained (loss still
+   descending at 300s — more steps would help), or data-bound? State the
+   constraint AND the numbers that prove it; an assumed bottleneck is not a
+   diagnosis.
+4. **Write `research/GROUND_TRUTH.md`.** Record the goal, the real measured
+   baseline number, the measured binding constraint, and the leverage it
+   implies — each claim backed by the telemetry you read. Only once that
+   file exists do you move on to optimizing the recipe.
+
 ## When to use
 - The objective is the NANOCHAT pretraining task (minimize val bpb under the 300s/A100 protocol).
 - You have a candidate `solution.py` (or a recipe idea) and need a clean, reproducible mean-val-bpb measurement.
