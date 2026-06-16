@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import os
 import random
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -270,6 +271,13 @@ class RunState:
     journal_tail: str = ""
     recent_scores: str = ""
     trace_tail: str = ""
+    # Curated working-memory grounding (from the per-round reviewer checkpoint).
+    # These let the operator refer to what the team has actually TRIED, what it
+    # says it will do NEXT, and the blocker it named — so a nudge can call out a
+    # diagnosis/action mismatch instead of speaking in generic platitudes.
+    recent_attempts: str = ""
+    next_step: str = ""
+    open_blocker: str = ""
 
     def summarize(self, *, max_chars: int = 1600) -> str:
         """Render the state as a short plaintext block for the LLM prompt."""
@@ -289,6 +297,15 @@ class RunState:
             lines.append("- research/ directory present: yes")
         if self.recent_scores.strip():
             lines.append("- Recent results/scores:\n" + _indent(self.recent_scores))
+        if self.recent_attempts.strip():
+            lines.append(
+                "- Recently tried & FAILED (do not just re-suggest these):\n"
+                + _indent(self.recent_attempts)
+            )
+        if self.open_blocker.strip():
+            lines.append("- Open blocker (their words): " + self.open_blocker.strip())
+        if self.next_step.strip():
+            lines.append("- Their stated next step: " + self.next_step.strip())
         if self.journal_tail.strip():
             lines.append("- Recent journal/notes:\n" + _indent(self.journal_tail))
         if self.trace_tail.strip():
@@ -319,13 +336,79 @@ def _read_tail(path: Path, *, max_lines: int = 12, max_chars: int = 1200) -> str
     return tail.strip()
 
 
-def gather_run_state(project_root: Path | str, objective: str = "") -> RunState:
-    """Read a best-effort grounding snapshot from ``project_root``.
+#: A GENERAL "score-like" signal: an UPPER_SNAKE metric token (e.g. a validation
+#: metric the run prints to its trace) followed by a number. Nothing here knows
+#: any specific metric name — it captures whatever uppercase metric the run
+#: itself emits, so the operator can refer to the real recent numbers when no
+#: RESULTS.md exists. Requires at least one underscore so generic words / JSON
+#: keys don't match.
+_METRIC_RE = re.compile(r"([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\s*[:=]\s*([-+]?\d+(?:\.\d+)?)")
+
+
+def _scores_from_trace(trace_text: str, *, max_items: int = 5) -> str:
+    """Mine the last few ``METRIC: value`` pairs out of a raw trace blob.
+
+    Task-agnostic: it matches any UPPER_SNAKE metric token, so a run that
+    prints e.g. ``MEAN_VAL_BPB=0.84`` to its event log surfaces here without
+    this module ever naming that metric. Returns ``""`` on no match. Defensive.
+    """
+    if not trace_text:
+        return ""
+    hits: list[str] = []
+    try:
+        for match in _METRIC_RE.finditer(trace_text):
+            hits.append(f"{match.group(1)}: {match.group(2)}")
+    except Exception:  # noqa: BLE001 — mining is best-effort
+        return ""
+    if not hits:
+        return ""
+    return "\n".join(hits[-max_items:])
+
+
+def _load_checkpoint_state(checkpoint_path: Path | str | None) -> Any | None:
+    """Load the curated working-memory checkpoint, fail-soft to ``None``.
+
+    Returns ``None`` when the path is absent, the module is unavailable, the
+    file is missing/garbled, or the checkpoint carries no curated state. Never
+    raises — grounding must never break the engineer loop.
+    """
+    if checkpoint_path is None:
+        return None
+    try:
+        from ..engineer.checkpoint import load_checkpoint
+    except Exception:  # noqa: BLE001 — optional dependency
+        return None
+    try:
+        cp = load_checkpoint(Path(checkpoint_path))
+    except Exception:  # noqa: BLE001 — load_checkpoint is fail-soft, belt-and-braces
+        return None
+    if cp is None or cp.is_empty():
+        return None
+    return cp
+
+
+def gather_run_state(
+    project_root: Path | str,
+    objective: str = "",
+    *,
+    trace_path: Path | str | None = None,
+    checkpoint_path: Path | str | None = None,
+) -> RunState:
+    """Read a best-effort grounding snapshot from the live run.
 
     Defensive: every read is guarded, so a missing/garbled file degrades to an
     empty field rather than raising. Nothing here is task-specific — it reads
     the framework's general state files (pipeline stage, ground-truth gate,
     a couple of conventional result/trace artifacts).
+
+    The run's real telemetry does NOT live in the git work-tree: the daemon
+    fans events out to ``<life_dir>/events.jsonl`` (next to the per-round
+    reviewer checkpoint), so ``trace_path`` / ``checkpoint_path`` let the caller
+    point the operator at the ACTUAL progress. When given, the trace tail is
+    read from ``trace_path`` (falling back to ``project_root/events.jsonl``),
+    recent scores are mined from the trace when no ``RESULTS.md`` exists, and
+    the checkpoint's ``tried_and_failed`` / ``next_step`` / ``open_blocker`` are
+    surfaced so a nudge can reference what is really happening.
     """
     root = Path(project_root)
     state = RunState(objective=(objective or "").strip())
@@ -356,8 +439,47 @@ def gather_run_state(project_root: Path | str, objective: str = "") -> RunState:
             state.journal_tail = notes
             break
 
-    # Recent trace (event log), if it happens to live in the workdir.
-    state.trace_tail = _read_tail(root / "events.jsonl", max_lines=8)
+    # Recent trace (event log). Prefer the real daemon life-dir trace; fall
+    # back to a workdir-local events.jsonl if that's all the caller has.
+    trace_tail = ""
+    if trace_path is not None:
+        trace_tail = _read_tail(Path(trace_path), max_lines=8)
+    if not trace_tail:
+        trace_tail = _read_tail(root / "events.jsonl", max_lines=8)
+    state.trace_tail = trace_tail
+
+    # No RESULTS.md? Mine recent score-like numbers straight out of the trace
+    # so the operator can still refer to real movement. Reads a wider window.
+    if not state.recent_scores.strip():
+        trace_blob = ""
+        if trace_path is not None:
+            trace_blob = _read_tail(Path(trace_path), max_lines=400, max_chars=8000)
+        if not trace_blob:
+            trace_blob = _read_tail(
+                root / "events.jsonl", max_lines=400, max_chars=8000
+            )
+        mined = _scores_from_trace(trace_blob)
+        if mined:
+            state.recent_scores = mined
+
+    # Curated working-memory checkpoint (what was tried/failed, the named
+    # blocker, the stated next step) — the richest grounding the run has.
+    cp = _load_checkpoint_state(checkpoint_path)
+    if cp is not None:
+        tried = getattr(cp, "tried_and_failed", None)
+        if tried:
+            state.recent_attempts = "\n".join(str(t) for t in tried if str(t).strip())
+        next_step = getattr(cp, "next_step", "") or ""
+        if next_step.strip():
+            state.next_step = next_step.strip()
+        blocker = getattr(cp, "open_blocker", "") or ""
+        if blocker.strip():
+            state.open_blocker = blocker.strip()
+        # Borrow the checkpoint goal as objective only if we weren't handed one.
+        goal = getattr(cp, "goal", "") or ""
+        if not state.objective and goal.strip():
+            state.objective = goal.strip()
+
     return state
 
 
@@ -444,8 +566,21 @@ class SimulatedOperator:
     # -- one message per cycle --------------------------------------------
     def next_message(self, state: RunState) -> str:
         """Sample a style and return one grounded operator message."""
+        message, _style = self.next_message_with_style(state)
+        return message
+
+    def next_message_with_style(
+        self, state: RunState
+    ) -> tuple[str, OperatorStyle]:
+        """Sample a style and return ``(message, style)``.
+
+        Exposes the chosen :class:`OperatorStyle` so the wiring layer can log
+        the style/band alongside the emitted message (observability). The
+        message itself is identical to :meth:`next_message`.
+        """
         style = self.sample_style()
-        return self.build_message(state, style, self._runner)
+        message = self.build_message(state, style, self._runner)
+        return message, style
 
     def build_message(
         self,
@@ -505,9 +640,13 @@ class SimulatedOperator:
             "the engineer, IN THIS STYLE:\n\n"
             f"  {style.phrasing}\n\n"
             "Ground it in what is ACTUALLY happening right now (state below): "
-            "refer to the real objective / stage / recent results. Do NOT "
-            "invent numbers or facts you cannot see in the state. Speak like a "
-            "terse, direct human operator.\n\n"
+            "refer to the real objective / stage / recent results. If they have "
+            "TRIED & FAILED things, acknowledge those by name and push for "
+            "something different rather than re-suggesting them. If they wrote "
+            "down a diagnosis (e.g. an established GROUND_TRUTH) but their stated "
+            "next step ignores it, call out that mismatch and tell them to act "
+            "on the diagnosis. Do NOT invent numbers or facts you cannot see in "
+            "the state. Speak like a terse, direct human operator.\n\n"
             "## Current run state\n"
             f"{state.summarize()}\n\n"
             "Reply with ONLY the message text."
@@ -519,6 +658,13 @@ class SimulatedOperator:
 # ---------------------------------------------------------------------------
 
 
+#: Event type emitted (when an ``on_event`` sink is wired) each time the
+#: operator returns a non-empty message. Makes the otherwise-invisible
+#: intervention observable in ``events.jsonl`` so a run can be audited for
+#: whether/when/how the operator fired (incl. the rare long-tail redirects).
+OPERATOR_EVENT_TYPE = "life.operator_sim"
+
+
 def make_operator_guidance_provider(
     *,
     project_root: Path | str,
@@ -528,13 +674,22 @@ def make_operator_guidance_provider(
     rng: random.Random | None = None,
     model: str | None = None,
     reasoning_effort: str = "low",
+    trace_path: Path | str | None = None,
+    checkpoint_path: Path | str | None = None,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
 ) -> Callable[[], list[str]]:
     """Return a zero-arg provider for ``SkillLoop(extra_guidance_provider=...)``.
 
     The daemon calls the returned callable at the start of each engineer round;
-    it gathers a fresh grounding snapshot, samples a long-tailed style, and
+    it gathers a fresh grounding snapshot (from the live run's real ``trace_path``
+    / ``checkpoint_path`` when supplied), samples a long-tailed style, and
     returns ``[message]`` (the loop appends it under "## Operator guidance").
     Returns ``[]`` (silent) on any failure — it must never break the round.
+
+    When ``on_event`` is supplied, each non-empty message is also surfaced as a
+    ``life.operator_sim`` marker event (``style`` / ``band`` / ``message`` /
+    ``agent_layer='operator'``) so the intervention is observable. The emit is
+    guarded and never raises into the round loop.
     """
     operator = SimulatedOperator(
         runner=runner,
@@ -547,12 +702,32 @@ def make_operator_guidance_provider(
 
     def _provider() -> list[str]:
         try:
-            state = gather_run_state(project_root, objective)
-            message = operator.next_message(state)
+            state = gather_run_state(
+                project_root,
+                objective,
+                trace_path=trace_path,
+                checkpoint_path=checkpoint_path,
+            )
+            message, style = operator.next_message_with_style(state)
         except Exception:  # noqa: BLE001 — never break the engineer loop
             return []
         message = (message or "").strip()
-        return [message] if message else []
+        if not message:
+            return []
+        if on_event is not None:
+            try:
+                on_event(
+                    {
+                        "type": OPERATOR_EVENT_TYPE,
+                        "style": style.name,
+                        "band": style.band,
+                        "message": message,
+                        "agent_layer": "operator",
+                    }
+                )
+            except Exception:  # noqa: BLE001 — observability must never break the loop
+                pass
+        return [message]
 
     return _provider
 
@@ -578,12 +753,17 @@ def operator_guidance_provider_from_env(
     runner: Any | None = None,
     model: str | None = None,
     reasoning_effort: str = "low",
+    trace_path: Path | str | None = None,
+    checkpoint_path: Path | str | None = None,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
 ) -> Callable[[], list[str]] | None:
     """Return a provider only when the opt-in env flag is set, else ``None``.
 
     This is the single gate the daemon calls: when the flag is OFF it returns
     ``None`` and ``SkillLoop`` is constructed exactly as before (no behaviour
-    change). When ON it wires a seeded :class:`SimulatedOperator`. Never raises.
+    change). When ON it wires a seeded :class:`SimulatedOperator`, threading the
+    live run's ``trace_path`` / ``checkpoint_path`` (grounding) and an
+    ``on_event`` sink (observability) through to each call. Never raises.
     """
     if not simulated_operator_enabled():
         return None
@@ -600,6 +780,9 @@ def operator_guidance_provider_from_env(
             seed=seed,
             model=model,
             reasoning_effort=reasoning_effort,
+            trace_path=trace_path,
+            checkpoint_path=checkpoint_path,
+            on_event=on_event,
         )
     except Exception:  # noqa: BLE001 — wiring must never break a mission
         return None
@@ -611,6 +794,7 @@ __all__ = [
     "BAND_TAIL",
     "OperatorStyle",
     "STYLE_TABLE",
+    "OPERATOR_EVENT_TYPE",
     "sample_style",
     "band_weights",
     "RunState",

@@ -12,6 +12,7 @@ Covers:
 """
 from __future__ import annotations
 
+import json
 import random
 from pathlib import Path
 
@@ -242,3 +243,169 @@ def test_provider_never_raises_on_bad_state(monkeypatch, tmp_path: Path) -> None
         project_root=tmp_path, objective="x", runner=None, seed=1
     )
     assert provider() == []
+
+
+# ---------------------------------------------------------------------------
+# Bug 1 — GROUNDING: gather_run_state sees the run's real progress
+# ---------------------------------------------------------------------------
+
+
+def test_gather_run_state_surfaces_scores_and_attempts(tmp_path: Path) -> None:
+    # The run's telemetry lives in a SEPARATE state dir (the daemon life-dir),
+    # NOT the work-tree: a trace events.jsonl + the reviewer checkpoint.json.
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    trace = state_dir / "events.jsonl"
+    # No RESULTS.md anywhere -> scores must be mined from the trace. The metric
+    # token is a GENERAL UPPER_SNAKE signal (no baked-in benchmark name).
+    trace.write_text(
+        "\n".join(
+            [
+                '{"type":"round.main.completed","text":"MEAN_VAL_LOSS: 0.951"}',
+                '{"type":"round.main.completed","text":"MEAN_VAL_LOSS: 0.872"}',
+                '{"type":"round.main.completed","text":"MEAN_VAL_LOSS=0.812"}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    checkpoint = state_dir / "checkpoint.json"
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "goal": "improve the artifact within budget",
+                "tried_and_failed": [
+                    "bumped the batch size",
+                    "raised the learning rate",
+                ],
+                "open_blocker": "throughput is capped by the input pipeline",
+                "next_step": "profile the inner loop before tuning further",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    st = gather_run_state(
+        tmp_path,
+        objective="obj",
+        trace_path=trace,
+        checkpoint_path=checkpoint,
+    )
+
+    # Scores mined from the trace (last few values).
+    assert "0.812" in st.recent_scores
+    assert "MEAN_VAL_LOSS" in st.recent_scores
+    # Checkpoint attempts / next step / blocker surfaced.
+    assert "bumped the batch size" in st.recent_attempts
+    assert "raised the learning rate" in st.recent_attempts
+    assert st.next_step == "profile the inner loop before tuning further"
+    assert st.open_blocker == "throughput is capped by the input pipeline"
+    # Trace tail captured from the real (non-workdir) path.
+    assert st.trace_tail.strip()
+    # The grounding flows into the prompt-facing summary, and stays general.
+    summary = st.summarize()
+    assert "tried" in summary.lower()
+    assert "bumped the batch size" in summary
+    _assert_general(st.recent_attempts)
+
+
+def test_gather_run_state_results_md_wins_over_trace(tmp_path: Path) -> None:
+    # A conventional RESULTS.md takes precedence; trace mining is the fallback.
+    (tmp_path / "RESULTS.md").write_text("final score table", encoding="utf-8")
+    trace = tmp_path / "alt_events.jsonl"
+    trace.write_text('{"text":"OTHER_METRIC: 1.5"}', encoding="utf-8")
+    st = gather_run_state(tmp_path, trace_path=trace)
+    assert "final score table" in st.recent_scores
+    assert "OTHER_METRIC" not in st.recent_scores
+
+
+def test_gather_run_state_falls_back_to_workdir_trace(tmp_path: Path) -> None:
+    # When no explicit trace_path is given, a workdir-local events.jsonl is used.
+    (tmp_path / "events.jsonl").write_text(
+        '{"text":"WORKDIR_METRIC: 0.5"}', encoding="utf-8"
+    )
+    st = gather_run_state(tmp_path)
+    assert st.trace_tail.strip()
+    assert "WORKDIR_METRIC" in st.recent_scores
+
+
+def test_gather_run_state_never_raises_on_garbage(tmp_path: Path) -> None:
+    # Garbled trace / missing checkpoint degrade to empty fields, never raise.
+    bad_trace = tmp_path / "events.jsonl"
+    bad_trace.write_text("\x00 not json at all \xff", encoding="latin-1")
+    st = gather_run_state(
+        tmp_path,
+        trace_path=bad_trace,
+        checkpoint_path=tmp_path / "nope" / "checkpoint.json",
+    )
+    assert isinstance(st.recent_attempts, str)
+    assert st.next_step == "" and st.open_blocker == ""
+
+
+# ---------------------------------------------------------------------------
+# Bug 2 — OBSERVABILITY: provider emits a marker event per intervention
+# ---------------------------------------------------------------------------
+
+
+def test_provider_emits_marker_event(tmp_path: Path) -> None:
+    events: list[dict] = []
+    provider = make_operator_guidance_provider(
+        project_root=tmp_path,
+        objective="optimize the artifact within budget",
+        runner=None,
+        seed=5,
+        on_event=events.append,
+    )
+    out = provider()
+    assert isinstance(out, list) and len(out) == 1 and out[0].strip()
+    # Exactly one marker event, fully shaped and observable.
+    assert len(events) == 1
+    ev = events[0]
+    assert ev["type"] == "life.operator_sim"
+    assert ev["type"] == operator_sim.OPERATOR_EVENT_TYPE
+    assert ev["agent_layer"] == "operator"
+    assert ev["band"] in {BAND_HEAD, BAND_MID, BAND_TAIL}
+    assert isinstance(ev["style"], str) and ev["style"]
+    assert ev["message"] == out[0]
+    _assert_general(ev["message"])
+
+
+def test_provider_no_event_when_no_sink(tmp_path: Path) -> None:
+    # Without an on_event sink the provider still returns a message and is silent.
+    provider = make_operator_guidance_provider(
+        project_root=tmp_path, objective="x", runner=None, seed=2
+    )
+    assert len(provider()) == 1
+
+
+def test_provider_swallows_on_event_errors(tmp_path: Path) -> None:
+    def _boom(_ev: dict) -> None:
+        raise RuntimeError("sink exploded")
+
+    provider = make_operator_guidance_provider(
+        project_root=tmp_path,
+        objective="x",
+        runner=None,
+        seed=1,
+        on_event=_boom,
+    )
+    # The message is still returned even though the observability sink raised.
+    out = provider()
+    assert len(out) == 1 and out[0].strip()
+
+
+def test_provider_marker_band_matches_style_table(tmp_path: Path) -> None:
+    # The emitted style/band pair is consistent with the canonical STYLE_TABLE.
+    by_name = {s.name: s.band for s in STYLE_TABLE}
+    for seed in range(20):
+        events: list[dict] = []
+        provider = make_operator_guidance_provider(
+            project_root=tmp_path,
+            objective="obj",
+            runner=None,
+            seed=seed,
+            on_event=events.append,
+        )
+        provider()
+        assert len(events) == 1
+        ev = events[0]
+        assert by_name.get(ev["style"]) == ev["band"]
