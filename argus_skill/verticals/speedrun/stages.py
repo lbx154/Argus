@@ -56,6 +56,8 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
          "test -f reference/results/val_bpb.csv || test -f reference/scores.csv || test -f reference/results.csv"),
         ("Setup notes present",
          "test -f mission/SETUP.md"),
+        ("GROUND_TRUTH.md exists with content",
+         "test -s research/GROUND_TRUTH.md"),
     ],
     "optimize": [
         _PIPELINE_CHECK,
@@ -79,16 +81,33 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
 REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
     "setup": (
         "engineer/speedrun-setup.md",
-        "Evaluate the setup:\n"
+        "Evaluate the setup AND the ground-truth diagnosis (this stage is a GATE):\n"
         "1. Target script identified and present under baseline/.\n"
         "2. Harness identified (single import contract, the agent does NOT\n"
         "   rewrite the harness).\n"
         "3. Reference baseline scores present and parsed into a known schema.\n"
         "4. Hardware + wall budget pinned explicitly in mission/SETUP.md.\n"
         "5. NO paper artifacts demanded; this is a code-optimization mission.\n"
-        "Pass: the agent can start producing attempts/ scripts without\n"
-        "      further setup work.",
-        ["MISSION.md", "mission/SETUP.md", "baseline/", "reference/"],
+        "6. research/GROUND_TRUTH.md exists and contains a BINDING-CONSTRAINT\n"
+        "   DIAGNOSIS backed by MEASURED facts. The engineer must have run a\n"
+        "   real baseline / profiling pass and READ its ACTUAL telemetry\n"
+        "   (utilization, steps completed, tokens seen, the loss/metric\n"
+        "   trajectory — whatever the run actually emits, wherever it lives)\n"
+        "   and NAMED what actually limits the metric under the fixed budget\n"
+        "   (e.g. compute/throughput, model-capacity, undertraining/steps,\n"
+        "   or data), WITH the measured numbers that prove it. A guessed or\n"
+        "   assumed bottleneck, or a diagnosis with no measured numbers behind\n"
+        "   it, FAILS this check.\n"
+        "RE-VERIFY the diagnosis yourself: open the same telemetry and confirm\n"
+        "the binding constraint the engineer named is what the numbers show —\n"
+        "do NOT trust the engineer's summary. Do NOT let the mission advance\n"
+        "from 'setup' to 'optimize' while the binding-constraint diagnosis is\n"
+        "missing, assumed rather than measured, or unverifiable.\n"
+        "Pass: research/GROUND_TRUTH.md names the MEASURED binding constraint\n"
+        "      (re-verified) and the agent can start producing attempts/\n"
+        "      scripts without further setup work.",
+        ["MISSION.md", "mission/SETUP.md", "baseline/", "reference/",
+         "research/GROUND_TRUTH.md"],
     ),
     "optimize": (
         "engineer/nanochat-pretrain-runner.md",
