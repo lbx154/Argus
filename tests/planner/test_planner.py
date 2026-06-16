@@ -304,3 +304,40 @@ def test_waiting_external_capability_documented_in_preamble() -> None:
     assert "external capability blocker" in _PLANNER_SYSTEM_PREAMBLE
     assert "written escalation/action artifact" in _PLANNER_SYSTEM_PREAMBLE
     assert "operator action" in _PLANNER_SYSTEM_PREAMBLE
+
+
+def test_stage_ordering_rule_in_preamble() -> None:
+    """The preamble must carry a GENERAL stage-ordering rule (all verticals):
+    finish the current stage before any downstream work; no skipping."""
+    from argus_skill.planner.planner import _PLANNER_SYSTEM_PREAMBLE
+
+    text = _PLANNER_SYSTEM_PREAMBLE
+    # Must advance stages in order and complete the current stage first.
+    assert "STRICTLY IN ORDER" in text
+    assert "COMPLETES THE CURRENT STAGE" in text
+    # Skipping / working ahead of the current stage is forbidden.
+    assert "FORBIDDEN" in text
+    # Downstream optimization is explicitly named as blocked.
+    assert "optimization" in text
+    # Phrased generally — not nanochat / setup / GROUND_TRUTH specific.
+    lower = text.lower()
+    assert "nanochat" not in lower
+    assert "ground_truth" not in lower
+
+
+def test_stage_gate_block_surfaces_current_stage(monkeypatch, tmp_path) -> None:
+    """The built prompt must surface a concrete stage gate that names the
+    current stage, its checklist, and the in-order ordering rule — for any
+    stage, including non-paper stages like ``setup``/``optimize``."""
+    for stage in ("setup", "optimize", "research", "run"):
+        prompt = _prompt_for_stage(monkeypatch, tmp_path, stage)
+        assert "## Stage gate" in prompt, stage
+        # Names the actual current stage.
+        assert f"`current_stage` (from research/PIPELINE_STATE.json) is `{stage}`" in prompt, stage
+        # The current-stage checklist is surfaced right above the gate.
+        assert f"<<CHECKLIST:{stage}>>" in prompt, stage
+        # The hard ordering rule is present and references the stage.
+        assert "STRICTLY IN ORDER" in prompt, stage
+        assert "COMPLETES THE CURRENT STAGE" in prompt, stage
+        assert "FORBIDDEN" in prompt, stage
+        assert "Downstream stages" in prompt, stage

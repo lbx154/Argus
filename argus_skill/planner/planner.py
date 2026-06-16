@@ -128,6 +128,25 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "  ]\n"
     "}\n\n"
     "Rules:\n"
+    "0) STAGE ORDERING — HIGHEST-PRIORITY RULE, overrides every rule below and\n"
+    "   the operator objective's optimization pull. The project advances\n"
+    "   through its pipeline stages STRICTLY IN ORDER (see the '## Stage gate'\n"
+    "   block and the '## Stage checklist (<current_stage>)' block above for\n"
+    "   the current stage and exactly what it requires). While the CURRENT\n"
+    "   stage's checklist is not yet fully satisfied, the ONLY mission you may\n"
+    "   queue is one whose body COMPLETES THE CURRENT STAGE — i.e. produces the\n"
+    "   artifacts that stage's checklist names — so the reviewer can mark it\n"
+    "   done and advance `current_stage`. You must NOT queue any downstream\n"
+    "   work — including metric/recipe/throughput optimization, measurement,\n"
+    "   analysis, drafting, review, or submission — until the reviewer has\n"
+    "   marked the current stage done and advanced `current_stage`. Skipping\n"
+    "   the current stage, or working ahead of it because the objective says to\n"
+    "   drive a metric down, is FORBIDDEN — the current stage's gate exists\n"
+    "   precisely to be satisfied FIRST. This is general to every vertical: the\n"
+    "   current stage and its checklist come from the active pipeline, whatever\n"
+    "   that stage happens to be. (Sole carve-out: the parallel paper-drafting\n"
+    "   track in rule 7, when a long run is already progressing in the\n"
+    "   background — prose-only drafting that does NOT advance the stage.)\n"
     "1) Your default job is continuous high-value discovery: keep looking\n"
     "   for useful work, not busywork. `project_done=true` is allowed ONLY\n"
     "   when:\n"
@@ -480,6 +499,7 @@ class Planner:
         from ..skills.vertical_select import resolve_vertical
         from ..verticals._base import (
             load_vertical,
+            vertical_checklist_stage_order,
             vertical_completion_gate,
             vertical_role_banner,
         )
@@ -504,6 +524,43 @@ class Planner:
         _vmod = load_vertical(resolve_vertical(_proot))
         _full_emnlp = vertical_completion_gate(_vmod) == "full_emnlp"
         optimize_banner = vertical_role_banner(_vmod, "planner")
+
+        # General stage gate (ALL verticals). The planner receives the current
+        # stage and its checklist; this block makes the ordering rule concrete
+        # and unconditional so the objective-driven optimization pull cannot
+        # make it queue downstream work while the CURRENT stage's gate is still
+        # open. Phrased only in terms of "the current stage and its checklist";
+        # the stage names come from the active vertical, so it is not tied to
+        # any one pipeline (paper or speedrun).
+        _vstage_order = list(vertical_checklist_stage_order(_vmod))
+        try:
+            _gate_idx = _vstage_order.index(stage)
+        except ValueError:
+            _gate_idx = 0
+        _gate_earlier = ", ".join(_vstage_order[:_gate_idx]) or "(none)"
+        _gate_downstream = ", ".join(_vstage_order[_gate_idx + 1 :]) or "(none)"
+        stage_gate_block = (
+            "## Stage gate — finish the CURRENT stage before anything downstream\n"
+            f"`current_stage` (from research/PIPELINE_STATE.json) is `{stage}`.\n"
+            f"Pipeline stage order for this vertical: {', '.join(_vstage_order)}.\n"
+            f"Earlier stages already passed: {_gate_earlier}.\n"
+            f"Downstream stages (LOCKED until the reviewer advances the stage): "
+            f"{_gate_downstream}.\n\n"
+            "HARD RULE (overrides the operator objective's optimization pull): "
+            "advance pipeline stages STRICTLY IN ORDER. While the CURRENT stage "
+            f"(`{stage}`) checklist shown above is not fully satisfied, the ONLY "
+            "mission you may queue is one whose body COMPLETES THE CURRENT STAGE "
+            "— i.e. produces the artifacts that the current-stage checklist names "
+            "— so the reviewer can mark this stage done. Do NOT queue any "
+            "downstream-stage work — including metric/recipe/throughput "
+            "optimization, measurement, analysis, drafting, review, or "
+            f"submission — until the reviewer has advanced `current_stage` past "
+            f"`{stage}`. Skipping `{stage}`, or working ahead of it because the "
+            "objective says to drive the metric down, is FORBIDDEN: the current "
+            "stage's gate exists to be satisfied FIRST. (Sole carve-out: the "
+            "parallel paper-drafting track below, when present — prose-only "
+            "drafting that does NOT advance the stage.)\n\n"
+        )
 
         # Parallel paper-drafting track: while a long experiment grinds in the
         # background during `run`/`analysis`, drafting manuscript prose is not
@@ -721,6 +778,7 @@ class Planner:
             )
             + stage_checklist
             + "\n\n"
+            + stage_gate_block
             + matched_planner_skill_block
             + upstream_rollback_block
             + "\n"
