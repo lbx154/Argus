@@ -708,8 +708,12 @@ def _normalize_stage(stage: str | None) -> str:
 def current_stage(project_root: Path | str = ".") -> str:
     """Read ``research/PIPELINE_STATE.json`` and return the current stage.
 
-    Falls back to ``"research"`` if the file is missing / unreadable / does
-    not name a known stage.
+    Vertical-aware: the set of valid stages and the fallback are the ACTIVE
+    vertical's ``CHECKLIST_STAGE_ORDER`` / ``CHECKLIST_ITEMS`` (research's
+    canonical 8 stages by default; the speedrun vertical's 4 stages when
+    selected). Falls back to the vertical's FIRST stage (``"research"`` for the
+    research vertical) if the file is missing / unreadable / does not name one
+    of the vertical's stages.
     """
 
     root = Path(project_root)
@@ -717,11 +721,13 @@ def current_stage(project_root: Path | str = ".") -> str:
     try:
         payload = json.loads(state_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return "research"
+        payload = None
+    order, items = _active_vertical_checklist_defs(project_root)
+    fallback = _normalize_stage(order[0]) if order else "research"
     stage = _normalize_stage(payload.get("current_stage") if isinstance(payload, dict) else None)
-    if stage in STAGE_CHECKLISTS:
+    if stage in items:
         return stage
-    return "research"
+    return fallback
 
 
 def rollback_stage(
@@ -991,6 +997,43 @@ def _apply_venue_to_checklist_body(body: str, venue: VenueProfile) -> str:
     return body
 
 
+def _active_vertical_checklist_defs(project_root):
+    """Return ``(stage_order, items_dict)`` for the ACTIVE vertical.
+
+    Resolves the active vertical via ``vertical_select.resolve_vertical`` +
+    ``verticals._base.load_vertical`` and returns that vertical's
+    ``CHECKLIST_STAGE_ORDER`` + ``CHECKLIST_ITEMS``. ``project_root`` may be
+    None (resolved from env/cwd, matching how the overlay/venue resolution
+    locate the project). Fails open to the research floor
+    (``CANONICAL_STAGE_ORDER`` / ``STAGE_CHECKLISTS``) so vertical resolution
+    never breaks prompt building and the research/paper path stays
+    byte-identical (the research vertical re-exports the same objects).
+
+    Late imports keep this free of a module-load cycle: ``stage_checklists`` is
+    imported (top-level) by the vertical ``stages`` modules, so it must not
+    import them at top level.
+    """
+    import os
+
+    if project_root is None:
+        project_root = os.environ.get("ARGUS_SKILL_PROJECT_ROOT") or "."
+    try:
+        from ..verticals._base import (
+            load_vertical,
+            vertical_checklist_items,
+            vertical_checklist_stage_order,
+        )
+        from .vertical_select import resolve_vertical
+
+        mod = load_vertical(resolve_vertical(project_root))
+        return (
+            vertical_checklist_stage_order(mod),
+            vertical_checklist_items(mod),
+        )
+    except Exception:  # noqa: BLE001 - vertical resolution must never break prompts
+        return CANONICAL_STAGE_ORDER, STAGE_CHECKLISTS
+
+
 def format_stage_checklist(
     stage: str,
     *,
@@ -1015,7 +1058,13 @@ def format_stage_checklist(
     """
 
     stage_norm = _normalize_stage(stage)
-    items = STAGE_CHECKLISTS.get(stage_norm, ())
+    # Vertical-aware: render the ACTIVE vertical's checklist items for this
+    # stage. For the research vertical (the default) ``vert_items`` IS
+    # ``STAGE_CHECKLISTS``, so the lookup — and the whole rendering below — stays
+    # byte-identical to the paper pipeline. A speedrun mission instead renders
+    # its own 4-stage (setup/optimize/measure/report) items.
+    _stage_order, vert_items = _active_vertical_checklist_defs(project_root)
+    items = vert_items.get(stage_norm, ())
     role_norm = (role or "engineer").strip().lower()
     extra, annotations = _overlay_for(stage_norm, role_norm, project_root)
     items = tuple(items) + extra
@@ -1057,6 +1106,31 @@ def format_stage_checklist(
     return _augment(body, role_norm, project_root, overlay_present=bool(extra or annotations))
 
 
+def _full_pipeline_title(project_root) -> str:
+    """Vertical-aware title line for the full-pipeline checklist header.
+
+    Paper-shaped verticals (``completion_gate == "full_emnlp"``, i.e. research)
+    keep the historical ``final submission gate`` wording byte-identical. Any
+    other vertical (e.g. speedrun, whose gate is ``"metric"``) names itself so
+    the header is not research-flavoured. Fails open to the research wording so
+    title resolution never breaks prompt building.
+    """
+    import os
+
+    if project_root is None:
+        project_root = os.environ.get("ARGUS_SKILL_PROJECT_ROOT") or "."
+    try:
+        from ..verticals._base import load_vertical, vertical_completion_gate
+        from .vertical_select import resolve_vertical
+
+        vertical = resolve_vertical(project_root)
+        if vertical_completion_gate(load_vertical(vertical)) != "full_emnlp":
+            return f"## Full pipeline checklist ({vertical})\n"
+    except Exception:  # noqa: BLE001 — title must never break prompt building
+        pass
+    return "## Full pipeline checklist (final submission gate)\n"
+
+
 def format_full_pipeline_checklist(
     *,
     role: str = "reviewer",
@@ -1064,27 +1138,34 @@ def format_full_pipeline_checklist(
 ) -> str:
     """Render every stage's checklist concatenated, for final submission review."""
 
+    title = _full_pipeline_title(project_root)
     role_norm = (role or "reviewer").strip().lower()
     if role_norm == "reviewer":
         header = (
-            "## Full pipeline checklist (final submission gate)\n"
-            "Verify every stage's items end-to-end. Reply `done` only when every "
+            title
+            + "Verify every stage's items end-to-end. Reply `done` only when every "
             "item across every stage is satisfied. There is no `validate-*` "
             "command to run — read the artifacts directly."
         )
     else:
         header = (
-            "## Full pipeline checklist (final submission gate)\n"
-            "Every item below must be true before the project can be marked done."
+            title
+            + "Every item below must be true before the project can be marked done."
         )
 
     blocks = [header]
     overlay_present = False
-    for stage in CANONICAL_STAGE_ORDER:
+    # Vertical-aware: iterate the ACTIVE vertical's stage order and render its
+    # items. For the research vertical (the default) ``stage_order`` IS the
+    # canonical 8 stages and ``vert_items`` IS ``STAGE_CHECKLISTS``, so the
+    # concatenated output stays byte-identical to the paper pipeline. A speedrun
+    # mission instead concatenates its own 4 stages.
+    stage_order, vert_items = _active_vertical_checklist_defs(project_root)
+    for stage in stage_order:
         extra, annotations = _overlay_for(stage, role_norm, project_root)
         if extra or annotations:
             overlay_present = True
-        items = tuple(STAGE_CHECKLISTS.get(stage, ())) + extra
+        items = tuple(vert_items.get(stage, ())) + extra
         if not items:
             continue
         blocks.append(f"### {stage}\n{_render_items(items, annotations)}")

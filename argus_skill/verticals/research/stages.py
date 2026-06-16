@@ -19,6 +19,8 @@ that needs it.
 """
 from __future__ import annotations
 
+from ...skills.stage_checklists import CANONICAL_STAGE_ORDER, STAGE_CHECKLISTS
+
 STAGE_ORDER = [
     "research", "plan", "benchmark", "run",
     "analysis", "draft", "review", "submission",
@@ -213,5 +215,44 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         ["paper/main.tex"],
     ),
 }
+
+
+# ===========================================================================
+# System (B) — markdown stage checklists for the research vertical
+# ===========================================================================
+#
+# The research vertical's System-(B) definitions are RE-EXPORTS of the existing
+# paper floor authored in ``argus_skill.skills.stage_checklists``: same stage
+# order, same per-stage ``ChecklistItem`` dict. This is a no-behavior-change
+# declaration — it lets ``stage_checklists`` resolve the active vertical through
+# the ``argus_skill.verticals._base`` optional-hook contract and, for the
+# research vertical, get back the IDENTICAL order + items object it already
+# rendered, so the research/paper checklist output stays byte-identical.
+CHECKLIST_STAGE_ORDER = CANONICAL_STAGE_ORDER
+CHECKLIST_ITEMS = STAGE_CHECKLISTS
+
+#: Research missions complete on the full EMNLP/paper final-submission gate.
+completion_gate = "full_emnlp"
+
+
+def role_banner(role: str = "engineer") -> str:
+    """No top-of-prompt override for the research vertical (the default).
+
+    The planner/reviewer/engineer prompts are already authored for the paper
+    pipeline, so the research vertical injects no banner.
+    """
+    return ""
+
+
+__all__ = [
+    "STAGE_ORDER",
+    "STAGE_CHECKS",
+    "REVIEWER_CHECKLISTS",
+    "_PIPELINE_CHECK",
+    "CHECKLIST_STAGE_ORDER",
+    "CHECKLIST_ITEMS",
+    "role_banner",
+    "completion_gate",
+]
 
 

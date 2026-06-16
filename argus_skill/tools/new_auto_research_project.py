@@ -540,6 +540,7 @@ def _research_bootstrap_files(
     )
     pipeline_state = {
         "current_stage": "research",
+        "vertical": "research",
         "objective": objective,
         "target_venue": profile.key,
         "paper_scope": "long-paper",

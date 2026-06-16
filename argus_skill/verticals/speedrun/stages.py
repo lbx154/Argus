@@ -37,6 +37,8 @@ where there is nothing to write up.
 """
 from __future__ import annotations
 
+from ...skills.stage_checklists import ChecklistItem
+
 STAGE_ORDER = ["setup", "optimize", "measure", "report"]
 
 # Generic across verticals; kept here as a private copy for now and will
@@ -89,7 +91,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         ["MISSION.md", "mission/SETUP.md", "baseline/", "reference/"],
     ),
     "optimize": (
-        "engineer/speedrun-optimize.md",
+        "engineer/nanochat-pretrain-runner.md",
         "Evaluate the latest attempt:\n"
         "1. Self-contained single-file script under attempts/<name>/train.py.\n"
         "2. Imports the unmodified harness from baseline/lib.py (or an\n"
@@ -137,4 +139,222 @@ __all__ = [
     "STAGE_CHECKS",
     "REVIEWER_CHECKLISTS",
     "_PIPELINE_CHECK",
+    "CHECKLIST_STAGE_ORDER",
+    "CHECKLIST_ITEMS",
+    "role_banner",
+    "completion_gate",
 ]
+
+
+# ===========================================================================
+# System (B) — markdown stage checklists for the speedrun vertical
+# ===========================================================================
+#
+# These feed ``argus_skill.skills.stage_checklists`` (the markdown checklist
+# that drives the planner/engineer/reviewer round loop) via the optional-hook
+# contract in ``argus_skill.verticals._base``. The research vertical re-exports
+# the paper floor; the speedrun vertical declares its OWN 4-stage,
+# nanochat-shaped checklist instead — there is no paper, one number to lower
+# (mean validation bits-per-byte) under a fixed wall-clock budget.
+#
+# The items below are ported from the nanochat-autoresearch substitution that
+# previously lived inline in ``stage_checklists.py``; they are mapped onto the
+# speedrun stages: the deliverable/eval contract is pinned at ``setup``, the
+# learning recipe is produced at ``optimize``, the seed-mean / budget
+# measurement happens at ``measure``, and the head-to-head baseline comparison
+# is the ``report``.
+
+#: System-(B) stage order for the speedrun vertical (mirrors STAGE_ORDER).
+CHECKLIST_STAGE_ORDER: tuple[str, ...] = ("setup", "optimize", "measure", "report")
+
+#: System-(B) per-stage markdown checklist items for the speedrun vertical.
+CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
+    "setup": (
+        ChecklistItem(
+            id="setup.solution_self_contained",
+            statement=(
+                "The deliverable is ONE self-contained training script "
+                "`solutions/<name>.py` (a `solution.py`) that imports the shared "
+                "harness `lib.py` (tokenizer, dataloader, `evaluate_bpb` on the "
+                "held-out shard, `TIME_BUDGET=300`) UNCHANGED and modifies ONLY "
+                "the training recipe inside that one script. The reviewer must "
+                "confirm the agent did NOT touch `lib.py`, the evaluation, the "
+                "validation set, or the budget — `lib.py` is byte-identical to "
+                "the scaffold (hash/`git diff` against "
+                "`/scratch/recursive/nanochat_autoresearch`) — and that the "
+                "script runs via `/scratch/run_with_shim.py` (transparently swaps "
+                "flash-attn-3 -> torch SDPA, since an A100 cannot run the "
+                "Hopper-only FA3) or already uses torch SDPA directly."
+            ),
+            evidence_hint=(
+                "solutions/<name>.py + unchanged lib.py hash vs the scaffold at "
+                "/scratch/recursive/nanochat_autoresearch + a run log produced "
+                "through /scratch/run_with_shim.py"
+            ),
+        ),
+        ChecklistItem(
+            id="setup.heldout_val",
+            statement=(
+                "Evaluation reads the HELD-OUT validation shard wired by `lib.py` "
+                "(`shard_06542`), and there is NO train/val leakage: the data the "
+                "recipe trains on never includes the held-out shard, and the "
+                "tokenizer / metric / val set are the scaffold's, untouched. The "
+                "reward must reflect generalisation to UNSEEN bytes, so a recipe "
+                "that trains on (or otherwise lets the model see) the val shard is "
+                "disqualified — a low val bpb obtained by memorising the val text "
+                "is not a result."
+            ),
+            evidence_hint=(
+                "lib.py val-shard wiring (shard_06542) + the recipe's data "
+                "selection in solutions/<name>.py showing the val shard is "
+                "excluded from training"
+            ),
+        ),
+    ),
+    "optimize": (
+        ChecklistItem(
+            id="optimize.bpb_curve",
+            statement=(
+                "The validation bpb trajectory over the run DESCENDS (the model "
+                "is actually learning within the 300s budget), OR any flat / "
+                "rising / noisy / early-plateau curve is EXPLICITLY explained "
+                "(e.g. budget-bound underfit, LR schedule, warmup, divergence) "
+                "rather than silently accepted. A curve that never improves over "
+                "the random-init starting bpb is a dead recipe, not a result."
+            ),
+            evidence_hint=(
+                "val_bpb-vs-step (or vs-wall-clock) series in progress.jsonl / "
+                "the run log; a one-line explanation for any non-descending curve"
+            ),
+        ),
+    ),
+    "measure": (
+        ChecklistItem(
+            id="measure.seed_mean_bpb",
+            statement=(
+                "The reported result is the MEAN validation bits-per-byte (val "
+                "bpb, lower=better) across N random seeds (`SEED` env per run; "
+                "iterate at N=3-5, report the final number at higher N) — NOT a "
+                "single lucky seed and NEVER the number the training script "
+                "printed about itself. A per-seed CSV records each seed's "
+                "`val_bpb:` line as RE-MEASURED by the VERIFIER re-running the "
+                "agent's `solution.py` under the identical protocol; the headline "
+                "mean the reviewer trusts is the verifier's, because the agent may "
+                "change only the recipe and can self-report anything."
+            ),
+            evidence_hint=(
+                "per-seed CSV (seed,val_bpb) from the verifier's re-runs + the "
+                "computed mean; each row traceable to a `val_bpb:` stdout line"
+            ),
+        ),
+        ChecklistItem(
+            id="measure.budget_respected",
+            statement=(
+                "Every scored run respected the FIXED 300s wall-clock "
+                "`TIME_BUDGET` on ONE A100-40GB — the recipe did not extend, "
+                "bypass, or hand-tune the budget, and no scored seed ran past it. "
+                "The contest is the LOWEST mean val bpb reachable UNDER the fixed "
+                "budget, so a solution that only attains its bpb by exceeding 300s "
+                "is invalid; `TIME_BUDGET` in `lib.py` stays unchanged."
+            ),
+            evidence_hint=(
+                "per-run wall-clock (start/end) <= ~300s in the run log / "
+                "manifest; TIME_BUDGET=300 in lib.py unchanged"
+            ),
+        ),
+    ),
+    "report": (
+        ChecklistItem(
+            id="report.beats_baseline",
+            statement=(
+                "The proposed `solution.py`'s mean val bpb BEATS the RE-MEASURED "
+                "baseline: Recursive's best released solution (e.g. "
+                "`optimized_from_karpathy.py`) re-run ON OUR harness and A100 "
+                "hardware under the identical protocol (same N seeds, 300s budget, "
+                "held-out shard) — NOT the baseline's published B200 number "
+                "(0.9109). The comparison is head-to-head and cites BOTH per-seed "
+                "CSVs (ours and the re-measured baseline's) so the win is a "
+                "like-for-like mean-bpb delta, not a hardware / protocol artifact. "
+                "If the proposed recipe does NOT beat the re-measured baseline, "
+                "say so plainly and queue a repair/pivot — do not relabel a loss "
+                "as a win."
+            ),
+            evidence_hint=(
+                "two per-seed CSVs (proposed vs re-measured baseline) under the "
+                "identical protocol + the mean-bpb delta; baseline = "
+                "optimized_from_karpathy.py re-run on A100, not the published 0.9109"
+            ),
+        ),
+    ),
+}
+
+#: Speedrun missions are done on a metric verdict, not a paper-submission gate.
+completion_gate = "metric"
+
+
+def role_banner(role: str = "engineer") -> str:
+    """Top-of-prompt HARD-OVERRIDE banner for the speedrun vertical.
+
+    The default planner/reviewer/engineer prompts bake in the research-paper
+    pipeline (research gate, literature grounding, GO/NO-GO, paper draft/
+    review/submission, and stage rollback to upstream paper stages). In a
+    speedrun (numeric-optimization) mission those assumptions are wrong and
+    actively harmful — the planner will refuse to start ("still at the research
+    gate"), and the reviewer/planner will roll the state machine back to
+    ``research``. This banner is injected at the very TOP of each agent prompt
+    so it supersedes all of that framing.
+
+    It is intentionally generic (no hard-coded file names): the concrete
+    editable file and scorer come from the operator objective + special
+    prompts, so the same banner serves any speedrun task.
+    """
+    role_norm = (role or "").strip().lower()
+    common = (
+        "## PIPELINE MODE = OPTIMIZE — HARD OVERRIDE (supersedes EVERYTHING below)\n"
+        "This mission is a lean numeric-optimization loop, NOT a research paper. "
+        "Ignore every instruction further down that assumes a paper pipeline. "
+        "Specifically:\n"
+        "- There is NO research gate, NO literature/grounding, NO GO/NO-GO, NO "
+        "reference-repo survey, NO paper / draft / review / submission, NO "
+        "EMNLP/ACL — for this mission.\n"
+        "- The ONLY stages that exist are `run` (edit the recipe + score it) and "
+        "`analysis`. Stages research/plan/benchmark/draft/review/submission are "
+        "INTENTIONALLY ABSENT; their artifacts being missing is EXPECTED, not a "
+        "defect to repair.\n"
+        "- NEVER report a 'missing upstream artifact', NEVER call `rollback_stage`, "
+        "and NEVER roll the pipeline back to research/plan/benchmark. NEVER build "
+        "or rebuild `research/` or grounding artifacts.\n"
+        "- Follow the operator objective: edit the single editable recipe file, "
+        "score it with the frozen scorer the objective names, and KEEP a change "
+        "only if the scored metric improves (lower is better unless stated). The "
+        "mission is done when the metric target is met or the budget is spent.\n"
+    )
+    role_line = {
+        "planner": (
+            "- As PLANNER: go straight to the run stage and stay there. Queue only "
+            "missions that edit the recipe and re-score, or that diagnose why a run "
+            "did not improve the metric. Do NOT queue research/grounding/paper/"
+            "rollback tasks. Judge project_done purely on the metric, never on a "
+            "pipeline checklist.\n"
+        ),
+        "reviewer": (
+            "- As REVIEWER, you are also the INNOVATION COACH. Judge whether the "
+            "recipe changed and the metric improved vs the prior best — but NEVER "
+            "accept 'no changes / objective complete' while budget remains and the "
+            "metric can still drop, and push back on lazy single-knob tweaks and on "
+            "circling one lever family. In next_action ALWAYS name a concrete, "
+            "genuinely-NEW direction to try next, preferring METHOD-LEVEL ideas "
+            "(optimizer internals, architecture, training dynamics) over another "
+            "hyperparameter wiggle. Treat a properly measured-and-reverted bold "
+            "experiment as GOOD process, not failure. Do NOT flag missing research/"
+            "paper artifacts, apply paper/contribution criteria, or recommend "
+            "rollback.\n"
+        ),
+        "engineer": (
+            "- As ENGINEER: the loop is — edit the recipe file, run the frozen "
+            "scorer, keep the change iff the metric improves, else revert. Land one "
+            "concrete recipe edit + its scored result per turn. Do NOT write "
+            "research/grounding/paper files.\n"
+        ),
+    }.get(role_norm, "")
+    return common + role_line + "\n"

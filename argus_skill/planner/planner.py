@@ -477,6 +477,12 @@ class Planner:
             current_stage,
             format_stage_checklist,
         )
+        from ..skills.vertical_select import resolve_vertical
+        from ..verticals._base import (
+            load_vertical,
+            vertical_completion_gate,
+            vertical_role_banner,
+        )
 
         _proot = resolve_project_root()
         stage = current_stage(_proot)
@@ -488,6 +494,17 @@ class Planner:
         )
         earlier_stages = ", ".join(CANONICAL_STAGE_ORDER[:stage_idx]) or "(none)"
 
+        # Vertical-native prompt framing: resolve the active vertical and let it
+        # supply the top-of-prompt role banner. The paper-pipeline framing below
+        # (research gate, parallel paper-drafting, upstream rollback) applies
+        # ONLY to a paper vertical (completion_gate == "full_emnlp"); for any
+        # other vertical (e.g. speedrun) those blocks are suppressed and the
+        # vertical's banner is prepended so the planner runs that vertical's loop
+        # instead of demanding/rebuilding a research gate.
+        _vmod = load_vertical(resolve_vertical(_proot))
+        _full_emnlp = vertical_completion_gate(_vmod) == "full_emnlp"
+        optimize_banner = vertical_role_banner(_vmod, "planner")
+
         # Parallel paper-drafting track: while a long experiment grinds in the
         # background during `run`/`analysis`, drafting manuscript prose is not
         # gated behind run/analysis (the draft/review/submission evidence gates
@@ -496,7 +513,7 @@ class Planner:
         # productive instead of babysitting the run. Prose-only, never advances
         # the stage pointer; final-number integrity is preserved via placeholders.
         parallel_drafting_block = ""
-        if stage in ("run", "analysis"):
+        if stage in ("run", "analysis") and _full_emnlp:
             draft_checklist = format_stage_checklist(
                 "draft", role="planner", project_root=_proot
             )
@@ -601,6 +618,9 @@ class Planner:
             "4. **Do not queue parallel forward + rollback tasks.** A\n"
             "   rollback supersedes everything else this cycle.\n"
         )
+        if not _full_emnlp:
+            # non-paper verticals have no upstream paper stages to roll back into.
+            upstream_rollback_block = ""
 
         # Planner role mission matcher (same primitive engineer/reviewer use).
         # No builtin_skills/planner/ pool exists today, so this short-circuits
@@ -690,7 +710,8 @@ class Planner:
             wiki_block = "".join(parts)
 
         return (
-            format_role_context(
+            optimize_banner
+            + format_role_context(
                 "Argus planner role skill",
                 _PLANNER_ROLE_SKILL,
                 _PLANNER_ROLE_FALLBACK,
