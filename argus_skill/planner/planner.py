@@ -709,8 +709,11 @@ class Planner:
                     )
             wiki_block = "".join(parts)
 
+        from ..skills.ground_truth import ground_truth_mandate
+
         return (
-            optimize_banner
+            ground_truth_mandate("planner")
+            + optimize_banner
             + format_role_context(
                 "Argus planner role skill",
                 _PLANNER_ROLE_SKILL,
