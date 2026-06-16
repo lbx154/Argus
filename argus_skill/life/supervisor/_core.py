@@ -193,6 +193,11 @@ class LifeSupervisor:
         self.skill_store = skill_store
         self._missions_started = 0
         self._planning_cycles = 0
+        # One-shot guard: the pipeline mode (paper vs optimize) is classified
+        # from the continuous objective and persisted exactly once, on the
+        # first planner cycle. Set True the moment we attempt resolution so we
+        # never re-classify mid-mission.
+        self._vertical_resolved = False
         # Idle backoff state (await-external / repeated no-work planner cycles).
         # Persists across daemon outer-loop iterations (the supervisor instance
         # is reused) so backoff escalates while the project waits, and resets
@@ -367,7 +372,7 @@ class LifeSupervisor:
             if (
                 self.config.continuous
                 and self.config.continuous_objective
-                and self.config.full_emnlp_gate
+                and self._effective_full_emnlp_gate(self._project_workdir())
                 and self._journal_has_full_emnlp_gate_success()
             ):
                 self._emit_status(
@@ -1604,6 +1609,31 @@ class LifeSupervisor:
                 return True
         return False
 
+    def _effective_full_emnlp_gate(self, workdir: object) -> bool:
+        """Whether the full-pipeline final-submission gate applies here.
+
+        Returns ``self.config.full_emnlp_gate`` AND the active vertical's
+        completion gate being the paper gate (``"full_emnlp"``). The
+        final-submission completion gate only makes sense for a *research*
+        vertical: a ``speedrun`` mission runs just the optimize+measure stages
+        and has no submission package to certify, so requiring the gate would
+        wedge it forever. AND-ing with the vertical's own completion gate keeps
+        research behavior identical (gate stays on) while letting speedrun
+        missions accept ``project_done`` straight from the run loop (gate off).
+        The read side is deterministic and exception-free, so this never spends
+        a token.
+        """
+        if not self.config.full_emnlp_gate:
+            return False
+        from ...skills.vertical_select import resolve_vertical
+        from ...verticals._base import (
+            load_vertical,
+            vertical_completion_gate,
+        )
+
+        mod = load_vertical(resolve_vertical(workdir))
+        return vertical_completion_gate(mod) == "full_emnlp"
+
     def _final_submission_cert_path(self) -> Path:
         root = Path(
             getattr(self.config, "telemetry_dir", None)
@@ -1893,6 +1923,64 @@ class LifeSupervisor:
         self._inject_cumulative_cost(entry)
         return True
 
+    def _resolve_vertical_once(self) -> None:
+        """Classify + persist the active vertical exactly once per mission.
+
+        On the first planner cycle (guarded by ``self._vertical_resolved``)
+        we infer the vertical (``research`` vs ``speedrun``) from the continuous
+        objective — trusting an explicit research-profile override when one is
+        declared — and persist it into ``research/PIPELINE_STATE.json`` so every
+        downstream stage/gate read (``resolve_vertical``) sees a stable vertical
+        for the rest of the run.
+
+        Best-effort: any failure (classification, profile load, persistence) is
+        swallowed so the planner never crashes on vertical bootstrap.
+        """
+        if getattr(self, "_vertical_resolved", False):
+            return
+        # Flip the guard immediately: this runs once even if classification
+        # below raises, so we never re-classify on later cycles.
+        self._vertical_resolved = True
+        if not self.config.continuous_objective:
+            return
+        try:
+            from ...skills import vertical_select
+            from ..research_profile import load_research_profile
+
+            # ``profile_vertical`` lands in Phase 3; guard the import so this
+            # migration compiles + runs standalone now (no hint until then).
+            try:
+                from ..research_profile import profile_vertical
+            except ImportError:
+                profile_vertical = None  # type: ignore[assignment]
+
+            profile = load_research_profile()
+            profile_hint = (
+                profile_vertical(profile.name)
+                if profile is not None and profile_vertical is not None
+                else None
+            )
+            vertical = vertical_select.classify_vertical(
+                self.config.continuous_objective,
+                runner=self.planner_runner,
+                profile_hint=profile_hint,
+            )
+            workdir = self._planner_workdir()
+            vertical_select.persist_vertical(workdir, vertical)
+            self._emit({
+                "type": "life.vertical.resolved",
+                "vertical": vertical,
+                "profile_hint": profile_hint,
+                "agent_layer": "planner",
+            })
+            log.info(
+                "life supervisor: resolved vertical = %s (profile_hint=%s)",
+                vertical,
+                profile_hint,
+            )
+        except Exception:  # noqa: BLE001 — never crash the planner on bootstrap
+            log.warning("vertical resolution failed; continuing", exc_info=True)
+
     def _plan_next_work(self) -> bool | None | str:
         """Call the planner to generate new backlog items.
 
@@ -1907,6 +1995,10 @@ class LifeSupervisor:
             "cycle": self._planning_cycles,
             "objective": self.config.continuous_objective[:200],
         })
+
+        # Classify + persist the active vertical once, on the first cycle, so
+        # the rest of the run (stages, gates, auto-stop) reads a stable vertical.
+        self._resolve_vertical_once()
 
         wiki_collect_task = self._wiki_collect_task_if_due_under_blocker()
         if wiki_collect_task is not None:
@@ -2055,7 +2147,7 @@ class LifeSupervisor:
 
         if (
             verdict.project_done
-            and self.config.full_emnlp_gate
+            and self._effective_full_emnlp_gate(self._project_workdir())
             and not self._journal_has_full_emnlp_gate_success()
         ):
             from ...planner import TaskSpec

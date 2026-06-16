@@ -18,9 +18,19 @@ _PROFILE_ENV = "ARGUS_SKILL_RESEARCH_PROFILE"
 _PROFILE_PATH_ENV = "ARGUS_SKILL_RESEARCH_PROFILE_PATH"
 _EMNLP2026_PROFILE = "emnlp2026-tierharness"
 _AAAI2026_PROFILE = "aaai2026-tierharness"
+_NANOCHAT_PROFILE = "nanochat-autoresearch"
 _DEFAULT_TEXT_MODELS = "gpt-5.5,gpt-5.5"
 _DEFAULT_IMAGE_MODEL = "gpt-image-2"
 _SHARED_MODEL_CACHE_ROOT_ENV = "ARGUS_SKILL_SHARED_MODEL_CACHE_ROOT"
+
+# Per-profile default vertical. A profile listed here declares the vertical its
+# missions should run under by default (e.g. the nanochat autoresearch contest
+# is a recipe-optimization speedrun, not a paper pipeline).
+# Profiles absent from this map (EMNLP/AAAI) declare no override and resolve to
+# None, which callers treat as the default "research" vertical.
+PROFILE_VERTICAL: dict[str, str] = {
+    _NANOCHAT_PROFILE: "speedrun",
+}
 
 
 @dataclass(frozen=True)
@@ -364,12 +374,153 @@ def _default_aaai2026_profile() -> str:
     return base + _AAAI2026_FORMAT_ADDENDUM
 
 
+def _default_nanochat_profile() -> str:
+    return """## Research profile: nanochat autoresearch (val-bpb minimization)
+
+Long-horizon goal:
+- Win a head-to-head automated-research contest: argus-skill versus Recursive's
+  automated-research system. The single judged question is whose generated
+  `solution.py` trains a small language model that reaches a LOWER mean
+  validation bits-per-byte (val bpb) under one fixed, shared protocol.
+- val bpb is the average number of bits needed to encode each byte of held-out
+  text. It is a tokenizer-independent quality metric, so lower is strictly
+  better. Treat every reported bpb as a hypothesis until the verifier reproduces
+  it; never write a self-reported number into a result table as fact.
+
+Research target and metric:
+- Minimize validation bits-per-byte of a small LLM pretrained from scratch under
+  a FIXED wall-clock budget. The whole game is squeezing the best held-out
+  language-modeling quality out of a tightly bounded training run, not building
+  the largest possible model.
+- The primary metric is the MEAN val bpb across N random seeds. Recursive used
+  N=10; while iterating, use N=3-5 for fast signal and re-run a larger N for any
+  number that goes into a final comparison. A recipe that only wins on one lucky
+  seed has not won.
+
+Fixed scaffold and harness (do not modify):
+- The contest runs on a GPU node under
+  /scratch/recursive/nanochat_autoresearch. A shared harness `lib.py` provides
+  the tokenizer, the dataloader, and `evaluate_bpb`, which scores held-out
+  text on shard_06542 with TIME_BUDGET=300s. Every candidate under
+  solutions/<name>.py imports this shared library.
+- The agent's deliverable is exactly ONE self-contained training script,
+  solution.py, that imports the shared lib.py. The agent may change only the
+  training recipe inside solution.py: model architecture, optimizer, schedule,
+  data ordering, batching, precision, regularization, and any other choice that
+  lives inside the training run.
+- The agent may NOT touch lib.py, the evaluation code, the validation set, or the
+  time budget. Editing the harness, the held-out shard, the scorer, or the budget
+  is cheating and invalidates the run. If the harness appears to block a
+  legitimate recipe, record the limitation; do not work around it by altering
+  shared code.
+
+Budget and runtime contract:
+- 300 seconds of wall-clock per run on ONE A100. Every recipe must fit useful
+  tokenizer setup, model construction, and as much effective training as
+  possible inside that window, then stop cleanly and evaluate. Spending the
+  budget on a model too large to converge, or leaving the budget unused, are both
+  failures.
+- The SEED environment variable selects the seed for a run. The script must print
+  its result on a line containing "val_bpb:" so the harness and verifier can
+  parse it. Evaluation is the MEAN of these val bpb values across the N seeds.
+
+Hardware and execution rules:
+- GPU access is via `ssh ds "<cmd>"`; the node is an 8xA100-40GB host named
+  dashing-stork. The Python interpreter on the node is
+  /opt/conda/envs/ptca/bin/python and the data is already wired at /data. Do not
+  re-download weights or datasets; reuse the on-node data path.
+- A100 is Ampere, not Hopper, so flash-attn-3 cannot run there. Either write
+  solution.py against torch SDPA attention directly, or launch it through
+  /scratch/run_with_shim.py <solution.py>, which transparently swaps an
+  FA3 call for torch SDPA. Assume FA3 is unavailable and design attention
+  accordingly.
+
+Baseline to beat:
+- The baseline is Recursive's released solutions, re-measured ON OUR harness and
+  hardware rather than trusting their published figures. Their best released
+  recipe is optimized_from_karpathy.py, published at 0.9109 val bpb on a B200;
+  we re-measure it on our A100 harness and the number that matters is that
+  re-measured mean val bpb.
+- Success means the argus-skill solution.py achieves a lower mean val bpb than
+  the re-measured optimized_from_karpathy.py baseline under the identical
+  protocol (same N seeds, same 300s budget, same held-out validation). Beating
+  the published B200 number while losing to the re-measured A100 baseline does
+  not count.
+
+Anti-cheat and reward rules:
+- The ONLY reward that counts is the val bpb produced by the VERIFIER re-running
+  the agent's solution.py under the identical protocol: N seeds, 300s budget,
+  the held-out validation shard. The agent's self-reported "val_bpb:" line is
+  never the reward; it is only a hint to be confirmed.
+- Any gap between a self-reported number and the verifier's number is resolved in
+  favor of the verifier. Do not tune against the held-out validation set, do not
+  special-case shard_06542, and do not leak validation bytes into training.
+  Recipes that inspect, memorize, or otherwise contaminate the val set are
+  disqualified even if they print a low number.
+- Treat the held-out split as untouchable: select hyperparameters using only
+  training-time signal or seeds/shards you are allowed to train on, then let the
+  verifier reveal the real held-out result.
+
+Evidence and anti-fabrication rules:
+- Every bpb claim must cite a local artifact: the exact solution.py used, the
+  seeds, the per-seed val bpb values, the mean, the command, timestamps, and the
+  verifier log. A mean with no per-seed artifacts behind it is not evidence.
+- When comparing against the baseline, both the argus-skill solution.py and the
+  re-measured optimized_from_karpathy.py must be scored by the same verifier run
+  configuration; never compare your re-measured number against their published
+  number.
+- If a recipe fails to fit the budget, diverges, or underperforms the baseline,
+  record the negative result honestly and queue a bounded next experiment. Do not
+  relabel a loss as a win or fill gaps with optimistic prose.
+
+Autonomy and background-experiment rules:
+- Training runs are short (300s each) but the search over recipes and seeds is
+  long. Launch sweeps as background jobs with a unique run_id and write
+  experiments/<run_id>/manifest.json, pid, stdout.log, stderr.log, and a status
+  file before returning from the mission.
+- Any sweep with many runs must implement the Live Experiment Protocol:
+  progress.jsonl, status.json, per-run progress, flush/fsync after each run,
+  STOP-file cancellation, and early-stop checks so an obviously-bad recipe does
+  not consume the whole sweep.
+- Keep accepting operator guidance while a sweep runs; if the operator says a
+  recipe direction is wrong, cancel via STOP/PID rather than spending the full
+  budget. If GPU credentials or the node are unavailable, record a blocked status
+  with the exact access needed instead of guessing a number.
+
+Planning discipline:
+- Prefer high-impact work in this order: reproduce and re-measure the baseline on
+  our harness, fix any measurement/seed/parsing bug, propose one concrete recipe
+  change with a hypothesis, run it across N seeds, then analyze why it won or
+  lost before proposing the next change.
+- A valid planner objective must name the specific recipe change, the hypothesis
+  for why it lowers val bpb, the seeds, and the artifact path that will prove the
+  result. Vanity edits, renames, and changes that touch lib.py or the eval are
+  invalid.
+"""
+
+
 # Registry mapping a profile name to its built-in prose builder. Unknown names
 # fall back to the generic "use ARGUS_SKILL_RESEARCH_PROFILE_PATH" message.
 _PROFILE_REGISTRY = {
     _EMNLP2026_PROFILE: _default_emnlp2026_profile,
     _AAAI2026_PROFILE: _default_aaai2026_profile,
+    _NANOCHAT_PROFILE: _default_nanochat_profile,
 }
+
+
+def profile_vertical(name: str | None) -> str | None:
+    """Return the default vertical declared by a research profile.
+
+    Profiles that declare an override in ``PROFILE_VERTICAL`` (e.g. the
+    nanochat autoresearch contest -> "speedrun") return that vertical name.
+    Every other profile name, an unknown name, or ``None`` returns ``None`` so
+    callers fall back to their default ("research") vertical. EMNLP/AAAI
+    profiles are intentionally absent here and keep their default behavior.
+    """
+
+    if not name:
+        return None
+    return PROFILE_VERTICAL.get(name)
 
 
 def load_research_profile(

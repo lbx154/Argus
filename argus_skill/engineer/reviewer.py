@@ -310,9 +310,24 @@ class Reviewer:
             format_full_pipeline_checklist,
             format_stage_checklist,
         )
+        from ..skills.vertical_select import resolve_vertical
+        from ..verticals._base import (
+            load_vertical,
+            vertical_completion_gate,
+            vertical_role_banner,
+        )
 
         _proot = resolve_project_root()
         stage = current_stage(_proot)
+        # Vertical-native prompt framing: resolve the active vertical and let it
+        # supply the top-of-prompt role banner. The rollback / final-submission
+        # framing below applies ONLY to a paper vertical (completion_gate ==
+        # "full_emnlp"); for any other vertical (e.g. speedrun) those blocks are
+        # suppressed and the vertical's banner is prepended so the reviewer judges
+        # only that vertical's metric instead of paper-pipeline artifacts.
+        _vmod = load_vertical(resolve_vertical(_proot))
+        _full_emnlp = vertical_completion_gate(_vmod) == "full_emnlp"
+        optimize_banner = vertical_role_banner(_vmod, "reviewer")
         # Structured scope only. The planner threads scope=final_submission as
         # a backlog tag all the way here; we no longer sniff the objective
         # prose for "scope: final_submission" markers. Normalize the same way
@@ -486,8 +501,14 @@ class Reviewer:
                 "Do not certify on the engineer's word alone — re-run the\n"
                 "verification commands yourself and cite your own output.\n\n"
             )
+        if not _full_emnlp:
+            # non-paper vertical: no paper stages to roll back to, and no
+            # final-submission certification — judge only the vertical's metric.
+            rollback_block = ""
+            final_submission_block = ""
         return (
-            "You are the reviewer sub-agent for an argus-skill autoloop run.\n"
+            optimize_banner
+            + "You are the reviewer sub-agent for an argus-skill autoloop run.\n"
             "Decide whether the objective is fully complete.\n\n"
             "**You have shell access via your tools.** When the main agent's\n"
             "summary is missing verbatim verification output (pytest, ruff,\n"

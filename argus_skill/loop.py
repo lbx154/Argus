@@ -456,10 +456,30 @@ class SkillLoop:
         paper_mission: bool = False,
     ) -> str:
         sections: list[str] = []
+        # Vertical-native prompt framing (resolved up-front so it can gate the
+        # paper-execution contract below): the active vertical supplies the
+        # engineer role banner, and the long-horizon paper contract applies ONLY
+        # to a paper vertical (completion_gate == "full_emnlp"). A non-paper
+        # vertical (e.g. speedrun) runs a lean edit→score loop: prepend its
+        # banner and skip the long-horizon paper contract entirely.
+        from .skills.harness_overlay import resolve_project_root
+        from .skills.vertical_select import resolve_vertical
+        from .verticals._base import (
+            load_vertical,
+            vertical_completion_gate,
+            vertical_role_banner,
+        )
+
+        _proot = resolve_project_root()
+        _vmod = load_vertical(resolve_vertical(_proot))
+        _full_emnlp = vertical_completion_gate(_vmod) == "full_emnlp"
+        _banner = vertical_role_banner(_vmod, "engineer")
+        if _banner:
+            sections.append(_banner)
         if skill_text:
             sections.append("## Skill playbook (read first)\n" + skill_text)
         sections.append("## Task\n" + task)
-        if paper_mission:
+        if paper_mission and _full_emnlp:
             sections.append(
                 "## Long-horizon paper execution contract\n"
                 "This is not a one-file bounded patch. Treat the engineer as the\n"
