@@ -100,6 +100,20 @@ def build_parser() -> argparse.ArgumentParser:
              "(like tail -f, Ctrl-C to stop)",
     )
     cockpit_grp.add_argument(
+        "--dashboard",
+        action="store_true",
+        help="serve a live HTML dashboard of ALL discovered daemons "
+             "(auto-discovers every project under the life root(s); "
+             "set ARGUS_SKILL_DASHBOARD_ROOTS to include custom --life-dir "
+             "roots). Vertical-agnostic; Ctrl-C to stop.",
+    )
+    cockpit_grp.add_argument(
+        "--dashboard-port",
+        type=int,
+        default=8787,
+        help="port for --dashboard (default 8787)",
+    )
+    cockpit_grp.add_argument(
         "--init-identity",
         action="store_true",
         help="run the interactive identity-card wizard "

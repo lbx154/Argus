@@ -159,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.daemon_runbook)
         + bool(args.watch)
         + bool(args.follow)
+        + bool(getattr(args, "dashboard", False))
         + bool(args.notify)
         + bool(args.init_identity)
         + bool(args.setup)
@@ -212,6 +213,9 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_watch(args))
     if args.follow:
         return _run_with_path_resolution_errors(lambda: _cmd_follow(args))
+    if getattr(args, "dashboard", False):
+        from ...tools.dashboard import serve
+        return serve(port=int(getattr(args, "dashboard_port", 8787) or 8787))
     if args.notify:
         return _run_with_path_resolution_errors(lambda: _cmd_notify(args))
     if args.init_identity:
