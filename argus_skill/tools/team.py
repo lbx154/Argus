@@ -1,0 +1,205 @@
+"""Agent-facing CLI for Argus Agent Teams (the lead and teammates call this).
+
+Thin wrapper over argus_skill.team.{task_board,mailbox,roster,worktree};
+mirrors tools/subagent.py's CLI shape. ``spawn`` launches a teammate as a
+detached bounded Argus mission inside a private worktree; tests override
+the launched command with ``--exec-cmd``.
+
+Verbs: form / spawn / status / wait / send / drain / claim / reassign / dissolve.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shlex
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from ..team import mailbox, roster, task_board, worktree
+
+
+def _load_tasks(path: Path) -> list[dict]:
+    out: list[dict] = []
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            out.append(json.loads(line))
+    return out
+
+
+def cmd_form(a: argparse.Namespace) -> int:
+    task_board.form(Path(a.root), _load_tasks(Path(a.tasks)))
+    if a.team_id:
+        roster.create(Path(a.root), team_id=a.team_id, mission=a.mission,
+                      lead=a.lead, now=time.time())
+    return 0
+
+
+def cmd_spawn(a: argparse.Namespace) -> int:
+    root = Path(a.root)
+    # teammate runs where the lead points (--cwd, default the workspace cwd). A
+    # worktree is opt-in via --worktree for projects whose state is self-contained;
+    # SOL-style projects need the live workspace (.venv/experiments/), so default off.
+    cwd = Path(a.cwd) if a.cwd else Path.cwd()
+    if a.worktree and a.repo:
+        try:
+            cwd = worktree.create(Path(a.repo), team_id=a.team_id, member_id=a.member_id)
+        except Exception as exc:  # worktree optional
+            print(f"team: worktree skipped: {exc}", file=sys.stderr)
+    now = time.time()
+    # Claim the SPECIFIC assigned task (not next-pending) so parallel spawns never
+    # cross member IDs.
+    claimed = task_board.claim_specific(root, a.task_id, a.member_id, now=now)
+    task_id = claimed["task_id"] if claimed else a.task_id
+    log_dir = root / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / (a.member_id.replace(":", "_") + ".spawn.log")
+    if a.exec_cmd:
+        argv = shlex.split(a.exec_cmd)
+    else:
+        # Built-in headless teammate entry — finds its task, runs a bounded mission
+        # (NOT the interactive cockpit), heartbeats the board, records its shard.
+        argv = [sys.executable, "-m", "argus_skill.team.teammate_entry",
+                "--root", str(root), "--member-id", a.member_id,
+                "--task-id", task_id, "--cwd", str(cwd)]
+    with open(log_path, "ab") as log, open(os.devnull, "rb") as devnull:
+        proc = subprocess.Popen(argv, cwd=str(cwd), stdin=devnull, stdout=log,
+                                stderr=log, start_new_session=True)
+    roster.add_member(root, {
+        "id": a.member_id, "pid": proc.pid, "worktree": str(cwd),
+        "task_id": task_id, "status": "running", "heartbeat_ts": now,
+    })
+    print(json.dumps({"member_id": a.member_id, "pid": proc.pid,
+                      "task_id": task_id, "claimed": bool(claimed)}))
+    return 0
+
+
+def cmd_status(a: argparse.Namespace) -> int:
+    root = Path(a.root)
+    print(json.dumps({
+        "roster": roster.load(root),
+        "members": roster.members(root),
+        "tasks": task_board.snapshot(root),
+    }, ensure_ascii=False))
+    return 0
+
+
+def cmd_wait(a: argparse.Namespace) -> int:
+    root = Path(a.root)
+    deadline = time.time() + a.timeout
+    while time.time() < deadline:
+        if task_board.all_done(root):
+            print(json.dumps({"done": True}))
+            return 0
+        time.sleep(a.poll)
+    print(json.dumps({"done": task_board.all_done(root)}))
+    return 0
+
+
+def cmd_send(a: argparse.Namespace) -> int:
+    mailbox.send(Path(a.root), to=a.to, frm=getattr(a, "from"), text=a.text, now=time.time())
+    return 0
+
+
+def cmd_drain(a: argparse.Namespace) -> int:
+    print(json.dumps(mailbox.drain(Path(a.root), a.member_id), ensure_ascii=False))
+    return 0
+
+
+def cmd_claim(a: argparse.Namespace) -> int:
+    got = task_board.claim(Path(a.root), a.member_id, now=time.time())
+    print(json.dumps(got, ensure_ascii=False))
+    return 0
+
+
+def cmd_reassign(a: argparse.Namespace) -> int:
+    ids = task_board.reassign_stale(Path(a.root), ttl=a.ttl, now=time.time())
+    print(json.dumps({"reassigned": ids}))
+    return 0
+
+
+def cmd_dissolve(a: argparse.Namespace) -> int:
+    root = Path(a.root)
+    roster.set_state(root, "dissolved")
+    if not a.keep_worktrees and a.repo:
+        for m in roster.members(root):
+            wt = m.get("worktree")
+            if wt:
+                worktree.remove(Path(a.repo), Path(wt))
+    return 0
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="argus_skill.tools.team")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    f = sub.add_parser("form", help="write the shared task board (+roster if --team-id)")
+    f.add_argument("--root", required=True)
+    f.add_argument("--team-id", default="")
+    f.add_argument("--mission", default="")
+    f.add_argument("--lead", default="lead")
+    f.add_argument("--tasks", required=True)
+    f.set_defaults(fn=cmd_form)
+
+    s = sub.add_parser("spawn", help="launch a detached headless teammate engineer")
+    s.add_argument("--root", required=True)
+    s.add_argument("--team-id", required=True)
+    s.add_argument("--member-id", required=True)
+    s.add_argument("--task-id", required=True)
+    s.add_argument("--cwd", default="", help="where the teammate mission runs (default: cwd)")
+    s.add_argument("--repo", default="")
+    s.add_argument("--worktree", action="store_true",
+                   help="opt-in: run the teammate in an isolated git worktree of --repo")
+    s.add_argument("--exec-cmd", default="")
+    s.set_defaults(fn=cmd_spawn)
+
+    st = sub.add_parser("status", help="aggregate roster + task board")
+    st.add_argument("--root", required=True)
+    st.set_defaults(fn=cmd_status)
+
+    w = sub.add_parser("wait", help="block until all tasks done or timeout")
+    w.add_argument("--root", required=True)
+    w.add_argument("--timeout", type=float, default=3600.0)
+    w.add_argument("--poll", type=float, default=2.0)
+    w.set_defaults(fn=cmd_wait)
+
+    sd = sub.add_parser("send", help="send a mailbox message")
+    sd.add_argument("--root", required=True)
+    sd.add_argument("--to", required=True)
+    sd.add_argument("--from", required=True)
+    sd.add_argument("--text", required=True)
+    sd.set_defaults(fn=cmd_send)
+
+    dr = sub.add_parser("drain", help="drain a member's mailbox")
+    dr.add_argument("--root", required=True)
+    dr.add_argument("--member-id", required=True)
+    dr.set_defaults(fn=cmd_drain)
+
+    cl = sub.add_parser("claim", help="claim the next available task")
+    cl.add_argument("--root", required=True)
+    cl.add_argument("--member-id", required=True)
+    cl.set_defaults(fn=cmd_claim)
+
+    ra = sub.add_parser("reassign", help="return stale claimed/running tasks to pending")
+    ra.add_argument("--root", required=True)
+    ra.add_argument("--ttl", type=float, default=120.0)
+    ra.set_defaults(fn=cmd_reassign)
+
+    ds = sub.add_parser("dissolve", help="mark team dissolved + clean worktrees")
+    ds.add_argument("--root", required=True)
+    ds.add_argument("--repo", default="")
+    ds.add_argument("--keep-worktrees", action="store_true")
+    ds.set_defaults(fn=cmd_dissolve)
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+    return int(args.fn(args))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

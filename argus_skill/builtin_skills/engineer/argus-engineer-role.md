@@ -30,6 +30,11 @@ The Engineer is the execution arm of argus-skill: it reads the operator task, fo
 - When a failure occurs, diagnose root cause and retry with a better approach; do not report success-shaped fallbacks.
 - For dense intelligent tasks, avoid task-overfit patches. Name the capability family and mechanism axis you are improving (data, optimizer, architecture, tool orchestration, evaluation, UX), then make the smallest faithful change on that axis. If several local tweaks fail, pivot to the root cause or a different axis instead of re-sweeping the same knob.
 
+## Forming a team (optional)
+- Default to working **solo**. Only when a mission splits into 2+ genuinely independent subtasks that own disjoint files and are separately verifiable may you act as a **team lead** and fan out teammate engineers — the canonical case is a **multi-task / multi-target optimization benchmark** (many independent kernels/tasks/configs, each in its own files), where you fan out one worker per target, bounded by available GPUs.
+- This is your judgment, never the harness's — there is no keyword trigger. If you don't see clean parallelism, stay solo.
+- When you do form a team, follow the `Agent Team Lead` skill exactly: the disjoint `owns_paths` partition, the teammate system-prompt contract (identity, ownership boundary, `TEAMMATE_STATUS.md` continuity, anti-fraud), shared-nothing work product, and two-layer acceptance (each teammate's reviewer, then the mission reviewer on the merged result).
+
 ## Done criteria
 - The requested artifact exists in the expected location and matches the operator's structural constraints.
 - Relevant tests, linters, validation commands, or smoke checks have run and their outputs are available.

@@ -1,0 +1,150 @@
+"""Shared, concurrently-claimable task list for an agent team.
+
+All mutating ops take an exclusive flock on ``.tasks.lock`` and persist
+each task as ``tasks/<task_id>.json`` via atomic write. Claiming is a
+compare-and-set (state must be ``pending`` and every dep ``done``) so two
+teammates can never own the same task.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from . import _store
+
+STATES = ("pending", "claimed", "running", "done", "failed")
+
+
+def _tasks_dir(root: Path) -> Path:
+    return Path(root) / "tasks"
+
+
+def _lock(root: Path) -> Path:
+    return Path(root) / ".tasks.lock"
+
+
+def _path(root: Path, task_id: str) -> Path:
+    return _tasks_dir(root) / f"{task_id}.json"
+
+
+def _load_all(root: Path) -> list[dict[str, Any]]:
+    d = _tasks_dir(root)
+    if not d.exists():
+        return []
+    out = [_store.read_json(p, default=None) for p in sorted(d.glob("*.json"))]
+    return [t for t in out if isinstance(t, dict)]
+
+
+def form(root: Path, tasks: list[dict[str, Any]]) -> None:
+    """Create the task records for a team from a list of partial specs."""
+    for spec in tasks:
+        task = {
+            "task_id": spec["task_id"],
+            "title": spec.get("title", ""),
+            "objective": spec.get("objective", ""),
+            "owns_paths": list(spec.get("owns_paths", [])),
+            "deps": list(spec.get("deps", [])),
+            "state": "pending",
+            "owner": "",
+            "result_shard": spec.get("result_shard", ""),
+            "reason": "",
+            "claim_ts": 0.0,
+            "heartbeat_ts": 0.0,
+            "attempts": 0,
+        }
+        _store.atomic_write_json(_path(root, task["task_id"]), task)
+
+
+def _done_ids(tasks: list[dict[str, Any]]) -> set[str]:
+    return {t["task_id"] for t in tasks if t["state"] == "done"}
+
+
+def claim(root: Path, member_id: str, *, now: float) -> dict[str, Any] | None:
+    """Atomically claim the first pending task whose deps are all done."""
+    with _store.locked(_lock(root)):
+        tasks = _load_all(root)
+        done = _done_ids(tasks)
+        for task in sorted(tasks, key=lambda t: t["task_id"]):
+            if task["state"] != "pending":
+                continue
+            if not all(dep in done for dep in task["deps"]):
+                continue
+            task["state"] = "claimed"
+            task["owner"] = member_id
+            task["claim_ts"] = now
+            task["heartbeat_ts"] = now
+            _store.atomic_write_json(_path(root, task["task_id"]), task)
+            return task
+    return None
+
+
+def claim_specific(root: Path, task_id: str, member_id: str, *, now: float) -> dict[str, Any] | None:
+    """Atomically claim a SPECIFIC task for ``member_id`` (only if pending + deps done).
+
+    Spawn uses this so parallel teammates each claim their OWN assigned task and
+    never cross member IDs the way the next-pending ``claim()`` can under a race.
+    """
+    with _store.locked(_lock(root)):
+        task = _store.read_json(_path(root, task_id), default=None)
+        if not isinstance(task, dict) or task["state"] != "pending":
+            return None
+        if not all(dep in _done_ids(_load_all(root)) for dep in task["deps"]):
+            return None
+        task["state"] = "claimed"
+        task["owner"] = member_id
+        task["claim_ts"] = now
+        task["heartbeat_ts"] = now
+        _store.atomic_write_json(_path(root, task_id), task)
+        return task
+
+
+def heartbeat(root: Path, task_id: str, *, now: float) -> None:
+    """Refresh liveness; first heartbeat promotes ``claimed`` -> ``running``."""
+    with _store.locked(_lock(root)):
+        task = _store.read_json(_path(root, task_id), default=None)
+        if not isinstance(task, dict):
+            return
+        task["heartbeat_ts"] = now
+        if task["state"] == "claimed":
+            task["state"] = "running"
+        _store.atomic_write_json(_path(root, task_id), task)
+
+
+def _mutate(root: Path, task_id: str, **changes: Any) -> None:
+    with _store.locked(_lock(root)):
+        task = _store.read_json(_path(root, task_id), default=None)
+        if not isinstance(task, dict):
+            return
+        task.update(changes)
+        _store.atomic_write_json(_path(root, task_id), task)
+
+
+def complete(root: Path, task_id: str, *, shard: str = "") -> None:
+    _mutate(root, task_id, state="done", result_shard=shard)
+
+
+def fail(root: Path, task_id: str, *, reason: str = "") -> None:
+    _mutate(root, task_id, state="failed", reason=reason)
+
+
+def reassign_stale(root: Path, *, ttl: float, now: float) -> list[str]:
+    """Return claimed/running tasks whose heartbeat aged past ``ttl`` to pending."""
+    reassigned: list[str] = []
+    with _store.locked(_lock(root)):
+        for task in _load_all(root):
+            if task["state"] in ("claimed", "running") and now - task["heartbeat_ts"] > ttl:
+                task["state"] = "pending"
+                task["owner"] = ""
+                task["attempts"] = int(task.get("attempts", 0)) + 1
+                _store.atomic_write_json(_path(root, task["task_id"]), task)
+                reassigned.append(task["task_id"])
+    return reassigned
+
+
+def all_done(root: Path) -> bool:
+    tasks = _load_all(root)
+    return bool(tasks) and all(t["state"] == "done" for t in tasks)
+
+
+def snapshot(root: Path) -> list[dict[str, Any]]:
+    return _load_all(root)

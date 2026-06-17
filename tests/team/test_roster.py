@@ -1,0 +1,37 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from argus_skill.team import roster as rs
+
+
+def test_create_and_add_member(tmp_path: Path) -> None:
+    rs.create(tmp_path, team_id="t1", mission="optimize kernels", lead="lead", now=1.0)
+    rs.add_member(tmp_path, {"id": "tm-1", "pid": 111, "worktree": "wt/tm-1",
+                             "task_id": "a", "status": "running", "heartbeat_ts": 1.0})
+    doc = rs.load(tmp_path)
+    assert doc["team_id"] == "t1" and doc["lead"] == "lead"
+    assert [m["id"] for m in rs.members(tmp_path)] == ["tm-1"]
+
+
+def test_add_member_replaces_same_id(tmp_path: Path) -> None:
+    rs.create(tmp_path, team_id="t1", mission="m", lead="lead", now=1.0)
+    rs.add_member(tmp_path, {"id": "tm-1", "status": "running", "heartbeat_ts": 1.0})
+    rs.add_member(tmp_path, {"id": "tm-1", "status": "running", "heartbeat_ts": 2.0, "pid": 9})
+    assert len(rs.members(tmp_path)) == 1
+    assert rs.members(tmp_path)[0]["pid"] == 9
+
+
+def test_mark_updates_status_and_heartbeat(tmp_path: Path) -> None:
+    rs.create(tmp_path, team_id="t1", mission="m", lead="lead", now=1.0)
+    rs.add_member(tmp_path, {"id": "tm-1", "status": "running", "heartbeat_ts": 1.0})
+    rs.mark(tmp_path, "tm-1", status="idle", now=9.0)
+    m = rs.members(tmp_path)[0]
+    assert m["status"] == "idle" and m["heartbeat_ts"] == 9.0
+
+
+def test_stale_members(tmp_path: Path) -> None:
+    rs.create(tmp_path, team_id="t1", mission="m", lead="lead", now=1.0)
+    rs.add_member(tmp_path, {"id": "tm-1", "status": "running", "heartbeat_ts": 1.0})
+    rs.add_member(tmp_path, {"id": "tm-2", "status": "running", "heartbeat_ts": 100.0})
+    assert rs.stale_members(tmp_path, ttl=10.0, now=50.0) == ["tm-1"]

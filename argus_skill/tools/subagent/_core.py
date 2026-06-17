@@ -1191,16 +1191,34 @@ def _persist_experiment_record(
         pass
 
 
-def _open_discussion_blockers() -> list[dict[str, Any]]:
+def _lane_of(task_id: str | None) -> str | None:
+    """Team lane encoded as a ``<lane>::<id>`` task-id prefix, else None.
+
+    Teammates in an agent team submit subagent tasks under a per-team lane so a
+    parked discussion in one lane never blocks submits in another. Legacy task
+    ids (no ``::``) carry no lane and keep the global behaviour.
+    """
+    if task_id and "::" in task_id:
+        return task_id.split("::", 1)[0]
+    return None
+
+
+def _open_discussion_blockers(lane: str | None = None) -> list[dict[str, Any]]:
     """Tasks with a LIVE parked supervisor still waiting on the engineer.
 
     Liveness uses worker_pid-alive AND a fresh heartbeat (not pid alone), so a
     hung or dead supervisor, or PID reuse, never wedges new launches forever.
+
+    When ``lane`` is given, only tasks in that lane are considered, so an agent
+    team's parked teammate blocks only its own lane. ``lane=None`` scans every
+    task (legacy global behaviour, preserved for non-team submits).
     """
     blockers: list[dict[str, Any]] = []
     now = time.time()
     for t in _list_tasks():
         if t.get("state") != "discussing":
+            continue
+        if lane is not None and _lane_of(t.get("task_id")) != lane:
             continue
         # The liveness pid for a parked discussion is the WORKER (the forked
         # process running the discussion loop), never the killed experiment pid —

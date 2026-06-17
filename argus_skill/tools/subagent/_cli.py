@@ -64,7 +64,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
     # `reply` command is never blocked. A stale/dead supervisor does not wedge
     # this (liveness = live pid + fresh heartbeat). Break-glass: --override-discussion.
     override = getattr(args, "override_discussion", None)
-    blockers = _open_discussion_blockers()
+    blockers = _open_discussion_blockers(_core._lane_of(getattr(args, "task_id", None)))
     if blockers and not override:
         b = blockers[0]
         rd = b.get("run_dir")
