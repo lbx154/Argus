@@ -214,7 +214,7 @@ The headline run must actually *use* the machine.
    - **Feed all tasks at once** and let vLLM batch them; never loop one prompt at
      a time with a fresh engine. Submit the whole prompt set and stream results.
    These are defaults to set deliberately per run; if a seeded helper
-   (`code/run_benchmark_condition.py` or similar) hard-codes a low
+   (`code/run_condition.py` or similar) hard-codes a low
    `gpu_memory_utilization` / `max_num_seqs`, raise the defaults or pass larger
    values rather than inheriting the trickle.
 5. **Verify, don't assume.** While the run is live, check actual utilization

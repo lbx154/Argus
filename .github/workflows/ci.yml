@@ -40,9 +40,6 @@ jobs:
       - name: Run bytecode check
         run: python -m compileall -q argus_skill tests
 
-      - name: Run benchmark results validator
-        run: python -m benchmarks.validate_results benchmarks/results
-
       - name: Run CLI smoke check
         run: python -m argus_skill --help >/dev/null
 

@@ -27,8 +27,12 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.stage_checklists import format_full_pipeline_checklist
-from argus_skill.skills.vertical_select import classify_vertical, resolve_vertical
+from argus_skill.skills.stage_checklists import current_stage, format_full_pipeline_checklist
+from argus_skill.skills.vertical_select import (
+    classify_vertical,
+    persist_vertical,
+    resolve_vertical,
+)
 from argus_skill.verticals.speedrun.stages import role_banner as speedrun_role_banner
 
 RESEARCH_STAGES: tuple[str, ...] = (
@@ -91,6 +95,45 @@ def test_classify_routes_per_task_verticals() -> None:
         classify_vertical("maximize SOL score for the kernelbench cuda kernels")
         == "kernelbench"
     )
+    assert (
+        classify_vertical(
+            "maximize speedup over PyTorch eager for one B200 GPU kernel with a correctness scorer"
+        )
+        == "kernelbench"
+    )
+
+
+def test_kernelbench_keeps_research_as_valid_benchmark_research_stage(tmp_path: Path) -> None:
+    root = _project(tmp_path, "kernelbench", current="research")
+
+    persist_vertical(root, "kernelbench")
+
+    payload = json.loads((root / "research" / "PIPELINE_STATE.json").read_text())
+    assert payload["vertical"] == "kernelbench"
+    assert payload["current_stage"] == "research"
+    assert current_stage(root) == "research"
+
+
+def test_kernelbench_research_checklist_is_not_paper_literature_gate(tmp_path: Path) -> None:
+    root = _project(tmp_path, "kernelbench", current="research")
+
+    text = format_full_pipeline_checklist(role="reviewer", project_root=root)
+
+    assert "### research" in text
+    assert "SOTA-oriented technique research" in text
+    assert "research.first_score_plan" in text
+    assert "at least 10 recent high-quality papers" not in text
+
+
+def test_kernelbench_reviewer_skill_paths_exist() -> None:
+    from argus_skill.verticals.kernelbench.stages import REVIEWER_CHECKLISTS
+
+    builtin_root = Path(__file__).resolve().parents[2] / "argus_skill" / "builtin_skills"
+    missing = []
+    for stage, (skill_path, _instructions, _files) in REVIEWER_CHECKLISTS.items():
+        if not (builtin_root / skill_path).exists():
+            missing.append(f"{stage}: {skill_path}")
+    assert missing == []
 
 
 def test_classify_paper_objective_is_research() -> None:

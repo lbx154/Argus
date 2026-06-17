@@ -286,6 +286,7 @@ class _MemoryRunner:
         self,
         *,
         objective: str,
+        original_objective: str = "",
         sink: EventSink,
         preload_injects: list[str] | None = None,
         prelude_context: str = "",
@@ -515,6 +516,7 @@ class _CodexSkillLoopRunner:
         self,
         *,
         objective: str,
+        original_objective: str = "",
         sink: EventSink,
         preload_injects: list[str] | None = None,
         prelude_context: str = "",
@@ -572,21 +574,6 @@ class _CodexSkillLoopRunner:
         # (`bwrap: Can't create file at /.codex: Permission denied`).
         # Operators can opt back into sandbox via ARGUS_SKILL_SAFE_MODE=1.
         safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
-        benchmark_mode = _env_flag("ARGUS_SKILL_BENCHMARK_MODE", False)
-        benchmark_verifier_gate = _env_flag(
-            "ARGUS_SKILL_BENCHMARK_VERIFIER_GATE", False
-        )
-        if benchmark_mode and (
-            benchmark_verifier_gate
-            or _env_flag("ARGUS_SKILL_NO_REVIEWER", False)
-        ):
-            return self._benchmark_direct_execute(
-                objective=objective,
-                sink=sink,
-                prelude_context=prelude_context,
-                seed_thread_id=seed_thread_id,
-                safe_mode=safe_mode,
-            )
         config_kwargs = {
             "scientist_model": args.scientist_model,
             "engineer_model": args.engineer_model,
@@ -608,15 +595,15 @@ class _CodexSkillLoopRunner:
             "check_commands": list(getattr(args, "check_commands", []) or []),
             "skill_writeback": _env_flag(
                 "ARGUS_SKILL_SKILL_WRITEBACK",
-                default=not benchmark_mode,
+                default=True,
             ),
             "distill_on_miss": _env_flag(
                 "ARGUS_SKILL_DISTILL_ON_MISS",
-                default=not benchmark_mode,
+                default=True,
             ),
             "skill_revise_on_failure": _env_flag(
                 "ARGUS_SKILL_SKILL_REVISE_ON_FAILURE",
-                default=not benchmark_mode,
+                default=True,
             ),
             "dangerous_yolo": not safe_mode,
             "full_auto": safe_mode,
@@ -754,6 +741,7 @@ class _CodexSkillLoopRunner:
                 full_task, workdir=workdir, seed_thread_id=seed,
                 failed_tool_ledger=ledger,
                 objective_for_skill=objective,
+                original_objective=original_objective or objective,
                 scope=mission_scope,
             )
         finally:
@@ -812,118 +800,6 @@ class _CodexSkillLoopRunner:
             final_submission_certified=final_submission_certified,
             completion_evidence=completion_evidence,
             planner_report=planner_report,
-        )
-
-    def _benchmark_direct_execute(
-        self,
-        *,
-        objective: str,
-        sink: EventSink,
-        prelude_context: str = "",
-        seed_thread_id: str | None = None,
-        safe_mode: bool = False,
-    ) -> _Outcome:
-        """Run one prompt-only benchmark turn and leave correctness to the verifier."""
-        from ...core.models import RunnerOptions
-
-        args = self._args
-        seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
-        workdir = (
-            Path(args.workdir).expanduser() if args.workdir else Path.cwd()
-        )
-        guidance = ""
-        if _env_flag("ARGUS_SKILL_BENCHMARK_TERSE", False):
-            guidance = (
-                "## Benchmark lean-mode instructions\n"
-                "- Solve the task autonomously in one engineer turn.\n"
-                "- The official verifier will judge correctness; do not run an internal review.\n"
-                "- Minimize narration and final prose. Prefer concise progress, batched shell commands, and stop after the required artifact is produced and self-checked.\n"
-            )
-        parts = [part for part in (prelude_context, guidance, f"## Live objective\n{objective}") if part]
-        prompt = "\n---\n".join(parts)
-
-        sink.handle_event({
-            "type": "loop.start",
-            "text": f"benchmark-direct: {objective[:80]}",
-            "benchmark_mode": True,
-        })
-        sink.handle_event({
-            "type": "round.start",
-            "round": 1,
-            "round_max": 1,
-            "text": "engineer round 1 (benchmark direct)",
-        })
-
-        self._current_sink = sink
-        self._current_failure_ledger = None
-        try:
-            result = self._backend.run_exec(
-                prompt=prompt,
-                options=RunnerOptions(
-                    model=args.engineer_model,
-                    reasoning_effort=getattr(args, "engineer_reasoning_effort", None),
-                    full_auto=safe_mode,
-                    skip_git_repo_check=True,
-                    dangerous_yolo=not safe_mode,
-                    working_dir=str(workdir),
-                ),
-                run_label="benchmark-engineer-r1",
-                resume_thread_id=seed,
-            )
-        finally:
-            self._current_sink = None
-
-        last_msg = (result.last_agent_message or "").strip()
-        new_tid = getattr(result, "thread_id", None)
-        round_thread_id = new_tid or seed
-        status = "error" if getattr(result, "exit_code", 0) != 0 else "done"
-        if should_clear_thread_id_after_outcome(
-            status=status,
-            fatal_error=str(getattr(result, "fatal_error", "") or ""),
-        ):
-            self.last_thread_id = None
-            self._next_seed_thread_id = None
-            new_tid = None
-        elif new_tid:
-            self.last_thread_id = new_tid
-            self._next_seed_thread_id = new_tid
-
-        sink.handle_event({
-            "type": "round.main.completed",
-            "round_index": 1,
-            "round_max": 1,
-            "session_id": round_thread_id,
-            "exit_code": getattr(result, "exit_code", 0),
-            "fatal_error": getattr(result, "fatal_error", None),
-            "last_message": last_msg,
-            "input_tokens": int(getattr(result, "input_tokens", 0) or 0),
-            "cached_input_tokens": int(
-                getattr(result, "cached_input_tokens", 0) or 0
-            ),
-            "output_tokens": int(getattr(result, "output_tokens", 0) or 0),
-            "usage_scope": "delta",
-        })
-
-        fatal = getattr(result, "fatal_error", None)
-        success = (result.exit_code == 0) and not fatal
-        status = "done" if success else "error"
-        stop_reason = "benchmark_direct" if success else (
-            str(fatal) if fatal else f"exit={result.exit_code}"
-        )
-        auth_fail = getattr(self._backend, "_auth_failure_detected", False)
-        if auth_fail:
-            self._backend._auth_failure_detected = False
-        sink.handle_event({
-            "type": "loop.done",
-            "text": f"status={status} rounds=1 (benchmark direct)",
-        })
-        return _Outcome(
-            success=success,
-            status=status,
-            stop_reason=stop_reason,
-            rounds=1,
-            last_thread_id=new_tid,
-            auth_failure=auth_fail,
         )
 
     def _chat_quick_reply(
@@ -1038,4 +914,3 @@ class _CodexSkillLoopRunner:
             chat_mode=True,
             auth_failure=auth_fail,
         )
-

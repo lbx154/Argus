@@ -18,7 +18,11 @@ reviewer's objective framing are TIME-to-target, not val_bpb.
 """
 from __future__ import annotations
 
-from ..speedrun.stages import _PIPELINE_CHECK  # shared "pipeline state present" check
+from ..speedrun.stages import (  # shared speedrun checklist + pipeline check
+    _PIPELINE_CHECK,
+    CHECKLIST_ITEMS,
+    CHECKLIST_STAGE_ORDER,
+)
 
 STAGE_ORDER = ["setup", "optimize", "measure", "report"]
 
@@ -121,5 +125,6 @@ def role_banner(role: str) -> str:
 
 __all__ = [
     "STAGE_ORDER", "STAGE_CHECKS", "REVIEWER_CHECKLISTS",
+    "CHECKLIST_STAGE_ORDER", "CHECKLIST_ITEMS",
     "completion_gate", "role_banner",
 ]

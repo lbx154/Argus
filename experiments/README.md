@@ -10,4 +10,5 @@ Contract:
 - `stdout.log` and `stderr.log` capture the run output
 - `status.json` records launch/running/completed state
 
-Launch new runs through the Harbor adapter (`benchmarks/harbor_adapter.py`).
+Launch new runs through the project-specific runner or subagent that owns the
+experiment, and keep the bundle self-contained.

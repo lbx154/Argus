@@ -799,13 +799,17 @@ class LifeWorker:
         from ..life.activity_log import ActivityLogSink
         from ..life.event_log import JsonlEventSink
 
-        # Telegram live-streaming reporter (daemon thread)
+        # Telegram live-streaming reporter (daemon thread). Disabled unless
+        # ARGUS_SKILL_ENABLE_TELEGRAM=1 so stale bot tokens do not spam chats.
         stream_reporter = None
         try:
-            from ..life.notify import TelegramStreamReporter
-            stream_reporter = TelegramStreamReporter(stop_event=self._stop)
-            stream_reporter.start()
-            log.info("telegram stream reporter started")
+            from ..life.notify import TelegramStreamReporter, telegram_enabled
+            if telegram_enabled():
+                stream_reporter = TelegramStreamReporter(stop_event=self._stop)
+                stream_reporter.start()
+                log.info("telegram stream reporter started")
+            else:
+                log.info("telegram stream reporter disabled")
         except Exception:  # noqa: BLE001
             log.debug("telegram stream reporter unavailable; continuing")
 
@@ -915,14 +919,17 @@ class LifeWorker:
         # debug ever needed; default sink emits to log.
         del LifeStderrSink
 
-        # Start the Telegram inbound command poller (daemon thread — dies
-        # with the process). Accepts /add, /status, /nudge, /start, /stop.
+        # Start the Telegram inbound command poller only when explicitly enabled.
         try:
-            from ..life.telegram_bot import TelegramPoller
-            tg_poller = TelegramPoller(
-                life_dir=runtime_root, stop_event=self._stop,
-            )
-            tg_poller.start()
+            from ..life.notify import telegram_enabled
+            if telegram_enabled():
+                from ..life.telegram_bot import TelegramPoller
+                tg_poller = TelegramPoller(
+                    life_dir=runtime_root, stop_event=self._stop,
+                )
+                tg_poller.start()
+            else:
+                log.info("telegram poller disabled")
         except Exception:  # noqa: BLE001
             log.exception("daemon: failed to start telegram poller; continuing")
 

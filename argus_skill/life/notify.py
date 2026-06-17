@@ -13,8 +13,8 @@ three optional channels:
 * ``ARGUS_SKILL_NOTIFY_CMD``: shell command that gets the same JSON on
   stdin. Operators can wire ``mail``, ``notify-send``, ``pagerduty``,
   custom scripts, etc.
-* ``ARGUS_SKILL_TELEGRAM_BOT_TOKEN`` + ``ARGUS_SKILL_TELEGRAM_CHAT_ID``:
-  sends formatted messages to a Telegram chat via the Bot API.
+* Telegram support is disabled by default. It is only used when
+  ``ARGUS_SKILL_ENABLE_TELEGRAM=1`` is set alongside the bot token/chat id.
 
 All are best-effort: any failure is logged at WARNING and dropped on
 the floor so the supervisor never crashes because of a flaky pager.
@@ -47,6 +47,21 @@ DEFAULT_NOTIFY_KINDS = frozenset({
     "planner_done",
     "phase_change",
 })
+
+
+def telegram_enabled() -> bool:
+    """Return True only when Telegram is explicitly opted in.
+
+    Bot tokens often linger in operator shells. The daemon must not start
+    Telegram pollers or send Telegram messages just because those env vars
+    exist; Argustest uses the dashboard/events as the default observability path.
+    """
+    return (os.environ.get("ARGUS_SKILL_ENABLE_TELEGRAM") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def dispatch_journal_entry(entry: Any, *, kinds: frozenset[str] = DEFAULT_NOTIFY_KINDS) -> None:
@@ -306,6 +321,8 @@ def _format_planner_details(lines: list[str], summary: str) -> None:
 
 
 def _post_telegram(payload: dict[str, Any]) -> None:
+    if not telegram_enabled():
+        return
     token = (os.environ.get("ARGUS_SKILL_TELEGRAM_BOT_TOKEN") or "").strip()
     chat_id = (os.environ.get("ARGUS_SKILL_TELEGRAM_CHAT_ID") or "").strip()
     if not token or not chat_id:
@@ -812,7 +829,7 @@ class TelegramStreamReporter:
         self._event_count: int = 0
         self._last_flush_monotonic: float = 0.0
         self._thread: _threading.Thread | None = None
-        self._enabled = bool(self._token and self._chat_id)
+        self._enabled = telegram_enabled() and bool(self._token and self._chat_id)
 
     # -- public API (called from event thread) ----------------------------
 
@@ -1183,4 +1200,9 @@ class TelegramStreamReporter:
             pass
 
 
-__all__ = ["dispatch_journal_entry", "DEFAULT_NOTIFY_KINDS", "TelegramStreamReporter"]
+__all__ = [
+    "dispatch_journal_entry",
+    "DEFAULT_NOTIFY_KINDS",
+    "TelegramStreamReporter",
+    "telegram_enabled",
+]

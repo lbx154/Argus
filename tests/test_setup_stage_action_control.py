@@ -7,7 +7,6 @@ gate. The rule is GENERAL (keyed on the stage name, not on any task).
 """
 from __future__ import annotations
 
-from argus_skill import loop as loop_mod
 from argus_skill.loop import SkillLoop
 
 

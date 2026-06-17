@@ -133,6 +133,7 @@ class Reviewer:
         self,
         *,
         objective: str,
+        original_objective: str | None = None,
         operator_messages: list[str] | None = None,
         round_index: int,
         session_id: str | None,
@@ -152,6 +153,7 @@ class Reviewer:
     ) -> ReviewDecision:
         prompt = self._build_prompt(
             objective=objective,
+            original_objective=original_objective or objective,
             operator_messages=operator_messages or [],
             planner_review_instruction=planner_review_instruction,
             round_index=round_index,
@@ -262,6 +264,7 @@ class Reviewer:
         self,
         *,
         objective: str,
+        original_objective: str = "",
         operator_messages: list[str],
         planner_review_instruction: str,
         round_index: int,
@@ -801,7 +804,10 @@ class Reviewer:
             "   scope metadata, do not require the full pipeline checklist; judge\n"
             "   the bounded task by its own acceptance criteria and the relevant\n"
             "   per-stage checklist items.\n\n"
-            f"Objective:\n{objective}\n\n"
+            "Original operator request (immutable anchor):\n"
+            f"{(original_objective or objective).strip()}\n\n"
+            "Current mission objective (may include planner/prelude context):\n"
+            f"{objective}\n\n"
             "Operator message history (source of truth for user instructions):\n"
             f"{operator_text}\n\n"
             "Planner guidance for this review:\n"
@@ -830,8 +836,8 @@ def _format_engineer_shared_context(
 ) -> str:
     """Render the read-only shared context block injected into reviewer prompts.
 
-    Mirrors :func:`argus_skill.mission.reviewer._format_shared_context`
-    so the two reviewer surfaces stay aligned.
+    Keep this renderer stable because the same block is consumed across
+    engineer/reviewer round boundaries.
     """
     skill = (skill_used or "").strip()
     reasoning = (engineer_reasoning_summary or "").strip()

@@ -81,7 +81,6 @@ extend-exclude = [
   ".venv",
   "argus/app",
   "codex/app",
-  "benchmarks/swebench_pro",
   "pyknotid-scratch",
 ]
 
@@ -108,7 +107,7 @@ filterwarnings = [
 
 [tool.mypy]
 python_version = "3.11"
-exclude = '''^(?:benchmarks|build|dist|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.venv|argus/app|codex/app|pyknotid-scratch)(?:/|$)'''
+exclude = '''^(?:build|dist|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.venv|argus/app|codex/app|pyknotid-scratch)(?:/|$)'''
 files = [
   "argus_skill",
   "tests",

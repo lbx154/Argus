@@ -105,7 +105,7 @@ def _normalize_stage(stage: object) -> str:
 
 
 def _state_path(project_root: object) -> Path:
-    return Path(project_root).joinpath(*_STATE_RELPATH)
+    return Path(str(project_root)).joinpath(*_STATE_RELPATH)
 
 
 def _persisted_vertical(project_root: object) -> str | None:
@@ -161,6 +161,7 @@ _SPEEDRUN_SIGNALS: tuple[str, ...] = (
     "bpb",
     "score",
     "metric",
+    "speedup",
     "eval_solution",
     "train.py",
     "benchmark score",
@@ -210,8 +211,22 @@ def _route_optimize_vertical(text: object) -> str:
     falls back to the generic ``"speedrun"`` vertical.
     """
     t = text.lower() if isinstance(text, str) else ""
-    if any(k in t for k in ("kernelbench", "sol-exec", "sol_exec",
-                            "speed-of-light", "speed of light", " sol ", ".cu")):
+    if any(k in t for k in (
+        "kernelbench",
+        "sol-exec",
+        "sol_exec",
+        "speed-of-light",
+        "speed of light",
+        " sol ",
+        "sol score",
+        "gpu kernel",
+        "cuda kernel",
+        "kernel optimization",
+        "torch eager",
+        "eager_time",
+        "b200",
+        ".cu",
+    )):
         return "kernelbench"
     if any(k in t for k in ("nanogpt", "modded-nanogpt", "val_loss", "3.28",
                             "speedrun", "wall-clock", "wall clock",
@@ -270,7 +285,10 @@ def classify_vertical(
         from ..core.models import RunnerOptions
 
         prompt = _LLM_CLASSIFY_PROMPT.format(objective=str(objective))
-        result = runner.run_exec(
+        run_exec = getattr(runner, "run_exec", None)
+        if not callable(run_exec):
+            return _heuristic_classify(objective)
+        result = run_exec(
             prompt=prompt,
             options=RunnerOptions(full_auto=True),
             run_label="vertical-classify",

@@ -843,6 +843,7 @@ class SupervisedEngineer:
         self,
         *,
         objective: str,
+        original_objective: str | None = None,
         engineer_prompt_builder: Callable[[str | None], str],
         supervised_config: SupervisedConfig,
         workdir: Path,
@@ -1258,6 +1259,7 @@ class SupervisedEngineer:
             try:
                 review = self.reviewer.evaluate(
                     objective=objective,
+                    original_objective=original_objective or objective,
                     round_index=round_index,
                     session_id=supervised_config.session_id,
                     main_summary=engineer_message or "(no message)",

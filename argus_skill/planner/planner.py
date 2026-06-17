@@ -787,7 +787,9 @@ class Planner:
             + wiki_block
             + ("\n" if wiki_block else "")
             + _PLANNER_SYSTEM_PREAMBLE
-            + "\n\nOperator's continuous goal:\n"
+            + "\n\nOriginal operator request (immutable anchor):\n"
+            + continuous_objective.strip()
+            + "\n\nOperator's continuous goal (do not mutate the anchor above):\n"
             + continuous_objective.strip()
             + "\n\nJournal of completed work (most recent last):\n"
             + (journal_tail.strip() or "(no completed work yet — this is the first cycle)")

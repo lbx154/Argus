@@ -185,10 +185,10 @@ class _MissionRunner(Protocol):
         self,
         *,
         objective: str,
+        original_objective: str = "",
         sink: EventSink,
         preload_injects: list[str] | None = None,
         prelude_context: str = "",
         scope: str = "",
     ) -> Any:  # MissionOutcome
         raise NotImplementedError
-

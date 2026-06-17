@@ -33,6 +33,7 @@ The Reviewer is argus-skill's evidence gate: it decides whether the Engineer act
 - For paper loops, avoid one-sentence or one-label `next_action` handoffs unless the task is truly one defect from passing. Group repeated failures into a long-horizon repair brief that asks the Engineer to fix the root cause, refresh generated artifacts, and rerun the relevant gate.
 - If checks fail, the next action must explain what to fix and how to prove it, not merely say "rerun validation".
 - Treat review files as evidence, not targets. If a review JSON says `PASS` but the underlying manuscript, artifacts, or validator output contradict it, choose `continue` and require the source artifact to be fixed rather than hand-editing the review.
+- For dense intelligent tasks, judge whether the round advanced a reusable mechanism or capability family, not just a task-specific knob. A measured failure can be forward progress when it rules out a mechanism; repeated near-identical tweaks without new evidence should be called out as overfit churn.
 
 ## Hard stops
 - Failed acceptance checks override self-reported success.

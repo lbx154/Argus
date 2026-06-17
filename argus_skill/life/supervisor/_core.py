@@ -303,15 +303,18 @@ class LifeSupervisor:
         return Path.cwd()
 
     def _current_pipeline_stage(self) -> str | None:
-        """Read current_stage from PIPELINE_STATE.json, or None if unavailable."""
+        """Read current stage through the active vertical contract.
+
+        Do not trust raw ``PIPELINE_STATE.current_stage`` blindly: a project can
+        carry ``vertical=kernelbench`` with a stale paper stage like
+        ``research``. The stage-checklist helper clamps that to the vertical's
+        first valid stage (``setup`` for kernelbench/speedrun).
+        """
         try:
             root = self._planner_workdir()
-            state_path = root / "research" / "PIPELINE_STATE.json"
-            if not state_path.exists():
-                return None
-            import json as _json
-            data = _json.loads(state_path.read_text(encoding="utf-8"))
-            return data.get("current_stage")
+            from ...skills.stage_checklists import current_stage
+
+            return current_stage(root)
         except Exception:  # noqa: BLE001
             return None
 
@@ -1160,12 +1163,26 @@ class LifeSupervisor:
         exc_str: str | None = None
         t0 = time.time()
         try:
-            outcome = self.runner.execute(
-                objective=item.objective,
-                sink=cost_sink,
-                prelude_context=prelude,
-                scope=self._planner_scope_from_item(item),
+            execute_kwargs: dict[str, Any] = {
+                "objective": item.objective,
+                "sink": cost_sink,
+                "prelude_context": prelude,
+                "scope": self._planner_scope_from_item(item),
+            }
+            original_objective = (
+                getattr(item, "original_objective", "") or item.objective
             )
+            try:
+                from inspect import Parameter, signature
+
+                params = signature(self.runner.execute).parameters
+                if "original_objective" in params or any(
+                    p.kind == Parameter.VAR_KEYWORD for p in params.values()
+                ):
+                    execute_kwargs["original_objective"] = original_objective
+            except (TypeError, ValueError):
+                execute_kwargs["original_objective"] = original_objective
+            outcome = self.runner.execute(**execute_kwargs)
         except Exception as exc:  # noqa: BLE001
             exc_str = f"{type(exc).__name__}: {exc}"
             log.exception("life supervisor: mission raised")
@@ -1948,7 +1965,18 @@ class LifeSupervisor:
         # research / speedrun) sticky across restarts.
         try:
             from ...skills import vertical_select as _vsel
-            if _vsel._persisted_vertical(self._planner_workdir()) is not None:
+            workdir = self._planner_workdir()
+            persisted = _vsel._persisted_vertical(workdir)
+            if persisted is not None:
+                # Trust the persisted vertical, but still normalize stale stages
+                # (e.g. vertical=kernelbench with current_stage=research).
+                _vsel.persist_vertical(workdir, persisted)
+                self._emit({
+                    "type": "life.vertical.resolved",
+                    "vertical": persisted,
+                    "profile_hint": "persisted",
+                    "agent_layer": "planner",
+                })
                 return
         except Exception:  # noqa: BLE001 — never crash bootstrap on this check
             pass

@@ -137,9 +137,8 @@ class ReviewDecision:
     # round errored before a verdict (runner then keeps the prior checkpoint).
     checkpoint: dict[str, Any] = field(default_factory=dict)
     # Side-channel: token usage of the reviewer subprocess that produced
-    # this decision. Populated by ``MissionReviewer.evaluate``; used by
-    # benchmarks/runners to compute USD cost. Not part of the reviewer's
-    # semantic output — paper analytics only.
+    # this decision. Populated by ``Reviewer.evaluate`` and consumed by
+    # telemetry/cost reporting. Not part of the reviewer's semantic output.
     input_tokens: int = 0
     cached_input_tokens: int = 0
     output_tokens: int = 0

@@ -682,7 +682,9 @@ class TelegramPoller:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.token and self.chat_id)
+        from .notify import telegram_enabled
+
+        return telegram_enabled() and bool(self.token and self.chat_id)
 
     def _message_allowed(self, msg: dict[str, Any]) -> bool:
         chat = msg.get("chat")
