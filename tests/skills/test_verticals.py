@@ -74,9 +74,23 @@ def test_resolve_env_overrides_state(
 # --- classify_vertical heuristic -------------------------------------------
 
 
-def test_classify_nanochat_objective_is_speedrun() -> None:
-    assert classify_vertical("lower the mean val_bpb on train.py under budget") == "speedrun"
+def test_classify_nanochat_objective_is_nanochat() -> None:
+    # A nanochat-specific objective (val_bpb) now routes to its OWN per-task
+    # vertical, not the generic speedrun (distinct Recursive tasks).
+    assert classify_vertical("lower the mean val_bpb on train.py under budget") == "nanochat"
+    # A generic optimize objective with no task-specific keyword still -> speedrun.
     assert classify_vertical("minimize the loss and beat the baseline score") == "speedrun"
+
+
+def test_classify_routes_per_task_verticals() -> None:
+    assert (
+        classify_vertical("minimize wall-clock time to val_loss 3.28 nanogpt speedrun on 8xH100")
+        == "nanogpt_speedrun"
+    )
+    assert (
+        classify_vertical("maximize SOL score for the kernelbench cuda kernels")
+        == "kernelbench"
+    )
 
 
 def test_classify_paper_objective_is_research() -> None:

@@ -1941,6 +1941,17 @@ class LifeSupervisor:
         # Flip the guard immediately: this runs once even if classification
         # below raises, so we never re-classify on later cycles.
         self._vertical_resolved = True
+        # If a known vertical is already persisted (an explicit prior resolution
+        # or an operator edit of research/PIPELINE_STATE.json), TRUST it — do NOT
+        # re-classify and overwrite it on every daemon restart. This makes a
+        # chosen per-task vertical (nanochat / nanogpt_speedrun / kernelbench /
+        # research / speedrun) sticky across restarts.
+        try:
+            from ...skills import vertical_select as _vsel
+            if _vsel._persisted_vertical(self._planner_workdir()) is not None:
+                return
+        except Exception:  # noqa: BLE001 — never crash bootstrap on this check
+            pass
         if not self.config.continuous_objective:
             return
         try:

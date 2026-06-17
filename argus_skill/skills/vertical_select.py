@@ -48,7 +48,16 @@ log = logging.getLogger(__name__)
 # --- constants -------------------------------------------------------------
 
 #: Known verticals. ``"research"`` is first and is the canonical default.
-VERTICALS: tuple[str, ...] = ("research", "speedrun")
+#: ``"speedrun"`` is the generic numeric-optimization vertical; the three
+#: per-task verticals below are the distinct Recursive "First Steps" tasks,
+#: each optimizing its OWN metric (so they are never conflated under speedrun):
+#:   nanochat         — Task 1: minimize val_bpb (300s, 1 GPU)
+#:   nanogpt_speedrun — Task 2: minimize wall-time to val_loss<=3.28 (8xH100)
+#:   kernelbench      — Task 3: maximize SOL score (B200 kernels)
+VERTICALS: tuple[str, ...] = (
+    "research", "speedrun",
+    "nanochat", "nanogpt_speedrun", "kernelbench",
+)
 
 #: The safe default vertical when intent is unclear or state is missing.
 DEFAULT_VERTICAL: str = "research"
@@ -189,8 +198,29 @@ def _heuristic_classify(objective: object) -> str:
     speedrun_hits = sum(1 for sig in _SPEEDRUN_SIGNALS if sig in text)
     research_hits = sum(1 for sig in _RESEARCH_SIGNALS if sig in text)
     if speedrun_hits >= 1 and speedrun_hits > research_hits:
-        return "speedrun"
+        return _route_optimize_vertical(text)
     return "research"
+
+
+def _route_optimize_vertical(text: object) -> str:
+    """Pick the SPECIFIC optimization vertical from objective keywords.
+
+    The three Recursive tasks share the lean optimize shape but optimize
+    DIFFERENT metrics, so route them apart. An unrecognised optimize objective
+    falls back to the generic ``"speedrun"`` vertical.
+    """
+    t = text.lower() if isinstance(text, str) else ""
+    if any(k in t for k in ("kernelbench", "sol-exec", "sol_exec",
+                            "speed-of-light", "speed of light", " sol ", ".cu")):
+        return "kernelbench"
+    if any(k in t for k in ("nanogpt", "modded-nanogpt", "val_loss", "3.28",
+                            "speedrun", "wall-clock", "wall clock",
+                            "time-to-target", "seconds to")):
+        return "nanogpt_speedrun"
+    if any(k in t for k in ("nanochat", "val_bpb", "bpb", "bits-per-byte",
+                            "bits per byte")):
+        return "nanochat"
+    return "speedrun"
 
 
 _LLM_CLASSIFY_PROMPT = (
@@ -247,7 +277,12 @@ def classify_vertical(
         )
         answer = _parse_llm_vertical(getattr(result, "last_agent_message", "") or "")
         if answer is not None:
-            return answer
+            # Specialize a generic "speedrun" verdict to the right per-task vertical.
+            return (
+                _route_optimize_vertical(str(objective))
+                if answer == "speedrun"
+                else answer
+            )
     except Exception:  # noqa: BLE001 — any failure degrades to the heuristic
         log.warning("LLM vertical classification failed; using heuristic", exc_info=True)
 
