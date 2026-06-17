@@ -365,6 +365,12 @@ def serve(port: int = 8787, roots: list[Path] | None = None) -> int:
         def log_message(self, *a):  # silence
             pass
 
+        def do_HEAD(self):  # noqa: N802 — let probes (curl -I, health checks) succeed
+            ctype = "application/json" if self.path.startswith("/data.json") else "text/html; charset=utf-8"
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.end_headers()
+
         def do_GET(self):  # noqa: N802
             if self.path.startswith("/data.json"):
                 payload = json.dumps(scrape_all(roots)).encode()
