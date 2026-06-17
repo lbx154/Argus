@@ -401,78 +401,173 @@ def serve(port: int = 8787, roots: list[Path] | None = None) -> int:
 
 # The page is served live and polls /data.json. Kept as a module constant so
 # the command has zero external asset dependencies.
-_DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+_DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Argus · live</title>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@300;400;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<title>Argus 工作台</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0a0a0a;--panel:rgba(255,255,255,.035);--panel2:rgba(255,255,255,.06);--line:rgba(255,255,255,.10);--ink:#f5f5f5;--muted:#8a8a8a;--dim:#5a5a5a;--gold:#e8c547;--cyan:#67e8c8;--red:#ff7766;--green:#8eda9d;--display:'Instrument Serif',Georgia,serif;--sans:'IBM Plex Sans',system-ui,sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace}
+:root{
+  --bg:#f4f7fc; --ink:#1a2942; --muted:#5b7090; --dim:#9aabc4;
+  --line:#dde6f3; --card:#ffffff; --soft:#eef3fb;
+  --blue:#2f6df0; --blue-d:#1c4fc0; --blue-soft:#e6efff;
+  --green:#27a567; --green-soft:#e3f6ec;
+  --amber:#e0930f; --amber-soft:#fbf0d8;
+  --red:#e0544e; --red-soft:#fbe5e4;
+  --sans:'Noto Sans SC',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
+}
 *{box-sizing:border-box;margin:0;padding:0}
-body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5;background:radial-gradient(60% 45% at 25% 0%,rgba(232,197,71,.10) 0%,transparent 70%),radial-gradient(55% 45% at 100% 25%,rgba(103,232,200,.09) 0%,transparent 70%),var(--bg);background-attachment:fixed}
-.wrap{max-width:1320px;margin:0 auto;padding:28px clamp(16px,3vw,40px) 80px}
-.hdr{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;margin-bottom:28px}
-.hdr h1{font-family:var(--display);font-style:italic;font-size:clamp(34px,4.5vw,58px);line-height:1;background:linear-gradient(120deg,#fff 30%,var(--gold) 60%,var(--cyan) 95%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.hdr .sub{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase;margin-top:6px}
-.hdr .meta{font-family:var(--mono);font-size:11px;color:var(--muted);text-align:right}
-.hdr .live{color:var(--green);animation:pulse 2.2s ease-in-out infinite}
-@keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
-.gpustrip{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:26px}
-.gpu{flex:1;min-width:170px;padding:12px 16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;font-family:var(--mono)}
-.gpu .top{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);text-transform:uppercase}
-.gpu .bar{height:6px;background:rgba(255,255,255,.08);border-radius:3px;margin-top:8px;overflow:hidden}
-.gpu .fill{height:100%;border-radius:3px;transition:width .6s}
-.gpu .nums{display:flex;justify-content:space-between;font-size:12px;margin-top:6px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:22px}
-@media (max-width:960px){.grid{grid-template-columns:1fr}}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;border-top:3px solid var(--cyan);padding:24px clamp(16px,2vw,28px);display:flex;flex-direction:column;gap:16px}
-.card.research{border-top-color:var(--gold)}
+body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;
+  background:radial-gradient(70% 50% at 50% -5%,#e9f1ff 0%,transparent 70%),var(--bg);background-attachment:fixed}
+.wrap{max-width:1240px;margin:0 auto;padding:30px clamp(16px,3vw,40px) 70px}
+/* 顶栏 */
+.hdr{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;margin-bottom:24px}
+.hdr h1{font-size:clamp(24px,3vw,34px);font-weight:700;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+.hdr h1 .logo{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--blue),#5b96ff);display:inline-block}
+.hdr .sub{font-size:13px;color:var(--muted);margin-top:2px;font-weight:400}
+.hdr .meta{font-size:12px;color:var(--muted);text-align:right;font-family:var(--mono)}
+.hdr .live{display:inline-flex;align-items:center;gap:5px;color:var(--green);font-weight:500}
+.hdr .live .dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
+/* 总览条 */
+.kpis{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px}
+.kpi{flex:1;min-width:120px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 18px;box-shadow:0 1px 3px rgba(30,60,120,.04)}
+.kpi .v{font-size:26px;font-weight:700;color:var(--blue-d)}
+.kpi .l{font-size:12px;color:var(--muted);margin-top:1px}
+/* GPU */
+.gpustrip{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px}
+.gpu{flex:1;min-width:200px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 18px;box-shadow:0 1px 3px rgba(30,60,120,.04)}
+.gpu .top{display:flex;justify-content:space-between;font-size:13px;font-weight:500}
+.gpu .top .pct{font-family:var(--mono)}
+.gpu .bar{height:8px;background:var(--soft);border-radius:5px;margin-top:9px;overflow:hidden}
+.gpu .fill{height:100%;border-radius:5px;transition:width .6s}
+.gpu .nums{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:6px;font-family:var(--mono)}
+/* 卡片 */
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media (max-width:920px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px clamp(16px,2vw,26px);
+  display:flex;flex-direction:column;gap:18px;box-shadow:0 2px 10px rgba(30,60,120,.05)}
 .chead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
-.chead h2{font-family:var(--display);font-style:italic;font-weight:400;font-size:clamp(20px,2.3vw,28px);line-height:1.1}
-.chead .vtag{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.1em;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--cyan)}
-.card.research .vtag{color:var(--gold)}
-.pidline{font-family:var(--mono);font-size:11px;color:var(--muted)}
-.pidline .ok{color:var(--green)}.pidline .dead{color:var(--red)}
-.pipe{display:flex;gap:5px;flex-wrap:wrap}
-.pipe .st{flex:1;min-width:48px;text-align:center;font-family:var(--mono);font-size:9.5px;text-transform:uppercase;padding:7px 3px;border-radius:7px;border:1px solid var(--line);color:var(--dim);background:rgba(255,255,255,.02)}
-.pipe .st.done{color:var(--green);border-color:rgba(142,218,157,.3);background:rgba(142,218,157,.06)}
-.pipe .st.running,.pipe .st.ready{color:var(--gold);border-color:rgba(232,197,71,.45);background:rgba(232,197,71,.08);animation:pulse 1.8s ease-in-out infinite}
-.pipe .st.blocked{color:var(--red);border-color:rgba(255,119,102,.4);background:rgba(255,119,102,.07)}
-.loop{display:flex;gap:8px;align-items:center;font-family:var(--mono);font-size:11px}
-.loop .ag{flex:1;text-align:center;padding:9px 4px;border-radius:8px;border:1px solid var(--line);color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
-.loop .ag.active{color:var(--ink);border-color:var(--cyan);background:rgba(103,232,200,.08);box-shadow:0 0 16px rgba(103,232,200,.15)}
-.loop .arr{color:var(--dim)}
+.chead h2{font-size:19px;font-weight:700}
+.chead .meta2{font-size:12px;color:var(--muted);margin-top:3px;font-family:var(--mono)}
+.tag{font-size:12px;padding:4px 11px;border-radius:999px;font-weight:500;white-space:nowrap}
+.tag.research{background:var(--blue-soft);color:var(--blue-d)}
+.tag.speedrun{background:var(--green-soft);color:var(--green)}
+.tag.custom{background:var(--soft);color:var(--muted)}
+.status{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500}
+.status .d{width:7px;height:7px;border-radius:50%}
+.status.on{color:var(--green)} .status.on .d{background:var(--green)}
+.status.off{color:var(--red)} .status.off .d{background:var(--red)}
+/* 阶段流水线 */
+.section-label{font-size:12px;color:var(--muted);font-weight:500;margin-bottom:8px}
+.pipe{display:flex;gap:6px;flex-wrap:wrap}
+.pipe .st{flex:1;min-width:52px;text-align:center;font-size:12px;padding:8px 4px;border-radius:9px;
+  border:1px solid var(--line);color:var(--dim);background:var(--soft);font-weight:500;position:relative}
+.pipe .st.done{color:var(--green);background:var(--green-soft);border-color:transparent}
+.pipe .st.done::after{content:'✓';position:absolute;top:-6px;right:-3px;font-size:11px;background:var(--green);color:#fff;border-radius:50%;width:15px;height:15px;line-height:15px}
+.pipe .st.running,.pipe .st.ready{color:var(--blue-d);background:var(--blue-soft);border-color:var(--blue);font-weight:700;
+  box-shadow:0 0 0 3px rgba(47,109,240,.12)}
+.pipe .st.blocked{color:var(--red);background:var(--red-soft);border-color:transparent}
+/* 三角色循环 */
+.loop{display:flex;gap:6px;align-items:center}
+.loop .ag{flex:1;text-align:center;padding:10px 4px;border-radius:10px;border:1px solid var(--line);
+  color:var(--muted);font-size:13px;background:var(--soft)}
+.loop .ag.active{color:#fff;background:linear-gradient(135deg,var(--blue),#5b96ff);border-color:transparent;
+  font-weight:600;box-shadow:0 3px 10px rgba(47,109,240,.25)}
+.loop .arr{color:var(--dim);font-size:15px}
+/* 指标 chips */
 .chips{display:flex;gap:10px;flex-wrap:wrap}
-.chip{flex:1;min-width:80px;padding:11px 13px;background:var(--panel2);border:1px solid var(--line);border-radius:10px}
-.chip .v{font-family:var(--mono);font-size:21px;font-weight:600}
-.chip .l{font-family:var(--mono);font-size:9.5px;color:var(--muted);text-transform:uppercase;margin-top:2px}
-.chip.good .v{color:var(--green)}.chip.warn .v{color:var(--gold)}.chip.bad .v{color:var(--red)}
-.lb{font-family:var(--mono);font-size:12px}
-.lb .row{display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid var(--line)}
-.lb .row.ours{background:rgba(103,232,200,.07);color:var(--cyan);border-radius:5px}
-.lb .row.ref{color:var(--dim)}
-.lb .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:62%}
-.sec-t{font-family:var(--mono);font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px}
-.bl .it{display:flex;gap:8px;font-family:var(--mono);font-size:12px;padding:3px 0}
-.bl .it .s{flex-shrink:0;width:56px;font-size:10px;text-transform:uppercase}
-.bl .it .s.done{color:var(--green)}.bl .it .s.running{color:var(--gold)}.bl .it .s.failed{color:var(--red)}.bl .it .s.pending{color:var(--dim)}
-.bl .it .t{opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ev{font-family:var(--mono);font-size:11px;max-height:150px;overflow-y:auto}
-.ev .e{display:flex;gap:8px;padding:2px 0;color:var(--muted)}
-.ev .e .ty{flex-shrink:0;width:128px;color:var(--cyan);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ev .e .tx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.foot{margin-top:30px;font-family:var(--mono);font-size:11px;color:var(--dim);text-align:center}
+.chip{flex:1;min-width:78px;padding:13px 14px;background:var(--soft);border-radius:11px;text-align:center}
+.chip .v{font-size:22px;font-weight:700;color:var(--ink)}
+.chip .l{font-size:12px;color:var(--muted);margin-top:1px}
+.chip.good .v{color:var(--green)} .chip.warn .v{color:var(--amber)} .chip.bad .v{color:var(--red)}
+/* 排行榜 */
+.lb{border:1px solid var(--line);border-radius:11px;overflow:hidden}
+.lb .row{display:flex;justify-content:space-between;align-items:center;padding:7px 12px;font-size:13px;border-bottom:1px solid var(--line)}
+.lb .row:last-child{border-bottom:none}
+.lb .row.ours{background:var(--green-soft);font-weight:600}
+.lb .row.ref{color:var(--muted)}
+.lb .row .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:64%}
+.lb .row .sc{font-family:var(--mono)}
+.lb .row .tagm{font-size:10px;padding:1px 7px;border-radius:999px;margin-left:6px}
+.lb .row.ours .tagm{background:var(--green);color:#fff}
+/* 任务 + 事件 */
+.bl .it{display:flex;gap:10px;align-items:center;padding:5px 0;font-size:13px}
+.bl .it .s{flex-shrink:0;font-size:11px;padding:2px 9px;border-radius:999px;font-weight:500}
+.bl .it .s.done{background:var(--green-soft);color:var(--green)}
+.bl .it .s.running{background:var(--blue-soft);color:var(--blue-d)}
+.bl .it .s.failed{background:var(--red-soft);color:var(--red)}
+.bl .it .s.pending{background:var(--soft);color:var(--muted)}
+.bl .it .t{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev{max-height:140px;overflow-y:auto;border:1px solid var(--line);border-radius:11px;padding:8px 12px;background:var(--soft)}
+.ev .e{display:flex;gap:9px;padding:3px 0;font-size:12px}
+.ev .e .ty{flex-shrink:0;width:108px;color:var(--blue);font-family:var(--mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev .e .tx{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.foot{margin-top:28px;font-size:12px;color:var(--dim);text-align:center;font-family:var(--mono)}
+.empty{color:var(--dim);font-size:13px;padding:6px 0}
 </style></head><body><div class="wrap">
-<div class="hdr"><div><h1>Argus · live</h1><div class="sub">7×24 supervised research daemons · auto-discovered</div></div>
-<div class="meta"><span class="live">● auto-refresh 20s</span><br><span id="gen">—</span></div></div>
-<div class="gpustrip" id="gpustrip"></div><div class="grid" id="grid"></div><div class="foot" id="foot">loading…</div>
+<div class="hdr">
+  <div><h1><span class="logo"></span>Argus 工作台</h1><div class="sub">7×24 自主科研守护进程 · 自动发现全部项目</div></div>
+  <div class="meta"><span class="live"><span class="dot"></span>每 20 秒自动刷新</span><br><span id="gen">—</span></div>
+</div>
+<div class="kpis" id="kpis"></div>
+<div class="gpustrip" id="gpustrip"></div>
+<div class="grid" id="grid"></div>
+<div class="foot" id="foot">加载中…</div>
 </div><script>
-function gpuColor(u){return u>70?'var(--red)':u>30?'var(--gold)':'var(--green)'}
+// 中文映射
+const STAGE_CN={research:'调研',plan:'规划',benchmark:'基准',run:'实验',analysis:'分析',draft:'撰写',review:'评审',submission:'投稿',
+  setup:'准备',optimize:'优化',measure:'测量',report:'汇报'};
+const VERT_CN={research:'论文',speedrun:'刷榜',custom:'自定义'};
+const ROLE_CN={planner:'规划员',engineer:'工程师',reviewer:'评审员'};
+const STATUS_CN={done:'完成',running:'进行中',failed:'失败',pending:'待办',ready:'就绪',blocked:'受阻'};
+const CHIP_CN={'PDF pages':'论文页数','TBD left':'待填占位','figures':'插图数','citations':'引用数','best (↓)':'最佳分(越低越好)','attempts':'尝试次数','invention':'原创验证'};
+
+function gpuColor(u){return u>70?'var(--red)':u>30?'var(--amber)':'var(--green)'}
 function renderGPU(g){const el=document.getElementById('gpustrip');if(!g||!g.length){el.innerHTML='';return}
-el.innerHTML=g.map(x=>{const p=Math.round(100*x.used_mb/x.total_mb);return `<div class="gpu"><div class="top"><span>GPU ${x.idx}</span><span>${x.util}%</span></div><div class="bar"><div class="fill" style="width:${p}%;background:${gpuColor(x.util)}"></div></div><div class="nums"><span>${(x.used_mb/1024).toFixed(1)} GB</span><span>${(x.total_mb/1024).toFixed(0)} GB</span></div></div>`}).join('')}
+  el.innerHTML=g.map(x=>{const p=Math.round(100*x.used_mb/x.total_mb);return `<div class="gpu"><div class="top"><span>显卡 ${x.idx}</span><span class="pct">${x.util}% 占用</span></div><div class="bar"><div class="fill" style="width:${p}%;background:${gpuColor(x.util)}"></div></div><div class="nums"><span>已用 ${(x.used_mb/1024).toFixed(1)} GB</span><span>共 ${(x.total_mb/1024).toFixed(0)} GB</span></div></div>`}).join('')}
 function sc(s){s=(s||'').toLowerCase();return s==='done'?'done':(s==='running'||s==='ready')?'running':s==='blocked'?'blocked':''}
-function chips(panels){return (panels||[]).map(p=>{const c=(p.chips||[]).map(ch=>`<div class="chip ${ch.tone||''}"><div class="v">${ch.v}</div><div class="l">${ch.l}</div></div>`).join('');let lb='';if(p.leaderboard&&p.leaderboard.length){lb=`<div><div class="sec-t">leaderboard · lower better</div><div class="lb">${p.leaderboard.map(r=>`<div class="row ${r.kind}"><span class="nm">${r.name}</span><span>${r.mean.toFixed(4)}</span></div>`).join('')}</div></div>`}return `<div class="chips">${c}</div>${lb}`}).join('')}
-function card(d){const stages=(d.stages||[]).map(s=>`<div class="st ${sc(s.status)}">${s.name}</div>`).join('');const roles=['planner','engineer','reviewer'];const loop=roles.map((r,i)=>`<div class="ag ${d.active_role===r?'active':''}">${r}</div>${i<2?'<span class="arr">→</span>':''}`).join('');const bl=(d.backlog||[]).slice(-5).reverse().map(b=>`<div class="it"><span class="s ${b.status}">${b.status}</span><span class="t">${b.title}</span></div>`).join('');const ev=(d.events||[]).slice().reverse().map(e=>`<div class="e"><span class="ty">${e.type}</span><span class="tx">${e.text||''}</span></div>`).join('');const cls=d.vertical==='research'?'research':'';return `<div class="card ${cls}"><div class="chead"><div><h2>${d.title}</h2><div class="pidline">stage <b>${d.current_stage}</b> · ${d.missions||0} missions · $${d.cost||0} · <span class="${d.alive?'ok':'dead'}">${d.alive?'● pid '+d.pid+' '+(d.etime||''):'● DOWN'}</span></div></div><div class="vtag">${d.vertical||'?'}</div></div>${stages?`<div class="pipe">${stages}</div>`:''}<div class="loop">${loop}</div>${chips((d.enrich||{}).panels)}<div><div class="sec-t">backlog</div><div class="bl">${bl||'<div class="it"><span class="t" style="color:var(--dim)">—</span></div>'}</div></div><div><div class="sec-t">events</div><div class="ev">${ev}</div></div></div>`}
-async function tick(){try{const r=await fetch('/data.json?_='+Date.now());const d=await r.json();document.getElementById('gen').textContent=d.generated_str;renderGPU(d.gpu);document.getElementById('grid').innerHTML=(d.projects||[]).map(card).join('');const tot=(d.projects||[]).reduce((a,x)=>a+(x.cost||0),0).toFixed(2);const ms=(d.projects||[]).reduce((a,x)=>a+(x.missions||0),0);document.getElementById('foot').textContent=`${d.n_projects} projects · ${ms} missions · $${tot} · argus-skill --dashboard`}catch(e){document.getElementById('foot').textContent='fetch error: '+e}}
+function chipsHTML(panels){return (panels||[]).map(p=>{
+  const c=(p.chips||[]).map(ch=>`<div class="chip ${ch.tone||''}"><div class="v">${ch.v}</div><div class="l">${CHIP_CN[ch.l]||ch.l}</div></div>`).join('');
+  let lb='';if(p.leaderboard&&p.leaderboard.length){lb=`<div><div class="section-label">成绩排行 · 分数越低越好</div><div class="lb">${p.leaderboard.map(r=>`<div class="row ${r.kind}"><span class="nm">${r.name}${r.kind==='ours'?'<span class="tagm">本机</span>':''}</span><span class="sc">${r.mean.toFixed(4)}</span></div>`).join('')}</div></div>`}
+  return `<div class="chips">${c}</div>${lb}`}).join('')}
+function card(d){
+  const stages=(d.stages||[]).map(s=>`<div class="st ${sc(s.status)}">${STAGE_CN[s.name]||s.name}</div>`).join('');
+  const roles=['planner','engineer','reviewer'];
+  const loop=roles.map((r,i)=>`<div class="ag ${d.active_role===r?'active':''}">${ROLE_CN[r]}</div>${i<2?'<span class="arr">→</span>':''}`).join('');
+  const bl=(d.backlog||[]).slice(-5).reverse().map(b=>`<div class="it"><span class="s ${b.status}">${STATUS_CN[b.status]||b.status}</span><span class="t">${b.title}</span></div>`).join('');
+  const ev=(d.events||[]).slice().reverse().map(e=>`<div class="e"><span class="ty">${e.type}</span><span class="tx">${e.text||''}</span></div>`).join('');
+  const vt=d.vertical||'custom';
+  const stg=STAGE_CN[d.current_stage]||d.current_stage;
+  return `<div class="card">
+    <div class="chead">
+      <div><h2>${d.title}</h2>
+        <div class="meta2">当前阶段「${stg}」· 已完成 ${d.missions||0} 个任务 · 花费 $${d.cost||0}
+          · <span class="status ${d.alive?'on':'off'}"><span class="d"></span>${d.alive?'运行中 '+(d.etime||''):'已停止'}</span></div>
+      </div>
+      <span class="tag ${vt}">${VERT_CN[vt]||vt}</span>
+    </div>
+    ${stages?`<div><div class="section-label">流程进度</div><div class="pipe">${stages}</div></div>`:''}
+    <div><div class="section-label">三角色协作 · 当前活跃</div><div class="loop">${loop}</div></div>
+    ${chipsHTML((d.enrich||{}).panels)}
+    <div><div class="section-label">最近任务</div><div class="bl">${bl||'<div class="empty">暂无</div>'}</div></div>
+    <div><div class="section-label">实时事件</div><div class="ev">${ev||'<div class="empty">暂无</div>'}</div></div>
+  </div>`}
+async function tick(){try{
+  const r=await fetch('/data.json?_='+Date.now());const d=await r.json();
+  document.getElementById('gen').textContent='更新于 '+d.generated_str;
+  renderGPU(d.gpu);
+  const ps=d.projects||[];
+  const alive=ps.filter(p=>p.alive).length;
+  const ms=ps.reduce((a,x)=>a+(x.missions||0),0);
+  const tot=ps.reduce((a,x)=>a+(x.cost||0),0).toFixed(2);
+  document.getElementById('kpis').innerHTML=`
+    <div class="kpi"><div class="v">${ps.length}</div><div class="l">监控项目</div></div>
+    <div class="kpi"><div class="v">${alive}</div><div class="l">运行中</div></div>
+    <div class="kpi"><div class="v">${ms}</div><div class="l">累计任务</div></div>
+    <div class="kpi"><div class="v">$${tot}</div><div class="l">累计花费</div></div>`;
+  document.getElementById('grid').innerHTML=ps.map(card).join('');
+  document.getElementById('foot').textContent='argus-skill --dashboard · 自动发现 '+ps.length+' 个守护进程';
+}catch(e){document.getElementById('foot').textContent='获取数据失败：'+e}}
 tick();setInterval(tick,20000);
 </script></body></html>"""
 
