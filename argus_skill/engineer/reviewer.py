@@ -148,6 +148,7 @@ class Reviewer:
         scope: str = "",
         prior_checkpoint: dict[str, Any] | None = None,
         background_context: str = "",
+        escalate_hint: str = "",
     ) -> ReviewDecision:
         prompt = self._build_prompt(
             objective=objective,
@@ -165,6 +166,7 @@ class Reviewer:
             scope=scope,
             prior_checkpoint=prior_checkpoint,
             background_context=background_context,
+            escalate_hint=escalate_hint,
         )
         try:
             result = self.runner.run_exec(
@@ -274,6 +276,7 @@ class Reviewer:
         scope: str = "",
         prior_checkpoint: dict[str, Any] | None = None,
         background_context: str = "",
+        escalate_hint: str = "",
     ) -> str:
         error_text = main_error or "none"
         check_text = summarize_checks(checks)
@@ -464,13 +467,27 @@ class Reviewer:
                 "\n".join(f"  - {d}" for d in prior_cp.tried_and_failed)
                 or "  - (none)"
             )
+            _cp_facts = (
+                "\n".join(f"  - {d}" for d in prior_cp.env_facts)
+                or "  - (none)"
+            )
             prior_checkpoint_block = (
                 "## Curated working memory (checkpoint) — PRIOR\n"
                 f"goal: {prior_cp.goal or '(unset)'}\n"
                 f"done:\n{_cp_done}\n"
                 f"tried_and_failed:\n{_cp_fail}\n"
                 f"open_blocker: {prior_cp.open_blocker or '(none)'}\n"
-                f"next_step: {prior_cp.next_step or '(none)'}\n\n"
+                f"next_step: {prior_cp.next_step or '(none)'}\n"
+                f"env_facts:\n{_cp_facts}\n\n"
+            )
+        # Anti-livelock escalation directive (supplied by the round loop once a
+        # mission passes the soft round limit): tell the reviewer to escalate an
+        # unresolvable EXTERNAL blocker to `blocked` instead of looping `continue`.
+        escalate_block = ""
+        if escalate_hint:
+            escalate_block = (
+                "## Escalation directive (operator harness — IMPORTANT)\n"
+                f"{escalate_hint}\n\n"
             )
         # Final-submission completion contract. This block replaces the
         # retired hardcoded EMNLP validators: instead of the supervisor
@@ -537,6 +554,7 @@ class Reviewer:
             f"{rollback_block}\n\n"
             f"{venv_skill_block}\n\n"
             f"{prior_checkpoint_block}"
+            f"{escalate_block}"
             "**Length constraints:**\n"
             "- Be thorough in `round_summary_markdown` — include all relevant details\n"
             "- Use brief bullet points, not lengthy explanations\n"
@@ -552,7 +570,11 @@ class Reviewer:
             "- planner_report (object: forward_progress, headline, blocker,\n"
             "  recommended_next, evidence_files[{path, why}])\n"
             "- checkpoint (object: goal, done[], tried_and_failed[],\n"
-            "  open_blocker, next_step)\n"
+            "  open_blocker, next_step, env_facts[]). env_facts = durable\n"
+            "  environment/infra facts the successor must NOT re-derive (paths,\n"
+            "  access endpoints, versions, what's ephemeral vs persistent);\n"
+            "  carry prior env_facts forward and add any newly established this\n"
+            "  round, dropping the least load-bearing to stay within the cap.\n"
             "Optional JSON keys (REQUIRED when scope is final_submission):\n"
             "- scope (`bounded` or `final_submission`)\n"
             "- checklist (array of {item, satisfied, evidence})\n"

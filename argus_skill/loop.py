@@ -63,6 +63,12 @@ class SkillLoopConfig:
     check_commands: list[str] = field(default_factory=list)
     check_timeout_seconds: int = 600
     no_progress_threshold: int = 2
+    # Anti-livelock escalation thresholds threaded into SupervisedConfig: at
+    # ``soft_round_limit`` the reviewer is told to escalate an unresolvable
+    # external blocker to ``blocked``; at ``hard_escalate_rounds`` the round loop
+    # force-ends as ``blocked`` so the planner re-plans. 0 disables either.
+    soft_round_limit: int = 12
+    hard_escalate_rounds: int = 24
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
     skill_writeback: bool = False
@@ -287,6 +293,8 @@ class SkillLoop:
                 check_commands=list(self.config.check_commands),
                 check_timeout_seconds=self.config.check_timeout_seconds,
                 no_progress_threshold=self.config.no_progress_threshold,
+                soft_round_limit=self.config.soft_round_limit,
+                hard_escalate_rounds=self.config.hard_escalate_rounds,
                 backend_failure_threshold=self.config.backend_failure_threshold,
                 backend_failure_backoff_seconds=self.config.backend_failure_backoff_seconds,
                 session_id=self.config.session_id,

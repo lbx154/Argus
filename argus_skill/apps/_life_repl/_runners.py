@@ -657,7 +657,10 @@ class _CodexSkillLoopRunner:
         # engineer round (rendered by the loop as "## Operator guidance"). With
         # the flag OFF it returns None and the loop is built exactly as before,
         # so existing behaviour/tests are unchanged. Never raises into a mission.
-        extra_guidance_provider = None
+        sim_provider = None
+        # The per-project state dir (life_dir) holds inbox.jsonl + events.jsonl,
+        # next to the reviewer checkpoint.json; derive both from the checkpoint.
+        operator_checkpoint_path = _checkpoint_path_for(args, workdir)
         try:
             from ...life.operator_sim import operator_guidance_provider_from_env
 
@@ -667,13 +670,12 @@ class _CodexSkillLoopRunner:
             # next to the per-round reviewer ``checkpoint.json``. So derive the
             # trace path from the checkpoint's parent dir; only fall back to a
             # work-tree-local events.jsonl when checkpoint persistence is off.
-            operator_checkpoint_path = _checkpoint_path_for(args, workdir)
             if operator_checkpoint_path is not None:
                 operator_trace_path = operator_checkpoint_path.parent / "events.jsonl"
             else:
                 operator_trace_path = workdir / "events.jsonl"
 
-            extra_guidance_provider = operator_guidance_provider_from_env(
+            sim_provider = operator_guidance_provider_from_env(
                 project_root=workdir,
                 objective=objective,
                 runner=self._backend,
@@ -686,7 +688,43 @@ class _CodexSkillLoopRunner:
                 on_event=sink.handle_event,
             )
         except Exception:  # noqa: BLE001 — wiring must never break a mission
-            extra_guidance_provider = None
+            sim_provider = None
+        # REAL operator inbox (Change A): drain queued ``--notify`` / ``/nudge``
+        # messages EACH engineer round — not just at mission start — so the
+        # operator can steer a long in-flight mission instead of being locked out
+        # until the next mission. Wired through the existing per-round
+        # ``extra_guidance_provider`` hook; shares ``inbox.offset`` with the
+        # supervisor's mission-start drain, so each message is delivered exactly
+        # once with no duplication. Never raises into a mission.
+        inbox_life_dir = (
+            operator_checkpoint_path.parent
+            if operator_checkpoint_path is not None
+            else None
+        )
+
+        def _combined_guidance_provider() -> list[str]:
+            msgs: list[str] = []
+            if inbox_life_dir is not None:
+                try:
+                    from .._inbox import drain_inbox_messages
+                    msgs.extend(drain_inbox_messages(inbox_life_dir))
+                except Exception:  # noqa: BLE001 — never break a mission
+                    pass
+            if sim_provider is not None:
+                try:
+                    msgs.extend(sim_provider() or [])
+                except Exception:  # noqa: BLE001
+                    pass
+            return msgs
+
+        # Preserve the legacy "None when there is nothing to provide" contract
+        # (keeps existing tests / chat behaviour unchanged when there is neither
+        # an inbox nor the simulated operator).
+        extra_guidance_provider = (
+            _combined_guidance_provider
+            if (sim_provider is not None or inbox_life_dir is not None)
+            else None
+        )
         loop = self._SkillLoop(
             skills_dir=Path(args.skills_dir),
             engineer_runner=self._backend,

@@ -41,6 +41,7 @@ MAX_ITEM_CHARS = 280
 MAX_GOAL_CHARS = 400
 MAX_BLOCKER_CHARS = 800
 MAX_NEXT_CHARS = 600
+MAX_ENV_FACTS = 10
 
 
 def _clean_str(value: Any, limit: int) -> str:
@@ -78,6 +79,11 @@ class CheckpointState:
     tried_and_failed: list[str] = field(default_factory=list)
     open_blocker: str = ""
     next_step: str = ""
+    # Durable environment/infra facts the successor must NOT re-derive (paths,
+    # access endpoints, versions, what is ephemeral vs persistent). Same hard-cap
+    # curation discipline as the rest: a small value-filtered carry-forward that
+    # stops the engineer re-reading/re-discovering the same setup every round.
+    env_facts: list[str] = field(default_factory=list)
     round: int = 0
     updated_at: float = 0.0
 
@@ -106,6 +112,7 @@ class CheckpointState:
             ),
             open_blocker=_clean_str(raw.get("open_blocker"), MAX_BLOCKER_CHARS),
             next_step=_clean_str(raw.get("next_step"), MAX_NEXT_CHARS),
+            env_facts=_clean_list(raw.get("env_facts"), max_items=MAX_ENV_FACTS),
             round=max(0, round_no),
             updated_at=updated_at,
         )
@@ -117,6 +124,7 @@ class CheckpointState:
             "tried_and_failed": list(self.tried_and_failed),
             "open_blocker": self.open_blocker,
             "next_step": self.next_step,
+            "env_facts": list(self.env_facts),
             "round": self.round,
             "updated_at": self.updated_at,
         }
@@ -128,6 +136,7 @@ class CheckpointState:
             or self.tried_and_failed
             or self.open_blocker
             or self.next_step
+            or self.env_facts
         )
 
     def render_for_engineer(self) -> str:
@@ -165,6 +174,12 @@ class CheckpointState:
                 lines.append(f"OPEN BLOCKER: {self.open_blocker}")
             if self.next_step:
                 lines.append(f"NEXT STEP: {self.next_step}")
+            if self.env_facts:
+                lines.append(
+                    "ESTABLISHED FACTS (environment/infra — trust these; do NOT "
+                    "re-read/re-derive to rediscover them):"
+                )
+                lines.extend(f"  - {item}" for item in self.env_facts)
         lines.append("")
         lines.append(
             "At the END of your turn, output a concise HANDOFF for your "
@@ -184,6 +199,11 @@ class CheckpointState:
         )
         lines.append("  next: <the most useful next action>")
         lines.append(
+            "  facts: <durable environment/infra facts established this turn "
+            "(paths, access endpoints, versions, what's ephemeral vs persistent) "
+            "so successors don't re-derive them>"
+        )
+        lines.append(
             "Keep it short and high-value. Omit anything that would not change "
             "what your successor does next."
         )
@@ -197,6 +217,7 @@ class CheckpointState:
             tried_and_failed=list(self.tried_and_failed),
             open_blocker=self.open_blocker,
             next_step=self.next_step,
+            env_facts=list(self.env_facts),
             round=round_no,
             updated_at=time.time(),
         )

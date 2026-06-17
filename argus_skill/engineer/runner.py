@@ -363,6 +363,18 @@ class SupervisedConfig:
     # 17–19 fruitless rounds) while leaving ample room for legitimate staged
     # setup / status-polling rounds. 0 disables it.
     stall_threshold: int = 8
+    # Anti-livelock escalation — distinct from the stall guards above, which only
+    # fire when the engineer is idle (no_progress) or the reviewer EXPLICITLY
+    # reports forward_progress=false. A mission that makes marginal progress every
+    # round but never passes its gate would otherwise drift to ``max_rounds``.
+    # At ``soft_round_limit`` the reviewer is instructed to return ``blocked`` if
+    # the binding constraint is an external/unresolvable dependency; at
+    # ``hard_escalate_rounds`` the loop force-ends as ``blocked`` so the planner
+    # re-plans/decomposes and the operator inbox is re-read on the next mission.
+    # The continuous planner makes many SHORT missions, so a single mission this
+    # long without finishing is anomalous. 0 disables either guard.
+    soft_round_limit: int = 12
+    hard_escalate_rounds: int = 24
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
     session_id: str | None = None
@@ -1214,6 +1226,35 @@ class SupervisedEngineer:
                     "round_max": supervised_config.max_rounds,
                     "session_id": supervised_config.session_id,
                 })
+            # Anti-livelock escalation hint: past the soft round limit, tell the
+            # reviewer to escalate an unresolvable EXTERNAL blocker to `blocked`
+            # (which ends the mission) rather than looping `continue` forever.
+            escalate_hint = ""
+            if (
+                supervised_config.soft_round_limit
+                and round_index >= supervised_config.soft_round_limit
+            ):
+                escalate_hint = (
+                    f"This mission has now run {round_index} rounds without "
+                    "reaching `done`. If the binding constraint is an EXTERNAL "
+                    "blocker the engineer cannot resolve by itself — infrastructure, "
+                    "GPU quota / preemption, missing credentials, or a host that "
+                    "stays unreachable after retries — return status=`blocked` with "
+                    "a precise operator ask INSTEAD of `continue`. Do not keep "
+                    "looping on an unresolvable external dependency."
+                )
+                if on_event and round_index == supervised_config.soft_round_limit:
+                    on_event({
+                        "type": "round.escalated",
+                        "round_index": round_index,
+                        "soft_round_limit": supervised_config.soft_round_limit,
+                        "hard_escalate_rounds": supervised_config.hard_escalate_rounds,
+                        "text": (
+                            f"round {round_index} reached soft limit "
+                            f"{supervised_config.soft_round_limit}: reviewer asked to "
+                            "escalate external blockers to `blocked`"
+                        ),
+                    })
             try:
                 review = self.reviewer.evaluate(
                     objective=objective,
@@ -1228,6 +1269,7 @@ class SupervisedEngineer:
                     scope=scope,
                     prior_checkpoint=checkpoint.to_dict(),
                     background_context=background_advisory,
+                    escalate_hint=escalate_hint,
                 )
             except Exception as exc:  # noqa: BLE001
                 msg = f"reviewer raised {type(exc).__name__}: {exc}"
@@ -1305,6 +1347,7 @@ class SupervisedEngineer:
                 stall_threshold=supervised_config.stall_threshold,
                 round_index=round_index,
                 max_rounds=supervised_config.max_rounds,
+                hard_escalate_rounds=supervised_config.hard_escalate_rounds,
             )
             if terminal_status is not None:
                 return (
@@ -1412,6 +1455,7 @@ class SupervisedEngineer:
         stall_threshold: int = 0,
         round_index: int,
         max_rounds: int,
+        hard_escalate_rounds: int = 0,
     ) -> tuple[LoopStatus | None, str]:
         if review.status == "done" and (not checks_results or all_checks_passed(checks_results)):
             return "done", review.reason or "Reviewer judged the objective complete."
@@ -1432,6 +1476,18 @@ class SupervisedEngineer:
                 "no_progress",
                 "Reviewer reported no forward progress for "
                 f"{semantic_stall_streak} consecutive rounds.",
+            )
+        if (
+            hard_escalate_rounds > 0
+            and round_index >= hard_escalate_rounds
+            and review.status == "continue"
+        ):
+            return (
+                "blocked",
+                f"Escalated: ran {round_index} rounds without completing — the "
+                "mission is likely stuck on an external / unresolved constraint. "
+                "Ending so the planner can re-plan or decompose. "
+                + (review.reason or ""),
             )
         # done but checks failed — treat as continue (reviewer was wrong /
         # checks discovered residual gap).
