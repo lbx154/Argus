@@ -545,7 +545,7 @@ def serve(port: int = 8787, roots: list[Path] | None = None) -> int:
 _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Argus 工作台</title>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 :root{
   --bg:#f4f7fc; --ink:#1a2942; --muted:#5b7090; --dim:#9aabc4;
@@ -554,7 +554,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"
   --green:#27a567; --green-soft:#e3f6ec;
   --amber:#e0930f; --amber-soft:#fbf0d8;
   --red:#e0544e; --red-soft:#fbe5e4;
-  --sans:'Noto Sans SC',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --sans:'Outfit','Noto Sans SC',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;
@@ -586,7 +586,7 @@ body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sa
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
 @media (max-width:920px){.grid{grid-template-columns:1fr}}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px clamp(16px,2vw,26px);
-  display:flex;flex-direction:column;gap:18px;box-shadow:0 2px 10px rgba(30,60,120,.05)}
+  display:flex;flex-direction:column;gap:18px;box-shadow:0 1px 2px rgba(30,60,120,.04)}
 .chead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
 .chead h2{font-size:19px;font-weight:700}
 .chead .meta2{font-size:12px;color:var(--muted);margin-top:3px;font-family:var(--mono)}
@@ -709,6 +709,15 @@ body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sa
   animation:shimmer 1.3s infinite;border-radius:8px}
 @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 .sk.line{height:13px;margin:8px 0}
+/* prefers-reduced-motion (mandatory — taste §6.B, Impeccable, fdpro §2):
+   honor OS "reduce motion" by stilling all pulse/shimmer/slide/lift. */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;
+    transition-duration:.001ms!important;scroll-behavior:auto!important}
+  .hdr .live .dot,.pipe .st.running,.pipe .st.ready,.sk{animation:none!important}
+  .card:hover{transform:none}
+  .drawer{transition:none}
+}
 </style></head><body><div class="wrap">
 <div class="hdr">
   <div><h1><span class="logo"></span>Argus 工作台</h1><div class="sub">7×24 自主科研守护进程 · 自动发现全部项目</div></div>
