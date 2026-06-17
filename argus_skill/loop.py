@@ -196,6 +196,7 @@ class SkillLoop:
     def run(self, task: str, *, workdir: Path | None = None, seed_thread_id: str | None = None,
             failed_tool_ledger: Any | None = None,
             objective_for_skill: str | None = None,
+            original_objective: str | None = None,
             scope: str = "") -> LoopOutcome:
         """Run one mission end-to-end.
 
@@ -213,6 +214,7 @@ class SkillLoop:
         """
         workdir = Path(workdir) if workdir else Path.cwd()
         skill_task = (objective_for_skill or task).strip() or task
+        request_anchor = (original_objective or objective_for_skill or task).strip() or task
         self._emit({"type": "loop.start", "text": f"task: {skill_task[:120]}"})
 
         # Step 1: matcher (role mission — shared scaffold across all roles).
@@ -283,10 +285,12 @@ class SkillLoop:
                 next_action=next_action,
                 extra_guidance=extra,
                 paper_mission=self.config.paper_mission,
+                original_request=request_anchor,
             )
 
         status, rounds, final_message, reason, last_thread_id = self.supervised.run(
             objective=task,
+            original_objective=request_anchor,
             engineer_prompt_builder=build_prompt,
             supervised_config=SupervisedConfig(
                 max_rounds=self.config.max_rounds,
@@ -462,6 +466,7 @@ class SkillLoop:
         next_action: str | None,
         extra_guidance: list[str] | None = None,
         paper_mission: bool = False,
+        original_request: str = "",
     ) -> str:
         sections: list[str] = []
         # Vertical-native prompt framing (resolved up-front so it can gate the
@@ -523,7 +528,16 @@ class SkillLoop:
         sections.append(ground_truth_mandate("engineer").rstrip())
         if skill_text:
             sections.append("## Skill playbook (read first)\n" + skill_text)
-        sections.append("## Task\n" + task)
+        if original_request.strip():
+            sections.append(
+                "## Original operator request (immutable anchor)\n"
+                "This is the user's original ask before planner/reviewer/prelude "
+                "rewrites. Treat it as the non-negotiable north star; if later "
+                "guidance conflicts, satisfy the original intent or call out the "
+                "conflict explicitly.\n\n"
+                + original_request.strip()
+            )
+        sections.append("## Current mission task\n" + task)
         if paper_mission and _full_emnlp:
             sections.append(
                 "## Long-horizon paper execution contract\n"

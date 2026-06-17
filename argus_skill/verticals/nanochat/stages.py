@@ -22,6 +22,8 @@ from __future__ import annotations
 # OWN named vertical (so the nanochat task is never classified as "speedrun"),
 # free to diverge from speedrun's checklists later.
 from ..speedrun.stages import (  # noqa: F401  (re-exported as this vertical's contract)
+    CHECKLIST_ITEMS,
+    CHECKLIST_STAGE_ORDER,
     REVIEWER_CHECKLISTS,
     STAGE_CHECKS,
     STAGE_ORDER,
@@ -112,4 +114,12 @@ def role_banner(role: str) -> str:
     return common
 
 
-__all__ = ["REVIEWER_CHECKLISTS", "STAGE_CHECKS", "STAGE_ORDER", "completion_gate", "role_banner"]
+__all__ = [
+    "REVIEWER_CHECKLISTS",
+    "STAGE_CHECKS",
+    "STAGE_ORDER",
+    "CHECKLIST_STAGE_ORDER",
+    "CHECKLIST_ITEMS",
+    "completion_gate",
+    "role_banner",
+]

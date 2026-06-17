@@ -8,7 +8,8 @@
 # If the OLD policy killed a line, that line's later rounds were never recorded,
 # so replay UNDER-estimates a "keep the line" edit unless those rounds exist
 # elsewhere in the corpus. => necessary, not sufficient (Tier A only).
-import json, sys
+import json
+import sys
 from pathlib import Path
 
 FLOOR = 80.18  # seed best-valid (s); B(t) starts here
@@ -39,7 +40,7 @@ def replay(rounds, policy):
     dead = set()
     B = FLOOR
     budget = 0.0
-    killed, flips = [], []
+    killed = []
     for r in rounds:
         lid = r["line_id"]
         if lid in dead:

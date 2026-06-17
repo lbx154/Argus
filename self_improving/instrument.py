@@ -5,7 +5,10 @@
 # raw logs. Emits NOTHING actionable; pure observation.
 #
 # usage: instrument.py <mission_dir> <life_dir> [baseline_train.py baseline_kernels.py]
-import json, re, sys, difflib
+import difflib
+import json
+import re
+import sys
 from pathlib import Path
 
 SCORE_RE = re.compile(
@@ -19,8 +22,16 @@ def changed_lines(a_path, b_path):
         b = Path(b_path).read_text().splitlines()
     except Exception:
         return None
-    adds = [l[1:] for l in difflib.unified_diff(a, b, n=0) if l.startswith("+") and not l.startswith("+++")]
-    dels = [l[1:] for l in difflib.unified_diff(a, b, n=0) if l.startswith("-") and not l.startswith("---")]
+    adds = [
+        line[1:]
+        for line in difflib.unified_diff(a, b, n=0)
+        if line.startswith("+") and not line.startswith("+++")
+    ]
+    dels = [
+        line[1:]
+        for line in difflib.unified_diff(a, b, n=0)
+        if line.startswith("-") and not line.startswith("---")
+    ]
     return {"added": adds, "n_changed": len(adds) + len(dels)}
 
 
@@ -30,8 +41,8 @@ def is_single_knob(train_diff, kernels_touched):
         return False
     numeric_only = all(
         # each added/removed line differs from baseline only in numeric tokens
-        len(NUMTOK_RE.findall(l)) >= 1 and not re.search(r"\b(def|class|import|for|while|if|return)\b", l)
-        for l in train_diff["added"]) if train_diff["added"] else False
+        len(NUMTOK_RE.findall(line)) >= 1 and not re.search(r"\b(def|class|import|for|while|if|return)\b", line)
+        for line in train_diff["added"]) if train_diff["added"] else False
     return numeric_only and train_diff["n_changed"] <= 4
 
 
@@ -39,7 +50,6 @@ def candidate_ledger(mission, base_train, base_kern):
     exp = Path(mission) / "experiments"
     rows = []
     for d in sorted(exp.glob("candidate_*")):
-        score = None
         sr = d / "SCORE.raw"
         rr = list(d.glob("RESULT.md"))
         text = ""

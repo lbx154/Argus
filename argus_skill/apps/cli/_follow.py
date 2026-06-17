@@ -568,6 +568,9 @@ def _format_follow_event(
         if kind == "agent_message":
             return f"  [{label}] {_format_follow_agent_message(layer, text)}"
         if kind == "command_execution":
+            action = str(event.get("action_summary") or "").strip()
+            if action:
+                return f"  [{label}] ▸ {action}"
             return f"  [{label}] {_format_follow_command(event)}"
         if kind == "reasoning":
             if os.environ.get("ARGUS_SKILL_SHOW_REASONING", "0").lower() not in (
@@ -709,4 +712,3 @@ def _format_follow_heartbeat(events_path: Path, current_layer: str, idle_seconds
         f"{_core._format_short_duration(idle_seconds)} without new events · {state} · "
         f"{tail}"
     )
-

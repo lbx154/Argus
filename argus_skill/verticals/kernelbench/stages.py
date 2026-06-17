@@ -7,17 +7,36 @@ hardware SOL; the score is the SOL fraction achieved (HIGHER is better,
 correctness-gated). This is a KERNEL-SPEED task — NOT bits-per-byte
 (``nanochat``) and NOT time-to-target-loss (``nanogpt_speedrun``).
 
-Same 4-stage setup→optimize→measure→report structure; the metric is the SOL
-score (maximize), correctness is a hard gate, and there is no paper.
+Kernel work still needs **research**: the agent must understand the scorer,
+hardware roofline, and public optimization patterns before trying to beat the
+benchmark. But this is benchmark research, not paper-production research: it
+must directly enable first score and SOTA-oriented optimization.
 """
 from __future__ import annotations
 
+from ...skills.stage_checklists import ChecklistItem
 from ..speedrun.stages import _PIPELINE_CHECK
+from ..speedrun.stages import CHECKLIST_ITEMS as SPEEDRUN_CHECKLIST_ITEMS
 
-STAGE_ORDER = ["setup", "optimize", "measure", "report"]
+STAGE_ORDER = ["research", "setup", "optimize", "measure", "report"]
 
 # Metric-agnostic structural checks (the metric is a SOL score, not BPB/time).
 STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
+    "research": [
+        _PIPELINE_CHECK,
+        ("Mission file present",
+         "test -f MISSION.md || test -f TASK.md"),
+        ("Ground truth / scorer facts present",
+         "test -s research/GROUND_TRUTH.md"),
+        ("Technique grounding present",
+         "test -s research/TECHNIQUE_NOTES.md "
+         "|| test -s research/LITERATURE_GROUNDING.json "
+         "|| test -s research/LIT_MATRIX.tsv"),
+        ("First-score plan present",
+         "test -s research/FIRST_SCORE_PLAN.md "
+         "|| test -s research/RESEARCH_BRIEF.md "
+         "|| test -s research/GO_NO_GO.md"),
+    ],
     "setup": [
         _PIPELINE_CHECK,
         ("Mission file present",
@@ -51,8 +70,31 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
 }
 
 REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
+    "research": (
+        "engineer/sol-kernel-sota-optimization.md",
+        "Evaluate the kernel-benchmark RESEARCH stage (this is SOTA-enabling, "
+        "not paper research):\n"
+        "1. The frozen scorer/harness and target kernel are understood from the "
+        "project files or mission statement.\n"
+        "2. `research/GROUND_TRUTH.md` records measured facts: hardware, scorer "
+        "entry point, correctness rule, baseline or current-state observation.\n"
+        "3. External technique grounding exists: public SOL/KernelBench/Triton/"
+        "CUDA/CUTLASS docs, papers, or issue/write-up patterns are summarized "
+        "as candidate optimization ideas. Do not require 10 papers or a paper "
+        "literature review; require useful kernel tactics.\n"
+        "4. A first-score plan exists: the next stage knows exactly what harness "
+        "command to run, which editable file/kernel to change, and what metric "
+        "JSON/table proves progress.\n"
+        "Pass: research directly enables the first correct scored attempt.",
+        [
+            "MISSION.md",
+            "research/GROUND_TRUTH.md",
+            "research/TECHNIQUE_NOTES.md",
+            "research/FIRST_SCORE_PLAN.md",
+        ],
+    ),
     "setup": (
-        "engineer/speedrun-setup.md",
+        "engineer/sol-kernel-sota-optimization.md",
         "Evaluate the setup (GATE) for a SOL-score kernel-optimization mission:\n"
         "1. The kernel set / harness identified; how each kernel is BUILT, run for\n"
         "   CORRECTNESS, and TIMED is pinned (the SOL scorer is the source of truth).\n"
@@ -64,7 +106,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         ["MISSION.md", "mission/SETUP.md", "research/GROUND_TRUTH.md"],
     ),
     "optimize": (
-        "engineer/speedrun-setup.md",
+        "engineer/sol-kernel-sota-optimization.md",
         "Evaluate the latest kernel attempt — FAST loop, keep it LEAN:\n"
         "1. A kernel implementation under attempts/<name>/ that COMPILES.\n"
         "2. A stated, testable hypothesis for why it is faster (tiling, vectorize,\n"
@@ -79,7 +121,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         ["attempts/", "MISSION.md"],
     ),
     "measure": (
-        "engineer/speedrun-measure.md",
+        "engineer/sol-kernel-sota-optimization.md",
         "Evaluate the measurement: each kernel attempt verified CORRECT by the\n"
         "harness and timed on B200, the SOL fraction recorded as (kernel, attempt,\n"
         "correct, sol_pct) rows. No fabricated numbers; wrong kernels score 0.\n"
@@ -87,7 +129,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         ["attempts/", "MISSION.md"],
     ),
     "report": (
-        "engineer/speedrun-report.md",
+        "engineer/sol-kernel-sota-optimization.md",
         "Evaluate the report: RESULTS.md ranking kernels by SOL%, honestly stating\n"
         "which reference SOL scores were beaten and which kernels remain below SOL.\n"
         "No spin. Pass: the headline SOL numbers are verifiable from the table.",
@@ -96,6 +138,49 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
 }
 
 completion_gate = "metric"
+
+CHECKLIST_STAGE_ORDER: tuple[str, ...] = (
+    "research",
+    "setup",
+    "optimize",
+    "measure",
+    "report",
+)
+
+CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
+    "research": (
+        ChecklistItem(
+            id="research.scorer_ground_truth",
+            statement=(
+                "The agent has recorded the frozen scorer/harness facts: target "
+                "kernel or editable file, correctness rule, hardware, command to "
+                "run, and the baseline/current measurement if available."
+            ),
+            evidence_hint="research/GROUND_TRUTH.md",
+        ),
+        ChecklistItem(
+            id="research.external_kernel_patterns",
+            statement=(
+                "The agent searched or inspected external/public kernel-optimization "
+                "patterns relevant to this task (SOL/KernelBench/Triton/CUDA/CUTLASS/"
+                "roofline docs, papers, or issue/write-ups) and distilled concrete "
+                "candidate tactics. This is not a paper literature review; it is "
+                "SOTA-oriented technique research."
+            ),
+            evidence_hint="research/TECHNIQUE_NOTES.md or research/LITERATURE_GROUNDING.json",
+        ),
+        ChecklistItem(
+            id="research.first_score_plan",
+            statement=(
+                "There is a first-score plan naming the project-local command, the "
+                "editable implementation file/kernel, the metric to improve, and the "
+                "JSON/table artifact that will prove correctness and speed."
+            ),
+            evidence_hint="research/FIRST_SCORE_PLAN.md or research/RESEARCH_BRIEF.md",
+        ),
+    ),
+    **SPEEDRUN_CHECKLIST_ITEMS,
+}
 
 
 def role_banner(role: str) -> str:
@@ -110,5 +195,6 @@ def role_banner(role: str) -> str:
 
 __all__ = [
     "STAGE_ORDER", "STAGE_CHECKS", "REVIEWER_CHECKLISTS",
+    "CHECKLIST_STAGE_ORDER", "CHECKLIST_ITEMS",
     "completion_gate", "role_banner",
 ]

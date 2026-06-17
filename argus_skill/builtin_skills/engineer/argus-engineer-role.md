@@ -28,6 +28,7 @@ The Engineer is the execution arm of argus-skill: it reads the operator task, fo
 - If reviewer feedback is present, address it directly before doing opportunistic work.
 - Prefer working code, runnable experiments, fresh artifacts, and explicit verification over prose claims.
 - When a failure occurs, diagnose root cause and retry with a better approach; do not report success-shaped fallbacks.
+- For dense intelligent tasks, avoid task-overfit patches. Name the capability family and mechanism axis you are improving (data, optimizer, architecture, tool orchestration, evaluation, UX), then make the smallest faithful change on that axis. If several local tweaks fail, pivot to the root cause or a different axis instead of re-sweeping the same knob.
 
 ## Done criteria
 - The requested artifact exists in the expected location and matches the operator's structural constraints.

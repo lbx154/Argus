@@ -30,6 +30,44 @@ from typing import Any, Callable
 _PROGRESS_TEXT_LIMIT = 600
 
 
+def _action_summary(kind: str, text: str, item: dict[str, Any]) -> str:
+    """Return a concise user-facing action summary; raw text stays in trace."""
+    if kind == "command_execution":
+        cmd = (text or "").strip()
+        for p in ("/bin/bash -lc ", "/bin/bash -c ", "bash -lc ", "bash -c ", "sh -c "):
+            if cmd.startswith(p):
+                inner = cmd[len(p):].strip()
+                if len(inner) >= 2 and inner[0] == inner[-1] and inner[0] in ("'", '"'):
+                    cmd = inner[1:-1]
+                else:
+                    cmd = inner
+                break
+        head = cmd.split(None, 1)[0].rsplit("/", 1)[-1] if cmd else ""
+        if head in {"pytest", "ruff", "mypy"} or "pytest" in cmd or "ruff check" in cmd:
+            return "running validation"
+        if head in {"python", "python3"} and any(
+            marker in cmd for marker in (" -m pytest", " -m ruff", " -m mypy", "compileall")
+        ):
+            return "running validation"
+        if head in {"rg", "grep", "find", "ls", "sed", "awk", "head", "tail", "cat"}:
+            return "inspecting project state"
+        if head == "git":
+            return "checking repository state"
+        if head in {"ssh", "curl"}:
+            return "checking external/runtime state"
+        return "running project command"
+    if kind == "file_change":
+        changes = item.get("changes") or []
+        return "editing project files" if isinstance(changes, list) and changes else "preparing file changes"
+    if kind == "tool_use":
+        return "using a tool"
+    if kind == "reasoning":
+        return "reasoning about next step"
+    if kind in {"assistant_message", "agent_message", "message"}:
+        return "reporting progress"
+    return "working"
+
+
 def _extract_text(item: dict[str, Any]) -> str:
     """Best-effort text extraction across codex/claude/copilot dialects."""
     text = item.get("text")
@@ -265,6 +303,7 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
             output_excerpt = _extract_output_excerpt(item)
             if output_excerpt:
                 extra["output_excerpt"] = output_excerpt
+            extra["action_summary"] = _action_summary(kind, text, item)
             _emit_progress(kind=kind, text=text, actor=actor, extra=extra)
             return
 

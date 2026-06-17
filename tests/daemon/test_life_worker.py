@@ -56,6 +56,7 @@ _ENV_VARS_TO_CLEAR = (
     "ARGUS_SKILL_SCIENTIST_MODEL",
     "ARGUS_SKILL_SCIENTIST_REASONING_EFFORT",
     "ARGUS_SKILL_SKILLS_DIR",
+    "ARGUS_SKILL_ENABLE_TELEGRAM",
     "ARGUS_SKILL_TELEGRAM_BOT_TOKEN",
     "ARGUS_SKILL_TELEGRAM_CHAT_ID",
     "ARGUS_SKILL_TELEGRAM_USER_ID",
@@ -364,6 +365,7 @@ def test_life_worker_continues_when_telegram_poller_start_fails(
 
     monkeypatch.setenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", "token")
     monkeypatch.setenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", "123")
+    monkeypatch.setenv("ARGUS_SKILL_ENABLE_TELEGRAM", "1")
     monkeypatch.setattr("argus_skill.life.telegram_bot.TelegramPoller.start", _boom)
     monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
 
@@ -373,6 +375,42 @@ def test_life_worker_continues_when_telegram_poller_start_fails(
     rc = worker.run_forever()
 
     assert started is True
+    assert rc == 0
+
+
+def test_life_worker_does_not_start_telegram_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.1)
+    LifeMemory.open(tmp_path).init()
+
+    started = False
+
+    def _start(_self: object) -> None:
+        nonlocal started
+        started = True
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            self.config.stop_event.set()
+            return {}
+
+    monkeypatch.setenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", "123")
+    monkeypatch.delenv("ARGUS_SKILL_ENABLE_TELEGRAM", raising=False)
+    monkeypatch.setattr("argus_skill.life.telegram_bot.TelegramPoller.start", _start)
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+
+    worker = LifeWorker(cfg)
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    rc = worker.run_forever()
+
+    assert started is False
     assert rc == 0
 
 

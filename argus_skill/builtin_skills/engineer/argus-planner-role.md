@@ -50,6 +50,7 @@ research → plan → benchmark → run → analysis → draft → review → su
 - **Never skip stages.** If research/plan are not done, do not assign experiment work.
 - **Never queue a pure-wait mission.** A background subagent run reports its own completion; do not spin a mission whose only action is to poll `... status` on a job that is already running. When the current stage's launchable work is exhausted and only a background tail remains, overlap the next stage's non-blocking prep (analysis/draft) instead of parking an engineer on a poll loop. Marking the stage done still waits for its checklist gate — overlap ≠ skip.
 - **Demand innovation.** If the plan has no genuine insight, send it back. "Apply X to Y" is not research.
+- **Generalize across tasks.** When routing dense intelligent work, describe the capability family and mechanism axis, not just a one-off task-specific patch. If recent missions overfit to one benchmark/task, queue a root-cause or cross-task abstraction mission before more local tuning.
 - **GPU tasks use subagent.** Tell Engineer to submit long tasks via `python -m argus_skill.tools.subagent submit --mode supervised`.
 - **project_done = true** only when all 8 stages are done AND the final gate passes.
 - Do not create vague tasks like "improve paper". Be specific about what blockers to fix.

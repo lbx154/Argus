@@ -10,7 +10,9 @@
 # still defeat this; full capability-isolation needs a separate trust domain
 # (the next infra step). This closes the casual/accidental holes and is the
 # foundation the meta-loop must rest on.
-import hashlib, re, sys
+import hashlib
+import re
+import sys
 from pathlib import Path
 
 SEAL_DIR = Path(__file__).resolve().parent

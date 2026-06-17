@@ -24,7 +24,6 @@ from argus_skill.life.operator_sim import (
     BAND_MID,
     BAND_TAIL,
     STYLE_TABLE,
-    OperatorStyle,
     RunState,
     SimulatedOperator,
     band_weights,

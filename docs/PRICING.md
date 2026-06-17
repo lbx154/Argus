@@ -2,7 +2,7 @@
 
 > **唯一权威定价表**。其他文档算 cost 一律按此口径，并且**必须**计入 cache-hit 折扣，否则上报数字无效。
 >
-> 来源：OpenAI 官方 API 定价页（2026 标准价），与 `benchmarks/swebench_pro/runner.py:_DEFAULT_PRICES_USD_PER_MTOK` 保持一致。
+> 来源：OpenAI 官方 API 定价页（2026 标准价）。此文档是仓库内成本核算的唯一口径。
 
 ---
 
@@ -41,7 +41,7 @@ def cost(model, input_tokens, cached_input_tokens, output_tokens):
 1. 把 `gpt-5.4` 的 output 价记成 $5.00（**错**，是 $10.00）
 2. 把 `gpt-5.4-mini` 的 input/output 记成 $0.15/$0.60（**错**，是 $0.25/$2.00）
 3. **不计 cache 折扣**，全按 input 价算（v12 实测 95% cache hit 时，会把成本高估 3-4×）
-4. 只看 `decisions.jsonl` 里的 `scientist_tokens` —— **它有 bug，long-time 都是 0**，必须从 `~/.codex/sessions/` 的 rollout JSONL 兜底（见 EXPERIMENT_PROTOCOL.md §3）
+4. 只看旧实验 `decisions.jsonl` 里的 `scientist_tokens` —— 历史记录可能缺失，必须从 `~/.codex/sessions/` 的 rollout JSONL 兜底。
 
 ---
 

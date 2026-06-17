@@ -331,8 +331,11 @@ def _render_engineer_progress_terminal(event: dict[str, Any], *, theme: Theme) -
         return "\n".join(out)
 
     if kind == "command_execution":
+        action = str(event.get("action_summary") or "").strip()
+        if action:
+            return theme.dim("  ▸ " + _trunc(action, 200))
         # Strip the ``/bin/bash -lc 'cmd'`` wrapper codex always emits so
-        # the user sees the actual command they care about.
+        # the user sees the actual command when no action summary exists.
         cmd = _strip_shell_wrapper(_first_line(text))
         return theme.dim("  ▸ $ " + _trunc(cmd, 200))
 

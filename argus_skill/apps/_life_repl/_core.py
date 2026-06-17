@@ -65,7 +65,6 @@ from .._life_actions import (
 from ._base import (
     LifeStderrSink,
     _CommonMemory,
-    _env_flag,
     _memory_global_root,
     _memory_project_root,
     _resolve_global_root,
@@ -334,13 +333,12 @@ def _invoke_supervisor(
 ) -> tuple[dict[str, Any], str | None]:
     ns = argparse.Namespace()
     ns.backend = backend
-    benchmark_mode = _env_flag("ARGUS_SKILL_BENCHMARK_MODE", False)
     from ...tools.capability_vault import resolve_route_model
 
     ns.engineer_model = os.environ.get("ARGUS_SKILL_ENGINEER_MODEL") or resolve_route_model(
         "engineer"
     )
-    reviewer_default = ns.engineer_model if benchmark_mode else resolve_route_model("reviewer")
+    reviewer_default = resolve_route_model("reviewer")
     ns.reviewer_model = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL") or reviewer_default
     ns.scientist_model = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL") or resolve_route_model(
         "scientist"
@@ -389,7 +387,6 @@ def _invoke_supervisor(
         f"- Per-mission budget cap: ${per_mission_cap_usd:.2f}\n"
         f"- Daily budget cap: ${daily_cap_usd:.2f}\n"
         f"- Mode: {mode_label}\n"
-        f"- Benchmark lean mode: {'on' if benchmark_mode else 'off'}\n"
     )
     from ...life.research_profile import render_research_profile_context
 

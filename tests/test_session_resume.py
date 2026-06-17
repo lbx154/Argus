@@ -384,7 +384,7 @@ def test_curated_checkpoint_persists_across_missions_via_file(tmp_path: Path) ->
                 "goal": "Wire the official BFCL evaluator",
                 "done": ["installed tree_sitter parser deps"],
                 "open_blocker": "no trained adapter checkpoints exist yet",
-                "next_step": "add code/run_benchmark_condition.py runner",
+                "next_step": "add code/run_condition.py runner",
             },
         })
 
@@ -410,7 +410,7 @@ def test_curated_checkpoint_persists_across_missions_via_file(tmp_path: Path) ->
     assert ckpt.exists()
     saved = json.loads(ckpt.read_text())
     assert saved["goal"] == "Wire the official BFCL evaluator"
-    assert saved["next_step"] == "add code/run_benchmark_condition.py runner"
+    assert saved["next_step"] == "add code/run_condition.py runner"
 
     backend_b = MemoryBackend()
     backend_b.queue("matcher", CannedResponse(message='{"matched": []}'))
@@ -425,7 +425,7 @@ def test_curated_checkpoint_persists_across_missions_via_file(tmp_path: Path) ->
     prompt = r1_prompts[0]
     assert "CURATED WORKING MEMORY" in prompt
     assert "Wire the official BFCL evaluator" in prompt
-    assert "add code/run_benchmark_condition.py runner" in prompt
+    assert "add code/run_condition.py runner" in prompt
 
 
 def test_no_checkpoint_path_keeps_handoff_in_memory_only(tmp_path: Path) -> None:

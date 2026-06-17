@@ -128,7 +128,8 @@ def test_stage_drill_surfaces_artifacts(tmp_path, monkeypatch):
     _make_daemon(root, "fp", project_dir=proj,
                  stages={"analysis": {"status": "done", "reason": "did analysis"}},
                  vertical="research", current_stage="analysis")
-    paper = proj / "paper"; paper.mkdir()
+    paper = proj / "paper"
+    paper.mkdir()
     (paper / "RESULTS_REPORT.md").write_text("# Results\nkey finding here", encoding="utf-8")
     (paper / "artifacts").mkdir()
     (paper / "artifacts" / "results_table.tsv").write_text("a\tb\n1\t2\n3\t4\n", encoding="utf-8")

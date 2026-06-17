@@ -340,7 +340,7 @@ def test_child_env_respects_explicit_vllm_and_opt_out(monkeypatch) -> None:
 
 def test_run_dir_parsed_from_command_space_and_equals() -> None:
     cmd = ("python -m argus_skill.tools.gpu_lease run -- env CUDA_VISIBLE_DEVICES=0 "
-           ".venv/bin/python code/run_benchmark_condition.py --method B0 "
+           ".venv/bin/python code/run_condition.py --method B0 "
            "--run-dir experiments/runs/full-B0-math500 --use-runwriter")
     assert _run_dir_from_command(cmd) == "experiments/runs/full-B0-math500"
     assert _run_dir_from_command("foo --run-dir=out/x bar") == "out/x"

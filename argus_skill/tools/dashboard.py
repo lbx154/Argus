@@ -38,7 +38,6 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # Discovery
 # ---------------------------------------------------------------------------
@@ -159,6 +158,16 @@ def _recent_events(events: list[dict], n: int = 12) -> list[dict]:
     return out
 
 
+def _current_action(events: list[dict]) -> str:
+    for e in reversed(events):
+        if (e.get("type") or e.get("event_type")) != "engineer.progress":
+            continue
+        action = e.get("action_summary") or e.get("current_action")
+        if action:
+            return " ".join(str(action).split())[:120]
+    return ""
+
+
 def _active_role(events: list[dict]) -> str:
     last = (events[-1].get("type") or events[-1].get("event_type") or "") if events else ""
     last = str(last)
@@ -184,9 +193,9 @@ def _enrich(root: Path) -> dict:
         pages = None
         if pdf.exists():
             try:
-                r = subprocess.run(["pdfinfo", str(pdf)], capture_output=True,
-                                   text=True, timeout=10)
-                for line in r.stdout.splitlines():
+                proc = subprocess.run(["pdfinfo", str(pdf)], capture_output=True,
+                                      text=True, timeout=10)
+                for line in proc.stdout.splitlines():
                     if line.startswith("Pages:"):
                         pages = int(line.split()[1])
             except Exception:
@@ -209,14 +218,14 @@ def _enrich(root: Path) -> dict:
     # speedrun attempts/leaderboard
     attempts = root / "attempts"
     if attempts.exists():
-        scored = []
+        scored: list[dict[str, str | float]] = []
         for d in sorted(attempts.iterdir()):
             cf = d / "results.csv"
             if not cf.exists():
                 continue
             try:
                 rows = list(csv.DictReader(cf.open()))
-                bpb = [float(r["val_bpb"]) for r in rows if r.get("val_bpb")]
+                bpb = [float(row["val_bpb"]) for row in rows if row.get("val_bpb")]
             except Exception:
                 continue
             if bpb:
@@ -227,15 +236,15 @@ def _enrich(root: Path) -> dict:
         if refcsv.exists():
             try:
                 agg: dict[str, list[float]] = {}
-                for r in csv.DictReader(refcsv.open()):
-                    agg.setdefault(r["label"], []).append(float(r["val_bpb"]))
+                for row in csv.DictReader(refcsv.open()):
+                    agg.setdefault(row["label"], []).append(float(row["val_bpb"]))
                 for k, v in agg.items():
                     scored.append({"name": k, "mean": round(statistics.mean(v), 4),
                                    "kind": "ref"})
             except Exception:
                 pass
-        scored.sort(key=lambda x: x["mean"])
-        best = next((s["mean"] for s in scored if s["kind"] == "ours"), None)
+        scored.sort(key=lambda x: float(x["mean"]))
+        best = next((float(s["mean"]) for s in scored if s["kind"] == "ours"), None)
         n_attempts = len([d for d in attempts.iterdir() if d.is_dir()])
         n_pm = len(list(attempts.rglob("INVENTION_POSTMORTEM.md")))
         out["panels"].append({
@@ -326,6 +335,7 @@ def scrape_project(life_dir: Path) -> dict:
                     for b in backlog[-6:]],
         "events": _recent_events(events),
         "active_role": _active_role(events),
+        "current_action": _current_action(events),
         "enrich": enrich,
     }
 
@@ -400,7 +410,7 @@ def _attempt_detail(root: Path) -> list[dict]:
         ch = d / "CHANGES.md"
         if ch.exists():
             try:
-                lines = [l for l in ch.read_text(errors="replace").splitlines() if l.strip()]
+                lines = [line for line in ch.read_text(errors="replace").splitlines() if line.strip()]
                 rec["changes"] = " ".join(" ".join(lines[:6]).split())[:280]
             except Exception:
                 pass
@@ -528,7 +538,7 @@ def _artifact_record(p: Path) -> dict:
         rec["kind"] = "table"
         try:
             lines = p.read_text(errors="replace").splitlines()
-            rec["rows"] = max(0, len([l for l in lines if l.strip()]) - 1)
+            rec["rows"] = max(0, len([line for line in lines if line.strip()]) - 1)
             rec["snippet"] = " | ".join((lines[0].split("\t") if suf == ".tsv" else lines[0].split(","))[:6]) if lines else ""
         except OSError:
             pass
@@ -891,6 +901,7 @@ function card(d){
   const ev=(d.events||[]).slice().reverse().map(e=>`<div class="e"><span class="ty">${e.type}</span><span class="tx">${e.text||''}</span></div>`).join('');
   const vt=d.vertical||'custom';
   const stg=STAGE_CN[d.current_stage]||d.current_stage;
+  const act=d.current_action?`<div class="section-label">当前动作</div><div class="art2">${esc(d.current_action)}</div>`:'';
   return `<div class="card" onclick="openDrawer('${d.fingerprint}')">
     <div class="chead">
       <div><h2>${d.title}</h2>
@@ -900,6 +911,7 @@ function card(d){
       </div>
       <span class="tag ${vt}">${VERT_CN[vt]||vt}</span>
     </div>
+    ${act}
     ${stages?`<div><div class="section-label">流程进度</div><div class="pipe">${stages}</div></div>`:''}
     <div><div class="section-label">三角色协作 · 当前活跃</div><div class="loop">${loop}</div></div>
     ${chipsHTML((d.enrich||{}).panels)}

@@ -449,17 +449,13 @@ ARGUS_SKILL_DAILY_CAP_USD=180
 - `argus_skill/life/telegram_bot.py`
 - `argus_skill/life/notify.py`
 
-## Benchmarks 和论文证据
+## 实验和论文证据
 
-仓库自带一些 benchmark/evidence 目录，用于本项目论文或 regression：
+仓库不再内置 benchmark runner / archive helper；旧 `benchmarks/` 包和只服务它的 legacy mission/container 兼容层已删除。论文 pipeline 里的 `benchmark` stage 仍是研究流程概念，由 stage checklist / reviewer 对照项目内 artifact 裁决。
 
-- `benchmarks/`: SWEBenchPro/prompt-only runners、report、archive helpers。
-- `benchmarks/evidence/`: 归档实验证据。
 - `experiments/`: 本地实验输出。
 - `paper/`: 这个仓库自己的 claim-to-evidence paper workspace，不等同于每个外部 research project 的 `paper/main.tex` pipeline，但命名会重叠。
 - `paper/build_*_artifacts.py`: 从 repo-local evidence 生成 checked-in `paper/artifacts/*`。
-
-改 benchmark runner 看 `benchmarks/*.py` 和 `tests/test_*benchmark*`。
 
 ## 测试入口
 
@@ -506,4 +502,3 @@ pytest
 - 不要在 full-scale evidence gate 红的时候继续 polish `paper/main.tex`，先补实验/benchmark/source matrix。
 - 不要把 pilot、synthetic、same-family-only evidence 写成 full EMNLP-ready result。
 - 不要在 user 的 `~/.argus-skill/skills` 里直接覆盖本地编辑，源码改 `argus_skill/builtin_skills`，需要时再 export。
-

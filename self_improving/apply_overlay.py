@@ -10,7 +10,11 @@
 #   apply_overlay.py propose <edit.json>      # classify + (add-only) apply or queue pending
 #   apply_overlay.py rollback <slug>          # remove an applied overlay (reversible)
 #   apply_overlay.py list                     # active overlays + pending queue
-import json, os, re, sys, time
+import json
+import os
+import re
+import sys
+import time
 from pathlib import Path
 
 META = Path.home() / ".argus-meta"
@@ -101,15 +105,18 @@ def cmd_list():
 
 def main():
     if len(sys.argv) < 2:
-        print("usage: apply_overlay.py propose <edit.json> | rollback <slug> | list"); sys.exit(2)
+        print("usage: apply_overlay.py propose <edit.json> | rollback <slug> | list")
+        sys.exit(2)
     cmd = sys.argv[1]
     if cmd == "propose":
         sys.exit(cmd_propose(sys.argv[2]))
     if cmd == "rollback":
         sys.exit(cmd_rollback(sys.argv[2]))
     if cmd == "list":
-        cmd_list(); sys.exit(0)
-    print(f"unknown command {cmd}"); sys.exit(2)
+        cmd_list()
+        sys.exit(0)
+    print(f"unknown command {cmd}")
+    sys.exit(2)
 
 
 if __name__ == "__main__":
