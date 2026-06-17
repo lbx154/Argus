@@ -22,8 +22,8 @@ The 4 stages:
    record per-seed rows in ``attempts/<name>/results.csv``. Output:
    one row per (attempt × seed).
 
-4. **report**: aggregate attempt × seed rows into a single
-   ``RESULTS.md`` table comparing mean BPB / wall time vs the
+4. **report**: aggregate attempt × repeat rows into a single
+   ``RESULTS.md`` table comparing the mission metric / wall time vs the
    reference baselines, with honest CI. No prose beyond a one-paragraph
    "what changed and what didn't" per attempt.
 
@@ -123,39 +123,41 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
          "research/GROUND_TRUTH.md"],
     ),
     "optimize": (
-        "engineer/nanochat-pretrain-runner.md",
+        "engineer/argus-engineer-role.md",
         "Evaluate the latest attempt — this is a FAST optimization loop; keep it LEAN:\n"
-        "1. Self-contained single-file script under attempts/<name>/train.py.\n"
-        "2. Imports the unmodified harness from baseline/lib.py (or an identity copy).\n"
-        "3. Fits the wall-clock budget, and the change has a stated, testable\n"
-        "   hypothesis (why this should lower BPB) — not random mutation.\n"
-        "4. CHANGES.md is present and SHORT (the diff + a one-line hypothesis).\n"
+        "1. The change lives in the EDITABLE artifact the mission names (the recipe /\n"
+        "   solution file / kernel), self-contained and runnable.\n"
+        "2. It does NOT modify the frozen harness/scorer, the metric, the held-out eval,\n"
+        "   or the budget — only the editable artifact.\n"
+        "3. It fits the declared wall-clock budget, and the change has a stated, testable\n"
+        "   hypothesis (why it should move the metric the right way) — not random mutation.\n"
+        "4. A SHORT note (CHANGES.md) records the diff + the one-line hypothesis.\n"
         "EFFICIENCY — do NOT slow the loop with bookkeeping:\n"
-        "- TRUST a clean `./eval_solution.sh` exit and its `MEAN_VAL_BPB`. Do NOT demand\n"
-        "  re-running, re-verifying, re-collecting evidence, or extra documentation for a\n"
+        "- TRUST a clean run of the mission's frozen scorer and the metric it reports. Do\n"
+        "  NOT demand re-running, re-verifying, re-collecting evidence, or extra docs for a\n"
         "  score that is already recorded. Once a candidate's score is in, it is DONE —\n"
         "  advance to the NEXT idea, don't loop re-confirming the last one.\n"
-        "- Screening a candidate with 1 seed (`./eval_solution.sh train.py 1`) is fine and\n"
-        "  preferred; only spend the full seed count to CONFIRM a candidate that clearly\n"
-        "  beats the current floor.\n"
-        "- The ONLY non-negotiable rigor: real `flash_attn.cute` (no SDPA/fallback/fake\n"
-        "  kernels), the frozen metric / 300s budget / val shard, and never a fabricated\n"
-        "  score. Verify THOSE; minimize everything else.\n"
+        "- A cheap single-trial screen is fine and preferred; only spend the full\n"
+        "  measurement to CONFIRM a candidate that clearly beats the current best.\n"
+        "- The ONLY non-negotiable rigor: the real, unmodified evaluation environment (no\n"
+        "  fallback/fake/shimmed-away contract), the frozen metric / budget / held-out\n"
+        "  eval, and never a fabricated or hardcoded-answer score. Verify THOSE; minimize\n"
+        "  everything else.\n"
         "Pass: the attempt is runnable, its hypothesis testable, and (if already scored) the\n"
-        "score came from a clean real-FA-4 scorer run — then ADVANCE.",
-        ["attempts/", "baseline/lib.py", "MISSION.md"],
+        "score came from a clean run of the frozen scorer — then ADVANCE.",
+        ["attempts/", "MISSION.md"],
     ),
     "measure": (
         "engineer/speedrun-measure.md",
         "Evaluate the measurement:\n"
-        "1. N >= the seed count declared in MISSION.md (default 10).\n"
-        "2. Each seed produced a real (not NaN/inf) BPB.\n"
-        "3. Wall clock per seed within the declared budget.\n"
-        "4. Results recorded as (label, seed, val_bpb, wall_seconds) rows\n"
-        "   matching the reference results.csv schema so they can be\n"
+        "1. N >= the repeat/seed count declared in MISSION.md (when the metric is noisy).\n"
+        "2. Each repeat produced a real (not NaN/inf) value of the mission metric.\n"
+        "3. Wall clock per run within the declared budget.\n"
+        "4. Results recorded as (label, repeat, metric, wall_seconds) rows\n"
+        "   matching the reference schema so they can be\n"
         "   concatenated for plotting.\n"
-        "5. Honest mean + min + max + 95% CI computed; no cherry-picked seed.\n"
-        "Pass: scored rows are sufficient to compare against reference.",
+        "5. Honest mean + min + max + (if repeated) 95% CI; no cherry-picked run.\n"
+        "Pass: scored rows are sufficient to compare against the reference baseline.",
         ["attempts/", "reference/", "MISSION.md"],
     ),
     "report": (
@@ -163,7 +165,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "Evaluate the report:\n"
         "1. RESULTS.md exists at project root.\n"
         "2. Contains a single results table with one row per (attempt,\n"
-        "   reference) sorted by mean BPB.\n"
+        "   reference) sorted by the mission metric.\n"
         "3. States honestly which reference rows were beaten and which\n"
         "   were not; no spin.\n"
         "4. One-paragraph 'what changed' per attempt, cross-referencing\n"
@@ -194,16 +196,17 @@ __all__ = [
 # These feed ``argus_skill.skills.stage_checklists`` (the markdown checklist
 # that drives the planner/engineer/reviewer round loop) via the optional-hook
 # contract in ``argus_skill.verticals._base``. The research vertical re-exports
-# the paper floor; the speedrun vertical declares its OWN 4-stage,
-# nanochat-shaped checklist instead — there is no paper, one number to lower
-# (mean validation bits-per-byte) under a fixed wall-clock budget.
+# the paper floor; the speedrun vertical declares its OWN 4-stage, metric-
+# agnostic checklist instead — there is no paper, one number to move the right
+# way under a fixed wall-clock budget, whatever that number is (val bpb, kernel
+# speedup/SOL, latency, accuracy, …).
 #
-# The items below are ported from the nanochat-autoresearch substitution that
-# previously lived inline in ``stage_checklists.py``; they are mapped onto the
-# speedrun stages: the deliverable/eval contract is pinned at ``setup``, the
-# learning recipe is produced at ``optimize``, the seed-mean / budget
-# measurement happens at ``measure``, and the head-to-head baseline comparison
-# is the ``report``.
+# The items below are GENERIC across optimization missions: the deliverable/
+# eval contract is pinned at ``setup``, the candidate is produced and screened
+# at ``optimize``, the repeat-mean / budget measurement happens at ``measure``,
+# and the head-to-head baseline comparison is the ``report``. Mission-specific
+# nouns (the editable file, the scorer, the metric name, the named baseline)
+# come from the operator objective / MISSION.md, not hard-coded here.
 
 #: System-(B) stage order for the speedrun vertical (mirrors STAGE_ORDER).
 CHECKLIST_STAGE_ORDER: tuple[str, ...] = ("setup", "optimize", "measure", "report")
@@ -214,93 +217,83 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="setup.solution_self_contained",
             statement=(
-                "The deliverable is ONE self-contained training script "
-                "`solutions/<name>.py` (a `solution.py`) that imports the shared "
-                "harness `lib.py` (tokenizer, dataloader, `evaluate_bpb` on the "
-                "held-out shard, `TIME_BUDGET=300`) UNCHANGED and modifies ONLY "
-                "the training recipe inside that one script. The reviewer must "
-                "confirm the agent did NOT touch `lib.py`, the evaluation, the "
-                "validation set, or the budget — `lib.py` is byte-identical to "
-                "the scaffold (hash/`git diff` against "
-                "`/scratch/recursive/nanochat_autoresearch`) — and that the "
-                "script runs via `/scratch/run_with_shim.py` (transparently swaps "
-                "flash-attn-3 -> torch SDPA, since an A100 cannot run the "
-                "Hopper-only FA3) or already uses torch SDPA directly."
+                "The deliverable is the EDITABLE artifact the mission names (a recipe / "
+                "solution file / kernel) that uses the mission's FROZEN harness/scorer "
+                "UNCHANGED and modifies ONLY that editable artifact. The reviewer must "
+                "confirm the agent did NOT touch the harness, the evaluation, the metric, "
+                "the held-out data, or the budget — they are byte-identical to the scaffold "
+                "(hash / `git diff` against the pinned scaffold) — and that the candidate is "
+                "scored through the mission's frozen scorer exactly as the mission specifies."
             ),
             evidence_hint=(
-                "solutions/<name>.py + unchanged lib.py hash vs the scaffold at "
-                "/scratch/recursive/nanochat_autoresearch + a run log produced "
-                "through /scratch/run_with_shim.py"
+                "the editable artifact + an unchanged-harness hash vs the pinned scaffold + "
+                "a run log produced through the mission's frozen scorer"
             ),
         ),
         ChecklistItem(
             id="setup.heldout_val",
             statement=(
-                "Evaluation reads the HELD-OUT validation shard wired by `lib.py` "
-                "(`shard_06542`), and there is NO train/val leakage: the data the "
-                "recipe trains on never includes the held-out shard, and the "
-                "tokenizer / metric / val set are the scaffold's, untouched. The "
-                "reward must reflect generalisation to UNSEEN bytes, so a recipe "
-                "that trains on (or otherwise lets the model see) the val shard is "
-                "disqualified — a low val bpb obtained by memorising the val text "
-                "is not a result."
+                "Evaluation reads the HELD-OUT / contract-specified inputs wired by the "
+                "frozen harness, and there is NO leakage or exploit: the candidate does not "
+                "see, memorise, or HARDCODE the known eval inputs/answers, and the metric / "
+                "eval inputs are the scaffold's, untouched. The reward must reflect genuine "
+                "generalisation, so a candidate that obtains its score by encoding the known "
+                "eval distribution (e.g. baking in fixed statistics of the test inputs) "
+                "rather than COMPUTING the real result is disqualified — that is a reward "
+                "hack, not a result."
             ),
             evidence_hint=(
-                "lib.py val-shard wiring (shard_06542) + the recipe's data "
-                "selection in solutions/<name>.py showing the val shard is "
-                "excluded from training"
+                "the harness's eval wiring + the candidate showing it COMPUTES the real "
+                "result rather than encoding/hardcoding the known eval inputs"
             ),
         ),
     ),
     "optimize": (
         ChecklistItem(
-            id="optimize.bpb_curve",
+            id="optimize.metric_curve",
             statement=(
-                "The validation bpb trajectory over the run DESCENDS (the model "
-                "is actually learning within the 300s budget), OR any flat / "
-                "rising / noisy / early-plateau curve is EXPLICITLY explained "
-                "(e.g. budget-bound underfit, LR schedule, warmup, divergence) "
-                "rather than silently accepted. A curve that never improves over "
-                "the random-init starting bpb is a dead recipe, not a result."
+                "The mission metric over the run MOVES THE RIGHT WAY (the candidate is "
+                "actually improving within the budget), OR any flat / wrong-way / noisy / "
+                "early-plateau trajectory is EXPLICITLY explained (e.g. budget-bound, "
+                "schedule, warmup, divergence) rather than silently accepted. A trajectory "
+                "that never improves over the starting point is a dead attempt, not a result."
             ),
             evidence_hint=(
-                "val_bpb-vs-step (or vs-wall-clock) series in progress.jsonl / "
-                "the run log; a one-line explanation for any non-descending curve"
+                "the metric-vs-step (or vs-wall-clock) series in the run log; a one-line "
+                "explanation for any non-improving trajectory"
             ),
         ),
     ),
     "measure": (
         ChecklistItem(
-            id="measure.seed_mean_bpb",
+            id="measure.repeat_mean_metric",
             statement=(
-                "The reported result is the MEAN validation bits-per-byte (val "
-                "bpb, lower=better) across N random seeds (`SEED` env per run; "
-                "iterate at N=3-5, report the final number at higher N) — NOT a "
-                "single lucky seed and NEVER the number the training script "
-                "printed about itself. A per-seed CSV records each seed's "
-                "`val_bpb:` line as RE-MEASURED by the VERIFIER re-running the "
-                "agent's `solution.py` under the identical protocol; the headline "
-                "mean the reviewer trusts is the verifier's, because the agent may "
-                "change only the recipe and can self-report anything."
+                "The reported result is the AGGREGATE mission metric across N repeats "
+                "(iterate at small N, report the final number at higher N) — NOT a single "
+                "lucky run and NEVER the number the candidate printed about itself. A "
+                "per-repeat record captures each run's metric as RE-MEASURED by the VERIFIER "
+                "re-running the candidate through the frozen scorer under the identical "
+                "protocol; the headline the reviewer trusts is the verifier's, because the "
+                "agent edits only the artifact and can self-report anything."
             ),
             evidence_hint=(
-                "per-seed CSV (seed,val_bpb) from the verifier's re-runs + the "
-                "computed mean; each row traceable to a `val_bpb:` stdout line"
+                "per-repeat record (run, metric) from the verifier's re-runs + the computed "
+                "aggregate; each row traceable to a real frozen-scorer output line"
             ),
         ),
         ChecklistItem(
             id="measure.budget_respected",
             statement=(
-                "Every scored run respected the FIXED 300s wall-clock "
-                "`TIME_BUDGET` on ONE A100-40GB — the recipe did not extend, "
-                "bypass, or hand-tune the budget, and no scored seed ran past it. "
-                "The contest is the LOWEST mean val bpb reachable UNDER the fixed "
-                "budget, so a solution that only attains its bpb by exceeding 300s "
-                "is invalid; `TIME_BUDGET` in `lib.py` stays unchanged."
+                "Every scored run respected the FIXED budget the mission declares (wall-clock "
+                "and hardware) — the candidate did not extend, bypass, or hand-tune the "
+                "budget, and no scored run exceeded it. The contest is the BEST metric "
+                "reachable UNDER the fixed budget, so a candidate that only attains its score "
+                "by exceeding the budget is invalid; the budget in the frozen harness stays "
+                "unchanged."
             ),
             evidence_hint=(
-                "per-run wall-clock (start/end) <= ~300s in the run log / "
-                "manifest; TIME_BUDGET=300 in lib.py unchanged"
+                "per-run wall-clock within the declared budget in the run log / manifest; "
+                "the budget in the frozen harness unchanged"
             ),
         ),
     ),
@@ -308,22 +301,19 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="report.beats_baseline",
             statement=(
-                "The proposed `solution.py`'s mean val bpb BEATS the RE-MEASURED "
-                "baseline: Recursive's best released solution (e.g. "
-                "`optimized_from_karpathy.py`) re-run ON OUR harness and A100 "
-                "hardware under the identical protocol (same N seeds, 300s budget, "
-                "held-out shard) — NOT the baseline's published B200 number "
-                "(0.9109). The comparison is head-to-head and cites BOTH per-seed "
-                "CSVs (ours and the re-measured baseline's) so the win is a "
-                "like-for-like mean-bpb delta, not a hardware / protocol artifact. "
-                "If the proposed recipe does NOT beat the re-measured baseline, "
-                "say so plainly and queue a repair/pivot — do not relabel a loss "
-                "as a win."
+                "The proposed candidate's metric BEATS the RE-MEASURED baseline: the named "
+                "reference baseline re-run ON OUR harness and hardware under the identical "
+                "protocol (same repeats, same budget, same held-out eval) — NOT a published "
+                "number from different hardware. The comparison is head-to-head and cites "
+                "BOTH per-run records (ours and the re-measured baseline's) so the win is a "
+                "like-for-like delta, not a hardware / protocol artifact. If the candidate "
+                "does NOT beat the re-measured baseline, say so plainly and queue a "
+                "repair/pivot — do not relabel a loss as a win."
             ),
             evidence_hint=(
-                "two per-seed CSVs (proposed vs re-measured baseline) under the "
-                "identical protocol + the mean-bpb delta; baseline = "
-                "optimized_from_karpathy.py re-run on A100, not the published 0.9109"
+                "two per-run records (proposed vs re-measured baseline) under the identical "
+                "protocol + the metric delta; baseline re-run on our hardware, not a "
+                "published number from other hardware"
             ),
         ),
     ),
@@ -351,6 +341,22 @@ def role_banner(role: str = "engineer") -> str:
     """
     role_norm = (role or "").strip().lower()
     common = (
+        "## INNOVATION IS YOUR PRIMARY DRIVER — read this FIRST, above all else\n"
+        "Your #1 objective is to INNOVATE: to invent and land genuinely NEW, BOLD, "
+        "STRUCTURAL improvements. Records are broken by INVENTION — a new kernel or "
+        "fusion, a new optimizer / attention / precision scheme, a restructured "
+        "recipe, curriculum, or numerics — NEVER by timid one-knob nibbles (a "
+        "step-count tweak, an LR nudge, a single hyperparameter). Begin EVERY round "
+        "by asking: 'what is the BOLDEST, highest-leverage structural change I can "
+        "correctly implement here?' — and pursue THAT. Small tuning is permitted "
+        "ONLY in service of maturing a bold idea (co-tuning the hyperparameters a "
+        "structural change needs), NEVER as the headline move and NEVER as a way to "
+        "bank a cheap safe score. A bold, honestly-measured experiment that does not "
+        "YET win is MORE valuable than a trivial edit that merely scores — the "
+        "trivial safe edit is the FAILURE MODE to avoid, not the goal. Always chase "
+        "the largest potential payoff you can implement, even if it takes several "
+        "rounds of co-tuning to mature. Innovation first; tuning only in its service.\n"
+        "\n"
         "## PIPELINE MODE = OPTIMIZE — HARD OVERRIDE (supersedes EVERYTHING below)\n"
         "This mission is a lean numeric-optimization loop, NOT a research paper. "
         "Ignore every instruction further down that assumes a paper pipeline. "
@@ -377,7 +383,12 @@ def role_banner(role: str = "engineer") -> str:
     )
     role_line = {
         "planner": (
-            "- As PLANNER: go straight to the run stage and stay there. Queue "
+            "- As PLANNER: go straight to the run stage and stay there. INNOVATION "
+            "IS WHAT YOU QUEUE FIRST: open the search with a HIGH-LEVERAGE "
+            "STRUCTURAL line (a new kernel / fusion, a new optimizer / attention / "
+            "precision scheme, or a recipe/curriculum restructuring) — NEVER open "
+            "with the smallest or safest tweak (a step-count cut, an LR nudge). "
+            "Queue "
             "missions that DEVELOP the current ACTIVE LINE (a recipe edit + its "
             "supporting hyperparameters co-tuned, then re-scored) or that diagnose "
             "why a run did not improve the metric. When the active line has STALLED "
@@ -444,9 +455,13 @@ def role_banner(role: str = "engineer") -> str:
             "warmup / schedule over several rounds before judging it. Combine a "
             "structural change with the hyperparameters that support it into ONE "
             "candidate. 'Revert' rolls back the active line's last step; it does "
-            "NOT force a snap-back to the global-best SHA. Land one concrete recipe "
-            "edit + its scored result per turn. Do NOT write research/grounding/"
-            "paper files.\n"
+            "NOT force a snap-back to the global-best SHA. Each turn, attempt the "
+            "BOLDEST structural recipe change you can implement correctly (plus the "
+            "co-tuning it needs) and score it — a multi-round structural line that "
+            "is temporarily BEHIND the floor is EXPECTED and good. Do NOT default to "
+            "the smallest safe edit just to guarantee a scored result; a trivial "
+            "one-knob change that merely scores is a wasted round. Do NOT write "
+            "research/grounding/paper files.\n"
         ),
     }.get(role_norm, "")
     return common + role_line + "\n"
