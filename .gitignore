@@ -19,6 +19,7 @@ htmlcov/
 # user state
 /skills/
 .argus-skill/
+.argus_subagents/
 
 # scratch
 benchmarks/results/

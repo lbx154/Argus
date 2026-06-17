@@ -593,7 +593,18 @@ class Reviewer:
             "  the mission merely passed through an allowed blocked / rollback /\n"
             "  not-launched / gate-blocked escape path, or only renamed/\n"
             "  refreshed artifacts while the real blocker remains — even if\n"
-            "  `status` is `done`.\n"
+            "  `status` is `done`. FOR AN OPTIMIZATION / SPEEDRUN / METRIC mission:\n"
+            "  forward_progress is TRUE whenever the round produced a NEW\n"
+            "  verifier-measured data point that advances the active line —\n"
+            "  INCLUDING a structural / optimizer / architecture / precision change\n"
+            "  that REGRESSED vs the current best but was honestly measured and\n"
+            "  reverted (it co-tuned or ruled out a real direction; a measured-and-\n"
+            "  reverted bold experiment is GOOD process, NOT failure — do not punish\n"
+            "  it, the verified global-best floor is never lost). Reserve FALSE for\n"
+            "  rounds that produced NO new measured evidence (crash / NaN /\n"
+            "  no-measurement / pure no-op / rename / refresh / escape path), or a\n"
+            "  stalled single-knob nibble that neither beat the floor nor advanced a\n"
+            "  declared structural line.\n"
             "- `headline`: one or two plain sentences stating what actually\n"
             "  changed or was proven this mission. No ANSI codes, no banners,\n"
             "  no command dumps.\n"
@@ -947,9 +958,16 @@ def _parse_planner_report(parsed: dict, *, status: str, reason: str) -> dict[str
     fp = raw.get("forward_progress")
     if isinstance(fp, bool):
         forward_progress = fp
+    elif status == "done":
+        # A clean ``done`` mission made progress by definition.
+        forward_progress = True
     else:
-        # Conservative default: only a clean ``done`` implies progress.
-        forward_progress = status == "done"
+        # Omitted on a NON-done round is UNKNOWN, not auto-False: the stall guard
+        # counts only EXPLICIT ``False`` (runner.py raw_forward_progress is False),
+        # so None correctly does not stall or trigger the planner's pivot-away rule.
+        # (Auto-False here punished honest no-report rounds and bold-but-regressing
+        # optimization rounds at the exact moment a structural line is co-tuning.)
+        forward_progress = None
     if not headline:
         headline = (reason or "").strip()[:600]
     # Concrete artifacts the planner should OPEN to diagnose what happened
