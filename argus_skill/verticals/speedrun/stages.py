@@ -124,16 +124,25 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
     ),
     "optimize": (
         "engineer/nanochat-pretrain-runner.md",
-        "Evaluate the latest attempt:\n"
+        "Evaluate the latest attempt — this is a FAST optimization loop; keep it LEAN:\n"
         "1. Self-contained single-file script under attempts/<name>/train.py.\n"
-        "2. Imports the unmodified harness from baseline/lib.py (or an\n"
-        "   identity copy).\n"
-        "3. Fits the wall-clock budget declared in MISSION.md.\n"
-        "4. CHANGES.md documents what differs from the parent baseline\n"
-        "   it branched from.\n"
-        "5. The change has a stated hypothesis (why this should lower\n"
-        "   BPB) — not random mutation.\n"
-        "Pass: the attempt is runnable and the hypothesis is testable.",
+        "2. Imports the unmodified harness from baseline/lib.py (or an identity copy).\n"
+        "3. Fits the wall-clock budget, and the change has a stated, testable\n"
+        "   hypothesis (why this should lower BPB) — not random mutation.\n"
+        "4. CHANGES.md is present and SHORT (the diff + a one-line hypothesis).\n"
+        "EFFICIENCY — do NOT slow the loop with bookkeeping:\n"
+        "- TRUST a clean `./eval_solution.sh` exit and its `MEAN_VAL_BPB`. Do NOT demand\n"
+        "  re-running, re-verifying, re-collecting evidence, or extra documentation for a\n"
+        "  score that is already recorded. Once a candidate's score is in, it is DONE —\n"
+        "  advance to the NEXT idea, don't loop re-confirming the last one.\n"
+        "- Screening a candidate with 1 seed (`./eval_solution.sh train.py 1`) is fine and\n"
+        "  preferred; only spend the full seed count to CONFIRM a candidate that clearly\n"
+        "  beats the current floor.\n"
+        "- The ONLY non-negotiable rigor: real `flash_attn.cute` (no SDPA/fallback/fake\n"
+        "  kernels), the frozen metric / 300s budget / val shard, and never a fabricated\n"
+        "  score. Verify THOSE; minimize everything else.\n"
+        "Pass: the attempt is runnable, its hypothesis testable, and (if already scored) the\n"
+        "score came from a clean real-FA-4 scorer run — then ADVANCE.",
         ["attempts/", "baseline/lib.py", "MISSION.md"],
     ),
     "measure": (
