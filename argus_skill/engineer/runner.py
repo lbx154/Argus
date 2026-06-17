@@ -1363,7 +1363,14 @@ class SupervisedEngineer:
                     else current_thread_id,
                 )
 
-            last_next_action = review.next_action
+            # Feed the engineer the REAL output of any failing acceptance check
+            # next round, not just the reviewer's paraphrase. Without this the
+            # engineer debugs blind (the root cause of guess-and-revert loops in
+            # complex iterative environments). Empty when all checks pass.
+            check_diag = failed_check_diagnostics(checks_results)
+            last_next_action = review.next_action or ""
+            if check_diag:
+                last_next_action = (last_next_action + "\n\n" + check_diag).strip()
 
         return (
             "max_rounds",
@@ -1637,6 +1644,39 @@ def _fallback_failed_check_handoff(checks: list[CheckResult]) -> str:
     return "\n".join(fallback_lines)
 
 
+def failed_check_diagnostics(checks: list[CheckResult], *, max_chars: int = 2600) -> str:
+    """The engineer's STRUCTURED ERROR-FEEDBACK channel.
+
+    The reviewer's ``next_action`` is a paraphrase; on its own the engineer never
+    sees the *literal output* of a failing acceptance check (compile error,
+    traceback, assertion diff, numeric mismatch). In a complex iterative
+    environment — optimizing a GPU kernel, fixing a failing build — that raw output
+    IS the ground truth the engineer needs, and withholding it forces blind
+    guess-and-revert loops. This surfaces the actual output of every failing check
+    so the next engineer turn can fix the root cause instead of re-deriving it.
+
+    Returns "" when nothing failed (so a healthy round is untouched) and is bounded
+    by ``max_chars`` across all failing checks so it never floods the prompt.
+    """
+    failed = [c for c in checks if not c.passed]
+    if not failed:
+        return ""
+    parts = [
+        "## Acceptance-check output — the REAL error, fix THIS (do not guess or just retry)",
+        "These acceptance commands FAILED this round. Their literal output below is the "
+        "ground truth for what is wrong. Read it, find the root cause, and fix it.",
+    ]
+    budget = max(400, int(max_chars))
+    for check in failed:
+        parts.append(f"$ {check.command}   (exit={check.exit_code})")
+        tail = (check.output_tail or "").strip()
+        if tail:
+            snippet = tail[-budget:]
+            parts.append("```\n" + snippet + "\n```")
+            budget = max(400, budget - len(snippet))
+    return "\n".join(parts)
+
+
 def _coerce_review_for_failed_checks(
     review: ReviewDecision,
     checks: list[CheckResult],
@@ -1670,6 +1710,7 @@ __all__ = [
     "LoopOutcome",
     "backend_failure_review_decision",
     "daemon_stop_review_decision",
+    "failed_check_diagnostics",
     "fatal_error_looks_like_backend_failure",
     "fatal_error_looks_like_daemon_stop_request",
     "fatal_error_looks_like_effective_progress_timeout",
