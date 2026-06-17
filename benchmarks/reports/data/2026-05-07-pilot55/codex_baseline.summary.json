@@ -1,9 +1,0 @@
-{
-  "total": 55,
-  "patched": 53,
-  "empty": 2,
-  "errored": 0,
-  "engineer_model": "gpt-5.4",
-  "reviewer_model": "gpt-5.4",
-  "max_rounds": 1
-}
