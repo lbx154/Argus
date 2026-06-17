@@ -473,6 +473,109 @@ def find_life_dir(fingerprint: str, roots: list[Path] | None = None) -> Path | N
 
 
 # ---------------------------------------------------------------------------
+# Stage-level drill-down (click a stage → its concrete artifacts)
+# ---------------------------------------------------------------------------
+
+# Per-stage artifact hints: file paths (relative to project root) and glob
+# patterns to surface for each stage. Vertical-agnostic union — only the
+# files that actually exist are shown, so a research project simply has no
+# speedrun artifacts and vice versa.
+_STAGE_ARTIFACTS: dict[str, list[str]] = {
+    # research vertical
+    "research": ["research/RESEARCH_BRIEF.md", "research/LITERATURE_GROUNDING.json",
+                 "research/SOURCE_DISCOVERY.md", "research/TREND_INSIGHTS.md"],
+    "plan": ["research/EXPERIMENT_PLAN.md", "research/BASELINE_AND_BENCHMARK_PLAN.md",
+             "paper/DRAFT_OUTLINE.md", "research/CLAIMS_TO_TEST.md"],
+    "benchmark": ["experiments/BENCHMARK_PROVENANCE.json", "experiments/BENCHMARK_PROVENANCE.md",
+                  "experiments/MATRIX.json", "bench/README.md"],
+    "run": ["benchmarks/evidence/*/summary.tsv", "experiments/runs/", "research/BASELINE_REPRODUCTION.md"],
+    "analysis": ["paper/RESULTS_REPORT.md", "paper/artifacts/results_table.tsv",
+                 "paper/CLAIMS_EVIDENCE_AUDIT.tsv", "paper/LIT_BASELINES.tsv", "paper/figures/"],
+    "draft": ["paper/main.tex", "paper/main.pdf", "paper/figures/"],
+    "review": ["paper/REVIEW_REPORT.md", "paper/LAYOUT_REVIEW.json",
+               "paper/ACADEMIC_LANGUAGE_REVIEW.json", "paper/FORMAT_PREFLIGHT.md"],
+    "submission": ["paper/SUBMISSION_ASSURANCE.md", "paper/SUBMISSION_ASSURANCE.json", "paper/main.pdf"],
+    # speedrun vertical
+    "setup": ["mission/SETUP.md", "research/GROUND_TRUTH.md", "reference/results/val_bpb.csv"],
+    "optimize": ["attempts/*/CHANGES.md", "attempts/*/train.py"],
+    "measure": ["attempts/*/results.csv"],
+    "report": ["RESULTS.md", "attempts/*/INVENTION_POSTMORTEM.md"],
+}
+
+
+def _artifact_record(p: Path) -> dict:
+    """Summarize one artifact file/dir for display."""
+    rec: dict = {"path": None, "kind": "file", "exists": p.exists(),
+                 "snippet": "", "rows": None, "size": None}
+    rec["path"] = str(p)
+    if not p.exists():
+        return rec
+    if p.is_dir():
+        rec["kind"] = "dir"
+        try:
+            children = [c for c in p.iterdir()]
+            rec["rows"] = len(children)
+            rec["snippet"] = ", ".join(sorted(c.name for c in children)[:8])
+        except OSError:
+            pass
+        return rec
+    try:
+        rec["size"] = p.stat().st_size
+    except OSError:
+        pass
+    suf = p.suffix.lower()
+    if suf in (".tsv", ".csv"):
+        rec["kind"] = "table"
+        try:
+            lines = p.read_text(errors="replace").splitlines()
+            rec["rows"] = max(0, len([l for l in lines if l.strip()]) - 1)
+            rec["snippet"] = " | ".join((lines[0].split("\t") if suf == ".tsv" else lines[0].split(","))[:6]) if lines else ""
+        except OSError:
+            pass
+    elif suf == ".pdf":
+        rec["kind"] = "pdf"
+        try:
+            r = subprocess.run(["pdfinfo", str(p)], capture_output=True, text=True, timeout=8)
+            for line in r.stdout.splitlines():
+                if line.startswith("Pages:"):
+                    rec["snippet"] = f"{line.split()[1]} 页"
+        except Exception:
+            pass
+    elif suf in (".md", ".txt", ".json"):
+        try:
+            txt = p.read_text(errors="replace")
+            rec["snippet"] = " ".join(txt.split())[:400]
+        except OSError:
+            pass
+    return rec
+
+
+def scrape_stage_detail(life_dir: Path, stage: str) -> dict:
+    base = scrape_project(life_dir)
+    root = Path(base["root"]) if base.get("root") else None
+    pipe = _read_json(root / "research" / "PIPELINE_STATE.json") if root else {}
+    stinfo = ((pipe.get("stages") or {}).get(stage) or {}) if isinstance(pipe.get("stages"), dict) else {}
+    arts: list[dict] = []
+    if root:
+        for pat in _STAGE_ARTIFACTS.get(stage, []):
+            if "*" in pat:
+                for m in sorted(root.glob(pat))[:12]:
+                    arts.append(_artifact_record(m))
+            else:
+                p = root / pat
+                if p.exists():
+                    arts.append(_artifact_record(p))
+    return {
+        "stage": stage,
+        "title": base["title"],
+        "status": stinfo.get("status", "pending"),
+        "reason": " ".join(str(stinfo.get("reason", "")).split())[:400],
+        "artifact_field": stinfo.get("artifact", ""),
+        "artifacts": [a for a in arts if a["exists"]],
+    }
+
+
+# ---------------------------------------------------------------------------
 # HTTP serving
 # ---------------------------------------------------------------------------
 
@@ -513,6 +616,26 @@ def serve(port: int = 8787, roots: list[Path] | None = None) -> int:
                 else:
                     try:
                         payload = json.dumps(scrape_project_detail(life)).encode()
+                    except Exception as exc:  # noqa: BLE001
+                        payload = json.dumps({"error": repr(exc)[:200]}).encode()
+                    self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+            elif self.path.startswith("/stage"):
+                from urllib.parse import parse_qs, urlparse
+                qs = parse_qs(urlparse(self.path).query)
+                fp = (qs.get("fp") or [""])[0]
+                stage = (qs.get("stage") or [""])[0]
+                life = find_life_dir(fp, roots) if fp else None
+                if life is None or not stage:
+                    payload = json.dumps({"error": "project or stage missing"}).encode()
+                    self.send_response(404)
+                else:
+                    try:
+                        payload = json.dumps(scrape_stage_detail(life, stage)).encode()
                     except Exception as exc:  # noqa: BLE001
                         payload = json.dumps({"error": repr(exc)[:200]}).encode()
                     self.send_response(200)
@@ -709,6 +832,19 @@ body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sa
   animation:shimmer 1.3s infinite;border-radius:8px}
 @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 .sk.line{height:13px;margin:8px 0}
+/* 阶段行可点击 + 二级产物 */
+.stagerow.stage-clk{cursor:pointer;border-radius:9px;margin:0 -8px;padding-left:8px;padding-right:8px;transition:background .12s}
+.stagerow.stage-clk:hover{background:var(--soft)}
+.stagerow .exp{font-size:10px;color:var(--blue);font-weight:500;white-space:nowrap;margin-left:4px}
+.stagebody{margin-top:0}
+.stagebody:not(:empty){margin-top:9px;padding-top:9px;border-top:1px dashed var(--line)}
+.artf{padding:7px 0;border-top:1px solid var(--line)}
+.artf:first-child{border-top:none}
+.artf .afh{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.artf .afn{font-family:var(--mono);font-size:11.5px;color:var(--blue-d);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.artf .afk{font-size:10px;color:var(--muted);white-space:nowrap}
+.artf .afs{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.5;max-height:54px;overflow:hidden}
+.art2{font-size:12px;color:var(--muted);padding:4px 0}
 /* prefers-reduced-motion (mandatory — taste §6.B, Impeccable, fdpro §2):
    honor OS "reduce motion" by stilling all pulse/shimmer/slide/lift. */
 @media (prefers-reduced-motion: reduce){
@@ -812,12 +948,12 @@ function renderDetail(d){
         · ${d.alive?'运行中 '+(d.etime||''):'已停止'} · pid ${d.pid||'—'}</div>
       <div class="path">${esc(d.root||d.life_dir)}</div>
     </div><button class="close" onclick="closeDrawer()">×</button></div>`;
-  // 阶段详情
+  // 阶段详情（可再点进去看产物）
   if((d.stage_detail||[]).length){
-    h+=`<div class="dsec"><h3>流程阶段 <span class="n">${d.stage_detail.length} 个</span></h3>`;
-    h+=d.stage_detail.map(s=>`<div class="stagerow">
+    h+=`<div class="dsec"><h3>流程阶段 <span class="n">${d.stage_detail.length} 个 · 点阶段看产物</span></h3>`;
+    h+=d.stage_detail.map(s=>`<div class="stagerow stage-clk" onclick="toggleStage('${d.fingerprint}','${s.name}',this)">
       <div class="nm">${STAGE_CN[s.name]||s.name}<br><span class="b ${sc(s.status)||s.status}">${STATUS_CN[s.status]||s.status}</span></div>
-      <div><div class="rsn">${s.reason?esc(s.reason):'<span style="color:var(--dim)">—</span>'}</div>${s.artifact?`<div class="art">${esc(s.artifact)}</div>`:''}</div>
+      <div><div class="rsn">${s.reason?esc(s.reason):'<span style="color:var(--dim)">—</span>'} <span class="exp">展开 ▾</span></div>${s.artifact?`<div class="art">${esc(s.artifact)}</div>`:''}<div class="stagebody"></div></div>
     </div>`).join('');
     h+=`</div>`;
   }
@@ -862,6 +998,31 @@ function renderDetail(d){
       d.events_full.map(e=>`<div class="e"><span class="ty">${esc(e.type)}</span><span class="tx">${esc(e.text||'')}</span></div>`).join('')+`</div></div>`;
   }
   return h;
+}
+// 阶段二级下钻：点阶段行 → 拉 /stage 看该阶段的具体产物
+const ARTKIND_CN={file:'文件',dir:'目录',table:'数据表',pdf:'PDF',md:'文档'};
+async function toggleStage(fp,stage,row){
+  const body=row.querySelector('.stagebody');
+  const exp=row.querySelector('.exp');
+  if(body.dataset.open==='1'){body.innerHTML='';body.dataset.open='0';if(exp)exp.textContent='展开 ▾';return}
+  body.dataset.open='1'; if(exp)exp.textContent='收起 ▴';
+  body.innerHTML='<div class="sk line" style="width:60%"></div>';
+  try{
+    const r=await fetch('/stage?fp='+encodeURIComponent(fp)+'&stage='+encodeURIComponent(stage)+'&_='+Date.now());
+    const d=await r.json();
+    if(d.error){body.innerHTML='<div class="art2">'+esc(d.error)+'</div>';return}
+    if(!d.artifacts||!d.artifacts.length){body.innerHTML='<div class="art2" style="color:var(--dim)">该阶段暂无可展示的产物文件</div>';return}
+    body.innerHTML=d.artifacts.map(a=>{
+      const nm=a.path.split('/').slice(-2).join('/');
+      const k=ARTKIND_CN[a.kind]||a.kind;
+      let meta='';
+      if(a.kind==='table')meta=`${a.rows} 行`;
+      else if(a.kind==='dir')meta=`${a.rows} 项`;
+      else if(a.kind==='pdf')meta=a.snippet;
+      else if(a.size!=null)meta=(a.size/1024).toFixed(1)+' KB';
+      return `<div class="artf"><div class="afh"><span class="afn">${esc(nm)}</span><span class="afk">${k}${meta?' · '+meta:''}</span></div>${a.snippet&&a.kind!=='pdf'?`<div class="afs">${esc(a.snippet)}</div>`:''}</div>`;
+    }).join('');
+  }catch(e){body.innerHTML='<div class="art2">加载失败：'+esc(e)+'</div>'}
 }
 tick();setInterval(tick,20000);
 </script></body></html>"""

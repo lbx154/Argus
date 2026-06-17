@@ -120,3 +120,25 @@ def test_snapshot_html_is_self_contained(tmp_path, monkeypatch):
     assert "<!DOCTYPE html>" in html
     assert "/data.json" in html  # it polls the json endpoint
     assert "setInterval" in html  # auto-refresh
+
+
+def test_stage_drill_surfaces_artifacts(tmp_path, monkeypatch):
+    root = tmp_path / "home"
+    proj = tmp_path / "paper"
+    _make_daemon(root, "fp", project_dir=proj,
+                 stages={"analysis": {"status": "done", "reason": "did analysis"}},
+                 vertical="research", current_stage="analysis")
+    paper = proj / "paper"; paper.mkdir()
+    (paper / "RESULTS_REPORT.md").write_text("# Results\nkey finding here", encoding="utf-8")
+    (paper / "artifacts").mkdir()
+    (paper / "artifacts" / "results_table.tsv").write_text("a\tb\n1\t2\n3\t4\n", encoding="utf-8")
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    monkeypatch.delenv("ARGUS_SKILL_DASHBOARD_ROOTS", raising=False)
+    life = dashboard.discover_life_dirs()[0]
+    d = dashboard.scrape_stage_detail(life, "analysis")
+    assert d["stage"] == "analysis"
+    assert d["reason"] == "did analysis"
+    names = [a["path"].split("/")[-1] for a in d["artifacts"]]
+    assert "RESULTS_REPORT.md" in names
+    tbl = next(a for a in d["artifacts"] if a["path"].endswith("results_table.tsv"))
+    assert tbl["kind"] == "table" and tbl["rows"] == 2
