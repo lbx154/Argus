@@ -351,6 +351,128 @@ def scrape_all(roots: list[Path] | None = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Deep per-project detail (drill-down behind a click)
+# ---------------------------------------------------------------------------
+
+def _mission_timeline(events: list[dict], limit: int = 30) -> list[dict]:
+    out = []
+    for e in events:
+        t = e.get("type") or e.get("event_type")
+        if t in ("life.mission.completed", "life.mission.failed"):
+            out.append({
+                "status": e.get("status") or ("done" if t.endswith("completed") else "failed"),
+                "ok": bool(e.get("success", t.endswith("completed"))),
+                "rounds": e.get("rounds"),
+                "cost": round(float(e.get("cost_usd", 0) or 0), 2),
+                "ts": e.get("ts"),
+                "reason": " ".join(str(e.get("reason") or e.get("summary") or "").split())[:200],
+            })
+    return out[-limit:][::-1]
+
+
+def _attempt_detail(root: Path) -> list[dict]:
+    adir = root / "attempts"
+    if not adir.exists():
+        return []
+    out = []
+    for d in sorted(adir.iterdir()):
+        if not d.is_dir():
+            continue
+        rec: dict = {"name": d.name, "seeds": [], "mean": None,
+                     "has_postmortem": (d / "INVENTION_POSTMORTEM.md").exists(),
+                     "changes": ""}
+        cf = d / "results.csv"
+        if cf.exists():
+            try:
+                rows = list(csv.DictReader(cf.open()))
+                vals = []
+                for r in rows:
+                    if r.get("val_bpb"):
+                        v = float(r["val_bpb"])
+                        vals.append(v)
+                        rec["seeds"].append({"seed": r.get("seed", "?"),
+                                             "val_bpb": round(v, 4),
+                                             "wall": r.get("wall_seconds", "")})
+                if vals:
+                    rec["mean"] = round(statistics.mean(vals), 4)
+            except Exception:
+                pass
+        ch = d / "CHANGES.md"
+        if ch.exists():
+            try:
+                lines = [l for l in ch.read_text(errors="replace").splitlines() if l.strip()]
+                rec["changes"] = " ".join(" ".join(lines[:6]).split())[:280]
+            except Exception:
+                pass
+        # only include attempts that have a score or a postmortem (signal)
+        if rec["mean"] is not None or rec["has_postmortem"]:
+            out.append(rec)
+    out.sort(key=lambda x: (x["mean"] is None, x["mean"] if x["mean"] is not None else 9))
+    return out
+
+
+def _paper_detail(root: Path) -> dict:
+    out: dict = {"sections": [], "figures": [], "experiments": []}
+    outline = root / "paper" / "DRAFT_OUTLINE.md"
+    if outline.exists():
+        try:
+            from ..skills.draft_outline import parse_outline
+            o = parse_outline(outline.read_text(errors="replace"))
+            out["sections"] = [{"title": s.title, "goal": s.goal[:120]} for s in o.sections]
+            out["figures"] = [{"id": f.id, "src": f.data_source[:80]} for f in o.figures]
+            out["experiments"] = [{"id": e.id, "spec": e.cell_spec[:100]} for e in o.experiments]
+        except Exception:
+            pass
+    return out
+
+
+def scrape_project_detail(life_dir: Path) -> dict:
+    base = scrape_project(life_dir)
+    events = _iter_jsonl(life_dir / "events.jsonl")
+    memory = _iter_jsonl(life_dir / "memory.jsonl")
+    backlog = _iter_jsonl(life_dir / "backlog.jsonl")
+    root = Path(base["root"]) if base.get("root") else None
+    pipe = _read_json(root / "research" / "PIPELINE_STATE.json") if root else {}
+
+    # per-stage detail (reason + artifact)
+    stages_state = pipe.get("stages", {}) if isinstance(pipe.get("stages"), dict) else {}
+    stage_detail = []
+    for name, v in stages_state.items():
+        v = v or {}
+        stage_detail.append({
+            "name": name,
+            "status": v.get("status", "pending"),
+            "reason": " ".join(str(v.get("reason", "")).split())[:240],
+            "artifact": v.get("artifact", ""),
+        })
+
+    detail = {
+        **base,
+        "caps": {
+            "per_mission": (_read_json(life_dir / "daemon.status.json") or {}).get("per_mission_cap_usd"),
+            "daily": (_read_json(life_dir / "daemon.status.json") or {}).get("daily_cap_usd"),
+        },
+        "stage_detail": stage_detail,
+        "last_gate": pipe.get("last_gate", {}),
+        "rollback_history": (pipe.get("rollback_history") or [])[-8:][::-1],
+        "mission_timeline": _mission_timeline(events + memory),
+        "backlog_full": [{"status": b.get("status", "?"), "title": b.get("title", "")}
+                         for b in backlog[-25:][::-1]],
+        "events_full": _recent_events(events, 40)[::-1],
+        "attempts": _attempt_detail(root) if root else [],
+        "paper": _paper_detail(root) if root else {"sections": [], "figures": [], "experiments": []},
+    }
+    return detail
+
+
+def find_life_dir(fingerprint: str, roots: list[Path] | None = None) -> Path | None:
+    for life in discover_life_dirs(roots):
+        if life.name == fingerprint:
+            return life
+    return None
+
+
+# ---------------------------------------------------------------------------
 # HTTP serving
 # ---------------------------------------------------------------------------
 
@@ -375,6 +497,25 @@ def serve(port: int = 8787, roots: list[Path] | None = None) -> int:
             if self.path.startswith("/data.json"):
                 payload = json.dumps(scrape_all(roots)).encode()
                 self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+            elif self.path.startswith("/detail"):
+                from urllib.parse import parse_qs, urlparse
+                qs = parse_qs(urlparse(self.path).query)
+                fp = (qs.get("fp") or [""])[0]
+                life = find_life_dir(fp, roots) if fp else None
+                if life is None:
+                    payload = json.dumps({"error": "project not found"}).encode()
+                    self.send_response(404)
+                else:
+                    try:
+                        payload = json.dumps(scrape_project_detail(life)).encode()
+                    except Exception as exc:  # noqa: BLE001
+                        payload = json.dumps({"error": repr(exc)[:200]}).encode()
+                    self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", str(len(payload)))
@@ -504,6 +645,70 @@ body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sa
 .ev .e .tx{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .foot{margin-top:28px;font-size:12px;color:var(--dim);text-align:center;font-family:var(--mono)}
 .empty{color:var(--dim);font-size:13px;padding:6px 0}
+/* 可点击卡片 + 触感 */
+.card{cursor:pointer;transition:transform .14s ease,box-shadow .14s ease,border-color .14s}
+.card:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(30,60,120,.10);border-color:#c5d6f0}
+.card:active{transform:translateY(0) scale(.995)}
+.card .more{font-size:12px;color:var(--blue);font-weight:500;margin-top:2px;display:inline-flex;align-items:center;gap:3px}
+/* 详情抽屉 */
+.scrim{position:fixed;inset:0;background:rgba(20,38,70,.42);backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity .2s;z-index:40}
+.scrim.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;height:100vh;width:min(680px,94vw);background:var(--bg);
+  box-shadow:-12px 0 40px rgba(20,38,70,.16);transform:translateX(100%);transition:transform .26s cubic-bezier(.4,0,.2,1);
+  z-index:50;overflow-y:auto;display:flex;flex-direction:column}
+.drawer.open{transform:translateX(0)}
+.dwrap{padding:24px clamp(16px,3vw,30px) 60px}
+.dhdr{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;position:sticky;top:0;
+  background:var(--bg);padding-bottom:14px;margin-bottom:6px;border-bottom:1px solid var(--line);z-index:2}
+.dhdr h2{font-size:21px;font-weight:700}
+.dhdr .dmeta{font-size:12px;color:var(--muted);font-family:var(--mono);margin-top:4px}
+.dhdr .path{font-size:11px;color:var(--dim);font-family:var(--mono);word-break:break-all;margin-top:2px}
+.close{flex-shrink:0;width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:var(--card);
+  color:var(--muted);font-size:18px;cursor:pointer;line-height:1;transition:background .14s}
+.close:hover{background:var(--soft);color:var(--ink)}
+/* 抽屉内分组：plain layout, divide 而非套卡片 */
+.dsec{padding:18px 0;border-bottom:1px solid var(--line)}
+.dsec:last-child{border-bottom:none}
+.dsec h3{font-size:14px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px}
+.dsec h3 .n{font-size:11px;color:var(--muted);font-weight:400}
+/* 阶段详情行 */
+.stagerow{display:grid;grid-template-columns:80px 1fr;gap:12px;padding:9px 0;border-top:1px solid var(--line);align-items:start}
+.stagerow:first-child{border-top:none}
+.stagerow .nm{font-size:13px;font-weight:600}
+.stagerow .nm .b{display:inline-block;margin-top:3px;font-size:10px;padding:1px 8px;border-radius:999px;font-weight:500}
+.stagerow .nm .b.done{background:var(--green-soft);color:var(--green)}
+.stagerow .nm .b.running,.stagerow .nm .b.ready{background:var(--blue-soft);color:var(--blue-d)}
+.stagerow .nm .b.blocked{background:var(--red-soft);color:var(--red)}
+.stagerow .nm .b.pending{background:var(--soft);color:var(--muted)}
+.stagerow .rsn{font-size:12.5px;color:var(--muted);line-height:1.5}
+.stagerow .art{font-size:11px;color:var(--blue);font-family:var(--mono);margin-top:3px;word-break:break-all}
+/* 时间线 */
+.tl .ti{display:grid;grid-template-columns:auto 1fr auto;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:12.5px;align-items:center}
+.tl .ti:first-child{border-top:none}
+.tl .ti .dot{width:8px;height:8px;border-radius:50%}
+.tl .ti .dot.ok{background:var(--green)} .tl .ti .dot.bad{background:var(--red)}
+.tl .ti .txt{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl .ti .cost{font-family:var(--mono);color:var(--muted);font-size:11px;white-space:nowrap}
+/* 实验逐seed */
+.att{border-top:1px solid var(--line);padding:11px 0}
+.att:first-child{border-top:none}
+.att .top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.att .top .nm{font-size:13px;font-weight:600;font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att .top .mean{font-family:var(--mono);font-weight:700;color:var(--blue-d);white-space:nowrap}
+.att .top .pm{font-size:10px;background:var(--amber-soft);color:var(--amber);padding:1px 7px;border-radius:999px;margin-left:6px}
+.att .seeds{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
+.att .seeds .sd{font-family:var(--mono);font-size:10.5px;color:var(--muted);background:var(--soft);padding:2px 7px;border-radius:6px}
+.att .chg{font-size:11.5px;color:var(--dim);margin-top:6px;line-height:1.5}
+/* 列表通用 */
+.list .li{padding:7px 0;border-top:1px solid var(--line);font-size:12.5px;display:flex;gap:9px}
+.list .li:first-child{border-top:none}
+.list .li .k{flex-shrink:0;color:var(--blue);font-family:var(--mono);font-size:11.5px;min-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.list .li .v{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 骨架屏 */
+.sk{background:linear-gradient(90deg,var(--soft) 25%,#e3ebf7 50%,var(--soft) 75%);background-size:200% 100%;
+  animation:shimmer 1.3s infinite;border-radius:8px}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.sk.line{height:13px;margin:8px 0}
 </style></head><body><div class="wrap">
 <div class="hdr">
   <div><h1><span class="logo"></span>Argus 工作台</h1><div class="sub">7×24 自主科研守护进程 · 自动发现全部项目</div></div>
@@ -513,7 +718,10 @@ body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sa
 <div class="gpustrip" id="gpustrip"></div>
 <div class="grid" id="grid"></div>
 <div class="foot" id="foot">加载中…</div>
-</div><script>
+</div>
+<div class="scrim" id="scrim" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer"><div class="dwrap" id="dwrap"></div></div>
+<script>
 // 中文映射
 const STAGE_CN={research:'调研',plan:'规划',benchmark:'基准',run:'实验',analysis:'分析',draft:'撰写',review:'评审',submission:'投稿',
   setup:'准备',optimize:'优化',measure:'测量',report:'汇报'};
@@ -538,11 +746,12 @@ function card(d){
   const ev=(d.events||[]).slice().reverse().map(e=>`<div class="e"><span class="ty">${e.type}</span><span class="tx">${e.text||''}</span></div>`).join('');
   const vt=d.vertical||'custom';
   const stg=STAGE_CN[d.current_stage]||d.current_stage;
-  return `<div class="card">
+  return `<div class="card" onclick="openDrawer('${d.fingerprint}')">
     <div class="chead">
       <div><h2>${d.title}</h2>
         <div class="meta2">当前阶段「${stg}」· 已完成 ${d.missions||0} 个任务 · 花费 $${d.cost||0}
           · <span class="status ${d.alive?'on':'off'}"><span class="d"></span>${d.alive?'运行中 '+(d.etime||''):'已停止'}</span></div>
+        <div class="more">点击查看完整细节 →</div>
       </div>
       <span class="tag ${vt}">${VERT_CN[vt]||vt}</span>
     </div>
@@ -568,6 +777,83 @@ async function tick(){try{
   document.getElementById('grid').innerHTML=ps.map(card).join('');
   document.getElementById('foot').textContent='argus-skill --dashboard · 自动发现 '+ps.length+' 个守护进程';
 }catch(e){document.getElementById('foot').textContent='获取数据失败：'+e}}
+// ===== 详情抽屉 =====
+function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+function skeleton(){return `<div class="dhdr"><div style="flex:1"><div class="sk line" style="width:50%"></div><div class="sk line" style="width:30%"></div></div><button class="close" onclick="closeDrawer()">×</button></div>`+
+  Array(4).fill('<div class="dsec"><div class="sk line" style="width:35%"></div><div class="sk line"></div><div class="sk line" style="width:80%"></div></div>').join('')}
+async function openDrawer(fp){
+  const dw=document.getElementById('dwrap');
+  dw.innerHTML=skeleton();
+  document.getElementById('scrim').classList.add('open');
+  document.getElementById('drawer').classList.add('open');
+  try{
+    const r=await fetch('/detail?fp='+encodeURIComponent(fp)+'&_='+Date.now());
+    const d=await r.json();
+    if(d.error){dw.innerHTML=`<div class="dhdr"><h2>加载失败</h2><button class="close" onclick="closeDrawer()">×</button></div><div class="dsec">${esc(d.error)}</div>`;return}
+    dw.innerHTML=renderDetail(d);
+  }catch(e){dw.innerHTML=`<div class="dsec">获取详情失败：${esc(e)}</div>`}
+}
+function closeDrawer(){document.getElementById('scrim').classList.remove('open');document.getElementById('drawer').classList.remove('open')}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer()});
+function renderDetail(d){
+  const vt=d.vertical||'custom';
+  let h=`<div class="dhdr"><div>
+      <h2>${esc(d.title)} <span class="tag ${vt}" style="vertical-align:middle">${VERT_CN[vt]||vt}</span></h2>
+      <div class="dmeta">阶段「${STAGE_CN[d.current_stage]||d.current_stage}」· ${d.missions||0} 任务 · $${d.cost||0}
+        · ${d.alive?'运行中 '+(d.etime||''):'已停止'} · pid ${d.pid||'—'}</div>
+      <div class="path">${esc(d.root||d.life_dir)}</div>
+    </div><button class="close" onclick="closeDrawer()">×</button></div>`;
+  // 阶段详情
+  if((d.stage_detail||[]).length){
+    h+=`<div class="dsec"><h3>流程阶段 <span class="n">${d.stage_detail.length} 个</span></h3>`;
+    h+=d.stage_detail.map(s=>`<div class="stagerow">
+      <div class="nm">${STAGE_CN[s.name]||s.name}<br><span class="b ${sc(s.status)||s.status}">${STATUS_CN[s.status]||s.status}</span></div>
+      <div><div class="rsn">${s.reason?esc(s.reason):'<span style="color:var(--dim)">—</span>'}</div>${s.artifact?`<div class="art">${esc(s.artifact)}</div>`:''}</div>
+    </div>`).join('');
+    h+=`</div>`;
+  }
+  // 最近裁决 / 回滚
+  if(d.last_gate&&d.last_gate.verdict){
+    h+=`<div class="dsec"><h3>最近裁决</h3><div class="rsn"><b>${esc(d.last_gate.verdict)}</b><br>${esc(d.last_gate.reason||'')}</div></div>`;
+  }
+  if((d.rollback_history||[]).length){
+    h+=`<div class="dsec"><h3>回滚记录 <span class="n">${d.rollback_history.length} 次</span></h3><div class="list">`+
+      d.rollback_history.map(r=>`<div class="li"><span class="k">${STAGE_CN[r.from_stage]||r.from_stage}→${STAGE_CN[r.to_stage]||r.to_stage}</span><span class="v">${esc(r.reason||'')}</span></div>`).join('')+`</div></div>`;
+  }
+  // 实验逐seed（speedrun）
+  if((d.attempts||[]).length){
+    h+=`<div class="dsec"><h3>实验记录 <span class="n">${d.attempts.length} 个</span></h3>`;
+    h+=d.attempts.map(a=>`<div class="att">
+      <div class="top"><span class="nm">${esc(a.name)}${a.has_postmortem?'<span class="pm">原创验证</span>':''}</span>
+        <span class="mean">${a.mean!=null?a.mean.toFixed(4):'未评分'}</span></div>
+      ${a.seeds&&a.seeds.length?`<div class="seeds">${a.seeds.map(s=>`<span class="sd">种子${s.seed}: ${s.val_bpb}</span>`).join('')}</div>`:''}
+      ${a.changes?`<div class="chg">${esc(a.changes)}</div>`:''}
+    </div>`).join('');
+    h+=`</div>`;
+  }
+  // 论文结构（research）
+  const pp=d.paper||{};
+  if((pp.sections||[]).length||(pp.figures||[]).length){
+    h+=`<div class="dsec"><h3>论文结构 <span class="n">${(pp.sections||[]).length}章 / ${(pp.figures||[]).length}图 / ${(pp.experiments||[]).length}实验</span></h3><div class="list">`+
+      (pp.sections||[]).map(s=>`<div class="li"><span class="k">${esc(s.title)}</span><span class="v">${esc(s.goal)}</span></div>`).join('')+`</div></div>`;
+  }
+  // 任务历史
+  if((d.mission_timeline||[]).length){
+    h+=`<div class="dsec"><h3>任务历史 <span class="n">近 ${d.mission_timeline.length} 个</span></h3><div class="tl">`+
+      d.mission_timeline.map(m=>`<div class="ti"><span class="dot ${m.ok?'ok':'bad'}"></span><span class="txt">${m.ok?'✓ 完成':'✗ '+(STATUS_CN[m.status]||m.status)}${m.reason?' · '+esc(m.reason):''}</span><span class="cost">${m.rounds?m.rounds+'轮 ':''}$${m.cost}</span></div>`).join('')+`</div></div>`;
+  }
+  // 全部待办
+  if((d.backlog_full||[]).length){
+    h+=`<div class="dsec"><h3>任务队列 <span class="n">${d.backlog_full.length} 条</span></h3><div class="bl">`+
+      d.backlog_full.map(b=>`<div class="it"><span class="s ${b.status}">${STATUS_CN[b.status]||b.status}</span><span class="t">${esc(b.title)}</span></div>`).join('')+`</div></div>`;
+  }
+  // 完整事件
+  if((d.events_full||[]).length){
+    h+=`<div class="dsec"><h3>事件流 <span class="n">近 ${d.events_full.length} 条</span></h3><div class="ev" style="max-height:280px">`+
+      d.events_full.map(e=>`<div class="e"><span class="ty">${esc(e.type)}</span><span class="tx">${esc(e.text||'')}</span></div>`).join('')+`</div></div>`;
+  }
+  return h;
+}
 tick();setInterval(tick,20000);
 </script></body></html>"""
 
