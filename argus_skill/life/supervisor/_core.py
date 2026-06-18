@@ -193,6 +193,10 @@ class LifeSupervisor:
         self.skill_store = skill_store
         self._missions_started = 0
         self._planning_cycles = 0
+        # Signal C cadence: completed missions since the last process-metacritic
+        # epoch. The metacritic (an LLM pass) runs at most every
+        # ``process_metacritic_cadence`` missions, never per tick.
+        self._missions_since_metacritic = 0
         # One-shot guard: the pipeline mode (paper vs optimize) is classified
         # from the continuous objective and persisted exactly once, on the
         # first planner cycle. Set True the moment we attempt resolution so we
@@ -714,7 +718,86 @@ class LifeSupervisor:
             self._maybe_journal_recurring_failure_advisory(item, result)
         except Exception:  # noqa: BLE001 — never let self-evolve crash tick
             log.exception("recurring-failure advisory hook raised; tick continues")
+        # Self-evolve hook (Signal C · PROCESS): on a cadence, distill the
+        # accumulated reviewer ``process_lesson``s + the quantified process
+        # ledger into SHADOW process lessons (diagnosis only — the apply path
+        # stays operator-gated). Where A/B flag missing tools / recurring infra
+        # failures, C audits the agent's OWN process (wasted rounds, incentive
+        # contradictions) and proposes a process fix for the operator to review.
+        try:
+            self._maybe_run_process_distiller(item, result)
+        except Exception:  # noqa: BLE001 — never let self-evolve crash tick
+            log.exception("process-distiller hook raised; tick continues")
         return result
+
+    def _maybe_run_process_distiller(
+        self, item: BacklogItem, result: dict[str, Any] | None
+    ) -> None:
+        """Signal C: close the process_lesson -> distill -> metacritic loop.
+
+        Reads this project's ``events.jsonl`` into a quantified process ledger
+        (cheap, structural), and ON A CADENCE runs ONE read-only meta-critic LLM
+        pass over it -> SHADOW process lessons persisted under
+        ``<life_dir>/process_lessons/``. Never auto-applies anything: the
+        overlay / counterfactual-replay / A-B apply path stays operator-gated
+        (``self_improving/`` outside the package). Best-effort: the wrapping
+        try/except in the tick guarantees this never breaks mission dispatch.
+        """
+        cfg = self.config
+        if not getattr(cfg, "process_metacritic_enabled", True):
+            return
+        life_dir = getattr(cfg, "telemetry_dir", None)
+        if life_dir is None:
+            return  # only in the per-project regime (an events.jsonl exists)
+        # The metacritic needs a raw RunnerBackend (LLM). ``self.runner`` is the
+        # MissionExecutor (only ``execute``); ``planner_runner`` is the same
+        # RunnerBackend the planner uses (codex / memory). None disables Signal C.
+        backend = self.planner_runner
+        if backend is None:
+            return
+
+        self._missions_since_metacritic += 1
+        cadence = max(1, int(getattr(cfg, "process_metacritic_cadence", 12)))
+        if self._missions_since_metacritic < cadence:
+            return
+        # Reset on ATTEMPT (whether or not the LLM runs) so the expensive parse +
+        # metacritic happen at most once per ``cadence`` missions.
+        self._missions_since_metacritic = 0
+
+        from ..process_distill import extract_process_ledger
+
+        ledger = extract_process_ledger(life_dir)
+        if int(ledger.get("n_process_lessons", 0) or 0) == 0:
+            return  # the write-only channel has nothing to distill yet
+
+        from datetime import datetime, timezone
+
+        from ...core.models import RunnerOptions
+        from ..process_metacritic import distill_process_lessons, persist_lessons
+
+        lessons = distill_process_lessons(
+            backend,
+            ledger,
+            options=RunnerOptions(
+                model=self.reviewer_model, reasoning_effort="high"
+            ),
+        )
+        if not lessons:
+            return
+        epoch = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        out = persist_lessons(lessons, Path(life_dir) / "process_lessons", epoch)
+        self._emit({
+            "type": "process_metacritic.lessons",
+            "text": (
+                f"distilled {len(lessons)} SHADOW process lesson(s) over "
+                f"{ledger.get('n_missions', 0)} missions "
+                f"({ledger.get('n_process_lessons', 0)} process_lessons) -> "
+                f"{out.name} (operator-gated apply)"
+            ),
+            "n_lessons": len(lessons),
+            "n_missions": ledger.get("n_missions", 0),
+            "path": str(out),
+        })
 
     # ------------------------------------------------------------------
     # Self-evolve: thin delegate to SelfEvolveAdvisor

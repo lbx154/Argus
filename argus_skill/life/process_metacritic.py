@@ -119,7 +119,10 @@ def distill_process_lessons(
         options=options or RunnerOptions(),
         run_label="process_metacritic",
     )
-    text = result.message() if hasattr(result, "message") else ""
+    # ``message`` is a @property on the real RunnerResult (str) but a method on
+    # some test doubles — tolerate both, then fall back to agent_messages.
+    _msg = getattr(result, "message", None)
+    text = (_msg() if callable(_msg) else (_msg or ""))
     if not text and getattr(result, "agent_messages", None):
         text = result.agent_messages[-1]
     return parse_lessons(text, n_missions=int(corpus_ledger.get("n_missions", 0) or 0))
