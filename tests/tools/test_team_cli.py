@@ -76,3 +76,54 @@ def test_spawn_claims_specific_task_no_crossing(tmp_path: Path, capsys) -> None:
     by_id = {t["task_id"]: t for t in json.loads(out)["tasks"]}
     assert by_id["t1::a"]["owner"] == "t1::w1"
     assert by_id["t1::b"]["owner"] == "t1::w2"
+
+
+def test_refill_once_caps_and_idempotent(tmp_path: Path) -> None:
+    from argus_skill.tools import team as teamcli
+    from argus_skill.team import task_board as tb
+    root = tmp_path / "t"
+    tb.form(root, [{"task_id": f"k{i}", "objective": "opt", "owns_paths": [f"k{i}/**"]}
+                   for i in range(5)])
+    calls = []
+    def fake_spawn(r, *, member_id, task_id, cwd, exec_cmd=""):
+        calls.append((member_id, task_id)); return 4242
+    res = teamcli.refill_once(root, width=3, cwd=tmp_path, ttl=180.0, now=1.0, spawn_fn=fake_spawn)
+    assert len(res["spawned"]) == 3 and len(calls) == 3
+    assert tb.count_in_flight(root) == 3
+    res2 = teamcli.refill_once(root, width=3, cwd=tmp_path, ttl=180.0, now=2.0, spawn_fn=fake_spawn)
+    assert res2["spawned"] == [] and len(calls) == 3       # idempotent when full
+
+
+def test_refill_once_drains_short_backlog(tmp_path: Path) -> None:
+    from argus_skill.tools import team as teamcli
+    from argus_skill.team import task_board as tb
+    root = tmp_path / "t"
+    tb.form(root, [{"task_id": "k0", "objective": "opt", "owns_paths": ["k0/**"]},
+                   {"task_id": "k1", "objective": "opt", "owns_paths": ["k1/**"]}])
+    res = teamcli.refill_once(root, width=10, cwd=tmp_path, ttl=180.0, now=1.0,
+                              spawn_fn=lambda r, **k: 1)
+    assert len(res["spawned"]) == 2                          # only 2 tasks exist
+
+
+def test_refill_once_reassigns_then_fills(tmp_path: Path) -> None:
+    from argus_skill.tools import team as teamcli
+    from argus_skill.team import task_board as tb
+    root = tmp_path / "t"
+    tb.form(root, [{"task_id": "k0", "objective": "opt", "owns_paths": ["k0/**"]}])
+    tb.claim_top(root, "w0", now=1.0)                        # k0 claimed by a (now dead) teammate
+    tb.heartbeat(root, "k0", now=1.0)
+    # ttl small -> k0 is stale; refill should reassign it and re-spawn
+    res = teamcli.refill_once(root, width=1, cwd=tmp_path, ttl=0.0, now=100.0,
+                              spawn_fn=lambda r, **k: 1)
+    assert res["reassigned"] == ["k0"] and len(res["spawned"]) == 1
+
+
+def test_should_stop_conditions(tmp_path: Path) -> None:
+    from argus_skill.tools import team as teamcli
+    run = {"state": "running", "lead_heartbeat_ts": 100.0}
+    drn = {"state": "draining", "lead_heartbeat_ts": 100.0}
+    assert teamcli._should_stop(run, in_flight=3, elapsed=10, lead_ttl=300, max_wall=1000, now=110) is None
+    assert teamcli._should_stop(drn, in_flight=0, elapsed=10, lead_ttl=300, max_wall=1000, now=110) == "drained"
+    assert teamcli._should_stop(drn, in_flight=2, elapsed=10, lead_ttl=300, max_wall=1000, now=110) is None
+    assert teamcli._should_stop(run, in_flight=3, elapsed=10, lead_ttl=300, max_wall=1000, now=500) == "lead-heartbeat-stale"
+    assert teamcli._should_stop(run, in_flight=3, elapsed=2000, lead_ttl=300, max_wall=1000, now=110) == "max-wall"

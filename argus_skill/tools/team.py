@@ -18,7 +18,7 @@ import sys
 import time
 from pathlib import Path
 
-from ..team import mailbox, roster, task_board, worktree
+from ..team import mailbox, pool, roster, task_board, worktree
 
 
 def _load_tasks(path: Path) -> list[dict]:
@@ -38,6 +38,32 @@ def cmd_form(a: argparse.Namespace) -> int:
     return 0
 
 
+def _spawn_teammate(root: Path, *, member_id: str, task_id: str, cwd: Path,
+                    exec_cmd: str = "") -> int:
+    """Launch ONE detached headless teammate on ``task_id``, record it on the
+    roster, return its pid. Claiming is the caller's job (cmd_spawn uses
+    claim_specific; the coordinator uses claim_top)."""
+    log_dir = root / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / (member_id.replace(":", "_") + ".spawn.log")
+    if exec_cmd:
+        argv = shlex.split(exec_cmd)
+    else:
+        # Built-in headless teammate entry — finds its task, runs a bounded mission
+        # (NOT the interactive cockpit), heartbeats the board, records its shard.
+        argv = [sys.executable, "-m", "argus_skill.team.teammate_entry",
+                "--root", str(root), "--member-id", member_id,
+                "--task-id", task_id, "--cwd", str(cwd)]
+    with open(log_path, "ab") as log, open(os.devnull, "rb") as devnull:
+        proc = subprocess.Popen(argv, cwd=str(cwd), stdin=devnull, stdout=log,
+                                stderr=log, start_new_session=True)
+    roster.add_member(root, {
+        "id": member_id, "pid": proc.pid, "worktree": str(cwd),
+        "task_id": task_id, "status": "running", "heartbeat_ts": time.time(),
+    })
+    return proc.pid
+
+
 def cmd_spawn(a: argparse.Namespace) -> int:
     root = Path(a.root)
     # teammate runs where the lead points (--cwd, default the workspace cwd). A
@@ -49,32 +75,53 @@ def cmd_spawn(a: argparse.Namespace) -> int:
             cwd = worktree.create(Path(a.repo), team_id=a.team_id, member_id=a.member_id)
         except Exception as exc:  # worktree optional
             print(f"team: worktree skipped: {exc}", file=sys.stderr)
-    now = time.time()
     # Claim the SPECIFIC assigned task (not next-pending) so parallel spawns never
     # cross member IDs.
-    claimed = task_board.claim_specific(root, a.task_id, a.member_id, now=now)
+    claimed = task_board.claim_specific(root, a.task_id, a.member_id, now=time.time())
     task_id = claimed["task_id"] if claimed else a.task_id
-    log_dir = root / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / (a.member_id.replace(":", "_") + ".spawn.log")
-    if a.exec_cmd:
-        argv = shlex.split(a.exec_cmd)
-    else:
-        # Built-in headless teammate entry — finds its task, runs a bounded mission
-        # (NOT the interactive cockpit), heartbeats the board, records its shard.
-        argv = [sys.executable, "-m", "argus_skill.team.teammate_entry",
-                "--root", str(root), "--member-id", a.member_id,
-                "--task-id", task_id, "--cwd", str(cwd)]
-    with open(log_path, "ab") as log, open(os.devnull, "rb") as devnull:
-        proc = subprocess.Popen(argv, cwd=str(cwd), stdin=devnull, stdout=log,
-                                stderr=log, start_new_session=True)
-    roster.add_member(root, {
-        "id": a.member_id, "pid": proc.pid, "worktree": str(cwd),
-        "task_id": task_id, "status": "running", "heartbeat_ts": now,
-    })
-    print(json.dumps({"member_id": a.member_id, "pid": proc.pid,
+    pid = _spawn_teammate(root, member_id=a.member_id, task_id=task_id,
+                          cwd=cwd, exec_cmd=a.exec_cmd)
+    print(json.dumps({"member_id": a.member_id, "pid": pid,
                       "task_id": task_id, "claimed": bool(claimed)}))
     return 0
+
+
+def refill_once(root: Path, *, width: int, cwd: Path, member_prefix: str = "w",
+                ttl: float, now: float, exec_cmd: str = "", spawn_fn=None) -> dict:
+    """Top the in-flight teammate count back up to ``width`` from the backlog.
+
+    Reassign stale (dead) teammates' tasks first, then claim the highest-priority
+    pending tasks and spawn a fresh teammate on each until the pool is full or the
+    backlog is empty. Idempotent: a second call with the pool already full spawns
+    nothing. ``spawn_fn`` is injectable for tests.
+    """
+    spawn_fn = spawn_fn or _spawn_teammate
+    reassigned = task_board.reassign_stale(root, ttl=ttl, now=now)
+    in_flight = task_board.count_in_flight(root)
+    free = max(0, width - in_flight)
+    spawned: list[dict] = []
+    for _ in range(free):
+        mid = roster.next_member_id(root, prefix=member_prefix)
+        task = task_board.claim_top(root, mid, now=now)
+        if task is None:
+            break  # backlog empty
+        spawn_fn(root, member_id=mid, task_id=task["task_id"], cwd=cwd, exec_cmd=exec_cmd)
+        spawned.append({"member_id": mid, "task_id": task["task_id"]})
+    return {"spawned": spawned, "in_flight": in_flight, "free": free,
+            "reassigned": reassigned}
+
+
+def _should_stop(pool_doc: dict, *, in_flight: int, elapsed: float,
+                 lead_ttl: float, max_wall: float, now: float) -> str | None:
+    """Return a stop reason, or None to keep coordinating. Never orphan-spawn."""
+    if pool_doc.get("state") == "draining" and in_flight == 0:
+        return "drained"
+    hb = float(pool_doc.get("lead_heartbeat_ts", 0.0))
+    if hb > 0 and now - hb > lead_ttl:
+        return "lead-heartbeat-stale"
+    if elapsed > max_wall:
+        return "max-wall"
+    return None
 
 
 def cmd_status(a: argparse.Namespace) -> int:
