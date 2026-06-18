@@ -587,7 +587,10 @@ class Reviewer:
             "  `ambiguous_objective` | `environmental` | `method_failure` |\n"
             "  `unknown`)\n"
             "- mission_lesson (string; non-empty ONLY when failure_cause is\n"
-            "  `skill_gap`)\n\n"
+            "  `skill_gap`)\n"
+            "Always-emit JSON key (judge on EVERY verdict — see PROCESS\n"
+            "SELF-DISTILLATION below):\n"
+            "- process_lesson (string; empty when nothing reusable)\n\n"
             "Planner report rules (this object is the ONLY thing the project\n"
             "planner reads about this mission — keep it a clean, structured,\n"
             "self-contained briefing, NOT raw logs or terminal output):\n"
@@ -692,6 +695,22 @@ class Reviewer:
             "  steps>=M, num_generations>=K; never cap rollouts below the\n"
             "  task's reasoning length or per-group reward variance collapses\n"
             "  to zero'). Leave `mission_lesson` empty for every other cause.\n\n"
+            "- PROCESS SELF-DISTILLATION (you decide, on EVERY verdict — success\n"
+            "  OR failure — once per mission): SEPARATE from failure_cause/\n"
+            "  mission_lesson (which are about the research METHOD), judge whether\n"
+            "  the agent's PROCESS this mission — HOW it worked, not whether it\n"
+            "  won — yielded a reusable lesson for FUTURE missions: wasted or\n"
+            "  repeated rounds, a stall, the same wall re-hit, an INCENTIVE\n"
+            "  CONTRADICTION (a prompt/role exhorted X while a gate, counter, or\n"
+            "  trigger rewarded the opposite), a checklist that misfired, or a\n"
+            "  workaround that WORKED and should become standard. Emit\n"
+            "  `process_lesson`: a concise, GENERAL one-liner naming the recurring\n"
+            "  PROCESS pattern + the corrected process (NOT this mission's\n"
+            "  content/numbers). This distills the agent's PROCESS ONLY; you may\n"
+            "  NEVER propose changing the outcome/metric/verifier/validity test —\n"
+            "  those are FROZEN. Empty string when this mission's process had\n"
+            "  nothing reusable. Most missions: empty. Emit only a real, general\n"
+            "  process improvement, not a restatement of what happened.\n\n"
             "Checkpoint rules (you are the MEMORY AUDITOR; this object becomes\n"
             "the engineer's ENTIRE working memory next round — the raw session\n"
             "is dropped, so a fresh engineer sees ONLY this):\n"
@@ -933,6 +952,7 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
         checkpoint=_parse_checkpoint(parsed),
         failure_cause=_parse_failure_cause(parsed),
         mission_lesson=_parse_mission_lesson(parsed),
+        process_lesson=_parse_process_lesson(parsed),
     )
 
 
@@ -1041,6 +1061,16 @@ def _parse_mission_lesson(parsed: dict) -> str:
     value = parsed.get("mission_lesson")
     if isinstance(value, str):
         return value.strip()[:4000]
+    return ""
+
+
+def _parse_process_lesson(parsed: dict) -> str:
+    """Reviewer-authored, per-mission lesson about the agent's own PROCESS
+    (incentive frictions, wasted/repeated rounds, a working workaround) — distinct
+    from the method-level ``mission_lesson``. Capped and fail-soft."""
+    value = parsed.get("process_lesson")
+    if isinstance(value, str):
+        return value.strip()[:2000]
     return ""
 
 

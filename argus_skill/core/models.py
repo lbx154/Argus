@@ -108,6 +108,13 @@ class ReviewDecision:
     # should carry verbatim. Empty on success / clean done verdicts.
     failure_cause: str = ""
     mission_lesson: str = ""
+    # Process self-distillation (judged EVERY mission, success or failure):
+    # a reusable lesson about the agent's own PROCESS — how it worked, where it
+    # wasted/repeated rounds, an incentive friction it hit, or a workaround that
+    # worked — distinct from ``mission_lesson`` (the research METHOD). Distills
+    # PROCESS only; never the outcome/metric/verifier (those stay frozen). Empty
+    # when this mission's process had nothing reusable.
+    process_lesson: str = ""
     verification_summary: str = ""
     # Reviewer completion contract (replaces the hardcoded EMNLP validator
     # gate). For ``final_submission`` missions the reviewer must set
@@ -194,6 +201,7 @@ class ReviewDecision:
             # Previously dropped — these are the structured-eval fields
             # the reviewer is REQUIRED to emit per reviewer_schema.json.
             "mission_lesson": self.mission_lesson or "",
+            "process_lesson": self.process_lesson or "",
             "verification_summary": self.verification_summary or "",
             "scope": self.scope or "",
             "checklist": list(self.checklist or []),

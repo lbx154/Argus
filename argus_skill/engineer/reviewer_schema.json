@@ -48,6 +48,10 @@
       "type": ["string", "null"],
       "maxLength": 4000
     },
+    "process_lesson": {
+      "type": ["string", "null"],
+      "maxLength": 2000
+    },
     "scope": {
       "type": ["string", "null"],
       "enum": ["bounded", "final_submission", null]
@@ -120,6 +124,7 @@
     "completion_summary_markdown",
     "failure_cause",
     "mission_lesson",
+    "process_lesson",
     "scope",
     "planner_report",
     "checklist",
