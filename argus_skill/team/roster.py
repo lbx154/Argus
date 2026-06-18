@@ -51,6 +51,20 @@ def add_member(root: Path, member: dict[str, Any]) -> None:
         _store.atomic_write_json(_path(root), doc)
 
 
+def next_member_id(root: Path, *, prefix: str = "w") -> str:
+    """Atomically allocate a unique, monotonic member id like ``w1``, ``w2``.
+
+    The coordinator calls this for every teammate it spawns so ids never
+    collide across the campaign. Works even if ``create()`` was never called.
+    """
+    with _store.locked(_lock(root)):
+        doc = load(root)
+        seq = int(doc.get("member_seq", 0)) + 1
+        doc["member_seq"] = seq
+        _store.atomic_write_json(_path(root), doc)
+        return f"{prefix}{seq}"
+
+
 def mark(root: Path, member_id: str, *, status: str, now: float) -> None:
     with _store.locked(_lock(root)):
         doc = load(root)

@@ -35,3 +35,11 @@ def test_stale_members(tmp_path: Path) -> None:
     rs.add_member(tmp_path, {"id": "tm-1", "status": "running", "heartbeat_ts": 1.0})
     rs.add_member(tmp_path, {"id": "tm-2", "status": "running", "heartbeat_ts": 100.0})
     assert rs.stale_members(tmp_path, ttl=10.0, now=50.0) == ["tm-1"]
+
+
+def test_next_member_id_monotonic_unique(tmp_path: Path) -> None:
+    rs.create(tmp_path, team_id="t1", mission="m", lead="lead", now=1.0)
+    ids = [rs.next_member_id(tmp_path, prefix="w") for _ in range(3)]
+    assert ids == ["w1", "w2", "w3"]                 # monotonic, unique
+    # works even without create() (fresh roster)
+    assert rs.next_member_id(tmp_path / "fresh", prefix="k") == "k1"
