@@ -84,9 +84,9 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
     (ARGUS_TEAMMATE_MAX_ROUNDS, ARGUS_TEAMMATE_TIMEOUT_S).
     """
     if max_rounds is None:
-        max_rounds = int(os.environ.get("ARGUS_TEAMMATE_MAX_ROUNDS", "30"))
+        max_rounds = int(os.environ.get("ARGUS_TEAMMATE_MAX_ROUNDS", "200"))
     if timeout_s is None:
-        timeout_s = float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "2400"))  # 40 min
+        timeout_s = float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "5400"))  # 90 min: profile + iterate >=3-4 mechanisms toward roofline (aligned with the full engineer, not a shallow one-shot)
     try:
         from argus_skill.apps._life_repl import LifeStderrSink, _CodexSkillLoopRunner
         from argus_skill.life.event_log import JsonlEventSink
