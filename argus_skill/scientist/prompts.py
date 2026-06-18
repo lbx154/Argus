@@ -130,16 +130,23 @@ class Prompts:
 
     # -- Step 3: Skill distillation (big model) --
     @staticmethod
-    def distill(task_description: str, workdir_context: str = "") -> str:
+    def distill(task_description: str, workdir_context: str = "", guidance: str = "") -> str:
         """Unified distill prompt.
 
         The playbook is intent-agnostic and CAPABILITY-level. It must
         describe how to handle a FAMILY of tasks, not the single example
         in front of you, because every distilled skill is cached and
         consulted by future task matching.
+
+        ``guidance`` is the operator's skill-authoring meta-skill, injected
+        verbatim so the HOW (what a good skill is, generalize/don't-bloat,
+        method-not-answer, you-are-judged-by-effect) lives in a human-written
+        skill rather than hardcoded here.
         """
         return (
             _scientist_role_context()
+            +
+            (f"## Skill-authoring guidance (read first)\n{guidance}\n\n" if guidance else "")
             +
             "You are a senior engineer compiling a CAPABILITY playbook for "
             "`gpt-5.4-mini`, a relatively small engineer model. The playbook "
@@ -241,6 +248,7 @@ class Prompts:
         task_description: str,
         change_kind: str,
         evidence: str,
+        guidance: str = "",
     ) -> str:
         """Produce a revised playbook that integrates new evidence.
 
@@ -289,6 +297,8 @@ class Prompts:
 
         return (
             _scientist_role_context()
+            +
+            (f"## Skill-authoring guidance (read first)\n{guidance}\n\n" if guidance else "")
             +
             "You are a senior engineer revising a CAPABILITY playbook. "
             "The target reader is `gpt-5.4-mini`, a relatively small engineer "

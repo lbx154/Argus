@@ -7,10 +7,12 @@ The operator's contract:
   fixable ``skill_gap`` (e.g. wrong RL hyperparameters — not a dead idea), a
   reusable ``mission_lesson``. A ``method_failure`` (doomed idea) teaches
   NOTHING.
-* A skill born from a failure (or a freshly-distilled skill whose first
-  outing failed) is PROVISIONAL: it is retained for good only once a later
-  mission REUSES it and succeeds. Repeated non-environmental reuse failures
-  archive it.
+* Every skill change is a CANDIDATE (provisional): a newly-created skill, or a
+  fresh revision (optimize / absorb). It is kept ("入库") only when a later round
+  carrying it gets an effective reviewer verdict (confirm); a candidate that
+  carries a FAILED round is discarded — a fresh skill deleted, a revision
+  reverted to its last-confirmed snapshot. The judge is the reviewer's verdict on
+  the ROUND, never the skill text.
 """
 from __future__ import annotations
 
@@ -115,7 +117,10 @@ def _match_hello() -> CannedResponse:
 # Reviewer DECIDES whether to evolve
 # ---------------------------------------------------------------------------
 
-def test_skill_gap_lesson_merges_into_matched_skill(tmp_path: Path) -> None:
+def test_skill_gap_optimizes_matched_skill(tmp_path: Path) -> None:
+    """failure + matched (confirmed) skill + reviewer skill_gap lesson -> the
+    scientist OPTIMIZES the skill (folds the lesson in). The revision becomes a
+    CANDIDATE (provisional) that must re-prove."""
     skills_dir = tmp_path / "skills"
     _seed_skill(skills_dir)
 
@@ -138,7 +143,7 @@ def test_skill_gap_lesson_merges_into_matched_skill(tmp_path: Path) -> None:
     outcome = loop.run("say hi to the user", workdir=tmp_path)
 
     assert outcome.status == "blocked", outcome
-    assert any(e.get("type") == "skill.lesson" for e in events), [
+    assert any(e.get("type") == "skill.optimized" for e in events), [
         e.get("type") for e in events
     ]
     revise_calls = [p for label, p, _ in backend.history
@@ -147,7 +152,10 @@ def test_skill_gap_lesson_merges_into_matched_skill(tmp_path: Path) -> None:
     store = SkillStore(skills_dir)
     summary = next(s for s in store.list_summaries()
                    if s["name"] == "Write a hello message")
-    assert "Failure lessons" in store.load(summary["path"]).render()
+    revised = store.load(summary["path"])
+    assert "Failure lessons" in revised.render()
+    # The revision is a candidate (unproven) until a later round confirms it.
+    assert revised.provisional is True
 
 
 def test_method_failure_teaches_nothing(tmp_path: Path) -> None:
@@ -178,35 +186,54 @@ def test_method_failure_teaches_nothing(tmp_path: Path) -> None:
                    for label, _, _ in backend.history)
 
 
-def test_lesson_deduplicated_across_missions(tmp_path: Path) -> None:
+def test_unproven_optimization_reverted_on_next_failure(tmp_path: Path) -> None:
+    """An OPTIMIZE makes the skill a candidate. If the next round carrying that
+    revision also fails, the revision did not prove out -> revert to the last
+    confirmed version (no quality-of-text judgment, only effect)."""
     skills_dir = tmp_path / "skills"
     _seed_skill(skills_dir)
 
-    def _run_blocked() -> list[dict]:
-        backend = MemoryBackend()
-        backend.queue("matcher", _match_hello())
-        backend.queue("engineer-r1", CannedResponse(message="Ran a shell tool."))
-        backend.queue("reviewer", CannedResponse(message=_blocked_review()))
-        backend.queue("distiller.revise.failure_lesson",
-                      CannedResponse(message=REVISED_SKILL_MD))
-        events: list[dict] = []
-        loop = SkillLoop(
-            skills_dir=skills_dir,
-            engineer_runner=backend,
-            reviewer_runner=backend,
-            config=SkillLoopConfig(max_rounds=1, distill_on_miss=False,
-                                   skill_revise_on_failure=True),
-            on_event=events.append,
-        )
-        loop.run("say hi to the user", workdir=tmp_path)
-        return events
+    # Run 1: matched confirmed skill fails -> scientist optimizes it (candidate).
+    b1 = MemoryBackend()
+    b1.queue("matcher", _match_hello())
+    b1.queue("engineer-r1", CannedResponse(message="Ran a shell tool."))
+    b1.queue("reviewer", CannedResponse(message=_blocked_review()))
+    b1.queue("distiller.revise.failure_lesson",
+             CannedResponse(message=REVISED_SKILL_MD))
+    ev1: list[dict] = []
+    SkillLoop(
+        skills_dir=skills_dir, engineer_runner=b1, reviewer_runner=b1,
+        config=SkillLoopConfig(max_rounds=1, distill_on_miss=False,
+                               skill_revise_on_failure=True),
+        on_event=ev1.append,
+    ).run("say hi to the user", workdir=tmp_path)
+    assert any(e.get("type") == "skill.optimized" for e in ev1)
+    store = SkillStore(skills_dir)
+    s1 = next(s for s in store.list_summaries() if s["name"] == "Write a hello message")
+    assert store.load(s1["path"]).provisional is True
 
-    first = _run_blocked()
-    assert any(e.get("type") == "skill.lesson" for e in first)
+    # Run 2: the now-provisional revision is carried into a round that ALSO fails
+    # -> it did not prove out -> revert to the last confirmed version.
+    b2 = MemoryBackend()
+    b2.queue("matcher", _match_hello())
+    b2.queue("engineer-r1", CannedResponse(message="Ran a shell tool again."))
+    b2.queue("reviewer", CannedResponse(message=_blocked_review()))
+    ev2: list[dict] = []
+    SkillLoop(
+        skills_dir=skills_dir, engineer_runner=b2, reviewer_runner=b2,
+        config=SkillLoopConfig(max_rounds=1, distill_on_miss=False,
+                               skill_revise_on_failure=True),
+        on_event=ev2.append,
+    ).run("say hi to the user", workdir=tmp_path)
 
-    second = _run_blocked()
-    assert any(e.get("type") == "skill.lesson.skipped_duplicate" for e in second)
-    assert not any(e.get("type") == "skill.lesson" for e in second)
+    assert any(e.get("type") == "skill.candidate.dropped" for e in ev2), [
+        e.get("type") for e in ev2
+    ]
+    fresh = SkillStore(skills_dir)
+    s2 = next(s for s in fresh.list_summaries() if s["name"] == "Write a hello message")
+    reverted = fresh.load(s2["path"])
+    assert reverted.provisional is False          # reverted to confirmed
+    assert "Failure lessons" not in reverted.render()  # the bad revision is gone
 
 
 def test_failure_evolution_disabled_by_default(tmp_path: Path) -> None:
@@ -237,9 +264,9 @@ def test_failure_evolution_disabled_by_default(tmp_path: Path) -> None:
 # Provisional skill lifecycle
 # ---------------------------------------------------------------------------
 
-def test_fresh_distilled_skill_failure_marks_provisional(tmp_path: Path) -> None:
-    """A skill born this mission whose first outing fails is unproven: it is
-    marked provisional and absorbs the reviewer lesson."""
+def test_fresh_distilled_skill_discarded_on_first_failure(tmp_path: Path) -> None:
+    """A skill created this mission (distill-on-miss) is a CANDIDATE. If its very
+    first outing fails, it never proved itself -> it is discarded (deleted)."""
     skills_dir = tmp_path / "skills"
 
     backend = MemoryBackend()
@@ -247,8 +274,6 @@ def test_fresh_distilled_skill_failure_marks_provisional(tmp_path: Path) -> None
     backend.queue("distiller", CannedResponse(message=SKILL_MD))  # distill-on-miss
     backend.queue("engineer-r1", CannedResponse(message="Ran a shell tool."))
     backend.queue("reviewer", CannedResponse(message=_blocked_review()))
-    backend.queue("distiller.revise.failure_lesson",
-                  CannedResponse(message=REVISED_SKILL_MD))
 
     events: list[dict] = []
     loop = SkillLoop(
@@ -261,13 +286,12 @@ def test_fresh_distilled_skill_failure_marks_provisional(tmp_path: Path) -> None
     )
     loop.run("say hi to the user", workdir=tmp_path)
 
-    assert any(e.get("type") == "skill.provisional.marked" for e in events), [
+    assert any(e.get("type") == "skill.candidate.dropped" for e in events), [
         e.get("type") for e in events
     ]
     store = SkillStore(skills_dir)
-    summary = next(s for s in store.list_summaries()
-                   if s["name"] == "Write a hello message")
-    assert store.load(summary["path"]).provisional is True
+    assert not any(s["name"] == "Write a hello message"
+                   for s in store.list_summaries())
 
 
 def test_provisional_skill_confirmed_on_successful_reuse(tmp_path: Path) -> None:
@@ -301,26 +325,17 @@ def test_provisional_skill_confirmed_on_successful_reuse(tmp_path: Path) -> None
     assert store.load(summary["path"]).provisional is False
 
 
-def test_provisional_skill_retired_after_repeated_reuse_failures(
-    tmp_path: Path,
-) -> None:
-    """A provisional skill that keeps failing on reuse is archived once it
-    crosses the prune threshold, and no longer appears as a candidate."""
+def test_provisional_skill_discarded_on_reuse_failure(tmp_path: Path) -> None:
+    """A candidate (provisional) skill with no prior confirmed version that is
+    carried into a failed round did not prove out -> it is discarded immediately
+    (no archive-after-N tolerance) and no longer appears as a candidate."""
     skills_dir = tmp_path / "skills"
-    store = _seed_skill(skills_dir, provisional=True)
-    # Pre-load one prior failure so a single more failure crosses threshold (2).
-    summary = next(s for s in store.list_summaries()
-                   if s["name"] == "Write a hello message")
-    skill = store.load(summary["path"])
-    skill.provisional_failures = 1
-    store.save(skill)
+    _seed_skill(skills_dir, provisional=True)
 
     backend = MemoryBackend()
     backend.queue("matcher", _match_hello())
     backend.queue("engineer-r1", CannedResponse(message="Ran a shell tool."))
     backend.queue("reviewer", CannedResponse(message=_blocked_review()))
-    backend.queue("distiller.revise.failure_lesson",
-                  CannedResponse(message=REVISED_SKILL_MD))
 
     events: list[dict] = []
     loop = SkillLoop(
@@ -333,10 +348,9 @@ def test_provisional_skill_retired_after_repeated_reuse_failures(
     )
     loop.run("say hi to the user", workdir=tmp_path)
 
-    assert any(e.get("type") == "skill.provisional.retired" for e in events), [
+    assert any(e.get("type") == "skill.candidate.dropped" for e in events), [
         e.get("type") for e in events
     ]
-    # The archived skill must NOT re-enter the candidate pool.
     fresh = SkillStore(skills_dir)
     assert not any(s["name"] == "Write a hello message"
                    for s in fresh.list_summaries())
@@ -346,20 +360,16 @@ def test_provisional_skill_retired_after_repeated_reuse_failures(
 # Store-level provisional unit coverage
 # ---------------------------------------------------------------------------
 
-def test_skill_provisional_fields_round_trip() -> None:
+def test_skill_provisional_field_round_trips() -> None:
     from argus_skill.skills.store import Skill
 
     skill = Skill(name="x", description="d", category="c", content="# body\nok",
-                  provisional=True, provisional_failures=3)
-    parsed = Skill.parse(skill.render())
-    assert parsed.provisional is True
-    assert parsed.provisional_failures == 3
+                  provisional=True)
+    assert Skill.parse(skill.render()).provisional is True
 
-    # Legacy frontmatter (no provisional keys) parses as confirmed.
+    # Legacy frontmatter (no provisional key) parses as confirmed.
     legacy = Skill(name="y", description="d", category="c", content="# body\nok")
-    legacy_parsed = Skill.parse(legacy.render())
-    assert legacy_parsed.provisional is False
-    assert legacy_parsed.provisional_failures == 0
+    assert Skill.parse(legacy.render()).provisional is False
 
 
 def test_confirm_and_record_provisional(tmp_path: Path) -> None:
@@ -373,3 +383,63 @@ def test_confirm_and_record_provisional(tmp_path: Path) -> None:
     assert store.load(skill.path).provisional is False
     # Idempotent: confirming a confirmed skill is a no-op.
     assert store.confirm_provisional(skill) is False
+
+
+def test_revision_snapshots_prev_then_confirm_clears_it(tmp_path: Path) -> None:
+    """OPTIMIZE/ABSORB snapshots the last-confirmed version to a .prev sidecar so
+    an ineffective revision can be reverted; confirming the candidate clears it."""
+    from argus_skill.scientist.distiller import Distiller
+
+    store = _seed_skill(tmp_path / "skills")  # confirmed
+    summary = next(s for s in store.list_summaries()
+                   if s["name"] == "Write a hello message")
+    skill = store.load(summary["path"])
+    assert skill.provisional is False
+
+    backend = MemoryBackend()
+    backend.queue("distiller.revise.failure_lesson",
+                  CannedResponse(message=REVISED_SKILL_MD))
+    assert store.promote_lesson(
+        skill=skill, lesson_text=_LESSON, task_description="say hi",
+        distiller=Distiller(backend), scientist_model="memory") is True
+
+    snap = Path(skill.path).parent / f".{Path(skill.path).stem}.prev.md"
+    assert store.load(skill.path).provisional is True   # revision is a candidate
+    assert snap.exists()                                # snapshot taken
+    assert "Failure lessons" not in snap.read_text(encoding="utf-8")  # holds the original
+
+    assert store.confirm_provisional(store.load(skill.path)) is True
+    assert not snap.exists()                            # confirm drops the snapshot
+
+
+def test_optimization_rejected_when_scientist_declines(tmp_path: Path) -> None:
+    """If the scientist returns unusable content, the optimization is rejected and
+    the matched skill is left UNTOUCHED (no candidate, no snapshot)."""
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue("engineer-r1", CannedResponse(message="Ran a shell tool."))
+    backend.queue("reviewer", CannedResponse(message=_blocked_review()))
+    backend.queue("distiller.revise.failure_lesson", CannedResponse(message=""))
+
+    events: list[dict] = []
+    SkillLoop(
+        skills_dir=skills_dir, engineer_runner=backend, reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=1, distill_on_miss=False,
+                               skill_revise_on_failure=True),
+        on_event=events.append,
+    ).run("say hi to the user", workdir=tmp_path)
+
+    assert any(e.get("type") == "skill.optimize.rejected" for e in events), [
+        e.get("type") for e in events
+    ]
+    store = SkillStore(skills_dir)
+    summary = next(s for s in store.list_summaries()
+                   if s["name"] == "Write a hello message")
+    skill = store.load(summary["path"])
+    assert skill.provisional is False                       # untouched
+    assert "Failure lessons" not in skill.render()
+    snap = Path(skill.path).parent / f".{Path(skill.path).stem}.prev.md"
+    assert not snap.exists()                                # no snapshot on rejection

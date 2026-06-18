@@ -139,14 +139,14 @@ class Skill:
     created_at: str = ""
     task_history: list[str] = field(default_factory=list)
     path: str = ""
-    # Provisional skills are born from a FAILURE (reviewer-attributed
-    # ``skill_gap``) and are *unproven*: they are retained for good only
-    # after a later mission REUSES them and succeeds (``confirm``). Until
-    # then they accumulate ``provisional_failures`` on each non-environmental
-    # reuse failure and are archived once that count crosses the prune
-    # threshold. Absent in legacy frontmatter -> ``False`` (confirmed).
+    # Provisional = a CANDIDATE skill change (a newly-created skill, or a fresh
+    # revision of an existing one) that is NOT yet proven. It is kept ("入库")
+    # only when a LATER round that carries it gets an effective reviewer verdict
+    # (``confirm_provisional``); an ineffective one is discarded — a fresh skill
+    # deleted, a revision reverted to its last-confirmed snapshot. The judgment
+    # is the reviewer's verdict on the ROUND, never a judge of the skill text.
+    # Absent in legacy frontmatter -> ``False`` (confirmed).
     provisional: bool = False
-    provisional_failures: int = 0
 
     def render(self) -> str:
         history = ""
@@ -156,13 +156,7 @@ class Skill:
                 for t in self.task_history[-10:]
             )
             history = f"task_history:\n{items}\n"
-        # Only serialize provisional bookkeeping when meaningful so confirmed
-        # skills keep their historical frontmatter byte-for-byte stable.
-        provisional_lines = ""
-        if self.provisional:
-            provisional_lines += "provisional: true\n"
-        if self.provisional_failures:
-            provisional_lines += f"provisional_failures: {int(self.provisional_failures)}\n"
+        provisional_lines = "provisional: true\n" if self.provisional else ""
         return (
             f"---\n"
             f"name: {self.name}\n"
@@ -212,9 +206,6 @@ class Skill:
             path=path,
             provisional=_get("provisional").strip().strip('"').strip("'").lower()
             in {"true", "yes", "1"},
-            provisional_failures=_parse_skill_version(_get("provisional_failures"))
-            if _get("provisional_failures")
-            else 0,
         )
 
 
@@ -381,49 +372,24 @@ class SkillStore:
         enforce_quality_gate: bool = True,
         provisional: bool = False,
     ) -> "Skill | None":
-        """Parse the raw scientist output, validate quality, and persist.
+        """Parse the raw scientist output and persist it.
 
-        Returns ``None`` (and emits ``skill.distill.rejected``) when the
-        playbook fails the quality gate — the caller's loop then proceeds
-        without a cached skill rather than poisoning the store with a
-        bloated or task-specific entry. We explicitly prefer "no skill"
-        over "bad skill" because a wrong skill steers future engineers
-        in the wrong sub-domain.
-
-        ``enforce_quality_gate=False`` is intended for mechanical unit
-        tests that want to exercise the persistence path without
-        constructing realistic 8-section playbooks.
+        We do NOT gate on the skill TEXT: judging a skill's prose is worse than
+        chance (SkillLens), so quality is proven by EFFECT instead — a freshly
+        distilled skill is born ``provisional`` and is only confirmed (kept) when
+        a later round that carries it gets an effective reviewer verdict; an
+        ineffective one is discarded. ``enforce_quality_gate`` is accepted for
+        backward compatibility but ignored.
         """
-        if enforce_quality_gate:
-            from .quality import check_skill_quality
-
-            report = check_skill_quality(
-                raw_distill_output=raw_distill_output,
-                task_description=task_description,
-            )
-            if not report.ok:
-                log.info("distilled skill rejected by quality gate: %s",
-                         "; ".join(report.reasons))
-                if on_event is not None:
-                    try:
-                        on_event({
-                            "type": "skill.distill.rejected",
-                            "reasons": report.reasons,
-                            "warnings": report.warnings,
-                            "word_count": report.word_count,
-                            "text": report.render(),
-                        })
-                    except Exception:  # noqa: BLE001
-                        log.debug("skill.distill.rejected emit failed",
-                                  exc_info=True)
-                return None
-            warnings = report.warnings
-            wc = report.word_count
-        else:
-            warnings = []
-            wc = 0
-
         name, description, category, content = Prompts.parse_skill_output(raw_distill_output)
+        if not (content or "").strip():
+            if on_event is not None:
+                try:
+                    on_event({"type": "skill.distill.rejected",
+                              "text": "distiller returned empty content"})
+                except Exception:  # noqa: BLE001
+                    log.debug("skill.distill.rejected emit failed", exc_info=True)
+            return None
         skill = Skill(
             name=name or "unnamed-skill",
             description=description,
@@ -437,16 +403,6 @@ class SkillStore:
         )
         append_task_history(skill, task_description)
         self.save(skill)
-        if on_event is not None and warnings:
-            try:
-                on_event({
-                    "type": "skill.distill.warnings",
-                    "skill_name": skill.name,
-                    "warnings": warnings,
-                    "word_count": wc,
-                })
-            except Exception:  # noqa: BLE001
-                log.debug("skill.distill.warnings emit failed", exc_info=True)
         return skill
 
     def writeback_from_trajectory(
@@ -522,79 +478,78 @@ class SkillStore:
         )
 
     # ------------------------------------------------------------------
-    # Provisional skill lifecycle (born from a reviewer-attributed
-    # ``skill_gap`` failure; proven only by a later successful REUSE).
+    # Provisional (candidate) lifecycle — a skill change is proven by EFFECT:
+    # confirmed (入库) when a round carrying it is effective, else discarded.
     # ------------------------------------------------------------------
 
-    _PROVISIONAL_PRUNE_THRESHOLD = 2
-
-    def mark_provisional(self, skill: Skill) -> bool:
-        """Flag an already-persisted skill as unproven. No-op if already set
-        or if the skill has no on-disk path. Returns whether a write happened."""
-        if not skill.path or skill.provisional:
-            return False
-        skill.provisional = True
-        self.save(skill)
-        return True
+    def _prev_snapshot_path(self, skill: Skill) -> "Path | None":
+        if not skill.path:
+            return None
+        p = Path(skill.path)
+        return p.parent / f".{p.stem}.prev.md"
 
     def confirm_provisional(self, skill: Skill) -> bool:
-        """Promote a provisional skill to confirmed after a successful reuse.
-
-        Clears the failure counter. No-op (returns ``False``) for skills that
-        were already confirmed so the common success path stays cheap.
-        """
+        """Promote a candidate to confirmed (入库) after it proved effective.
+        Drops the revert snapshot. No-op for already-confirmed skills."""
         if not skill.path or not skill.provisional:
             return False
         skill.provisional = False
-        skill.provisional_failures = 0
         self.save(skill)
+        snap = self._prev_snapshot_path(skill)
+        if snap is not None:
+            try:
+                snap.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                log.debug("confirm: prev-snapshot unlink failed", exc_info=True)
         return True
 
-    def record_provisional_failure(
+    def discard_provisional(
         self,
         skill: Skill,
         *,
         on_event: "Callable[[dict], None] | None" = None,
     ) -> str:
-        """Charge one non-environmental reuse failure against a provisional
-        skill. Archives it once the failure count crosses the prune
-        threshold. Returns ``"counted"``, ``"archived"`` or ``"noop"``.
-        """
+        """An unproven candidate that was carried into a round and still did NOT
+        produce an effective result is dropped. If a revert snapshot exists (the
+        candidate was a REVISION of a confirmed skill), restore that last-confirmed
+        version; otherwise the candidate was a fresh skill, so archive it. Returns
+        ``"reverted"``, ``"discarded"`` or ``"noop"``. Best-effort; never raises."""
         if not skill.path or not skill.provisional:
             return "noop"
-        skill.provisional_failures = int(skill.provisional_failures) + 1
-        if skill.provisional_failures >= self._PROVISIONAL_PRUNE_THRESHOLD:
+        snap = self._prev_snapshot_path(skill)
+        try:
+            if snap is not None and snap.exists():
+                prior = Skill.parse(snap.read_text(encoding="utf-8"), path=skill.path)
+                skill.content = prior.content
+                skill.version = prior.version
+                skill.description = prior.description or skill.description
+                skill.provisional = False
+                self.save(skill)
+                try:
+                    snap.unlink()
+                except OSError:
+                    pass
+                self._summary_cache.pop(str(skill.path), None)
+                self._match_cache.clear()
+                if on_event is not None:
+                    on_event({"type": "skill.reverted", "skill_name": skill.name,
+                              "text": f"reverted unproven revision of {skill.name} "
+                                      f"to its last confirmed version"})
+                return "reverted"
             from .lifecycle import archive_skill  # local import: avoid cycle
-
             archived = archive_skill(skill.path)
             self._summary_cache.pop(str(skill.path), None)
             self._match_cache.clear()
             if on_event is not None:
-                try:
-                    on_event({
-                        "type": "skill.provisional.retired",
-                        "skill_name": skill.name,
-                        "failures": skill.provisional_failures,
-                        "text": f"archived unproven provisional skill {skill.name} "
-                                f"after {skill.provisional_failures} reuse failures"
-                                + (f" -> {archived}" if archived else ""),
-                    })
-                except Exception:  # noqa: BLE001
-                    log.debug("skill.provisional.retired emit failed", exc_info=True)
-            return "archived"
-        self.save(skill)
-        if on_event is not None:
-            try:
-                on_event({
-                    "type": "skill.provisional.failed",
-                    "skill_name": skill.name,
-                    "failures": skill.provisional_failures,
-                    "text": f"provisional skill {skill.name} reuse failure "
-                            f"{skill.provisional_failures}/{self._PROVISIONAL_PRUNE_THRESHOLD}",
-                })
-            except Exception:  # noqa: BLE001
-                log.debug("skill.provisional.failed emit failed", exc_info=True)
-        return "counted"
+                on_event({"type": "skill.discarded", "skill_name": skill.name,
+                          "text": f"discarded unproven skill {skill.name} (never "
+                                  f"effective)" + (f" -> {archived}" if archived else "")})
+            return "discarded"
+        except Exception as exc:  # noqa: BLE001 — best-effort
+            log.warning("discard_provisional failed (%s: %s)", type(exc).__name__, exc)
+            return "noop"
 
 
     def _revise_via_distiller(
@@ -635,12 +590,28 @@ class SkillStore:
                             len(content))
                 return False
             new_content = content if content.lstrip().startswith("#") else raw
+            # The revision is a CANDIDATE: snapshot the last-confirmed version so
+            # an ineffective revision can be reverted, then mark provisional so it
+            # must prove effective (reviewer verdict next round) before it sticks.
+            snap = self._prev_snapshot_path(skill)
+            if snap is not None and not skill.provisional and not snap.exists():
+                try:
+                    snap.write_text(skill.render(), encoding="utf-8")
+                except OSError as snap_exc:
+                    # Without a revert snapshot we must NOT overwrite a confirmed
+                    # skill — a later failed revision would be archived with nothing
+                    # to restore. Abort the revision; the confirmed skill stays
+                    # intact (writeback falls back to history-only append).
+                    log.warning("revise: cannot write revert snapshot (%s); aborting "
+                                "revision to protect the confirmed skill", snap_exc)
+                    return False
             # Preserve identity unless the scientist explicitly proposed
             # rename + we accept it (we do not, in v0.2).
             self.update_skill(skill, new_content, task_description)
             if scientist_model:
                 skill.scientist_model = scientist_model
-                self.save(skill)
+            skill.provisional = True
+            self.save(skill)
             if on_event:
                 on_event({
                     "type": "skill.revised",

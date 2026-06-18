@@ -192,8 +192,11 @@ class LayeredSkillStore:
         on_event: Callable[[dict], None] | None = None,
         enforce_quality_gate: bool = True,
     ) -> Skill | None:
-        # New skills always land in the project layer first; promotion
-        # to global is an explicit operator action.
+        # ``enforce_quality_gate`` is accepted for backward compatibility but the
+        # underlying store ignores it — skill quality is proven by EFFECT (a
+        # candidate is kept only when a later round carrying it is effective), not
+        # by judging the skill text. New skills always land in the project layer
+        # first; promotion to global is an explicit operator action.
         return self.project.save_distilled(
             task_description=task_description,
             raw_distill_output=raw_distill_output,

@@ -13,6 +13,19 @@ from ..core.ports import RunnerBackend
 from .prompts import Prompts
 
 
+def _authoring_guidance(explicit: str) -> str:
+    """The operator's skill-authoring meta-skill, fed to the scientist on every
+    create/optimize/absorb. Loaded by default so the HOW lives in a human-written
+    skill, not hardcoded. Falls back to empty (no guidance) if absent."""
+    if explicit:
+        return explicit
+    try:
+        from ..skills.role_context import load_builtin_skill_text
+        return load_builtin_skill_text("skill-authoring-guide.md", "")
+    except Exception:  # noqa: BLE001 — guidance is best-effort, never break authoring
+        return ""
+
+
 @dataclass
 class DistillerConfig:
     model: str
@@ -32,9 +45,10 @@ class Distiller:
         task_description: str,
         config: DistillerConfig,
         workdir_context: str = "",
+        guidance: str = "",
         on_event: Callable[[dict], None] | None = None,
     ) -> RunnerResult:
-        prompt = Prompts.distill(task_description, workdir_context)
+        prompt = Prompts.distill(task_description, workdir_context, _authoring_guidance(guidance))
         if on_event:
             on_event({"type": "distill.start",
                       "text": f"distilling skill via {config.model}"})
@@ -67,6 +81,7 @@ class Distiller:
         change_kind: str,
         evidence: str,
         config: DistillerConfig,
+        guidance: str = "",
         on_event: Callable[[dict], None] | None = None,
     ) -> RunnerResult:
         prompt = Prompts.revise(
@@ -74,6 +89,7 @@ class Distiller:
             task_description=task_description,
             change_kind=change_kind,
             evidence=evidence,
+            guidance=_authoring_guidance(guidance),
         )
         if on_event:
             on_event({"type": "revise.start",
