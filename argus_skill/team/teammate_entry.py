@@ -36,7 +36,8 @@ from pathlib import Path
 from . import task_board
 
 
-def _build_runner_ns(cwd: str, *, max_rounds: int, paper_mission: bool) -> argparse.Namespace:
+def _build_runner_ns(cwd: str, *, max_rounds: int, paper_mission: bool,
+                     stop_event=None) -> argparse.Namespace:
     """Replicate the daemon's runner namespace (life_worker._runner_namespace)."""
     from argus_skill.core import paths as core_paths
     from argus_skill.tools.capability_vault import resolve_route_model
@@ -61,17 +62,31 @@ def _build_runner_ns(cwd: str, *, max_rounds: int, paper_mission: bool) -> argpa
     ns.quiet = True
     # Teammate optimizes one kernel — not a paper — so keep the EMNLP paper gates off.
     ns.paper_mission = paper_mission
+    # Time-box: the runner interrupts the codex mission when this event is set,
+    # so a hard kernel can't hang a teammate for hours.
+    if stop_event is not None:
+        ns.stop_event = stop_event
     return ns
 
 
 def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
-                             paper_mission: bool = False, max_rounds: int = 200) -> bool:
+                             paper_mission: bool = False, max_rounds: int | None = None,
+                             timeout_s: float | None = None) -> bool:
     """Run ONE headless engineer mission in-process on ``objective`` in ``cwd``.
 
     Reuses ``_CodexSkillLoopRunner.execute`` — the exact per-mission call the
     daemon's supervisor makes. No cockpit, no daemon lock, no planner, no
     recursion. Events go to the isolated ``life_dir``. Returns True on success.
+
+    Time-boxed: capped at ``max_rounds`` engineer rounds AND a wall-clock
+    ``timeout_s`` (a watchdog sets the runner's stop_event), so a hard kernel
+    can never hang a teammate for hours. Both default low and are env-tunable
+    (ARGUS_TEAMMATE_MAX_ROUNDS, ARGUS_TEAMMATE_TIMEOUT_S).
     """
+    if max_rounds is None:
+        max_rounds = int(os.environ.get("ARGUS_TEAMMATE_MAX_ROUNDS", "30"))
+    if timeout_s is None:
+        timeout_s = float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "2400"))  # 40 min
     try:
         from argus_skill.apps._life_repl import LifeStderrSink, _CodexSkillLoopRunner
         from argus_skill.life.event_log import JsonlEventSink
@@ -80,7 +95,12 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
         return False
     life_dir = Path(life_dir)
     life_dir.mkdir(parents=True, exist_ok=True)
-    ns = _build_runner_ns(cwd, max_rounds=max_rounds, paper_mission=paper_mission)
+    stop_event = threading.Event()
+    watchdog = threading.Timer(timeout_s, stop_event.set)
+    watchdog.daemon = True
+    watchdog.start()
+    ns = _build_runner_ns(cwd, max_rounds=max_rounds, paper_mission=paper_mission,
+                          stop_event=stop_event)
     try:
         runner = _CodexSkillLoopRunner(ns)
         sink = JsonlEventSink(LifeStderrSink(quiet=False), life_dir=life_dir)
@@ -91,6 +111,8 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
     except Exception as exc:  # noqa: BLE001 — never let a mission crash kill bookkeeping
         sys.stderr.write(f"teammate_entry: mission error: {exc!r}\n")
         return False
+    finally:
+        watchdog.cancel()
     return bool(getattr(outcome, "success", False))
 
 
