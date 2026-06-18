@@ -1,8 +1,8 @@
 ---
 name: Speedrun Hands-on Trace
-description: A concrete NanoGPT-speedrun (Recursive "First Steps" Task 2) process trace on 8xH100, written as the operator's OWN known-good operating procedure — the exact commands run, the real recipe knobs (line-cited) chosen by lever class, the real measured convergence curve and per-step profile, and the decision at each fork — recorded as a measured causal chain: measured(train_time, val_loss, p from the frozen t-test) → decompose(steps x per-step, convergence curve) → pick the binding lever → one change → re-measure → classify miss (quality vs statistical power) → bank N=10 / stack. The agent's own live run took the wrong path; that path is demoted to the nails.
+description: A concrete NanoGPT-speedrun (Recursive "First Steps" Task 2) process trace on 8xH100, written as the operator's OWN known-good operating procedure — opening with a SEARCH-FIRST step (the agent is knowledge-limited: retrieve and reproduce the concrete prior art before building, general technique only, never the answer key), then the exact commands run, the real recipe knobs (line-cited) chosen by lever class, the real measured convergence curve and per-step profile, and the decision at each fork — recorded as a measured causal chain: measured(train_time, val_loss, p from the frozen t-test) → decompose(steps x per-step, convergence curve) → pick the binding lever → one change → re-measure → classify miss (quality vs statistical power) → bank N=10 / stack. The agent's own live run took the wrong path; that path is demoted to the nails.
 category: benchmark-training-speedrun
-version: 2
+version: 3
 scientist_model: gpt-5.5
 created_at: 2026-06-18T00:00:00+00:00
 ---
@@ -48,6 +48,13 @@ this.
 > The live run violated both halves: it spent hours on per-step FP8/MLP precision while the
 > optimizer/schedule went untouched, and it kept building mechanisms on a recipe that was
 > already valid at N=10. That cost ~3 hours and ~6 missions.
+>
+> **And a rule precedes even this: you are knowledge-limited, so RETRIEVE before you build.**
+> Reciting a lever from memory (as the FIRST draft of this trace did — "add SGLD / leaner MLP")
+> gets its coefficients and conditions wrong; you go read the concrete prior art and reproduce
+> it. Invention here is *disciplined recombination of retrieved, reproduced knowledge*, not
+> recall — see `Speedrun SOTA Optimization` §0. (Anti-cheat: general technique only, never this
+> task's answer key.)
 
 ## What "process data" means here — the chain to learn
 
@@ -80,11 +87,30 @@ p(mean<3.28)=<p> train_time=<m>±sd s`. `valid` iff `p<0.01`. Iterate at N=3, ce
 Target `val_loss<=3.28`, minimize `train_time`. Anchors (8xH100): #83 official 79.7s; our #83
 re-measure 80.18s; automated frontier (Recursive) 77.3s.
 
-### OP 0 — establish ground truth before touching the recipe
+### OP 0 — SEARCH the literature, reproduce the anchor, extract the curve
+
+Before any edit I retrieve human knowledge first — I am knowledge-limited and reciting levers
+from memory gets them wrong (general technique ONLY; searching this task's leaderboard/answer
+is disqualifying). The concrete searches, and what each is FOR:
+
+```text
+# the concrete artifact for each lever I might pull (arxiv/repo, not my memory of it):
+WebSearch "Muon optimizer Newton-Schulz Moonlight RMS-match AdamW weight decay"
+WebSearch "warmup-stable-decay WSD cooldown fraction" ; "muP muTransfer LR transfer small proxy"
+WebSearch "RHO-loss reducible holdout online batch selection" ; "sequence length warmup curriculum"
+WebSearch "FP8 training delayed scaling SwiGLU outlier instability Transformer Engine"
+WebSearch "Fantastic Pretraining Optimizers equal tuning speedup at scale"   # treat every N× as an UPPER bound
+# the diagnostic method, so I self-measure the bottleneck instead of guessing:
+WebSearch "GPU roofline MFU 6N per token nsys torch.profiler per-step breakdown"
+```
+
+I keep the most CONCRETE form (coefficients, ablation conditions), corroborate any "N× faster"
+against a second source, and treat it as a hypothesis to reproduce — not a fact. THEN reproduce
+the anchor on our own box and read the real curve:
 
 ```bash
 cd /home/argustest/nanogpt-speedrun-h100
-./eval_solution.sh solution 3                                   # score the #83 seed as-is
+./eval_solution.sh solution 3                                   # reproduce the #83 seed on OUR box
 grep -E 'step:[0-9]+/1385 val_loss:' experiments/<RUNID>/run_1.txt   # extract the curve
 ```
 

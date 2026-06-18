@@ -1,8 +1,8 @@
 ---
 name: Speedrun SOTA Optimization
-description: A senior-researcher methodology for training-speedrun benchmarks (modded-nanogpt / NanoGPT-speedrun and kin) — minimize wall-clock to a fixed quality target under a statistical validity gate. The training run as steps x per-step-cost, the bottleneck taxonomy (convergence-bound vs step-cost-bound vs comms-bound vs precision-stability-bound), where-does-the-wall-clock-go diagnosis, the statistical-validity discipline (N=3 iterate / N=10 certify / bank-the-floor / stack-don't-revert / quality-vs-power), an optimization toolkit ordered by leverage (optimizer & schedule first, kernels & precision last), the optimizer/architecture prior library, and the experimental discipline. Distilled human expertise to learn, not a recipe to copy.
+description: A senior-researcher methodology for training-speedrun benchmarks (modded-nanogpt / NanoGPT-speedrun and kin) — minimize wall-clock to a fixed quality target under a statistical validity gate. Opens with a research-first discipline (you are knowledge-limited: retrieve, reproduce, and corroborate the concrete prior art before you build — invention is recombination, and frontier agents measurably fail to re-implement known gains) and a named technique menu to search for. Then: the training run as steps x per-step-cost, the bottleneck taxonomy (convergence-bound vs step-cost-bound vs comms-bound vs precision-stability-bound), where-does-the-wall-clock-go diagnosis, the statistical-validity discipline (N=3 iterate / N=10 certify / bank-the-floor / stack-don't-revert / quality-vs-power), an optimization toolkit ordered by leverage (optimizer & schedule first, kernels & precision last), the optimizer/architecture prior library, and the experimental discipline. Distilled human expertise to learn, not a recipe to copy.
 category: benchmark-training-speedrun
-version: 1
+version: 2
 scientist_model: gpt-5.5
 created_at: 2026-06-18T00:00:00+00:00
 ---
@@ -31,6 +31,69 @@ failure-first example of the loop.)
   RL/post-training run.
 - The scorer is missing and cannot be reconstructed — write a setup/blocker report first;
   do not invent a metric or a `p`-value.
+
+---
+
+## 0. Research-first: you are knowledge-limited — RETRIEVE before you build
+
+This is the section the agent most needs and most skips. A senior researcher's first move
+is **not** to think harder; it is to **go read what humans already figured out**. An LLM
+agent has a sharper reason to: your knowledge is *parametric* — frozen at cutoff, capacity-
+bounded, weakest exactly on the long-tail/post-cutoff facts that matter here (new optimizers,
+new kernels, the SOTA recipe's rationale, hardware-specific tricks), and you are trained to
+sound confident, so from memory you will emit plausible-but-wrong technique facts ("X gives
+2×"). The evidence is blunt: on the **Automated LLM Speedrunning Benchmark** (these very
+NanoGPT records) frontier agents largely *cannot re-implement even the next record's gains*
+when handed the prior record's code plus pseudocode hints; **FIRE-Bench** finds frontier
+research agents stay under ~50 F1, failing at **experimental design + evidence-grounding**,
+not at writing the kernel. The binding skill is **retrieve → reproduce → verify**, not raw
+cleverness.
+
+**Invention is recombination, so retrieve and stack — do not try to invent from scratch.**
+Bibliometrics across tens of millions of papers (Nature 2022, *atypical combinations*) show
+genuinely unprecedented ideas are rare; almost all progress is *novel re-mixing of known,
+validated parts*. Every speedrun record is the prior record's code **plus a few small,
+orthogonal, already-published gains** stacked on top. So your job is NOT a never-seen
+optimizer; it is to aggressively retrieve the menu of known levers, stack the orthogonal
+ones, re-implement each carefully (the step agents fail), and measure. Reciting a known
+trick from memory and calling it "my invention" is the classic agent failure that
+literature-grounded novelty checkers exist to catch — and pulling a technique from memory
+instead of from its concrete artifact is how you get the coefficients/conditions wrong.
+
+**The discipline (search-then-build — the order real end-to-end research systems use):**
+1. **Reproduce first.** Stand up the baseline AND the named anchor on *your* hardware and
+   re-measure like-for-like before trying to beat anything. Reproduction is research, not setup.
+2. **Chase the most concrete artifact.** pseudocode/repo/commit-diff/reference-kernel/ablation-
+   table > prose > abstract. Reasoning about a technique in the abstract is where agents flail;
+   go get its executable form and read it.
+3. **Corroborate, don't trust one blog.** A single "N× speedup" is a parametric-quality claim
+   until a second source confirms it; treat headline multipliers as **upper bounds under
+   unequal tuning** (*Fantastic Pretraining Optimizers*, 2509.02046: matrix optimizers are only
+   ~1.1–1.4× and shrink toward ~1.1× at ~1.2B — and tune the BASELINE as hard as the new thing).
+4. **One lever, measured against retrain variance, then stack.** Adopt a change only if it
+   clears run-to-run variance (§3); then add the next orthogonal lever onto the best stack.
+
+**The anti-cheat line (non-negotiable):** retrieve GENERAL technique, methodology, and design
+*rationale*. NEVER retrieve this task's leaderboard answer / best-solution code. Understanding
+*why* a component exists is research; copying the answer key is disqualifying.
+
+**The menu of human knowledge to retrieve (named, so you can search for it):**
+
+| Lever | Technique (search the arxiv/repo, don't recite) | Axis |
+|---|---|---|
+| optimizer / fewer steps | **Muon** (orthogonalized momentum, matmul-only Newton-Schulz) + **Moonlight** (RMS-match to AdamW + decoupled WD to scale it); **SOAP** (Adam in Shampoo eigenbasis, eigendecomp every k); **Sophia** (diagonal-Hessian + clipping) | convergence |
+| LR / horizon | **WSD** (warmup-stable-decay: long plateau, short cooldown — cash out a converged ckpt at any budget); **muP/muTransfer** (tune LR on a small proxy, transfer zero-shot — a meta-speedup for your tuning budget) | convergence + tuning cost |
+| batch | **critical batch size** + **batch-size warmup** (below CBS bigger batch ≈ linear step savings; above it wastes tokens) | steps ↔ per-step |
+| regularization | annealed **Langevin/SGLD** gradient noise (generalization-per-step) | convergence |
+| data | **RHO-Loss** (online reducible-holdout batch selection — skip already-learned/noise), **DoReMi** (proxy-tuned data mixture), **sequence-length warmup** (cuts early attention FLOPs AND stabilizes) | convergence, ~free |
+| per-step cost | **FA3**/fused kernels; **torch.compile** fusion + **CUDA graphs** (launch-bound); **FP8 GEMMs** with delayed scaling (watch SwiGLU outlier loss spikes) | per-step |
+| variance / the metric | **LAWA / weight-averaging / EMA** denoise the iterate → lower run-to-run variance → certify with the mean rode closer to the gate = fewer steps. (Classic **SVRG is ineffective** in DL; momentum + larger batch + averaging are the variance reduction that works.) | the t-test lever |
+
+**Search playbook (general technique only — never the answer key):** the arxiv/repo for each
+lever above; *Fantastic Pretraining Optimizers* before believing any optimizer multiplier; the
+diagnostic method (roofline, MFU ≈ achieved/peak with ~6N FLOPs/token, nsys-then-ncu,
+torch.profiler op attribution) so you self-measure the bottleneck; and a literature-grounded
+novelty check before you ever call something "new".
 
 ---
 
