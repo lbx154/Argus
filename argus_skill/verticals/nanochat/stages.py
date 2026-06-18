@@ -59,9 +59,17 @@ def role_banner(role: str) -> str:
 
     The banner is role-aware: every role gets the frozen-constraint mission
     framing, but the PLANNER additionally gets a hard SEARCH-DISCIPLINE rule
-    that forbids re-sweeping a saturated scalar hyperparameter and mandates a
-    category-level change per candidate (the engineer/reviewer get the matching
-    reinforcement). This is what stops the a00x LR/WD/batch micro-tweak loop.
+    that (a) forbids re-sweeping a saturated scalar hyperparameter, (b) gates
+    keep/reject at the seed-to-seed NOISE so sub-noise deltas are never banked,
+    and (c) replaces greedy one-lever-at-a-time screening with a two-mode
+    search: single-lever sweep while it still clears the noise, then CO-DESIGNED
+    BUNDLES (2-4 levers proposed together) once single-lever wins thin out —
+    because several frontier levers regress in isolation and only pay off
+    together, so greedy search can never assemble them. The engineer/reviewer
+    get the matching reinforcement (implement bundles faithfully + ablate the
+    winner; never bank a sub-noise screen; retry regressed-alone levers inside a
+    bundle). This is what stops both the scalar micro-tweak loop and the
+    greedy-single-lever plateau.
     """
     common = (
         "MISSION — NanoChat Autoresearch (Recursive Task 1). This is NOT a\n"
@@ -80,36 +88,61 @@ def role_banner(role: str) -> str:
             "(attempts/, RESULTS.md). A lone single-scalar tweak (peak LR, "
             "weight-decay, batch size, warmup/warmdown/final-LR fraction, dropout) "
             "is worth AT MOST one value. If the recent screens are single-knob "
-            "tweaks clustering within ~0.002 BPB of the verified floor, that basin "
-            "is SATURATED: do NOT propose another value of an already-swept knob — "
-            "that is wasted 300s budget.\n"
-            "EVERY new candidate MUST introduce a CATEGORY-LEVEL change (it MAY "
-            "also move hyperparameters, but a category change is mandatory). Pick "
-            "the biggest UNEXPLORED lever, roughly in this order:\n"
+            "tweaks clustering within run-to-run noise (~0.001-0.002 BPB) of the "
+            "verified floor, that basin is SATURATED: do NOT propose another value of "
+            "an already-swept knob — that is wasted 300s budget.\n"
+            "NOISE GATE: a keep/reject decided on a val_bpb delta SMALLER than the "
+            "seed-to-seed run noise (~0.001-0.002) is a COIN FLIP, not a win. Do NOT "
+            "treat a sub-noise screen as progress or bank it as a floor; spend the "
+            "next candidate on a lever big enough to clear the noise.\n"
+            "DO NOT SEARCH GREEDILY ONE-LEVER-AT-A-TIME. Use two modes:\n"
+            "  (1) SINGLE-LEVER sweep — while a new category change still clears the "
+            "noise, propose ONE category-level change per candidate, biggest "
+            "UNEXPLORED lever first, roughly in this order:\n"
             f"{_CATEGORY_AXES}\n"
-            "Prefer high-variance, mechanism-CHANGING bets that can break the basin "
-            "over safe knob-twiddling that only polishes it. The gap to 0.9344 is "
-            "~0.09 — 0.000x knob noise will never close it; a different optimizer or "
-            "architecture might. Name the axis each candidate explores and keep "
-            "diversifying so the search does not collapse back onto scalar tuning.\n"
+            "  (2) CO-DESIGNED BUNDLE (the non-greedy move — use it as soon as "
+            "single-lever wins thin out, i.e. the last several category changes land "
+            "within noise or regress): propose 2-4 levers TOGETHER as ONE candidate, "
+            "motivated by a structural hypothesis (e.g. reshape the capacity "
+            "allocation AND widen the output head AND match the init/residual scaling "
+            "for the new shape, all in one candidate). CRITICAL: several frontier "
+            "levers REGRESS IN ISOLATION and only pay off TOGETHER — so a greedy 'one "
+            "lever vs the floor' search rejects each piece and NEVER reaches the "
+            "combination. Therefore: (a) a lever that regressed ALONE but is plausibly "
+            "synergistic is NOT dead — keep a synergy-shortlist and RETRY it inside a "
+            "bundle; (b) after a bundle WINS, the next candidates ABLATE within it "
+            "(one lever off at a time) to find who carries the gain and drop dead "
+            "weight. Bundles are first-class candidates, not a fallback.\n"
+            "The gap to 0.9344 is ~0.09 — single-knob noise will never close it, and "
+            "the last leg is a COORDINATED STRUCTURE, not one more standalone trick. "
+            "Name the lever(s) each candidate explores. (Method: skills 'NanoChat "
+            "Autoresearch Hands-on Trace' / 'NanoChat Autoresearch SOTA Optimization' "
+            "— learn the loop, but do NOT copy any reference recipe; derive and "
+            "measure your own.)\n"
         )
     if role == "engineer":
         return common + (
-            "\nWhen the task is a CATEGORY change (new optimizer / architecture / "
-            "data scheme), implement it FAITHFULLY and correctly end-to-end — a "
+            "\nWhen the task is a CATEGORY change OR a CO-DESIGNED BUNDLE (2-4 levers "
+            "as one hypothesis), implement it FAITHFULLY and correctly end-to-end — a "
             "correct, informative REGRESSION is more valuable than a safe "
             "within-noise non-result, so do not water a bold bet down into a knob "
-            "tweak. Still 1-seed screen first; keep lib.py and the scorer frozen; "
+            "tweak. For a BUNDLE, implement ALL of its levers coherently (they are "
+            "designed to pay off TOGETHER, not separately); once a bundle wins, expect "
+            "the next tasks to ABLATE within it (one lever off at a time). Still "
+            "1-seed screen first; keep lib.py and the scorer frozen; "
             "real flash_attn.cute FA-4 only (never SDPA/fallback/FA2).\n"
         )
     if role == "reviewer":
         return common + (
             "\nINNOVATION CHECK: if the screened candidate is yet another single-"
-            "scalar tweak landing within ~0.002 of the floor, say so plainly and "
-            "record in the handoff that the NEXT candidate MUST be a category-level "
-            "change (optimizer / architecture / data) — do not let the loop keep "
-            "re-sweeping a saturated knob. Still verify the hard gates: real FA-4, "
-            "frozen lib.py, honest real-run score.\n"
+            "scalar tweak landing within run-to-run noise (~0.001-0.002 BPB) of the "
+            "floor, say so plainly — a sub-noise delta is a COIN FLIP, not a win, and "
+            "must NOT be banked as a real improvement. Record in the handoff that the "
+            "next candidate must either be a bigger single lever OR a CO-DESIGNED "
+            "BUNDLE (2-4 levers proposed TOGETHER), NOT another greedy one-lever "
+            "screen — and that a lever which regressed ALONE may still be a synergy "
+            "candidate to RETRY inside a bundle, not discarded. Still verify the hard "
+            "gates: real FA-4, frozen lib.py, honest real-run score.\n"
         )
     return common
 

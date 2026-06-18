@@ -1,0 +1,275 @@
+---
+name: NanoChat Autoresearch Hands-on Trace
+description: A concrete NanoChat-autoresearch (Recursive "First Steps" Task 1) process trace on a single B200, written as the operator's OWN known-good operating procedure for the DUAL of a speedrun — FIX the 300s single-GPU budget, MINIMIZE the mean validation bits-per-byte (val_bpb) over N seeds, editing only train.py against a frozen scorer. The spine is a per-candidate measured causal chain bound to real numbers from a real 50-candidate live run (vanilla@64 1.053 → floor 0.9890): measured(val_bpb mean±sd over N seeds vs the SEED-NOISE floor) → decompose(effective_tokens-in-300s × quality-per-token; where on the loss curve does 300s land) → pick the binding lever (throughput vs per-token quality) → ONE coordinated change → re-measure → classify miss (real signal vs sub-noise jitter) → bank / stack-as-a-BUNDLE. The live run's two expensive errors — deciding accept/reject on differences smaller than its own seed noise, and testing single levers greedily so synergistic structure never assembled — are demoted to the nails. Does NOT contain the reference SOTA recipe.
+category: benchmark-training-fixed-budget-lm
+version: 1
+scientist_model: gpt-5.5
+created_at: 2026-06-18T00:00:00+00:00
+---
+
+## Title
+NanoChat Autoresearch Hands-on Trace
+
+## Description
+A **human-written seed exemplar** of how to optimize a *fixed-budget* LM-pretraining
+benchmark — **minimize the validation loss (val_bpb) reachable in a frozen 300-second
+single-GPU budget**, the **dual** of a wall-clock speedrun. It is written deliberately as the
+**known-good operating procedure** — the concrete commands and the lever *classes* I would
+actually work, with the decision at each fork — *not* a transcript of the agent's live run.
+That run is real and is mined here for its **measured numbers** (a 50-candidate trajectory
+from vanilla to a 0.9890 floor) and for its two expensive mistakes, which are recorded as the
+**nails**: it spent ~25 candidates deciding keep/reject on differences **smaller than its own
+seed-to-seed noise** (coin flips dressed as progress), and it tested every mechanism as a
+**single greedy lever against the floor**, so the **coordinated structure** the frontier
+needs never assembled. The spine is a per-candidate **measured causal chain** where every step
+is bound to a real `val_bpb` from the frozen scorer and the next move follows from **the
+binding constraint**. This file does **not** reproduce the reference optimized recipe — it
+teaches the method that *derives* one.
+
+## When to use
+- The task is a **fixed-compute-budget** from-scratch LM run (e.g. nanochat Task 1: a small GPT
+  trained for **exactly 300s on one B200**, scored by **mean `val_bpb` over N seeds** on a
+  frozen held-out shard), editing only `train.py` against a frozen `lib.py`/scorer.
+- The agent must produce real per-seed `val_bpb` numbers and run the **measure → decompose →
+  pick-lever → re-measure → bank/stack** loop with a **seed-noise-aware** keep/reject gate.
+- A from-scratch-LM optimization is stuck: many single-knob screens, floor barely moving,
+  improvements the size of run-to-run noise being banked as wins.
+
+## When NOT to use
+- You only need the high-level methodology and toolkit. Use `NanoChat Autoresearch SOTA
+  Optimization`.
+- The objective is wall-clock-to-a-target (use `Speedrun Hands-on Trace`), a single GPU kernel
+  (`SOL Kernel Hands-on Trace`), a paper matrix, or RL/post-training.
+- The scorer / GPU is unavailable — write a setup/blocker report; never fabricate a `val_bpb`.
+
+## The one rule this trace exists to teach
+
+> **Under a fixed budget the score is `quality(per-token) × effective-tokens(in 300s)` — attack
+> whichever binds — and a lower number is not a win until it clears your SEED NOISE and is part
+> of a STACK.** Two failure modes kill this task and the live run hit both. (1) Once the floor
+> is improving by less than the run-to-run sd of a single seed, your keep/reject is a **coin
+> flip**; banking those "wins" builds a floor out of lucky seeds. (2) The frontier here is a
+> **coordinated bundle** of levers (a reshaped capacity allocation co-tuned with the update and
+> the output head); many of its pieces **regress in isolation**, so a greedy "one category
+> change vs the floor" search rejects each piece and **never reaches the combination**. Measure
+> your noise first; then search **bundles**, not single knobs.
+
+## What "process data" means here — the chain to learn
+
+Record each candidate as one linked block. Learn the shape; it is a teaching exemplar, not a
+rigid form a harness greps for:
+
+```text
+CAND <name, ON TOP OF which floor, and which lever CLASS(es) it changes>
+  command:     ./eval_solution.sh train.py <N>     (real flash_attn.cute FA-4, DEVICE_BATCH_SIZE=64,
+                                                     SEQUENTIAL seeds, shard_06542 val)
+  measured:    val_bpb = <per-seed values>; mean=<m> ± sd=<sd> over N=<n>     [LOWER better]
+  noise-gate:  is (floor − mean) > ~2-3× seed-sd?   REAL signal | SUB-NOISE jitter
+  decompose:   300s lands at step≈<s> / token≈<T>; per-step≈<ms>; loss-curve value at 300s.
+               which side moved — effective tokens-in-300s (throughput) OR quality-per-token?
+  read:        better/worse than floor, and by how many σ? if regression, is the lever
+               wrong, or right-but-only-synergistic (regresses ALONE, helps in a bundle)?
+  lever:       which CLASS this change attacks: {optimizer | capacity-allocation (depth/width/
+               bottleneck) | normalization/residual numerics | output-head shaping |
+               effective-update (init/reg/schedule) | data order | throughput}
+  decision:    bank as new floor | KEEP IN THE STACK & co-tune the next lever onto it |
+               revert this lever | hold as a synergy-candidate to retry inside a bundle
+  → next:      next COORDINATED change, chosen by the binding constraint
+```
+
+## My run: the concrete operations
+
+Project: `/home/argustest/nanochat-mission-b200`. Scorer (frozen):
+`./eval_solution.sh train.py <N>` — ships `train.py` to a single B200 (`ssh -p 2231`,
+interp `/opt/conda/envs/ptca/bin/python`, **real `flash_attn.cute` FA-4 sm_100**), runs the
+candidate for a **fixed 300s** under `DEVICE_BATCH_SIZE=64` + grad-accum, **N seeds
+SEQUENTIALLY** (concurrency on the shared pod collapses throughput and inflates `val_bpb`
+~0.08–0.10 — a measured confound, NOT noise), evaluates `val_bpb` on the held-out
+`shard_06542`, prints each seed's `val_bpb` + `MEAN_VAL_BPB`. **LOWER is better.** Anchors
+(single B200, re-measured/published): vanilla 1.0587 (my `=64` re-measure 1.053); reference
+"optimized_from_vanilla" 0.9344; Recursive best 0.9109.
+
+### OP 0 — establish TWO ground truths before touching the recipe: the baseline AND the noise floor
+
+The speedrun has a t-test as its validity gate; this task hands you **raw per-seed numbers**
+and makes the noise gate **your** job. Skipping it is the single most expensive omission (nail 1).
+
+```bash
+cd /home/argustest/nanochat-mission-b200
+./eval_solution.sh train.py 1            # vanilla baseline, 1 seed (fast signal)
+# THEN, the step everyone skips — measure the instrument's noise:
+./eval_solution.sh train.py 5            # SAME vanilla, 5 seeds -> the seed-to-seed sd
+```
+
+```text
+CAND vanilla@64 — baseline + NOISE FLOOR (no edits)
+  measured:    mean val_bpb ≈ 1.053 (ref 1.0587, like-for-like at DEVICE_BATCH_SIZE=64)
+  noise-gate:  ESTABLISH IT NOW. A single-seed val_bpb on this task is NOT reproducible to 4
+               decimals. Until you know seed-sd, you cannot tell a 0.001 "win" from a coin flip.
+               (The live run never ran this and paid for it — see nail 1. Its own later decisions
+               hinged on 0.0005-level deltas, which is below any plausible seed-sd.)
+  decompose:   300s buys a fixed token budget = (300s − warmup/compile) / per_step. Vanilla
+               spends it at depth-12 / DEVICE_BATCH_SIZE=64 / 2^17 total-batch / LR 9e-4, real
+               FA-4. The loss curve at 300s is FAR from converged — this is a small-data-pass
+               regime, so BOTH levers (more effective tokens, better per-token quality) are open.
+  read:        this is the floor to beat. The reference 0.9344 is ~0.12 below it — a LARGE gap,
+               not a knob-tweak gap.
+  lever:       n/a — set the floor + the noise σ.
+  decision:    floor = 1.053; promotion gate = "(floor − mean) > ~2-3σ_seed", measured here.
+  → next:      reframe the budget (OP 1), then spend the FIRST candidates on the biggest lever.
+```
+
+### OP 1 — the dual reframe: "what minimizes bpb in 300s", not "what makes the model better"
+
+```text
+REFRAME (the mental flip that orders everything):
+  budget is FIXED at 300s -> effective_steps = 300s / per_step_cost
+  score = the quality (bpb) the recipe reaches in effective_steps
+  => two levers, and like a speedrun they are NOT equal:
+     (A) MORE EFFECTIVE TOKENS IN 300s  = throughput × per-token sample-efficiency.
+         A cheaper step (faster attention/MLP, the windowed-attention class, leaner numerics)
+         is NOT a "quality knob" here — it BUYS MORE STEPS, which is quality under a fixed clock.
+     (B) BETTER QUALITY PER TOKEN = the optimizer, the capacity ALLOCATION (depth vs width vs
+         a bottleneck), normalization/residual numerics, the output head, init/reg/schedule.
+  the live run treated (A)-class levers (e.g. windowed attention) as standalone quality knobs
+  and missed that on a 300s clock they compound with (B). Frame every candidate as "does this
+  net MORE quality per 300s," and the lever ordering falls out.
+```
+
+### OP 2 — the BIG levers, by CLASS, biggest-first — and the real measured wins
+
+Each experiment is a change to `train.py`, scored `./eval_solution.sh train.py 1` for signal,
+and judged on **whether mean clears the floor by > ~2-3σ_seed**, not on the 4th decimal. Work
+the lever **classes** in rough leverage order (the live run actually swept these — its *real*
+above-noise wins are cited as the trace's measured data; the *order* is what I would fix):
+
+```text
+1. OPTIMIZER (biggest single lever for fixed-budget from-scratch LM).
+   Newton-Schulz-orthogonalized momentum (Muon) on the matrices was the first real jump:
+     CAND muon  ->  1.053 → 1.028   (REAL, ~-0.025, far above noise)
+   This is the highest-value single change on this task. Adam-mini / Lion / Sophia variants and
+   the Muon/Adam split across parameter banks live here too — but most REPLACEMENTS of a working
+   Muon regress (all-Lion, Sophia-core both measured ~+0.04 worse): Muon is the strong base.
+2. CAPACITY ALLOCATION at ~fixed params (depth vs width vs a narrow bottleneck).
+   Reshaping where the parameters sit was the most productive architecture axis:
+     CAND wide_shallow_arch       ->  1.0164 → 1.0121   (REAL)
+     CAND scaled_width_shallow    ->  1.0121 → 1.0052   (REAL)
+   but its NEIGHBORS regress alone (deep-narrow +0.03, ultra-shallow ≈ floor) — a strong signal
+   that the optimum is a CO-TUNED point, not a single dial (this is the synergy clue, OP 4).
+3. EFFECTIVE-UPDATE NUMERICS — init/residual scaling, schedule, the loss/logit shaping.
+   Two of the largest late jumps were here, and they were UNTAPPED for ~30 candidates:
+     CAND scaled_residual_init    ->  1.0019 → 0.9927   (REAL, ~-0.009, FIRST sub-1.0)
+     CAND logit_softcap           ->  0.9927 → 0.9890   (REAL)
+   Lesson: high-leverage levers can sit unexplored while the search grinds saturated ones.
+4. NORMALIZATION / RESIDUAL numerics — norm placement, QK/value normalization.
+     CAND sandwich_norm           ->  1.0041 → 1.0026   (real but small)
+     CAND value_norm_attention    ->  1.0026 → 1.0019   (real but small — near the noise edge)
+5. DATA ORDER — shard ordering / curriculum (real but small, saturates ~one bit).
+6. THROUGHPUT (lever A) — windowed/local attention, leaner numerics: buys steps under 300s.
+   Local-global attention was an early real win (1.0203 → 1.0192); treat throughput wins as
+   step-budget, then re-spend the steps on lever (B).
+
+  CAND <next coordinated change> — on the current STACK
+    command:     edit train.py (ONE lever class, or a small co-designed bundle — OP 4);
+                 ./eval_solution.sh train.py 1
+    measured:    <mean ± per-seed; compare to floor by σ, not by decimals>
+    read:        REAL (>2-3σ) keep; SUB-NOISE -> do NOT bank, it's a coin flip
+    lever:       <class>
+    decision:    bank & KEEP IN STACK; co-tune the next class onto it
+    → next:      the next class, or close a synergy bundle (OP 4)
+```
+
+### OP 3 — the noise discipline (how a win actually banks here)
+
+```text
+CAND <candidate near the floor>
+  rule:        a keep/reject is only valid if |floor − mean| > ~2-3 × σ_seed. If the delta is
+               smaller, it is a COIN FLIP — re-screen at higher N (the seeds are sequential, so
+               N=3 costs ~3×300s+overhead) before banking, or do NOT bank it at all.
+  worked nail: the live run banked a039 0.001860 over a038 0.002580 (Δ=0.0007) and rejected
+               a040 0.002330 / a041 0.002640 — ALL on deltas of 0.0002-0.0008. With a seed-sd
+               plausibly ≥0.001, those promote/reject calls were noise. ~5 hours / ~25 candidates
+               (a022→a046) shuffled inside a ~1.002-1.005 band that was statistically ONE point.
+  operator role: the daemon screens at 1-seed; the OPERATOR runs the multi-seed confirmation, and
+               ONLY for a SOTA-level candidate. Do not multi-seed every screen; do not bank a
+               sub-noise screen as a floor.
+  stack:       maintain a current-best train.py; ADD each REAL winning lever onto it and co-tune;
+               revert only a lever that measurably (>σ) hurts. Never revert to bare vanilla.
+```
+
+### OP 4 — search BUNDLES, not greedy single levers (the move that crosses the last gap)
+
+```text
+The frontier is a COORDINATED stack: a reshaped capacity allocation (depth/width + a bottleneck)
+co-designed WITH the output head and the update. Its pieces have a property that breaks greedy
+search: SEVERAL REGRESS IN ISOLATION and only pay off TOGETHER.
+
+  evidence from the live run (real measured regressions of pieces tried ALONE):
+    deep-narrow arch    +0.03   (a narrow trunk ALONE underfits)
+    MoE / factorized    +0.03   (capacity reshape ALONE, uncoordinated, regresses)
+  greedy "one category change vs the floor" REJECTS each of these -> never reaches the combo.
+
+  the fix (what I would do that the live run did not):
+    - propose a 2-4 lever BUNDLE as ONE candidate, co-designed by a hypothesis ("reshape the
+      trunk narrower AND widen the output path AND scale the residual init for the new depth"),
+      screen the BUNDLE, and only THEN ablate WITHIN the winning bundle to find who carries it.
+    - keep a synergy-shortlist: any lever that regressed ALONE but is plausibly synergistic gets
+      retried INSIDE a bundle, not discarded.
+    - this is the search change that turns "single-lever wins are exhausted at ~0.99" into "the
+      coordinated structure that the reference 0.93 frontier is."
+```
+
+## The nails — what the live run actually did (do NOT repeat)
+
+The procedure above is the known-good path. The agent's real 50-candidate / ~18-hour run hit
+these; the expensive failures on a fixed-budget LM run are **measurement and search shape**,
+not the individual tricks (most of which it found correctly).
+
+- **Nail 1 — deciding below the noise floor.** It never measured seed-sd, then banked/rejected
+  candidates on 0.0002–0.0008 `val_bpb` deltas (a039 over a038; a040/a041 rejected) — almost
+  certainly inside run-to-run noise. ~25 candidates (a022→a046, ~5h) shuffled within a band that
+  was statistically a single point. **Measure σ at OP 0; gate at 2-3σ.**
+- **Nail 2 — greedy single-lever search.** Every mechanism was a lone "category change vs the
+  floor." Levers that only pay off TOGETHER (narrow trunk + wide head + matched init/residual
+  scaling) each regressed alone and were correctly-but-fatally rejected, so the coordinated
+  ~0.93 structure was unreachable. **Search bundles (OP 4).**
+- **Nail 3 — leaving the high-leverage lever for last by accident.** Residual/init scaling and
+  logit shaping (two of the biggest jumps, 1.0019→0.9927→0.9890) sat untouched for ~30 candidates
+  while the search ground saturated norm/optimizer/data knobs. Order the **classes** by leverage
+  up front, don't reach the big one on candidate #47 by luck.
+- **Nail 4 — the eval-harness flaky-launch thrash (infra, ~30% of several missions).** A flaky
+  port-forward dropped the launcher's "LAUNCHED" echo → the scorer false-failed → the retry
+  `rm`-wiped the in-flight seed's log and relaunched, burning 20–35 min on candidates whose model
+  was fine. Harden the launcher to confirm by the node's REAL state (a tagged, idempotent
+  attach), not by a lossy echo, BEFORE optimizing the model.
+- **Nail 5 — a frozen reviewer froze the whole pipeline.** A schema went strict-incompatible
+  (a property added to the output schema but not to its `required` array) and every reviewer call
+  errored; missions could not close and the best win sat un-banked for ~40 min until the schema
+  was made compliant. On a fixed-budget run the model can be right while the *harness* is the
+  bug — read the actual backend error, don't treat a stalled mission as a model failure.
+- **Nail 6 — not reframing to the dual.** Throughput-class levers (windowed attention) were
+  judged as standalone quality knobs, missing that under a 300s clock they BUY STEPS. Frame
+  every candidate as "more quality per 300s" (OP 1).
+
+## How to apply this chain to another fixed-budget LM run
+1. OP 0: score the baseline, AND measure the seed-sd (`./eval_solution.sh train.py 5`). Never
+   fabricate a `val_bpb`; never bank below noise.
+2. OP 1: reframe to the dual — effective-tokens-in-budget × quality-per-token; decide which binds.
+3. OP 2: work the lever **classes** biggest-first (optimizer → capacity allocation → effective-
+   update numerics → norm → data → throughput); name the class each candidate changes.
+4. OP 3: gate every keep/reject at 2-3σ_seed; multi-seed-confirm only SOTA-level candidates; stack.
+5. OP 4: once single-lever wins thin out, propose **co-designed bundles**, screen the bundle, then
+   ablate within it; keep a synergy-shortlist of regressed-alone levers.
+6. Fix the eval harness FIRST (idempotent, node-state-confirmed launch) so each screen is clean.
+7. Stop when the gap to the next anchor needs coordinated structure you have not yet co-tuned —
+   and say so, with the σ-honest distance to it.
+
+## Response shape
+- State the scorer command and whether it exited 0; the baseline mean AND the measured seed-σ.
+- Show the dual decomposition (where 300s lands on the curve; throughput vs quality-per-token)
+  and which lever class you chose, why.
+- For each candidate, the full chain block with real per-seed `val_bpb`; label every result
+  REAL (>2-3σ) or SUB-NOISE; never bank sub-noise.
+- For regressions, state whether the lever is wrong or right-but-synergistic (retry-in-bundle).
+- Frame the result honestly against the same-harness baseline and the named anchors (0.9344 /
+  0.9109), like-for-like, with the σ-honest distance — and never reproduce a reference recipe.
