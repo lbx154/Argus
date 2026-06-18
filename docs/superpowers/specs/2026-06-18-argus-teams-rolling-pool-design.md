@@ -176,7 +176,7 @@ form 8 个 → wait(等 8 个全收完，barrier) → synthesize → form 下一
 
 > 作为 LEAD，**默认跑滚动 teammate-engineer 池**，不要用 per-task subagent 做跨 kernel fan-out，也**不要 `wait` 整批**：
 > 1. `team form` 选一批 untouched kernel 建初始 backlog（带 priority）。
-> 2. `nohup python -m argus_skill.tools.team coordinate --root R --team-id T --cwd WS --width 8 --poll 5 --ttl 180 --lead-ttl 300 --max-wall 21600 &` 起**一个** coordinator（默认 N=8、max_wall=6h，可调）。
+> 2. `nohup python -m argus_skill.tools.team coordinate --root R --team-id T --cwd WS --width 8 --poll 5 --ttl 180 --lead-ttl 1800 --max-wall 21600 &` 起**一个** coordinator（默认 N=8、lead-ttl=30min、max_wall=6h，可调）。
 > 3. 进入**判断循环**（你只做判断，**绝不自己 spawn / 绝不 wait barrier**）：`team pool-set --width N --state running`（兼心跳）→ 读新落地 shard → 比 **MEASURED-on-B200 SOL vs 当前 best**、只归档**真超过 best** 的改进 → 给 backlog 补料（广度：新 untouched kernel；深度：把有苗头的 kernel 再 form 一条换机制的 task，给更高 priority）→ 视路由忙闲调 N → sleep 后重复。
 > 4. 收尾：`team pool-set --state draining` → 等 coordinator 排空自退 → 综合 best-per-kernel → 过 L2 reviewer → `team dissolve`。
 > 约束沿用：只用 B200 卡 2/3/4/5；新机制来自 idea-wiki + 自身理解并经实验验证（**禁调参 / 禁锚定最强 baseline / 禁用 Yuandong Tian team 方法**）；correctness before speed；**绝不报未在 B200 实测的 SOL**。

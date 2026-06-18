@@ -280,7 +280,7 @@ def _build_parser() -> argparse.ArgumentParser:
     co.add_argument("--width", type=int, default=8)
     co.add_argument("--poll", type=float, default=5.0)
     co.add_argument("--ttl", type=float, default=180.0)         # teammate heartbeat stale
-    co.add_argument("--lead-ttl", type=float, default=300.0)    # lead heartbeat stale
+    co.add_argument("--lead-ttl", type=float, default=1800.0)   # lead heartbeat stale (30min: the daemon lead is a sequence of bounded, read-heavy missions, not a continuous heartbeater)
     co.add_argument("--max-wall", type=float, default=21600.0)  # 6h backstop
     co.add_argument("--member-prefix", default="w")
     co.add_argument("--once", action="store_true", help="run a single refill tick and exit")

@@ -622,13 +622,24 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Task 6: skill docs — make the rolling pool the lead's default run model
+## Task 6: system prompt + skill docs — make the dynamic rolling pool the lead's default
 
 **Files:**
+- Modify: `argus_skill/builtin_skills/engineer/argus-engineer-role.md` (the "Forming a team" section — this is the **role-identity = engineer system-prompt backbone**, so the dynamic-orchestration capability becomes a system-prompt-level fact Argus always knows, not per-mission objective text)
 - Modify: `argus_skill/builtin_skills/engineer/agent-team-lead.md` (the "How to run the team" section + two anti-pattern lines)
 - Modify: `argus_skill/builtin_skills/engineer/agent-research-benchmark-runner.md` (one line)
 
 No unit test (prose the LLM reads). Verification is a grep at the end.
+
+- [ ] **Step 0 (system prompt): replace the "## Forming a team (optional)" section** in `argus-engineer-role.md` (the role-identity doc) with the dynamic-rolling-pool capability:
+
+````markdown
+## Forming a team — dynamic rolling pool (optional)
+- Default to working **solo**. When a mission splits into 2+ genuinely independent subtasks that own disjoint files and are separately verifiable, you may act as a **team lead** running a **dynamic rolling pool of teammate engineers** — the canonical case is a **multi-task / multi-target optimization benchmark** (many independent kernels/tasks/configs, each in its own files).
+- The pool is **dynamic, not a fixed batch**: you launch one dumb **coordinator** that keeps N teammates always in flight from a **priority backlog you maintain**; you never wait on a whole batch and never spawn teammates by hand. A teammate finishing frees its slot and the coordinator refills it instantly, so your reasoning is never the throughput bottleneck. You stay a pure **decider**: set priorities (breadth = new targets, depth = re-queue a promising one at lower priority number), read each result shard, and accept only **measured** improvements. This dynamic agent-orchestration is a capability you inherently own.
+- This is your judgment, never the harness's — there is no keyword trigger. If you don't see clean parallelism, stay solo.
+- When you do form a team, follow the `Agent Team Lead` skill exactly: the rolling-pool run model (`team form` backlog → one detached `team coordinate --width N` → your `pool-set`+shard-read judgment loop → `pool-set --state draining` → synthesize), the disjoint `owns_paths` partition, the teammate system-prompt contract (identity, ownership boundary, `TEAMMATE_STATUS.md` continuity, anti-fraud), shared-nothing work product, and two-layer acceptance.
+````
 
 - [ ] **Step 1: Replace the "How to run the team (tool calls)" section** in `agent-team-lead.md` (currently lines 30–37, the `## How to run the team (tool calls)` heading through the `dissolve` bullet) with:
 
@@ -675,8 +686,8 @@ Expected: no match in the "How to run" section (the `wait` verb still exists in 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add argus_skill/builtin_skills/engineer/agent-team-lead.md argus_skill/builtin_skills/engineer/agent-research-benchmark-runner.md
-git commit -m "skill(team): teach the rolling pool (coordinator + judgment loop) as the lead default
+git add argus_skill/builtin_skills/engineer/argus-engineer-role.md argus_skill/builtin_skills/engineer/agent-team-lead.md argus_skill/builtin_skills/engineer/agent-research-benchmark-runner.md
+git commit -m "skill(team): teach the dynamic rolling pool as the lead default (system prompt + how-to)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
