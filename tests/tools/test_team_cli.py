@@ -127,3 +127,42 @@ def test_should_stop_conditions(tmp_path: Path) -> None:
     assert teamcli._should_stop(drn, in_flight=2, elapsed=10, lead_ttl=300, max_wall=1000, now=110) is None
     assert teamcli._should_stop(run, in_flight=3, elapsed=10, lead_ttl=300, max_wall=1000, now=500) == "lead-heartbeat-stale"
     assert teamcli._should_stop(run, in_flight=3, elapsed=2000, lead_ttl=300, max_wall=1000, now=110) == "max-wall"
+
+
+def test_pool_set_cli(tmp_path: Path, capsys) -> None:
+    root = tmp_path / "t"
+    rc, out = _call(capsys, "pool-set", "--root", str(root), "--width", "6", "--state", "running")
+    doc = json.loads(out)
+    assert rc == 0
+    assert doc["width"] == 6 and doc["state"] == "running" and doc["lead_heartbeat_ts"] > 0
+
+
+def test_coordinate_once_fills_to_width(tmp_path: Path, capsys) -> None:
+    from argus_skill.team import task_board as tb
+    root = tmp_path / "t"
+    tasks = tmp_path / "tasks.jsonl"
+    tasks.write_text("".join(
+        json.dumps({"task_id": f"k{i}", "objective": "opt", "owns_paths": [f"k{i}/**"]}) + "\n"
+        for i in range(3)), encoding="utf-8")
+    _call(capsys, "form", "--root", str(root), "--team-id", "t", "--tasks", str(tasks))
+    # one tick, width 2, stub teammate that exits immediately (no real codex)
+    rc, out = _call(capsys, "coordinate", "--root", str(root), "--team-id", "t",
+                    "--cwd", str(tmp_path), "--width", "2", "--once", "--exec-cmd", "true")
+    res = json.loads(out)
+    assert rc == 0 and res["stopped"] == "once" and len(res["spawned"]) == 2
+    assert sorted(s["member_id"] for s in res["spawned"]) == ["w1", "w2"]
+    assert tb.count_in_flight(root) == 2          # the 2 claimed tasks occupy the pool
+
+
+def test_coordinate_draining_does_not_spawn(tmp_path: Path, capsys) -> None:
+    root = tmp_path / "t"
+    tasks = tmp_path / "tasks.jsonl"
+    tasks.write_text(json.dumps({"task_id": "k0", "objective": "opt", "owns_paths": ["k0/**"]}) + "\n",
+                     encoding="utf-8")
+    _call(capsys, "form", "--root", str(root), "--team-id", "t", "--tasks", str(tasks))
+    _call(capsys, "pool-set", "--root", str(root), "--state", "draining")
+    # draining + nothing in flight -> stop immediately, spawn nothing
+    rc, out = _call(capsys, "coordinate", "--root", str(root), "--team-id", "t",
+                    "--cwd", str(tmp_path), "--width", "4", "--exec-cmd", "true")
+    res = json.loads(out)
+    assert rc == 0 and res["stopped"] == "drained"

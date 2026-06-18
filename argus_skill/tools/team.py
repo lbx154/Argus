@@ -179,6 +179,38 @@ def cmd_dissolve(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pool_set(a: argparse.Namespace) -> int:
+    doc = pool.update(Path(a.root),
+                      width=a.width if a.width is not None else None,
+                      state=a.state or None, now=time.time())
+    print(json.dumps(doc, ensure_ascii=False))
+    return 0
+
+
+def cmd_coordinate(a: argparse.Namespace) -> int:
+    root = Path(a.root)
+    cwd = Path(a.cwd) if a.cwd else Path.cwd()
+    start = time.time()
+    while True:
+        now = time.time()
+        p = pool.read(root)
+        state = p.get("state", "running")
+        # during draining, target width 0 so the pool empties instead of refilling
+        width = 0 if state == "draining" else int(p.get("width") or a.width)
+        in_flight = task_board.count_in_flight(root)
+        reason = _should_stop(p, in_flight=in_flight, elapsed=now - start,
+                              lead_ttl=a.lead_ttl, max_wall=a.max_wall, now=now)
+        if reason:
+            print(json.dumps({"stopped": reason, "in_flight": in_flight}))
+            return 0
+        res = refill_once(root, width=width, cwd=cwd, member_prefix=a.member_prefix,
+                          ttl=a.ttl, now=now, exec_cmd=a.exec_cmd)
+        if a.once:
+            print(json.dumps({"stopped": "once", **res}))
+            return 0
+        time.sleep(a.poll)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="argus_skill.tools.team")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -240,6 +272,26 @@ def _build_parser() -> argparse.ArgumentParser:
     ds.add_argument("--repo", default="")
     ds.add_argument("--keep-worktrees", action="store_true")
     ds.set_defaults(fn=cmd_dissolve)
+
+    co = sub.add_parser("coordinate", help="rolling pool: keep N teammates in flight until drained")
+    co.add_argument("--root", required=True)
+    co.add_argument("--team-id", default="")          # accepted for symmetry/logging
+    co.add_argument("--cwd", default="")
+    co.add_argument("--width", type=int, default=8)
+    co.add_argument("--poll", type=float, default=5.0)
+    co.add_argument("--ttl", type=float, default=180.0)         # teammate heartbeat stale
+    co.add_argument("--lead-ttl", type=float, default=300.0)    # lead heartbeat stale
+    co.add_argument("--max-wall", type=float, default=21600.0)  # 6h backstop
+    co.add_argument("--member-prefix", default="w")
+    co.add_argument("--once", action="store_true", help="run a single refill tick and exit")
+    co.add_argument("--exec-cmd", default="")                   # test stub
+    co.set_defaults(fn=cmd_coordinate)
+
+    ps = sub.add_parser("pool-set", help="set coordinator width/state (+ lead heartbeat)")
+    ps.add_argument("--root", required=True)
+    ps.add_argument("--width", type=int, default=None)
+    ps.add_argument("--state", default="", choices=["", "running", "draining"])
+    ps.set_defaults(fn=cmd_pool_set)
     return p
 
 
