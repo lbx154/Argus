@@ -51,6 +51,7 @@ def form(root: Path, tasks: list[dict[str, Any]]) -> None:
             "claim_ts": 0.0,
             "heartbeat_ts": 0.0,
             "attempts": 0,
+            "priority": int(spec.get("priority", 100)),
         }
         _store.atomic_write_json(_path(root, task["task_id"]), task)
 
@@ -96,6 +97,37 @@ def claim_specific(root: Path, task_id: str, member_id: str, *, now: float) -> d
         task["heartbeat_ts"] = now
         _store.atomic_write_json(_path(root, task_id), task)
         return task
+
+
+def claim_top(root: Path, member_id: str, *, now: float) -> dict[str, Any] | None:
+    """Atomically claim the highest-priority pending task whose deps are all done.
+
+    Like ``claim()`` but orders eligible tasks by ``priority`` (lower number =
+    higher priority), tie-broken by ``task_id``. This is what the coordinator
+    uses to pull the top of the lead's backlog.
+    """
+    with _store.locked(_lock(root)):
+        tasks = _load_all(root)
+        done = _done_ids(tasks)
+        eligible = [
+            t for t in tasks
+            if t["state"] == "pending" and all(dep in done for dep in t["deps"])
+        ]
+        if not eligible:
+            return None
+        eligible.sort(key=lambda t: (int(t.get("priority", 100)), t["task_id"]))
+        task = eligible[0]
+        task["state"] = "claimed"
+        task["owner"] = member_id
+        task["claim_ts"] = now
+        task["heartbeat_ts"] = now
+        _store.atomic_write_json(_path(root, task["task_id"]), task)
+        return task
+
+
+def count_in_flight(root: Path) -> int:
+    """Number of tasks currently claimed or running (occupying a pool slot)."""
+    return sum(1 for t in _load_all(root) if t["state"] in ("claimed", "running"))
 
 
 def heartbeat(root: Path, task_id: str, *, now: float) -> None:
