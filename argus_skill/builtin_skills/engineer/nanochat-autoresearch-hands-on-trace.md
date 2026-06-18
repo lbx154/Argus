@@ -2,7 +2,7 @@
 name: NanoChat Autoresearch Hands-on Trace
 description: A concrete NanoChat-autoresearch (Recursive "First Steps" Task 1) process trace on a single B200, written as the operator's OWN known-good operating procedure for the DUAL of a speedrun — FIX the 300s single-GPU budget, MINIMIZE the mean validation bits-per-byte (val_bpb) over N seeds, editing only train.py against a frozen scorer. The spine is a per-candidate measured causal chain bound to real numbers from a real 50-candidate live run (vanilla@64 1.053 → floor 0.9890): measured(val_bpb mean±sd over N seeds vs the SEED-NOISE floor) → decompose(effective_tokens-in-300s × quality-per-token; where on the loss curve does 300s land) → pick the binding lever (throughput vs per-token quality) → ONE coordinated change → re-measure → classify miss (real signal vs sub-noise jitter) → bank / stack-as-a-BUNDLE. The live run's two expensive errors — deciding accept/reject on differences smaller than its own seed noise, and testing single levers greedily so synergistic structure never assembled — are demoted to the nails. Does NOT contain the reference SOTA recipe.
 category: benchmark-training-fixed-budget-lm
-version: 1
+version: 2
 scientist_model: gpt-5.5
 created_at: 2026-06-18T00:00:00+00:00
 ---
@@ -53,6 +53,13 @@ teaches the method that *derives* one.
 > the output head); many of its pieces **regress in isolation**, so a greedy "one category
 > change vs the floor" search rejects each piece and **never reaches the combination**. Measure
 > your noise first; then search **bundles**, not single knobs.
+>
+> **And a rule precedes even these: you are knowledge-limited, so RETRIEVE before you build.**
+> Reciting a lever from memory gets its coefficients/conditions wrong; go read the concrete prior
+> art for each lever class (the optimizer, capacity-allocation / scaling-law, init/residual-scaling
+> work) and reproduce it. The frontier here is a *recombination of KNOWN, retrieved levers*, not a
+> never-seen trick — see `NanoChat Autoresearch SOTA Optimization` §0. (Anti-cheat: general
+> technique only, never the reference recipe.)
 
 ## What "process data" means here — the chain to learn
 
@@ -89,7 +96,23 @@ SEQUENTIALLY** (concurrency on the shared pod collapses throughput and inflates 
 (single B200, re-measured/published): vanilla 1.0587 (my `=64` re-measure 1.053); reference
 "optimized_from_vanilla" 0.9344; Recursive best 0.9109.
 
-### OP 0 — establish TWO ground truths before touching the recipe: the baseline AND the noise floor
+### OP 0 — RETRIEVE the prior art, then establish the baseline AND the noise floor
+
+Before any edit I retrieve the prior art for the lever classes I'll work — I am knowledge-limited
+and reciting levers from memory gets them wrong (general technique ONLY; the reference recipe is
+off-limits and searching for it is disqualifying):
+
+```text
+WebSearch "Muon Newton-Schulz orthogonalized momentum Moonlight RMS-match"     # optimizer (§7 big lever)
+WebSearch "Chinchilla compute-optimal scaling laws" ; "transformer depth vs width allocation"
+WebSearch "muP muTransfer learning-rate transfer small proxy"                   # cheap LR tuning
+WebSearch "DeepNet Fixup ReZero residual init scaling deep transformer"         # a biggest late jump
+WebSearch "logit softcap Gemma-2 z-loss" ; "sliding window local attention"     # head shaping; throughput
+WebSearch "Fantastic Pretraining Optimizers equal tuning"                       # any multiplier is an UPPER bound
+```
+
+I keep the most concrete form (coefficients, conditions), corroborate any quoted gain, and treat
+it as a hypothesis to reproduce — not a fact. THEN measure the two ground truths below.
 
 The speedrun has a t-test as its validity gate; this task hands you **raw per-seed numbers**
 and makes the noise gate **your** job. Skipping it is the single most expensive omission (nail 1).

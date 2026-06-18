@@ -2,7 +2,7 @@
 name: SOL Kernel SOTA Optimization
 description: A senior-researcher methodology for KernelBench/SOL-ExecBench GPU kernel optimization — the machine as throughputs+latencies, the bottleneck taxonomy, counter-free diagnosis by micro-benchmark isolation (when ncu is locked), an optimization toolkit ordered by leverage (algorithm first, micro-opts last), the Hopper/Blackwell pattern library, operator→bottleneck→structure priors, and the experimental discipline. Distilled human expertise to learn, not a kernel to copy.
 category: benchmark-kernel-optimization
-version: 3
+version: 4
 scientist_model: gpt-5.5
 created_at: 2026-06-17T00:00:00+00:00
 ---
@@ -27,6 +27,47 @@ When a real kernel teaches you something sharper, evolve this. (Companion:
 - A paper benchmark matrix, multi-family agent evaluation, or EMNLP evidence run.
 - The scorer is missing and cannot be reconstructed — write a setup/blocker report
   first; do not invent a metric.
+
+---
+
+## 0. Research-first: measure the bottleneck, but RETRIEVE the implementation
+
+This skill's spine is "the decisive insight is **measured**, not known" — and for the
+*bottleneck* that is right: you do not read a paper to learn RMSNorm is memory-bound, you measure
+its bandwidth against the roofline (§3–§5). But a second axis runs the other way: the
+**implementation of the winning structure** — the exact MMA tile shapes and operand layouts, the
+SMEM **swizzle** a `wgmma`/`tcgen05` wants, the TMA descriptor, the flash-attention tiling — is
+specialized, architecture-specific human knowledge your parametric memory gets **wrong**.
+**Diagnose by measuring; implement by retrieving the canonical pattern.**
+
+You have a sharp reason to retrieve: your knowledge is frozen at cutoff, capacity-bounded, and
+weakest on exactly this long tail (Blackwell `tcgen05`/TMEM layouts, CUTLASS swizzles, FA3
+internals — much of it post-cutoff), and you are trained to sound confident, so from memory you
+will emit a plausible-but-wrong layout that **compiles, runs, and is silently slow or wrong**. The
+evidence is blunt: frontier agents measurably fail to re-implement even known kernels/gains
+(Automated LLM Speedrunning / agentic-research benchmarks). The binding loop is **measure →
+retrieve the pattern → implement → re-measure**.
+
+**Invention is recombination** (Nature 2022): the winning kernel is the known canonical structure
+(flash-attention tiling, a CUTLASS GEMM mainloop, a fused epilogue) **specialized to your shape**,
+not a never-seen algorithm. Retrieve the canonical form; don't re-derive it from memory and get
+the swizzle wrong.
+
+**The discipline:** (1) measure the bottleneck first (§3–§5) — do not "research" what you can
+measure; (2) for the fix, retrieve the most concrete reference (a CUTLASS example, the official
+kernel repo, the NVIDIA programming guide, the arch's PTX/ISA doc) — code > prose; (3) corroborate
+any quoted peak/throughput against a **measured** copy-kernel (§4), never the spec sheet; (4)
+implement one change, re-measure against the frozen scorer.
+
+**Anti-cheat line:** retrieve general technique + the architecture's documented patterns. NEVER
+retrieve this task's answer kernel. Understanding *why* flash-attention tiles is research; copying
+the answer is disqualifying.
+
+**Search playbook (general technique / arch docs only):**
+- canonical structure: CUTLASS GEMM + epilogue examples; FlashAttention IO-aware tiling (FA3, H100/B200); online softmax
+- the arch's MMA: Hopper `wgmma` operand layout + SMEM swizzle; Blackwell `tcgen05` + TMEM + TMA descriptors; the right low precision + scaling (MXFP/NVFP4)
+- the method: roofline / arithmetic-intensity / ridge point; MFU; diagnosing without `ncu` counters (`ERR_NVGPUCTRPERM`) via CUDA-event timing + analytic FLOP/byte; reading SASS for vectorization / spills / actual `HMMA`/`wgmma` issue
+- the workflow: Nsight Systems → Nsight Compute top-down; `torch.compile` fusion + CUDA graphs for launch-bound kernels
 
 ---
 

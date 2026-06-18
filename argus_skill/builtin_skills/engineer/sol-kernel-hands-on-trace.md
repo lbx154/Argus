@@ -2,7 +2,7 @@
 name: SOL Kernel Hands-on Trace
 description: A concrete KernelBench/SOL process trace from optimizing 36_RMSNorm_ on B200, recorded as the measured causal chain we require — per iteration measured(ms, effective_BW, %peak, SOL) → bottleneck hypothesis → mechanism → re-measured → gap-to-SOL → next — with the roofline arithmetic shown, plus the real infra/correctness nails that interrupted the chain.
 category: benchmark-kernel-optimization
-version: 2
+version: 3
 scientist_model: gpt-5.5
 created_at: 2026-06-17T00:00:00+00:00
 ---
@@ -47,6 +47,14 @@ improve it.
 > from the frozen scorer or from arithmetic on a real measured time. A link with
 > an invented bandwidth is not a data point — it is fabrication, and it scores 0
 > the same as a wrong kernel.
+>
+> **A second rule sits beside it: measure the bottleneck, but RETRIEVE the
+> implementation.** You diagnose memory-vs-compute by measuring, never by recall — but
+> the winning STRUCTURE's exact form (the MMA tile/operand layout, the SMEM swizzle, the
+> TMA descriptor, the flash tiling) is architecture-specific knowledge your memory gets
+> wrong, so go read the canonical reference (CUTLASS / the arch programming guide / a
+> reference kernel) instead of re-deriving it. (Anti-cheat: general technique + arch docs
+> only, never this task's answer kernel.) See `SOL Kernel SOTA Optimization` §0.
 
 ## What "process data" means here — the chain to learn
 
@@ -250,7 +258,10 @@ them too, because "the first failure is usually infrastructure, not algorithm."
 6. Choose the next mechanism from **where the remaining gap is**, not from a menu
    of generic tricks. 21% of roofline → remove redundant traffic (fuse). 83% of
    roofline → chase coalescing/occupancy/launch. ~compute-bound → feed the tensor
-   cores.
+   cores. **Then RETRIEVE that mechanism's canonical implementation** (the CUTLASS
+   swizzle, the flash tiling, the arch's `wgmma`/`tcgen05` operand layout) rather
+   than reciting it from memory — the layout your memory invents compiles and is
+   silently slow or wrong.
 7. Stop only when the gap to SOL is small or the next mechanism's expected gain is
    below noise — and say which it is.
 

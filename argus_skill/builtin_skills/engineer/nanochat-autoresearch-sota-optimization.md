@@ -2,7 +2,7 @@
 name: NanoChat Autoresearch SOTA Optimization
 description: A senior-researcher methodology for FIXED-BUDGET from-scratch LM-pretraining benchmarks (nanochat Task 1 and kin) — the DUAL of a speedrun: the 300s budget is frozen, you MINIMIZE the mean val_bpb reachable in it. The budget as effective-tokens × quality-per-token, the bottleneck taxonomy (sample-efficiency-bound vs throughput-bound vs optimization-bound vs capacity-misallocation-bound vs numerics-stability-bound), where-does-the-budget-go diagnosis, the SEED-NOISE validity discipline (measure σ / gate keep-reject at 2-3σ / never bank below noise / multi-seed-confirm only SOTA candidates / stack-don't-revert), a leverage-ordered toolkit (optimizer & capacity allocation first, throughput/numerics as step-budget), the optimizer/architecture prior library, and the BUNDLE (non-greedy) search the frontier requires. Distilled human expertise to learn, NOT a recipe to copy — it does not contain the reference SOTA solution.
 category: benchmark-training-fixed-budget-lm
-version: 1
+version: 2
 scientist_model: gpt-5.5
 created_at: 2026-06-18T00:00:00+00:00
 ---
@@ -32,6 +32,46 @@ failure-first example of the loop.)
 - The objective is wall-clock-to-a-target (use `Speedrun SOTA Optimization`), a single GPU
   kernel (`SOL Kernel SOTA Optimization`), a paper matrix, or RL/post-training.
 - The scorer/GPU is missing — write a setup/blocker report; do not invent a `val_bpb`.
+
+---
+
+## 0. Research-first: you are knowledge-limited — RETRIEVE before you build
+
+A senior researcher's first move is not to think harder; it is to **go read what humans already
+figured out**. You have a sharper reason: your knowledge is *parametric* — frozen at cutoff,
+capacity-bounded, weakest on exactly the long-tail facts that decide this task (which optimizer
+wins from-scratch, how to allocate capacity, init/residual scaling for a given depth) — and you
+are trained to sound confident, so from memory you emit plausible-but-wrong technique facts. The
+evidence is blunt: on agentic-research benchmarks frontier agents largely **cannot re-implement
+even known gains** (Automated LLM Speedrunning Benchmark; FIRE-Bench < ~50 F1, failing at
+experimental design + evidence-grounding, not coding). The binding skill is **retrieve →
+reproduce → verify**, not raw cleverness.
+
+**Invention is recombination, so retrieve and stack.** Bibliometrics (Nature 2022) show
+unprecedented ideas are rare; almost all progress is *novel re-mixing of validated parts*. The
+frontier recipe here is a **co-designed bundle of KNOWN levers** (an orthogonalized optimizer +
+a reallocated capacity + matched init/schedule/head) — not a never-seen trick. Your job is to
+retrieve the menu (§7) in its concrete form and assemble it; reciting a lever from memory gets
+its coefficients/conditions wrong.
+
+**The discipline (search-then-build):** (1) reproduce the baseline AND the σ_seed floor on your
+own box first (§3); (2) for each lever, chase the most concrete artifact — repo / ablation table /
+reference implementation > prose > abstract; (3) corroborate any "X% better" against a second
+source and treat it as an **upper bound under unequal tuning** (*Fantastic Pretraining
+Optimizers*, 2509.02046: matrix-optimizer multipliers shrink at scale — tune your baseline as
+hard); (4) one lever or one bundle, gated against σ_seed (§3), then stack.
+
+**Anti-cheat line:** retrieve GENERAL technique, methodology, design *rationale*. NEVER retrieve
+this task's reference/answer recipe — this guide deliberately omits it. Understanding *why* a
+component helps is research; copying the answer is disqualifying.
+
+**Search playbook (general technique only — feeds §7's lever classes):**
+- optimizer: *Muon* / Newton-Schulz orthogonalization + *Moonlight* (RMS-match, decoupled WD); the Muon/Adam bank split
+- capacity allocation: *Chinchilla* compute-optimal scaling laws; depth-vs-width tradeoffs; *μP/muTransfer* (tune on a small proxy, transfer); bottleneck/low-rank trunk designs
+- init / residual numerics: depth-matched residual/init scaling (*DeepNet*, *Fixup*, *ReZero*); the warmup-stable-decay (*WSD*) schedule
+- output head / logits: logit softcap (*Gemma-2*), tied/untied embeddings, *z-loss*
+- throughput (buys steps under the fixed clock): sliding-window / local attention; FA-4 / fused kernels; lower-precision matmul
+- the method: how to measure σ_seed and gate at 2-3σ; reading the loss-vs-step curve to tell sample-efficiency-bound from throughput-bound; a literature-grounded novelty check before calling a bundle "new"
 
 ---
 
