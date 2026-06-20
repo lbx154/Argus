@@ -278,6 +278,90 @@ def _gpu() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Agent-team pool (rolling teammate pool) — vertical-agnostic, presence-based
+# ---------------------------------------------------------------------------
+
+def _clean_kernel(task_id: str) -> str:
+    """Human-readable kernel name from a lane-prefixed task_id.
+
+    ``<tid>::restock<n>_depth_<n>_<kernel>`` → ``<kernel>``; otherwise the
+    part after ``::`` (or the whole id)."""
+    k = task_id.split("::")[-1] if "::" in task_id else task_id
+    if k.startswith("restock"):
+        segs = k.split("_", 3)
+        if len(segs) == 4 and segs[1] in ("depth", "breadth"):
+            k = segs[3]
+    return k[:52]
+
+
+def _scrape_teams(root: Path) -> dict:
+    """The project's active rolling teammate pool: which agent is optimizing
+    which target right now.
+
+    Reads the live ``teammate_entry`` processes directly — their cmdline carries
+    ``--root/--member-id/--task-id`` — instead of the roster, whose per-member
+    ``pid``/status go stale (and a ``mailbox`` subdir can shadow a newest-team
+    heuristic). Returns ``{}`` for projects with no running team."""
+    try:
+        r = subprocess.run(["ps", "-eo", "etimes=,args="],
+                           capture_output=True, text=True, timeout=6)
+        lines = r.stdout.splitlines()
+    except Exception:
+        lines = []
+    agents = []
+    team_rel = ""
+    for ln in lines:
+        if "argus_skill.team.teammate_entry" not in ln:
+            continue
+        parts = ln.split()
+        if not parts:
+            continue
+        try:
+            etimes: int | None = int(parts[0])
+        except ValueError:
+            etimes = None
+        toks = parts[1:]
+        mid = tid = rt = ""
+        for i, t in enumerate(toks):
+            if t == "--member-id" and i + 1 < len(toks):
+                mid = toks[i + 1]
+            elif t == "--task-id" and i + 1 < len(toks):
+                tid = toks[i + 1]
+            elif t == "--root" and i + 1 < len(toks):
+                rt = toks[i + 1]
+        if not (rt and "experiments/teams" in rt):
+            continue
+        # keep only THIS project's teammates (its team dir resolves under root)
+        if not (root / rt).exists():
+            continue
+        team_rel = team_rel or rt
+        if mid:
+            agents.append({"id": mid,
+                           "kernel": _clean_kernel(tid) if tid else "?",
+                           "age": etimes})
+    if not team_rel:
+        return {}
+    team_dir = root / team_rel
+    pool = _read_json(team_dir / "pool.json")
+
+    def _num(a: dict) -> int:
+        digits = "".join(ch for ch in a["id"] if ch.isdigit())
+        return int(digits) if digits else 0
+
+    agents.sort(key=_num)
+    now = time.time()
+    lead_hb = pool.get("lead_heartbeat_ts")
+    return {
+        "team_id": team_dir.name,
+        "width": pool.get("width"),
+        "state": pool.get("state") or "",
+        "lead_age": int(now - lead_hb) if lead_hb else None,
+        "running": len(agents),
+        "agents": agents[:120],
+    }
+
+
+# ---------------------------------------------------------------------------
 # Snapshot
 # ---------------------------------------------------------------------------
 
@@ -331,6 +415,7 @@ def scrape_project(life_dir: Path) -> dict:
         "stages": stage_rows,
         "missions": n_missions,
         "cost": cost,
+        "teams": _scrape_teams(root) if root else {},
         "backlog": [{"status": b.get("status", "?"), "title": (b.get("title") or "")[:130]}
                     for b in backlog[-6:]],
         "events": _recent_events(events),
@@ -748,6 +833,15 @@ body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sa
 .loop .ag.active{color:#fff;background:linear-gradient(135deg,var(--blue),#5b96ff);border-color:transparent;
   font-weight:600;box-shadow:0 3px 10px rgba(47,109,240,.25)}
 .loop .arr{color:var(--dim);font-size:15px}
+/* 团队智能体池 */
+.teampool{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:9px;font-size:12px;color:var(--muted)}
+.teampool .pill{padding:3px 11px;border-radius:999px;background:var(--blue-soft);color:var(--blue-d);font-weight:700;font-family:var(--mono)}
+.teampool .pill.run{background:var(--green-soft);color:var(--green)}
+.agents{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:7px;max-height:264px;overflow-y:auto}
+.agent{display:flex;flex-direction:column;gap:1px;padding:7px 10px;background:var(--soft);border:1px solid var(--line);border-radius:9px;border-left:3px solid var(--blue)}
+.agent .aid{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--blue-d)}
+.agent .ak{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agent .aage{font-size:10px;color:var(--dim);font-family:var(--mono)}
 /* 指标 chips */
 .chips{display:flex;gap:10px;flex-wrap:wrap}
 .chip{flex:1;min-width:78px;padding:13px 14px;background:var(--soft);border-radius:11px;text-align:center}
@@ -902,6 +996,16 @@ function card(d){
   const vt=d.vertical||'custom';
   const stg=STAGE_CN[d.current_stage]||d.current_stage;
   const act=d.current_action?`<div class="section-label">当前动作</div><div class="art2">${esc(d.current_action)}</div>`:'';
+  const tm=d.teams||{};
+  let teamsBlock='';
+  if(tm.agents&&tm.agents.length){
+    const ags=tm.agents.map(a=>`<div class="agent"><span class="aid">${esc(a.id)}</span><span class="ak">${esc(a.kernel)}</span>${a.age!=null?`<span class="aage">已跑 ${a.age}s</span>`:''}</div>`).join('');
+    teamsBlock=`<div><div class="section-label">团队智能体 · 谁在优化什么</div>
+      <div class="teampool"><span class="pill run">${tm.running} 在岗</span><span class="pill">目标 ${tm.width||'?'}</span><span>状态 ${tm.state||'—'}</span>${tm.lead_age!=null?`<span>主控心跳 ${tm.lead_age}s 前</span>`:''}</div>
+      <div class="agents">${ags}</div></div>`;
+  }else if(tm.team_id){
+    teamsBlock=`<div><div class="section-label">团队智能体</div><div class="empty">当前无在岗 agent（池子刚轮换/补充中，目标 ${tm.width||'?'} · ${tm.state||'—'}）</div></div>`;
+  }
   return `<div class="card" onclick="openDrawer('${d.fingerprint}')">
     <div class="chead">
       <div><h2>${d.title}</h2>
@@ -912,6 +1016,7 @@ function card(d){
       <span class="tag ${vt}">${VERT_CN[vt]||vt}</span>
     </div>
     ${act}
+    ${teamsBlock}
     ${stages?`<div><div class="section-label">流程进度</div><div class="pipe">${stages}</div></div>`:''}
     <div><div class="section-label">三角色协作 · 当前活跃</div><div class="loop">${loop}</div></div>
     ${chipsHTML((d.enrich||{}).panels)}
