@@ -86,6 +86,36 @@ def cmd_spawn(a: argparse.Namespace) -> int:
     return 0
 
 
+def _pid_alive(pid: object) -> bool:
+    """True if ``pid`` names a live process (signal 0 probes without killing)."""
+    try:
+        os.kill(int(pid), 0)
+    except (ProcessLookupError, ValueError, TypeError):
+        return False
+    except PermissionError:
+        return True  # exists but owned by another user — still alive
+    return True
+
+
+def _count_live_members(root: Path) -> int:
+    """Number of roster members whose teammate process is still alive.
+
+    ``task_board.count_in_flight`` lags reality: a freshly spawned teammate
+    takes seconds to register its first heartbeat, and a teammate that dies
+    *without* cleanly failing its task leaves that task ``claimed``. Sizing the
+    pool on the board alone therefore lets the coordinator spawn a thundering
+    herd on top of teammates that are already running (observed: width 8 →
+    49 live processes). Counting live PIDs is process-accurate, so the pool is
+    sized by how many teammates are ACTUALLY running.
+    """
+    live = 0
+    for m in roster.members(root):
+        pid = m.get("pid")
+        if pid and _pid_alive(pid):
+            live += 1
+    return live
+
+
 def refill_once(root: Path, *, width: int, cwd: Path, member_prefix: str = "w",
                 ttl: float, now: float, exec_cmd: str = "", spawn_fn=None) -> dict:
     """Top the in-flight teammate count back up to ``width`` from the backlog.
@@ -94,11 +124,23 @@ def refill_once(root: Path, *, width: int, cwd: Path, member_prefix: str = "w",
     pending tasks and spawn a fresh teammate on each until the pool is full or the
     backlog is empty. Idempotent: a second call with the pool already full spawns
     nothing. ``spawn_fn`` is injectable for tests.
+
+    Occupancy is the MAX of the board's in-flight count and the live teammate
+    PID count, so a spawn that hasn't registered yet (or a teammate that died
+    without failing its task) can never be mistaken for a free slot — this is
+    what prevents the over-spawn herd. ``ARGUS_TEAM_MAX_SPAWN_PER_REFILL`` caps
+    how many launch per call (0 = uncapped, back-compat) to smooth the startup
+    load when a large pool cold-fills.
     """
     spawn_fn = spawn_fn or _spawn_teammate
     reassigned = task_board.reassign_stale(root, ttl=ttl, now=now)
     in_flight = task_board.count_in_flight(root)
-    free = max(0, width - in_flight)
+    live = _count_live_members(root)
+    occupied = max(in_flight, live)
+    free = max(0, width - occupied)
+    cap = int(os.environ.get("ARGUS_TEAM_MAX_SPAWN_PER_REFILL", "0") or 0)
+    if cap > 0:
+        free = min(free, cap)
     spawned: list[dict] = []
     for _ in range(free):
         mid = roster.next_member_id(root, prefix=member_prefix)
@@ -107,8 +149,8 @@ def refill_once(root: Path, *, width: int, cwd: Path, member_prefix: str = "w",
             break  # backlog empty
         spawn_fn(root, member_id=mid, task_id=task["task_id"], cwd=cwd, exec_cmd=exec_cmd)
         spawned.append({"member_id": mid, "task_id": task["task_id"]})
-    return {"spawned": spawned, "in_flight": in_flight, "free": free,
-            "reassigned": reassigned}
+    return {"spawned": spawned, "in_flight": in_flight, "live": live,
+            "occupied": occupied, "free": free, "reassigned": reassigned}
 
 
 def _should_stop(pool_doc: dict, *, in_flight: int, elapsed: float,

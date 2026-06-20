@@ -6,6 +6,23 @@ the project adheres to semantic versioning once it leaves 0.x.
 
 ## [Unreleased]
 
+### Fixed
+- **Rolling-pool coordinator no longer over-spawns a teammate herd.**
+  `tools/team.py` `refill_once` sized the pool on
+  `task_board.count_in_flight` — a board projection that *lags* reality. A
+  freshly spawned teammate needs tens of seconds (import + backend init) to
+  register its first heartbeat, and a teammate killed without cleanly failing
+  its task stays `claimed`, so the coordinator repeatedly mistook
+  already-running teammates for free slots and spawned a thundering herd on
+  top of them (observed in production: width 8 → 49 live processes, width 96
+  → 256, load 196). Occupancy is now `max(in_flight, live_pids)`, where
+  `live_pids` (`_count_live_members`) counts roster members whose process is
+  actually alive — making the pool size process-accurate. New
+  `ARGUS_TEAM_MAX_SPAWN_PER_REFILL` env caps per-poll spawns to smooth the
+  startup load when a large pool cold-fills. Side benefit: process-accurate
+  counting also makes accidental duplicate coordinators safe (they observe the
+  same live count instead of each double-spawning).
+
 ### Changed
 - **Always-verbose, no toggle**: removed `verbose`/`quiet` runtime
   toggles and the `/verbose` `/quiet` slash commands. The 7×24
