@@ -109,10 +109,15 @@
           "maxItems": 6,
           "items": { "type": "string", "maxLength": 280 }
         },
+        "maturing": {
+          "type": "array",
+          "maxItems": 5,
+          "items": { "type": "string", "maxLength": 280 }
+        },
         "open_blocker": { "type": "string", "maxLength": 800 },
         "next_step": { "type": "string", "maxLength": 600 }
       },
-      "required": ["goal", "done", "tried_and_failed", "open_blocker", "next_step"]
+      "required": ["goal", "done", "tried_and_failed", "maturing", "open_blocker", "next_step"]
     }
   },
   "required": [

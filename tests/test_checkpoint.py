@@ -6,6 +6,7 @@ import json
 from argus_skill.engineer.checkpoint import (
     MAX_DONE_ITEMS,
     MAX_ITEM_CHARS,
+    MAX_MATURING_ITEMS,
     MAX_TRIED_ITEMS,
     CheckpointState,
     load_checkpoint,
@@ -120,3 +121,48 @@ def test_persisted_json_is_readable(tmp_path):
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["goal"] == "g"
     assert data["done"] == ["a", "b"]
+
+
+def test_maturing_roundtrip_and_cap():
+    raw = {"maturing": [f"dir-{i}" for i in range(50)]}
+    cp = CheckpointState.from_dict(raw)
+    assert len(cp.maturing) == MAX_MATURING_ITEMS
+    again = CheckpointState.from_dict(cp.to_dict())
+    assert again.maturing == cp.maturing
+
+
+def test_maturing_counts_toward_non_empty():
+    # A maturing bold direction is load-bearing memory: a checkpoint that has
+    # only a maturing entry must NOT be treated as empty (else it gets dropped
+    # and the direction is forgotten — the exact bug this field fixes).
+    assert not CheckpointState(maturing=["co-tune value-residual gate"]).is_empty()
+
+
+def test_render_distinguishes_maturing_from_dead_ends():
+    cp = CheckpointState(
+        tried_and_failed=["approach X collapses gradient"],
+        maturing=["value residual: retry with non-zero gate init"],
+    )
+    text = cp.render_for_engineer()
+    # genuine dead ends keep their do-NOT-repeat framing
+    assert "do NOT repeat" in text
+    assert "TRIED & FAILED" in text
+    # maturing is rendered under its OWN header and explicitly NOT a dead end
+    assert "MATURING DIRECTIONS" in text
+    assert "NOT dead ends" in text
+    assert "value residual: retry with non-zero gate init" in text
+
+
+def test_handoff_request_includes_maturing():
+    text = CheckpointState().render_for_engineer()
+    assert "maturing:" in text
+
+
+def test_maturing_persisted_and_stamped(tmp_path):
+    path = tmp_path / "cp.json"
+    save_checkpoint(path, CheckpointState(maturing=["dir A"]))
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["maturing"] == ["dir A"]
+    stamped = load_checkpoint(path).stamped(round_no=2)
+    assert stamped.maturing == ["dir A"]
+    assert stamped.round == 2

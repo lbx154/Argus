@@ -10,8 +10,11 @@ The antidote is NOT a watchdog. It is to make sessions structurally
 short-lived and to carry a *small, curated, value-filtered* handoff across the
 session boundary instead of a giant raw history. This module is that handoff:
 
-  * a tiny structured object (goal / done / tried_and_failed / open_blocker /
-    next_step),
+  * a tiny structured object (goal / done / tried_and_failed / maturing /
+    open_blocker / next_step), where ``maturing`` keeps directions that were
+    tried but have not YET succeeded and are NOT dead ends — distinct from
+    ``tried_and_failed`` so a promising approach is not killed after a single
+    losing round,
   * with HARD CAPS enforced in Python (not just in the prompt) — the cap is the
     forcing function for curation: you cannot keep everything, so the author
     MUST forget the least valuable items (deletion = the active antidote),
@@ -37,6 +40,7 @@ from typing import Any
 # poison even if it ignores the prompt.
 MAX_DONE_ITEMS = 8
 MAX_TRIED_ITEMS = 6
+MAX_MATURING_ITEMS = 5
 MAX_ITEM_CHARS = 280
 MAX_GOAL_CHARS = 400
 MAX_BLOCKER_CHARS = 800
@@ -77,6 +81,14 @@ class CheckpointState:
     goal: str = ""
     done: list[str] = field(default_factory=list)
     tried_and_failed: list[str] = field(default_factory=list)
+    # Directions/approaches that were TRIED and did not YET succeed, but which
+    # the reviewer judges are NOT dead ends — they are worth further refinement
+    # before being abandoned (an early attempt at a new approach often
+    # underperforms a tuned baseline until it is refined). DISTINCT from
+    # ``tried_and_failed`` (genuine dead ends — do NOT repeat). Demoting a
+    # direction from ``maturing`` to ``tried_and_failed`` is the reviewer's call
+    # once it has had a fair refinement window and still fails.
+    maturing: list[str] = field(default_factory=list)
     open_blocker: str = ""
     next_step: str = ""
     # Durable environment/infra facts the successor must NOT re-derive (paths,
@@ -110,6 +122,7 @@ class CheckpointState:
             tried_and_failed=_clean_list(
                 raw.get("tried_and_failed"), max_items=MAX_TRIED_ITEMS
             ),
+            maturing=_clean_list(raw.get("maturing"), max_items=MAX_MATURING_ITEMS),
             open_blocker=_clean_str(raw.get("open_blocker"), MAX_BLOCKER_CHARS),
             next_step=_clean_str(raw.get("next_step"), MAX_NEXT_CHARS),
             env_facts=_clean_list(raw.get("env_facts"), max_items=MAX_ENV_FACTS),
@@ -122,6 +135,7 @@ class CheckpointState:
             "goal": self.goal,
             "done": list(self.done),
             "tried_and_failed": list(self.tried_and_failed),
+            "maturing": list(self.maturing),
             "open_blocker": self.open_blocker,
             "next_step": self.next_step,
             "env_facts": list(self.env_facts),
@@ -134,6 +148,7 @@ class CheckpointState:
             self.goal
             or self.done
             or self.tried_and_failed
+            or self.maturing
             or self.open_blocker
             or self.next_step
             or self.env_facts
@@ -170,6 +185,13 @@ class CheckpointState:
             if self.tried_and_failed:
                 lines.append("TRIED & FAILED (dead ends — do NOT repeat):")
                 lines.extend(f"  - {item}" for item in self.tried_and_failed)
+            if self.maturing:
+                lines.append(
+                    "MATURING DIRECTIONS (tried but NOT yet succeeding — these "
+                    "are NOT dead ends: refine / keep developing them before "
+                    "abandoning):"
+                )
+                lines.extend(f"  - {item}" for item in self.maturing)
             if self.open_blocker:
                 lines.append(f"OPEN BLOCKER: {self.open_blocker}")
             if self.next_step:
@@ -191,7 +213,13 @@ class CheckpointState:
             "command/file that proves it>"
         )
         lines.append(
-            "  tried_failed: <approaches you ruled out this turn and why>"
+            "  tried_failed: <approaches you ruled out this turn as genuine "
+            "dead ends and why>"
+        )
+        lines.append(
+            "  maturing: <approaches you tried that did NOT yet succeed but are "
+            "worth refining further — name the specific next refinement to try; "
+            "these are NOT dead ends>"
         )
         lines.append(
             "  blocker: <the single most important remaining blocker, or "
@@ -215,6 +243,7 @@ class CheckpointState:
             goal=self.goal,
             done=list(self.done),
             tried_and_failed=list(self.tried_and_failed),
+            maturing=list(self.maturing),
             open_blocker=self.open_blocker,
             next_step=self.next_step,
             env_facts=list(self.env_facts),
