@@ -21,7 +21,21 @@ the project adheres to semantic versioning once it leaves 0.x.
   `ARGUS_TEAM_MAX_SPAWN_PER_REFILL` env caps per-poll spawns to smooth the
   startup load when a large pool cold-fills. Side benefit: process-accurate
   counting also makes accidental duplicate coordinators safe (they observe the
-  same live count instead of each double-spawning).
+  same live count instead of each double-spawning). The live-PID check
+  (`_member_pid_alive`) also verifies, via `/proc/<pid>/cmdline`, that the PID
+  is genuinely *this* member's `teammate_entry` (matching `--member-id`):
+  a long campaign churns thousands of teammates, the roster never prunes, and
+  the OS recycles dead PIDs onto unrelated processes — counting a recycled PID
+  as "alive" had the opposite failure, making the pool look full so it stopped
+  refilling (96 "alive" PIDs but only 55 real teammates → stuck at ~57/96).
+- **Wedged teammates can no longer leak indefinitely.** `team/teammate_entry.py`
+  now has a two-tier time-box: a soft `stop_event` the runner polls between
+  rounds, plus a HARD backstop that `SIGKILL`s the teammate's own process
+  `ARGUS_TEAMMATE_HARD_GRACE_S` after the soft deadline. A teammate wedged in a
+  long codex/bash/ssh call (e.g. a hung B200 scoring round) used to blow past
+  the soft deadline and never exit, piling up until the box overloaded (300+
+  teammates → load 256); the hard kill lets its task heartbeat go stale so the
+  coordinator reassigns it.
 
 ### Changed
 - **Always-verbose, no toggle**: removed `verbose`/`quiet` runtime

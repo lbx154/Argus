@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -95,10 +96,31 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
         return False
     life_dir = Path(life_dir)
     life_dir.mkdir(parents=True, exist_ok=True)
+    # Two-tier time-box so one hard kernel can never hold a slot for hours.
+    # (soft) a Timer sets stop_event at timeout_s; the runner polls it between
+    #        engineer rounds and exits cleanly, recording the task done/failed.
     stop_event = threading.Event()
     watchdog = threading.Timer(timeout_s, stop_event.set)
     watchdog.daemon = True
     watchdog.start()
+    # (hard) backstop: the soft stop_event above only fires if the mission
+    # actually polls it; a teammate wedged in a long codex/bash/ssh call (e.g. a
+    # slow or hung B200 scoring round) can blow far past timeout_s and never exit.
+    # Those leaked processes pile up until the box is overloaded (300+ teammates
+    # → load 256 / 128 cores on 2026-06-19). So unconditionally SIGKILL our own
+    # process `hard_grace` seconds after the soft deadline — the owned task's
+    # heartbeat then goes stale and the coordinator reassigns it.
+    hard_grace = float(os.environ.get("ARGUS_TEAMMATE_HARD_GRACE_S", "600"))
+
+    def _hard_timebox_kill() -> None:
+        sys.stderr.write(
+            f"teammate_entry: HARD time-box kill — alive > {timeout_s + hard_grace:.0f}s "
+            f"(soft deadline {timeout_s:.0f}s did not stop the mission)\n")
+        os.kill(os.getpid(), signal.SIGKILL)
+
+    hard = threading.Timer(timeout_s + hard_grace, _hard_timebox_kill)
+    hard.daemon = True
+    hard.start()
     ns = _build_runner_ns(cwd, max_rounds=max_rounds, paper_mission=paper_mission,
                           stop_event=stop_event)
     try:
@@ -113,6 +135,7 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
         return False
     finally:
         watchdog.cancel()
+        hard.cancel()
     return bool(getattr(outcome, "success", False))
 
 

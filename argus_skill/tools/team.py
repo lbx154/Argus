@@ -97,23 +97,54 @@ def _pid_alive(pid: object) -> bool:
     return True
 
 
+def _proc_cmdline(pid: int) -> str | None:
+    """Best-effort process cmdline as a token list joined by spaces (Linux
+    ``/proc``). ``None`` when it can't be read (non-Linux, gone, no perm)."""
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as fh:
+            return fh.read().replace(b"\x00", b" ").decode("utf-8", "replace")
+    except (OSError, ValueError):
+        return None
+
+
+def _member_pid_alive(member: dict) -> bool:
+    """True if this member's teammate process is genuinely still running.
+
+    A bare ``os.kill(pid, 0)`` is NOT enough: a long campaign churns thousands
+    of short-lived teammates, the roster never prunes, and the OS recycles dead
+    PIDs onto unrelated processes. Counting a recycled PID as live made the
+    coordinator believe the pool was full and stop refilling (observed: 96
+    "alive" PIDs but only 55 real teammates → pool stuck at ~57/96). So when the
+    cmdline is readable we require it to be THIS member's teammate process
+    (``teammate_entry`` launched with the member's exact ``--member-id``); where
+    the cmdline can't be introspected we fall back to the liveness probe alone.
+    """
+    pid = member.get("pid")
+    if not pid or not _pid_alive(pid):
+        return False
+    cmdline = _proc_cmdline(int(pid))
+    if cmdline is None:
+        return True  # can't introspect (non-Linux) — trust the liveness probe
+    if "teammate_entry" not in cmdline:
+        return False  # recycled onto an unrelated process
+    toks = cmdline.split()
+    mid = str(member.get("id", ""))
+    return any(toks[i] == "--member-id" and i + 1 < len(toks) and toks[i + 1] == mid
+               for i in range(len(toks)))
+
+
 def _count_live_members(root: Path) -> int:
-    """Number of roster members whose teammate process is still alive.
+    """Number of roster members whose teammate process is genuinely alive.
 
     ``task_board.count_in_flight`` lags reality: a freshly spawned teammate
     takes seconds to register its first heartbeat, and a teammate that dies
     *without* cleanly failing its task leaves that task ``claimed``. Sizing the
     pool on the board alone therefore lets the coordinator spawn a thundering
     herd on top of teammates that are already running (observed: width 8 →
-    49 live processes). Counting live PIDs is process-accurate, so the pool is
-    sized by how many teammates are ACTUALLY running.
+    49 live processes). Counting verified live PIDs is process-accurate, so the
+    pool is sized by how many teammates are ACTUALLY running.
     """
-    live = 0
-    for m in roster.members(root):
-        pid = m.get("pid")
-        if pid and _pid_alive(pid):
-            live += 1
-    return live
+    return sum(1 for m in roster.members(root) if _member_pid_alive(m))
 
 
 def refill_once(root: Path, *, width: int, cwd: Path, member_prefix: str = "w",
@@ -133,14 +164,31 @@ def refill_once(root: Path, *, width: int, cwd: Path, member_prefix: str = "w",
     load when a large pool cold-fills.
     """
     spawn_fn = spawn_fn or _spawn_teammate
+    # (1) Hand any stale-owned task (dead/wedged teammate, heartbeat aged past
+    #     ttl) back to the backlog so it can be re-claimed below — otherwise it
+    #     sits "claimed" forever and leaks a slot.
     reassigned = task_board.reassign_stale(root, ttl=ttl, now=now)
+    # (2) Two occupancy signals, each able to lag the other:
+    #       in_flight = tasks claimed/running on the board — can OVER-count when a
+    #                   teammate died without failing its task (stuck "claimed");
+    #       live      = roster members whose process is verified alive — can
+    #                   over-count vs the board when a just-spawned teammate hasn't
+    #                   registered its first heartbeat yet.
+    #     Taking the MAX means a slot counts as free only when BOTH agree it is, so
+    #     we never spawn on top of a teammate that is already running (the herd).
     in_flight = task_board.count_in_flight(root)
     live = _count_live_members(root)
     occupied = max(in_flight, live)
     free = max(0, width - occupied)
+    # (3) Optional per-refill spawn cap. Even with accurate occupancy a cold pool
+    #     (occupied≈0, large width) would launch `width` processes in one burst — a
+    #     torch-import thundering herd. Capping ramps the pool up over several polls.
     cap = int(os.environ.get("ARGUS_TEAM_MAX_SPAWN_PER_REFILL", "0") or 0)
     if cap > 0:
         free = min(free, cap)
+    # (4) One teammate per free slot: claim the top-priority pending task (claim_top
+    #     marks it claimed synchronously, so the next poll's in_flight already
+    #     reflects it) and launch the teammate on it. Stop early if the backlog dries.
     spawned: list[dict] = []
     for _ in range(free):
         mid = roster.next_member_id(root, prefix=member_prefix)
