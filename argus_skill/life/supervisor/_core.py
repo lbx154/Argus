@@ -1641,25 +1641,27 @@ class LifeSupervisor:
         self._suggested_sleep_s = self._idle_backoff_seconds()
         return self._suggested_sleep_s
 
-    def _should_journal_idle_repeat(self, kind: str, reason: str) -> bool:
+    def _should_journal_idle_repeat(self, kind: str) -> bool:
         """Heartbeat-gate repetitive idle/waiting JOURNAL appends.
 
-        Returns True (and updates the suppression state) when this
-        ``(kind, reason)`` differs from the last journaled idle entry or a
-        heartbeat window has elapsed; False when it is an in-window duplicate
-        that should be suppressed — so a long external wait cannot flood the
-        journal with near-identical rows the planner then re-reads and
-        re-concludes from. Mirrors the lifecycle-block heartbeat idiom; all
-        state is read via ``getattr`` defaults for test-stub safety.
+        Keyed on ``kind`` ALONE — deliberately ignoring the reason text, because
+        the planner rewrites the reason every cycle (fresh audit timestamps and
+        details), so a reason-keyed gate would never collapse the spam. Returns
+        True (and updates the suppression state) when the kind differs from the
+        last journaled idle entry or a heartbeat window has elapsed; False for an
+        in-window repeat that should be suppressed — so a long external wait
+        cannot flood, and poison, the planner's own next-cycle context. The
+        per-cycle event + status still carry the live reason, so operator
+        visibility is unchanged. State read via ``getattr`` defaults for
+        test-stub safety.
         """
-        sig = hashlib.sha256(
-            f"{kind}\x00{reason}".encode("utf-8", "surrogateescape")
-        ).hexdigest()
         now = time.monotonic()
         last_sig = getattr(self, "_last_planner_idle_sig", None)
         last_at = getattr(self, "_last_planner_idle_at", 0.0)
-        if sig != last_sig or (now - last_at) >= _PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS:
-            self._last_planner_idle_sig = sig
+        if kind != last_sig or (
+            now - last_at
+        ) >= _PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS:
+            self._last_planner_idle_sig = kind
             self._last_planner_idle_at = now
             return True
         return False
@@ -1785,9 +1787,7 @@ class LifeSupervisor:
         self._emit_status(
             "planner: project already done and unchanged; idling without planner call"
         )
-        if self._should_journal_idle_repeat(
-            "planner_idle", "open-ended project_done unchanged"
-        ):
+        if self._should_journal_idle_repeat("planner_idle"):
             entry = JournalEntry.new(
                 kind="planner_idle",
                 title="planner idle: unchanged project_done",
@@ -2130,7 +2130,7 @@ class LifeSupervisor:
             "cost_usd": planner_cost_usd,
         })
         self._emit_status(f"awaiting external dependency: {reason}")
-        if self._should_journal_idle_repeat("planner_waiting", reason):
+        if self._should_journal_idle_repeat("planner_waiting"):
             entry = JournalEntry.new(
                 kind="planner_waiting",
                 title=f"planner cycle #{self._planning_cycles}",

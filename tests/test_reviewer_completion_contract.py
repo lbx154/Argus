@@ -567,30 +567,43 @@ def _waiting_supervisor(tmp_path: Path, monkeypatch, *, reason: str = "gpu busy"
 
 
 def test_should_journal_idle_repeat_heartbeat_gate(tmp_path: Path) -> None:
-    """The append-gate suppresses in-window duplicates but admits a changed
-    reason or kind (the per-cycle event/status are unaffected)."""
+    """The append-gate is keyed on KIND alone (the reason text varies every
+    cycle), so in-window repeats of a kind are suppressed while a different
+    kind still admits an entry; the per-cycle event/status are unaffected."""
     sup = _make_supervisor(tmp_path)
-    assert sup._should_journal_idle_repeat("planner_waiting", "gpu busy") is True
-    assert sup._should_journal_idle_repeat("planner_waiting", "gpu busy") is False
-    assert sup._should_journal_idle_repeat("planner_waiting", "disk full") is True
-    assert sup._should_journal_idle_repeat("planner_idle", "disk full") is True
+    assert sup._should_journal_idle_repeat("planner_waiting") is True
+    assert sup._should_journal_idle_repeat("planner_waiting") is False
+    assert sup._should_journal_idle_repeat("planner_idle") is True
+    assert sup._should_journal_idle_repeat("planner_idle") is False
 
 
 def test_repeated_planner_waiting_collapses_to_one_journal_append(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Change A: many identical waiting cycles write ONE journal entry (no echo
-    chamber) while still emitting a status every cycle for operator visibility."""
-    sup = _waiting_supervisor(tmp_path, monkeypatch, reason="gpu busy")
+    """Change A: many waiting cycles write ONE journal entry (no echo chamber)
+    EVEN WHEN the planner rewrites the reason every cycle (the real failure
+    mode), while still emitting a status every cycle for operator visibility."""
+    sup = _waiting_supervisor(tmp_path, monkeypatch)
     statuses: list[str] = []
     sup._emit_status = statuses.append  # type: ignore[method-assign]
+
+    calls = {"n": 0}
+
+    def _vary(_planner, **_kwargs):
+        calls["n"] += 1
+        reason = f"awaiting external job; fresh audit #{calls['n']}"
+        return PlannerVerdict(
+            project_done=False, reason=reason, waiting=True, waiting_reason=reason
+        )
+
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _vary)
 
     for _ in range(3):  # below K, so no probe yet
         assert sup._plan_next_work() == "awaiting_external"
 
     waiting = [e for e in sup.memory.journal.all() if e.kind == "planner_waiting"]
-    assert len(waiting) == 1
-    assert statuses.count("awaiting external dependency: gpu busy") == 3
+    assert len(waiting) == 1  # collapsed despite the varied reason text
+    assert len(statuses) == 3  # status still fires every cycle
 
 
 def test_k_idle_cycles_dispatch_one_verification_probe(tmp_path: Path, monkeypatch) -> None:
