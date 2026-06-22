@@ -992,6 +992,57 @@ def test_life_worker_retries_planning_after_planner_error(
     assert state.done_reason == ""
 
 
+def test_life_worker_keeps_continuous_enabled_on_terminal_idle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    LifeMemory.open(tmp_path).init()
+    write_continuous_config(
+        tmp_path,
+        enabled=True,
+        objective="keep going",
+    )
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
+
+    seen: dict[str, Any] = {"runs": 0, "continuous": []}
+
+    class FakeSupervisor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.config: Any = kwargs["config"]
+
+        def run(self) -> dict[str, Any]:
+            seen["runs"] += 1
+            if self.config.continuous_config_provider is not None:
+                enabled, objective = self.config.continuous_config_provider()
+                self.config.continuous = enabled
+                if objective:
+                    self.config.continuous_objective = objective
+            seen["continuous"].append(
+                (self.config.continuous, self.config.continuous_objective)
+            )
+            self.config.stop_event.set()
+            return {"stopped_by": "planner_terminal_idle", "suggested_sleep": 30.0}
+
+    monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
+
+    worker = LifeWorker(
+        LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.01)
+    )
+    worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+
+    rc = worker.run_forever()
+    state = read_continuous_state(tmp_path)
+
+    assert rc == 0
+    assert seen["runs"] == 1
+    assert seen["continuous"] == [(True, "keep going")]
+    assert state.enabled is True
+    assert state.objective == "keep going"
+    assert state.done_reason == ""
+
+
 def test_continuous_mode_error_allows_memory_backend_only_in_tests(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

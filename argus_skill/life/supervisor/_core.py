@@ -25,6 +25,7 @@ agent is doing one thing, then the next, like a person.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -113,6 +114,7 @@ _PLAN_RETRY = "planner_retry"
 _PLAN_HANDOFF = "daemon_handoff"
 _PLAN_ERROR = "planner_error"
 _PLAN_AWAITING = "awaiting_external"
+_PLAN_TERMINAL_IDLE = "planner_terminal_idle"
 
 # Idle backoff for the "no new work" outcomes (awaiting-external / planner
 # retry / planner error). Each consecutive idle plan-cycle doubles the host's
@@ -126,6 +128,22 @@ _IDLE_BACKOFF_CAP_SECONDS = 300.0
 # (a heartbeat) so a long-lived blocked state stays visible without spamming
 # the journal every tick.
 _LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
+
+# Suppress identical planner_waiting / planner_idle JOURNAL appends except on a
+# reason change or this heartbeat. A long external wait would otherwise flood the
+# journal with hundreds of near-identical "awaiting ..." rows — which then poison
+# the planner's own next-cycle context: it re-reads its own stale memory and
+# re-concludes the same wait (an echo chamber). The per-cycle event + status are
+# still emitted every cycle, so operator visibility is unchanged.
+_PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS = 1800.0
+
+# Stall escalation: after this many consecutive idle planner cycles concluding the
+# same external dependency blocks progress, dispatch ONE domain-agnostic
+# verification-probe mission so the agent TESTS its (possibly stale) belief against
+# CURRENT reality instead of waiting forever on a memory of the blocker. Rate-limit
+# repeat probes with the cooldown below.
+_VERIFICATION_PROBE_AFTER_IDLE_CYCLES = 4
+_VERIFICATION_PROBE_COOLDOWN_SECONDS = 1800.0
 _FULL_EMNLP_GATE_DESCRIPTION = (
     "the L2 reviewer's full pipeline checklist (research → submission)"
 )
@@ -208,10 +226,18 @@ class LifeSupervisor:
         # the moment a real mission runs.
         self._consecutive_idle_planner_cycles = 0
         self._suggested_sleep_s = 0.0
+        self._last_open_ended_project_done_signature = ""
         # Lifecycle-block log-hygiene state: suppress identical held-state
         # emits except on change or a slow heartbeat.
         self._last_lifecycle_block_sig: tuple[str, str] | None = None
         self._last_lifecycle_block_at = 0.0
+        # Planner idle/waiting log-hygiene + stall-escalation state (same family
+        # as the lifecycle-block heartbeat above): suppress repeated identical
+        # planner_waiting/planner_idle journal appends, and rate-limit the
+        # verification-probe stall-breaker.
+        self._last_planner_idle_sig: str | None = None
+        self._last_planner_idle_at = 0.0
+        self._last_verification_probe_at = 0.0
         self._reap_orphans_on_startup()
 
     def _reap_orphans_on_startup(self) -> None:
@@ -445,6 +471,9 @@ class LifeSupervisor:
                         # instead of make-work or a tight re-plan spin.
                         stopped_by = _PLAN_AWAITING
                         break
+                    if planned == _PLAN_TERMINAL_IDLE:
+                        stopped_by = _PLAN_TERMINAL_IDLE
+                        break
                     if planned is True:
                         continue  # new items in backlog, loop around
                     if planned is False:
@@ -592,6 +621,30 @@ class LifeSupervisor:
     def _planner_project_context(self) -> str:
         """Return cheap project-state context that keeps planner work grounded."""
         return self._planner_runtime_context()
+
+    def _planner_runtime_with_idle_note(self) -> str:
+        """Project context for the planner, prefixed — when it has been idling on
+        the same blocker — with a domain-agnostic CURRENT-REALITY check so the
+        planner does not stay immersed in its own stale 'awaiting ...' memory.
+
+        Threshold 2 (below the verification-probe K) so the perception nudge
+        precedes the forced probe. Domain-agnostic: it tells the planner to
+        CONFIRM, never to ignore any specific blocker.
+        """
+        base = self._planner_project_context()
+        n = int(getattr(self, "_consecutive_idle_planner_cycles", 0))
+        if n < 2:
+            return base
+        note = (
+            "CURRENT-REALITY CHECK (read before trusting the journal below): you "
+            f"have idled {n} consecutive cycle(s) concluding `waiting=true` on the "
+            "same blocker. Your journal may be STALE — the external dependency may "
+            "already have cleared. Before concluding `waiting` again, confirm the "
+            "blocker is still live against CURRENT state, not a past observation; a "
+            "verification-probe mission has been or will be dispatched to test it "
+            "first-hand."
+        )
+        return f"{note}\n\n{base}" if base else note
 
     def _recent_no_progress_failures(self) -> dict[tuple[str, str], JournalEntry]:
         """Return recent failed task signatures quarantined from replanning."""
@@ -1580,12 +1633,185 @@ class LifeSupervisor:
     def _reset_idle_backoff(self) -> None:
         self._consecutive_idle_planner_cycles = 0
         self._suggested_sleep_s = 0.0
+        self._last_open_ended_project_done_signature = ""
 
     def _enter_idle_backoff(self) -> float:
         """Register one more no-work plan-cycle and return the suggested sleep."""
         self._consecutive_idle_planner_cycles += 1
         self._suggested_sleep_s = self._idle_backoff_seconds()
         return self._suggested_sleep_s
+
+    def _should_journal_idle_repeat(self, kind: str, reason: str) -> bool:
+        """Heartbeat-gate repetitive idle/waiting JOURNAL appends.
+
+        Returns True (and updates the suppression state) when this
+        ``(kind, reason)`` differs from the last journaled idle entry or a
+        heartbeat window has elapsed; False when it is an in-window duplicate
+        that should be suppressed — so a long external wait cannot flood the
+        journal with near-identical rows the planner then re-reads and
+        re-concludes from. Mirrors the lifecycle-block heartbeat idiom; all
+        state is read via ``getattr`` defaults for test-stub safety.
+        """
+        sig = hashlib.sha256(
+            f"{kind}\x00{reason}".encode("utf-8", "surrogateescape")
+        ).hexdigest()
+        now = time.monotonic()
+        last_sig = getattr(self, "_last_planner_idle_sig", None)
+        last_at = getattr(self, "_last_planner_idle_at", 0.0)
+        if sig != last_sig or (now - last_at) >= _PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS:
+            self._last_planner_idle_sig = sig
+            self._last_planner_idle_at = now
+            return True
+        return False
+
+    def _open_ended_terminal_idle_signature(self) -> str:
+        """Cheap observable-state fingerprint for open-ended terminal idling.
+
+        The signature deliberately excludes the life journal/backlog files
+        written by the supervisor itself, so a skipped planner cycle does not
+        invalidate its own idle state. It includes runtime context, objective,
+        pipeline stage, backlog statuses, and project file metadata so operator
+        edits or daemon/runtime source changes cause the planner to run again.
+        """
+        digest = hashlib.sha256()
+        digest.update(b"open-ended-terminal-idle-v1\0")
+        digest.update(str(self.config.continuous_objective or "").encode())
+        digest.update(b"\0")
+        digest.update(str(self._current_pipeline_stage() or "").encode())
+        digest.update(b"\0")
+        digest.update(str(self._planner_project_context() or "").encode())
+        digest.update(b"\0")
+        try:
+            for item in self.memory.backlog.all():
+                digest.update(str(getattr(item, "id", "")).encode())
+                digest.update(b"\t")
+                digest.update(str(getattr(item, "title", "")).encode())
+                digest.update(b"\t")
+                digest.update(str(getattr(item, "status", "")).encode())
+                digest.update(b"\n")
+        except Exception as exc:  # noqa: BLE001
+            digest.update(f"backlog-error:{type(exc).__name__}:{exc}".encode())
+            digest.update(b"\0")
+
+        root = self._planner_workdir()
+        ignored_dirs = {
+            ".git",
+            ".venv",
+            "__pycache__",
+            ".mypy_cache",
+            ".pytest_cache",
+            ".ruff_cache",
+            "node_modules",
+        }
+        ignored_files = {
+            "activity.log",
+            "events.jsonl",
+            "journal.jsonl",
+            "backlog.jsonl",
+            "continuous.json",
+            "daemon.log",
+            "daemon.status.json",
+            "daemon.pid",
+        }
+        try:
+            root = root.resolve()
+            count = 0
+            for dirpath, dirnames, filenames in os.walk(root):
+                dirnames[:] = [
+                    d
+                    for d in sorted(dirnames)
+                    if d not in ignored_dirs and not d.endswith(".egg-info")
+                ]
+                rel_dir = Path(dirpath).relative_to(root)
+                if any(part in ignored_dirs for part in rel_dir.parts):
+                    continue
+                for name in sorted(filenames):
+                    if name in ignored_files:
+                        continue
+                    path = Path(dirpath) / name
+                    try:
+                        st = path.stat()
+                    except OSError:
+                        continue
+                    try:
+                        rel = path.relative_to(root)
+                    except ValueError:
+                        rel = path
+                    digest.update(str(rel).encode("utf-8", "surrogateescape"))
+                    digest.update(b"\t")
+                    digest.update(str(st.st_size).encode())
+                    digest.update(b"\t")
+                    digest.update(str(st.st_mtime_ns).encode())
+                    digest.update(b"\n")
+                    count += 1
+                    if count >= 5000:
+                        digest.update(b"file-scan-truncated\0")
+                        raise StopIteration
+        except StopIteration:
+            pass
+        except Exception as exc:  # noqa: BLE001
+            digest.update(f"fs-error:{type(exc).__name__}:{exc}".encode())
+            digest.update(b"\0")
+        return digest.hexdigest()
+
+    def _maybe_idle_after_unchanged_open_ended_done(self) -> str | None:
+        if not (
+            getattr(self.config, "continuous", False)
+            and getattr(self.config, "continuous_objective", "")
+            and getattr(self.config, "open_ended", False)
+            and getattr(self, "_last_open_ended_project_done_signature", "")
+        ):
+            return None
+
+        # New operator input is state change. Drain it into the journal so the
+        # next planner call can see it in journal_tail, then re-plan normally.
+        if self._drain_user_inbox():
+            self._last_open_ended_project_done_signature = ""
+            return None
+
+        current = self._open_ended_terminal_idle_signature()
+        if current != self._last_open_ended_project_done_signature:
+            self._last_open_ended_project_done_signature = ""
+            return None
+
+        sleep_s = self._enter_idle_backoff()
+        self._emit({
+            "type": "life.planner.terminal_idle",
+            "cycle": self._planning_cycles,
+            "reason": "open-ended project_done unchanged since last planner verdict",
+            "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
+            "suggested_sleep_s": sleep_s,
+        })
+        self._emit_status(
+            "planner: project already done and unchanged; idling without planner call"
+        )
+        if self._should_journal_idle_repeat(
+            "planner_idle", "open-ended project_done unchanged"
+        ):
+            entry = JournalEntry.new(
+                kind="planner_idle",
+                title="planner idle: unchanged project_done",
+                summary=(
+                    "skipped planner; open-ended project_done state unchanged; "
+                    f"backoff {sleep_s:.0f}s"
+                ),
+                tags=["life", "planner", "idle"],
+                cost_usd=0.0,
+                extra={
+                    "agent_layer": "planner",
+                    "open_ended_objective": True,
+                    "unchanged_project_done": True,
+                    "suggested_sleep_s": sleep_s,
+                },
+            )
+            self.memory.journal.append(entry)
+            self._inject_cumulative_cost(entry)
+            try:
+                from ..notify import dispatch_journal_entry
+                dispatch_journal_entry(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("notify dispatch failed; continuing")
+        return _PLAN_TERMINAL_IDLE
 
     def _planner_task_tags(self, task: Any) -> list[str]:
         scope = self._normalize_planner_scope(getattr(task, "scope", ""))
@@ -1904,29 +2130,120 @@ class LifeSupervisor:
             "cost_usd": planner_cost_usd,
         })
         self._emit_status(f"awaiting external dependency: {reason}")
-        entry = JournalEntry.new(
-            kind="planner_waiting",
-            title=f"planner cycle #{self._planning_cycles}",
-            summary=f"awaiting external dependency; backoff {sleep_s:.0f}s :: {reason}",
+        if self._should_journal_idle_repeat("planner_waiting", reason):
+            entry = JournalEntry.new(
+                kind="planner_waiting",
+                title=f"planner cycle #{self._planning_cycles}",
+                summary=f"awaiting external dependency; backoff {sleep_s:.0f}s :: {reason}",
+                tags=["life", "planner", "awaiting"],
+                cost_usd=planner_cost_usd,
+                extra={
+                    "agent_layer": "planner",
+                    "waiting": True,
+                    "reason": reason,
+                    "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
+                    "suggested_sleep_s": sleep_s,
+                },
+            )
+            self.memory.journal.append(entry)
+            self._inject_cumulative_cost(entry)
+            try:
+                from ..notify import dispatch_journal_entry
+                dispatch_journal_entry(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("notify dispatch failed; continuing")
+        return _PLAN_AWAITING
 
-            tags=["life", "planner", "awaiting"],
-            cost_usd=planner_cost_usd,
+    def _maybe_dispatch_verification_probe(self, verdict: Any) -> bool:
+        """Stall-breaker: after K consecutive idle cycles on the same external
+        dependency, enqueue ONE domain-agnostic verification-probe mission so the
+        agent TESTS its (possibly stale) belief against CURRENT reality.
+
+        Returns True iff a probe was enqueued (caller runs it on the next tick).
+        This does NOT judge the environment or override the planner's research
+        judgment — it forces the agent to gather first-hand evidence so reality,
+        not a memory of the blocker, drives the next decision.
+        """
+        n = int(getattr(self, "_consecutive_idle_planner_cycles", 0))
+        if n < _VERIFICATION_PROBE_AFTER_IDLE_CYCLES:
+            return False
+        now = time.monotonic()
+        if (now - getattr(self, "_last_verification_probe_at", 0.0)) < (
+            _VERIFICATION_PROBE_COOLDOWN_SECONDS
+        ):
+            return False
+        # Never stack a second probe while one is still pending/running.
+        try:
+            for it in self.memory.backlog.all():
+                if "verification_probe" in (getattr(it, "tags", []) or []) and getattr(
+                    it, "status", ""
+                ) in ("pending", "running"):
+                    return False
+        except Exception:  # noqa: BLE001
+            log.exception("verification-probe dedup scan failed; skipping probe")
+            return False
+        reason = (
+            getattr(verdict, "waiting_reason", "")
+            or getattr(verdict, "reason", "")
+            or "an external dependency"
+        )
+        try:
+            item = BacklogItem.new(
+                title="verification probe: re-test the recorded external blocker",
+                objective=(
+                    "Verification-probe mission, dispatched by the harness after the "
+                    f"planner idled {n} consecutive cycles concluding it was blocked. "
+                    "Do NOT trust the journal's record of the blocker as still current. "
+                    f'The recorded blocker was: "{reason}". RIGHT NOW, actually attempt '
+                    "the blocked action — or run the single cheapest decisive probe of "
+                    "it — and report the REAL present outcome with concrete first-hand "
+                    "evidence (command output, file existence, an actual score/metric). "
+                    "State plainly whether it is STILL blocked or has CLEARED. If it has "
+                    "cleared, perform or unblock the smallest concrete next step. This is "
+                    "a perception check, not make-work: completion is judged solely by "
+                    "whether you produced fresh first-hand evidence of the blocker's "
+                    "current state."
+                ),
+                priority=50,
+                tags=["planner", "scope:bounded", "life", "verification_probe"],
+                iterate=True,
+                iteration_max_cycles=1,
+                iteration_budget_usd=min(self._item_iteration_budget(), 5.0),
+            )
+            self.memory.backlog.add(item)
+        except Exception:  # noqa: BLE001
+            log.exception("failed to enqueue verification probe; continuing")
+            return False
+        self._last_verification_probe_at = now
+        # Reset the idle counter so we don't immediately re-escalate before the
+        # probe's real result lands in the journal (a real mission run also
+        # resets it via _reset_idle_backoff()).
+        self._consecutive_idle_planner_cycles = 0
+        self._suggested_sleep_s = 0.0
+        self._emit({
+            "type": "life.planner.verification_probe",
+            "cycle": self._planning_cycles,
+            "reason": reason,
+            "idle_cycles": n,
+        })
+        entry = JournalEntry.new(
+            kind="planner_verification_probe",
+            title=f"planner cycle #{self._planning_cycles}",
+            summary=(
+                f"idled {n} cycles on the same blocker; dispatched one "
+                "verification-probe mission to re-test it against current reality"
+            ),
+            tags=["life", "planner", "verification_probe"],
             extra={
                 "agent_layer": "planner",
-                "waiting": True,
-                "reason": reason,
-                "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
-                "suggested_sleep_s": sleep_s,
+                "verification_probe": True,
+                "waiting_reason": reason,
+                "idle_cycles": n,
             },
         )
         self.memory.journal.append(entry)
         self._inject_cumulative_cost(entry)
-        try:
-            from ..notify import dispatch_journal_entry
-            dispatch_journal_entry(entry)
-        except Exception:  # noqa: BLE001
-            log.exception("notify dispatch failed; continuing")
-        return _PLAN_AWAITING
+        return True
 
     def _wiki_collect_task_if_due_under_blocker(self) -> Any | None:
         project_root = self._project_workdir()
@@ -2111,6 +2428,10 @@ class LifeSupervisor:
         ``"daemon_handoff"`` if the planner asked the host to restart,
         and ``None`` when the planner fails and should be retried later.
         """
+        terminal_idle = self._maybe_idle_after_unchanged_open_ended_done()
+        if terminal_idle is not None:
+            return terminal_idle
+
         self._planning_cycles += 1
         self._emit({
             "type": "life.planner.start",
@@ -2180,7 +2501,7 @@ class LifeSupervisor:
                     journal_tail=journal_tail,
                     budget_remaining_usd=remaining,
                     planning_cycle=self._planning_cycles - 1,
-                    runtime_change_summary=self._planner_project_context(),
+                    runtime_change_summary=self._planner_runtime_with_idle_note(),
                     config=self._planner_config(),
                 )
             finally:
@@ -2259,10 +2580,17 @@ class LifeSupervisor:
         # is no new high-impact work. NOT an error, NOT make-work — record a
         # lightweight waiting entry and back off (escalating) before re-checking.
         if verdict.waiting:
-            return self._record_planner_waiting(
+            record = self._record_planner_waiting(
                 verdict,
                 planner_cost_usd=planner_cost_usd,
             )
+            # Stall-breaker: if the planner has idled K+ cycles on the same
+            # blocker, force a verification probe so reality (not a memory of
+            # the blocker) drives the next decision. Running it next tick resets
+            # the idle backoff via _reset_idle_backoff().
+            if self._maybe_dispatch_verification_probe(verdict):
+                return True
+            return record
 
         # The planner's tasks are trusted. Deterministic gate-repair is only
         # used as a fallback when the planner itself fails (verdict.error above).
@@ -2309,6 +2637,10 @@ class LifeSupervisor:
             )
 
         if verdict.project_done and self.config.open_ended:
+            self._last_open_ended_project_done_signature = (
+                self._open_ended_terminal_idle_signature()
+            )
+            self._enter_idle_backoff()
             self._emit({
                 "type": "life.planner.verdict",
                 "cycle": self._planning_cycles,
@@ -2354,7 +2686,7 @@ class LifeSupervisor:
                 dispatch_journal_entry(entry)
             except Exception:  # noqa: BLE001
                 log.exception("notify dispatch failed; continuing")
-            return "planner_retry"
+            return _PLAN_RETRY
 
         if verdict.project_done:
             self._emit({

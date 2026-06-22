@@ -25,7 +25,7 @@ from argus_skill.life.supervisor import (
     LifeSupervisor,
     LifeSupervisorConfig,
 )
-from argus_skill.planner import PlannerVerdict
+from argus_skill.planner import PlannerVerdict, TaskSpec
 
 # ---------------------------------------------------------------------------
 # ReviewDecision.final_submission_certified
@@ -343,6 +343,157 @@ def test_project_done_still_requires_final_submission_guard_after_reentry(
     assert converted.waiting is False
 
 
+def test_open_ended_project_done_idles_when_state_unchanged(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "state.txt").write_text("stable\n", encoding="utf-8")
+    sup = _make_supervisor_cfg(
+        tmp_path / "life",
+        continuous=True,
+        continuous_objective="keep improving",
+        open_ended=True,
+        full_emnlp_gate=False,
+        project_worktree=project,
+    )
+    sup._vertical_resolved = True
+    sup._current_pipeline_stage = lambda: "done"  # type: ignore[method-assign]
+    sup.planner_runner = object()
+
+    calls = 0
+
+    def _plan_next(_planner, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return PlannerVerdict(project_done=True, reason="verified terminal")
+
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+
+    assert sup._plan_next_work() == "planner_retry"
+    assert sup._plan_next_work() == "planner_terminal_idle"
+    assert calls == 1
+
+    kinds = [entry.kind for entry in sup.memory.journal.all()]
+    assert kinds.count("planner_retry") == 1
+    assert kinds.count("planner_idle") == 1
+
+
+def test_non_open_ended_project_done_stops_normally(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    sup = _make_supervisor_cfg(
+        tmp_path / "life",
+        continuous=True,
+        continuous_objective="bounded finish",
+        open_ended=False,
+        full_emnlp_gate=False,
+        project_worktree=project,
+    )
+    sup._vertical_resolved = True
+    sup._current_pipeline_stage = lambda: "done"  # type: ignore[method-assign]
+    sup.planner_runner = object()
+
+    def _plan_next(_planner, **_kwargs):
+        return PlannerVerdict(project_done=True, reason="bounded done")
+
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+
+    assert sup._plan_next_work() is False
+    kinds = [entry.kind for entry in sup.memory.journal.all()]
+    assert "planner_done" in kinds
+    assert "planner_retry" not in kinds
+    assert "planner_idle" not in kinds
+
+
+def test_open_ended_project_change_replans_and_enqueues_tasks(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    marker = project / "state.txt"
+    marker.write_text("before\n", encoding="utf-8")
+    sup = _make_supervisor_cfg(
+        tmp_path / "life",
+        continuous=True,
+        continuous_objective="keep improving",
+        open_ended=True,
+        full_emnlp_gate=False,
+        project_worktree=project,
+    )
+    sup._vertical_resolved = True
+    sup._current_pipeline_stage = lambda: "done"  # type: ignore[method-assign]
+    sup.planner_runner = object()
+    sup._last_open_ended_project_done_signature = (
+        sup._open_ended_terminal_idle_signature()
+    )
+    marker.write_text("after\n", encoding="utf-8")
+
+    calls = 0
+
+    def _plan_next(_planner, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return PlannerVerdict(
+            project_done=False,
+            reason="new work appeared",
+            new_tasks=[
+                TaskSpec(
+                    title="Handle changed state",
+                    objective="Inspect the changed state and act on it.",
+                    impact_score=5,
+                    impact_area="fresh_state",
+                    evidence="project file changed after terminal idle",
+                )
+            ],
+        )
+
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+
+    assert sup._plan_next_work() is True
+    assert calls == 1
+    assert any(item.title == "Handle changed state" for item in sup.memory.backlog.all())
+
+
+def test_restart_verdict_still_handoffs_without_terminal_idle(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    restart_reasons: list[str] = []
+    sup = _make_supervisor_cfg(
+        tmp_path / "life",
+        continuous=True,
+        continuous_objective="keep improving",
+        open_ended=True,
+        full_emnlp_gate=False,
+        project_worktree=project,
+        planner_restart_handler=lambda reason: restart_reasons.append(reason) or True,
+    )
+    sup._vertical_resolved = True
+    sup._current_pipeline_stage = lambda: "running"  # type: ignore[method-assign]
+    sup.planner_runner = object()
+
+    def _plan_next(_planner, **_kwargs):
+        return PlannerVerdict(
+            project_done=False,
+            reason="runtime changed",
+            restart_daemon=True,
+            restart_reason="reload runtime",
+        )
+
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+
+    assert sup._plan_next_work() == "daemon_handoff"
+    assert restart_reasons == ["reload runtime"]
+
+
 def test_item_is_final_submission_prefers_structured_tag() -> None:
     from argus_skill.life.memory import BacklogItem
     from argus_skill.life.supervisor import (
@@ -382,3 +533,114 @@ def test_item_is_final_submission_prefers_structured_tag() -> None:
     assert _legacy_final_submission_marker(
         "Bounded task: add a unit test for the parser."
     ) is False
+
+
+# ---------------------------------------------------------------------------
+# Planner livelock fix: memory echo-chamber de-poison (A), verification-probe
+# stall escalation (C), and the current-reality staleness note (B').
+# ---------------------------------------------------------------------------
+
+
+def _waiting_supervisor(tmp_path: Path, monkeypatch, *, reason: str = "gpu busy") -> LifeSupervisor:
+    """A continuous, non-open-ended supervisor whose planner always returns a
+    ``waiting`` verdict — the livelock shape we are hardening against."""
+    project = tmp_path / "project"
+    project.mkdir()
+    sup = _make_supervisor_cfg(
+        tmp_path / "life",
+        continuous=True,
+        continuous_objective="keep optimizing",
+        open_ended=False,
+        full_emnlp_gate=False,
+        project_worktree=project,
+    )
+    sup._vertical_resolved = True
+    sup.planner_runner = object()
+
+    def _plan_next(_planner, **_kwargs):
+        return PlannerVerdict(
+            project_done=False, reason=reason, waiting=True, waiting_reason=reason
+        )
+
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+    return sup
+
+
+def test_should_journal_idle_repeat_heartbeat_gate(tmp_path: Path) -> None:
+    """The append-gate suppresses in-window duplicates but admits a changed
+    reason or kind (the per-cycle event/status are unaffected)."""
+    sup = _make_supervisor(tmp_path)
+    assert sup._should_journal_idle_repeat("planner_waiting", "gpu busy") is True
+    assert sup._should_journal_idle_repeat("planner_waiting", "gpu busy") is False
+    assert sup._should_journal_idle_repeat("planner_waiting", "disk full") is True
+    assert sup._should_journal_idle_repeat("planner_idle", "disk full") is True
+
+
+def test_repeated_planner_waiting_collapses_to_one_journal_append(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Change A: many identical waiting cycles write ONE journal entry (no echo
+    chamber) while still emitting a status every cycle for operator visibility."""
+    sup = _waiting_supervisor(tmp_path, monkeypatch, reason="gpu busy")
+    statuses: list[str] = []
+    sup._emit_status = statuses.append  # type: ignore[method-assign]
+
+    for _ in range(3):  # below K, so no probe yet
+        assert sup._plan_next_work() == "awaiting_external"
+
+    waiting = [e for e in sup.memory.journal.all() if e.kind == "planner_waiting"]
+    assert len(waiting) == 1
+    assert statuses.count("awaiting external dependency: gpu busy") == 3
+
+
+def test_k_idle_cycles_dispatch_one_verification_probe(tmp_path: Path, monkeypatch) -> None:
+    """Change C: after K consecutive idle cycles a single verification-probe
+    mission is enqueued, the idle counter resets, and the dispatch is audited."""
+    from argus_skill.life.supervisor._core import _VERIFICATION_PROBE_AFTER_IDLE_CYCLES as K
+
+    sup = _waiting_supervisor(tmp_path, monkeypatch, reason="gpu busy")
+
+    for _ in range(K - 1):
+        assert sup._plan_next_work() == "awaiting_external"
+        assert [
+            it for it in sup.memory.backlog.all() if "verification_probe" in (it.tags or [])
+        ] == []
+
+    assert sup._plan_next_work() is True  # K-th cycle dispatches the probe
+    probes = [
+        it for it in sup.memory.backlog.all() if "verification_probe" in (it.tags or [])
+    ]
+    assert len(probes) == 1
+    assert probes[0].status == "pending"
+    assert sup._consecutive_idle_planner_cycles == 0
+    # de-poisoned: one waiting entry across all K cycles; the dispatch is journaled.
+    waiting = [e for e in sup.memory.journal.all() if e.kind == "planner_waiting"]
+    assert len(waiting) == 1
+    assert any(e.kind == "planner_verification_probe" for e in sup.memory.journal.all())
+
+
+def test_verification_probe_not_restacked_while_pending(tmp_path: Path, monkeypatch) -> None:
+    """Change C: a pending probe (and the cooldown) prevent a second probe from
+    being enqueued even after K more idle cycles."""
+    from argus_skill.life.supervisor._core import _VERIFICATION_PROBE_AFTER_IDLE_CYCLES as K
+
+    sup = _waiting_supervisor(tmp_path, monkeypatch, reason="gpu busy")
+    for _ in range(2 * K):
+        sup._plan_next_work()
+
+    probes = [
+        it for it in sup.memory.backlog.all() if "verification_probe" in (it.tags or [])
+    ]
+    assert len(probes) == 1
+
+
+def test_planner_runtime_carries_idle_stall_note(tmp_path: Path) -> None:
+    """Change B': the runtime context gains a CURRENT-REALITY note once the
+    planner has idled, and is identical to the base context before then."""
+    sup = _make_supervisor_cfg(tmp_path / "life")
+    assert sup._planner_runtime_with_idle_note() == sup._planner_project_context()
+
+    sup._consecutive_idle_planner_cycles = 3
+    note = sup._planner_runtime_with_idle_note()
+    assert "CURRENT-REALITY CHECK" in note
+    assert "idled 3" in note
