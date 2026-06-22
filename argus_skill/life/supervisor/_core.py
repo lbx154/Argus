@@ -144,6 +144,14 @@ _PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS = 1800.0
 # repeat probes with the cooldown below.
 _VERIFICATION_PROBE_AFTER_IDLE_CYCLES = 4
 _VERIFICATION_PROBE_COOLDOWN_SECONDS = 1800.0
+
+# Operator escalation: after this many consecutive missions that COMPLETED but the
+# L2 reviewer judged forward_progress=false (work happened, the goal did NOT
+# advance — e.g. repeated no-score / blocked-archive refuges), surface a loud,
+# operator-notified stall alert. This counts ONLY the reviewer's own signal — the
+# harness never decides what "progress" is; it just refuses to let the agent
+# system loop invisibly without bringing the human in.
+_STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS = 3
 _FULL_EMNLP_GATE_DESCRIPTION = (
     "the L2 reviewer's full pipeline checklist (research → submission)"
 )
@@ -238,6 +246,10 @@ class LifeSupervisor:
         self._last_planner_idle_sig: str | None = None
         self._last_planner_idle_at = 0.0
         self._last_verification_probe_at = 0.0
+        # Consecutive missions that COMPLETED with the reviewer judging
+        # forward_progress=false; when it crosses the threshold the harness
+        # escalates to the operator (surface, don't loop invisibly).
+        self._consecutive_no_progress_missions = 0
         self._reap_orphans_on_startup()
 
     def _reap_orphans_on_startup(self) -> None:
@@ -1495,6 +1507,10 @@ class LifeSupervisor:
         except Exception:  # noqa: BLE001
             log.exception("notify dispatch failed; continuing")
 
+        self._update_no_progress_streak(
+            kind=kind, report=getattr(outcome, "planner_report", {})
+        )
+
         self._emit({
             "type": "life.mission.completed",
             "item_id": item.id,
@@ -2243,7 +2259,67 @@ class LifeSupervisor:
         )
         self.memory.journal.append(entry)
         self._inject_cumulative_cost(entry)
+        try:
+            from ..notify import dispatch_journal_entry
+            dispatch_journal_entry(entry)
+        except Exception:  # noqa: BLE001
+            log.exception("notify dispatch failed; continuing")
         return True
+
+    def _update_no_progress_streak(self, *, kind: str, report: Any) -> None:
+        """Track consecutive 'completed but no forward progress' missions and,
+        once the reviewer-judged streak crosses a threshold, escalate to the
+        OPERATOR (a notified event + journal entry — NOT a mission, NOT a verdict).
+
+        Domain-agnostic by construction: it counts ONLY the L2 reviewer's own
+        ``forward_progress`` boolean (agent judgment). The harness never decides
+        what progress is — it only refuses to let the agent system do hollow work
+        forever without surfacing the stall to its human operator. So a project
+        that keeps completing no-score / blocked-archive refuges cannot loop
+        invisibly: after N such missions the operator is pinged.
+        """
+        if kind != "mission_complete":
+            return
+        fp = report.get("forward_progress") if isinstance(report, dict) else None
+        if fp is True:
+            self._consecutive_no_progress_missions = 0
+            return
+        if fp is not False:
+            return  # unknown / not reported — do not punish missing data
+        n = int(getattr(self, "_consecutive_no_progress_missions", 0)) + 1
+        self._consecutive_no_progress_missions = n
+        if n < _STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS:
+            return
+        # Threshold crossed: surface to the operator, then reset so the alert
+        # re-fires after another N (not on every subsequent mission).
+        self._consecutive_no_progress_missions = 0
+        self._emit({
+            "type": "life.planner.stall_escalation",
+            "consecutive_no_progress_missions": n,
+            "objective": (self.config.continuous_objective or "")[:200],
+        })
+        entry = JournalEntry.new(
+            kind="planner_stall_escalation",
+            title="operator attention: project stalled (no forward progress)",
+            summary=(
+                f"{n} consecutive missions completed with the L2 reviewer judging "
+                "forward_progress=false — the agent system is doing work but not "
+                "advancing the goal (e.g. repeated no-score / blocked refuges). "
+                "Operator attention recommended."
+            ),
+            tags=["life", "planner", "stall", "operator"],
+            extra={
+                "agent_layer": "planner",
+                "consecutive_no_progress_missions": n,
+            },
+        )
+        self.memory.journal.append(entry)
+        self._inject_cumulative_cost(entry)
+        try:
+            from ..notify import dispatch_journal_entry
+            dispatch_journal_entry(entry)
+        except Exception:  # noqa: BLE001
+            log.exception("notify dispatch failed; continuing")
 
     def _wiki_collect_task_if_due_under_blocker(self) -> Any | None:
         project_root = self._project_workdir()

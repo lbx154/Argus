@@ -657,3 +657,116 @@ def test_planner_runtime_carries_idle_stall_note(tmp_path: Path) -> None:
     note = sup._planner_runtime_with_idle_note()
     assert "CURRENT-REALITY CHECK" in note
     assert "idled 3" in note
+
+
+# ---------------------------------------------------------------------------
+# Controllability: no-progress-streak operator escalation + notify surfacing.
+# ---------------------------------------------------------------------------
+
+
+def test_no_progress_streak_escalates_to_operator(tmp_path: Path) -> None:
+    """After N consecutive missions the reviewer judged forward_progress=false,
+    the harness emits ONE operator-notified stall escalation and resets."""
+    from argus_skill.life.supervisor._core import (
+        _STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS as N,
+    )
+
+    sup = _make_supervisor(tmp_path)
+    for _ in range(N - 1):
+        sup._update_no_progress_streak(
+            kind="mission_complete", report={"forward_progress": False}
+        )
+        assert [
+            e for e in sup.memory.journal.all() if e.kind == "planner_stall_escalation"
+        ] == []
+
+    sup._update_no_progress_streak(
+        kind="mission_complete", report={"forward_progress": False}
+    )
+    esc = [e for e in sup.memory.journal.all() if e.kind == "planner_stall_escalation"]
+    assert len(esc) == 1
+    assert sup._consecutive_no_progress_missions == 0
+
+
+def test_no_progress_streak_reset_by_real_progress(tmp_path: Path) -> None:
+    """A mission the reviewer judged forward_progress=true resets the streak, so
+    the escalation does not fire on stale accumulation."""
+    from argus_skill.life.supervisor._core import (
+        _STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS as N,
+    )
+
+    sup = _make_supervisor(tmp_path)
+    for _ in range(N - 1):
+        sup._update_no_progress_streak(
+            kind="mission_complete", report={"forward_progress": False}
+        )
+    sup._update_no_progress_streak(
+        kind="mission_complete", report={"forward_progress": True}
+    )
+    assert sup._consecutive_no_progress_missions == 0
+    sup._update_no_progress_streak(
+        kind="mission_complete", report={"forward_progress": False}
+    )
+    assert [
+        e for e in sup.memory.journal.all() if e.kind == "planner_stall_escalation"
+    ] == []
+
+
+def test_no_progress_streak_ignores_unknown_and_non_complete(tmp_path: Path) -> None:
+    """Only completed missions with an explicit forward_progress=false count;
+    failures and missing-report missions never trip the escalation."""
+    sup = _make_supervisor(tmp_path)
+    sup._update_no_progress_streak(
+        kind="mission_failed", report={"forward_progress": False}
+    )
+    sup._update_no_progress_streak(kind="mission_complete", report={})
+    sup._update_no_progress_streak(kind="mission_complete", report="not-a-dict")
+    assert sup._consecutive_no_progress_missions == 0
+    assert [
+        e for e in sup.memory.journal.all() if e.kind == "planner_stall_escalation"
+    ] == []
+
+
+def test_stuck_state_kinds_are_operator_notified() -> None:
+    """The blocking/stall journal kinds reach the operator's notify channel."""
+    from argus_skill.life.notify import DEFAULT_NOTIFY_KINDS
+
+    for kind in (
+        "planner_waiting",
+        "planner_idle",
+        "lifecycle_block",
+        "planner_verification_probe",
+        "planner_stall_escalation",
+    ):
+        assert kind in DEFAULT_NOTIFY_KINDS
+
+
+def test_probe_and_escalation_actually_dispatch_to_notify(tmp_path: Path, monkeypatch) -> None:
+    """Regression: the verification probe AND the stall escalation must actually
+    CALL dispatch_journal_entry (not merely sit in the allow-list), so the
+    operator is pinged whenever the harness intervenes or escalates."""
+    import argus_skill.life.notify as notify_mod
+    from argus_skill.life.supervisor._core import (
+        _STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS as N,
+    )
+    from argus_skill.life.supervisor._core import (
+        _VERIFICATION_PROBE_AFTER_IDLE_CYCLES as K,
+    )
+
+    dispatched: list[str] = []
+    monkeypatch.setattr(
+        notify_mod,
+        "dispatch_journal_entry",
+        lambda entry, **kw: dispatched.append(getattr(entry, "kind", "?")),
+    )
+
+    sup = _waiting_supervisor(tmp_path, monkeypatch, reason="neighbor present")
+    for _ in range(K):
+        sup._plan_next_work()
+    assert "planner_verification_probe" in dispatched
+
+    for _ in range(N):
+        sup._update_no_progress_streak(
+            kind="mission_complete", report={"forward_progress": False}
+        )
+    assert "planner_stall_escalation" in dispatched

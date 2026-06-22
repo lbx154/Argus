@@ -46,6 +46,14 @@ DEFAULT_NOTIFY_KINDS = frozenset({
     "planner_retry",
     "planner_done",
     "phase_change",
+    # Stuck-state surfacing (so a blocked/looping project reaches the operator
+    # instead of sitting silent). These journal kinds are heartbeat-suppressed
+    # upstream, so they do not spam; the stall-escalation is the loud one.
+    "planner_waiting",
+    "planner_idle",
+    "lifecycle_block",
+    "planner_verification_probe",
+    "planner_stall_escalation",
 })
 
 
@@ -163,6 +171,11 @@ _KIND_LABELS: dict[str, tuple[str, str]] = {
     "planner_retry":     ("🔁", "规划继续"),
     "planner_done":      ("🏁", "项目完成"),
     "phase_change":      ("🔄", "层级切换"),
+    "planner_waiting":   ("⏳", "等待外部依赖"),
+    "planner_idle":      ("😴", "规划空闲"),
+    "lifecycle_block":   ("🔒", "项目状态锁定"),
+    "planner_verification_probe": ("🔬", "现实核查探针"),
+    "planner_stall_escalation":   ("🚨", "卡住需介入"),
 }
 
 _LAYER_LABELS: dict[str, str] = {
