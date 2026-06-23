@@ -128,6 +128,26 @@ def vertical_completion_gate(mod: ModuleType) -> str:
     return "full_emnlp"
 
 
+def vertical_search_altitude(mod: ModuleType, project_root: object) -> str:
+    """Return ``mod.search_altitude_context(project_root)`` or ``""``.
+
+    Optional hook: a vertical may surface a NO-VERDICT 'where is the search
+    now' fact block (live floor / distance-to-target / consecutive
+    non-improving attempts / recombined levers) so the planner & reviewer can
+    judge saturation instead of re-deriving it each cycle. Fail-open: a vertical
+    with no hook (or one that raises) yields no block, so prompt building never
+    breaks on a missing/buggy hook — same posture as ``vertical_role_banner``.
+    """
+    fn = getattr(mod, "search_altitude_context", None)
+    if not callable(fn):
+        return ""
+    try:
+        result = fn(project_root)
+    except Exception:  # noqa: BLE001 — visibility hook must never break prompts
+        return ""
+    return result if isinstance(result, str) else ""
+
+
 __all__ = [
     "DEFAULT_VERTICAL",
     "load_vertical",
@@ -135,4 +155,5 @@ __all__ = [
     "vertical_checklist_items",
     "vertical_role_banner",
     "vertical_completion_gate",
+    "vertical_search_altitude",
 ]

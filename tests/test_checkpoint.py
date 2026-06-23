@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 
 from argus_skill.engineer.checkpoint import (
+    MAX_ACTIVE_LINE_DESC,
     MAX_DONE_ITEMS,
     MAX_ITEM_CHARS,
     MAX_MATURING_ITEMS,
@@ -166,3 +167,76 @@ def test_maturing_persisted_and_stamped(tmp_path):
     stamped = load_checkpoint(path).stamped(round_no=2)
     assert stamped.maturing == ["dir A"]
     assert stamped.round == 2
+
+
+# --- active_line: the retained-branch pointer for a bold maturing line -------
+
+
+def test_active_line_roundtrip_and_caps():
+    raw = {
+        "active_line": {
+            "desc": "d" * 5000,
+            "branch_or_path": "p" * 5000,
+            "rounds_active": 4,
+            "note": "n" * 5000,
+        }
+    }
+    cp = CheckpointState.from_dict(raw)
+    assert cp.active_line["rounds_active"] == 4
+    assert len(cp.active_line["desc"]) <= MAX_ACTIVE_LINE_DESC + 1  # +1 ellipsis
+    again = CheckpointState.from_dict(cp.to_dict())
+    assert again.active_line == cp.active_line
+
+
+def test_active_line_garbage_is_failsoft():
+    assert CheckpointState.from_dict({"active_line": "nope"}).active_line == {}
+    assert CheckpointState.from_dict({"active_line": {}}).active_line == {}
+    # all-blank fields collapse to empty (no phantom active line)
+    assert CheckpointState.from_dict(
+        {"active_line": {"desc": "", "branch_or_path": "", "note": ""}}
+    ).active_line == {}
+    # a non-int rounds_active degrades to 0, not a crash
+    cp = CheckpointState.from_dict(
+        {"active_line": {"desc": "x", "rounds_active": "bad"}}
+    )
+    assert cp.active_line["rounds_active"] == 0
+
+
+def test_active_line_counts_toward_non_empty():
+    # An active line is load-bearing: a checkpoint with only an active line must
+    # NOT be dropped as empty (else the bold direction is forgotten).
+    assert not CheckpointState(active_line={"desc": "split-head local raw V"}).is_empty()
+
+
+def test_render_active_line_says_build_on_it_not_restart():
+    cp = CheckpointState(
+        active_line={
+            "desc": "co-designed capacity reshape",
+            "branch_or_path": "active-line/a266",
+            "rounds_active": 3,
+            "note": "widen head next",
+        }
+    )
+    text = cp.render_for_engineer()
+    assert "ACTIVE LINE" in text
+    assert "co-designed capacity reshape" in text
+    assert "active-line/a266" in text
+    assert "BUILD ON THIS" in text
+    assert "do NOT restart" in text
+
+
+def test_handoff_request_includes_active_line():
+    text = CheckpointState().render_for_engineer()
+    assert "active_line:" in text
+
+
+def test_active_line_persisted_and_stamped(tmp_path):
+    path = tmp_path / "cp.json"
+    save_checkpoint(
+        path, CheckpointState(active_line={"desc": "bold X", "rounds_active": 2})
+    )
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["active_line"]["desc"] == "bold X"
+    stamped = load_checkpoint(path).stamped(round_no=5)
+    assert stamped.active_line["desc"] == "bold X"
+    assert stamped.round == 5

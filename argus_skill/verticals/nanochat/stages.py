@@ -17,6 +17,11 @@ already BPB-shaped); only the role banner pins the nanochat objective.
 """
 from __future__ import annotations
 
+import json
+import re
+import statistics
+from pathlib import Path
+
 # Reuse the BPB-shaped structure + flat-workspace checks from the generic
 # optimization vertical. This is code reuse, not identity: this module is its
 # OWN named vertical (so the nanochat task is never classified as "speedrun"),
@@ -125,8 +130,9 @@ def role_banner(role: str) -> str:
             "bundle; (b) after a bundle WINS, the next candidates ABLATE within it "
             "(one lever off at a time) to find who carries the gain and drop dead "
             "weight. Bundles are first-class candidates, not a fallback.\n"
-            "The gap to 0.9344 is ~0.09 — single-knob noise will never close it, and "
-            "the last leg is a COORDINATED STRUCTURE, not one more standalone trick. "
+            "The gap to 0.9344 is the last leg of a COORDINATED STRUCTURE, not "
+            "one more standalone trick — single-knob noise will never close it "
+            "(see the live Search-altitude facts for the current distance). "
             "Name the lever(s) each candidate explores. (Method: skills 'NanoChat "
             "Autoresearch Hands-on Trace' / 'NanoChat Autoresearch SOTA Optimization' "
             "— learn the loop, but do NOT copy any reference recipe; derive and "
@@ -162,6 +168,171 @@ def role_banner(role: str) -> str:
     return common
 
 
+# ---------------------------------------------------------------------------
+# Search-altitude fact surfacer (NO verdict — pure visibility).
+#
+# The planner/reviewer banners forbid greedy single-lever search, but the agent
+# was found re-running "A237 + one knob -> reject -> restore A237" for 25+
+# attempts because it had NO live view of its own search state: the prompt never
+# carried the live floor, the distance to target, how long the floor had been
+# frozen, or which levers it had already recombined. This surfaces exactly those
+# facts — re-read from the AGENT's own recorded ``attempts/*/summary.json`` — so
+# the agent's OWN judgment ("is this basin saturated? change regime?") finally
+# has the data to bite on. It asserts no threshold and makes no keep/reject
+# call; that decision stays with the agent (same posture as the legitimate
+# ``mediocrity_finding`` / ``method_differentiation`` fact-surfacers). Metric
+# parsing lives HERE in the vertical (which knows its ``mean_val_bpb`` schema),
+# so the cross-vertical harness stays metric-blind.
+# ---------------------------------------------------------------------------
+
+#: Recursive single-B200 10-seed reference scores (see module docstring).
+_REF_VANILLA = 1.0587
+_REF_OPTIMIZED_FROM_VANILLA = 0.9344  # first target to beat
+_REF_BEST = 0.9109  # Recursive's best — the bar
+_ALTITUDE_RECENT_N = 8
+_ALTITUDE_TOKEN_WINDOW = 25
+_ALTITUDE_TOKEN_TOP = 12
+
+
+def _attempt_index(name: str) -> int:
+    """Leading ``aNNN`` index for ordering; -1 if the name is not aNNN-shaped."""
+    m = re.match(r"a(\d+)", name)
+    return int(m.group(1)) if m else -1
+
+
+def _read_attempt_mean_bpb(adir: Path) -> float | None:
+    """Best-effort mean val_bpb for one attempt dir from the AGENT-authored
+    ``summary.json`` (preferred) or ``results.csv`` (fallback).
+
+    Returns ``None`` if neither yields a usable number. The harness only
+    RE-SURFACES the agent's own recorded number; it never measures the metric.
+    """
+    sj = adir / "summary.json"
+    if sj.exists():
+        try:
+            obj = json.loads(sj.read_text(encoding="utf-8"))
+            v = obj.get("mean_val_bpb")
+            if isinstance(v, (int, float)):
+                return float(v)
+        except Exception:  # noqa: BLE001 — fail-soft per attempt
+            pass
+    cf = adir / "results.csv"
+    if cf.exists():
+        try:
+            import csv
+
+            rows = list(csv.DictReader(cf.open()))
+            vals = [float(r["val_bpb"]) for r in rows if r.get("val_bpb")]
+            if vals:
+                return statistics.mean(vals)
+        except Exception:  # noqa: BLE001
+            pass
+    return None
+
+
+def _name_tokens(name: str) -> list[str]:
+    """Split an attempt name into lever-ish word tokens, dropping the aNNN
+    prefix, pure digits, and ubiquitous filler so the frequency hint is
+    informative."""
+    raw = re.split(r"[_\-]+", name)
+    toks: list[str] = []
+    for t in raw:
+        t = t.strip().lower()
+        if not t or t.isdigit():
+            continue
+        if re.fullmatch(r"a\d+", t):  # the aNNN index token
+            continue
+        toks.append(t)
+    return toks
+
+
+def search_altitude_context(project_root: object) -> str:
+    """Return a NO-VERDICT 'search altitude' fact block, or ``""``.
+
+    Pure visibility re-surfaced from ``attempts/*/summary.json``: the live
+    floor, distance to the two reference targets, the count of consecutive
+    non-improving attempts, the last few attempt deltas, and an APPROXIMATE
+    attempt-name token frequency (what has been recombined). It states no
+    threshold and makes no keep/reject decision. Fail-soft: any error / no
+    scored attempts → empty string, so prompt building never breaks on it.
+    """
+    try:
+        root = Path(str(project_root))
+        adir = root / "attempts"
+        if not adir.is_dir():
+            return ""
+        attempts: list[tuple[int, str, float]] = []
+        for d in sorted(adir.iterdir()):
+            if not d.is_dir():
+                continue
+            score = _read_attempt_mean_bpb(d)
+            if score is None:
+                continue
+            attempts.append((_attempt_index(d.name), d.name, score))
+        if not attempts:
+            return ""
+        attempts.sort(key=lambda t: (t[0], t[1]))
+        scores = [s for _, _, s in attempts]
+
+        # Live floor = best (lowest) recorded mean_val_bpb, and how many
+        # attempts have elapsed since it last improved.
+        best = float("inf")
+        last_improve_pos = 0
+        for i, s in enumerate(scores):
+            if s < best - 1e-9:
+                best = s
+                last_improve_pos = i
+        floor = best
+        floor_name = attempts[last_improve_pos][1]
+        since_improve = len(scores) - 1 - last_improve_pos
+
+        d_target = floor - _REF_OPTIMIZED_FROM_VANILLA
+        d_best = floor - _REF_BEST
+
+        recent_lines = []
+        for _, name, s in attempts[-_ALTITUDE_RECENT_N:]:
+            recent_lines.append(f"    {name} | {s:.6f} | {s - floor:+.6f}")
+
+        # Approximate lever recombination hint from recent attempt names.
+        from collections import Counter
+
+        ctr: Counter[str] = Counter()
+        for _, name, _s in attempts[-_ALTITUDE_TOKEN_WINDOW:]:
+            ctr.update(set(_name_tokens(name)))
+        token_hint = ", ".join(
+            f"{tok}×{n}" for tok, n in ctr.most_common(_ALTITUDE_TOKEN_TOP)
+        ) or "(none)"
+
+        return (
+            "## Search altitude — LIVE facts from attempts/ (NO verdict; YOU judge)\n"
+            "Re-surfaced from your OWN recorded attempts/*/summary.json "
+            "(mean_val_bpb, lower is better). The harness asserts no threshold "
+            "and makes no keep/reject call — this is visibility only so your "
+            "research judgment has data to bite on.\n"
+            f"- Attempts scored so far: {len(attempts)}\n"
+            f"- Live verified FLOOR (best mean_val_bpb): {floor:.6f}  "
+            f"(from `{floor_name}`)\n"
+            f"- Distance to go: to optimized_from_vanilla {_REF_OPTIMIZED_FROM_VANILLA} "
+            f"= {d_target:+.4f}; to Recursive best {_REF_BEST} = {d_best:+.4f}  "
+            f"(start point: vanilla {_REF_VANILLA})\n"
+            f"- Consecutive attempts since the FLOOR last improved: {since_improve}\n"
+            f"- Last {len(recent_lines)} attempts (name | mean_val_bpb | Δ vs floor):\n"
+            + "\n".join(recent_lines)
+            + "\n"
+            f"- Attempt-name token frequency over the last "
+            f"{min(_ALTITUDE_TOKEN_WINDOW, len(attempts))} "
+            "(APPROXIMATE hint at what has been recombined): "
+            f"{token_hint}\n"
+            "Interpretation is YOURS: e.g. a floor frozen across many sub-noise "
+            "attempts that recombine the same tokens may mean the basin is "
+            "saturated and the next candidate should change regime (per the "
+            "SEARCH DISCIPLINE banner) — but that call is your research "
+            "judgment, not the harness's.\n\n"
+        )
+    except Exception:  # noqa: BLE001 — must never break prompt building
+        return ""
+
+
 __all__ = [
     "REVIEWER_CHECKLISTS",
     "STAGE_CHECKS",
@@ -170,4 +341,5 @@ __all__ = [
     "CHECKLIST_ITEMS",
     "completion_gate",
     "role_banner",
+    "search_altitude_context",
 ]

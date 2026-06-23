@@ -502,6 +502,7 @@ class Planner:
             vertical_checklist_stage_order,
             vertical_completion_gate,
             vertical_role_banner,
+            vertical_search_altitude,
         )
 
         _proot = resolve_project_root()
@@ -524,6 +525,12 @@ class Planner:
         _vmod = load_vertical(resolve_vertical(_proot))
         _full_emnlp = vertical_completion_gate(_vmod) == "full_emnlp"
         optimize_banner = vertical_role_banner(_vmod, "planner")
+
+        # Live search-altitude facts (NO verdict) so the planner can SEE the
+        # floor / distance-to-target / how long it has been frozen / what it has
+        # already recombined, instead of re-deriving it from attempts/ each
+        # cycle. Empty for verticals that do not surface it.
+        search_altitude_block = vertical_search_altitude(_vmod, _proot)
 
         # General stage gate (ALL verticals). The planner receives the current
         # stage and its checklist; this block makes the ordering rule concrete
@@ -786,6 +793,7 @@ class Planner:
             + ("\n" if parallel_drafting_block else "")
             + wiki_block
             + ("\n" if wiki_block else "")
+            + search_altitude_block
             + _PLANNER_SYSTEM_PREAMBLE
             + "\n\nOriginal operator request (immutable anchor):\n"
             + continuous_objective.strip()

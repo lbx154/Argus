@@ -46,6 +46,13 @@ MAX_GOAL_CHARS = 400
 MAX_BLOCKER_CHARS = 800
 MAX_NEXT_CHARS = 600
 MAX_ENV_FACTS = 10
+# Active-line: a single bold direction the engineer is maturing on a RETAINED
+# branch that may sit ABOVE the global-best floor for several rounds. Persisting
+# a code POINTER (not just a sentence) is what lets such a line develop
+# cumulatively instead of being re-derived from the floor each session.
+MAX_ACTIVE_LINE_DESC = 280
+MAX_ACTIVE_LINE_PATH = 200
+MAX_ACTIVE_LINE_NOTE = 280
 
 
 def _clean_str(value: Any, limit: int) -> str:
@@ -74,6 +81,35 @@ def _clean_list(value: Any, *, max_items: int) -> list[str]:
     return items
 
 
+def _clean_active_line(value: Any) -> dict[str, Any]:
+    """Cap/normalize the active-line pointer (fail-soft to ``{}``).
+
+    Keeps a small structured record — ``desc`` (what the line is),
+    ``branch_or_path`` (where its code lives so it can be checked out and built
+    on), ``rounds_active`` (how long it has been maturing), ``note`` (the next
+    refinement). Empty/garbage degrades to ``{}`` so a bad payload never breaks
+    the round loop.
+    """
+    if not isinstance(value, dict):
+        return {}
+    desc = _clean_str(value.get("desc"), MAX_ACTIVE_LINE_DESC)
+    branch = _clean_str(value.get("branch_or_path"), MAX_ACTIVE_LINE_PATH)
+    note = _clean_str(value.get("note"), MAX_ACTIVE_LINE_NOTE)
+    try:
+        rounds_active = int(value.get("rounds_active", 0) or 0)
+    except (TypeError, ValueError):
+        rounds_active = 0
+    rounds_active = max(0, rounds_active)
+    if not (desc or branch or note):
+        return {}
+    return {
+        "desc": desc,
+        "branch_or_path": branch,
+        "rounds_active": rounds_active,
+        "note": note,
+    }
+
+
 @dataclass
 class CheckpointState:
     """A small curated working-memory handoff between engineer sessions."""
@@ -91,6 +127,13 @@ class CheckpointState:
     maturing: list[str] = field(default_factory=list)
     open_blocker: str = ""
     next_step: str = ""
+    # A single bold direction being matured on a RETAINED branch that may sit
+    # ABOVE the global-best floor for several rounds (desc / branch_or_path /
+    # rounds_active / note). Distinct from the never-lost global-best floor: the
+    # floor is the deliverable, the active line is the working bet. Persisting a
+    # code POINTER (not just a sentence) is what lets a bold line develop
+    # cumulatively across sessions instead of being re-derived from the floor.
+    active_line: dict[str, Any] = field(default_factory=dict)
     # Durable environment/infra facts the successor must NOT re-derive (paths,
     # access endpoints, versions, what is ephemeral vs persistent). Same hard-cap
     # curation discipline as the rest: a small value-filtered carry-forward that
@@ -125,6 +168,7 @@ class CheckpointState:
             maturing=_clean_list(raw.get("maturing"), max_items=MAX_MATURING_ITEMS),
             open_blocker=_clean_str(raw.get("open_blocker"), MAX_BLOCKER_CHARS),
             next_step=_clean_str(raw.get("next_step"), MAX_NEXT_CHARS),
+            active_line=_clean_active_line(raw.get("active_line")),
             env_facts=_clean_list(raw.get("env_facts"), max_items=MAX_ENV_FACTS),
             round=max(0, round_no),
             updated_at=updated_at,
@@ -138,6 +182,7 @@ class CheckpointState:
             "maturing": list(self.maturing),
             "open_blocker": self.open_blocker,
             "next_step": self.next_step,
+            "active_line": dict(self.active_line),
             "env_facts": list(self.env_facts),
             "round": self.round,
             "updated_at": self.updated_at,
@@ -151,6 +196,7 @@ class CheckpointState:
             or self.maturing
             or self.open_blocker
             or self.next_step
+            or self.active_line
             or self.env_facts
         )
 
@@ -192,6 +238,24 @@ class CheckpointState:
                     "abandoning):"
                 )
                 lines.extend(f"  - {item}" for item in self.maturing)
+            if self.active_line:
+                al = self.active_line
+                bits: list[str] = []
+                if al.get("desc"):
+                    bits.append(f"direction: {al['desc']}")
+                if al.get("branch_or_path"):
+                    bits.append(f"code saved at: {al['branch_or_path']}")
+                if al.get("rounds_active"):
+                    bits.append(f"developed {al['rounds_active']} round(s)")
+                if al.get("note"):
+                    bits.append(f"next refinement: {al['note']}")
+                lines.append(
+                    "ACTIVE LINE (a bold direction you are MATURING that may sit "
+                    "ABOVE the global-best floor — BUILD ON THIS, do NOT restart "
+                    "it from the global-best floor; the floor is the never-lost "
+                    "deliverable and stays recoverable separately):"
+                )
+                lines.append("  - " + " | ".join(bits))
             if self.open_blocker:
                 lines.append(f"OPEN BLOCKER: {self.open_blocker}")
             if self.next_step:
@@ -222,6 +286,14 @@ class CheckpointState:
             "these are NOT dead ends>"
         )
         lines.append(
+            "  active_line: <if you are maturing ONE bold direction that "
+            "currently sits ABOVE the global-best floor, record it as desc + "
+            "branch_or_path (where its code is saved so a successor can check it "
+            "out and build on it) + rounds_active + note (next refinement); '' "
+            "if none. This is what lets a bold line develop across rounds "
+            "instead of being re-derived from the floor each time.>"
+        )
+        lines.append(
             "  blocker: <the single most important remaining blocker, or "
             "'none'>"
         )
@@ -246,6 +318,7 @@ class CheckpointState:
             maturing=list(self.maturing),
             open_blocker=self.open_blocker,
             next_step=self.next_step,
+            active_line=dict(self.active_line),
             env_facts=list(self.env_facts),
             round=round_no,
             updated_at=time.time(),

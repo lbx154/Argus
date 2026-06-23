@@ -321,6 +321,7 @@ class Reviewer:
             load_vertical,
             vertical_completion_gate,
             vertical_role_banner,
+            vertical_search_altitude,
         )
 
         _proot = resolve_project_root()
@@ -334,6 +335,12 @@ class Reviewer:
         _vmod = load_vertical(resolve_vertical(_proot))
         _full_emnlp = vertical_completion_gate(_vmod) == "full_emnlp"
         optimize_banner = vertical_role_banner(_vmod, "reviewer")
+        # Live search-altitude facts (NO verdict) so the reviewer can SEE the
+        # floor history when judging forward_progress — i.e. distinguish "this
+        # round advanced a declared structural line" from "Nth single-knob
+        # nibble at a floor that has not moved in N attempts". Empty for
+        # verticals that do not surface it.
+        search_altitude_block = vertical_search_altitude(_vmod, _proot)
         # Structured scope only. The planner threads scope=final_submission as
         # a backlog tag all the way here; we no longer sniff the objective
         # prose for "scope: final_submission" markers. Normalize the same way
@@ -536,6 +543,7 @@ class Reviewer:
         return (
             ground_truth_mandate("reviewer")
             + optimize_banner
+            + search_altitude_block
             + "You are the reviewer sub-agent for an argus-skill autoloop run.\n"
             "Decide whether the objective is fully complete.\n\n"
             "**You have shell access via your tools.** When the main agent's\n"
@@ -616,7 +624,17 @@ class Reviewer:
             "  rounds that produced NO new measured evidence (crash / NaN /\n"
             "  no-measurement / pure no-op / rename / refresh / escape path), or a\n"
             "  stalled single-knob nibble that neither beat the floor nor advanced a\n"
-            "  declared structural line.\n"
+            "  declared structural line. CONSULT the Search-altitude facts above when\n"
+            "  they are present: if they show the FLOOR unchanged across many\n"
+            "  attempts AND the last deltas are all within run-to-run noise\n"
+            "  (~0.001-0.002) AND this candidate merely RE-COMBINES levers already\n"
+            "  tried (see the attempt-name token frequency), that is the stalled-\n"
+            "  nibble case → forward_progress=FALSE (so the stall guards can act);\n"
+            "  do NOT score it TRUE just because it was 'measured'. CONVERSELY, a\n"
+            "  round that produced a genuine MEASURED DIAGNOSIS artifact (a step\n"
+            "  profile, a train-vs-val curve read, a within-attempt ablation) is\n"
+            "  forward_progress=TRUE even with no new scored candidate — diagnosis\n"
+            "  the next candidate needs is real progress, not a wasted round.\n"
             "- `headline`: one or two plain sentences stating what actually\n"
             "  changed or was proven this mission. No ANSI codes, no banners,\n"
             "  no command dumps.\n"
