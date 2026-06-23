@@ -28,6 +28,7 @@ import re
 import shlex
 import subprocess
 import time
+from pathlib import Path
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -53,6 +54,20 @@ DEFAULT_NOTIFY_KINDS = frozenset({
     "planner_idle",
     "lifecycle_block",
     "planner_verification_probe",
+    "planner_stall_escalation",
+})
+
+# The LOUD subset: events that mean "a human should look" (stuck / blocked /
+# out-of-money / auth-dead). These get an always-on, config-free local landing
+# (a WARNING in the daemon log + an append to operator_alerts.log) so a stalled
+# project is visible even when NO push channel is configured (the default: no
+# webhook/cmd, telegram opt-in). The routine mission_*/planner_cycle kinds are
+# deliberately excluded so this stays low-volume.
+OPERATOR_ATTENTION_KINDS = frozenset({
+    "auth_failure",
+    "budget_pause",
+    "mission_orphaned",
+    "lifecycle_block",
     "planner_stall_escalation",
 })
 
@@ -82,9 +97,54 @@ def dispatch_journal_entry(entry: Any, *, kinds: frozenset[str] = DEFAULT_NOTIFY
     kind = str(payload.get("kind") or "")
     if kind not in kinds:
         return
+    if kind in OPERATOR_ATTENTION_KINDS:
+        _land_local_alert(payload)
     _post_webhook(payload)
     _run_cmd(payload)
     _post_telegram(payload)
+
+
+def _operator_alert_path() -> "Path | None":
+    """Where always-on operator alerts land. Overridable via
+    ``ARGUS_SKILL_OPERATOR_ALERT_FILE``; defaults to
+    ``~/.argus-skill/operator_alerts.log``."""
+    override = (os.environ.get("ARGUS_SKILL_OPERATOR_ALERT_FILE") or "").strip()
+    if override:
+        return Path(override)
+    try:
+        from ..core.paths import global_root
+
+        return global_root() / "operator_alerts.log"
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _land_local_alert(payload: dict[str, Any]) -> None:
+    """Always-on, config-free landing for LOUD operator-attention events: a
+    WARNING in the daemon log plus an append to ``operator_alerts.log``, so a
+    stuck/blocked/out-of-budget project reaches a human even when no push
+    channel (webhook/cmd/telegram) is configured. Best-effort, never raises."""
+    kind = str(payload.get("kind") or "")
+    title = str(payload.get("title") or "")
+    summary = str(payload.get("summary") or "")
+    log.warning("OPERATOR ATTENTION [%s] %s — %s", kind, title, summary[:500])
+    path = _operator_alert_path()
+    if path is None:
+        return
+    try:
+        import datetime
+
+        ts = payload.get("ts")
+        try:
+            stamp = datetime.datetime.fromtimestamp(float(ts)).isoformat(timespec="seconds")
+        except Exception:  # noqa: BLE001
+            stamp = "?"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        line = f"{stamp}  [{kind}] {title} — {summary}".rstrip() + "\n"
+        with path.open("a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception as exc:  # noqa: BLE001 — a flaky FS must not break the loop
+        log.warning("operator alert file write failed (%s: %s)", type(exc).__name__, exc)
 
 
 def _payload_from_entry(entry: Any) -> dict[str, Any]:
