@@ -195,40 +195,48 @@ _ALTITUDE_TOKEN_TOP = 12
 
 
 def _attempt_index(name: str) -> int:
-    """Leading ``aNNN`` index for ordering; -1 if the name is not aNNN-shaped."""
+    """Leading ``aNNN`` index for ordering. A non-aNNN name sorts as NEWEST (a
+    large sentinel), never as the oldest — so a stray non-aNNN dir cannot be
+    mistaken for the earliest attempt and freeze the since-improve counter."""
     m = re.match(r"a(\d+)", name)
-    return int(m.group(1)) if m else -1
+    return int(m.group(1)) if m else 10**18
 
 
-def _read_attempt_mean_bpb(adir: Path) -> float | None:
-    """Best-effort mean val_bpb for one attempt dir from the AGENT-authored
-    ``summary.json`` (preferred) or ``results.csv`` (fallback).
+def _read_attempt_record(adir: Path) -> tuple[float | None, str]:
+    """Return ``(mean_val_bpb, decision)`` for one attempt dir from the
+    AGENT-authored ``summary.json`` (preferred) or ``results.csv`` (fallback).
 
-    Returns ``None`` if neither yields a usable number. The harness only
+    Returns ``(None, decision)`` when no usable score. The harness only
     RE-SURFACES the agent's own recorded number; it never measures the metric.
-    The agent has written the score under both ``mean_val_bpb`` and (later)
-    ``MEAN_VAL_BPB``, so accept either casing — a key-casing drift must never
-    silently drop recent attempts and freeze the reported floor on a stale one.
+    Two integrity rules, both deferring to the AGENT's own record:
+    * key-casing: accept ``mean_val_bpb`` OR ``MEAN_VAL_BPB`` (a casing drift
+      must never silently drop recent attempts and freeze a stale floor);
+    * validity: a record the agent flagged ``score_valid=False`` contributes NO
+      score, so an explicitly-invalid run can never seed the "verified FLOOR".
     """
     def _num(v: object) -> float | None:
         if isinstance(v, bool):
             return None
         return float(v) if isinstance(v, (int, float)) else None
 
+    decision = ""
     sj = adir / "summary.json"
     if sj.exists():
         try:
             obj = json.loads(sj.read_text(encoding="utf-8"))
             if isinstance(obj, dict):
+                decision = str(obj.get("decision") or "").strip().lower()
+                if obj.get("score_valid") is False:
+                    return None, decision  # agent flagged this run invalid
                 for key in ("mean_val_bpb", "MEAN_VAL_BPB"):
                     n = _num(obj.get(key))
                     if n is not None:
-                        return n
+                        return n, decision
                 for key, val in obj.items():  # any-case fallback
                     if key.lower() == "mean_val_bpb":
                         n = _num(val)
                         if n is not None:
-                            return n
+                            return n, decision
         except Exception:  # noqa: BLE001 — fail-soft per attempt
             pass
     cf = adir / "results.csv"
@@ -239,10 +247,15 @@ def _read_attempt_mean_bpb(adir: Path) -> float | None:
             rows = list(csv.DictReader(cf.open()))
             vals = [float(r["val_bpb"]) for r in rows if r.get("val_bpb")]
             if vals:
-                return statistics.mean(vals)
+                return statistics.mean(vals), decision
         except Exception:  # noqa: BLE001
             pass
-    return None
+    return None, decision
+
+
+def _read_attempt_mean_bpb(adir: Path) -> float | None:
+    """Backward-compatible thin wrapper: the score only."""
+    return _read_attempt_record(adir)[0]
 
 
 def _name_tokens(name: str) -> list[str]:
@@ -276,44 +289,59 @@ def search_altitude_context(project_root: object) -> str:
         adir = root / "attempts"
         if not adir.is_dir():
             return ""
-        attempts: list[tuple[int, str, float]] = []
+        attempts: list[tuple[int, str, float, str]] = []
         for d in sorted(adir.iterdir()):
             if not d.is_dir():
                 continue
-            score = _read_attempt_mean_bpb(d)
+            score, decision = _read_attempt_record(d)
             if score is None:
                 continue
-            attempts.append((_attempt_index(d.name), d.name, score))
+            attempts.append((_attempt_index(d.name), d.name, score, decision))
         if not attempts:
             return ""
         attempts.sort(key=lambda t: (t[0], t[1]))
-        scores = [s for _, _, s in attempts]
+        scores = [t[2] for t in attempts]
 
-        # Live floor = best (lowest) recorded mean_val_bpb, and how many
-        # attempts have elapsed since it last improved.
-        best = float("inf")
-        last_improve_pos = 0
-        for i, s in enumerate(scores):
-            if s < best - 1e-9:
-                best = s
-                last_improve_pos = i
-        floor = best
-        floor_name = attempts[last_improve_pos][1]
-        since_improve = len(scores) - 1 - last_improve_pos
+        # FLOOR = the agent's OWN latest PROMOTED attempt (re-surface its
+        # judgment), NOT a raw min(): a rejected sub-noise dip must not be
+        # labelled the floor and contradict the agent's recorded floor. Fall
+        # back to the best raw score only if the agent never recorded a promote.
+        promoted = [i for i, t in enumerate(attempts) if "promote" in t[3]]
+        if promoted:
+            floor_pos = promoted[-1]  # latest promoted (list is index-sorted)
+        else:
+            floor_pos = min(range(len(scores)), key=lambda i: scores[i])
+        floor = scores[floor_pos]
+        floor_name = attempts[floor_pos][1]
+        since_improve = len(attempts) - 1 - floor_pos
+
+        # Best RAW measured — may be a rejected sub-noise dip BELOW the floor;
+        # surfaced separately so the block never looks like it is hiding a
+        # lower number from the agent.
+        raw_pos = min(range(len(scores)), key=lambda i: scores[i])
+        raw_best = scores[raw_pos]
+        raw_name = attempts[raw_pos][1]
+        raw_note = ""
+        if raw_best < floor - 1e-9:
+            raw_note = (
+                f"- Best RAW measured: {raw_best:.6f} (from `{raw_name}`) — but "
+                "YOU did not promote it (sub-noise / rejected), so the FLOOR "
+                "above is your promoted best.\n"
+            )
 
         d_target = floor - _REF_OPTIMIZED_FROM_VANILLA
         d_best = floor - _REF_BEST
 
         recent_lines = []
-        for _, name, s in attempts[-_ALTITUDE_RECENT_N:]:
-            recent_lines.append(f"    {name} | {s:.6f} | {s - floor:+.6f}")
+        for t in attempts[-_ALTITUDE_RECENT_N:]:
+            recent_lines.append(f"    {t[1]} | {t[2]:.6f} | {t[2] - floor:+.6f}")
 
         # Approximate lever recombination hint from recent attempt names.
         from collections import Counter
 
         ctr: Counter[str] = Counter()
-        for _, name, _s in attempts[-_ALTITUDE_TOKEN_WINDOW:]:
-            ctr.update(set(_name_tokens(name)))
+        for t in attempts[-_ALTITUDE_TOKEN_WINDOW:]:
+            ctr.update(set(_name_tokens(t[1])))
         token_hint = ", ".join(
             f"{tok}×{n}" for tok, n in ctr.most_common(_ALTITUDE_TOKEN_TOP)
         ) or "(none)"
@@ -325,8 +353,9 @@ def search_altitude_context(project_root: object) -> str:
             "and makes no keep/reject call — this is visibility only so your "
             "research judgment has data to bite on.\n"
             f"- Attempts scored so far: {len(attempts)}\n"
-            f"- Live verified FLOOR (best mean_val_bpb): {floor:.6f}  "
+            f"- Live verified FLOOR (your latest PROMOTED best): {floor:.6f}  "
             f"(from `{floor_name}`)\n"
+            f"{raw_note}"
             f"- Distance to go: to optimized_from_vanilla {_REF_OPTIMIZED_FROM_VANILLA} "
             f"= {d_target:+.4f}; to Recursive best {_REF_BEST} = {d_best:+.4f}  "
             f"(start point: vanilla {_REF_VANILLA})\n"

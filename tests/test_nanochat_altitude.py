@@ -92,6 +92,57 @@ def test_uppercase_mean_val_bpb_key_is_read(tmp_path):
     assert "a300_newfmt" in block
 
 
+def test_score_valid_false_excluded_from_floor(tmp_path):
+    # An attempt the agent flagged score_valid=False must NOT seed the floor,
+    # even if it carries a (bogus) numeric mean — else distance goes negative.
+    d = tmp_path / "attempts" / "a002_invalid"
+    d.mkdir(parents=True)
+    (d / "summary.json").write_text(
+        json.dumps({"mean_val_bpb": 0.40, "score_valid": False,
+                    "decision": "discard_infra_failed"}),
+        encoding="utf-8",
+    )
+    _write_attempt(tmp_path, "a001_good", 0.95)
+    block = search_altitude_context(tmp_path)
+    assert "0.950000" in block       # the valid attempt is the floor
+    assert "0.400000" not in block   # the invalid bogus score is excluded
+    assert "= -0." not in block      # no negative distance-to-target
+
+
+def test_non_annn_dir_sorts_as_newest_not_oldest(tmp_path):
+    # A stray non-aNNN dir must sort as NEWEST, never as the oldest (which would
+    # freeze since_improve and mis-place the recent window).
+    for i in range(1, 6):
+        _write_attempt(tmp_path, f"a00{i}_x", 1.00 - i * 0.01)  # a005 = 0.95 best
+    d = tmp_path / "attempts" / "zz_stray"
+    d.mkdir(parents=True)
+    (d / "summary.json").write_text(json.dumps({"mean_val_bpb": 0.99}), encoding="utf-8")
+    block = search_altitude_context(tmp_path)
+    assert "0.950000" in block   # a005 is the floor, not the stray
+    assert "zz_stray" in block    # the stray appears in the recent (newest) window
+
+
+def test_floor_anchors_on_promote_not_raw_min(tmp_path):
+    # A rejected sub-noise dip BELOW the promoted floor must not be labelled the
+    # FLOOR; the agent's promoted attempt is the floor, the dip is noted as raw.
+    for name, score, decision in [
+        ("a010_promoted", 0.9650, "promote_keep_root"),
+        ("a011_rejected_dip", 0.9648, "reject_restore_root"),
+    ]:
+        d = tmp_path / "attempts" / name
+        d.mkdir(parents=True)
+        (d / "summary.json").write_text(
+            json.dumps({"MEAN_VAL_BPB": score, "decision": decision}),
+            encoding="utf-8",
+        )
+    block = search_altitude_context(tmp_path)
+    assert "FLOOR (your latest PROMOTED best): 0.965000" in block
+    assert "a010_promoted" in block
+    assert "Best RAW measured: 0.964800" in block   # the lower rejected dip
+    assert "did not promote it" in block
+    assert "since the FLOOR last improved: 1" in block
+
+
 def test_block_states_no_verdict(tmp_path):
     _write_attempt(tmp_path, "a001_x", 0.97)
     block = search_altitude_context(tmp_path)
