@@ -73,6 +73,25 @@ def test_results_csv_fallback_when_no_summary(tmp_path):
     assert "0.910000" in block  # mean of 0.90, 0.92
 
 
+def test_uppercase_mean_val_bpb_key_is_read(tmp_path):
+    # The agent later switched the summary.json key to UPPERCASE MEAN_VAL_BPB
+    # (with mean_val_bpb left null). The parser must still pick it up — else the
+    # newest attempts are silently dropped and the reported floor goes stale.
+    d = tmp_path / "attempts" / "a300_newfmt"
+    d.mkdir(parents=True)
+    (d / "summary.json").write_text(
+        json.dumps({"candidate": "a300", "mean_val_bpb": None,
+                    "MEAN_VAL_BPB": 0.94, "decision": "promote"}),
+        encoding="utf-8",
+    )
+    # plus an older lowercase attempt that is worse
+    _write_attempt(tmp_path, "a299_old", 0.97)
+    block = search_altitude_context(tmp_path)
+    assert "Attempts scored so far: 2" in block
+    assert "0.940000" in block  # the uppercase-keyed score is the floor
+    assert "a300_newfmt" in block
+
+
 def test_block_states_no_verdict(tmp_path):
     _write_attempt(tmp_path, "a001_x", 0.97)
     block = search_altitude_context(tmp_path)

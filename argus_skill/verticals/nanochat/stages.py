@@ -206,14 +206,29 @@ def _read_attempt_mean_bpb(adir: Path) -> float | None:
 
     Returns ``None`` if neither yields a usable number. The harness only
     RE-SURFACES the agent's own recorded number; it never measures the metric.
+    The agent has written the score under both ``mean_val_bpb`` and (later)
+    ``MEAN_VAL_BPB``, so accept either casing — a key-casing drift must never
+    silently drop recent attempts and freeze the reported floor on a stale one.
     """
+    def _num(v: object) -> float | None:
+        if isinstance(v, bool):
+            return None
+        return float(v) if isinstance(v, (int, float)) else None
+
     sj = adir / "summary.json"
     if sj.exists():
         try:
             obj = json.loads(sj.read_text(encoding="utf-8"))
-            v = obj.get("mean_val_bpb")
-            if isinstance(v, (int, float)):
-                return float(v)
+            if isinstance(obj, dict):
+                for key in ("mean_val_bpb", "MEAN_VAL_BPB"):
+                    n = _num(obj.get(key))
+                    if n is not None:
+                        return n
+                for key, val in obj.items():  # any-case fallback
+                    if key.lower() == "mean_val_bpb":
+                        n = _num(val)
+                        if n is not None:
+                            return n
         except Exception:  # noqa: BLE001 — fail-soft per attempt
             pass
     cf = adir / "results.csv"
