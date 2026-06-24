@@ -31,7 +31,14 @@ def _load_all(root: Path) -> list[dict[str, Any]]:
     d = _tasks_dir(root)
     if not d.exists():
         return []
-    out = [_store.read_json(p, default=None) for p in sorted(d.glob("*.json"))]
+    # Atomic writes use hidden ``.tmp-*.json`` siblings. If a process dies
+    # between temp creation and replace, the leftover file must not become a
+    # second claimable copy of the same logical task.
+    out = [
+        _store.read_json(p, default=None)
+        for p in sorted(d.glob("*.json"))
+        if not p.name.startswith(".")
+    ]
     return [t for t in out if isinstance(t, dict)]
 
 
@@ -159,12 +166,27 @@ def fail(root: Path, task_id: str, *, reason: str = "") -> None:
     _mutate(root, task_id, state="failed", reason=reason)
 
 
-def reassign_stale(root: Path, *, ttl: float, now: float) -> list[str]:
-    """Return claimed/running tasks whose heartbeat aged past ``ttl`` to pending."""
+def reassign_stale(
+    root: Path,
+    *,
+    ttl: float,
+    now: float,
+    live_owners: set[str] | None = None,
+) -> list[str]:
+    """Return stale claimed/running tasks to pending.
+
+    ``live_owners`` lets the rolling coordinator distinguish a stale heartbeat
+    from a still-running teammate process whose heartbeat thread is delayed. A
+    task with a live owner must not be reset to pending, or the same logical task
+    can be claimed again while the old teammate is still running.
+    """
+    live_owners = live_owners or set()
     reassigned: list[str] = []
     with _store.locked(_lock(root)):
         for task in _load_all(root):
             if task["state"] in ("claimed", "running") and now - task["heartbeat_ts"] > ttl:
+                if task.get("owner") in live_owners:
+                    continue
                 task["state"] = "pending"
                 task["owner"] = ""
                 task["attempts"] = int(task.get("attempts", 0)) + 1

@@ -484,6 +484,14 @@ class SkillLoop:
         _proot = resolve_project_root()
         _vmod = load_vertical(resolve_vertical(_proot))
         _full_emnlp = vertical_completion_gate(_vmod) == "full_emnlp"
+        # Measured-benchmark mode (operator opt-in via ARGUS_SKILL_MEASURED_MODE):
+        # the task has a TRUSTED scorer whose measured number is the ONLY judge, so
+        # the ground-truth / stage-checklist GATE framing — which forces the
+        # engineer to maintain provenance files BEFORE it may optimize — is
+        # replaced with a lean explore→write→score directive. Off by default, so
+        # paper / non-benchmark tasks are completely unchanged.
+        import os as _os
+        _measured = _os.environ.get("ARGUS_SKILL_MEASURED_MODE", "").strip().lower() in ("1", "true", "yes", "on")
         _banner = vertical_role_banner(_vmod, "engineer")
         if _banner:
             sections.append(_banner)
@@ -500,7 +508,7 @@ class SkillLoop:
             _stage_now = _current_stage(_proot)
         except Exception:  # noqa: BLE001 — stage read is best-effort
             _stage_now = None
-        if _stage_now == "setup":
+        if _stage_now == "setup" and not _measured:
             sections.append(
                 "## SETUP STAGE — action control (HARD OVERRIDE)\n"
                 "The active stage is `setup` (pre-optimize). Any optimize/"
@@ -521,9 +529,31 @@ class SkillLoop:
                 "out of scope until setup is complete and the stage advances "
                 "to optimize."
             )
-        from .skills.ground_truth import ground_truth_mandate
+        if _measured:
+            sections.append(
+                "## MEASURED-BENCHMARK MODE — the scorer is the ONLY judge\n"
+                "This task has a TRUSTED scorer that returns a real measured number on the "
+                "target hardware. That number is the ONLY thing that matters and the ONLY "
+                "proof anyone needs.\n\n"
+                "**DO NOT write, read, repair, or 'maintain' any GROUND_TRUTH / gate / marker "
+                "/ status / evidence / manifest files. The harness does NOT read them — doing "
+                "so is pure wasted effort. There is no gate to pass except a higher score.**\n\n"
+                "Spend the ENTIRE round on **explore → write → score**:\n"
+                "1. EXPLORE: pick ONE concrete mechanism to try this round, grounded in the "
+                "PROFILE (the real measured bottleneck) + the best library / SOTA / open-source "
+                "implementation for this exact op. Name it in one line.\n"
+                "2. WRITE: implement that candidate in your solution file.\n"
+                "3. SCORE: run the scorer to get the real measured number.\n"
+                "4. JUDGE BY THE NUMBER ALONE: if it beats your best, keep it; if not, NEXT "
+                "round try a DIFFERENT mechanism — never keep tweaking a direction that loses. "
+                "Record ONE terse line (mechanism + measured score) and move on.\n\n"
+                "No bookkeeping, no provenance files, no self-verification ritual — the "
+                "scorer's number IS the verification."
+            )
+        else:
+            from .skills.ground_truth import ground_truth_mandate
 
-        sections.append(ground_truth_mandate("engineer").rstrip())
+            sections.append(ground_truth_mandate("engineer").rstrip())
         if skill_text:
             sections.append("## Skill playbook (read first)\n" + skill_text)
         if original_request.strip():
@@ -612,7 +642,7 @@ class SkillLoop:
             if stage
             else ""
         )
-        if stage_checklist:
+        if stage_checklist and not _measured:
             sections.append(stage_checklist)
         sections.append(
             "## Turn discipline — bounded progress, then yield\n"

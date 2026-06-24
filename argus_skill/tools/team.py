@@ -31,10 +31,10 @@ def _load_tasks(path: Path) -> list[dict]:
 
 
 def cmd_form(a: argparse.Namespace) -> int:
-    task_board.form(Path(a.root), _load_tasks(Path(a.tasks)))
     if a.team_id:
         roster.create(Path(a.root), team_id=a.team_id, mission=a.mission,
                       lead=a.lead, now=time.time())
+    task_board.form(Path(a.root), _load_tasks(Path(a.tasks)))
     return 0
 
 
@@ -133,6 +133,15 @@ def _member_pid_alive(member: dict) -> bool:
                for i in range(len(toks)))
 
 
+def _live_member_ids(root: Path) -> set[str]:
+    """Roster member ids whose teammate process is genuinely alive."""
+    return {
+        str(m["id"])
+        for m in roster.members(root)
+        if m.get("id") and _member_pid_alive(m)
+    }
+
+
 def _count_live_members(root: Path) -> int:
     """Number of roster members whose teammate process is genuinely alive.
 
@@ -144,7 +153,7 @@ def _count_live_members(root: Path) -> int:
     49 live processes). Counting verified live PIDs is process-accurate, so the
     pool is sized by how many teammates are ACTUALLY running.
     """
-    return sum(1 for m in roster.members(root) if _member_pid_alive(m))
+    return len(_live_member_ids(root))
 
 
 def refill_once(root: Path, *, width: int, cwd: Path, member_prefix: str = "w",
@@ -164,10 +173,12 @@ def refill_once(root: Path, *, width: int, cwd: Path, member_prefix: str = "w",
     load when a large pool cold-fills.
     """
     spawn_fn = spawn_fn or _spawn_teammate
-    # (1) Hand any stale-owned task (dead/wedged teammate, heartbeat aged past
-    #     ttl) back to the backlog so it can be re-claimed below — otherwise it
-    #     sits "claimed" forever and leaks a slot.
-    reassigned = task_board.reassign_stale(root, ttl=ttl, now=now)
+    # (1) Hand stale-owned tasks back only when their owner process is not live.
+    #     A heartbeat can lag while the teammate is still alive; resetting that
+    #     task to pending creates duplicate live teammates for the same task.
+    live_owner_ids = _live_member_ids(root)
+    reassigned = task_board.reassign_stale(
+        root, ttl=ttl, now=now, live_owners=live_owner_ids)
     # (2) Two occupancy signals, each able to lag the other:
     #       in_flight = tasks claimed/running on the board — can OVER-count when a
     #                   teammate died without failing its task (stuck "claimed");
@@ -177,7 +188,7 @@ def refill_once(root: Path, *, width: int, cwd: Path, member_prefix: str = "w",
     #     Taking the MAX means a slot counts as free only when BOTH agree it is, so
     #     we never spawn on top of a teammate that is already running (the herd).
     in_flight = task_board.count_in_flight(root)
-    live = _count_live_members(root)
+    live = len(live_owner_ids)
     occupied = max(in_flight, live)
     free = max(0, width - occupied)
     # (3) Optional per-refill spawn cap. Even with accurate occupancy a cold pool

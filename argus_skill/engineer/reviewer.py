@@ -326,6 +326,8 @@ class Reviewer:
 
         _proot = resolve_project_root()
         stage = current_stage(_proot)
+        import os as _os
+        _measured = _os.environ.get("ARGUS_SKILL_MEASURED_MODE", "").strip().lower() in ("1", "true", "yes", "on")
         # Vertical-native prompt framing: resolve the active vertical and let it
         # supply the top-of-prompt role banner. The rollback / final-submission
         # framing below applies ONLY to a paper vertical (completion_gate ==
@@ -348,7 +350,28 @@ class Reviewer:
         # "final-submission" still match.
         scope_normalized = (scope or "").strip().lower().replace("-", "_")
         is_final_submission = scope_normalized == "final_submission"
-        if is_final_submission or stage == "submission":
+        if _measured:
+            stage_checklist = (
+                "## MEASURED-BENCHMARK MODE — judge ONLY on the measured score\n"
+                "This task has a TRUSTED scorer. Your verdict depends on ONE thing: did this "
+                "round's MEASURED score improve over the engineer's previous best?\n\n"
+                "- `continue` if the score improved (tell the engineer to lock it in and "
+                "explore the NEXT mechanism), OR the engineer can still try a clearly-different "
+                "unexplored mechanism. Your `next_action` MUST name a CONCRETE new direction — a "
+                "different library/SOTA approach, a different hardware technique, or the specific "
+                "profiled bottleneck to attack. PUSH mechanism diversity; do NOT ask for more "
+                "tweaking of a direction that already lost.\n"
+                "- `blocked` ONLY if several consecutive rounds measured no improvement AND the "
+                "engineer has genuinely run out of distinct mechanisms (real plateau), or there "
+                "is an operator-only blocker.\n"
+                "- `done` is rare for open-ended optimization — only if the score is at/above the "
+                "known ceiling.\n\n"
+                "Do NOT demand GROUND_TRUTH / gate / marker / status / evidence / provenance "
+                "files — the scorer's number is the only evidence, and the harness ignores those "
+                "files. Do NOT judge bookkeeping or artifact hygiene. A round that MEASURED a "
+                "real number — even a worse one — made forward progress by ruling out a mechanism."
+            )
+        elif is_final_submission or stage == "submission":
             stage_checklist = format_full_pipeline_checklist(role="reviewer", project_root=_proot)
         else:
             stage_checklist = format_stage_checklist(stage, role="reviewer", project_root=_proot)
