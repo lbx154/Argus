@@ -18,6 +18,7 @@ already BPB-shaped); only the role banner pins the nanochat objective.
 from __future__ import annotations
 
 import json
+import os
 import re
 import statistics
 from pathlib import Path
@@ -86,6 +87,22 @@ def role_banner(role: str) -> str:
         "and harness (lib.py) are frozen. Do NOT optimize for wall-time or\n"
         "throughput for its own sake — only the final val_bpb matters.\n"
     )
+    # Island mode (multi-island search): when this lineage runs as one island of
+    # a population, soft-pin it to its seeded regime. Diversity / migration /
+    # reseeding are the orchestrator's job, so the island agent does NOT need to
+    # jump regimes itself — it develops its OWN axis and mines the population-best
+    # from inspirations/. Soft (bias only); the agent is still free to co-design.
+    _regime = os.environ.get("ARGUS_ISLAND_REGIME", "").strip()
+    if _regime:
+        common = common + (
+            f"\nISLAND MODE — this lineage is SEEDED toward the `{_regime}` regime. "
+            "Bias your candidates toward that axis (it is where this island is meant "
+            "to explore); you may still co-design within/around it. Cross-island "
+            "diversity, migration of the population-best, and reseeding a stalled "
+            "island are handled by the ORCHESTRATOR — you do NOT need to jump "
+            "regimes yourself. Check the `inspirations/` dir for the population-best "
+            "candidate(s) to study (derive, do not blindly copy).\n"
+        )
     if role == "planner":
         return common + (
             "\nSEARCH DISCIPLINE (HARD RULE — overrides the safe-incremental pull):\n"
@@ -521,6 +538,22 @@ def strategy_pool(project_root: object) -> str:
             if isinstance(floor, (int, float))
             else "(unknown)"
         )
+        # Island mode: migrated population-best candidates dropped by the
+        # orchestrator into inspirations/ are first-class diverse parents.
+        migrated = ""
+        try:
+            insp = Path(str(project_root)) / "inspirations"
+            if insp.is_dir():
+                names = sorted(p.name for p in insp.iterdir() if p.is_file())
+                if names:
+                    migrated = (
+                        "MIGRATED population-best (from sibling islands — study, do "
+                        "NOT blindly copy):\n"
+                        + "\n".join(f"  - inspirations/{n}" for n in names[:6])
+                        + "\n"
+                    )
+        except Exception:  # noqa: BLE001
+            pass
         return (
             "REGIME AXES MENU (biggest-lever-first; pick an UNDER-EXPLORED one):\n"
             f"{_CATEGORY_AXES}\n\n"
@@ -528,7 +561,8 @@ def strategy_pool(project_root: object) -> str:
             f"touched = {', '.join(touched) or '(none labelled)'}; "
             f"UNTOUCHED = {', '.join(untouched) or '(all touched)'}.\n"
             f"PARENT (the floor to beat, your safe deliverable): {parent}\n"
-            "DIVERSE INSPIRATIONS (early, behaviourally-distinct attempts to mine "
+            + migrated
+            + "DIVERSE INSPIRATIONS (early, behaviourally-distinct attempts to mine "
             "for a different regime — NOT to copy):\n"
             + ("\n".join(f"  - {x}" for x in inspirations) or "  (none)")
             + "\n"
