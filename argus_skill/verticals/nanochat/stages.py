@@ -152,6 +152,12 @@ def role_banner(role: str) -> str:
             "is what updates the diagnosis for the next candidate. Still "
             "1-seed screen first; keep lib.py and the scorer frozen; "
             "real flash_attn.cute FA-4 only (never SDPA/fallback/FA2).\n"
+            "When you write the attempt's `summary.json`, record a "
+            "`strategy_type` field naming which REGIME AXIS this candidate "
+            "explores — one of: `optimizer` | `architecture` | "
+            "`update_mechanics` | `data` | `numerics` | `local` (use `local` for "
+            "a within-regime tweak). This lets the search track regime coverage "
+            "so a frozen basin is detected honestly from your OWN labels.\n"
         )
     if role == "reviewer":
         return common + (
@@ -258,6 +264,54 @@ def _read_attempt_mean_bpb(adir: Path) -> float | None:
     return _read_attempt_record(adir)[0]
 
 
+def _read_attempt_strategy(adir: Path) -> str:
+    """Agent-recorded ``strategy_type`` label from ``summary.json`` (or '').
+
+    This is a GENERIC regime label (which axis a candidate explores —
+    optimizer / architecture / data / …), NOT the metric, so the meta layer may
+    read it directly without breaking the harness's metric-blindness. Legacy
+    attempts have no label → ''.
+    """
+    sj = adir / "summary.json"
+    if sj.exists():
+        try:
+            obj = json.loads(sj.read_text(encoding="utf-8"))
+            if isinstance(obj, dict):
+                return str(obj.get("strategy_type") or "").strip().lower()
+        except Exception:  # noqa: BLE001 — fail-soft per attempt
+            pass
+    return ""
+
+
+def _scored_attempts(
+    project_root: object,
+) -> list[tuple[int, str, float, str, str]]:
+    """Shared read loop: ``(index, name, score, decision, strategy_type)`` for
+    every attempt dir with a usable score, sorted oldest→newest. Used by both
+    the rendered altitude block and the structured facts hook so the read logic
+    is defined once. Fail-soft: returns ``[]`` on any error / no attempts dir.
+    """
+    try:
+        root = Path(str(project_root))
+        adir = root / "attempts"
+        if not adir.is_dir():
+            return []
+        out: list[tuple[int, str, float, str, str]] = []
+        for d in sorted(adir.iterdir()):
+            if not d.is_dir():
+                continue
+            score, decision = _read_attempt_record(d)
+            if score is None:
+                continue
+            out.append(
+                (_attempt_index(d.name), d.name, score, decision, _read_attempt_strategy(d))
+            )
+        out.sort(key=lambda t: (t[0], t[1]))
+        return out
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _name_tokens(name: str) -> list[str]:
     """Split an attempt name into lever-ish word tokens, dropping the aNNN
     prefix, pure digits, and ubiquitous filler so the frequency hint is
@@ -289,17 +343,9 @@ def search_altitude_context(project_root: object) -> str:
         adir = root / "attempts"
         if not adir.is_dir():
             return ""
-        attempts: list[tuple[int, str, float, str]] = []
-        for d in sorted(adir.iterdir()):
-            if not d.is_dir():
-                continue
-            score, decision = _read_attempt_record(d)
-            if score is None:
-                continue
-            attempts.append((_attempt_index(d.name), d.name, score, decision))
+        attempts = _scored_attempts(project_root)
         if not attempts:
             return ""
-        attempts.sort(key=lambda t: (t[0], t[1]))
         scores = [t[2] for t in attempts]
 
         # FLOOR = the agent's OWN latest PROMOTED attempt (re-surface its
@@ -377,6 +423,120 @@ def search_altitude_context(project_root: object) -> str:
         return ""
 
 
+def search_altitude_facts(project_root: object) -> dict:
+    """Structured twin of :func:`search_altitude_context` for the meta layer.
+
+    Returns ``{floor, floor_name, since_improve, raw_best, n_attempts,
+    attempts:[{name,index,score,decision,strategy_type}]}`` — the same numbers
+    the rendered block shows, re-surfaced as data so the cross-vertical meta
+    layer can detect saturation WITHOUT re-implementing this vertical's
+    ``val_bpb`` parsing (the harness stays metric-blind). Floor anchoring is
+    identical to the rendered block: the agent's latest PROMOTED attempt, else
+    the best raw score. Fail-soft: ``{}`` on any error / no scored attempts.
+    """
+    try:
+        attempts = _scored_attempts(project_root)
+        if not attempts:
+            return {}
+        scores = [t[2] for t in attempts]
+        promoted = [i for i, t in enumerate(attempts) if "promote" in t[3]]
+        floor_pos = (
+            promoted[-1]
+            if promoted
+            else min(range(len(scores)), key=lambda i: scores[i])
+        )
+        raw_pos = min(range(len(scores)), key=lambda i: scores[i])
+        return {
+            "floor": scores[floor_pos],
+            "floor_name": attempts[floor_pos][1],
+            "since_improve": len(attempts) - 1 - floor_pos,
+            "raw_best": scores[raw_pos],
+            "n_attempts": len(attempts),
+            "attempts": [
+                {
+                    "name": t[1],
+                    "index": t[0],
+                    "score": t[2],
+                    "decision": t[3],
+                    "strategy_type": t[4],
+                }
+                for t in attempts
+            ],
+        }
+    except Exception:  # noqa: BLE001 — meta detection must never break prompts
+        return {}
+
+
+def strategy_pool(project_root: object) -> str:
+    """Regime strategy pool for a JUMP: the menu + coverage + diverse inspirations.
+
+    Composed from things that already exist for this vertical:
+      * the ``_CATEGORY_AXES`` taxonomy (the mechanism-CHANGING axes menu),
+      * a coverage annotation (which canonical regime axes the agent's recorded
+        ``strategy_type`` labels have already touched vs are UNTOUCHED),
+      * the promoted FLOOR as the "parent", plus a handful of the EARLIEST,
+        most behaviourally-distinct attempts as diverse "inspirations"
+        (AlphaEvolve parent+inspirations; bounded per the EMNLP negative
+        result — NOT a full-history dump).
+    Fail-soft: ``""`` on any error.
+    """
+    try:
+        try:
+            from ...meta.config import REGIME_AXES
+        except Exception:  # noqa: BLE001
+            REGIME_AXES = (
+                "optimizer",
+                "architecture",
+                "update_mechanics",
+                "data",
+                "numerics",
+            )
+        facts = search_altitude_facts(project_root)
+        attempts = facts.get("attempts", []) if facts else []
+        cov = {ax: 0 for ax in REGIME_AXES}
+        for a in attempts:
+            st = str(a.get("strategy_type") or "").strip().lower()
+            if st in cov:
+                cov[st] += 1
+        touched = [ax for ax in REGIME_AXES if cov[ax] > 0]
+        untouched = [ax for ax in REGIME_AXES if cov[ax] == 0]
+
+        # Diverse early inspirations: walk oldest→newest, take the first attempt
+        # of each distinct name-axis token, up to a small bound.
+        seen: set[str] = set()
+        inspirations: list[str] = []
+        for a in attempts:
+            toks = _name_tokens(str(a.get("name") or ""))
+            key = toks[0] if toks else ""
+            if key and key not in seen:
+                seen.add(key)
+                inspirations.append(f"{a['name']} ({a['score']:.6f})")
+            if len(inspirations) >= 6:
+                break
+
+        floor = facts.get("floor")
+        floor_name = facts.get("floor_name", "?")
+        parent = (
+            f"{floor:.6f} (from `{floor_name}`)"
+            if isinstance(floor, (int, float))
+            else "(unknown)"
+        )
+        return (
+            "REGIME AXES MENU (biggest-lever-first; pick an UNDER-EXPLORED one):\n"
+            f"{_CATEGORY_AXES}\n\n"
+            f"COVERAGE (from your recorded strategy_type labels): "
+            f"touched = {', '.join(touched) or '(none labelled)'}; "
+            f"UNTOUCHED = {', '.join(untouched) or '(all touched)'}.\n"
+            f"PARENT (the floor to beat, your safe deliverable): {parent}\n"
+            "DIVERSE INSPIRATIONS (early, behaviourally-distinct attempts to mine "
+            "for a different regime — NOT to copy):\n"
+            + ("\n".join(f"  - {x}" for x in inspirations) or "  (none)")
+            + "\n"
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 __all__ = [
     "REVIEWER_CHECKLISTS",
     "STAGE_CHECKS",
@@ -386,4 +546,6 @@ __all__ = [
     "completion_gate",
     "role_banner",
     "search_altitude_context",
+    "search_altitude_facts",
+    "strategy_pool",
 ]

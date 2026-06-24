@@ -395,6 +395,22 @@ class Planner:
         run tests, read docs, etc. before deciding what to work on next.
         """
         cfg = config or PlannerConfig()
+        # Meta-control: detect saturation and (if frozen past threshold) convene
+        # a regime-jump turn. Computed here so the SAME decision drives both the
+        # injected prompt block and the post-run ledger record. Fail-soft: any
+        # error → no meta intervention, planner runs exactly as before.
+        _meta_proot = None
+        flow = None
+        try:
+            from ..meta import flow_controller as _flow_controller
+            from ..skills.harness_overlay import resolve_project_root as _rpr
+            from ..skills.vertical_select import resolve_vertical as _rv
+            from ..verticals._base import load_vertical as _lv
+
+            _meta_proot = _rpr()
+            flow = _flow_controller.decide(_meta_proot, _lv(_rv(_meta_proot)))
+        except Exception:  # noqa: BLE001 — meta must never break planning
+            flow = None
         prompt = self._build_planner_prompt(
             continuous_objective=continuous_objective,
             journal_tail=journal_tail,
@@ -402,6 +418,7 @@ class Planner:
             planning_cycle=planning_cycle,
             runtime_change_summary=runtime_change_summary,
             mission=self.mission,
+            meta_block=(flow.prompt_block if flow is not None else ""),
         )
         try:
             result = self.runner.run_exec(
@@ -453,6 +470,18 @@ class Planner:
                 output_tokens=output_tokens,
             )
         parsed = parse_planner_text(text)
+        # Meta-control: persist the agent's own meta_decision — merge any
+        # AGENT-declared forbidden directions into the never-cleared ledger and
+        # append the decision-log row. The harness never invents a forbidden
+        # direction; it only records and later re-injects the ones the planner
+        # itself declared dead. Fail-soft.
+        if flow is not None and _meta_proot is not None:
+            try:
+                from ..meta import flow_controller as _flow_controller
+
+                _flow_controller.record_decision(_meta_proot, text, flow)
+            except Exception:  # noqa: BLE001 — recording must never break planning
+                pass
         return replace(
             parsed,
             input_tokens=input_tokens,
@@ -482,6 +511,7 @@ class Planner:
         planning_cycle: int,
         runtime_change_summary: str = "",
         mission: Any | None = None,
+        meta_block: str = "",
     ) -> str:
         budget_line = (
             f"This is planning cycle #{planning_cycle + 1}. "
@@ -794,6 +824,13 @@ class Planner:
             + wiki_block
             + ("\n" if wiki_block else "")
             + search_altitude_block
+            # Meta-control layer (saturation → enforced regime-jump). When the
+            # floor has been frozen past the threshold, this block CONVENES a
+            # jump turn: the never-cleared forbidden ledger + coverage + strategy
+            # pool + a context reset, escalating the NO-VERDICT altitude facts
+            # above into a binding "propose a regime jump" framing. Empty
+            # (exploit) when not saturated, so the normal path is unchanged.
+            + meta_block
             + _PLANNER_SYSTEM_PREAMBLE
             + "\n\nOriginal operator request (immutable anchor):\n"
             + continuous_objective.strip()

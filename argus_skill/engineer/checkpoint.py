@@ -324,6 +324,32 @@ class CheckpointState:
             updated_at=time.time(),
         )
 
+    def cleared_for_jump(self) -> "CheckpointState":
+        """Return a copy with the LOCAL trajectory dropped for a regime jump.
+
+        The meta-control layer convenes a regime jump when the promoted floor
+        has frozen; continuing the recency-locked local bet (``active_line`` /
+        ``maturing`` / ``next_step``) is exactly the trap it is breaking. This
+        drops those while KEEPING the durable carry-forward — ``goal``, verified
+        ``done``, ``env_facts``, and ``tried_and_failed`` (genuine dead ends stay
+        dead) — so the next session opens the new regime fresh instead of
+        re-anchoring on the saturated line. The never-lost global-best floor is
+        recoverable from ``attempts/`` regardless, so this reset loses nothing
+        durable. (Spec §5 context reset.)
+        """
+        return CheckpointState(
+            goal=self.goal,
+            done=list(self.done),
+            tried_and_failed=list(self.tried_and_failed),
+            maturing=[],
+            open_blocker=self.open_blocker,
+            next_step="",
+            active_line={},
+            env_facts=list(self.env_facts),
+            round=self.round,
+            updated_at=time.time(),
+        )
+
 
 def load_checkpoint(path: Path | None) -> CheckpointState:
     """Load a checkpoint from disk, fail-soft to empty."""

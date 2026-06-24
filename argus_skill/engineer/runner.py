@@ -882,6 +882,19 @@ class SupervisedEngineer:
         # session resumes from a small curated handoff, never the giant
         # compacted history that caused the amnesia loop.
         checkpoint = load_checkpoint(supervised_config.checkpoint_path)
+        # Meta-control context reset: if the planner convened a regime jump since
+        # the last engineer session, drop the saturated LOCAL trajectory
+        # (active_line / maturing) so this session opens the new regime fresh
+        # instead of re-anchoring on the frozen basin. Consume-once + fail-soft:
+        # any error leaves the checkpoint untouched (unchanged behaviour).
+        try:
+            from ..meta.ledger import consume_jump_pending
+            from ..skills.harness_overlay import resolve_project_root as _rpr
+
+            if consume_jump_pending(_rpr()):
+                checkpoint = checkpoint.cleared_for_jump()
+        except Exception:  # noqa: BLE001 — meta reset must never break the loop
+            pass
         # Rounds the current Codex thread has lived for *this mission*. We
         # proactively roll (drop) the thread once it reaches the shift limit so
         # no single session accumulates enough history to repeatedly trigger
