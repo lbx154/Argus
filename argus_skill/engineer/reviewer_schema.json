@@ -115,7 +115,24 @@
           "items": { "type": "string", "maxLength": 280 }
         },
         "open_blocker": { "type": "string", "maxLength": 800 },
-        "next_step": { "type": "string", "maxLength": 600 }
+        "next_step": { "type": "string", "maxLength": 600 },
+        "active_line": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "OPTIONAL — the ONE bold direction you are maturing ABOVE the floor across rounds (desc / where its code is saved / how long / next refinement). Omit it entirely if you are not carrying a line; the harness drops it on a regime jump.",
+          "properties": {
+            "desc": { "type": "string", "maxLength": 400 },
+            "branch_or_path": { "type": "string", "maxLength": 400 },
+            "rounds_active": { "type": "integer", "minimum": 0 },
+            "note": { "type": "string", "maxLength": 400 }
+          }
+        },
+        "env_facts": {
+          "type": "array",
+          "maxItems": 12,
+          "description": "OPTIONAL — durable environment facts a successor needs to not rediscover (ports, hosts, dataset paths, env names).",
+          "items": { "type": "string", "maxLength": 280 }
+        }
       },
       "required": ["goal", "done", "tried_and_failed", "maturing", "open_blocker", "next_step"]
     }

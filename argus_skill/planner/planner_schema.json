@@ -85,6 +85,18 @@
           }
         }
       }
+    },
+    "meta_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OPTIONAL — only on a meta-control jump/explore turn. Your OWN call about the search regime (the harness convened the turn on a counter but does not decide for you). The harness records it and re-surfaces your declared forbidden directions next cycle as visibility; it does NOT hard-gate or reject your next candidate. Omit it entirely if you have nothing to declare.",
+      "properties": {
+        "mode": { "type": "string", "enum": ["explore", "exploit", "jump"] },
+        "confidence": { "type": "number" },
+        "reasoning": { "type": "string" },
+        "strategy_type": { "type": "string" },
+        "forbidden": { "type": "array", "items": { "type": "string" } }
+      }
     }
   }
 }

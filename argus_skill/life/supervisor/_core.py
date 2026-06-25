@@ -509,8 +509,19 @@ class LifeSupervisor:
                     break
                 continue
             results.append(outcome)
-            # A real mission ran: clear any accumulated no-work backoff.
-            self._reset_idle_backoff()
+            if outcome.get("status") in {
+                "budget_pause",
+                "iteration_cap",
+                "lifecycle_block",
+            }:
+                # No mission actually ran — this is a held/paused outcome. Escalate
+                # the wait like the idle path (15→300s) instead of resetting to
+                # poll_interval, so a budget pause / F5 hold doesn't busy-spin and
+                # re-flood the journal every 5s until the daily cap rolls over.
+                self._enter_idle_backoff()
+            else:
+                # A real mission ran: clear any accumulated no-work backoff.
+                self._reset_idle_backoff()
             # Auth failure flagged by _run_one: propagate immediately
             if outcome.get("auth_failure"):
                 stopped_by = "auth_failure"
@@ -715,21 +726,25 @@ class LifeSupervisor:
         if not ok:
             # Don't fail the item — it'll be retried next supervisor
             # run when the daily cap rolls over. Just journal it and
-            # signal the caller to exit cleanly.
+            # signal the caller to exit cleanly. Heartbeat-gate the journal
+            # append + operator notify (same gate as the idle-await path) so a
+            # long budget pause cannot flood — and poison — the planner's
+            # next-cycle context; the per-tick status still carries the reason.
             self._emit_status(f"budget block: {reason}")
-            entry = JournalEntry.new(
-                kind="budget_pause",
-                title=f"paused before '{item.title}'",
-                summary=reason,
-                tags=["budget"],
-            )
-            self.memory.journal.append(entry)
-            self._inject_cumulative_cost(entry)
-            try:
-                from ..notify import dispatch_journal_entry
-                dispatch_journal_entry(entry)
-            except Exception:  # noqa: BLE001
-                log.exception("notify dispatch failed; continuing")
+            if self._should_journal_idle_repeat("budget_pause"):
+                entry = JournalEntry.new(
+                    kind="budget_pause",
+                    title=f"paused before '{item.title}'",
+                    summary=reason,
+                    tags=["budget"],
+                )
+                self.memory.journal.append(entry)
+                self._inject_cumulative_cost(entry)
+                try:
+                    from ..notify import dispatch_journal_entry
+                    dispatch_journal_entry(entry)
+                except Exception:  # noqa: BLE001
+                    log.exception("notify dispatch failed; continuing")
             return {"status": "budget_pause", "item_id": item.id, "reason": reason}
 
         if not self.config.continuous and self._missions_started >= self.config.budget.max_missions:

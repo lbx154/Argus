@@ -1682,13 +1682,25 @@ def failed_check_diagnostics(checks: list[CheckResult], *, max_chars: int = 2600
         "ground truth for what is wrong. Read it, find the root cause, and fix it.",
     ]
     budget = max(400, int(max_chars))
+    truncated = False
     for check in failed:
         parts.append(f"$ {check.command}   (exit={check.exit_code})")
         tail = (check.output_tail or "").strip()
-        if tail:
-            snippet = tail[-budget:]
-            parts.append("```\n" + snippet + "\n```")
-            budget = max(400, budget - len(snippet))
+        if not tail:
+            continue
+        if budget <= 0:
+            # Total output budget spent — show remaining failing commands by name
+            # but do NOT keep emitting 400-char floors per check (which busted the
+            # documented max_chars bound across many failing checks).
+            truncated = True
+            continue
+        snippet = tail[-budget:]
+        parts.append("```\n" + snippet + "\n```")
+        budget -= len(snippet)
+    if truncated:
+        parts.append(
+            "…(further failing-check output omitted to stay within the prompt budget)"
+        )
     return "\n".join(parts)
 
 

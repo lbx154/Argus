@@ -9,9 +9,11 @@ The jump framing is a CONTEXT RESET (spec §5), built deliberately to avoid the
 EMNLP-2025 negative result (dumping all prior attempts is worse than ignoring
 them): it carries a BOUNDED state — the never-cleared forbidden ledger, the
 coverage map, and a "parent floor + top-k diverse inspirations" strategy pool —
-NOT the local trajectory. The planner is told the local line is suppressed on
-purpose and that the next candidate is validated against the forbidden set, so
-a re-anchoring tweak is rejected by the harness before it spends 300 s.
+NOT the local trajectory. The planner is told the local line is held back for
+this turn and is shown the directions IT has previously declared dead, re-
+surfaced as VISIBILITY — not as a hard gate. The harness convenes the turn (a
+counter) and re-surfaces the agent's own ledger; whether to jump, and where,
+stays the planner's research call (harness 没 agent 聪明 — no mechanical reject).
 """
 from __future__ import annotations
 
@@ -69,39 +71,45 @@ def build_meta_block(
     # mode == "jump"
     lines: list[str] = []
     lines.append(
-        "## META-CONTROL — REGIME JUMP CONVENED (harness-convened on a counter; "
-        "YOU decide the regime)"
+        "## META-CONTROL — REGIME-JUMP TURN (harness-convened on a counter; YOU decide)"
     )
     lines.append(
         "The harness convened this turn because a domain-agnostic counter tripped "
         f"— the promoted floor has been frozen for {signal.frozen_rounds} "
         f"consecutive attempts while the recent window collapsed onto "
         f"{signal.diversity_score} regime axis(es). This is NOT a verdict that any "
-        "idea is wrong; it is a scheduling signal that this turn must propose a "
-        "REGIME JUMP, not another local lever on the current backbone."
+        "idea is wrong, and it is NOT a hard gate: it is a scheduling nudge that "
+        "now is a good moment to step OUT of the current backbone and open a line "
+        "in a different regime. You are the researcher — if you have a strong, "
+        "specific reason to stay on the current line, you may; just say why in "
+        "meta_decision.reasoning."
     )
     lines.append("")
-    lines.append("### Binding constraints the harness WILL enforce on your next candidate")
+    lines.append("### What the harness re-surfaces (visibility — not enforced)")
     if forbidden:
         lines.append(
-            "- FORBIDDEN DIRECTIONS (these were declared dead by YOU/your "
-            "predecessors and are never cleared — a candidate whose `strategy_type` "
-            "is one of these is rejected before it spends 300 s):"
+            "- DIRECTIONS YOU ALREADY DECLARED DEAD (your own, never cleared, "
+            "re-surfaced every cycle so you don't unknowingly loop back — nothing "
+            "is mechanically blocked; the call stays yours):"
         )
         lines.extend(f"    · {f}" for f in forbidden)
     else:
-        lines.append("- FORBIDDEN DIRECTIONS: (none yet — you may declare some below)")
+        lines.append(
+            "- DEAD DIRECTIONS: (none recorded yet — if this turn convinces you a "
+            "direction is exhausted, list it in meta_decision.forbidden and it will "
+            "be re-surfaced to you next time)"
+        )
     lines.append(
-        f"- The next candidate's `strategy_type` MUST be an UNDER-EXPLORED axis. "
-        f"Coverage so far (recorded): {cov_str}. Untouched axes: {untouched}."
+        f"- Regime coverage so far (from your recorded labels): {cov_str}. "
+        f"Under-explored / untouched axes worth a look: {untouched}."
     )
     lines.append("")
     lines.append("### Context reset (intentional)")
     lines.append(
-        "Your local trajectory (active_line / recent maturing tweaks) is "
-        "SUPPRESSED this turn on purpose — continuing it is exactly the trap. The "
-        "never-lost global-best floor is safe and recoverable from attempts/; you "
-        "are not abandoning it, you are opening a NEW line in a different regime."
+        "Your local trajectory (active_line / recent maturing tweaks) is held back "
+        "this turn on purpose — continuing it is exactly the trap the counter "
+        "flagged. The never-lost global-best floor is safe and recoverable from "
+        "attempts/; you are not abandoning it, you are opening a NEW line."
     )
     lines.append("")
     lines.append("### Strategy pool — parent floor + diverse inspirations")
@@ -109,19 +117,21 @@ def build_meta_block(
     lines.append("")
     lines.append("### What to output this turn")
     lines.append(
-        "Queue ONE candidate that changes REGIME (a different optimizer family, a "
-        "different architecture paradigm, a data/curriculum change, or a different "
-        "training-schedule regime) — co-designed as needed, but NOT a tweak of the "
-        "current backbone. Then emit a fenced `meta_decision` JSON block:"
+        "Queue ONE candidate — ideally one that changes REGIME (a different "
+        "optimizer family, a different architecture paradigm, a data/curriculum "
+        "change, or a different training-schedule regime), co-designed however you "
+        "see fit. Then ALSO fill the OPTIONAL `meta_decision` field of your "
+        "structured output so the harness can re-surface your own reasoning + "
+        "declared dead-ends to you next cycle (it is visibility, not a contract):"
     )
     lines.append(
         "```json\n"
-        "{\n"
+        '"meta_decision": {\n'
         '  "mode": "jump",\n'
         '  "confidence": 0.0,\n'
-        '  "reasoning": "<why THIS regime, tied to the diagnosed binding constraint>",\n'
+        '  "reasoning": "<why THIS regime — or, if you chose to stay, why>",\n'
         f'  "strategy_type": "<one of: {", ".join(a for a in STRATEGY_TYPES if a not in ("local","unknown"))}>",\n'
-        '  "forbidden": ["<the now-dead direction(s) you are leaving behind>"]\n'
+        '  "forbidden": ["<direction(s) you are now declaring dead, if any>"]\n'
         "}\n```"
     )
     lines.append("")
@@ -161,17 +171,23 @@ def parse_meta_decision(
     *,
     forbidden_axes: set[str] | None = None,
     require_jump: bool = False,
+    obj: dict | None = None,
 ) -> MetaDecision:
     """Parse + validate the planner's ``meta_decision`` (fail-soft).
 
-    Validation (structural, on the agent's OWN declared label — never a content
-    judgment): ``mode`` and ``strategy_type`` must be in the known vocab; for a
-    jump, ``strategy_type`` must not be ``local``/``unknown`` and must not be in
-    the never-cleared ``forbidden_axes``. ``valid=False`` + ``violations`` flags
-    a jump that tried to re-anchor on a dead regime, so the caller can re-ask.
+    Prefer the structured ``obj`` (the ``meta_decision`` field the planner now
+    returns directly in its schema'd output); fall back to scraping a fenced
+    block out of ``text`` for older/looser outputs. Validation is structural,
+    on the agent's OWN declared label — never a content judgment: ``mode`` and
+    ``strategy_type`` must be in the known vocab; for a jump, ``strategy_type``
+    must not be ``local``/``unknown`` and must not be in the never-cleared
+    ``forbidden_axes``. ``valid``/``violations`` are RECORDED for the operator's
+    audit trail; they do NOT gate the candidate (the harness re-surfaces the
+    forbidden ledger as visibility, it does not mechanically reject).
     """
-    obj = _find_meta_json(text or "")
     if obj is None:
+        obj = _find_meta_json(text or "")
+    if not isinstance(obj, dict):
         return MetaDecision(present=False, valid=not require_jump)
 
     dec = MetaDecision(present=True)

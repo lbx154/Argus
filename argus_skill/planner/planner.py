@@ -479,7 +479,18 @@ class Planner:
             try:
                 from ..meta import flow_controller as _flow_controller
 
-                _flow_controller.record_decision(_meta_proot, text, flow)
+                # Pull the agent's meta_decision straight from its structured
+                # output (planner_schema now carries an optional meta_decision
+                # field) so JUDGE no longer depends on scraping prose.
+                _meta_obj = None
+                _found = _load_json_object_with_schema(
+                    text, required_keys=("project_done", "reason", "new_tasks")
+                )
+                if _found is not None and isinstance(_found[0].get("meta_decision"), dict):
+                    _meta_obj = _found[0]["meta_decision"]
+                _flow_controller.record_decision(
+                    _meta_proot, text, flow, meta_obj=_meta_obj
+                )
             except Exception:  # noqa: BLE001 — recording must never break planning
                 pass
         return replace(

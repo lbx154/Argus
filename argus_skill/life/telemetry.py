@@ -26,6 +26,12 @@ from typing import Any, Iterable
 
 TELEMETRY_FILE = "telemetry.jsonl"
 TELEMETRY_STATUS_FILE = "telemetry.status.json"
+#: Soft size cap: when ``telemetry.jsonl`` exceeds this we rotate to
+#: ``telemetry.jsonl.1`` (one historical roll kept), so the highest-frequency
+#: heartbeat writer matches the bounded contract of its event_log/memory/activity
+#: siblings instead of growing without limit.
+TELEMETRY_ROLL_BYTES = 64 * 1024 * 1024  # 64 MiB
+TELEMETRY_ROLL_FILE = TELEMETRY_FILE + ".1"
 SCHEMA_VERSION = 1
 
 _DEFAULT_SCAN_DIRS: tuple[str, ...] = (
@@ -283,6 +289,7 @@ class TelemetryRecorder:
     def __init__(self, life_dir: Path | str) -> None:
         self.life_dir = Path(life_dir).expanduser()
         self.history_path = self.life_dir / TELEMETRY_FILE
+        self.roll_path = self.life_dir / TELEMETRY_ROLL_FILE
         self.status_path = self.life_dir / TELEMETRY_STATUS_FILE
         self._lock = threading.Lock()
         self.life_dir.mkdir(parents=True, exist_ok=True)
@@ -292,12 +299,31 @@ class TelemetryRecorder:
         line = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         with self._lock:
             try:
+                self._maybe_roll()
                 with self.history_path.open("a", encoding="utf-8") as fh:
                     fh.write(line + "\n")
                 self._write_status(payload)
             except OSError:
                 pass
         return payload
+
+    def _maybe_roll(self) -> None:
+        """Rotate ``telemetry.jsonl`` → ``telemetry.jsonl.1`` past the size cap
+        (one historical roll kept), matching the event_log/memory/activity
+        siblings so the heartbeat history stays bounded. Best-effort."""
+        try:
+            if self.history_path.stat().st_size < TELEMETRY_ROLL_BYTES:
+                return
+        except FileNotFoundError:
+            return
+        except Exception:  # noqa: BLE001
+            return
+        try:
+            if self.roll_path.exists():
+                self.roll_path.unlink()
+            os.replace(self.history_path, self.roll_path)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _write_status(self, payload: dict[str, Any]) -> None:
         tmp = self.status_path.with_name(f"{self.status_path.name}.{os.getpid()}.tmp")

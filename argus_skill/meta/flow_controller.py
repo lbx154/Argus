@@ -88,13 +88,16 @@ def record_decision(
     config: MetaConfig | None = None,
     *,
     now: float | None = None,
+    meta_obj: dict | None = None,
 ) -> MetaDecision:
     """Persist the agent's meta_decision: forbidden ledger + decision-log row.
 
-    Parses the planner's ``meta_decision`` (if any), merges the AGENT-declared
-    forbidden directions into the never-cleared ledger, refreshes the coverage
-    map, and appends one row to ``META_LEDGER.jsonl``. Returns the parsed
-    decision (``present=False`` if the planner emitted none). Fail-soft.
+    Parses the planner's ``meta_decision`` — preferring the structured
+    ``meta_obj`` the planner returns in its schema'd output, falling back to
+    scraping ``planner_output`` — merges the AGENT-declared forbidden directions
+    into the never-cleared ledger, refreshes the coverage map, and appends one
+    row to ``META_LEDGER.jsonl``. Returns the parsed decision (``present=False``
+    if the planner emitted none). Fail-soft.
     """
     signal = flow.signal
     try:
@@ -102,6 +105,7 @@ def record_decision(
             planner_output or "",
             forbidden_axes=flow.forbidden_axes,
             require_jump=(flow.mode == "jump"),
+            obj=meta_obj,
         )
         # Merge coverage with the just-declared strategy_type so the map advances
         # even before the candidate is scored.

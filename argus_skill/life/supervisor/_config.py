@@ -33,7 +33,8 @@ class LifeBudget:
     2. **Daily cap**: cumulative ``cost_usd`` from journal entries
        whose timestamp is ≥ start-of-current-day-local. The supervisor
        refreshes this number on each loop tick so a long-running
-       supervisor honours UTC day rollover.
+       supervisor honours LOCAL-day rollover (the pause clears at local
+       midnight, matching ``remaining_today``'s ``time.localtime`` math).
     3. **Iteration cap**: hard count of autonomous missions completed
        in this supervisor run (NOT cumulative across restarts). Once
        reached, supervisor exits cleanly even if backlog is non-empty.

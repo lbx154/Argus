@@ -119,7 +119,8 @@ def test_decide_jumps_on_frozen_mission(tmp_path):
     assert flow.mode == "jump"
     assert flow.signal.is_saturated
     block = flow.prompt_block
-    assert "REGIME JUMP CONVENED" in block
+    assert "REGIME-JUMP TURN" in block
+    assert "YOU decide" in block  # soft framing — convened, not enforced
     assert "optimizer" in block  # an untouched axis is offered
     assert "Context reset" in block
 
