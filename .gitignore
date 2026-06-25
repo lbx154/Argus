@@ -61,3 +61,6 @@ META_LEDGER.jsonl
 *.api-key.local
 .env
 .env.local
+
+# 商业计划书 — 绝不入库
+docs/Argus_BP*
