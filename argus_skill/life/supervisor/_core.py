@@ -152,6 +152,13 @@ _VERIFICATION_PROBE_COOLDOWN_SECONDS = 1800.0
 # harness never decides what "progress" is; it just refuses to let the agent
 # system loop invisibly without bringing the human in.
 _STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS = 3
+# Operator-only external-blocker latch: once this many verification probes have
+# EACH re-confirmed the SAME blocker is still present, stop probing entirely —
+# ping the operator once and stay in a cheap, escalating-backoff quiet wait until
+# the blocker clears, the operator acts, or the artifact signature changes. The
+# count and the pinged flag are persisted (keyed on the blocker signature) so a
+# daemon restart does not re-probe / re-ping a block already confirmed before it.
+_MAX_BLOCKER_CONFIRM_PROBES = 3
 _FULL_EMNLP_GATE_DESCRIPTION = (
     "the L2 reviewer's full pipeline checklist (research → submission)"
 )
@@ -246,6 +253,14 @@ class LifeSupervisor:
         # forward_progress=false; when it crosses the threshold the harness
         # escalates to the operator (surface, don't loop invisibly).
         self._consecutive_no_progress_missions = 0
+        # Operator-only external-blocker latch (persistent across daemon restarts
+        # via a small signature-keyed state file). Derived ENTIRELY from the
+        # structured on-disk blocker artifact — never a harness research
+        # judgment. Tracks how many verification probes re-confirmed the SAME
+        # blocker and whether the operator was already pinged, so a durable block
+        # settles into a cheap quiet wait instead of re-probing / re-pinging every
+        # cycle (and across restarts). ``None`` when there is no active blocker.
+        self._external_blocker_latch: dict[str, Any] | None = None
         self._reap_orphans_on_startup()
 
     def _reap_orphans_on_startup(self) -> None:
@@ -516,8 +531,12 @@ class LifeSupervisor:
                 # re-flood the journal every 5s until the daily cap rolls over.
                 self._enter_idle_backoff()
             else:
-                # A real mission ran: clear any accumulated no-work backoff.
-                self._reset_idle_backoff()
+                # A real mission ran. Decide whether it clears the no-work
+                # backoff: by default yes, but under an active operator-only
+                # external blocker the rule tightens to structural/agent evidence
+                # of progress so a probe that merely re-confirms the blocker
+                # cannot reset the escalation clock from zero.
+                self._handle_idle_backoff_after_mission(outcome)
             # Auth failure flagged by _run_one: propagate immediately
             if outcome.get("auth_failure"):
                 stopped_by = "auth_failure"
@@ -1439,8 +1458,15 @@ class LifeSupervisor:
         except Exception:  # noqa: BLE001
             log.exception("notify dispatch failed; continuing")
 
-        self._update_no_progress_streak(
-            kind=kind, report=getattr(outcome, "planner_report", {})
+        planner_report = getattr(outcome, "planner_report", {}) or {}
+        self._update_no_progress_streak(kind=kind, report=planner_report)
+        forward_progress = (
+            planner_report.get("forward_progress")
+            if isinstance(planner_report, dict)
+            else None
+        )
+        is_verification_probe = "verification_probe" in (
+            getattr(item, "tags", []) or []
         )
 
         self._emit({
@@ -1464,6 +1490,8 @@ class LifeSupervisor:
             "journal_entry_id": entry.id,
             "iteration": iteration_outcome,
             "auth_failure": auth_failure,
+            "forward_progress": forward_progress,
+            "is_verification_probe": is_verification_probe,
         }
 
     # ------------------------------------------------------------------
@@ -1588,6 +1616,34 @@ class LifeSupervisor:
         self._consecutive_idle_planner_cycles += 1
         self._suggested_sleep_s = self._idle_backoff_seconds()
         return self._suggested_sleep_s
+
+    def _handle_idle_backoff_after_mission(self, outcome: dict[str, Any]) -> None:
+        """Decide whether a finished mission clears the idle backoff.
+
+        Default (no active operator-only external blocker): unchanged — a real
+        mission means we are not idle, so reset. Under an ACTIVE blocker latch the
+        rule tightens to STRUCTURAL/AGENT evidence of progress so a probe that
+        merely re-confirms the blocker (or a crashed probe) cannot reset the
+        clock and restart the escalation from zero:
+
+          * blocker just cleared (structural) OR reviewer forward_progress=true
+            (agent judgment) -> reset;
+          * a verification probe that COMPLETED and the blocker is still present
+            -> count one confirm, keep the accumulated backoff;
+          * any other no-progress mission under the blocker (incl. a crashed
+            probe, which does NOT count) -> keep the accumulated backoff (the
+            next planner cycle escalates it).
+        """
+        active, just_cleared = self._refresh_external_blocker_latch()
+        if just_cleared or not active:
+            self._reset_idle_backoff()
+            return
+        if outcome.get("forward_progress") is True:
+            self._reset_idle_backoff()
+            return
+        if outcome.get("is_verification_probe") and outcome.get("success"):
+            self._record_external_blocker_confirm()
+        # else: hold the accumulated backoff; the next planner cycle escalates it.
 
     def _should_journal_idle_repeat(self, kind: str) -> bool:
         """Heartbeat-gate repetitive idle/waiting JOURNAL appends.
@@ -1953,6 +2009,178 @@ class LifeSupervisor:
             self._project_workdir()
         )
 
+    # ------------------------------------------------------------------
+    # Operator-only external-blocker latch (structural; persisted)
+    # ------------------------------------------------------------------
+
+    def _operator_only_external_blocker_state(self) -> tuple[str, str] | None:
+        """``(signature, reason)`` for an active operator-only external blocker."""
+        from ._helpers import _operator_only_external_blocker_state_for_project
+
+        return _operator_only_external_blocker_state_for_project(
+            self._project_workdir()
+        )
+
+    def _external_blocker_latch_path(self) -> Path:
+        root = Path(
+            getattr(self.config, "telemetry_dir", None)
+            or getattr(self.memory, "root", None)
+            or "."
+        )
+        return root / "external_blocker_latch.json"
+
+    def _load_external_blocker_latch(self, signature: str) -> dict[str, Any]:
+        """Restore the persisted confirm/ping counters for ``signature``.
+
+        Returns a zeroed latch when the state file is absent/unreadable or was
+        written for a DIFFERENT blocker (a new signature starts its own count).
+        This is what makes a daemon restart idempotent: confirms/pings already
+        banked for the live blocker are recovered, not restarted from zero.
+        """
+        latch = {"signature": signature, "confirms": 0, "operator_pinged": False}
+        try:
+            payload = json.loads(
+                self._external_blocker_latch_path().read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError):
+            return latch
+        if not isinstance(payload, dict) or payload.get("signature") != signature:
+            return latch
+        latch["confirms"] = int(payload.get("confirms", 0) or 0)
+        latch["operator_pinged"] = bool(payload.get("operator_pinged", False))
+        return latch
+
+    def _persist_external_blocker_latch(self) -> None:
+        """Atomically write the live latch (or remove the file when no blocker)."""
+        path = self._external_blocker_latch_path()
+        latch = self._external_blocker_latch
+        if latch is None:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                log.debug("could not remove external-blocker latch file")
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
+            tmp.write_text(
+                json.dumps(latch, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            os.replace(tmp, path)
+        except OSError:
+            log.debug("could not persist external-blocker latch file")
+
+    def _refresh_external_blocker_latch(self) -> tuple[bool, bool]:
+        """Reconcile the in-memory latch with the structured on-disk evidence.
+
+        Returns ``(active, just_cleared)``. ``active`` is True while a binding
+        operator-only external-blocker artifact is present; ``just_cleared`` is
+        True for the single refresh in which a previously-active blocker is found
+        gone (so the caller can treat that as real progress and reset backoff).
+
+        Purely structural — it reads the agent-authored blocker artifact and
+        never judges research semantics. On a new/changed blocker signature it
+        (re)seeds the persistent confirm/ping counters from the latch file,
+        making a daemon restart idempotent.
+        """
+        state = self._operator_only_external_blocker_state()
+        latch = self._external_blocker_latch
+        if state is not None:
+            signature = state[0]
+            if latch is None or latch.get("signature") != signature:
+                self._external_blocker_latch = self._load_external_blocker_latch(
+                    signature
+                )
+                self._persist_external_blocker_latch()
+            return True, False
+        if latch is not None:
+            self._external_blocker_latch = None
+            self._persist_external_blocker_latch()
+            return False, True
+        return False, False
+
+    def _record_external_blocker_confirm(self) -> None:
+        """A verification probe re-confirmed the SAME blocker is still present.
+
+        Increments the persistent confirm counter and journals a structured
+        audit line. The CALLER gates this on a probe that actually COMPLETED
+        (not a crash) and a structural re-check that the blocker is still
+        present — a crashed probe must never burn the probe budget.
+        """
+        latch = self._external_blocker_latch
+        if latch is None:
+            return
+        latch["confirms"] = int(latch.get("confirms", 0)) + 1
+        self._persist_external_blocker_latch()
+        self._emit({
+            "type": "life.planner.blocker_confirmed",
+            "signature": latch.get("signature", ""),
+            "confirms": latch["confirms"],
+        })
+        entry = JournalEntry.new(
+            kind="planner_blocker_confirmed",
+            title="external blocker re-confirmed by verification probe",
+            summary=(
+                "verification probe re-confirmed the operator-only external "
+                f"blocker is still present (confirm #{latch['confirms']})"
+            ),
+            tags=["life", "planner", "awaiting", "blocker"],
+            extra={
+                "agent_layer": "planner",
+                "blocker_signature": latch.get("signature", ""),
+                "still_blocked": True,
+                "confirms": latch["confirms"],
+            },
+        )
+        self.memory.journal.append(entry)
+        self._inject_cumulative_cost(entry)
+
+    def _maybe_ping_operator_blocker_confirmed(self) -> None:
+        """After K confirms, ping the operator ONCE and then stay quiet.
+
+        Fires a notified operator escalation a single time per blocker signature
+        (the ``operator_pinged`` flag is persisted, so a restart does not re-ping).
+        It does NOT stop the project, fail anything, or override the agent — it
+        only surfaces a durable block to its human, then keeps a cheap quiet wait.
+        """
+        latch = self._external_blocker_latch
+        if latch is None or latch.get("operator_pinged"):
+            return
+        latch["operator_pinged"] = True
+        self._persist_external_blocker_latch()
+        reason = self._operator_only_external_blocker_wait_reason() or "external blocker"
+        self._emit({
+            "type": "life.planner.blocker_operator_attention",
+            "signature": latch.get("signature", ""),
+            "confirms": int(latch.get("confirms", 0)),
+            "objective": (self.config.continuous_objective or "")[:200],
+        })
+        entry = JournalEntry.new(
+            kind="planner_blocker_operator_attention",
+            title="operator attention: durable external blocker confirmed",
+            summary=(
+                f"{int(latch.get('confirms', 0))} verification probes each re-confirmed "
+                "the same operator-only external blocker is still present. Pausing "
+                f"further probes; waiting quietly for operator action :: {reason}"
+            ),
+            tags=["life", "planner", "blocker", "operator"],
+            extra={
+                "agent_layer": "planner",
+                "blocker_signature": latch.get("signature", ""),
+                "confirms": int(latch.get("confirms", 0)),
+                "reason": reason,
+            },
+        )
+        self.memory.journal.append(entry)
+        self._inject_cumulative_cost(entry)
+        try:
+            from ..notify import dispatch_journal_entry
+            dispatch_journal_entry(entry)
+        except Exception:  # noqa: BLE001
+            log.exception("notify dispatch failed; continuing")
+
     @staticmethod
     def _operator_external_blocker_short_circuit_decision(
         *, project_root: Path
@@ -2112,6 +2340,17 @@ class LifeSupervisor:
         judgment — it forces the agent to gather first-hand evidence so reality,
         not a memory of the blocker, drives the next decision.
         """
+        # Cap probing: once K probes have each re-confirmed the SAME blocker is
+        # still present, stop re-testing it — ping the operator once and stay in
+        # the cheap escalating-backoff wait. The latch (and its persisted confirm
+        # count) only exists when there is a STRUCTURED on-disk blocker artifact;
+        # a planner-decided wait without one keeps the original cooldown gating.
+        latch = self._external_blocker_latch
+        if latch is not None and int(
+            latch.get("confirms", 0)
+        ) >= _MAX_BLOCKER_CONFIRM_PROBES:
+            self._maybe_ping_operator_blocker_confirmed()
+            return False
         n = int(getattr(self, "_consecutive_idle_planner_cycles", 0))
         if n < _VERIFICATION_PROBE_AFTER_IDLE_CYCLES:
             return False
@@ -2480,6 +2719,11 @@ class LifeSupervisor:
         # ``project_done`` instead of waiting forever on artifacts it never
         # needs. Mirrors the gating in
         # ``_defer_project_done_for_operator_external_blocker``.
+        # Refresh the persistent operator-only external-blocker latch from the
+        # structured on-disk evidence FIRST, so the short-circuit below, the
+        # no-task reclassification, and the probe cap all read one stable,
+        # restart-safe source instead of recomputing the disk state ad hoc.
+        self._refresh_external_blocker_latch()
         short_circuit = None
         if self.config.full_emnlp_gate:
             short_circuit = self._operator_external_blocker_short_circuit_decision(
@@ -2795,6 +3039,32 @@ class LifeSupervisor:
             return _PLAN_ERROR
 
         if not verdict.new_tasks:
+            # The planner returned no tasks and did not flag waiting, but there
+            # is structured operator-only external-blocker evidence on disk (the
+            # planner simply forgot to set waiting=true). Classify as a
+            # first-class WAIT on that structural evidence, not a planner_error.
+            # GENERAL — not gated on full_emnlp_gate — so a --bounded mission
+            # blocked on the same artifact also waits quietly instead of emitting
+            # planner-error noise (and re-planning) every cycle.
+            blocker_active, _ = self._refresh_external_blocker_latch()
+            if blocker_active and not getattr(verdict, "project_done", False):
+                wait_reason = (
+                    self._operator_only_external_blocker_wait_reason()
+                    or verdict.reason
+                    or "operator-only external blocker"
+                )
+                waiting_verdict = replace(
+                    verdict,
+                    waiting=True,
+                    waiting_reason=wait_reason,
+                    reason=wait_reason,
+                )
+                record = self._record_planner_waiting(
+                    waiting_verdict, planner_cost_usd=planner_cost_usd
+                )
+                if self._maybe_dispatch_verification_probe(waiting_verdict):
+                    return True
+                return record
             self._emit({
                 "type": "life.planner.error",
                 "cycle": self._planning_cycles,

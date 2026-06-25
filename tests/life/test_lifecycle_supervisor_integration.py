@@ -527,6 +527,7 @@ def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> N
     sup.reviewer_model = "gpt-5.5"
     sup._planning_cycles = 0
     sup._consecutive_idle_planner_cycles = 0
+    sup._external_blocker_latch = None
     sup._suggested_sleep_s = 0.0
     emitted: list[object] = []
     statuses: list[str] = []

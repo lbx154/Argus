@@ -27,16 +27,30 @@ def _operator_only_blocker_paths_for_project(project_root: Path) -> list[Path]:
     return candidates
 
 
-def _operator_only_external_blocker_wait_reason_for_project(project_root: Path) -> str:
-    """Return a wait reason for an operator-only external blocker artifact."""
+def _operator_only_external_blocker_state_for_project(
+    project_root: Path,
+) -> tuple[str, str] | None:
+    """Return ``(signature, reason)`` for an ACTIVE operator-only external blocker.
+
+    ``signature`` is the blocking lock-file name. It is stable across planner
+    cycles for the same artifact (changing only when the operator swaps the
+    lock), so a persisted confirm/ping count can be keyed on it to make a daemon
+    restart idempotent. ``reason`` is the human-readable wait string.
+
+    Returns ``None`` when no binding blocker artifact is present — i.e. there is
+    nothing to wait on (no lock, local action still required, or every required
+    external target now exists). Purely structural: a glob + JSON read + target
+    ``exists()`` checks; no research-semantic judgment.
+    """
     for lock_path in _operator_only_blocker_paths_for_project(project_root):
         try:
             payload = json.loads(lock_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             return (
+                lock_path.name,
                 f"operator-only external blocker {lock_path.name} is present "
                 "but unreadable (malformed JSON); treating as active blocker "
-                "pending operator fix"
+                "pending operator fix",
             )
         if not isinstance(payload, dict):
             continue
@@ -59,11 +73,18 @@ def _operator_only_external_blocker_wait_reason_for_project(project_root: Path) 
         )
         sample_missing = ", ".join(missing[:4])
         return (
+            lock_path.name,
             f"operator-only external benchmark blocker ({lock_path.name}): "
             f"{verdict}; {len(missing)} required external target(s) still "
-            f"absent ({sample_missing}); next owner is {owner}"
+            f"absent ({sample_missing}); next owner is {owner}",
         )
-    return ""
+    return None
+
+
+def _operator_only_external_blocker_wait_reason_for_project(project_root: Path) -> str:
+    """Return a wait reason for an operator-only external blocker artifact."""
+    state = _operator_only_external_blocker_state_for_project(project_root)
+    return state[1] if state else ""
 
 
 def _normalize_planner_text(text: str) -> str:
