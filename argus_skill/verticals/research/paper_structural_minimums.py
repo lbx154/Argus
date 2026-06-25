@@ -19,7 +19,7 @@ reviewer agent still rules on whether 12 citations is enough for the
 topic.
 
 CLI:
-    python -m argus_skill.skills.paper_structural_minimums \\
+    python -m argus_skill.verticals.research.paper_structural_minimums \\
         --project-root .
 
 Exits non-zero (with a human-readable summary on stdout) when any
@@ -325,7 +325,7 @@ def _read_bib(paper_dir: Path) -> tuple[int, set[str]]:
 
 
 def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
-    from .venue_profiles import resolve_venue_profile
+    from ...skills.venue_profiles import resolve_venue_profile
 
     venue = resolve_venue_profile(project_root)
     main_tex = _find_main_tex(project_root)

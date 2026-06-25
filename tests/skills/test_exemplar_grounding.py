@@ -7,7 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from argus_skill.skills.exemplar_grounding import (
+from argus_skill.verticals.research.exemplar_grounding import (
     MIN_BLUEPRINT_CHARS,
     MIN_STYLE_PROFILE_CHARS,
     validate_exemplar_grounding,

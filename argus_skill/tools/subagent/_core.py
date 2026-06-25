@@ -26,11 +26,11 @@ Usage from the engineer:
     python -m argus_skill.tools.subagent submit \
       --task-id review-academic \
       --description "Run academic language review" \
-      --command "python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write"
+      --command "python -m argus_skill.verticals.research.academic_language_review --project-root . --review-mode model --write"
     python -m argus_skill.tools.subagent submit \
       --task-id review-infra \
       --description "Run infrastructure review" \
-      --command "python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write"
+      --command "python -m argus_skill.verticals.research.paper_infrastructure_review --project-root . --review-mode model --write"
 
     # ... do other work ...
 

@@ -49,7 +49,7 @@ positional alignment is unreliable.
 
 CLI::
 
-    python -m argus_skill.skills.method_differentiation --project-root . \
+    python -m argus_skill.verticals.research.method_differentiation --project-root . \
         [--proposed-condition cv_grpo --baseline-condition vanilla_grpo]
 """
 from __future__ import annotations
@@ -61,7 +61,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # Reuse the single source of truth for "what counts as an optimizer run".
-from .rl_training_plots import (
+from ...skills.rl_training_plots import (
     MIN_OPTIMIZER_STEPS,
     RUN_PREFIX,
     RUNS_SUBDIR,

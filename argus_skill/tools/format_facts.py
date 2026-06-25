@@ -24,7 +24,7 @@ images or render LaTeX — those are out of scope.
 Used by:
 
 * ``argus_skill.tools.format_facts`` CLI (run on any PDF)
-* ``argus_skill.skills.exemplar_grounding`` enforces that each exemplar
+* ``argus_skill.verticals.research.exemplar_grounding`` enforces that each exemplar
   has ``format_facts`` and the paper's own facts are within reasonable
   tolerances of the primary exemplar's.
 

@@ -511,7 +511,7 @@ def _paper_detail(root: Path) -> dict:
     outline = root / "paper" / "DRAFT_OUTLINE.md"
     if outline.exists():
         try:
-            from ..skills.draft_outline import parse_outline
+            from ..verticals.research.draft_outline import parse_outline
             o = parse_outline(outline.read_text(errors="replace"))
             out["sections"] = [{"title": s.title, "goal": s.goal[:120]} for s in o.sections]
             out["figures"] = [{"id": f.id, "src": f.data_source[:80]} for f in o.figures]

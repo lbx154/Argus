@@ -56,7 +56,7 @@ enough" beyond a character floor — those are quality judgments and
 belong to the reviewer.
 
 CLI:
-    python -m argus_skill.skills.exemplar_grounding --project-root .
+    python -m argus_skill.verticals.research.exemplar_grounding --project-root .
 """
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..tools.format_facts import (
+from ...tools.format_facts import (
     DEFAULT_TOLERANCES,
     diff_against_exemplar,
 )

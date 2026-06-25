@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.skills.paper_structural_minimums import (
+from argus_skill.verticals.research.paper_structural_minimums import (
     MIN_CITED_BIB_ENTRIES,
     MIN_FIGURES,
     MIN_INTEXT_CITES,

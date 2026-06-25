@@ -10,7 +10,7 @@ from argus_skill.skills.automated_gates import (
     any_blocking_failure,
     run_stage_gates,
 )
-from argus_skill.skills.method_differentiation import (
+from argus_skill.verticals.research.method_differentiation import (
     validate_method_differentiation,
 )
 

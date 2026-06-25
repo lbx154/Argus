@@ -1,49 +1,76 @@
-"""Research vertical — paper-writing domain on top of argus core.
+"""Research vertical — the paper-writing domain on top of argus core.
 
-This package is the **single authoritative location** for everything
-that assumes the project is producing a research paper:
+This package is the **single authoritative location** for everything that
+assumes the project is producing a research paper:
 
-* the 8 paper-pipeline stages (research → plan → benchmark → run →
-  analysis → draft → review → submission),
-* the paper-specific artifacts (``paper/main.tex``, ``paper/refs.bib``,
-  ``paper/DRAFT_OUTLINE.md``, ``paper/claims_to_evidence.tsv``,
-  ``benchmarks/evidence/<bundle>/summary.tsv``, etc.),
-* the paper-specific gates (``evidence_chain``,
-  ``paper_structural_minimums``, ``draft_outline``,
-  ``exemplar_grounding``, ``experiment_audit_gate``,
-  ``anti_mediocrity``, ``paper_layout_review``,
-  ``academic_language_review``, ``paper_infrastructure_review``,
-  ``reviewer_simulation``, ``run_evidence_health``,
-  ``run_contract``, ``method_differentiation``, ``venue_profiles``,
-  ``pipeline_contracts``, ``pipeline_policy``, ``stage_checklists``,
-  ``stage_check``).
+* the 8 paper-pipeline stages (research → plan → benchmark → run → analysis →
+  draft → review → submission), defined in ``stages.py``;
+* the **paper-specific quality gates** — the eleven research-paper-only
+  reviewers/validators that previously lived alongside the generic skills in
+  ``argus_skill.skills`` and now live here as submodules:
+  ``academic_language_review``, ``paper_layout_review``,
+  ``paper_infrastructure_review``, ``_review_contract_constants``,
+  ``draft_outline``, ``paper_structural_minimums``, ``exemplar_grounding``,
+  ``experiment_audit_gate``, ``method_differentiation``,
+  ``reviewer_simulation``, ``run_evidence_health``.
 
-At the moment this is a **re-export namespace** — the underlying
-modules still physically live under ``argus_skill.skills`` and
-``argus_skill.tools``. The re-exports here let new code (and any
-follow-up vertical refactor) target a stable import path:
-
-```python
-from argus_skill.verticals.research import (
-    DraftOutline, validate_outline, cross_check_figure_ids,
-    StructuralReport, validate_paper_structural_minimums,
-    ChainReport, validate_chain,
-    STAGE_ORDER, STAGE_CHECKS, REVIEWER_CHECKLISTS,
-)
-```
-
-A future commit will physically relocate the source files to
-``argus_skill/verticals/research/skills/`` and
-``argus_skill/verticals/research/tools/`` and update the in-tree
-imports; the public names re-exported here are the stable
-contract.
+Submodules are imported directly (e.g.
+``from argus_skill.verticals.research import academic_language_review``), and the
+most-used public symbols (validators, generators, report dataclasses, path
+constants) are re-exported here so aggregate callers such as
+``argus_skill.skills.automated_gates`` and ``argus_skill.skills.pipeline_contracts``
+wire up cleanly. The generic anti-fraud gate ``evidence_chain`` stays in
+``argus_skill.skills`` (it is domain-agnostic) and is re-exported here for the
+paper pipeline's convenience.
 """
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# Paper-specific gates
+# Shared review-contract constants / helpers
 # ---------------------------------------------------------------------------
-from ...skills.draft_outline import (
+from ._review_contract_constants import (
+    ACADEMIC_LANGUAGE_REVIEW_GENERATED_BY,
+    ACADEMIC_LANGUAGE_REVIEW_HISTORY_PATH,
+    LAYOUT_REVIEW_GENERATED_BY,
+    LAYOUT_REVIEW_HISTORY_PATH,
+    PAPER_INFRASTRUCTURE_REVIEW_GENERATED_BY,
+    PAPER_INFRASTRUCTURE_REVIEW_HISTORY_PATH,
+    REVIEW_INPUT_SHA256_FIELD,
+    REVIEW_PROMPT_SHA256_FIELD,
+    review_sha256_file,
+    review_sha256_json,
+    review_sha256_text,
+)
+
+# ---------------------------------------------------------------------------
+# Model-/vision-backed review generators
+# ---------------------------------------------------------------------------
+from .academic_language_review import (
+    ACADEMIC_LANGUAGE_REVIEW_JSON_PATH,
+    ACADEMIC_LANGUAGE_REVIEW_MD_PATH,
+    MIN_ACADEMIC_LANGUAGE_SCORE,
+    AcademicLanguageReviewError,
+    generate_academic_language_review,
+)
+from .paper_infrastructure_review import (
+    MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE,
+    PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH,
+    PAPER_INFRASTRUCTURE_REVIEW_MD_PATH,
+    PaperInfrastructureReviewError,
+    generate_paper_infrastructure_review,
+)
+from .paper_layout_review import (
+    LAYOUT_REVIEW_JSON_PATH,
+    LAYOUT_REVIEW_MD_PATH,
+    LAYOUT_REVIEW_PAGE_DIR,
+    LayoutReviewError,
+    generate_layout_review,
+)
+
+# ---------------------------------------------------------------------------
+# Draft outline contract
+# ---------------------------------------------------------------------------
+from .draft_outline import (
     DRAFT_OUTLINE_PATH,
     DraftOutline,
     ExperimentPlaceholder,
@@ -55,14 +82,49 @@ from ...skills.draft_outline import (
     parse_outline,
     validate_outline,
 )
-from ...skills.evidence_chain import (
-    ChainIssue,
-    ChainReport,
+
+# ---------------------------------------------------------------------------
+# Structural / anti-fabrication gates
+# ---------------------------------------------------------------------------
+from .exemplar_grounding import (
+    GroundingIssue,
+    GroundingReport,
+    validate_exemplar_grounding,
 )
-from ...skills.paper_structural_minimums import (
+from .experiment_audit_gate import (
+    AuditIssue,
+    AuditReport,
+    validate_experiment_audit,
+)
+from .method_differentiation import (
+    ConditionRun,
+    MethodDifferentiationReport,
+    PairFinding,
+    validate_method_differentiation,
+)
+from .paper_structural_minimums import (
     StructuralIssue,
     StructuralReport,
     validate_paper_structural_minimums,
+)
+from .reviewer_simulation import (
+    SimulationIssue,
+    SimulationReport,
+    validate_reviewer_simulation,
+)
+from .run_evidence_health import (
+    BundleHealth,
+    HealthIssue,
+    RunEvidenceHealthReport,
+    validate_run_evidence_health,
+)
+
+# ---------------------------------------------------------------------------
+# Generic anti-fraud gate (lives in skills/, re-exported for the paper pipeline)
+# ---------------------------------------------------------------------------
+from ...skills.evidence_chain import (
+    ChainIssue,
+    ChainReport,
 )
 
 # ---------------------------------------------------------------------------
@@ -75,6 +137,36 @@ from .stages import (
 )
 
 __all__ = [
+    # _review_contract_constants
+    "ACADEMIC_LANGUAGE_REVIEW_GENERATED_BY",
+    "ACADEMIC_LANGUAGE_REVIEW_HISTORY_PATH",
+    "LAYOUT_REVIEW_GENERATED_BY",
+    "LAYOUT_REVIEW_HISTORY_PATH",
+    "PAPER_INFRASTRUCTURE_REVIEW_GENERATED_BY",
+    "PAPER_INFRASTRUCTURE_REVIEW_HISTORY_PATH",
+    "REVIEW_INPUT_SHA256_FIELD",
+    "REVIEW_PROMPT_SHA256_FIELD",
+    "review_sha256_file",
+    "review_sha256_json",
+    "review_sha256_text",
+    # academic_language_review
+    "ACADEMIC_LANGUAGE_REVIEW_JSON_PATH",
+    "ACADEMIC_LANGUAGE_REVIEW_MD_PATH",
+    "MIN_ACADEMIC_LANGUAGE_SCORE",
+    "AcademicLanguageReviewError",
+    "generate_academic_language_review",
+    # paper_infrastructure_review
+    "MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE",
+    "PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH",
+    "PAPER_INFRASTRUCTURE_REVIEW_MD_PATH",
+    "PaperInfrastructureReviewError",
+    "generate_paper_infrastructure_review",
+    # paper_layout_review
+    "LAYOUT_REVIEW_JSON_PATH",
+    "LAYOUT_REVIEW_MD_PATH",
+    "LAYOUT_REVIEW_PAGE_DIR",
+    "LayoutReviewError",
+    "generate_layout_review",
     # draft_outline
     "DRAFT_OUTLINE_PATH",
     "DraftOutline",
@@ -86,13 +178,35 @@ __all__ = [
     "load_outline",
     "parse_outline",
     "validate_outline",
-    # evidence_chain
-    "ChainIssue",
-    "ChainReport",
+    # exemplar_grounding
+    "GroundingIssue",
+    "GroundingReport",
+    "validate_exemplar_grounding",
+    # experiment_audit_gate
+    "AuditIssue",
+    "AuditReport",
+    "validate_experiment_audit",
+    # method_differentiation
+    "ConditionRun",
+    "MethodDifferentiationReport",
+    "PairFinding",
+    "validate_method_differentiation",
     # paper_structural_minimums
     "StructuralIssue",
     "StructuralReport",
     "validate_paper_structural_minimums",
+    # reviewer_simulation
+    "SimulationIssue",
+    "SimulationReport",
+    "validate_reviewer_simulation",
+    # run_evidence_health
+    "BundleHealth",
+    "HealthIssue",
+    "RunEvidenceHealthReport",
+    "validate_run_evidence_health",
+    # evidence_chain (generic, from skills/)
+    "ChainIssue",
+    "ChainReport",
     # pipeline / stage_check
     "REVIEWER_CHECKLISTS",
     "STAGE_CHECKS",

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.skills.run_evidence_health import (
+from argus_skill.verticals.research.run_evidence_health import (
     validate_run_evidence_health,
 )
 

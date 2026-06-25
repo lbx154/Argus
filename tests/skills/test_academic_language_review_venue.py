@@ -7,7 +7,7 @@ advisory (no-hard-floor) abstract policy, and the 7-page body budget.
 """
 from __future__ import annotations
 
-from argus_skill.skills.academic_language_review import _review_prompt
+from argus_skill.verticals.research.academic_language_review import _review_prompt
 from argus_skill.skills.venue_profiles import AAAI_PROFILE, EMNLP_PROFILE
 
 _SRC = {"paper/main.tex": "x"}

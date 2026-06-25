@@ -44,7 +44,7 @@ Use this skill when a paper may contain local execution details that do not belo
    - Move local operational details to manifests/logs if they are needed for the daemon, not to the manuscript.
    - Keep evaluated model identifiers only when they describe the experiment itself.
 3. Run the model-backed tool:
-   - `python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write`
+   - `python -m argus_skill.verticals.research.paper_infrastructure_review --project-root . --review-mode model --write`
    - self-audit the paper-infrastructure review thresholds (leak_free, score); the L2 reviewer verifies the review artifact directly against the review stage checklist.
 4. Treat the review files as generated evidence:
    - Do not hand-edit `paper/PAPER_INFRASTRUCTURE_REVIEW.json`, `.md`, or `_history.jsonl`.

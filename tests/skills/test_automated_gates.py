@@ -41,8 +41,8 @@ def _seed_minimal_paper(root: Path) -> None:
     by the new structural-floor gate that lives at draft+ stages."""
     import os
 
-    from argus_skill.skills.paper_structural_minimums import MIN_INTEXT_CITES
-    from argus_skill.skills.reviewer_simulation import (
+    from argus_skill.verticals.research.paper_structural_minimums import MIN_INTEXT_CITES
+    from argus_skill.verticals.research.reviewer_simulation import (
         MIN_QUESTIONS,
         QUESTIONS_FILENAME,
     )

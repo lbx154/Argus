@@ -23,7 +23,7 @@ floor (25%) — below that we surface the count as advisory text on
 the GateResult detail; at-or-above blocks.
 
 CLI:
-    python -m argus_skill.skills.run_evidence_health --project-root .
+    python -m argus_skill.verticals.research.run_evidence_health --project-root .
 """
 from __future__ import annotations
 

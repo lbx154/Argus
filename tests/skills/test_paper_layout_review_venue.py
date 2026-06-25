@@ -8,7 +8,7 @@ venue profile rather than hardcoded ACL page numbers.
 """
 from __future__ import annotations
 
-from argus_skill.skills.paper_layout_review import _deterministic_assessment
+from argus_skill.verticals.research.paper_layout_review import _deterministic_assessment
 from argus_skill.skills.venue_profiles import AAAI_PROFILE, EMNLP_PROFILE
 
 

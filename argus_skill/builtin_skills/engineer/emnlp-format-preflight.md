@@ -86,8 +86,8 @@ Treat every item below as blocking for a final EMNLP-ready claim:
    - every fix made during preflight;
    - the exact final format-preflight self-audit result.
 4. Only after this command is clean, run:
-   - `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`
-   - `python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write`
+   - `python -m argus_skill.verticals.research.academic_language_review --project-root . --review-mode model --write`
+   - `python -m argus_skill.verticals.research.paper_layout_review --project-root . --review-mode vision --write`
    - self-audit the academic-language review thresholds
    - self-audit the layout review thresholds
 

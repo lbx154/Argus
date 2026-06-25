@@ -41,7 +41,7 @@ call. We only enforce that the list exists, is non-trivial, and was
 refreshed against the current draft.
 
 CLI:
-    python -m argus_skill.skills.reviewer_simulation --project-root .
+    python -m argus_skill.verticals.research.reviewer_simulation --project-root .
 """
 from __future__ import annotations
 

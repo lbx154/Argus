@@ -344,17 +344,17 @@ submission assurance 都在 checklist 里），不是看某个 validator 的返�
 这些是 paper pipeline 的模型/视觉 review 工具：
 
 - `argus_skill/skills/academic_language_review.py`
-  - CLI: `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`
+  - CLI: `python -m argus_skill.verticals.research.academic_language_review --project-root . --review-mode model --write`
   - 输出：`paper/ACADEMIC_LANGUAGE_REVIEW.json` 和 `.md`
   - 校验：`validate-academic-language-review`
 
 - `argus_skill/skills/paper_infrastructure_review.py`
-  - CLI: `python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write`
+  - CLI: `python -m argus_skill.verticals.research.paper_infrastructure_review --project-root . --review-mode model --write`
   - 输出：`paper/PAPER_INFRASTRUCTURE_REVIEW.json` 和 `.md`
   - 用来抓 manuscript prose 里的本地路径、device/cache、Argus/Codex route/config 泄漏。
 
 - `argus_skill/skills/paper_layout_review.py`
-  - CLI: `python -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write`
+  - CLI: `python -m argus_skill.verticals.research.paper_layout_review --project-root . --review-mode vision --write`
   - 输出：`paper/LAYOUT_REVIEW.json`、`.md`、`paper/layout_review/pages/`
   - 用 PDF page snapshots 做视觉布局审核。
 

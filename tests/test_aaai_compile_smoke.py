@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.paper_structural_minimums import (
+from argus_skill.verticals.research.paper_structural_minimums import (
     StructuralReport,
     _append_venue_compliance_issues,
     _strip_comments,

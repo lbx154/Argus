@@ -34,11 +34,11 @@ def test_research_vertical_reexports_paper_specific_names() -> None:
 
 
 def test_research_vertical_is_identity_reexport() -> None:
-    """The re-exports must be the *same objects* as their legacy paths so
+    """The re-exports must be the *same objects* as their canonical paths so
     callers can choose either import without semantic drift."""
-    from argus_skill.skills import draft_outline as legacy_draft
+    from argus_skill.verticals.research import draft_outline as legacy_draft
     from argus_skill.skills import evidence_chain as legacy_chain
-    from argus_skill.skills import paper_structural_minimums as legacy_struct
+    from argus_skill.verticals.research import paper_structural_minimums as legacy_struct
     from argus_skill.tools import stage_check as legacy_stage
     from argus_skill.verticals import research
 

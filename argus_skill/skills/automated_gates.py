@@ -35,14 +35,14 @@ from .anti_mediocrity import (
     format_finding,
 )
 from .evidence_chain import validate_evidence_chain
-from .exemplar_grounding import validate_exemplar_grounding
-from .experiment_audit_gate import validate_experiment_audit
-from .method_differentiation import validate_method_differentiation
-from .paper_structural_minimums import validate_paper_structural_minimums
-from .reviewer_simulation import validate_reviewer_simulation
+from ..verticals.research.exemplar_grounding import validate_exemplar_grounding
+from ..verticals.research.experiment_audit_gate import validate_experiment_audit
+from ..verticals.research.method_differentiation import validate_method_differentiation
+from ..verticals.research.paper_structural_minimums import validate_paper_structural_minimums
+from ..verticals.research.reviewer_simulation import validate_reviewer_simulation
 from .rl_training_health import validate_rl_training_health
 from .rl_training_plots import validate_rl_training_plots
-from .run_evidence_health import validate_run_evidence_health
+from ..verticals.research.run_evidence_health import validate_run_evidence_health
 
 GateName = Literal[
     "evidence_chain",

@@ -67,7 +67,7 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - Add a compact system/configuration table when prose alone would be ambiguous. The table must be professional and paper-facing: benchmark/component name, task count/split, evaluated model/backend, method or baseline role, runtime/harness, metric, budget/decoding, and the numerical takeaway. It must not expose Argus/Codex route names, engineer/reviewer/scientist roles, `gpt-5.5*`, API keys, private endpoints, capability-vault contents, or validation artifacts.
    - Require the Results section to contain a large, reader-facing cross-benchmark matrix for final long-paper claims. The table should let a reviewer compare the selected 3+ benchmark/source families, evaluated model/backend, task counts/splits, major baselines/methods, metrics, budget/decoding, and key scores in one place. Reject disconnected tiny tables when they hide missing benchmarks or omit model/backend information.
    - Reject papers that only say "our agent" or "the system" while omitting what framework ran it, which model powered it, and how one benchmark episode executes.
-   - For local environment/device/cache/path leakage, delegate the final judgment to the dedicated model-backed paper infrastructure review: run `python -m argus_skill.skills.paper_infrastructure_review --project-root . --review-mode model --write` and self-audit the paper-infrastructure review thresholds (leak_free, score). Do not patch this by adding local regex filters to the academic-language skill.
+   - For local environment/device/cache/path leakage, delegate the final judgment to the dedicated model-backed paper infrastructure review: run `python -m argus_skill.verticals.research.paper_infrastructure_review --project-root . --review-mode model --write` and self-audit the paper-infrastructure review thresholds (leak_free, score). Do not patch this by adding local regex filters to the academic-language skill.
 
 7. Replace agent-looking prose:
    - Remove filler, boilerplate, repeated "we demonstrate" sentences, repeated not-X-but-Y transitions, and over-defensive "narrow / benchmark-scoped / not general" caveats. One calibrated scope statement is enough; the rest belongs in limitations.
@@ -77,7 +77,7 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - Caption prose must support the `research.md` format contract: every table caption has a numerical headline, every figure caption states an evidence-backed takeaway, and any paired-significance claim is backed by a local artifact.
 
 8. Run the tool-backed review:
-   - Run `python -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`.
+   - Run `python -m argus_skill.verticals.research.academic_language_review --project-root . --review-mode model --write`.
    - Then self-audit the academic-language review thresholds; the L2 reviewer verifies the review artifact directly against the review stage checklist.
    - The review must write `paper/ACADEMIC_LANGUAGE_REVIEW.json`, `paper/ACADEMIC_LANGUAGE_REVIEW.md`, and history.
    - Passing requires a model-backed review, fresh hashes for all LaTeX sources included by `paper/main.tex`, score at least 4/5, evidence spans quoted from the source, no failed required checks, and no active revision directives. Evidence spans are review artifacts, not prose: do not paste them into the paper to appease the gate.

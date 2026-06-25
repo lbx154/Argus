@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.skills.experiment_audit_gate import (
+from argus_skill.verticals.research.experiment_audit_gate import (
     REPORT_BASENAME,
     REQUIRED_CHECK_KEYS,
     validate_experiment_audit,

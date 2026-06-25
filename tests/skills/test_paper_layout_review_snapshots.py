@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.skills.paper_layout_review import (
+from argus_skill.verticals.research.paper_layout_review import (
     _collect_page_snapshots,
     _page_number_from_snapshot,
 )

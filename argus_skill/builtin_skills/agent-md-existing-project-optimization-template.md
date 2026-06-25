@@ -319,10 +319,10 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 
 ## Final review and assurance repair
 1. After content and PDF are stable, run:
-   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write`
+   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.verticals.research.academic_language_review --project-root . --review-mode model --write`
    then confirm the L2 reviewer ticks the review-stage academic-language checklist item.
 2. After final compile, run:
-   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write`
+   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.verticals.research.paper_layout_review --project-root . --review-mode vision --write`
    then confirm the L2 reviewer ticks the review-stage layout checklist item.
 3. Academic-language and layout review scores must be at least 4/5, fresh, backed by the required model/vision mode, and have `needs_revision: false`.
 4. Write or refresh `paper/SUBMISSION_ASSURANCE.md` and `paper/SUBMISSION_ASSURANCE.json` only from current validator/review results.

@@ -34,7 +34,7 @@ from ._review_contract_constants import (
     review_sha256_json,
     review_sha256_text,
 )
-from .venue_profiles import VenueProfile, resolve_venue_profile
+from ...skills.venue_profiles import VenueProfile, resolve_venue_profile
 
 PAPER_MAIN_PDF_PATH = Path("paper/main.pdf")
 PAPER_MAIN_TEX_PATH = Path("paper/main.tex")
@@ -1524,7 +1524,7 @@ def _int_or_none(value: object) -> int | None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="python -m argus_skill.skills.paper_layout_review",
+        prog="python -m argus_skill.verticals.research.paper_layout_review",
         description="Render and score final paper layout aesthetics.",
     )
     parser.add_argument("--project-root", type=Path, default=Path.cwd())

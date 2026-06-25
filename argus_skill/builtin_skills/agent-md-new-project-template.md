@@ -485,8 +485,8 @@ checklist to be ticked off by the reviewer.
 6. Data figures and tables must be generated from local raw data/results, not from image-2.
 
 ## Final review and assurance
-1. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.academic_language_review --project-root . --review-mode model --write` and confirm the L2 reviewer ticks the review-stage "academic language" checklist item. The generated `paper/ACADEMIC_LANGUAGE_REVIEW.json` must score at least 4/5, be model-backed, fresh, contain quoted evidence spans, and have `needs_revision: false` with no active directives.
-2. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.skills.paper_layout_review --project-root . --review-mode vision --write` and confirm the L2 reviewer ticks the review-stage "layout" checklist item. `paper/LAYOUT_REVIEW.json` must score at least 4/5, be vision-backed from rendered PDF page snapshots, fresh, and `needs_revision: false`.
+1. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.verticals.research.academic_language_review --project-root . --review-mode model --write` and confirm the L2 reviewer ticks the review-stage "academic language" checklist item. The generated `paper/ACADEMIC_LANGUAGE_REVIEW.json` must score at least 4/5, be model-backed, fresh, contain quoted evidence spans, and have `needs_revision: false` with no active directives.
+2. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.verticals.research.paper_layout_review --project-root . --review-mode vision --write` and confirm the L2 reviewer ticks the review-stage "layout" checklist item. `paper/LAYOUT_REVIEW.json` must score at least 4/5, be vision-backed from rendered PDF page snapshots, fresh, and `needs_revision: false`.
 3. Write `paper/SUBMISSION_ASSURANCE.md` and `paper/SUBMISSION_ASSURANCE.json`.
 4. Review artifacts, calibration files, and readiness reports are evidence, not optimization targets. Never hand-edit them to say PASS/ready while underlying checklist items fail.
 5. Never emit PASS/WARN/final-ready if any required checklist item fails. `WARN` cannot launder pilot scale, stale reviews, missing provenance, or known hard blockers into final EMNLP readiness.

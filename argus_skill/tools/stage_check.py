@@ -159,7 +159,7 @@ def _plan_outline_findings(project_root: Path) -> list[str]:
     returned — the validator is permissive by design.
     """
     try:
-        from argus_skill.skills.draft_outline import load_outline, validate_outline
+        from argus_skill.verticals.research.draft_outline import load_outline, validate_outline
     except Exception:
         return []
     issues = validate_outline(load_outline(project_root))

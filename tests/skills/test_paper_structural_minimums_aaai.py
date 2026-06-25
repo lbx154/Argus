@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.skills.paper_structural_minimums import (
+from argus_skill.verticals.research.paper_structural_minimums import (
     validate_paper_structural_minimums,
 )
 

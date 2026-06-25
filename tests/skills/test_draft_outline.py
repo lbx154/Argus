@@ -1,9 +1,9 @@
-"""Tests for ``argus_skill.skills.draft_outline``."""
+"""Tests for ``argus_skill.verticals.research.draft_outline``."""
 from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.skills.draft_outline import (
+from argus_skill.verticals.research.draft_outline import (
     cross_check_figure_ids,
     load_outline,
     parse_outline,
@@ -184,7 +184,7 @@ def test_load_outline_absent_returns_none(tmp_path: Path) -> None:
 def test_paper_structural_minimums_flags_figure_orphan(tmp_path: Path) -> None:
     """Integration: structural minimums emits draft_outline_figure_orphan
     when main.tex contains a fig label not present in DRAFT_OUTLINE.md."""
-    from argus_skill.skills.paper_structural_minimums import (
+    from argus_skill.verticals.research.paper_structural_minimums import (
         validate_paper_structural_minimums,
     )
     paper = tmp_path / "paper"

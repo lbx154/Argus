@@ -14,10 +14,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from .academic_language_review import (
+from ..verticals.research.academic_language_review import (
     ACADEMIC_LANGUAGE_REVIEW_JSON_PATH,
 )
-from .paper_infrastructure_review import (
+from ..verticals.research.paper_infrastructure_review import (
     PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH,
 )
 from .pipeline_policy import (

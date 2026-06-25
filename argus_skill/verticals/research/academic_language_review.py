@@ -29,7 +29,7 @@ from ._review_contract_constants import (
     review_sha256_json,
     review_sha256_text,
 )
-from .venue_profiles import VenueProfile, resolve_venue_profile
+from ...skills.venue_profiles import VenueProfile, resolve_venue_profile
 
 PAPER_MAIN_TEX_PATH = Path("paper/main.tex")
 ACADEMIC_LANGUAGE_REVIEW_JSON_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW.json")
@@ -1862,7 +1862,7 @@ def _float_or_none(value: object) -> float | None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="python -m argus_skill.skills.academic_language_review",
+        prog="python -m argus_skill.verticals.research.academic_language_review",
         description="Score final EMNLP paper academic language and narrative quality.",
     )
     parser.add_argument("--project-root", type=Path, default=Path.cwd())

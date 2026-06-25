@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 
-from argus_skill.skills.reviewer_simulation import (
+from argus_skill.verticals.research.reviewer_simulation import (
     MIN_QUESTIONS,
     QUESTIONS_FILENAME,
     validate_reviewer_simulation,
@@ -166,7 +166,7 @@ def test_run_stage_gates_reviewer_simulation_blocks_when_missing(tmp_path: Path)
     REVIEWER_QUESTIONS.json must produce a structural failure."""
     # Seed a passing paper so other gates don't fire (we want to isolate
     # reviewer_simulation's contribution).
-    from argus_skill.skills.paper_structural_minimums import MIN_INTEXT_CITES
+    from argus_skill.verticals.research.paper_structural_minimums import MIN_INTEXT_CITES
     paper = tmp_path / "paper"
     (paper / "figures").mkdir(parents=True)
     (paper / "figures" / "teaser.png").write_bytes(b"\x89PNG\r\n")

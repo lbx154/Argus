@@ -461,7 +461,7 @@ def _next_iteration(root: Path) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="python -m argus_skill.skills.paper_infrastructure_review",
+        prog="python -m argus_skill.verticals.research.paper_infrastructure_review",
         description="Score final EMNLP paper for reader-facing infrastructure leaks.",
     )
     parser.add_argument("--project-root", type=Path, default=Path.cwd())

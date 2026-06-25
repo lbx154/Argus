@@ -17,7 +17,7 @@ The five required check keys mirror the skill's checklist sections:
 classification.
 
 CLI:
-    python -m argus_skill.skills.experiment_audit_gate --project-root .
+    python -m argus_skill.verticals.research.experiment_audit_gate --project-root .
 """
 from __future__ import annotations
 
