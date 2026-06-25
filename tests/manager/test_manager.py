@@ -57,3 +57,26 @@ def test_divide_research_persists_and_lists_8_stages(tmp_path):
     assert "regular" in d.headline()
     state = json.loads((tmp_path / "research" / "PIPELINE_STATE.json").read_text())
     assert state["vertical"] == "research"
+
+
+class _FakeResult:
+    """Minimal RunnerResult shape the router classifier reads."""
+    def __init__(self, msg: str) -> None:
+        self.last_agent_message = msg
+        self.exit_code = 0
+
+
+def test_manager_no_runner_treats_free_text_as_task():
+    # No backend → can't chat-classify → safe default is TASK (never drop work).
+    assert Manager(runner=None).is_conversational("hi") is False
+
+
+def test_manager_owns_chat_vs_task_decision():
+    # The Manager is the decision-maker: a clear CHAT verdict → True, else TASK.
+    mgr = Manager()
+    assert mgr.is_conversational(
+        "hello there", run_exec=lambda p: _FakeResult("CHAT")
+    ) is True
+    assert mgr.is_conversational(
+        "minimize val_bpb on train.py", run_exec=lambda p: _FakeResult("TASK")
+    ) is False

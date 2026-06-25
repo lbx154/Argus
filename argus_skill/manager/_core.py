@@ -112,6 +112,35 @@ class Manager:
         return Division(task=task, vertical=vertical, kind=kind,
                         regular=regular, stages=stages)
 
+    # ---- conversational-intent decision (the Manager owns this) ----
+    def is_conversational(self, text: str, *, run_exec: Any = None) -> bool:
+        """The Manager's top-level dialogue call: is this free text a conversation
+        (greeting / capability question / ack) rather than a real task?
+
+        The Manager — not the runner — owns this decision. Reuses
+        ``life/router.classify_is_conversational`` (conservative: biases hard
+        toward TASK, so work is never silently skipped). ``run_exec`` is the LLM
+        caller; when omitted one is built from ``self.runner``. With no backend at
+        all, treat as a task (safe default — never drop work to a bad classify).
+        """
+        from ..life.router import classify_is_conversational
+
+        if run_exec is None:
+            if self.runner is None:
+                return False
+            from ..core.models import RunnerOptions
+
+            def run_exec(prompt: str) -> Any:  # noqa: ANN401
+                return self.runner.run_exec(
+                    prompt=prompt,
+                    options=RunnerOptions(
+                        reasoning_effort="low", skip_git_repo_check=True
+                    ),
+                    run_label="manager-converse",
+                )
+
+        return classify_is_conversational(text, run_exec=run_exec)
+
     # ---- progress view ----
     def current_stage(self) -> str:
         """Which Stage the engine is on now (read from PIPELINE_STATE.json)."""

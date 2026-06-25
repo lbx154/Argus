@@ -767,7 +767,7 @@ class _SkillLoopRunner:
         # part of autonomous spend and is not separately metered.
         if self._allow_chat_fast_path:
             from ..core.models import RunnerOptions
-            from ..life.router import classify_is_conversational
+            from ..manager import Manager
 
             _safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
             _workdir = (
@@ -791,7 +791,10 @@ class _SkillLoopRunner:
                     resume_thread_id=None,
                 )
 
-            if classify_is_conversational(objective, run_exec=_classify_run_exec):
+            # The Manager owns the chat-vs-task decision; the runner only executes it.
+            if Manager(
+                project_root=_workdir, runner=self._backend
+            ).is_conversational(objective, run_exec=_classify_run_exec):
                 return self._chat_quick_reply(
                     objective=objective,
                     sink=sink,
@@ -826,10 +829,6 @@ class _SkillLoopRunner:
             "check_commands": list(getattr(args, "check_commands", []) or []),
             "skill_writeback": _env_flag(
                 "ARGUS_SKILL_SKILL_WRITEBACK",
-                default=True,
-            ),
-            "distill_on_miss": _env_flag(
-                "ARGUS_SKILL_DISTILL_ON_MISS",
                 default=True,
             ),
             "skill_revise_on_failure": _env_flag(
