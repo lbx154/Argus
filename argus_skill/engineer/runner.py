@@ -874,6 +874,7 @@ class SupervisedEngineer:
         no_progress_streak = 0
         semantic_stall_streak = 0
         backend_failure_streak = 0
+        reviewer_backend_failure_streak = 0
         current_thread_id: str | None = seed_thread_id
         # Curated working-memory checkpoint. Loaded once (cross-mission / crash
         # continuity), carried in memory across rounds, re-authored by the
@@ -1297,8 +1298,95 @@ class SupervisedEngineer:
                     round_summary_markdown=f"# Review Summary\n\n- {msg}\n",
                     completion_summary_markdown="",
                     failure_cause="environmental",
+                    backend_unavailable=True,
                 )
             review = _coerce_review_for_failed_checks(review, checks_results)
+            # Reviewer backend death (codex subprocess died / output-schema
+            # missing / runner raised) renders NO verdict. It must NEVER be
+            # laundered into a silent "continue": on 2026-06-25 a stale
+            # import-time schema path made every reviewer round exit 1, and the
+            # loop ran the sole completion gate BLIND for ~1.5h. Route it through
+            # the SAME transient-backoff + escalate-to-error machinery the
+            # engineer backend-failure path uses. ``backend_unavailable`` is an
+            # explicit infra-death marker — distinct from a genuine
+            # ``status="blocked"`` verdict (e.g. "blocked on GPU quota"), which
+            # carries real confidence and is handled normally by ``_classify``.
+            if getattr(review, "backend_unavailable", False):
+                reviewer_backend_failure_streak += 1
+                rb_threshold = max(
+                    1, int(supervised_config.backend_failure_threshold or 1)
+                )
+                if on_event:
+                    on_event(_review_event_payload(
+                        review,
+                        round_index=round_index,
+                        round_max=supervised_config.max_rounds,
+                        text=(
+                            "review: skipped (reviewer backend unavailable) — "
+                            f"{review.reason}"
+                        ),
+                        review_skipped=True,
+                    ))
+                    on_event({
+                        "type": "round.reviewer_backend_failure",
+                        "round_index": round_index,
+                        "round_max": supervised_config.max_rounds,
+                        "streak": reviewer_backend_failure_streak,
+                        "threshold": rb_threshold,
+                        "operator_alert": True,
+                        "text": (
+                            "reviewer backend unavailable "
+                            f"{reviewer_backend_failure_streak}/{rb_threshold}: no "
+                            "verdict rendered — NOT continuing blind. "
+                            + review.reason
+                        ),
+                    })
+                rounds.append(RoundRecord(
+                    round_index=round_index,
+                    engineer_message=engineer_message,
+                    engineer_exit_code=engineer_result.exit_code,
+                    checks=checks_results,
+                    review=review,
+                    fatal_error=engineer_result.fatal_error,
+                ))
+                if (
+                    reviewer_backend_failure_streak >= rb_threshold
+                    or round_index >= supervised_config.max_rounds
+                ):
+                    return (
+                        "error",
+                        rounds,
+                        last_engineer_message,
+                        (
+                            "Reviewer backend unavailable for "
+                            f"{reviewer_backend_failure_streak} consecutive "
+                            "round(s); failing loud rather than running the "
+                            "completion gate without a real review. "
+                            + review.reason
+                        ),
+                        None,
+                    )
+                backoff_seconds = max(
+                    0.0,
+                    float(supervised_config.backend_failure_backoff_seconds or 0.0),
+                )
+                if backoff_seconds:
+                    if on_event:
+                        on_event({
+                            "type": "round.reviewer_backend_failure.backoff",
+                            "round_index": round_index,
+                            "round_max": supervised_config.max_rounds,
+                            "seconds": backoff_seconds,
+                            "text": (
+                                "reviewer backend unavailable; retrying after "
+                                f"{backoff_seconds:.1f}s"
+                            ),
+                        })
+                    time.sleep(backoff_seconds)
+                last_next_action = review.next_action
+                continue
+            # A real reviewer verdict arrived — reset the reviewer-backend streak.
+            reviewer_backend_failure_streak = 0
             # SEMANTIC stall tracking: the engineer can stay busy (non-empty
             # messages, so ``no_progress_streak`` keeps resetting) yet make no
             # real advance round after round. The reviewer reports this via

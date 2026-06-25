@@ -149,6 +149,17 @@ class ReviewDecision:
     input_tokens: int = 0
     cached_input_tokens: int = 0
     output_tokens: int = 0
+    # True ONLY when the reviewer rendered NO verdict because its BACKEND was
+    # unavailable — the codex subprocess died, the output-schema file was
+    # missing, or the runner raised. This is an INFRASTRUCTURE failure, never a
+    # model judgment. The supervised loop routes a ``backend_unavailable`` review
+    # through the same transient-backoff + escalate-to-error path as an engineer
+    # backend failure, instead of the silent ``continue`` that once ran the sole
+    # completion gate BLIND for ~1.5h (2026-06-25, a stale import-time schema
+    # path made every reviewer round exit 1). Distinct from a genuine
+    # ``status="blocked"`` verdict (e.g. "blocked on GPU quota") which carries a
+    # real confidence and is NOT a backend failure.
+    backend_unavailable: bool = False
 
     @property
     def final_submission_certified(self) -> bool:
@@ -211,6 +222,7 @@ class ReviewDecision:
             "input_tokens": int(self.input_tokens or 0),
             "cached_input_tokens": int(self.cached_input_tokens or 0),
             "output_tokens": int(self.output_tokens or 0),
+            "backend_unavailable": bool(self.backend_unavailable),
             "usage_scope": "delta",
         }
         payload.update(extras)

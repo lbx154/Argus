@@ -151,6 +151,34 @@ class Reviewer:
         background_context: str = "",
         escalate_hint: str = "",
     ) -> ReviewDecision:
+        # Defense-in-depth (root-cause guard for the 2026-06-25 incident): if the
+        # reviewer output-schema file is missing, codex aborts with exit 1
+        # ("Failed to read output schema file ...") and the round renders NO
+        # verdict. Detect it up front and fail loud as a backend-unavailable
+        # block, instead of building a prompt and handing codex a path it cannot
+        # read. This catches a moved schema / a stale import-time path held by a
+        # long-lived daemon whose on-disk tree moved underneath it.
+        if self.schema_path and not Path(self.schema_path).exists():
+            reason = (
+                "Reviewer output-schema file is missing at "
+                f"{self.schema_path}; the reviewer backend cannot start. This is "
+                "an environment/packaging fault (e.g. the schema was moved or a "
+                "running process holds a stale import-time path), not a verdict."
+            )
+            return ReviewDecision(
+                status="blocked",
+                confidence=0.0,
+                reason=reason,
+                next_action=(
+                    "Restore the reviewer schema at that path, or restart the "
+                    "daemon on code whose schema path matches disk; do not treat "
+                    "this as evidence about the engineer's work."
+                ),
+                round_summary_markdown=f"# Review Summary\n\n- {reason}\n",
+                completion_summary_markdown="",
+                failure_cause="environmental",
+                backend_unavailable=True,
+            )
         prompt = self._build_prompt(
             objective=objective,
             original_objective=original_objective or objective,
@@ -196,6 +224,7 @@ class Reviewer:
                 round_summary_markdown=f"# Review Summary\n\n- {msg}\n",
                 completion_summary_markdown="",
                 failure_cause="environmental",
+                backend_unavailable=True,
             )
         rev_in = int(getattr(result, "input_tokens", 0) or 0)
         rev_cached = int(getattr(result, "cached_input_tokens", 0) or 0)
@@ -210,16 +239,19 @@ class Reviewer:
                     + ")."
                 )
                 return ReviewDecision(
-                    status="continue",
+                    status="blocked",
                     confidence=0.0,
                     reason=reason,
                     next_action=(
-                        "Retry the reviewer after the backend recovers; do not treat "
-                        "this as evidence that the engineer completed or failed the task."
+                        "Reviewer backend died before any verdict — do NOT treat "
+                        "this as evidence the engineer completed or failed the "
+                        "task. The supervised loop retries on a fresh session and "
+                        "escalates to the operator if it keeps failing."
                     ),
                     round_summary_markdown=f"# Review Summary\n\n- {reason}\n",
                     completion_summary_markdown="",
                     failure_cause="environmental",
+                    backend_unavailable=True,
                     input_tokens=rev_in,
                     cached_input_tokens=rev_cached,
                     output_tokens=rev_out,

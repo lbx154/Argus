@@ -171,7 +171,15 @@ def test_reviewer_propagates_tokens_on_empty_messages() -> None:
     assert decision.output_tokens == 7
 
 
-def test_reviewer_empty_backend_failure_is_environmental_continue() -> None:
+def test_reviewer_empty_backend_failure_is_environmental_block() -> None:
+    # Contract change (2026-06-25): a reviewer backend failure that renders NO
+    # verdict must be a loud, non-verdict ``blocked`` carrying the explicit
+    # ``backend_unavailable`` marker — NOT a soft ``continue``. The old
+    # ``continue`` let a *persistent* failure run the completion gate blind for
+    # ~1.5h. "Don't kill the mission on a *transient* blip" still holds, but that
+    # tolerance now lives in the supervised loop (streak + backoff retry, then
+    # escalate) — see tests/test_reviewer_backend_failure_escalates.py. Token
+    # propagation on the failure path is unchanged.
     runner = _StubReviewerRunner(
         agent_messages=[],
         in_tok=42,
@@ -190,7 +198,8 @@ def test_reviewer_empty_backend_failure_is_environmental_continue() -> None:
         config=ReviewerConfig(model="stub"),
     )
 
-    assert decision.status == "continue"
+    assert decision.status == "blocked"
+    assert decision.backend_unavailable is True
     assert decision.failure_cause == "environmental"
     assert "response.failed" in decision.reason
     assert decision.input_tokens == 42
