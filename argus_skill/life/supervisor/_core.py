@@ -883,7 +883,7 @@ class LifeSupervisor:
     # Self-evolve: thin delegate to SelfEvolveAdvisor
     # ------------------------------------------------------------------
     # Logic lives in argus_skill/life/self_evolve_advisor.py per
-    # edit-principle/skills/06-keep-files-small.md. supervisor.py is already
+    # docs/edit-principle/skills/06-keep-files-small.md. supervisor.py is already
     # ~1800 lines; the self-evolve concern (advisory journaling +
     # dedup + event tailing) belongs in its own module so it can be
     # discovered + tested + refactored independently.

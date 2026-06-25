@@ -349,7 +349,7 @@ def test_old_time_threshold_constants_are_gone() -> None:
     for name in forbidden:
         assert not hasattr(mod, name), (
             f"{name!r} is a research-tempo threshold — must stay deleted "
-            f"(see review/2026-06-01-research-factory-gates-c6b11d3.md)"
+            f"(see docs/reviews/research-factory-gates.md)"
         )
 
     # Budget fraction IS allowed — operator-set spending guard.
