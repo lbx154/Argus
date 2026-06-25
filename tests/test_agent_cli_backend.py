@@ -1,7 +1,7 @@
-"""Tests for ``argus_skill.adapters.codex_backend``.
+"""Tests for ``argus_skill.adapters.agent_cli_backend``.
 
 We do NOT spawn a real codex / claude CLI in CI. Instead we monkey-patch
-the underlying ``CodexRunner.run_exec`` to return a synthetic
+the underlying ``AgentCliRunner.run_exec`` to return a synthetic
 ``CodexRunResult``, then verify our adapter:
 
   * Translates argus-skill ``RunnerOptions`` → ArgusBot ``RunnerOptions``
@@ -13,7 +13,7 @@ the underlying ``CodexRunner.run_exec`` to return a synthetic
   * Sums token counts from the JSON event stream (last non-zero wins).
   * Catches subprocess failures (FileNotFoundError, generic exceptions)
     and surfaces them as a ``RunnerResult`` with ``fatal_error`` set.
-  * ``build_codex_backend_from_env`` honours env vars.
+  * ``build_agent_cli_backend_from_env`` honours env vars.
 """
 from __future__ import annotations
 
@@ -24,10 +24,10 @@ from typing import Any
 
 import pytest
 
-from argus_skill.adapters.codex_backend import (
-    CodexRunnerBackend,
+from argus_skill.adapters.agent_cli_backend import (
+    AgentCliBackend,
     _sum_token_counts,
-    build_codex_backend_from_env,
+    build_agent_cli_backend_from_env,
 )
 from argus_skill.core.models import RunnerOptions
 
@@ -62,17 +62,17 @@ class CodexRunResult:
     fatal_error: str | None = None
 
 
-class CodexRunner:
+class AgentCliRunner:
     def __init__(
         self,
         *,
-        codex_bin: str | None = None,
+        agent_bin: str | None = None,
         backend: str = "codex",
         event_callback: Any | None = None,
         default_extra_args: list[str] | None = None,
         before_exec: Any | None = None,
     ) -> None:
-        self.codex_bin = codex_bin
+        self.agent_bin = agent_bin
         self.backend = backend
         self.event_callback = event_callback
         self.default_extra_args = list(default_extra_args or [])
@@ -83,15 +83,15 @@ class CodexRunner:
 
 
 @pytest.fixture(autouse=True)
-def fake_codex_autoloop(monkeypatch: pytest.MonkeyPatch) -> None:
-    pkg = ModuleType("codex_autoloop")
+def fake_agent_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    pkg = ModuleType("agent_cli")
     setattr(pkg, "__path__", [])
 
-    runner_mod = ModuleType("codex_autoloop.codex_runner")
-    runner_mod.__dict__["CodexRunner"] = CodexRunner
+    runner_mod = ModuleType("agent_cli.agent_cli_runner")
+    runner_mod.__dict__["AgentCliRunner"] = AgentCliRunner
     runner_mod.__dict__["RunnerOptions"] = ArgusRunnerOptions
 
-    backend_mod = ModuleType("codex_autoloop.runner_backend")
+    backend_mod = ModuleType("agent_cli.runner_backend")
     backend_mod.__dict__["BACKEND_CLAUDE"] = "claude"
     backend_mod.__dict__["BACKEND_CODEX"] = "codex"
     backend_mod.__dict__["BACKEND_COPILOT"] = "copilot"
@@ -106,31 +106,31 @@ def fake_codex_autoloop(monkeypatch: pytest.MonkeyPatch) -> None:
     backend_mod.__dict__["default_runner_bin"] = default_runner_bin
     backend_mod.__dict__["normalize_runner_backend"] = normalize_runner_backend
 
-    models_mod = ModuleType("codex_autoloop.models")
+    models_mod = ModuleType("agent_cli.models")
     models_mod.__dict__["CodexRunResult"] = CodexRunResult
 
-    setattr(pkg, "codex_runner", runner_mod)
+    setattr(pkg, "agent_cli_runner", runner_mod)
     setattr(pkg, "runner_backend", backend_mod)
     setattr(pkg, "models", models_mod)
 
-    monkeypatch.setitem(sys.modules, "codex_autoloop", pkg)
-    monkeypatch.setitem(sys.modules, "codex_autoloop.codex_runner", runner_mod)
-    monkeypatch.setitem(sys.modules, "codex_autoloop.runner_backend", backend_mod)
-    monkeypatch.setitem(sys.modules, "codex_autoloop.models", models_mod)
+    monkeypatch.setitem(sys.modules, "agent_cli", pkg)
+    monkeypatch.setitem(sys.modules, "agent_cli.agent_cli_runner", runner_mod)
+    monkeypatch.setitem(sys.modules, "agent_cli.runner_backend", backend_mod)
+    monkeypatch.setitem(sys.modules, "agent_cli.models", models_mod)
 
     # ``_import_argusbot()`` now prefers the vendored copy at
-    # ``argus_skill.codex_autoloop`` over the legacy top-level package.
+    # ``argus_skill.agent_cli`` over the legacy top-level package.
     # Mirror the mock there so the option-translation contract test
     # keeps exercising the same surface the production code uses.
-    monkeypatch.setitem(sys.modules, "argus_skill.codex_autoloop", pkg)
+    monkeypatch.setitem(sys.modules, "argus_skill.agent_cli", pkg)
     monkeypatch.setitem(
-        sys.modules, "argus_skill.codex_autoloop.codex_runner", runner_mod,
+        sys.modules, "argus_skill.agent_cli.agent_cli_runner", runner_mod,
     )
     monkeypatch.setitem(
-        sys.modules, "argus_skill.codex_autoloop.runner_backend", backend_mod,
+        sys.modules, "argus_skill.agent_cli.runner_backend", backend_mod,
     )
     monkeypatch.setitem(
-        sys.modules, "argus_skill.codex_autoloop.models", models_mod,
+        sys.modules, "argus_skill.agent_cli.models", models_mod,
     )
 
 
@@ -161,7 +161,7 @@ def _make_argus_result(
 def test_run_exec_translates_options_and_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    backend = CodexRunnerBackend(backend="codex")
+    backend = AgentCliBackend(backend="codex")
     captured: dict[str, Any] = {}
 
     def fake_run_exec(
@@ -245,7 +245,7 @@ def test_run_exec_translates_options_and_result(
 def test_run_exec_normalizes_recoverable_reconnect_notice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    backend = CodexRunnerBackend(backend="codex")
+    backend = AgentCliBackend(backend="codex")
 
     def fake_run_exec(
         self: Any,
@@ -280,7 +280,7 @@ def test_run_exec_normalizes_recoverable_reconnect_notice(
 def test_run_exec_normalizes_high_attempt_reconnect_notice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    backend = CodexRunnerBackend(backend="codex")
+    backend = AgentCliBackend(backend="codex")
 
     def fake_run_exec(
         self: Any,
@@ -313,7 +313,7 @@ def test_run_exec_normalizes_high_attempt_reconnect_notice(
 
 
 def test_run_exec_handles_file_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
-    backend = CodexRunnerBackend(backend="codex")
+    backend = AgentCliBackend(backend="codex")
 
     def boom(
         self: Any,
@@ -343,7 +343,7 @@ def test_run_exec_handles_file_not_found(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_run_exec_handles_generic_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    backend = CodexRunnerBackend(backend="codex")
+    backend = AgentCliBackend(backend="codex")
 
     def boom(
         self: Any,
@@ -463,7 +463,7 @@ def test_run_exec_forwards_watchdog_hooks(
     operator sends ``/inject`` or ``/stop``. If the adapter drops these
     fields, /inject becomes ineffective during a round.
     """
-    backend = CodexRunnerBackend(backend="codex")
+    backend = AgentCliBackend(backend="codex")
     captured: dict[str, Any] = {}
 
     def fake_run_exec(
@@ -510,7 +510,7 @@ def test_run_exec_applies_default_watchdog_hooks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     default_interrupt = lambda: None
-    backend = CodexRunnerBackend(
+    backend = AgentCliBackend(
         backend="codex",
         default_interrupt_reason_provider=default_interrupt,
         default_watchdog_soft_idle_seconds=300,
@@ -558,7 +558,7 @@ def test_run_exec_composes_explicit_watchdog_with_defaults(
         calls.append("explicit")
         return "stale"
 
-    backend = CodexRunnerBackend(
+    backend = AgentCliBackend(
         backend="codex",
         default_interrupt_reason_provider=default_interrupt,
         default_watchdog_soft_idle_seconds=300,
@@ -603,7 +603,7 @@ def test_run_exec_composes_explicit_watchdog_with_defaults(
 def test_run_exec_reports_delta_for_resumed_cumulative_thread(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    backend = CodexRunnerBackend(backend="codex")
+    backend = AgentCliBackend(backend="codex")
     raw_usages = [
         {"input_tokens": 1000, "cached_input_tokens": 400, "output_tokens": 100},
         {"input_tokens": 1250, "cached_input_tokens": 500, "output_tokens": 130},
@@ -662,14 +662,14 @@ def test_run_exec_default_watchdog_options_are_inert():
     assert options.watchdog_hard_idle_seconds == 0
 
 
-def test_build_codex_backend_from_env_uses_env(monkeypatch):
+def test_build_agent_cli_backend_from_env_uses_env(monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "claude")
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_EXTRA_ARGS", '-c "model_profile=fast"')
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", "120")
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", "900")
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
 
-    backend = build_codex_backend_from_env()
+    backend = build_agent_cli_backend_from_env()
     inner = backend._argus_runner
     # ArgusBot stores backend on the inner runner.
     assert inner.backend == "claude"
@@ -678,7 +678,7 @@ def test_build_codex_backend_from_env_uses_env(monkeypatch):
     assert backend._default_watchdog_hard_idle_seconds == 900
 
 
-def test_build_codex_backend_from_env_strips_legacy_auto_max_profile(
+def test_build_agent_cli_backend_from_env_strips_legacy_auto_max_profile(
     monkeypatch,
 ):
     monkeypatch.setenv(
@@ -687,11 +687,11 @@ def test_build_codex_backend_from_env_strips_legacy_auto_max_profile(
     )
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
-    backend = build_codex_backend_from_env()
+    backend = build_agent_cli_backend_from_env()
     assert backend._argus_runner.default_extra_args == ["--trace"]
 
 
-def test_build_codex_backend_from_env_defaults(monkeypatch):
+def test_build_agent_cli_backend_from_env_defaults(monkeypatch):
     for name in (
         "ARGUS_SKILL_RUNNER_BACKEND",
         "ARGUS_SKILL_RUNNER_BIN",
@@ -700,7 +700,7 @@ def test_build_codex_backend_from_env_defaults(monkeypatch):
         "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS",
     ):
         monkeypatch.delenv(name, raising=False)
-    backend = build_codex_backend_from_env()
+    backend = build_agent_cli_backend_from_env()
     # ArgusBot's default is codex.
     assert backend._argus_runner.backend == "codex"
     assert backend._argus_runner.default_extra_args == []

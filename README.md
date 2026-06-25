@@ -115,7 +115,7 @@ npm install -g @openai/codex
 codex --version   # 验证可用
 ```
 
-> `codex_autoloop` 监督循环已 **vendored** 在本仓库（`argus_skill/codex_autoloop/`），无需单独安装 ArgusBot。
+> `codex_autoloop` 监督循环已 **vendored** 在本仓库（`argus_skill/agent_cli/`），无需单独安装 ArgusBot。
 
 ### 2. 安装
 
@@ -333,5 +333,5 @@ MIT — see [LICENSE](LICENSE).
 ## Provenance
 
 - [skill-agent](https://github.com/lbx154/skill-agent)：skill 匹配、distiller
-- [ArgusBot](https://github.com/waltstephen/ArgusBot) (MIT)：reviewer 循环、codex runner —— `codex_autoloop` 已 **vendored** 到 `argus_skill/codex_autoloop/`（含上游 LICENSE 与 `_VENDORED.md`）
+- [ArgusBot](https://github.com/waltstephen/ArgusBot) (MIT)：reviewer 循环、codex runner —— `codex_autoloop` 已 **vendored** 到 `argus_skill/agent_cli/`（含上游 LICENSE 与 `_VENDORED.md`）
 - 新代码：auto-research pipeline、stage_check、builtin skills、image-2 集成

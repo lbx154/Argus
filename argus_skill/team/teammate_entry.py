@@ -86,7 +86,7 @@ def _forced_web_research(objective: str, *, cwd: str) -> str:
     flag = os.environ.get("ARGUS_TEAMMATE_FORCE_RESEARCH", "").strip().lower()
     if flag in ("", "0", "false", "no"):
         return objective
-    codex_bin = os.environ.get("ARGUS_TEAMMATE_RESEARCH_CODEX", "codex")
+    agent_bin = os.environ.get("ARGUS_TEAMMATE_RESEARCH_CODEX", "codex")
     timeout_s = float(os.environ.get("ARGUS_TEAMMATE_RESEARCH_TIMEOUT_S", "180"))
     prompt = (
         "Use the web_search tool to research how the best open-source / SOTA "
@@ -98,7 +98,7 @@ def _forced_web_research(objective: str, *, cwd: str) -> str:
     )
     try:
         res = subprocess.run(
-            [codex_bin, "exec", "--skip-git-repo-check", prompt],
+            [agent_bin, "exec", "--skip-git-repo-check", prompt],
             cwd=str(cwd), capture_output=True, text=True, timeout=timeout_s,
         )
         raw = res.stdout or ""

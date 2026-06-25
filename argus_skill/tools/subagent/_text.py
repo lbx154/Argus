@@ -29,7 +29,7 @@ def _codex_agent_messages(stdout: str) -> list[str]:
     Codex emits JSONL (one event per line); each assistant reply arrives as
     ``{"type": "item.completed", "item": {"type": "agent_message",
     "text": ...}}``. This mirrors the canonical parser in
-    ``argus_skill.codex_autoloop.codex_runner`` so the subagent supervisor and
+    ``argus_skill.agent_cli.agent_cli_runner`` so the subagent supervisor and
     reporter read the real schema instead of a stale ``messages`` shape.
     """
     out: list[str] = []

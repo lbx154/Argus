@@ -11,7 +11,7 @@ This is the heart of the argus-skill v0.1 integration:
     If ``blocked``, stop and surface the reason.
 
 Provenance: the round-loop control flow is adapted from
-``ArgusBot/codex_autoloop/core/engine.py`` (LoopEngine), simplified to the
+``ArgusBot/agent_cli/core/engine.py`` (LoopEngine), simplified to the
 single-agent case — argus-skill does not have ArgusBot's planner /
 explore subagent; the skill block plays a similar "what to do" role for
 the engineer in front of you.

@@ -407,7 +407,7 @@ class _CodexSkillLoopRunner:
 
     Bypasses the ``ARGUS_SKILL_BACKEND`` env var: when life mode
     selects ``codex`` that's the user's explicit ask, so we always
-    construct a real ``CodexRunnerBackend``. This was a real bug —
+    construct a real ``AgentCliBackend``. This was a real bug —
     previously the backend silently fell back to memory when the env
     var was unset, while the UI happily printed ``backend: codex``.
     """
@@ -418,7 +418,7 @@ class _CodexSkillLoopRunner:
         self._SkillLoop = SkillLoop
         self._SkillLoopConfig = SkillLoopConfig
         try:
-            from ...adapters.codex_backend import CodexRunnerBackend
+            from ...adapters.agent_cli_backend import AgentCliBackend
             from ...adapters.stream_progress import make_stream_progress_callback
         except ImportError as exc:  # pragma: no cover — depends on optional install
             raise SystemExit(
@@ -445,9 +445,9 @@ class _CodexSkillLoopRunner:
             except Exception:  # noqa: BLE001 — never let logging crash the runner
                 pass
 
-        # Mirror build_codex_backend_from_env's env-var contract here so
+        # Mirror build_agent_cli_backend_from_env's env-var contract here so
         # we can also pass event_callback (the helper doesn't expose it).
-        from ...adapters.codex_backend import _strip_legacy_codex_profile_args
+        from ...adapters.agent_cli_backend import _strip_legacy_codex_profile_args
         backend_name = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND") or None
         runner_bin = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or None
         raw_extra = os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", "").strip()
@@ -461,7 +461,7 @@ class _CodexSkillLoopRunner:
                 return "daemon stop requested"
             return None
 
-        self._backend = CodexRunnerBackend(
+        self._backend = AgentCliBackend(
             backend=backend_name,
             runner_bin=runner_bin,
             default_extra_args=extra,

@@ -2,11 +2,11 @@
 
 Provenance: ``ControlChannel`` / ``EventSink`` shapes are adapted from
 ArgusBot's ``core/ports.py``. ``RunnerBackend`` is new — it sits at the
-seam where ArgusBot's hard-coded ``CodexRunner`` used to be, and where
+seam where ArgusBot's hard-coded ``AgentCliRunner`` used to be, and where
 skill-agent's ``codex_exec(...)`` callable used to be. By making it a
 ``Protocol`` we can plug in:
 
-  * ``CodexBackend`` — wraps ArgusBot's codex_runner.
+  * ``CodexBackend`` — wraps ArgusBot's agent_cli_runner.
   * ``ClaudeBackend`` — wraps the claude-code CLI (skill-agent's adapter).
   * ``MemoryBackend`` — deterministic stub for tests / CI.
 """

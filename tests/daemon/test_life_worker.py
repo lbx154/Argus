@@ -414,7 +414,7 @@ def test_life_worker_does_not_start_telegram_by_default(
     assert rc == 0
 
 
-def test_life_worker_wires_stop_event_to_codex_runner(
+def test_life_worker_wires_stop_event_to_agent_cli_runner(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

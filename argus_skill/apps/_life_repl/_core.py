@@ -142,14 +142,14 @@ def _codex_preflight_warning() -> str | None:
     print a precise error when a mission actually starts.
     """
     try:
-        from ...adapters.codex_backend import _import_argusbot
+        from ...adapters.agent_cli_backend import _import_argusbot
     except ImportError:
-        return ("bundled codex_autoloop module not importable — "
+        return ("bundled agent_cli module not importable — "
                 "reinstall argus-skill")
     try:  # noqa: SIM105
         _import_argusbot()
     except Exception:  # noqa: BLE001
-        return ("bundled codex_autoloop failed to load — "
+        return ("bundled agent_cli failed to load — "
                 "check the argus-skill install")
     import shutil
     bin_path = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or shutil.which("codex")

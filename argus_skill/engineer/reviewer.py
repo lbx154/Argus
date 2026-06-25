@@ -1,7 +1,7 @@
 """Reviewer sub-agent: graded "done / continue / blocked" verdict.
 
-Provenance: vendored from ``ArgusBot/codex_autoloop/reviewer.py``. The
-substantive change is decoupling: the original took a ``CodexRunner``
+Provenance: vendored from ``ArgusBot/agent_cli/reviewer.py``. The
+substantive change is decoupling: the original took a ``AgentCliRunner``
 directly; this version takes any ``RunnerBackend`` (see
 ``argus_skill.core.ports``) so it works with codex, claude-code, or the
 in-memory test stub equally well.

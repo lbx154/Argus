@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-import argus_skill.adapters.codex_backend as codex_backend_mod
+import argus_skill.adapters.agent_cli_backend as agent_cli_backend_mod
 from argus_skill.apps import _life_repl
 from argus_skill.daemon.life_worker import write_continuous_config
 from argus_skill.life import MemoryBundle
@@ -176,7 +176,7 @@ def test_codex_skill_loop_runner_strips_legacy_auto_max_profile(
 ) -> None:
     captured: dict[str, Any] = {}
 
-    class FakeCodexRunnerBackend:
+    class FakeAgentCliBackend:
         def __init__(
             self,
             *,
@@ -196,7 +196,7 @@ def test_codex_skill_loop_runner_strips_legacy_auto_max_profile(
             captured["event_callback"] = event_callback
             self.backend = backend
 
-    monkeypatch.setattr(codex_backend_mod, "CodexRunnerBackend", FakeCodexRunnerBackend)
+    monkeypatch.setattr(agent_cli_backend_mod, "AgentCliBackend", FakeAgentCliBackend)
     monkeypatch.setenv(
         "ARGUS_SKILL_RUNNER_EXTRA_ARGS",
         '-c "profile = \\"auto-max\\"" --trace',

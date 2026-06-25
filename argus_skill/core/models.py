@@ -1,7 +1,7 @@
 """Core dataclasses shared across the loop.
 
 Provenance: most types here are vendored or adapted from
-``ArgusBot/codex_autoloop/models.py``. Trimmed to what argus-skill actually
+``ArgusBot/agent_cli/models.py``. Trimmed to what argus-skill actually
 uses (no planner snapshots — argus-skill is reviewer-only for v0.1).
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ class RunnerOptions:
 
     Vendored shape from ArgusBot's RunnerOptions. Watchdog hooks are
     optional and only honoured by backends that wrap a real subprocess
-    (e.g. ``CodexRunnerBackend``); ``MemoryBackend`` and other
+    (e.g. ``AgentCliBackend``); ``MemoryBackend`` and other
     deterministic backends ignore them.
     """
     model: str | None = None

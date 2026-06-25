@@ -34,7 +34,7 @@ from argus_skill.life.supervisor import (
 
 @dataclass
 class _FakeBackend:
-    """Stand-in for ``CodexRunnerBackend`` for the chat fast-path tests.
+    """Stand-in for ``AgentCliBackend`` for the chat fast-path tests.
 
     Records the prompt + run_label so the test can assert on them, then
     returns a canned ``RunnerResult`` with the configured tokens / msg.

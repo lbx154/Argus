@@ -401,8 +401,8 @@ RunnerBackend.run_exec(prompt, options, run_label, resume_thread_id=None) -> Run
 
 实现：
 
-- `argus_skill/adapters/codex_backend.py`: 包 vendored `codex_autoloop.codex_runner.CodexRunner`，真实 codex/claude/copilot CLI 都从这里走。
-- `argus_skill/codex_autoloop/`: 旧 ArgusBot autoloop 整套已删除，只保留三个底层 CLI driver 模块 `codex_runner` / `runner_backend` / `models`（+ 薄 `__init__`、`LICENSE`、`_VENDORED.md`）。`__init__` 不再 eager import orchestrator/core，所以 `import argus_skill.codex_autoloop.codex_runner` 没有遗留副作用。历史的 orchestrator / telegram_daemon / feishu_adapter / 第二份 reviewer·planner·checks / dashboard 等 ~33 个模块（~14.9k 行）都已移除——它们早被 `argus_skill.life` / `engineer` / `planner` 取代（Telegram 远控走的是新的 `life/telegram_bot.py`）。
+- `argus_skill/adapters/agent_cli_backend.py`: 包 vendored `agent_cli.agent_cli_runner.AgentCliRunner`，真实 codex/claude/copilot CLI 都从这里走。
+- `argus_skill/agent_cli/`: 旧 ArgusBot autoloop 整套已删除，只保留三个底层 CLI driver 模块 `agent_cli_runner` / `runner_backend` / `models`（+ 薄 `__init__`、`LICENSE`、`_VENDORED.md`）。`__init__` 不再 eager import orchestrator/core，所以 `import argus_skill.agent_cli.agent_cli_runner` 没有遗留副作用。历史的 orchestrator / telegram_daemon / feishu_adapter / 第二份 reviewer·planner·checks / dashboard 等 ~33 个模块（~14.9k 行）都已移除——它们早被 `argus_skill.life` / `engineer` / `planner` 取代（Telegram 远控走的是新的 `life/telegram_bot.py`）。
 - `argus_skill/adapters/memory_backend.py`: deterministic 测试/smoke。
 - `_CodexSkillLoopRunner` 在 `_life_repl.py` 里组装真实 backend，并把同一个 backend 传给 distiller(scientist)、engineer、reviewer、planner。
 

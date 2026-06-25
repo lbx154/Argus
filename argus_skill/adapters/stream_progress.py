@@ -1,6 +1,6 @@
 """Forward codex/claude/copilot stream-json lines as ``engineer.progress`` events.
 
-ArgusBot's ``CodexRunner`` invokes its ``event_callback(stream, line)``
+ArgusBot's ``AgentCliRunner`` invokes its ``event_callback(stream, line)``
 once per stdout/stderr line. Stdout, when running with the JSON event
 stream (codex's ``--output-format=stream-json`` and friends), produces
 one structured event per line — ``thread.started``, ``item.completed``
@@ -12,7 +12,7 @@ log keeps everything; the cooked ``engineer.progress`` events are what
 the unified REPL renders in concise mode.
 
 Design choice: mirror ArgusBot's own event ingestion (see
-``codex_autoloop/codex_runner.py::_consume_codex_event``) — we only
+``agent_cli/agent_cli_runner.py::_consume_codex_event``) — we only
 inspect ``item.completed`` items here, which is the same beat ArgusBot
 treats as "the agent produced something". We deliberately don't try to
 stream token-level deltas (codex's stream-json doesn't expose them

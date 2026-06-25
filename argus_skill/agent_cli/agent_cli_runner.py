@@ -59,10 +59,10 @@ class RunnerOptions:
     worktree_name: str | None = None
 
 
-class CodexRunner:
+class AgentCliRunner:
     def __init__(
         self,
-        codex_bin: str | None = None,
+        agent_bin: str | None = None,
         *,
         backend: RunnerBackend = DEFAULT_RUNNER_BACKEND,
         event_callback: EventCallback | None = None,
@@ -70,7 +70,7 @@ class CodexRunner:
         before_exec: Callable[[], None] | None = None,
     ) -> None:
         self.backend = backend
-        self.codex_bin = codex_bin or default_runner_bin(backend)
+        self.agent_bin = agent_bin or default_runner_bin(backend)
         self.event_callback = event_callback
         self.default_extra_args = list(default_extra_args or [])
         self.before_exec = before_exec
@@ -284,7 +284,7 @@ class CodexRunner:
         return self._build_codex_command(resume_thread_id=resume_thread_id, options=options)
 
     def _build_codex_command(self, *, resume_thread_id: str | None, options: RunnerOptions) -> list[str]:
-        command = [self.codex_bin, "exec"]
+        command = [self.agent_bin, "exec"]
         if resume_thread_id:
             command.append("resume")
         command.append("--json")
@@ -314,7 +314,7 @@ class CodexRunner:
 
     def _build_claude_command(self, *, resume_thread_id: str | None, options: RunnerOptions) -> list[str]:
         command = [
-            self.codex_bin,
+            self.agent_bin,
             "-p",
             "--verbose",
             "--output-format",
@@ -368,7 +368,7 @@ class CodexRunner:
         options: RunnerOptions,
     ) -> list[str]:
         command = [
-            self.codex_bin,
+            self.agent_bin,
             "--output-format",
             "json",
             "--stream",
@@ -550,7 +550,7 @@ class CodexRunner:
 
         if event_type == "assistant":
             message = event.get("message")
-            text = CodexRunner._extract_claude_message_text(message)
+            text = AgentCliRunner._extract_claude_message_text(message)
             if text:
                 agent_messages.append(text)
             return thread_id, turn_completed, turn_failed, fatal_error

@@ -1,4 +1,4 @@
-"""Real LLM backend: thin adapter over ArgusBot's ``CodexRunner``.
+"""Real LLM backend: thin adapter over ArgusBot's ``AgentCliRunner``.
 
 argus-skill's loop is deliberately backend-agnostic — it talks to a
 ``RunnerBackend`` (Protocol) defined in ``argus_skill.core.ports``. The
@@ -6,7 +6,7 @@ deterministic ``MemoryBackend`` is fine for tests, but for *real* runs
 we need to drive the actual codex / claude / copilot CLI.
 
 ArgusBot already ships a battle-tested subprocess wrapper —
-``codex_autoloop.codex_runner.CodexRunner`` — that handles JSON event
+``agent_cli.agent_cli_runner.AgentCliRunner`` — that handles JSON event
 streams, idle watchdogs, claude/copilot dialects, and cross-platform
 stdin quirks. Re-vendoring would mean carrying ~700 LOC + tests of
 edge-case bug fixes. So instead this adapter *wraps* it.
@@ -146,20 +146,20 @@ def _strip_legacy_codex_profile_args(
 def _import_argusbot():
     """Resolve the codex/claude/copilot CLI runner shipped with argus-skill.
 
-    Prefers the vendored copy under ``argus_skill.codex_autoloop`` (no
-    separate install step). Falls back to a top-level ``codex_autoloop``
+    Prefers the vendored copy under ``argus_skill.agent_cli`` (no
+    separate install step). Falls back to a top-level ``agent_cli``
     package if one is on ``sys.path`` — this preserves compatibility with
     historical ``pip install 'argus-skill[codex]'`` installs and with local
     upstream ArgusBot checkouts used for development.
     """
     try:
-        from argus_skill.codex_autoloop.codex_runner import (
-            CodexRunner,
+        from argus_skill.agent_cli.agent_cli_runner import (
+            AgentCliRunner,
         )
-        from argus_skill.codex_autoloop.codex_runner import (
+        from argus_skill.agent_cli.agent_cli_runner import (
             RunnerOptions as ArgusRunnerOptions,
         )
-        from argus_skill.codex_autoloop.runner_backend import (
+        from argus_skill.agent_cli.runner_backend import (
             BACKEND_CLAUDE,
             BACKEND_CODEX,
             BACKEND_COPILOT,
@@ -169,13 +169,13 @@ def _import_argusbot():
         )
     except ImportError:
         try:
-            from codex_autoloop.codex_runner import (
-                CodexRunner,
+            from agent_cli.agent_cli_runner import (
+                AgentCliRunner,
             )
-            from codex_autoloop.codex_runner import (
+            from agent_cli.agent_cli_runner import (
                 RunnerOptions as ArgusRunnerOptions,
             )
-            from codex_autoloop.runner_backend import (
+            from agent_cli.runner_backend import (
                 BACKEND_CLAUDE,
                 BACKEND_CODEX,
                 BACKEND_COPILOT,
@@ -185,12 +185,12 @@ def _import_argusbot():
             )
         except ImportError as exc:  # pragma: no cover - environmental
             raise ImportError(
-                "CodexRunnerBackend requires the bundled codex_autoloop "
+                "AgentCliBackend requires the bundled agent_cli "
                 "module. Reinstall argus-skill, or add a sibling "
-                "`codex_autoloop` package to PYTHONPATH for development."
+                "`agent_cli` package to PYTHONPATH for development."
             ) from exc
     return {
-        "CodexRunner": CodexRunner,
+        "AgentCliRunner": AgentCliRunner,
         "ArgusRunnerOptions": ArgusRunnerOptions,
         "BACKEND_CLAUDE": BACKEND_CLAUDE,
         "BACKEND_CODEX": BACKEND_CODEX,
@@ -204,7 +204,7 @@ def _import_argusbot():
 # --- The adapter -----------------------------------------------------------
 
 
-class CodexRunnerBackend:
+class AgentCliBackend:
     """``RunnerBackend`` implementation that shells out to a real CLI.
 
     Construct once with the runner backend choice ("codex" / "claude" /
@@ -213,9 +213,9 @@ class CodexRunnerBackend:
     every ``SkillLoop`` actor (scientist / engineer / reviewer). Each
     ``run_exec`` call spawns a fresh subprocess.
 
-    Threading: the underlying ``CodexRunner.run_exec`` is blocking and
+    Threading: the underlying ``AgentCliRunner.run_exec`` is blocking and
     not designed to be called concurrently from one instance — but
-    multiple ``CodexRunnerBackend`` calls *are* safe in series. Use
+    multiple ``AgentCliBackend`` calls *are* safe in series. Use
     separate instances if you want concurrent matcher + scientist +
     engineer calls (the SkillLoop is sequential, so one instance is
     enough).
@@ -254,8 +254,8 @@ class CodexRunnerBackend:
             if backend is not None
             else deps["DEFAULT_RUNNER_BACKEND"]
         )
-        self._argus_runner = deps["CodexRunner"](
-            codex_bin=runner_bin,
+        self._argus_runner = deps["AgentCliRunner"](
+            agent_bin=runner_bin,
             backend=chosen,
             event_callback=event_callback,
             default_extra_args=default_extra_args,
@@ -523,8 +523,8 @@ def _compose_interrupt_providers(*providers):
 # --- Convenience factory ---------------------------------------------------
 
 
-def build_codex_backend_from_env() -> CodexRunnerBackend:
-    """Build a CodexRunnerBackend from environment variables.
+def build_agent_cli_backend_from_env() -> AgentCliBackend:
+    """Build a AgentCliBackend from environment variables.
 
     Honours:
 
@@ -545,7 +545,7 @@ def build_codex_backend_from_env() -> CodexRunnerBackend:
     runner_bin = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or None
     raw_extra = os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", "").strip()
     extra = _strip_legacy_codex_profile_args(shlex.split(raw_extra) if raw_extra else None)
-    return CodexRunnerBackend(
+    return AgentCliBackend(
         backend=backend,
         runner_bin=runner_bin,
         default_extra_args=extra,
@@ -561,7 +561,7 @@ def build_codex_backend_from_env() -> CodexRunnerBackend:
 
 
 __all__ = [
-    "CodexRunnerBackend",
-    "build_codex_backend_from_env",
+    "AgentCliBackend",
+    "build_agent_cli_backend_from_env",
     "_strip_legacy_codex_profile_args",
 ]

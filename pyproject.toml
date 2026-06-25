@@ -34,7 +34,7 @@ dependencies = [
 [project.optional-dependencies]
 # NOTE: the historical `argus-skill[codex]` extra used to install the
 # upstream ArgusBot package for its `codex_autoloop` module. That module
-# is now vendored under `argus_skill/codex_autoloop/`, so no separate
+# is now vendored under `argus_skill/agent_cli/`, so no separate
 # install is required. The extra is kept as an empty alias so that legacy
 # `pip install 'argus-skill[codex]'` invocations in user scripts still
 # succeed without pulling in anything.
@@ -119,7 +119,7 @@ warn_unused_configs = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = ["codex_autoloop.*", "argus_skill.codex_autoloop.*"]
+module = ["codex_autoloop.*", "argus_skill.agent_cli.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
