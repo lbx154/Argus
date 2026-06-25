@@ -3,7 +3,7 @@ name: Idea Creator
 description: Given IDEA_CANDIDATES.md from idea-discovery, rank candidates and pilot the top 1-3 in parallel within a budget. Each pilot is a minimal cheap proof-of-concept (2-hour train-free run) that produces a kill-or-keep verdict. Pilots that pass become the experiment plan; pilots that fail are documented and pivot to the next candidate.
 category: paper-ideation
 version: 1
-scientist_model: gpt-5.5
+author_model: gpt-5.5
 created_at: 2026-06-01T00:00:00+00:00
 ---
 
@@ -27,7 +27,7 @@ not the harness.
 
 ### Step 1 — rank candidates
 
-Reviewer agent (gpt-5.5 via `scientist` route) reads
+Reviewer agent (gpt-5.5 via `author` route) reads
 `IDEA_CANDIDATES.md` and ranks by joint **novelty × tractability × stake**:
 
 ```json

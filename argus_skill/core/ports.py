@@ -66,7 +66,7 @@ class SkillSource(Protocol):
         *,
         task_description: str,
         raw_distill_output: str,
-        scientist_model: str,
+        author_model: str,
     ) -> Any:
         ...
 

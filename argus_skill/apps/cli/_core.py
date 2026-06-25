@@ -276,13 +276,13 @@ def main(argv: list[str] | None = None) -> int:
         life_dir=args.life_dir,
         color=None,
         backend=backend_default,
-        scientist_model=os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL")
-        or resolve_route_model("scientist"),
+        author_model=os.environ.get("ARGUS_SKILL_AUTHOR_MODEL")
+        or resolve_route_model("author"),
         engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL")
         or resolve_route_model("engineer"),
         reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL"),
-        scientist_reasoning_effort=os.environ.get(
-            "ARGUS_SKILL_SCIENTIST_REASONING_EFFORT", "high"
+        author_reasoning_effort=os.environ.get(
+            "ARGUS_SKILL_AUTHOR_REASONING_EFFORT", "high"
         ),
         engineer_reasoning_effort=os.environ.get(
             "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high"
@@ -328,16 +328,16 @@ def _build_worker_config(args: argparse.Namespace):
         or resolve_route_model("engineer"),
         reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL")
         or resolve_route_model("reviewer"),
-        scientist_model=os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL")
-        or resolve_route_model("scientist"),
+        author_model=os.environ.get("ARGUS_SKILL_AUTHOR_MODEL")
+        or resolve_route_model("author"),
         engineer_reasoning_effort=os.environ.get(
             "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high"
         ),
         reviewer_reasoning_effort=os.environ.get(
             "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high"
         ),
-        scientist_reasoning_effort=os.environ.get(
-            "ARGUS_SKILL_SCIENTIST_REASONING_EFFORT", "high"
+        author_reasoning_effort=os.environ.get(
+            "ARGUS_SKILL_AUTHOR_REASONING_EFFORT", "high"
         ),
         per_mission_cap_usd=float(os.environ.get("ARGUS_SKILL_PER_MISSION_CAP_USD", "30.0")),
         daily_cap_usd=float(os.environ.get("ARGUS_SKILL_DAILY_CAP_USD", "180.0")),
@@ -681,7 +681,7 @@ def _cmd_skill_cleanse(args: argparse.Namespace) -> int:
 
 
 def _cmd_skill_compact(args: argparse.Namespace) -> int:
-    from ...scientist.compactor import DEFAULT_SIM_THRESHOLD, run_compact
+    from ...skills.compaction import DEFAULT_SIM_THRESHOLD, run_compact
     threshold = (
         float(args.sim_threshold)
         if args.sim_threshold is not None

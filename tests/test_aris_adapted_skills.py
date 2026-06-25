@@ -77,10 +77,10 @@ def test_aris_adapted_skills_are_present(skill_path: str, expected_name: str) ->
     fm = _parse_frontmatter(md.read_text(encoding="utf-8"))
     assert fm is not None
     assert fm["name"] == expected_name
-    # scientist_model must be 5.5 (matches the rest of the bundle's standard)
-    assert fm.get("scientist_model") == "gpt-5.5", (
-        f"{skill_path}: scientist_model should be gpt-5.5, "
-        f"got {fm.get('scientist_model')!r}"
+    # author_model must be 5.5 (matches the rest of the bundle's standard)
+    assert fm.get("author_model") == "gpt-5.5", (
+        f"{skill_path}: author_model should be gpt-5.5, "
+        f"got {fm.get('author_model')!r}"
     )
 
 

@@ -97,7 +97,7 @@ def _seed_skill(skills_dir: Path, *, provisional: bool = False) -> SkillStore:
     store.save_distilled(
         task_description="say hi to the user",
         raw_distill_output=SKILL_MD,
-        scientist_model="memory",
+        author_model="memory",
         provisional=provisional,
     )
     assert any(
@@ -119,7 +119,7 @@ def _match_hello() -> CannedResponse:
 
 def test_skill_gap_optimizes_matched_skill(tmp_path: Path) -> None:
     """failure + matched (confirmed) skill + reviewer skill_gap lesson -> the
-    scientist OPTIMIZES the skill (folds the lesson in). The revision becomes a
+    author OPTIMIZES the skill (folds the lesson in). The revision becomes a
     CANDIDATE (provisional) that must re-prove."""
     skills_dir = tmp_path / "skills"
     _seed_skill(skills_dir)
@@ -136,7 +136,7 @@ def test_skill_gap_optimizes_matched_skill(tmp_path: Path) -> None:
         skills_dir=skills_dir,
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=1, distill_on_miss=False,
+        config=SkillLoopConfig(max_rounds=1,
                                skill_revise_on_failure=True),
         on_event=events.append,
     )
@@ -175,7 +175,7 @@ def test_method_failure_teaches_nothing(tmp_path: Path) -> None:
         skills_dir=skills_dir,
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=1, distill_on_miss=False,
+        config=SkillLoopConfig(max_rounds=1,
                                skill_revise_on_failure=True),
         on_event=events.append,
     )
@@ -193,7 +193,7 @@ def test_unproven_optimization_reverted_on_next_failure(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     _seed_skill(skills_dir)
 
-    # Run 1: matched confirmed skill fails -> scientist optimizes it (candidate).
+    # Run 1: matched confirmed skill fails -> author optimizes it (candidate).
     b1 = MemoryBackend()
     b1.queue("matcher", _match_hello())
     b1.queue("engineer-r1", CannedResponse(message="Ran a shell tool."))
@@ -203,7 +203,7 @@ def test_unproven_optimization_reverted_on_next_failure(tmp_path: Path) -> None:
     ev1: list[dict] = []
     SkillLoop(
         skills_dir=skills_dir, engineer_runner=b1, reviewer_runner=b1,
-        config=SkillLoopConfig(max_rounds=1, distill_on_miss=False,
+        config=SkillLoopConfig(max_rounds=1,
                                skill_revise_on_failure=True),
         on_event=ev1.append,
     ).run("say hi to the user", workdir=tmp_path)
@@ -221,7 +221,7 @@ def test_unproven_optimization_reverted_on_next_failure(tmp_path: Path) -> None:
     ev2: list[dict] = []
     SkillLoop(
         skills_dir=skills_dir, engineer_runner=b2, reviewer_runner=b2,
-        config=SkillLoopConfig(max_rounds=1, distill_on_miss=False,
+        config=SkillLoopConfig(max_rounds=1,
                                skill_revise_on_failure=True),
         on_event=ev2.append,
     ).run("say hi to the user", workdir=tmp_path)
@@ -250,7 +250,7 @@ def test_failure_evolution_disabled_by_default(tmp_path: Path) -> None:
         skills_dir=skills_dir,
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=1, distill_on_miss=False),
+        config=SkillLoopConfig(max_rounds=1),
         on_event=events.append,
     )
     loop.run("say hi to the user", workdir=tmp_path)
@@ -264,34 +264,40 @@ def test_failure_evolution_disabled_by_default(tmp_path: Path) -> None:
 # Provisional skill lifecycle
 # ---------------------------------------------------------------------------
 
-def test_fresh_distilled_skill_discarded_on_first_failure(tmp_path: Path) -> None:
-    """A skill created this mission (distill-on-miss) is a CANDIDATE. If its very
-    first outing fails, it never proved itself -> it is discarded (deleted)."""
+def test_skill_gap_creates_candidate_when_unmatched(tmp_path: Path) -> None:
+    """No skill matched + the reviewer attributes a fixable ``skill_gap`` ->
+    AUTHOR the missing skill as a CANDIDATE (provisional). This reviewer-gated
+    creation REPLACES the old proactive distill-on-miss: a skill is born only
+    after the reviewer diagnoses a real gap, never just because the matcher
+    missed (the old behaviour minted a throwaway playbook for every trivial
+    task)."""
     skills_dir = tmp_path / "skills"
 
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
-    backend.queue("distiller", CannedResponse(message=SKILL_MD))  # distill-on-miss
     backend.queue("engineer-r1", CannedResponse(message="Ran a shell tool."))
     backend.queue("reviewer", CannedResponse(message=_blocked_review()))
+    backend.queue("distiller", CannedResponse(message=SKILL_MD))  # reviewer-gated authoring
 
     events: list[dict] = []
     loop = SkillLoop(
         skills_dir=skills_dir,
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=1, distill_on_miss=True,
-                               skill_revise_on_failure=True),
+        config=SkillLoopConfig(max_rounds=1, skill_revise_on_failure=True),
         on_event=events.append,
     )
     loop.run("say hi to the user", workdir=tmp_path)
 
-    assert any(e.get("type") == "skill.candidate.dropped" for e in events), [
+    assert any(e.get("type") == "skill.created" for e in events), [
         e.get("type") for e in events
     ]
     store = SkillStore(skills_dir)
-    assert not any(s["name"] == "Write a hello message"
-                   for s in store.list_summaries())
+    created = next((s for s in store.list_summaries()
+                    if s["name"] == "Write a hello message"), None)
+    assert created is not None, "reviewer skill_gap must author the missing skill"
+    # Born a candidate — must prove effective on a later round to be kept.
+    assert store.load(created["path"]).provisional is True
 
 
 def test_provisional_skill_confirmed_on_successful_reuse(tmp_path: Path) -> None:
@@ -308,7 +314,7 @@ def test_provisional_skill_confirmed_on_successful_reuse(tmp_path: Path) -> None
         skills_dir=skills_dir,
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=1, distill_on_miss=False,
+        config=SkillLoopConfig(max_rounds=1,
                                skill_writeback=True,
                                skill_revise_on_failure=True),
         on_event=events.append,
@@ -342,7 +348,7 @@ def test_provisional_skill_discarded_on_reuse_failure(tmp_path: Path) -> None:
         skills_dir=skills_dir,
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=1, distill_on_miss=False,
+        config=SkillLoopConfig(max_rounds=1,
                                skill_revise_on_failure=True),
         on_event=events.append,
     )
@@ -388,7 +394,7 @@ def test_confirm_and_record_provisional(tmp_path: Path) -> None:
 def test_revision_snapshots_prev_then_confirm_clears_it(tmp_path: Path) -> None:
     """OPTIMIZE/ABSORB snapshots the last-confirmed version to a .prev sidecar so
     an ineffective revision can be reverted; confirming the candidate clears it."""
-    from argus_skill.scientist.distiller import Distiller
+    from argus_skill.skills.skill_author import Distiller
 
     store = _seed_skill(tmp_path / "skills")  # confirmed
     summary = next(s for s in store.list_summaries()
@@ -401,7 +407,7 @@ def test_revision_snapshots_prev_then_confirm_clears_it(tmp_path: Path) -> None:
                   CannedResponse(message=REVISED_SKILL_MD))
     assert store.promote_lesson(
         skill=skill, lesson_text=_LESSON, task_description="say hi",
-        distiller=Distiller(backend), scientist_model="memory") is True
+        distiller=Distiller(backend), author_model="memory") is True
 
     snap = Path(skill.path).parent / f".{Path(skill.path).stem}.prev.md"
     assert store.load(skill.path).provisional is True   # revision is a candidate
@@ -412,8 +418,8 @@ def test_revision_snapshots_prev_then_confirm_clears_it(tmp_path: Path) -> None:
     assert not snap.exists()                            # confirm drops the snapshot
 
 
-def test_optimization_rejected_when_scientist_declines(tmp_path: Path) -> None:
-    """If the scientist returns unusable content, the optimization is rejected and
+def test_optimization_rejected_when_author_declines(tmp_path: Path) -> None:
+    """If the author returns unusable content, the optimization is rejected and
     the matched skill is left UNTOUCHED (no candidate, no snapshot)."""
     skills_dir = tmp_path / "skills"
     _seed_skill(skills_dir)
@@ -427,7 +433,7 @@ def test_optimization_rejected_when_scientist_declines(tmp_path: Path) -> None:
     events: list[dict] = []
     SkillLoop(
         skills_dir=skills_dir, engineer_runner=backend, reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=1, distill_on_miss=False,
+        config=SkillLoopConfig(max_rounds=1,
                                skill_revise_on_failure=True),
         on_event=events.append,
     ).run("say hi to the user", workdir=tmp_path)

@@ -167,13 +167,12 @@ class LifeStderrSink:
     # Events that life.mission.started/completed already cover; we silence
     # them in life mode to avoid duplicate noise around mission boundaries.
     # Also drop a few protocol/skill-machinery events that the user can't
-    # act on and that just clutter the chat scroll (matcher/scientist
+    # act on and that just clutter the chat scroll (matcher/author
     # banter, internal "distill done" weight reports).
     _SILENCED_IN_LIFE: ClassVar[frozenset[str]] = frozenset({
         "loop.start",
         "loop.done",
         "match.info",         # "skill store empty - will distill a new playbook"
-        "scientist.start",    # "no high-fit skill — distilling"
         "distill.done",       # "distilled (4009 chars, 0 tok)"
     })
 
@@ -809,12 +808,12 @@ class _SkillLoopRunner:
         # Operators can opt back into sandbox via ARGUS_SKILL_SAFE_MODE=1.
         safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
         config_kwargs = {
-            "scientist_model": args.scientist_model,
+            "author_model": args.author_model,
             "engineer_model": args.engineer_model,
             "reviewer_model": args.reviewer_model,
-            "scientist_reasoning_effort": getattr(
+            "author_reasoning_effort": getattr(
                 args,
-                "scientist_reasoning_effort",
+                "author_reasoning_effort",
                 "high",
             ),
             "engineer_reasoning_effort": getattr(
@@ -1407,11 +1406,11 @@ def _invoke_supervisor(
     )
     reviewer_default = resolve_route_model("reviewer")
     ns.reviewer_model = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL") or reviewer_default
-    ns.scientist_model = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL") or resolve_route_model(
-        "scientist"
+    ns.author_model = os.environ.get("ARGUS_SKILL_AUTHOR_MODEL") or resolve_route_model(
+        "author"
     )
-    ns.scientist_reasoning_effort = os.environ.get(
-        "ARGUS_SKILL_SCIENTIST_REASONING_EFFORT",
+    ns.author_reasoning_effort = os.environ.get(
+        "ARGUS_SKILL_AUTHOR_REASONING_EFFORT",
         "high",
     )
     ns.engineer_reasoning_effort = os.environ.get(
@@ -1446,10 +1445,10 @@ def _invoke_supervisor(
         f"- Runner backend: {runner_backend}\n"
         f"- Engineer model: {ns.engineer_model}\n"
         f"- Reviewer model: {ns.reviewer_model}\n"
-        f"- Scientist model: {ns.scientist_model}\n"
+        f"- Scientist model: {ns.author_model}\n"
         f"- Engineer reasoning effort: {ns.engineer_reasoning_effort or '(default)'}\n"
         f"- Reviewer reasoning effort: {ns.reviewer_reasoning_effort or '(default)'}\n"
-        f"- Scientist reasoning effort: {ns.scientist_reasoning_effort or '(default)'}\n"
+        f"- Scientist reasoning effort: {ns.author_reasoning_effort or '(default)'}\n"
         f"- Max rounds per mission: {ns.max_rounds}\n"
         f"- Per-mission budget cap: ${per_mission_cap_usd:.2f}\n"
         f"- Daily budget cap: ${daily_cap_usd:.2f}\n"

@@ -3,7 +3,7 @@ name: Paper Review Revision Loop
 description: Review and revise a paper draft against EMNLP-style criteria, applying concrete fixes and rechecking claims, academic language, figures, layout, and compile status.
 category: paper-review
 version: 1
-scientist_model: gpt-5.5
+author_model: gpt-5.5
 created_at: 2026-05-23T00:00:00+00:00
 ---
 

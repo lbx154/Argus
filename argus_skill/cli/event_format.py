@@ -38,8 +38,6 @@ _EVENT_ICONS: dict[str, str] = {
     "round.watchdog.restart_requested": "🔄",
     "plan.completed":   "📋",
     "match.info":       "🎯",
-    "scientist.start":  "🧪",
-    "scientist.error":  "🧪❌",
     "skill.writeback":  "💾",
     "pptx.report.ready": "📊",
     "final.report.ready": "📄",

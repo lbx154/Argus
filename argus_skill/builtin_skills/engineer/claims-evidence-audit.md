@@ -3,7 +3,7 @@ name: Claims Evidence Audit
 description: Audit a research report or paper so every claim, number, citation placeholder, and figure reference maps to local evidence or is explicitly marked unsupported.
 category: research-audit
 version: 1
-scientist_model: gpt-5.5
+author_model: gpt-5.5
 created_at: 2026-05-23T00:00:00+00:00
 ---
 

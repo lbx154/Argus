@@ -3,7 +3,7 @@ name: Kill Argument
 description: Two-thread adversarial review on a paper draft. Thread A — a fresh hostile reviewer with no prior context writes the strongest possible 200-word rejection memo (the "Reviewer 2 in a bad mood" simulation). Thread B — a second fresh reviewer reads the draft + memo and defends the paper point-by-point, surfacing still-unresolved critical issues. The remaining issues become must-fix-before-submission. Use after standard reviews pass; this is the final gate before submission.
 category: paper-review
 version: 1
-scientist_model: gpt-5.5
+author_model: gpt-5.5
 created_at: 2026-06-01T00:00:00+00:00
 ---
 

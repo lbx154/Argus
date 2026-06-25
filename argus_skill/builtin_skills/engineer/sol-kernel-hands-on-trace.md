@@ -3,7 +3,7 @@ name: SOL Kernel Hands-on Trace
 description: A concrete KernelBench/SOL process trace from optimizing 36_RMSNorm_ on B200, recorded as the measured causal chain we require — per iteration measured(ms, effective_BW, %peak, SOL) → bottleneck hypothesis → mechanism → re-measured → gap-to-SOL → next — with the roofline arithmetic shown, plus the real infra/correctness nails that interrupted the chain.
 category: benchmark-kernel-optimization
 version: 3
-scientist_model: gpt-5.5
+author_model: gpt-5.5
 created_at: 2026-06-17T00:00:00+00:00
 ---
 

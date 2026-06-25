@@ -58,7 +58,7 @@ Ownership map:
 | L1 engineer retries, checks, session carryover, watchdogs, backend failures | `argus_skill/engineer/runner.py`, `argus_skill/engineer/checks.py` |
 | L2 reviewer verdicts, JSON schema, reviewer-to-engineer next action | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` |
 | L4 planner continuous-mode task creation and mission supervision | `argus_skill/life/supervisor.py`, `argus_skill/planner/planner.py` |
-| Skill distillation/compaction and distilled-skill storage, writeback, builtin skill seeding | `argus_skill/scientist/*` (distiller/compactor), `argus_skill/skills/store.py`, `argus_skill/skills/builtins.py`, `argus_skill/builtin_skills/` |
+| Skill distillation/compaction and distilled-skill storage, writeback, builtin skill seeding | `argus_skill/skills/skill_author.py` (distiller), `argus_skill/skills/compaction.py`, `argus_skill/skills/store.py`, `argus_skill/skills/builtins.py`, `argus_skill/builtin_skills/` |
 | EMNLP artifact-validation helpers (importable checks, no completion gating) | `argus_skill/skills/pipeline_contracts.py`, `argus_skill/skills/pipeline_policy.py` |
 | Final-submission completion certification (L2 reviewer contract + checklist) | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` |
 | Academic-language, infrastructure-leak, and visual-layout review tools | `argus_skill/skills/academic_language_review.py`, `argus_skill/skills/paper_infrastructure_review.py`, `argus_skill/skills/paper_layout_review.py` |

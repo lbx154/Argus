@@ -1,28 +1,28 @@
-"""Prompt templates used by the scientist and the engineer.
+"""Prompt templates for skill matching, distillation and revision.
 
 Every string the models see passes through :class:`Prompts`. Keeping the
 prompts in one module makes it easy to A/B-test wording changes across
-the whole pipeline.
+the whole skill-memory pipeline.
 """
 from __future__ import annotations
 
-from ..skills.role_context import format_role_context
+from .role_context import format_role_context
 
-_SCIENTIST_ROLE_SKILL = "argus-scientist-role.md"
-_SCIENTIST_ROLE_FALLBACK = """# Argus Scientist Role
+_AUTHOR_ROLE_SKILL = "argus-author-role.md"
+_AUTHOR_ROLE_FALLBACK = """# Skill-memory authoring
 
-The Scientist is argus-skill's skill-memory role: match skills conservatively,
-distill reusable capability playbooks, and revise skills from evidence without
-hard-coding one task's solution. Distilled skills are written for gpt-5.4-mini,
-a relatively small engineer model, so they must be explicit and executable.
+Skill-memory work in argus-skill: match skills conservatively, distill reusable
+capability playbooks, and revise skills from evidence without hard-coding one
+task's solution. Distilled skills are written for the engineer model that will
+execute them, so they must be explicit and executable.
 """
 
 
-def _scientist_role_context() -> str:
+def _author_role_context() -> str:
     return format_role_context(
-        "Argus scientist role skill",
-        _SCIENTIST_ROLE_SKILL,
-        _SCIENTIST_ROLE_FALLBACK,
+        "Argus author role skill",
+        _AUTHOR_ROLE_SKILL,
+        _AUTHOR_ROLE_FALLBACK,
     )
 
 
@@ -36,7 +36,7 @@ class Prompts:
         *,
         requesting_role: str | None = None,
     ) -> str:
-        from ..skills.store import ROLE_SKILL_POOLS
+        from .store import ROLE_SKILL_POOLS
 
         primary_pool = (
             ROLE_SKILL_POOLS.get(requesting_role, frozenset())
@@ -69,7 +69,7 @@ class Prompts:
                 "as a substitute for an OWN skill.\n"
             )
         return (
-            _scientist_role_context()
+            _author_role_context()
             +
             "You are a skill matcher. Given a task and a list of available "
             "skills, decide which (if any) actually fit. A WRONG skill is "
@@ -129,13 +129,13 @@ class Prompts:
         skill rather than hardcoded here.
         """
         return (
-            _scientist_role_context()
+            _author_role_context()
             +
             (f"## Skill-authoring guidance (read first)\n{guidance}\n\n" if guidance else "")
             +
             "You are a senior engineer compiling a CAPABILITY playbook for "
-            "`gpt-5.4-mini`, a relatively small engineer model. The playbook "
-            "must be explicit enough for that smaller model to execute without "
+            "the engineer model that will execute it. The playbook "
+            "must be explicit enough to execute without "
             "guessing: include ordering, anti-conditions, exact artifacts, "
             "validation commands, and common failure modes. It will be CACHED and "
             "REUSED for many future tasks of the same kind, so you must "
@@ -281,14 +281,14 @@ class Prompts:
         ))
 
         return (
-            _scientist_role_context()
+            _author_role_context()
             +
             (f"## Skill-authoring guidance (read first)\n{guidance}\n\n" if guidance else "")
             +
             "You are a senior engineer revising a CAPABILITY playbook. "
-            "The target reader is `gpt-5.4-mini`, a relatively small engineer "
-            "model, so revisions must make the playbook more explicit and "
-            "operational rather than relying on senior-model inference. "
+            "The target reader is the engineer model that will execute it, "
+            "so revisions must make the playbook more explicit and "
+            "operational rather than relying on author-side inference. "
             "The playbook is CACHED and REUSED for many future tasks of "
             "the same kind, so any edit must broaden capability, not "
             "narrow it to the specific incoming example.\n\n"

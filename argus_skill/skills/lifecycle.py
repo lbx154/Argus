@@ -63,7 +63,7 @@ class LifecycleOutcome:
     * ``consecutive_failures`` — for the *active skill*, how many of
       its most recent uses ended in a fatal failure (used to decide
       retirement).
-    * ``raw_distill_output`` — when no skill matched, the scientist's
+    * ``raw_distill_output`` — when no skill matched, the author's
       raw output to feed to ``save_distilled``.
     """
 
@@ -149,7 +149,7 @@ def apply_action(
     outcome: LifecycleOutcome,
     task_description: str,
     distiller: Any | None = None,
-    scientist_model: str = "",
+    author_model: str = "",
     sink: EventSink | None = None,
 ) -> dict[str, Any]:
     """Run the chosen lifecycle action against the skill store.
@@ -189,7 +189,7 @@ def apply_action(
                 task_description=task_description,
                 successful_trajectory=outcome.successful_trajectory,
                 distiller=distiller,
-                scientist_model=scientist_model,
+                author_model=author_model,
                 revise=False,
             )
             _emit(f"reinforced {getattr(skill, 'name', '')}", ok=True)
@@ -202,7 +202,7 @@ def apply_action(
             new_skill = skill_store.save_distilled(
                 task_description=task_description,
                 raw_distill_output=outcome.raw_distill_output,
-                scientist_model=scientist_model or "scientist",
+                author_model=author_model or "author",
             )
             if new_skill is None:
                 _emit("distilled output rejected by quality gate", ok=False)
@@ -223,7 +223,7 @@ def apply_action(
                 lesson_text=outcome.mission_lesson,
                 task_description=task_description,
                 distiller=distiller,
-                scientist_model=scientist_model,
+                author_model=author_model,
             )
             _emit(
                 f"promoted lesson into {getattr(skill, 'name', '')}"

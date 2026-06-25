@@ -53,8 +53,8 @@ _ENV_VARS_TO_CLEAR = (
     "ARGUS_SKILL_RESEARCH_PROFILE_PATH",
     "ARGUS_SKILL_REVIEWER_MODEL",
     "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
-    "ARGUS_SKILL_SCIENTIST_MODEL",
-    "ARGUS_SKILL_SCIENTIST_REASONING_EFFORT",
+    "ARGUS_SKILL_AUTHOR_MODEL",
+    "ARGUS_SKILL_AUTHOR_REASONING_EFFORT",
     "ARGUS_SKILL_SKILLS_DIR",
     "ARGUS_SKILL_ENABLE_TELEGRAM",
     "ARGUS_SKILL_TELEGRAM_BOT_TOKEN",
@@ -590,7 +590,7 @@ def test_runner_namespace_uses_global_skills_root(
     assert ns.workdir == str(tmp_path / "repo")
     assert ns.engineer_reasoning_effort == "high"
     assert ns.reviewer_reasoning_effort == "high"
-    assert ns.scientist_reasoning_effort == "high"
+    assert ns.author_reasoning_effort == "high"
 
 
 def test_handoff_config_payload_round_trips(tmp_path: Path) -> None:
@@ -603,7 +603,7 @@ def test_handoff_config_payload_round_trips(tmp_path: Path) -> None:
         backend="codex",
         engineer_model="eng",
         reviewer_model="rev",
-        scientist_model="sci",
+        author_model="sci",
         per_mission_cap_usd=1.5,
         daily_cap_usd=9.5,
         poll_interval=0.25,

@@ -3,14 +3,14 @@ name: Citation Audit
 description: Zero-context bibliographic verification — for every \cite{...} in the paper, an isolated reviewer agent checks (1) the cited paper exists (arXiv/DOI/venue), (2) author/year/venue/title match canonical sources (DBLP, arXiv, ACL Anthology, OpenReview), and (3) the citation context matches what the cited paper actually claims. Catches hallucinated authors, fabricated venues, wrong years, version mismatches, and wrong-context citations.
 category: paper-review
 version: 1
-scientist_model: gpt-5.5
+author_model: gpt-5.5
 created_at: 2026-06-01T00:00:00+00:00
 ---
 
 # Citation Audit (zero-context, cross-model)
 
 > Adapted from ARIS `citation-audit` skill (MIT, © 2026 wanshuiyin).
-> Replaces ARIS's external Codex MCP path with argus's reviewer/scientist
+> Replaces ARIS's external Codex MCP path with argus's reviewer/author
 > backend; runs each per-entry check against the same model API vault
 > that powers the rest of the pipeline.
 
@@ -33,7 +33,7 @@ verdict only changes when the bibliography or section context changes).
 
 ## Workflow
 
-The reviewer agent (gpt-5.5 from `scientist`/`reviewer` route) is
+The reviewer agent (gpt-5.5 from `author`/`reviewer` route) is
 invoked **once per bib entry, with zero shared context** so an earlier
 correct citation cannot create confirmation bias for the next.
 

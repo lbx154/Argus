@@ -4,7 +4,7 @@ This is the new code that argus-skill exists to deliver. It composes:
 
   * ``SkillStore`` (vendored from skill-agent): horizontal skill cache.
   * ``Distiller``  (vendored from skill-agent): playbook authoring (runs on
-    the engineer backend; there is no separate scientist agent).
+    the engineer backend; there is no separate author agent).
   * ``SupervisedEngineer`` (new, with ``Reviewer`` vendored from ArgusBot):
     vertical round-loop that supervises the engineer until the reviewer
     is satisfied.
@@ -31,8 +31,8 @@ from .core.models import LoopOutcome, RoundRecord
 from .core.ports import RunnerBackend
 from .reviewer import Reviewer, ReviewerConfig
 from .engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
-from .missions import EngineerMission
-from .scientist.distiller import Distiller, DistillerConfig
+from .skills.missions import EngineerMission
+from .skills.skill_author import Distiller, DistillerConfig
 from .skills.role_match import render_skill_playbook
 from .skills.store import Skill, SkillStore
 
@@ -51,11 +51,11 @@ _REVISABLE_FAILURE_STATUSES = frozenset({"blocked", "max_rounds", "no_progress"}
 @dataclass
 class SkillLoopConfig:
     """All knobs for one SkillLoop.run invocation, in one place."""
-    scientist_model: str = "gpt-5.5"
+    author_model: str = "gpt-5.5"
     engineer_model: str = "gpt-5.5"
     reviewer_model: str | None = None  # default: same as engineer (cheap)
     matcher_model: str | None = None   # default: same as engineer
-    scientist_reasoning_effort: str = "high"
+    author_reasoning_effort: str = "high"
     engineer_reasoning_effort: str | None = "high"
     reviewer_reasoning_effort: str = "high"
     matcher_reasoning_effort: str | None = "high"
@@ -72,8 +72,7 @@ class SkillLoopConfig:
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
     skill_writeback: bool = False
-    distill_on_miss: bool = False
-    # Scientist layer disabled — engineer does all work, reviewer verifies.
+    # Author layer disabled — engineer does all work, reviewer verifies.
     skill_revise_on_writeback: bool = False
     # Self-evolution from FAILURE: when a mission terminates without success
     # (blocked / max_rounds / no_progress) on a matched own-role skill, merge
@@ -129,7 +128,7 @@ class SkillLoop:
       * ``engineer_runner``  — for execution and skill distillation.
       * ``reviewer_runner``  — for the per-round verdict.
 
-    There is no separate "scientist" backend: skill distillation reuses the
+    There is no separate "author" backend: skill distillation reuses the
     engineer backend (and the unified ``gpt-5.5`` route). Pass the same
     backend twice if you only have one.
     """
@@ -162,7 +161,7 @@ class SkillLoop:
             matcher_reasoning_effort=self.config.matcher_reasoning_effort,
         )
         # Skill distillation reuses the engineer backend; there is no
-        # separate scientist agent.
+        # separate author agent.
         self.distiller = Distiller(engineer_runner)
         self.engineer_mission = EngineerMission(
             self.skill_store, on_event=self.on_event
@@ -239,38 +238,10 @@ class SkillLoop:
         skill_distilled = False
         distill_result = None
 
-        # Step 2: distill on miss (only when no OWN-role skill matched —
-        # a cross-role reference never counts as having a playbook)
-        if skill is None and self.config.distill_on_miss:
-            self._emit({"type": "scientist.start", "text": "no high-fit skill — distilling"})
-            try:
-                distill_result = self.distiller.distill(
-                    task_description=skill_task,
-                    config=DistillerConfig(
-                        model=self.config.scientist_model,
-                        reasoning_effort=self.config.scientist_reasoning_effort,
-                        extra_args=self.config.extra_args,
-                        skip_git_repo_check=self.config.skip_git_repo_check,
-                        full_auto=self.config.full_auto,
-                    ),
-                    on_event=self.on_event,
-                )
-                if distill_result.last_agent_message.strip():
-                    skill = self.skill_store.save_distilled(
-                        task_description=skill_task,
-                        raw_distill_output=distill_result.last_agent_message,
-                        scientist_model=self.config.scientist_model,
-                        on_event=self.on_event,
-                        provisional=True,
-                    )
-                    skill_distilled = skill is not None
-                    if skill is not None:
-                        primary_skills = [skill]
-            except Exception as exc:
-                log.warning("scientist distill failed (%s: %s); proceeding without skill",
-                            type(exc).__name__, exc)
-                self._emit({"type": "scientist.error",
-                            "text": f"distill failed: {type(exc).__name__}"})
+        # No proactive distill-on-miss: a missed match never authors a skill
+        # pre-emptively (that minted a throwaway playbook for every trivial
+        # task). Skill creation is now gated solely by the reviewer's
+        # ``skill_gap`` verdict on the OUTCOME — see Step 4c / _evolve_skill_from_failure.
 
         skill_text = render_skill_playbook(
             self.skill_store, primary_skills, reference_skills
@@ -313,7 +284,7 @@ class SkillLoop:
         )
 
         # Step 4: learn from the OUTCOME. The loop only decides WHICH of three
-        # channels fires; the scientist (guided by the skill-authoring meta-skill)
+        # channels fires; the author (guided by the skill-authoring meta-skill)
         # does the writing, and a change is kept ("入库") only when it proves
         # EFFECTIVE — confirmed when a round carrying it gets a good reviewer
         # verdict, discarded/reverted when it does not. The reviewer judges the
@@ -340,7 +311,7 @@ class SkillLoop:
                         task_description=skill_task,
                         successful_trajectory=trajectory,
                         distiller=self.distiller if self.config.skill_revise_on_writeback else None,
-                        scientist_model=self.config.scientist_model,
+                        author_model=self.config.author_model,
                         revise=self.config.skill_revise_on_writeback,
                         on_event=self.on_event,
                     )
@@ -768,7 +739,7 @@ class SkillLoop:
         * no skill + reviewer ``skill_gap`` lesson -> CREATE the missing skill as a
           candidate.
 
-        The scientist (guided by the authoring meta-skill) does the writing; the
+        The author (guided by the authoring meta-skill) does the writing; the
         reviewer owns the IF — no ``skill_gap`` lesson means learn nothing (no
         false-learning).
         """
@@ -801,13 +772,13 @@ class SkillLoop:
                 lesson_text=lesson,
                 task_description=skill_task,
                 distiller=self.distiller,
-                scientist_model=self.config.scientist_model,
+                author_model=self.config.author_model,
                 on_event=self.on_event,
             )
             self._emit({
                 "type": "skill.optimized" if updated else "skill.optimize.rejected",
                 "text": (f"optimized {skill.name} -> v{skill.version} (candidate)"
-                         if updated else f"{skill.name}: scientist declined to revise"),
+                         if updated else f"{skill.name}: author declined to revise"),
             })
         except Exception as exc:  # noqa: BLE001 — never break the loop
             log.warning("skill self-evolution failed (%s: %s)", type(exc).__name__, exc)
@@ -815,11 +786,11 @@ class SkillLoop:
                         "text": f"self-evolution failed: {type(exc).__name__}"})
 
     def _create_skill_from_lesson(self, *, skill_task: str, lesson: str) -> None:
-        """No skill covered a mission that hit a fixable gap -> have the scientist
-        AUTHOR the missing skill (guided by the authoring meta-skill) and persist it
-        as a CANDIDATE that must prove effective on a later round to be kept."""
-        if not self.config.distill_on_miss:
-            return
+        """No skill covered a mission that hit a fixable gap -> AUTHOR the missing
+        skill (guided by the authoring meta-skill) and persist it as a CANDIDATE
+        that must prove effective on a later round to be kept. Reached only via
+        ``_evolve_skill_from_failure`` (gated by ``skill_revise_on_failure`` + a
+        reviewer ``skill_gap`` lesson), so the reviewer owns the IF."""
         augmented = (
             f"{skill_task}\n\n"
             f"A prior attempt at this objective FAILED and the reviewer diagnosed a "
@@ -831,8 +802,8 @@ class SkillLoop:
             distill_result = self.distiller.distill(
                 task_description=augmented,
                 config=DistillerConfig(
-                    model=self.config.scientist_model,
-                    reasoning_effort=self.config.scientist_reasoning_effort,
+                    model=self.config.author_model,
+                    reasoning_effort=self.config.author_reasoning_effort,
                     extra_args=self.config.extra_args,
                     skip_git_repo_check=self.config.skip_git_repo_check,
                     full_auto=self.config.full_auto,
@@ -842,12 +813,12 @@ class SkillLoop:
             raw = (distill_result.last_agent_message or "").strip()
             if not raw:
                 self._emit({"type": "skill.lesson.error",
-                            "text": "create: scientist returned empty"})
+                            "text": "create: author returned empty"})
                 return
             new_skill = self.skill_store.save_distilled(
                 task_description=skill_task,
                 raw_distill_output=raw,
-                scientist_model=self.config.scientist_model,
+                author_model=self.config.author_model,
                 on_event=self.on_event,
                 provisional=True,
             )

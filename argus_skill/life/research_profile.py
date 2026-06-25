@@ -163,7 +163,7 @@ def _capability_context(env: Mapping[str, str]) -> str:
     ):
         cache_lines.append(f"- {key}: {_env_text(env, key) or cache_defaults[key]}")
     route_lines = []
-    for route_name in ("engineer", "reviewer", "scientist", "image", "image_review"):
+    for route_name in ("engineer", "reviewer", "author", "image", "image_review"):
         route = routes.get(route_name)
         if not isinstance(route, dict):
             continue
@@ -203,7 +203,7 @@ def _capability_context(env: Mapping[str, str]) -> str:
         "- Default authorization source: the fixed capability vault above. "
         "Treat Codex auth/config files only as one-time import sources for "
         "`python -m argus_skill.tools.capability_vault init-model-api`.\n"
-        "- API routes are independent: engineer/reviewer/scientist/image/"
+        "- API routes are independent: engineer/reviewer/author/image/"
         "image_review may use different URLs, keys, providers, and models.\n"
         "- Permission model: the human has pre-approved these capabilities. Do not "
         "ask again for API access when model_api_available=yes; call the approved "

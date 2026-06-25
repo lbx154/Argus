@@ -3,7 +3,7 @@ name: Idea Discovery
 description: Systematically mine recent literature for a real research gap before committing to an experiment plan. Searches arXiv / Semantic Scholar / OpenAlex / ACL Anthology, clusters trends, identifies measured-and-confirmed phenomena that nobody has yet given a mechanism for, and writes IDEA_CANDIDATES.md ranked by novelty × tractability. Train-free; the gap-discovery itself runs purely on inference + literature lookup.
 category: paper-ideation
 version: 1
-scientist_model: gpt-5.5
+author_model: gpt-5.5
 created_at: 2026-06-01T00:00:00+00:00
 ---
 
@@ -44,7 +44,7 @@ Pull abstracts + 1-paragraph TLDR for the top 30 hits per query.
 
 ### Step 3 — cluster + identify "measured-but-unexplained"
 
-Reviewer agent (gpt-5.5 via `scientist` route) reads the abstracts and
+Reviewer agent (gpt-5.5 via `author` route) reads the abstracts and
 returns clusters of the form:
 
 ```

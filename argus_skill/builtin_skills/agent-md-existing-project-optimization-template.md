@@ -64,7 +64,7 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 1. Model and image credentials are operator capabilities, not project artifacts. The private vault is `~/.argus-skill/capabilities/model_api.json` or `ARGUS_SKILL_CAPABILITY_VAULT`; it should be mode `0600`. Do not manually open/read, print, summarize, copy, or commit its raw contents; only Argus route helpers/tools may load it at runtime.
 2. Before model-backed repair or review work, run the secret-free status check:
    `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --model-api-status`
-   Use the reported routes: `scientist` for literature/claim synthesis, `engineer` for code/evaluation helpers, `reviewer` for audits, `image` for image-2/codex-image2 generation, and `image_review` for visual inspection. If a needed route is unavailable but operator-approved environment/Codex config exists, initialize once with:
+   Use the reported routes: `author` for literature/claim synthesis, `engineer` for code/evaluation helpers, `reviewer` for audits, `image` for image-2/codex-image2 generation, and `image_review` for visual inspection. If a needed route is unavailable but operator-approved environment/Codex config exists, initialize once with:
    `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --init-model-api`
 3. Keep or create reusable wrappers under `code/`; do not scatter raw API calls through paper generators or review JSON writers. Use `load_model_api_route(...)` from Argus, not hard-coded keys, base URLs, or model names. Route-specific environment overrides such as `ARGUS_SKILL_IMAGE_MODEL=gpt-image-2`, `ARGUS_SKILL_IMAGE_BASE_URL`, and `ARGUS_SKILL_IMAGE_API_KEY` may be used only as process environment, never as committed text.
 4. Officially launched projects include `code/llm.py`; prefer repairing that helper over
@@ -125,7 +125,7 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
                    time.sleep(delay)
            raise RuntimeError("unreachable")
 
-       def complete(prompt: str, *, route_name: str = "scientist", system: str = "") -> str:
+       def complete(prompt: str, *, route_name: str = "author", system: str = "") -> str:
            route = _route(route_name)
            if route.wire_api == "chat":
                data = _post(route, "/chat/completions", {

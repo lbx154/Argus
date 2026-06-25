@@ -20,7 +20,7 @@ We deliberately avoid LLM-based merging in v1: it's expensive,
 non-deterministic, and the merged playbook would still need a
 quality-gate pass. Picking the strongest existing skill and
 archiving the rest already removes the matcher-cost tax and keeps the
-proven content. v2 can add a scientist-mediated "merge & rewrite"
+proven content. v2 can add a author-mediated "merge & rewrite"
 pass behind ``--smart``.
 """
 from __future__ import annotations
@@ -228,8 +228,8 @@ def run_compact(
     if not skills_dir.is_dir():
         print("compact: no skill files found")
         return 0
-    from ..skills.lifecycle import archive_skill
-    from ..skills.store import SkillStore
+    from .lifecycle import archive_skill
+    from .store import SkillStore
 
     store = SkillStore(skills_dir=skills_dir)
     summaries = store.list_summaries()

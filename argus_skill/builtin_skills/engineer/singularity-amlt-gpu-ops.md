@@ -4,7 +4,7 @@ description: Operational playbook for Argus to submit, monitor, pause/resume, SS
 category: gpu-infrastructure
 priority: high
 version: 1
-scientist_model: gpt-5.5
+author_model: gpt-5.5
 created_at: 2026-06-18T00:00:00+00:00
 ---
 

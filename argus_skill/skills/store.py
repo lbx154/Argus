@@ -23,7 +23,7 @@ from typing import Any, Callable
 
 from ..core.models import RunnerOptions, RunnerResult
 from ..core.ports import RunnerBackend
-from ..scientist.prompts import Prompts
+from .skill_prompts import Prompts
 
 log = logging.getLogger(__name__)
 
@@ -135,7 +135,7 @@ class Skill:
     category: str
     content: str
     version: int = 1
-    scientist_model: str = ""
+    author_model: str = ""
     created_at: str = ""
     task_history: list[str] = field(default_factory=list)
     path: str = ""
@@ -163,7 +163,7 @@ class Skill:
             f"description: {self.description}\n"
             f"category: {self.category}\n"
             f"version: {self.version}\n"
-            f"scientist_model: {self.scientist_model}\n"
+            f"author_model: {self.author_model}\n"
             f"created_at: {self.created_at}\n"
             f"{provisional_lines}"
             f"{history}"
@@ -200,7 +200,7 @@ class Skill:
             category=_get("category"),
             content=content,
             version=_parse_skill_version(_get("version")),
-            scientist_model=_get("scientist_model"),
+            author_model=_get("author_model") or _get("scientist_model"),
             created_at=_get("created_at"),
             task_history=history,
             path=path,
@@ -367,12 +367,12 @@ class SkillStore:
         *,
         task_description: str,
         raw_distill_output: str,
-        scientist_model: str,
+        author_model: str,
         on_event: "Callable[[dict], None] | None" = None,
         enforce_quality_gate: bool = True,
         provisional: bool = False,
     ) -> "Skill | None":
-        """Parse the raw scientist output and persist it.
+        """Parse the raw author output and persist it.
 
         We do NOT gate on the skill TEXT: judging a skill's prose is worse than
         chance (SkillLens), so quality is proven by EFFECT instead — a freshly
@@ -396,7 +396,7 @@ class SkillStore:
             category=category,
             content=content,
             version=1,
-            scientist_model=scientist_model,
+            author_model=author_model,
             created_at=datetime.now(timezone.utc).isoformat(),
             task_history=[],
             provisional=bool(provisional),
@@ -412,16 +412,16 @@ class SkillStore:
         task_description: str,
         successful_trajectory: str,
         distiller: "Any | None" = None,
-        scientist_model: str = "",
+        author_model: str = "",
         revise: bool = False,
         on_event: "Callable[[dict], None] | None" = None,
     ) -> None:
-        """Append task to history; optionally have the scientist revise.
+        """Append task to history; optionally have the author revise.
 
         Default behavior (``revise=False``) is the legacy v0.1 path:
         history-append + timestamp refresh, no markdown edits.
 
-        When ``revise=True`` and ``distiller`` is provided, the scientist
+        When ``revise=True`` and ``distiller`` is provided, the author
         is asked (via :meth:`Distiller.revise`) to produce a revised
         playbook that integrates the successful trajectory. On a
         successful parse the new content replaces ``skill.content`` and
@@ -440,7 +440,7 @@ class SkillStore:
                 change_kind="success_trajectory",
                 evidence=successful_trajectory or "",
                 distiller=distiller,
-                scientist_model=scientist_model,
+                author_model=author_model,
                 on_event=on_event,
             )
 
@@ -456,7 +456,7 @@ class SkillStore:
         lesson_text: str,
         task_description: str,
         distiller: "Any",
-        scientist_model: str = "",
+        author_model: str = "",
         on_event: "Callable[[dict], None] | None" = None,
     ) -> bool:
         """Auto-merge a reviewer-emitted lesson into the skill markdown.
@@ -473,7 +473,7 @@ class SkillStore:
             change_kind="failure_lesson",
             evidence=lesson_text,
             distiller=distiller,
-            scientist_model=scientist_model,
+            author_model=author_model,
             on_event=on_event,
         )
 
@@ -560,13 +560,13 @@ class SkillStore:
         change_kind: str,
         evidence: str,
         distiller: "Any",
-        scientist_model: str,
+        author_model: str,
         on_event: "Callable[[dict], None] | None",
     ) -> bool:
-        from ..scientist.distiller import DistillerConfig  # local import: avoid cycle
+        from .skill_author import DistillerConfig  # local import: avoid cycle
         try:
             cfg = DistillerConfig(
-                model=scientist_model or skill.scientist_model or "gpt-5.5",
+                model=author_model or skill.author_model or "gpt-5.5",
                 reasoning_effort="high",
                 skip_git_repo_check=True,
                 full_auto=True,
@@ -605,11 +605,11 @@ class SkillStore:
                     log.warning("revise: cannot write revert snapshot (%s); aborting "
                                 "revision to protect the confirmed skill", snap_exc)
                     return False
-            # Preserve identity unless the scientist explicitly proposed
+            # Preserve identity unless the author explicitly proposed
             # rename + we accept it (we do not, in v0.2).
             self.update_skill(skill, new_content, task_description)
-            if scientist_model:
-                skill.scientist_model = scientist_model
+            if author_model:
+                skill.author_model = author_model
             skill.provisional = True
             self.save(skill)
             if on_event:

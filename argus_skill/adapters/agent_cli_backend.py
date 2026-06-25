@@ -210,13 +210,13 @@ class AgentCliBackend:
     Construct once with the runner backend choice ("codex" / "claude" /
     "copilot") and any cross-call defaults (e.g. ``default_extra_args``
     for ``-c "config_profile=..."``), then pass the same instance to
-    every ``SkillLoop`` actor (scientist / engineer / reviewer). Each
+    every ``SkillLoop`` actor (author / engineer / reviewer). Each
     ``run_exec`` call spawns a fresh subprocess.
 
     Threading: the underlying ``AgentCliRunner.run_exec`` is blocking and
     not designed to be called concurrently from one instance — but
     multiple ``AgentCliBackend`` calls *are* safe in series. Use
-    separate instances if you want concurrent matcher + scientist +
+    separate instances if you want concurrent matcher + author +
     engineer calls (the SkillLoop is sequential, so one instance is
     enough).
 

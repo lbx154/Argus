@@ -1,7 +1,8 @@
-"""The scientist's distill step.
+"""Skill authoring: the distill/revise step.
 
 Calls the configured runner with ``Prompts.distill(task)`` and returns
 the raw markdown. Persistence happens in ``SkillStore.save_distilled``.
+Runs on the engineer backend; there is no separate author agent.
 """
 from __future__ import annotations
 
@@ -10,17 +11,17 @@ from typing import Callable
 
 from ..core.models import RunnerOptions, RunnerResult
 from ..core.ports import RunnerBackend
-from .prompts import Prompts
+from .skill_prompts import Prompts
 
 
 def _authoring_guidance(explicit: str) -> str:
-    """The operator's skill-authoring meta-skill, fed to the scientist on every
+    """The operator's skill-authoring meta-skill, fed to the author on every
     create/optimize/absorb. Loaded by default so the HOW lives in a human-written
     skill, not hardcoded. Falls back to empty (no guidance) if absent."""
     if explicit:
         return explicit
     try:
-        from ..skills.role_context import load_builtin_skill_text
+        from .role_context import load_builtin_skill_text
         return load_builtin_skill_text("skill-authoring-guide.md", "")
     except Exception:  # noqa: BLE001 — guidance is best-effort, never break authoring
         return ""

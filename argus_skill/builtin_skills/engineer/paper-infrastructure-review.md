@@ -3,7 +3,7 @@ name: Paper Infrastructure Review
 description: Run the model-backed gate that rejects reader-facing local environment, device, cache, path, and Argus/Codex configuration leaks in a research manuscript (venue-neutral; used by both EMNLP and AAAI pipelines).
 category: paper-review
 version: 1
-scientist_model: gpt-5.5
+author_model: gpt-5.5
 created_at: 2026-05-27T00:00:00+00:00
 ---
 
@@ -24,7 +24,7 @@ Use this skill when a paper may contain local execution details that do not belo
 - Local cache and filesystem configuration such as `HF_HOME`, `TRANSFORMERS_CACHE`, `TORCH_HOME`, `XDG_CACHE_HOME`, `/root/.cache`, `/root/...`, `/home/...`, or project-private paths.
 - Raw runner commands, script names, run IDs, or artifact paths that expose local device/config naming, such as `run_mind2web_gpu.py`, `mind2web-gpu-*`, `.venv`, `--output-root experiments`, `--benchmark-root benchmarks/...`, or project-private experiment directories rendered as the paper-facing reproducibility interface.
 - Operational audit-bundle metadata promoted into main-body scientific prose: wall-clock logging, artifact hashes, status snapshots, progress logs, STOP-file cancellation contracts, internal manifest mechanics, provenance-refresh workflow details, or validator/review artifact names. Keep these in appendix replay notes, manifests, logs, or supplementary metadata unless the paper explicitly studies that infrastructure.
-- Argus/Codex authoring infrastructure: daemon handoff, engineer/reviewer/scientist routes, capability-vault configuration, validation artifacts, review artifacts, image-tool plumbing, API keys, private endpoints, or `gpt-5.5*` authoring/review routes.
+- Argus/Codex authoring infrastructure: daemon handoff, engineer/reviewer/author routes, capability-vault configuration, validation artifacts, review artifacts, image-tool plumbing, API keys, private endpoints, or `gpt-5.5*` authoring/review routes.
 - Any local config table that explains how the paper was generated rather than how the evaluated research system ran.
 
 ## What is allowed

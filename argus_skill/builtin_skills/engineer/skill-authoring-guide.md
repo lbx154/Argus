@@ -1,15 +1,15 @@
 ---
 name: Skill Authoring Guide
-description: Meta-skill that guides the scientist when it AUTHORS a new skill (no skill matched a mission that hit a fixable gap) or OPTIMIZES an existing one (a matched skill was used but a problem remained). Encodes what a good skill is, how to generalize a single mission's lesson into reusable expertise, the quality bar, and the anti-false-learning rules. The loop decides WHEN; this guide governs HOW.
+description: Meta-skill that guides the author when it AUTHORS a new skill (no skill matched a mission that hit a fixable gap) or OPTIMIZES an existing one (a matched skill was used but a problem remained). Encodes what a good skill is, how to generalize a single mission's lesson into reusable expertise, the quality bar, and the anti-false-learning rules. The loop decides WHEN; this guide governs HOW.
 category: self-evolve
 version: 1
-scientist_model: gpt-5.5
+author_model: gpt-5.5
 created_at: 2026-06-18T00:00:00+00:00
 ---
 
 # Skill Authoring Guide (how to create / optimize a skill)
 
-You are the **scientist**. The loop has already decided WHICH action this is and
+You are the **author**. The loop has already decided WHICH action this is and
 handed you the reviewer's lesson. Your only job is to produce one excellent skill
 markdown. Quality is YOUR judgment here — there is no hardcoded gate behind you.
 

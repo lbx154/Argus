@@ -128,8 +128,8 @@ def test_load_vertical_named_but_broken_fails_loud(monkeypatch):
         _base.load_vertical("nanochat")
 
 
-def test_dead_scientist_prompts_removed():
-    from argus_skill.scientist.prompts import Prompts
+def test_dead_author_prompts_removed():
+    from argus_skill.skills.skill_prompts import Prompts
     assert hasattr(Prompts, "distill") and hasattr(Prompts, "revise")  # live ones stay
     assert not hasattr(Prompts, "execute")  # 0-callsite dead methods gone
     assert not hasattr(Prompts, "repair")

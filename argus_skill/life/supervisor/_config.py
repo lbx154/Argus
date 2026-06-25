@@ -42,7 +42,7 @@ class LifeBudget:
     Field semantics:
 
     - ``per_mission_cap_usd``: the highest a single mission is allowed
-      to cost (sum of engineer + reviewer + scientist tokens × prices).
+      to cost (sum of engineer + reviewer + author tokens × prices).
     - ``daily_cap_usd``: ceiling on summed cost of mission entries in
       ``journal.jsonl`` whose timestamp falls in the current local day.
     - ``max_missions``: hard cap on missions run by THIS supervisor

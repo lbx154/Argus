@@ -33,7 +33,7 @@ def _make_skill(name: str, description: str = "", category: str = "x") -> Skill:
         category=category,
         content=f"## When to use\n- {category} tasks\n\n## How to solve\n- step 1\n",
         version=1,
-        scientist_model="test",
+        author_model="test",
         created_at="2026-05-03T00:00:00+00:00",
     )
 
@@ -135,7 +135,7 @@ def test_save_distilled_lands_in_project_by_default(tmp_path: Path) -> None:
     skill = layered.save_distilled(
         task_description="say hi to the user",
         raw_distill_output=raw,
-        scientist_model="test",
+        author_model="test",
         enforce_quality_gate=False,
     )
     assert skill is not None

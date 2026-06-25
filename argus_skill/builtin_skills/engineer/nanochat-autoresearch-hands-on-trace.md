@@ -3,7 +3,7 @@ name: NanoChat Autoresearch Hands-on Trace
 description: A concrete NanoChat-autoresearch (Recursive "First Steps" Task 1) process trace on a single B200, written as the operator's OWN known-good operating procedure for the DUAL of a speedrun — FIX the 300s single-GPU budget, MINIMIZE the mean validation bits-per-byte (val_bpb) over N seeds, editing only train.py against a frozen scorer. The spine is a per-candidate measured causal chain bound to real numbers from a real 50-candidate live run (vanilla@64 1.053 → floor 0.9890): measured(val_bpb mean±sd over N seeds vs the SEED-NOISE floor) → decompose(effective_tokens-in-300s × quality-per-token; where on the loss curve does 300s land) → pick the binding lever (throughput vs per-token quality) → ONE coordinated change → re-measure → classify miss (real signal vs sub-noise jitter) → bank / stack-as-a-BUNDLE. The live run's two expensive errors — deciding accept/reject on differences smaller than its own seed noise, and testing single levers greedily so synergistic structure never assembled — are demoted to the nails. Does NOT contain the reference SOTA recipe.
 category: benchmark-training-fixed-budget-lm
 version: 2
-scientist_model: gpt-5.5
+author_model: gpt-5.5
 created_at: 2026-06-18T00:00:00+00:00
 ---
 

@@ -146,7 +146,7 @@ def render_event_for_terminal(
     if kind == "command.ack":
         return _colorize_first_line(format_event_message(event), "green", theme)
 
-    if kind in ("distill.start", "distill.done", "scientist.start"):
+    if kind in ("distill.start", "distill.done"):
         return _colorize_first_line(format_event_message(event), "magenta", theme)
 
     if kind == "match.info":

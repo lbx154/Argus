@@ -123,7 +123,7 @@ def _make_runner(backend: _FakeBackend) -> Any:
     runner._args = argparse.Namespace(
         engineer_model="gpt-5.4-mini",
         reviewer_model="gpt-5.4",
-        scientist_model="gpt-5.4",
+        author_model="gpt-5.4",
         skills_dir="/tmp/test-skills",
         workdir=None,
         max_rounds=6,
@@ -219,13 +219,12 @@ def test_execute_uses_full_pipeline_on_real_task(monkeypatch: pytest.MonkeyPatch
 
     @dataclass
     class _StubConfig:
-        scientist_model: str = ""
+        author_model: str = ""
         engineer_model: str = ""
         reviewer_model: str | None = None
         max_rounds: int = 1
         check_commands: list = field(default_factory=list)
         skill_writeback: bool = True
-        distill_on_miss: bool = True
         dangerous_yolo: bool = True
         full_auto: bool = False
         skip_git_repo_check: bool = True
@@ -252,13 +251,13 @@ def test_chat_path_emits_minimum_event_sequence() -> None:
     assert types[0] == "loop.start"
     assert "round.main.completed" in types
     assert types[-1] == "loop.done"
-    # Reviewer / writeback / scientist events must NOT appear.
+    # Reviewer / writeback / author events must NOT appear.
     forbidden = {
         "round.review.completed",
         "skill.writeback",
         "skill.match",
         "skill.distill.start",
-        "scientist.start",
+        "author.start",
         "skill.outcome",
     }
     assert not (set(types) & forbidden), (

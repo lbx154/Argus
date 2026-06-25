@@ -3,7 +3,7 @@ name: Wiki Collector
 description: Autonomously refresh the project wiki by deriving 5-10 search queries from project state, running them against arxiv/semantic-scholar/github, and writing new findings to sources/papers/ and sources/repos/. Run only when planner has explicitly scheduled a wiki_collect mission. Engineer-only; reviewer's wiki-curator handles promotion.
 category: wiki
 version: 1
-scientist_model: gpt-5.5
+author_model: gpt-5.5
 created_at: 2026-06-05T00:00:00+00:00
 ---
 

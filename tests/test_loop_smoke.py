@@ -1,9 +1,12 @@
 """End-to-end smoke test of SkillLoop with the memory backend.
 
-Verifies the integration: matcher miss → distill → 2 engineer rounds
+Verifies the integration: matcher hit → skill injected → 2 engineer rounds
 (continue → done) → skill written back. This is the single most
 important test in argus-skill — if it fails, the loop is broken at the
-top level.
+top level. Skill creation is no longer proactive on a matcher miss (that
+minted a throwaway playbook for every trivial task); a missed match just
+runs the engineer without a skill, and authoring is reviewer-gated
+(see test_loop_failure_lesson).
 """
 from __future__ import annotations
 
@@ -43,8 +46,8 @@ def test_skill_loop_defaults_use_high_reasoning_effort() -> None:
     assert config.engineer_model == "gpt-5.5"
     assert config.engineer_reasoning_effort == "high"
     assert config.matcher_reasoning_effort == "high"
-    assert config.scientist_model == "gpt-5.5"
-    assert config.scientist_reasoning_effort == "high"
+    assert config.author_model == "gpt-5.5"
+    assert config.author_reasoning_effort == "high"
     assert config.reviewer_reasoning_effort == "high"
 
 
@@ -70,12 +73,30 @@ def _done_review() -> str:
     })
 
 
-def test_skill_loop_distill_then_two_rounds_to_done(tmp_path: Path) -> None:
+def _seed_skill(skills_dir: Path, *, provisional: bool = False) -> None:
+    store = SkillStore(skills_dir)
+    store.save_distilled(
+        task_description="say hi to the user",
+        raw_distill_output=SKILL_MD,
+        author_model="memory",
+        provisional=provisional,
+    )
+
+
+def _match_hello() -> CannedResponse:
+    return CannedResponse(message=json.dumps({
+        "matched": [{"name": "Write a hello message", "fit": "high",
+                     "why": "greeting task"}],
+    }))
+
+
+def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+
     backend = MemoryBackend()
-    # Matcher miss
-    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
-    # Scientist distills the skill
-    backend.queue("distiller", CannedResponse(message=SKILL_MD))
+    # Matcher hit on the curated skill (no proactive distill-on-miss any more).
+    backend.queue("matcher", _match_hello())
     # Round 1: engineer makes some progress; reviewer says continue
     backend.queue("engineer-r1", CannedResponse(message="Read the task. Will print greeting next."))
     backend.queue("reviewer", CannedResponse(message=_continue_review()))
@@ -85,19 +106,18 @@ def test_skill_loop_distill_then_two_rounds_to_done(tmp_path: Path) -> None:
     ))
     backend.queue("reviewer", CannedResponse(message=_done_review()))
 
-    skills_dir = tmp_path / "skills"
     loop = SkillLoop(
         skills_dir=skills_dir,
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=4, distill_on_miss=True, skill_writeback=True),
+        config=SkillLoopConfig(max_rounds=4, skill_writeback=True),
     )
     outcome = loop.run("say hi to the user", workdir=tmp_path)
 
     assert outcome.successful, f"expected done, got {outcome.status}: {outcome.reason}"
     assert outcome.round_count == 2, outcome
-    assert outcome.skill_distilled is True
-    assert outcome.skill_used is not None
+    assert outcome.skill_distilled is False  # creation is reviewer-gated, never on a miss
+    assert outcome.skill_used == "Write a hello message"
     assert outcome.rounds[0].review.status == "continue"
     assert outcome.rounds[1].review.status == "done"
 
@@ -107,39 +127,10 @@ def test_skill_loop_distill_then_two_rounds_to_done(tmp_path: Path) -> None:
     )
     assert "Print the actual greeting" in r2_prompt
 
-    # Skill must have been persisted on disk.
+    # Skill is still present and was reused, not re-created.
     store = SkillStore(skills_dir)
     summaries = store.list_summaries()
     assert any(s["name"] == "Write a hello message" for s in summaries), summaries
-
-    # On a second run with the same task, the matcher should now find the skill.
-    backend2 = MemoryBackend()
-    # Matcher: pick the persisted skill by name.
-    backend2.queue(
-        "matcher",
-        CannedResponse(
-            message=json.dumps({
-                "matched": [{"name": "Write a hello message", "fit": "high",
-                             "why": "exact match"}],
-            }),
-        ),
-    )
-    backend2.queue("engineer-r1", CannedResponse(
-        message="Done: printed 'hello there'. Verified output. Remaining: none.",
-    ))
-    backend2.queue("reviewer", CannedResponse(message=_done_review()))
-
-    loop2 = SkillLoop(
-        skills_dir=skills_dir,
-        engineer_runner=backend2,
-        reviewer_runner=backend2,
-        config=SkillLoopConfig(max_rounds=3, distill_on_miss=True, skill_writeback=True),
-    )
-    outcome2 = loop2.run("say hi to the user", workdir=tmp_path)
-    assert outcome2.successful
-    assert outcome2.round_count == 1
-    assert outcome2.skill_distilled is False, "should reuse, not redistill"
-    assert outcome2.skill_used == "Write a hello message"
 
 
 def test_skill_loop_blocked_short_circuits(tmp_path: Path) -> None:
@@ -189,6 +180,9 @@ def test_skill_loop_max_rounds_hit(tmp_path: Path) -> None:
 
 
 def test_skill_loop_no_distill_falls_back_to_no_skill(tmp_path: Path) -> None:
+    """A matcher miss must NOT author a skill — the engineer just runs without
+    one. This is the guard against the old proactive distill-on-miss that
+    minted a throwaway provisional skill for every trivial task."""
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("engineer-r1", CannedResponse(
@@ -200,12 +194,14 @@ def test_skill_loop_no_distill_falls_back_to_no_skill(tmp_path: Path) -> None:
         skills_dir=tmp_path / "skills",
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=2, distill_on_miss=False),
+        config=SkillLoopConfig(max_rounds=2),
     )
     outcome = loop.run("trivial task", workdir=tmp_path)
     assert outcome.successful
     assert outcome.skill_used is None
     assert outcome.skill_distilled is False
+    # No skill file was written on a miss.
+    assert not SkillStore(tmp_path / "skills").list_summaries()
 
 def test_render_skill_playbook_injects_all_high_fit_skills(tmp_path: Path) -> None:
     from argus_skill.skills.store import Skill
@@ -220,7 +216,7 @@ def test_render_skill_playbook_injects_all_high_fit_skills(tmp_path: Path) -> No
             category="demo",
             content="## When to use\n- demo tasks\n\n## How to solve\n- step 1\n",
             version=1,
-            scientist_model="test",
+            author_model="test",
             created_at="2026-05-03T00:00:00+00:00",
         )
 

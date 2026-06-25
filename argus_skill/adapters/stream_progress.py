@@ -250,7 +250,7 @@ def make_stream_progress_callback(sink: Any, *, ledger: Any | None = None) -> Ca
             pass
         # Surface the operator-visible hierarchy layers:
         #   L1 engineer/main, L2 reviewer, L4 planner.
-        # Keep matcher/scientist/distiller hidden because their stdout is
+        # Keep matcher/author/distiller hidden because their stdout is
         # protocol traffic or skill-maintenance noise, not live work.
         is_stdout = stream == "stdout" or stream.endswith(".stdout")
         if not is_stdout:

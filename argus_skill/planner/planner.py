@@ -373,7 +373,7 @@ class Planner:
         # each planner round, surfacing engineer/reviewer skills to the planner
         # as read-only references — it is not a no-op.
         self.skill_store = skill_store
-        from ..missions import PlannerMission
+        from ..skills.missions import PlannerMission
         self.mission = PlannerMission(skill_store)
 
     # ------------------------------------------------------------------

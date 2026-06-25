@@ -3,7 +3,7 @@ name: Research Submission Assurance Gate
 description: Decide whether a research draft can be called EMNLP/ACL submission-ready by checking experiment integrity, result-to-claim support, paper claims, citations, prose quality, layout, strongest rejection arguments, and package completeness.
 category: research-audit
 version: 1
-scientist_model: gpt-5.5
+author_model: gpt-5.5
 created_at: 2026-05-23T00:00:00+00:00
 ---
 
@@ -133,7 +133,7 @@ Use the 6-state verdict schema `PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLI
 11. **paper infrastructure review**
    - Run `python -m argus_skill.verticals.research.paper_infrastructure_review --project-root . --review-mode model --write` after Method/Setup/caption/table/appendix prose stabilizes; the L2 reviewer verifies the resulting JSON against the review-stage checklist.
    - Check `paper/PAPER_INFRASTRUCTURE_REVIEW.json` for `score_1_to_5 >= 4`, `verdict: PASS`, `needs_revision: false`, `leak_free: true`, no blocking/major issues, no active revision directives, fresh hashes for all transitive LaTeX sources, model-backed review method, and quoted evidence spans from current source.
-   - Hard-block final readiness if title, abstract, body, captions, tables, or appendix prose exposes local hardware ordinals, CUDA/device variables, cache paths, local filesystem paths, API/private endpoint configuration, Argus/Codex daemon details, engineer/reviewer/scientist routes, validation artifacts, review artifacts, image-tool plumbing, capability-vault configuration, authoring/review model routes, or operational audit-bundle metadata promoted into the main narrative such as wall-clock logs, artifact hashes, status/progress logs, STOP-file contracts, or provenance-refresh mechanics. These are local pipeline facts, not paper method facts.
+   - Hard-block final readiness if title, abstract, body, captions, tables, or appendix prose exposes local hardware ordinals, CUDA/device variables, cache paths, local filesystem paths, API/private endpoint configuration, Argus/Codex daemon details, engineer/reviewer/author routes, validation artifacts, review artifacts, image-tool plumbing, capability-vault configuration, authoring/review model routes, or operational audit-bundle metadata promoted into the main narrative such as wall-clock logs, artifact hashes, status/progress logs, STOP-file contracts, or provenance-refresh mechanics. These are local pipeline facts, not paper method facts.
    - Allow paper-facing evaluated-system facts such as evaluated model/backend, benchmark harness, task count/split, metric, decoding/budget setting, public benchmark version/date, and high-level compute budget when they describe the research system rather than the local machine.
    - Treat infrastructure review artifacts as evidence, not targets. Do not hand-edit `paper/PAPER_INFRASTRUCTURE_REVIEW.*`; fix rendered manuscript prose and rerun the tool.
    - Hard blockers: missing or stale paper infrastructure review, non-model self-score, score below threshold, `leak_free: false`, active directives, local environment/device/cache/path text in rendered prose, or nested `model_review` contradicting a top-level PASS.

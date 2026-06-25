@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import Callable, ClassVar
 
-from ..skills.role_match import RoleSkillMatch, match_role_skills
-from ..skills.store import SkillStore
+from .role_match import RoleSkillMatch, match_role_skills
+from .store import SkillStore
 
 
 class RoleMission:

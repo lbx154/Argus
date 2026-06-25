@@ -3,7 +3,7 @@ name: EMNLP Academic Language Review
 description: Score and revise an EMNLP/ACL paper for academic prose, narrative framing, and claim calibration before final layout review.
 category: paper-review
 version: 1
-scientist_model: gpt-5.5
+author_model: gpt-5.5
 created_at: 2026-05-25T00:00:00+00:00
 ---
 
@@ -64,7 +64,7 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
 
 6. Enforce method/system readability:
    - The Method and Experimental Setup must be readable without internal project context. They must name the evaluated paper system, its paper-facing framework, benchmark harness, or controller; the controller/skill/memory mechanism; task source/version; baselines; metrics; evaluated model/backend; and budget/stopping rules. For hosted agent experiments, the final paper should name the paper-facing hosted backbone such as `gpt-5-mini` plus decoding/settings/budget. For scorer-based experiments, name the evaluated scorer/backend such as `PairScorer` and describe the candidate-ranking protocol without adding authoring-environment details. Do not treat Argus, Codex engineer/reviewer routes, daemon handoff, academic-language/layout review, image-tool infrastructure, or orchestration/reviewer model names such as `gpt-5.5` / `gpt-5.5-mini` as paper-method details.
-   - Add a compact system/configuration table when prose alone would be ambiguous. The table must be professional and paper-facing: benchmark/component name, task count/split, evaluated model/backend, method or baseline role, runtime/harness, metric, budget/decoding, and the numerical takeaway. It must not expose Argus/Codex route names, engineer/reviewer/scientist roles, `gpt-5.5*`, API keys, private endpoints, capability-vault contents, or validation artifacts.
+   - Add a compact system/configuration table when prose alone would be ambiguous. The table must be professional and paper-facing: benchmark/component name, task count/split, evaluated model/backend, method or baseline role, runtime/harness, metric, budget/decoding, and the numerical takeaway. It must not expose Argus/Codex route names, engineer/reviewer/author roles, `gpt-5.5*`, API keys, private endpoints, capability-vault contents, or validation artifacts.
    - Require the Results section to contain a large, reader-facing cross-benchmark matrix for final long-paper claims. The table should let a reviewer compare the selected 3+ benchmark/source families, evaluated model/backend, task counts/splits, major baselines/methods, metrics, budget/decoding, and key scores in one place. Reject disconnected tiny tables when they hide missing benchmarks or omit model/backend information.
    - Reject papers that only say "our agent" or "the system" while omitting what framework ran it, which model powered it, and how one benchmark episode executes.
    - For local environment/device/cache/path leakage, delegate the final judgment to the dedicated model-backed paper infrastructure review: run `python -m argus_skill.verticals.research.paper_infrastructure_review --project-root . --review-mode model --write` and self-audit the paper-infrastructure review thresholds (leak_free, score). Do not patch this by adding local regex filters to the academic-language skill.

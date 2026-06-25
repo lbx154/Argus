@@ -95,7 +95,7 @@ def test_checkpoint_injection_and_session_roll(tmp_path: Path, monkeypatch) -> N
         skills_dir=tmp_path / "skills",
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=5, distill_on_miss=True, skill_writeback=False),
+        config=SkillLoopConfig(max_rounds=5, skill_writeback=False),
     )
     outcome = loop.run("demo task", workdir=tmp_path)
     assert outcome.successful, f"{outcome.status}: {outcome.reason}"
@@ -148,7 +148,7 @@ def test_no_checkpoint_keeps_prior_memory(tmp_path: Path, monkeypatch) -> None:
         skills_dir=tmp_path / "skills",
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=5, distill_on_miss=True, skill_writeback=False),
+        config=SkillLoopConfig(max_rounds=5, skill_writeback=False),
     )
     outcome = loop.run("demo task", workdir=tmp_path)
     assert outcome.successful, f"{outcome.status}: {outcome.reason}"

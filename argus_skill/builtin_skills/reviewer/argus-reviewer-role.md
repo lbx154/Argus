@@ -3,7 +3,7 @@ name: Argus Reviewer Role
 description: Identity and operating contract for the reviewer agent that gates engineer rounds in argus-skill.
 category: role-identity
 version: 1
-scientist_model: gpt-5.5
+author_model: gpt-5.5
 created_at: 2026-05-25T00:00:00+00:00
 ---
 

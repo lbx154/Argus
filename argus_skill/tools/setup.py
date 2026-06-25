@@ -855,7 +855,7 @@ def run_setup() -> int:
 
         planner_model = _prompt(
             "Planner model",
-            existing_routes.get("planner", existing_routes.get("scientist", {})).get("model", "gpt-5.5"),
+            existing_routes.get("planner", existing_routes.get("author", {})).get("model", "gpt-5.5"),
         )
         engineer_model = _prompt(
             "Engineer model",
@@ -877,7 +877,7 @@ def run_setup() -> int:
             "planner": {**shared_route, "model": planner_model},
             "engineer": {**shared_route, "model": engineer_model},
             "reviewer": {**shared_route, "model": reviewer_model},
-            "scientist": {**shared_route, "model": planner_model},
+            "author": {**shared_route, "model": planner_model},
             "text": {**shared_route, "model": engineer_model},
         }
 
@@ -895,10 +895,10 @@ def run_setup() -> int:
         # Per-agent config
         routes = {}
         planner = _configure_agent(
-            "Planner", existing_routes.get("planner", existing_routes.get("scientist")), "gpt-5.5",
+            "Planner", existing_routes.get("planner", existing_routes.get("author")), "gpt-5.5",
         )
         routes["planner"] = planner
-        routes["scientist"] = planner  # planner = scientist
+        routes["author"] = planner  # planner = author
 
         routes["engineer"] = _configure_agent(
             "Engineer", existing_routes.get("engineer"), "gpt-5.5",

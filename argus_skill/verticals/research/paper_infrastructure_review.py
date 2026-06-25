@@ -311,7 +311,7 @@ def _review_prompt(*, source_text_by_path: Mapping[str, str], threshold: float) 
         "appendix replay notes, manifests, or supplementary metadata, not in the "
         "main narrative unless the paper explicitly studies that infrastructure. "
         "Argus/Codex daemon "
-        "details, engineer/reviewer/critic/scientist route labels, capability "
+        "details, engineer/reviewer/critic/author route labels, capability "
         "vault configuration, validation artifacts, review artifacts, image-tool "
         "plumbing, and authoring model routes such as gpt-5.4* when they are not "
         "evaluated systems. Allow legitimate "

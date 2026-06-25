@@ -801,7 +801,6 @@ def _format_iteration_continued(event: dict[str, Any]) -> str:
 _PRE_ENGINEER_PROGRESS_TYPES = frozenset({
     "loop.start",
     "match.info",
-    "scientist.start",
     "distill.start",
     "distill.done",
     "skill.distill.warnings",
@@ -829,7 +828,7 @@ def _format_pre_engineer_progress(event: dict[str, Any]) -> str:
         if "no high-fit" in text:
             return "🧭 没有合适技能，正在准备临时执行策略"
         return f"🧭 {_truncate_display(text, 180)}" if text else ""
-    if etype in {"scientist.start", "distill.start"}:
+    if etype == "distill.start":
         return "🧪 正在准备临时执行策略"
     if etype == "distill.done":
         return "🧪 临时执行策略准备完成"

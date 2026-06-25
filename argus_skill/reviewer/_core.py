@@ -126,7 +126,7 @@ class Reviewer:
         # references on top of the fixed role/handoff context. ``None`` keeps
         # the legacy fixed-context-only behaviour.
         self.skill_store = skill_store
-        from ..missions import ReviewerMission
+        from ..skills.missions import ReviewerMission
         self.mission = ReviewerMission(skill_store)
 
     def evaluate(

@@ -64,13 +64,12 @@ def _done_review() -> str:
 
 def _build_loop(backend: MemoryBackend, skills_dir: Path) -> SkillLoop:
     config = SkillLoopConfig(
-        scientist_model="m",
+        author_model="m",
         engineer_model="m",
         reviewer_model="m",
         max_rounds=3,
         check_commands=[],
         skill_writeback=False,
-        distill_on_miss=True,
         backend_failure_backoff_seconds=0,
     )
     return SkillLoop(
@@ -359,7 +358,6 @@ def test_backend_failure_retries_without_poisoned_resume_thread(tmp_path: Path) 
     ]
     assert engineer_seeds == ["incoming-thread", None]
     assert [label for label, _, _ in backend.history] == [
-        "distiller",
         "engineer-r1",
         "engineer-r2",
         "reviewer",
@@ -390,9 +388,9 @@ def test_curated_checkpoint_persists_across_missions_via_file(tmp_path: Path) ->
 
     def _make_loop(backend: MemoryBackend, skills: Path) -> SkillLoop:
         config = SkillLoopConfig(
-            scientist_model="m", engineer_model="m", reviewer_model="m",
+            author_model="m", engineer_model="m", reviewer_model="m",
             max_rounds=3, check_commands=[], skill_writeback=False,
-            distill_on_miss=True, backend_failure_backoff_seconds=0,
+            backend_failure_backoff_seconds=0,
             checkpoint_path=ckpt,
         )
         return SkillLoop(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argus_skill.scientist.prompts import Prompts
+from argus_skill.skills.skill_prompts import Prompts
 
 
 def test_distill_prompt_requires_external_grounding() -> None:
