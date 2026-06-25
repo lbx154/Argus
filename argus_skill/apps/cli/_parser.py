@@ -332,7 +332,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     start_parser = subparsers.add_parser(
         "start",
-        help="Scaffold a new auto-research project (does NOT launch the daemon by default; pass --start to also launch)",
+        help="Create a new auto-research project and start it",
     )
     start_parser.add_argument(
         "goal",
@@ -342,8 +342,8 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument(
         "rest",
         nargs=argparse.REMAINDER,
-        help=("--start to also launch the daemon; other flags pass through verbatim to "
-              "new_auto_research_project, e.g. --venue aaai --compute-budget '...' --domain ... --dry-run"),
+        help=("extra flags passed through verbatim to new_auto_research_project, e.g. "
+              "--venue aaai --compute-budget '...' --domain ... --no-start --dry-run"),
     )
 
     return parser
