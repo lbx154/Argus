@@ -47,6 +47,7 @@ dev = [
 ]
 
 [project.scripts]
+argus = "argus_skill.__main__:main"
 argus-skill = "argus_skill.__main__:main"
 
 [project.urls]
