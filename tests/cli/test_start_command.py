@@ -35,7 +35,7 @@ def test_cmd_start_forwards_objective_then_rest(monkeypatch):
     ]
 
 
-def test_cmd_start_bare_objective_has_empty_rest(monkeypatch):
+def test_cmd_start_default_scaffolds_only_injects_no_start(monkeypatch):
     captured = {}
     monkeypatch.setattr(
         "argus_skill.tools.new_auto_research_project.main",
@@ -43,4 +43,18 @@ def test_cmd_start_bare_objective_has_empty_rest(monkeypatch):
     )
     args = build_parser().parse_args(["start", "write a survey"])
     _core._cmd_start(args)
+    # DEFAULT = scaffold only: --no-start is injected so the daemon does NOT launch
+    assert captured["argv"] == ["--objective", "write a survey", "--no-start"]
+
+
+def test_cmd_start_with_start_flag_launches(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        "argus_skill.tools.new_auto_research_project.main",
+        lambda argv=None: captured.setdefault("argv", argv) or 0,
+    )
+    args = build_parser().parse_args(["start", "write a survey", "--start"])
+    _core._cmd_start(args)
+    # --start opts back in: neither --start nor --no-start reaches the tool,
+    # so it launches the daemon (its own default)
     assert captured["argv"] == ["--objective", "write a survey"]

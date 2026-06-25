@@ -608,17 +608,24 @@ def _cmd_query(args: argparse.Namespace) -> int:
 
 
 def _cmd_start(args: argparse.Namespace) -> int:
-    """``argus start "<objective>"`` — create a new auto-research project and start it.
+    """``argus start "<objective>"`` — scaffold a new auto-research project.
 
-    Thin forwarder to ``argus_skill.tools.new_auto_research_project``, which builds the
-    project workspace (AGENTS.md / PIPELINE_STATE / identity card) and — unless
-    ``--no-start`` is passed through — launches the Argus daemon on the objective.
-    Any flags after the objective pass through verbatim (``--venue`` / ``--compute-budget``
-    / ``--domain`` / ``--no-start`` / ``--dry-run`` / ...).
+    Thin forwarder to ``argus_skill.tools.new_auto_research_project``, which builds
+    the project workspace (AGENTS.md / PIPELINE_STATE / identity card). By DEFAULT
+    it only scaffolds and does NOT launch the daemon — pass ``--start`` to also
+    launch it (or just ``cd`` into the new project and run ``argus --daemon``).
+    Other flags after the objective pass through verbatim (``--venue`` /
+    ``--compute-budget`` / ``--domain`` / ``--dry-run`` / ...).
     """
     from ...tools.new_auto_research_project import main as _start
 
     rest = list(getattr(args, "rest", None) or [])
+    # Default = scaffold only. The underlying tool launches the daemon unless
+    # given --no-start, so inject --no-start by default; `--start` opts back in.
+    if "--start" in rest:
+        rest = [a for a in rest if a != "--start"]
+    elif "--no-start" not in rest:
+        rest = rest + ["--no-start"]
     return _start(["--objective", args.goal, *rest])
 
 
