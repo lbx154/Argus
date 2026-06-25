@@ -5,7 +5,7 @@ restoring the floor — the structural fix for the greedy restore-the-floor rut.
 from __future__ import annotations
 
 from argus_skill.engineer.checkpoint import CheckpointState
-from argus_skill.engineer.reviewer import Reviewer, _parse_checkpoint
+from argus_skill.reviewer import Reviewer, _parse_checkpoint
 
 
 def _prompt(prior_checkpoint=None) -> str:

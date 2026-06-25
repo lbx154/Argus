@@ -29,7 +29,7 @@ from typing import Any, Callable
 
 from .core.models import LoopOutcome, RoundRecord
 from .core.ports import RunnerBackend
-from .engineer.reviewer import Reviewer, ReviewerConfig
+from .reviewer import Reviewer, ReviewerConfig
 from .engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from .missions import EngineerMission
 from .scientist.distiller import Distiller, DistillerConfig

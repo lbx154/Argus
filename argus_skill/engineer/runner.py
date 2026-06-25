@@ -45,7 +45,7 @@ from .background_subagents import (
 )
 from .checkpoint import CheckpointState, load_checkpoint, save_checkpoint
 from .checks import all_checks_passed, run_checks
-from .reviewer import Reviewer, ReviewerConfig
+from ..reviewer import Reviewer, ReviewerConfig
 
 log = logging.getLogger(__name__)
 

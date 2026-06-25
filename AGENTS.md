@@ -16,7 +16,7 @@ argus-skill / python -m argus_skill
   -> _CodexSkillLoopRunner.execute(...)
   -> argus_skill/loop.py                   # matcher -> distiller -> engineer -> reviewer
   -> argus_skill/engineer/runner.py        # L1 round loop
-  -> argus_skill/engineer/reviewer.py      # L2 structured verdict
+  -> argus_skill/reviewer/_core.py      # L2 structured verdict
 ```
 
 ## Agent 层级
@@ -25,7 +25,7 @@ argus-skill / python -m argus_skill
 | --- | --- | --- | --- |
 | L0 | CLI / daemon / cockpit | `argus_skill/apps/cli.py`, `argus_skill/apps/_life_repl.py`, `argus_skill/daemon/life_worker.py`, `argus_skill/apps/_watch.py` | 命令行参数、REPL、daemon 启停、`--status`、`--follow`、Telegram/事件展示 |
 | L1 | Engineer | `argus_skill/loop.py`, `argus_skill/engineer/runner.py` | 单轮执行 prompt、失败重试、session 续接、acceptance check、进度 watchdog |
-| L2 | Reviewer | `argus_skill/engineer/reviewer.py`, `argus_skill/engineer/reviewer_schema.json` | done/continue/blocked 判断、reviewer JSON schema、论文任务的 peer-review gate |
+| L2 | Reviewer | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` | done/continue/blocked 判断、reviewer JSON schema、论文任务的 peer-review gate |
 | L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor.py` | continuous mode 自动排新任务、EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除（见 `planner/planner.py` 顶部说明），验收只由 L2 reviewer 负责 |
 | Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/scientist/distiller.py`, `argus_skill/builtin_skills/` | skill 匹配、miss 后蒸馏（distiller 复用 engineer backend，不是独立 agent）、writeback、内置论文/research playbook |
 | Contracts | 论文 artifact 工具 + 状态机 | `argus_skill/skills/pipeline_contracts.py`, `argus_skill/skills/pipeline_policy.py`, `argus_skill/skills/stage_checklists.py` | manifest/freshness/validation-priority 构建-修复（pipeline_contracts）；质量 gate 走 stage checklist（stage_checklists） |
@@ -159,7 +159,7 @@ session 结构上短命 + 跨 session 边界只交接「经过筛选的有价值
   `ARGUS_SKILL_BG_SUBAGENT_ADVISORY`，默认 on，0 关闭）。
 - 测试：`tests/test_background_subagents.py`、`tests/test_runner_background_subagents.py`。
 
-L2 reviewer 在 `argus_skill/engineer/reviewer.py`。
+L2 reviewer 在 `argus_skill/reviewer/_core.py`。
 
 这里管：
 

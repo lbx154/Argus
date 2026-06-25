@@ -8,7 +8,7 @@ tests pin that contract end to end.
 """
 from __future__ import annotations
 
-from argus_skill.engineer.reviewer import _parse_planner_report
+from argus_skill.reviewer import _parse_planner_report
 from argus_skill.life.supervisor import LifeSupervisor
 
 

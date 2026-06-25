@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.engineer.reviewer import Reviewer, ReviewerConfig
+from argus_skill.reviewer import Reviewer, ReviewerConfig
 from argus_skill.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,

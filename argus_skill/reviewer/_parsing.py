@@ -1,0 +1,318 @@
+"""Reviewer verdict parsing helpers — split out of :mod:`._core`.
+
+Pure functions with no ``Reviewer`` / runner dependency, kept module-level so
+verdict parsing can be unit-tested without spinning up a backend. Verbatim from
+ArgusBot's ``agent_cli/reviewer.py``.
+"""
+from __future__ import annotations
+
+import json
+from typing import Any, cast
+
+from ..core.models import ReviewDecision, ReviewStatus
+
+
+def _strip_markdown_fences(text: str) -> str:
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    lines = stripped.split("\n")
+    start = 1
+    end = len(lines)
+    if lines[-1].strip() == "```":
+        end = len(lines) - 1
+    return "\n".join(lines[start:end]).strip()
+
+
+def _find_decision_in_messages(messages: list[str]) -> "ReviewDecision | None":
+    for msg in reversed(messages):
+        result = parse_decision_text(msg)
+        if result is not None:
+            return result
+    if len(messages) > 1:
+        return parse_decision_text("\n".join(messages))
+    return None
+
+
+def parse_decision_text(text: str) -> ReviewDecision | None:
+    candidate = _strip_markdown_fences(text.strip())
+    parsed = _load_json(candidate)
+    if parsed is None:
+        left = candidate.find("{")
+        right = candidate.rfind("}")
+        if left >= 0 and right > left:
+            parsed = _load_json(candidate[left : right + 1])
+    if parsed is None:
+        return None
+    status = _parse_status(parsed)
+    if status not in {"done", "continue", "blocked"}:
+        return None
+    confidence = _parse_confidence(parsed.get("confidence"))
+    round_summary_markdown = _parse_round_summary(parsed)
+    reason = _parse_reason(parsed, round_summary_markdown=round_summary_markdown)
+    next_action = _parse_next_action(parsed, status=status)
+    completion_summary_markdown = _parse_optional_text(
+        parsed.get("completion_summary_markdown")
+    )
+    if (
+        confidence is None
+        or reason is None
+        or next_action is None
+        or round_summary_markdown is None
+        or completion_summary_markdown is None
+    ):
+        return None
+    assert confidence is not None
+    assert reason is not None
+    assert next_action is not None
+    assert round_summary_markdown is not None
+    assert completion_summary_markdown is not None
+    return ReviewDecision(
+        status=status,
+        confidence=confidence,
+        reason=reason,
+        next_action=next_action,
+        round_summary_markdown=round_summary_markdown,
+        completion_summary_markdown=completion_summary_markdown,
+        scope=_parse_scope(parsed),
+        checklist=_parse_checklist(parsed),
+        planner_report=_parse_planner_report(parsed, status=status, reason=reason),
+        checkpoint=_parse_checkpoint(parsed),
+        failure_cause=_parse_failure_cause(parsed),
+        mission_lesson=_parse_mission_lesson(parsed),
+        process_lesson=_parse_process_lesson(parsed),
+    )
+
+
+def _parse_checkpoint(parsed: dict) -> dict[str, Any]:
+    """Parse the reviewer-authored curated working-memory checkpoint.
+
+    Fail-soft: returns ``{}`` when absent/malformed so the runner keeps the
+    prior checkpoint rather than wiping memory on a noisy verdict. Caps are
+    re-enforced downstream by ``CheckpointState.from_dict``.
+    """
+    raw = parsed.get("checkpoint")
+    if not isinstance(raw, dict):
+        return {}
+    return raw
+
+
+def _parse_planner_report(parsed: dict, *, status: str, reason: str) -> dict[str, Any]:
+    """Parse the reviewer's structured, planner-facing briefing (fail-soft).
+
+    The reviewer authors this so the planner routes from a clean structured
+    report. Missing/partial fields are tolerated: we fill sensible defaults
+    derived from the verdict rather than rejecting the whole decision.
+    """
+    raw = parsed.get("planner_report")
+    raw = raw if isinstance(raw, dict) else {}
+    headline = str(raw.get("headline", "") or "").strip()
+    blocker = str(raw.get("blocker", "") or "").strip()
+    recommended_next = str(raw.get("recommended_next", "") or "").strip()
+    fp = raw.get("forward_progress")
+    if isinstance(fp, bool):
+        forward_progress = fp
+    elif status == "done":
+        # A clean ``done`` mission made progress by definition.
+        forward_progress = True
+    else:
+        # Omitted on a NON-done round is UNKNOWN, not auto-False: the stall guard
+        # counts only EXPLICIT ``False`` (runner.py raw_forward_progress is False),
+        # so None correctly does not stall or trigger the planner's pivot-away rule.
+        # (Auto-False here punished honest no-report rounds and bold-but-regressing
+        # optimization rounds at the exact moment a structural line is co-tuning.)
+        forward_progress = None
+    if not headline:
+        headline = (reason or "").strip()[:600]
+    # Concrete artifacts the planner should OPEN to diagnose what happened
+    # (source files, data provenance, NO_GO docs, metric series). Parsed
+    # fail-soft: a malformed list/entry is dropped, never rejected.
+    evidence_files: list[dict[str, str]] = []
+    raw_ev = raw.get("evidence_files")
+    if isinstance(raw_ev, list):
+        for entry in raw_ev:
+            if not isinstance(entry, dict):
+                continue
+            path = str(entry.get("path", "") or "").strip()
+            if not path:
+                continue
+            evidence_files.append({
+                "path": path[:400],
+                "why": str(entry.get("why", "") or "").strip()[:600],
+            })
+            if len(evidence_files) >= 8:
+                break
+    return {
+        "forward_progress": forward_progress,
+        "headline": headline,
+        "blocker": blocker,
+        "recommended_next": recommended_next,
+        "evidence_files": evidence_files,
+    }
+
+
+def _parse_scope(parsed: dict) -> str:
+    value = parsed.get("scope")
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"bounded", "final_submission"}:
+            return normalized
+    return ""
+
+
+_VALID_FAILURE_CAUSES = frozenset({
+    "skill_gap",
+    "execution_mistake",
+    "ambiguous_objective",
+    "environmental",
+    "method_failure",
+    "unknown",
+})
+
+
+def _parse_failure_cause(parsed: dict) -> str:
+    """Reviewer's classification of *why* a round failed. Fail-soft: any
+    missing/null/unrecognized value normalizes to ``""`` so the skill
+    evolution layer simply does nothing rather than acting on noise."""
+    value = parsed.get("failure_cause")
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in _VALID_FAILURE_CAUSES:
+            return normalized
+    return ""
+
+
+def _parse_mission_lesson(parsed: dict) -> str:
+    """Reviewer-authored, reusable lesson emitted alongside a ``skill_gap``
+    failure (e.g. the corrected hyperparameter regime for an RL run).
+    Capped and fail-soft."""
+    value = parsed.get("mission_lesson")
+    if isinstance(value, str):
+        return value.strip()[:4000]
+    return ""
+
+
+def _parse_process_lesson(parsed: dict) -> str:
+    """Reviewer-authored, per-mission lesson about the agent's own PROCESS
+    (incentive frictions, wasted/repeated rounds, a working workaround) — distinct
+    from the method-level ``mission_lesson``. Capped and fail-soft."""
+    value = parsed.get("process_lesson")
+    if isinstance(value, str):
+        return value.strip()[:2000]
+    return ""
+
+
+def _parse_checklist(parsed: dict) -> list[dict[str, Any]]:
+    raw = parsed.get("checklist")
+    if not isinstance(raw, list):
+        return []
+    items: list[dict[str, Any]] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        items.append({
+            "item": str(entry.get("item", "")).strip(),
+            "satisfied": bool(entry.get("satisfied")),
+            "evidence": str(entry.get("evidence", "")).strip(),
+        })
+    return items
+
+
+def _load_json(text: str) -> dict | None:
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(value, dict):
+        return None
+    return value
+
+
+def _parse_status(parsed: dict) -> ReviewStatus | None:
+    for key in ("status", "decision", "action"):
+        value = parsed.get(key)
+        if not isinstance(value, str):
+            continue
+        normalized = value.strip().lower()
+        if normalized in {"done", "continue", "blocked"}:
+            return cast(ReviewStatus, normalized)
+    return None
+
+
+def _parse_confidence(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    confidence = float(value)
+    if confidence < 0.0 or confidence > 1.0:
+        return None
+    return confidence
+
+
+def _parse_required_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    return text
+
+
+def _parse_reason(parsed: dict, *, round_summary_markdown: str | None) -> str | None:
+    for key in ("reason", "message"):
+        text = _parse_required_text(parsed.get(key))
+        if text is not None:
+            return text
+    derived = _derive_reason_from_markdown(
+        _parse_optional_text(parsed.get("completion_summary_markdown"))
+        or round_summary_markdown
+        or ""
+    )
+    return derived
+
+
+def _parse_next_action(parsed: dict, *, status: str) -> str | None:
+    direct = _parse_required_text(parsed.get("next_action"))
+    if direct is not None:
+        return direct
+    if status == "done":
+        return "No further action needed. Objective complete."
+    if status == "blocked":
+        return "Need additional user input before continuing."
+    if status == "continue":
+        return "Continue implementation and include clear completion evidence."
+    return None
+
+
+def _parse_round_summary(parsed: dict) -> str | None:
+    direct = _parse_required_text(parsed.get("round_summary_markdown"))
+    if direct is not None:
+        return direct
+    summary = _parse_required_text(parsed.get("summary")) or _parse_required_text(parsed.get("message"))
+    if summary is None:
+        return None
+    return f"# Review Summary\n\n- {summary}\n"
+
+
+def _parse_optional_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return value.strip()
+
+
+def _derive_reason_from_markdown(text: str) -> str | None:
+    normalized_lines: list[str] = []
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            continue
+        if line.startswith("- "):
+            line = line[2:].strip()
+        if line.startswith("**") and line.endswith("**") and len(line) > 4:
+            line = line[2:-2].strip()
+        normalized_lines.append(line)
+    if not normalized_lines:
+        return None
+    candidate = normalized_lines[0]
+    return candidate[:300].strip() or None

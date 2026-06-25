@@ -18,7 +18,7 @@ import json
 from pathlib import Path
 
 from argus_skill.core.models import ReviewDecision
-from argus_skill.engineer.reviewer import _find_decision_in_messages
+from argus_skill.reviewer import _find_decision_in_messages
 from argus_skill.life.memory import BacklogItem, JournalEntry, LifeMemory
 from argus_skill.life.supervisor import (
     LifeBudget,

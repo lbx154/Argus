@@ -26,7 +26,7 @@ from argus_skill.core.models import (
     ReviewDecision,
     RunnerResult,
 )
-from argus_skill.engineer.reviewer import Reviewer, ReviewerConfig
+from argus_skill.reviewer import Reviewer, ReviewerConfig
 from argus_skill.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,

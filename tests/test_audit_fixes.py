@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-import argus_skill.engineer.reviewer as reviewer_mod
+import argus_skill.reviewer as reviewer_mod
 import argus_skill.life.telemetry as telemetry
 from argus_skill.core.models import CheckResult
 from argus_skill.engineer.runner import failed_check_diagnostics

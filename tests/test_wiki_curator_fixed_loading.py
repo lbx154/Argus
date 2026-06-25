@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.engineer.reviewer import Reviewer, _load_wiki_curator_skill_if_present
+from argus_skill.reviewer import Reviewer, _load_wiki_curator_skill_if_present
 from argus_skill.wiki.bootstrap import init_wiki
 
 

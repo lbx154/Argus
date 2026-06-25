@@ -1,7 +1,7 @@
 """Core protocols (ports) the loop integrates against.
 
-Provenance: ``ControlChannel`` / ``EventSink`` shapes are adapted from
-ArgusBot's ``core/ports.py``. ``RunnerBackend`` is new — it sits at the
+Provenance: the ``EventSink`` shape is adapted from ArgusBot's
+``core/ports.py``. ``RunnerBackend`` is new — it sits at the
 seam where ArgusBot's hard-coded ``AgentCliRunner`` used to be, and where
 skill-agent's ``codex_exec(...)`` callable used to be. By making it a
 ``Protocol`` we can plug in:

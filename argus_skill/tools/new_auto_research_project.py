@@ -46,7 +46,7 @@ argus-skill / python -m argus_skill
   -> _SkillLoopRunner.execute(...)
   -> argus_skill/loop.py
   -> argus_skill/engineer/runner.py
-  -> argus_skill/engineer/reviewer.py
+  -> argus_skill/reviewer/_core.py
 ```
 
 Ownership map:
@@ -56,18 +56,18 @@ Ownership map:
 | CLI flags, REPL, daemon start/stop, status/follow/watch | `argus_skill/apps/cli.py`, `argus_skill/apps/_life_repl.py`, `argus_skill/daemon/life_worker.py`, `argus_skill/apps/_watch.py` |
 | One mission's skill matcher -> distiller -> engineer -> reviewer flow | `argus_skill/loop.py` |
 | L1 engineer retries, checks, session carryover, watchdogs, backend failures | `argus_skill/engineer/runner.py`, `argus_skill/engineer/checks.py` |
-| L2 reviewer verdicts, JSON schema, reviewer-to-engineer next action | `argus_skill/engineer/reviewer.py`, `argus_skill/engineer/reviewer_schema.json` |
+| L2 reviewer verdicts, JSON schema, reviewer-to-engineer next action | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` |
 | L4 planner continuous-mode task creation and mission supervision | `argus_skill/life/supervisor.py`, `argus_skill/planner/planner.py` |
 | Skill distillation/compaction and distilled-skill storage, writeback, builtin skill seeding | `argus_skill/scientist/*` (distiller/compactor), `argus_skill/skills/store.py`, `argus_skill/skills/builtins.py`, `argus_skill/builtin_skills/` |
 | EMNLP artifact-validation helpers (importable checks, no completion gating) | `argus_skill/skills/pipeline_contracts.py`, `argus_skill/skills/pipeline_policy.py` |
-| Final-submission completion certification (L2 reviewer contract + checklist) | `argus_skill/engineer/reviewer.py`, `argus_skill/engineer/reviewer_schema.json` |
+| Final-submission completion certification (L2 reviewer contract + checklist) | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` |
 | Academic-language, infrastructure-leak, and visual-layout review tools | `argus_skill/skills/academic_language_review.py`, `argus_skill/skills/paper_infrastructure_review.py`, `argus_skill/skills/paper_layout_review.py` |
 | Image-2 paper figure prompt/generation/review/metadata helpers | `argus_skill/tools/image_tool.py` |
 | New auto-research project launcher and this declaration | `argus_skill/tools/new_auto_research_project.py` |
 
 Modification rule: final-submission completion is certified by the L2 reviewer
 contract — to change what "done" requires, edit the reviewer prompt/checklist in
-`argus_skill/engineer/reviewer.py` and `reviewer_schema.json`; if an artifact
+`argus_skill/reviewer/_core.py` and `reviewer_schema.json`; if an artifact
 check should be stricter or looser, change `pipeline_contracts.py`; if an agent
 needs different instructions while executing paper work, change the relevant
 `argus_skill/builtin_skills/*.md` or `SkillLoop._build_engineer_prompt`. Do not
