@@ -171,3 +171,82 @@ def test_vertical_hook_failopen_on_raising_hook():
             raise RuntimeError("boom")
 
     assert vertical_search_altitude(_Boom(), "/nonexistent") == ""
+
+
+def _write_profiled_attempt(
+    root,
+    name: str,
+    mean_val_bpb: float,
+    *,
+    summary: dict | None = None,
+    curve: dict | None = None,
+) -> None:
+    """An attempt whose summary.json also carries a measured ``profile`` block."""
+    d = root / "attempts" / name
+    d.mkdir(parents=True, exist_ok=True)
+    obj = {"candidate": name, "mean_val_bpb": mean_val_bpb, "decision": "promote"}
+    prof: dict = {"complete": True}
+    if summary is not None:
+        prof["summary"] = summary
+    if curve is not None:
+        prof["curve"] = curve
+    obj["profile"] = prof
+    (d / "summary.json").write_text(json.dumps(obj), encoding="utf-8")
+
+
+def test_training_dynamics_surfaces_curve_steps_mfu_vram(tmp_path):
+    # A profiled attempt → the dynamics block surfaces curve-position, steps,
+    # sustained MFU and peak VRAM as MEASURED facts (no verdict).
+    _write_profiled_attempt(
+        tmp_path,
+        "a001_run",
+        0.965,
+        summary={"num_steps": 2714, "mfu_percent": 41.5, "peak_vram_mb": 49602.2},
+        curve={
+            "first_loss": 9.21, "first_step": 0,
+            "last_loss": 2.70, "last_step": 2713,
+            "sampled_curve": [
+                {"step": 2048, "loss": 2.87},
+                {"step": 2560, "loss": 2.73},
+                {"step": 2713, "loss": 2.70},
+            ],
+        },
+    )
+    block = search_altitude_context(tmp_path)
+    assert "Training dynamics" in block
+    assert "NO verdict" in block
+    # curve position at the cutoff: final logged loss + the last-interval move
+    assert "2.7000@step2713" in block
+    assert "steps 2560→2713" in block
+    assert "-0.0300" in block  # 2.70 - 2.73 over the last interval
+    # throughput / capacity facts
+    assert "~2714" in block
+    assert "~41.5%" in block
+    assert "~48.4 GB" in block  # 49602.2 / 1024
+    # philosophy guard: the dynamics facts must NOT prescribe a lever
+    assert "your research judgment — not the harness" in block
+
+
+def test_training_dynamics_absent_without_profile(tmp_path):
+    # An attempt with a score but no profile → no dynamics block appended.
+    _write_attempt(tmp_path, "a001_noprofile", 0.97)
+    block = search_altitude_context(tmp_path)
+    assert "Search altitude" in block
+    assert "Training dynamics" not in block
+
+
+def test_training_dynamics_failsoft_on_partial_profile(tmp_path):
+    # summary present but curve absent → steps/MFU/VRAM still render, no crash,
+    # and no bogus curve line.
+    _write_profiled_attempt(
+        tmp_path,
+        "a001_partial",
+        0.965,
+        summary={"num_steps": 2700, "mfu_percent": 40.0, "peak_vram_mb": 40960.0},
+        curve=None,
+    )
+    block = search_altitude_context(tmp_path)
+    assert "Training dynamics" in block
+    assert "~2700" in block
+    assert "~40.0 GB" in block
+    assert "Train-loss curve" not in block  # no curve data → no curve line

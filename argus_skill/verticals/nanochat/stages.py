@@ -215,6 +215,10 @@ _REF_BEST = 0.9109  # Recursive's best — the bar
 _ALTITUDE_RECENT_N = 8
 _ALTITUDE_TOKEN_WINDOW = 25
 _ALTITUDE_TOKEN_TOP = 12
+#: How many recent scored attempts to scan for a usable ``profile`` when
+#: surfacing training dynamics, and how many of those to aggregate.
+_DYNAMICS_SCAN_N = 12
+_DYNAMICS_AGG_N = 4
 
 
 def _attempt_index(name: str) -> int:
@@ -432,6 +436,126 @@ def _name_tokens(name: str) -> list[str]:
     return toks
 
 
+def _attempt_profile(adir: Path) -> dict:
+    """Read the agent-authored ``profile`` dict from an attempt's summary.json.
+
+    The ``profile`` carries ``summary`` (num_steps, mfu_percent, peak_vram_mb, …)
+    and ``curve`` (first/last loss+step, sampled_curve) — the measured training
+    dynamics. Re-opens summary.json the same way the other ``_read_attempt_*``
+    helpers do (read logic stays local + fail-soft). ``{}`` on any error / absent
+    profile.
+    """
+    sj = adir / "summary.json"
+    if not sj.exists():
+        return {}
+    try:
+        obj = json.loads(sj.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+    if not isinstance(obj, dict):
+        return {}
+    prof = obj.get("profile")
+    return prof if isinstance(prof, dict) else {}
+
+
+def _median(vals: list) -> float | None:
+    nums = sorted(v for v in vals if isinstance(v, (int, float)))
+    return nums[len(nums) // 2] if nums else None
+
+
+def _training_dynamics_block(project_root: object, attempts: list) -> str:
+    """NO-VERDICT training-dynamics facts from the freshest profiled attempt(s).
+
+    Surfaces what the altitude block above is blind to: WHERE the train-loss curve
+    sat at the fixed-budget cutoff (the final logged loss + how it was moving over
+    the last logged interval), how many steps the budget bought, the sustained
+    MFU, and the peak VRAM. Every number is MEASURED — re-read from the agent's own
+    ``profile`` in summary.json. The harness states no threshold and draws no
+    conclusion: it does NOT say "the curve hadn't converged" or "use a bigger
+    batch" — whether the curve-position / step-count / MFU / VRAM imply headroom on
+    an axis other than the one being tuned is the agent's research call. Fail-soft
+    → "" so prompt building never breaks on it.
+    """
+    try:
+        adir = Path(str(project_root)) / "attempts"
+        profs: list[tuple[str, dict, dict]] = []  # (name, summary, curve)
+        for t in reversed(attempts[-_DYNAMICS_SCAN_N:]):
+            prof = _attempt_profile(adir / t[1])
+            summ = prof.get("summary")
+            curve = prof.get("curve")
+            summ = summ if isinstance(summ, dict) else {}
+            curve = curve if isinstance(curve, dict) else {}
+            if summ or curve:
+                profs.append((t[1], summ, curve))
+            if len(profs) >= _DYNAMICS_AGG_N:
+                break
+        if not profs:
+            return ""
+
+        name, _, curve = profs[0]  # freshest
+        steps = _median([s.get("num_steps") for _, s, _ in profs])
+        mfu = _median([s.get("mfu_percent") for _, s, _ in profs])
+        vram = _median([s.get("peak_vram_mb") for _, s, _ in profs])
+
+        lines = [
+            "## Training dynamics — measured at the fixed-budget cutoff "
+            "(NO verdict; YOU judge)",
+            "Re-read from your own `profile` in summary.json over the last "
+            f"{len(profs)} profiled attempt(s). Measured only — the harness draws no "
+            "conclusion about what (if anything) these imply.",
+        ]
+
+        fl, fs = curve.get("first_loss"), curve.get("first_step")
+        ll, ls = curve.get("last_loss"), curve.get("last_step")
+        sc = curve.get("sampled_curve") or []
+        pts = [
+            (p["step"], p["loss"])
+            for p in sc
+            if isinstance(p, dict)
+            and isinstance(p.get("step"), (int, float))
+            and isinstance(p.get("loss"), (int, float))
+        ]
+        tail = ""
+        if len(pts) >= 2 and pts[-1][0] > pts[-2][0]:
+            (s0, l0), (s1, l1) = pts[-2], pts[-1]
+            tail = (
+                f"; over the LAST logged interval (steps {int(s0)}→{int(s1)}, "
+                f"Δ{int(s1 - s0)} steps) train-loss moved {l1 - l0:+.4f} "
+                f"({l0:.4f}→{l1:.4f})"
+            )
+        if isinstance(ll, (int, float)) and isinstance(ls, (int, float)):
+            head = (
+                f"{fl:.4f}@step{int(fs)} → "
+                if isinstance(fl, (int, float)) and isinstance(fs, (int, float))
+                else ""
+            )
+            lines.append(
+                f"- Train-loss curve (`{name}`): {head}{ll:.4f}@step{int(ls)} "
+                f"(final logged step){tail}."
+            )
+        if steps is not None:
+            lines.append(
+                f"- Optimizer steps completed inside the fixed time budget: ~{int(steps)}"
+            )
+        if mfu is not None:
+            lines.append(f"- Sustained MFU during training: ~{mfu:.1f}%")
+        if vram is not None:
+            lines.append(
+                f"- Peak VRAM used: ~{vram / 1024:.1f} GB (against the full device "
+                "memory of the B200 you train on)"
+            )
+        lines.append(
+            "These are curve-position / throughput / capacity facts only. Whether "
+            "the curve had plateaued or was still descending at the cutoff, and "
+            "whether the step-count / MFU / VRAM leave headroom on a DIFFERENT axis "
+            "than the one you have been tuning, is your research judgment — not the "
+            "harness's."
+        )
+        return "\n".join(lines) + "\n\n"
+    except Exception:  # noqa: BLE001 — must never break prompt building
+        return ""
+
+
 def search_altitude_context(project_root: object) -> str:
     """Return a NO-VERDICT 'search altitude' fact block, or ``""``.
 
@@ -528,7 +652,7 @@ def search_altitude_context(project_root: object) -> str:
             "saturated and the next candidate should change regime (per the "
             "SEARCH DISCIPLINE banner) — but that call is your research "
             "judgment, not the harness's.\n\n"
-        )
+        ) + _training_dynamics_block(project_root, attempts)
     except Exception:  # noqa: BLE001 — must never break prompt building
         return ""
 
