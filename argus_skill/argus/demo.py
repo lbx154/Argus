@@ -41,5 +41,31 @@ def main() -> None:
     print("PASS-A reached at 0.98550 by the FROZEN judge, not the Reviewer ✅")
 
 
+def manager_demo() -> None:
+    """The full conductor: Manager owns research-first → stages → loop → frozen judge →
+    skill audit → checkpoint. Same nanochat numbers, driven from the user-facing entry."""
+    import tempfile
+    from pathlib import Path
+    from .manager import Manager
+
+    it = iter(SEQ)
+    judge = FrozenJudge(JudgeConfig(
+        floor=FLOOR, noise=0.0015, n_seed=10,
+        forbidden=("optimized_from_karpathy", "modded-nanogpt-leaderboard"),
+    ))
+    with tempfile.TemporaryDirectory() as d:
+        mgr = Manager(project_root=Path(d), judge=judge,
+                      candidate_fn=lambda n: (next(it, 1.0), [n.artifact]),
+                      budget_loops=len(SEQ))
+        result = mgr.handle("optimize nanochat val_bpb in 5 minutes")
+        print("\n".join(mgr.log))
+        print("-" * 60)
+        print("manager result:", result)
+        print("wiki notes:", [p.name for p in (Path(d) / "wiki" / "research").glob("*.md")])
+        print("checkpoint:", (Path(d) / "checkpoint.json").exists())
+
+
 if __name__ == "__main__":
     main()
+    print("\n" + "=" * 60 + "\nMANAGER CONDUCTOR\n" + "=" * 60)
+    manager_demo()

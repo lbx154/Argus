@@ -2,6 +2,7 @@
 from __future__ import annotations
 from argus_skill.argus import (
     Task, Node, Evidence, FrozenJudge, JudgeConfig, HypothesisTree, Session, Run, RunConfig,
+    Manager,
 )
 
 
@@ -41,3 +42,25 @@ def test_session_checkpoint_roundtrip(tmp_path):
     assert s.load_checkpoint()["headline"] == "PASS-A 0.9874"
     nxt = s.rollover({"headline": "carry"})
     assert "resumed" in nxt.trace[0]
+
+
+def test_manager_handle_end_to_end(tmp_path):
+    """Manager owns the full flow: research-first → stages → loop → frozen judge →
+    skill audit → checkpoint. The win still comes only from the judge."""
+    seq = iter([0.9899, 0.9855])                      # 2nd clears the floor by > noise
+    j = FrozenJudge(JudgeConfig(floor=0.98788, noise=0.0015))
+    mgr = Manager(project_root=tmp_path, judge=j,
+                  candidate_fn=lambda n: (next(seq, 1.0), [n.artifact]),
+                  budget_loops=5)
+    r = mgr.handle("optimize nanochat val_bpb in 5 minutes")
+
+    assert r["kind"] == "optimize"
+    assert r["best_metric"] == 0.9855                 # PASS-A from the frozen judge
+    assert r["skills"] >= 1                            # a skill was distilled + employed
+    # research-first filed a wiki note, and the session wrote a checkpoint
+    assert (tmp_path / "wiki" / "research").exists()
+    assert list((tmp_path / "wiki" / "research").glob("*.md"))
+    assert (tmp_path / "checkpoint.json").exists()
+    # a fresh Manager resumes from the checkpoint
+    mgr2 = Manager(project_root=tmp_path, judge=j, candidate_fn=lambda n: (1.0, []))
+    assert mgr2.session.load_checkpoint().get("headline")

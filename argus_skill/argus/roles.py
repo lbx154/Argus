@@ -1,8 +1,9 @@
-"""argus.roles — Manager / Planner / Engineer / Reviewer.
+"""argus.roles — Planner / Engineer / Reviewer (+ shared triage helpers).
 
 Each role wraps an ``agent_fn`` (the LLM). The hard rule: **no role judges the win** —
-that is the FrozenJudge's job alone. Reviewer gives PROCESS feedback only. Manager is
-user-facing + splits stages + audits skills, but never signs "we won".
+that is the FrozenJudge's job alone. Reviewer gives PROCESS feedback only. The Manager
+(user-facing conductor, see manager.py) splits stages + audits skills via the shared
+triage helpers below, but never signs "we won".
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -15,29 +16,28 @@ def stub_agent(prompt: str) -> str:
     return "ok"
 
 
-@dataclass
-class Manager:
-    agent_fn: Callable[[str], str] = stub_agent
+# ---- shared triage helpers (one source of truth for Manager + Run) ----
+def triage(task: Task) -> str:
+    t = task.text.lower()
+    if any(k in t for k in ("paper", "benchmark", "论文", "research")):
+        return "research"
+    if any(k in t for k in ("optimize", "speedrun", "kernel", "bpb", "factor", "sharpe", "优化")):
+        return "optimize"
+    return "freeform"
 
-    def triage(self, task: Task) -> str:
-        t = task.text.lower()
-        if any(k in t for k in ("paper", "benchmark", "论文", "research")):
-            return "research"
-        if any(k in t for k in ("optimize", "speedrun", "kernel", "bpb", "factor", "sharpe")):
-            return "optimize"
-        return "freeform"
 
-    def split_stages(self, task: Task, kind: str) -> list[Stage]:
-        if kind == "research":
-            order = ["research", "plan", "benchmark", "run", "analysis", "draft", "review", "submission"]
-            return [Stage(name=s, template="research") for s in order]
-        if kind == "optimize":
-            return [Stage(name="optimize", template="optimize")]
-        return [Stage(name="do", template="custom")]
+def split_stages(task: Task, kind: str) -> list[Stage]:
+    if kind == "research":
+        order = ["research", "plan", "benchmark", "run", "analysis", "draft", "review", "submission"]
+        return [Stage(name=s, template="research") for s in order]
+    if kind == "optimize":
+        return [Stage(name="optimize", template="optimize")]
+    return [Stage(name="do", template="custom")]
 
-    def audit_skill(self, skill) -> bool:
-        """Manager approves a Reviewer-curated skill for use."""
-        return bool(skill and skill.content)
+
+def audit_skill(skill) -> bool:
+    """Manager approves a Reviewer-curated skill for use."""
+    return bool(skill and skill.content)
 
 
 @dataclass

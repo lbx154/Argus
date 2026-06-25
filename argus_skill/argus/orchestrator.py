@@ -12,7 +12,7 @@ from typing import Callable, Optional
 from .core import Task, Node
 from .judge import FrozenJudge
 from .tree import HypothesisTree
-from .roles import Manager, Planner, Engineer, Reviewer
+from .roles import Planner, Engineer, Reviewer, triage, split_stages
 
 
 @dataclass
@@ -25,7 +25,6 @@ class Run:
     judge: FrozenJudge
     # the Engineer must supply a real candidate(node)->(metric, refs); demo uses a fn
     candidate_fn: Callable[[Node], tuple]
-    manager: Manager = field(default_factory=Manager)
     planner: Planner = field(default_factory=Planner)
     engineer: Engineer = field(default_factory=Engineer)
     reviewer: Reviewer = field(default_factory=Reviewer)
@@ -37,9 +36,9 @@ class Run:
         self.log.append(m)
 
     def run(self, task: Task) -> dict:
-        kind = self.manager.triage(task)
+        kind = triage(task)
         task.kind = kind
-        stages = self.manager.split_stages(task, kind)
+        stages = split_stages(task, kind)
         self._say(f"[manager] kind={kind} · {len(stages)} stage(s)")
 
         loops = 0
