@@ -402,7 +402,7 @@ class _ScriptedPlannerBackend:
         return RunnerResult(exit_code=0, agent_messages=[json.dumps(payload, ensure_ascii=False)])
 
 
-class _CodexSkillLoopRunner:
+class _SkillLoopRunner:
     """Runs each mission through a fresh ``SkillLoop`` (codex backend).
 
     Bypasses the ``ARGUS_SKILL_BACKEND`` env var: when life mode

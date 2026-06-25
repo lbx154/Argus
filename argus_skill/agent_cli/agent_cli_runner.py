@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal
 
-from .models import CodexRunResult
+from .models import AgentRunResult
 from .runner_backend import (
     BACKEND_CLAUDE,
     BACKEND_COPILOT,
@@ -82,7 +82,7 @@ class AgentCliRunner:
         resume_thread_id: str | None,
         options: RunnerOptions,
         run_label: str | None = None,
-    ) -> CodexRunResult:
+    ) -> AgentRunResult:
         if self.before_exec is not None:
             self.before_exec()
         command = self._build_command(prompt=prompt, resume_thread_id=resume_thread_id, options=options)
@@ -263,7 +263,7 @@ class AgentCliRunner:
             turn_failed = True
             fatal_error = f"Process exited with code {process.returncode} before turn completion."
 
-        return CodexRunResult(
+        return AgentRunResult(
             command=command,
             exit_code=process.returncode,
             thread_id=thread_id,

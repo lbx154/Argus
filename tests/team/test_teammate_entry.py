@@ -20,7 +20,7 @@ def test_build_runner_ns_has_required_fields(tmp_path: Path, monkeypatch) -> Non
     ns = te._build_runner_ns(str(tmp_path), max_rounds=7, paper_mission=False)
     assert ns.engineer_model == "m-eng" and ns.reviewer_model == "m-rev"
     assert ns.workdir == str(tmp_path) and ns.max_rounds == 7 and ns.paper_mission is False
-    # every field _CodexSkillLoopRunner / execute reads must exist
+    # every field _SkillLoopRunner / execute reads must exist
     for f in ("backend", "scientist_model", "engineer_reasoning_effort", "skills_dir",
               "plan_mode", "plan_model", "check", "check_commands", "color", "verbose", "quiet"):
         assert hasattr(ns, f), f

@@ -5,7 +5,7 @@ codex call.
 
 Two surfaces are exercised here:
 
-1. ``_CodexSkillLoopRunner._chat_quick_reply`` — direct unit test with
+1. ``_SkillLoopRunner._chat_quick_reply`` — direct unit test with
    a fake codex backend. Verifies prompt shape, event emission, token
    accounting, and ``chat_mode=True``.
 
@@ -106,15 +106,15 @@ class _RecordingSink:
 
 
 def _make_runner(backend: _FakeBackend) -> Any:
-    """Build a ``_CodexSkillLoopRunner`` without invoking ``__init__``.
+    """Build a ``_SkillLoopRunner`` without invoking ``__init__``.
 
     The real ``__init__`` imports ArgusBot to construct codex; we
     bypass it and inject our fake backend / args directly so the
     chat-path can be tested in isolation.
     """
-    from argus_skill.apps._life_repl import _CodexSkillLoopRunner
+    from argus_skill.apps._life_repl import _SkillLoopRunner
 
-    runner = _CodexSkillLoopRunner.__new__(_CodexSkillLoopRunner)
+    runner = _SkillLoopRunner.__new__(_SkillLoopRunner)
     runner = cast(Any, runner)
     runner._backend = backend
     runner.backend = backend

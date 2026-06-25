@@ -18,7 +18,7 @@ The translation layer:
 
   argus-skill's ``RunnerOptions``   →   ArgusBot's ``RunnerOptions``
   argus-skill's ``run_label`` kwarg →   ArgusBot's ``run_label``
-  ArgusBot's   ``CodexRunResult``   →   argus-skill's ``RunnerResult``
+  ArgusBot's   ``AgentRunResult``   →   argus-skill's ``RunnerResult``
 
 Field names are mostly 1:1 (both projects evolved from the same
 ancestor); we keep only the slim subset argus-skill needs.

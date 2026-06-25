@@ -56,7 +56,7 @@ class RunnerOptions:
 class RunnerResult:
     """Result returned by a RunnerBackend.run_exec call.
 
-    A slim version of ArgusBot's CodexRunResult — we keep only the parts
+    A slim version of ArgusBot's AgentRunResult — we keep only the parts
     the loop / reviewer / parsers actually look at.
     """
     exit_code: int

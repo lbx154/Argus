@@ -71,7 +71,7 @@ from ._base import (
     _SplitMemory,
 )
 from ._runners import (
-    _CodexSkillLoopRunner,
+    _SkillLoopRunner,
     _MemoryRunner,
     _ScriptedPlannerBackend,
 )
@@ -138,7 +138,7 @@ def _codex_preflight_warning() -> str | None:
     Surfaced on the banner so the user does not discover at mission time
     that ArgusBot or the ``codex`` binary are missing. Best-effort: if
     anything raises we stay quiet — a confusing warning is worse than no
-    warning, and the real failure path (``_CodexSkillLoopRunner``) will
+    warning, and the real failure path (``_SkillLoopRunner``) will
     print a precise error when a mission actually starts.
     """
     try:
@@ -194,7 +194,7 @@ def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = 
             runner.backend = scripted_backend
         return runner
     if args.backend == "codex":
-        return _CodexSkillLoopRunner(args, seed_thread_id=seed_thread_id)
+        return _SkillLoopRunner(args, seed_thread_id=seed_thread_id)
     raise SystemExit(f"unknown backend: {args.backend}")
 
 

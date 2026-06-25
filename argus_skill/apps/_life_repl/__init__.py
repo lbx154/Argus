@@ -48,7 +48,7 @@ from ._core import (
     run_life_supervisor,
 )
 from ._runners import (
-    _CodexSkillLoopRunner,
+    _SkillLoopRunner,
     _MemoryRunner,
     _ScriptedPlannerBackend,
 )
@@ -66,7 +66,7 @@ __all__ = [
     "_Outcome",
     "_MemoryRunner",
     "_ScriptedPlannerBackend",
-    "_CodexSkillLoopRunner",
+    "_SkillLoopRunner",
     "log",
     "_TEST_DAEMON_PLANNER_SCRIPT_ENV",
     "_format_daemon_mode_cell",

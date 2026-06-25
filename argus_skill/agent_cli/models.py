@@ -5,7 +5,7 @@ from typing import Any
 
 
 @dataclass
-class CodexRunResult:
+class AgentRunResult:
     command: list[str]
     exit_code: int
     thread_id: str | None = None

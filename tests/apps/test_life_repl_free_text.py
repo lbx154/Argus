@@ -204,7 +204,7 @@ def test_codex_skill_loop_runner_strips_legacy_auto_max_profile(
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
 
-    runner = _life_repl._CodexSkillLoopRunner(
+    runner = _life_repl._SkillLoopRunner(
         argparse.Namespace(stop_event=None),
         seed_thread_id=None,
     )

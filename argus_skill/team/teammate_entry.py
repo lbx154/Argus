@@ -7,7 +7,7 @@ Run as::
 
 Finds the task this member owns on the shared board and runs ONE headless Argus
 engineer mission on that task's objective — **in-process**, reusing the exact
-per-mission call the daemon's supervisor makes (``_CodexSkillLoopRunner.execute``)
+per-mission call the daemon's supervisor makes (``_SkillLoopRunner.execute``)
 — heartbeating the board while it runs, then marking the task done/failed and
 writing a result shard when the mission returns.
 
@@ -168,7 +168,7 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
                              timeout_s: float | None = None) -> bool:
     """Run ONE headless engineer mission in-process on ``objective`` in ``cwd``.
 
-    Reuses ``_CodexSkillLoopRunner.execute`` — the exact per-mission call the
+    Reuses ``_SkillLoopRunner.execute`` — the exact per-mission call the
     daemon's supervisor makes. No cockpit, no daemon lock, no planner, no
     recursion. Events go to the isolated ``life_dir``. Returns True on success.
 
@@ -182,7 +182,7 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
     if timeout_s is None:
         timeout_s = float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "5400"))  # 90 min: profile + iterate >=3-4 mechanisms toward roofline (aligned with the full engineer, not a shallow one-shot)
     try:
-        from argus_skill.apps._life_repl import LifeStderrSink, _CodexSkillLoopRunner
+        from argus_skill.apps._life_repl import LifeStderrSink, _SkillLoopRunner
         from argus_skill.life.event_log import JsonlEventSink
     except Exception as exc:  # noqa: BLE001 — import/wiring problem
         sys.stderr.write(f"teammate_entry: cannot import runner: {exc}\n")
@@ -225,7 +225,7 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
     ns = _build_runner_ns(cwd, max_rounds=max_rounds, paper_mission=paper_mission,
                           stop_event=stop_event)
     try:
-        runner = _CodexSkillLoopRunner(ns)
+        runner = _SkillLoopRunner(ns)
         sink = JsonlEventSink(LifeStderrSink(quiet=False), life_dir=life_dir)
         outcome = runner.execute(objective=objective, sink=sink)
     except SystemExit as exc:  # codex extra missing, etc.

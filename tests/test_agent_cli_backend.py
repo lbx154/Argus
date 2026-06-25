@@ -2,12 +2,12 @@
 
 We do NOT spawn a real codex / claude CLI in CI. Instead we monkey-patch
 the underlying ``AgentCliRunner.run_exec`` to return a synthetic
-``CodexRunResult``, then verify our adapter:
+``AgentRunResult``, then verify our adapter:
 
   * Translates argus-skill ``RunnerOptions`` → ArgusBot ``RunnerOptions``
     correctly (model, reasoning_effort, working_dir, extra_args,
     full_auto, skip_git_repo_check, dangerous_yolo).
-  * Translates ``CodexRunResult`` → argus-skill ``RunnerResult``
+  * Translates ``AgentRunResult`` → argus-skill ``RunnerResult``
     correctly, including agent_messages, stdout/stderr lines, thread_id,
     fatal_error.
   * Sums token counts from the JSON event stream (last non-zero wins).
@@ -49,7 +49,7 @@ class ArgusRunnerOptions:
 
 
 @dataclass
-class CodexRunResult:
+class AgentRunResult:
     command: list[str]
     exit_code: int
     thread_id: str | None
@@ -107,7 +107,7 @@ def fake_agent_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     backend_mod.__dict__["normalize_runner_backend"] = normalize_runner_backend
 
     models_mod = ModuleType("agent_cli.models")
-    models_mod.__dict__["CodexRunResult"] = CodexRunResult
+    models_mod.__dict__["AgentRunResult"] = AgentRunResult
 
     setattr(pkg, "agent_cli_runner", runner_mod)
     setattr(pkg, "runner_backend", backend_mod)
@@ -143,8 +143,8 @@ def _make_argus_result(
     fatal_error: str | None = None,
     stdout_lines: list[str] | None = None,
     stderr_lines: list[str] | None = None,
-) -> CodexRunResult:
-    return CodexRunResult(
+) -> AgentRunResult:
+    return AgentRunResult(
         command=["codex", "exec", "-"],
         exit_code=exit_code,
         thread_id=thread_id,
@@ -171,7 +171,7 @@ def test_run_exec_translates_options_and_result(
         resume_thread_id: Any,
         options: Any,
         run_label: str,
-    ) -> CodexRunResult:
+    ) -> AgentRunResult:
         captured["prompt"] = prompt
         captured["resume_thread_id"] = resume_thread_id
         captured["options"] = options
@@ -254,7 +254,7 @@ def test_run_exec_normalizes_recoverable_reconnect_notice(
         resume_thread_id: Any,  # noqa: ARG001
         options: Any,  # noqa: ARG001
         run_label: str,  # noqa: ARG001
-    ) -> CodexRunResult:
+    ) -> AgentRunResult:
         return _make_argus_result(
             agent_messages=["continued after reconnect"],
             fatal_error=(
@@ -289,7 +289,7 @@ def test_run_exec_normalizes_high_attempt_reconnect_notice(
         resume_thread_id: Any,  # noqa: ARG001
         options: Any,  # noqa: ARG001
         run_label: str,  # noqa: ARG001
-    ) -> CodexRunResult:
+    ) -> AgentRunResult:
         return _make_argus_result(
             agent_messages=["continued after high-attempt reconnect"],
             fatal_error=(
@@ -473,7 +473,7 @@ def test_run_exec_forwards_watchdog_hooks(
         resume_thread_id: Any,
         options: Any,
         run_label: str,
-    ) -> CodexRunResult:
+    ) -> AgentRunResult:
         captured["options"] = options
         return _make_argus_result(agent_messages=["ok"])
 
@@ -525,7 +525,7 @@ def test_run_exec_applies_default_watchdog_hooks(
         resume_thread_id: Any,
         options: Any,
         run_label: str,
-    ) -> CodexRunResult:
+    ) -> AgentRunResult:
         captured["options"] = options
         return _make_argus_result(agent_messages=["ok"])
 
@@ -573,7 +573,7 @@ def test_run_exec_composes_explicit_watchdog_with_defaults(
         resume_thread_id: Any,
         options: Any,
         run_label: str,
-    ) -> CodexRunResult:
+    ) -> AgentRunResult:
         captured["options"] = options
         return _make_argus_result(agent_messages=["ok"])
 
@@ -616,7 +616,7 @@ def test_run_exec_reports_delta_for_resumed_cumulative_thread(
         resume_thread_id: Any,
         options: Any,
         run_label: str,
-    ) -> CodexRunResult:
+    ) -> AgentRunResult:
         usage = raw_usages.pop(0)
         return _make_argus_result(
             thread_id="thr-cumulative",

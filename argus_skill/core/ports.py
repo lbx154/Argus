@@ -6,8 +6,7 @@ seam where ArgusBot's hard-coded ``AgentCliRunner`` used to be, and where
 skill-agent's ``codex_exec(...)`` callable used to be. By making it a
 ``Protocol`` we can plug in:
 
-  * ``CodexBackend`` — wraps ArgusBot's agent_cli_runner.
-  * ``ClaudeBackend`` — wraps the claude-code CLI (skill-agent's adapter).
+  * ``AgentCliBackend`` — drives the codex / claude / copilot agentic CLIs.
   * ``MemoryBackend`` — deterministic stub for tests / CI.
 """
 from __future__ import annotations

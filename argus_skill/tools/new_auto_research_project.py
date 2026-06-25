@@ -43,7 +43,7 @@ argus-skill / python -m argus_skill
   -> argus_skill/apps/cli.py
   -> argus_skill/apps/_life_repl.py or argus_skill/daemon/life_worker.py
   -> argus_skill/life/supervisor.py
-  -> _CodexSkillLoopRunner.execute(...)
+  -> _SkillLoopRunner.execute(...)
   -> argus_skill/loop.py
   -> argus_skill/engineer/runner.py
   -> argus_skill/engineer/reviewer.py
