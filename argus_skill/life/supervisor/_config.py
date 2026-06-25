@@ -174,14 +174,6 @@ class LifeSupervisorConfig:
     telemetry_dir: Path | None = None
     telemetry_interval_seconds: float = 10.0
 
-    # Process meta-learning (Signal C). On a cadence, distill the accumulated
-    # reviewer ``process_lesson``s + the quantified process ledger into SHADOW
-    # process lessons (diagnosis only — the apply path stays operator-gated,
-    # outside the package). The metacritic is an LLM pass, so it runs at most
-    # once every ``process_metacritic_cadence`` completed missions, never per tick.
-    process_metacritic_enabled: bool = True
-    process_metacritic_cadence: int = 12
-
 
 class _MissionRunner(Protocol):
     """Structural type for the MissionExecutor we drive.

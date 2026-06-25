@@ -1,0 +1,403 @@
+% !TEX program = xelatex
+% Argus 商业计划书 —— 按 Sequoia 红杉 pitch deck 模板结构撰写（文档版，非幻灯片）
+% 编译： xelatex Argus_BP_Sequoia.tex  （跑两遍生成目录与页码）
+\documentclass[UTF8,11pt,fontset=none]{ctexart}
+
+%==================== 字体 ====================
+\usepackage{fontspec}
+\setCJKmainfont{Noto Serif CJK SC}
+\setCJKsansfont{Noto Sans CJK SC}
+\setCJKmonofont{Noto Sans Mono CJK SC}
+\setmainfont{Latin Modern Roman}
+\setsansfont{Latin Modern Sans}
+
+%==================== 版式 ====================
+\usepackage[a4paper,margin=2.3cm,top=2.4cm,bottom=2.4cm]{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{colortbl}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{tcolorbox}
+\usepackage{fontawesome5}
+\usepackage{graphicx}
+\usepackage{ragged2e}
+\usepackage[hidelinks]{hyperref}
+
+\tcbuselibrary{skins,breakable}
+
+%==================== 品牌色 ====================
+\definecolor{argusnavy}{HTML}{14304F}
+\definecolor{argusteal}{HTML}{0E7C86}
+\definecolor{argusaccent}{HTML}{E76F51}
+\definecolor{argusgray}{HTML}{4A5568}
+\definecolor{arguslight}{HTML}{EAF1F4}
+\definecolor{argusline}{HTML}{C7D3DB}
+
+\hypersetup{linkcolor=argusteal,urlcolor=argusteal,citecolor=argusteal}
+
+%==================== 标题样式 ====================
+\titleformat{\section}
+  {\sffamily\Large\bfseries\color{argusnavy}}
+  {\colorbox{argusnavy}{\color{white}\;\thesection\;}}{0.6em}{}
+\titleformat{\subsection}
+  {\sffamily\large\bfseries\color{argusteal}}
+  {\thesubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{1.4em}{0.7em}
+\titlespacing*{\subsection}{0pt}{1.0em}{0.4em}
+
+\setlist[itemize]{leftmargin=1.4em,itemsep=2pt,topsep=2pt}
+\setlist[enumerate]{leftmargin=1.6em,itemsep=2pt,topsep=2pt}
+\renewcommand{\arraystretch}{1.25}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5em}
+
+%==================== 自定义盒子 ====================
+\newtcolorbox{keybox}[1][]{
+  enhanced, breakable, colback=arguslight, colframe=argusteal,
+  left=10pt, right=10pt, top=6pt, bottom=6pt,
+  arc=2pt, boxrule=0pt, leftrule=3pt, #1}
+
+\newtcolorbox{quotebox}[1][]{
+  enhanced, colback=white, colframe=argusaccent,
+  left=10pt, right=10pt, top=6pt, bottom=6pt,
+  arc=1pt, boxrule=0pt, leftrule=4pt, #1}
+
+\newcommand{\tagline}[1]{{\sffamily\color{argusgray}#1}}
+\newcommand{\hl}[1]{\textbf{\color{argusnavy}#1}}
+\newcommand{\thd}[1]{\textbf{\color{white}#1}}
+\newcommand{\headrow}{\rowcolor{argusnavy}}
+\newcommand{\altrow}{\rowcolor{arguslight}}
+% 红杉模板节标志
+\newcommand{\sq}[1]{\hfill{\sffamily\footnotesize\color{argusgray}〔Sequoia · #1〕}}
+
+\begin{document}
+\sffamily
+
+%======================================================================
+% 封面
+%======================================================================
+\begin{titlepage}
+\thispagestyle{empty}
+\vspace*{1.2cm}
+\begin{flushleft}
+{\color{argusline}\rule{\textwidth}{2pt}}\\[1.0cm]
+{\sffamily\fontsize{56}{60}\selectfont\bfseries\color{argusnavy} ARGUS}\\[0.3cm]
+{\sffamily\Large\color{argusteal} 自主 AI 科学家 \;/\; Autonomous AI Scientist}\\[0.8cm]
+{\color{argusline}\rule{\textwidth}{1pt}}\\[1.2cm]
+
+{\sffamily\huge\bfseries\color{argusnavy} 商业计划书}\\[0.5cm]
+{\sffamily\Large\color{argusgray} 天使 / 种子轮融资}\\[0.5cm]
+{\sffamily\normalsize\color{argusgray} 结构遵循 Sequoia Capital pitch deck 模板}\\[1.6cm]
+
+\begin{quotebox}
+{\large 给它一个研究目标和机器规则，剩下的它自己来：\\
+选题 → 调研 → 设计实验 → 在\textbf{真实 benchmark} 上跑 → 分析 → 写论文 → 自审 → 改稿 → 投稿就绪。\\[4pt]
+\textbf{没有人在回路里逐步审批。}}
+\end{quotebox}
+
+\vfill
+{\sffamily\color{argusgray}
+日期：2026 年 6 月 \hfill 文件密级：\textbf{机密 · Confidential}\\
+版本：v2.0（Sequoia 结构）\hfill 联系方式：\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_}\\[0.4cm]
+{\color{argusline}\rule{\textwidth}{2pt}}
+\end{flushleft}
+\end{titlepage}
+
+%======================================================================
+% 目录
+%======================================================================
+\thispagestyle{empty}
+{\sffamily\color{argusnavy}\Large\bfseries 目录}\\[0.3em]
+{\color{argusline}\rule{\textwidth}{1pt}}
+\vspace{0.4em}
+\setcounter{tocdepth}{1}
+\tableofcontents
+\vfill
+\begin{keybox}
+\footnotesize 本计划书按红杉资本经典 pitch deck 十段式结构组织：\textbf{公司宗旨 → 问题 → 解决方案 → 为什么是现在 → 市场潜力 → 竞争 → 商业模式 → 团队 → 财务 → 愿景}。每节右上角的灰色标注对应红杉原模板的 slide 名。本文为\textbf{文档版}，非幻灯片。
+\end{keybox}
+\clearpage
+
+%======================================================================
+% 1 公司宗旨
+%======================================================================
+\section{公司宗旨}\sq{Company Purpose}
+
+\begin{quotebox}
+{\Large\bfseries\color{argusnavy} Argus 是一个 7×24 全自主运行的"AI 科学家"——\\给它一个研究目标，它独立完成从选题到投稿就绪的全部科研工作，无人在回路。}
+\end{quotebox}
+
+用一句话定义我们：\hl{我们把"做一篇可被同行评审接受的研究"从一项稀缺的高端人力劳动，变成一项可按需调用、可大规模并行的算力服务。}
+
+别的研究 agent 只能做到论文的"前 70\%"——一个点子、一个玩具实验、一份看上去像样的 PDF。Argus 专攻评审真正会拒稿的"后 30\%"：证据不足、实验单薄、结论无据、引用造假、版面超标、不可复现。我们用\textbf{持续执行}加\textbf{硬性质量闸门}把这 30\% 补上。
+
+%======================================================================
+% 2 问题
+%======================================================================
+\section{问题}\sq{Problem}
+
+\textbf{研究是人类最有价值、却最难规模化的劳动。} 一篇高水平论文背后是数月的文献阅读、实验设计、调参跑数、结果分析、反复写作改稿——每一环都依赖稀缺的高水平人力，高度串行，难以复制。
+
+\begin{keybox}
+\textbf{用数字说话：}
+\begin{itemize}
+  \item 全球研发支出 \hl{> 2.5 万亿美元/年}，每年产出\hl{数百万篇}学术论文，但产能受限于人。
+  \item 一篇可投稿论文通常耗费一名研究者\hl{数月}时间、折合人力成本 \hl{US\$10,000–50,000}。
+  \item 现有"AI 研究 agent"普遍只能完成任务的\hl{约 70\%}，剩下决定成败的 30\% 仍需人工兜底。
+\end{itemize}
+\end{keybox}
+
+\textbf{为什么现有方案不够：}
+\begin{itemize}
+  \item \hl{文献类工具}（Elicit、Consensus、Scite）只做检索综述，不碰实验与成稿。
+  \item \hl{通用 Coding Agent}（Devin 及通用 Codex/Claude 调用）能写代码，但不懂科研全流程、没有证据闸门，跑长任务会编造结果或"失忆"空转。
+  \item \hl{学术 AI Scientist 原型}能演示端到端，却停在玩具实验与经不起评审的 PDF。
+\end{itemize}
+
+\begin{quotebox}
+\textbf{真正的痛点不在"生成"，而在"长程执行的工程治理"：} 如何让一个会遗忘的智能体，在数百步、数亿 token 的任务里保持连贯、不造假、不空转，并产出可被同行接受的成果——这件事至今没人真正做成。
+\end{quotebox}
+
+%======================================================================
+% 3 解决方案
+%======================================================================
+\section{解决方案}\sq{Solution（含 Product）}
+
+Argus 的"灵光一刻"是一条反直觉的设计原则：
+
+\begin{keybox}
+\textbf{"管道（harness）没有 agent 自己聪明。"}\\[4pt]
+一切\textbf{科研判断}（idea 平不平庸？证据够不够？该投了吗？）交给 \textbf{Agent}；harness 只做\textbf{领域无关的脏活}（预算、调度、持久化、结构化 I/O、防造假护栏）。我们删掉每一处"用关键词二次猜 agent"的逻辑——因为只要 harness 开始替 agent 判断，它就成了能力天花板。\textbf{底层模型越强，Argus 上限自动越高。}
+\end{keybox}
+
+\subsection{产品架构：三层 Agent + 笨管道}
+
+\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\toprule
+\headrow \thd{层} & \thd{角色} & \thd{职责} \\
+\midrule
+\altrow L4 & Planner & backlog 空了排下一个任务；项目不达标时自动改派认证任务。 \\
+L1 & Engineer & 单轮执行：搜文献、写代码、跑实验、写 LaTeX；与 Reviewer 共享工作目录。 \\
+\altrow L2 & Reviewer & 对照阶段 checklist 给 \texttt{done}/\texttt{continue}/\texttt{blocked}。\textbf{是项目完成与否的唯一事实来源。} \\
+\bottomrule
+\end{tabularx}
+
+\subsection{8 阶段研究流水线 + 硬性证据闸门}
+
+\begin{center}
+\colorbox{argusteal}{\color{white}\sffamily\;research\;}$\rightarrow$
+\colorbox{argusteal}{\color{white}\sffamily\;plan\;}$\rightarrow$
+\colorbox{argusteal}{\color{white}\sffamily\;benchmark\;}$\rightarrow$
+\colorbox{argusteal}{\color{white}\sffamily\;run\;}$\rightarrow$
+\colorbox{argusteal}{\color{white}\sffamily\;analysis\;}$\rightarrow$
+\colorbox{argusteal}{\color{white}\sffamily\;draft\;}$\rightarrow$
+\colorbox{argusteal}{\color{white}\sffamily\;review\;}$\rightarrow$
+\colorbox{argusnavy}{\color{white}\sffamily\;submission\;}
+\end{center}
+
+每阶段产物由 Reviewer 对照 checklist 裁决。关键是\textbf{硬闸门}：全部方法/基线必须有完整打分行才能出论文；每个数字结论都要溯源到原始产物；每张图都要有真实生成的栅格图与哈希；引用要查真实性、拦占位作者与断链。这正是把竞品的"前 70\%"推到"可投稿"的关键。
+
+\subsection{独门壁垒：长程记忆 / 反遗忘上下文引擎}
+
+长任务的 session 会涨到数亿 token、被有损压缩上百次，每次都丢工作记忆，导致模型反复重读同一批资料\textbf{空转（amnesia loop）}。我们的解法不是"加看门狗"，而是让 \textbf{session 结构上短命 + 跨边界只交接"经筛选的有价值记忆"}：受控工作记忆检查点（有硬上限，遗忘=主动筛选）、Reviewer 充当记忆审计员（提议—验证分离）、结构化 session 滚动。\textbf{这套能力可迁移到一切"任务远超上下文窗口"的长程 agent 场景，是 Argus 从科研工具走向平台的底座。}
+
+%======================================================================
+% 4 为什么是现在
+%======================================================================
+\section{为什么是现在}\sq{Why Now}
+
+\textbf{"为什么这个方案直到现在才被造出来？"} 因为三个条件刚刚同时成熟：
+
+\begin{enumerate}
+  \item \hl{模型能力跨过门槛。} 前沿大模型（如 \texttt{gpt-5.4}）才刚刚具备可靠的代码、工具使用与长链推理能力——两年前的模型做不了端到端科研。
+  \item \hl{长程 agent 工程成熟。} daemon 化、预算治理、结构化 I/O、记忆引擎等"管道"技术今年才趋于稳定，使无人值守的 7×24 自主运行成为可能。
+  \item \hl{成本曲线反转。} prompt cache 等机制让重复跑批的边际成本骤降（实测 Engineer 缓存命中率约 95\%，token 成本下降约 74\%），第一次让"用算力换研究产出"在经济上成立。
+\end{enumerate}
+
+\begin{keybox}
+窗口期判断：当"模型够聪明"不再是瓶颈、"长程执行治理"成为新瓶颈的这一刻，正是构建 Argus 这类系统的最佳时点。\textbf{先把记忆引擎、诚信护栏、skill 飞轮做厚的人，会拿到难以复制的先发数据壁垒。}
+\end{keybox}
+
+%======================================================================
+% 5 市场潜力
+%======================================================================
+\section{市场潜力}\sq{Market Potential}
+
+\subsection{我们的客户}
+高研究密度、对"可审计 / 可复现"付费意愿强的组织：\hl{AI/算法实验室、量化基金、生物医药与材料研发、高校课题组}。
+
+\subsection{市场分层（TAM / SAM / SOM）}
+
+\begin{tabularx}{\textwidth}{@{}l >{\raggedright\arraybackslash}p{3.0cm} X@{}}
+\toprule
+\headrow \thd{层级} & \thd{规模（估算）} & \thd{口径} \\
+\midrule
+\altrow TAM & 数千亿美元 & 全球 R\&D 支出 > 2.5 万亿美元/年中，可被自主研究替代或增益的知识工作部分。 \\
+SAM & 数百亿美元 & 学术机构 + 企业研发实验室 + 量化/药企等高研究密度行业的研究人力与工具预算。 \\
+\altrow SOM（3年） & 数亿美元 & 率先采用 AI 自主研究的头部实验室、AI 公司、量化基金、研发型企业的早期付费市场。 \\
+\bottomrule
+\end{tabularx}
+
+{\footnotesize\color{argusgray}注：为基于公开行业口径的数量级估算，用于说明量级，非精确测算。}\par
+
+\begin{quotebox}
+正如红杉所说，\textbf{最好的公司常常"发明自己的市场"}。Argus 不只切入"科研外包"，更在定义一个新品类——\textbf{自主研究即服务（Autonomous Research-as-a-Service）}。
+\end{quotebox}
+
+%======================================================================
+% 6 竞争
+%======================================================================
+\section{竞争与替代方案}\sq{Competition / Alternatives}
+
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{3.2cm} c c c c@{}}
+\toprule
+\headrow \thd{方案} & \thd{文献} & \thd{真实实验} & \thd{论文成稿} & \thd{诚信/复现闸门} \\
+\midrule
+\altrow 人类 RA / 研究生 & \faCheck & \faCheck & \faCheck & 依赖个人 \\
+文献工具（Elicit 等） & \faCheck & \faTimes & \faTimes & \faTimes \\
+\altrow 通用 Coding Agent & 部分 & 部分 & \faTimes & \faTimes \\
+学术 AI Scientist 原型 & \faCheck & 玩具级 & 前 70\% & 弱 \\
+\rowcolor{arguslight}\textbf{Argus} & \faCheck & \textbf{\faCheck 全量} & \textbf{\faCheck 可投稿} & \textbf{\faCheck 硬闸门} \\
+\bottomrule
+\end{tabularx}
+
+\subsection{我们的取胜之道（Plan to Win）}
+\begin{itemize}
+  \item \hl{长程记忆引擎}：数十版本踩坑迭代出的反遗忘 know-how，调 prompt 复刻不了。
+  \item \hl{诚信护栏体系}：一整套防造假、强复现的硬闸门，需大量真实跑批失败案例反推。
+  \item \hl{Skill 飞轮}：每次失败都沉淀出可复用 skill / 闸门 / benchmark，越用越强的数据护城河。
+  \item \hl{架构哲学}：harness 不替 agent 判断，能力随底层模型升级自动抬升，不被写死规则封顶。
+\end{itemize}
+
+%======================================================================
+% 7 商业模式
+%======================================================================
+\section{商业模式}\sq{Business Model}
+
+把"研究产出"而非"软件席位"作为价值锚，多层组合变现：
+
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{3.4cm} X >{\raggedright\arraybackslash}p{3.3cm}@{}}
+\toprule
+\headrow \thd{模式} & \thd{说明} & \thd{定价锚（建议）} \\
+\midrule
+\altrow 按研究产出计费 & 每完成一篇通过认证的研究/论文计费 & US\$2,000–5,000/篇 \\
+团队订阅（SaaS） & 按"研究席位"包月，含一定额度自主运行 & US\$1,500–3,000/席位/月 \\
+\altrow 私有化部署 & 量化/药企/大厂本地部署 + 定制领域 skill & 年度许可 + 实施费 \\
+平台 / API & 长程 agent 记忆与编排能力对外开放 & 用量计费 \\
+\bottomrule
+\end{tabularx}
+
+\subsection{单位经济（Unit Economics）}
+
+以"一篇通过认证的研究/论文"为单位（数量级估算，随 benchmark 重度浮动）：
+
+\begin{tabularx}{\textwidth}{@{}X r@{}}
+\toprule
+\headrow \thd{项目} & \thd{单篇（US\$）} \\
+\midrule
+\altrow API 成本（三层 agent，含 95\% 缓存杠杆） & 150 – 400 \\
+真实实验 GPU 算力 & 50 – 300 \\
+\altrow \textbf{单篇边际成本（COGS）} & \textbf{\textasciitilde 200 – 700} \\
+建议售价（按产出） & \textbf{2,000 – 5,000} \\
+\altrow \textbf{毛利率} & \textbf{\textasciitilde 75\% – 90\%} \\
+\bottomrule
+\end{tabularx}
+
+\begin{keybox}
+\textbf{成本由真实数据支撑：}\texttt{gpt-5.4} 输入 US\$1.25/M、缓存输入 US\$0.125/M、输出 US\$10/M；Engineer prompt cache 实测命中约 95\%。系统内置单任务（默认 US\$30）/每日（默认 US\$180）预算硬上限，成本可观测可控。\textbf{对照人力的 US\$10k–50k/篇，Argus 是 10–100 倍成本结构优势}，且 LTV/CAC 随客户复购研究任务持续走高。
+\end{keybox}
+
+%======================================================================
+% 8 团队
+%======================================================================
+\section{团队}\sq{Team}
+
+\textbf{（请按实际填写——以下为红杉式"创始人故事"结构占位）}
+
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{3.4cm} X@{}}
+\toprule
+\headrow \thd{成员} & \thd{故事线（为何是做这件事的合适人选）} \\
+\midrule
+\altrow 创始人 / CEO & \_\_\_\_\_\_——研究方向、代表成果、对"自主科研"的独到判断。 \\
+技术负责人 / CTO & \_\_\_\_\_\_——长程 agent / 大模型系统工程背景。 \\
+\altrow 核心研究 \& 工程 & \_\_\_\_\_\_——已交付完整系统（153 测试、CI 全绿、65 内置 skill）即最强背书。 \\
+顾问 & \_\_\_\_\_\_——学术界（评审标准）+ 行业（量化/药企）顾问。 \\
+\bottomrule
+\end{tabularx}
+
+\begin{quotebox}
+\textbf{已被证明的执行力：} 团队已独立建成一个 CI 全绿、可 7×24 无人运行、具备稀缺长程记忆 know-how 的完整系统——这本身就是最有说服力的团队证明。
+\end{quotebox}
+
+%======================================================================
+% 9 财务
+%======================================================================
+\section{财务}\sq{Financials}
+
+\subsection{三年预测（目标值 / 情景）}
+
+\begin{tabularx}{\textwidth}{@{}X r r r@{}}
+\toprule
+\headrow \thd{指标（人民币）} & \thd{2026 (Y1)} & \thd{2027 (Y2)} & \thd{2028 (Y3)} \\
+\midrule
+\altrow 营收 & 300 万 & 2,500 万 & 1.2 亿 \\
+付费客户数 & 10 & 60 & 250+ \\
+\altrow 毛利率 & \textasciitilde 70\% & \textasciitilde 78\% & \textasciitilde 82\% \\
+团队规模 & 12 & 30 & 70 \\
+\altrow 现金状态 & 烧钱打磨 & 接近盈亏平衡 & 经营性现金流转正 \\
+\bottomrule
+\end{tabularx}
+
+{\footnotesize\color{argusgray}注：为基于当前产品成熟度与市场假设的目标值/情景预测，非承诺。}\par
+
+\subsection{本轮融资（The Ask）}
+
+\begin{keybox}
+天使 / 种子轮，拟融资 \hl{人民币 1,500 万元}（约 US\$2.1M），出让 \hl{15\%–18\%}，对应投前估值约人民币 7,000 万–8,500 万元，可支撑 \hl{18 个月} runway。
+\end{keybox}
+
+\begin{tabularx}{\textwidth}{@{}X r@{}}
+\toprule
+\headrow \thd{资金用途} & \thd{占比} \\
+\midrule
+\altrow 研发团队（研究 + 长程 agent 工程） & 45\% \\
+算力 / API（benchmark 跑批、模型推理） & 25\% \\
+\altrow 商业化与 BD（种子客户、行业落地） & 20\% \\
+合规、安全与运营 & 10\% \\
+\bottomrule
+\end{tabularx}
+
+\subsection{里程碑（融资后 18 个月）}
+\begin{tabularx}{\textwidth}{@{}l >{\raggedright\arraybackslash}p{2.8cm} X@{}}
+\toprule
+\headrow \thd{时点} & \thd{里程碑} & \thd{关键交付} \\
+\midrule
+\altrow M+3 & 灯塔论文 & 首篇 research→submission 端到端 Reviewer 认证论文 + 实时看板。 \\
+M+6 & 种子客户 & 10 家实验室/团队试用；mentor-in-the-loop 检查点。 \\
+\altrow M+12 & 商业化启动 & 多领域入口（NLP/CV/AI-infra）；首批付费；ARR 破人民币 300 万。 \\
+M+18 & A 轮就绪 & ARR run-rate 人民币 1,500 万；私有化样板客户；平台 API 内测。 \\
+\bottomrule
+\end{tabularx}
+
+%======================================================================
+% 10 愿景
+%======================================================================
+\section{愿景}\sq{Vision}
+
+\begin{quotebox}
+{\large 五年后，如果一切顺利——\\[4pt]
+\textbf{Argus 会成为研究本身的基础设施：} 任何实验室、企业、个人，都能像今天调用云计算一样，按需调用"自主研究"。提出一个问题，得到一份真实跑过、可审计、可复现、达到同行评审水准的研究成果。}
+\end{quotebox}
+
+\textbf{从科研到通用长程智能。} Argus 解决的"长程执行治理"——记忆、诚信、完成度判定——是一切自主 agent 的共性难题。沿着科研这个最严苛的试金石打磨出的引擎，将外溢到软件工程、量化研究、法律尽调、药物发现等所有"任务远超上下文窗口"的领域。
+
+\hl{我们要建的，不是一个写论文的工具，而是让"高水平脑力劳动"第一次变得可规模化、可按需供给的底层平台。}
+
+\vspace{1.2em}
+{\color{argusline}\rule{\textwidth}{1pt}}\\[0.4em]
+{\sffamily\color{argusgray}\small 本文件按 Sequoia Capital pitch deck 模板结构撰写，包含前瞻性陈述与基于公开口径的估算，仅供本轮融资评估之用，不构成投资承诺或要约。\hfill 机密 · Confidential}
+\end{document}
