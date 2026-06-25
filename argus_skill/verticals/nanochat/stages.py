@@ -231,9 +231,12 @@ def _read_attempt_record(adir: Path) -> tuple[float | None, str]:
 
     Returns ``(None, decision)`` when no usable score. The harness only
     RE-SURFACES the agent's own recorded number; it never measures the metric.
-    Two integrity rules, both deferring to the AGENT's own record:
+    Three integrity rules, all deferring to the AGENT's own record:
     * key-casing: accept ``mean_val_bpb`` OR ``MEAN_VAL_BPB`` (a casing drift
       must never silently drop recent attempts and freeze a stale floor);
+    * official fallback: an attempt scored only under ``official_val_bpb`` (a
+      later-era key for an officially-rescored candidate) still contributes its
+      number, so officially-scored rejects are not invisibly dropped;
     * validity: a record the agent flagged ``score_valid=False`` contributes NO
       score, so an explicitly-invalid run can never seed the "verified FLOOR".
     """
@@ -251,7 +254,7 @@ def _read_attempt_record(adir: Path) -> tuple[float | None, str]:
                 decision = str(obj.get("decision") or "").strip().lower()
                 if obj.get("score_valid") is False:
                     return None, decision  # agent flagged this run invalid
-                for key in ("mean_val_bpb", "MEAN_VAL_BPB"):
+                for key in ("mean_val_bpb", "MEAN_VAL_BPB", "official_val_bpb"):
                     n = _num(obj.get(key))
                     if n is not None:
                         return n, decision
@@ -300,20 +303,101 @@ def _read_attempt_strategy(adir: Path) -> str:
     return ""
 
 
+def _read_attempt_promoted(adir: Path) -> bool | None:
+    """The AGENT's structured ``promoted`` boolean from ``summary.json``.
+
+    ``True``/``False`` when the agent recorded it; ``None`` for legacy attempts
+    with no flag (the floor logic then falls back to an anchored decision check).
+    Reading the structured flag — instead of testing ``"promote" in decision`` —
+    is what stops a rejected candidate whose reject text merely *references* a
+    prior promote ("restored root to promoted A374") from re-anchoring the floor.
+    """
+    sj = adir / "summary.json"
+    if sj.exists():
+        try:
+            obj = json.loads(sj.read_text(encoding="utf-8"))
+            if isinstance(obj, dict) and isinstance(obj.get("promoted"), bool):
+                return obj["promoted"]
+        except Exception:  # noqa: BLE001 — fail-soft per attempt
+            pass
+    return None
+
+
+#: Tokens whose presence means a decision string is REFERENCING a promote in a
+#: negative/restore context, not declaring one (the live floor-anchor bug).
+_PROMOTE_NEG = re.compile(r"reject|restore|revert|regress|un[\s_-]*promot|no[t]?[\s_-]*promot")
+
+
+def _is_promote(promoted_flag: object, decision: str) -> bool:
+    """Did the agent PROMOTE this attempt to be the new floor?
+
+    Prefer the AGENT's structured ``promoted`` boolean; only when it is absent
+    (legacy attempts) fall back to an ANCHORED decision check that excludes
+    restore/reject context — never a bare ``"promote" in decision`` substring,
+    which the live nanochat-B200 mission proved re-anchors the floor onto a
+    rejected, *regressed* candidate ("...restored to promoted A374...").
+    """
+    if promoted_flag is True:
+        return True
+    if promoted_flag is False:
+        return False
+    d = (decision or "").strip().lower()
+    if not d or _PROMOTE_NEG.search(d):
+        return False
+    return d.startswith("promote") or bool(re.search(r"[\s_\-]promote", d))
+
+
+def _frozen_since(project_root: object, floor_index: int) -> int:
+    """Consecutive COMPLETED attempts since the floor's attempt last improved.
+
+    The saturation counter. Counts every recorded attempt with an ``aNNN`` index
+    after ``floor_index`` — INCLUDING candidate attempts that ran but produced no
+    official score (e.g. ``PROFILE_GATE_FAIL_NO_SCORE``): those are genuine frozen
+    steps, and excluding them lets the counter be *starved* (more gate-failures →
+    a LOWER freeze count, a perverse incentive that hid the live saturation).
+    Pure DIAGNOSIS attempts (no candidate; summary carries ``diagnosis_type``) do
+    NOT count, so a legitimately diagnosing agent is never force-jumped for
+    diagnosing. Fail-soft → 0.
+    """
+    try:
+        adir = Path(str(project_root)) / "attempts"
+        if not adir.is_dir():
+            return 0
+        n = 0
+        for d in sorted(adir.iterdir()):
+            if not d.is_dir() or _attempt_index(d.name) <= floor_index:
+                continue
+            sj = d / "summary.json"
+            if sj.exists():
+                try:
+                    obj = json.loads(sj.read_text(encoding="utf-8"))
+                except Exception:  # noqa: BLE001
+                    obj = {}
+                if isinstance(obj, dict) and obj.get("diagnosis_type"):
+                    continue  # pure diagnosis, not a frozen candidate step
+                n += 1
+            elif (d / "results.csv").exists():
+                n += 1
+        return n
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def _scored_attempts(
     project_root: object,
-) -> list[tuple[int, str, float, str, str]]:
-    """Shared read loop: ``(index, name, score, decision, strategy_type)`` for
-    every attempt dir with a usable score, sorted oldest→newest. Used by both
-    the rendered altitude block and the structured facts hook so the read logic
-    is defined once. Fail-soft: returns ``[]`` on any error / no attempts dir.
+) -> list[tuple[int, str, float, str, str, object]]:
+    """Shared read loop: ``(index, name, score, decision, strategy_type,
+    promoted)`` for every attempt dir with a usable score, sorted oldest→newest.
+    Used by both the rendered altitude block and the structured facts hook so the
+    read logic is defined once. ``promoted`` is the agent's structured flag
+    (``True``/``False``/``None``). Fail-soft: ``[]`` on any error / no attempts.
     """
     try:
         root = Path(str(project_root))
         adir = root / "attempts"
         if not adir.is_dir():
             return []
-        out: list[tuple[int, str, float, str, str]] = []
+        out: list[tuple[int, str, float, str, str, object]] = []
         for d in sorted(adir.iterdir()):
             if not d.is_dir():
                 continue
@@ -321,7 +405,14 @@ def _scored_attempts(
             if score is None:
                 continue
             out.append(
-                (_attempt_index(d.name), d.name, score, decision, _read_attempt_strategy(d))
+                (
+                    _attempt_index(d.name),
+                    d.name,
+                    score,
+                    decision,
+                    _read_attempt_strategy(d),
+                    _read_attempt_promoted(d),
+                )
             )
         out.sort(key=lambda t: (t[0], t[1]))
         return out
@@ -365,18 +456,24 @@ def search_altitude_context(project_root: object) -> str:
             return ""
         scores = [t[2] for t in attempts]
 
-        # FLOOR = the agent's OWN latest PROMOTED attempt (re-surface its
-        # judgment), NOT a raw min(): a rejected sub-noise dip must not be
-        # labelled the floor and contradict the agent's recorded floor. Fall
+        # FLOOR = the agent's OWN PROMOTED best (re-surface its judgment), NOT a
+        # raw min(): a rejected sub-noise dip must not be labelled the floor and
+        # contradict the agent's recorded floor. Anchor on the structured
+        # ``promoted`` flag (a rejected candidate whose reject text merely says
+        # "restored to promoted A374" is NOT a promote), and take the BEST such
+        # promote so a later regressed re-promote can never raise the floor. Fall
         # back to the best raw score only if the agent never recorded a promote.
-        promoted = [i for i, t in enumerate(attempts) if "promote" in t[3]]
+        promoted = [i for i, t in enumerate(attempts) if _is_promote(t[5], t[3])]
         if promoted:
-            floor_pos = promoted[-1]  # latest promoted (list is index-sorted)
+            floor_pos = min(promoted, key=lambda i: scores[i])
         else:
             floor_pos = min(range(len(scores)), key=lambda i: scores[i])
         floor = scores[floor_pos]
         floor_name = attempts[floor_pos][1]
-        since_improve = len(attempts) - 1 - floor_pos
+        # Frozen count over ALL recorded candidate attempts since the floor's
+        # index (incl. no-score gate-failures; excl. pure diagnosis), not just the
+        # scored sub-list — else gate-failures STARVE the saturation counter.
+        since_improve = _frozen_since(project_root, attempts[floor_pos][0])
 
         # Best RAW measured — may be a rejected sub-noise dip BELOW the floor;
         # surfaced separately so the block never looks like it is hiding a
@@ -448,17 +545,18 @@ def search_altitude_facts(project_root: object) -> dict:
     the rendered block shows, re-surfaced as data so the cross-vertical meta
     layer can detect saturation WITHOUT re-implementing this vertical's
     ``val_bpb`` parsing (the harness stays metric-blind). Floor anchoring is
-    identical to the rendered block: the agent's latest PROMOTED attempt, else
-    the best raw score. Fail-soft: ``{}`` on any error / no scored attempts.
+    identical to the rendered block: the agent's BEST structured-``promoted``
+    attempt, else the best raw score; ``since_improve`` counts candidate attempts
+    (incl. no-score) since the floor. Fail-soft: ``{}`` on any error.
     """
     try:
         attempts = _scored_attempts(project_root)
         if not attempts:
             return {}
         scores = [t[2] for t in attempts]
-        promoted = [i for i, t in enumerate(attempts) if "promote" in t[3]]
+        promoted = [i for i, t in enumerate(attempts) if _is_promote(t[5], t[3])]
         floor_pos = (
-            promoted[-1]
+            min(promoted, key=lambda i: scores[i])
             if promoted
             else min(range(len(scores)), key=lambda i: scores[i])
         )
@@ -466,7 +564,7 @@ def search_altitude_facts(project_root: object) -> dict:
         return {
             "floor": scores[floor_pos],
             "floor_name": attempts[floor_pos][1],
-            "since_improve": len(attempts) - 1 - floor_pos,
+            "since_improve": _frozen_since(project_root, attempts[floor_pos][0]),
             "raw_best": scores[raw_pos],
             "n_attempts": len(attempts),
             "attempts": [

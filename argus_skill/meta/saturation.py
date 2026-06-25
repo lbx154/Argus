@@ -130,17 +130,19 @@ def from_facts(facts: dict, config: MetaConfig | None = None) -> SaturationSigna
             axes.add(axis)
     diversity = len(axes)
 
-    # frozen_rounds is the UNAMBIGUOUS saturation fact. The diversity descriptor
-    # only REFINES it — and only when it is trustworthy, i.e. when the window
-    # carries the agent's OWN regime labels. With unlabelled (legacy) names the
-    # proxy over-counts (a fresh adjective per attempt reads as "diverse" even
-    # when the regime is identical), so we must NOT let it SUPPRESS a long
-    # freeze; we fall back to frozen-only. Once the agent records strategy_type,
-    # genuine regime diversity (diversity > floor, labelled) correctly holds the
-    # jump back — the agent is already exploring, forcing a jump would be wrong.
-    is_saturated = frozen >= cfg.jump_frozen_threshold and (
-        diversity <= cfg.diversity_floor or not labelled_any
-    )
+    # frozen_rounds is the GROUND-TRUTH saturation fact: the metric floor has not
+    # moved for this many candidate attempts (the vertical counts no-score gate
+    # failures too, so the count can't be starved). Once it reaches the jump
+    # threshold the agent's self-reported strategy_type labels can NO LONGER
+    # suppress the jump: a floor frozen across a full threshold span is saturated
+    # by the only ground truth we have (the metric), however diversely the agent
+    # labelled those attempts — if that diversity were productive, the floor would
+    # have moved. (Trusting the labels here let label-rotation on a value-frozen
+    # basin game the meta layer, the live nanochat-B200 failure.) The diversity
+    # descriptor is still surfaced and still gates the softer sub-threshold
+    # 'explore' nudge in the flow controller — it just no longer overrides a
+    # frozen floor.
+    is_saturated = frozen >= cfg.jump_frozen_threshold
 
     return SaturationSignal(
         frozen_rounds=frozen,

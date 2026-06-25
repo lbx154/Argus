@@ -2,9 +2,12 @@
 
 These pin the philosophy-critical contract:
 
-* DETECT  — saturation is a counter (frozen_rounds + diversity), with the
-  diversity descriptor only allowed to SUPPRESS a jump when the agent's OWN
-  regime labels make it trustworthy; an unlabelled long freeze still trips.
+* DETECT  — saturation is a counter (frozen_rounds over candidate attempts,
+  including no-score gate-failures so it can't be starved). Once the metric
+  floor is frozen past the jump threshold it is GROUND TRUTH: the agent's
+  strategy_type labels can no longer SUPPRESS the jump (a frozen floor, however
+  diversely labelled, is still frozen). Diversity is surfaced and gates only the
+  softer sub-threshold 'explore' nudge.
 * JUDGE   — ``parse_meta_decision`` validates the planner's structured output
   but never invents one; a jump that re-anchors on a forbidden/local regime is
   flagged invalid.
@@ -67,8 +70,15 @@ def test_frozen_and_low_diversity_is_saturated():
     assert "optimizer" in sig.untouched_axes
 
 
-def test_labelled_high_diversity_suppresses_jump():
-    # Frozen, but the agent IS genuinely cycling regimes → do NOT force a jump.
+def test_labelled_diversity_does_not_suppress_frozen_floor():
+    # GROUND-TRUTH GUARDRAIL: once the metric floor is frozen past the jump
+    # threshold, the agent's own strategy_type labels can NO LONGER suppress the
+    # jump. A floor that has not moved for >= threshold candidate attempts is
+    # saturated by the only ground truth we have (the metric), however diversely
+    # the agent labelled those attempts — if the labelled diversity were
+    # genuinely productive, the floor would have moved. This reverses the earlier
+    # label-trusting suppression that let label-rotation on a value-frozen basin
+    # game the meta layer (the live nanochat-B200 stall).
     axes = ["optimizer", "architecture", "data", "numerics", "update_mechanics"]
     attempts = [
         {"name": f"a{i:03d}_x", "score": 0.97, "strategy_type": axes[i % len(axes)]}
@@ -77,7 +87,7 @@ def test_labelled_high_diversity_suppresses_jump():
     sig = from_facts(_facts(attempts, since_improve=19, floor=0.965), MetaConfig())
     assert sig.window_labelled is True
     assert sig.diversity_score > MetaConfig().diversity_floor
-    assert sig.is_saturated is False  # already exploring — no forced jump
+    assert sig.is_saturated is True  # frozen floor (ground truth) overrides labels
 
 
 def test_unlabelled_long_freeze_still_saturates():
@@ -121,6 +131,69 @@ def test_decide_exploits_when_healthy(tmp_path):
     flow = decide(tmp_path, vmod, MetaConfig())
     assert flow.mode == "exploit"
     assert flow.prompt_block == ""
+
+
+def test_floor_anchor_ignores_reject_text_and_counts_no_score(tmp_path):
+    # Regression for the live nanochat-B200 stall (44 attempts frozen, no jump):
+    #   Bug1 — the floor must anchor on the structured `promoted` flag (a374),
+    #          NOT a rejected candidate whose decision text says "restored to
+    #          promoted a374" (the "promote" substring trap re-anchored to a382);
+    #   Bug2 — no-score gate-fail candidates must still count as frozen steps so
+    #          the counter is not starved (pure diagnosis attempts must NOT);
+    #   Bug3 — a frozen floor must saturate even though the recent window carries
+    #          diverse strategy_type labels.
+    A = tmp_path / "attempts"
+
+    def w(name, **kw):
+        d = A / name
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "summary.json").write_text(json.dumps(kw), encoding="utf-8")
+
+    axes = ["architecture", "update_mechanics", "numerics"]
+    # the real promoted floor
+    w("a374_floor", promoted=True, score_valid=True, MEAN_VAL_BPB=0.963634,
+      strategy_type="data", decision="promote_a374_new_global_best")
+    # rejected candidates whose decision text CONTAINS "promoted" (the substring trap)
+    for i, s in [(380, 0.972423), (381, 0.963827), (382, 0.967003)]:
+        w(f"a{i}_x", promoted=False, score_valid=True, MEAN_VAL_BPB=s, candidate_sha="d",
+          strategy_type="data",
+          decision="rejected; root train.py restored to promoted a374 because it regressed")
+    # scored rejects, none beating the floor, rotating regime labels
+    for k, i in enumerate(range(383, 400)):
+        w(f"a{i}_x", promoted=False, score_valid=True, MEAN_VAL_BPB=0.9637 + k * 1e-5,
+          strategy_type=axes[k % 3], decision="reject_restore_a374")
+    # officially-scored rejects under the official_val_bpb key (no mean_val_bpb)
+    for i, s in [(410, 0.964252), (411, 0.97307), (412, 0.963764)]:
+        w(f"a{i}_x", promoted=False, official_val_bpb=s, candidate_sha="d",
+          strategy_type="update_mechanics", decision="REJECT_RESTORE_A374")
+    # a pure DIAGNOSIS attempt — must NOT count toward the freeze
+    w("a415_diag", diagnosis_type="proxy_audit", strategy_type="architecture")
+    # no-score gate-fail candidates — these MUST count as frozen steps
+    for i in range(416, 421):
+        w(f"a{i}_x", promoted=False, official_val_bpb=None, candidate_sha="d",
+          official_scored=False, strategy_type=axes[i % 3],
+          decision="PROFILE_GATE_FAIL_NO_SCORE")
+
+    from argus_skill.verticals.nanochat.stages import search_altitude_facts
+
+    facts = search_altitude_facts(tmp_path)
+    assert facts["floor_name"].startswith("a374")          # not re-anchored to a382
+    assert abs(facts["floor"] - 0.963634) < 1e-9           # not 0.967003
+    # 3 (a380-382) + 17 (a383-399) + 3 (a410-412) + 5 (a416-420) = 28; a415 excluded
+    assert facts["since_improve"] == 28                     # no-score counts, diagnosis doesn't
+
+    vmod = load_vertical("nanochat")
+    flow = decide(tmp_path, vmod, MetaConfig())
+    assert flow.signal.is_saturated is True
+    assert flow.mode == "jump"
+    rec = record_decision(
+        tmp_path,
+        '```json\n{"mode":"jump","strategy_type":"optimizer",'
+        '"forbidden":["residual-temperature row-group tweaks"]}\n```',
+        flow, now=1.0,
+    )
+    assert rec.valid and rec.strategy_type == "optimizer"
+    assert ledger.consume_jump_pending(tmp_path) is True
 
 
 # --------------------------------------------------------------------------- #
