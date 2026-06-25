@@ -11,9 +11,6 @@ PAPER_INFRASTRUCTURE_REVIEW_GENERATED_BY = "argus_skill.skills.paper_infrastruct
 PAPER_INFRASTRUCTURE_REVIEW_HISTORY_PATH = Path("paper/PAPER_INFRASTRUCTURE_REVIEW_history.jsonl")
 LAYOUT_REVIEW_GENERATED_BY = "argus_skill.skills.paper_layout_review"
 LAYOUT_REVIEW_HISTORY_PATH = Path("paper/LAYOUT_REVIEW_history.jsonl")
-
-ALLOWED_REVIEW_ENDPOINTS = {"/responses", "/chat/completions"}
-MIN_RAW_REVIEW_TEXT_CHARS = 40
 REVIEW_INPUT_SHA256_FIELD = "review_input_sha256"
 REVIEW_PROMPT_SHA256_FIELD = "prompt_sha256"
 

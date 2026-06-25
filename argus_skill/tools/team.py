@@ -142,19 +142,6 @@ def _live_member_ids(root: Path) -> set[str]:
     }
 
 
-def _count_live_members(root: Path) -> int:
-    """Number of roster members whose teammate process is genuinely alive.
-
-    ``task_board.count_in_flight`` lags reality: a freshly spawned teammate
-    takes seconds to register its first heartbeat, and a teammate that dies
-    *without* cleanly failing its task leaves that task ``claimed``. Sizing the
-    pool on the board alone therefore lets the coordinator spawn a thundering
-    herd on top of teammates that are already running (observed: width 8 →
-    49 live processes). Counting verified live PIDs is process-accurate, so the
-    pool is sized by how many teammates are ACTUALLY running.
-    """
-    return len(_live_member_ids(root))
-
 
 def refill_once(root: Path, *, width: int, cwd: Path, member_prefix: str = "w",
                 ttl: float, now: float, exec_cmd: str = "", spawn_fn=None) -> dict:

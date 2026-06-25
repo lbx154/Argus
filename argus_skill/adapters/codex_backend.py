@@ -275,16 +275,6 @@ class CodexRunnerBackend:
         self._usage_lock = threading.Lock()
         self._thread_usage_totals: dict[str, tuple[int, int, int]] = {}
 
-    @property
-    def argus_runner(self):
-        """Expose the underlying ArgusBot ``CodexRunner`` instance.
-
-        Needed by ``MissionDaemon`` so it can hand the same runner to
-        ArgusBot's ``Reviewer`` / ``Planner`` / report fallback paths
-        without constructing a second codex subprocess wrapper.
-        """
-        return self._argus_runner
-
     # --- RunnerBackend.run_exec ------------------------------------------
 
     def run_exec(

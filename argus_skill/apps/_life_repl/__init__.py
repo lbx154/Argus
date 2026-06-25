@@ -15,7 +15,6 @@ from ._base import (
 )
 from ._core import (
     _CONFIG_DEFAULTS,
-    _CONFIG_TYPES,
     _TEST_DAEMON_PLANNER_SCRIPT_ENV,
     _add_only,
     _backend_cmd,
@@ -83,7 +82,6 @@ __all__ = [
     "_backend_cmd",
     "_continuous_session_error",
     "_CONFIG_DEFAULTS",
-    "_CONFIG_TYPES",
     "_config_cmd",
     "_identity_cmd",
     "_project_cmd",

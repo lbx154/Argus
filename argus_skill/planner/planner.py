@@ -1088,8 +1088,3 @@ def parse_planner_text(text: str) -> PlannerVerdict:
         raw_text=blob,
         cached_input_tokens=0,
     )
-
-
-# ---------------------------------------------------------------------------
-# Objective rendering for the next cycle
-# ---------------------------------------------------------------------------

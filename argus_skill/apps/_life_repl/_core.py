@@ -497,15 +497,6 @@ _CONFIG_DEFAULTS: dict[str, Any] = {
     "continuous": False,
 }
 
-_CONFIG_TYPES: dict[str, type] = {
-    "iterate": bool,
-    "cycles": int,
-    "budget": float,
-    "per_mission_cap": float,
-    "daily_cap": float,
-    "continuous": bool,
-}
-
 
 def _config_cmd(tokens: list[str], chat_state: dict[str, Any],
                 life_dir: Path | None = None) -> None:

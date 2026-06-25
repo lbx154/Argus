@@ -84,10 +84,6 @@ AVAILABLE_DOMAINS: dict[str, list[str]] = {}
 DOMAIN_DESCRIPTIONS: dict[str, str] = {}
 
 
-def list_domains() -> dict[str, str]:
-    """Return available domains with descriptions."""
-    return dict(DOMAIN_DESCRIPTIONS)
-
 
 def iter_domain_skill_texts(domain: str) -> Iterable[tuple[str, str]]:
     """Yield ``(relative_filename, markdown)`` for selected domain subdirectories."""

@@ -39,12 +39,6 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-def _env_float(name: str, default: float) -> float:
-    try:
-        return float(os.environ[name])
-    except (KeyError, ValueError):
-        return default
-
 
 @dataclass(frozen=True)
 class MetaConfig:

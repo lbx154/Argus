@@ -31,7 +31,6 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -259,12 +258,4 @@ def apply_action(
 # (see :meth:`SkillStore.save`) and ``archive_skill`` operates on a
 # single source path. A per-call internal lock is enough to keep
 # event ordering stable when the sink is shared across threads.
-_emit_lock = threading.Lock()  # reserved for future use
 
-
-def _stamp_lifecycle_event(event: dict[str, Any]) -> dict[str, Any]:
-    """Add a ``ts`` field if missing — useful for callers that
-    forward events to JSONL buses with delayed timestamps."""
-    event = dict(event)
-    event.setdefault("ts", time.time())
-    return event

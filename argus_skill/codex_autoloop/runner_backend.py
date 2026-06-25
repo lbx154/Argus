@@ -7,11 +7,6 @@ RunnerBackend = Literal["codex", "claude", "copilot"]
 BACKEND_CODEX: RunnerBackend = "codex"
 BACKEND_CLAUDE: RunnerBackend = "claude"
 BACKEND_COPILOT: RunnerBackend = "copilot"
-RUNNER_BACKEND_CHOICES: tuple[RunnerBackend, RunnerBackend, RunnerBackend] = (
-    BACKEND_CODEX,
-    BACKEND_CLAUDE,
-    BACKEND_COPILOT,
-)
 DEFAULT_RUNNER_BACKEND: RunnerBackend = BACKEND_CODEX
 
 
@@ -32,13 +27,3 @@ def default_runner_bin(backend: RunnerBackend) -> str:
     return "codex"
 
 
-def backend_label(backend: RunnerBackend) -> str:
-    if backend == BACKEND_CLAUDE:
-        return "Claude Code"
-    if backend == BACKEND_COPILOT:
-        return "GitHub Copilot CLI"
-    return "Codex CLI"
-
-
-def backend_supports_copilot_proxy(backend: RunnerBackend) -> bool:
-    return backend == BACKEND_CODEX

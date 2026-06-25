@@ -536,49 +536,6 @@ def load_model_api_grant(env: Mapping[str, str] | None = None) -> ModelApiGrant 
     return _grant_from_explicit_sources(source, vault_path)
 
 
-def discover_model_api_grant(env: Mapping[str, str] | None = None) -> ModelApiGrant | None:
-    """Discover a grant for vault initialization.
-
-    This is intentionally broader than runtime loading: it may import from
-    OPENAI_* env vars or Codex auth/config files so the operator only needs to
-    initialize the fixed vault once.
-    """
-    source = env if env is not None else os.environ
-    runtime = load_model_api_grant(source)
-    if runtime is not None and runtime.usable:
-        return runtime
-
-    vault_path = default_vault_path(source)
-    provider_cfg = read_codex_provider_config(source)
-    api_key = _env_text(source, "OPENAI_API_KEY") or read_auth_json_key(source)
-    base_url = (
-        _env_text(source, "OPENAI_BASE_URL")
-        or _env_text(source, _BASE_URL_ENV)
-        or (provider_cfg.base_url if provider_cfg is not None else "")
-    )
-    if not api_key and not base_url:
-        return None
-    return ModelApiGrant(
-        api_key=api_key,
-        base_url=base_url,
-        provider=provider_cfg.name if provider_cfg is not None else "codex",
-        wire_api=provider_cfg.wire_api if provider_cfg is not None else "responses",
-        text_models=_DEFAULT_TEXT_MODELS,
-        image_model=_DEFAULT_IMAGE_MODEL,
-        image_review_model=_DEFAULT_IMAGE_REVIEW_MODEL,
-        key_source="env:OPENAI_API_KEY" if _env_text(source, "OPENAI_API_KEY") else f"file:{default_auth_json_path(source)}",
-        base_url_source=(
-            "env:OPENAI_BASE_URL"
-            if _env_text(source, "OPENAI_BASE_URL")
-            else (
-                f"env:{_BASE_URL_ENV}"
-                if _env_text(source, _BASE_URL_ENV)
-                else f"file:{default_codex_config_path(source)}"
-            )
-        ),
-        vault_path=vault_path,
-    )
-
 
 def save_model_api_grant(grant: ModelApiGrant, path: Path | None = None) -> Path:
     target = path or grant.vault_path or default_vault_path()

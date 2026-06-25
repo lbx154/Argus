@@ -98,23 +98,6 @@ def _cosine(a: Counter, b: Counter) -> float:
     return num / (da * db)
 
 
-def _skill_text(skill: Any) -> str:
-    parts = [
-        getattr(skill, "name", ""),
-        getattr(skill, "description", ""),
-        getattr(skill, "category", ""),
-    ]
-    content = getattr(skill, "content", "") or ""
-    # Pull "When to use" body to bias clustering toward usage intent
-    # rather than title trivia.
-    m = re.search(
-        r"(?ims)^\s*#{1,6}\s+When to use\s*$(.*?)(?=^\s*#{1,6}\s+\S|\Z)",
-        content,
-    )
-    if m:
-        parts.append(m.group(1))
-    return " ".join(parts)
-
 
 def _section_body(content: str, heading: str) -> str:
     pattern = (

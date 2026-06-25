@@ -27,19 +27,6 @@ _AUTO_SIZE_VALUES = {"", "auto", "adaptive"}
 _SIZE_RE = re.compile(r"^(?P<width>[1-9]\d*)x(?P<height>[1-9]\d*)$")
 PAPER_FIGURE_PROMPT_TEMPLATE_ID = "argus-image2-paper-prompt-v1"
 PAPER_FIGURE_STUDIO_SOURCE_ID = "paper-framework-figure-studio-pro-v3.1.4a"
-PAPER_FIGURE_STUDIO_SOURCE_REPO = (
-    "https://github.com/c-narcissus/paper-framework-figure-studio-pro"
-)
-PAPER_FIGURE_STUDIO_WORKFLOW = (
-    "S0-PAPER-FOUNDATION",
-    "S1-FIGURE-STRATEGY",
-    "S2-SKETCH-EXPLORE",
-    "S3-DIRECTION-SELECT",
-    "S4-CANDIDATE-BRIEF",
-    "S5-CANDIDATE-IMAGE",
-    "S6-FINAL-SELECT",
-    "S7-FINAL-JOINT-AUDIT",
-)
 PAPER_FIGURE_STUDIO_DEFAULT_STAGE = "S5-CANDIDATE-IMAGE"
 
 

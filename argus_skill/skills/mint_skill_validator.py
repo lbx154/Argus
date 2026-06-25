@@ -51,7 +51,6 @@ from typing import Sequence
 
 MIN_FIXTURE_CASES = 3
 DEFAULT_TIMEOUT_SECONDS = 60
-SUPPORTED_TEXT_EXTS = (".txt", ".md", ".csv", ".tsv", ".log", ".out")
 SUPPORTED_JSON_EXTS = (".json",)
 
 

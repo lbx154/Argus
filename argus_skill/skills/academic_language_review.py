@@ -79,8 +79,6 @@ ALLOWED_DIRECTIVE_ACTIONS = {
     "rename_code_like_label",
 }
 
-MODEL_REVIEW_METHODS = {"llm_text_reviewer", "hybrid_llm_heuristic"}
-
 GENERIC_OPENING_PATTERNS: tuple[tuple[str, str], ...] = (
     (
         "generic_llm_success_opening",
@@ -917,56 +915,6 @@ def _review_prompt(
     )
 
 
-def _model_issues(model_review: dict[str, Any]) -> list[dict[str, Any]]:
-    issues: list[dict[str, Any]] = []
-    for field, severity in (("blocking_issues", "blocking"), ("major_issues", "major")):
-        raw_items = model_review.get(field)
-        if not isinstance(raw_items, list):
-            continue
-        for index, item in enumerate(raw_items):
-            if isinstance(item, dict):
-                text = str(item.get("issue") or item.get("description") or item.get("rationale") or "").strip()
-                action = _normalize_action(item.get("action")) or "calibrate_claim"
-                target = str(item.get("target") or "paper/main.tex")
-            else:
-                text = str(item).strip()
-                action = "calibrate_claim"
-                target = "paper/main.tex"
-            if text:
-                issues.append(
-                    _issue(
-                        f"model_{field}_{index}",
-                        severity,
-                        text,
-                        hard_gate=True,
-                        action=action,
-                        target=target,
-                    )
-                )
-    return issues
-
-
-def _canonical_directive(action: str, target: str, rationale: str) -> tuple[str, str]:
-    text = " ".join([action, target, rationale]).lower()
-    introduction_actions = {
-        "rewrite_introduction",
-        "tighten_contribution_sentence",
-        "calibrate_claim",
-    }
-    introduction_signals = (
-        "introduction",
-        "clear_problem_gap_contribution",
-        "problem/gap",
-        "problem, gap",
-        "literature gap",
-        "contribution framing",
-        "contribution_framing",
-        "quantified result preview",
-        "roadmap",
-    )
-    if action in introduction_actions and any(signal in text for signal in introduction_signals):
-        return "rewrite_introduction", "Introduction"
-    return action, target
 
 
 def _issue(
@@ -1047,53 +995,7 @@ def _normalize_action(value: object) -> str | None:
     return normalized if normalized in ALLOWED_DIRECTIVE_ACTIONS else None
 
 
-def _expected_effect(action: str) -> str:
-    effects = {
-        "rewrite_abstract": "write a natural reader-facing abstract with problem, gap, method, result, and implication",
-        "rewrite_introduction": "replace generic setup with problem-specific motivation",
-        "tighten_contribution_sentence": (
-            "make the positive contribution, scoped comparator, and measured effect explicit; "
-            "name a mechanism only when isolated by evidence"
-        ),
-        "calibrate_claim": "align claims with measured evidence and uncertainty",
-        "add_evidence_sentence": "tie the headline claim to a concrete result artifact",
-        "reorganize_related_work": "group prior work by method and gap rather than chronology",
-        "replace_hype_language": "remove salesy or unsupported superlative prose",
-        "delete_filler": "remove low-information prose that weakens the paper",
-        "clarify_method_mechanism": (
-            "explain the evaluated system/runtime or harness, applicable model "
-            "identifiers, design lever, and measured comparison without implying "
-            "unisolated causality"
-        ),
-        "rewrite_caption_takeaway": "make figure/table captions carry the main result",
-        "add_limitation_scope": "state scope limits without undermining the supported claim",
-        "rename_code_like_label": "use reviewable human-readable labels instead of raw identifiers",
-    }
-    return effects.get(action, "improve academic language quality")
 
-
-def _section_action(key: str) -> str:
-    return {
-        "abstract": "rewrite_abstract",
-        "introduction": "rewrite_introduction",
-        "contribution_framing": "tighten_contribution_sentence",
-        "evidence_alignment": "add_evidence_sentence",
-        "related_work_positioning": "reorganize_related_work",
-        "method_system_clarity": "clarify_method_mechanism",
-        "style_and_clarity": "delete_filler",
-    }.get(key, "calibrate_claim")
-
-
-def _check_action(key: str) -> str:
-    return {
-        "clear_problem_gap_contribution": "tighten_contribution_sentence",
-        "evidence_aligned_claims": "add_evidence_sentence",
-        "five_sentence_abstract_or_equivalent": "rewrite_abstract",
-        "related_work_methodological": "reorganize_related_work",
-        "method_system_readable": "clarify_method_mechanism",
-        "calibrated_no_hype": "replace_hype_language",
-        "limitations_scope_present": "add_limitation_scope",
-    }.get(key, "calibrate_claim")
 
 
 def _missing_section_action(key: str) -> str:
@@ -1271,15 +1173,6 @@ def _sentence_count(text: str) -> int:
 def _word_count(text: str) -> int:
     return len(re.findall(r"[A-Za-z][A-Za-z0-9'/-]*", text))
 
-
-def find_reader_hostile_abstract_issues(tex_text: str) -> list[tuple[str, str]]:
-    """Return abstract-quality issues that remain invalid even if review JSON says PASS."""
-
-    abstract = _extract_environment(tex_text, "abstract")
-    return [
-        (code, message)
-        for code, message, _penalty, _cap in _abstract_quality_issue_specs(abstract)
-    ]
 
 
 def find_introduction_readability_issues(tex_text: str) -> list[tuple[str, str]]:

@@ -43,15 +43,6 @@ class SaturationSignal:
     floor: float = 0.0  # the vertical's promoted floor (a number, not parsed here)
     is_saturated: bool = False
 
-    def as_log_fields(self) -> dict[str, object]:
-        return {
-            "frozen_rounds": self.frozen_rounds,
-            "diversity_score": self.diversity_score,
-            "untouched_axes": list(self.untouched_axes),
-            "n_attempts": self.n_attempts,
-            "is_saturated": self.is_saturated,
-        }
-
 
 _TOKEN_SPLIT = re.compile(r"[_\-]+")
 

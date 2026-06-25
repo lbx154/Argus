@@ -12,8 +12,6 @@ from typing import Any
 
 from . import _store
 
-STATES = ("pending", "claimed", "running", "done", "failed")
-
 
 def _tasks_dir(root: Path) -> Path:
     return Path(root) / "tasks"

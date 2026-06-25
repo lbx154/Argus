@@ -108,9 +108,6 @@ class Theme:
     def yellow(self, text: str) -> str:
         return self._wrap(text, _YELLOW)
 
-    def blue(self, text: str) -> str:
-        return self._wrap(text, _BLUE)
-
     def magenta(self, text: str) -> str:
         return self._wrap(text, _MAGENTA)
 

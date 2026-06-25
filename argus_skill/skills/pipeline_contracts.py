@@ -29,10 +29,7 @@ from .pipeline_policy import (
 
 ARTIFACT_MANIFEST_PATH = Path("paper/ARTIFACT_MANIFEST.json")
 LITERATURE_GROUNDING_JSON_PATH = Path("research/LITERATURE_GROUNDING.json")
-IDEA_PROVENANCE_JSON_PATH = Path("research/IDEA_PROVENANCE.json")
 CODE_REUSE_PLAN_JSON_PATH = Path("research/CODE_REUSE_PLAN.json")
-STYLE_EXEMPLAR_JSON_PATH = Path("paper/style_ref/EXEMPLAR.json")
-STYLE_PROFILE_PATH = Path("paper/style_ref/STYLE_PROFILE.md")
 STYLE_STRUCTURE_BLUEPRINT_PATH = Path("paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md")
 IMAGE2_FIGURES_JSON_PATH = Path("paper/figures/IMAGE2_FIGURES.json")
 LAYOUT_REVIEW_JSON_PATH = Path("paper/LAYOUT_REVIEW.json")
@@ -42,7 +39,6 @@ CLAIM_GRAPH_JSON_PATH = Path("paper/CLAIM_GRAPH.json")
 FIGURE_TABLE_STYLE_GUIDE_JSON_PATH = Path("paper/FIGURE_TABLE_STYLE_GUIDE.json")
 VALIDATION_PRIORITY_POLICY_JSON_PATH = Path("paper/VALIDATION_PRIORITY_POLICY.json")
 ARTIFACT_FRESHNESS_JSON_PATH = Path("paper/ARTIFACT_FRESHNESS.json")
-CLAIMS_EVIDENCE_AUDIT_JSON_PATH = Path("paper/CLAIMS_EVIDENCE_AUDIT.json")
 RESULT_TO_CLAIM_TSV_PATH = Path("paper/artifacts/result_to_claim.tsv")
 RESULTS_TABLE_TSV_PATH = Path("paper/artifacts/results_table.tsv")
 PAPER_MAIN_TEX_PATH = Path("paper/main.tex")
@@ -50,7 +46,6 @@ PAPER_MAIN_PDF_PATH = Path("paper/main.pdf")
 
 # EMNLP/ACL page limits apply to the main body only. References and appendix
 # pages are intentionally uncapped, but must not start before page 9.
-RENDERED_HEADING_LINE_NUMBER_PREFIX = r"(?:\d{1,5}\s+)?"
 
 
 FRESHNESS_ALWAYS_REQUIRED_PATHS: tuple[Path, ...] = (
@@ -223,22 +218,6 @@ DEFAULT_VALIDATION_REPAIR_MODES: dict[str, str] = {
 }
 
 
-LITERATURE_ARTIFACT_PATTERNS: tuple[str, ...] = (
-    "research/LITERATURE_REVIEW.md",
-    "research/LIT_MATRIX.tsv",
-    str(LITERATURE_GROUNDING_JSON_PATH),
-    "research/SOURCE_DISCOVERY.md",
-    "research/TREND_INSIGHTS.md",
-)
-
-
-PLAN_ARTIFACT_PATTERNS: tuple[str, ...] = (
-    "research/EXPERIMENT_PLAN.md",
-    "research/CLAIMS_TO_TEST.md",
-    "research/BASELINE_AND_BENCHMARK_PLAN.md",
-    str(CODE_REUSE_PLAN_JSON_PATH),
-    "experiments/BENCHMARK_PROVENANCE.md",
-)
 
 
 @dataclass(frozen=True)

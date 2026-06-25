@@ -133,10 +133,6 @@ def ensure_research_api_environment(env: MutableMapping[str, str] | None = None)
         target["ARGUS_SKILL_IMAGE_REVIEW_MODEL"] = image_review.model
 
 
-def _credential_source(env: Mapping[str, str]) -> str:
-    grant = load_model_api_grant(env)
-    return grant.key_source if grant is not None else "missing"
-
 
 def _capability_context(env: Mapping[str, str]) -> str:
     grant = load_model_api_grant(env)

@@ -305,9 +305,6 @@ def main(argv: list[str] | None = None) -> int:
 # 7×24 daemon dispatchers
 # ---------------------------------------------------------------------------
 
-def _resolve_life_dir(args: argparse.Namespace) -> Path:
-    return resolve_life_root(args.life_dir)
-
 
 def _build_worker_config(args: argparse.Namespace):
     from ...daemon.life_worker import LifeWorkerConfig

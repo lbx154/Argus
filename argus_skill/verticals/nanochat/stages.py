@@ -279,10 +279,6 @@ def _read_attempt_record(adir: Path) -> tuple[float | None, str]:
     return None, decision
 
 
-def _read_attempt_mean_bpb(adir: Path) -> float | None:
-    """Backward-compatible thin wrapper: the score only."""
-    return _read_attempt_record(adir)[0]
-
 
 def _read_attempt_strategy(adir: Path) -> str:
     """Agent-recorded ``strategy_type`` label from ``summary.json`` (or '').

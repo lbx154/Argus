@@ -22,7 +22,6 @@ PENDING = META / "pending"
 JOURNAL = META / "journal.jsonl"
 SP_DIR = Path(os.environ.get("ARGUS_SKILL_SPECIAL_PROMPTS_DIR",
                              Path.home() / ".argus-skill" / "special_prompts"))
-SEAL = Path.home() / ".argus-seal"
 FRAMEWORK_SRC = re.compile(r"\b(reviewer|stages|runner|planner|loop|models|life_worker)\.py\b|argus_skill/")
 WEAKEN = re.compile(r"\b(remove|delete|disable|lower|reduce|skip|weaken|bypass|loosen|relax|ignore|turn off|raise the threshold|stall_threshold|forward_progress\s*=|quarantine)\b", re.I)
 FROZEN = re.compile(r"\b(eval_solution|analyze_sweep|seal_check|verifier|val[_ ]?loss|t-test|the gate|metric definition)\b", re.I)

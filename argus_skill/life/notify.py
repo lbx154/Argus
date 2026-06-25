@@ -430,12 +430,6 @@ def _post_telegram(payload: dict[str, Any]) -> None:
 # Telegram live-streaming reporter
 # ---------------------------------------------------------------------------
 
-_PROGRESS_KIND_EMOJI: dict[str, str] = {
-    "agent_message": "💭",
-    "command_execution": "🔧",
-    "reasoning": "🧠",
-}
-
 
 def _parse_command(raw: str) -> str:
     """Turn a raw shell command into a short, readable description."""
@@ -717,10 +711,6 @@ def _annotate_progress_result(line: str, ev: dict[str, Any]) -> str:
     return line
 
 
-def _event_round(event: dict[str, Any]) -> str:
-    value = event.get("round_index", event.get("round", "?"))
-    return str(value if value not in (None, "") else "?")
-
 
 def _event_int(event: dict[str, Any], *keys: str) -> int | None:
     for key in keys:
@@ -770,23 +760,6 @@ def _l2_icon(status: str) -> str:
         return "⛔"
     return "👨‍🏫"
 
-
-def _format_review_verdict(event: dict[str, Any]) -> str:
-    status = str(event.get("status") or "?")
-    parts = [
-        f"{_l2_icon(status)} L2 审查员 · verdict={status}",
-        f"engineer round {_event_round(event)}",
-    ]
-    confidence = _format_confidence(event.get("confidence"))
-    if confidence:
-        parts.append(f"conf={confidence}")
-    reason = str(event.get("reason") or "").strip()
-    if reason:
-        parts.append(f"reason={_truncate_display(reason, 120)}")
-    next_action = str(event.get("next_action") or "").strip()
-    if next_action:
-        parts.append(f"next={_truncate_display(next_action, 120)}")
-    return " · ".join(parts)
 
 
 def _format_critic_verdict(event: dict[str, Any]) -> str:
