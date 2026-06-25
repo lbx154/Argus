@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Argus · 项目导览(给新成员)</title>
+<style>
+  :root {
+    --bg:#0a0d14; --bg2:#0f1320; --panel:#121826; --panel2:#0d1220;
+    --bd:#222b3d; --bd2:#2c3852;
+    --tx:#c4cde0; --tx2:#8b95ac; --hd:#eaf0fb;
+    --ac:#5ad1c8; --ac2:#7c9cff; --req:#7ee0a0; --warn:#f0b35e; --warnbg:#221a0e;
+    --code:#9fe0ff; --codebg:#0c1422;
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body {
+    margin:0; background:var(--bg); color:var(--tx);
+    font:15px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  code { font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace; font-size:.86em;
+    background:var(--codebg); color:var(--code); padding:1px 5px; border-radius:4px; border:1px solid #16243a; }
+  a { color:var(--ac2); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+
+  .layout { display:flex; align-items:flex-start; max-width:1280px; margin:0 auto; }
+  /* ---- sidebar TOC ---- */
+  nav.toc {
+    position:sticky; top:0; align-self:flex-start; width:280px; flex:0 0 280px;
+    height:100vh; overflow-y:auto; padding:22px 14px 40px 22px;
+    border-right:1px solid var(--bd); background:linear-gradient(180deg,#0b0f1a,#0a0d14);
+  }
+  nav.toc .brand { font-weight:700; color:var(--hd); font-size:17px; letter-spacing:.5px; margin-bottom:2px; }
+  nav.toc .brand b { color:var(--ac); }
+  nav.toc .sub { color:var(--tx2); font-size:12px; margin-bottom:16px; }
+  nav.toc ul { list-style:none; margin:0; padding:0; }
+  nav.toc li { margin:0; }
+  nav.toc li.toc-group { color:var(--ac); font-size:11.5px; font-weight:700; letter-spacing:1px;
+    margin:16px 0 5px; text-transform:uppercase; opacity:.85; }
+  nav.toc a { display:block; color:var(--tx2); font-size:13px; padding:5px 10px; border-radius:6px;
+    border-left:2px solid transparent; }
+  nav.toc a:hover { color:var(--tx); background:#121a2b; text-decoration:none; }
+  nav.toc a.active { color:var(--hd); background:#13203a; border-left-color:var(--ac); }
+  nav.toc .dot { color:var(--req); font-size:8px; vertical-align:middle; }
+
+  /* ---- main ---- */
+  main { flex:1 1 auto; min-width:0; padding:0 38px 80px; }
+
+  /* ---- hero ---- */
+  header.hero { padding:44px 0 10px; }
+  .hero h1 { font-size:34px; line-height:1.25; margin:0 0 8px; color:var(--hd); letter-spacing:.5px; }
+  .hero h1 b { color:var(--ac); }
+  .hero .tag { color:var(--tx); font-size:16px; max-width:760px; margin:0 0 18px; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0; }
+  .res .chip { background:#10283a; border-color:#1d4a5e; color:#bfeaf0; }
+  .chip { display:inline-block; background:#15203a; border:1px solid var(--bd2); color:#bcc8e6;
+    padding:3px 11px; border-radius:999px; font-size:12.5px; white-space:nowrap; }
+  .compare { display:flex; gap:14px; flex-wrap:wrap; margin:16px 0 0; }
+  .compare .cc { flex:1 1 320px; background:var(--panel); border:1px solid var(--bd); border-radius:10px; padding:14px 16px; }
+  .compare .cc .k { color:var(--ac2); font-weight:700; font-size:13px; margin-bottom:4px; }
+  .compare .cc .v { color:var(--tx); font-size:13.5px; }
+
+  .honesty { margin:22px 0 6px; padding:13px 16px; border-radius:10px;
+    background:linear-gradient(90deg,#0e1b16,#0d1320); border:1px solid #1c3a2c; }
+  .honesty b { color:var(--req); }
+  .honesty .t { color:var(--tx); font-size:13.5px; }
+
+  /* ---- honest snapshot ---- */
+  .snap { margin:18px 0 6px; border:1px solid var(--bd); border-radius:12px; overflow:hidden; }
+  .snap .sh { background:#161019; border-bottom:1px solid #3a2620; padding:10px 16px; color:var(--warn); font-weight:700; font-size:14px; }
+  .snap table { width:100%; border-collapse:collapse; }
+  .snap td { padding:9px 16px; border-bottom:1px solid #161c2a; font-size:13.5px; vertical-align:top; }
+  .snap tr:last-child td { border-bottom:none; }
+  .snap .task { color:var(--hd); font-weight:600; width:230px; }
+  .snap .verdict { color:var(--warn); font-weight:600; }
+  .snap .foot { padding:10px 16px; background:#0c1118; color:var(--tx2); font-size:12.5px; }
+
+  /* ---- philosophy band ---- */
+  .philo { margin:30px 0 8px; padding:22px; border-radius:14px;
+    background:radial-gradient(120% 140% at 0% 0%,#10202c,#0c111c); border:1px solid #1d3340; }
+  .philo h2 { margin:0 0 4px; font-size:22px; color:var(--hd); }
+  .philo h2 b { color:var(--ac); }
+  .philo .lead { color:var(--tx2); font-size:13.5px; margin-bottom:16px; }
+  .philo .split { display:flex; gap:16px; flex-wrap:wrap; }
+  .philo .col { flex:1 1 300px; background:var(--panel2); border:1px solid var(--bd); border-radius:10px; padding:14px 16px; }
+  .philo .col.agent { border-color:#2a3a66; }
+  .philo .col.harn { border-color:#1d4a5e; }
+  .philo .col h5 { margin:0 0 8px; font-size:13px; letter-spacing:.5px; }
+  .philo .col.agent h5 { color:var(--ac2); }
+  .philo .col.harn h5 { color:var(--ac); }
+  .philo .col ul { margin:0; padding-left:18px; font-size:13.5px; color:var(--tx); }
+  .philo .infer { margin-top:14px; color:var(--tx2); font-size:13px; border-top:1px dashed var(--bd2); padding-top:10px; }
+  .philo .infer b { color:var(--tx); }
+
+  /* ---- section band ---- */
+  .band { display:flex; align-items:baseline; gap:12px; margin:46px 0 4px; padding-bottom:8px; border-bottom:1px solid var(--bd); }
+  .band .bn { color:var(--ac); font-weight:800; font-size:14px; letter-spacing:2px; }
+  .band h2 { margin:0; font-size:21px; color:var(--hd); }
+
+  /* ---- topic card ---- */
+  section.topic { background:var(--panel); border:1px solid var(--bd); border-radius:14px;
+    padding:22px 24px; margin:18px 0; scroll-margin-top:14px; }
+  .topic-head { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .topic h3 { margin:0; font-size:18.5px; color:var(--hd); }
+  .badge { font-size:11px; font-weight:700; padding:2px 9px; border-radius:999px; }
+  .badge.req { background:#10261a; color:var(--req); border:1px solid #265a3c; }
+  .oneliner { color:var(--tx); font-size:14.5px; margin:10px 0 4px; padding-left:12px; border-left:3px solid var(--ac); }
+  .topic h4 { color:var(--ac2); font-size:13px; letter-spacing:.5px; margin:18px 0 6px; text-transform:uppercase; }
+  ul.how { margin:0; padding-left:20px; }
+  ul.how li { margin:7px 0; }
+
+  .grid2 { display:flex; gap:18px; flex-wrap:wrap; margin-top:16px; }
+  .grid2 .files { flex:1 1 480px; min-width:0; }
+  .grid2 .side { flex:1 1 320px; min-width:0; display:flex; flex-direction:column; gap:14px; }
+  .lbl { color:var(--tx2); font-size:11.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; margin-bottom:7px; }
+  .files table { width:100%; border-collapse:collapse; }
+  .files td { padding:6px 8px; border-bottom:1px solid #161c2a; font-size:12.8px; vertical-align:top; }
+  .files td.fp { width:42%; white-space:normal; word-break:break-all; }
+  .files code { background:var(--codebg); }
+  .nums { background:var(--panel2); border:1px solid var(--bd); border-radius:10px; padding:12px 14px; }
+  .nums ul { margin:0; padding-left:18px; font-size:12.8px; }
+  .nums li { margin:5px 0; }
+  .matters { background:#0d1626; border:1px solid #1c2c47; border-radius:10px; padding:12px 14px; }
+  .matters p { margin:0; font-size:13.3px; color:var(--tx); }
+
+  .caveats { margin-top:16px; background:var(--warnbg); border:1px solid #4a3a1e; border-left:4px solid var(--warn); border-radius:8px; padding:11px 16px; }
+  .caveats .lbl { color:var(--warn); }
+  .caveats ul { margin:0; padding-left:18px; font-size:13px; color:#e7d8bf; }
+  .caveats li { margin:6px 0; }
+
+  .top-link { display:inline-block; margin-top:14px; font-size:12px; color:var(--tx2); }
+
+  footer { color:var(--tx2); font-size:12.5px; text-align:center; padding:40px 0 10px; border-top:1px solid var(--bd); margin-top:40px; }
+
+  @media (max-width:900px) {
+    nav.toc { display:none; }
+    main { padding:0 18px 60px; }
+    .layout { display:block; }
+  }
+</style>
+</head>
+<body>
+<a id="top"></a>
+<div class="layout">
+  <nav class="toc">
+    <div class="brand"><b>Argus</b> 项目导览</div>
+    <div class="sub">给新加入的同事 · 7×24 全自动 AI 科研 Agent</div>
+    <ul>
+      <li><a href="#hero">封面 · 资源 & 对标</a></li>
+      <li><a href="#philosophy">核心哲学</a></li>
+      <li class="toc-group">I · 系统总览</li>
+<li><a href="#arch-roles">三层架构 + 哲学</a></li>
+<li><a href="#reviewer-truth">Reviewer = 唯一事实来源</a></li>
+<li class="toc-group">II · 记忆与上下文</li>
+<li><a href="#memory-map">记忆地图(四块) <span class="dot">●</span></a></li>
+<li><a href="#compaction-handoff">Compaction &amp; 交接 <span class="dot">●</span></a></li>
+<li class="toc-group">III · 自进化与破局</li>
+<li><a href="#self-evolution">自进化机制 <span class="dot">●</span></a></li>
+<li><a href="#meta-regime-jump">Meta 破局层</a></li>
+<li class="toc-group">IV · 领域无关的笨管道</li>
+<li><a href="#harness-pipes">笨管道(预算/调度/IO)</a></li>
+<li><a href="#codex-backend">Codex 后端(gpt-5.5)</a></li>
+<li class="toc-group">V · 诚信护栏</li>
+<li><a href="#anticheat-integrity">反作弊护栏</a></li>
+<li><a href="#research-factory-gates">质量三门 F3/F4/F5</a></li>
+<li class="toc-group">VI · 任务与对标</li>
+<li><a href="#verticals-missions">Verticals &amp; 任务</a></li>
+<li><a href="#baseline-comparison">对标 Recursive / FARS</a></li>
+      <li class="toc-group">附</li>
+      <li><a href="#colophon">关于本页</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <header class="hero" id="hero">
+      <h1><b>Argus</b> — 完全独立于人、7×24 自己做科研的 Research Agent</h1>
+      <p class="tag">主线:在<strong>真实公开 benchmark</strong> 上复现并诚实对标 Recursive《First Steps Toward Automated AI Research》的每个 task。后端是 codex / gpt-5.5,三个 agent(engineer / reviewer / planner)做全部科研判断,harness 只做笨管道。</p>
+      <div class="chips res">
+        <span class="chip">8×B200</span>
+        <span class="chip">8×H100</span>
+        <span class="chip">API 无限</span>
+        <span class="chip">月烧 $2–3 万</span>
+        <span class="chip">后端 gpt-5.5</span>
+        <span class="chip">reasoning effort 可调(xhigh)</span>
+        <span class="chip">单任务预算上限 $30 / 日 $180</span>
+      </div>
+      <div class="compare">
+        <div class="cc"><div class="k">对标 ① Recursive AI(田渊栋)</div><div class="v">《First Steps Toward Automated AI Research》——把它公开的三个硬指标 task(nanochat val_bpb / nanoGPT speedrun 墙钟 / KernelBench kernel 加速)在<strong>同一块 B200 / H100、同一套 harness</strong> 上复现并力争打败基线。</div></div>
+        <div class="cc"><div class="k">对标 ② FARS(孙天祥)</div><div class="v">同方向的自动科研 agent,作为竞品 / 定位参照。<em>注:目前仅是定位对标,代码里尚无对 FARS 的 benchmark 复现。</em></div></div>
+      </div>
+      <div class="honesty">
+        <div class="t"><b>这页怎么读 · 诚实声明:</b>每节内容都来自对 <code>argus-skill</code> 源码的深读,关键文件给了<strong>真实路径</strong>;凡是骨架 / 未接线 / 文档与代码不一致 / 未验证之处,都老实进了各节的「⚠ 现状 / 局限」框。<b>不报喜报早</b>是这个项目的头号纪律。</div>
+      </div>
+
+      <div class="snap">
+        <div class="sh">战报快照(诚实现状 · 非包装过的 win)</div>
+        <table>
+          <tr><td class="task">nanochat / val_bpb<br><span style="color:var(--tx2);font-weight:400">Recursive Task 1 · B200 · 300s</span></td>
+              <td>live best ≈ <code>0.9642</code>(a361,约 373 个 attempt 后) · 要破的杆 <code>0.9344</code> · Recursive 最佳 <code>0.9109</code>(起点 vanilla <code>1.0587</code>)</td>
+              <td class="verdict">尚未达标</td></tr>
+          <tr><td class="task">nanoGPT speedrun<br><span style="color:var(--tx2);font-weight:400">Recursive Task 2 · 8×H100</span></td>
+              <td>目标 FineWeb val_loss ≤ 3.28 的墙钟;锚点 from_unopt ≈ <code>186.5s</code> / Recursive best ≈ <code>77.3s</code></td>
+              <td class="verdict">无可信终值</td></tr>
+          <tr><td class="task">KernelBench kernel<br><span style="color:var(--tx2);font-weight:400">Recursive Task 3 · B200</span></td>
+              <td>公开 KernelBench Level-1 子集、vs PyTorch-eager 加速比;RESULTS 仍是占位符模板</td>
+              <td class="verdict">无可信终值</td></tr>
+        </table>
+        <div class="foot">结论:<strong>还没赢。</strong> 这是当前诚实状态,不是包装过的胜利;真实分数都在各 mission 项目目录(不随 repo 提交),本页数字读自 vertical 锚点常量与 mission 报告。</div>
+      </div>
+    </header>
+
+    <div class="philo" id="philosophy">
+      <h2>核心哲学:<b>harness 没有 agent 聪明</b></h2>
+      <div class="lead">系统被严格切成两类东西。任何"用关键词 / 正则 / 预先算好的分析去替 agent 二次判断"的诱惑,都删掉。</div>
+      <div class="split">
+        <div class="col agent">
+          <h5>▶ 归 AGENT(科研判断)</h5>
+          <ul>
+            <li>idea 平不平庸</li>
+            <li>项目做完没</li>
+            <li>基线够不够强</li>
+            <li>为什么慢 / 瓶颈在哪 / 怎么修</li>
+            <li>失败是不是可修的 skill_gap</li>
+          </ul>
+          <div style="margin-top:8px;color:var(--tx2);font-size:12.5px">→ L1 engineer 干活 · L2 reviewer 验收 · L4 planner 排活</div>
+        </div>
+        <div class="col harn">
+          <h5>▶ 归 HARNESS(领域无关的笨管道)</h5>
+          <ul>
+            <li>预算 / 调度 / 原子 claim</li>
+            <li>持久化 / journal / checkpoint</li>
+            <li>结构化 I/O(JSON schema)</li>
+            <li>反 livelock / 反 amnesia 护栏</li>
+            <li>反造假护栏(唯一正当的硬规则)</li>
+          </ul>
+          <div style="margin-top:8px;color:var(--tx2);font-size:12.5px">→ 不读 agent 输出去二次判断、不预先嚼结论</div>
+        </div>
+      </div>
+      <div class="infer">
+        <b>三条推论:</b>① 唯一正当的"硬规则"是反造假护栏(真 benchmark、不重复灌水、留审计、随机化防 hack);
+        ② <b>reviewer 是项目完成与否的唯一事实来源</b>——没有独立 validator、没有硬编码完成门;
+        ③ 给 agent 真访问(自测带宽 / 自跑 torch.compile / 自 profile / 自上网),operator 提供能力而非结论。
+      </div>
+    </div>
+
+    <div class="band"><span class="bn">I</span><h2>系统总览</h2></div>
+
+<section id="arch-roles" class="topic">
+  <div class="topic-head">
+    <h3>总体架构与角色分层:L4 Planner / L1 Engineer / L2 Reviewer + &quot;harness 没有 agent 聪明&quot;</h3>
+    
+  </div>
+  <p class="oneliner">两层嵌套的 agent harness:外层 LifeSupervisor 管 backlog/预算/调度并调用 L4 Planner 排活,内层 SkillLoop 跑 L1 Engineer→L2 Reviewer 的 round-loop;所有&quot;科研判断&quot;归三个 codex agent,harness 只做领域无关的笨管道。</p>
+  <div class="chips"><span class="chip">三层 agent:L1 engineer / L2 reviewer / L4 planner(L3 critic 已删)</span><span class="chip">harness 笨管道 vs agent 科研判断 的强制分工</span><span class="chip">reviewer 是完成与否的唯一事实来源(无独立 validator)</span><span class="chip">round-loop:engineer→checks→reviewer 的 done/continue/blocked 裁决</span><span class="chip">backlog 原子 claim_next(CAS)+ LifeBudget 预算门</span><span class="chip">反 amnesia:session roll(shift_round_limit)+ CheckpointState 跨 session 交接</span><span class="chip">结构化 scope 透传(bounded/final_submission),不从 prose 猜</span></div>
+  <h4>它到底怎么转的</h4>
+  <ul class="how"><li>入口与路由:CLI(<code>argus_skill/apps/cli.py</code>)经 _life_repl 的 _CodexSkillLoopRunner 或 <code>daemon/life_worker.py</code> 起一个 LifeSupervisor;operator 在 REPL 敲的自由文本由 <code>life/router.py</code> 的 classify_is_conversational(text, run_exec) 做一次低成本模型调用分流——只有模型精确回 &#x27;CHAT&#x27; 才走 build_chat_prompt 闲聊快路径,其余(TASK/模糊/空/异常)一律走完整 mission pipeline。这是&#x27;删掉关键词正则、把判断交给模型&#x27;的样板,且只对人类自由文本生效,planner/backlog/daemon 任务从不被二次分类。</li>
+<li>L4 外层调度:<code>LifeSupervisor.run()</code>/<code>tick()</code>(<code>life/supervisor/_core.py</code>)从 <code>backlog.jsonl</code> 用 <code>Backlog.claim_next()</code> 做原子 CAS(pending→running)claim 一个 BacklogItem,先过 <code>LifeBudget.can_start()</code> 的每日预算门(<code>life/supervisor/_config.py</code>),再调 _run_one(item)→ self.runner.execute(MissionExecutor) 跑一个 mission,完事写 journal。backlog 空且 continuous 模式时进 <code>_plan_next_work()</code> 找 L4 planner 续活。</li>
+<li>L4 Planner:<code>Planner.plan_next()</code>(<code>argus_skill/planner/planner.py</code>)自带 shell 访问,自己 find/ls、跑 pytest/ruff 评估项目,返回 PlannerVerdict——要么 project_done=True(new_tasks 必须为 []),要么给一批 TaskSpec(title/objective/impact_score 0-5/impact_area/scope)。parser 只收 impact_score&gt;=MIN_PLANNER_IMPACT_SCORE(=4) 的高价值任务;waiting=True 是一等公民的&#x27;在等外部长跑、无新活&#x27;的空闲态,不是 error 也不是 make-work。</li>
+<li>完成判定的唯一事实来源是 L2 reviewer,不是 harness:当 full_emnlp_gate=True 且 planner 报 project_done 但 journal 里没有一条被 reviewer 认证(final_submission_certified=True,由 <code>_journal_has_full_emnlp_gate_success()</code> 查)的整链通过记录时,_plan_next_work 用 dataclasses.replace 把 planner 的裁决直接替换成一个 scope=final_submission 的 &#x27;Prove final submission readiness&#x27; 任务(<code>_core.py</code>:2674-2713),交回 L2 做 full-pipeline 整链认证——harness 绝不自己判&#x27;做完了&#x27;。</li>
+<li>单 mission 核心:<code>SkillLoop.run()</code>(<code>argus_skill/loop.py</code>)流程 = engineer_mission.match(skill 匹配)→ miss 且 distill_on_miss 时用 Distiller 在线蒸馏新 skill(复用 engineer backend,没有独立 scientist agent)→ SupervisedEngineer.run。_build_engineer_prompt 负责把 vertical banner、ground-truth mandate、skill playbook、原始 operator 请求(immutable anchor)、stage checklist、turn-discipline、强制的 &#x27;## Verification (verbatim)&#x27; 输出块拼成 L1 prompt。</li>
+<li>L1 round-loop:<code>SupervisedEngineer.run()</code>(<code>argus_skill/engineer/runner.py</code>)每轮 = engineer turn → run_checks(可选 acceptance shell 命令)→ Reviewer.evaluate;done 即停,continue 把 reviewer 的 next_action 注入下一轮 prompt,blocked 停并上抛原因。Codex thread 跨轮 resume 续接(round N+1 复用 round N 的 thread_id),seed_thread_id 让上层跨 mission 续线程。</li>
+<li>L2 Reviewer:<code>Reviewer.evaluate()</code>(<code>argus_skill/engineer/reviewer.py</code>)每轮一次、跨轮无状态,自带 shell 能自读 artifact/跑检查,产出结构化 ReviewDecision(<code>reviewer_schema.json</code>):status∈{done,continue,blocked}、confidence、next_action、planner_report.forward_progress、failure_cause、mission_lesson、checkpoint。<code>academic-paper-peer-review-benchmark.md</code> 是否注入按结构化 stage/scope 判断(is_final_submission 即 scope==&#x27;final_submission&#x27;,或 stage∈{review,submission}),不再扫 objective/evidence 里的关键词。</li>
+<li>verdict→终态翻译与反 livelock:runner 把 review.status 翻成 LoopStatus(<code>runner.py</code>:1482 起)——done 且 checks 全过→done;blocked→blocked;engineer 连续 no_progress_threshold(=2) 轮无有效输出 或 reviewer 显式 forward_progress=false 累计达 stall_threshold(=8)→no_progress;跑到 hard_escalate_rounds(=24) 还在 continue→强制 blocked 让 planner 重规划。反 amnesia:每 shift_round_limit(=8) 轮或 thread 超 thread_token_limit(=4M token) 主动 roll 掉 session,用 CheckpointState(<code>engineer/checkpoint.py</code>)做跨 session 的小而硬上限的工作记忆交接。</li>
+<li>失败学习只信 reviewer 的归因:SkillLoop._evolve_skill_from_failure 仅当 status∈_REVISABLE_FAILURE_STATUSES({blocked,max_rounds,no_progress}) 且 _find_reviewer_lesson 找到 reviewer 标的 failure_cause==&#x27;skill_gap&#x27;+非空 mission_lesson 时才去 optimize/create skill;没有可修的 skill_gap 就什么都不学(不从原始日志臆造教训)——再次体现&#x27;IF 由 agent 判,harness 只路由&#x27;。</li></ul>
+  <div class="grid2">
+    <div class="files">
+      <div class="lbl">关键文件(真实路径)</div>
+      <table><tr><td class="fp"><code>README.md</code></td><td>设计哲学权威表述(&#x27;harness 没有 agent 自己聪明&#x27;)、三层 agent+笨管道 架构图、8-stage pipeline 表、L3 critic 已移除的说明</td></tr>
+<tr><td class="fp"><code>AGENTS.md</code></td><td>&#x27;修改地图&#x27;:一句话架构、L0/L1/L2/L4 层级与对应文件表、主链路调用栈、各层改哪个文件的规则,以及大量&#x27;已删除的关键词判断&#x27;历史注记</td></tr>
+<tr><td class="fp"><code>argus_skill/loop.py</code></td><td>SkillLoop(单 mission 胶水):<code>run()</code>/<code>_build_engineer_prompt()</code>/<code>_evolve_skill_from_failure()</code>;SkillLoopConfig 各旋钮;_REVISABLE_FAILURE_STATUSES 常量</td></tr>
+<tr><td class="fp"><code>argus_skill/planner/planner.py</code></td><td>L4:Planner.plan_next、PlannerVerdict、TaskSpec(scope=bounded/final_submission)、_PLANNER_SYSTEM_PREAMBLE(经理+总监 system prompt)、MIN_PLANNER_IMPACT_SCORE=4。顶部注明 critic 子 agent 已删</td></tr>
+<tr><td class="fp"><code>argus_skill/engineer/runner.py</code></td><td>L1:SupervisedEngineer.run round-loop、SupervisedConfig/EngineerConfig 阈值、review.status→LoopStatus 翻译(~1482)、session roll/thread-token/checkpoint 反 amnesia 机制</td></tr>
+<tr><td class="fp"><code>argus_skill/engineer/reviewer.py</code></td><td>L2:Reviewer.evaluate/_build_prompt、ReviewDecision 字段、is_final_submission 按结构化 scope 判定、academic-paper-peer-review 按 stage/scope 注入</td></tr>
+<tr><td class="fp"><code>argus_skill/engineer/reviewer_schema.json</code></td><td>reviewer 的结构化 JSON 输出契约(status/next_action/forward_progress/failure_cause/mission_lesson/checkpoint)</td></tr>
+<tr><td class="fp"><code>argus_skill/life/router.py</code></td><td>operator 自由文本 chat-vs-task:classify_is_conversational/build_classify_prompt/build_chat_prompt,模型判而非正则</td></tr>
+<tr><td class="fp"><code>argus_skill/life/supervisor/_core.py</code></td><td>L4 外层大脑 LifeSupervisor:<code>run()</code>/<code>tick()</code>/<code>_run_one()</code>/<code>_plan_next_work()</code>/<code>_journal_has_full_emnlp_gate_success()</code>/<code>_planner_scope_from_item()</code>;final_submission 改派分支(2674-2713)</td></tr>
+<tr><td class="fp"><code>argus_skill/life/supervisor/_config.py</code></td><td>LifeBudget(per_mission/daily/max_missions)与 LifeSupervisorConfig(continuous/open_ended/paper_mission/full_emnlp_gate 显式开关,取代旧关键词嗅探)</td></tr>
+<tr><td class="fp"><code>argus_skill/daemon/life_worker.py</code></td><td>7×24 detached daemon:POSIX double-fork、daemon.pid/repl.pid 双锁、<code>continuous.json</code> 热加载、blue/green handoff;非交互版的同一套 LifeSupervisor</td></tr>
+<tr><td class="fp"><code>argus_skill/team/__init__.py</code></td><td>多 agent teammate 编排的&#x27;笨管道&#x27;层(roster/mailbox/task_board/worktree 隔离);自述所有&#x27;是否组队/怎么拆&#x27;判断归 engineer skill,不在此</td></tr>
+<tr><td class="fp"><code>argus_skill/engineer/checkpoint.py</code></td><td>CheckpointState:goal/done[]/tried_and_failed[]/open_blocker/next_step 的硬上限工作记忆,reviewer 作者、runner 消费,跨 session roll 续接</td></tr></table>
+    </div>
+    <div class="side">
+      <div class="nums"><div class="lbl">真实常量 / 锚点(读自代码)</div><ul><li>预算门 LifeBudget 默认:per_mission_cap_usd=30、daily_cap_usd=180、max_missions=6(<code>life/supervisor/_config.py</code>:51-53;env ARGUS_SKILL_PER_MISSION_CAP_USD/DAILY_CAP_USD 可覆盖)</li><li>round-loop 阈值 SupervisedConfig:max_rounds=500、no_progress_threshold=2、stall_threshold=8、soft_round_limit=12、hard_escalate_rounds=24(<code>argus_skill/engineer/runner.py</code>:351-377)</li><li>反 amnesia:shift_round_limit 默认 8(env ARGUS_SKILL_SHIFT_ROUND_LIMIT)、thread_token_limit 默认 4_000_000 token(_DEFAULT_THREAD_TOKEN_LIMIT)、round_compaction_limit=3(<code>runner.py</code>)</li><li>L4 planner:MIN_PLANNER_IMPACT_SCORE=4、DEFAULT_PLANNER_HARD_IDLE_SECONDS=300、DEFAULT_PLANNER_MAX_SECONDS=300(<code>planner.py</code>:27-29)</li><li>失败学习窗口 _REVISABLE_FAILURE_STATUSES={blocked,max_rounds,no_progress}(<code>loop.py</code>:48);process metacritic 节奏 process_metacritic_cadence=12 完成 mission/次(<code>_config.py</code>:182)</li><li>8-stage 研究 pipeline:research→plan→benchmark→run→analysis→draft→review→submission(<code>README.md</code>)</li></ul></div>
+      <div class="matters"><div class="lbl">为什么重要</div><p>这是 Argus 的中枢,直接体现 operator 的头号设计哲学——&quot;harness 没有 agent 聪明&quot;。它把系统切成两类:科研判断(idea 平不平庸、做完没、基线够不够强、失败是不是可修的 skill_gap)全部归三个 codex agent(L1 engineer 干活 / L2 reviewer 验收 / L4 planner 排活),harness 只做领域无关、可证伪的笨管道(原子 claim、每日/单任务预算、journal 持久化、结构化 I/O、反 livelock/反 amnesia 护栏)。对标 Recursive 那类 pipeline:它最关键的反作弊取舍是&quot;没有独立 validator、没有硬编码完成门&quot;——项目算不算完成只由 L2 reviewer 对 full-pipeline checklist 的整链认证决定(planner 误报 project_done 会被强制改派回 reviewer 认证),从架构上杜绝了 harness 用关键词/正则替 agent 报喜报早。对新同事的意义:想改&quot;何时算完成/还差啥派啥&quot;就改 reviewer checklist 和 supervisor 的改派分支,绝不要在 harness 里加关键词判断,否则 harness 就成了天花板。</p></div>
+    </div>
+  </div>
+  <div class="caveats"><div class="lbl">⚠ 现状 / 局限(诚实标注)</div><ul><li>模型默认值文档与代码不一致:<code>README/CLAUDE.md</code> 说三个 agent 默认 gpt-5.4,但 <code>loop.py</code> 的 SkillLoopConfig 里 engineer/scientist 默认字面量是 &#x27;gpt-5.5&#x27;(reviewer/matcher 默认跟随 engineer)。生产实际 model 由 _life_repl 的 _CodexSkillLoopRunner 在运行时组装注入,这两份 dataclass 默认值更像兜底/死默认,别当权威读数。</li><li>L3 critic 逐轮打磨层已整体移除(README、<code>AGENTS.md</code>、<code>planner.py</code> 顶部均注明),现在只有 L1/L2/L4 三层;凡看到旧代码/文档提到 critic 多半是历史残留,验收完全由 L2 reviewer 承担。</li><li>team/ 多 agent teammate 编排是较新的、平行于核心三角色主循环的可选路径:它自述只是 dumb pipe(roster/mailbox/task_board/worktree 隔离),&#x27;是否组队、怎么拆分&#x27;全在 engineer skill 里。核心 SkillLoop(<code>loop.py</code>)主循环并不经过 team/——onboarding 时别把它和 L1/L2/L4 主循环混为一谈;其实际接线程度我未逐行核到,标注为不确定。</li><li>checkpoint 跨 mission 持久化未默认开启:SkillLoopConfig.checkpoint_path 默认 None=mission 内内存级(<code>AGENTS.md</code> 亦注明当前 <code>loop.py</code> 实际是内存级),只够修单 mission 内的 amnesia loop;要跨 mission/重启续接需上层显式传 project-state 路径。</li><li>完成判定几乎完全压在 L2 reviewer 上:check_commands 默认空([]),很多论文 stage 没有可跑的 acceptance shell 命令,又没有独立 validator/硬编码门兜底(这是设计选择)。代价是 reviewer 一旦误判,唯一防线即失效——这正是 operator 反复强调&#x27;reviewer 是事实来源&#x27;同时也是单点的地方。</li><li>反 livelock/反 amnesia 的阈值(stall=8、hard_escalate=24、shift=8、token=4M)按代码注释是依据实测病理(观测到 17-19 轮空转、5-7M token 进入有损压缩 amnesia 区)经验调的启发式护栏,不是理论最优,可能随负载需要再调。</li></ul></div>
+  <a class="top-link" href="#top">↑ 回顶部</a>
+</section>
+
+<section id="reviewer-truth" class="topic">
+  <div class="topic-head">
+    <h3>Reviewer 即真相:项目完成与否的唯一事实来源</h3>
+    
+  </div>
+  <p class="oneliner">L2 reviewer 子 agent 每轮判一次 done/continue/blocked,是项目是否完成的唯一裁决者;没有独立 validator、没有硬编码完成门——harness 只做&quot;跑 check + 把真实报错回流给 engineer&quot;这种领域无关的笨管道。</p>
+  <div class="chips"><span class="chip">L2 reviewer 单点裁决 (done/continue/blocked)</span><span class="chip">acceptance-check 红→强制降级 done (_coerce_review_for_failed_checks)</span><span class="chip">真实 check 报错回流 (failed_check_diagnostics, d51fa8b)</span><span class="chip">fail-soft 解析:坏输出退回 continue 绝不假 done</span><span class="chip">reviewer 兼任记忆审计员 (checkpoint cap)</span><span class="chip">planner_report.forward_progress 语义停滞(只数显式 False)</span></div>
+  <h4>它到底怎么转的</h4>
+  <ul class="how"><li>每轮一次裁决,无状态:Reviewer.evaluate(<code>reviewer.py</code>:132)把 objective/engineer 摘要/check 结果/prior checkpoint 拼成 prompt,经 RunnerBackend.run_exec(run_label=&quot;reviewer&quot;, output_schema_path=<code>reviewer_schema.json</code>)调一次 L2 子 agent,返回 ReviewDecision。类注释明写 &#x27;One reviewer call per round. Stateless across rounds.&#x27;(<code>reviewer.py</code>:118)——reviewer 跨轮唯一记忆是它自己写的 checkpoint 和上一轮 review 摘要。</li>
+<li>done 由 reviewer 说了算,无独立 validator:SupervisedEngineer._classify(<code>runner.py</code>:1469)只在 review.status==&#x27;done&#x27; 且(无 check 或 all_checks_passed)时才回 &#x27;done&#x27;。prompt 里 final_submission_block(<code>reviewer.py</code>:~529)直说 &#x27;You are the single source of truth for project completion — there is no separate validator&#x27;,且注释标注此块 &#x27;替代了已退役的硬编码 EMNLP validators&#x27;。</li>
+<li>反作弊硬门:check 红就不准 done。_coerce_review_for_failed_checks(<code>runner.py</code>:1695)在裁决后无条件执行——只要有 CheckResult.passed==False,reviewer 的 &#x27;done&#x27; 会被强制降级成 &#x27;continue&#x27;(reason 改成 &#x27;Acceptance checks failed... cannot be done&#x27;)。这是 harness 唯一正当的机械护栏:check 失败覆盖一切自我报喜。</li>
+<li>check 是领域无关的笨管道:run_checks(<code>checks.py</code>:11)把 supervised_config.check_commands 当 subprocess 在 workdir 跑,产出 CheckResult(command, exit_code, passed=returncode==0, output_tail);尾部截到 CHECK_OUTPUT_TAIL_CHARS=60000(<code>checks.py</code>:8)。summarize_checks/all_checks_passed 把结果喂给 reviewer prompt 的 &#x27;Acceptance check results&#x27; 段。</li>
+<li>d51fa8b 的核心:真实报错回流给 engineer。failed_check_diagnostics(<code>runner.py</code>:1662)把每条失败 check 的字面 output_tail(取末尾、默认 max_chars=2600、地板 400)拼成 &#x27;## Acceptance-check output — the REAL error&#x27; 块;<code>runner.py</code>:1385-1388 把它追加到 last_next_action,再由 engineer_prompt_builder(last_next_action)(<code>runner.py</code>:913)注入下一轮 engineer。修复前 engineer 只拿 reviewer.next_action 的转述,看不到编译错误/traceback/数值 mismatch,被迫盲改盲回滚。</li>
+<li>解析永远 fail-soft,绝不假 done:parse_decision_text(<code>reviewer.py</code>:979)+_find_decision_in_messages 从 reviewer 消息里抠 JSON;status 只认 done/continue/blocked(_parse_status:1173)。输出非法 JSON、backend 空输出、runner 抛异常,evaluate 一律回 &#x27;continue&#x27; 或 &#x27;blocked&#x27;(confidence=0.0),并显式注释 &#x27;不要当成 engineer 完成或失败的证据&#x27;(<code>reviewer.py</code>:215-219)——错误从不会被误判成 done。</li>
+<li>harness 不二次猜裁决:evaluate 末尾注释 &#x27;The L2 reviewer&#x27;s verdict is authoritative — the harness must not second-guess it with keyword heuristics on the engineer&#x27;s summary&#x27;(<code>reviewer.py</code>:256-261),直接 return parsed。是否重跑命令、是否凭一句角色确认就放行,全是 reviewer prompt 的职责(prompt 反复要求它自己跑命令拿 ground truth),不靠 harness 后置正则过滤。</li>
+<li>planner_report.forward_progress 驱动语义停滞检测,但只数显式 False:<code>runner.py</code>:1311-1332 只有 review.status==&#x27;continue&#x27; 且 raw_forward_progress is False 才 semantic_stall_streak++;_parse_planner_report(<code>reviewer.py</code>:1042)让 done 轮默认 True、非 done 轮缺字段为 None(UNKNOWN)而非 False。设计意图(注释)是不让 reviewer/schema 抖动误杀健康长任务,也不惩罚&#x27;诚实测了但回退&#x27;的大胆实验。</li>
+<li>reviewer 兼任记忆审计员:它在 JSON 里 author 一个 checkpoint(curated working memory),<code>runner.py</code>:1336-1339 用 CheckpointState.from_dict 取出、非空则 save_checkpoint。prompt 硬性 cap done≤8 / tried_and_failed≤6 / maturing≤5,强制 reviewer 遗忘低价值项;engineer 下一轮的全部跨轮记忆就来自这个 checkpoint。</li>
+<li>automated_gates 的否决通过 check 通道回流并被点名:_fallback_failed_check_handoff(<code>runner.py</code>:1623)在失败 check 里抽取 _extract_gate_failures,把&#x27;是哪个 Python gate 否决、为什么&#x27;写进 reviewer 的 next_action,并指明 gate validators 是 Python 不是 LLM 启发式,必须改真实 artifact 才能过。</li></ul>
+  <div class="grid2">
+    <div class="files">
+      <div class="lbl">关键文件(真实路径)</div>
+      <table><tr><td class="fp"><code>argus_skill/engineer/reviewer.py</code></td><td>L2 reviewer 子 agent 本体:Reviewer.evaluate(每轮一裁决,无状态)、_build_prompt(拼裁决 prompt:角色/handoff/stage checklist/final-submission 契约/checkpoint/裁决规则)、parse_decision_text 及一众 fail-soft 解析器(_parse_status/_parse_planner_report/_parse_checkpoint…)。done/continue/blocked 的唯一产出地。</td></tr>
+<tr><td class="fp"><code>argus_skill/engineer/checks.py</code></td><td>领域无关的 acceptance-check 管道:run_checks(subprocess 跑 check_commands)、summarize_checks(喂给 reviewer prompt)、all_checks_passed(_classify 用)。CHECK_OUTPUT_TAIL_CHARS=60000 截尾。</td></tr>
+<tr><td class="fp"><code>argus_skill/engineer/runner.py</code></td><td>SupervisedEngineer 轮循环:调 reviewer.evaluate、_classify(done 判定)、_coerce_review_for_failed_checks(check 红→强制降级 done)、failed_check_diagnostics(d51fa8b:真实报错回流)、planner_report 语义停滞计数、checkpoint 落盘。reviewer 裁决在这里变成循环的终止/继续。</td></tr>
+<tr><td class="fp"><code>argus_skill/engineer/reviewer_schema.json</code></td><td>reviewer 输出的 output_schema(强约束 JSON):status enum、planner_report(forward_progress 等)、checkpoint(cap done8/failed6/maturing5)、checklist、failure_cause/mission_lesson/process_lesson 的长度上限。</td></tr>
+<tr><td class="fp"><code>argus_skill/engineer/failed_tool_ledger.py</code></td><td>按 mission 累计的失败工具账本:record/repeated_failures/render_advisory,阈值 _DEFAULT_NUDGE_THRESHOLD=2、错误截断 600 字符。同一工具连失 2 次就 nudge engineer 去查根因——与 d51fa8b 的报错回流是同一类&#x27;别盲改&#x27;的反盲试机制,但作用在 engineer 侧、非 reviewer 裁决。</td></tr>
+<tr><td class="fp"><code>argus_skill/core/models.py</code></td><td>ReviewDecision(status/confidence/reason/next_action/checkpoint/planner_report/scope/checklist/failure_cause/mission_lesson/process_lesson…)与 CheckResult(command/exit_code/passed/output_tail)数据类;ReviewStatus=Literal[&#x27;done&#x27;,&#x27;continue&#x27;,&#x27;blocked&#x27;]。</td></tr>
+<tr><td class="fp"><code>argus_skill/skills/reviewer_simulation.py</code></td><td>注意:这是 paper vertical 的结构性反造假 gate(validate_reviewer_simulation 校验 <code>paper/REVIEWER_QUESTIONS.json</code>,MIN_QUESTIONS=10、必须 addressed、不得 stale vs <code>main.tex</code>),是众多 acceptance check 之一,不是 L2 reviewer 裁决本身——名字易混。</td></tr>
+<tr><td class="fp"><code>argus_skill/skills/_review_contract_constants.py</code></td><td>skill 生成的 review artifact(academic_language_review / paper_infrastructure_review / layout_review)的共享常量与 sha256 helper;同样属于 paper-vertical 的审计 artifact 层,与 L2 reviewer 裁决正交。</td></tr></table>
+    </div>
+    <div class="side">
+      <div class="nums"><div class="lbl">真实常量 / 锚点(读自代码)</div><ul><li>check 输出截尾 CHECK_OUTPUT_TAIL_CHARS=60000 字符(<code>checks.py</code>:8)</li><li>回流 engineer 的报错块 max_chars 默认 2600、每条 check 预算地板 400 字符(<code>runner.py</code>:1662 failed_check_diagnostics)</li><li>失败工具账本 nudge 阈值=2 次、单条错误截断 600 字符(<code>failed_tool_ledger.py</code>:30-31)</li><li>checkpoint 硬 cap:done≤8 / tried_and_failed≤6 / maturing≤5(<code>reviewer.py</code> prompt + <code>reviewer_schema.json</code>)</li><li>reviewer JSON 字段上限:reason 5000 / next_action 1500 / round_summary 6000 / mission_lesson 4000 / process_lesson 2000(<code>reviewer_schema.json</code> + _parse_mission_lesson[:4000]/_parse_process_lesson[:2000])</li><li>reviewer 给 engineer 的 shared-context 截断 _MAX_SHARED_CTX_CHARS=30000(<code>reviewer.py</code>:917)</li><li>paper reviewer-simulation gate 最少问题数 MIN_QUESTIONS=10、severity∈{critical,major,minor}(<code>reviewer_simulation.py</code>:53-54)</li></ul></div>
+      <div class="matters"><div class="lbl">为什么重要</div><p>体现 argus 的核心哲学&#x27;harness 没有 agent 聪明&#x27;:科研判断(做完没、证据够不够、为什么没进展)永远归 L2 reviewer 这个 agent,harness 只做笨管道(跑 check、截尾、把真实报错原样回流、按 cap 存 checkpoint)。唯一正当的&#x27;硬规则&#x27;是反造假护栏——check 红强制把 done 降级、解析失败一律退回 continue 而非假 done——其余一概不靠关键词/正则替 agent 二次猜。d51fa8b 修的是结构性根因(engineer 看不到真实 check 报错→盲改盲回滚),不是改 prompt 打补丁,正对应&#x27;修根因不 nudge&#x27;;而 reviewer 即唯一事实来源、删掉所有硬编码完成门(已退役的 EMNLP validators),是&#x27;reviewer 是项目完成与否唯一事实来源&#x27;这条原则的代码落地。</p></div>
+    </div>
+  </div>
+  <div class="caveats"><div class="lbl">⚠ 现状 / 局限(诚实标注)</div><ul><li><code>reviewer_simulation.py</code> 容易顾名误解:它不是&#x27;reviewer 即真相&#x27;的裁决源,而是 paper vertical 的一个结构性反造假 check(校验 <code>REVIEWER_QUESTIONS.json</code>),只在 paper 任务作为 acceptance check 触发;真正的 L2 裁决在 <code>reviewer.py/runner.py</code>。</li><li>若没配 check_commands,则机械护栏完全缺席:_coerce 只能在&#x27;有 check 且红&#x27;时把 done 降级,checks 为空时 done 完全押在 reviewer 这个 LLM 上,无任何独立兜底(这是有意设计,但意味着 reviewer 误判即漏判)。</li><li>reviewer 被告知&#x27;有 shell、应自己重跑命令拿 ground truth&#x27;,但 harness 无法强制它真的跑——是否核验取决于 LLM;注释明确 harness 不得用启发式二次过滤(<code>reviewer.py</code>:256-261),所以这一层防线是 prompt 约束而非代码保证。</li><li>语义停滞只数显式 forward_progress==False:若 reviewer 始终不发该字段(None=UNKNOWN),semantic_stall 永不触发,continue 可一直循环,只能靠 no_progress_streak / max_rounds / hard_escalate 兜底(<code>runner.py</code>:1311-1332、_classify)。这是为避免误杀健康长任务的权衡。</li><li>Reviewer 的自适应技能匹配(skill_store)是可选的:构造时传 None 就退回&#x27;只有固定角色/handoff 上下文&#x27;的 legacy 行为(<code>reviewer.py</code>:120-130, 298-311),adaptive reviewer 技能只有被 wire 时才出现。</li><li>checkpoint 解析 fail-soft 到&#x27;保留上一份&#x27;:噪声 verdict 不会清空记忆,但也意味着 reviewer 若反复 author 空/坏 checkpoint,工作记忆会停在旧状态而不报警(<code>runner.py</code>:1336-1339,_parse_checkpoint 返回 {} 即沿用旧的)。</li></ul></div>
+  <a class="top-link" href="#top">↑ 回顶部</a>
+</section>
+<div class="band"><span class="bn">II</span><h2>记忆与上下文</h2></div>
+
+<section id="memory-map" class="topic">
+  <div class="topic-head">
+    <h3>记忆地图:Argus 的四块记忆(调研产物 / wiki / 技能 / codex 自身上下文)各存哪、谁写谁读、活多久</h3>
+    <span class="badge req">operator 点名必含</span>
+  </div>
+  <p class="oneliner">Argus 把&quot;记住的东西&quot;拆成职责清晰的四块——repo 内的调研产物、项目级 idea-wiki、双层技能库、codex CLI 自带的会话上下文——每块有独立存储位置、写者/读者和生命周期,且检索一律&quot;按新近度给原料、让 agent 自己判断相关性&quot;,harness 只做笨管道。</p>
+  <div class="chips"><span class="chip">非权威记忆 prelude 注入</span><span class="chip">纯新近度检索(丢弃相关性参数)</span><span class="chip">sources 不可变 / pages 可变的双层 wiki</span><span class="chip">引用计数机械晋升 scratch→candidate→stable</span><span class="chip">技能双层 project-shadows-global + provisional 按 EFFECT 入库</span><span class="chip">thread_id 续接 codex 自身会话上下文</span></div>
+  <h4>它到底怎么转的</h4>
+  <ul class="how"><li>四块记忆的物理落点各不相同:① 调研产物在 mission 工作区的 research/、experiments/&lt;run_id&gt;/、paper/(随项目 git 走);② wiki 在工作区 .autors/&lt;project&gt;/wiki/(<code>wiki/store.py</code>:wiki_root_for_project);③ 技能在 ~/.argus-skill/skills/(全局)+ ~/.argus-skill/projects/&lt;fp&gt;/skills/(项目);④ codex 自身上下文在 codex CLI 自己的 session 里(harness 只持有一个 thread_id 字符串)。<code>core/paths.py</code> 顶部 docstring 是这套 ~/.argus-skill/ 布局的唯一事实来源。</li>
+<li>持久化记忆门面 MemoryBundle(<code>life/memory.py</code>:1150)= GlobalMemory(<code>identity.md</code>)+ ProjectMemory(<code>project.md</code> / <code>memory.jsonl</code> 日志 / <code>backlog.jsonl</code>)。render_prelude 把全局身份卡+项目卡+最近项目日志合成一段、并显式标注 ### Memory context (non-authoritative),由 supervisor 的 _run_one(<code>life/supervisor/_core.py</code>:1191)在每个 mission 前注入 prompt;冲突时让 agent 忽略它,体现 harness 不替 agent 判断。</li>
+<li>检索是纯新近度:_score_journal(<code>memory.py</code>:1289)用 del objective, min_score 显式丢弃相关性参数,只 journal.tail(recency_n) 取最近 N 条逆序返回。注释写明——按关键词 Jaccard 判&#x27;相关=重叠&#x27;是 harness 没资格做的判断,relevance 归 agent。</li>
+<li>日志/积压的存储形态:Journal 是 append-only <code>journal.jsonl</code>(POSIX O_APPEND 原子追加,超 ROTATE_BYTES 滚动到 .1);Backlog 是整文件原子重写 + fcntl.flock 跨进程锁,claim_next 原子地把队头 pending 翻成 running 关掉 TOCTOU,IllegalStateTransition 守住 done/failed/skipped 三个终态不被复活。每个项目独占自己的 <code>memory.jsonl</code>,故意不写全局日志以防跨项目记忆中毒(GlobalMemory docstring 明说 live daemon 从不写它)。</li>
+<li>wiki 是 KernelWiki 形状的双层账本:sources/(papers/repos/runs/notes)是不可变事实——WikiStore.write_source 遇到已存在文件直接 FileExistsError;pages/(techniques/conflicts/patterns)是可变判断,带 status: scratch|candidate|stable 生命周期(<code>schema.py</code>:PageCard)。所有读写在 _wiki_lock(data/.wiki.lock 的 flock)下串行。</li>
+<li>wiki 的机械半边被从 reviewer 的 LLM playbook 里抽进 harness:<code>loop.py</code>:392 在每个 mission close 调 run_post_mission_hooks(<code>wiki/auto_hooks.py</code>)——从 paper/refs.bib + <code>research/LIT_MATRIX.tsv</code> 回填 sources(ingest_refs_bib/ingest_lit_matrix)、把没人判过的 sources/papers/&lt;key&gt;.md 机械抬成 status: scratch 的 technique 卡、重建 queries 索引;全程 fail-open 绝不阻塞裁决。判断半边(写 conflict 卡、scratch→stable 的 reviewer_note)仍留给 reviewer。</li>
+<li>wiki 晋升用观测到的复用次数代替主观判断:mechanical_promote(<code>wiki/promotion.py</code>)对每张 page 数有多少张 RunCard 正文(大小写不敏感子串)提到它的 slug——scratch→candidate 需 ≥2 引用,candidate→stable 需 ≥3 引用且其中 ≥2 次 mission outcome=success,≥2 次 failure 触发降级。对标 EverOS/mem0/SkillEvolBench 的&#x27;重复即晋升、别过度蒸馏&#x27;。</li>
+<li>技能库是 LayeredSkillStore(<code>skills/layered.py</code>):合并视图里项目层按 name 遮蔽全局层,写入默认落项目层,promote_to_global 才把项目技能搬进全局(反向不自动降级)。技能是 markdown+YAML frontmatter(<code>store.py</code>:Skill),新蒸馏技能生而 provisional,只有当后续&#x27;携带它的那一轮&#x27;拿到有效 reviewer 裁决才 confirm_provisional 入库,否则丢弃——按 EFFECT 证明、绝不评判技能文本本身。seed_builtin_skills(<code>builtins.py</code>)首次 init 把 67 个内置 .md 播种进全局层。</li>
+<li>codex 自身上下文靠 thread_id 续接:CodexRunnerBackend.run_exec(<code>adapters/codex_backend.py</code>)把 resume_thread_id 透传给 CodexRunner,_build_codex_command(<code>codex_runner.py</code>:286)据此发出 codex exec resume &lt;thread_id&gt;,真正对话记忆存在 codex 那边的 session 里。engineer 轮次循环(<code>engineer/runner.py</code>:877)用 current_thread_id(由 seed_thread_id 起始)在各轮间续接,让 codex 记得上一轮;should_clear_thread_id_after_outcome 在 agent 说&#x27;start a new thread&#x27;或致命错误时强制开新线程。token 用量按 _usage_delta_for_thread 还原成本轮增量(codex 报的是累计值)。</li></ul>
+  <div class="grid2">
+    <div class="files">
+      <div class="lbl">关键文件(真实路径)</div>
+      <table><tr><td class="fp"><code>argus_skill/life/memory.py</code></td><td>持久化记忆核心:Journal(append-only jsonl+滚动)/Backlog(flock+终态守卫)/IdentityCard/ProjectCard/GlobalMemory/ProjectMemory/MemoryBundle;render_prelude 注入非权威记忆块;_score_journal 纯新近度检索</td></tr>
+<tr><td class="fp"><code>argus_skill/core/paths.py</code></td><td>~/.argus-skill/ 全部落盘布局的唯一事实来源(global identity+skills、projects/&lt;fp&gt;/{<code>project.md</code>,<code>memory.jsonl</code>,<code>backlog.jsonl</code>,skills/})</td></tr>
+<tr><td class="fp"><code>argus_skill/wiki/store.py</code></td><td>WikiStore:sources/ 不可变(写已存在即 FileExistsError)+ pages/ 可变,_wiki_lock 串行;wiki_root_for_project=.autors/&lt;project&gt;/wiki</td></tr>
+<tr><td class="fp"><code>argus_skill/wiki/schema.py</code></td><td>PageCard(status scratch/candidate/stable)/SourcePaper/SourceRepo/SourceRun(outcome)/SourceNote 数据类 + frontmatter 序列化</td></tr>
+<tr><td class="fp"><code>argus_skill/wiki/auto_hooks.py</code></td><td>run_post_mission_hooks:mission close 时机械回填 sources、把未判 paper 抬成 scratch 技能卡、重建索引;fail-open</td></tr>
+<tr><td class="fp"><code>argus_skill/wiki/promotion.py</code></td><td>mechanical_promote:按 RunCard 引用计数做 scratch→candidate→stable 升降级,阈值 2/3/2</td></tr>
+<tr><td class="fp"><code>argus_skill/wiki/ingest.py</code></td><td>ingest_refs_bib(paper/refs.bib→sources/papers)/ingest_lit_matrix(<code>research/LIT_MATRIX.tsv</code>),纯 stdlib 无 LLM</td></tr>
+<tr><td class="fp"><code>argus_skill/skills/layered.py</code></td><td>LayeredSkillStore:项目层遮蔽全局层、写默认入项目、promote_to_global 显式提升、find_relevant 跨层匹配</td></tr>
+<tr><td class="fp"><code>argus_skill/skills/store.py</code></td><td>Skill 数据类(name/description/category/content/provisional)+ SkillStore;save_distilled 生而 provisional,confirm_provisional 按 EFFECT 入库</td></tr>
+<tr><td class="fp"><code>argus_skill/skills/builtins.py</code></td><td>seed_builtin_skills 播种 67 个内置技能 .md;域包 seed_builtin_skills_for_domain 已接线但 AVAILABLE_DOMAINS 为空</td></tr>
+<tr><td class="fp"><code>argus_skill/adapters/codex_backend.py</code></td><td>CodexRunnerBackend:透传 resume_thread_id、auth 失败探测、_usage_delta_for_thread 把累计 token 还原成本轮增量</td></tr>
+<tr><td class="fp"><code>argus_skill/codex_autoloop/codex_runner.py</code></td><td>_build_codex_command:resume_thread_id 存在时发 codex exec resume &lt;thread_id&gt;,这是 codex 自身上下文的续接入口</td></tr>
+<tr><td class="fp"><code>argus_skill/engineer/runner.py</code></td><td>current_thread_id 在各轮/各 mission 间续接;should_clear_thread_id_after_outcome 决定何时弃旧开新线程</td></tr>
+<tr><td class="fp"><code>argus_skill/life/research_profile.py</code></td><td>调研产物的&#x27;规则&#x27;层:research profile 文本(EMNLP/AAAI/nanochat)+ 能力金库/共享缓存上下文,定义反造假/证据路径要求</td></tr>
+<tr><td class="fp"><code>argus_skill/loop.py</code></td><td>第~385行把 run_post_mission_hooks + mechanical_promote 接到每个 mission 结束后(try/except 包住,绝不阻塞裁决)</td></tr>
+<tr><td class="fp"><code>argus_skill/meta/ledger.py</code></td><td><code>research/META_LEDGER.json</code>(never-cleared forbidden 列表,MAX_FORBIDDEN=24)+ .jsonl 决策日志;属 meta 子系统但落在 research/ 调研产物里</td></tr>
+<tr><td class="fp"><code>argus_skill/adapters/memory_backend.py</code></td><td>注意名字误导——这是测试用确定性 RunnerBackend(canned 响应),不属于记忆地图;起点清单列了它但与四块记忆无关</td></tr></table>
+    </div>
+    <div class="side">
+      <div class="nums"><div class="lbl">真实常量 / 锚点(读自代码)</div><ul><li>Journal.ROTATE_BYTES = 50 MiB,只保留 1 代滚动(.1),足够装约 30 天 7x24 daemon(<code>memory.py</code>:285)</li><li>BacklogItem 默认:max_cost_usd=30.0、iteration_max_cycles=6、iteration_budget_usd=30.0、priority=100(越小越高)(<code>memory.py</code>:362-389)</li><li>reap_orphans max_retries=3,超过则标 failed 防 poison-pill(<code>memory.py</code>:559)</li><li>render_prelude 默认 identity_chars=600、project_chars=600、max_project_entries=3;_score_journal recency_n=30、max_entries=3(<code>memory.py</code>)</li><li>wiki 晋升阈值:scratch→candidate ≥2 引用、candidate→stable ≥3 引用且 ≥2 success、≥2 failure 触发降级(<code>promotion.py</code>:71-74)</li><li>内置技能 67 个 .md(find argus_skill/builtin_skills -name &#x27;*.md&#x27;);Skill frontmatter 只读前 8192 字节(<code>store.py</code>:224)</li><li>codex runner 默认 hard idle=3600s、soft idle 默认关闭(<code>codex_backend.py</code>:58-59)</li><li>META_LEDGER:MAX_FORBIDDEN=24、MAX_FORBIDDEN_CHARS=200(<code>ledger.py</code>:35-36);repo 根 <code>research/META_LEDGER.jsonl</code> 当前仅 2 行 bootstrap(step 0/1, performance 0.0, strategy unknown)</li><li>nanochat 调研 profile 锚点:300s/单卡 A100 预算,基线 <code>optimized_from_karpathy.py</code> 发表值 0.9109 val bpb@B200(<code>research_profile.py</code>,须在自家 A100 harness 重测才算数)</li></ul></div>
+      <div class="matters"><div class="lbl">为什么重要</div><p>这块体现 Argus 的核心设计哲学&#x27;harness 没有 agent 聪明&#x27;。四块记忆把&#x27;记什么&#x27;和&#x27;判断什么相关/该不该晋升&#x27;严格分离:harness 只做领域无关的笨管道(原子 append、flock、终态守卫、按新近度取原料、机械计引用数),所有科研判断(这条旧 mission 有没有用、这张技能/wiki 卡该不该入库)留给 agent 或 reviewer。它把&#x27;记忆中毒&#x27;当一类要堵的真问题(每项目独占日志、不建全局审计串、wiki sources 不可变、技能按 EFFECT 而非文本评判),并刻意删掉了曾经的关键词 Jaccard 相关性打分。对新同事最实用的认知:别去 harness 里找&#x27;智能记忆检索&#x27;,那是 by-design 不存在的;真正的记忆智能在 agent 读到原料后自己发生。</p></div>
+    </div>
+  </div>
+  <div class="caveats"><div class="lbl">⚠ 现状 / 局限(诚实标注)</div><ul><li>起点清单里的 <code>argus_skill/adapters/memory_backend.py</code> 名字误导:它是测试/CI 用的确定性 RunnerBackend(按 run_label 弹 canned 响应),跟&#x27;记忆地图&#x27;四块毫无关系;真正的记忆原语在 <code>life/memory.py</code>。</li><li>wiki 的判断半边仍是尽力而为:<code>auto_hooks.py</code> docstring 直言 reviewer 经常跳过 wiki-curator playbook 里 always do 的步骤,所以只把机械半边(回填/抬 scratch/建索引)搬进了代码;写 conflict 卡、scratch→stable 的 reviewer_note 仍靠 reviewer 自觉,可能继续被跳过。</li><li>mechanical_promote 用 page slug 大小写不敏感子串出现在 RunCard 正文判定复用——slug 短或撞词时会误匹配/漏匹配,是个粗启发式(<code>promotion.py</code>:_index_run_references 自称 loose rule)。</li><li>检索的 objective/min_score 参数在 relevant_journal_for / _score_journal 里被显式忽略,仅为向后兼容保留;别误以为还有语义/词法打分在跑。</li><li>记忆门面两套并存:Phase-2 拆分后的 GlobalMemory+ProjectMemory(live daemon 用)与旧单根 LifeMemory(legacy/单项目工具)同时存在;GlobalMemory.journal 句柄保留但 live daemon 从不写,只有 projects/&lt;fp&gt;/<code>memory.jsonl</code> 是活的。</li><li><code>builtins.py</code> 的域包机制(AVAILABLE_DOMAINS/DOMAIN_DESCRIPTIONS/seed_builtin_skills_for_domain)已接线但两个注册表都是空 dict,等于骨架未启用——目前只有 seed_builtin_skills 全量播种真正生效。</li><li>codex 自身上下文对 harness 是黑盒:harness 只攥着 thread_id 字符串,看不到 codex 内部会话内容;thread_id 失效时 resume 会静默开新会话,operator 只能去 ~/.codex/sessions/*.jsonl 旁路读。</li><li>Journal 滚动只留一代:超 50 MiB 后旧的 .1 被新一代覆盖,更早历史直接丢失,不是无限审计。</li><li>repo 根的 research/ 目录此刻很稀疏(只有 <code>META_LEDGER.jsonl</code> 2 行 bootstrap);丰富的调研产物(RESEARCH_BRIEF/EXPERIMENT_PLAN/LIT_MATRIX/PIPELINE_STATE/experiments/&lt;run_id&gt;)由 <code>tools/new_auto_research_project.py</code> 在每个 mission 工作区里 scaffold 出来,不在主 repo 里。</li></ul></div>
+  <a class="top-link" href="#top">↑ 回顶部</a>
+</section>
+
+<section id="compaction-handoff" class="topic">
+  <div class="topic-head">
+    <h3>Compaction 与 Session 交接:用小而精的 curated 检查点替代海量原始历史</h3>
+    <span class="badge req">operator 点名必含</span>
+  </div>
+  <p class="oneliner">长任务里不让 Codex 自己做有损 auto-compaction,而是结构性地把每段 session 做短,只把一个硬上限的 curated 工作记忆(checkpoint,含 env_facts/active_line)干净交接给下一段;另有一条同名但不同事的&quot;技能库去重 compaction&quot;和&quot;过程蒸馏&quot;支线。</p>
+  <div class="chips"><span class="chip">curated working-memory checkpoint(硬上限交接)</span><span class="chip">proactive session roll(shift_round_limit / thread_token_limit 两道闸)</span><span class="chip">in-round compaction-thrash 看门狗</span><span class="chip">env_facts / active_line 跨 session 续存</span><span class="chip">regime-jump context reset(cleared_for_jump)</span><span class="chip">engineer HANDOFF → reviewer 审计改写回写闭环</span></div>
+  <h4>它到底怎么转的</h4>
+  <ul class="how"><li>核心反面教材:Codex 把一个 session 跨几百轮 resume 时会反复触发有损 auto-compaction,每次悄悄丢工作状态,直到模型靠反复重读同一批文档来重新定位(<code>checkpoint.py</code> 顶部 docstring 称之为 amnesia loop)。Argus 的解法不是看门狗,而是让 session 结构性短命 + 跨边界只搬一个小的 value-filtered 交接。</li>
+<li>交接载体是 CheckpointState 数据类(<code>argus_skill/engineer/checkpoint.py</code>):字段 goal/done/tried_and_failed/maturing/open_blocker/next_step/active_line/env_facts/round。maturing 与 tried_and_failed 刻意分开——一个有前途但首轮没赢的方向不会被一次失败就判死。</li>
+<li>硬上限在 Python 里强制(不是只写在 prompt 里):MAX_DONE_ITEMS=8、MAX_TRIED_ITEMS=6、MAX_MATURING_ITEMS=5、MAX_ITEM_CHARS=280、MAX_ENV_FACTS=10 等。_clean_list 还做去重(casefold 去重 + 截断)。上限就是逼作者做删减的 forcing function;from_dict 全程 fail-soft,坏 payload 退化成空字段而不抛异常,绝不打断 round loop。</li>
+<li>每轮注入:runner._run_supervised 在循环开头调 <code>checkpoint.render_for_engineer()</code> 把这块 curated 记忆拼到 engineer prompt 最前面(<code>runner.py</code>:917-919),并明确告诉 engineer『这是你对早期轮次的唯一记忆,原始历史被故意丢弃』,同时要求 engineer 在回合结尾产出 HANDOFF: 块(done/tried_failed/maturing/active_line/blocker/next/facts)。</li>
+<li>Session 主动滚动(roll)是防 auto-compaction 的结构性手段,两道闸:① shift_round_limit(默认 8)按『同一 thread 活了多少轮』滚;② thread_token_limit(默认 4_000_000)按『上一轮上报的 input token 数』滚——后者专治跨多个短 mission 被 resume、rounds_on_thread 一直被重置导致 thread 无界膨胀的情况。触发时只把 current_thread_id 置 None,下一轮开全新 session,仅靠 checkpoint 块重新起步(<code>runner.py</code>:960-1014)。</li>
+<li>回合内 compaction-thrash 看门狗:_EffectiveProgressWatchdog 统计该 Codex session 写出的 &#x27;compacted&#x27; 事件(_CODEX_COMPACTION_EVENT_TYPE),一回合内累计 &gt;= round_compaction_limit(默认 3)就用 &#x27;compaction thrash&#x27; 这条 fatal_error 打断该回合(<code>runner.py</code>:517-528),按可恢复错误处理,滚到新的 checkpoint-seeded session。fatal_error_looks_like_compaction_thrash 负责识别。</li>
+<li>交接回写闭环:runner 把 <code>checkpoint.to_dict()</code> 作为 prior_checkpoint 传给 reviewer.evaluate(<code>runner.py</code>:1285);reviewer 是『记忆审计员』,从 prior_checkpoint + engineer 的 HANDOFF 块亲自 VALIDATE 并改写出下一版 checkpoint(<code>reviewer.py</code>:752-810),经 _parse_checkpoint 落到 ReviewDecision.checkpoint(<code>core/models.py</code>:145);runner 再 CheckpointState.from_dict(...).stamped(round_no).save_checkpoint 持久化(<code>runner.py</code>:1336-1339),空/坏则保留旧的不清空。</li>
+<li>env_facts 的续命:它是 durable 的环境/基础设施事实(路径、访问端点、版本、谁短暂谁持久),和别的字段一样受硬上限 curation,目的是让 successor 不必每轮重新读/重新发现 setup。reviewer prompt 明确要求『carry prior env_facts forward and add newly established ones』。</li>
+<li>与 meta 层联动的 context reset:每段 session 开头若 consume_jump_pending(<code>meta/ledger.py</code>)为真(planner 召集了 regime jump),就调 <code>checkpoint.cleared_for_jump()</code>——丢掉饱和的局部轨迹(active_line/maturing/next_step),但保留 goal/done/env_facts/tried_and_failed(真死路仍然死),让新 regime 干净开局而不重新锚定在冻结的 basin 上(<code>runner.py</code>:894-895、<code>checkpoint.py</code>:327-351)。</li>
+<li>同名不同事的支线一:<code>scientist/compactor.py</code> 是『技能库去重 compaction』,不是上下文压缩。它按结构感知相似度(0.45*title+0.15*description+0.15*when_to_use+0.25*category,阈值 0.55)把近重复 playbook 聚类,每簇留 version*(1+history) 最强的一个、archive 其余,纯为压住 matcher 每次匹配的 token 成本;v1 故意不做 LLM 合并。</li>
+<li>同名不同事的支线二:<code>life/process_distill.py</code> + <code>process_metacritic.py</code> 是『过程自蒸馏』。前者只读 <code>events.jsonl</code> 抽出量化过程账本(checks 通过率、stall、forward_progress 矛盾等),emit 任何 actionable;后者按 supervisor cadence(默认每 12 个 mission)跑一次只读 meta-critic,产出 status=&#x27;shadow&#x27; 的过程教训,从不自动应用,apply 路径 operator-gated。</li></ul>
+  <div class="grid2">
+    <div class="files">
+      <div class="lbl">关键文件(真实路径)</div>
+      <table><tr><td class="fp"><code>argus_skill/engineer/checkpoint.py</code></td><td>本子系统的核心。CheckpointState 数据类 + 全部硬上限常量(MAX_* in 41-55)+ from_dict/to_dict/is_empty + render_for_engineer(注入 engineer 的记忆块,并附 HANDOFF 模板)+ stamped(盖 round/时间)+ cleared_for_jump(regime jump 时丢局部轨迹留 durable)+ load_checkpoint/save_checkpoint(fail-soft 磁盘续存)。</td></tr>
+<tr><td class="fp"><code>argus_skill/engineer/runner.py</code></td><td>把 checkpoint 接进引擎回合循环:load(884)→ cleared_for_jump(894)→ 每轮 render 注入(917)→ 两道 session roll(token_limit 960-990 / shift_limit 991-1014)→ prior_checkpoint 喂 reviewer(1285)→ from_dict.stamped.save 回写(1336-1339)。还含 _EffectiveProgressWatchdog 的回合内 compaction-thrash 计数与打断(505-583),以及 thread_token_limit=4M、shift=8、round_compaction_limit=3 等默认与 env 覆盖。</td></tr>
+<tr><td class="fp"><code>argus_skill/engineer/reviewer.py</code></td><td>reviewer 作为记忆审计员,接 prior_checkpoint 并渲染 PRIOR 块(461-506),用 752-810 的一长串指令从 engineer 的 HANDOFF 亲自校验并改写下一版 checkpoint;_parse_checkpoint(1029) fail-soft 取出 checkpoint 字段。</td></tr>
+<tr><td class="fp"><code>argus_skill/core/models.py</code></td><td>ReviewDecision 数据类,checkpoint: dict 字段(line 145,default_factory=dict)就是 reviewer 产出、runner 消费的交接载体;to_dict 在 209 透出。</td></tr>
+<tr><td class="fp"><code>argus_skill/scientist/prompts.py</code></td><td>Prompts.distill(131+) 生成技能蒸馏 prompt(为 gpt-5.4-mini 写 capability playbook);注意这是『技能蒸馏』而非上下文交接,与 checkpoint 的 HANDOFF 不是一回事。</td></tr>
+<tr><td class="fp"><code>argus_skill/scientist/compactor.py</code></td><td>技能库去重 compaction(同名不同事):结构感知相似度聚类(DEFAULT_SIM_THRESHOLD=0.55,权重见 _pair_similarity)+ 选代表 _representative(version*(1+history))+ execute_plan 调 archive_skill。CLI 入口 run_compact,默认 dry-run。</td></tr>
+<tr><td class="fp"><code>argus_skill/scientist/distiller.py</code></td><td>Distiller.distill/revise:调 runner 跑 Prompts.distill/revise 产出技能 markdown,持久化在 SkillStore.save_distilled;DistillerConfig 默认 reasoning_effort=&#x27;high&#x27;。属技能蒸馏支线。</td></tr>
+<tr><td class="fp"><code>argus_skill/life/process_distill.py</code></td><td>过程自蒸馏 STEP 1:只读 <code>events.jsonl</code> → 量化过程账本(RoundFeat/MissionFeat,fp_contradiction、max_check_fail_streak、recurring_lessons 等),emit 任何 actionable,纯观测。</td></tr>
+<tr><td class="fp"><code>argus_skill/life/process_metacritic.py</code></td><td>过程自蒸馏 STEP 2:只读 meta-critic LLM,把账本+自身脚手架源码变成 status=&#x27;shadow&#x27; 的过程教训(ProcessLesson),persist_lessons 落盘,从不 auto-apply。</td></tr>
+<tr><td class="fp"><code>argus_skill/life/supervisor/_core.py</code></td><td>_maybe_run_process_distiller(798):按 process_metacritic_cadence(默认 12 mission)触发一次过程蒸馏,best-effort、operator-gated apply,绝不打断 mission 调度。</td></tr>
+<tr><td class="fp"><code>argus_skill/meta/ledger.py</code></td><td>consume_jump_pending(162):consume-once 读 regime-jump 标志,触发 runner 对 checkpoint 做 cleared_for_jump 的 context reset。</td></tr></table>
+    </div>
+    <div class="side">
+      <div class="nums"><div class="lbl">真实常量 / 锚点(读自代码)</div><ul><li>checkpoint 硬上限(<code>checkpoint.py</code>:41-55):done≤8、tried_and_failed≤6、maturing≤5、env_facts≤10、单条 280 字符、goal 400、blocker 800、next 600</li><li>shift_round_limit 默认 8(<code>runner.py</code>:388,env ARGUS_SKILL_SHIFT_ROUND_LIMIT);单 thread 活满 8 轮即滚</li><li>thread_token_limit 默认 4_000_000(_DEFAULT_THREAD_TOKEN_LIMIT,<code>runner.py</code>:109);上一轮 input token ≥ 4M 即滚。注释给的经验值:健康新回合 ~0.7M、正常工作回合可达 ~2M、amnesia loop 出现在 5-7M</li><li>round_compaction_limit 默认 3(_DEFAULT_ROUND_COMPACTION_LIMIT,<code>runner.py</code>:118);一回合内 &#x27;compacted&#x27; 事件累计 ≥3 即判 thrash 打断</li><li>compactor 默认值(<code>compactor.py</code>:38-39):DEFAULT_SIM_THRESHOLD=0.55、MIN_CLUSTER_SIZE=2;相似度权重 0.45/0.15/0.15/0.25(title/description/when_to_use/category,_pair_similarity:145-150)</li><li>process_metacritic_cadence 默认 12 个 mission 跑一次(<code>supervisor/_config.py</code>:182)</li><li>soft_round_limit=12 / hard_escalate_rounds=24(<code>runner.py</code>:376-377),是回合上限护栏(非本子系统核心但相邻)</li></ul></div>
+      <div class="matters"><div class="lbl">为什么重要</div><p>这是 Argus『永久不过滤的记忆是毒药』哲学最直接的落地:它不信任 Codex 后端那套有损 auto-compaction(会丢工作状态、逼模型反复重读 = amnesia loop),而是从结构上把每段 session 做短,只跨边界搬运一个硬上限的 curated 工作记忆。两个设计取舍很能说明它的价值观:① 上限在 Python 里强制而非只写在 prompt 里——因为一个啰嗦的 reviewer 哪怕无视 prompt 也不能把毒重新长回来,删减是『主动解药』而非有损;② 科研判断(哪条 active_line 值得续、哪个是真死路、env_fact 是否可信)全归 reviewer/meta 这些 agent,harness 只做去重/截断/fail-soft 这类领域无关的笨管道,严格守住『harness 没有 agent 聪明』的分工。active_line + env_facts 的跨 session 续存,正是让一条大胆方向能跨轮累积、而不是每轮被打回 global-best floor 重新发明的关键机制,直接对应 operator 反复强调的『别让 agent 走贪心小步、要敢迈大步』。</p></div>
+    </div>
+  </div>
+  <div class="caveats"><div class="lbl">⚠ 现状 / 局限(诚实标注)</div><ul><li>命名陷阱(诚实第一条):本子系统标题叫 compaction-handoff,但 5 个起点文件里其实混着三件不同的事——(a) 真正的『上下文压缩 + session 交接』= <code>checkpoint.py</code> + runner 的 roll 逻辑;(b) <code>compactor.py</code> 是『技能库去重 compaction』,跟上下文压缩毫无关系,只是同名;(c) <code>distiller.py</code> / <code>process_distill.py</code> 是『技能/过程蒸馏』另一条线。给新同事讲时必须先把这三者拆清,否则会被名字误导。</li><li>checkpoint 的质量完全依赖 reviewer(LLM)诚实地从 engineer 的 HANDOFF 校验改写;Python 层只能做截断/去重/fail-soft,无法验证条目真假——若 reviewer 把未验证的自述写进 done,harness 不会拦。这是设计上『reviewer 是事实来源』的必然代价。</li><li>Codex 的 auto-compaction 是后端自己的有损行为,Argus 控制不了它,只能『绕开』(主动滚 + checkpoint 续命)。4M/8 轮/3 次这些阈值是启发式(注释自陈 4M『sits between normal operation and the bloat zone』),不是实测保证的安全线,换模型/换上下文窗口可能要重调。</li><li><code>compactor.py</code> 的去重默认 dry-run,需 --apply 才真 archive;v1 故意不做 LLM 合并(docstring 自陈 v2 才考虑 --smart 的 scientist-mediated merge),所以它只是『挑最强留一个、归档其余』,不会产出融合后的新 playbook。</li><li>process_distill/process_metacritic 整条是 shadow-only:lesson 一律 status=&#x27;shadow&#x27;,真正的 overlay/counterfactual-replay/A-B apply 路径在包外的 self_improving/ 且 operator-gated,当前没有任何自动应用闭环——即它能『发现』过程病灶但不会自己改自己。</li><li>cleared_for_jump 的触发依赖 meta/ledger 的 consume_jump_pending,整段被 try/except 包住 fail-soft;若 meta 层没产 jump 标志,这条 context-reset 路径就静默不发生,常态下并不频繁触发。</li><li>checkpoint 续存是 fail-soft 设计:load/save 遇 OSError/ValueError 直接退化成空或静默不写,优先保证『绝不打断 round loop』——代价是磁盘写失败时记忆可能悄悄丢一轮,日志里才看得到。</li></ul></div>
+  <a class="top-link" href="#top">↑ 回顶部</a>
+</section>
+<div class="band"><span class="bn">III</span><h2>自进化与破局</h2></div>
+
+<section id="self-evolution" class="topic">
+  <div class="topic-head">
+    <h3>自进化:从自己的失败里&quot;看出&quot;缺口,但只检测、不替 agent 决策</h3>
+    <span class="badge req">operator 点名必含</span>
+  </div>
+  <p class="oneliner">每个 mission 跑完后,harness 用纯正则/计数的&quot;笨管道&quot;从轨迹里扫出三类信号(缺工具 A、复发 infra 失败 B、过程病理 C),写成 journal advisory 交给 reviewer/planner 自己判断;真要铸新 skill 必须过执行型 held-out fixture 闸,LLM 永不靠&quot;读&quot;来判 skill 好坏。</p>
+  <div class="chips"><span class="chip">结构检测与 agent 判断的切分</span><span class="chip">missing-tool / recurring-failure / process 三信号</span><span class="chip">journal advisory(只 surface 不 enqueue)</span><span class="chip">held-out fixture 执行闸(不读文本)</span><span class="chip">shadow process lesson + operator-gated apply</span><span class="chip">防递归 mint-skill tag + 不同 mission 去重计数</span></div>
+  <h4>它到底怎么转的</h4>
+  <ul class="how"><li>三条信号挂在同一个 tick 收尾钩子上:supervisor <code>_core.py</code> 里 _run_one(item) 一返回,就依次 try/except 调用 _maybe_journal_self_evolve_advisory(A)、_maybe_journal_recurring_failure_advisory(B)、_maybe_run_process_distiller(C),每个都 fail-soft 包 except,自进化崩了绝不拖垮主 tick(<code>_core.py</code>:760-796)。</li>
+<li>信号 A(缺工具)= missing_tool_detector.scan_mission:纯正则扫 agent_messages / check output_tail / fatal_error / <code>events.jsonl</code>,匹配 command not found、ModuleNotFoundError、exit_code==127、以及自述式 我没有这个工具,产出 MissingToolSignal(tool_name, kind, context, evidence)。SelfEvolveAdvisor.maybe_journal_advisory 把每条写成 self_evolve.missing_tool_advisory journal 条目。</li>
+<li>信号 B(复发 infra 失败)= failure_signature_detector.scan_failure_signatures:一张刻意很小的 curated 正则表 _PATTERNS(cuda_oom / cuda_device_assert / nccl_dist_error / hf_flash_attn_unavailable / vllm_engine_init_failed / ray_worker_died / image_generation_model_unavailable),其中 generic=True 的 wrapper 症状在同 mission 有更具体签名时被压掉,避免把 OOM 误记成 vLLM 引擎失败。</li>
+<li>B 的跨 mission 计数在 RecurringFailureAdvisor 里:每个 (mission,signature) 先落一条低噪 self_evolve.failure_observation 计数行(按 tag 幂等),当同一 signature 在回看窗内命中的不同 mission 数(数 mission id tag 的去重集合,防重放灌水)达到 min_recurrence 才升一条可见的 self_evolve.recurring_failure_advisory,并 dedup 不每 tick 重发。</li>
+<li>A 与 B 都做防递归:source mission 带 MINT_SKILL_TAG=mint-skill 时直接返回空,因为铸 skill 任务本身在装缺失工具时满屏 not-found 噪声,不能反过来再生成新 advisory。两个 advisor 都无状态,所有状态只活在 journal。</li>
+<li>关键设计:这些 advisor 只检测、只 journal,绝不 enqueue。docstring 与 <code>mint-skill.md</code> 都写明,值不值得铸 / 是不是打错字 / 是不是已经绕过去了 是 reviewer/planner 的判断;planner 在 continuous cycle 里扫 advisory、过黑名单、批量 enqueue 带 mint-skill tag 的 BacklogItem。</li>
+<li>铸新 skill 的唯一闸是执行型 mint_skill_validator.validate_candidate_skill:它从不读 skill 文本(援引 SkillLens:LLM 判 skill 文本比瞎猜还差 46.4%),而是跑 python &lt;slug&gt;<code>_scripts/main.py</code> &lt; case/input,把 stdout 与 expected 比(文本 byte-exact、.json 用 json-equal),ValidatorReport.ok 要求无结构错误、用例数&gt;=MIN_FIXTURE_CASES 且全过;退出码 0/1 经 D1 gate 喂回 reviewer。</li>
+<li>信号 C(过程自蒸馏)分两步:process_distill.extract_process_ledger 纯读 <code>events.jsonl</code>,把 reviewer 每轮 emit 的 failure_cause/mission_lesson/process_lesson 与 planner 的 forward_progress、checks pass/fail、stall 量化成 ledger(含 fp_contradiction:planner 说前进了但 review 没 done / checklist 没满 的矛盾计数);aggregate_ledgers 跨项目合并,挑跨&gt;=2 个项目都重学的同一条 lesson 作为系统性过程缺口。</li>
+<li>C 第二步 process_metacritic.distill_process_lessons 在 process_metacritic_cadence 个 mission 才跑一次只读 LLM 审计(METACRITIC_INSTRUCTION 强约束:只准改 PROCESS,outcome/metric/verifier 冻结),产出的每条 ProcessLesson 一律 status=shadow,persist_lessons 落 life_dir/process_lessons/,自动什么都不 apply;真正的 overlay/replay/seal 应用路径在 repo 根的 self_improving/,operator 持有、在 agent 触不到的 ~/.argus-seal 与 ~/.argus-meta。</li></ul>
+  <div class="grid2">
+    <div class="files">
+      <div class="lbl">关键文件(真实路径)</div>
+      <table><tr><td class="fp"><code>argus_skill/life/missing_tool_detector.py</code></td><td>信号 A 纯正则检测器:扫缺工具(command not found / No module named / exit 127 / 自述),产 MissingToolSignal;scan_mission 是 mission 级入口,无 I/O</td></tr>
+<tr><td class="fp"><code>argus_skill/life/self_evolve_advisor.py</code></td><td>信号 A 的 advisor:SelfEvolveAdvisor.maybe_journal_advisory 把 signal 写成 self_evolve.missing_tool_advisory,按 tool tag 在 DEFAULT_RECENT_WINDOW=200 窗内去重;含 MINT_SKILL_TAG 防递归 + _unpack_result/_tail_events_for_item(被 B 复用)</td></tr>
+<tr><td class="fp"><code>argus_skill/life/failure_signature_detector.py</code></td><td>信号 B 检测器:curated 的 _PATTERNS(cuda_oom 等 7 类),generic wrapper 在有具体签名时被压制;FailureSignature.signature 是跨 mission 计数 key</td></tr>
+<tr><td class="fp"><code>argus_skill/life/recurring_failure_advisor.py</code></td><td>信号 B 的跨 mission 计数+升级:failure_observation 幂等计数行 -&gt; 不同 mission 数达 min_recurrence 升 recurring_failure_advisory;external_capability 类给 别盲目重试/别造假 fallback 专门文案</td></tr>
+<tr><td class="fp"><code>argus_skill/skills/mint_skill_validator.py</code></td><td>铸 skill 的执行闸:不读文本,跑脚本对 held-out fixture 比 stdout;MIN_FIXTURE_CASES=3、超时 60s;ValidatorReport.ok 决定 CLI 退出码</td></tr>
+<tr><td class="fp"><code>argus_skill/builtin_skills/engineer/mint-skill.md</code></td><td>agent 面向的铸 skill 流程+黑/白名单:判断类 skill(reviewer/kill-argument/*-judge 等)禁铸;只铸可测 I/O 契约;触发链=advisory-&gt;reviewer/planner enqueue,harness 不再 auto-enqueue</td></tr>
+<tr><td class="fp"><code>argus_skill/life/process_distill.py</code></td><td>信号 C 第一步:纯读 <code>events.jsonl</code>-&gt;量化过程 ledger;RoundFeat.fp_contradiction、MissionFeat 各项 + aggregate_ledgers 跨项目挑 &gt;=2 项目重学的 lesson</td></tr>
+<tr><td class="fp"><code>argus_skill/life/process_metacritic.py</code></td><td>信号 C 第二步:只读 LLM 元批判,ProcessLesson.status 恒为 shadow,persist_lessons 落盘,绝不 auto-apply;METACRITIC_INSTRUCTION 冻结 outcome 定义</td></tr>
+<tr><td class="fp"><code>argus_skill/life/supervisor/_core.py</code></td><td>三信号挂载点(760-796)+ 薄委托方法(878-905)+ _maybe_run_process_distiller(798-865, cadence 调度);_render_journal_for_planner/_recent_no_progress_failures 把 failure_observation 计数行过滤掉、保留 advisory</td></tr>
+<tr><td class="fp"><code>self_improving/README.md</code></td><td>operator 侧 meta-loop 蓝图:step1-4 已实现(seal_check/instrument/meta_critic/replay/apply_overlay),step5(在线 A/B+自动回滚+tripwire)与 step6(framework floor 改动)刻意未自动化;冻结 outcome kernel 是不可谈判不变量</td></tr></table>
+    </div>
+    <div class="side">
+      <div class="nums"><div class="lbl">真实常量 / 锚点(读自代码)</div><ul><li>DEFAULT_RECENT_WINDOW=200:信号 A 同一工具去重窗口(<code>self_evolve_advisor.py</code>:47)</li><li>DEFAULT_MIN_RECURRENCE=3、DEFAULT_LOOKBACK_DAYS=7.0、_MAX_TAIL=4000:信号 B 升级阈值/回看天数/每 tick 读行上限(<code>recurring_failure_advisor.py</code>:47-55),构造里 min_recurrence 被 max(2,...) 兜底</li><li>_PATTERNS 仅 7 类 infra 签名(<code>failure_signature_detector.py</code>:72-155),刻意保持小集合防铸出含糊 skill</li><li>MIN_FIXTURE_CASES=3、DEFAULT_TIMEOUT_SECONDS=60:铸 skill 验证最少用例数与单用例超时(<code>mint_skill_validator.py</code>:52-53)</li><li>process_metacritic_cadence=12、process_metacritic_enabled=True:每 12 个完成 mission 才跑一次 LLM 元批判(<code>_config.py</code>:181-182),metacritic 用 reasoning_effort=high(<code>_core.py</code>:847)</li><li>recurring_lessons 阈值=&gt;=2:同一条 lesson 跨 &gt;=2 mission(单项目)或 &gt;=2 项目(aggregate)才算系统性缺口(<code>process_distill.py</code>:221,287)</li><li><code>self_improving/replay.py</code> FLOOR=80.18s、<code>seal_check.py</code> TRAIN_TIME_FLOOR_MS=20000:counterfactual 回放起点与 8xH100 物理时间下限锚点</li><li>测试覆盖:tests/life + tests/skills 下 8 个文件共 86 个 test 函数(missing_tool 21 / failure_sig 17 / mint_validator 14 / self_evolve_hook 9 / recurring 9 / distill 7 / metacritic 5 / distiller_hook 4)</li></ul></div>
+      <div class="matters"><div class="lbl">为什么重要</div><p>这是 argus 把 operator 教它 内化成 它自己看出来 的层,直接对应 <code>CLAUDE.md</code> 的核心哲学:harness 没 agent 聪明,所以严格切分——检测/计数/持久化这种领域无关的笨活归 harness(纯正则、纯计数、journal),而 值不值得铸 skill、这条 process 病理怎么修 这种科研判断永远归 agent(reviewer L2 / planner L4)。它体现两条底线:一是反作弊优先——铸 skill 唯一硬闸是 held-out 执行验证而非 LLM 读文本(SkillLens:读文本判 skill 比瞎猜差 46.4%),且判断类 skill 一律禁铸;二是 outcome 主权外置——process 可自改,但 metric/verifier/什么算赢 冻结在 agent 够不到的地方(seal_check 哈希钉死 scorer、独立 wall-clock 兜 self-reported 时间),这是 self-evolution 敢开自动化的唯一前提。对标 Recursive 的自动化 AI 研究基线,它把 agent 从失败里学习 做成可审计、可 fail-soft、不污染结果的结构,而非靠改 prompt 反复 nudge。</p></div>
+    </div>
+  </div>
+  <div class="caveats"><div class="lbl">⚠ 现状 / 局限(诚实标注)</div><ul><li>检测器是正则/关键词级别,刻意宁可误报:missing_tool 自承 err on the side of false positives(靠下游 dedup+blacklist 兜底),infra 签名表是硬编码的有限 7 类——没编码进去的新失败类它根本看不见,新检测器仍要人写。</li><li>信号 A/B 只写 advisory、不会自动 enqueue 任何 mint-skill 任务;整条真的去铸依赖 reviewer 在 next_action 推荐 + planner 批量 enqueue。本子系统文件里只看到检测/journal/context-render 这半条链路被实现与测试,planner 自动批量 enqueue mint-skill 的实现不在本范围文件内(在 planner/builtins,未越界确认),所以端到端自动铸出一个新 skill 这一闭环本次未验证跑通。</li><li>信号 C 的 metacritic 产物全部是 shadow、自动什么都不 apply;真正的 apply(overlay/A-B/回滚)在 repo 根 self_improving/,README 明说 step5(在线 A/B+自动回滚+tripwire)与 step6(framework floor 改动)刻意未自动化,且脚本路径是 operator 专用、复用前需参数化——即自改 process 目前仍是人在环。</li><li>self_improving/ 是 operator 工具、不在 argus_skill 包内,README 自承 seal_check 在 agent 有 GPU box root 时仍可被铁了心的 agent 绕过,只堵了 casual/accidental 漏洞,完整能力隔离要单独信任域(未做)。</li><li>mint_skill_validator 只支持 stdin-&gt;stdout、文本/JSON 比对的契约(SUPPORTED_TEXT_EXTS/JSON),且文本比对只容忍尾换行差异;非此形态的能力(需多文件、状态、网络)结构上无法走自动铸 skill 闸——<code>mint-skill.md</code> 也明说这类不属于自进化环。</li><li><code>instrument.py</code> / <code>replay.py</code> 里 record83、FLOOR=80.18、<code>record83_train.py</code> 等是 nanogpt-speedrun 任务的硬编码锚点,这些 operator 侧脚本是为特定 task 写的样例,不是 vertical-agnostic 的通用件(process_distill 才是 vertical-agnostic 的那半)。</li></ul></div>
+  <a class="top-link" href="#top">↑ 回顶部</a>
+</section>
+
+<section id="meta-regime-jump" class="topic">
+  <div class="topic-head">
+    <h3>Meta 层:饱和检测 → 强制 regime-jump 逃离局部最优</h3>
+    
+  </div>
+  <p class="oneliner">用领域无关的&quot;笨计数器&quot;侦测搜索卡死(floor 冻结+多样性塌缩),由 planner LLM 判定并强制切换 optimizer/architecture/data 等大方向,辅以永不清空的 forbidden-directions ledger 与一次性 context reset——detect/judge/enforce 三权分立,严格守住&quot;科研判断归 agent、harness 只做笨管道&quot;的哲学。</p>
+  <div class="chips"><span class="chip">饱和计数器(frozen_rounds + diversity_score)</span><span class="chip">detect/judge/enforce 三权分立</span><span class="chip">永不清空 forbidden-directions ledger(只增不删)</span><span class="chip">一次性 context reset(jump_pending consume-once → cleared_for_jump)</span><span class="chip">regime 轴覆盖度 + parent+inspirations 策略池</span><span class="chip">全链 fail-soft 退化为 no-op</span></div>
+  <h4>它到底怎么转的</h4>
+  <ul class="how"><li>DETECT(harness 纯计数):<code>saturation.py</code> 的 from_facts/analyze 从 vertical 的 search_altitude_facts 取结构化 facts,算两个事实——frozen_rounds(=facts[&#x27;since_improve&#x27;],floor 连续多少轮没改善)与 diversity_score(最近 window 内 distinct 非 local regime 轴数)。判定式 is_saturated = frozen &gt;= cfg.jump_frozen_threshold and (diversity &lt;= cfg.diversity_floor or not labelled_any),harness 只断&#x27;阈值&#x27;不断&#x27;结论&#x27;。</li>
+<li>JUDGE(planner LLM):flow_controller.decide 据 signal 选 mode——is_saturated→&#x27;jump&#x27;;frozen&gt;=threshold//2 且 diversity&lt;=floor→&#x27;explore&#x27;软提示;否则&#x27;exploit&#x27;(原 planner 路径不变)。jump/explore 时 meta_prompter.build_meta_block 渲染一段 META-CONTROL 提示注入 planner prompt,真正&#x27;这个 basin 死没死、跳去哪个 regime&#x27;交给 planner。</li>
+<li>planner 回写结构化裁决:meta_prompter.parse_meta_decision 用正则 _JSON_FENCE 抠出 fenced 的 meta_decision JSON,校验 mode/strategy_type 在词表内;若是 jump 但 strategy_type 落在 local/unknown 或命中 forbidden_axes,则置 valid=False 并填 violations(只校验 agent 自己声明的 label,不做内容判断)。</li>
+<li>ENFORCE-1 永不清空 ledger:flow_controller.record_decision→ledger.merge_forbidden,只把 agent 自己声明的 forbidden 方向 ADD 进 <code>META_LEDGER.json</code>(_dedupe_preserve,只增不删),coverage 图被最新计算结果整体替换;每轮 build_meta_block 把 forbidden 列表重新注入,后继候选不能悄悄回锚死掉的 regime。</li>
+<li>ENFORCE-2 一次性 context reset:jump 轮 record_decision 调 set_jump_pending(True);下次 engineer 会话在 <code>runner.py</code>:894 调 consume_jump_pending(consume-once),命中则 checkpoint = <code>checkpoint.cleared_for_jump()</code>——drop active_line/maturing/next_step(局部轨迹),保留 goal/done/tried_and_failed/env_facts,让新会话在新 regime 开干而非续上冻结的线。</li>
+<li>审计日志:每次 planner convening 经 ledger.append_decision 往 <code>META_LEDGER.jsonl</code> 追加一行 {step_id, mode, was_jump, strategy_type, performance, diversity_score, decision_valid, violations, ts},step_id 由 next_step_id 数 jsonl 行数得到。</li>
+<li>跨 vertical 解耦:meta 层 metric-blind,所有指标解析留在 vertical。<code>nanochat/stages.py</code> 的 search_altitude_facts 暴露 floor/since_improve/attempts(含 strategy_type),strategy_pool 给 jump 提供&#x27;_CATEGORY_AXES 轴菜单 + coverage + parent floor + 早期多样 inspirations&#x27;(AlphaEvolve parent+inspirations,有界,避开 EMNLP-2025&#x27;全历史 dump 反而更差&#x27;的负结果)。</li>
+<li>全链路 fail-soft:config/saturation/flow_controller/ledger 每个入口 except 都退化为&#x27;无 meta 干预&#x27;(mode=&#x27;exploit&#x27;、空 block、空 ledger),任何报错都不打断 planner 主循环——meta 是 best-effort 的可见性+enforcement,绝不当 blocker。</li></ul>
+  <div class="grid2">
+    <div class="files">
+      <div class="lbl">关键文件(真实路径)</div>
+      <table><tr><td class="fp"><code>argus_skill/meta/__init__.py</code></td><td>包 docstring 写清 detect/judge/enforce 三权分立的设计动机(live nanochat-b200 mission 冻结到 63 轮仍在原 backbone 上提小杠杆),对标 STAR-PólyaMath 与 QD/FunSearch/AlphaEvolve;导出 MetaConfig/analyze/decide/record_decision。</td></tr>
+<tr><td class="fp"><code>argus_skill/meta/config.py</code></td><td>进程级旋钮(非科研判断):REGIME_AXES=(optimizer,architecture,update_mechanics,data,numerics)、STRATEGY_TYPES(+local/unknown);MetaConfig 默认 jump_frozen_threshold=12/diversity_window=8/diversity_floor=2/inspiration_top_k=4,全部可经 ARGUS_META_* 环境变量覆盖。</td></tr>
+<tr><td class="fp"><code>argus_skill/meta/saturation.py</code></td><td>DETECT:SaturationSignal 数据类 + from_facts/analyze;_name_axis_proxy 在缺 strategy_type 标签时按 attempt 名 token 兜底(并标 labelled=False,代码自承会 over-count 故不许它压制长冻结);判定式见上。</td></tr>
+<tr><td class="fp"><code>argus_skill/meta/flow_controller.py</code></td><td>glue:<code>decide()</code> 选 exploit/explore/jump 并组装注入 block,<code>record_decision()</code> 解析+落 ledger+按 flow.mode==&#x27;jump&#x27; 触发 set_jump_pending(注意是 keyed 在 harness convene 而非裁决合法性上)。</td></tr>
+<tr><td class="fp"><code>argus_skill/meta/ledger.py</code></td><td>持久层:<code>META_LEDGER.json</code>(forbidden 只增不删 + coverage + jump_pending,MAX_FORBIDDEN=24/MAX_FORBIDDEN_CHARS=200 上限)与 <code>META_LEDGER.jsonl</code>(append-only 决策日志);merge_forbidden/set_jump_pending/consume_jump_pending/append_decision/next_step_id,全 fail-soft。</td></tr>
+<tr><td class="fp"><code>argus_skill/meta/meta_prompter.py</code></td><td>JUDGE 的渲染+解析:build_meta_block 渲染 jump/explore 提示(jump 含 forbidden 约束、coverage、context-reset 说明、strategy_pool、要求回填 meta_decision JSON 模板),parse_meta_decision 用 _JSON_FENCE 抠 JSON 并做结构校验填 violations。</td></tr>
+<tr><td class="fp"><code>argus_skill/planner/planner.py</code></td><td>接线点(L398-422 注入 meta_block、L478-484 record_decision):同一个 flow 决策同时驱动注入的 prompt 与事后 ledger 落库,try/except 包裹保证 meta 不破坏规划。</td></tr>
+<tr><td class="fp"><code>argus_skill/engineer/runner.py</code></td><td>L890-897:engineer 主循环开头 consume_jump_pending 命中则 <code>checkpoint.cleared_for_jump()</code>,实现 jump 后一次性丢弃局部轨迹的 context reset。</td></tr>
+<tr><td class="fp"><code>argus_skill/engineer/checkpoint.py</code></td><td><code>cleared_for_jump()</code>(L327)返回 drop active_line/maturing/next_step、保留 goal/done/tried_and_failed/env_facts 的 CheckpointState 副本。</td></tr>
+<tr><td class="fp"><code>argus_skill/verticals/nanochat/stages.py</code></td><td>唯一实现 meta 钩子的 vertical:search_altitude_facts(L426)出 facts、strategy_pool(L470)出 jump 菜单、role_banner 里(L155)指示 engineer 在 <code>summary.json</code> 写 strategy_type;_CATEGORY_AXES(L45)是轴菜单文案。</td></tr>
+<tr><td class="fp"><code>argus_skill/verticals/_base.py</code></td><td>跨 vertical fail-open 适配:vertical_search_altitude_facts/vertical_strategy_pool,缺钩子或抛错→{}/&#x27;&#x27;,让 meta 层在未接钩子的 vertical 上自动 no-op。</td></tr>
+<tr><td class="fp"><code>tests/test_meta_control.py</code></td><td>14 个测试,钉死三权契约:未标注的长冻结仍 trip、真实标注的高多样性能压制 jump、parse 拒绝回锚 forbidden/local、forbidden never-cleared、jump_pending consume-once、record_decision 落库。本机实跑 14 passed。</td></tr></table>
+    </div>
+    <div class="side">
+      <div class="nums"><div class="lbl">真实常量 / 锚点(读自代码)</div><ul><li>默认阈值(<code>config.py</code>:56-65):jump_frozen_threshold=12、diversity_window=8、diversity_floor=2、inspiration_top_k=4;均可经 ARGUS_META_JUMP_FROZEN_THRESHOLD 等环境变量覆盖。</li><li>explore 软提示触发条件(<code>flow_controller.py</code>:64-67):frozen &gt;= max(1, threshold//2)=6 且 diversity_score &lt;= 2。</li><li>诊断锚点:live nanochat-b200 mission 的 floor 冻结到 63 轮才仍在原 backbone 提小杠杆(<code>__init__.py</code> / <code>config.py</code>:55 注释),按阈值 12 本应早约 50 轮就 convene。</li><li>ledger 上限(<code>ledger.py</code>:35-36):MAX_FORBIDDEN=24 条、MAX_FORBIDDEN_CHARS=200 字符;单次 meta_decision 的 forbidden 最多取 8 条、reasoning 截断 600 字符(<code>meta_prompter.py</code>:183,188)。</li><li>live 落库证据(/<code>home/argustest/nanochat-mission-b200/research/META_LEDGER.jsonl</code>,16 行):floor 全程冻结在 0.965364;step_id 12 确实触发过一次 jump(was_jump=true),但 decision_valid=false、strategy_type=unknown;<code>META_LEDGER.json</code> 至今 forbidden=[]、coverage={}。</li><li>测试:<code>tests/test_meta_control.py</code> 14 个用例本机实跑全过(14 passed)。</li><li>代码体量:meta/ 共 863 行(saturation 175 / meta_prompter 206 / ledger 196 / flow_controller 144 / config 90 / __init__ 52)。</li></ul></div>
+      <div class="matters"><div class="lbl">为什么重要</div><p>这是直接回应 operator #6(&#x27;我就不信 argus 搞不定&#x27;)与设计哲学核心(&#x27;harness 没有 agent 聪明&#x27;)的一次结构性根因修复,而不是 prompt nudge。诊断来自真机:live nanochat-b200 mission 的 floor 冻结到 63 轮,纯可见性(altitude block 已把距离/连续未改善摆在 planner 面前)被忽视了 63 轮——说明&#x27;看得见&#x27;不等于&#x27;会跳&#x27;。它的价值在于把&#x27;逃离局部最优&#x27;拆成 harness 只配做的笨活(数 frozen_rounds、数 regime 轴、持久化 agent 自己声明的死方向、一次性丢弃局部轨迹)与只能归 agent 的科研判断(basin 死没死、跳哪个 regime),并把唯一正当的硬规则限定为反回锚护栏(forbidden 永不清空、只记 agent 自己声明的、绝不由 harness 发明方向)。对标 STAR-PólyaMath 的 Meta-Strategist 与 AlphaEvolve 的 parent+inspirations,且刻意规避 EMNLP-2025&#x27;全历史 dump 更差&#x27;的负结果(用有界 ledger+top-k 而非历史灌入)。全链 fail-soft 保证它即使全坏也只是退回今天的 planner 行为。</p></div>
+    </div>
+  </div>
+  <div class="caveats"><div class="lbl">⚠ 现状 / 局限(诚实标注)</div><ul><li>核心 ENFORCE 臂在生产中尚未真正生效:读 live <code>META_LEDGER.json</code>,即便 step_id 12 已触发过一次真实 jump,forbidden 仍是 []、coverage 仍是 {}——因为那一轮 planner 没有回填合法的 meta_decision(decision_valid=false, strategy_type=unknown)。&#x27;永不清空的 forbidden ledger&#x27;到目前为止没攒下任何东西,&#x27;拒绝回锚死 regime&#x27;这条防线尚未被真实演练过。</li><li>strategy_type 标注管道未在 live mission 落地:engineer 没有在 <code>summary.json</code> 写 strategy_type,导致 coverage={} 为空、多样性退回 _name_axis_proxy 名 token 兜底(代码自承会 over-count);于是判定实际退化为&#x27;frozen-only&#x27;(is_saturated 里 not labelled_any 分支生效)。</li><li>&#x27;harness WILL enforce / rejected before it spends 300s&#x27;目前只是 prompt 文案,没有对应 harness 代码真的拒绝或重问一个非法 jump 候选:parse_meta_decision 只置 valid=False+violations 并记日志,没有 re-ask 循环;record_decision 在 flow.mode==&#x27;jump&#x27; 时无条件 set_jump_pending(keyed 在 harness convene 而非裁决合法性,<code>flow_controller.py</code>:125)。</li><li>钩子只有 nanochat vertical 实现(search_altitude_facts / strategy_pool / strategy_type 指示);kernelbench 等其他 vertical 走 vertical_*_facts 的 fail-open {} 路径,meta 层在那些 vertical 上整体 no-op。</li><li>代码仍在 branch fix/planner-livelock-echo-chamber、commit 3fa41ec,未合入 main(按 MEMORY 它以 editable 安装在 daemon 上 live,但未 merge)。</li><li>context reset 是 consume-once:只有 jump 后的第一个 engineer 会话拿到被清空的 checkpoint;floor 的可恢复性依赖 attempts/ 目录仍在,reset 本身不持有 floor。</li><li>diversity 的&#x27;可信&#x27;判据完全建立在 agent 自报标签上:一旦 agent 乱填或不填 strategy_type,多样性信号要么失真要么失效,detect 层没有独立校验(刻意如此——避免 harness 替 agent 做研究判断,但也意味着标签质量是单点依赖)。</li></ul></div>
+  <a class="top-link" href="#top">↑ 回顶部</a>
+</section>
+<div class="band"><span class="bn">IV</span><h2>领域无关的笨管道</h2></div>
+
+<section id="harness-pipes" class="topic">
+  <div class="topic-head">
+    <h3>Harness 笨管道:预算 / 持久化 / 调度 / 结构化 I/O / 遥测</h3>
+    
+  </div>
+  <p class="oneliner">一组领域无关的&quot;笨管道&quot;——只做记账、落盘、加锁、结构化事件和心跳遥测,把所有科研判断(贵不贵、该不该停、有没有做完)留给 agent,自己绝不替它下结论。</p>
+  <div class="chips"><span class="chip">装饰器式 EventSink 链(cost→jsonl tee→下游)</span><span class="chip">append-only JSONL + 软上限滚动(journal/events/telemetry)</span><span class="chip">flock 单例锁(daemon.pid)与 token 互斥锁(sha256 命名)</span><span class="chip">cache-aware token 计价(cached 打一折)</span><span class="chip">按当地零点累计的日预算闸门(budget_pause,不杀任务)</span><span class="chip">/proc 心跳遥测 + secret 打码 + 只数行不拷内容</span></div>
+  <h4>它到底怎么转的</h4>
+  <ul class="how"><li>路径是单一事实源:<code>core/paths.py</code> 的 <code>global_root()</code> 按 ARGUS_SKILL_HOME → ARGUS_SKILL_LIFE_DIR(兼容旧 …/life 布局)→ ~/.argus-skill 顺序解析;每个项目按 fingerprint 落到 projects/&lt;fingerprint&gt;/(<code>project.md</code> / <code>memory.jsonl</code> / <code>events.jsonl</code> / daemon.pid 等);<code>resolve_runtime_path()</code> 用正则 _PATH_PLACEHOLDER_RE 检测未展开的 $VAR 并直接抛 PathResolutionError,不静默吞掉。</li>
+<li>定价是 cache-aware 的纯算术:<code>core/pricing.py</code> 的 <code>usd_for_tokens()</code> 把 input 拆成 cached/fresh,cached 部分按 in_price/10.0 计价((fresh*in + cached*in/10 + out*out)/1e6);<code>price_for()</code> 命中 DEFAULT_PRICES_USD_PER_MTOK 表,未知模型按是否含 &#x27;mini&#x27; 回退到 gpt-5.5/gpt-5.5-mini。</li>
+<li>成本计量靠装饰器 sink:<code>life/supervisor/_cost.py</code> 的 _CostTrackingSink 包住下游 EventSink,只在看到 round.main.completed / round.review.completed 时把 input/cached/output token 折进 engineer/reviewer 两路累加器,其余事件原样转发;<code>_usage_delta()</code> 还按 usage_scope==&#x27;cumulative&#x27; 用 _cumulative_usage_baselines 做差分,差分为负时退回当前值当成 fresh delta。</li>
+<li>预算是分层闸门但只硬卡日预算:<code>_config.py</code> 的 <code>LifeBudget.can_start()</code> 用 <code>remaining_today()</code>(= daily_cap_usd 减去 journal.total_cost_since(当地零点) 的累计 cost_usd)判断,够不够才放行;supervisor <code>_core.py</code> 的 <code>tick()</code> 不够就写一条 kind=&#x27;budget_pause&#x27; 的 JournalEntry、把 item 留在 PENDING、clean 退出等明天 rollover,而不是杀任务。</li>
+<li>每条 cost-bearing 的 journal 条目都被 <code>_inject_cumulative_cost()</code> 盖上 extra[&#x27;cumulative_cost_usd&#x27;](= total_cost_since(0) + 当前在飞成本),供 cockpit/通知读取;Journal(<code>life/memory.py</code>)是 append-only,<code>total_cost_since()</code> 带按文件签名的缓存,超过 50MiB 自动滚到 .1。</li>
+<li>分阶段花费是只读事实面:<code>life/stage_budget.py</code> 的 <code>compute_snapshot()</code> 扫 journal,把 cost_usd 按 stage tag(extra[&#x27;stage&#x27;] 或 &#x27;stage:&lt;name&gt;&#x27; tag,缺失则归 current_stage 或 &#x27;unknown&#x27;)聚合,某 stage 占比 ≥ DEFAULT_ADVISORY_FRACTION 时只生成一条 StageSpendSignal 文字劝告——明确不做 auto-quarantine(注释:那是 quality judgment,归 agent)。</li>
+<li>遥测是 daemon 自带心跳,补 LLM 静默期:<code>life/telemetry.py</code> 的 MissionTelemetryMonitor 起后台线程,每隔 interval 扫 workdir 下白名单目录的文件 size/mtime 增量、对 .jsonl 数新增行数(_count_newlines 从上次 offset seek),并用 <code>collect_descendant_processes()</code> 读 /proc 拿子进程;_redact_arg/_redacted_cmdline 对 argv 里的 token/key 打码;只 newline-count、从不拷贝文件内容,落 <code>telemetry.jsonl</code> + 原子替换 <code>telemetry.status.json</code>。</li>
+<li>事件总线是 tee 装饰器:<code>life/event_log.py</code> 的 JsonlEventSink 先调下游 handle_event(失败也吞掉绝不污染内存流),再把事件 append 到 <code>events.jsonl</code>,超过 ROLL_BYTES 滚一代到 <code>events.jsonl</code>.1;DROP_FROM_DISK 白名单把 idle 噪声(如 &#x27;backlog empty; exiting&#x27;)只留在内存 sink、不落盘;<code>_normalize()</code> 把不可序列化值 repr 截断而非崩溃。</li>
+<li>单例与互斥靠 flock:<code>core/daemon_lock.py</code> 的 <code>acquire_global_daemon_lock()</code> 对 bus/daemon.pid 取非阻塞 LOCK_EX,被占就抛 DaemonAlreadyRunning(带 holder pid),进程退出自动释放;<code>daemon/token_lock.py</code> 是另一把锁——按 sha256(token)[:24] 命名锁文件,保证同一个 Telegram token 不被两个 daemon 同时用,占用冲突时从 .json meta 读出 owner 报错。</li></ul>
+  <div class="grid2">
+    <div class="files">
+      <div class="lbl">关键文件(真实路径)</div>
+      <table><tr><td class="fp"><code>argus_skill/core/paths.py</code></td><td>全部 ~/.argus-skill/ 磁盘布局的唯一事实源;global_root/project_root/各 *_path 助手 + resolve_runtime_path 占位符校验。运行代码不许在别处硬编码路径。</td></tr>
+<tr><td class="fp"><code>argus_skill/core/pricing.py</code></td><td>硬编码 gpt-5.x 价目表 + <code>usd_for_tokens()</code> cache-aware 计价(cached input 打一折);唯一的 token→USD 换算点。</td></tr>
+<tr><td class="fp"><code>argus_skill/core/models.py</code></td><td>跨 loop 的 dataclass 契约(RunnerResult 带 token 计数、<code>ReviewDecision.to_event_payload()</code> 组装 round.review.completed 事件);harness 只搬结构化 I/O,不解释语义。多为 ArgusBot vendored。</td></tr>
+<tr><td class="fp"><code>argus_skill/core/ports.py</code></td><td>EventSink/RunnerBackend/ControlChannel 等 Protocol 端口;成本/事件/遥测 sink 都按 EventSink 协议互相装饰。</td></tr>
+<tr><td class="fp"><code>argus_skill/life/supervisor/_config.py</code></td><td>LifeBudget(per_mission_cap_usd/daily_cap_usd/max_missions)+ <code>can_start()</code>/<code>remaining_today()</code> 预算闸门;LifeSupervisorConfig 汇总所有 knob。</td></tr>
+<tr><td class="fp"><code>argus_skill/life/supervisor/_cost.py</code></td><td>_CostTrackingSink:装饰 EventSink 累加 engineer/reviewer token、cumulative→delta 差分、算 USD;只折账不改流。</td></tr>
+<tr><td class="fp"><code>argus_skill/life/supervisor/_core.py</code></td><td>把 cost_sink、telemetry_monitor 接到 <code>runner.execute()</code> 周围;<code>tick()</code> 里 budget_pause、<code>_inject_cumulative_cost()</code> 盖累计成本、<code>_lifecycle_budget_snapshot()</code> 估项目总预算。</td></tr>
+<tr><td class="fp"><code>argus_skill/life/stage_budget.py</code></td><td><code>compute_snapshot()</code>/StageSpendSignal:只读的分阶段花费事实 + 30% 占比劝告,不做任何自动处置。</td></tr>
+<tr><td class="fp"><code>argus_skill/life/telemetry.py</code></td><td>MissionTelemetryMonitor/TelemetryRecorder:daemon 心跳,扫文件增量+jsonl 行数+/proc 子进程,带 secret 打码,落 <code>telemetry.jsonl/status.json</code>。</td></tr>
+<tr><td class="fp"><code>argus_skill/life/event_log.py</code></td><td>JsonlEventSink:tee 任意 sink 到 <code>events.jsonl</code>,100MiB 滚一代,idle 噪声不落盘,磁盘故障静默不崩。</td></tr>
+<tr><td class="fp"><code>argus_skill/daemon/token_lock.py</code></td><td>基于 sha256(token)[:24] 命名 + flock 的 Telegram token 互斥锁,跨 daemon 防同 token 双开。</td></tr>
+<tr><td class="fp"><code>argus_skill/core/daemon_lock.py</code></td><td>全局 daemon 单例锁:对 bus/daemon.pid 取非阻塞 flock,被占抛 DaemonAlreadyRunning;含 is_pid_running/read_daemon_pid。</td></tr>
+<tr><td class="fp"><code>argus_skill/apps/cli/_core.py</code></td><td><code>_render_stage_budget_lines()</code>:把 compute_snapshot 的快照渲染进 --status cockpit——目前 stage_budget 的唯一消费点。</td></tr></table>
+    </div>
+    <div class="side">
+      <div class="nums"><div class="lbl">真实常量 / 锚点(读自代码)</div><ul><li>定价表(<code>pricing.py</code>:8-15):gpt-5.5 = (1.25, 10.0) USD/Mtok,mini = (0.25, 2.0);cached input 按 in_price/10.0 计(usd_for_tokens 第44行)</li><li>预算默认(<code>_config.py</code>:51-53):per_mission_cap_usd=30.0,daily_cap_usd=180.0,max_missions=6;<code>daemon/life_worker.py</code>:91-92 同样 30/180</li><li>planner 任务默认(<code>_config.py</code>:122-123):iteration_max_cycles=6,iteration_budget_usd=30.0;process_metacritic_cadence=12(:182)</li><li>stage_budget(<code>stage_budget.py</code>:37):DEFAULT_ADVISORY_FRACTION=0.30;KNOWN_STAGES = 8 个 stage(research/plan/benchmark/run/analysis/draft/review/submission)</li><li>项目总预算估算(<code>_core.py</code>:1170-1171):total = daily_cap * 30(近似一个月,代码注释自承是粗估)</li><li><code>event_log.py</code>:34:ROLL_BYTES=100 MiB,只留一代 <code>events.jsonl</code>.1;多进程靠 PIPE_BUF=4KiB 内 append 原子(:22-23)</li><li>Journal(<code>memory.py</code>:285):ROTATE_BYTES=50 MiB 滚到 .1</li><li>遥测默认(<code>telemetry.py</code>):心跳 10.0s(最低 1.0s)、max_files=2000、scan 预算 0.5s、max_procs=50、jsonl 初次计数上限 5MiB / 增量 4MiB、recent_window=30min、每次最多报 12 个变更文件</li><li><code>token_lock.py</code>:72:锁文件名 = sha256(token)[:24];meta 写 .json 记 owner</li></ul></div>
+      <div class="matters"><div class="lbl">为什么重要</div><p>这是&quot;harness 没有 agent 聪明&quot;这条核心哲学最干净的落地面:整层只做领域无关的笨活——记账、落盘、加锁、结构化 I/O、心跳——任何会变成&quot;替 agent 判断&quot;的诱惑都被显式拒绝(stage_budget 只发劝告不 quarantine、预算超标只 pause 不杀、遥测只数行不读内容)。对新同事的意义:看懂这层就知道 Argus 的&quot;反作弊/可审计&quot;底线在哪(append-only journal、<code>events.jsonl</code> 单一 replay 面、单例锁防双开、argv 打码),也知道哪些代码碰了要小心——它是所有上层 agent 判断赖以成立的、必须诚实可信的管道地基。</p></div>
+    </div>
+  </div>
+  <div class="caveats"><div class="lbl">⚠ 现状 / 局限(诚实标注)</div><ul><li>stage 归因很粗:compute_snapshot 的 docstring 自承,大多数 cost 条目不带 stage tag,只能塞给 current_stage 或 unknown;真正的分阶段归因需要在每条 cost 条目写入显式 stage——尚未做到。read_pipeline_stage 还依赖 <code>research/PIPELINE_STATE.json</code>,文件不在就返回 None。</li><li>stage_budget 目前只在 CLI --status(_render_stage_budget_lines)被消费,纯只读劝告、无任何执行点;KNOWN_STAGES 这个 8 元组定义了却没在 compute_snapshot 里真正用来过滤。</li><li>_lifecycle_budget_snapshot 把项目总预算近似成 daily_cap*30,是个写死的一个月启发式,不是真实项目预算。</li><li>价目表是写死的 gpt-5.x 系列,无在线价源;未知模型静默回退 gpt-5.5 或按子串 mini 猜,可能算错钱。</li><li>per_mission_cap_usd 不是硬拒:can_start 明确不因 item 超 per-mission cap 而拒绝(只卡日预算),真正的 clamp 在别处(_effective_per_mission_cap),所以单 mission 上限是软的。</li><li>遥测是 Linux-only(靠 /proc),其它平台 collect_descendant_processes 返回空进程列表;jsonl 行数在初次&gt;5MiB / 增量&gt;4MiB 时直接跳过计数(line_count_skipped)。</li><li>token_lock 的报错信息写死成 Telegram token is already in use,但它其实是通用 token 锁,文案误导。</li><li>event_log 多进程并发安全只在单条 write ≤ PIPE_BUF(4KiB)时成立;超长事件行跨进程可能交错(代码靠刻意保持行短规避,无强校验)。</li><li><code>paths.py</code> 里 bus/(commands/outbox/status/daemon.pid)、journal_path、mission_root 等是 legacy 兼容助手,docstring 注明已不在 live REPL 路径上,新同事别当现役接口用。</li></ul></div>
+  <a class="top-link" href="#top">↑ 回顶部</a>
+</section>
+
+<section id="codex-backend" class="topic">
+  <div class="topic-head">
+    <h3>codex-backend:把 gpt-5.5 CLI 包成可插拔后端的笨管道</h3>
+    
+  </div>
+  <p class="oneliner">一个领域无关的 RunnerBackend 适配器,把 argus 的「跑一轮 LLM」翻译成对 codex/claude/copilot CLI 子进程的一次调用,负责命令拼装、JSON 事件流解析、token 计费、看门狗与 auth 失效检测,不掺任何科研判断。</p>
+  <div class="chips"><span class="chip">RunnerBackend Protocol(插座)</span><span class="chip">CLI 方言拼装(codex/claude/copilot)</span><span class="chip">JSON 事件流解析</span><span class="chip">running-total 转 per-call token 增量</span><span class="chip">auth 失效与瞬态重连护栏</span><span class="chip">soft/hard idle 看门狗 + external interrupt</span></div>
+  <h4>它到底怎么转的</h4>
+  <ul class="how"><li>插座抽象:整个 loop 只依赖 <code>argus_skill/core/ports.py</code> 里的 RunnerBackend Protocol(唯一方法 run_exec(*, prompt, options, run_label, resume_thread_id)),engineer 和 reviewer 都调它。CodexRunnerBackend(<code>adapters/codex_backend.py</code>)是真实实现,MemoryBackend 是测试用确定性实现。</li>
+<li>包装而非重写:CodexRunnerBackend.__init__ 通过 <code>_import_argusbot()</code> 懒加载并实例化 vendored 的 codex_autoloop.codex_runner.CodexRunner,注入 backend(codex/claude/copilot)、event_callback、default_extra_args、before_exec;每次 run_exec 都 spawn 一个全新子进程(同一实例串行安全,不可并发)。</li>
+<li>三段翻译:run_exec 先用 _translate_options 把 core.models.RunnerOptions 映射成底层 RunnerOptions(转发 model、reasoning_effort、dangerous_yolo/full_auto、watchdog 阈值、interrupt provider),调底层 run_exec 得到 CodexRunResult,再用 _translate_result 映射回 core 的 RunnerResult。</li>
+<li>命令拼装是方言核心:CodexRunner._build_codex_command 生成 codex exec [resume] --json [-m MODEL] [-c model_reasoning_effort=EFFORT] [--dangerously-bypass-approvals-and-sandbox 或 --full-auto] [--skip-git-repo-check] [--output-schema PATH] &lt;extra_args&gt; [THREAD_ID] 末尾再加一个 - ;prompt 永远走 stdin,避免多行 prompt 出现在进程列表里。</li>
+<li>reasoning_effort 落地:codex 后端把 effort 原样透传给 -c model_reasoning_effort(<code>codex_runner.py</code>:294),所以 xhigh 是原样给 gpt-5.5;claude 后端在 _build_claude_command 把 xhigh 降级成 high(<code>codex_runner.py</code>:326),copilot 用 --reasoning-effort 原样传。</li>
+<li>事件流解析:子进程 stdout/stderr 各开一个 daemon 线程灌进 line_queue,主循环按行 _parse_json_line 后交给 _consume_codex_event,识别 thread.started(取 thread_id)、item.completed 的 agent_message(收集 agent_messages)、turn.completed、turn.failed/error(填 fatal_error),最终打包成 CodexRunResult。</li>
+<li>token 计费 best-effort:_sum_token_counts 不累加而是取最后一个带 token 的事件(codex 发的是 running total),兼容 0.121+ 的 usage 嵌套、老版顶层字段、更老的 msg/content 嵌套;_usage_delta_for_thread 再按 thread_id 把生命周期累计换算成本次调用增量(resume 续接同线程时减上次累计,出现负值就当全新增量)。</li>
+<li>7x24 生存性护栏:run_exec 失败(exit_code 非 0)且 stderr 命中 looks_like_auth_failure 的子串模式时,只置 self._auth_failure_detected 并打 warning(让 daemon 不整夜空转失败 mission);_normalize_fatal_error 把 reconnecting N/M 这类瞬态重连当非致命丢弃。</li>
+<li>看门狗与中断:底层主循环用 soft_idle(配 inactivity_callback,返回 restart 就 terminate)+ hard_idle(超时强制 terminate)+ external_interrupt_reason_provider(被外层 supervisor 轮询,返回原因就 terminate)三路控制子进程;_terminate_process 走 terminate→wait(10s)→kill→wait(5s) 兜底 D 状态卡死。</li></ul>
+  <div class="grid2">
+    <div class="files">
+      <div class="lbl">关键文件(真实路径)</div>
+      <table><tr><td class="fp"><code>argus_skill/adapters/codex_backend.py</code></td><td>CodexRunnerBackend:RunnerBackend 的真实实现,包装 vendored CodexRunner;含选项/结果翻译、_sum_token_counts、_usage_delta_for_thread、looks_like_auth_failure、_normalize_fatal_error、_strip_legacy_codex_profile_args、build_codex_backend_from_env 工厂。</td></tr>
+<tr><td class="fp"><code>argus_skill/codex_autoloop/codex_runner.py</code></td><td>vendored 底层 CLI 驱动:CodexRunner.run_exec 拼命令、spawn 子进程、双线程读流、JSON 事件解析、soft/hard 看门狗;_build_codex/claude/copilot_command 处理三种方言,_consume_*_event 解析各自事件。</td></tr>
+<tr><td class="fp"><code>argus_skill/codex_autoloop/runner_backend.py</code></td><td>后端枚举:BACKEND_CODEX/CLAUDE/COPILOT,DEFAULT_RUNNER_BACKEND=codex,normalize_runner_backend、default_runner_bin、backend_label。</td></tr>
+<tr><td class="fp"><code>argus_skill/codex_autoloop/models.py</code></td><td>CodexRunResult dataclass(command/exit_code/thread_id/agent_messages/json_events/stdout_lines/stderr_lines/turn_completed/turn_failed/fatal_error + last_agent_message 属性)及 Review/Plan 结果模型。</td></tr>
+<tr><td class="fp"><code>argus_skill/core/ports.py</code></td><td>RunnerBackend Protocol 定义(run_exec 签名),整个 loop 的依赖边界,engineer/reviewer 只认这个接口。</td></tr>
+<tr><td class="fp"><code>argus_skill/core/models.py</code></td><td>argus 侧 RunnerOptions(model/reasoning_effort/watchdog/external_interrupt_reason_provider)与 RunnerResult(exit_code/agent_messages/thread_id/fatal_error/input_tokens/cached_input_tokens/output_tokens)。</td></tr>
+<tr><td class="fp"><code>argus_skill/codex_autoloop/_VENDORED.md</code></td><td>声明此目录是 ArgusBot 0.1.0 的 vendored 拷贝,上游所有权、勿直接改、补丁走 adapter 子类/wrapper。</td></tr>
+<tr><td class="fp"><code>argus_skill/loop.py</code></td><td>SkillLoopConfig 默认 scientist/engineer_model=gpt-5.5、各 reasoning_effort 默认 high、max_rounds=500;经 EngineerConfig/ReviewerConfig 把 model/effort 传到 backend。</td></tr>
+<tr><td class="fp"><code>argus_skill/core/pricing.py</code></td><td>DEFAULT_PRICES_USD_PER_MTOK 里 gpt-5.5=(1.25,10.0) 等单价;配合 backend 算出的 token 做计费。</td></tr>
+<tr><td class="fp"><code>tests/test_codex_backend.py</code></td><td>覆盖选项/结果翻译、reconnect 归一化、FileNotFound/通用异常兜底、6 种 token 提取形态、看门狗钩子转发、resume 累计→增量、env 工厂与 legacy profile 剥离。</td></tr></table>
+    </div>
+    <div class="side">
+      <div class="nums"><div class="lbl">真实常量 / 锚点(读自代码)</div><ul><li>默认模型 gpt-5.5:<code>loop.py</code>:54-55(scientist/engineer)、<code>daemon/life_worker.py</code>:85-87、<code>supervisor/_core.py</code>:200-201</li><li>reasoning effort 默认 xhigh 来自 operator 的 ~/.<code>codex/config.toml</code>(model_reasoning_effort=xhigh, model=gpt-5.5, model_provider=codex),不在 repo 内;repo 侧 SkillLoopConfig 默认是 high(<code>loop.py</code>:58-61)</li><li>xhigh→high 降级仅发生在 claude 后端(<code>codex_runner.py</code>:326);codex 后端原样透传 -c model_reasoning_effort=xhigh(<code>codex_runner.py</code>:294)</li><li>adapter 看门狗默认:soft idle=0(禁用)、hard idle=3600s(_RUNNER_DEFAULT_HARD_IDLE_SECONDS=60*60,<code>codex_backend.py</code>:58-59)</li><li>子进程读流轮询 0.25s(<code>codex_runner.py</code>:165);终止序列 terminate→wait 10s→kill→wait 5s(<code>codex_runner.py</code>:659-669)</li><li>gpt-5.5 单价 (1.25, 10.0) USD/百万 token,gpt-5.5-mini (0.25, 2.0)(<code>pricing.py</code>:9-10)</li><li>max_rounds 默认 500(<code>loop.py</code>:62)</li></ul></div>
+      <div class="matters"><div class="lbl">为什么重要</div><p>这是设计哲学「harness 没有 agent 聪明」在 I/O 边界上的最纯粹体现:codex-backend 是一根彻底的笨管道,只做命令拼装、子进程驱动、事件解析、token 记账和生存性护栏(auth 失效、瞬态重连、看门狗),从不读 agent 输出内容去二次判断或喂结论。它把「用哪个 CLI / 哪个模型 / 多大 reasoning effort」做成一个可插拔的 RunnerBackend Protocol,让上层 engineer/reviewer/planner 完全 backend-agnostic——换 claude/copilot、调 xhigh 写 kernel、resume 线程,都只是改 options,不动 loop。对新同事的意义:要理解 argus 怎么真的去调一次 LLM,入口就在这里;排查 token 计费、卡顿重启、token 过期,改的也都在这一层(且底层 codex_runner 是 vendored 上游,补丁只能落在 adapter 包装层)。</p></div>
+    </div>
+  </div>
+  <div class="caveats"><div class="lbl">⚠ 现状 / 局限(诚实标注)</div><ul><li>底层 codex_autoloop 是 vendored 的 ArgusBot 0.1.0(<code>_VENDORED.md</code>),上游所有权、明确禁止直接编辑,任何修复必须落在 <code>argus_skill/adapters/codex_backend.py</code> 的 wrapper/子类里——所以后端抽象的下半层不是本项目自己维护的代码。</li><li>文档与代码不一致:build_codex_backend_from_env 的 docstring 写 hard idle 默认 900s,但常量 _RUNNER_DEFAULT_HARD_IDLE_SECONDS 实际是 60*60=3600s(<code>codex_backend.py</code>:59),以代码为准。</li><li>token 计费是 best-effort:无可计 token 事件时返回 (0,0,0);模块 docstring 明确 loop 从不在 token 数上分支,所以这些数字只用于计费/展示,不参与控制流,别当成精确账。</li><li>reasoning effort xhigh 的语义只对 codex 后端有保证(原样透传给 gpt-5.5);claude 被降级成 high,copilot 用 --reasoning-effort 原样传但 CLI 是否支持 xhigh 未在本仓库验证。</li><li>auth 失效检测是 stderr 子串模式匹配(_AUTH_FAILURE_PATTERNS,含 401/unauthorized 等),且只在 exit_code 非 0 时触发;Azure 偶发的瞬态 401 在成功 run 里会被有意忽略——属启发式,可能漏报/误报。</li><li>CodexRunner.run_exec 阻塞且单实例非并发安全(类 docstring 明示);要并发 matcher+scientist+engineer 得各用独立 CodexRunnerBackend 实例。</li><li>gpt-5.5 作为默认模型名在多处硬编码(loop/daemon/supervisor/setup/vault),真实后端走 <code>config.toml</code> 的 model_provider=codex 代理;模型名与实际 endpoint 的绑定不在本子系统内。</li></ul></div>
+  <a class="top-link" href="#top">↑ 回顶部</a>
+</section>
+<div class="band"><span class="bn">V</span><h2>诚信护栏</h2></div>
+
+<section id="anticheat-integrity" class="topic">
+  <div class="topic-head">
+    <h3>反作弊与 Benchmark 完整性护栏（anticheat-integrity）</h3>
+    
+  </div>
+  <p class="oneliner">Argus 唯一正当的&quot;硬规则&quot;层：用结构闸（structural）硬挡造假与溯源断裂，用顾问闸（advisory）只把事实摆给 reviewer，研究质量裁决永不由 harness 代劳。</p>
+  <div class="chips"><span class="chip">结构闸 vs 顾问闸（structural/advisory，kind 驱动退出码）</span><span class="chip">证据链 claim→evidence→bundle→BUILD_INFO（F4）</span><span class="chip">污染 bundle 标记 + 历史状态白名单</span><span class="chip">verifier 重跑 = 唯一可信 reward（自报永不算数）</span><span class="chip">实事求是 ground-truth 前置门</span><span class="chip">no-op/重复 condition 检测</span></div>
+  <h4>它到底怎么转的</h4>
+  <ul class="how"><li>两层闸门是整个子系统的骨架（<code>argus_skill/skills/automated_gates.py</code>）：GateResult.kind 把闸分成 structural（反作弊/溯源，失败经 is_blocking / any_blocking_failure 计入退出码、硬挡这一 round）和 advisory（只把数字塞进 reviewer 的 prompt，passed 恒为 True、永不挡）。STAGE_GATES 是 stage→该跑哪些 gate 的映射，GATE_KINDS 是 structural/advisory 的唯一真值源。文件 docstring 直接写明设计哲学并记录历史教训：c6b11d3 曾把研究质量阈值（min_delta=0.02、min_families&gt;=3）硬编进退出码、让 harness 偷偷做质量裁决，已在 review 中被否。</li>
+<li>证据链 F4（<code>evidence_chain.py</code>，validate_evidence_chain）：读 <code>paper/claims_to_evidence.tsv</code>，每条 claim 的 evidence_* 列必须落到 (1) 真实存在的 evidence 文件、(2) 带 <code>BUILD_INFO.md</code> 的 bundle 目录（_bundle_root_for 识别 benchmarks/evidence/&lt;bundle&gt; 或 experiments/&lt;run&gt;）、(3) 非污染 bundle。_bundle_is_tainted 扫 BUILD_INFO/PLAN/RESULTS/EXEMPT 里的 _TAINTED_MARKERS（TAINTED / DO NOT CITE）；只有 status ∈ _HISTORICAL_STATUSES（historical_only/broken_current_evidence/removed）的 claim 才准引污染 bundle，否则报 tainted_bundle_cited。这是 draft/analysis 阶段会硬挡的结构闸。</li>
+<li>反&#x27;假完成&#x27;（<code>run_evidence_health.py</code>，validate_run_evidence_health）：<code>summary.tsv</code> 的 n_errored_trials 不统计 verifier 端 LLM 调用失败，所以 _scan_ctrf 递归遍历每个 bundle 的 jobs/raw/**/<code>verifier/ctrf.json</code> 找 raw_status == &#x27;call_failed&#x27;，某 bundle 的 call_failed 占比 ≥ MAX_CALL_FAILED_FRACTION(0.25) 就 block。docstring 记真实案例：29 个 ctrf 里 7 个（24%）call_failed，<code>summary.tsv</code> 却对全部 12 个任务报 accepted=True / reward=1。</li>
+<li>审计存在性闸（<code>experiment_audit_gate.py</code>，validate_experiment_audit）：结构而非打分——只强制 paper/EXPERIMENT_AUDIT.{md,json} 存在、机器可读、覆盖 REQUIRED_CHECK_KEYS 五项（gt_provenance / score_normalization / result_existence / dead_code / scope）加 eval_type 分类；读 auditor 字段防手改 PASS（可追溯到真实 reviewer 路由），读 integrity_status 但刻意不评判 pass/warn/fail 本身——裁决权归 reviewer。</li>
+<li>no-op 检测（<code>method_differentiation.py</code>，validate_method_differentiation）：抓&#x27;proposed 方法其实和 baseline 一模一样&#x27;。diff 两个 condition 的 <code>config_snapshot.json</code> + 聚合 reward：完全相同命令两套标签 = duplicate_condition（analysis 阶段才升 structural 硬挡）；只换 reward 函数名且 reward_mean/frac_reward_zero_std 统计不可区分 = no_op_suspected（永远 advisory，因为 train-reward 等价不证明 held-out 无差，留给 reviewer）。docstring 记真实 CV-GRPO 案例：compute_score_cv = base*confidence，confidence≈1.0 使提案 reward≈vanilla。</li>
+<li>实事求是前置门（<code>ground_truth.py</code>，ground_truth_mandate(role)）：给 planner/engineer/reviewer 注入共享 mandate——把写出 <code>research/GROUND_TRUTH.md</code>（GROUND_TRUTH_RELPATH）当 mission 第一交付物且是 GATE，优化/搭建前必须先写实测的目标/现状/binding constraint；每条结论必须追溯到亲自观察，reviewer 不信 handoff、自验（_ROLE_SLANTS）。该模块刻意任务无关，不硬编任何 benchmark/硬件/metric。</li>
+<li>反作弊&#x27;原则&#x27;落在 vertical 清单 prose（<code>verticals/speedrun/stages.py</code>）：setup.heldout_val 明确把&#x27;靠编码已知 eval 分布（baking in fixed statistics of the test inputs）而不是真算结果&#x27;判为 reward hack / disqualified；role_banner 的 ANTI-CHEAT(HARD) 禁止开 modded-nanogpt 排行榜或本任务已发布最优解（general method 允许，this task&#x27;s published solution = DISQUALIFYING）。这些是 reviewer 读的清单文字，不是可执行检查。</li>
+<li>唯一可信 reward = verifier 重跑：speedrun measure.repeat_mean_metric 与 <code>life/research_profile.py</code> 的 anti-cheat 条款都规定 agent 自报的 &#x27;val_bpb:&#x27; 行永不算 reward，只有 verifier 在同协议下重跑 frozen scorer 的数才算；自报与 verifier 冲突一律以 verifier 为准。frozen/editable 边界（只能改 solution，harness/scorer/metric/budget byte-identical）由 reviewer 用 hash/git diff 核（setup.solution_self_contained），不是包内自动 gate。</li>
+<li>接线（<code>tools/stage_check.py</code>）：调 run_stage_gates(root, stage=...)，遍历结果——structural 失败累加进 structural_block 计入退出码、advisory 只打印 📋 不计；退出码就是这一 round 能否前进的硬信号。CLI <code>_core.py</code> 也走同一入口。</li></ul>
+  <div class="grid2">
+    <div class="files">
+      <div class="lbl">关键文件(真实路径)</div>
+      <table><tr><td class="fp"><code>argus_skill/skills/automated_gates.py</code></td><td>子系统中枢：GateResult(kind/passed/is_blocking)、STAGE_GATES、GATE_KINDS、run_stage_gates、any_blocking_failure；structural vs advisory 两层闸的定义与路由，docstring 写明&#x27;harness 没有 agent 聪明&#x27;哲学与 c6b11d3 被否史。</td></tr>
+<tr><td class="fp"><code>argus_skill/skills/evidence_chain.py</code></td><td>F4 硬合同：claim→evidence→bundle→BUILD_INFO 链校验；_TAINTED_MARKERS、_HISTORICAL_STATUSES、_bundle_is_tainted、_bundle_root_for；防引用污染/历史 bundle 与悬空 claim。</td></tr>
+<tr><td class="fp"><code>argus_skill/skills/run_evidence_health.py</code></td><td>扫 <code>ctrf.json</code> 的 raw_status==&#x27;call_failed&#x27;，阈值 MAX_CALL_FAILED_FRACTION=0.25；防 verifier 调用失败被 <code>summary.tsv</code> 掩盖成 reward=1 的假完成。</td></tr>
+<tr><td class="fp"><code>argus_skill/skills/experiment_audit_gate.py</code></td><td>实验审计产物存在性/结构闸：REQUIRED_CHECK_KEYS 五项 + eval_type + auditor 字段；只验产物存在与结构，不评判审计结论本身。</td></tr>
+<tr><td class="fp"><code>argus_skill/skills/method_differentiation.py</code></td><td>no-op/未差异化处理检测：duplicate_condition(structural@analysis) 与 no_op_suspected(always advisory)；CV-GRPO confidence≈1.0 真实案例。</td></tr>
+<tr><td class="fp"><code>argus_skill/skills/ground_truth.py</code></td><td>ground_truth_mandate(role)：实事求是前置门，<code>research/GROUND_TRUTH.md</code> 为第一交付物且 GATE；任务无关、不硬编 benchmark/硬件。</td></tr>
+<tr><td class="fp"><code>argus_skill/verticals/speedrun/stages.py</code></td><td>反作弊原则的 prose 载体：setup.heldout_val 把硬编码已知 eval 输入统计量判为 reward hack；role_banner ANTI-CHEAT(HARD) 禁开本任务已发布解/排行榜；measure 强调 verifier 重跑均值。</td></tr>
+<tr><td class="fp"><code>argus_skill/tools/stage_check.py</code></td><td>把 gate 接进 round 退出码的接线点：run_stage_gates → structural_block 计入 exit code，advisory 只打印不挡。</td></tr>
+<tr><td class="fp"><code>argus_skill/life/research_profile.py</code></td><td>nanochat 任务的 anti-cheat/anti-fabrication reward 条款（自报永不算数、verifier 同协议重跑为准、禁污染 held-out shard_06542）——prose 形态。</td></tr></table>
+    </div>
+    <div class="side">
+      <div class="nums"><div class="lbl">真实常量 / 锚点(读自代码)</div><ul><li>MAX_CALL_FAILED_FRACTION = 0.25（<code>run_evidence_health.py</code>:35）；真实案例 29 个 ctrf 里 7 个=24% call_failed，<code>summary.tsv</code> 却 12 任务全 reward=1（同文件 docstring）</li><li>REQUIRED_CHECK_KEYS 共 5 项：gt_provenance/score_normalization/result_existence/dead_code/scope（<code>experiment_audit_gate.py</code>:30）</li><li>reviewer_simulation 结构下限 ≥10 个问题且每个须被回应（<code>automated_gates.py</code> STAGE_GATES 注释）</li><li>paper_structural_minimums 阈值刻意远低于 EMNLP（注释举例：要求 8 cites，真实论文 35+），故只挡真正残破的 draft</li><li>evidence_chain 污染标记 = TAINTED / DO NOT CITE（_TAINTED_MARKERS）</li><li>历史判例：c6b11d3 曾把 min_delta=0.02 / min_families&gt;=3 硬编进退出码，被 review 否决（<code>automated_gates.py</code> docstring）</li><li>kernelbench mission（mission scaffold，非 repo）：SOL 0.5=eager、1.0=硬件极限，torch.compile mean SOL=0.547，近期目标 0.70，correctness atol=rtol=1e-2/5 trials（<code>kernelbench-mission-b200/MISSION.md</code>）</li><li>nanochat mission anti-cheat：自报 &#x27;val_bpb:&#x27; 行永不算 reward，只有 verifier 同协议（N seeds / 300s budget / held-out shard）重跑才算（<code>life/research_profile.py</code>:443+）</li></ul></div>
+      <div class="matters"><div class="lbl">为什么重要</div><p>这是 operator 头号要求&#x27;绝对诚实&#x27;在代码里的落点：唯一正当的硬规则就是反造假护栏。两层闸把&#x27;挡 round 的权力&#x27;严格限定在结构/溯源造假（断链、引污染 bundle、verifier 调用失败、产物缺失、命令重复的伪 method），而&#x27;够不够好/Δ够不够大&#x27;这类研究质量判断永远归 agent/reviewer——c6b11d3 把质量阈值塞进退出码即被否，正是这条边界的判例。它服务于复现 Recursive 时的核心承诺：报出来的每个数都能追到真实公开 benchmark + verifier 同协议重跑，不让作弊或抖动刷出来的数冒充结果，也不让 harness 越权替 agent 当大脑。</p></div>
+    </div>
+  </div>
+  <div class="caveats"><div class="lbl">⚠ 现状 / 局限(诚实标注)</div><ul><li><code>CLAUDE.md</code> 举例的&#x27;eval 输入每次随机仿射防硬编码统计量&#x27;在本仓库内并未实现：全仓库 grep affine/randomiz 无命中。仓库里对应的只是 reviewer 清单 prose（speedrun setup.heldout_val + commit b1d7000 把&#x27;硬编码已知 eval 输入统计量&#x27;显式判为 reward hack），靠 reviewer 判断，不是自动的输入随机化。kernelbench 的 &#x27;affine&#x27; 指 SOL 评分本身是仿射（0.5=eager,1.0=hw limit），与&#x27;随机仿射输入&#x27;无关。</li><li>frozen-harness/hash-diff 防篡改、frozen scorer=唯一可信 reward，同样是 reviewer prose + 每个 mission 自带的 scorer 脚本（如 kernelbench <code>MISSION.md</code> 的 &#x27;Frozen server-side, you cannot see or touch&#x27;、<code>sol_scorer.py</code>），argus_skill 包本身不算 hash、不跑 scorer、也不强制 byte-identical 校验。</li><li>结构闸大多是 research 论文/RL-evidence 形状：evidence_chain 扫 <code>paper/claims_to_evidence.tsv</code>、run_evidence_health 扫 benchmarks/evidence/**/<code>ctrf.json</code>、experiment_audit 要 <code>paper/EXPERIMENT_AUDIT.json</code>。对无 paper、无 RL bundle 的 kernel/nanogpt speedrun 任务，这些闸基本是 no-op；speedrun 的反作弊几乎全靠 reviewer prose + frozen mission scorer，而非这些自动 gate。</li><li>rl_training_plots 与 method_differentiation 是 dual-kind：GATE_KINDS 里登记的是&#x27;最强形态&#x27;，真正的 kind 由每次调用内部（_run_* 的 structural 参数）决定——注释明确写 per-call kind 才是 source of truth，直接读 GATE_KINDS map 会误判其是否阻塞。</li><li>experiment_audit / reviewer_simulation 等只验&#x27;产物存在且结构完整&#x27;，不验内容真假：一个 auditor 字段填好、五个 check 都 status=pass 的 JSON 即可过闸——审计结论真不真仍只由 reviewer 背书。这是刻意设计，但意味着闸本身挡不住&#x27;结构完整的假审计&#x27;。</li></ul></div>
+  <a class="top-link" href="#top">↑ 回顶部</a>
+</section>
+
+<section id="research-factory-gates" class="topic">
+  <div class="topic-head">
+    <h3>Research-Factory 质量门:结构门拦造假,建议门交 reviewer 判好坏</h3>
+    
+  </div>
+  <p class="oneliner">一组按 pipeline stage 触发的 per-round 检查:F4 证据链等&quot;结构门&quot;查造假/断链、失败直接卡退出码;F3 反平庸等&quot;建议门&quot;只把事实摊给 reviewer、永不阻塞;F5 项目生命周期状态机管调度/隔离——commit c6b11d3 后核心是把&quot;判作弊&quot;留给 harness、把&quot;判科研好坏&quot;全部还给 agent。</p>
+  <div class="chips"><span class="chip">结构门 vs 建议门(GateResult.kind 驱动退出码)</span><span class="chip">claim→evidence→bundle→BUILD_INFO 证据链</span><span class="chip">污染 bundle 标记 + 历史状态豁免</span><span class="chip">状态机隔离 + 持久态跨重启(lifecycle.json sidecar)</span><span class="chip">no-op/重标签 treatment 检测(config diff + 奖励分布等价)</span><span class="chip">advisory 时间信号取代硬超时</span></div>
+  <h4>它到底怎么转的</h4>
+  <ul class="how"><li>两类门的分法是整个子系统的轴心:<code>automated_gates.py</code> 的 GateResult.kind 只有 structural / advisory 两种。structural+passed=False 才进退出码(GateResult.is_blocking 返回 kind==&#x27;structural&#x27; and not passed);advisory 一律被 runner 强制 passed=True、只把 detail 文本喂给 reviewer。<code>any_blocking_failure()</code> 只统计 structural 失败。</li>
+<li>stage→门 的路由表是 <code>automated_gates.py</code> 里的 STAGE_GATES dict:research/plan/benchmark 不挂门;run 挂 mediocrity_finding+run_evidence_health+rl_training_plots+rl_training_health+method_differentiation(全建议);analysis 加上 evidence_chain+experiment_audit;draft/review/submission 挂 evidence_chain+paper_structural_minimums+exemplar_grounding 等。<code>run_stage_gates()</code> 按表逐个调 _run_* 包装函数生成 GateResult。</li>
+<li>接线点是 <code>tools/stage_check.py</code>:它在自己的 shell-check 之后 import run_stage_gates 并调用,proposed/baseline condition 从环境变量 ARGUS_SKILL_PROPOSED_CONDITION / ARGUS_SKILL_BASELINE_CONDITION 取;最终退出码 total_failed = shell failed + structural_block + blocked_state_fail,advisory_count 只打印不计分——daemon 每个 engineer round 默认 check 都会跑到这套门。</li>
+<li>F4 evidence_chain(结构门,<code>evidence_chain.py</code>)验证 claim→evidence→bundle→BUILD_INFO 链:读 <code>paper/claims_to_evidence.tsv</code>,_evidence_columns 用正则抓 evidence_1/evidence_2... 列;每条 evidence 路径必须存在(否则 evidence_path_missing);_bundle_root_for 判定只有 benchmarks/evidence/&lt;bundle&gt; 或 experiments/&lt;run&gt; 下的文件才强制 <code>BUILD_INFO.md</code>(否则 bundle_missing_build_info)。validate_evidence_chain 返回 ChainReport.ok=无 issue,<code>main()</code> 据此退出 0/1。</li>
+<li>F4 反污染:_TAINTED_MARKERS=(&#x27;TAINTED&#x27;,&#x27;DO NOT CITE&#x27;,&#x27;do not cite&#x27;) 在 <code>BUILD_INFO.md/PLAN.md/RESULTS.md/EXEMPT.md</code> 里扫;非历史 claim 引污染 bundle 报 tainted_bundle_cited。只有 status ∈ _HISTORICAL_STATUSES={historical_only,broken_current_evidence,removed} 的 claim 才被允许引污染/历史 bundle——这就是它拦的造假:别拿被标坏的证据去撑当前结论。</li>
+<li>F3 anti_mediocrity(建议门,<code>anti_mediocrity.py</code>)post-c6b11d3 已被改成纯事实提取器:<code>collect_mediocrity_finding()</code> 扫 benchmarks/evidence/*/<code>summary.tsv</code> 里 row_kind==&#x27;aggregate&#x27; 的行成 AggregateRow,算 best_proposed_reward / best_baseline_reward / proposed_minus_baseline 三个属性,提取 dataset_id 当 benchmark 家族数——但绝不拿任何数字跟阈值比、不出 pass/fail。MediocrityFinding.ok 只代表 I/O 读成功,CLI 仅在读不到证据时退 1。</li>
+<li>F5 project_lifecycle(状态机,<code>life/project_lifecycle.py</code>)用 ProjectState 枚举(incubating/running/writing/quarantined/done/archived)。<code>decide_next_state()</code> 是纯函数、优先级:终态不动→有 submission artifact 转 done→花掉预算≥quarantine_budget_fraction 且无 draft 则 quarantine→自然推进(出现首个 evidence:incubating→running;有 draft:running→writing)。<code>infer_observable_status()</code> 从项目树读信号:目录 mtime=created_at、benchmarks/evidence/ 最新 mtime=last_evidence_at、<code>paper/main.tex</code>=has_draft、paper/main.pdf=has_submission_artifact,外加 <code>research/PIPELINE_STATE.json</code> 的 current_stage 作二级信号。</li>
+<li>F5 真接进了 supervisor:<code>life/supervisor/_core.py</code> 每 tick 调 infer_observable_status + apply_persisted_to_status(持久态优先,quarantine 跨重启不丢)+ decide_next_state;若 is_token_allocatable(status) 为假(即 quarantined/done/archived)就 return {&#x27;status&#x27;:&#x27;lifecycle_block&#x27;,...} 拦掉这次 dispatch、不给 token。状态持久到 &lt;memory_root&gt;/<code>lifecycle.json</code>(<code>project_lifecycle_io.py</code>,history 截断 _HISTORY_MAX=200)。</li>
+<li>method_differentiation(no-op 检测,<code>method_differentiation.py</code>)抓&#x27;提出的方法跟 baseline 根本没差别&#x27;这种合规造假:每对(proposed,baseline)condition 读各自 runs/&lt;run&gt;/<code>config_snapshot.json</code> 的 command argv(_parse_config_args 拍平成 key=value),用 _NOISE_KEY_RE 滤掉 infra/吞吐/IO 噪声键后做 diff,再比 <code>status.json</code> 的 reward_trace_stats(reward_mean / frac_reward_zero_std)。labels_only→duplicate_condition(analysis 阶段升 structural、阻塞);reward_name_only+outcomes 不可区分→no_op_suspected(永远 advisory,因为训练奖励相等不等于 held-out 也相等,留给 reviewer)。</li></ul>
+  <div class="grid2">
+    <div class="files">
+      <div class="lbl">关键文件(真实路径)</div>
+      <table><tr><td class="fp"><code>argus_skill/skills/automated_gates.py</code></td><td>stage→门 路由 + GateResult(kind/passed/is_blocking)。STAGE_GATES、GATE_KINDS、<code>run_stage_gates()</code>、<code>any_blocking_failure()</code>、各 _run_* 包装。结构门/建议门二分法的单一事实来源,docstring 记录 c6b11d3 拒绝硬门的来龙去脉。</td></tr>
+<tr><td class="fp"><code>argus_skill/skills/evidence_chain.py</code></td><td>F4 结构门:<code>validate_evidence_chain()</code> 验 claim→evidence→bundle→BUILD_INFO 链。_evidence_columns/_bundle_root_for/_bundle_is_tainted/_TAINTED_MARKERS/_HISTORICAL_STATUSES;ChainIssue code 七种(evidence_path_missing/bundle_missing_build_info/tainted_bundle_cited 等)。</td></tr>
+<tr><td class="fp"><code>argus_skill/skills/anti_mediocrity.py</code></td><td>F3 建议门(post-c6b11d3 已退化为纯事实提取):collect_mediocrity_finding 扫 <code>summary.tsv</code> aggregate 行,MediocrityFinding 给 best/delta/家族数。_NOISY_ERROR_FRACTION=0.25 只做 [NOISY] 标签、不是裁决。明确不比阈值、不出 verdict。</td></tr>
+<tr><td class="fp"><code>argus_skill/life/project_lifecycle.py</code></td><td>F5 状态机:ProjectState 枚举、<code>decide_next_state()</code>/<code>advisory_time_signals()</code>/<code>is_token_allocatable()</code>/<code>infer_observable_status()</code>。DEFAULT_QUARANTINE_BUDGET_FRACTION=0.80 是唯一保留的 harness 数值阈值;旧的 7d/14d/21d 超时已删成 advisory。纯函数无副作用、不调 LLM。</td></tr>
+<tr><td class="fp"><code>argus_skill/life/project_lifecycle_io.py</code></td><td>F5 持久层:把 ProjectStatus 写 &lt;memory_root&gt;/<code>lifecycle.json</code> sidecar。apply_persisted_to_status(持久 state 覆盖观测态、隔离跨重启不丢)、append_event、write_persisted(原子 tmp.replace),_HISTORY_MAX=200。</td></tr>
+<tr><td class="fp"><code>argus_skill/skills/method_differentiation.py</code></td><td>no-op 治理检测:validate_method_differentiation 对比 <code>config_snapshot.json</code>+reward_trace_stats,分 labels_only(duplicate_condition)/reward_name_only(no_op_suspected)/differentiated。_NOISE_KEY_RE、_REWARD_FN_NAME_KEY、_REWARD_MEAN_EPS=0.01、_ZERO_STD_FRAC_EPS=0.02、_PROBE_MAX_STEPS=50。</td></tr>
+<tr><td class="fp"><code>argus_skill/tools/stage_check.py</code></td><td>接线点:每 engineer round 在 shell-check 后调 <code>run_stage_gates()</code>;退出码 total_failed 只算 structural_block(+shell+blocked_state),advisory 仅打印。proposed/baseline 从 ARGUS_SKILL_*_CONDITION 环境变量取。</td></tr>
+<tr><td class="fp"><code>argus_skill/life/supervisor/_core.py</code></td><td>F5 真正生效处:每 tick infer→apply_persisted→decide_next_state;is_token_allocatable 为假则 return lifecycle_block 拦 dispatch。含 full_emnlp_gate 特判:把 preflight main.pdf 造成的过早 DONE 修回 WRITING,完成权威是 L2 reviewer 认证而非 main.pdf 存在。</td></tr>
+<tr><td class="fp"><code>argus_skill/skills/lifecycle.py</code></td><td>注意:这是另一个东西——mission 结束后对【技能】的处置(reinforce/distill/revise/retire),decide_action/apply_action,_RETIRE_THRESHOLD=3,被 <code>scientist/compactor.py</code> 调用。与 F5 项目生命周期同名但不同子系统。</td></tr>
+<tr><td class="fp"><code>review/2026-06-01-research-factory-gates-c6b11d3.md</code></td><td>c6b11d3 的评审裁决:F4 保留(查造假正当)、F5 降级为建议(超时常数不该 harness 强制)、F3 拒绝合并(把科研好坏写成硬编码 Python 阈值=最核心禁忌)。是本子系统现状的设计依据。</td></tr></table>
+    </div>
+    <div class="side">
+      <div class="nums"><div class="lbl">真实常量 / 锚点(读自代码)</div><ul><li>F5 DEFAULT_QUARANTINE_BUDGET_FRACTION = 0.80 —— 花掉≥80% 预算仍无 draft 即 quarantine,是唯一保留的 harness 侧数值阈值(<code>project_lifecycle.py</code>:55)</li><li>F3 _NOISY_ERROR_FRACTION = 0.25 —— ≥25% errored trial 才打 [NOISY] 标签,明确说明这只是展示标签不是裁决(<code>anti_mediocrity.py</code>:52,68)</li><li>method_differentiation _REWARD_MEAN_EPS=0.01 / _ZERO_STD_FRAC_EPS=0.02 —— 奖励均值差≤0.01 且零方差占比差≤0.02 才算&#x27;不可区分&#x27;;_PROBE_MAX_STEPS=50、_MAX_TRACE_ROWS=50000(<code>method_differentiation.py</code>:80-81,112,74)</li><li>已删除的旧 F3 硬阈值:min_delta=0.02、min_benchmark_families&gt;=3;已删除的旧 F5 超时:incubating 7d/running 14d/writing 21d(见 c6b11d3 commit message 与 <code>anti_mediocrity.py/project_lifecycle.py</code> docstring)</li><li><code>skills/lifecycle.py</code> _RETIRE_THRESHOLD = 3 —— 技能连续 3 次致命失败才 archive(<code>lifecycle.py</code>:89);持久 history 截断 _HISTORY_MAX=200(<code>project_lifecycle_io.py</code>:43)</li><li>F5 预算近似:supervisor 把项目总预算估成 daily_cap_usd * 30(一个月),spent 取 journal 累计成本;任一不可得则 (0.0,0.0)、budget 门当 tick 休眠(<code>supervisor/_core.py</code> _lifecycle_budget_snapshot)</li></ul></div>
+      <div class="matters"><div class="lbl">为什么重要</div><p>这是 Argus &#x27;绝对诚实/反作弊是底线、但 harness 不替 agent 下科研判断&#x27; 这条哲学落到代码层的最干净样本。三道门的分工恰好画出那条线:F4 证据链查的是断链/污染/无法溯源(=作弊),所以它有资格卡退出码、reviewer 都不能 overrule;F3 反平庸过去硬编码了 min_delta=0.02、min_families&gt;=3 并计入退出码,等于 harness 偷偷在判&#x27;科研够不够格&#x27;,被 review 当场否掉、重写成只摊事实给 reviewer 的建议门;F5 把&#x27;超时多少天该放弃&#x27;这种科研节奏判断从硬规则删成 advisory_time_signals,只留 80% 预算无 draft 这一条纯调度护栏。method_differentiation 则补上一个新型造假面:跑得真、数据真、但 treatment 是个 no-op(真实出现过的 CV-GRPO confidence≈1.0 案例)——它只机械证明&#x27;两条命令一样/奖励分布不可区分&#x27;,绝不替 reviewer 判&#x27;这方法值不值得&#x27;。对新人最该记住的一句:门的 kind 字段=&#x27;这道门约束的是作弊还是品味&#x27;的形式化,reviewer 始终是项目完成与否的唯一事实来源。</p></div>
+    </div>
+  </div>
+  <div class="caveats"><div class="lbl">⚠ 现状 / 局限(诚实标注)</div><ul><li>命名陷阱:起点文件里的 <code>argus_skill/skills/lifecycle.py</code> 和 F5 的 <code>argus_skill/life/project_lifecycle.py</code> 是两个不同子系统。前者是 mission 结束后对【技能】reinforce/distill/revise/retire 的派发器(被 <code>scientist/compactor.py</code> 调),后者才是研究【项目】的生命周期状态机。别混。</li><li>GATE_KINDS 静态表对 dual-kind 门(rl_training_plots、method_differentiation)只记录&#x27;最强形态&#x27;(都写 structural),注释明说真正的 source of truth 是 _run_* 里按 stage 现算的 per-call kind——静态表会误导,实际 method_differentiation 在 run 阶段是 advisory、analysis 阶段也只有 duplicate_condition 才 structural。</li><li>F3 anti_mediocrity 现在结构上已无法阻塞任何 round:_run_mediocrity_finding 强制 passed=True、kind=&#x27;advisory&#x27;,MediocrityFinding.ok 只反映 I/O 是否读成功。它真的就只是把数字摊给 reviewer。</li><li>method_differentiation 的 no_op_suspected 永远是 advisory(连 analysis 也不升级),因为训练奖励等价不证明 held-out eval 也等价;只有机械的 duplicate_condition(命令完全相同两个标签)在 analysis 才 structural 阻塞。它靠 aggregate 奖励统计,不做跨 run 的逐 rollout 位置对齐(docstring 明说两 run 任务顺序不同、对齐不可靠)。</li><li>F5 完成判定与 reviewer 权威存在张力:infer_observable_status 见到 paper/main.pdf 就推 has_submission_artifact、decide_next_state 会转 DONE(终态、不可分配 token)。但 main.pdf 常是 preflight 早早编出来的,所以 supervisor 对 full_emnlp_gate 任务专门特判,把过早 DONE 修回 WRITING、并抑制后续 submission_artifact_present 事件——真正完成权威是 L2 reviewer 的 final_submission 认证,不是 main.pdf 存在。</li><li>F5 预算门依赖近似数(daily_cap*30 当总预算、journal 累计当 spent);预算信息不可得时整条 budget 门当 tick 静默休眠,不会触发 quarantine。</li><li>evidence_chain 的污染检测只扫 <code>BUILD_INFO.md/PLAN.md/RESULTS.md/EXEMPT.md</code> 四个候选文件里的字面 marker;污染标记若不在这些文件或用了别的措辞就漏检。BUILD_INFO 的存在性也只对 benchmarks/evidence 与 experiments 两类 bundle 根强制,paper/artifacts 等只查存在。</li><li><code>skills/lifecycle.py</code> 里的 _emit_lock 注释写明 &#x27;reserved for future use&#x27;(当前是死代码);apply_action 的并发安全靠 SkillStore.save 的原子替换而非这个锁。</li></ul></div>
+  <a class="top-link" href="#top">↑ 回顶部</a>
+</section>
+<div class="band"><span class="bn">VI</span><h2>任务与对标</h2></div>
+
+<section id="verticals-missions" class="topic">
+  <div class="topic-head">
+    <h3>Verticals 与 Missions:把领域无关的 argus core 适配到具体真实 benchmark 任务</h3>
+    
+  </div>
+  <p class="oneliner">vertical = 装在领域无关 argus 之上的&quot;任务适配器&quot;(定义阶段顺序/反作弊 shell 检查/reviewer 清单/目标 banner/完成门),由 <code>PIPELINE_STATE.json</code> 里一个 vertical 字段选中;当前真实跑着 nanochat(B200 val_bpb)、kernelbench(B200 kernel 加速)、speedrun(H100 NanoGPT 提速)三个 mission——都没&quot;赢&quot;,诚实报锚点与现状。</p>
+  <div class="chips"><span class="chip">vertical 适配器(stages.py 三件套契约)</span><span class="chip">fail-open 加载/解析(load_vertical / resolve_vertical)</span><span class="chip">completion_gate(full_emnlp vs metric)开关</span><span class="chip">role_banner 提示词顶部硬覆盖</span><span class="chip">搜索高度 NO-VERDICT 事实面(search_altitude,harness metric-blind)</span><span class="chip">metric→regime-jump 的 meta saturation 接线</span></div>
+  <h4>它到底怎么转的</h4>
+  <ul class="how"><li>选 vertical(读侧):<code>resolve_vertical()</code>(<code>argus_skill/skills/vertical_select.py</code>:127)按优先级 env ARGUS_SKILL_VERTICAL &gt; <code>research/PIPELINE_STATE.json</code> 里持久化的 vertical 字段 &gt; 默认 &#x27;research&#x27; 解析,确定性、不调 LLM、绝不抛异常,每次 stage 转换/gate 都查。已知集合 VERTICALS = (research, speedrun, nanochat, nanogpt_speedrun, kernelbench)。</li>
+<li>选 vertical(判侧+写侧):bootstrap 时 <code>classify_vertical()</code>→<code>_heuristic_classify()</code> 数 _SPEEDRUN_SIGNALS vs _RESEARCH_SIGNALS 关键词,再由 <code>_route_optimize_vertical()</code> 按 &#x27;b200/sol/kernel&#x27;→kernelbench、&#x27;nanogpt/val_loss/3.28&#x27;→nanogpt_speedrun、&#x27;val_bpb/bpb&#x27;→nanochat 细分;<code>persist_vertical()</code>(:350)把结果写回并把 current_stage 播种为该 vertical 的首个阶段。</li>
+<li>加载 vertical:load_vertical(name)(<code>argus_skill/verticals/_base.py</code>:51)import argus_skill.verticals.&lt;name&gt;.stages,先剥掉尾部 &#x27;-needed&#x27; 占位符,任何 ImportError 都 fail-open 回退到 research,保证半成品/拼写错误不会拖垮 planner/reviewer 循环。</li>
+<li>每个 <code>stages.py</code> 暴露 System-(A) 三件套契约:STAGE_ORDER(阶段顺序)、STAGE_CHECKS(每阶段一串 shell `test`/`grep` 断言,由 argus_skill/tools/stage_check 跑)、REVIEWER_CHECKLISTS(每阶段给 reviewer 的判据+证据文件名);speedrun 的 4 阶段 setup→optimize→measure→report 是通用骨架,nanochat/nanogpt_speedrun/kernelbench 直接 re-export 它的 _PIPELINE_CHECK 与 CHECKLIST_ITEMS 复用。</li>
+<li>完成门 completion_gate:research=&#x27;full_emnlp&#x27;(写完整论文才算完),speedrun/nanochat/nanogpt_speedrun/kernelbench=&#x27;metric&#x27;(指标达标或预算耗尽才算完)。下游 planner/reviewer/loop/supervisor 都用 vertical_completion_gate(mod)==&#x27;full_emnlp&#x27; 这个开关来决定要不要套论文 gate,从而让数值任务不被论文流程卡住。</li>
+<li>目标注入:role_banner(role)(各 <code>stages.py</code>)在 planner/engineer/reviewer 提示词最顶部硬覆盖默认的论文流水线 framing——pin 住本任务的具体目标、反作弊红线、搜索纪律;consumer 在 <code>argus_skill/loop.py</code>:487、<code>engineer/reviewer.py</code>:337、<code>planner/planner.py</code>:557 取 <code>vertical_role_banner()</code> 注入。</li>
+<li>搜索高度可视化(只在 nanochat):<code>search_altitude_context()</code>/<code>search_altitude_facts()</code>(<code>nanochat/stages.py</code>:331/426)重读 agent 自己写的 attempts/*/<code>summary.json</code> 的 mean_val_bpb,算出 FLOOR=最近一次 decision 含 &#x27;promote&#x27; 的 attempt(否则取最小 raw)、since_improve 连续未改进计数、到两个参考目标的距离、attempt 名 token 频率——只给事实不下判断,keep/reject 仍归 agent;metric 解析留在 vertical 内,harness 保持 metric-blind。</li>
+<li>meta 控制层接线:engineer 在 <code>summary.json</code> 记 strategy_type(optimizer/architecture/update_mechanics/data/numerics/local 之一,对应 <code>meta/config.py</code>:25 的 REGIME_AXES);<code>meta/saturation.py</code>:170 读 vertical_search_altitude_facts 检测 basin 冻结,<code>meta/flow_controller.py</code>:40 读 vertical_strategy_pool 在判定 saturation 后 convene 一个 regime-JUMP 的 framing(axes 菜单+coverage+多样 inspirations)。</li></ul>
+  <div class="grid2">
+    <div class="files">
+      <div class="lbl">关键文件(真实路径)</div>
+      <table><tr><td class="fp"><code>argus_skill/skills/vertical_select.py</code></td><td>vertical 选择器三侧:resolve_vertical(读,env&gt;持久化&gt;research)、classify_vertical/_heuristic_classify/_route_optimize_vertical(判,关键词路由到具体任务)、persist_vertical(写,落 vertical 字段+播种 current_stage);定义 VERTICALS 五元组。</td></tr>
+<tr><td class="fp"><code>argus_skill/verticals/_base.py</code></td><td>vertical 契约加载器+可选 hook 访问器:<code>load_vertical()</code>(fail-open 回退 research)、vertical_completion_gate/role_banner/search_altitude(_facts)/strategy_pool,全部缺失即给安全默认,绝不打断 prompt 构建。</td></tr>
+<tr><td class="fp"><code>argus_skill/verticals/speedrun/stages.py</code></td><td>通用数值优化 vertical:4 阶段 setup→optimize→measure→report 的 STAGE_CHECKS(含 _PIPELINE_CHECK)、REVIEWER_CHECKLISTS、System-(B) CHECKLIST_ITEMS(反作弊条款:冻结 harness 哈希、held-out、不许 hardcode eval 输入)、role_banner(INVENT/PROFILE-first/basin-hopping/反查 leaderboard 答案)。</td></tr>
+<tr><td class="fp"><code>argus_skill/verticals/nanochat/stages.py</code></td><td>Recursive Task 1(B200,300s,minimize val_bpb):re-export speedrun 结构;role_banner pin 锚点+SEARCH DISCIPLINE(noise gate、禁贪婪单杠杆、co-designed bundle);唯一实现 search_altitude_context/facts 与 strategy_pool 的 vertical;_CATEGORY_AXES 杠杆分类法。</td></tr>
+<tr><td class="fp"><code>argus_skill/verticals/kernelbench/stages.py</code></td><td>Recursive Task 3(B200,maximize SOL 加速,正确性硬门):多 5 个阶段(含 research)、GROUND_TRUTH/TECHNIQUE_NOTES/FIRST_SCORE_PLAN 的 STAGE_CHECKS 与 reviewer 清单;completion_gate=&#x27;metric&#x27;。</td></tr>
+<tr><td class="fp"><code>argus_skill/verticals/nanogpt_speedrun/stages.py</code></td><td>Recursive Task 2(8×H100,minimize 到 val_loss&lt;=3.28 的秒数):TIME-to-target 版 STAGE_CHECKS/REVIEWER_CHECKLISTS/role_banner;锚点 ~186.5s / ~77.3s 写在 docstring。</td></tr>
+<tr><td class="fp"><code>argus_skill/meta/config.py</code></td><td>meta 调度阈值(纯过程非判断):REGIME_AXES 五轴(镜像 nanochat _CATEGORY_AXES)、STRATEGY_TYPES;MetaConfig jump_frozen_threshold=12/diversity_window=8/diversity_floor=2/inspiration_top_k=4,可环境变量覆盖。</td></tr>
+<tr><td class="fp"><code>argus_skill/missions/base.py</code></td><td>命名陷阱:这里的 &#x27;mission&#x27; 是 RoleMission——三个角色(EngineerMission/ReviewerMission/PlannerMission)的技能匹配策略,跟 benchmark mission 无关;PlannerMission 目前匹配不到任何 builtin_skills/planner/ 池。</td></tr>
+<tr><td class="fp"><code>argus_skill/verticals/__init__.py</code></td><td>vertical 命名空间总说明:argus core 领域无关,领域知识(阶段/产物/gate)住在 vertical;明确写着今天还是 re-export 命名空间,物理迁移是后续。</td></tr></table>
+    </div>
+    <div class="side">
+      <div class="nums"><div class="lbl">真实常量 / 锚点(读自代码)</div><ul><li>nanochat(Task 1)锚点(<code>stages.py</code>:195-197):vanilla 1.0587 → 首个要破的 optimized_from_vanilla 0.9344 → Recursive 最佳 0.9109(单 B200,10 seed,300s 预算);live mission 当前 raw best ≈0.9642(a361,~373 个 attempt 后),目标 0.9344 仍未达到——未赢。</li><li>nanogpt_speedrun(Task 2)锚点(<code>stages.py</code>:13-14):未优化起点 ~186.5s,Recursive 最佳 ~77.3s,目标 FineWeb val_loss&lt;=3.28 on 8×H100(注:repo 写 77.3s,operator memory 记 77.8s,有出入)。</li><li>kernelbench(Task 3):vertical docstring 写 SOL-ExecBench 235 个 kernel、SOL 分数;但 live mission <code>RESULTS.md</code> 实为公开 KernelBench Level-1 的 8-kernel 子集、指标是 vs PyTorch-eager 的加速比,且 RESULTS 仍是含 &lt;C&gt;/8、&lt;N_ROUNDS&gt;、&lt;DATE&gt; 占位符的模板。</li><li>meta 调度阈值(<code>config.py</code>:56-65):jump_frozen_threshold=12、diversity_window=8、diversity_floor=2、inspiration_top_k=4。</li><li>nanochat 高度常量(<code>stages.py</code>:198-200):_ALTITUDE_RECENT_N=8、_ALTITUDE_TOKEN_WINDOW=25、_ALTITUDE_TOKEN_TOP=12;noise gate 约 0.001-0.002 BPB(banner 内)。</li><li>VERTICALS 五元组(<code>vertical_select.py</code>:57):research, speedrun, nanochat, nanogpt_speedrun, kernelbench;默认与 fail-open 落点都是 research。</li></ul></div>
+      <div class="matters"><div class="lbl">为什么重要</div><p>体现了项目的核心设计哲学&quot;harness 没有 agent 聪明&quot;:vertical 只承担领域无关的笨管道(阶段顺序、shell 反作弊断言、完成门开关、把目标 banner 注进提示词),所有科研判断(idea 好不好、做完没、为什么慢)仍归 agent。这一层是把&quot;同一套 7×24 supervisor&quot;复用到三个性质完全不同的真实公开 benchmark(BPB 最小化 / kernel 加速 / 训练提速)的关键解耦点:换任务=换一个 <code>stages.py</code> + 改 PIPELINE_STATE 的 vertical 字段,core 一行不动。它也是反作弊与公平对比的落点——STAGE_CHECKS/CHECKLIST_ITEMS 里写死了&quot;harness 字节不变、held-out 不泄漏、基线必须在同硬件 re-measure、不许 hardcode eval 输入&quot;;completion_gate=&#x27;metric&#x27; 保证数值任务靠 reviewer 的真实测量收尾而非论文凑数。对新同事:看一个 vertical 的 <code>stages.py</code> 就能读懂&quot;这个任务的目标、阶段、什么算作弊、什么算完成&quot;。</p></div>
+    </div>
+  </div>
+  <div class="caveats"><div class="lbl">⚠ 现状 / 局限(诚实标注)</div><ul><li>命名陷阱必须说清:起点文件 <code>argus_skill/missions/base.py</code> 与 benchmark &#x27;mission&#x27; 无关——它是 RoleMission(planner/engineer/reviewer 的技能匹配策略)。真正的 benchmark mission 是 repo 之外的文件系统项目目录(/home/argustest/nanochat-mission-b200 等),靠 <code>PIPELINE_STATE.json</code> 的 vertical 字段挂到对应 vertical。</li><li><code>verticals/__init__.py</code> 与 <code>research/__init__.py</code> 自承认今天只是 re-export 命名空间,research vertical 的真实代码仍物理散在 argus_skill/skills 与 argus_skill/tools 下,&#x27;physical file relocation is a follow-up&#x27;——尚未迁移。</li><li>live H100 速通 mission 的 PIPELINE_STATE vertical=&#x27;speedrun&#x27;(通用),不是专门的 &#x27;nanogpt_speedrun&#x27;——即那个带 8×H100/3.28/77.3s 锚点的 <code>nanogpt_speedrun/stages.py</code> 实际并没在驱动该 mission(它跑在通用 speedrun banner 下)。专用 vertical 与实跑不一致。</li><li>search_altitude_context/facts 与 strategy_pool 只在 <code>nanochat/stages.py</code> 实现;speedrun/nanogpt_speedrun/kernelbench 都没有→meta 的 saturation 检测与 regime-jump 这一层目前实质只对 nanochat 生效,其他任务拿不到搜索高度可视化。</li><li>kernelbench vertical docstring(235-kernel SOL-ExecBench、SOL 分数)与 live mission(8-kernel 公开 KernelBench Level-1、vs-eager 加速比、RESULTS 仍是占位符模板)对不上;说明该 vertical 的描述尚未与真实复现路径对齐,且该 mission 还没产出可信终值。</li><li>PlannerMission 当前匹配不到任何技能(&#x27;No builtin_skills/planner/ pool exists today&#x27;,<code>missions/base.py</code>:97-105),只是占了统一结构的位。</li><li><code>speedrun/stages.py</code> 的 _PIPELINE_CHECK 注释写着待迁到 argus_skill.core.contracts &#x27;once a third vertical lands&#x27;——TODO 未做,目前各 vertical 各持私有副本。</li><li>load_vertical 的 fail-open:拼写错或半成品 vertical 会静默退化成完整论文 pipeline(research),可能掩盖配置错误而非报错。</li><li>三个 mission 都未达标/未赢:nanochat 0.9642 vs 目标 0.9344;kernelbench/nanogpt 现状均无可信终值(占位符/锚点对齐问题)。此处只报状态与锚点,不报任何 win。</li></ul></div>
+  <a class="top-link" href="#top">↑ 回顶部</a>
+</section>
+
+<section id="baseline-comparison" class="topic">
+  <div class="topic-head">
+    <h3>对标基线:把 Recursive《First Steps》三个 task 做成可同硬件复现的&quot;优化 vertical&quot;</h3>
+    
+  </div>
+  <p class="oneliner">用三个 metric-only 的 vertical 把 Recursive《First Steps Toward Automated AI Research》的 Task 1/2/3 各自落成&quot;在真实公开 benchmark 上、同硬件同 harness 打败强基线&quot;的可裁决任务;基线锚点写进代码,公平性靠&quot;基线必须在我们机器上重测&quot;的 checklist 兜底。</p>
+  <div class="chips"><span class="chip">三 task 三 vertical(nanochat/nanogpt_speedrun/kernelbench)</span><span class="chip">completion_gate=metric(无论文认证门)</span><span class="chip">report.beats_baseline:基线同硬件重测</span><span class="chip">search_altitude:NO-verdict 事实回灌(harness metric-blind)</span><span class="chip">反作弊护栏(heldout_val/budget/real FA-4/禁看 leaderboard)</span><span class="chip">load_vertical fail-open + resolve_vertical 优先级</span></div>
+  <h4>它到底怎么转的</h4>
+  <ul class="how"><li>三个 Recursive task = 三个 vertical,在代码 docstring 里一一对标:<code>nanochat/stages.py</code> 头注写明 &#x27;Recursive First Steps Task 1&#x27;(最小化 val_bpb),<code>nanogpt_speedrun/stages.py</code> 写 &#x27;Task 2&#x27;(最小化到 val_loss≤3.28 的墙钟秒数,8×H100),<code>kernelbench/stages.py</code> 写 &#x27;Task 3&#x27;(最大化 SOL-ExecBench 235 个 kernel 的 Speed-of-Light 分数,B200,correctness-gated)。</li>
+<li>基线锚点是写死在代码里的常量,不是临时口算:<code>nanochat/stages.py</code>:195-197 定义 _REF_VANILLA=1.0587(起点)、_REF_OPTIMIZED_FROM_VANILLA=0.9344(第一个要破的)、_REF_BEST=0.9109(Recursive 最好成绩=要顶的杆);nanogpt_speedrun docstring 给 from_unopt≈186.5s、best≈77.3s。这些是 Recursive 单 B200 10-seed / Modal 8×H100 的参考值。</li>
+<li>运行时用哪个 vertical 由 <code>skills/vertical_select.py</code> 的 <code>resolve_vertical()</code> 决定,优先级:环境变量 ARGUS_SKILL_VERTICAL → <code>research/PIPELINE_STATE.json</code> 里持久化的 vertical → 默认 &#x27;research&#x27;;从不调 LLM、不抛异常。三个优化 task 的细分路由由 <code>_route_optimize_vertical()</code> 按关键词(<code>kernelbench/sol/b200/.cu</code>…)分流。</li>
+<li><code>verticals/_base.py</code> 的 load_vertical(name) 是唯一 resolver:import argus_skill.verticals.&lt;name&gt;.stages,任何 ImportError 都 fail-open 回退到 research vertical——基线 vertical 解析坏了也绝不打断在跑的 planner/reviewer 循环。</li>
+<li>优化 vertical 用 completion_gate=&#x27;metric&#x27;(写在每个 <code>stages.py</code>),区别于 research 的 &#x27;full_emnlp&#x27;;<code>supervisor/_core.py</code> 的 <code>_effective_full_emnlp_gate()</code>(1954-1977)调 <code>vertical_completion_gate()</code> 判断:metric vertical 不触发论文认证门,&#x27;做完&#x27;由 reviewer 对 metric 的裁决决定,没有独立 validator。</li>
+<li>公平对比(like-for-like)是靠 reviewer checklist 兜底的,不是 harness 算的:<code>speedrun/stages.py</code>:300-319 的 report.beats_baseline 明确要求——命名基线必须 &#x27;RE-RUN ON OUR harness and hardware under the identical protocol&#x27;,NOT a published number from different hardware,引用双方 per-run 记录,输了就直说、不准把 loss 包装成 win。</li>
+<li>反作弊护栏写进 setup/measure checklist:setup.heldout_val 把&#x27;硬编码已知 eval 输入分布的统计量假装算出结果&#x27;定性为 reward hack 直接判 0;measure.budget_respected 要求每个 scored run 不超固定预算;nanochat engineer banner 强制 &#x27;real flash_attn.cute FA-4 only(never SDPA/fallback/FA2)&#x27;;speedrun banner 的 ANTI-CHEAT 段禁止去看 modded-nanogpt leaderboard / 本题已发布解。</li>
+<li>nanochat 还有 <code>search_altitude_context()</code>/<code>search_altitude_facts()</code>(<code>stages.py</code>:331/426):从 agent 自己的 attempts/*/<code>summary.json</code> 重新读出 live floor、到 0.9344/0.9109 的距离、连续多少次没破 floor——只摆事实不下判断(NO verdict),让 harness 对 metric 保持 metric-blind,&#x27;是否该换 regime&#x27;的判断仍归 agent。</li></ul>
+  <div class="grid2">
+    <div class="files">
+      <div class="lbl">关键文件(真实路径)</div>
+      <table><tr><td class="fp"><code>argus_skill/verticals/nanochat/stages.py</code></td><td>Recursive Task 1。最小化 val_bpb,300s 单卡 B200 预算。第 195-197 行写死基线锚点 1.0587/0.9344/0.9109;含 search_altitude_context/facts 把到基线的距离作为纯可见事实回灌给 agent。</td></tr>
+<tr><td class="fp"><code>argus_skill/verticals/nanogpt_speedrun/stages.py</code></td><td>Recursive Task 2。最小化到 FineWeb val_loss≤3.28 的墙钟秒数,8×H100。docstring 锚点 from_unopt≈186.5s / best≈77.3s;reviewer checklist 要求诚实写明破了哪个参考时间(Recursive 77.3s / record #83)。</td></tr>
+<tr><td class="fp"><code>argus_skill/verticals/kernelbench/stages.py</code></td><td>Recursive Task 3。最大化 SOL-ExecBench(235 kernel,B200)的 SOL 分数,correctness-gated(快但错=0)。5-stage(多一个 research stage 做技术调研但禁论文式文献综述)。代码里没有写死数值 SOL 锚点。</td></tr>
+<tr><td class="fp"><code>argus_skill/verticals/speedrun/stages.py</code></td><td>三个优化 vertical 共用的基座:4-stage setup→optimize→measure→report 与 checklist。report.beats_baseline(300-319)是&#x27;公平对比&#x27;核心:基线必须在我们硬件上重测;setup.heldout_val/measure.budget_respected 是反作弊;role_banner 含 PROFILE-first 与 ANTI-CHEAT。</td></tr>
+<tr><td class="fp"><code>argus_skill/verticals/_base.py</code></td><td>vertical 契约 + <code>load_vertical()</code> resolver(fail-open 回退 research);定义 vertical_completion_gate/role_banner/search_altitude 等可选 hook 访问器,缺 hook 给安全默认值。</td></tr>
+<tr><td class="fp"><code>argus_skill/skills/vertical_select.py</code></td><td><code>resolve_vertical()</code>:env→<code>PIPELINE_STATE.json</code> 的 persisted vertical→research 的优先级;_route_optimize_vertical 按关键词把三个 Recursive task 分到对应 vertical(注:含关键词启发式,仅作为默认兜底)。</td></tr>
+<tr><td class="fp"><code>docs/Argus_项目介绍.md</code></td><td>第 5 节对标表:列 KernelBench(torch.compile SOL≈0.547)、nanoGPT speedrun(Recursive 185.4/80.6/77.3s)、nanochat(1.0587/0.9344/0.9109)及各自要堵的作弊捷径。注意这里的数字与代码不完全一致(见 caveats)。</td></tr>
+<tr><td class="fp"><code>docs/Argus_一页纸概览.md</code></td><td>一页纸版对标表 + 诚信底线五条(只用真实公开 benchmark、堵 reward hacking、基线同硬件同脚手架复现、可复现审计、绝不报喜报早)。</td></tr>
+<tr><td class="fp"><code>argus_skill/life/supervisor/_core.py</code></td><td><code>_effective_full_emnlp_gate()</code>(1954-1977)用 vertical_completion_gate 判 metric vs full_emnlp:metric vertical 不挂论文认证门,完成由 reviewer 对 metric 裁决。</td></tr>
+<tr><td class="fp"><code>research/META_LEDGER.jsonl</code></td><td>repo 内仅有 2 条占位记录(performance 0.0、strategy_type &#x27;unknown&#x27;),无真实复现成绩——真实 attempts/RESULTS 在各 mission 项目目录,不在本仓库。</td></tr></table>
+    </div>
+    <div class="side">
+      <div class="nums"><div class="lbl">真实常量 / 锚点(读自代码)</div><ul><li>nanochat Task1 基线(代码 <code>stages.py</code>:195-197):vanilla 1.0587 / optimized_from_vanilla 0.9344 / Recursive best 0.9109;固定 300s 单卡 B200 预算(banner)。</li><li>nanochat 噪声门:seed-to-seed run noise ~0.001-0.002 BPB,sub-noise delta 视为 coin flip 不准 bank(banner)。</li><li>nanogpt_speedrun Task2(代码 docstring):目标 FineWeb val_loss≤3.28,8×H100;from_unopt≈186.5s,Recursive best≈77.3s(比 record #83 快)。</li><li>kernelbench Task3:SOL-ExecBench 235 个 kernel,B200,correctness-gated;torch.compile SOL≈0.547、0.5=PyTorch eager、1.0=硬件极限(仅见于 <code>docs/项目介绍.md</code>,代码未写死)。</li><li>search_altitude 常量(nanochat <code>stages.py</code>:198-200):_ALTITUDE_RECENT_N=8 / _ALTITUDE_TOKEN_WINDOW=25 / _ALTITUDE_TOKEN_TOP=12。</li><li>预算默认(README):ARGUS_SKILL_PER_MISSION_CAP_USD=30、DAILY_CAP_USD=180(CHANGELOG 另记一处 $1.5/$50,版本不一致)。</li></ul></div>
+      <div class="matters"><div class="lbl">为什么重要</div><p>这是项目的北极星:把&quot;自动做科研&quot;从口号变成可证伪的对标——拿 Recursive《First Steps》公开的三个硬指标 task(BPB、speedrun 墙钟、kernel SOL),要求 Argus 在同一块 B200/H100、同一套 harness 上复现并打败基线。它体现了 operator 的两条核心哲学:(1)绝对诚实——基线锚点写死在代码里、reviewer 强制&#x27;基线在我们机器上重测才算数、输了直说&#x27;,从结构上堵住&#x27;拿别人不同硬件的数字假装赢&#x27;;(2)harness 没 agent 聪明——harness 只把 metric 事实(live floor、到基线的距离)摆出来,&#x27;是否饱和、要不要换 regime&#x27;交还 agent。对标 FARS/Recursive 的意义在于:它给了一个外部、客观、难作弊的尺子,让&#x27;是否真的迈出自动研究第一步&#x27;不靠自评而靠同硬件 like-for-like 的硬数字说话。</p></div>
+    </div>
+  </div>
+  <div class="caveats"><div class="lbl">⚠ 现状 / 局限(诚实标注)</div><ul><li>本仓库里看不到任何真实复现成绩:无 <code>RESULTS.md</code>,<code>research/META_LEDGER.jsonl</code> 只有 2 条占位(performance 0.0、strategy_type &#x27;unknown&#x27;)。真实 attempts/分数在各 mission 项目目录(如 nanochat-mission-b200/、kernelbench-mission-b200/),不随 repo 提交。所以&#x27;复现到哪&#x27;无法从代码仓库证实。</li><li>对标数字 docs 与代码不一致:<code>docs/Argus_项目介绍.md</code> 和一页纸写 speedrun 锚点 &#x27;185.4/80.6/77.3 s&#x27;(三个数),而代码 <code>nanogpt_speedrun/stages.py</code> 只写 186.5s 与 77.3s(无 80.6,且 185.4≠186.5)。kernelbench 的 torch.compile SOL≈0.547 只在 docs 出现,<code>kernelbench/stages.py</code> 没写死任何数值锚点。</li><li>FARS(孙天祥/Analemma)在代码里完全不是被复现的基线:全仓库仅 <code>docs/Argus_微信文案.md</code> 把 FARS 当作&#x27;同方向&#x27;的引荐/对标对象提及。任务说的&#x27;对标 FARS&#x27;目前是定位/竞品参照,不是已实现的 benchmark 复现。</li><li>&#x27;打败 Recursive 公开结果&#x27;的表述出自 <code>docs/Argus_微信文案.md</code>(招商/引荐文案,且明说&#x27;刻意不交底技术细节&#x27;),属营销材料,无法在代码或结果文件里核实;按 operator 诚信要求不应当真。</li><li>vertical 拆分目前部分是 import-path 层面的门面:<code>verticals/__init__.py</code> 与 <code>research/__init__.py</code> 自述&#x27;re-export namespace today; physical file relocation is a follow-up&#x27;,底层模块仍物理住在 skills/tools 下。</li><li>vertical_select._heuristic_classify 用 SPEEDRUN/RESEARCH 关键词计数来分类 objective——与&#x27;no keyword classification&#x27;哲学略有张力;不过它只是 env/persisted 都缺时的廉价默认兜底,且偏保守(默认回 research)。</li><li>基线锚点是单点参考值,代码里没有 Recursive 基线的 per-seed 原始记录或置信区间;真正的 like-for-like 依赖 agent 在我们机器上重测(report.beats_baseline 要求),repo 本身不提供已重测的基线 CSV。</li><li>research vertical(论文线)有 full_emnlp 认证门和多重 gate,三个优化 vertical 是 metric 门、无独立 validator——完成与否完全取决于 reviewer 对 metric 的裁决,这是设计选择,但也意味着对标结论的可信度等同于 reviewer 的判断质量。</li></ul></div>
+  <a class="top-link" href="#top">↑ 回顶部</a>
+</section>
+
+    <footer id="colophon">
+      <p><strong>关于本页</strong> · 内容由 12 个并行子代理深读 <code>argus-skill</code> 源码后结构化产出,人工组装为单文件离线网页(无外链、无 CDN、无图床,断网可看)。<br>
+      每条结论尽量扎根真实文件;若与你读到的代码有出入,以代码为准 —— 并请按项目纪律把出入补进对应的「现状 / 局限」框。</p>
+    </footer>
+  </main>
+</div>
+
+<script>
+// scroll-spy: highlight current section in the TOC (offline, no deps)
+(function(){
+  var links = Array.prototype.slice.call(document.querySelectorAll('nav.toc a[href^="#"]'));
+  var map = {};
+  links.forEach(function(a){ var id=a.getAttribute('href').slice(1); map[id]=a; });
+  var targets = Object.keys(map).map(function(id){ return document.getElementById(id); }).filter(Boolean);
+  var obs = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){
+        links.forEach(function(a){ a.classList.remove('active'); });
+        var a = map[e.target.id];
+        if(a){ a.classList.add('active'); a.scrollIntoView({block:'nearest'}); }
+      }
+    });
+  }, { rootMargin:'-10% 0px -80% 0px', threshold:0 });
+  targets.forEach(function(t){ obs.observe(t); });
+})();
+</script>
+</body>
+</html>
