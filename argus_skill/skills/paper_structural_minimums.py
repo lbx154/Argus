@@ -9,7 +9,7 @@ missing Related Work, missing Conclusion.
 papers without ≥1 figure, in-text citations, or a Related Work section
 do not constitute a valid submission — they fail at the venue regardless
 of what any reviewer agent thinks of the prose. That's the harness's job
-(see ``nssmd/skills/04-harness-vs-agent-boundary.md``): the floor is
+(see ``edit-principle/skills/04-harness-vs-agent-boundary.md``): the floor is
 structural; the ceiling is the reviewer's.
 
 Thresholds here are deliberately well below typical EMNLP norms (e.g.

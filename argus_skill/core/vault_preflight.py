@@ -8,7 +8,7 @@ work to it. Catches the class of bugs where the vault references
 (observed 2026-06-01: 47 min / $2.50 wasted in a doom loop because
 the daemon couldn't tell its own config was wrong).
 
-Pure plumbing per nssmd skills/04 — this is a **structural** check
+Pure plumbing per edit-principle skills/04 — this is a **structural** check
 ("does the endpoint respond with non-404 to a minimal probe?"),
 not a quality judgment.
 

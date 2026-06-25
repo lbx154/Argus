@@ -7,7 +7,7 @@ typo? did we work around it?") belongs to the reviewer/planner agent
 per skill 04; this module only does the **structural** half.
 
 Extracted from ``argus_skill/life/supervisor.py`` in keeping with
-``nssmd/skills/06-keep-files-small.md`` — self-evolve is a separate
+``edit-principle/skills/06-keep-files-small.md`` — self-evolve is a separate
 responsibility from mission dispatch / lifecycle / budget, so it
 gets its own module.
 

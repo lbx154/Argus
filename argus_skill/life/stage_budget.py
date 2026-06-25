@@ -8,7 +8,7 @@ agent + operator that something may be off (long doom loops,
 out-of-control planner cycles, runaway experiments) before it
 silently exhausts the daily cap.
 
-Pure plumbing per nssmd skill 04: this module surfaces facts
+Pure plumbing per edit-principle skill 04: this module surfaces facts
 (`stage X has spent $Y, that's Z% of total budget`). The decision
 "should I do something about that" stays with the reviewer / planner
 agent and the operator. No auto-quarantine here (that would be a

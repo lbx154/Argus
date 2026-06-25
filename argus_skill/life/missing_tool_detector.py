@@ -4,7 +4,7 @@ Scans a finished mission's event stream / output text for patterns that
 indicate the agent **tried to do something but lacked the tool** —
 the structural signal that argus should mint a new skill for next time.
 
-Pure pattern detector. **No quality judgment.** Per nssmd skill 04, this
+Pure pattern detector. **No quality judgment.** Per edit-principle skill 04, this
 module identifies factual occurrences; the agent (via the mint-skill
 prompt) decides whether to actually mint, and the held-out validator
 decides whether the resulting skill works.

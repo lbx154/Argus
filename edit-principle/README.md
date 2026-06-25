@@ -1,6 +1,6 @@
-# nssmd — 修改方法论
+# edit-principle — 修改方法论
 
-这个目录记录我（`nssmd`）在 argus-skill 仓库做修改时遵循的工作流程。每次修改前先读这里的 skill，确保流程一致。
+这个目录（`edit-principle`）记录在 argus-skill 仓库做修改时遵循的工作流程。每次修改前先读这里的 skill，确保流程一致。（提交身份仍用 `nssmd`，见 `skills/03-push-after.md`。）
 
 ## 核心原则
 

@@ -21,7 +21,7 @@ thresholds (``min_delta=0.02``, ``min_families>=3``) and counted them into
 exit code, so the harness was secretly making research-quality verdicts.
 That was rejected in review ``review/2026-06-01-research-factory-gates-
 c6b11d3.md`` per the design philosophy "harness 没有 agent 自己聪明"
-(README "设计哲学" + nssmd/skills/04-harness-vs-agent-boundary.md).
+(README "设计哲学" + edit-principle/skills/04-harness-vs-agent-boundary.md).
 """
 from __future__ import annotations
 

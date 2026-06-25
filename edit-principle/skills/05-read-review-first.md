@@ -40,7 +40,7 @@ argus-skill 的 `review/` 目录是**架构裁决的累计法律**。仓库维�
 | 改 `argus_skill/engineer/reviewer.py` 或 reviewer schema | 任何 `*reviewer*` review |
 | 加新 daemon 进程 / `_*.py` helper | 任何 `*daemon*` 或 `*architecture*` review |
 | 加 prompt / skill markdown | 任何 `*skill*` review |
-| 改 `nssmd/skills/*` | 任何包含 `nssmd` 或 `methodology` 的 review |
+| 改 `edit-principle/skills/*` | 任何包含 `nssmd` 或 `methodology` 的 review |
 
 ## 在脑子里建一个"被否决清单"
 
