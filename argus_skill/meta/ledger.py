@@ -43,6 +43,10 @@ class MetaLedger:
     forbidden: list[str] = field(default_factory=list)
     coverage: dict[str, int] = field(default_factory=dict)
     jump_pending: bool = False
+    #: Rounds of post-jump "valley immunity" remaining (>0 → develop the current
+    #: regime, suppress a new jump, tell the agent a regressing candidate is
+    #: expected + must be scored/iterated). Set on a jump, decayed per cycle.
+    explore_window: int = 0
     updated_at: float = 0.0
 
     def forbidden_axes(self) -> set[str]:
@@ -82,10 +86,15 @@ def load_ledger(project_root: object) -> MetaLedger:
             updated_at = float(obj.get("updated_at", 0.0) or 0.0)
         except (TypeError, ValueError):
             updated_at = 0.0
+        try:
+            explore_window = max(0, int(obj.get("explore_window", 0) or 0))
+        except (TypeError, ValueError):
+            explore_window = 0
         return MetaLedger(
             forbidden=forbidden,
             coverage=coverage,
             jump_pending=bool(obj.get("jump_pending", False)),
+            explore_window=explore_window,
             updated_at=updated_at,
         )
     except Exception:  # noqa: BLE001 — fail-soft: corrupt ledger reads as empty
@@ -115,6 +124,7 @@ def _write_ledger(project_root: object, ledger: MetaLedger) -> None:
                     "forbidden": ledger.forbidden,
                     "coverage": ledger.coverage,
                     "jump_pending": ledger.jump_pending,
+                    "explore_window": ledger.explore_window,
                     "updated_at": ledger.updated_at,
                 },
                 indent=2,
@@ -171,6 +181,29 @@ def consume_jump_pending(project_root: object) -> bool:
         return True
     except Exception:  # noqa: BLE001
         return False
+
+
+def tick_explore_window(
+    project_root: object, *, set_to: int | None = None, now: float | None = None
+) -> int:
+    """Update the post-jump exploration window (valley immunity), fail-soft.
+
+    ``set_to`` (e.g. on a fresh jump) sets the window to that many rounds; with
+    ``set_to=None`` the window DECAYS by one (floored at 0) — call it once per
+    planner cycle so the immunity lasts exactly N develop rounds after a jump.
+    Returns the new window value. Preserves forbidden/coverage/jump_pending.
+    """
+    try:
+        ledger = load_ledger(project_root)
+        if set_to is not None:
+            ledger.explore_window = max(0, int(set_to))
+        else:
+            ledger.explore_window = max(0, ledger.explore_window - 1)
+        ledger.updated_at = now if now is not None else time.time()
+        _write_ledger(project_root, ledger)
+        return ledger.explore_window
+    except Exception:  # noqa: BLE001 — best-effort
+        return 0
 
 
 def append_decision(project_root: object, row: dict[str, Any]) -> None:

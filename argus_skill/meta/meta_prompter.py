@@ -141,6 +141,39 @@ def build_meta_block(
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL | re.IGNORECASE)
 
 
+def explore_window_block(rounds_left: int, total: int = 0) -> str:
+    """Valley-immunity framing — injected into the planner AND engineer while a
+    post-jump exploration window is open.
+
+    A new regime almost always REGRESSES before it is tuned; without protection
+    the agent's own train-only proxy gate kills it on round 1 and restores the
+    floor, so no regime change ever gets developed. This block tells the agent:
+    the frozen floor is safe, a regressing candidate is EXPECTED, MEASURE it +
+    iterate (do not skip on the proxy gate, do not restore on round 1), and do
+    NOT jump to yet another regime — develop THIS one until the window closes.
+    """
+    k = max(0, int(rounds_left))
+    span = f" ({k} round(s) left)" if not total else f" (round {max(1, total - k + 1)} of {total})"
+    return (
+        f"## META-CONTROL — REGIME EXPLORATION WINDOW{span}\n"
+        "You recently JUMPED to a NEW regime and are now DEVELOPING it. Crucial:\n"
+        "- The frozen global-best FLOOR is SAFE and unchanged — you are NOT risking "
+        "it by exploring. It is recoverable from attempts/ at any time.\n"
+        "- A new regime almost always REGRESSES before it is tuned. So a candidate "
+        "on this line that is WORSE than the floor — or that your train-only proxy "
+        "gate would normally skip — is EXPECTED here. RUN the 1-seed official scorer "
+        "on it and ITERATE: do NOT skip scoring on a proxy 'it will regress' gate, "
+        "and do NOT abandon/restore the line just because an early round is below "
+        "the floor. The whole point of this window is to give the new regime the "
+        "rounds it needs to cross its initial regression valley.\n"
+        "- Spend this window TUNING the new regime (its hyperparameters / coupling "
+        "with the backbone), NOT re-screening the old line and NOT jumping to yet "
+        "another regime — that churns through regimes without ever developing one.\n"
+        "- After the window closes, normal keep/reject + the noise gate resume; if "
+        "the line still has not cleared the floor by then, a fresh jump convenes.\n\n"
+    )
+
+
 def _find_meta_json(text: str) -> dict | None:
     """Best-effort extract the ``meta_decision`` object from planner output."""
     if not text:

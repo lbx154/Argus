@@ -282,3 +282,35 @@ def test_cleared_for_jump_drops_local_keeps_durable():
     assert j.done == ["verified A275"]
     assert j.tried_and_failed == ["dead end X"]  # dead ends stay dead
     assert j.env_facts == ["B200 at :2231"]
+
+
+def test_valley_immunity_window_suppresses_jump_and_decays(tmp_path):
+    # After a jump, a post-jump exploration window opens: no new jump for N
+    # rounds (develop the regime), grace block injected, window decays, then a
+    # fresh jump can convene again.
+    from argus_skill.meta import ledger as _ledger
+    _write_attempt(tmp_path, "a001_seed", 0.96, decision="promote", strategy_type="architecture")
+    for i in range(2, 21):
+        _write_attempt(tmp_path, f"a{i:03d}_arch", 0.97, strategy_type="architecture")
+    vmod = load_vertical("nanochat")
+    cfg = MetaConfig(explore_window_rounds=2)
+
+    f1 = decide(tmp_path, vmod, cfg)
+    assert f1.mode == "jump"  # frozen + window=0 → jump
+    record_decision(tmp_path, '```json\n{"mode":"jump","strategy_type":"optimizer","forbidden":[]}\n```', f1, cfg, now=1.0)
+    assert _ledger.load_ledger(tmp_path).explore_window == 2  # window opened
+
+    f2 = decide(tmp_path, vmod, cfg)
+    assert f2.mode == "exploit"  # window>0 → NO new jump (develop the regime)
+    assert "EXPLORATION WINDOW" in f2.prompt_block
+    assert "regress" in f2.prompt_block.lower() and "floor is safe" in f2.prompt_block.lower()
+    record_decision(tmp_path, "", f2, cfg, now=2.0)
+    assert _ledger.load_ledger(tmp_path).explore_window == 1  # decayed
+
+    f3 = decide(tmp_path, vmod, cfg)
+    assert f3.mode == "exploit" and "EXPLORATION WINDOW" in f3.prompt_block
+    record_decision(tmp_path, "", f3, cfg, now=3.0)
+    assert _ledger.load_ledger(tmp_path).explore_window == 0  # window closed
+
+    f4 = decide(tmp_path, vmod, cfg)
+    assert f4.mode == "jump"  # window closed + still saturated → fresh jump

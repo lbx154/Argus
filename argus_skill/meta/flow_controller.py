@@ -20,8 +20,14 @@ from .ledger import (
     merge_forbidden,
     next_step_id,
     set_jump_pending,
+    tick_explore_window,
 )
-from .meta_prompter import MetaDecision, build_meta_block, parse_meta_decision
+from .meta_prompter import (
+    MetaDecision,
+    build_meta_block,
+    explore_window_block,
+    parse_meta_decision,
+)
 from .saturation import SaturationSignal, analyze
 
 
@@ -59,6 +65,18 @@ def decide(
     try:
         signal = analyze(project_root, vmod, cfg)
         ledger = load_ledger(project_root)
+        window = int(getattr(ledger, "explore_window", 0) or 0)
+        if window > 0:
+            # Post-jump VALLEY-IMMUNITY window: develop the current regime — do
+            # NOT convene a new jump (jumping every cycle churns through regimes
+            # without ever tuning one), and tell the agent a regressing candidate
+            # is expected + must be scored/iterated. The frozen floor stays safe.
+            return FlowDecision(
+                mode="exploit",
+                prompt_block=explore_window_block(window, cfg.explore_window_rounds),
+                signal=signal,
+                forbidden_axes=ledger.forbidden_axes(),
+            )
         if signal.is_saturated:
             mode = "jump"
         elif (
@@ -126,8 +144,17 @@ def record_decision(
         # engineer session drops the saturated local trajectory (active_line /
         # maturing). Keyed on the harness convening the jump (flow.mode), so the
         # reset fires even if the planner's structured meta_decision was imperfect.
+        # A jump ALSO opens the post-jump valley-immunity window (develop the new
+        # regime for N rounds); any other cycle DECAYS that window by one.
         if flow.mode == "jump":
             set_jump_pending(project_root, True, now=now)
+            tick_explore_window(
+                project_root,
+                set_to=(config or load_meta_config()).explore_window_rounds,
+                now=now,
+            )
+        else:
+            tick_explore_window(project_root, now=now)
 
         append_decision(
             project_root,

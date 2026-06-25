@@ -54,6 +54,13 @@ class MetaConfig:
     #: A window with this many or fewer DISTINCT non-local regime axes counts as
     #: low-diversity (the basin has collapsed onto one regime).
     diversity_floor: int = 2
+    #: After a regime JUMP, give the new regime this many rounds of "valley
+    #: immunity": no new jump convenes, and the agent is told a regressing
+    #: candidate is EXPECTED and must be SCORED + iterated (not skipped on the
+    #: train-only proxy gate, not restored on round 1) — so a bold regime change
+    #: gets the rounds it needs to cross its initial regression valley instead of
+    #: being killed on arrival. The frozen floor stays safe throughout.
+    explore_window_rounds: int = 3
     #: How many diverse "inspiration" attempts to surface in the jump framing
     #: (AlphaEvolve parent+inspirations; bounded per the EMNLP negative result).
     inspiration_top_k: int = 4
@@ -69,6 +76,9 @@ class MetaConfig:
             ),
             diversity_floor=_env_int(
                 "ARGUS_META_DIVERSITY_FLOOR", cls.diversity_floor
+            ),
+            explore_window_rounds=_env_int(
+                "ARGUS_META_EXPLORE_WINDOW_ROUNDS", cls.explore_window_rounds
             ),
             inspiration_top_k=_env_int(
                 "ARGUS_META_INSPIRATION_TOP_K", cls.inspiration_top_k

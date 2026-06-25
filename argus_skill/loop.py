@@ -495,6 +495,19 @@ class SkillLoop:
         _banner = vertical_role_banner(_vmod, "engineer")
         if _banner:
             sections.append(_banner)
+        # Valley-immunity: while a post-jump exploration window is open, tell the
+        # engineer the frozen floor is safe and a regressing candidate is EXPECTED
+        # — score + iterate it (do NOT skip on the train-only proxy gate, do NOT
+        # restore on round 1) so the new regime can cross its initial valley.
+        try:
+            from .meta.ledger import load_ledger as _load_meta_ledger
+            from .meta.meta_prompter import explore_window_block as _explore_block
+
+            _ewin = int(getattr(_load_meta_ledger(_proot), "explore_window", 0) or 0)
+            if _ewin > 0:
+                sections.append(_explore_block(_ewin))
+        except Exception:  # noqa: BLE001 — meta grace must never break prompt building
+            pass
         # Stage-aware SETUP action control (deterministic safety net). General:
         # keyed purely on the pipeline stage, NOT on any task/benchmark. At the
         # setup stage (pre-optimize) the optimize banner's pull toward an
