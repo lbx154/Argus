@@ -288,6 +288,22 @@ def run_life_supervisor(
         stderr_sink = LifeStderrSink(quiet=quiet)
         project_root = _memory_project_root(mem)
         sink = JsonlEventSink(stderr_sink, life_dir=project_root)
+        # Manager divides the Task first: classify the vertical, split into its
+        # Stage template, and COMMIT the choice. The supervisor below then TRUSTS
+        # the persisted vertical (life/supervisor/_core.py:2460) and won't
+        # re-classify. Fail-open — division must never block a run.
+        if continuous and str(continuous_objective).strip():
+            try:
+                from ...manager import Manager
+
+                division = Manager(
+                    project_root=project_root,
+                    runner=getattr(runner, "backend", None),
+                ).divide(continuous_objective)
+                if not quiet:
+                    print(division.headline(), file=sys.stderr)
+            except Exception:  # noqa: BLE001 — never block a run on division
+                log.debug("manager division skipped", exc_info=True)
         cfg = _build_repl_supervisor_config(
             per_mission_cap_usd=per_mission_cap_usd,
             daily_cap_usd=daily_cap_usd,
