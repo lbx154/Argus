@@ -1,9 +1,9 @@
 """argus.orchestrator — the slim run loop.
 
 Manager triages + splits stages → Planner plans loops → Engineer ↔ Reviewer per loop,
-with the FrozenJudge giving the win and the HypothesisTree carrying the lineage.
+with the FrozenJudge giving the win and a flat Journal carrying the attempt log.
 
-done = (research) all stages done + gate  OR  (optimize) frontier exhausted / budget spent.
+done = (research) all stages done + gate  OR  (optimize) PASS-A / budget spent.
 This replaces life/supervisor/_core.py's tick()+auto-stop+self-evolve wiring.
 """
 from __future__ import annotations
@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 from .core import Task, Node
 from .judge import FrozenJudge
-from .tree import HypothesisTree
+from .session import Journal
 from .roles import Planner, Engineer, Reviewer, triage, split_stages
 
 
@@ -28,7 +28,7 @@ class Run:
     planner: Planner = field(default_factory=Planner)
     engineer: Engineer = field(default_factory=Engineer)
     reviewer: Reviewer = field(default_factory=Reviewer)
-    tree: HypothesisTree = field(default_factory=HypothesisTree)
+    journal: Journal = field(default_factory=Journal)
     cfg: RunConfig = field(default_factory=RunConfig)
     log: list[str] = field(default_factory=list)
 
@@ -44,16 +44,15 @@ class Run:
         loops = 0
         for stage in stages:
             stage.status = "running"
-            plan = self.planner.plan_loops(stage, self.tree, max_loops=self.cfg.budget_loops)
+            plan = self.planner.plan_loops(stage, max_loops=self.cfg.budget_loops)
             for loop_task in plan:
                 if loops >= self.cfg.budget_loops:
                     self._say("[done] budget spent"); break
+                node = self.engineer.propose(loop_task, loops, self.journal.lessons())
                 loops += 1
-                node = self.engineer.propose(loop_task, self.tree, self.tree.lessons_for("default"))
-                self.tree.add(node)
                 metric, refs = self.candidate_fn(node)          # the real experiment
                 ev = self.judge.score(metric, refs)             # THE WIN (frozen, external)
-                self.tree.attach_evidence(node.id, ev, lesson=self.engineer.lesson(ev))
+                self.journal.record(node, ev, lesson=self.engineer.lesson(ev))
                 verdict = self.reviewer.feedback(node, ev)      # process feedback only
                 self._say(f"[loop {loops}] {node.hypothesis} → {ev.metric} {'✅PASS-A' if ev.passed else 'PASS-B'} | {verdict.decision}")
                 if kind == "optimize" and ev.passed:
@@ -62,11 +61,11 @@ class Run:
                     stage.status = "done"; break
             stage.status = "done"
 
-        best = self.tree.best()
+        best = self.journal.best()
         return {
             "kind": kind, "loops": loops,
             "best": (best.hypothesis if best else None),
             "best_metric": (best.evidence.metric if best else None),
             "floor": self.judge.floor,
-            "nodes": len(self.tree.nodes),
+            "nodes": len(self.journal.nodes),
         }

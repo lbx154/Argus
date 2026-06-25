@@ -1,7 +1,7 @@
-"""Tests for the slim Argus spine — the soul (frozen judge) + tree + done logic."""
+"""Tests for the slim Argus spine — the soul (frozen judge) + flat journal + done logic."""
 from __future__ import annotations
 from argus_skill.argus import (
-    Task, Node, Evidence, FrozenJudge, JudgeConfig, HypothesisTree, Session, Run, RunConfig,
+    Task, Node, Evidence, FrozenJudge, JudgeConfig, Journal, Session, Run, RunConfig,
     Manager,
 )
 
@@ -19,12 +19,14 @@ def test_anti_cheat_disqualifies():
     assert ev.passed is False and "DISQUALIFIED" in ev.note
 
 
-def test_tree_lesson_propagation_and_done():
-    t = HypothesisTree()
-    a = t.add(Node(id="a", hypothesis="loss tiling", family="loss"))
-    t.attach_evidence("a", Evidence(metric=0.999, passed=False), lesson="forward-bound")
-    assert "forward-bound" in t.lessons_for("loss")   # propagates to siblings
-    assert t.frontier_exhausted() is True             # all measured -> done
+def test_journal_tracks_best_and_lessons():
+    j = Journal()
+    j.record(Node(id="a", hypothesis="loss tiling"),
+             Evidence(metric=0.999, passed=False), lesson="forward-bound")
+    j.record(Node(id="b", hypothesis="stacked"),
+             Evidence(metric=0.9855, passed=True))
+    assert "forward-bound" in j.lessons()             # PASS-B one-liner kept for the Engineer
+    assert j.best().id == "b"                          # best = the lone winner
 
 
 def test_run_reaches_pass_a_via_frozen_judge():
@@ -61,6 +63,10 @@ def test_manager_handle_end_to_end(tmp_path):
     assert (tmp_path / "wiki" / "research").exists()
     assert list((tmp_path / "wiki" / "research").glob("*.md"))
     assert (tmp_path / "checkpoint.json").exists()
+    # every agent has its OWN checkpoint.json
+    for who in ("planner", "engineer", "reviewer"):
+        assert (tmp_path / "agents" / who / "checkpoint.json").exists(), who
     # a fresh Manager resumes from the checkpoint
     mgr2 = Manager(project_root=tmp_path, judge=j, candidate_fn=lambda n: (1.0, []))
     assert mgr2.session.load_checkpoint().get("headline")
+    assert mgr2.engineer.resume().get("headline")     # agent resumes its own context

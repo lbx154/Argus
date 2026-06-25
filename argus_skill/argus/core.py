@@ -42,8 +42,8 @@ class Verdict:
 
 @dataclass
 class Node:
-    """A hypothesis in the tree. Failures are lightweight nodes (a one-line lesson),
-    never a fat postmortem MD."""
+    """One attempt in the flat Journal. Failures are lightweight nodes (a one-line
+    lesson), never a fat postmortem MD."""
     id: str
     hypothesis: str
     parent: Optional[str] = None
