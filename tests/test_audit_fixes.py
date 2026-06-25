@@ -65,11 +65,11 @@ def test_reviewer_schema_allows_optional_active_line_and_env_facts():
     schema_path = Path(reviewer_mod.__file__).with_name("reviewer_schema.json")
     schema = json.loads(schema_path.read_text())
     cp = schema["properties"]["checkpoint"]
-    assert "active_line" in cp["properties"]
+    assert "active_line" in cp["properties"]  # the cumulative-line channel exists
     assert "env_facts" in cp["properties"]
-    # optional — the reviewer only emits them when it is carrying a line
-    assert "active_line" not in cp["required"]
-    assert "env_facts" not in cp["required"]
+    # active_line is required-but-NULLABLE: the reviewer must consider it but may
+    # emit null when not carrying a line (never forced to fabricate one).
+    assert "null" in cp["properties"]["active_line"]["type"]
 
 
 # --------------------------------------------------------------------------- #

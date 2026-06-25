@@ -117,15 +117,16 @@
         "open_blocker": { "type": "string", "maxLength": 800 },
         "next_step": { "type": "string", "maxLength": 600 },
         "active_line": {
-          "type": "object",
+          "type": ["object", "null"],
           "additionalProperties": false,
-          "description": "OPTIONAL — the ONE bold direction you are maturing ABOVE the floor across rounds (desc / where its code is saved / how long / next refinement). Omit it entirely if you are not carrying a line; the harness drops it on a regime jump.",
+          "description": "OPTIONAL — the ONE bold direction you are maturing ABOVE the floor across rounds (desc / where its code is saved / how long / next refinement). Emit null if you are not carrying a line; the harness drops it on a regime jump.",
           "properties": {
             "desc": { "type": "string", "maxLength": 400 },
             "branch_or_path": { "type": "string", "maxLength": 400 },
             "rounds_active": { "type": "integer", "minimum": 0 },
             "note": { "type": "string", "maxLength": 400 }
-          }
+          },
+          "required": ["desc", "branch_or_path", "rounds_active", "note"]
         },
         "env_facts": {
           "type": "array",
@@ -134,7 +135,7 @@
           "items": { "type": "string", "maxLength": 280 }
         }
       },
-      "required": ["goal", "done", "tried_and_failed", "maturing", "open_blocker", "next_step"]
+      "required": ["goal", "done", "tried_and_failed", "maturing", "open_blocker", "next_step", "active_line", "env_facts"]
     }
   },
   "required": [
