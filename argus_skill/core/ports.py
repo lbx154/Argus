@@ -12,8 +12,7 @@ skill-agent's ``codex_exec(...)`` callable used to be. By making it a
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 from .models import RunnerOptions, RunnerResult
 
@@ -83,31 +82,8 @@ class SkillSource(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Control + notification (for daemon / interactive modes — vendored from
-# ArgusBot. Loop core does not depend on these in v0.1, but apps do.)
+# Event sink (daemon / interactive modes consume structured events).
 # ---------------------------------------------------------------------------
-
-@dataclass
-class ControlCommand:
-    kind: str
-    text: str = ""
-    source: str = "unknown"
-
-
-CommandHandler = Callable[[ControlCommand], None]
-
-
-class ControlChannel(Protocol):
-    def start(self, on_command: CommandHandler) -> None: ...
-
-    def stop(self) -> None: ...
-
-
-class NotificationSink(Protocol):
-    def send_message(self, message: str) -> None: ...
-
-    def close(self) -> None: ...
-
 
 class EventSink(Protocol):
     def handle_event(self, event: dict[str, Any]) -> None: ...

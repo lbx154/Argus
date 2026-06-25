@@ -8,14 +8,7 @@ from __future__ import annotations
 
 from ..skills.role_context import format_role_context
 
-_ENGINEER_ROLE_SKILL = "argus-engineer-role.md"
 _SCIENTIST_ROLE_SKILL = "argus-scientist-role.md"
-_ENGINEER_ROLE_FALLBACK = """# Argus Engineer Role
-
-The Engineer is argus-skill's execution arm: follow the task and active skill,
-modify files or answer inline as requested, run concrete verification, and
-report evidence for the Reviewer.
-"""
 _SCIENTIST_ROLE_FALLBACK = """# Argus Scientist Role
 
 The Scientist is argus-skill's skill-memory role: match skills conservatively,
@@ -23,14 +16,6 @@ distill reusable capability playbooks, and revise skills from evidence without
 hard-coding one task's solution. Distilled skills are written for gpt-5.4-mini,
 a relatively small engineer model, so they must be explicit and executable.
 """
-
-
-def _engineer_role_context() -> str:
-    return format_role_context(
-        "Argus engineer role skill",
-        _ENGINEER_ROLE_SKILL,
-        _ENGINEER_ROLE_FALLBACK,
-    )
 
 
 def _scientist_role_context() -> str:
