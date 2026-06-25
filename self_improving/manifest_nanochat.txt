@@ -1,0 +1,6 @@
+# DRAFT manifest for seal_check_nanochat.py — operator: regenerate + place the
+# authoritative copy at ~/.argus-seal (outside the agent's reach). Seeded from the
+# current frozen files of nanochat-mission-b200 on 2026-06-25.
+c24d4fd123dfeb8a0226667458969220a9ccc1f8f11f76cf5670907a8f5ef071 lib.py
+4f2ba9cbb8ba8c4a3d35be405a913e2f3be3af9aea103ed52ef7b2a662058150 prepare.py
+a2b13cc6c44f7ece9573ab1e923daeccf1350d88c6fbb7aa153732edce83d561 eval_solution.sh
