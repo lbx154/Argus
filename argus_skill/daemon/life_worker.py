@@ -871,6 +871,20 @@ class LifeWorker:
             planner_restart_handler=self._planner_restart_handler,
             post_mission_hook=self._post_mission_hook,
         )
+        # Manager divides the task before the supervisor starts — same as the
+        # REPL path (apps/_runtime.run_life_supervisor): classify the vertical,
+        # split into Stages, and commit it so the supervisor trusts the persisted
+        # vertical. Fail-open: daemon start must never be blocked by division.
+        if str(init_objective or "").strip():
+            try:
+                from ..manager import Manager
+
+                Manager(
+                    project_root=cfg.project_workdir or runtime_root,
+                    runner=getattr(runner, "backend", None),
+                ).divide(init_objective)
+            except Exception:  # noqa: BLE001 — never block daemon start on division
+                pass
         sup = LifeSupervisor(
             memory=mem,
             runner=runner,
