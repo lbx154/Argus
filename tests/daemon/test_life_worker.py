@@ -270,6 +270,103 @@ def test_stop_daemon_returns_1_when_no_daemon(tmp_path: Path) -> None:
     assert stop_daemon(tmp_path) == 1
 
 
+def _spawn_fake_daemon(tmp_path: Path, pre_ready: str, post_ready: str) -> int:
+    """Spawn a DETACHED fake daemon (double-fork, reparented to init) and return
+    its pid.
+
+    Detaching mirrors the real daemon (spawn_detached_daemon) and — crucially —
+    means the exited process is reaped by init, not left a zombie under the test
+    process. A zombie still answers ``os.kill(pid, 0)``, which would make
+    stop_daemon's liveness check wrongly report 'still alive'. ``pre_ready``
+    installs SIGTERM handling before the ready-marker is touched.
+    """
+    import subprocess
+    import sys
+
+    ready = tmp_path / "fake_daemon.ready"
+    pid_path = life_worker_mod._daemon_pid_path(tmp_path)
+    script = (
+        "import signal, time, sys, os, pathlib\n"
+        "if os.fork() > 0:\n"
+        "    os._exit(0)\n"  # immediate child exits -> grandchild reparented to init
+        "os.setsid()\n"
+        + pre_ready
+        + f"pathlib.Path({str(pid_path)!r}).write_text(str(os.getpid()))\n"
+        + f"pathlib.Path({str(ready)!r}).write_text('1')\n"
+        + post_ready
+    )
+    proc = subprocess.Popen([sys.executable, "-c", script])  # noqa: S603
+    proc.wait(timeout=5)  # reap the immediate child; the grandchild runs detached
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if ready.exists() and life_worker_mod.read_daemon_status(tmp_path).alive:
+            break
+        time.sleep(0.02)
+    pid = life_worker_mod.read_daemon_status(tmp_path).pid
+    assert pid is not None
+    return pid
+
+
+def _reap_fake_daemon(pid: int) -> None:
+    try:
+        os.kill(pid, 9)
+    except ProcessLookupError:
+        pass
+
+
+def test_stop_daemon_drain_quiesces_continuous_and_waits_for_clean_exit(
+    tmp_path: Path,
+) -> None:
+    # Fake daemon: SIGTERM sets a stop flag; the main loop notices, finishes its
+    # 'mission' (a short delay) then exits cleanly — modelling the supervisor
+    # finishing the current mission before the process leaves. Drain must wait
+    # that boundary out, not SIGKILL.
+    pid = _spawn_fake_daemon(
+        tmp_path,
+        pre_ready=(
+            "_stop = []\n"
+            "def _h(*a):\n"
+            "    _stop.append(1)\n"
+            "signal.signal(signal.SIGTERM, _h)\n"
+        ),
+        post_ready=(
+            "while not _stop:\n"
+            "    time.sleep(0.05)\n"
+            "time.sleep(0.8)\n"
+            "os._exit(0)\n"
+        ),
+    )
+    try:
+        life_worker_mod.write_continuous_config(
+            tmp_path, enabled=True, objective="keep going"
+        )
+        rc = life_worker_mod.stop_daemon(tmp_path, drain=True, drain_timeout=15.0)
+        assert rc == 0
+        # Drain quiesced continuous mode (no NEW mission), preserving the objective.
+        assert life_worker_mod.read_continuous_config(tmp_path) == (False, "keep going")
+        assert not life_worker_mod._process_alive(pid)  # really exited
+    finally:
+        _reap_fake_daemon(pid)
+
+
+def test_stop_daemon_force_sigkills_a_stuck_daemon(tmp_path: Path) -> None:
+    # A daemon that ignores SIGTERM (mid-mission, never reaches a boundary): plain
+    # stop times out (rc=2), --force escalates to SIGKILL (rc=0).
+    pid = _spawn_fake_daemon(
+        tmp_path,
+        pre_ready="signal.signal(signal.SIGTERM, signal.SIG_IGN)\n",
+        post_ready="time.sleep(60)\n",
+    )
+    try:
+        assert life_worker_mod.stop_daemon(tmp_path, timeout=1.0) == 2
+        assert life_worker_mod._process_alive(pid)  # SIGTERM ignored, still alive
+        assert life_worker_mod.stop_daemon(tmp_path, timeout=1.0, force=True) == 0
+        time.sleep(0.3)
+        assert not life_worker_mod._process_alive(pid)  # SIGKILLed
+    finally:
+        _reap_fake_daemon(pid)
+
+
 def test_life_worker_drains_backlog_and_stops_on_signal(tmp_path: Path) -> None:
     cfg = LifeWorkerConfig(
         life_dir=tmp_path, backend="memory",

@@ -1471,8 +1471,33 @@ def _process_alive(pid: int) -> bool:
     return True
 
 
-def stop_daemon(life_dir: Path | None = None, *, timeout: float = 10.0) -> int:
-    """Send SIGTERM to the running daemon and wait up to ``timeout`` for exit.
+def stop_daemon(
+    life_dir: Path | None = None,
+    *,
+    timeout: float = 10.0,
+    drain: bool = False,
+    drain_timeout: float = 1800.0,
+    force: bool = False,
+) -> int:
+    """Stop the running daemon.
+
+    Default (fast SIGTERM): send SIGTERM and wait ``timeout`` (10s) for exit. A
+    daemon that is mid-mission will NOT exit in 10s — the supervisor only checks
+    its stop flag *between* missions, and the engineer round loop runs to a
+    natural boundary — so this returns 2 and (unless ``force``) tells the
+    operator to drain or escalate rather than silently leaving the daemon up.
+
+    Drain (``drain=True``): quiesce continuous mode FIRST (so no NEW mission
+    starts after the current one), then SIGTERM (which sets the supervisor stop
+    flag), and wait up to ``drain_timeout`` for the daemon to finish its CURRENT
+    mission at its natural between-mission boundary and exit cleanly. There is no
+    mid-mission SIGKILL, so a running eval or a win being banked is never
+    interrupted. This is the safe way to stop for a code-reload restart and
+    replaces hand-rolling a pgrep boundary-watcher. Progress is printed while
+    waiting.
+
+    ``force``: if the daemon is still alive when the wait elapses, escalate to
+    SIGKILL (which DOES interrupt a running mission) instead of returning 2.
 
     Returns 0 on graceful stop, 1 if no daemon was running, 2 on timeout.
     """
@@ -1481,20 +1506,74 @@ def stop_daemon(life_dir: Path | None = None, *, timeout: float = 10.0) -> int:
         sys.stderr.write("argus-skill: no daemon is running for this life-dir.\n")
         return 1
     pid = status.pid
+    resolved_dir = status.life_dir
+
+    if drain:
+        # Stop NEW missions from starting after the current one finishes,
+        # preserving the objective so the operator can resume later. The daemon
+        # hot-reloads continuous.json, so this lands without a restart.
+        try:
+            _enabled, objective = read_continuous_config(resolved_dir)
+            write_continuous_config(
+                resolved_dir,
+                enabled=False,
+                objective=objective,
+                done_reason="operator drain-stop",
+            )
+        except Exception:  # noqa: BLE001 — quiesce is best-effort
+            pass
+        sys.stdout.write(
+            f"argus-skill: draining daemon (pid {pid}) — quiesced continuous mode; "
+            "waiting for the current mission to finish at its natural boundary "
+            "(no mid-mission SIGKILL)...\n"
+        )
+        sys.stdout.flush()
+
     try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
         return 1
-    deadline = time.monotonic() + timeout
+
+    wait_for = drain_timeout if drain else timeout
+    deadline = time.monotonic() + wait_for
+    next_heartbeat = time.monotonic() + 30.0
     while time.monotonic() < deadline:
         if not _process_alive(pid):
             sys.stdout.write(f"argus-skill: daemon (pid {pid}) stopped.\n")
             return 0
-        time.sleep(0.1)
-    sys.stderr.write(
-        f"argus-skill: daemon (pid {pid}) did not exit within {timeout:.1f}s. "
-        "Send SIGKILL manually if needed.\n"
-    )
+        if drain and time.monotonic() >= next_heartbeat:
+            elapsed = int(wait_for - (deadline - time.monotonic()))
+            sys.stdout.write(
+                f"argus-skill: draining... still finishing current mission "
+                f"({elapsed}s elapsed).\n"
+            )
+            sys.stdout.flush()
+            next_heartbeat += 30.0
+        time.sleep(0.2)
+
+    if force:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            sys.stdout.write(f"argus-skill: daemon (pid {pid}) stopped.\n")
+            return 0
+        sys.stderr.write(
+            f"argus-skill: daemon (pid {pid}) did not exit within {wait_for:.0f}s; "
+            "sent SIGKILL (--force).\n"
+        )
+        return 0
+    if drain:
+        sys.stderr.write(
+            f"argus-skill: daemon (pid {pid}) is still finishing its mission after "
+            f"{wait_for:.0f}s. It will exit on its own at the next boundary; re-run "
+            "with --force to SIGKILL now (interrupts the mission).\n"
+        )
+    else:
+        sys.stderr.write(
+            f"argus-skill: daemon (pid {pid}) did not exit within {timeout:.1f}s "
+            "(it is mid-mission). Re-run with --drain to wait for a clean boundary, "
+            "or --force to SIGKILL now.\n"
+        )
     return 2
 
 

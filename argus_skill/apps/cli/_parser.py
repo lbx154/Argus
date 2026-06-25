@@ -43,6 +43,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="send SIGTERM to the current project's daemon",
     )
     daemon_grp.add_argument(
+        "--drain",
+        action="store_true",
+        help="with --daemon-stop: quiesce continuous mode and wait for the "
+        "current mission to finish at its natural boundary before exiting "
+        "(no mid-mission SIGKILL) — the safe stop for a code-reload restart",
+    )
+    daemon_grp.add_argument(
+        "--force",
+        action="store_true",
+        help="with --daemon-stop: SIGKILL the daemon if it does not exit in time "
+        "(interrupts a running mission / eval)",
+    )
+    daemon_grp.add_argument(
         "--status",
         action="store_true",
         help="print the current project daemon + backlog status and exit",
