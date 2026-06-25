@@ -708,6 +708,52 @@ class _SkillLoopRunner:
         # iteration loop can drive a Critic agent through it without
         # building a second codex process.
         self.backend = self._backend
+
+        # Per-role backends. Each agent role (engineer / reviewer / planner /
+        # manager) can be pinned to its OWN backend via
+        # ``ARGUS_SKILL_{ROLE}_BACKEND`` (codex / claude / copilot) plus an
+        # optional ``ARGUS_SKILL_{ROLE}_RUNNER_BIN``. When neither is set the
+        # role SHARES the single default backend above — so the common case
+        # still builds exactly one CLI process and behaviour is unchanged. Set
+        # an override only when you want, e.g., the reviewer on a different
+        # provider than the engineer.
+        def _role_backend(role: str):
+            be_env = os.environ.get(f"ARGUS_SKILL_{role.upper()}_BACKEND", "").strip()
+            bin_env = os.environ.get(
+                f"ARGUS_SKILL_{role.upper()}_RUNNER_BIN", ""
+            ).strip()
+            if not be_env and not bin_env:
+                return self._backend
+            from ..agent_cli.runner_backend import (
+                default_runner_bin,
+                normalize_runner_backend,
+            )
+
+            chosen = normalize_runner_backend(be_env or backend_name)
+            same_type = normalize_runner_backend(backend_name) == chosen
+            role_bin = bin_env or (
+                runner_bin if same_type else default_runner_bin(chosen)
+            )
+            return AgentCliBackend(
+                backend=chosen,
+                runner_bin=role_bin,
+                default_extra_args=extra,
+                default_interrupt_reason_provider=(
+                    _stop_reason if stop_event is not None else None
+                ),
+                default_watchdog_soft_idle_seconds=_env_int(
+                    "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", 0,
+                ),
+                default_watchdog_hard_idle_seconds=_env_int(
+                    "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", 3600,
+                ),
+                event_callback=_trampoline,
+            )
+
+        self.engineer_backend = _role_backend("engineer")
+        self.reviewer_backend = _role_backend("reviewer")
+        self.planner_backend = _role_backend("planner")
+        self.manager_backend = _role_backend("manager")
         self._args = args
         # Session continuity: seed_thread_id is the codex session id from
         # the previous mission in the same REPL session. We propagate it
@@ -792,7 +838,8 @@ class _SkillLoopRunner:
 
             # The Manager owns the chat-vs-task decision; the runner only executes it.
             if Manager(
-                project_root=_workdir, runner=self._backend
+                project_root=_workdir,
+                runner=getattr(self, "manager_backend", None) or self._backend,
             ).is_conversational(objective, run_exec=_classify_run_exec):
                 return self._chat_quick_reply(
                     objective=objective,
@@ -943,8 +990,8 @@ class _SkillLoopRunner:
         )
         loop = self._SkillLoop(
             skills_dir=Path(args.skills_dir),
-            engineer_runner=self._backend,
-            reviewer_runner=self._backend,
+            engineer_runner=getattr(self, "engineer_backend", None) or self._backend,
+            reviewer_runner=getattr(self, "reviewer_backend", None) or self._backend,
             config=config,
             on_event=sink.handle_event,
             extra_guidance_provider=extra_guidance_provider,
@@ -1348,7 +1395,8 @@ def run_life_supervisor(
 
                 division = Manager(
                     project_root=project_root,
-                    runner=getattr(runner, "backend", None),
+                    runner=getattr(runner, "manager_backend", None)
+                    or getattr(runner, "backend", None),
                 ).divide(continuous_objective)
                 if not quiet:
                     print(division.headline(), file=sys.stderr)
@@ -1374,7 +1422,8 @@ def run_life_supervisor(
             config=cfg,
             engineer_model=engineer_model,
             reviewer_model=reviewer_model,
-            planner_runner=getattr(runner, "backend", None),
+            planner_runner=getattr(runner, "planner_backend", None)
+            or getattr(runner, "backend", None),
         )
         return sup.run()
     finally:

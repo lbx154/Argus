@@ -881,7 +881,8 @@ class LifeWorker:
 
                 Manager(
                     project_root=cfg.project_workdir or runtime_root,
-                    runner=getattr(runner, "backend", None),
+                    runner=getattr(runner, "manager_backend", None)
+                    or getattr(runner, "backend", None),
                 ).divide(init_objective)
             except Exception:  # noqa: BLE001 — never block daemon start on division
                 pass
@@ -892,7 +893,8 @@ class LifeWorker:
             config=sup_cfg,
             engineer_model=cfg.engineer_model,
             reviewer_model=cfg.reviewer_model,
-            planner_runner=getattr(runner, "backend", None),
+            planner_runner=getattr(runner, "planner_backend", None)
+            or getattr(runner, "backend", None),
         )
 
         # Vault pre-flight: refuse to start daemon if a required
