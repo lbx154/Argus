@@ -112,7 +112,7 @@ def _make_runner(backend: _FakeBackend) -> Any:
     bypass it and inject our fake backend / args directly so the
     chat-path can be tested in isolation.
     """
-    from argus_skill.apps._life_repl import _SkillLoopRunner
+    from argus_skill.apps._runtime import _SkillLoopRunner
 
     runner = _SkillLoopRunner.__new__(_SkillLoopRunner)
     runner = cast(Any, runner)

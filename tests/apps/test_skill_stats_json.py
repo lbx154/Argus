@@ -19,7 +19,7 @@ def test_skill_stats_json_main_emits_json_and_skips_repl(
     repo.mkdir()
 
     monkeypatch.setattr(
-        "argus_skill.apps._life_repl.run_life_chat_loop",
+        "argus_skill.manager.repl.run_manager_repl",
         lambda *args, **kwargs: pytest.fail(
             "REPL must not be entered for --skill-stats-json"
         ),

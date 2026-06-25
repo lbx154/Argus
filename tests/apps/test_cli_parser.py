@@ -268,13 +268,13 @@ def test_main_seeds_repl_continuous_flags(
 
     captured: dict[str, object] = {}
 
-    def fake_run_life_chat_loop(args):
+    def fake_run_manager_repl(args):
         captured["backend"] = args.backend
         captured["continuous"] = args.continuous
         captured["objective"] = args.objective
         return 0
 
-    monkeypatch.setattr("argus_skill.apps._life_repl.run_life_chat_loop", fake_run_life_chat_loop)
+    monkeypatch.setattr("argus_skill.manager.repl.run_manager_repl", fake_run_manager_repl)
 
     rc = main(["--continuous", "--objective", "hardening objective"])
 
@@ -298,11 +298,11 @@ def test_main_rejects_launch_without_objective(
 
     called = {"hit": False}
 
-    def fake_run_life_chat_loop(args):  # pragma: no cover - must not run
+    def fake_run_manager_repl(args):  # pragma: no cover - must not run
         called["hit"] = True
         return 0
 
-    monkeypatch.setattr("argus_skill.apps._life_repl.run_life_chat_loop", fake_run_life_chat_loop)
+    monkeypatch.setattr("argus_skill.manager.repl.run_manager_repl", fake_run_manager_repl)
 
     rc = main([])
     assert rc == 2
@@ -324,11 +324,11 @@ def test_main_rejects_launch_without_special_prompt(
 
     called = {"hit": False}
 
-    def fake_run_life_chat_loop(args):  # pragma: no cover - must not run
+    def fake_run_manager_repl(args):  # pragma: no cover - must not run
         called["hit"] = True
         return 0
 
-    monkeypatch.setattr("argus_skill.apps._life_repl.run_life_chat_loop", fake_run_life_chat_loop)
+    monkeypatch.setattr("argus_skill.manager.repl.run_manager_repl", fake_run_manager_repl)
 
     rc = main(["--continuous", "--objective", "hardening objective"])
     assert rc == 2

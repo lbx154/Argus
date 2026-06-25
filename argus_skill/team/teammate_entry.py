@@ -182,7 +182,7 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
     if timeout_s is None:
         timeout_s = float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "5400"))  # 90 min: profile + iterate >=3-4 mechanisms toward roofline (aligned with the full engineer, not a shallow one-shot)
     try:
-        from argus_skill.apps._life_repl import LifeStderrSink, _SkillLoopRunner
+        from argus_skill.apps._runtime import LifeStderrSink, _SkillLoopRunner
         from argus_skill.life.event_log import JsonlEventSink
     except Exception as exc:  # noqa: BLE001 — import/wiring problem
         sys.stderr.write(f"teammate_entry: cannot import runner: {exc}\n")

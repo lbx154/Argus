@@ -435,7 +435,7 @@ def test_life_worker_wires_stop_event_to_agent_cli_runner(
             return {}
 
     monkeypatch.setattr(
-        "argus_skill.apps._life_repl.build_life_runner",
+        "argus_skill.apps._runtime.build_life_runner",
         fake_build_life_runner,
     )
     monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)

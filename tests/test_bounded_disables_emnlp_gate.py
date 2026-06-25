@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from argus_skill.apps._life_repl import _build_repl_supervisor_config
+from argus_skill.apps._runtime import _build_repl_supervisor_config
 from argus_skill.daemon.life_worker import (
     LifeWorkerConfig,
     _build_supervisor_config,

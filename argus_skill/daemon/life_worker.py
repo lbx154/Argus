@@ -2,7 +2,7 @@
 backlog forever.
 
 This is the substrate behind ``argus-skill --daemon``. It is the
-non-interactive twin of :func:`argus_skill.apps._life_repl.run_life_chat_loop`:
+non-interactive twin of :func:`argus_skill.manager.repl.run_manager_repl`:
 both build the same :class:`~argus_skill.life.supervisor.LifeSupervisor`
 against the current project's split memory bundle, but the worker has
 no TTY, no slash commands, and no exit on Ctrl-D — only on SIGTERM /
@@ -787,7 +787,7 @@ class LifeWorker:
 
         # Build the runner the same way the REPL does. Importing here
         # keeps daemon.life_worker free of CLI-only deps until needed.
-        from ..apps._life_repl import LifeStderrSink, build_life_runner
+        from ..apps._runtime import LifeStderrSink, build_life_runner
         ns = _runner_namespace(cfg)
         ns.stop_event = self._stop
         runner = build_life_runner(ns)
@@ -1224,7 +1224,7 @@ def _build_supervisor_config(
     planner_restart_handler: Any,
     post_mission_hook: Any,
 ) -> LifeSupervisorConfig:
-    from ..apps._life_repl import _inbox_drainer_for
+    from ..apps._runtime import _inbox_drainer_for
     from ..life.telemetry import telemetry_interval_from_env
 
     return LifeSupervisorConfig(

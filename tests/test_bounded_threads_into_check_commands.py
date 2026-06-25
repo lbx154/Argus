@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.apps._life_repl import _repl_check_commands_for_open_ended
+from argus_skill.apps._runtime import _repl_check_commands_for_open_ended
 from argus_skill.daemon.life_worker import (
     LifeWorkerConfig,
     _apply_bounded_to_check_commands,

@@ -1,24 +1,25 @@
-"""Unified ``argus-skill`` REPL + runner adapters.
+"""Manager REPL — the interactive conversation entry point.
 
-This module owns everything the lifetime-agent interactive loop needs:
+This is the single interactive surface the bare ``argus-skill`` command
+drops into. It owns the slash-command dispatch and the free-text /
+chat-fast-path conversation loop. The runtime infrastructure it drives
+(runner factory, supervisor driver, event sink) lives in
+``argus_skill.apps._runtime`` so the daemon / teammate paths never import
+this interactive layer.
 
-- ``run_life_chat_loop``       — public entry point invoked from
+- ``run_manager_repl``         — public entry point invoked from
                                   ``apps.cli.main`` when the user types
                                   ``argus-skill`` with no subcommand.
-                                  The single interactive surface.
-- ``run_life_supervisor``      — non-interactive driver kept for
-                                  programmatic use (drain a backlog
-                                  without a TTY).
-- ``LifeStderrSink``           — chat-style event renderer + verbose/
-                                  quiet filter (shared with
-                                  telegram.notifier).
-- ``build_life_runner``        — factory for memory / codex backends.
+                                  (Formerly ``run_life_chat_loop``.)
+- ``run_life_supervisor`` etc. live in ``apps._runtime``; this module
+  imports what it needs from there.
 
 History: the original layout had a separate ``argus-skill chat
 --life`` subcommand. As of Phase 5 (2026-05-08) the bare
 ``argus-skill`` command IS this REPL, and the chat / go / mission /
 life / daemon / up subcommands have been deleted. One REPL, one
-renderer, one help screen.
+renderer, one help screen. The 2026-06-25 refactor moved the
+conversation surface here under the Manager.
 """
 from __future__ import annotations
 
@@ -27,25 +28,16 @@ import json
 import logging
 import os
 import shlex
-import signal
 import sys
-import threading
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ...core import paths as core_paths
-from ...life import BacklogItem, LifeMemory, MemoryBundle
-from ...life.supervisor import (
-    LifeBudget,
-    LifeSupervisor,
-    LifeSupervisorConfig,
-)
-from .._life_actions import (
+from ..apps._life_actions import (
     _continuous_session_error as _shared_continuous_session_error,
 )
-from .._life_actions import (
+from ..apps._life_actions import (
     add_backlog_item,
     append_note,
     format_added_item,
@@ -62,378 +54,19 @@ from .._life_actions import (
     render_skills_cmd,
     stop_iteration,
 )
-from ._base import (
-    LifeStderrSink,
+from ..apps._runtime import (
+    _codex_preflight_warning,
     _CommonMemory,
-    _memory_global_root,
-    _memory_project_root,
+    _format_daemon_mode_cell,
+    _invoke_supervisor,
+    _memory_global_root,  # noqa: F401 — kept for parity with the old module surface
     _resolve_global_root,
     _SplitMemory,
 )
-from ._runners import (
-    _SkillLoopRunner,
-    _MemoryRunner,
-    _ScriptedPlannerBackend,
-)
+from ..core import paths as core_paths
+from ..life import BacklogItem, LifeMemory, MemoryBundle
 
 log = logging.getLogger(__name__)
-
-
-
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# Sink (event rendering)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Runner adapters
-# ---------------------------------------------------------------------------
-
-
-
-
-_TEST_DAEMON_PLANNER_SCRIPT_ENV = "ARGUS_SKILL_DAEMON_TEST_PLANNER_SCRIPT"
-
-
-
-
-def _format_daemon_mode_cell(theme, mem: _SplitMemory) -> str:  # noqa: ANN001
-    """Banner ``mode`` cell — life + daemon liveness in one line.
-
-    Shows ``life ⚡ daemon: alive (pid X · up Yh)`` when a 7×24 worker
-    is draining the backlog in the background, or
-    ``life · in-process · no daemon (start --daemon for 7×24)`` when not.
-    """
-    try:
-        from ...daemon.life_worker import read_daemon_status
-        from ..cli import _format_short_duration
-        status = read_daemon_status(mem.project.root)
-    except Exception:  # noqa: BLE001
-        return f"{theme.bold('life')}    " + theme.dim("in-process · no daemon")
-    if status.alive and status.pid is not None:
-        uptime = _format_short_duration(status.uptime_seconds or 0.0)
-        body = (
-            f"{theme.bold('life')}  "
-            + theme.bold_green("⚡ daemon")
-            + theme.dim(f": pid {status.pid} · up {uptime}")
-        )
-        return body
-    return (
-        f"{theme.bold('life')}    "
-        + theme.dim("in-process · ")
-        + theme.yellow("no daemon")
-        + theme.dim("  (start with `argus-skill --daemon` for 7×24)")
-    )
-
-
-def _codex_preflight_warning() -> str | None:
-    """Return a one-line warning if the codex backend cannot run, else None.
-
-    Surfaced on the banner so the user does not discover at mission time
-    that ArgusBot or the ``codex`` binary are missing. Best-effort: if
-    anything raises we stay quiet — a confusing warning is worse than no
-    warning, and the real failure path (``_SkillLoopRunner``) will
-    print a precise error when a mission actually starts.
-    """
-    try:
-        from ...adapters.agent_cli_backend import _import_argusbot
-    except ImportError:
-        return ("bundled agent_cli module not importable — "
-                "reinstall argus-skill")
-    try:  # noqa: SIM105
-        _import_argusbot()
-    except Exception:  # noqa: BLE001
-        return ("bundled agent_cli failed to load — "
-                "check the argus-skill install")
-    import shutil
-    bin_path = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or shutil.which("codex")
-    if not bin_path:
-        return ("`codex` binary not found on PATH — install with "
-                "`npm install -g @openai/codex` or set ARGUS_SKILL_RUNNER_BIN")
-    return None
-
-
-def _inbox_drainer_for(life_dir: Path):
-    """Return a `user_inbox` callable that drains pending messages from
-    ``<life_dir>/inbox.jsonl``.
-
-    The CLI's ``argus-skill --notify "<msg>"`` and the REPL's ``/nudge``
-    slash command both append to this file. Each call to the returned
-    callable returns one message (or ``None``) and advances a tiny
-    offset file so the same line is never replayed twice.
-    """
-    from .._inbox import drain_inbox_messages
-
-    def _drain_one() -> str | None:
-        try:
-            messages = drain_inbox_messages(life_dir, limit=1)
-        except Exception:  # noqa: BLE001
-            return None
-        return messages[0] if messages else None
-
-    return _drain_one
-
-
-def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = None):
-    """Return a ``_MissionRunner``-shaped adapter for the requested backend."""
-    if args.backend == "memory":
-        runner = _MemoryRunner()
-        runner.workdir = (
-            Path(args.workdir).expanduser()
-            if getattr(args, "workdir", None)
-            else Path.cwd()
-        )
-        scripted_backend = _ScriptedPlannerBackend.from_env()
-        if scripted_backend is not None:
-            runner.backend = scripted_backend
-        return runner
-    if args.backend == "codex":
-        return _SkillLoopRunner(args, seed_thread_id=seed_thread_id)
-    raise SystemExit(f"unknown backend: {args.backend}")
-
-
-# ---------------------------------------------------------------------------
-# Supervisor driver (used by both `life run` and chat-mode free text)
-# ---------------------------------------------------------------------------
-
-def _repl_check_commands_for_open_ended(commands: list[str], *, open_ended: bool) -> list[str]:
-    from ...daemon.life_worker import _apply_bounded_to_check_commands
-
-    # WHY M0.7: REPL-launched bounded missions share the same root cause as
-    # daemon missions; stage_check must receive --bounded at acceptance time.
-    return _apply_bounded_to_check_commands(commands, bounded=not open_ended)
-
-
-def _build_repl_supervisor_config(
-    *,
-    per_mission_cap_usd: float,
-    daily_cap_usd: float,
-    once: bool,
-    max_missions: int,
-    project_worktree: Path | None,
-    stop_event: threading.Event,
-    project_root: Path,
-    runtime_context: str,
-    continuous: bool,
-    continuous_objective: str,
-    open_ended: bool,
-) -> LifeSupervisorConfig:
-    from ...life.telemetry import telemetry_interval_from_env
-
-    return LifeSupervisorConfig(
-        budget=LifeBudget(
-            per_mission_cap_usd=per_mission_cap_usd,
-            daily_cap_usd=daily_cap_usd,
-            max_missions=1 if once else max_missions,
-        ),
-        poll_interval_seconds=2.0,
-        project_worktree=(
-            Path(project_worktree).expanduser()
-            if project_worktree is not None
-            else None
-        ),
-        stop_event=stop_event,
-        user_inbox=_inbox_drainer_for(project_root),
-        runtime_context=runtime_context,
-        continuous=continuous,
-        continuous_objective=continuous_objective,
-        open_ended=open_ended,
-        full_emnlp_gate=open_ended,
-        telemetry_dir=project_root,
-        telemetry_interval_seconds=telemetry_interval_from_env(),
-    )
-
-
-def run_life_supervisor(
-    *,
-    mem: _SplitMemory,
-    runner: Any,
-    engineer_model: str,
-    reviewer_model: str,
-    once: bool,
-    max_missions: int,
-    per_mission_cap_usd: float,
-    daily_cap_usd: float,
-    project_worktree: Path | None = None,
-    quiet: bool = False,
-    runtime_context: str = "",
-    continuous: bool = False,
-    continuous_objective: str = "",
-    open_ended: bool = True,
-) -> dict[str, Any]:
-    """Run ``LifeSupervisor`` with proper signal-handler save/restore.
-
-    Restoring previous SIGINT/SIGTERM handlers on exit means the chat
-    REPL keeps its Ctrl-C semantics after a /run finishes.
-    """
-    stop_event = threading.Event()
-
-    def _on_signal(signum: int, frame: Any) -> None:  # noqa: ANN401
-        print(f"\nlife: received signal {signum}, requesting stop", file=sys.stderr)
-        stop_event.set()
-
-    prev_int = signal.getsignal(signal.SIGINT)
-    prev_term = signal.getsignal(signal.SIGTERM)
-    signal.signal(signal.SIGINT, _on_signal)
-    signal.signal(signal.SIGTERM, _on_signal)
-
-    try:
-        from ...life.event_log import JsonlEventSink
-        stderr_sink = LifeStderrSink(quiet=quiet)
-        project_root = _memory_project_root(mem)
-        sink = JsonlEventSink(stderr_sink, life_dir=project_root)
-        # Manager divides the Task first: classify the vertical, split into its
-        # Stage template, and COMMIT the choice. The supervisor below then TRUSTS
-        # the persisted vertical (life/supervisor/_core.py:2460) and won't
-        # re-classify. Fail-open — division must never block a run.
-        if continuous and str(continuous_objective).strip():
-            try:
-                from ...manager import Manager
-
-                division = Manager(
-                    project_root=project_root,
-                    runner=getattr(runner, "backend", None),
-                ).divide(continuous_objective)
-                if not quiet:
-                    print(division.headline(), file=sys.stderr)
-            except Exception:  # noqa: BLE001 — never block a run on division
-                log.debug("manager division skipped", exc_info=True)
-        cfg = _build_repl_supervisor_config(
-            per_mission_cap_usd=per_mission_cap_usd,
-            daily_cap_usd=daily_cap_usd,
-            once=once,
-            max_missions=max_missions,
-            project_worktree=project_worktree,
-            stop_event=stop_event,
-            project_root=project_root,
-            runtime_context=runtime_context,
-            continuous=continuous,
-            continuous_objective=continuous_objective,
-            open_ended=open_ended,
-        )
-        sup = LifeSupervisor(
-            memory=mem,
-            runner=runner,
-            sink=sink,
-            config=cfg,
-            engineer_model=engineer_model,
-            reviewer_model=reviewer_model,
-            planner_runner=getattr(runner, "backend", None),
-        )
-        return sup.run()
-    finally:
-        signal.signal(signal.SIGINT, prev_int)
-        signal.signal(signal.SIGTERM, prev_term)
-
-
-def _invoke_supervisor(
-    *,
-    mem: _SplitMemory,
-    backend: str,
-    once: bool,
-    max_missions: int,
-    per_mission_cap_usd: float,
-    daily_cap_usd: float,
-    quiet: bool = False,
-    seed_thread_id: str | None = None,
-    continuous: bool = False,
-    continuous_objective: str = "",
-    open_ended: bool = True,
-    allow_chat_fast_path: bool = False,
-) -> tuple[dict[str, Any], str | None]:
-    ns = argparse.Namespace()
-    ns.backend = backend
-    from ...tools.capability_vault import resolve_route_model
-
-    ns.engineer_model = os.environ.get("ARGUS_SKILL_ENGINEER_MODEL") or resolve_route_model(
-        "engineer"
-    )
-    reviewer_default = resolve_route_model("reviewer")
-    ns.reviewer_model = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL") or reviewer_default
-    ns.scientist_model = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL") or resolve_route_model(
-        "scientist"
-    )
-    ns.scientist_reasoning_effort = os.environ.get(
-        "ARGUS_SKILL_SCIENTIST_REASONING_EFFORT",
-        "high",
-    )
-    ns.engineer_reasoning_effort = os.environ.get(
-        "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
-        "high",
-    )
-    ns.reviewer_reasoning_effort = os.environ.get(
-        "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
-        "high",
-    )
-    ns.skills_dir = os.environ.get(
-        "ARGUS_SKILL_SKILLS_DIR",
-        str(_memory_global_root(mem) / "skills"),
-    )
-    ns.workdir = os.environ.get("ARGUS_SKILL_WORKDIR")
-    # Life-mode default: 500 engineer rounds. The earlier low cap was
-    # too small for "implement + test + polish" tasks that need many
-    # tool calls. Override via ARGUS_SKILL_MAX_ROUNDS.
-    ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "500"))
-    ns.check_commands = _repl_check_commands_for_open_ended(
-        list(getattr(ns, "check_commands", []) or []),
-        open_ended=open_ended,
-    )
-
-    # Runtime context injected into every mission prelude so the agent
-    # knows its own backend, models, and budget constraints at runtime.
-    runner_backend = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND") or backend
-    mode_label = "continuous" if continuous else "single-shot"
-    runtime_context = (
-        f"## Runtime info\n"
-        f"- Life backend: {backend}\n"
-        f"- Runner backend: {runner_backend}\n"
-        f"- Engineer model: {ns.engineer_model}\n"
-        f"- Reviewer model: {ns.reviewer_model}\n"
-        f"- Scientist model: {ns.scientist_model}\n"
-        f"- Engineer reasoning effort: {ns.engineer_reasoning_effort or '(default)'}\n"
-        f"- Reviewer reasoning effort: {ns.reviewer_reasoning_effort or '(default)'}\n"
-        f"- Scientist reasoning effort: {ns.scientist_reasoning_effort or '(default)'}\n"
-        f"- Max rounds per mission: {ns.max_rounds}\n"
-        f"- Per-mission budget cap: ${per_mission_cap_usd:.2f}\n"
-        f"- Daily budget cap: ${daily_cap_usd:.2f}\n"
-        f"- Mode: {mode_label}\n"
-    )
-    from ...life.research_profile import render_research_profile_context
-
-    research_context = render_research_profile_context()
-    if research_context:
-        runtime_context = runtime_context + "\n---\n\n" + research_context
-
-    runner = build_life_runner(ns, seed_thread_id=seed_thread_id)
-    # Chat fast-path is operator-REPL-only: only human free text typed at the
-    # cockpit is eligible. Planner / backlog / daemon missions keep the
-    # runner default (False) so the harness never classifies agent work.
-    if hasattr(runner, "_allow_chat_fast_path"):
-        runner._allow_chat_fast_path = bool(allow_chat_fast_path)
-    summary = run_life_supervisor(
-        mem=mem,
-        runner=runner,
-        engineer_model=ns.engineer_model,
-        reviewer_model=ns.reviewer_model,
-        once=once,
-        max_missions=max_missions,
-        per_mission_cap_usd=per_mission_cap_usd,
-        daily_cap_usd=daily_cap_usd,
-        project_worktree=getattr(mem, "project_worktree", None) or Path.cwd(),
-        quiet=quiet,
-        runtime_context=runtime_context,
-        continuous=continuous,
-        continuous_objective=continuous_objective,
-        open_ended=open_ended,
-    )
-    final_thread_id = getattr(runner, "last_thread_id", None)
-    return summary, final_thread_id
 
 
 # ---------------------------------------------------------------------------
@@ -542,7 +175,7 @@ def _continuous_cmd(
     arg_text: str,
     chat_state: dict[str, Any],
 ) -> None:
-    from ...daemon.life_worker import (
+    from ..daemon.life_worker import (
         ContinuousConfigState,
         continuous_mode_error,
         read_continuous_config,
@@ -664,7 +297,7 @@ def _free_text_cmd(
         )
         # Persist objective to disk so daemon can pick it up.
         chat_state["continuous_objective"] = body
-        from ...daemon.life_worker import write_continuous_config
+        from ..daemon.life_worker import write_continuous_config
         write_continuous_config(
             mem.project.root,
             enabled=True,
@@ -792,8 +425,8 @@ def _run_cmd(
 
 def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> None:
     """Lightweight status print (mirrors `argus-skill life status` output)."""
-    from ...daemon.life_worker import ContinuousConfigState, read_continuous_state
-    from .._inbox import count_pending_inbox_messages
+    from ..apps._inbox import count_pending_inbox_messages
+    from ..daemon.life_worker import ContinuousConfigState, read_continuous_state
 
     identity = mem.identity.read().strip()
     if identity:
@@ -846,8 +479,8 @@ def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> 
     # Background daemon status — surfaces the 7×24 worker so /status
     # answers "is anything running while I'm idle?".
     try:
-        from ...daemon.life_worker import read_daemon_status
-        from ..cli import _format_short_duration
+        from ..apps.cli import _format_short_duration
+        from ..daemon.life_worker import read_daemon_status
         ds = read_daemon_status(mem.project.root)
     except Exception:  # noqa: BLE001
         ds = None
@@ -936,7 +569,7 @@ def _seed_chat_state(
     *,
     theme: Any,
 ) -> tuple[dict[str, Any], str | None]:
-    from ...daemon.life_worker import ContinuousConfigState, read_continuous_state
+    from ..daemon.life_worker import ContinuousConfigState, read_continuous_state
 
     project_root = getattr(mem, "project_root", None)
     if project_root is None:
@@ -1001,8 +634,8 @@ def _seed_chat_state(
     return chat_state, None
 
 
-def run_life_chat_loop(args: argparse.Namespace) -> int:
-    """Drive the unified ``argus-skill`` REPL.
+def run_manager_repl(args: argparse.Namespace) -> int:
+    """Drive the unified ``argus-skill`` REPL (the Manager conversation entry).
 
     Slash commands dispatch in-process — no daemon, no jsonl bus.
     Free text becomes a backlog item AND runs immediately on the
@@ -1035,7 +668,7 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
     # so a second invocation gets a clear error instead of silent
     # corruption. The lock auto-releases when the process exits; we also
     # release explicitly via try/finally below.
-    from ...core.daemon_lock import (
+    from ..core.daemon_lock import (
         DaemonAlreadyRunning,
         acquire_global_daemon_lock,
     )
@@ -1051,7 +684,7 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        return _run_life_chat_loop_locked(args, mem, created, chat_state=chat_state)
+        return _run_manager_repl_locked(args, mem, created, chat_state=chat_state)
     finally:
         try:
             repl_lock.release()
@@ -1059,7 +692,7 @@ def run_life_chat_loop(args: argparse.Namespace) -> int:
             log.exception("life REPL: failed to release singleton lock")
 
 
-def _run_life_chat_loop_locked(
+def _run_manager_repl_locked(
     args: argparse.Namespace,
     mem: _SplitMemory,
     created: list[str],
@@ -1067,15 +700,15 @@ def _run_life_chat_loop_locked(
     chat_state: dict[str, Any],
 ) -> int:
     """The interactive REPL body. Split out so the singleton lock in
-    :func:`run_life_chat_loop` cleanly wraps the entire loop with
+    :func:`run_manager_repl` cleanly wraps the entire loop with
     a try/finally release."""
     import readline  # noqa: F401 — enables line-editing for input()
 
-    from .._input_helpers import enable_bracketed_paste, read_pasted_message
+    from ..apps._input_helpers import enable_bracketed_paste, read_pasted_message
     enable_bracketed_paste()
-    from ... import __version__ as _argus_version
-    from ...cli.branding import TAGLINE, render_logo
-    from ...cli.theme import Theme
+    from .. import __version__ as _argus_version
+    from ..cli.branding import TAGLINE, render_logo
+    from ..cli.theme import Theme
 
     theme = Theme.auto(force=getattr(args, "color", None))
 
@@ -1116,12 +749,12 @@ def _run_life_chat_loop_locked(
             pass
     if not getattr(args, "no_daemon", False):
         try:
-            from ...daemon.life_worker import (
+            from ..apps.cli import _build_worker_config
+            from ..daemon.life_worker import (
                 read_daemon_status,
                 spawn_detached_daemon,
                 wait_for_daemon_status,
             )
-            from ..cli import _build_worker_config
             status = read_daemon_status(mem.project.root)
             if not status.alive:
                 cfg = _build_worker_config(args)
@@ -1309,7 +942,7 @@ def _run_life_chat_loop_locked(
                 print(theme.gray("usage: /nudge <message>  (one line, "
                                  "spliced into the next engineer round)"))
                 continue
-            from .._inbox import queue_inbox_message
+            from ..apps._inbox import queue_inbox_message
             queue_inbox_message(mem.project.root, rest_text, source="repl.nudge")
             print(theme.gray(
                 f"nudge queued ({len(rest_text)} chars) → next mission round "
@@ -1341,8 +974,26 @@ def _run_life_chat_loop_locked(
 
 
 __all__ = [
-    "run_life_chat_loop",
-    "run_life_supervisor",
-    "build_life_runner",
-    "LifeStderrSink",
+    "run_manager_repl",
+    "_run_manager_repl_locked",
+    "_parse_add_flags",
+    "_add_only",
+    "_backend_cmd",
+    "_continuous_session_error",
+    "_CONFIG_DEFAULTS",
+    "_config_cmd",
+    "_identity_cmd",
+    "_project_cmd",
+    "_continuous_cmd",
+    "_backlog_list_cmd",
+    "_status_change_cmd",
+    "_journal_tail_cmd",
+    "_free_text_cmd",
+    "_format_elapsed",
+    "_invoke_and_track",
+    "_run_cmd",
+    "_status_cmd",
+    "_render_help",
+    "_skills_cmd",
+    "_seed_chat_state",
 ]

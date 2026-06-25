@@ -145,7 +145,8 @@ def render_run_command(
     chat_state: dict[str, Any],
 ) -> str:
     """Run the shared foreground supervisor flow and render its transcript."""
-    from . import _life_repl
+    from ..manager.repl import _format_elapsed
+    from ._runtime import _invoke_supervisor
 
     cfg = chat_state.get("config", {})
     p = argparse.ArgumentParser(prog="/run", add_help=False)
@@ -184,7 +185,7 @@ def render_run_command(
         note = f"resuming codex session {seed[:12]}…"
         lines.append(theme.gray(note) if theme else note)
     t0 = time.monotonic()
-    summary, last_tid = _life_repl._invoke_supervisor(
+    summary, last_tid = _invoke_supervisor(
         mem=mem,
         backend=run_args.backend,
         once=run_args.once,
@@ -205,8 +206,8 @@ def render_run_command(
         "",
         "--- /run summary ---",
         json.dumps(summary, indent=2, default=str),
-        theme.dim(f"⏱  /run elapsed {_life_repl._format_elapsed(elapsed)}")
-        if theme else f"⏱  /run elapsed {_life_repl._format_elapsed(elapsed)}",
+        theme.dim(f"⏱  /run elapsed {_format_elapsed(elapsed)}")
+        if theme else f"⏱  /run elapsed {_format_elapsed(elapsed)}",
     ])
     return "\n".join(lines)
 

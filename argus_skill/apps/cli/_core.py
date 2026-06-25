@@ -269,8 +269,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(f"argus-skill: {entry_error}\n")
         return 2
 
+    from ...manager.repl import run_manager_repl
     from ...tools.capability_vault import resolve_route_model
-    from .._life_repl import run_life_chat_loop
 
     repl_args = argparse.Namespace(
         life_dir=args.life_dir,
@@ -300,7 +300,7 @@ def main(argv: list[str] | None = None) -> int:
         objective=str(getattr(args, "objective", "") or ""),
         bounded=bool(getattr(args, "bounded", False)),
     )
-    return _run_with_path_resolution_errors(lambda: run_life_chat_loop(repl_args))
+    return _run_with_path_resolution_errors(lambda: run_manager_repl(repl_args))
 
 
 # ---------------------------------------------------------------------------

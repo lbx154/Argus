@@ -1,25 +1,256 @@
+"""Lifetime-agent runtime infrastructure (backend-neutral).
+
+This module owns the non-interactive machinery the daemon, teammate
+runner, and the Manager REPL all share:
+
+- ``build_life_runner``        — factory for memory / codex backends.
+- ``run_life_supervisor``      — non-interactive driver (drain a backlog
+                                  without a TTY).
+- ``_invoke_supervisor``       — assemble a runtime context + run the
+                                  supervisor for a single backend.
+- ``LifeStderrSink``           — chat-style event renderer (shared with
+                                  telegram.notifier and the daemon).
+- ``_inbox_drainer_for``       — operator-inbox drain callable.
+- the runner adapters (``_MemoryRunner`` / ``_ScriptedPlannerBackend`` /
+  ``_SkillLoopRunner``) and the duck-typed ``_Outcome`` they return.
+
+History: these lived in ``apps/_life_repl/`` mixed together with the
+interactive REPL. The REPL conversation surface moved to
+``manager/repl.py``; the infrastructure below moved here so the daemon
+and teammate paths never import the interactive layer.
+"""
 from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
 import shlex
+import signal
 import subprocess
+import sys
+import threading
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, ClassVar, Protocol
 
-from ...core.models import RunnerResult
-from ...core.ports import EventSink
-from ...engineer.runner import should_clear_thread_id_after_outcome
-from . import _core
-from ._base import (
-    _checkpoint_path_for,
-    _env_flag,
-    _env_int,
-    _Outcome,
+from ..core import paths as core_paths  # noqa: F401 — re-exported convenience
+from ..core.models import RunnerResult
+from ..core.ports import EventSink
+from ..engineer.runner import should_clear_thread_id_after_outcome
+from ..life import BacklogItem  # noqa: F401 — re-exported convenience
+from ..life.supervisor import (
+    LifeBudget,
+    LifeSupervisor,
+    LifeSupervisorConfig,
 )
+from ._target_paths import resolve_life_root
+
+log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Env helpers + memory protocols (formerly _life_repl/_base.py)
+# ---------------------------------------------------------------------------
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+class _CommonMemory(Protocol):
+    @property
+    def identity(self) -> Any: ...
+
+    @property
+    def journal(self) -> Any: ...
+
+    @property
+    def backlog(self) -> Any: ...
+
+
+class _SplitMemory(_CommonMemory, Protocol):
+    @property
+    def global_mem(self) -> Any: ...
+
+    @property
+    def project(self) -> Any: ...
+
+    @property
+    def global_root(self) -> Any: ...
+
+    def render_prelude(self, *, objective: str) -> str: ...
+
+
+def _memory_project_root(mem: Any) -> Path:
+    project = getattr(mem, "project", None)
+    root = getattr(project, "root", None)
+    if root is not None:
+        return Path(root)
+    return Path(getattr(mem, "root"))
+
+
+def _memory_global_root(mem: Any) -> Path:
+    root = getattr(mem, "global_root", None)
+    if root is not None:
+        return Path(root)
+    return _memory_project_root(mem)
+
+
+def _resolve_global_root(args: argparse.Namespace) -> Path:
+    return resolve_life_root(getattr(args, "life_dir", None))
+
+
+def _checkpoint_path_for(args: argparse.Namespace, workdir: Path) -> Path | None:
+    """Per-project curated-checkpoint file in the project state dir.
+
+    Lives next to ``events.jsonl`` / ``memory.jsonl`` under
+    ``<global_root>/projects/<fingerprint>/checkpoint.json`` so the reviewer's
+    per-round handoff survives across missions and daemon restarts, never the
+    git work-tree (which the agent might commit). Set
+    ``ARGUS_SKILL_CHECKPOINT_PERSIST=0`` to opt back into in-memory-only.
+    """
+    if not _env_flag("ARGUS_SKILL_CHECKPOINT_PERSIST", True):
+        return None
+    try:
+        from ..core.project import project_fingerprint
+
+        global_root = _resolve_global_root(args)
+        fingerprint = project_fingerprint(workdir).fingerprint
+        state_dir = global_root / "projects" / fingerprint
+        state_dir.mkdir(parents=True, exist_ok=True)
+        return state_dir / "checkpoint.json"
+    except Exception:  # noqa: BLE001 — never let path resolution break a mission
+        return None
+
+
+class LifeStderrSink:
+    """Forward events to stderr using chat's renderer.
+
+    Always-verbose: every event type the engine emits (except a small
+    in-life silence-list below) is shown. The product positioning is a
+    7×24 lifetime agent — operators want full visibility of what the
+    daemon is doing, always. The earlier ``verbose``/``quiet`` toggles
+    have been removed (kept ``quiet`` only for in-process tests that
+    pump events without wanting stderr noise).
+    """
+
+    def __init__(self, *, quiet: bool = False) -> None:
+        self.quiet = quiet
+        self._render: Callable[..., str] | None = None
+        self._theme: Any = None
+        try:
+            from ..cli import default_theme, render_event_for_terminal
+            self._render = render_event_for_terminal
+            self._theme = default_theme()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _allowed(self, event_type: str) -> bool:  # noqa: ARG002
+        return True
+
+    # Events that life.mission.started/completed already cover; we silence
+    # them in life mode to avoid duplicate noise around mission boundaries.
+    # Also drop a few protocol/skill-machinery events that the user can't
+    # act on and that just clutter the chat scroll (matcher/scientist
+    # banter, internal "distill done" weight reports).
+    _SILENCED_IN_LIFE: ClassVar[frozenset[str]] = frozenset({
+        "loop.start",
+        "loop.done",
+        "match.info",         # "skill store empty - will distill a new playbook"
+        "scientist.start",    # "no high-fit skill — distilling"
+        "distill.done",       # "distilled (4009 chars, 0 tok)"
+    })
+
+    def handle_event(self, event: dict[str, Any]) -> None:
+        if self.quiet:
+            return
+        et = str(event.get("type", ""))
+        if et in self._SILENCED_IN_LIFE:
+            return
+        if not self._allowed(et):
+            return
+        if self._render is not None:
+            try:
+                line = self._render(event, theme=self._theme)
+                if line:  # empty string = renderer chose to swallow event
+                    sys.stderr.write(line + "\n")
+                    sys.stderr.flush()
+                return
+            except Exception:  # noqa: BLE001
+                pass
+        text = event.get("text") or event.get("title") or ""
+        sys.stderr.write(f"[{et}] {text}\n")
+        sys.stderr.flush()
+
+    def handle_stream_line(self, stream: str, line: str) -> None:  # noqa: ARG002
+        """Required by ``make_stream_progress_callback``.
+
+        Life mode has no JSONL outbox to keep an audit trail in — the
+        cooked ``engineer.progress`` events that ``stream_progress``
+        synthesises from the same raw lines are what we render. The raw
+        lines themselves are intentionally discarded here; ``codex
+        --output-format stream-json`` produces dozens per second and
+        echoing them all would defeat the point of having a renderer.
+        """
+        return
+
+    def close(self) -> None:
+        return
+
+
+@dataclass
+class _Outcome:
+    """Duck-typed outcome the supervisor reads via ``getattr``."""
+    success: bool
+    status: str
+    stop_reason: str = ""
+    rounds: int = 1
+    matched_skill_name: str | None = None
+    skill_distilled: bool = False
+    had_follow_up: bool = False
+    last_thread_id: str | None = None
+    # Chat fast-path: when True, the supervisor skips iteration / critic
+    # because the operator's input was a conversational message (greeting,
+    # capability question, ack) that doesn't warrant a polish cycle.
+    chat_mode: bool = False
+    # Set when the codex backend reports auth-related stderr (expired
+    # token, missing API key, etc.). The supervisor uses this to stop
+    # early instead of looping over failing missions.
+    auth_failure: bool = False
+    # Reviewer completion contract (replaces the retired EMNLP validator
+    # gate). Set True only when the mission scope was ``final_submission``
+    # AND the final reviewer verdict certified the whole project complete
+    # (status=done, scope=final_submission, every checklist item satisfied
+    # with evidence). The supervisor uses this — never raw ``success`` — to
+    # decide whole-project completion. ``completion_evidence`` carries the
+    # reviewer's completion summary for the journal.
+    final_submission_certified: bool = False
+    completion_evidence: str = ""
+    # Reviewer-authored structured briefing for the project planner. Shape:
+    # ``{"forward_progress": bool, "headline": str, "blocker": str,
+    # "recommended_next": str}``. Empty dict when no reviewer verdict exists.
+    planner_report: dict = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Runner adapters (formerly _life_repl/_runners.py)
+# ---------------------------------------------------------------------------
 
 
 class _MemoryRunner:
@@ -205,8 +436,8 @@ class _MemoryRunner:
         # objective text for keywords like "emnlp" / "auto-research". The
         # harness must not guess mission type from prose — that is the agent's
         # call, and the research scaffold is opt-in via a configured profile.
-        from ...core.bootstrap import inspect_project_bootstrap
-        from ...life.research_profile import load_research_profile
+        from ..core.bootstrap import inspect_project_bootstrap
+        from ..life.research_profile import load_research_profile
 
         root = Path(workdir).expanduser()
         preflight = inspect_project_bootstrap(root)
@@ -340,7 +571,7 @@ class _ScriptedPlannerBackend:
 
     @classmethod
     def from_env(cls) -> "_ScriptedPlannerBackend | None":
-        raw_path = os.environ.get(_core._TEST_DAEMON_PLANNER_SCRIPT_ENV, "").strip()
+        raw_path = os.environ.get(_TEST_DAEMON_PLANNER_SCRIPT_ENV, "").strip()
         if not raw_path:
             return None
         path = Path(raw_path).expanduser()
@@ -413,13 +644,13 @@ class _SkillLoopRunner:
     """
 
     def __init__(self, args: argparse.Namespace, *, seed_thread_id: str | None = None) -> None:
-        from ...loop import SkillLoop, SkillLoopConfig
+        from ..loop import SkillLoop, SkillLoopConfig
 
         self._SkillLoop = SkillLoop
         self._SkillLoopConfig = SkillLoopConfig
         try:
-            from ...adapters.agent_cli_backend import AgentCliBackend
-            from ...adapters.stream_progress import make_stream_progress_callback
+            from ..adapters.agent_cli_backend import AgentCliBackend
+            from ..adapters.stream_progress import make_stream_progress_callback
         except ImportError as exc:  # pragma: no cover — depends on optional install
             raise SystemExit(
                 f"Codex backend requested but ArgusBot is unavailable: {exc}.\n"
@@ -447,7 +678,7 @@ class _SkillLoopRunner:
 
         # Mirror build_agent_cli_backend_from_env's env-var contract here so
         # we can also pass event_callback (the helper doesn't expose it).
-        from ...adapters.agent_cli_backend import _strip_legacy_codex_profile_args
+        from ..adapters.agent_cli_backend import _strip_legacy_codex_profile_args
         backend_name = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND") or None
         runner_bin = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or None
         raw_extra = os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", "").strip()
@@ -535,8 +766,8 @@ class _SkillLoopRunner:
         # text (never the 7×24 daemon), so its tiny low-reasoning call is not
         # part of autonomous spend and is not separately metered.
         if self._allow_chat_fast_path:
-            from ...core.models import RunnerOptions
-            from ...life.router import classify_is_conversational
+            from ..core.models import RunnerOptions
+            from ..life.router import classify_is_conversational
 
             _safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
             _workdir = (
@@ -649,7 +880,7 @@ class _SkillLoopRunner:
         # next to the reviewer checkpoint.json; derive both from the checkpoint.
         operator_checkpoint_path = _checkpoint_path_for(args, workdir)
         try:
-            from ...life.operator_sim import operator_guidance_provider_from_env
+            from ..life.operator_sim import operator_guidance_provider_from_env
 
             # GROUNDING (Bug 1): the run's real telemetry does NOT live in the
             # git work-tree. The daemon/REPL fan events out to
@@ -693,7 +924,7 @@ class _SkillLoopRunner:
             msgs: list[str] = []
             if inbox_life_dir is not None:
                 try:
-                    from .._inbox import drain_inbox_messages
+                    from ._inbox import drain_inbox_messages
                     msgs.extend(drain_inbox_messages(inbox_life_dir))
                 except Exception:  # noqa: BLE001 — never break a mission
                     pass
@@ -727,7 +958,7 @@ class _SkillLoopRunner:
         # execute() calls (LifeSupervisor may run several missions in one
         # supervisor.run()) chain off the previous mission's last thread_id.
         seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
-        from ...engineer.failed_tool_ledger import FailedToolLedger
+        from ..engineer.failed_tool_ledger import FailedToolLedger
         ledger = FailedToolLedger()
         self._current_sink = sink
         self._current_failure_ledger = ledger
@@ -819,8 +1050,8 @@ class _SkillLoopRunner:
         ``round.main.completed`` (with token counts so cost is
         accounted for) → ``loop.done``.
         """
-        from ...core.models import RunnerOptions
-        from ...life.router import build_chat_prompt
+        from ..core.models import RunnerOptions
+        from ..life.router import build_chat_prompt
 
         args = self._args
         safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
@@ -914,3 +1145,371 @@ class _SkillLoopRunner:
             chat_mode=True,
             auth_failure=auth_fail,
         )
+
+
+# ---------------------------------------------------------------------------
+# Daemon-mode banner cell + codex preflight
+# ---------------------------------------------------------------------------
+
+
+_TEST_DAEMON_PLANNER_SCRIPT_ENV = "ARGUS_SKILL_DAEMON_TEST_PLANNER_SCRIPT"
+
+
+def _format_daemon_mode_cell(theme, mem: _SplitMemory) -> str:  # noqa: ANN001
+    """Banner ``mode`` cell — life + daemon liveness in one line.
+
+    Shows ``life ⚡ daemon: alive (pid X · up Yh)`` when a 7×24 worker
+    is draining the backlog in the background, or
+    ``life · in-process · no daemon (start --daemon for 7×24)`` when not.
+    """
+    try:
+        from ..daemon.life_worker import read_daemon_status
+        from .cli import _format_short_duration
+        status = read_daemon_status(mem.project.root)
+    except Exception:  # noqa: BLE001
+        return f"{theme.bold('life')}    " + theme.dim("in-process · no daemon")
+    if status.alive and status.pid is not None:
+        uptime = _format_short_duration(status.uptime_seconds or 0.0)
+        body = (
+            f"{theme.bold('life')}  "
+            + theme.bold_green("⚡ daemon")
+            + theme.dim(f": pid {status.pid} · up {uptime}")
+        )
+        return body
+    return (
+        f"{theme.bold('life')}    "
+        + theme.dim("in-process · ")
+        + theme.yellow("no daemon")
+        + theme.dim("  (start with `argus-skill --daemon` for 7×24)")
+    )
+
+
+def _codex_preflight_warning() -> str | None:
+    """Return a one-line warning if the codex backend cannot run, else None.
+
+    Surfaced on the banner so the user does not discover at mission time
+    that ArgusBot or the ``codex`` binary are missing. Best-effort: if
+    anything raises we stay quiet — a confusing warning is worse than no
+    warning, and the real failure path (``_SkillLoopRunner``) will
+    print a precise error when a mission actually starts.
+    """
+    try:
+        from ..adapters.agent_cli_backend import _import_argusbot
+    except ImportError:
+        return ("bundled agent_cli module not importable — "
+                "reinstall argus-skill")
+    try:  # noqa: SIM105
+        _import_argusbot()
+    except Exception:  # noqa: BLE001
+        return ("bundled agent_cli failed to load — "
+                "check the argus-skill install")
+    import shutil
+    bin_path = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or shutil.which("codex")
+    if not bin_path:
+        return ("`codex` binary not found on PATH — install with "
+                "`npm install -g @openai/codex` or set ARGUS_SKILL_RUNNER_BIN")
+    return None
+
+
+def _inbox_drainer_for(life_dir: Path):
+    """Return a `user_inbox` callable that drains pending messages from
+    ``<life_dir>/inbox.jsonl``.
+
+    The CLI's ``argus-skill --notify "<msg>"`` and the REPL's ``/nudge``
+    slash command both append to this file. Each call to the returned
+    callable returns one message (or ``None``) and advances a tiny
+    offset file so the same line is never replayed twice.
+    """
+    from ._inbox import drain_inbox_messages
+
+    def _drain_one() -> str | None:
+        try:
+            messages = drain_inbox_messages(life_dir, limit=1)
+        except Exception:  # noqa: BLE001
+            return None
+        return messages[0] if messages else None
+
+    return _drain_one
+
+
+def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = None):
+    """Return a ``_MissionRunner``-shaped adapter for the requested backend."""
+    if args.backend == "memory":
+        runner = _MemoryRunner()
+        runner.workdir = (
+            Path(args.workdir).expanduser()
+            if getattr(args, "workdir", None)
+            else Path.cwd()
+        )
+        scripted_backend = _ScriptedPlannerBackend.from_env()
+        if scripted_backend is not None:
+            runner.backend = scripted_backend
+        return runner
+    if args.backend == "codex":
+        return _SkillLoopRunner(args, seed_thread_id=seed_thread_id)
+    raise SystemExit(f"unknown backend: {args.backend}")
+
+
+# ---------------------------------------------------------------------------
+# Supervisor driver (used by both `life run` and chat-mode free text)
+# ---------------------------------------------------------------------------
+
+def _repl_check_commands_for_open_ended(commands: list[str], *, open_ended: bool) -> list[str]:
+    from ..daemon.life_worker import _apply_bounded_to_check_commands
+
+    # WHY M0.7: REPL-launched bounded missions share the same root cause as
+    # daemon missions; stage_check must receive --bounded at acceptance time.
+    return _apply_bounded_to_check_commands(commands, bounded=not open_ended)
+
+
+def _build_repl_supervisor_config(
+    *,
+    per_mission_cap_usd: float,
+    daily_cap_usd: float,
+    once: bool,
+    max_missions: int,
+    project_worktree: Path | None,
+    stop_event: threading.Event,
+    project_root: Path,
+    runtime_context: str,
+    continuous: bool,
+    continuous_objective: str,
+    open_ended: bool,
+) -> LifeSupervisorConfig:
+    from ..life.telemetry import telemetry_interval_from_env
+
+    return LifeSupervisorConfig(
+        budget=LifeBudget(
+            per_mission_cap_usd=per_mission_cap_usd,
+            daily_cap_usd=daily_cap_usd,
+            max_missions=1 if once else max_missions,
+        ),
+        poll_interval_seconds=2.0,
+        project_worktree=(
+            Path(project_worktree).expanduser()
+            if project_worktree is not None
+            else None
+        ),
+        stop_event=stop_event,
+        user_inbox=_inbox_drainer_for(project_root),
+        runtime_context=runtime_context,
+        continuous=continuous,
+        continuous_objective=continuous_objective,
+        open_ended=open_ended,
+        full_emnlp_gate=open_ended,
+        telemetry_dir=project_root,
+        telemetry_interval_seconds=telemetry_interval_from_env(),
+    )
+
+
+def run_life_supervisor(
+    *,
+    mem: _SplitMemory,
+    runner: Any,
+    engineer_model: str,
+    reviewer_model: str,
+    once: bool,
+    max_missions: int,
+    per_mission_cap_usd: float,
+    daily_cap_usd: float,
+    project_worktree: Path | None = None,
+    quiet: bool = False,
+    runtime_context: str = "",
+    continuous: bool = False,
+    continuous_objective: str = "",
+    open_ended: bool = True,
+) -> dict[str, Any]:
+    """Run ``LifeSupervisor`` with proper signal-handler save/restore.
+
+    Restoring previous SIGINT/SIGTERM handlers on exit means the chat
+    REPL keeps its Ctrl-C semantics after a /run finishes.
+    """
+    stop_event = threading.Event()
+
+    def _on_signal(signum: int, frame: Any) -> None:  # noqa: ANN401
+        print(f"\nlife: received signal {signum}, requesting stop", file=sys.stderr)
+        stop_event.set()
+
+    prev_int = signal.getsignal(signal.SIGINT)
+    prev_term = signal.getsignal(signal.SIGTERM)
+    signal.signal(signal.SIGINT, _on_signal)
+    signal.signal(signal.SIGTERM, _on_signal)
+
+    try:
+        from ..life.event_log import JsonlEventSink
+        stderr_sink = LifeStderrSink(quiet=quiet)
+        project_root = _memory_project_root(mem)
+        sink = JsonlEventSink(stderr_sink, life_dir=project_root)
+        # Manager divides the Task first: classify the vertical, split into its
+        # Stage template, and COMMIT the choice. The supervisor below then TRUSTS
+        # the persisted vertical (life/supervisor/_core.py:2460) and won't
+        # re-classify. Fail-open — division must never block a run.
+        if continuous and str(continuous_objective).strip():
+            try:
+                from ..manager import Manager
+
+                division = Manager(
+                    project_root=project_root,
+                    runner=getattr(runner, "backend", None),
+                ).divide(continuous_objective)
+                if not quiet:
+                    print(division.headline(), file=sys.stderr)
+            except Exception:  # noqa: BLE001 — never block a run on division
+                log.debug("manager division skipped", exc_info=True)
+        cfg = _build_repl_supervisor_config(
+            per_mission_cap_usd=per_mission_cap_usd,
+            daily_cap_usd=daily_cap_usd,
+            once=once,
+            max_missions=max_missions,
+            project_worktree=project_worktree,
+            stop_event=stop_event,
+            project_root=project_root,
+            runtime_context=runtime_context,
+            continuous=continuous,
+            continuous_objective=continuous_objective,
+            open_ended=open_ended,
+        )
+        sup = LifeSupervisor(
+            memory=mem,
+            runner=runner,
+            sink=sink,
+            config=cfg,
+            engineer_model=engineer_model,
+            reviewer_model=reviewer_model,
+            planner_runner=getattr(runner, "backend", None),
+        )
+        return sup.run()
+    finally:
+        signal.signal(signal.SIGINT, prev_int)
+        signal.signal(signal.SIGTERM, prev_term)
+
+
+def _invoke_supervisor(
+    *,
+    mem: _SplitMemory,
+    backend: str,
+    once: bool,
+    max_missions: int,
+    per_mission_cap_usd: float,
+    daily_cap_usd: float,
+    quiet: bool = False,
+    seed_thread_id: str | None = None,
+    continuous: bool = False,
+    continuous_objective: str = "",
+    open_ended: bool = True,
+    allow_chat_fast_path: bool = False,
+) -> tuple[dict[str, Any], str | None]:
+    ns = argparse.Namespace()
+    ns.backend = backend
+    from ..tools.capability_vault import resolve_route_model
+
+    ns.engineer_model = os.environ.get("ARGUS_SKILL_ENGINEER_MODEL") or resolve_route_model(
+        "engineer"
+    )
+    reviewer_default = resolve_route_model("reviewer")
+    ns.reviewer_model = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL") or reviewer_default
+    ns.scientist_model = os.environ.get("ARGUS_SKILL_SCIENTIST_MODEL") or resolve_route_model(
+        "scientist"
+    )
+    ns.scientist_reasoning_effort = os.environ.get(
+        "ARGUS_SKILL_SCIENTIST_REASONING_EFFORT",
+        "high",
+    )
+    ns.engineer_reasoning_effort = os.environ.get(
+        "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
+        "high",
+    )
+    ns.reviewer_reasoning_effort = os.environ.get(
+        "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
+        "high",
+    )
+    ns.skills_dir = os.environ.get(
+        "ARGUS_SKILL_SKILLS_DIR",
+        str(_memory_global_root(mem) / "skills"),
+    )
+    ns.workdir = os.environ.get("ARGUS_SKILL_WORKDIR")
+    # Life-mode default: 500 engineer rounds. The earlier low cap was
+    # too small for "implement + test + polish" tasks that need many
+    # tool calls. Override via ARGUS_SKILL_MAX_ROUNDS.
+    ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "500"))
+    ns.check_commands = _repl_check_commands_for_open_ended(
+        list(getattr(ns, "check_commands", []) or []),
+        open_ended=open_ended,
+    )
+
+    # Runtime context injected into every mission prelude so the agent
+    # knows its own backend, models, and budget constraints at runtime.
+    runner_backend = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND") or backend
+    mode_label = "continuous" if continuous else "single-shot"
+    runtime_context = (
+        f"## Runtime info\n"
+        f"- Life backend: {backend}\n"
+        f"- Runner backend: {runner_backend}\n"
+        f"- Engineer model: {ns.engineer_model}\n"
+        f"- Reviewer model: {ns.reviewer_model}\n"
+        f"- Scientist model: {ns.scientist_model}\n"
+        f"- Engineer reasoning effort: {ns.engineer_reasoning_effort or '(default)'}\n"
+        f"- Reviewer reasoning effort: {ns.reviewer_reasoning_effort or '(default)'}\n"
+        f"- Scientist reasoning effort: {ns.scientist_reasoning_effort or '(default)'}\n"
+        f"- Max rounds per mission: {ns.max_rounds}\n"
+        f"- Per-mission budget cap: ${per_mission_cap_usd:.2f}\n"
+        f"- Daily budget cap: ${daily_cap_usd:.2f}\n"
+        f"- Mode: {mode_label}\n"
+    )
+    from ..life.research_profile import render_research_profile_context
+
+    research_context = render_research_profile_context()
+    if research_context:
+        runtime_context = runtime_context + "\n---\n\n" + research_context
+
+    runner = build_life_runner(ns, seed_thread_id=seed_thread_id)
+    # Chat fast-path is operator-REPL-only: only human free text typed at the
+    # cockpit is eligible. Planner / backlog / daemon missions keep the
+    # runner default (False) so the harness never classifies agent work.
+    if hasattr(runner, "_allow_chat_fast_path"):
+        runner._allow_chat_fast_path = bool(allow_chat_fast_path)
+    summary = run_life_supervisor(
+        mem=mem,
+        runner=runner,
+        engineer_model=ns.engineer_model,
+        reviewer_model=ns.reviewer_model,
+        once=once,
+        max_missions=max_missions,
+        per_mission_cap_usd=per_mission_cap_usd,
+        daily_cap_usd=daily_cap_usd,
+        project_worktree=getattr(mem, "project_worktree", None) or Path.cwd(),
+        quiet=quiet,
+        runtime_context=runtime_context,
+        continuous=continuous,
+        continuous_objective=continuous_objective,
+        open_ended=open_ended,
+    )
+    final_thread_id = getattr(runner, "last_thread_id", None)
+    return summary, final_thread_id
+
+
+__all__ = [
+    "_env_flag",
+    "_env_int",
+    "_CommonMemory",
+    "_SplitMemory",
+    "_memory_project_root",
+    "_memory_global_root",
+    "_resolve_global_root",
+    "_checkpoint_path_for",
+    "LifeStderrSink",
+    "_Outcome",
+    "_MemoryRunner",
+    "_ScriptedPlannerBackend",
+    "_SkillLoopRunner",
+    "log",
+    "_TEST_DAEMON_PLANNER_SCRIPT_ENV",
+    "_format_daemon_mode_cell",
+    "_codex_preflight_warning",
+    "_inbox_drainer_for",
+    "build_life_runner",
+    "_repl_check_commands_for_open_ended",
+    "_build_repl_supervisor_config",
+    "run_life_supervisor",
+    "_invoke_supervisor",
+]

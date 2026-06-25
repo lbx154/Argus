@@ -169,7 +169,7 @@ def wrap(
     life_dir: Path | str,
     roll_bytes: int = ROLL_BYTES,
 ) -> JsonlEventSink:
-    """Convenience factory used by `_life_repl.py` / `life_worker.py`."""
+    """Convenience factory used by `apps/_runtime.py` / `life_worker.py`."""
     return JsonlEventSink(
         downstream,
         life_dir=Path(life_dir),
