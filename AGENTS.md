@@ -10,10 +10,10 @@
 
 ```text
 argus-skill / python -m argus_skill
-  -> argus_skill/apps/cli.py
-  -> argus_skill/apps/_life_repl.py 或 argus_skill/daemon/life_worker.py
-  -> argus_skill/life/supervisor.py        # backlog / budget / L4 planner
-  -> _CodexSkillLoopRunner.execute(...)
+  -> argus_skill/apps/cli/_parser.py + argus_skill/apps/cli/_core.py
+  -> argus_skill/manager/repl.py 或 argus_skill/daemon/life_worker.py
+  -> argus_skill/life/supervisor/_core.py  # backlog / budget / L4 planner
+  -> argus_skill/apps/_runtime.py (_SkillLoopRunner.execute(...))
   -> argus_skill/loop.py                   # matcher -> distiller -> engineer -> reviewer
   -> argus_skill/engineer/runner.py        # L1 round loop
   -> argus_skill/reviewer/_core.py      # L2 structured verdict
@@ -23,10 +23,10 @@ argus-skill / python -m argus_skill
 
 | 层 | 角色 | 主要文件 | 改什么时看这里 |
 | --- | --- | --- | --- |
-| L0 | CLI / daemon / cockpit | `argus_skill/apps/cli.py`, `argus_skill/apps/_life_repl.py`, `argus_skill/daemon/life_worker.py`, `argus_skill/apps/_watch.py` | 命令行参数、REPL、daemon 启停、`--status`、`--follow`、Telegram/事件展示 |
+| L0 | CLI / daemon / cockpit | `argus_skill/apps/cli/_core.py`, `argus_skill/manager/repl.py`, `argus_skill/daemon/life_worker.py`, `argus_skill/apps/_watch.py` | 命令行参数、REPL、daemon 启停、`--status`、`--follow`、Telegram/事件展示 |
 | L1 | Engineer | `argus_skill/loop.py`, `argus_skill/engineer/runner.py` | 单轮执行 prompt、失败重试、session 续接、acceptance check、进度 watchdog |
 | L2 | Reviewer | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` | done/continue/blocked 判断、reviewer JSON schema、论文任务的 peer-review gate |
-| L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor.py` | continuous mode 自动排新任务、EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除（见 `planner/planner.py` 顶部说明），验收只由 L2 reviewer 负责 |
+| L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor/_core.py` | continuous mode 自动排新任务、EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除（见 `planner/planner.py` 顶部说明），验收只由 L2 reviewer 负责 |
 | Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/scientist/distiller.py`, `argus_skill/builtin_skills/` | skill 匹配、miss 后蒸馏（distiller 复用 engineer backend，不是独立 agent）、writeback、内置论文/research playbook |
 | Contracts | 论文 artifact 工具 + 状态机 | `argus_skill/skills/pipeline_contracts.py`, `argus_skill/skills/pipeline_policy.py`, `argus_skill/skills/stage_checklists.py` | manifest/freshness/validation-priority 构建-修复（pipeline_contracts）；质量 gate 走 stage checklist（stage_checklists） |
 
@@ -34,11 +34,11 @@ argus-skill / python -m argus_skill
 
 - `pyproject.toml`: console script 是 `argus-skill = "argus_skill.__main__:main"`。
 - `argus_skill/__main__.py`: 只 re-export `apps.cli.main`。
-- `argus_skill/apps/cli.py`: 所有顶层 CLI flag 都在这里注册。这里没有 subcommand 模型，`--daemon`、`--status`、`--watch`、`--follow`、`--continuous`、`--objective`、`--bounded`、skill admin 都是 top-level flag。
+- `argus_skill/apps/cli/_core.py`: 所有顶层 CLI flag 都在这里注册。这里没有 subcommand 模型，`--daemon`、`--status`、`--watch`、`--follow`、`--continuous`、`--objective`、`--bounded`、skill admin 都是 top-level flag。
   - **入口硬门禁（`_lifetime_entry_error`）**：默认进 cockpit / 启动 daemon 时，必须同时满足 (1) 配了 mission objective（`--objective`，或当前 project 已持久化的 `continuous.json`），(2) 至少有一个受信任的 special prompt（`life/special_prompts.py`）。任一缺失就 `exit 2` 并打印可操作的指引——不再让 agent 在没有目标 / 没有机器规则的情况下空跑。只读 / admin flag（`--status`、`--watch`、`--skill-stats`…）不受门禁限制。
   - **`--bounded`**：把 mission 当成有界一次性目标，planner 认证 `project_done` 后硬停。默认（不加）是 open-ended——`project_done` 后继续生成新工作（7×24 永续）。这取代了过去从 objective 文本里猜 `7×24`/`ongoing`/`perpetual` 等关键词的做法（见 `LifeSupervisorConfig.open_ended`）。
-- `argus_skill/apps/_life_repl.py`: 交互 cockpit，也包含真实 mission runner `_CodexSkillLoopRunner` 和 memory backend runner。单个 backlog item 最终就是从这里进 `SkillLoop`。
-- `argus_skill/life/router.py`: operator 自由文本的 chat-vs-task 路由。**不再用关键词/正则分类**（历史的 `is_conversational` 用 60 字符上限 + 中英文正则猜“这是闲聊吗”，harness 比 agent 聪明）。现在 `classify_is_conversational(text, *, run_exec)` 做一次低 reasoning 的模型调用，只有模型精确回答 `CHAT` 才返回 True，其余（TASK / 模糊 / 空 / 非零退出 / 异常）一律按 task 走完整 pipeline——bias 向 task，宁可多跑也不误吞任务。**只有 operator 在 REPL 里直接敲的自由文本**才会被分类（`_CodexSkillLoopRunner._allow_chat_fast_path`，默认 False，仅 `_invoke_supervisor` 在 `_free_text_cmd` 非 continuous 路径置 True）；planner / `/add` backlog / daemon 的任何任务都不分类，否则就是 harness 二次猜 planner。
+- `argus_skill/manager/repl.py`: 交互 cockpit，也包含真实 mission runner `_SkillLoopRunner` 和 memory backend runner。单个 backlog item 最终就是从这里进 `SkillLoop`。
+- `argus_skill/life/router.py`: operator 自由文本的 chat-vs-task 路由。**不再用关键词/正则分类**（历史的 `is_conversational` 用 60 字符上限 + 中英文正则猜“这是闲聊吗”，harness 比 agent 聪明）。现在 `classify_is_conversational(text, *, run_exec)` 做一次低 reasoning 的模型调用，只有模型精确回答 `CHAT` 才返回 True，其余（TASK / 模糊 / 空 / 非零退出 / 异常）一律按 task 走完整 pipeline——bias 向 task，宁可多跑也不误吞任务。**只有 operator 在 REPL 里直接敲的自由文本**才会被分类（`_SkillLoopRunner._allow_chat_fast_path`，默认 False，仅 `_invoke_supervisor` 在 `_free_text_cmd` 非 continuous 路径置 True）；planner / `/add` backlog / daemon 的任何任务都不分类，否则就是 harness 二次猜 planner。
 - `argus_skill/daemon/life_worker.py`: detached daemon 版本的同一套逻辑。这里管 `continuous.json` 热加载、pid lock、blue/green handoff、daemon status、预算环境变量。
 - `argus_skill/life/memory.py`: 磁盘状态。global root 默认 `~/.argus-skill/`，project state 默认 `~/.argus-skill/projects/<fingerprint>/`。注入 mission 前的 “memory context” prelude(`render_prelude`)走**纯 recency**：surface 最近 N 条 journal(按所传 journal 做 project 隔离),**不再用关键词 Jaccard 给“相关性”打分**——“哪段过往工作相关”是 agent 读这段(标了 non-authoritative 的)advisory 后自己判断的,不是 harness 用词面重叠去猜。`relevant_journal_for` / `_score_journal` 的 `min_score` 参数保留但忽略。
 
@@ -63,7 +63,7 @@ argus-skill / python -m argus_skill
 - `SkillLoopConfig`: scientist/engineer/reviewer/matcher model、max rounds、check commands、writeback、distill-on-miss、runner flags、`paper_mission`。
 - `SkillLoop.run(...)`: 主流程。
 - `_build_engineer_prompt(..., paper_mission)`: 拼 L1 engineer prompt。长 horizon 论文 contract 仅在 `paper_mission=True` 时注入。
-- 论文任务的识别**不再用关键词猜 objective 文本**，改由显式信号决定：`SkillLoopConfig.paper_mission`（默认 False；life 执行路径 `_CodexSkillLoopRunner` 显式置 True）。已删除旧的 `argus_skill/core/paper_objective.py` 与 `_looks_like_paper_objective`。
+- 论文任务的识别**不再用关键词猜 objective 文本**，改由显式信号决定：`SkillLoopConfig.paper_mission`（默认 False；life 执行路径 `_SkillLoopRunner` 显式置 True）。已删除旧的 `argus_skill/core/paper_objective.py` 与 `_looks_like_paper_objective`。
 
 主流程：
 
@@ -185,7 +185,7 @@ L2 reviewer 在 `argus_skill/reviewer/_core.py`。
 
 ## 外层 LifeSupervisor
 
-`argus_skill/life/supervisor.py` 是长期 harness 的大脑。它不是单任务 runner，而是“一个任务接一个任务”的调度器。
+`argus_skill/life/supervisor/_core.py` 是长期 harness 的大脑。它不是单任务 runner，而是“一个任务接一个任务”的调度器。
 
 它负责：
 
@@ -383,7 +383,7 @@ contract 要求非数据类 paper-facing figure 通过 image-2/codex-image2 路�
 - `full_emnlp_gate` 这个**显式 config flag**（不再从 objective 文本猜）决定：`project_done` 前必须有一次被 reviewer 认证的 full-pipeline gate 通过记录。非论文的 continuous mission 可把它置 False。
 - `_journal_has_full_emnlp_gate_success(...)`: 在 journal 里查这条认证记录（`final_submission_certified=True`）。
 - `_plan_next_work(...)`: 若 planner 在尚未认证时就报 `project_done`，这里把它的裁决**替换**成一个 `scope=final_submission` 的 “Prove final submission readiness” 任务，交回 L2 reviewer 做整链认证。
-- **scope 是结构化透传的，不再从 prose 里二次解析。** backlog item 的 `scope`（`final_submission` / `bounded` / 空）由 `_planner_scope_from_item(item)`（读 `item.tags`）算出，经 `MissionExecutor.execute(..., scope=...)` 一路传到 `_CodexSkillLoopRunner` 和 reviewer。runner 不再从 objective prose 猜 `mission_scope`，reviewer 也只认结构化 scope(prose fallback 已删)。planner 去重里“`done` 的 final-submission 任务不挡新任务入队”这条豁免,也改走结构化的 `_item_is_final_submission(item)`(读 tag);`_legacy_final_submission_marker(text)` 只作为**老 backlog 迁移**兜底——给“tag 出现前持久化、只在 objective prose 里带 marker”的旧 item 用,保证 resume 的 daemon 不回归,新 item 一律带 tag。
+- **scope 是结构化透传的，不再从 prose 里二次解析。** backlog item 的 `scope`（`final_submission` / `bounded` / 空）由 `_planner_scope_from_item(item)`（读 `item.tags`）算出，经 `MissionExecutor.execute(..., scope=...)` 一路传到 `_SkillLoopRunner` 和 reviewer。runner 不再从 objective prose 猜 `mission_scope`，reviewer 也只认结构化 scope(prose fallback 已删)。planner 去重里“`done` 的 final-submission 任务不挡新任务入队”这条豁免,也改走结构化的 `_item_is_final_submission(item)`(读 tag);`_legacy_final_submission_marker(text)` 只作为**老 backlog 迁移**兜底——给“tag 出现前持久化、只在 objective prose 里带 marker”的旧 item 用,保证 resume 的 daemon 不回归,新 item 一律带 tag。
 
 所以：
 
@@ -404,7 +404,7 @@ RunnerBackend.run_exec(prompt, options, run_label, resume_thread_id=None) -> Run
 - `argus_skill/adapters/agent_cli_backend.py`: 包 vendored `agent_cli.agent_cli_runner.AgentCliRunner`，真实 codex/claude/copilot CLI 都从这里走。
 - `argus_skill/agent_cli/`: 旧 ArgusBot autoloop 整套已删除，只保留三个底层 CLI driver 模块 `agent_cli_runner` / `runner_backend` / `models`（+ 薄 `__init__`、`LICENSE`、`_VENDORED.md`）。`__init__` 不再 eager import orchestrator/core，所以 `import argus_skill.agent_cli.agent_cli_runner` 没有遗留副作用。历史的 orchestrator / telegram_daemon / feishu_adapter / 第二份 reviewer·planner·checks / dashboard 等 ~33 个模块（~14.9k 行）都已移除——它们早被 `argus_skill.life` / `engineer` / `planner` 取代（Telegram 远控走的是新的 `life/telegram_bot.py`）。
 - `argus_skill/adapters/memory_backend.py`: deterministic 测试/smoke。
-- `_CodexSkillLoopRunner` 在 `_life_repl.py` 里组装真实 backend，并把同一个 backend 传给 distiller(scientist)、engineer、reviewer、planner。
+- `_SkillLoopRunner` 在 `apps/_runtime.py` 里组装真实 backend，并把同一个 backend 传给 distiller(scientist)、engineer、reviewer、planner。
 
 常见 env：
 
@@ -445,7 +445,7 @@ ARGUS_SKILL_DAILY_CAP_USD=180
 - `argus_skill/cli/event_format.py`
 - `argus_skill/cli/render.py`
 - `argus_skill/apps/_watch.py`
-- `argus_skill/apps/cli.py` 的 `--follow` helpers
+- `argus_skill/apps/cli/_core.py` 的 `--follow` helpers
 - `argus_skill/life/telegram_bot.py`
 - `argus_skill/life/notify.py`
 
@@ -481,14 +481,14 @@ pytest
 
 ## 修改时的层级规则
 
-1. CLI 行为改 `apps/cli.py` / `_life_repl.py` / `daemon/life_worker.py`。
+1. CLI 行为改 `apps/cli/_core.py` / `manager/repl.py` / `daemon/life_worker.py`。
 2. 单任务 agent prompt 改 `loop.py`。
 3. L1 执行可靠性改 `engineer/runner.py`。
 4. L2 验收标准改 `engineer/reviewer.py` 和相关 role skill。
-5. L4 调度策略改 `life/supervisor.py` / `planner/planner.py`。
+5. L4 调度策略改 `life/supervisor/_core.py` / `planner/planner.py`。
 6. Skill 匹配、蒸馏、writeback 改 `skills/store.py` / `scientist/*`。
 7. EMNLP 质量是否合格改 `skills/stage_checklists.py` 的 checklist；manifest/freshness/policy artifact 构建-修复改 `skills/pipeline_contracts.py`。
-8. EMNLP 项目何时算完成 / 还差认证时改派什么，改 `life/supervisor.py` 的 `_plan_next_work` 与 `_journal_has_full_emnlp_gate_success`。
+8. EMNLP 项目何时算完成 / 还差认证时改派什么，改 `life/supervisor/_core.py` 的 `_plan_next_work` 与 `_journal_has_full_emnlp_gate_success`。
 9. Agent 读到 paper 任务后的操作手册改 `argus_skill/builtin_skills/*.md`。
 10. 生成 evidence/review JSON 的工具改 `skills/*_review.py` 或 `tools/image_tool.py`，不要只改 validator 放宽。
 

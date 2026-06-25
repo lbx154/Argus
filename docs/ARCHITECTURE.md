@@ -1,113 +1,79 @@
 # Architecture
 
-> **Status note:** `argus-skill` now exposes a unified REPL, detached
-> life worker, and optional Telegram poller. The map below covers the
-> live tree; historical upstream paths are called out only for
-> provenance.
+> **What Argus is:** an autonomous agent that drives a real public benchmark to
+> a target, 7×24, judged by a reviewer. One CLI, one loop, one verticalized
+> task shape. The harness is a domain-agnostic dumb pipe (budget, persistence,
+> scheduling, structured I/O, anti-cheat guardrails); all research judgment
+> lives with the agent (planner / engineer / reviewer).
 
-`argus-skill` is a thin GLUE layer over the current core / scientist /
-engineer / life stack. This doc maps the live files to their upstream
-origin or notes when a module is new in this repo.
+This map covers the **live tree**. It is kept in sync with the code — if a path
+here is wrong, fix it (a stale map mis-routes the next maintainer).
 
-## Live module map
+## The spine (one path, end to end)
 
-| argus-skill file | Upstream | Notes |
+```
+argus-skill (CLI)                         apps/cli/_parser.py + apps/cli/_core.py
+  └─ __main__.py / entry                  argus_skill/__main__.py
+  └─ Manager.divide                       argus_skill/manager/_core.py
+       picks ONE vertical (chat vs task, vertical select)
+  └─ runtime wiring                       argus_skill/apps/_runtime.py
+  └─ LifeSupervisor (mission scheduler)   argus_skill/life/supervisor/_core.py
+       └─ SkillLoop                        argus_skill/loop.py
+            └─ SupervisedEngineer  ◄────►  Reviewer-until-done
+               engineer/runner.py          reviewer/_core.py (+ reviewer_schema.json)
+  sits on:
+    core/  (budget, persistence, structured I/O, paths, locks)
+    meta/  (the SINGLE anti-stuck mechanism: regime-jump)
+    verticals/<name>/  (the task-specific shape + reviewer gate)
+    backend: agent_cli/ + adapters/  (codex / claude / copilot CLI runners)
+```
+
+## Module map (live)
+
+| Area | File(s) | Role |
 |---|---|---|
-| `argus_skill/core/models.py` | ArgusBot/codex_autoloop/models.py | Slimmed: kept `CheckResult` / `ReviewDecision`; added `LoopOutcome`. |
-| `argus_skill/core/ports.py` | ArgusBot/codex_autoloop/core/ports.py | Shared protocols, plus `RunnerBackend` and `SkillSource`. |
-| `argus_skill/core/project.py` | new | Project fingerprinting from cwd or git remote. |
-| `argus_skill/scientist/prompts.py` | skill-agent/skill_agent/prompts.py | Match / distill prompt logic. |
-| `argus_skill/scientist/distiller.py` | new | Scientist wrapper around `Prompts.distill(...)`. |
-| `argus_skill/skills/layered.py` | new | Layered skill helpers. |
-| `argus_skill/skills/lifecycle.py` | new | Reinforce / distill / revise / retire dispatch. |
-| `argus_skill/skills/quality.py` | new | Skill quality helpers. |
-| `argus_skill/skills/builtins.py` | new | Seeds bundled research/paper skills into the global skill library without overwriting user edits. |
-| `argus_skill/skills/paper_calibration.py` | new | Stores paper-quality calibration metadata and detects fresh-demo-style quality blockers. |
-| `argus_skill/skills/pipeline_contracts.py` | new | Builds/repairs paper artifact manifest, freshness records, and validation-priority policy (quality gating now lives in stage checklists). |
-| `argus_skill/skills/store.py` | skill-agent/skill_agent/skill_store.py | Markdown skill cache + fit-graded matcher. |
-| `argus_skill/builtin_skills/*.md`, `argus_skill/builtin_skills/**/*.md` | adapted | Argus-native research/paper/domain playbooks adapted from ARIS workflow concepts. |
-| `argus_skill/engineer/reviewer.py` | ArgusBot/codex_autoloop/reviewer.py | Reviewer loop adapted to `RunnerBackend`. |
-| `argus_skill/engineer/checks.py` | ArgusBot/codex_autoloop/checks.py | Acceptance-check helpers. |
-| `argus_skill/engineer/reviewer_schema.json` | ArgusBot/codex_autoloop/reviewer_schema.json | Reviewer JSON schema. |
-| `argus_skill/engineer/runner.py` | new | `SupervisedEngineer` round-loop control flow. |
-| `argus_skill/adapters/memory_backend.py` | new | Deterministic backend for tests / smoke runs. |
-| `argus_skill/adapters/codex_backend.py` | new | Real CLI backend wrapper. |
-| `argus_skill/adapters/stream_progress.py` | new | Live-output plumbing shared by backends. |
-| `argus_skill/critic/critic.py` | new | Critic + planner for iteration / continuous mode. |
-| `argus_skill/daemon/token_lock.py` | ArgusBot/codex_autoloop/token_lock.py | Process lock helper, vendored verbatim. |
-| `argus_skill/daemon/life_worker.py` | new | Detached life worker around `LifeSupervisor`. |
-| `argus_skill/apps/_inbox.py` | new | Shared inbox queue / drain / event formatting helpers. |
-| `argus_skill/apps/_life_actions.py` | new | Shared non-interactive backlog, config, status, and `/run` helpers. |
-| `argus_skill/apps/_target_paths.py` | new | Shared life-dir / project-root resolution helpers. |
-| `argus_skill/life/memory.py` | new | Persistent memory primitives. |
-| `argus_skill/life/event_log.py` | new | Event JSONL writer / rotator. |
-| `argus_skill/life/status.py` | new | Shared backlog-status selectors and continuous-state description helpers. |
-| `argus_skill/life/notify.py` | new | Best-effort journal notifications. |
-| `argus_skill/life/telegram_bot.py` | new | Optional Telegram inbound command bridge. |
-| `argus_skill/life/router.py` | new | Event routing helpers. |
-| `argus_skill/life/supervisor.py` | new | Mission scheduler and iteration loop. |
-| `argus_skill/apps/cli.py` | new | CLI entry point and one-shot action dispatcher. |
-| `argus_skill/apps/_life_repl.py` | new | Unified REPL surface. |
-| `argus_skill/apps/_skill_stats.py` | new | Non-interactive skill stats command. |
-| `argus_skill/apps/_skill_cleanse.py` | new | Skill migration helper. |
-| `argus_skill/apps/_watch.py` | new | Read-only live cockpit. |
-| `argus_skill/apps/_init_identity.py` | new | Identity-card wizard. |
-| `argus_skill/apps/_input_helpers.py` | new | Shared REPL input helpers. |
-| `argus_skill/cli/branding.py` | new | CLI branding helpers. |
-| `argus_skill/cli/event_format.py` | new | Event rendering helpers. |
-| `argus_skill/cli/render.py` | new | Terminal rendering helpers. |
-| `argus_skill/cli/theme.py` | new | Theme helpers. |
-| `argus_skill/loop.py` | new | SkillLoop integration glue. |
-| `argus_skill/__main__.py` | new | `python -m argus_skill` entry point. |
+| Entry / CLI | `argus_skill/__main__.py`, `apps/cli/_parser.py`, `apps/cli/_core.py` | argument parsing + one-shot action dispatch (`--daemon`, `--daemon-stop [--drain]`, `--status`, …) |
+| Manager | `manager/_core.py`, `manager/repl.py` | chat-vs-task decision, vertical selection, REPL surface |
+| Runtime wiring | `apps/_runtime.py` | builds the live runner / supervisor from config |
+| Mission scheduler | `life/supervisor/_core.py` | the 7×24 outer loop: claim backlog → run mission → plan next; budget, lifecycle, drain |
+| Skill loop | `loop.py` | per-mission glue: build engineer prompt → run → review |
+| Engineer | `engineer/runner.py` | `SupervisedEngineer` round-loop control flow |
+| Reviewer | `reviewer/_core.py`, `reviewer/reviewer_schema.json` | the **sole source of truth for "done"** — no hardcoded completion gate |
+| Planner | `planner/planner.py` | L4 continuous planner: next tasks + (optional) meta decision |
+| Core (dumb pipe) | `core/models.py`, `core/ports.py`, `core/paths.py`, `core/pricing.py`, `core/daemon_lock.py`, `core/bootstrap.py` | budget, persistence, structured I/O, paths, locks |
+| Meta (anti-stuck) | `meta/` (`saturation.py`, `flow_controller.py`, `ledger.py`, `meta_prompter.py`, `config.py`) | regime-jump: DETECT (dumb counter) / JUDGE (planner LLM) / ENFORCE (never-cleared forbidden ledger). Fail-soft to no-op. |
+| Verticals | `verticals/_base.py` + `verticals/{nanochat,nanogpt_speedrun,kernelbench,speedrun,research}/` | per-task shape via a plugin contract (`role_banner`, `completion_gate`, `search_altitude`, `strategy_pool`); the three metric verticals reuse `speedrun`'s shape by re-export |
+| Daemon | `daemon/life_worker.py` | detached 7×24 worker around `LifeSupervisor`; SIGTERM/drain, pid lock |
+| Backend | `agent_cli/agent_cli_runner.py`, `adapters/agent_cli_backend.py`, `adapters/memory_backend.py` | the CLI runner (codex/claude/copilot) + a deterministic memory backend for tests |
 
-## Layout Notes
+> **Optional, not the spine:** the `research` vertical (paper-from-idea-to-
+> submission) and its `skills/` paper machinery are an OPTIONAL mode, lazy-loaded
+> only when the project's vertical is `research`. They are not part of the
+> metric-speedrun product and must not be on its default import/identity surface.
 
-The current tree is intentionally flatter than the historical one. The
-daemon, REPL, and Telegram poller all share the same current
-`apps/cli.py` entry point, but not the same on-disk root: global
-identity/journal/skill state lives at `~/.argus-skill/`, while the
-active project card, memory journal, backlog, event log, inbox, and
-process state live under `~/.argus-skill/projects/<fingerprint>/`.
-Continuous mode is coordinated through each project's `continuous.json`
-via `read_continuous_state()` / `write_continuous_config()`, and the
-CLI `--status` command reports the current project state alongside the
-shared global journal.
+## On-disk layout
 
-The current `apps/cli.py`, `apps/_life_repl.py`, `apps/_watch.py`, and
-`life/telegram_bot.py` surfaces now share the helper modules above:
-`apps/_inbox.py` handles inbox queueing and draining, `apps/_life_actions.py`
-holds the reusable backlog/config/status/run helpers, `apps/_target_paths.py`
-keeps life-root resolution consistent, and `life/status.py` centralizes the
-running-item and continuous-state selectors.
+Global identity / journal / skill state lives at `~/.argus-skill/`. Per-project
+state (project card, memory journal, backlog, event log, inbox, daemon pid +
+`continuous.json`) lives under `~/.argus-skill/projects/<fingerprint>/`.
+Continuous mode is coordinated through each project's `continuous.json` via
+`read_continuous_config()` / `write_continuous_config()`; `--status` reports the
+current project state alongside the shared global journal.
 
-Global initialization seeds bundled research/paper skills into
-`~/.argus-skill/skills/`, including the auto-research orchestrator and
-submission-assurance gate. The gate includes a paper-quality calibration layer:
-local pilot failures can be kept as negative regression patterns, while official
-award metadata is used only for quality signals rather than copied prose.
-Seeding is idempotent and filename-preserving: an existing operator-edited skill
-file is left untouched, while missing bundled skills are added on the next
-startup/init.
+## How a mission flows
 
-## How a task flows through the loop
-
-1. **Match.** `SkillStore.find_relevant(task)` ranks skills by
-   frontmatter and token overlap.
-2. **Distill (if miss).** `Distiller.distill(task)` asks the scientist
-   to author a new skill when nothing fits.
-3. **Round k.** `SupervisedEngineer.run` builds the engineer prompt,
-   runs checks, then asks the reviewer for a verdict.
-4. **Classify.** `done + checks pass → status="done"`, `blocked →
-   "blocked"`, otherwise keep iterating up to `max_rounds`.
-5. **Writeback (on done).** `SkillStore.writeback_from_trajectory`
-   updates the skill history so the matcher sees the successful path.
+1. **Select.** `Manager.divide` routes the objective to ONE vertical.
+2. **Round k.** `SupervisedEngineer.run` builds the engineer prompt, runs the
+   vertical's checks, then asks the reviewer for a verdict.
+3. **Classify.** Reviewer says `done` (and checks pass) → done; `blocked` →
+   surface; otherwise iterate up to `max_rounds`. The reviewer's verdict is the
+   only completion authority.
+4. **Plan next.** Between missions the planner proposes the next task(s); the
+   meta layer may convene a regime-jump when the promoted floor is frozen.
 
 ## Tests as living docs
 
-The smoke tests in `tests/test_loop_smoke.py` still document the main
-behaviour contract:
-
-* distill on miss, then converge in two rounds.
-* blocked short-circuits immediately.
-* max-rounds stays bounded.
-* `--no-distill-on-miss` falls back to a skill-less run.
+`tests/test_loop_smoke.py` documents the core behaviour contract (distill on
+miss then converge, blocked short-circuits, max-rounds stays bounded). The
+daemon lifecycle (drain-stop, signal handling) is covered in
+`tests/daemon/test_life_worker.py`.

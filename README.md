@@ -5,7 +5,8 @@
 
 <p align="center">
 给它一个目标和这台机器的规则，剩下的它自己来：<br>
-选题、调研、设计实验、在真实 benchmark 上跑、分析、写 LaTeX、自审、改稿、直到投稿就绪。<br>
+在一个真实的公开 benchmark 上（nanochat / nanogpt-speedrun / KernelBench / …），<br>
+选题、设计实验、在真机上跑、分析、改进——把指标推到目标，由 reviewer 判定做完没。<br>
 没有人在回路里逐步审批。
 </p>
 
@@ -22,7 +23,9 @@
 
 ## 我们在做什么
 
-Argus 不是一个"帮你润色论文"的工具，也不是一条把 prompt 串起来的流水线。它是一个 **7×24 自主运行的 research assistant**：你只需要告诉它**做什么**（objective）和**这台机器的规则**（special prompt——GPU、路径、调度约束），它就独立地把一篇论文从无到有做出来——而且做科研所需的每一个**判断**都是 agent 自己下的，不是 harness 替它下的。
+Argus 不是一个"帮你润色论文"的工具，也不是一条把 prompt 串起来的流水线。它是一个 **7×24 自主运行的 research agent**：你只需要告诉它**做什么**（objective）和**这台机器的规则**（special prompt——GPU、路径、调度约束），它就独立地在一个真实公开 benchmark 上把指标从基线推到目标——而且做科研所需的每一个**判断**都是 agent 自己下的，不是 harness 替它下的。完成与否由 reviewer 判定，没有硬编码的完成门。
+
+> 活的产品是 **benchmark 复现 agent**（nanochat / nanogpt-speedrun / KernelBench 等 metric vertical）。"从 idea 写到投稿"的论文流水线是一个**可选模式**（`research` vertical），不是默认身份。
 
 ## 设计哲学（先读这一节）
 
