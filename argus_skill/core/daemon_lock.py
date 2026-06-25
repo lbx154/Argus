@@ -14,10 +14,9 @@ file lock plus a PID file:
   lock), the OS will let us acquire it. We then overwrite the file with
   our own pid.
 
-This module is intentionally narrower than ``daemon/token_lock.py``
-(which was about Telegram-token uniqueness across multiple project
-daemons). The two are complementary: the token lock survives, the
-daemon lock is new for the singleton model.
+This is the singleton daemon lock: one live daemon per project. (A legacy
+``daemon/token_lock.py`` Telegram-token-uniqueness lock once sat alongside it;
+that module had no importers and has been removed.)
 """
 from __future__ import annotations
 

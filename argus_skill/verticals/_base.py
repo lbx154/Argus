@@ -22,14 +22,17 @@ to today and a partially-specified new vertical never crashes prompt building.
 
 ``load_vertical(name)`` is the single resolver: it imports
 ``argus_skill.verticals.<name>.stages``, strips a trailing ``-needed`` sentinel
-(main wrote a ``"speedrun-needed"`` placeholder before the writer existed), and
-on ANY import failure falls back to the ``research`` vertical rather than
-raising — vertical resolution must never break the running loop.
+(main wrote a ``"speedrun-needed"`` placeholder before the writer existed). A
+genuinely-missing / typo'd / half-built name falls back to the ``research``
+vertical (resolution must never break the loop on a bad name); but a REAL named
+vertical whose ``stages.py`` exists yet fails to import raises LOUDLY rather than
+silently degrading a metric mission into the paper pipeline.
 """
 from __future__ import annotations
 
 import importlib
 import logging
+import os
 from types import ModuleType
 
 log = logging.getLogger(__name__)
@@ -61,13 +64,25 @@ def load_vertical(name: object) -> ModuleType:
     cleaned = _normalize_vertical_name(name)
     try:
         return importlib.import_module(f"argus_skill.verticals.{cleaned}.stages")
-    except Exception:  # noqa: BLE001 — fail-open: any import failure → research
+    except Exception as exc:  # noqa: BLE001
+        # Distinguish a genuinely-missing / typo'd / half-built vertical (safe
+        # fallback) from a REAL named vertical whose stages module errored. The
+        # latter must NOT be hidden: silently degrading e.g. nanochat → research
+        # turns a metric optimizer into the paper pipeline with only a log line.
+        stages_path = os.path.join(os.path.dirname(__file__), cleaned, "stages.py")
+        if cleaned != DEFAULT_VERTICAL and os.path.isfile(stages_path):
+            raise RuntimeError(
+                f"load_vertical({name!r}): the vertical exists ({stages_path}) but "
+                f"importing its stages module failed — refusing to silently fall "
+                f"back to {DEFAULT_VERTICAL!r} (that would turn this mission into the "
+                f"paper pipeline). Fix the vertical."
+            ) from exc
         if cleaned != DEFAULT_VERTICAL:
             log.warning(
-                "load_vertical(%r): import failed, falling back to %r",
+                "load_vertical(%r): unknown/half-built vertical (%s), falling back to %r",
                 name,
+                type(exc).__name__,
                 DEFAULT_VERTICAL,
-                exc_info=True,
             )
         return importlib.import_module(
             f"argus_skill.verticals.{DEFAULT_VERTICAL}.stages"

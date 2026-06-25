@@ -367,9 +367,11 @@ class Planner:
     def __init__(self, runner: RunnerBackend, *, skill_store: Any | None = None) -> None:
         self.runner = runner
         # Optional role-mission skill matcher (same scaffold engineer and
-        # reviewer use). There is no builtin_skills/planner/ pool today, so
-        # the matcher short-circuits to empty with no backend call; wiring it
-        # establishes the uniform mission path for when planner skills land.
+        # reviewer use). There is no builtin_skills/planner/ OWN pool today, but
+        # the matcher pool also UNIONs the planner's cross-read references
+        # {engineer, reviewer} (non-empty), so this DOES fire a real matcher call
+        # each planner round, surfacing engineer/reviewer skills to the planner
+        # as read-only references — it is not a no-op.
         self.skill_store = skill_store
         from ..missions import PlannerMission
         self.mission = PlannerMission(skill_store)
@@ -728,9 +730,10 @@ class Planner:
             upstream_rollback_block = ""
 
         # Planner role mission matcher (same primitive engineer/reviewer use).
-        # No builtin_skills/planner/ pool exists today, so this short-circuits
-        # to empty with no backend call; it establishes the uniform mission
-        # path for when planner skills are added.
+        # No builtin_skills/planner/ OWN pool exists today, but the matcher pool
+        # UNIONs the planner's cross-read references {engineer, reviewer}, so
+        # mission.match() DOES make a real matcher backend call each round and
+        # can surface engineer/reviewer skills to the planner as references.
         matched_planner_skill_block = ""
         if mission is not None:
             planner_match = mission.match(continuous_objective)

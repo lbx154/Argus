@@ -97,9 +97,10 @@ class ReviewerMission(RoleMission):
 class PlannerMission(RoleMission):
     """Planner role: own pool {planner}, references {engineer, reviewer}.
 
-    No ``builtin_skills/planner/`` pool exists today, so this matches nothing
-    live; it establishes the uniform mission path for when planner skills are
-    added or distilled.
+    No ``builtin_skills/planner/`` OWN pool exists today, but the matchable pool
+    UNIONs the cross-read references {engineer, reviewer} (non-empty), so this
+    DOES fire a real matcher call and can surface engineer/reviewer skills to the
+    planner as read-only references — it is not a no-op.
     """
 
     role = "planner"

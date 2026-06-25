@@ -9,7 +9,8 @@
     "restart_reason",
     "waiting",
     "waiting_reason",
-    "new_tasks"
+    "new_tasks",
+    "meta_decision"
   ],
   "properties": {
     "project_done": {
@@ -87,9 +88,16 @@
       }
     },
     "meta_decision": {
-      "type": "object",
+      "type": ["object", "null"],
       "additionalProperties": false,
-      "description": "OPTIONAL — only on a meta-control jump/explore turn. Your OWN call about the search regime (the harness convened the turn on a counter but does not decide for you). The harness records it and re-surfaces your declared forbidden directions next cycle as visibility; it does NOT hard-gate or reject your next candidate. Omit it entirely if you have nothing to declare.",
+      "description": "OPTIONAL — only on a meta-control jump/explore turn. Your OWN call about the search regime (the harness convened the turn on a counter but does not decide for you). The harness records it and re-surfaces your declared forbidden directions next cycle as visibility; it does NOT hard-gate or reject your next candidate. Emit null if you have nothing to declare.",
+      "required": [
+        "mode",
+        "confidence",
+        "reasoning",
+        "strategy_type",
+        "forbidden"
+      ],
       "properties": {
         "mode": { "type": "string", "enum": ["explore", "exploit", "jump"] },
         "confidence": { "type": "number" },

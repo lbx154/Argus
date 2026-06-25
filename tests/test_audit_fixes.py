@@ -6,8 +6,11 @@ control, and keep the harness's bookkeeping faithful + bounded.
 """
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
+
+import pytest
 
 import argus_skill.engineer.reviewer as reviewer_mod
 import argus_skill.life.telemetry as telemetry
@@ -24,8 +27,12 @@ from argus_skill.planner.planner import PLANNER_SCHEMA_PATH
 # --------------------------------------------------------------------------- #
 def test_planner_schema_allows_optional_meta_decision():
     schema = json.loads(Path(PLANNER_SCHEMA_PATH).read_text())
-    assert "meta_decision" in schema["properties"]  # the agent now has a channel
-    assert "meta_decision" not in schema["required"]  # optional → agent's call
+    md = schema["properties"]["meta_decision"]
+    assert md  # the agent now has a sanctioned channel
+    # required-but-NULLABLE: the model must consider the field, but may emit null
+    # when it has nothing to declare — so it's never forced to invent a regime
+    # call (agent's judgment preserved via nullability, not via omission).
+    assert "null" in md["type"]
 
 
 def test_meta_decision_from_structured_obj_populates_forbidden_ledger(tmp_path):
@@ -93,3 +100,37 @@ def test_telemetry_jsonl_rotates_past_cap(tmp_path, monkeypatch):
     assert rolled.exists()  # rotation happened
     # the live file is bounded (cap + at most one extra record), not unbounded
     assert live.stat().st_size < 500 + 200
+
+
+# --------------------------------------------------------------------------- #
+# prune pass — fail-loud (not fail-open) vertical resolution
+# --------------------------------------------------------------------------- #
+def test_load_vertical_unknown_name_falls_back_quietly():
+    from argus_skill.verticals import _base
+    mod = _base.load_vertical("totally_made_up_xyz")
+    assert mod.__name__.endswith("research.stages")  # unknown → safe fallback
+
+
+def test_load_vertical_named_but_broken_fails_loud(monkeypatch):
+    # A REAL vertical whose stages.py exists but fails to import must NOT silently
+    # degrade a metric mission into the paper pipeline — it raises loudly.
+    from argus_skill.verticals import _base
+    real_import = importlib.import_module
+
+    def fake_import(modname, *a, **k):
+        if modname == "argus_skill.verticals.nanochat.stages":
+            raise ImportError("simulated broken vertical")
+        return real_import(modname, *a, **k)
+
+    monkeypatch.setattr(_base.importlib, "import_module", fake_import)
+    monkeypatch.setattr(_base.os.path, "isfile", lambda p: True)  # pretend it exists
+    with pytest.raises(RuntimeError, match="paper pipeline"):
+        _base.load_vertical("nanochat")
+
+
+def test_dead_scientist_prompts_removed():
+    from argus_skill.scientist.prompts import Prompts
+    assert hasattr(Prompts, "distill") and hasattr(Prompts, "revise")  # live ones stay
+    assert not hasattr(Prompts, "execute")  # 0-callsite dead methods gone
+    assert not hasattr(Prompts, "repair")
+    assert not hasattr(Prompts, "refine_from_feedback")
