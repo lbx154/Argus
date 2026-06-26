@@ -591,6 +591,7 @@ class LifeWorker:
         )
         self._failed_handoff_signature = ""
         self._last_handoff_attempt_at = 0.0
+        self._curator: Any = None  # resident teammate-pool Curator (built in run_forever)
 
     # -- signal handling ------------------------------------------------
 
@@ -796,6 +797,23 @@ class LifeWorker:
             return False
 
     # -- main loop ------------------------------------------------------
+
+    def _build_curator(self) -> Any:
+        """Construct the resident Curator that owns every team campaign's pool,
+        or ``None`` when this daemon has no project workspace (no teams without
+        one). Lazily imported to keep the daemon free of team deps until needed.
+        """
+        workdir = self.config.project_workdir
+        if workdir is None:
+            return None
+        from ..team.curator import Curator
+        return Curator(
+            project_root=Path(workdir),
+            default_width=int(os.environ.get("ARGUS_TEAM_DEFAULT_WIDTH", "8")),
+            tick_s=float(os.environ.get("ARGUS_TEAM_CURATOR_TICK_S", "5")),
+            teammate_timeout_s=float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "5400")),
+            hard_grace_s=float(os.environ.get("ARGUS_TEAMMATE_HARD_GRACE_S", "600")),
+        )
 
     def run_forever(self) -> int:
         self._install_signal_handlers()
@@ -1036,50 +1054,62 @@ class LifeWorker:
         except Exception:  # noqa: BLE001
             log.exception("daemon: failed to start telegram poller; continuing")
 
-        while not self._stop.is_set():
-            summary: dict = {}
-            try:
-                summary = sup.run()
-                test_signature_path = os.environ.get(
-                    _TEST_SOURCE_SIGNATURE_FILE_ENV, ""
-                ).strip()
-                if test_signature_path and self._source_signature:
-                    current_signature = _source_signature()
-                    if current_signature and current_signature != self._source_signature:
-                        self._maybe_handoff_after_source_change(
-                            planner_reason=(
-                                "test-controlled source signature changed"
+        # Start the resident Curator: it keeps each active team campaign's pool
+        # in flight and is the single reaper (the lead drops .argus/team campaign
+        # markers under project_workdir, which the Curator watches). Stopped in
+        # the finally below so a clean shutdown reaps every teammate it owns.
+        self._curator = self._build_curator()
+        if self._curator is not None:
+            self._curator.start()
+
+        try:
+            while not self._stop.is_set():
+                summary: dict = {}
+                try:
+                    summary = sup.run()
+                    test_signature_path = os.environ.get(
+                        _TEST_SOURCE_SIGNATURE_FILE_ENV, ""
+                    ).strip()
+                    if test_signature_path and self._source_signature:
+                        current_signature = _source_signature()
+                        if current_signature and current_signature != self._source_signature:
+                            self._maybe_handoff_after_source_change(
+                                planner_reason=(
+                                    "test-controlled source signature changed"
+                                )
                             )
+                    # When planner declares project done, persist to disk
+                    # so we don't re-plan the same objective next loop.
+                    if summary.get("stopped_by") == "project_done":
+                        write_continuous_config(
+                            runtime_root,
+                            enabled=False,
+                            objective=sup.config.continuous_objective,
+                            done_reason="planner declared project done",
                         )
-                # When planner declares project done, persist to disk
-                # so we don't re-plan the same objective next loop.
-                if summary.get("stopped_by") == "project_done":
-                    write_continuous_config(
-                        runtime_root,
-                        enabled=False,
-                        objective=sup.config.continuous_objective,
-                        done_reason="planner declared project done",
-                    )
-            except Exception:  # noqa: BLE001
-                log.exception("daemon: drain pass raised; sleeping and retrying")
-            # Reset per-run counters so future drain passes work.
-            sup._missions_started = 0
-            sup._planning_cycles = 0
-            if self._stop.is_set():
-                break
-            # Honor the supervisor's suggested backoff (escalating while it is
-            # idle awaiting an external dependency). The sleep is wakeable: it returns
-            # early on stop, or when the user inbox grows — so /add and /nudge
-            # stay responsive even during a long await-external backoff.
-            try:
-                suggested = float(summary.get("suggested_sleep") or 0.0)
-            except Exception:  # noqa: BLE001
-                suggested = 0.0
-            self._wakeable_sleep(
-                max(float(cfg.poll_interval), suggested),
-                cfg.poll_interval,
-                runtime_root,
-            )
+                except Exception:  # noqa: BLE001
+                    log.exception("daemon: drain pass raised; sleeping and retrying")
+                # Reset per-run counters so future drain passes work.
+                sup._missions_started = 0
+                sup._planning_cycles = 0
+                if self._stop.is_set():
+                    break
+                # Honor the supervisor's suggested backoff (escalating while it is
+                # idle awaiting an external dependency). The sleep is wakeable: it returns
+                # early on stop, or when the user inbox grows — so /add and /nudge
+                # stay responsive even during a long await-external backoff.
+                try:
+                    suggested = float(summary.get("suggested_sleep") or 0.0)
+                except Exception:  # noqa: BLE001
+                    suggested = 0.0
+                self._wakeable_sleep(
+                    max(float(cfg.poll_interval), suggested),
+                    cfg.poll_interval,
+                    runtime_root,
+                )
+        finally:
+            if self._curator is not None:
+                self._curator.stop()
 
         log.info(
             "daemon: stopping cleanly (uptime=%.1fs missions=%d)",
