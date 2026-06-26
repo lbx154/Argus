@@ -100,6 +100,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="override the global argus-skill root (default: ~/.argus-skill)",
     )
     daemon_grp.add_argument(
+        "--new",
+        action="store_true",
+        help="start a FRESH session (the default for a bare `argus-skill`): a new "
+        "id keys its own daemon + memory, never reusing a previous run",
+    )
+    daemon_grp.add_argument(
+        "--resume",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="ID",
+        help="resume a previous session: `--resume` opens a picker of recent "
+        "sessions; `--resume <id>` jumps straight to one",
+    )
+    daemon_grp.add_argument(
+        "--continue",
+        dest="continue_session",
+        action="store_true",
+        help="resume the most-recently-active session",
+    )
+    daemon_grp.add_argument(
         "--continuous",
         action="store_true",
         help="enable continuous planner mode (daemon generates new tasks "

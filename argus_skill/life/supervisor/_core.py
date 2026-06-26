@@ -1164,6 +1164,10 @@ class LifeSupervisor:
             "type": "life.mission.started",
             "item_id": item.id,
             "title": item.title,
+            # Carry the objective on the event itself (not just the journal
+            # entry) so the live follow / REPL mission-context line renders the
+            # real goal instead of "objective=-".
+            "objective": item.objective,
             "missions_started": self._missions_started,
         })
         # Notify: mission starting (engineer layer)

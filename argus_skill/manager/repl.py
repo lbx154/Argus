@@ -124,6 +124,7 @@ def tail_mission_events(
     deadline = time.monotonic() + max(0.0, float(timeout))
     offset = 0
     current_layer = "engineer"
+    last_review: dict[str, Any] | None = None
     # We read from the start of the log and rely on the ``item_id`` filter to
     # isolate this mission. The backlog item was just enqueued with a freshly
     # minted id, so no earlier mission's events can collide — making this both
@@ -159,10 +160,18 @@ def tail_mission_events(
                     continue
                 saw_event = True
                 current_layer = _follow_layer_from_event(event, current_layer)
+                if str(event.get("type") or "") == "round.review.completed":
+                    last_review = event
                 rendered = _format_follow_event(event, current_layer)
                 if rendered:
                     print(rendered, flush=True)
                 if str(event.get("type") or "") == "life.mission.completed":
+                    # Attach the most recent reviewer verdict so the caller can
+                    # surface the reviewer's conclusion (the sole done-ness
+                    # authority) alongside the bare mission status — not just
+                    # the engineer's last word.
+                    if last_review is not None:
+                        event.setdefault("_last_review", last_review)
                     return event
             # Only sleep when we drained the file without progress; if the
             # daemon is writing quickly we loop straight back and keep up.
@@ -489,6 +498,46 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
     return runner
 
 
+def _derive_session_name(text: str, *, limit: int = 48) -> str:
+    """Derive a short, human-readable session label from the first real task.
+
+    Codex / Claude-Code name a session after its opening message. We mirror
+    that: take the first non-empty line, collapse whitespace, and truncate.
+    Naming is domain-agnostic plumbing (a picker label), so the harness may do
+    it deterministically — no agent judgment required.
+    """
+    for raw in (text or "").splitlines():
+        line = " ".join(raw.split()).strip()
+        if line:
+            return line if len(line) <= limit else line[: limit - 1] + "…"
+    return ""
+
+
+def _maybe_name_session(chat_state: dict[str, Any], task_text: str) -> None:
+    """Name the current session after its first real task (once, fail-soft).
+
+    A resumed session keeps its original name (``session_named`` is already
+    True). Only the first task in a freshly-minted, still-unnamed session sets
+    the display_name shown in the resume picker.
+    """
+    if chat_state.get("session_named"):
+        return
+    sid = chat_state.get("session_id")
+    gr = chat_state.get("global_root")
+    if not sid or gr is None:
+        return
+    name = _derive_session_name(task_text)
+    if not name:
+        return
+    try:
+        from ..core.session import touch_session
+
+        touch_session(gr, sid, display_name=name)
+        chat_state["session_named"] = True
+    except Exception:  # noqa: BLE001 — naming is cosmetic, never block the task
+        pass
+
+
 def _free_text_cmd(
     mem: Any,
     text: str,
@@ -560,6 +609,7 @@ def _free_text_cmd(
         iteration_max_cycles=max_cycles,
         iteration_budget_usd=budget,
     )
+    _maybe_name_session(chat_state, body)
     theme = chat_state.get("theme")
     life_dir = _life_dir_for(mem)
 
@@ -593,18 +643,63 @@ def _free_text_cmd(
     final = tail_mission_events(life_dir, item.id, theme=theme)
     if final is not None:
         _record_mission_outcome(chat_state, final)
-        status = str(final.get("status") or "?")
-        cost = float(final.get("cost_usd") or 0.0)
-        footer = f"✅ {item.id} done · status={status}"
-        if cost:
-            footer += f" · cost=${cost:.4f}"
-        print(theme.dim(footer) if theme is not None else footer, flush=True)
+        for line in _format_completion(final, item.id, life_dir):
+            print(theme.dim(line) if theme is not None else line, flush=True)
     else:
         note = (
             f"{item.id} still running (no completion within the observe window) "
             f"— use /status to check on the daemon."
         )
         print(theme.gray(note) if theme is not None else note, flush=True)
+
+
+def _format_completion(
+    final: dict[str, Any],
+    item_id: str,
+    life_dir: Path | str,
+    *,
+    workdir: Path | str | None = None,
+) -> list[str]:
+    """Render the multi-line mission-completion footer.
+
+    The bare ``status=`` line was the engineer's last word; the operator wants
+    the **reviewer's** conclusion (the sole done-ness authority) and *where the
+    result lives*. Lines:
+
+      ``✅ <id> done · status=<s> · <n>r · cost=$<c>``
+      ``   reviewer <verdict> (conf <c>): <reason>``   (only if a verdict exists)
+      ``   record: <life_dir>``                         (journal/checkpoint/events)
+      ``   workdir: <cwd>``                             (where code artifacts land)
+    """
+    status = str(final.get("status") or "?")
+    head = f"✅ {item_id} done · status={status}"
+    rounds = final.get("rounds")
+    if isinstance(rounds, int) and rounds:
+        head += f" · {rounds}r"
+    try:
+        cost = float(final.get("cost_usd") or 0.0)
+    except (TypeError, ValueError):
+        cost = 0.0
+    if cost:
+        head += f" · cost=${cost:.4f}"
+    lines = [head]
+
+    review = final.get("_last_review") or {}
+    reason = str(review.get("reason") or "").strip()
+    if reason:
+        rstatus = str(review.get("status") or "").strip()
+        conf = review.get("confidence")
+        cpart = f" (conf {conf:.2f})" if isinstance(conf, (int, float)) else ""
+        if len(reason) > 280:
+            reason = reason[:279] + "…"
+        lead = "reviewer" + (f" {rstatus}" if rstatus else "") + cpart
+        lines.append(f"   {lead}: {reason}")
+
+    lines.append(f"   record: {life_dir}")
+    wd = Path(workdir) if workdir is not None else Path.cwd()
+    if str(wd) != str(life_dir):
+        lines.append(f"   workdir: {wd}")
+    return lines
 
 
 def _record_mission_outcome(
@@ -961,7 +1056,16 @@ def run_manager_repl(args: argparse.Namespace) -> int:
     """
     try:
         global_root = _resolve_global_root(args)
-        mem: MemoryBundle = MemoryBundle.for_cwd(Path.cwd(), global_root=global_root)
+        # Session model: a resolved session id (from --new/--resume/--continue,
+        # default new) keys this REPL's project + daemon. Fall back to the cwd
+        # identity only if no session was resolved (legacy / picker-aborted).
+        _session_id = getattr(args, "session_id", None)
+        if _session_id:
+            mem: MemoryBundle = MemoryBundle.for_cwd(
+                Path.cwd(), global_root=global_root, fingerprint=_session_id
+            )
+        else:
+            mem = MemoryBundle.for_cwd(Path.cwd(), global_root=global_root)
     except core_paths.PathResolutionError as exc:
         sys.stderr.write(f"argus-skill: {exc}\n")
         return 2
@@ -978,6 +1082,16 @@ def run_manager_repl(args: argparse.Namespace) -> int:
         maybe_gc_stale_projects(global_root)
     except Exception:  # noqa: BLE001
         pass
+    # Mark this session active (so the resume picker orders it first) and load
+    # its meta for the banner.
+    session_meta = None
+    if _session_id:
+        try:
+            from ..core.session import read_session_meta, touch_session
+            touch_session(global_root, _session_id)
+            session_meta = read_session_meta(global_root, _session_id)
+        except Exception:  # noqa: BLE001
+            pass
     theme = None  # populated in the locked body
 
     # Fail fast before we take the singleton lock if the current run
@@ -986,6 +1100,15 @@ def run_manager_repl(args: argparse.Namespace) -> int:
     if error:
         sys.stderr.write(error + "\n")
         return 2
+
+    # Stash the resolved session so the first *real* task can name it (for the
+    # resume picker). `session_named` is True iff this session already carries a
+    # display_name — a resumed session keeps its original name.
+    chat_state["session_id"] = _session_id
+    chat_state["global_root"] = global_root
+    chat_state["session_named"] = bool(
+        session_meta is not None and getattr(session_meta, "display_name", "")
+    )
 
     # Singleton guard: two argus-skill REPLs running against the same
     # life-dir would race on backlog.jsonl rewrites and corrupt journal
@@ -1136,6 +1259,22 @@ def _run_manager_repl_locked(
     arrow = theme.dim("→")
     label = lambda s: theme.gray(f"{s:<10}")  # noqa: E731
     pending_n = len(mem.backlog.pending())
+    # Session line (Codex/Claude-Code style): which session this is, and whether
+    # it's a fresh one or a resumed one.
+    _sid = getattr(args, "session_id", None)
+    if _sid:
+        _is_new = bool(getattr(args, "session_is_new", False))
+        _nm = ""
+        try:
+            from ..core.session import read_session_meta
+            _m = read_session_meta(global_root, _sid)
+            if _m:
+                _nm = _m.display_name or (_m.objective[:40] if _m.objective else "")
+        except Exception:  # noqa: BLE001
+            pass
+        _tag = theme.bold_green("new session") if _is_new else theme.bold("resumed")
+        print("  " + _tag + theme.dim("  ·  ") + theme.cyan(_sid)
+              + (theme.dim("  ·  ") + theme.gray(_nm) if _nm else ""))
     print(
         "  " + _format_daemon_mode_cell(theme, mem)
         + theme.dim("  ·  ") + theme.bold(str(pending_n)) + theme.gray(" pending")
