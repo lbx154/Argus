@@ -106,9 +106,25 @@ class PlannerMission(RoleMission):
     role = "planner"
 
 
+class ManagerMission(RoleMission):
+    """Manager role: own pool {manager}, references {engineer, reviewer, planner}.
+
+    The Manager divides the task and owns the stage-transition / skill-approval
+    decisions, so it benefits from seeing every other role's standards as
+    read-only references. There is no on-disk OWN ``manager`` skill pool today
+    (the fixed manager role skill is injected verbatim from ``builtin_skills``),
+    but the matchable pool UNIONs the cross-read references, so ``match`` still
+    fires a real matcher call and can surface engineer/reviewer/planner skills to
+    the Manager as references. Self-evolution may add OWN manager skills later.
+    """
+
+    role = "manager"
+
+
 __all__ = [
     "RoleMission",
     "EngineerMission",
     "ReviewerMission",
     "PlannerMission",
+    "ManagerMission",
 ]

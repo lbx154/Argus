@@ -16,8 +16,14 @@ def load_builtin_skill_text(filename: str, fallback: str) -> str:
             return text
     except (FileNotFoundError, ModuleNotFoundError, OSError, TypeError):
         pass
-    # Search subdirectories for bare filename
-    for subdir in ("engineer", "reviewer"):
+    # Search subdirectories for bare filename. Order does not matter for
+    # role-scoped filenames (each role-role skill has a unique name), but the
+    # list MUST include every role subdir that holds a fixed role skill —
+    # otherwise a bare filename like ``argus-planner-role.md`` (now under
+    # ``planner/``) or ``argus-manager-role.md`` (under ``manager/``) silently
+    # falls through to the fallback text. ``engineer`` stays first for the
+    # common case.
+    for subdir in ("engineer", "reviewer", "planner", "manager"):
         try:
             text = (
                 root.joinpath(subdir).joinpath(filename)

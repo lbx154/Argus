@@ -36,20 +36,23 @@ ROLE_SKILL_POOLS: dict[str, frozenset[str]] = {
     "engineer": frozenset({"engineer", "general"}),
     "reviewer": frozenset({"reviewer"}),
     "planner": frozenset({"planner"}),
+    "manager": frozenset({"manager"}),
 }
 # Cross-role *reference* pools. A role's matcher ALSO considers these
 # subdirs, but their skills are surfaced as read-only "other-role
 # perspective" references — never as the role's own primary playbook, and
 # never eligible for skill writeback. This lets the engineer anticipate the
 # reviewer's rubric, the reviewer understand the engineer's playbook, and
-# the planner see both, without blurring role identity. See
-# ``role_match.partition_by_role``.
+# the planner see both, without blurring role identity. The manager, which
+# divides the task and owns stage/skill-approval decisions, sees every other
+# role's standards as references. See ``role_match.partition_by_role``.
 ROLE_CROSS_READ_POOLS: dict[str, frozenset[str]] = {
     "engineer": frozenset({"reviewer"}),
     "reviewer": frozenset({"engineer"}),
     "planner": frozenset({"engineer", "reviewer"}),
+    "manager": frozenset({"engineer", "reviewer", "planner"}),
 }
-_ROLE_SUBDIRS = frozenset({"engineer", "reviewer", "planner"})
+_ROLE_SUBDIRS = frozenset({"engineer", "reviewer", "planner", "manager"})
 
 
 def role_of_path(path: str, skills_dir: Path) -> str:

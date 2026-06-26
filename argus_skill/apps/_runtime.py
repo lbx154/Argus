@@ -774,9 +774,17 @@ class _SkillLoopRunner:
             if getattr(args, "workdir", None)
             else Path.cwd()
         )
+        # Skill matcher for the Manager (same adaptive library the SkillLoop/
+        # planner/reviewer match against). Pointed at the daemon's skills dir so
+        # the Manager injects its fixed role skill plus any matched manager skill
+        # into its stage-decision prompt. Fail-soft: any error → None, and the
+        # Manager simply runs without an injected skill block (unchanged
+        # behaviour), since this must never block daemon start-up.
+        self._manager_skill_store = self._build_manager_skill_store(args)
         self.manager = Manager(
             project_root=_manager_workdir,
             runner=self.manager_backend or self._backend,
+            skill_store=self._manager_skill_store,
         )
         # Session continuity: seed_thread_id is the codex session id from
         # the previous mission in the same REPL session. We propagate it
@@ -790,6 +798,34 @@ class _SkillLoopRunner:
         # Defaults False so planner / backlog / daemon missions are never
         # classified — the harness must not second-guess agent-produced work.
         self._allow_chat_fast_path: bool = False
+
+    def _build_manager_skill_store(self, args: argparse.Namespace) -> Any:
+        """Build the Manager's skill matcher store from the daemon's skills dir.
+
+        Mirrors the SkillLoop's own ``SkillStore`` (same dir, same matcher model)
+        so the Manager matches against the SAME adaptive library the engineer/
+        reviewer/planner do. Fail-soft: any error returns ``None`` and the Manager
+        runs without an injected skill block (unchanged behaviour) — building this
+        store must never block daemon start-up.
+        """
+        try:
+            from ..loop import SkillLoopConfig
+            from ..skills.store import SkillStore
+
+            # A default config is enough for the matcher: ``resolved_matcher_model``
+            # already applies the ``ARGUS_SKILL_MATCHER_MODEL`` env override, and
+            # ``matcher_reasoning_effort`` defaults to the same value the SkillLoop
+            # uses. We only need the matcher knobs here, not the full mission cfg.
+            cfg = SkillLoopConfig()
+            return SkillStore(
+                Path(args.skills_dir),
+                runner=self.manager_backend or self._backend,
+                matcher_model=cfg.resolved_matcher_model(),
+                matcher_reasoning_effort=cfg.matcher_reasoning_effort,
+            )
+        except Exception:  # noqa: BLE001 — never block start-up on the matcher
+            log.debug("manager skill store build skipped", exc_info=True)
+            return None
 
     def stream_to(self, sink: EventSink):
         """Context manager: temporarily route stream lines to *sink*.
@@ -1183,6 +1219,7 @@ class _SkillLoopRunner:
             st = Manager(
                 project_root=workdir,
                 runner=getattr(self, "manager_backend", None) or self._backend,
+                skill_store=getattr(self, "_manager_skill_store", None),
             ).decide_stage_transition(review=final_review, project_root=workdir)
             decision = {
                 "action": st.action,
@@ -1525,6 +1562,7 @@ def run_life_supervisor(
                         project_root=project_root,
                         runner=getattr(runner, "manager_backend", None)
                         or getattr(runner, "backend", None),
+                        skill_store=getattr(runner, "_manager_skill_store", None),
                     ).divide(continuous_objective)
                 if not quiet:
                     print(division.headline(), file=sys.stderr)

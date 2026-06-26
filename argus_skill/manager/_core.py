@@ -54,6 +54,19 @@ log = logging.getLogger(__name__)
 _SESSION_FILE = ".manager_session.json"
 _SESSION_LOCK = ".manager_session.lock"
 
+# Fixed role skill the Manager always injects into its decision prompts (mirrors
+# the planner's ``_PLANNER_ROLE_SKILL`` / the reviewer's role-context block).
+_MANAGER_ROLE_SKILL = "argus-manager-role.md"
+_MANAGER_ROLE_FALLBACK = """# Argus Manager Role
+
+The Manager is argus-skill's task-divider and pipeline authority. It classifies
+the task into a vertical, splits it into that vertical's stages, owns the
+advance/hold/rollback stage transition (the SOLE post-bootstrap writer of
+`current_stage`), approves which reviewer-proposed skills enter the library, and
+routes free text as conversation-vs-task. It never writes code or judges the win
+itself — it divides the work and hands the current stage to the existing engine.
+"""
+
 
 def _session_lock_timeout_s() -> float:
     """Bounded wait for the shared Manager session lock (default 120s). Manager
@@ -244,7 +257,13 @@ class Manager:
     classifier degrades to the deterministic keyword heuristic.
     """
 
-    def __init__(self, project_root: Path | str = ".", runner: Any = None) -> None:
+    def __init__(
+        self,
+        project_root: Path | str = ".",
+        runner: Any = None,
+        *,
+        skill_store: Any = None,
+    ) -> None:
         self.project_root = Path(project_root)
         self.runner = runner
         # One persistent, flock-serialized codex session shared by every Manager
@@ -253,6 +272,60 @@ class Manager:
         self._session = (
             _ManagerSession(runner, self.project_root) if runner is not None else None
         )
+        # Optional role-mission skill matcher (the same scaffold engineer,
+        # reviewer, and planner use). ``None`` skill_store ⇒ an empty match and
+        # NO injected skill block, so the Manager's existing classify / stage /
+        # approve behaviour is byte-for-byte unchanged for every current caller
+        # that does not pass a store (full backward compatibility). When a store
+        # IS wired, the Manager injects its fixed role skill plus any matched
+        # adaptive manager skill into its stage-decision prompt.
+        self.skill_store = skill_store
+        from ..skills.missions import ManagerMission
+
+        self.mission = ManagerMission(skill_store)
+
+    # ---- skill injection (fixed role skill + matched adaptive block) ----
+    def _role_skill_block(self, objective: str) -> str:
+        """Build the Manager's injected skill block for a decision prompt.
+
+        Returns ``""`` when no ``skill_store`` is wired (the default) — so the
+        Manager's decision prompt is then byte-for-byte identical to before this
+        feature existed, preserving full backward compatibility for every caller
+        that does not pass a store. When a store IS wired the block has two parts,
+        mirroring how the planner/reviewer compose their prompts:
+
+        * a FIXED role skill (``argus-manager-role.md`` from builtin_skills,
+          with an inline fallback) that states the Manager's identity and duties;
+        * a MATCHED adaptive block — the role-scoped matcher's high-fit manager
+          skills for ``objective`` (empty today; populated once self-evolution
+          adds OWN manager skills, and may already surface cross-role references).
+
+        The caller PREPENDS it to the decision prompt; it never alters the
+        decision's output contract/schema.
+        """
+        if self.skill_store is None:
+            return ""
+        from ..skills.role_context import format_role_context
+
+        block = format_role_context(
+            "Argus manager role skill",
+            _MANAGER_ROLE_SKILL,
+            _MANAGER_ROLE_FALLBACK,
+        )
+        # Adaptive matched manager skill(s). Fail-soft: a matcher hiccup must
+        # never break a stage decision, so any error degrades to role skill only.
+        if (objective or "").strip():
+            try:
+                match = self.mission.match(objective)
+                if match.block:
+                    block += (
+                        "Matched manager skill(s) for this objective "
+                        "(read first; apply the relevant one(s)):\n"
+                        f"{match.block}\n\n"
+                    )
+            except Exception:  # noqa: BLE001 — matcher is advisory, never fatal
+                log.debug("manager skill match failed", exc_info=True)
+        return block
 
     # ---- triage: is this a regular task, and which vertical/kind? ----
     def triage(self, task: str) -> tuple[str, str, bool]:
@@ -425,6 +498,16 @@ class Manager:
                 review=review,
                 planner_verdict=planner_verdict,
             )
+            # Inject the Manager's fixed role skill (+ any matched adaptive
+            # manager skill) ahead of the decision prompt. No-op when no
+            # skill_store is wired — the prompt is then byte-for-byte identical to
+            # before, preserving the stage-decision output contract. The matcher
+            # objective is the current stage + the reviewer's reason so the
+            # role-scoped matcher has a concrete task descriptor.
+            _match_objective = " ".join(
+                p for p in (cur, str(getattr(review, "reason", "") or "")) if p
+            )
+            prompt = self._role_skill_block(_match_objective) + prompt
             raw = extract_answer(run_exec(prompt))
             decision = parse_stage_decision(raw, current_stage=cur, stage_order=order)
         except Exception:  # noqa: BLE001 — any failure → safe HOLD, write nothing
