@@ -126,6 +126,7 @@ class SkillLoop:
         skill_store: SkillStore | None = None,
         on_event: Callable[[dict], None] | None = None,
         extra_guidance_provider: Callable[[], list[str]] | None = None,
+        manager: Any = None,
     ) -> None:
         self.config = config or SkillLoopConfig()
         self.skills_dir = Path(skills_dir)
@@ -136,6 +137,11 @@ class SkillLoop:
         # Returns a list of additional guidance strings to append to the
         # prompt (used by the daemon to honour /inject between rounds).
         self.extra_guidance_provider = extra_guidance_provider
+        # The single Manager instance, threaded from the runner. When present the
+        # SkillRouter's approval gate runs on the Manager's backend (the real
+        # consolidation); when None it falls back to the reviewer-backed module
+        # function (tests / no-manager callers).
+        self.manager = manager
 
         self.skill_store = skill_store or SkillStore(
             self.skills_dir,
@@ -155,6 +161,7 @@ class SkillLoop:
             matcher=self.engineer_mission,
             judge_runner=self.reviewer_runner,
             judge_model=self.config.resolved_reviewer_model(),
+            manager=self.manager,
         )
         self.supervised = SupervisedEngineer(
             engineer_runner=engineer_runner,

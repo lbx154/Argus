@@ -1098,7 +1098,8 @@ def test_chat_reply_if_conversational_true_emits_chat(
         def is_conversational(self, text: str, *, run_exec: Any = None) -> bool:
             return True
 
-    monkeypatch.setattr("argus_skill.manager.Manager", _FakeManager)
+    # The runner now holds the ONE Manager instance; route through it.
+    runner.manager = _FakeManager()
 
     chat_called: dict[str, Any] = {}
 
@@ -1132,7 +1133,8 @@ def test_maybe_chat_outcome_false_returns_none(
         def is_conversational(self, text: str, *, run_exec: Any = None) -> bool:
             return False
 
-    monkeypatch.setattr("argus_skill.manager.Manager", _FakeManager)
+    # The runner now holds the ONE Manager instance; route through it.
+    runner.manager = _FakeManager()
 
     def boom(**kwargs: Any) -> Any:  # must NOT be called on the task path
         raise AssertionError("_chat_quick_reply called for a task")

@@ -118,6 +118,7 @@ def _make_runner(backend: _FakeBackend) -> Any:
     runner = cast(Any, runner)
     runner._backend = backend
     runner.backend = backend
+    runner.manager_backend = backend
     runner._current_sink = None
     runner._current_failure_ledger = None
     runner._args = argparse.Namespace(
@@ -132,6 +133,12 @@ def _make_runner(backend: _FakeBackend) -> Any:
     runner.last_thread_id = None
     # Operator-REPL free text is chat-eligible in these unit tests.
     runner._allow_chat_fast_path = True
+    # The runner now holds the single Manager instance; ``_maybe_chat_outcome``
+    # routes the chat-vs-task classification through it. Wire it to the fake
+    # backend so the real classifier path is exercised end-to-end.
+    from argus_skill.manager import Manager
+
+    runner.manager = Manager(project_root=Path.cwd(), runner=backend)
     return runner
 
 

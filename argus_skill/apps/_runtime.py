@@ -755,6 +755,22 @@ class _SkillLoopRunner:
         self.planner_backend = _role_backend("planner")
         self.manager_backend = _role_backend("manager")
         self._args = args
+        # The ONE Manager instance for this runner. All daemon-side Manager uses
+        # (divide / is_conversational / approve_skill) go through this single
+        # instance on the manager backend — no more scattered ad-hoc
+        # ``Manager(...)`` constructions, and skill approval now genuinely runs
+        # on the Manager's backend rather than the reviewer's.
+        from ..manager import Manager
+
+        _manager_workdir = (
+            Path(args.workdir).expanduser()
+            if getattr(args, "workdir", None)
+            else Path.cwd()
+        )
+        self.manager = Manager(
+            project_root=_manager_workdir,
+            runner=self.manager_backend or self._backend,
+        )
         # Session continuity: seed_thread_id is the codex session id from
         # the previous mission in the same REPL session. We propagate it
         # into the *first* engineer round of this mission, then update
@@ -807,7 +823,6 @@ class _SkillLoopRunner:
         # text (never the 7×24 daemon), so its tiny low-reasoning call is not
         # part of autonomous spend and is not separately metered.
         from ..core.models import RunnerOptions
-        from ..manager import Manager
 
         _safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
         _workdir = (
@@ -831,11 +846,10 @@ class _SkillLoopRunner:
                 resume_thread_id=None,
             )
 
-        # The Manager owns the chat-vs-task decision; the runner only executes it.
-        if Manager(
-            project_root=_workdir,
-            runner=getattr(self, "manager_backend", None) or self._backend,
-        ).is_conversational(objective, run_exec=_classify_run_exec):
+        # The Manager owns the chat-vs-task decision; the runner only executes
+        # it. Route through the runner's single Manager instance (manager
+        # backend) rather than constructing a throwaway one.
+        if self.manager.is_conversational(objective, run_exec=_classify_run_exec):
             return self._chat_quick_reply(
                 objective=objective,
                 sink=sink,
@@ -1039,6 +1053,7 @@ class _SkillLoopRunner:
             config=config,
             on_event=sink.handle_event,
             extra_guidance_provider=extra_guidance_provider,
+            manager=getattr(self, "manager", None),
         )
         full_task = objective
         if prelude_context:
@@ -1435,13 +1450,20 @@ def run_life_supervisor(
         # re-classify. Fail-open — division must never block a run.
         if continuous and str(continuous_objective).strip():
             try:
-                from ..manager import Manager
+                # Prefer the runner's single Manager instance (manager backend);
+                # fall back to an ad-hoc Manager only when the runner has none
+                # (e.g. the memory runner used in tests).
+                mgr = getattr(runner, "manager", None)
+                if mgr is not None:
+                    division = mgr.divide(continuous_objective)
+                else:
+                    from ..manager import Manager
 
-                division = Manager(
-                    project_root=project_root,
-                    runner=getattr(runner, "manager_backend", None)
-                    or getattr(runner, "backend", None),
-                ).divide(continuous_objective)
+                    division = Manager(
+                        project_root=project_root,
+                        runner=getattr(runner, "manager_backend", None)
+                        or getattr(runner, "backend", None),
+                    ).divide(continuous_objective)
                 if not quiet:
                     print(division.headline(), file=sys.stderr)
             except Exception:  # noqa: BLE001 — never block a run on division

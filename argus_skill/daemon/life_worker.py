@@ -932,13 +932,21 @@ class LifeWorker:
         # vertical. Fail-open: daemon start must never be blocked by division.
         if str(init_objective or "").strip():
             try:
-                from ..manager import Manager
+                # Prefer the runner's single Manager instance (manager backend);
+                # fall back to an ad-hoc Manager only when the runner has none
+                # (e.g. the memory runner in tests). Fail-open either way —
+                # daemon start must never be blocked by division.
+                mgr = getattr(runner, "manager", None)
+                if mgr is not None:
+                    mgr.divide(init_objective)
+                else:
+                    from ..manager import Manager
 
-                Manager(
-                    project_root=cfg.project_workdir or runtime_root,
-                    runner=getattr(runner, "manager_backend", None)
-                    or getattr(runner, "backend", None),
-                ).divide(init_objective)
+                    Manager(
+                        project_root=cfg.project_workdir or runtime_root,
+                        runner=getattr(runner, "manager_backend", None)
+                        or getattr(runner, "backend", None),
+                    ).divide(init_objective)
             except Exception:  # noqa: BLE001 — never block daemon start on division
                 pass
         sup = LifeSupervisor(

@@ -53,12 +53,18 @@ class SkillRouter:
         matcher: Any = None,
         judge_runner: Any = None,
         judge_model: str = "",
+        manager: Any = None,
         sim_threshold: float = DEFAULT_SIM_THRESHOLD,
     ) -> None:
         self.skill_store = skill_store
         self.matcher = matcher
         self.judge_runner = judge_runner
         self.judge_model = judge_model
+        # The single Manager instance owns the generality+correctness gate and
+        # runs it on the Manager's OWN backend. When absent we fall back to the
+        # ``skill_review.approve_skill`` module function on ``judge_runner`` (the
+        # reviewer backend) — preserves behaviour for tests / no-manager callers.
+        self.manager = manager
         self.sim_threshold = sim_threshold
         # Restartable internal session: the router resumes this for its agentic
         # calls and clears it between projects via ``restart_session``.
@@ -127,11 +133,18 @@ class SkillRouter:
                          f"too similar to '{near}' (sim={sim:.2f} ≥ {self.sim_threshold:.2f})")
             return False
 
-        # 3. Manager approval — generality + logical correctness.
-        verdict = approve_skill(
-            content=content, task=task, op=kind,
-            runner=self.judge_runner, model=self.judge_model,
-        )
+        # 3. Manager approval — generality + logical correctness. Prefer the
+        # single Manager instance (its OWN backend); fall back to the module
+        # function on the reviewer backend when no Manager was wired in.
+        if self.manager is not None:
+            verdict = self.manager.approve_skill(
+                content=content, task=task, op=kind,
+            )
+        else:
+            verdict = approve_skill(
+                content=content, task=task, op=kind,
+                runner=self.judge_runner, model=self.judge_model,
+            )
         if not verdict.approved:
             self._reject(on_event, kind, f"manager: {verdict.why}")
             return False

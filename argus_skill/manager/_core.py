@@ -141,6 +141,32 @@ class Manager:
 
         return classify_is_conversational(text, run_exec=run_exec)
 
+    # ---- skill-library approval (the Manager is the top-level authority) ----
+    def approve_skill(
+        self,
+        *,
+        content: str,
+        task: str,
+        op: str = "create",
+        reasoning_effort: str = "low",
+    ) -> Any:
+        """Judge whether a reviewer-proposed skill may enter the library.
+
+        The Manager owns the generality + correctness gate (it sees the most
+        context). Reuses ``skill_review.approve_skill`` but runs it on THIS
+        Manager instance's ``runner`` — so "Manager approval" actually uses the
+        Manager's backend, not the reviewer's. Returns an ``ApprovalVerdict``.
+        """
+        from .skill_review import approve_skill as _approve
+
+        return _approve(
+            content=content,
+            task=task,
+            op=op,
+            runner=self.runner,
+            reasoning_effort=reasoning_effort,
+        )
+
     # ---- progress view ----
     def current_stage(self) -> str:
         """Which Stage the engine is on now (read from PIPELINE_STATE.json)."""
