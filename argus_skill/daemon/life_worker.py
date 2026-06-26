@@ -93,11 +93,13 @@ class LifeWorkerConfig:
     poll_interval: float = 5.0
     log_path: Path | None = None  # defaults to <life_dir>/daemon.log
     project_workdir: Path | None = None
-    # Persisted-events verbosity for the daemon's own events.jsonl. "signal"
-    # (default) keeps only high-value events (mission/round/verdict/skill/error/
-    # win); "full" keeps the exhaustive stream. Isolated teammates default to
-    # "full" (they build their own JsonlEventSink and never read this).
-    event_log_verbosity: str = "signal"
+    # Persisted-events verbosity for the daemon's own events.jsonl. DEFAULT
+    # "full": the REPL live-follow tails this file, so dropping engineer.progress
+    # / round.review.* would break streaming (and hide the reviewer working).
+    # events.jsonl is size-bounded by JsonlEventSink's roll. "signal" is an
+    # opt-in (ARGUS_SKILL_EVENT_VERBOSITY) for a tiny verdict-only log; the
+    # REPL noise problem is solved at the DISPLAY layer, not by gutting the log.
+    event_log_verbosity: str = "full"
     continuous: bool = False
     continuous_objective: str = ""
     # When True (the default for the lifetime daemon) the supervisor keeps the
