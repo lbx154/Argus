@@ -947,7 +947,22 @@ class _SkillLoopRunner:
                 args,
                 Path(args.workdir).expanduser() if args.workdir else Path.cwd(),
             ),
+            # Process-correctness audit: the reviewer runs in the project
+            # work-tree and only sees the engineer's final summary. Give it the
+            # ABSOLUTE path to this project's engineer execution log
+            # (``<life_dir>/events.jsonl``, which lives next to checkpoint.json in
+            # the per-project state dir — NOT the git work-tree) so it can grep
+            # HOW the result was produced. Empty string when checkpoint
+            # persistence is off (no resolvable life_dir) → reviewer prompt keeps
+            # its legacy shape, byte-for-byte. Filled below once we resolve the
+            # checkpoint path.
         }
+        _eng_log_ckpt = _checkpoint_path_for(
+            args, Path(args.workdir).expanduser() if args.workdir else Path.cwd()
+        )
+        config_kwargs["engineer_log_path"] = (
+            str(_eng_log_ckpt.parent / "events.jsonl") if _eng_log_ckpt is not None else ""
+        )
         try:
             from inspect import signature
 

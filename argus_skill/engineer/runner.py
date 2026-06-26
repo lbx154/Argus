@@ -378,6 +378,16 @@ class SupervisedConfig:
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
     session_id: str | None = None
+    # Absolute path to THIS mission's engineer execution log (the per-project
+    # ``<life_dir>/events.jsonl``). The reviewer runs in the project work-tree
+    # and only sees the engineer's final summary, so it cannot otherwise tell
+    # HOW a result was produced (hardcoded answer? skipped step? cheat method?
+    # faked metric?). When set, the reviewer prompt gains an execution-log
+    # audit section pointing here with grep recipes; empty string (memory
+    # backend / tests / unresolvable path) = legacy behaviour, no audit section,
+    # byte-for-byte unchanged. The engineer's shell commands land in the
+    # ``text`` field of each ``engineer.progress`` event in this file.
+    engineer_log_path: str = ""
     # Curated-memory checkpoint: how many rounds a single Codex thread may live
     # before it is proactively rolled (dropped) so the next round starts a
     # fresh session seeded only by the checkpoint. Bounds per-session context
@@ -1286,6 +1296,7 @@ class SupervisedEngineer:
                     prior_checkpoint=checkpoint.to_dict(),
                     background_context=background_advisory,
                     escalate_hint=escalate_hint,
+                    engineer_log_path=supervised_config.engineer_log_path,
                 )
             except Exception as exc:  # noqa: BLE001
                 msg = f"reviewer raised {type(exc).__name__}: {exc}"

@@ -157,6 +157,101 @@ def _verification_directive() -> str:
 
 
 
+def _engineer_log_audit_block(
+    engineer_log_path: str, *, round_index: int, measured: bool
+) -> str:
+    """Reviewer prompt section for auditing the engineer's EXECUTION LOG.
+
+    The reviewer normally sees ONLY the engineer's 4000-char final summary plus
+    the acceptance checks — it cannot tell HOW the result was reached. This block
+    points the reviewer at the mission's execution log (the per-project
+    ``<life_dir>/events.jsonl``) and gives concrete grep recipes so it can audit
+    PROCESS correctness: did the engineer hardcode the expected answer, skip a
+    required step, use a cheat method (``use_attach``, fabricated metrics, a
+    bypassed evaluator), or run commands that contradict the method it claims in
+    the checklist?
+
+    Back-compat contract: returns ``""`` when ``engineer_log_path`` is empty
+    (memory backend / tests / unresolvable life_dir) — the prompt is then
+    byte-for-byte identical to before this feature existed. The section is
+    SUPPLEMENTARY to result-traceability, never a replacement.
+
+    ``measured``: in MEASURED-BENCHMARK mode the reviewer is told to TRUST the
+    frozen scorer and not re-run honest results. To avoid an incentive
+    contradiction we soften this to a RED-FLAG-ONLY audit there (spend a grep
+    only when the pasted RESULT is missing/implausible), and keep the full
+    "audit by default when the evidence can't be independently verified" stance
+    for paper/research mode.
+    """
+    path = (engineer_log_path or "").strip()
+    if not path:
+        return ""
+    progress_filter = '\'"type": "engineer.progress"\''
+    if measured:
+        when_clause = (
+            "MEASURED-BENCHMARK mode is active, so this is a RED-FLAG-ONLY check: "
+            "you already TRUST the frozen scorer's pasted RESULT line and must NOT "
+            "burn the round re-deriving an honest number. Grep the log ONLY when "
+            "the engineer pasted NO RESULT line, the number is implausible / "
+            "self-contradictory, or the score jumped suspiciously — then confirm "
+            "the scorer was actually invoked and not bypassed/hardcoded. Otherwise "
+            "skip this section.\n"
+        )
+    else:
+        when_clause = (
+            "Decide WHEN to dig: you do not need to read the log every round, but "
+            "you SHOULD when the artifact is suspicious, the result is "
+            "surprisingly good, a checklist item cannot be independently verified "
+            "from the produced files, or the summary is thin on HOW the work was "
+            "done. When the engineer's own summary already shows the verification "
+            "output and it is internally consistent, a quick log skim is enough.\n"
+        )
+    return (
+        "## Engineer execution-log audit (process correctness — SUPPLEMENTARY)\n"
+        "This round's engineer EXECUTION LOG is on disk at:\n"
+        f"  {path}\n"
+        "It is the per-project event log (NOT in the git work-tree). Each "
+        "`engineer.progress` event's `text` field is what the engineer actually "
+        "DID this round — a shell command it ran, a tool call, or a reasoning "
+        "beat. You have shell access; you can grep it.\n\n"
+        "Result-traceability (does the final artifact match the checklist?) tells "
+        "you the OUTCOME is real. This log tells you the PROCESS was honest — the "
+        "two are different, and an artifact can match the checklist while the "
+        "process that produced it was faked. Use this to catch what the summary "
+        "hides.\n\n"
+        f"{when_clause}\n"
+        "Grep recipes (substitute the path above):\n"
+        "- See what the engineer ran this round (newest last):\n"
+        f"    grep {progress_filter} '{path}' | tail -60\n"
+        "- Hunt for cheats / shortcuts that mask a real failure:\n"
+        "    grep -nE 'use_attach|set_pose|teleport|hardcod|HARDCODE|TODO|FIXME|"
+        "mock|monkeypatch|fake|dummy|placeholder|return 0\\.9|assert True|--skip|"
+        f"xfail' '{path}'\n"
+        "- Check the claimed evaluator/scorer was actually invoked (not bypassed "
+        "or replaced by an inline constant):\n"
+        f"    grep -nE 'pytest|check_success|scorer|evaluate|benchmark|metric' "
+        f"'{path}'\n\n"
+        "Red flags → even if the artifact traces to the checklist, return "
+        "`continue` (or `blocked` if it needs the operator) and NAME the process "
+        "defect in `reason` AND `process_lesson`:\n"
+        "- (a) HARDCODED the expected value/answer instead of computing it (e.g. "
+        "writing the gold number straight into the output, an `assert True`, a "
+        "constant return where a measurement belongs).\n"
+        "- (b) SKIPPED a required step and wrote the result directly (the "
+        "checklist says 'run X then measure', but no X command appears in the "
+        "log).\n"
+        "- (c) Used a WRONG or CHEATING method — a physics/sim override "
+        "(`use_attach`, forced pose), a fabricated metric, or a bypassed/replaced "
+        "real evaluator — to make a failing task look passed.\n"
+        "- (d) Ran commands that CONTRADICT the method the checklist/summary "
+        "claims (the prose says one approach; the log shows another).\n\n"
+        "If the log is clean and the process matches the claim, say so briefly and "
+        "judge on the result as usual — do NOT manufacture a process objection "
+        "where there is none. This audit SUPPLEMENTS result-traceability; it does "
+        "not replace it, and it never changes the frozen outcome/metric/verifier.\n\n"
+    )
+
+
 class Reviewer:
     """One reviewer call per round. Stateless across rounds."""
 
@@ -193,6 +288,7 @@ class Reviewer:
         prior_checkpoint: dict[str, Any] | None = None,
         background_context: str = "",
         escalate_hint: str = "",
+        engineer_log_path: str = "",
     ) -> ReviewDecision:
         # Defense-in-depth (root-cause guard for the 2026-06-25 incident): if the
         # reviewer output-schema file is missing, codex aborts with exit 1
@@ -239,6 +335,7 @@ class Reviewer:
             prior_checkpoint=prior_checkpoint,
             background_context=background_context,
             escalate_hint=escalate_hint,
+            engineer_log_path=engineer_log_path,
         )
         try:
             result = self.runner.run_exec(
@@ -351,6 +448,7 @@ class Reviewer:
         prior_checkpoint: dict[str, Any] | None = None,
         background_context: str = "",
         escalate_hint: str = "",
+        engineer_log_path: str = "",
     ) -> str:
         error_text = main_error or "none"
         check_text = summarize_checks(checks)
@@ -626,6 +724,18 @@ class Reviewer:
                 "## Escalation directive (operator harness — IMPORTANT)\n"
                 f"{escalate_hint}\n\n"
             )
+        # Engineer execution-log audit (process correctness). The reviewer runs
+        # in the project work-tree and only receives the engineer's final
+        # summary, so it cannot otherwise SEE how a result was produced. When the
+        # supervisor threads the absolute path to this mission's execution log
+        # (``<life_dir>/events.jsonl``), give the reviewer grep recipes to audit
+        # PROCESS correctness — not just whether the artifact matches the
+        # checklist, but whether the engineer reached it honestly. Empty path
+        # (memory backend / tests / unresolvable life_dir) → block omitted, prompt
+        # byte-for-byte unchanged (back-compat).
+        engineer_log_audit_block = _engineer_log_audit_block(
+            engineer_log_path, round_index=round_index, measured=_measured
+        )
         # Final-submission completion contract. This block replaces the
         # retired hardcoded EMNLP validators: instead of the supervisor
         # running ``validate_full_emnlp_readiness`` and friends, the reviewer
@@ -696,6 +806,7 @@ class Reviewer:
             f"{venv_skill_block}\n\n"
             f"{prior_checkpoint_block}"
             f"{escalate_block}"
+            f"{engineer_log_audit_block}"
             "**Length constraints:**\n"
             "- Be thorough in `round_summary_markdown` — include all relevant details\n"
             "- Use brief bullet points, not lengthy explanations\n"

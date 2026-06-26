@@ -79,6 +79,12 @@ class SkillLoopConfig:
     # only for the current mission (legacy behaviour; e.g. tests / chat). The
     # life runner sets this to the per-project state-dir checkpoint file.
     checkpoint_path: Path | None = None
+    # Absolute path to this project's engineer execution log
+    # (``<life_dir>/events.jsonl``), threaded down to SupervisedConfig so the
+    # reviewer can grep HOW the engineer produced its result (process-correctness
+    # audit). Empty = legacy behaviour (no audit section in the reviewer prompt);
+    # the life runner fills it from the per-project state dir.
+    engineer_log_path: str = ""
 
     def resolved_reviewer_model(self) -> str:
         return self.reviewer_model or self.engineer_model
@@ -271,6 +277,7 @@ class SkillLoop:
                 backend_failure_backoff_seconds=self.config.backend_failure_backoff_seconds,
                 session_id=self.config.session_id,
                 checkpoint_path=self.config.checkpoint_path,
+                engineer_log_path=self.config.engineer_log_path,
             ),
             workdir=workdir,
             on_event=self.on_event,
