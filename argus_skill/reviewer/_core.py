@@ -110,6 +110,49 @@ def _format_academic_paper_review_skill_block(*, include: bool) -> str:
     )
 
 
+def _verification_directive() -> str:
+    """Trust-first verification stance for the reviewer prompt.
+
+    Root-cause fix (operator directive 2026-06-26): the previous unconditional
+    instruction told the reviewer to re-run the engineer's commands itself and
+    use *its own* output as ground truth. On a trusted-scorer task that meant
+    the reviewer re-ran the official scorer EVERY round to re-confirm a number
+    the engineer had already obtained from that same frozen scorer — burning the
+    whole round, adding zero value, and treating the engineer as a suspect even
+    though it has no reward signal to game and does not control the scorer.
+
+    The new stance (global, all verticals): TRUST an honest, internally
+    consistent self-report; spend a verification command ONLY when the evidence
+    is missing or self-contradictory (the cheap anti-fabrication floor that
+    still stops a faked number). Reinvest the saved round in the two things the
+    engineer cannot do for itself — judging the novelty/quality of the idea and
+    giving high-altitude strategic direction.
+    """
+    return (
+        "**Trust the engineer by default; verify only on doubt.** The engineer "
+        "has no reward signal it could game, and on measured tasks its numbers "
+        "come from a TRUSTED external scorer it does not control — so an honest, "
+        "internally consistent self-report is the NORMAL case, not a suspect "
+        "one. When the engineer's summary already SHOWS the verification output "
+        "(the scorer's RESULT line, pytest output, a file listing) and it is "
+        "internally consistent, TRUST IT — do NOT reflexively re-run the same "
+        "commands just to re-confirm an honest result. That redundant re-run "
+        "burns the entire round and is the #1 reviewer anti-pattern to avoid.\n"
+        "**You have shell access** — spend a verification command ONLY when the "
+        "evidence is actually MISSING from the summary, or the claimed result "
+        "is self-contradictory / implausible / contradicted by an acceptance "
+        "check. That cheap floor is what stops a fabricated number; it does NOT "
+        "require re-running every honest one.\n"
+        "**Reinvest the round in what the engineer cannot do for itself:** judge "
+        "whether THIS round's idea was genuinely novel and well-motivated or a "
+        "tired re-tweak of a direction that already lost, and give HIGH-ALTITUDE "
+        "direction — your `next_action` should name a concrete, clearly-"
+        "different next approach (a different SOTA technique, a different "
+        "hardware feature, the specific profiled bottleneck to attack), not "
+        "`re-run and paste the output`.\n\n"
+    )
+
+
 
 
 
@@ -288,8 +331,9 @@ class Reviewer:
         # The L2 reviewer's verdict is authoritative — the harness must not
         # second-guess it with keyword heuristics on the engineer's summary.
         # If a generic role-acknowledgment turn slips through, that is a
-        # reviewer-prompt concern (the reviewer is told to re-run commands and
-        # demand concrete evidence), not a harness post-filter.
+        # reviewer-prompt concern (the reviewer is told to demand concrete
+        # evidence and verify when it is missing/contradictory), not a harness
+        # post-filter.
         return parsed
 
     def _build_prompt(
@@ -384,15 +428,28 @@ class Reviewer:
         is_final_submission = scope_normalized == "final_submission"
         if _measured:
             stage_checklist = (
-                "## MEASURED-BENCHMARK MODE — judge ONLY on the measured score\n"
-                "This task has a TRUSTED scorer. Your verdict depends on ONE thing: did this "
-                "round's MEASURED score improve over the engineer's previous best?\n\n"
+                "## MEASURED-BENCHMARK MODE — TRUST the scorer, judge the IDEA\n"
+                "This task has a TRUSTED, FROZEN scorer and the engineer has NO reward signal "
+                "and does not control that scorer, so the RESULT line it pastes is the normal, "
+                "honest case — not something you must re-derive. Your verdict depends on ONE "
+                "thing: did this round's MEASURED score improve over the engineer's previous "
+                "best?\n\n"
+                "TRUST the engineer's reported RESULT (correct + cand_ms/score). Do NOT re-run "
+                "the scorer yourself to 'confirm' an honest, internally consistent number — the "
+                "engineer already self-supervises correctness by running the scorer every round, "
+                "and re-running it just to re-confirm burns the whole round for zero added value. "
+                "Spend a check ONLY if NO RESULT line was pasted, or the reported result is "
+                "self-contradictory. Otherwise your job this round is JUDGMENT + DIRECTION, not "
+                "re-measurement.\n\n"
                 "- `continue` if the score improved (tell the engineer to lock it in and "
                 "explore the NEXT mechanism), OR the engineer can still try a clearly-different "
-                "unexplored mechanism. Your `next_action` MUST name a CONCRETE new direction — a "
+                "unexplored mechanism. First JUDGE the idea: was this round's mechanism genuinely "
+                "novel, or a tired re-tweak of a direction that already lost? Then your "
+                "`next_action` MUST name a CONCRETE new direction — a "
                 "different library/SOTA approach, a different hardware technique, or the specific "
                 "profiled bottleneck to attack. PUSH mechanism diversity; do NOT ask for more "
-                "tweaking of a direction that already lost.\n"
+                "tweaking of a direction that already lost, and do NOT ask the engineer to "
+                "re-run and paste a result it already showed.\n"
                 "- `blocked` ONLY if several consecutive rounds measured no improvement AND the "
                 "engineer has genuinely run out of distinct mechanisms (real plateau), or there "
                 "is an operator-only blocker.\n"
@@ -401,7 +458,10 @@ class Reviewer:
                 "Do NOT demand GROUND_TRUTH / gate / marker / status / evidence / provenance "
                 "files — the scorer's number is the only evidence, and the harness ignores those "
                 "files. Do NOT judge bookkeeping or artifact hygiene. A round that MEASURED a "
-                "real number — even a worse one — made forward progress by ruling out a mechanism."
+                "real number — even a worse one — made forward progress by ruling out a mechanism. "
+                "This block OVERRIDES the generic 'demand evidence / re-run the commands' decision "
+                "rules below: here the scorer IS the evidence and re-running an honest result is "
+                "waste."
             )
         elif is_final_submission or stage == "submission":
             stage_checklist = format_full_pipeline_checklist(role="reviewer", project_root=_proot)
@@ -611,14 +671,8 @@ class Reviewer:
             + search_altitude_block
             + "You are the reviewer sub-agent for an argus-skill autoloop run.\n"
             "Decide whether the objective is fully complete.\n\n"
-            "**You have shell access via your tools.** When the main agent's\n"
-            "summary is missing verbatim verification output (pytest, ruff,\n"
-            "mypy, file listing, etc.), do NOT default to `continue` —\n"
-            "instead re-run the relevant commands yourself in the working\n"
-            "directory and use *your own* output as ground truth. Only\n"
-            "after you have ground truth do you decide. This costs 1 extra\n"
-            "command but saves an entire engineer round.\n\n"
-            "**Never mark `done` on a generic role acknowledgment** (e.g. the\n"
+            + _verification_directive()
+            + "**Never mark `done` on a generic role acknowledgment** (e.g. the\n"
             "engineer merely says it will act as the primary agent / take\n"
             "ownership) without concrete execution evidence — actual command\n"
             "output, file diffs, or query results — that you have verified.\n\n"
@@ -919,11 +973,13 @@ class Reviewer:
             "   For any acceptance command that emits structured issues, list\n"
             "   every issue with its code, path, and message, then provide\n"
             "   concrete repair instructions.\n"
-            "3) When `continue`, `next_action` must be a concrete instruction\n"
-            "   that asks for SPECIFIC verification commands (e.g.,\n"
-            "   `run pytest -xvs and paste the full output`,\n"
-            "   `cat the produced file and show first 50 lines`,\n"
-            "   `run the SPARQL query and show the returned rows`).\n"
+            "3) When `continue`, `next_action` must be a concrete instruction.\n"
+            "   If the round genuinely LACKS the evidence to judge, ask for the\n"
+            "   SPECIFIC verification command (e.g. `run pytest -xvs and paste\n"
+            "   the full output`, `cat the produced file and show first 50\n"
+            "   lines`). But when the evidence is already in hand and honest, do\n"
+            "   NOT spend `next_action` re-requesting it — point the engineer at\n"
+            "   the specific NEXT work or unexplored direction instead.\n"
             "4) Use `blocked` ONLY when additional user input is strictly\n"
             "   required to make ANY further progress (e.g. missing\n"
             "   credentials, ambiguous spec the user must clarify, hardware\n"
