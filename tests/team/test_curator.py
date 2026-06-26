@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import os
+import json
 import time
 from pathlib import Path
 
 from argus_skill.team import curator as cur
-from argus_skill.team import pool, registry, roster, task_board
+from argus_skill.team import leaderboard, pool, registry, roster, task_board
 
 
 def test_spawn_tracked_records_real_child_and_roster_then_stop_reaps(tmp_path: Path) -> None:
@@ -210,3 +211,19 @@ def test_start_then_stop_runs_ticks_and_reaps_real_child(tmp_path: Path) -> None
     finally:
         c.stop()
     assert c._children == {}  # stop() joined the thread and reaped every child
+
+
+def test_tick_folds_leaderboard_when_shards_present(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    pool.update(root, width=1, state="running")
+    task_board.form(root, [{"task_id": "t::a", "objective": "x", "target": "kA"}])
+    d = root / "shards"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "w.jsonl").write_text(json.dumps(
+        {"target": "kA", "metric": 2.0, "mechanism": "fuse", "success": True}) + "\n",
+        encoding="utf-8")
+    c = _fake_curator(tmp_path)
+    c._tick(now=100.0)
+    # the resident Curator maintains the leaderboard deterministically each tick
+    assert leaderboard.read(root)["kA"]["best"] == {"mechanism": "fuse", "metric": 2.0}

@@ -28,7 +28,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from . import pool, registry, roster, task_board
+from . import leaderboard, pool, registry, roster, task_board
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +80,7 @@ class Curator:
         self._now = now_fn
         self._make_proc = make_proc or self._default_make_proc
         self._children: dict[str, TrackedTeammate] = {}
+        self._fold_mtime: dict[str, float] = {}  # per-root shards mtime at last fold
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -218,6 +219,7 @@ class Curator:
         for marker in registry.list_markers(self.project_root):
             root = Path(marker["team_root"])
             cwd = Path(marker.get("cwd") or root)
+            self._maybe_fold(root)
             doc = pool.read(root)
             state = doc.get("state", "running")
             if state in ("draining", "dissolved"):
@@ -229,6 +231,25 @@ class Curator:
                 continue
             width = int(doc["width"]) if "width" in doc else self.default_width
             self._refill(root, width=width, cwd=cwd, now=now)
+
+    def _maybe_fold(self, root: Path) -> None:
+        """Deterministically re-fold the leaderboard when shards have changed.
+
+        Pure code (no LLM) — the high-frequency half of the curator design. The
+        shards-dir mtime guards against re-reading thousands of shards every tick
+        on a large campaign; we only fold when a new shard has landed."""
+        sd = Path(root) / "shards"
+        try:
+            mtime = sd.stat().st_mtime if sd.exists() else 0.0
+        except OSError:
+            return
+        key = str(root)
+        if mtime and mtime != self._fold_mtime.get(key):
+            try:
+                leaderboard.fold(root)
+            except Exception:  # noqa: BLE001 — leaderboard upkeep must never break the tick
+                log.exception("curator: leaderboard fold failed for %s", root)
+            self._fold_mtime[key] = mtime
 
     def _run(self) -> None:
         while not self._stop.is_set():
