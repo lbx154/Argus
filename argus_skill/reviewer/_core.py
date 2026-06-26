@@ -503,13 +503,12 @@ class Reviewer:
         except Exception:  # noqa: BLE001
             pass
 
-        # Stage-rollback instruction. When the reviewer notices that an
-        # upstream stage's evidence is missing or unreliable while
-        # working a later stage, demoting current_stage back to the
-        # earlier stage is the correct move — the agent should not be
-        # asked to repair upstream defects through the current stage's
-        # acceptance criteria. The instruction lives here (not in the
-        # individual checklist items) so it applies uniformly.
+        # Upstream-evidence defect REPORT. When the reviewer notices that an
+        # upstream stage's evidence is missing or unreliable while working a
+        # later stage, the correct move is to REPORT it so the Manager can roll
+        # the stage back — the reviewer does NOT edit the pipeline state machine
+        # itself (stage authority is the Manager's). The instruction lives here
+        # (not in the individual checklist items) so it applies uniformly.
         stage_idx = (
             CANONICAL_STAGE_ORDER.index(stage)
             if stage in CANONICAL_STAGE_ORDER
@@ -517,20 +516,23 @@ class Reviewer:
         )
         earlier_stages = ", ".join(CANONICAL_STAGE_ORDER[:stage_idx]) or "(none)"
         rollback_block = (
-            "## Stage rollback\n"
+            "## Upstream-evidence defects (REPORT — the Manager owns rollback)\n"
             f"Current stage: `{stage}`. Earlier stages: {earlier_stages}.\n"
             "If you discover that an *earlier* stage's evidence is missing, "
             "stale, or unreliable (e.g. while in `run` you notice the "
             "`benchmark` evaluator is a stub; while in `draft` you notice "
             "that `research/INFRA_CHOICE.md` was never locked in; while in "
             "`analysis` you notice the `run.score_variance` rows are all "
-            "identical) — do NOT try to patch the gap from inside the "
-            "current stage. Reply `continue` and tell the engineer to roll "
-            "back the pipeline state machine by calling:\n\n"
-            "    python -c \"from argus_skill.skills.stage_checklists import rollback_stage; "
-            "rollback_stage('.', target_stage='<earlier-stage>', "
-            "reason='<one-sentence reason>')\"\n\n"
-            "then complete the earlier stage's checklist before re-advancing."
+            "identical) — do NOT try to patch the gap from inside the current "
+            "stage, and do NOT edit the pipeline state machine yourself. Stage "
+            "transitions are the Manager's authority, not the reviewer's. Reply "
+            "`continue` and REPORT the defect so the Manager can roll back: name "
+            "the earliest broken stage and why in your `reason` AND in "
+            "`planner_report.blocker` (e.g. \"upstream stage `benchmark` is "
+            "broken: evaluator returns a constant — recommend rollback to "
+            "`benchmark`\"). The Manager reads this and moves the stage; you "
+            "never call `rollback_stage` and never write "
+            "`research/PIPELINE_STATE.json`."
         )
         operator_text = (
             "\n".join(f"- {line}" for line in operator_messages)

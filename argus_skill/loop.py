@@ -457,6 +457,18 @@ class SkillLoop:
             _stage_now = _current_stage(_proot)
         except Exception:  # noqa: BLE001 — stage read is best-effort
             _stage_now = None
+        sections.append(
+            "## Pipeline stage is Manager-owned — do NOT edit it\n"
+            "You may create/update NON-stage fields in "
+            "`research/PIPELINE_STATE.json` (objective, target_venue, artifact "
+            "paths), but you MUST NOT edit the stage fields — `current_stage` or "
+            "any per-stage `status` — and you MUST NOT call `rollback_stage` or "
+            "any other stage-transition helper. Stage transitions (advance AND "
+            "rollback) are decided and written by the Manager, from the "
+            "reviewer's verdict. Your job: produce the current stage's required "
+            "artifacts and report readiness in your summary; the reviewer "
+            "certifies and the Manager moves the stage."
+        )
         if _stage_now == "setup" and not _measured:
             sections.append(
                 "## SETUP STAGE — action control (HARD OVERRIDE)\n"

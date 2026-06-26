@@ -56,7 +56,7 @@ print("API key:", routes["text"]["api_key"][:10] + "...")
 - **Project venv**: `.venv/` for ML deps. See `project-environment-management` skill.
 
 ## Pipeline state contract
-Create or update `research/PIPELINE_STATE.json` before doing expensive work. The file is the mission ledger, not decorative prose:
+`research/PIPELINE_STATE.json` is the mission ledger, not decorative prose. You may create/update its DESCRIPTIVE fields (objective, target_venue, artifact paths) before doing expensive work, but the STAGE fields — `current_stage` and every per-stage `status` — are **Manager-owned**: you MUST NOT edit them, and you MUST NOT call `rollback_stage` or any stage-transition helper. Produce the current stage's artifacts and report readiness; the reviewer certifies and the **Manager** advances/rolls back the stage.
 
 ```json
 {
@@ -201,11 +201,11 @@ research → plan → benchmark → run → analysis → draft → review → su
 
 
 ## Gate semantics
-- `go`: advance to the next stage and update `research/PIPELINE_STATE.json`.
+- `go`: the current stage's required artifacts are ready and internally consistent. REPORT this readiness in your summary — do NOT edit `current_stage` or any stage `status`; the **Manager** advances the stage from the reviewer's verdict.
 - `blocked`: pause because an external requirement is missing, such as credentials, data access, or LaTeX.
 - `pivot`: preserve the artifacts and write the next research direction.
 - `rejected`: stop and write why the idea should not become a paper.
-- `done`: only for a stage whose required artifacts exist and are internally consistent.
+- `done`: a stage is "done" only when its required artifacts exist and are internally consistent — but that verdict is the reviewer's to certify and the Manager's to record, not yours to write into `PIPELINE_STATE.json`.
 
 ## Response shape
 - Report the current stage, gate verdict, and changed artifacts.

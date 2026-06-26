@@ -245,6 +245,13 @@ class _Outcome:
     # ``{"forward_progress": bool, "headline": str, "blocker": str,
     # "recommended_next": str}``. Empty dict when no reviewer verdict exists.
     planner_report: dict = field(default_factory=dict)
+    # The Manager's stage-transition verdict for this mission completion (the
+    # Manager is the sole post-bootstrap writer of current_stage). Shape:
+    # ``{"action": advance|hold|rollback, "target_stage", "reason",
+    # "confidence", "current_stage", "source"}``. Empty dict when the decision
+    # was skipped (error) or never ran. Journaled by the supervisor; the stage
+    # write itself already happened inside execute.
+    stage_transition: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -1123,6 +1130,13 @@ class _SkillLoopRunner:
                     getattr(final_review, "completion_summary_markdown", "")
                     or getattr(final_review, "reason", "")
                 )
+        # STAGE AUTHORITY: the Manager is the SOLE post-bootstrap writer of the
+        # pipeline stage. After this round's reviewer verdict, the Manager makes
+        # its OWN judgment (advance / hold / rollback) and writes
+        # PIPELINE_STATE.json. See ``_decide_stage_transition``.
+        stage_transition = self._decide_stage_transition(
+            rounds_list=rounds_list, workdir=workdir, sink=sink
+        )
         return _Outcome(
             success=outcome.successful,
             status=outcome.status,
@@ -1135,7 +1149,45 @@ class _SkillLoopRunner:
             final_submission_certified=final_submission_certified,
             completion_evidence=completion_evidence,
             planner_report=planner_report,
+            stage_transition=stage_transition,
         )
+
+    def _decide_stage_transition(
+        self, *, rounds_list: list, workdir: Path, sink: EventSink
+    ) -> dict:
+        """Hand this round's reviewer verdict to the Manager — the SOLE
+        post-bootstrap writer of the pipeline stage — and let it judge
+        advance / hold / rollback and write ``PIPELINE_STATE.json``.
+
+        Reviewer/planner only advise; the engineer no longer edits stage state.
+        Fail-open: a stage decision must NEVER break a mission — any error
+        degrades to a no-op (the stage simply stays put this round). Returns the
+        decision dict (empty on skip/error) for the ``_Outcome`` / journal; the
+        stage write itself already happened inside ``decide_stage_transition``.
+        """
+        try:
+            from ..manager import Manager
+
+            final_review = (
+                getattr(rounds_list[-1], "review", None) if rounds_list else None
+            )
+            st = Manager(
+                project_root=workdir,
+                runner=getattr(self, "manager_backend", None) or self._backend,
+            ).decide_stage_transition(review=final_review, project_root=workdir)
+            decision = {
+                "action": st.action,
+                "target_stage": st.target_stage,
+                "reason": st.reason,
+                "confidence": st.confidence,
+                "current_stage": st.current_stage,
+                "source": st.source,
+            }
+            sink.handle_event({"type": "life.manager.stage_decision", **decision})
+            return decision
+        except Exception:  # noqa: BLE001 — stage decision must never break a mission
+            log.debug("manager stage decision skipped", exc_info=True)
+            return {}
 
     def _chat_quick_reply(
         self,
