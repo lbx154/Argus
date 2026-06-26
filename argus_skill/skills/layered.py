@@ -51,6 +51,7 @@ log = logging.getLogger(__name__)
 
 LAYER_PROJECT = "project"
 LAYER_GLOBAL = "global"
+LAYER_VERTICAL = "vertical"
 
 
 class LayeredSkillStore:
@@ -66,6 +67,7 @@ class LayeredSkillStore:
         *,
         project_dir: Path,
         global_dir: Path,
+        vertical_dir: Path | None = None,
         runner: RunnerBackend | None = None,
         matcher_model: str = "",
         matcher_reasoning_effort: str | None = None,
@@ -82,10 +84,26 @@ class LayeredSkillStore:
             matcher_model=matcher_model,
             matcher_reasoning_effort=matcher_reasoning_effort,
         )
+        # Optional middle layer: the active mission's vertical. ``None`` keeps
+        # the classic two-layer behaviour (project + global) byte-identical, so
+        # existing two-layer callers (e.g. ``/skills promote``) are unaffected.
+        self.vertical = (
+            SkillStore(
+                Path(vertical_dir),
+                runner=runner,
+                matcher_model=matcher_model,
+                matcher_reasoning_effort=matcher_reasoning_effort,
+            )
+            if vertical_dir is not None
+            else None
+        )
         # Resolve once so layer dispatch never gets confused by relative
         # vs absolute paths or by symlinks introduced after init.
         self._project_root = self.project.skills_dir.resolve()
         self._global_root = self.global_.skills_dir.resolve()
+        self._vertical_root = (
+            self.vertical.skills_dir.resolve() if self.vertical is not None else None
+        )
 
     # ------------------------------------------------------------------
     # Layer awareness
@@ -106,6 +124,12 @@ class LayeredSkillStore:
             return LAYER_PROJECT
         except ValueError:
             pass
+        if self._vertical_root is not None:
+            try:
+                p.relative_to(self._vertical_root)
+                return LAYER_VERTICAL
+            except ValueError:
+                pass
         try:
             p.relative_to(self._global_root)
             return LAYER_GLOBAL
@@ -123,6 +147,10 @@ class LayeredSkillStore:
     def store_for_layer(self, layer: str) -> SkillStore:
         if layer == LAYER_PROJECT:
             return self.project
+        if layer == LAYER_VERTICAL:
+            if self.vertical is None:
+                raise ValueError("no vertical layer configured")
+            return self.vertical
         if layer == LAYER_GLOBAL:
             return self.global_
         raise ValueError(f"unknown skill layer: {layer!r}")
@@ -141,24 +169,33 @@ class LayeredSkillStore:
     def list_summaries(self) -> list[dict]:
         """Return the merged summary list visible to the matcher.
 
-        Project entries shadow global entries with the same
-        case-insensitive ``name``. Each summary is annotated with a
-        ``layer`` field so callers can distinguish them.
+        Precedence: project shadows vertical shadows global by
+        case-insensitive ``name`` (project wins, then the active vertical,
+        then global). Each summary is annotated with a ``layer`` field so
+        callers can distinguish them. With no vertical layer configured this
+        is the classic two-layer (project > global) merge.
         """
         project_summaries = [
             {**s, "layer": LAYER_PROJECT} for s in self.project.list_summaries()
         ]
+        vertical_summaries = (
+            [{**s, "layer": LAYER_VERTICAL} for s in self.vertical.list_summaries()]
+            if self.vertical is not None
+            else []
+        )
         global_summaries = [
             {**s, "layer": LAYER_GLOBAL} for s in self.global_.list_summaries()
         ]
-        seen_names: set[str] = {
-            (s.get("name") or "").casefold() for s in project_summaries
-        }
-        merged: list[dict] = list(project_summaries)
-        for summary in global_summaries:
-            if (summary.get("name") or "").casefold() in seen_names:
-                continue
-            merged.append(summary)
+        seen_names: set[str] = set()
+        merged: list[dict] = []
+        # Higher-precedence layers first; a name seen earlier shadows later ones.
+        for layer_summaries in (project_summaries, vertical_summaries, global_summaries):
+            for summary in layer_summaries:
+                name = (summary.get("name") or "").casefold()
+                if name in seen_names:
+                    continue
+                seen_names.add(name)
+                merged.append(summary)
         return merged
 
     # ------------------------------------------------------------------
@@ -267,6 +304,69 @@ class LayeredSkillStore:
             except OSError as exc:  # pragma: no cover — best-effort
                 log.warning(
                     "promote_to_global: failed to remove project copy %s: %s",
+                    old_path, exc,
+                )
+        return skill
+
+    def promote_to_vertical(
+        self,
+        skill: Skill,
+        vertical_name: str | None = None,
+        *,
+        delete_project_copy: bool = True,
+    ) -> Skill:
+        """Move a project skill into the active vertical layer.
+
+        The domain analog of :meth:`promote_to_global`: a project-distilled
+        skill the Manager judged to belong to ONE vertical is filed into that
+        vertical's runtime layer (``~/.argus-skill/verticals/<v>/skills/``)
+        instead of the cross-project global library. ``vertical_name`` is
+        advisory (used for logging); this store is bound to a single vertical
+        layer at construction, so the destination is unambiguous — the caller
+        (Manager tidy-up) is responsible for only promoting skills whose judged
+        vertical matches the bound layer.
+        """
+        if self.vertical is None:
+            raise ValueError("promote_to_vertical: no vertical layer configured")
+        if self.layer_for_skill(skill) != LAYER_PROJECT:
+            raise ValueError(
+                f"promote_to_vertical: skill is not in project layer: {skill.path!r}"
+            )
+        old_path = Path(skill.path) if skill.path else None
+        base = _slugify(skill.name) or "skill"
+        candidate = self.vertical.skills_dir / f"{base}.md"
+        if candidate.exists():
+            for idx in range(2, 1000):
+                next_candidate = self.vertical.skills_dir / f"{base}-{idx}.md"
+                if not next_candidate.exists():
+                    candidate = next_candidate
+                    break
+            else:  # pragma: no cover — pathological
+                raise RuntimeError(
+                    f"promote_to_vertical: cannot allocate vertical path "
+                    f"for {skill.name!r}"
+                )
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        tmp = candidate.with_name(
+            f"{candidate.name}.tmp.{os.getpid()}.{threading.get_ident():x}."
+            f"{uuid.uuid4().hex[:8]}"
+        )
+        skill.path = str(candidate)
+        try:
+            tmp.write_text(skill.render(), encoding="utf-8")
+            os.replace(tmp, candidate)
+        finally:
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+        if delete_project_copy and old_path is not None and old_path.exists():
+            try:
+                old_path.unlink()
+            except OSError as exc:  # pragma: no cover — best-effort
+                log.warning(
+                    "promote_to_vertical: failed to remove project copy %s: %s",
                     old_path, exc,
                 )
         return skill

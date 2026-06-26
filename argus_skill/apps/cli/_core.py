@@ -712,7 +712,9 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
         DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
         builtin_skill_source_path,
         seed_builtin_skills,
+        seed_builtin_skills_for_vertical,
     )
+    from ...skills.vertical_select import resolve_vertical
 
     raw_target = args.export_builtin_skills or DEFAULT_PROJECT_BUILTIN_SKILLS_DIR
     target = core_paths.resolve_runtime_path(
@@ -721,7 +723,19 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     )
     if not target.is_absolute():
         target = Path.cwd() / target
-    result = seed_builtin_skills(target, overwrite=bool(args.apply))
+    # Vertical-aware export: a non-research vertical also seeds its OWN domain
+    # skills (verticals/<v>/skills/), with the real bodies overwriting any
+    # builtin pointer stub, so the agent workspace carries the real skill that
+    # the vertical's REVIEWER_CHECKLISTS reference. ``--vertical`` overrides; by
+    # default the active vertical is resolved from research/PIPELINE_STATE.json
+    # (env ARGUS_SKILL_VERTICAL wins) in the target/cwd.
+    vertical = getattr(args, "vertical", None) or resolve_vertical(Path.cwd())
+    if vertical and vertical != "research":
+        result = seed_builtin_skills_for_vertical(
+            target, vertical, overwrite=bool(args.apply)
+        )
+    else:
+        result = seed_builtin_skills(target, overwrite=bool(args.apply))
     written = sum(1 for changed in result.values() if changed)
     skipped = len(result) - written
     source_path = builtin_skill_source_path()
@@ -733,6 +747,7 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     action = "created/replaced" if args.apply else "created"
     print(f"argus-skill: exported built-in skills to {target}")
     print(f"  source : {source}")
+    print(f"  vertical: {vertical}")
     print(
         f"  files  : {written} {action}, {skipped} preserved, "
         f"{len(result)} total"

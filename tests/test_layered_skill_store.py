@@ -21,6 +21,7 @@ from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus_skill.skills.layered import (
     LAYER_GLOBAL,
     LAYER_PROJECT,
+    LAYER_VERTICAL,
     LayeredSkillStore,
 )
 from argus_skill.skills.store import Skill, SkillStore
@@ -272,3 +273,87 @@ def test_layer_summaries_rejects_unknown_layer(tmp_path: Path) -> None:
     layered = _layered(tmp_path)
     with pytest.raises(ValueError, match="unknown skill layer"):
         layered.layer_summaries("staging")
+
+
+# --- three-layer (project / vertical / global) ----------------------------
+#
+# The vertical layer is an OPTIONAL middle layer. Omitting ``vertical_dir``
+# keeps the classic two-layer behaviour byte-identical (covered by every test
+# above, which all use the two-layer ``_layered`` fixture). These tests pin the
+# added third layer.
+
+
+def _layered3(tmp_path: Path) -> LayeredSkillStore:
+    return LayeredSkillStore(
+        project_dir=tmp_path / "project_skills",
+        vertical_dir=tmp_path / "vertical_skills",
+        global_dir=tmp_path / "global_skills",
+    )
+
+
+def test_two_layer_has_no_vertical(tmp_path: Path) -> None:
+    layered = _layered(tmp_path)
+    assert layered.vertical is None
+    with pytest.raises(ValueError, match="no vertical layer configured"):
+        layered.store_for_layer(LAYER_VERTICAL)
+
+
+def test_three_layer_lists_all_three(tmp_path: Path) -> None:
+    layered = _layered3(tmp_path)
+    _write(layered.project, "p_only")
+    _write(layered.vertical, "v_only")
+    _write(layered.global_, "g_only")
+    by = {s["name"]: s["layer"] for s in layered.list_summaries()}
+    assert by == {
+        "p_only": LAYER_PROJECT,
+        "v_only": LAYER_VERTICAL,
+        "g_only": LAYER_GLOBAL,
+    }
+
+
+def test_project_shadows_vertical_shadows_global(tmp_path: Path) -> None:
+    layered = _layered3(tmp_path)
+    # name in all three -> project wins
+    _write(layered.project, "shared", description="project")
+    _write(layered.vertical, "shared", description="vertical")
+    _write(layered.global_, "shared", description="global")
+    # name in vertical+global only -> vertical wins
+    _write(layered.vertical, "vg", description="vertical")
+    _write(layered.global_, "vg", description="global")
+    by = {s["name"]: s for s in layered.list_summaries()}
+    assert sum(1 for s in layered.list_summaries() if s["name"] == "shared") == 1
+    assert by["shared"]["layer"] == LAYER_PROJECT
+    assert by["shared"]["description"] == "project"
+    assert by["vg"]["layer"] == LAYER_VERTICAL
+    assert by["vg"]["description"] == "vertical"
+
+
+def test_layer_for_path_and_store_for_layer_vertical(tmp_path: Path) -> None:
+    layered = _layered3(tmp_path)
+    s = _write(layered.vertical, "v_skill")
+    assert layered.layer_for_path(s.path) == LAYER_VERTICAL
+    assert layered.store_for_layer(LAYER_VERTICAL) is layered.vertical
+
+
+def test_promote_to_vertical_moves_project_skill(tmp_path: Path) -> None:
+    layered = _layered3(tmp_path)
+    s = _write(layered.project, "domain_lesson")
+    old_path = Path(s.path)
+    promoted = layered.promote_to_vertical(s, "quant")
+    assert layered.layer_for_path(promoted.path) == LAYER_VERTICAL
+    assert Path(promoted.path).exists()
+    assert not old_path.exists()  # project copy removed by default
+
+
+def test_promote_to_vertical_requires_project_layer(tmp_path: Path) -> None:
+    layered = _layered3(tmp_path)
+    g = _write(layered.global_, "already_global")
+    with pytest.raises(ValueError, match="not in project layer"):
+        layered.promote_to_vertical(g, "quant")
+
+
+def test_promote_to_vertical_without_layer_raises(tmp_path: Path) -> None:
+    layered = _layered(tmp_path)  # two-layer, no vertical
+    s = _write(layered.project, "x")
+    with pytest.raises(ValueError, match="no vertical layer configured"):
+        layered.promote_to_vertical(s, "quant")

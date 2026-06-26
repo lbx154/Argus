@@ -62,6 +62,7 @@ __all__ = [
     "daemon_pid_path",
     "skills_global_root",
     "skills_archive_root",
+    "skills_vertical_root",
     "projects_root",
     "project_root",
     "project_md_path",
@@ -166,6 +167,21 @@ def skills_global_root() -> Path:
 
 def skills_archive_root() -> Path:
     return global_root() / "skills" / "_archive"
+
+
+def skills_vertical_root(vertical: str) -> Path:
+    """Return ``~/.argus-skill/verticals/<vertical>/skills/``.
+
+    The runtime VERTICAL layer of the three-layer skill library (project /
+    vertical / global). It sits OUTSIDE :func:`skills_global_root` on purpose:
+    the global :class:`~argus_skill.skills.store.SkillStore` ``rglob``-s its
+    whole tree, so nesting the vertical layer under ``skills/`` would make the
+    global store accidentally list vertical skills (with a bogus role). Seeded
+    from the version-controlled source ``argus_skill/verticals/<v>/skills/``.
+    """
+    if not vertical or "/" in vertical or "\\" in vertical or vertical.startswith("."):
+        raise ValueError(f"invalid vertical name: {vertical!r}")
+    return global_root() / "verticals" / vertical / "skills"
 
 
 def projects_root() -> Path:

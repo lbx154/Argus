@@ -697,6 +697,30 @@ class LifeWorker:
         if not (project_root / ".venv").exists():
             init_project_venv(project_root)
 
+        # Seed the project workspace's read-only builtin-skill copy
+        # (``argus_builtin_skills/``) — vertical-aware, so a non-research mission
+        # gets the active vertical's OWN domain skills (real bodies overwrite any
+        # builtin pointer stub) alongside the cross-vertical skills. This is the
+        # tree the reviewer agent reads when ``stage_check`` prints
+        # ``Load skill: argus_builtin_skills/<role>/<name>.md``. Idempotent:
+        # only seeded when the dir is absent, so a re-bootstrap never clobbers
+        # operator/engineer edits.
+        from ..skills.builtins import (
+            DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
+            seed_builtin_skills,
+            seed_builtin_skills_for_vertical,
+        )
+
+        skills_target = project_root / DEFAULT_PROJECT_BUILTIN_SKILLS_DIR
+        if not skills_target.exists():
+            try:
+                if vertical and vertical != "research":
+                    seed_builtin_skills_for_vertical(skills_target, vertical)
+                else:
+                    seed_builtin_skills(skills_target)
+            except Exception:  # noqa: BLE001 — best-effort, never break bootstrap
+                log.exception("daemon: failed to seed builtin skills during bootstrap")
+
     def _seed_bootstrap_task(
         self,
         memory: Any,

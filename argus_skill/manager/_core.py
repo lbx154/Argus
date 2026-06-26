@@ -305,9 +305,17 @@ class Manager:
         """
         from ..skills.stage_checklists import (
             _active_vertical_checklist_defs as _vertical_defs,
+        )
+        from ..skills.stage_checklists import (
             advance_stage as _advance,
+        )
+        from ..skills.stage_checklists import (
             current_stage as _current_stage,
+        )
+        from ..skills.stage_checklists import (
             format_stage_checklist as _format_checklist,
+        )
+        from ..skills.stage_checklists import (
             rollback_stage as _rollback,
         )
         from .stage_decider import (
@@ -422,6 +430,100 @@ class Manager:
             runner=(self._session or self.runner),
             reasoning_effort=reasoning_effort,
         )
+
+    # ---- skill-library tidy-up (the Manager is the "janitor") ----
+    def classify_skill_placement(self, *, content: str, task: str) -> Any:
+        """Decide where a project-distilled skill belongs: global / a vertical /
+        stay. Runs the placement judge on THIS Manager's runner with the known
+        verticals as candidates. Returns a ``PlacementVerdict``."""
+        from .skill_review import classify_skill_placement as _classify
+
+        return _classify(
+            content=content,
+            task=task,
+            candidate_verticals=list(vertical_select.VERTICALS),
+            runner=(self._session or self.runner),
+        )
+
+    def tidy_project_skills(
+        self,
+        layered: Any,
+        *,
+        active_vertical: str | None = None,
+        on_event: Any = None,
+    ) -> dict[str, int]:
+        """End-of-mission tidy-up: route the project layer's distilled skills.
+
+        For each CONFIRMED (non-provisional) skill in the project layer, judge
+        whether it is a cross-domain capability (→ global), belongs to the active
+        vertical (→ that vertical's layer), or should stay. Best-effort: every op
+        is isolated so one failure never aborts the sweep. Conservative: a skill
+        judged to belong to a vertical OTHER than the one this layered store is
+        bound to is left in place (that vertical's own mission will tidy it).
+
+        Returns counts ``{"promoted_global", "promoted_vertical", "stayed",
+        "errors"}``.
+        """
+        counts = {
+            "promoted_global": 0,
+            "promoted_vertical": 0,
+            "stayed": 0,
+            "errors": 0,
+        }
+        project_store = getattr(layered, "project", None)
+        if project_store is None:
+            return counts
+        try:
+            summaries = project_store.list_summaries()
+        except Exception:  # noqa: BLE001
+            log.warning("tidy_project_skills: failed to list project skills", exc_info=True)
+            return counts
+        has_vertical = getattr(layered, "vertical", None) is not None
+
+        for summ in summaries:
+            if summ.get("provisional"):
+                continue  # only tidy proven, confirmed skills
+            path = summ.get("path") or ""
+            try:
+                skill = project_store.load(path)
+                task_hint = " ".join(getattr(skill, "task_history", []) or []) or (
+                    getattr(skill, "description", "") or ""
+                )
+                verdict = self.classify_skill_placement(
+                    content=getattr(skill, "content", "") or "",
+                    task=task_hint,
+                )
+                if verdict.placement == "global":
+                    layered.promote_to_global(skill)
+                    counts["promoted_global"] += 1
+                    self._emit_tidy(
+                        on_event, f"{skill.name} -> global ({verdict.why})"
+                    )
+                elif (
+                    verdict.placement == "vertical"
+                    and has_vertical
+                    and (active_vertical is None or verdict.vertical == active_vertical)
+                ):
+                    layered.promote_to_vertical(skill, verdict.vertical)
+                    counts["promoted_vertical"] += 1
+                    self._emit_tidy(
+                        on_event,
+                        f"{skill.name} -> vertical:{verdict.vertical} ({verdict.why})",
+                    )
+                else:
+                    counts["stayed"] += 1
+            except Exception:  # noqa: BLE001 — one bad skill never aborts the sweep
+                counts["errors"] += 1
+                log.warning("tidy_project_skills: failed on %s", path, exc_info=True)
+        return counts
+
+    @staticmethod
+    def _emit_tidy(on_event: Any, text: str) -> None:
+        if callable(on_event):
+            try:
+                on_event({"type": "skill.tidied", "text": text})
+            except Exception:  # noqa: BLE001 — event sink must never break tidy
+                pass
 
     # ---- progress view ----
     def current_stage(self) -> str:

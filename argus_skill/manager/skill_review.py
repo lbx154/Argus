@@ -135,4 +135,106 @@ def approve_skill(
     return ApprovalVerdict(approved, why or ("approved" if approved else "rejected"))
 
 
-__all__ = ["approve_skill", "ApprovalVerdict"]
+@dataclass
+class PlacementVerdict:
+    """Where a project-distilled skill should be tidied to.
+
+    ``placement`` is ``"global"`` (cross-domain → global layer), ``"vertical"``
+    (domain-specific → that vertical's layer; ``vertical`` names it), or
+    ``"stay"`` (leave it in the project layer — too specific, or unsure).
+    """
+
+    placement: str
+    vertical: str
+    why: str
+
+
+_PLACEMENT_RUBRIC = (
+    "A project-distilled skill has proven useful in ONE project. Decide where it "
+    "belongs in the shared library:\n"
+    "- GLOBAL — a CROSS-DOMAIN capability useful to many kinds of missions "
+    "(research, optimization, finance, …); it does not assume any one domain's "
+    "tools, data, or vocabulary.\n"
+    "- VERTICAL — a capability specific to ONE domain/vertical: its mechanism, "
+    "tools, metrics, or vocabulary only make sense within that vertical (e.g. "
+    "factor / backtest / alpha discipline → quant). Name that vertical from the "
+    "candidate list.\n"
+    "- STAY — keep it in the project layer: it is too project-specific to "
+    "generalize, OR you cannot confidently place it. Prefer STAY when unsure — "
+    "mis-filing a skill is worse than leaving it where it is."
+)
+
+
+def classify_skill_placement(
+    *,
+    content: str,
+    task: str,
+    candidate_verticals: list[str],
+    runner: Any,
+    model: str = "",
+    reasoning_effort: str = "low",
+) -> PlacementVerdict:
+    """Decide whether a project-distilled skill should be tidied up to the GLOBAL
+    layer, to a specific VERTICAL layer, or STAY in the project layer.
+
+    One focused LLM judge, used by the Manager's end-of-mission "tidy-up". Unlike
+    :func:`approve_skill` (a create/update admission gate), this only ROUTES an
+    already-stored project skill. Fail-soft and CONSERVATIVE: any error,
+    empty/unparseable output, missing runner, or a vertical not in the candidate
+    list → ``stay`` (never mis-file)."""
+    if not (content or "").strip():
+        return PlacementVerdict("stay", "", "empty content")
+    if runner is None:
+        return PlacementVerdict("stay", "", "no manager runner available")
+    candidates = [v for v in (candidate_verticals or []) if isinstance(v, str) and v]
+
+    prompt = (
+        "You are the Manager tidying the skill library after a project finished. "
+        "A reviewer distilled the playbook below while working this project. "
+        "Decide where it belongs.\n\n"
+        f"## Rubric\n{_PLACEMENT_RUBRIC}\n\n"
+        f"## Candidate verticals\n{', '.join(candidates) or '(none)'}\n\n"
+        f"## The task the skill was distilled on\n{task.strip()[:2000]}\n\n"
+        f"## The skill playbook\n{content.strip()[:12000]}\n\n"
+        "Reply with ONLY a JSON object: "
+        '{"placement": "global"|"vertical"|"stay", '
+        '"vertical": "<name or empty>", "why": "<one short clause>"}. '
+        'Use "vertical" only with a name from the candidate list; when unsure, '
+        'use "stay".'
+    )
+    try:
+        result = runner.run_exec(
+            prompt=prompt,
+            options=RunnerOptions(
+                model=model or None,
+                reasoning_effort=reasoning_effort,
+                skip_git_repo_check=True,
+                full_auto=True,
+            ),
+            run_label="manager.skill_placement",
+        )
+    except Exception as exc:  # noqa: BLE001 — tidy-up must never break the loop
+        log.warning("manager skill placement failed (%s: %s)", type(exc).__name__, exc)
+        return PlacementVerdict("stay", "", f"placement error: {type(exc).__name__}")
+
+    parsed = _extract_json(getattr(result, "last_agent_message", "") or "")
+    if parsed is None:
+        return PlacementVerdict("stay", "", "placement returned no JSON verdict")
+    placement = str(parsed.get("placement", "")).strip().lower()
+    vertical = str(parsed.get("vertical", "")).strip()
+    why = str(parsed.get("why", "")).strip()[:500]
+    if placement == "global":
+        return PlacementVerdict("global", "", why or "general capability")
+    if placement == "vertical" and vertical in candidates:
+        return PlacementVerdict("vertical", vertical, why or f"belongs to {vertical}")
+    # Unknown placement, or a vertical not in the candidate list → conservative
+    # stay (never mis-file into a vertical the caller did not offer).
+    return PlacementVerdict("stay", "", why or "unplaceable / unknown vertical")
+
+
+__all__ = [
+    "approve_skill",
+    "ApprovalVerdict",
+    "classify_skill_placement",
+    "PlacementVerdict",
+]

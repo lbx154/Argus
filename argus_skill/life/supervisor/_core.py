@@ -1454,6 +1454,25 @@ class LifeSupervisor:
             "iteration": iteration_outcome or None,
         })
 
+        # Manager "janitor": when a mission completes successfully, review the
+        # project layer's distilled skills and tidy each to where it belongs —
+        # a cross-domain capability → global, a domain-specific one → the
+        # mission's vertical layer, anything too specific → left in project.
+        # Fully fail-soft; never blocks completion.
+        if kind == "mission_complete":
+            try:
+                from ..manager.skill_tidy import tidy_after_mission
+
+                counts = tidy_after_mission(
+                    self._project_workdir(),
+                    self.runner,
+                    on_event=self._emit,
+                )
+                if counts.get("promoted_global") or counts.get("promoted_vertical"):
+                    log.info("manager skill tidy-up after mission: %s", counts)
+            except Exception:  # noqa: BLE001 — tidy must never break completion
+                log.warning("manager skill tidy-up after mission failed", exc_info=True)
+
         return {
             "item_id": item.id,
             "title": item.title,

@@ -42,6 +42,34 @@ def iter_common_builtin_skill_texts() -> Iterable[tuple[str, str]]:
         yield entry.name, entry.read_text(encoding="utf-8")
 
 
+def vertical_skill_source_path(vertical: str) -> Path:
+    """Filesystem path of a vertical's own skills: ``verticals/<v>/skills``.
+
+    The skill-layering convention: ``builtin_skills/`` holds only cross-vertical
+    (general) skills, while each vertical ships its own domain skills under
+    ``argus_skill/verticals/<vertical>/skills/{engineer,reviewer}/``. This is the
+    version-controlled read-only SOURCE for that vertical's skills.
+    """
+    if not vertical or "/" in vertical or "\\" in vertical or vertical.startswith("."):
+        raise ValueError(f"invalid vertical name: {vertical!r}")
+    return Path(__file__).resolve().parents[1] / "verticals" / vertical / "skills"
+
+
+def iter_vertical_skill_texts(vertical: str) -> Iterable[tuple[str, str]]:
+    """Yield ``(relative_filename, markdown)`` for a vertical's own skills.
+
+    Relative names are rooted at the vertical's ``skills/`` dir (e.g.
+    ``reviewer/quant-factor-report-review.md``) so they match the skill paths a
+    vertical's ``REVIEWER_CHECKLISTS`` names verbatim and overlay the same
+    ``<role>/<name>.md`` layout as the bundled builtins. Fail-open: an unknown
+    vertical or one with no ``skills/`` dir yields nothing.
+    """
+    root = vertical_skill_source_path(vertical)
+    if not root.is_dir():
+        return
+    yield from _iter_builtin_skill_resources(root)
+
+
 def _iter_builtin_skill_resources(
     root: Traversable,
     prefix: str = "",
@@ -176,6 +204,95 @@ def seed_builtin_skills(skills_dir: Path, *, overwrite: bool = False) -> dict[st
         if filename.endswith(".md"):
             _validate_builtin(filename, text)
         dest = skills_dir / filename
+        if dest.exists() and not overwrite:
+            created[filename] = False
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_text(dest, text)
+        created[filename] = True
+    return created
+
+
+def seed_builtin_skills_for_vertical(
+    skills_dir: Path,
+    vertical: str,
+    *,
+    overwrite: bool = False,
+) -> dict[str, bool]:
+    """Seed COMMON builtins + a vertical's own skills into ``skills_dir``.
+
+    Used to populate a mission's project workspace (``argus_builtin_skills/``) or
+    the runtime vertical layer so the agent sees the cross-vertical skills PLUS
+    the active vertical's domain skills. The vertical's real skill bodies
+    OVERWRITE any same-path builtin stub (a moved domain skill leaves a pointer
+    stub under ``builtin_skills/``; here the real body wins), so the workspace
+    never carries the pointer.
+
+    Note: this uses the FULL bundled set (``iter_builtin_skill_texts``), not
+    ``iter_common_builtin_skill_texts`` — the latter skips the ``engineer/`` and
+    ``reviewer/`` subdirectories, which is exactly where the cross-vertical
+    skills live. Files the vertical will overwrite are skipped on the builtin
+    pass so a pointer stub is never written into the workspace at all.
+
+    Returns a map of relative filename → created/replaced (True) or skipped
+    (False, an existing file left untouched because ``overwrite`` is False).
+    """
+    skills_dir = Path(skills_dir)
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    created: dict[str, bool] = {}
+
+    # The vertical's own skills (real bodies) — these always win over a builtin
+    # stub of the same relative path.
+    vertical_texts = dict(iter_vertical_skill_texts(vertical))
+
+    # 1. Common/bundled builtins, skipping any path the vertical will overwrite
+    #    (so a pointer stub is never written into the workspace).
+    for filename, text in iter_builtin_skill_texts():
+        if filename in vertical_texts:
+            continue
+        if filename.endswith(".md"):
+            _validate_builtin(filename, text)
+        dest = skills_dir / filename
+        if dest.exists() and not overwrite:
+            created[filename] = False
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_text(dest, text)
+        created[filename] = True
+
+    # 2. The vertical's real skill bodies — always written so the agent gets the
+    #    real body, never the stub (this is the point of vertical-aware seeding).
+    for filename, text in vertical_texts.items():
+        if filename.endswith(".md"):
+            _validate_builtin(filename, text)
+        dest = skills_dir / filename
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_text(dest, text)
+        created[filename] = True
+
+    return created
+
+
+def seed_vertical_layer(vertical: str, *, overwrite: bool = False) -> dict[str, bool]:
+    """Seed a vertical's OWN skills into its runtime VERTICAL layer.
+
+    Populates ``~/.argus-skill/verticals/<vertical>/skills/`` from the
+    version-controlled source ``argus_skill/verticals/<vertical>/skills/``.
+    Unlike :func:`seed_builtin_skills_for_vertical` (which mixes in the
+    cross-vertical builtins to populate an agent WORKSPACE), this seeds ONLY the
+    vertical's own domain skills into the middle layer of the three-layer skill
+    library — the cross-vertical skills live in the global layer. Idempotent:
+    existing files are preserved unless ``overwrite``.
+    """
+    from ..core.paths import skills_vertical_root
+
+    target = skills_vertical_root(vertical)
+    target.mkdir(parents=True, exist_ok=True)
+    created: dict[str, bool] = {}
+    for filename, text in iter_vertical_skill_texts(vertical):
+        if filename.endswith(".md"):
+            _validate_builtin(filename, text)
+        dest = target / filename
         if dest.exists() and not overwrite:
             created[filename] = False
             continue

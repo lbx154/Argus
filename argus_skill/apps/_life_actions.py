@@ -417,18 +417,51 @@ def render_skills_cmd(cwd: Path, tokens: Sequence[str]) -> str:
         )
     if op == "promote":
         if len(tokens) < 2:
-            return "usage: /skills promote <name>"
+            return "usage: /skills promote <name> [--to-vertical <vertical>]"
         name = tokens[1]
+        # Optional ``--to-vertical <v>`` routes to a vertical layer instead of
+        # global (the Manager-tidy direction, exposed for manual use).
+        to_vertical: str | None = None
+        rest = list(tokens[2:])
+        if "--to-vertical" in rest:
+            i = rest.index("--to-vertical")
+            if i + 1 >= len(rest):
+                return "usage: /skills promote <name> --to-vertical <vertical>"
+            to_vertical = rest[i + 1].strip().lower()
+
         from ..core import paths as core_paths
         from ..core.project import project_fingerprint
         from ..skills.layered import LayeredSkillStore
+        from ..skills.vertical_select import VERTICALS
 
         try:
             fp = project_fingerprint(cwd).fingerprint
         except Exception as exc:  # noqa: BLE001
             return f"could not compute project fingerprint: {exc}"
+
+        vertical_dir = None
+        if to_vertical is not None:
+            if to_vertical not in VERTICALS:
+                return (
+                    f"unknown vertical {to_vertical!r}; "
+                    f"known: {', '.join(VERTICALS)}"
+                )
+            if to_vertical == "research":
+                return (
+                    "the 'research' vertical has no skill layer; "
+                    "use plain /skills promote <name> (→ global)"
+                )
+            try:
+                from ..skills.builtins import seed_vertical_layer
+
+                seed_vertical_layer(to_vertical)
+            except Exception:  # noqa: BLE001 — best-effort seed; layer still usable
+                pass
+            vertical_dir = core_paths.skills_vertical_root(to_vertical)
+
         layered = LayeredSkillStore(
             project_dir=core_paths.project_skills_root(fp),
+            vertical_dir=vertical_dir,
             global_dir=core_paths.skills_global_root(),
         )
         target = None
@@ -439,6 +472,12 @@ def render_skills_cmd(cwd: Path, tokens: Sequence[str]) -> str:
         if target is None:
             return f"no project skill named {name!r} to promote"
         try:
+            if to_vertical is not None:
+                promoted = layered.promote_to_vertical(target, to_vertical)
+                return (
+                    f"promoted {promoted.name} → vertical:{to_vertical} "
+                    f"({promoted.path})"
+                )
             promoted = layered.promote_to_global(target)
         except Exception as exc:  # noqa: BLE001
             return f"promote failed: {exc}"
