@@ -74,6 +74,7 @@ from ._helpers import (
     _normalize_planner_text,
     _operator_only_external_blocker_wait_reason_for_project,
     _planner_task_signature,
+    _resolve_task_dep_ids,
     _sanitize_planner_task_text,
 )
 
@@ -123,6 +124,26 @@ _PLAN_TERMINAL_IDLE = "planner_terminal_idle"
 # not continuously. Reset to 0 the moment real work runs.
 _IDLE_BACKOFF_BASE_SECONDS = 15.0
 _IDLE_BACKOFF_CAP_SECONDS = 300.0
+
+# Idle auto-exit: a continuous daemon that has had no real mission to run for
+# longer than this wall-clock window exits cleanly (``stopped_by=idle_timeout``)
+# instead of spinning 7×24 on an empty backlog. The session model makes daemons
+# cheap to respawn (a `--resume`/`--continue` brings it right back), so an idle
+# daemon should release its slot rather than hold it forever. Default 30 min;
+# ``ARGUS_SKILL_DAEMON_IDLE_EXIT_MIN=0`` disables it (old never-exit behaviour).
+_DAEMON_IDLE_EXIT_DEFAULT_MINUTES = 30.0
+
+
+def _idle_exit_seconds() -> float:
+    """Idle wall-clock (s) before a continuous daemon auto-exits; 0 = never."""
+    raw = os.environ.get("ARGUS_SKILL_DAEMON_IDLE_EXIT_MIN", "").strip()
+    if not raw:
+        return _DAEMON_IDLE_EXIT_DEFAULT_MINUTES * 60.0
+    try:
+        minutes = float(raw)
+    except ValueError:
+        return _DAEMON_IDLE_EXIT_DEFAULT_MINUTES * 60.0
+    return max(0.0, minutes) * 60.0
 
 # Re-emit an unchanged lifecycle-block status/journal line at most this often
 # (a heartbeat) so a long-lived blocked state stays visible without spamming
@@ -230,6 +251,11 @@ class LifeSupervisor:
         # the moment a real mission runs.
         self._consecutive_idle_planner_cycles = 0
         self._suggested_sleep_s = 0.0
+        # Wall-clock (monotonic) of the first idle pass in the current idle
+        # streak — set by `_enter_idle_backoff`, cleared by `_reset_idle_backoff`
+        # — so `_maybe_idle_timeout` can auto-exit a long-idle continuous daemon.
+        # Spans the daemon outer-loop sleeps because the supervisor is reused.
+        self._idle_since: float | None = None
         self._last_open_ended_project_done_signature = ""
         # Lifecycle-block log-hygiene state: suppress identical held-state
         # emits except on change or a slow heartbeat.
@@ -405,6 +431,25 @@ class LifeSupervisor:
                 if stop_reason != "__silent_stop__":
                     self._emit_status(stop_reason)
                 stopped_by = stop_reason
+                break
+            # Idle auto-exit: a continuous daemon that has had no real work for
+            # longer than the cap exits cleanly so its slot is freed (the
+            # session model respawns it on `--resume`). `_idle_since` carries
+            # across the daemon's outer-loop sleeps, so this fires once the
+            # cumulative idle streak — not any single pass — crosses the window.
+            idle_stop = self._maybe_idle_timeout()
+            if idle_stop:
+                idle_s = round(time.monotonic() - (self._idle_since or 0.0), 1)
+                self._emit({
+                    "type": "life.daemon.idle_timeout",
+                    "idle_seconds": idle_s,
+                    "agent_layer": "planner",
+                })
+                self._emit_status(
+                    f"idle {idle_s:.0f}s with no work — daemon exiting "
+                    f"(resume to continue)"
+                )
+                stopped_by = idle_stop
                 break
             # Early auto-stop: if this is an EMNLP project and the gate
             # already passes, stop immediately — don't run any more ticks
@@ -957,7 +1002,7 @@ class LifeSupervisor:
             # When the reviewer truly certifies, supervisor.run() auto-
             # stops via ``_journal_has_full_emnlp_gate_success`` instead.
             uncertified_full_emnlp = (
-                self.config.full_emnlp_gate
+                self._effective_full_emnlp_gate(self._project_workdir())
                 and not self._journal_has_full_emnlp_gate_success()
             )
             if (
@@ -1163,6 +1208,10 @@ class LifeSupervisor:
             "type": "life.mission.started",
             "item_id": item.id,
             "title": item.title,
+            # Carry the objective on the event itself (not just the journal
+            # entry) so the live follow / REPL mission-context line renders the
+            # real goal instead of "objective=-".
+            "objective": item.objective,
             "missions_started": self._missions_started,
         })
         # Notify: mission starting (engineer layer)
@@ -1283,8 +1332,40 @@ class LifeSupervisor:
         # Emit per-layer completion notifications with actual costs
         try:
             from ..notify import dispatch_journal_entry
+            sci_usd = cost_sink.scientist_usd()
             eng_usd = cost_sink.engineer_usd()
             rev_usd = cost_sink.reviewer_usd()
+            if (
+                cost_sink.scientist_input_tokens > 0
+                or cost_sink.scientist_output_tokens > 0
+            ):
+                sci_done = JournalEntry.new(
+                    kind="phase_change",
+                    title=item.title,
+                    summary=f"科学家/技能匹配完成: ${sci_usd:.4f}",
+                    tags=["life", "phase"],
+                    cost_usd=sci_usd,
+                    extra={
+                        "item_id": item.id,
+                        "objective": item.objective,
+                        "agent_layer": "scientist",
+                        "phase_status": "completed",
+                        "input_tokens": cost_sink.scientist_input_tokens,
+                        "output_tokens": cost_sink.scientist_output_tokens,
+                        "usage_by_model": {
+                            model: {
+                                "input_tokens": values[0],
+                                "cached_input_tokens": values[1],
+                                "output_tokens": values[2],
+                            }
+                            for model, values in (
+                                cost_sink.scientist_usage_by_model.items()
+                            )
+                        },
+                    },
+                )
+                self._inject_cumulative_cost(sci_done, in_flight_usd=usd)
+                dispatch_journal_entry(sci_done)
             # L1 engineer completed
             eng_done = JournalEntry.new(
                 kind="phase_change",
@@ -1410,6 +1491,22 @@ class LifeSupervisor:
                 "agent_layer": "planner" if iteration_outcome and iteration_outcome.get("requeued") else "engineer",
                 "engineer_model": self.engineer_model,
                 "reviewer_model": self.reviewer_model,
+                "scientist_cost_usd": cost_sink.scientist_usd(),
+                "engineer_cost_usd": cost_sink.engineer_usd(),
+                "reviewer_cost_usd": cost_sink.reviewer_usd(),
+                "scientist_input_tokens": cost_sink.scientist_input_tokens,
+                "scientist_cached_input_tokens": (
+                    cost_sink.scientist_cached_input_tokens
+                ),
+                "scientist_output_tokens": cost_sink.scientist_output_tokens,
+                "scientist_usage_by_model": {
+                    model: {
+                        "input_tokens": values[0],
+                        "cached_input_tokens": values[1],
+                        "output_tokens": values[2],
+                    }
+                    for model, values in cost_sink.scientist_usage_by_model.items()
+                },
                 "input_tokens": cost_sink.total_input_tokens(),
                 "output_tokens": cost_sink.total_output_tokens(),
                 "matched_skill": str(getattr(outcome, "matched_skill_name", "") or ""),
@@ -1463,6 +1560,15 @@ class LifeSupervisor:
         # completion.
         if kind == "mission_complete":
             try:
+                # NOTE: this relative import is WRONG (`..manager` resolves to
+                # the non-existent `argus_skill.life.manager`), so this
+                # per-mission tidy has silently no-op'd via the fail-soft except
+                # below. Left as-is on purpose for now: fixing it flips
+                # per-mission skill distillation from dead → live (a real LLM
+                # classify + source write after EVERY mission, across all live
+                # daemons), which is a cost/behaviour change the operator must
+                # opt into — tracked separately. Distillation currently happens
+                # only on clean daemon shutdown (see life_worker._distill_on_shutdown).
                 from ..manager.skill_tidy import tidy_after_mission
 
                 counts = tidy_after_mission(
@@ -1602,13 +1708,35 @@ class LifeSupervisor:
     def _reset_idle_backoff(self) -> None:
         self._consecutive_idle_planner_cycles = 0
         self._suggested_sleep_s = 0.0
+        self._idle_since = None
         self._last_open_ended_project_done_signature = ""
 
     def _enter_idle_backoff(self) -> float:
         """Register one more no-work plan-cycle and return the suggested sleep."""
         self._consecutive_idle_planner_cycles += 1
+        if getattr(self, "_idle_since", None) is None:
+            self._idle_since = time.monotonic()
         self._suggested_sleep_s = self._idle_backoff_seconds()
         return self._suggested_sleep_s
+
+    def _maybe_idle_timeout(self) -> str:
+        """``"idle_timeout"`` once a continuous daemon has been idle too long.
+
+        Idle wall-clock is measured from ``_idle_since`` (first no-work pass)
+        and spans the daemon's outer-loop sleeps. Returns ``""`` when not in
+        continuous mode, when the feature is disabled (cap ≤ 0), or when the
+        streak is still within the window — so the only behaviour change is: a
+        genuinely idle 7×24 daemon releases its slot after the cap.
+        """
+        if not getattr(self.config, "continuous", False):
+            return ""
+        cap = _idle_exit_seconds()
+        idle_since = getattr(self, "_idle_since", None)
+        if cap <= 0 or idle_since is None:
+            return ""
+        if time.monotonic() - idle_since >= cap:
+            return "idle_timeout"
+        return ""
 
     def _should_journal_idle_repeat(self, kind: str) -> bool:
         """Heartbeat-gate repetitive idle/waiting JOURNAL appends.
@@ -2006,7 +2134,7 @@ class LifeSupervisor:
     def _defer_project_done_for_operator_external_blocker(self, verdict: Any) -> Any:
         if not (
             getattr(verdict, "project_done", False)
-            and self.config.full_emnlp_gate
+            and self._effective_full_emnlp_gate(self._project_workdir())
             and not self._journal_has_full_emnlp_gate_success()
         ):
             return verdict
@@ -2504,7 +2632,7 @@ class LifeSupervisor:
         # needs. Mirrors the gating in
         # ``_defer_project_done_for_operator_external_blocker``.
         short_circuit = None
-        if self.config.full_emnlp_gate:
+        if self._effective_full_emnlp_gate(self._project_workdir()):
             short_circuit = self._operator_external_blocker_short_circuit_decision(
                 project_root=self._project_workdir(),
             )
@@ -2878,6 +3006,16 @@ class LifeSupervisor:
         added_impact_scores: list[int] = []
 
         # Add new tasks to the backlog.
+        #
+        # Two passes so a planner-emitted DAG can be wired up before anything is
+        # enqueued. Pass 1 builds the surviving items (after dedup / recent-
+        # failure skips, exactly as before) WITHOUT adding them yet, and records
+        # each task's local ``key`` → real ``item.id`` in ``key_map``. Pass 2
+        # resolves each task's ``deps`` (local keys → real ids) onto the item and
+        # only then adds it. A flat task (no key/deps) flows through with an empty
+        # dep list, so its enqueue is byte-for-byte identical to the old path.
+        key_map: dict[str, str] = {}
+        pending_items: list[tuple[Any, Any]] = []  # (task, item)
         for task in verdict.new_tasks:
             sanitized_title = _sanitize_planner_task_text(task.title)
             sanitized_objective = _sanitize_planner_task_text(task.objective)
@@ -2953,8 +3091,35 @@ class LifeSupervisor:
                 iteration_max_cycles=self._item_iteration_cycles(),
                 iteration_budget_usd=self._item_iteration_budget(),
             )
-            self.memory.backlog.add(item)
+            # Reserve the signature now so a later sibling in the SAME batch
+            # with an identical title/objective still de-dupes against this
+            # one (matches the old single-pass behaviour). The item is not
+            # added to the backlog until pass 2.
             seen_signatures[signature] = item
+            if getattr(task, "key", ""):
+                key_map[task.key] = item.id
+            pending_items.append((task, item))
+
+        # Pass 2: resolve local dep keys to real item ids, then enqueue. Only
+        # intra-batch deps are supported — a key the planner referenced but did
+        # not define in THIS batch (typo, or an unsupported cross-cycle ref) is
+        # dropped with a warning so a stray key cannot wedge the item forever.
+        for task, item in pending_items:
+            task_deps = list(getattr(task, "deps", []) or [])
+            if task_deps:
+                resolved_ids, unresolved_keys = _resolve_task_dep_ids(
+                    task_deps, key_map
+                )
+                item.deps = resolved_ids
+                if unresolved_keys:
+                    log.warning(
+                        "life supervisor: dropping unresolved planner dep "
+                        "key(s) %s for task %r (only same-batch new_tasks deps "
+                        "are supported)",
+                        unresolved_keys,
+                        item.title,
+                    )
+            self.memory.backlog.add(item)
             added_titles.append(item.title)
             added_impact_scores.append(task.impact_score)
             self._emit({

@@ -114,7 +114,6 @@ def test_reviewer_done_is_vetoed_when_gate_failed() -> None:
     failed = _check(False, _STAGE_CHECK_FAIL_OUTPUT)
     reviewer_verdict = ReviewDecision(
         status="done",
-        confidence=0.9,
         reason="engineer reported success",
         next_action="No further action.",
         round_summary_markdown="# Review Summary\n\n- all good\n",
@@ -135,7 +134,6 @@ def test_reviewer_continue_keeps_status_but_replaces_blank_next_action() -> None
     failed = _check(False, _STAGE_CHECK_FAIL_OUTPUT)
     reviewer_verdict = ReviewDecision(
         status="continue",
-        confidence=0.3,
         reason="checks failed, continuing",
         next_action="",  # reviewer left it empty
         round_summary_markdown="",
@@ -153,7 +151,6 @@ def test_no_coercion_when_all_checks_pass() -> None:
     passed = _check(True, _STAGE_CHECK_PASS_OUTPUT)
     reviewer_verdict = ReviewDecision(
         status="done",
-        confidence=0.9,
         reason="all clear",
         next_action="No further action.",
         round_summary_markdown="",
@@ -231,7 +228,6 @@ def test_subprocess_stage_check_exits_nonzero_on_gate_failure(tmp_path: Path) ->
     )
     reviewer_verdict = ReviewDecision(
         status="done",
-        confidence=0.95,
         reason="engineer claims success",
         next_action="No further action.",
         round_summary_markdown="",

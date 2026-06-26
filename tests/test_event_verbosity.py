@@ -1,0 +1,103 @@
+"""Tests for JsonlEventSink verbosity (signal vs full).
+
+- "full" (default, what an isolated teammate gets) persists EVERYTHING — the
+  play-by-play tooling relies on engineer command/message detail.
+- "signal" (the daemon default) persists only high-value events, but NEVER
+  drops a win/result/error.
+- The downstream sink always receives every event regardless of verbosity.
+"""
+from __future__ import annotations
+
+import json
+
+from argus_skill.life.event_log import JsonlEventSink
+
+
+class _Capture:
+    def __init__(self):
+        self.events = []
+
+    def handle_event(self, event):
+        self.events.append(event)
+
+
+def _read(life_dir):
+    p = life_dir / "events.jsonl"
+    if not p.exists():
+        return []
+    return [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+
+
+def _feed(sink, *events):
+    for e in events:
+        sink.handle_event(e)
+
+
+def test_full_persists_everything(tmp_path):
+    sink = JsonlEventSink(None, life_dir=tmp_path, verbosity="full")
+    _feed(
+        sink,
+        {"type": "engineer.progress", "kind": "command_execution", "text": "ls"},
+        {"type": "session.roll"},
+        {"type": "round.review.completed", "status": "continue"},
+    )
+    types = [e["type"] for e in _read(tmp_path)]
+    assert types == ["engineer.progress", "session.roll", "round.review.completed"]
+
+
+def test_default_verbosity_is_full(tmp_path):
+    # An isolated teammate constructs JsonlEventSink with no verbosity arg.
+    sink = JsonlEventSink(None, life_dir=tmp_path)
+    _feed(sink, {"type": "engineer.progress", "kind": "command_execution", "text": "ls"})
+    assert len(_read(tmp_path)) == 1  # kept (full)
+
+
+def test_signal_drops_noise_keeps_signal(tmp_path):
+    sink = JsonlEventSink(None, life_dir=tmp_path, verbosity="signal")
+    _feed(
+        sink,
+        {"type": "engineer.progress", "kind": "command_execution", "text": "ls -la"},  # noise
+        {"type": "session.roll"},                                                       # noise
+        {"type": "round.watchdog.waiting"},                                             # noise
+        {"type": "round.review.completed", "status": "continue"},                       # signal
+        {"type": "skill.created", "name": "x"},                                         # signal
+        {"type": "loop.done", "text": "status=done"},                                   # signal
+    )
+    types = [e["type"] for e in _read(tmp_path)]
+    assert types == ["round.review.completed", "skill.created", "loop.done"]
+
+
+def test_signal_never_drops_a_win_or_error(tmp_path):
+    sink = JsonlEventSink(None, life_dir=tmp_path, verbosity="signal")
+    _feed(
+        sink,
+        {"type": "engineer.progress", "kind": "agent_message",
+         "text": "RESULT problem=053 correct=true cand_ms=0.0186"},  # WIN in prose
+        {"type": "engineer.progress", "kind": "agent_message",
+         "text": "Traceback (most recent call last): RuntimeError"},  # ERROR in prose
+        {"type": "some.backend_failure", "text": "429"},              # error by type
+        {"type": "engineer.progress", "kind": "command_execution", "text": "echo hi"},  # noise
+    )
+    texts = [e.get("text", "")[:12] for e in _read(tmp_path)]
+    assert len(_read(tmp_path)) == 3  # win + 2 errors kept, plain command dropped
+    assert any("RESULT" in t for t in texts)
+
+
+def test_downstream_gets_everything_regardless(tmp_path):
+    cap = _Capture()
+    sink = JsonlEventSink(cap, life_dir=tmp_path, verbosity="signal")
+    _feed(
+        sink,
+        {"type": "engineer.progress", "kind": "command_execution", "text": "ls"},
+        {"type": "round.review.completed"},
+    )
+    # downstream (live observer) sees BOTH; disk only the signal one.
+    assert len(cap.events) == 2
+    assert len(_read(tmp_path)) == 1
+
+
+def test_env_override_to_signal(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_EVENT_VERBOSITY", "signal")
+    sink = JsonlEventSink(None, life_dir=tmp_path)  # no explicit arg -> env
+    _feed(sink, {"type": "engineer.progress", "kind": "command_execution", "text": "ls"})
+    assert _read(tmp_path) == []  # dropped (env=signal)

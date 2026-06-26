@@ -37,7 +37,7 @@ SKILL_MD = (
 
 def _done_review() -> str:
     return json.dumps({
-        "status": "done", "confidence": 0.95,
+        "status": "done",
         "reason": "Greeting produced.", "next_action": "None.",
         "round_summary_markdown": "# Review\n\n- done\n",
         "completion_summary_markdown": "Done.",
@@ -46,7 +46,7 @@ def _done_review() -> str:
 
 def _review_with_ops(*, status: str = "blocked", skill_ops: list[dict]) -> str:
     return json.dumps({
-        "status": status, "confidence": 0.9,
+        "status": status,
         "reason": "verdict with skill ops",
         "next_action": "carry the lesson forward",
         "round_summary_markdown": "# Review\n\n- proposed skill ops\n",

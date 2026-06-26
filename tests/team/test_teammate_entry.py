@@ -16,13 +16,12 @@ def test_build_runner_ns_has_required_fields(tmp_path: Path, monkeypatch) -> Non
     # set model envs so it does not call resolve_route_model in the test env
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_MODEL", "m-eng")
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_MODEL", "m-rev")
-    monkeypatch.setenv("ARGUS_SKILL_AUTHOR_MODEL", "m-sci")
     monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / "skills"))
     ns = te._build_runner_ns(str(tmp_path), max_rounds=7, paper_mission=False)
     assert ns.engineer_model == "m-eng" and ns.reviewer_model == "m-rev"
     assert ns.workdir == str(tmp_path) and ns.max_rounds == 7 and ns.paper_mission is False
     # every field _SkillLoopRunner / execute reads must exist
-    for f in ("backend", "author_model", "engineer_reasoning_effort", "skills_dir",
+    for f in ("backend", "engineer_reasoning_effort", "skills_dir",
               "plan_mode", "plan_model", "check", "check_commands", "color", "verbose", "quiet"):
         assert hasattr(ns, f), f
 

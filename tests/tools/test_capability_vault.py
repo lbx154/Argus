@@ -38,7 +38,6 @@ def _clear_model_api_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "ARGUS_SKILL_REVIEWER_MODEL",
         "ARGUS_SKILL_SCIENTIST_API_KEY",
         "ARGUS_SKILL_SCIENTIST_BASE_URL",
-        "ARGUS_SKILL_AUTHOR_MODEL",
         "ARGUS_SKILL_IMAGE_API_KEY",
         "ARGUS_SKILL_IMAGE_BASE_URL",
         "ARGUS_SKILL_IMAGE_WIRE_API",

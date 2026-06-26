@@ -33,6 +33,10 @@ class _CostTrackingSink:
         self.engineer_output_tokens = 0
         self.reviewer_input_tokens = 0
         self.reviewer_output_tokens = 0
+        self.scientist_input_tokens = 0
+        self.scientist_cached_input_tokens = 0
+        self.scientist_output_tokens = 0
+        self.scientist_usage_by_model: dict[str, list[int]] = {}
         self._on_phase_change = on_phase_change
         self._reviewer_notified = False
         self._engineer_round_count = 0
@@ -73,6 +77,8 @@ class _CostTrackingSink:
                 self.reviewer_input_tokens += in_tok
                 self.reviewer_cached_input_tokens += cached_tok
                 self.reviewer_output_tokens += out_tok
+            elif kind == "skill.cost.completed":
+                self._record_scientist_usage(event)
         except Exception:  # noqa: BLE001
             log.debug("cost-tracking sink ignored malformed event", exc_info=True)
         # Always forward.
@@ -99,7 +105,20 @@ class _CostTrackingSink:
             log.exception("downstream close raised; continuing")
 
     def total_usd(self) -> float:
-        return self.engineer_usd() + self.reviewer_usd()
+        return self.scientist_usd() + self.engineer_usd() + self.reviewer_usd()
+
+    def scientist_usd(self) -> float:
+        total = 0.0
+        for model, values in self.scientist_usage_by_model.items():
+            input_tokens, cached_input_tokens, output_tokens = values
+            total += usd_for_tokens(
+                model,
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                price_lookup=price_for,
+            )
+        return total
 
     def engineer_usd(self) -> float:
         return usd_for_tokens(
@@ -120,10 +139,52 @@ class _CostTrackingSink:
         )
 
     def total_input_tokens(self) -> int:
-        return self.engineer_input_tokens + self.reviewer_input_tokens
+        return (
+            self.scientist_input_tokens
+            + self.engineer_input_tokens
+            + self.reviewer_input_tokens
+        )
 
     def total_output_tokens(self) -> int:
-        return self.engineer_output_tokens + self.reviewer_output_tokens
+        return (
+            self.scientist_output_tokens
+            + self.engineer_output_tokens
+            + self.reviewer_output_tokens
+        )
+
+    def _record_scientist_usage(self, event: dict[str, Any]) -> None:
+        for phase in ("matcher", "distiller"):
+            nested = event.get(phase)
+            if isinstance(nested, dict):
+                model = str(nested.get("model") or event.get(f"{phase}_model") or "")
+                raw = {
+                    "input_tokens": nested.get("input_tokens", 0),
+                    "cached_input_tokens": nested.get("cached_input_tokens", 0),
+                    "output_tokens": nested.get("output_tokens", 0),
+                }
+            else:
+                model = str(event.get(f"{phase}_model") or "")
+                raw = {
+                    "input_tokens": event.get(f"{phase}_input_tokens", 0),
+                    "cached_input_tokens": event.get(
+                        f"{phase}_cached_input_tokens", 0
+                    ),
+                    "output_tokens": event.get(f"{phase}_output_tokens", 0),
+                }
+            in_tok, cached_tok, out_tok = self._usage_delta(
+                raw,
+                layer=f"scientist:{phase}",
+            )
+            self.scientist_input_tokens += in_tok
+            self.scientist_cached_input_tokens += cached_tok
+            self.scientist_output_tokens += out_tok
+            if not any((in_tok, cached_tok, out_tok)):
+                continue
+            key = model or self.engineer_model
+            bucket = self.scientist_usage_by_model.setdefault(key, [0, 0, 0])
+            bucket[0] += in_tok
+            bucket[1] += cached_tok
+            bucket[2] += out_tok
 
     def _usage_delta(
         self,
@@ -166,4 +227,3 @@ class _CostTrackingSink:
             )
             return raw
         return delta
-

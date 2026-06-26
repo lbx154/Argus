@@ -43,7 +43,6 @@ SKILL_MD = (
 def _continue_review() -> str:
     return json.dumps({
         "status": "continue",
-        "confidence": 0.4,
         "reason": "More work needed.",
         "next_action": "Finish the work.",
         "round_summary_markdown": "# r1\n",
@@ -54,7 +53,6 @@ def _continue_review() -> str:
 def _done_review() -> str:
     return json.dumps({
         "status": "done",
-        "confidence": 0.95,
         "reason": "Met criterion.",
         "next_action": "—",
         "round_summary_markdown": "# done\n",
@@ -371,7 +369,6 @@ def test_curated_checkpoint_persists_across_missions_via_file(tmp_path: Path) ->
     def _review_with_checkpoint(status: str) -> str:
         return json.dumps({
             "status": status,
-            "confidence": 0.95 if status == "done" else 0.4,
             "reason": "handoff authored",
             "next_action": "continue" if status == "continue" else "—",
             "round_summary_markdown": "# r\n",
@@ -429,7 +426,7 @@ def test_no_checkpoint_path_keeps_handoff_in_memory_only(tmp_path: Path) -> None
     (legacy behaviour preserved)."""
     def _review_with_cp() -> str:
         return json.dumps({
-            "status": "done", "confidence": 0.95, "reason": "ok",
+            "status": "done", "reason": "ok",
             "next_action": "—", "round_summary_markdown": "# r\n",
             "completion_summary_markdown": "done",
             "checkpoint": {"goal": "G", "next_step": "N"},

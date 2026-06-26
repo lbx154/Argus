@@ -320,8 +320,11 @@ Self-architecture rules:
   Cosmetic refactors, renames, or generic cleanup are invalid.
 - Every self-architecture mission must include acceptance criteria and run
   targeted tests or a smoke scenario proving the blocked class of tasks now
-  works. If daemon/runtime code changed, rely on blue/green handoff so a fresh
-  daemon loads the new architecture without asking the human to restart it.
+  works. Daemon/runtime code changes only take effect once the operator
+  restarts the daemon at a clean mission boundary — the running process keeps
+  the previously-imported architecture until then. Land the change with passing
+  tests and record that a restart is required; do not assume an automatic
+  handoff will swap in the new code mid-flight.
 
 Planning discipline:
 - Prefer high-impact tasks in this order: fix reward/cost measurement bugs,

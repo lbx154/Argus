@@ -388,6 +388,14 @@ class BacklogItem:
     iteration_cost_usd: float = 0.0
     original_objective: str = ""
     orphan_retries: int = 0
+    # --- dependency DAG (topological scheduling) -----------------------
+    # ``deps`` is the list of *other* backlog item ids this item depends
+    # on. An item is only claimable once **every** dep has reached the
+    # terminal ``done`` status. An empty ``deps`` (the default — and the
+    # shape of every pre-DAG row) means "no dependencies", so the item is
+    # always ready and the legacy flat-backlog behaviour is preserved
+    # bit-for-bit.
+    deps: list[str] = field(default_factory=list)
 
     @classmethod
     def new(
@@ -402,6 +410,7 @@ class BacklogItem:
         iterate: bool = True,
         iteration_max_cycles: int = 6,
         iteration_budget_usd: float = 30.0,
+        deps: list[str] | None = None,
     ) -> "BacklogItem":
         objective = objective.strip()
         return cls(
@@ -417,6 +426,7 @@ class BacklogItem:
             iteration_max_cycles=int(iteration_max_cycles),
             iteration_budget_usd=float(iteration_budget_usd),
             original_objective=objective,
+            deps=list(deps or []),
         )
 
     def to_jsonable(self) -> dict[str, Any]:
@@ -448,14 +458,24 @@ class BacklogItem:
             iteration_cost_usd=float(row.get("iteration_cost_usd", 0.0)),
             original_objective=str(row.get("original_objective", objective)),
             orphan_retries=int(row.get("orphan_retries", 0)),
+            # Pre-DAG rows have no ``deps`` key → []. An empty dep list
+            # means "always ready", so old backlogs schedule exactly as
+            # they did before the DAG upgrade.
+            deps=list(row.get("deps", [])),
         )
 
 
 class Backlog:
-    """Ordered persistent backlog of missions.
+    """Ordered persistent backlog of missions, scheduled as a DAG.
 
-    Pending items are sorted by ``(priority asc, ts asc)`` so callers
-    can always ``next_pending()`` to get the head.
+    Pending items are sorted by ``(priority asc, ts asc)`` so callers can
+    always ``next_pending()`` to get the head. Each item may declare
+    ``deps`` (ids of other items); an item is only claimable once every
+    dep has reached ``done``. Items with no deps are always ready, so a
+    flat (dep-less) backlog behaves exactly as it did before the DAG
+    upgrade. A pending item whose dependency reaches a terminal-non-done
+    state (``failed`` / ``skipped`` / missing) is cascade-skipped on the
+    next ``claim_next`` so a dead dependency can't wedge the queue.
     """
 
     def __init__(self, path: Path) -> None:
@@ -468,6 +488,73 @@ class Backlog:
 
     def _save(self, items: Iterable[BacklogItem]) -> None:
         _atomic_rewrite_jsonl(self.path, (it.to_jsonable() for it in items))
+
+    @staticmethod
+    def _done_ids(items: Iterable[BacklogItem]) -> set[str]:
+        """Ids of items that have completed successfully.
+
+        Only ``done`` counts as a satisfied dependency. ``failed`` /
+        ``skipped`` are terminal but *not* satisfied — a dependent of a
+        failed item can never run and is cascade-skipped (see
+        :meth:`_cascade_blocked`). Mirrors ``team/task_board._done_ids``.
+        """
+        return {it.id for it in items if it.status == "done"}
+
+    @staticmethod
+    def _is_ready(item: BacklogItem, done: set[str]) -> bool:
+        """A pending item is ready iff every dep is in ``done``.
+
+        ``all(... for ... in [])`` is ``True``, so a dep-less item is
+        always ready — this is what guarantees the no-deps behaviour is
+        identical to the pre-DAG flat backlog.
+        """
+        return item.status == "pending" and all(d in done for d in item.deps)
+
+    def _cascade_blocked(self, items: list[BacklogItem]) -> bool:
+        """Skip pending items whose deps can never all become ``done``.
+
+        A pending item that lists a dep already in a terminal-but-not-done
+        state (``failed`` / ``skipped``) can never satisfy its dependency
+        set, so it would wait forever and look like permanently-blocked
+        work to the supervisor. We mark such items ``skipped`` with an
+        explanatory ``last_error`` so the dead dependency clears itself
+        and the daemon's idle logic behaves as if there is simply no
+        ready work.
+
+        Returns ``True`` if any item was mutated (caller must ``_save``).
+        Must run inside ``_locked``.
+        """
+        by_id = {it.id: it for it in items}
+        changed = False
+        for it in items:
+            if it.status != "pending":
+                continue
+            for dep_id in it.deps:
+                dep = by_id.get(dep_id)
+                # A dep that resolves to a terminal-non-done state (or to a
+                # missing item, which can also never become ``done``) blocks
+                # this item forever. Self/cyclic deps stay pending (never
+                # ready, never cascaded) — they cannot deadlock the daemon
+                # because a never-ready item is indistinguishable from "no
+                # work", which the idle path already handles.
+                if dep is None:
+                    it.status = "skipped"
+                    it.finished_ts = time.time()
+                    it.last_error = (
+                        f"blocked: dependency {dep_id} does not exist"
+                    )
+                    changed = True
+                    break
+                if dep.status in _TERMINAL_STATUSES and dep.status != "done":
+                    it.status = "skipped"
+                    it.finished_ts = time.time()
+                    it.last_error = (
+                        f"blocked: dependency {dep_id} did not complete "
+                        f"({dep.status})"
+                    )
+                    changed = True
+                    break
+        return changed
 
     @contextmanager
     def _locked(self) -> Iterator[None]:
@@ -532,22 +619,37 @@ class Backlog:
             return out
 
     def claim_next(self) -> BacklogItem | None:
-        """Atomically pick the head pending item and flip it to ``running``.
+        """Atomically pick the head *ready* pending item and flip it to ``running``.
 
         Replaces the ``next_pending()`` + ``mark_running()`` pair so the
         TOCTOU window between "see a pending row" and "claim it" closes.
         Returns the claimed item (with its in-memory ``status`` already
         ``running`` and ``started_ts`` set), or ``None`` if nothing is
-        pending. We rewrite the file under the same lock that ``_save``
-        already uses, so two concurrent callers cannot both win.
+        *ready* (no pending item whose deps are all ``done``). We rewrite
+        the file under the same lock that ``_save`` already uses, so two
+        concurrent callers cannot both win.
+
+        Dependency DAG: an item is only eligible once every id in its
+        ``deps`` is ``done``. A dep-less item (``deps == []``) is always
+        eligible, so flat backlogs schedule exactly as before. Before
+        choosing, we cascade-skip any pending item whose dep reached a
+        terminal-non-done state so a dead dependency cannot wedge the
+        queue forever.
         """
         with self._locked():
             items = self._load()
-            pending = [it for it in items if it.status == "pending"]
-            if not pending:
+            # Clear dead dependencies first (failed/skipped/missing dep →
+            # the dependent can never run). Persist the skip so the
+            # supervisor doesn't keep re-seeing a permanently-blocked item.
+            cascaded = self._cascade_blocked(items)
+            done = self._done_ids(items)
+            ready = [it for it in items if self._is_ready(it, done)]
+            if not ready:
+                if cascaded:
+                    self._save(items)
                 return None
-            pending.sort(key=lambda it: (it.priority, it.ts))
-            head = pending[0]
+            ready.sort(key=lambda it: (it.priority, it.ts))
+            head = ready[0]
             head.status = "running"
             head.started_ts = time.time()
             self._save(items)
@@ -681,9 +783,34 @@ class Backlog:
         items.sort(key=lambda it: (it.priority, it.ts))
         return items
 
+    def ready(self) -> list[BacklogItem]:
+        """Pending items whose deps are all ``done``, head-ordered.
+
+        This is the dependency-aware counterpart to :meth:`pending`:
+        ``pending`` lists every un-started item (for display / status);
+        ``ready`` lists only the ones actually claimable right now. A
+        dep-less item is always ready, so for a flat (no-deps) backlog
+        ``ready()`` and ``pending()`` return the same list.
+        """
+        items = self._load()
+        done = self._done_ids(items)
+        out = [it for it in items if self._is_ready(it, done)]
+        out.sort(key=lambda it: (it.priority, it.ts))
+        return out
+
     def next_pending(self) -> BacklogItem | None:
-        pend = self.pending()
-        return pend[0] if pend else None
+        """Head of the *ready* queue (deps all ``done``), or ``None``.
+
+        Kept named ``next_pending`` for the existing supervisor call
+        sites. It now returns the next *claimable* item rather than the
+        next merely-pending one, so it stays consistent with
+        :meth:`claim_next`: when no item is ready, both report "nothing
+        to run", which the supervisor's idle path already handles. This
+        is a pure read (no cascade mutation); dead-dependency cleanup
+        happens in the write-locked :meth:`claim_next`.
+        """
+        rdy = self.ready()
+        return rdy[0] if rdy else None
 
 
 # ---------------------------------------------------------------------------
@@ -1196,16 +1323,32 @@ class MemoryBundle:
         cwd: Path | str | None = None,
         *,
         global_root: Path | None = None,
+        fingerprint: str | None = None,
+        label: str | None = None,
     ) -> "MemoryBundle":
+        """Open the memory bundle for a project.
+
+        Default (``fingerprint=None``): identity derives from the cwd /
+        git-remote (legacy behaviour, unchanged). When ``fingerprint`` is
+        given (e.g. a session id), it keys ``projects/<fingerprint>/``
+        directly — the session model passes the resolved session id here so a
+        fresh ``argus-skill`` opens a NEW project regardless of cwd.
+        """
         from ..core.project import project_fingerprint  # local: avoid cycle
 
-        identity = project_fingerprint(cwd)
-        worktree = Path(identity.cwd)
+        if fingerprint is None:
+            identity = project_fingerprint(cwd)
+            fingerprint = identity.fingerprint
+            label = label or identity.label
+            worktree = Path(identity.cwd)
+        else:
+            worktree = Path(cwd).resolve() if cwd else Path.cwd().resolve()
+            label = label or fingerprint
         return cls(
             global_mem=GlobalMemory.open(global_root),
             project=ProjectMemory.open(
-                identity.fingerprint,
-                label=identity.label,
+                fingerprint,
+                label=label,
                 global_root=global_root,
             ),
             project_worktree=worktree,

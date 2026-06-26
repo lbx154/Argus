@@ -1292,7 +1292,6 @@ class SupervisedEngineer:
                 log.exception("reviewer raised during supervised round")
                 review = ReviewDecision(
                     status="blocked",
-                    confidence=0.0,
                     reason=msg,
                     next_action="Resolve the reviewer runner failure before retrying.",
                     round_summary_markdown=f"# Review Summary\n\n- {msg}\n",
@@ -1310,7 +1309,7 @@ class SupervisedEngineer:
             # engineer backend-failure path uses. ``backend_unavailable`` is an
             # explicit infra-death marker — distinct from a genuine
             # ``status="blocked"`` verdict (e.g. "blocked on GPU quota"), which
-            # carries real confidence and is handled normally by ``_classify``.
+            # is a real model judgment and is handled normally by ``_classify``.
             if getattr(review, "backend_unavailable", False):
                 reviewer_backend_failure_streak += 1
                 rb_threshold = max(
@@ -1430,7 +1429,7 @@ class SupervisedEngineer:
                     review,
                     round_index=round_index,
                     round_max=supervised_config.max_rounds,
-                    text=f"review: {review.status} (conf={review.confidence:.2f}) — {review.reason}",
+                    text=f"review: {review.status} — {review.reason}",
                 ))
             rounds.append(RoundRecord(
                 round_index=round_index,
@@ -1627,7 +1626,6 @@ def backend_failure_review_decision(
     )
     return ReviewDecision(
         status="continue",
-        confidence=0.0,
         reason=(
             "Engineer backend failed before a trustworthy completed turn; "
             f"reviewer skipped. backend_failure_streak={streak}/{threshold}; "
@@ -1654,7 +1652,6 @@ def daemon_stop_review_decision(
     error_text = str(fatal_error or f"exit={exit_code}").strip()
     return ReviewDecision(
         status="blocked",
-        confidence=0.0,
         reason=(
             "Engineer interrupted because daemon shutdown was requested; "
             f"no backend retry was attempted. error={error_text}"

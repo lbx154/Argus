@@ -124,7 +124,6 @@ def _make_runner(backend: _FakeBackend) -> Any:
     runner._args = argparse.Namespace(
         engineer_model="gpt-5.4-mini",
         reviewer_model="gpt-5.4",
-        author_model="gpt-5.4",
         skills_dir="/tmp/test-skills",
         workdir=None,
         max_rounds=6,
@@ -226,7 +225,6 @@ def test_execute_uses_full_pipeline_on_real_task(monkeypatch: pytest.MonkeyPatch
 
     @dataclass
     class _StubConfig:
-        author_model: str = ""
         engineer_model: str = ""
         reviewer_model: str | None = None
         max_rounds: int = 1

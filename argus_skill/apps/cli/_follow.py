@@ -154,10 +154,8 @@ def _format_follow_agent_message(layer: str, text: str) -> str:
     if data:
         if layer == "reviewer":
             status = data.get("status", "?")
-            conf = data.get("confidence")
             reason = _clean_follow_text(str(data.get("reason") or ""), limit=None)
-            conf_part = f" · conf={conf}" if conf is not None else ""
-            return f"💭 reviewer verdict: {status}{conf_part}" + (
+            return f"💭 reviewer verdict: {status}" + (
                 f" · {reason}" if reason else ""
             )
         if layer == "critic":
@@ -606,10 +604,8 @@ def _format_follow_event(
 
     if etype == "round.review.completed":
         status = event.get("status", "?")
-        conf = event.get("confidence")
         reason = _clean_follow_text(str(event.get("reason") or ""), limit=None)
-        conf_part = f" · conf={conf:.2f}" if isinstance(conf, (int, float)) else ""
-        return f"✅ [{_follow_layer_label('reviewer')}] completed · status={status}{conf_part}" + (
+        return f"✅ [{_follow_layer_label('reviewer')}] completed · status={status}" + (
             f" · {reason}" if reason else ""
         )
 

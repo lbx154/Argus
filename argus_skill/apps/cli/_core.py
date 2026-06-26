@@ -58,10 +58,94 @@ def _resolve_global_root(args: argparse.Namespace) -> Path:
     return resolve_life_root(args.life_dir)
 
 
+def _session_mode(args: argparse.Namespace) -> tuple[str, str | None]:
+    """Map the --new/--resume/--continue flags to (mode, session_id|None)."""
+    if getattr(args, "continue_session", False):
+        return "continue", None
+    resume = getattr(args, "resume", None)
+    if resume is not None:  # --resume given (with or without an id)
+        return "resume", (resume or None)
+    return "new", None
+
+
+def _pick_session(global_root: Path) -> str | None:
+    """Interactive picker of recent sessions for a bare ``--resume``.
+
+    Returns the chosen session id, or None if the user aborts / none exist.
+    """
+    from ...core.session import list_sessions
+
+    sessions = list_sessions(global_root)
+    if not sessions:
+        sys.stderr.write("argus-skill: no previous sessions to resume.\n")
+        return None
+    now = time.time()
+    sys.stdout.write("Resume which session?\n")
+    for i, s in enumerate(sessions[:20], 1):
+        age = max(0, now - (s.last_active or 0))
+        age_s = (f"{int(age // 86400)}d" if age >= 86400
+                 else f"{int(age // 3600)}h" if age >= 3600
+                 else f"{int(age // 60)}m")
+        name = s.display_name or (s.objective[:40] if s.objective else "(unnamed)")
+        sys.stdout.write(f"  {i:>2}. {s.id}  {age_s:>4} ago  ·  {name}\n")
+    try:
+        raw = input("  number (or id, blank to cancel): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+    if not raw:
+        return None
+    if raw.isdigit():
+        idx = int(raw) - 1
+        if 0 <= idx < len(sessions):
+            return sessions[idx].id
+        sys.stderr.write("argus-skill: out of range.\n")
+        return None
+    return raw  # treat as a session id
+
+
+def _resolve_session_id(
+    args: argparse.Namespace, global_root: Path, *, default_to_new: bool
+) -> tuple[str | None, bool]:
+    """Resolve the session id from flags. Returns (session_id, is_new).
+
+    With NO session flag: the REPL / daemon-start (``default_to_new=True``)
+    opens a FRESH session; management commands (``default_to_new=False``) return
+    (None, False) so the caller keeps the legacy cwd identity — unchanged.
+    """
+    from ...core.session import SessionResolutionError, resolve_session
+
+    explicit = (
+        bool(getattr(args, "new", False))
+        or bool(getattr(args, "continue_session", False))
+        or getattr(args, "resume", None) is not None
+    )
+    mode, sid = _session_mode(args)
+    if not explicit:
+        if not default_to_new:
+            return None, False  # legacy cwd identity
+        mode, sid = "new", None
+    if mode == "resume" and not sid:
+        sid = _pick_session(global_root)
+        if not sid:
+            return None, False
+    try:
+        return resolve_session(global_root=global_root, mode=mode,
+                               session_id=sid, cwd=Path.cwd())
+    except SessionResolutionError as exc:
+        sys.stderr.write(f"argus-skill: {exc}\n")
+        return None, False
+
+
 def _resolve_project_bundle(args: argparse.Namespace):
     from ...life import MemoryBundle
 
-    return MemoryBundle.for_cwd(Path.cwd(), global_root=_resolve_global_root(args))
+    global_root = _resolve_global_root(args)
+    # Management commands keep the legacy cwd identity unless an explicit session
+    # flag (--resume/--continue) is given.
+    sid, _is_new = _resolve_session_id(args, global_root, default_to_new=False)
+    if sid is None:
+        return MemoryBundle.for_cwd(Path.cwd(), global_root=global_root)
+    return MemoryBundle.for_cwd(Path.cwd(), global_root=global_root, fingerprint=sid)
 
 
 def _lifetime_entry_error(args: argparse.Namespace) -> str:
@@ -158,6 +242,7 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.status)
         + bool(args.daemon_runbook)
         + bool(getattr(args, "config_help", False))
+        + bool(getattr(args, "gc", False))
         + bool(args.watch)
         + bool(args.follow)
         + bool(getattr(args, "dashboard", False))
@@ -214,6 +299,8 @@ def main(argv: list[str] | None = None) -> int:
         from ...core.knobs import format_config_help
         sys.stdout.write(format_config_help())
         return 0
+    if getattr(args, "gc", False):
+        return _run_with_path_resolution_errors(lambda: _cmd_gc(args))
     if args.watch:
         return _run_with_path_resolution_errors(lambda: _cmd_watch(args))
     if args.follow:
@@ -279,18 +366,18 @@ def main(argv: list[str] | None = None) -> int:
     from ...manager.repl import run_manager_repl
     from ...tools.capability_vault import resolve_route_model
 
+    # Session resolution: a bare `argus-skill` opens a FRESH session; --resume /
+    # --continue reuse a previous one. The resolved id keys the project/daemon.
+    _gr = _resolve_global_root(args)
+    _session_id, _session_is_new = _resolve_session_id(args, _gr, default_to_new=True)
+
     repl_args = argparse.Namespace(
         life_dir=args.life_dir,
         color=None,
         backend=backend_default,
-        author_model=os.environ.get("ARGUS_SKILL_AUTHOR_MODEL")
-        or resolve_route_model("author"),
         engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL")
         or resolve_route_model("engineer"),
         reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL"),
-        author_reasoning_effort=os.environ.get(
-            "ARGUS_SKILL_AUTHOR_REASONING_EFFORT", "high"
-        ),
         engineer_reasoning_effort=os.environ.get(
             "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high"
         ),
@@ -306,6 +393,8 @@ def main(argv: list[str] | None = None) -> int:
         continuous=bool(args.continuous),
         objective=str(getattr(args, "objective", "") or ""),
         bounded=bool(getattr(args, "bounded", False)),
+        session_id=_session_id,
+        session_is_new=_session_is_new,
     )
     return _run_with_path_resolution_errors(lambda: run_manager_repl(repl_args))
 
@@ -335,16 +424,11 @@ def _build_worker_config(args: argparse.Namespace):
         or resolve_route_model("engineer"),
         reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL")
         or resolve_route_model("reviewer"),
-        author_model=os.environ.get("ARGUS_SKILL_AUTHOR_MODEL")
-        or resolve_route_model("author"),
         engineer_reasoning_effort=os.environ.get(
             "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high"
         ),
         reviewer_reasoning_effort=os.environ.get(
             "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high"
-        ),
-        author_reasoning_effort=os.environ.get(
-            "ARGUS_SKILL_AUTHOR_REASONING_EFFORT", "high"
         ),
         per_mission_cap_usd=float(os.environ.get("ARGUS_SKILL_PER_MISSION_CAP_USD", "30.0")),
         daily_cap_usd=float(os.environ.get("ARGUS_SKILL_DAILY_CAP_USD", "180.0")),
@@ -1180,6 +1264,33 @@ def _render_gate_snapshot_lines(workdir: Path, stage: str | None) -> list[str]:
             f"    {mark} {gate.name} ({gate.kind}) — {gate.summary}"
         )
     return lines
+
+
+def _cmd_gc(args: argparse.Namespace) -> int:
+    """Prune stale projects (no live daemon/repl + untouched for --gc-days)."""
+    from ...core.project_gc import gc_stale_projects, retention_days_default
+
+    root = _resolve_global_root(args)
+    days = getattr(args, "gc_days", None)
+    if days is None:
+        days = retention_days_default()
+    dry = bool(getattr(args, "gc_dry_run", False))
+    pruned = gc_stale_projects(root, retention_days=days, dry_run=dry)
+    verb = "would prune" if dry else "moved to projects_trash/"
+    if not pruned:
+        sys.stdout.write(
+            f"argus-skill: no stale projects (retention={days}d; "
+            "live daemons/REPLs and recently-active projects are never touched).\n"
+        )
+        return 0
+    sys.stdout.write(f"argus-skill: {verb} {len(pruned)} stale project(s):\n")
+    for fp in pruned:
+        sys.stdout.write(f"  - {fp}\n")
+    if not dry:
+        sys.stdout.write(
+            f"  ↳ recoverable under {root / 'projects_trash'} — rm it when sure.\n"
+        )
+    return 0
 
 
 def _cmd_status(args: argparse.Namespace) -> int:

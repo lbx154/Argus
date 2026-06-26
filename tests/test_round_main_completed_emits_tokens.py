@@ -63,7 +63,6 @@ class _DoneReviewerWithTokens:
     def evaluate(self, **_kwargs):
         return ReviewDecision(
             status="done",
-            confidence=0.95,
             reason="ok",
             next_action="",
             round_summary_markdown="",
@@ -230,7 +229,7 @@ def test_reviewer_propagates_tokens_on_unparseable_output() -> None:
 def test_reviewer_propagates_tokens_on_valid_json() -> None:
     runner = _StubReviewerRunner(
         agent_messages=[
-            '{"status":"done","confidence":0.9,"reason":"ok","next_action":""}'
+            '{"status":"done","reason":"ok","next_action":""}'
         ],
         in_tok=77,
         out_tok=9,

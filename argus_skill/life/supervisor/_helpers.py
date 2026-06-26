@@ -9,6 +9,41 @@ from ..memory import JournalEntry
 from . import _core
 
 
+def _resolve_task_dep_ids(
+    deps: list[str],
+    key_map: dict[str, str],
+) -> tuple[list[str], list[str]]:
+    """Map a task's *local* dep keys to real backlog item ids.
+
+    ``deps`` are the local ``key`` references the planner emitted on a task;
+    ``key_map`` maps each in-batch local key to the real ``BacklogItem.id``
+    chosen for the task that declared it. Returns ``(resolved_ids,
+    unresolved_keys)``:
+
+    * a local key present in ``key_map`` becomes its real item id (de-duped,
+      order-preserving — a dep can only be satisfied once);
+    * a local key NOT in ``key_map`` (typo, or a cross-cycle reference, which
+      is unsupported) is dropped and reported in ``unresolved_keys`` so the
+      caller can ``log.warning`` it.
+
+    A task with no ``deps`` yields ``([], [])`` — i.e. a flat item, scheduled
+    exactly as before the DAG existed.
+    """
+    resolved: list[str] = []
+    unresolved: list[str] = []
+    seen: set[str] = set()
+    for key in deps:
+        item_id = key_map.get(key)
+        if item_id is None:
+            unresolved.append(key)
+            continue
+        if item_id in seen:
+            continue
+        seen.add(item_id)
+        resolved.append(item_id)
+    return resolved, unresolved
+
+
 def _operator_only_blocker_paths_for_project(project_root: Path) -> list[Path]:
     """Return existing operator-only external-blocker artifact paths.
 

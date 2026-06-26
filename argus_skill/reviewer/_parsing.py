@@ -47,7 +47,6 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
     status = _parse_status(parsed)
     if status not in {"done", "continue", "blocked"}:
         return None
-    confidence = _parse_confidence(parsed.get("confidence"))
     round_summary_markdown = _parse_round_summary(parsed)
     reason = _parse_reason(parsed, round_summary_markdown=round_summary_markdown)
     next_action = _parse_next_action(parsed, status=status)
@@ -55,21 +54,18 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
         parsed.get("completion_summary_markdown")
     )
     if (
-        confidence is None
-        or reason is None
+        reason is None
         or next_action is None
         or round_summary_markdown is None
         or completion_summary_markdown is None
     ):
         return None
-    assert confidence is not None
     assert reason is not None
     assert next_action is not None
     assert round_summary_markdown is not None
     assert completion_summary_markdown is not None
     return ReviewDecision(
         status=status,
-        confidence=confidence,
         reason=reason,
         next_action=next_action,
         round_summary_markdown=round_summary_markdown,
@@ -270,15 +266,6 @@ def _parse_status(parsed: dict) -> ReviewStatus | None:
         if normalized in {"done", "continue", "blocked"}:
             return cast(ReviewStatus, normalized)
     return None
-
-
-def _parse_confidence(value: object) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    confidence = float(value)
-    if confidence < 0.0 or confidence > 1.0:
-        return None
-    return confidence
 
 
 def _parse_required_text(value: object) -> str | None:

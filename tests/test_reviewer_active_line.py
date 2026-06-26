@@ -5,7 +5,7 @@ restoring the floor — the structural fix for the greedy restore-the-floor rut.
 from __future__ import annotations
 
 from argus_skill.engineer.checkpoint import CheckpointState
-from argus_skill.reviewer import Reviewer, _parse_checkpoint
+from argus_skill.reviewer import Reviewer, _parse_checkpoint, parse_decision_text
 
 
 def _prompt(prior_checkpoint=None) -> str:
@@ -65,3 +65,21 @@ def test_reviewer_emitted_active_line_survives_parse_roundtrip():
     rendered = cp.render_for_engineer()
     assert "ACTIVE LINE" in rendered
     assert "do NOT restart" in rendered
+
+
+def test_reviewer_output_without_confidence_parses_into_verdict():
+    # The reviewer no longer self-reports a confidence. A structured output that
+    # omits ``confidence`` entirely must still parse into a full verdict — the
+    # parser must not depend on a confidence field to render a decision.
+    raw = (
+        '{"status": "done", "reason": "objective met with verified evidence", '
+        '"next_action": "No further action needed.", '
+        '"round_summary_markdown": "# Review\\n\\n- all checks passed\\n", '
+        '"completion_summary_markdown": "Mission complete."}'
+    )
+    decision = parse_decision_text(raw)
+    assert decision is not None
+    assert decision.status == "done"
+    assert decision.reason == "objective met with verified evidence"
+    # The parsed verdict carries no confidence attribute at all.
+    assert not hasattr(decision, "confidence")

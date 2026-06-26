@@ -95,7 +95,6 @@ class CheckResult:
 class ReviewDecision:
     """Reviewer verdict on one engineer round. Vendored from ArgusBot."""
     status: ReviewStatus
-    confidence: float
     reason: str
     next_action: str
     round_summary_markdown: str = ""
@@ -165,8 +164,8 @@ class ReviewDecision:
     # backend failure, instead of the silent ``continue`` that once ran the sole
     # completion gate BLIND for ~1.5h (2026-06-25, a stale import-time schema
     # path made every reviewer round exit 1). Distinct from a genuine
-    # ``status="blocked"`` verdict (e.g. "blocked on GPU quota") which carries a
-    # real confidence and is NOT a backend failure.
+    # ``status="blocked"`` verdict (e.g. "blocked on GPU quota") which is a
+    # real model judgment and is NOT a backend failure.
     backend_unavailable: bool = False
 
     @property
@@ -211,7 +210,6 @@ class ReviewDecision:
         payload: dict[str, Any] = {
             "type": "round.review.completed",
             "status": self.status,
-            "confidence": self.confidence,
             "reason": self.reason,
             "next_action": self.next_action,
             "round_summary_markdown": self.round_summary_markdown or "",

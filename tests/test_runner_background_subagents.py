@@ -41,7 +41,6 @@ def _write_record(reg: Path, task_id: str, **fields) -> None:
 def _done_review() -> str:
     return json.dumps({
         "status": "done",
-        "confidence": 0.95,
         "reason": "Met criterion.",
         "next_action": "—",
         "round_summary_markdown": "# done\n",

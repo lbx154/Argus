@@ -84,10 +84,8 @@ class LifeWorkerConfig:
     backend: str = "codex"  # "codex" | "memory"
     engineer_model: str = "gpt-5.5"
     reviewer_model: str = "gpt-5.5"
-    author_model: str = "gpt-5.5"
     engineer_reasoning_effort: str = "high"
     reviewer_reasoning_effort: str = "high"
-    author_reasoning_effort: str = "high"
     per_mission_cap_usd: float = 30.0
     daily_cap_usd: float = 180.0
     planner_task_iteration_max_cycles: int = 6
@@ -95,6 +93,13 @@ class LifeWorkerConfig:
     poll_interval: float = 5.0
     log_path: Path | None = None  # defaults to <life_dir>/daemon.log
     project_workdir: Path | None = None
+    # Persisted-events verbosity for the daemon's own events.jsonl. DEFAULT
+    # "full": the REPL live-follow tails this file, so dropping engineer.progress
+    # / round.review.* would break streaming (and hide the reviewer working).
+    # events.jsonl is size-bounded by JsonlEventSink's roll. "signal" is an
+    # opt-in (ARGUS_SKILL_EVENT_VERBOSITY) for a tiny verdict-only log; the
+    # REPL noise problem is solved at the DISPLAY layer, not by gutting the log.
+    event_log_verbosity: str = "full"
     continuous: bool = False
     continuous_objective: str = ""
     # When True (the default for the lifetime daemon) the supervisor keeps the
@@ -340,10 +345,8 @@ def _config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
         "backend": config.backend,
         "engineer_model": config.engineer_model,
         "reviewer_model": config.reviewer_model,
-        "author_model": config.author_model,
         "engineer_reasoning_effort": config.engineer_reasoning_effort,
         "reviewer_reasoning_effort": config.reviewer_reasoning_effort,
-        "author_reasoning_effort": config.author_reasoning_effort,
         "per_mission_cap_usd": config.per_mission_cap_usd,
         "daily_cap_usd": config.daily_cap_usd,
         "planner_task_iteration_max_cycles": config.planner_task_iteration_max_cycles,
@@ -372,15 +375,11 @@ def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         backend=str(data.get("backend") or "codex"),
         engineer_model=str(data.get("engineer_model") or resolve_route_model("engineer")),
         reviewer_model=str(data.get("reviewer_model") or resolve_route_model("reviewer")),
-        author_model=str(data.get("author_model") or resolve_route_model("author")),
         engineer_reasoning_effort=str(
             data.get("engineer_reasoning_effort") or "high"
         ),
         reviewer_reasoning_effort=str(
             data.get("reviewer_reasoning_effort") or "high"
-        ),
-        author_reasoning_effort=str(
-            data.get("author_reasoning_effort") or "high"
         ),
         per_mission_cap_usd=float(data.get("per_mission_cap_usd") or 30.0),
         daily_cap_usd=float(data.get("daily_cap_usd") or 180.0),
@@ -524,6 +523,13 @@ def run_handoff_child() -> int:
         force=True,
     )
     worker = LifeWorker(config)
+    # Housekeeping: prune stale projects on daemon boot too (covers a daemon
+    # started directly via --daemon, not just via the REPL). Best-effort.
+    try:
+        from ..core.project_gc import maybe_gc_stale_projects
+        maybe_gc_stale_projects(getattr(config, "global_root", None))
+    except Exception:  # noqa: BLE001
+        pass
     try:
         ready_path.write_text(
             json.dumps({
@@ -945,6 +951,7 @@ class LifeWorker:
             JsonlEventSink(
                 _DaemonSink(self, stream_reporter=stream_reporter),
                 life_dir=runtime_root,
+                verbosity=getattr(cfg, "event_log_verbosity", "signal"),
             ),
             life_dir=runtime_root,
         )
@@ -1114,6 +1121,16 @@ class LifeWorker:
                             objective=sup.config.continuous_objective,
                             done_reason="planner declared project done",
                         )
+                    # Idle auto-exit: the supervisor judged the project idle past
+                    # the cap. Exit the loop so the process shuts down cleanly
+                    # (the shutdown distillation below runs) — the session model
+                    # respawns this daemon on the operator's next --resume.
+                    if summary.get("stopped_by") == "idle_timeout":
+                        log.info(
+                            "daemon: idle-timeout reached; exiting cleanly "
+                            "(resume to continue)"
+                        )
+                        break
                 except Exception:  # noqa: BLE001
                     log.exception("daemon: drain pass raised; sleeping and retrying")
                 # Reset per-run counters so future drain passes work.
@@ -1143,7 +1160,36 @@ class LifeWorker:
             time.time() - (self._started_at or time.time()),
             self._missions_completed,
         )
+        self._distill_on_shutdown(sup)
         return 0
+
+    def _distill_on_shutdown(self, sup: Any) -> None:
+        """Final skill-distillation pass when the daemon stops cleanly.
+
+        This is where a daemon's accumulated lessons get promoted into the
+        argus source tree on death — it reuses the existing Manager skill gate
+        (``tidy_after_mission``), inventing no new judgement, and is fully
+        fail-soft. Skipped for the ``memory`` backend: distillation needs a real
+        LLM runner to classify placement, which the in-memory test/cheap backend
+        does not provide (and it would otherwise reach the global skill store).
+        """
+        if str(getattr(self.config, "backend", "") or "").lower() == "memory":
+            return
+        try:
+            from ..manager.skill_tidy import tidy_after_mission
+
+            counts = tidy_after_mission(sup._project_workdir(), sup.runner)
+        except Exception:  # noqa: BLE001 — shutdown distillation is best-effort
+            log.exception("daemon: shutdown distillation failed; non-critical")
+            return
+        promoted = (counts or {}).get("to_builtin", 0) + (counts or {}).get(
+            "to_vertical", 0
+        )
+        if promoted:
+            log.info(
+                "daemon: shutdown distillation promoted %d skill(s) to source",
+                promoted,
+            )
 
     def _wakeable_sleep(
         self,
@@ -1263,7 +1309,6 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     ns.backend = cfg.backend
     ns.engineer_model = cfg.engineer_model
     ns.reviewer_model = cfg.reviewer_model
-    ns.author_model = cfg.author_model
     ns.engineer_reasoning_effort = os.environ.get(
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
         cfg.engineer_reasoning_effort,
@@ -1271,10 +1316,6 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     ns.reviewer_reasoning_effort = os.environ.get(
         "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
         cfg.reviewer_reasoning_effort,
-    )
-    ns.author_reasoning_effort = os.environ.get(
-        "ARGUS_SKILL_AUTHOR_REASONING_EFFORT",
-        cfg.author_reasoning_effort,
     )
     default_skills_dir = (
         core_paths.skills_global_root()

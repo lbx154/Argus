@@ -336,6 +336,11 @@ class _GateStub:
     def _journal_has_full_emnlp_gate_success(self) -> bool:
         return self._certified
 
+    def _effective_full_emnlp_gate(self, _workdir: object) -> bool:
+        # These gate tests model a default-research project, where the
+        # vertical-effective gate equals the raw config flag.
+        return bool(self.config.full_emnlp_gate)
+
     def _emit_status(self, text: str) -> None:
         self.emitted.append(text)
 
