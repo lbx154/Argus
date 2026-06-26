@@ -788,6 +788,81 @@ class _SkillLoopRunner:
 
         return _ctx()
 
+    def _maybe_chat_outcome(
+        self,
+        *,
+        objective: str,
+        sink: EventSink,
+        seed_thread_id: str | None = None,
+    ) -> "_Outcome | None":
+        # Chat fast-path (operator-REPL/Manager-front-end-only).
+        # Conversational input (greetings, capability questions, acks) doesn't
+        # need matcher → distill → engineer round-loop → reviewer. A trace
+        # before this guard: "hello" cost $0.10 + 72s, ran `pwd && ls && rg
+        # --files && sed README.md`, then the reviewer rejected it for "doing
+        # unrelated repo inspection". A cheap model call classifies the message
+        # and, on a clear CHAT answer, short-circuits to a single chat-prompt
+        # codex call — no skill machinery, no reviewer, no writeback.
+        # Cost note: this classifier runs only on interactive operator free
+        # text (never the 7×24 daemon), so its tiny low-reasoning call is not
+        # part of autonomous spend and is not separately metered.
+        from ..core.models import RunnerOptions
+        from ..manager import Manager
+
+        _safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
+        _workdir = (
+            Path(self._args.workdir).expanduser()
+            if getattr(self._args, "workdir", None)
+            else Path.cwd()
+        )
+
+        def _classify_run_exec(prompt: str) -> Any:
+            return self._backend.run_exec(
+                prompt=prompt,
+                options=RunnerOptions(
+                    model=self._args.engineer_model,
+                    reasoning_effort="low",
+                    full_auto=_safe_mode,
+                    skip_git_repo_check=True,
+                    dangerous_yolo=not _safe_mode,
+                    working_dir=str(_workdir),
+                ),
+                run_label="router-classify",
+                resume_thread_id=None,
+            )
+
+        # The Manager owns the chat-vs-task decision; the runner only executes it.
+        if Manager(
+            project_root=_workdir,
+            runner=getattr(self, "manager_backend", None) or self._backend,
+        ).is_conversational(objective, run_exec=_classify_run_exec):
+            return self._chat_quick_reply(
+                objective=objective,
+                sink=sink,
+                seed_thread_id=seed_thread_id,
+            )
+        return None
+
+    def chat_reply_if_conversational(
+        self,
+        *,
+        objective: str,
+        sink: EventSink,
+        seed_thread_id: str | None = None,
+    ) -> bool:
+        """Front-end hook: classify + (if chat) reply in-band; return whether it was chat.
+
+        Used by the Manager REPL front-end to triage free text BEFORE it ever
+        reaches the backlog. Returns True iff the input was conversational and a
+        chat reply was emitted to ``sink`` (so the caller can skip enqueueing);
+        False means "this is a task — enqueue it for the daemon".
+        """
+        return self._maybe_chat_outcome(
+            objective=objective,
+            sink=sink,
+            seed_thread_id=seed_thread_id,
+        ) is not None
+
     def execute(
         self,
         *,
@@ -800,52 +875,18 @@ class _SkillLoopRunner:
         scope: str = "",
     ) -> _Outcome:
         # Chat fast-path (operator-REPL-only; gated by _allow_chat_fast_path).
-        # Conversational input (greetings, capability questions, acks) doesn't
-        # need matcher → distill → engineer round-loop → reviewer. A trace
-        # before this guard: "hello" cost $0.10 + 72s, ran `pwd && ls && rg
-        # --files && sed README.md`, then the reviewer rejected it for "doing
-        # unrelated repo inspection". A cheap model call classifies the message
-        # and, on a clear CHAT answer, short-circuits to a single chat-prompt
-        # codex call — no skill machinery, no reviewer, no writeback.
-        # Cost note: this classifier runs only on interactive operator free
-        # text (never the 7×24 daemon), so its tiny low-reasoning call is not
-        # part of autonomous spend and is not separately metered.
+        # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
+        # only gate it so the 7×24 daemon (``_allow_chat_fast_path=False``) is
+        # never classified — agent-produced backlog work must not be second-
+        # guessed. Behaviour is byte-for-byte identical to the prior inline path.
         if self._allow_chat_fast_path:
-            from ..core.models import RunnerOptions
-            from ..manager import Manager
-
-            _safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
-            _workdir = (
-                Path(self._args.workdir).expanduser()
-                if getattr(self._args, "workdir", None)
-                else Path.cwd()
+            _chat = self._maybe_chat_outcome(
+                objective=objective,
+                sink=sink,
+                seed_thread_id=seed_thread_id,
             )
-
-            def _classify_run_exec(prompt: str) -> Any:
-                return self._backend.run_exec(
-                    prompt=prompt,
-                    options=RunnerOptions(
-                        model=self._args.engineer_model,
-                        reasoning_effort="low",
-                        full_auto=_safe_mode,
-                        skip_git_repo_check=True,
-                        dangerous_yolo=not _safe_mode,
-                        working_dir=str(_workdir),
-                    ),
-                    run_label="router-classify",
-                    resume_thread_id=None,
-                )
-
-            # The Manager owns the chat-vs-task decision; the runner only executes it.
-            if Manager(
-                project_root=_workdir,
-                runner=getattr(self, "manager_backend", None) or self._backend,
-            ).is_conversational(objective, run_exec=_classify_run_exec):
-                return self._chat_quick_reply(
-                    objective=objective,
-                    sink=sink,
-                    seed_thread_id=seed_thread_id,
-                )
+            if _chat is not None:
+                return _chat
 
         args = self._args
         # 7×24 product: default to dangerous_yolo (no bwrap sandbox).

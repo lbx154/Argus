@@ -906,3 +906,241 @@ def test_config_cmd_rejects_continuous_on_memory_backend(
     assert "cannot plan" in out
     assert chat_state["config"]["continuous"] is False
     assert not (tmp_path / "continuous.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# Manager front-end triage: chat short-circuits the backlog, tasks fall through
+# ---------------------------------------------------------------------------
+
+
+class _FakeManagerRunner:
+    """Stand-in for the Manager front-end runner used by ``_free_text_cmd``.
+
+    ``chat_reply_if_conversational`` returns whatever ``is_chat`` was set to;
+    a True result means "this was conversation, replied front-stage" and the
+    REPL must NOT enqueue it.
+    """
+
+    def __init__(self, *, is_chat: bool) -> None:
+        self._is_chat = is_chat
+        self.last_thread_id = "tid-after-chat"
+        self.calls: list[str] = []
+
+    def chat_reply_if_conversational(
+        self, *, objective: str, sink: Any, seed_thread_id: Any = None
+    ) -> bool:
+        self.calls.append(objective)
+        return self._is_chat
+
+
+def test_free_text_chat_short_circuits_backlog(mem: LifeMemory) -> None:
+    """Conversational free text (Manager says chat) must NOT enqueue a backlog
+    item and must NOT tail the daemon — the Manager replies front-stage."""
+    fake = _FakeManagerRunner(is_chat=True)
+    tail_called: dict[str, bool] = {"hit": False}
+
+    def fake_tail(life_dir: Any, item_id: str, **kwargs: Any):
+        tail_called["hit"] = True
+        return None
+
+    chat_state: dict[str, Any] = {"backend": "codex"}
+    with patch.object(
+        manager_repl, "_ensure_manager_runner", return_value=fake
+    ), patch.object(manager_repl, "tail_mission_events", side_effect=fake_tail):
+        manager_repl._free_text_cmd(mem, "你好", chat_state=chat_state)
+
+    assert mem.backlog.pending() == [], "chat must not enqueue a backlog item"
+    assert fake.calls == ["你好"]
+    assert tail_called["hit"] is False, "chat must not attach to the daemon"
+    # The front-stage reply's thread id is threaded back for session continuity.
+    assert chat_state.get("last_thread_id") == "tid-after-chat"
+
+
+def test_free_text_task_falls_through_when_not_conversational(
+    mem: LifeMemory,
+) -> None:
+    """When the Manager says NOT chat, the input is enqueued and the REPL
+    attaches via tail_mission_events (existing task path, unchanged)."""
+    fake = _FakeManagerRunner(is_chat=False)
+    captured: dict[str, Any] = {}
+
+    def fake_tail(life_dir: Any, item_id: str, **kwargs: Any):
+        head = mem.backlog.next_pending()
+        captured["head_obj"] = head.objective if head else None
+        captured["tail_item_id"] = item_id
+        return {"type": "life.mission.completed", "item_id": item_id,
+                "status": "success", "cost_usd": 0.0}
+
+    chat_state: dict[str, Any] = {"backend": "codex"}
+    with patch.object(
+        manager_repl, "_ensure_manager_runner", return_value=fake
+    ), patch.object(manager_repl, "tail_mission_events", side_effect=fake_tail):
+        manager_repl._free_text_cmd(mem, "build the widget", chat_state=chat_state)
+
+    pending = mem.backlog.pending()
+    assert pending, "a task must enqueue a backlog item"
+    assert pending[0].objective == "build the widget"
+    assert captured["head_obj"] == "build the widget"
+    assert captured["tail_item_id"] == pending[0].id
+
+
+def test_free_text_triage_skipped_when_no_runner(mem: LifeMemory) -> None:
+    """When _ensure_manager_runner returns None (e.g. memory backend / build
+    failure) the input is treated as a task — no classification, straight to
+    backlog + tail. This is the path the existing memory-backend tests rely on."""
+    captured: dict[str, Any] = {}
+
+    def fake_tail(life_dir: Any, item_id: str, **kwargs: Any):
+        captured["tail_item_id"] = item_id
+        return {"type": "life.mission.completed", "item_id": item_id,
+                "status": "success", "cost_usd": 0.0}
+
+    chat_state: dict[str, Any] = {"backend": "memory"}
+    with patch.object(
+        manager_repl, "_ensure_manager_runner", return_value=None
+    ), patch.object(manager_repl, "tail_mission_events", side_effect=fake_tail):
+        manager_repl._free_text_cmd(mem, "do the work", chat_state=chat_state)
+
+    pending = mem.backlog.pending()
+    assert pending and pending[0].objective == "do the work"
+    assert captured["tail_item_id"] == pending[0].id
+
+
+def test_ensure_manager_runner_memory_backend_returns_none(mem: LifeMemory) -> None:
+    """The memory backend never gets front-end triage — _ensure returns None
+    and caches the sentinel so subsequent lines also skip triage."""
+    chat_state: dict[str, Any] = {"backend": "memory"}
+    assert manager_repl._ensure_manager_runner(chat_state, mem) is None
+    # Cached sentinel → a second call also returns None without rebuilding.
+    assert chat_state["manager_runner"] is manager_repl._MANAGER_RUNNER_UNAVAILABLE
+    assert manager_repl._ensure_manager_runner(chat_state, mem) is None
+
+
+def test_ensure_manager_runner_build_failure_caches_unavailable(
+    mem: LifeMemory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A build failure must not raise — it caches the unavailable sentinel so the
+    REPL falls back to the task path for every line."""
+    monkeypatch.setattr(
+        _runtime,
+        "build_life_runner",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    chat_state: dict[str, Any] = {"backend": "codex"}
+    assert manager_repl._ensure_manager_runner(chat_state, mem) is None
+    assert chat_state["manager_runner"] is manager_repl._MANAGER_RUNNER_UNAVAILABLE
+
+
+def test_ensure_manager_runner_builds_and_caches_runner(
+    mem: LifeMemory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On a non-memory backend the helper builds a runner via build_life_runner
+    and caches it for reuse."""
+    sentinel_runner = object()
+    captured: dict[str, Any] = {}
+
+    def fake_build(ns: argparse.Namespace, *, seed_thread_id: Any = None) -> Any:
+        captured["backend"] = ns.backend
+        return sentinel_runner
+
+    monkeypatch.setattr(_runtime, "build_life_runner", fake_build)
+    chat_state: dict[str, Any] = {"backend": "codex"}
+    out = manager_repl._ensure_manager_runner(chat_state, mem)
+    assert out is sentinel_runner
+    assert captured["backend"] == "codex"
+    # Cached → the second call returns the same object without rebuilding.
+    captured.clear()
+    assert manager_repl._ensure_manager_runner(chat_state, mem) is sentinel_runner
+    assert captured == {}
+
+
+# ---------------------------------------------------------------------------
+# _SkillLoopRunner.chat_reply_if_conversational / _maybe_chat_outcome
+# ---------------------------------------------------------------------------
+
+
+def _make_skill_loop_runner(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Build a _SkillLoopRunner without constructing a real codex backend."""
+    runner = _runtime._SkillLoopRunner.__new__(_runtime._SkillLoopRunner)
+    runner._args = argparse.Namespace(
+        workdir=None, engineer_model="m", engineer_reasoning_effort="high"
+    )
+    runner._backend = object()
+    runner.manager_backend = object()
+    runner._current_sink = None
+    runner._current_failure_ledger = None
+    runner._next_seed_thread_id = None
+    runner.last_thread_id = None
+    runner._allow_chat_fast_path = False
+    return runner
+
+
+class _CollectingSink:
+    def __init__(self) -> None:
+        self.events: list[dict[str, Any]] = []
+
+    def handle_event(self, event: dict[str, Any]) -> None:
+        self.events.append(event)
+
+
+def test_chat_reply_if_conversational_true_emits_chat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the Manager classifies as chat, the runner emits a chat reply and
+    chat_reply_if_conversational returns True."""
+    runner = _make_skill_loop_runner(monkeypatch)
+    sink = _CollectingSink()
+
+    class _FakeManager:
+        def __init__(self, *a: Any, **k: Any) -> None:
+            pass
+
+        def is_conversational(self, text: str, *, run_exec: Any = None) -> bool:
+            return True
+
+    monkeypatch.setattr("argus_skill.manager.Manager", _FakeManager)
+
+    chat_called: dict[str, Any] = {}
+
+    def fake_chat_quick_reply(*, objective: str, sink: Any, seed_thread_id: Any = None):
+        chat_called["objective"] = objective
+        sink.handle_event({"type": "round.main.completed", "last_message": "你好!"})
+        return _runtime._Outcome(
+            success=True, status="done", stop_reason="", rounds=1,
+            last_thread_id=None, chat_mode=True,
+        )
+
+    monkeypatch.setattr(runner, "_chat_quick_reply", fake_chat_quick_reply)
+
+    assert runner.chat_reply_if_conversational(objective="你好", sink=sink) is True
+    assert chat_called["objective"] == "你好"
+    assert any(e.get("type") == "round.main.completed" for e in sink.events)
+
+
+def test_maybe_chat_outcome_false_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the Manager classifies as a task, _maybe_chat_outcome returns None
+    and chat_reply_if_conversational returns False (no chat reply emitted)."""
+    runner = _make_skill_loop_runner(monkeypatch)
+    sink = _CollectingSink()
+
+    class _FakeManager:
+        def __init__(self, *a: Any, **k: Any) -> None:
+            pass
+
+        def is_conversational(self, text: str, *, run_exec: Any = None) -> bool:
+            return False
+
+    monkeypatch.setattr("argus_skill.manager.Manager", _FakeManager)
+
+    def boom(**kwargs: Any) -> Any:  # must NOT be called on the task path
+        raise AssertionError("_chat_quick_reply called for a task")
+
+    monkeypatch.setattr(runner, "_chat_quick_reply", boom)
+
+    assert runner._maybe_chat_outcome(objective="build the thing", sink=sink) is None
+    assert runner.chat_reply_if_conversational(
+        objective="build the thing", sink=sink
+    ) is False
+    assert sink.events == []

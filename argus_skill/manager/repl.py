@@ -428,6 +428,72 @@ def _journal_tail_cmd(mem: _CommonMemory, n: int) -> None:
     print(format_journal_tail(mem, n))
 
 
+# Sentinel stored in chat_state when a Manager runner cannot be built (or is
+# not applicable, e.g. the memory backend). Lets us cache the "no front-end
+# triage" decision so we don't retry the build on every line typed.
+_MANAGER_RUNNER_UNAVAILABLE = object()
+
+
+def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
+    """Lazily build (and cache) a Manager-front-end runner for chat triage.
+
+    The runner is used ONLY to classify free text as chat-vs-task and, when
+    chat, to reply in-band BEFORE anything reaches the backlog. It is built
+    once per REPL session and cached on ``chat_state["manager_runner"]``.
+
+    Returns the runner, or ``None`` when front-end triage is not available
+    (memory backend, or a build failure — in which case all free text falls
+    through to the task path unchanged).
+    """
+    cached = chat_state.get("manager_runner")
+    if cached is not None:
+        return None if cached is _MANAGER_RUNNER_UNAVAILABLE else cached
+
+    backend = chat_state.get("backend")
+    # The memory backend has no real LLM runner; never triage — every line is
+    # a task (preserves existing memory-backend behaviour and its tests).
+    if backend == "memory":
+        chat_state["manager_runner"] = _MANAGER_RUNNER_UNAVAILABLE
+        return None
+
+    try:
+        from ..tools.capability_vault import resolve_route_model
+
+        ns = argparse.Namespace(
+            backend=backend or "codex",
+            author_model=os.environ.get("ARGUS_SKILL_AUTHOR_MODEL")
+            or resolve_route_model("author"),
+            engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL")
+            or resolve_route_model("engineer"),
+            reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL"),
+            author_reasoning_effort=os.environ.get(
+                "ARGUS_SKILL_AUTHOR_REASONING_EFFORT", "high"
+            ),
+            engineer_reasoning_effort=os.environ.get(
+                "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high"
+            ),
+            reviewer_reasoning_effort=os.environ.get(
+                "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high"
+            ),
+            plan_mode="auto",
+            plan_model=None,
+            max_rounds=500,
+            check=[],
+            workdir=None,
+            life_dir=getattr(mem, "root", None),
+            stop_event=None,
+        )
+        from ..apps._runtime import build_life_runner
+
+        runner = build_life_runner(ns)
+    except Exception:  # noqa: BLE001 — triage is best-effort; fall back to task path
+        chat_state["manager_runner"] = _MANAGER_RUNNER_UNAVAILABLE
+        return None
+
+    chat_state["manager_runner"] = runner
+    return runner
+
+
 def _free_text_cmd(
     mem: Any,
     text: str,
@@ -460,6 +526,34 @@ def _free_text_cmd(
         default_budget=cfg.get("budget", 30.0),
     )
     body = body or text.strip()
+
+    # Manager front-end triage (operator REPL only). Before the input ever
+    # touches the backlog, ask the Manager whether it's conversation (greeting /
+    # capability question / ack) rather than a real task. If so, the Manager
+    # replies in-band, front-stage, and we DON'T enqueue it — the 7×24 daemon
+    # never sees chat. A task falls through unchanged. Skipped for continuous
+    # mode (that path persists an objective + plans further work) and for the
+    # memory backend (no real runner → _ensure returns None). Best-effort: any
+    # failure falls back to the task path.
+    runner = _ensure_manager_runner(chat_state, mem)
+    if runner is not None and not continuous and hasattr(
+        runner, "chat_reply_if_conversational"
+    ):
+        from ..apps._runtime import LifeStderrSink
+
+        try:
+            if runner.chat_reply_if_conversational(
+                objective=body,
+                sink=LifeStderrSink(quiet=False),
+                seed_thread_id=chat_state.get("last_thread_id"),
+            ):
+                chat_state["last_thread_id"] = getattr(
+                    runner, "last_thread_id", None
+                )
+                return  # Manager replied front-stage; not a backlog task.
+        except Exception:  # noqa: BLE001 — triage failure → treat as a task
+            pass
+
     pending = mem.backlog.pending()
     head_priority = min((it.priority for it in pending), default=100)
     free_priority = min(head_priority - 1, -1)
