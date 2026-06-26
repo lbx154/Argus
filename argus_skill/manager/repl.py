@@ -948,10 +948,56 @@ def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> 
 # Help screen
 # ---------------------------------------------------------------------------
 
+def _doctor_cmd(mem: Any, chat_state: dict[str, Any], global_root: Any) -> None:
+    """`/doctor` — diagnose why no daemon / why auto-spawn failed, with fixes."""
+    theme = chat_state.get("theme")
+    try:
+        from ..tools.doctor import render_report, run_diagnostics
+
+        checks = run_diagnostics(mem.project.root, global_root=global_root)
+        out = render_report(checks, theme)
+    except Exception as exc:  # noqa: BLE001 — doctor must never crash the REPL
+        out = f"/doctor failed: {type(exc).__name__}: {exc}"
+    print(out, flush=True)
+
+
+def _plan_cmd(mem: Any, chat_state: dict[str, Any], objective: str) -> None:
+    """`/plan <objective>` — preview a step plan, then optionally queue it.
+
+    Codex/Claude-Code/Cursor parity: see HOW the agent would approach the work
+    before anything reaches the backlog. Drafting the plan never executes work.
+    """
+    theme = chat_state.get("theme")
+    if not objective.strip():
+        msg = "usage: /plan <objective>  — preview a step plan before queuing it"
+        print(theme.gray(msg) if theme is not None else msg, flush=True)
+        return
+    runner = _ensure_manager_runner(chat_state, mem)
+    from ..manager import plan_mode
+
+    print(theme.gray("drafting a plan…") if theme is not None else "drafting a plan…",
+          flush=True)
+    plan = plan_mode.draft_plan(runner, objective)
+    print(plan_mode.render_plan(plan, theme), flush=True)
+    # Ask before queuing — the whole point of a preview is approval.
+    prompt = "queue this plan as a task? [y/N] "
+    try:
+        ans = input(theme.cyan(prompt) if theme is not None else prompt)
+    except (EOFError, KeyboardInterrupt):
+        ans = ""
+    if ans.strip().lower() in ("y", "yes"):
+        _free_text_cmd(mem, objective, chat_state)
+    else:
+        note = "plan not queued (nothing executed). Edit the objective and /plan again, or just type it to run."
+        print(theme.gray(note) if theme is not None else note, flush=True)
+
+
 def _render_help(theme) -> str:  # noqa: ANN001
     rows: list[tuple[str, str]] = [
         ("/help", "show this help"),
         ("/status", "summary of identity, backlog, recent journal"),
+        ("/plan <objective>", "preview a step plan, then approve before queuing"),
+        ("/doctor", "diagnose why no daemon / why a task won't run, with fixes"),
         ("/config [key=val ...]", "view/change session defaults "
                                   "(cycles, budget, continuous, daily_cap)"),
         ("/identity [edit|set …]", "view or update the identity card"),
@@ -1414,6 +1460,12 @@ def _run_manager_repl_locked(
             continue
         if cmd == "/status":
             _status_cmd(mem, chat_state)
+            continue
+        if cmd == "/doctor":
+            _doctor_cmd(mem, chat_state, global_root)
+            continue
+        if cmd == "/plan":
+            _plan_cmd(mem, chat_state, rest_text)
             continue
         if cmd == "/start":
             _continuous_cmd(mem, f"start {rest_text}".strip(), chat_state)
