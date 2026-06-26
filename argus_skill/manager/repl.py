@@ -992,12 +992,74 @@ def _plan_cmd(mem: Any, chat_state: dict[str, Any], objective: str) -> None:
         print(theme.gray(note) if theme is not None else note, flush=True)
 
 
+def _daemons_cmd(chat_state: dict[str, Any], global_root: Any, current_root: Any) -> None:
+    """`/daemons` — list every live daemon across all projects (cross-project)."""
+    theme = chat_state.get("theme")
+    try:
+        from ..apps.cli import _format_short_duration
+        from ..core.session import live_daemon_sessions
+        from ..daemon.life_worker import read_daemon_status
+
+        sessions = live_daemon_sessions(global_root)
+    except Exception as exc:  # noqa: BLE001
+        print(f"/daemons failed: {type(exc).__name__}: {exc}", flush=True)
+        return
+    if not sessions:
+        msg = "no live daemons running. Start one: argus-skill --daemon"
+        print(theme.gray(msg) if theme is not None else msg, flush=True)
+        return
+    print(theme.bold("live daemons") if theme is not None else "live daemons", flush=True)
+    for s in sessions:
+        proj = Path(global_root) / "projects" / s.id
+        try:
+            st = read_daemon_status(proj)
+            up = _format_short_duration(st.uptime_seconds or 0.0)
+            pid = st.pid
+        except Exception:  # noqa: BLE001
+            up, pid = "?", "?"
+        name = s.display_name or (s.objective[:36] if s.objective else "(unnamed)")
+        here = "  (this session)" if str(proj) == str(current_root) else ""
+        line = f"  ● {s.id}  pid {pid}  up {up}  ·  {name}{here}"
+        print(theme.green(line) if theme is not None else line, flush=True)
+    tip = "attach to one:  /attach <id>   ·   or relaunch:  argus-skill --resume <id>"
+    print(theme.dim(tip) if theme is not None else tip, flush=True)
+
+
+def _attach_cmd(chat_state: dict[str, Any], global_root: Any, target: str) -> None:
+    """`/attach <id>` — live-follow another project's daemon (read-only tail)."""
+    theme = chat_state.get("theme")
+    if not target.strip():
+        msg = "usage: /attach <session-id>   (see /daemons)"
+        print(theme.gray(msg) if theme is not None else msg, flush=True)
+        return
+    target = target.strip()
+    try:
+        from ..core.session import live_daemon_sessions
+
+        live = live_daemon_sessions(global_root)
+    except Exception:  # noqa: BLE001
+        live = []
+    match = next((s.id for s in live if s.id == target), None) \
+        or next((s.id for s in live if s.id.startswith(target)), None)
+    if match is None:
+        msg = f"no live daemon matches {target!r}. See /daemons."
+        print(theme.yellow(msg) if theme is not None else msg, flush=True)
+        return
+    proj = Path(global_root) / "projects" / match
+    print((theme.gray if theme is not None else str)(
+        f"following daemon {match} (Ctrl-C to stop observing; it keeps running)…"
+    ), flush=True)
+    _follow_events_stream(proj, theme=theme, header=None)
+
+
 def _render_help(theme) -> str:  # noqa: ANN001
     rows: list[tuple[str, str]] = [
         ("/help", "show this help"),
         ("/status", "summary of identity, backlog, recent journal"),
         ("/plan <objective>", "preview a step plan, then approve before queuing"),
         ("/doctor", "diagnose why no daemon / why a task won't run, with fixes"),
+        ("/daemons", "list every live daemon across projects"),
+        ("/attach <id>", "live-follow another project's daemon (Ctrl-C returns)"),
         ("/config [key=val ...]", "view/change session defaults "
                                   "(cycles, budget, continuous, daily_cap)"),
         ("/identity [edit|set …]", "view or update the identity card"),
@@ -1463,6 +1525,12 @@ def _run_manager_repl_locked(
             continue
         if cmd == "/doctor":
             _doctor_cmd(mem, chat_state, global_root)
+            continue
+        if cmd == "/daemons":
+            _daemons_cmd(chat_state, global_root, mem.project.root)
+            continue
+        if cmd == "/attach":
+            _attach_cmd(chat_state, global_root, rest_text)
             continue
         if cmd == "/plan":
             _plan_cmd(mem, chat_state, rest_text)

@@ -84,3 +84,28 @@ def test_daemon_mode_cell_no_daemon_is_honest(tmp_path):
     assert "no daemon" in cell
     assert "queue" in cell  # tells the user tasks queue until --daemon
     assert "in-process" not in cell  # the old misleading wording is gone
+
+
+# ---- /daemons + /attach (UX-G) ------------------------------------------
+
+def test_daemons_cmd_lists_live_and_attach_rejects_unknown(tmp_path, capsys):
+    import os as _os
+    from argus_skill.manager import repl as _repl
+
+    _make_session_with_daemon(tmp_path, "s-live01", 100, pid=_os.getpid())
+    (tmp_path / "projects" / "s-live01" / "daemon.status.json").write_text(
+        '{"daemon_pid": %d, "started_at": 0}' % _os.getpid(), encoding="utf-8"
+    )
+    cs = {"theme": None}
+    _repl._daemons_cmd(cs, tmp_path, tmp_path / "projects" / "s-other")
+    out = capsys.readouterr().out
+    assert "s-live01" in out and "live daemons" in out
+
+    _repl._attach_cmd(cs, tmp_path, "does-not-exist")
+    assert "no live daemon matches" in capsys.readouterr().out
+
+
+def test_daemons_cmd_empty(tmp_path, capsys):
+    from argus_skill.manager import repl as _repl
+    _repl._daemons_cmd({"theme": None}, tmp_path, tmp_path / "x")
+    assert "no live daemons" in capsys.readouterr().out
