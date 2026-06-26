@@ -50,7 +50,6 @@ from ..apps._life_actions import (
     render_identity_cmd,
     render_project_cmd,
     render_reset_cmd,
-    render_run_command,
     render_skills_cmd,
     stop_iteration,
 )
@@ -67,6 +66,188 @@ from ..core import paths as core_paths
 from ..life import BacklogItem, LifeMemory, MemoryBundle
 
 log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Event-tail helpers (REPL = attach client; the daemon is the sole executor)
+# ---------------------------------------------------------------------------
+#
+# Since the 2026-06-26 fusion, the REPL no longer executes missions in-process.
+# Free text / ``/add`` write a backlog item + (for continuous) the objective to
+# disk; the 7×24 daemon claims and runs them. The REPL then *attaches* by
+# tailing ``<life_dir>/events.jsonl`` — the same jsonl bus the standalone
+# ``argus-skill --follow`` view reads — and renders mission events with the
+# shared formatter in ``apps.cli._follow`` so there is exactly one renderer.
+
+
+def _life_dir_for(mem: Any) -> Path:
+    """Resolve the per-project life-dir that holds ``events.jsonl``.
+
+    Works for both ``MemoryBundle`` (``.project.root`` / ``.project_root``)
+    and the bare ``LifeMemory`` facade (``.root``) used in tests.
+    """
+    project_root = getattr(mem, "project_root", None)
+    if project_root is None:
+        project = getattr(mem, "project", None)
+        project_root = getattr(project, "root", None)
+    if project_root is None:
+        project_root = getattr(mem, "root", None)
+    if project_root is None:
+        raise AttributeError(
+            "cannot resolve life-dir: memory has no project_root / project.root / root"
+        )
+    return Path(project_root)
+
+
+def tail_mission_events(
+    life_dir: Path | str,
+    item_id: str,
+    *,
+    timeout: float = 600.0,
+    theme: Any = None,
+) -> dict[str, Any] | None:
+    """Attach to the daemon by tailing ``<life_dir>/events.jsonl`` for one item.
+
+    Polls the event log (seek + offset; tolerant of a missing file and of
+    partial / malformed lines), filters to events whose ``item_id`` matches
+    ``item_id``, and renders each relevant event with the shared follow
+    formatter (:func:`apps.cli._follow._format_follow_event`) so the REPL and
+    the standalone ``--follow`` view print identically.
+
+    Returns the ``life.mission.completed`` event dict when seen. Returns
+    ``None`` on timeout (does not raise) and on ``KeyboardInterrupt`` (the user
+    stops *observing* — the mission keeps running in the daemon).
+    """
+    from ..apps.cli._follow import _follow_layer_from_event, _format_follow_event
+
+    events_path = Path(life_dir) / "events.jsonl"
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    offset = 0
+    current_layer = "engineer"
+    # We read from the start of the log and rely on the ``item_id`` filter to
+    # isolate this mission. The backlog item was just enqueued with a freshly
+    # minted id, so no earlier mission's events can collide — making this both
+    # correct in production and naturally testable (a pre-written completed
+    # event for this id is found immediately).
+
+    try:
+        while time.monotonic() < deadline:
+            try:
+                with events_path.open("r", encoding="utf-8") as fh:
+                    fh.seek(offset)
+                    chunk = fh.read()
+                    offset = fh.tell()
+            except FileNotFoundError:
+                _sleep_until(deadline, 0.4)
+                continue
+            except OSError:
+                _sleep_until(deadline, 0.4)
+                continue
+
+            saw_event = False
+            for raw_line in chunk.splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                if str(event.get("item_id") or "") != str(item_id):
+                    continue
+                saw_event = True
+                current_layer = _follow_layer_from_event(event, current_layer)
+                rendered = _format_follow_event(event, current_layer)
+                if rendered:
+                    print(rendered, flush=True)
+                if str(event.get("type") or "") == "life.mission.completed":
+                    return event
+            # Only sleep when we drained the file without progress; if the
+            # daemon is writing quickly we loop straight back and keep up.
+            if not saw_event:
+                _sleep_until(deadline, 0.4)
+        return None
+    except KeyboardInterrupt:
+        note = "\n(stopped observing — mission keeps running in the daemon; /status to check)"
+        print(theme.gray(note) if theme is not None else note, flush=True)
+        return None
+
+
+def _sleep_until(deadline: float, interval: float) -> None:
+    """Sleep ``interval`` seconds but never past ``deadline`` (monotonic)."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return
+    time.sleep(min(interval, remaining))
+
+
+def _follow_events_stream(
+    life_dir: Path | str,
+    *,
+    theme: Any = None,
+    header: str | None = None,
+) -> None:
+    """Stream-render ``events.jsonl`` until Ctrl-C (REPL ``--follow`` loop).
+
+    Shared by continuous free-text mode and ``/run`` so the REPL has a single
+    live-tail implementation. Mirrors the standalone
+    :func:`apps.cli._core._cmd_follow` loop but renders every item (no
+    per-item filter) and returns cleanly to the REPL on ``KeyboardInterrupt``.
+    """
+    from ..apps.cli._follow import _follow_layer_from_event, _format_follow_event
+
+    events_path = Path(life_dir) / "events.jsonl"
+    if header:
+        print(theme.gray(header) if theme is not None else header, flush=True)
+    fh = None
+    current_layer = "engineer"
+    try:
+        # Wait for the log to exist, then seek to its end so we only show
+        # events produced from now on.
+        while fh is None:
+            try:
+                fh = events_path.open("r", encoding="utf-8")
+                fh.seek(0, os.SEEK_END)
+            except FileNotFoundError:
+                time.sleep(0.4)
+            except OSError:
+                return
+        while True:
+            line = fh.readline()
+            if not line:
+                time.sleep(0.4)
+                # Re-open on rotation (events.jsonl → events.jsonl.1).
+                try:
+                    if events_path.stat().st_ino != os.fstat(fh.fileno()).st_ino:
+                        fh.close()
+                        fh = events_path.open("r", encoding="utf-8")
+                except OSError:
+                    pass
+                continue
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if not isinstance(event, dict):
+                continue
+            current_layer = _follow_layer_from_event(event, current_layer)
+            rendered = _format_follow_event(event, current_layer)
+            if rendered:
+                print(rendered, flush=True)
+    except KeyboardInterrupt:
+        note = "\n(stopped following — daemon keeps running; /status to check)"
+        print(theme.gray(note) if theme is not None else note, flush=True)
+    finally:
+        if fh is not None:
+            try:
+                fh.close()
+            except OSError:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -252,22 +433,23 @@ def _free_text_cmd(
     text: str,
     chat_state: dict[str, Any],
 ) -> None:
-    """Free-text input: enqueue at the head + run immediately on the current backend.
+    """Free-text input: enqueue at the head + attach to the daemon's run.
 
     Free-text typed at the prompt expresses intent ``run THIS now``, so we
     inject the new item with a priority that beats anything ``/add`` can
-    produce, and then ask the supervisor to drain a single mission. This
-    avoids the surprise of typing "hello" and watching an unrelated
-    older backlog item run instead.
+    produce. Since the 2026-06-26 REPL/daemon fusion the REPL does **not**
+    execute the mission itself — the 7×24 daemon is the sole executor. We
+    write the backlog item (and, in continuous mode, the objective to disk)
+    and then *attach* by tailing ``events.jsonl`` until the daemon reports
+    the mission completed.
 
     Supports ``--once`` / ``--cycles=N`` / ``--budget=$X`` inline flags
     (same as ``/add``). When no flags are present, session-wide defaults
     from ``chat_state["config"]`` are used.
 
-    When ``config["continuous"]`` is True, the supervisor runs in
-    continuous improvement mode: the planner inspects the
-    project after each completed task and generates new work until
-    the project satisfies the objective.
+    When ``config["continuous"]`` is True, the objective is persisted so the
+    daemon plans further work; the REPL then live-follows every event until
+    the operator hits Ctrl-C.
     """
     cfg = chat_state.get("config", {})
     continuous = cfg.get("continuous", False)
@@ -281,7 +463,7 @@ def _free_text_cmd(
     pending = mem.backlog.pending()
     head_priority = min((it.priority for it in pending), default=100)
     free_priority = min(head_priority - 1, -1)
-    _add_only(
+    item = _add_only(
         mem,
         body,
         priority=free_priority,
@@ -290,44 +472,67 @@ def _free_text_cmd(
         iteration_budget_usd=budget,
     )
     theme = chat_state.get("theme")
+    life_dir = _life_dir_for(mem)
+
     if continuous:
-        msg = (
-            f"🔄 continuous mode on backend={chat_state['backend']} "
-            f"(Ctrl-C to stop)..."
-        )
-        # Persist objective to disk so daemon can pick it up.
+        # Persist objective to disk so the daemon picks it up + plans more work.
         chat_state["continuous_objective"] = body
         from ..daemon.life_worker import write_continuous_config
         write_continuous_config(
-            mem.project.root,
+            life_dir,
             enabled=True,
             objective=body,
         )
-    else:
-        msg = f"running on backend={chat_state['backend']} (Ctrl-C to stop)..."
-    print(theme.gray(msg) if theme else msg, flush=True)
-    _invoke_and_track(
-        mem=mem,
-        chat_state=chat_state,
-        once=not continuous,
-        max_missions=999 if continuous else 1,
-        per_mission_cap_usd=float(os.environ.get(
-            "ARGUS_SKILL_PER_MISSION_CAP_USD",
-            str(cfg.get("per_mission_cap", 30.0)),
-        )),
-        daily_cap_usd=float(os.environ.get(
-            "ARGUS_SKILL_DAILY_CAP_USD",
-            str(cfg.get("daily_cap", 180.0)),
-        )),
-        quiet=False,
-        continuous=continuous,
-        continuous_objective=body if continuous else "",
-        open_ended=chat_state.get("open_ended", True),
-        # Only single-shot operator free text is chat-eligible. In continuous
-        # mode the typed text is a mission objective (and later missions are
-        # planner work), so classification stays off.
-        allow_chat_fast_path=not continuous,
+        queued = (
+            f"queued {item.id} — daemon executing (continuous on "
+            f"backend={chat_state.get('backend')})"
+        )
+        print(theme.gray(queued) if theme is not None else queued, flush=True)
+        _follow_events_stream(
+            life_dir,
+            theme=theme,
+            header="🔄 following daemon (Ctrl-C to stop observing; daemon keeps running)…",
+        )
+        return
+
+    queued = (
+        f"queued {item.id} — daemon executing  "
+        f"(Ctrl-C stops observing, not the task)"
     )
+    print(theme.gray(queued) if theme is not None else queued, flush=True)
+
+    final = tail_mission_events(life_dir, item.id, theme=theme)
+    if final is not None:
+        _record_mission_outcome(chat_state, final)
+        status = str(final.get("status") or "?")
+        cost = float(final.get("cost_usd") or 0.0)
+        footer = f"✅ {item.id} done · status={status}"
+        if cost:
+            footer += f" · cost=${cost:.4f}"
+        print(theme.dim(footer) if theme is not None else footer, flush=True)
+    else:
+        note = (
+            f"{item.id} still running (no completion within the observe window) "
+            f"— use /status to check on the daemon."
+        )
+        print(theme.gray(note) if theme is not None else note, flush=True)
+
+
+def _record_mission_outcome(
+    chat_state: dict[str, Any],
+    completed_event: dict[str, Any],
+) -> None:
+    """Update REPL session stats from a tailed ``life.mission.completed`` event.
+
+    The REPL no longer drives the supervisor, so timing / count come from the
+    event the daemon wrote rather than from an in-process return value.
+    """
+    chat_state["mission_count"] = chat_state.get("mission_count", 0) + 1
+    cost = completed_event.get("cost_usd")
+    try:
+        chat_state["last_cost_usd"] = float(cost) if cost is not None else None
+    except (TypeError, ValueError):
+        chat_state["last_cost_usd"] = None
 
 
 def _format_elapsed(seconds: float) -> str:
@@ -356,11 +561,17 @@ def _invoke_and_track(
     open_ended: bool = True,
     allow_chat_fast_path: bool = False,
 ) -> dict[str, Any]:
-    """Run the supervisor and persist the resulting codex thread_id back
-    into ``chat_state`` so the next mission resumes the same session.
+    """Run the supervisor in-process and persist the codex thread_id.
 
-    Also records wall-clock elapsed time and prints a one-line footer
-    so the user sees how long each mission took.
+    NOT in the interactive path anymore. Since the 2026-06-26 REPL/daemon
+    fusion the REPL attaches to the daemon (see :func:`tail_mission_events`)
+    instead of executing missions itself, so ``_free_text_cmd`` / ``_run_cmd``
+    no longer call this. It is retained only because tests still exercise the
+    in-process drive + thread-id bookkeeping directly; keep it side-effect
+    compatible for them.
+
+    Records wall-clock elapsed time and prints a one-line footer so callers
+    that *do* drive a mission inline see how long it took.
     """
     seed = chat_state.get("last_thread_id")
     theme = chat_state.get("theme")
@@ -417,10 +628,23 @@ def _run_cmd(
     opts: list[str],
     chat_state: dict[str, Any],
 ) -> None:
-    output = render_run_command(mem, opts, chat_state)
-    if not output:
-        return
-    print(output)
+    """``/run`` — follow the daemon draining the backlog (live tail).
+
+    Pre-fusion this drained the backlog in the foreground via
+    ``render_run_command`` → ``_invoke_supervisor``. Since the 2026-06-26
+    fusion the daemon is the sole executor, so ``/run`` attaches to it and
+    live-renders every event until the operator hits Ctrl-C, returning to
+    the REPL. ``opts`` are accepted for backward compatibility but the
+    daemon owns the actual budget/iteration knobs now.
+    """
+    theme = chat_state.get("theme")
+    life_dir = _life_dir_for(mem)
+    pending = len(mem.backlog.pending())
+    header = (
+        f"/run: following daemon draining {pending} pending item(s)  "
+        f"(Ctrl-C returns to the REPL; the daemon keeps running)…"
+    )
+    _follow_events_stream(life_dir, theme=theme, header=header)
 
 
 def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> None:
@@ -513,14 +737,14 @@ def _render_help(theme) -> str:  # noqa: ANN001
         ("/continuous start|stop [objective]", "control continuous mode"),
         ("/backlog [all]", "list pending (or all) items"),
         ("/add <text> [--once] [--cycles=N] [--budget=$X]",
-            "enqueue a mission (iterates by default until critic stops)"),
+            "enqueue a mission for the daemon (iterates until critic stops)"),
         ("/done|/skip|/rm <id>", "change item status"),
         ("/stop <id>", "disable iteration on an item (let it finish naturally)"),
         ("/journal [N]", "tail last N journal entries (default 10)"),
         ("/note <text>", "append a manual journal note"),
         ("/nudge <text>", "send live operator guidance — the next "
                           "engineer round will see it"),
-        ("/run [opts]", "drain the backlog (foreground; Ctrl-C stops)"),
+        ("/run [opts]", "follow the daemon draining the backlog (Ctrl-C returns)"),
         ("/skills [ls|promote <name>]",
             "list global skills or promote a project skill to global"),
         ("/reset", "drop codex session — next mission starts fresh"),
@@ -537,10 +761,15 @@ def _render_help(theme) -> str:  # noqa: ANN001
         out.append(f"  {theme.cyan(key.ljust(width))}  {theme.gray(desc)}")
     out.append("")
     out.append(theme.gray(
-        "Free text (no leading '/') is appended to the backlog AND runs immediately."
+        "Free text (no leading '/') is queued for the daemon AND the REPL "
+        "attaches to its run (live event tail)."
     ))
     out.append(theme.gray(
         "Supports --once / --cycles=N / --budget=$X inline flags."
+    ))
+    out.append(theme.gray(
+        "Ctrl-C while observing stops the tail, not the task — the daemon "
+        "keeps running. Use /status to check on it."
     ))
     out.append(theme.gray(
         "Use /config continuous=true to enable 24/7 continuous improvement mode."
@@ -721,12 +950,14 @@ def _run_manager_repl_locked(
     backend_default = chat_state["backend"]
     chat_state["theme"] = theme
 
-    # ── Auto-spawn 7×24 daemon ────────────────────────────────────
-    # Lifetime-agent positioning means the daemon is the default. We
-    # silently spawn one in the background unless the user opted out
-    # with --no-daemon or one is already alive (idempotent: spawn is
-    # a no-op when the singleton lock is held).
+    # ── Daemon is the sole executor (mandatory) ───────────────────
+    # Since the 2026-06-26 REPL/daemon fusion the daemon is the ONLY thing
+    # that drains the backlog — the REPL just enqueues + attaches. So we
+    # MUST ensure a daemon is alive before attaching, otherwise every item
+    # the operator submits sits pending forever. Auto-spawn one unless the
+    # user opted out with --no-daemon (in which case we warn loudly).
     auto_spawn_msg: str | None = None
+    no_daemon_warning: str | None = None
     legacy_zombie_msg: str | None = None
     # Detect a pre-pivot ``python -m argus_skill daemon`` zombie still
     # writing to the legacy ``state/`` dir. Two independent daemons will
@@ -764,9 +995,38 @@ def _run_manager_repl_locked(
                     if started is not None and started.pid is not None:
                         auto_spawn_msg = f"daemon auto-spawned (pid {started.pid})"
                     else:
-                        auto_spawn_msg = "daemon auto-spawned"
+                        # Spawn returned success but the daemon never
+                        # published a live pid — surface this so the operator
+                        # knows their backlog will not drain on its own.
+                        no_daemon_warning = (
+                            "daemon spawn did not confirm alive — backlog may "
+                            "not execute. Start one with `argus --daemon`."
+                        )
+                else:
+                    no_daemon_warning = (
+                        "daemon auto-spawn failed — backlog will NOT be "
+                        "executed. Start one with `argus --daemon`."
+                    )
         except Exception as exc:  # noqa: BLE001
             auto_spawn_msg = f"daemon auto-spawn skipped: {exc!s}"
+            no_daemon_warning = (
+                "daemon not confirmed running — backlog may not execute. "
+                "Start one with `argus --daemon`."
+            )
+    else:
+        # --no-daemon: the REPL no longer executes missions, so without a
+        # daemon nothing drains the backlog. Warn unless one happens to be
+        # alive already (e.g. launched separately via `argus --daemon`).
+        try:
+            from ..daemon.life_worker import read_daemon_status
+            status = read_daemon_status(mem.project.root)
+        except Exception:  # noqa: BLE001
+            status = None
+        if status is None or not getattr(status, "alive", False):
+            no_daemon_warning = (
+                "--no-daemon: NO executor running — submitted items will sit "
+                "pending forever. Start the executor with `argus --daemon`."
+            )
 
     # ── Banner ─────────────────────────────────────────────────────
     print()
@@ -809,6 +1069,8 @@ def _run_manager_repl_locked(
               + theme.cyan(", ".join(created)))
     if auto_spawn_msg:
         print(f"  {label('daemon')} {arrow} " + theme.dim(auto_spawn_msg))
+    if no_daemon_warning:
+        print(f"  {label('warn')} {arrow} " + theme.yellow(no_daemon_warning))
     if legacy_zombie_msg:
         print(f"  {label('warn')} {arrow} " + theme.yellow(legacy_zombie_msg))
     # Preflight: surface codex-backend problems at launch, not mid-mission.
@@ -818,7 +1080,7 @@ def _run_manager_repl_locked(
             print(f"  {label('warn')} {arrow} " + theme.yellow(warning))
     print("  " + rule)
     print()
-    print("  " + theme.gray("free text runs immediately on the backend  ·  ")
+    print("  " + theme.gray("free text is queued for the daemon to execute  ·  ")
           + theme.cyan("/help") + theme.gray(" for commands  ·  ")
           + theme.cyan("/exit") + theme.gray(" or Ctrl-D to leave"))
     print()
@@ -996,4 +1258,8 @@ __all__ = [
     "_render_help",
     "_skills_cmd",
     "_seed_chat_state",
+    "tail_mission_events",
+    "_follow_events_stream",
+    "_life_dir_for",
+    "_record_mission_outcome",
 ]

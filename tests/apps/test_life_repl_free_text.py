@@ -267,8 +267,12 @@ def test_add_only_default_priority(mem: LifeMemory, capsys: pytest.CaptureFixtur
 def test_free_text_runs_just_typed_objective_not_older_pending(
     mem: LifeMemory, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Regression: typing ``hello`` at the prompt must execute ``hello``,
-    not whatever stale pending item was at the head of the backlog."""
+    """Regression: typing ``hello`` at the prompt must enqueue ``hello`` at the
+    HEAD of the backlog (so the daemon claims it next), not bury it behind a
+    stale pending item. Post-fusion the REPL no longer executes — it enqueues
+    then attaches via ``tail_mission_events`` — so we assert on the queue state
+    and that tail is invoked with the just-enqueued item's id.
+    """
     older = mem.backlog.add(BacklogItem.new(
         title="old work",
         objective="finish the base64 helper",
@@ -277,14 +281,15 @@ def test_free_text_runs_just_typed_objective_not_older_pending(
 
     captured: dict[str, Any] = {}
 
-    def fake_invoke(**kwargs: Any) -> dict[str, Any]:
-        head = kwargs["mem"].backlog.next_pending()
-        assert head is not None
+    def fake_tail(life_dir: Any, item_id: str, **kwargs: Any) -> dict[str, Any]:
+        head = mem.backlog.next_pending()
         captured["head_id"] = head.id if head else None
         captured["head_obj"] = head.objective if head else None
-        return {"missions_run": 1, "total_cost_usd": 0.0}
+        captured["tail_item_id"] = item_id
+        return {"type": "life.mission.completed", "item_id": item_id,
+                "status": "success", "cost_usd": 0.0}
 
-    with patch.object(manager_repl, "_invoke_and_track", side_effect=fake_invoke):
+    with patch.object(manager_repl, "tail_mission_events", side_effect=fake_tail):
         manager_repl._free_text_cmd(mem, "你好", chat_state={"backend": "memory"})
 
     pending = mem.backlog.pending()
@@ -294,25 +299,30 @@ def test_free_text_runs_just_typed_objective_not_older_pending(
         f"got: {[(it.priority, it.objective) for it in pending]}"
     )
     assert pending[0].priority < older.priority
+    # The REPL must attach to the item it just enqueued (the head), not an
+    # older pending item.
     assert captured["head_obj"] == "你好"
+    assert captured["tail_item_id"] == pending[0].id
 
 
 def test_free_text_beats_aggressive_priority_zero_pending(mem: LifeMemory) -> None:
-    """Even if a queued ``/add`` item has priority 0, free text still wins."""
+    """Even if a queued ``/add`` item has priority 0, free text still wins the
+    head slot the daemon will claim first."""
     mem.backlog.add(BacklogItem.new(title="crit", objective="critical", priority=0))
 
     captured: dict[str, Any] = {}
 
-    def fake_invoke(**kwargs: Any) -> dict[str, Any]:
-        head = kwargs["mem"].backlog.next_pending()
-        assert head is not None
+    def fake_tail(life_dir: Any, item_id: str, **kwargs: Any) -> dict[str, Any]:
+        head = mem.backlog.next_pending()
         captured["head_obj"] = head.objective if head else None
-        return {"missions_run": 1, "total_cost_usd": 0.0}
+        return {"type": "life.mission.completed", "item_id": item_id,
+                "status": "success", "cost_usd": 0.0}
 
-    with patch.object(manager_repl, "_invoke_and_track", side_effect=fake_invoke):
+    with patch.object(manager_repl, "tail_mission_events", side_effect=fake_tail):
         manager_repl._free_text_cmd(mem, "right now please", chat_state={"backend": "memory"})
 
     assert captured["head_obj"] == "right now please"
+
 
 
 def test_repl_help_matches_documented_command_surface(tmp_path: Path) -> None:
@@ -620,19 +630,19 @@ def test_backend_cmd_ignores_historical_continuous_objective(
 
 def test_free_text_uses_config_defaults(mem: LifeMemory) -> None:
     """Free text input must use session config for iteration params, not
-    hardcoded defaults."""
+    hardcoded defaults — verified on the enqueued backlog item."""
     captured: dict[str, Any] = {}
 
-    def fake_invoke(**kwargs: Any) -> dict[str, Any]:
-        head = kwargs["mem"].backlog.next_pending()
-        captured["head"] = head
-        return {"missions_run": 1, "total_cost_usd": 0.0}
+    def fake_tail(life_dir: Any, item_id: str, **kwargs: Any) -> dict[str, Any]:
+        captured["head"] = mem.backlog.next_pending()
+        return {"type": "life.mission.completed", "item_id": item_id,
+                "status": "success", "cost_usd": 0.0}
 
     chat_state = {
         "backend": "memory",
         "config": {"iterate": False, "cycles": 2, "budget": 5.0},
     }
-    with patch.object(manager_repl, "_invoke_and_track", side_effect=fake_invoke):
+    with patch.object(manager_repl, "tail_mission_events", side_effect=fake_tail):
         manager_repl._free_text_cmd(mem, "deploy it", chat_state=chat_state)
 
     head: BacklogItem = captured["head"]
@@ -645,22 +655,180 @@ def test_free_text_inline_flags_override_config(mem: LifeMemory) -> None:
     """``--cycles=8`` in free text must override session config."""
     captured: dict[str, Any] = {}
 
-    def fake_invoke(**kwargs: Any) -> dict[str, Any]:
-        head = kwargs["mem"].backlog.next_pending()
-        captured["head"] = head
-        return {"missions_run": 1, "total_cost_usd": 0.0}
+    def fake_tail(life_dir: Any, item_id: str, **kwargs: Any) -> dict[str, Any]:
+        captured["head"] = mem.backlog.next_pending()
+        return {"type": "life.mission.completed", "item_id": item_id,
+                "status": "success", "cost_usd": 0.0}
 
     chat_state = {
         "backend": "memory",
         "config": {"iterate": True, "cycles": 2, "budget": 5.0},
     }
-    with patch.object(manager_repl, "_invoke_and_track", side_effect=fake_invoke):
+    with patch.object(manager_repl, "tail_mission_events", side_effect=fake_tail):
         manager_repl._free_text_cmd(mem, "--cycles=8 refactor the API", chat_state=chat_state)
 
     head: BacklogItem = captured["head"]
     assert head.iterate is True  # not overridden
     assert head.iteration_max_cycles == 8  # overridden
     assert head.iteration_budget_usd == 5.0  # from config
+
+
+# ---------------------------------------------------------------------------
+# REPL = attach client: tail_mission_events + _free_text_cmd attach to daemon
+# ---------------------------------------------------------------------------
+
+def _write_events(life_dir: Path, events: list[dict[str, Any]]) -> None:
+    import json as _json
+
+    path = life_dir / "events.jsonl"
+    with path.open("w", encoding="utf-8") as fh:
+        for ev in events:
+            fh.write(_json.dumps(ev) + "\n")
+
+
+def test_tail_mission_events_returns_completed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A pre-written started+completed pair for the item must be returned."""
+    _write_events(
+        tmp_path,
+        [
+            {"type": "life.mission.started", "item_id": "it-1", "title": "t"},
+            {
+                "type": "life.mission.completed",
+                "item_id": "it-1",
+                "status": "success",
+                "success": True,
+                "cost_usd": 0.42,
+            },
+        ],
+    )
+    final = manager_repl.tail_mission_events(tmp_path, "it-1", timeout=2.0)
+    assert final is not None
+    assert final["status"] == "success"
+    assert final["cost_usd"] == 0.42
+    # The shared follow formatter is used to render — confirm it printed.
+    out = capsys.readouterr().out
+    assert "started" in out
+    assert "mission complete" in out
+
+
+def test_tail_mission_events_ignores_other_items(tmp_path: Path) -> None:
+    """Events for a different item_id must not be returned for ours."""
+    _write_events(
+        tmp_path,
+        [
+            {
+                "type": "life.mission.completed",
+                "item_id": "other",
+                "status": "success",
+            },
+        ],
+    )
+    final = manager_repl.tail_mission_events(tmp_path, "mine", timeout=0.3)
+    assert final is None
+
+
+def test_tail_mission_events_timeout_returns_none_without_completed(
+    tmp_path: Path,
+) -> None:
+    """Started but never completed within a short timeout → None, no raise."""
+    _write_events(
+        tmp_path,
+        [{"type": "life.mission.started", "item_id": "it-2", "title": "t"}],
+    )
+    final = manager_repl.tail_mission_events(tmp_path, "it-2", timeout=0.3)
+    assert final is None
+
+
+def test_tail_mission_events_missing_file_returns_none(tmp_path: Path) -> None:
+    """No events.jsonl yet → tolerate FileNotFound and return None on timeout."""
+    final = manager_repl.tail_mission_events(
+        tmp_path / "nope", "whatever", timeout=0.3
+    )
+    assert final is None
+
+
+def test_tail_mission_events_tolerates_malformed_lines(
+    tmp_path: Path,
+) -> None:
+    """A partial / non-JSON line in the middle must not crash the tail."""
+    path = tmp_path / "events.jsonl"
+    with path.open("w", encoding="utf-8") as fh:
+        fh.write("{ this is not json\n")
+        fh.write('{"type":"life.mission.completed","item_id":"it-3","status":"success"}\n')
+    final = manager_repl.tail_mission_events(tmp_path, "it-3", timeout=2.0)
+    assert final is not None
+    assert final["status"] == "success"
+
+
+def test_free_text_enqueues_and_attaches_to_completed_event(
+    mem: LifeMemory, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """End-to-end (no daemon): _free_text_cmd enqueues a backlog item, then
+    tail_mission_events finds a matching life.mission.completed we pre-write
+    keyed to the *just-enqueued* item id. Proves the REPL does NOT execute the
+    supervisor and instead attaches to the daemon's event stream."""
+    import json as _json
+
+    real_tail = manager_repl.tail_mission_events
+
+    def tail_with_seeded_event(life_dir: Any, item_id: str, **kwargs: Any):
+        # Simulate the daemon writing the completion for the claimed item.
+        path = Path(life_dir) / "events.jsonl"
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(_json.dumps({
+                "type": "life.mission.started",
+                "item_id": item_id,
+                "title": "free text",
+            }) + "\n")
+            fh.write(_json.dumps({
+                "type": "life.mission.completed",
+                "item_id": item_id,
+                "status": "success",
+                "success": True,
+                "cost_usd": 1.25,
+            }) + "\n")
+        return real_tail(life_dir, item_id, **kwargs)
+
+    chat_state: dict[str, Any] = {"backend": "memory"}
+    with patch.object(
+        manager_repl, "tail_mission_events", side_effect=tail_with_seeded_event
+    ):
+        manager_repl._free_text_cmd(mem, "build the widget", chat_state=chat_state)
+
+    pending_or_running = mem.backlog.all()
+    assert pending_or_running, "free text must enqueue a backlog item"
+    item = pending_or_running[0]
+    assert item.objective == "build the widget"
+
+    # mission_count incremented from the tailed completed event (not from any
+    # in-process supervisor return).
+    assert chat_state.get("mission_count") == 1
+    assert chat_state.get("last_cost_usd") == 1.25
+
+    out = capsys.readouterr().out
+    assert "queued" in out
+    assert "done" in out
+
+
+def test_free_text_no_completion_reports_still_running(
+    mem: LifeMemory, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When the daemon hasn't completed within the observe window, the REPL
+    must say so rather than claim success."""
+    def fake_tail(life_dir: Any, item_id: str, **kwargs: Any):
+        return None
+
+    chat_state: dict[str, Any] = {"backend": "memory"}
+    with patch.object(manager_repl, "tail_mission_events", side_effect=fake_tail):
+        manager_repl._free_text_cmd(mem, "long task", chat_state=chat_state)
+
+    out = capsys.readouterr().out
+    assert "still running" in out
+    assert "/status" in out
+    # No completed event was tailed → stats untouched.
+    assert "mission_count" not in chat_state or chat_state["mission_count"] == 0
 
 
 # ---------------------------------------------------------------------------
