@@ -1,4 +1,4 @@
-"""Process knobs for the meta-level control layer.
+"""Process knobs for the regime-jump control layer.
 
 These are SCHEDULING thresholds (how many stale rounds before the harness
 convenes a regime-jump turn), NOT research judgments — the harness deciding
@@ -20,7 +20,8 @@ from dataclasses import dataclass
 #: candidate explores). ``local`` = a within-regime small tweak (does NOT count
 #: as a distinct regime for diversity); ``unknown`` = an unlabelled/legacy
 #: attempt. The non-trivial axes mirror the nanochat ``_CATEGORY_AXES`` taxonomy
-#: that already lives in the vertical, kept generic here so the meta layer stays
+#: that already lives in the vertical, kept generic here so the regime-jump layer
+#: stays
 #: cross-vertical.
 REGIME_AXES: tuple[str, ...] = (
     "optimizer",

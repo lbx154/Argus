@@ -18,8 +18,8 @@ already deemed legitimate visibility). The harness asserts the *threshold*
 *verdict* (is the basin dead / where to go next) — that stays with the planner.
 
 Consumes a vertical-provided structured ``facts`` dict so the cross-vertical
-harness stays metric-blind (the vertical parses its own ``val_bpb``; the meta
-layer only reads the numbers and the agent's strategy labels).
+harness stays metric-blind (the vertical parses its own ``val_bpb``; the
+regime-jump layer only reads the numbers and the agent's strategy labels).
 """
 from __future__ import annotations
 

@@ -407,7 +407,7 @@ class Planner:
         _meta_proot = None
         flow = None
         try:
-            from ..meta import flow_controller as _flow_controller
+            from ..regime_jump import flow_controller as _flow_controller
             from ..skills.harness_overlay import resolve_project_root as _rpr
             from ..skills.vertical_select import resolve_vertical as _rv
             from ..verticals._base import load_vertical as _lv
@@ -482,7 +482,7 @@ class Planner:
         # itself declared dead. Fail-soft.
         if flow is not None and _meta_proot is not None:
             try:
-                from ..meta import flow_controller as _flow_controller
+                from ..regime_jump import flow_controller as _flow_controller
 
                 # Pull the agent's meta_decision straight from its structured
                 # output (planner_schema now carries an optional meta_decision

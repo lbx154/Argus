@@ -781,7 +781,7 @@ def strategy_pool(project_root: object) -> str:
     """
     try:
         try:
-            from ...meta.config import REGIME_AXES
+            from ...regime_jump.config import REGIME_AXES
         except Exception:  # noqa: BLE001
             REGIME_AXES = (
                 "optimizer",

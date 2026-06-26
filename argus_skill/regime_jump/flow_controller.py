@@ -5,7 +5,7 @@ planner prompt is being assembled and returns a block to append plus the chosen
 mode; ``record_decision`` is called after the planner emits its tasks to persist
 the agent-declared forbidden ledger + the decision-log row. Everything is
 fail-soft: any error yields ``mode="exploit"`` with an empty block, so the
-planner runs exactly as today when the meta layer can't act.
+planner runs exactly as today when the regime-jump layer can't act.
 """
 from __future__ import annotations
 

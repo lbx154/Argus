@@ -1,4 +1,4 @@
-"""Persistent meta ledger — the never-cleared forbidden-directions record.
+"""Persistent regime-jump ledger — the never-cleared forbidden-directions record.
 
 Two files under ``<project_root>/research/``:
 
@@ -15,7 +15,7 @@ Two files under ``<project_root>/research/``:
 Critically, the harness NEVER invents a forbidden direction. It only persists
 and re-injects the directions the AGENT itself declared dead. Everything is
 fail-soft: a missing/corrupt ledger reads as empty, and a failed write is
-swallowed (the meta layer is best-effort visibility+enforcement, never a
+swallowed (the regime-jump layer is best-effort visibility+enforcement, never a
 blocker on the round loop).
 """
 from __future__ import annotations

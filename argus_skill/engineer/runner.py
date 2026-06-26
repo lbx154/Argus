@@ -889,7 +889,7 @@ class SupervisedEngineer:
         # instead of re-anchoring on the frozen basin. Consume-once + fail-soft:
         # any error leaves the checkpoint untouched (unchanged behaviour).
         try:
-            from ..meta.ledger import consume_jump_pending
+            from ..regime_jump.ledger import consume_jump_pending
             from ..skills.harness_overlay import resolve_project_root as _rpr
 
             if consume_jump_pending(_rpr()):

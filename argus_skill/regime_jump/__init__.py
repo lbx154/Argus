@@ -1,4 +1,4 @@
-"""Meta-level control layer — saturation detection → enforced regime-jump.
+"""Regime-jump control layer — saturation detection → enforced regime-jump.
 
 Background (operator diagnosis, this workstream — the
 ``fix/planner-livelock-echo-chamber`` branch): the search loop surfaces a live
@@ -32,8 +32,14 @@ mind: dumping all prior attempts into context is *worse* than ignoring them, so
 the jump context is a BOUNDED ledger + top-k inspirations, never a full-history
 dump.
 
-Every entry point is fail-soft: any error degrades to "no meta intervention"
+Every entry point is fail-soft: any error degrades to "no intervention"
 (``mode="exploit"``, empty block) so the planner loop never breaks on this.
+
+Compat note: this package was renamed from ``argus_skill.meta``; the on-disk
+``META_LEDGER.json`` / ``META_LEDGER.jsonl`` ledger filenames, the
+``ARGUS_META_*`` environment variables, and the ``Meta*`` class names
+(``MetaConfig`` / ``MetaLedger`` / ``MetaDecision``) keep their old names so
+existing projects/configs on disk and in the shell still resolve.
 """
 from __future__ import annotations
 

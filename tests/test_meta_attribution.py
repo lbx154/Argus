@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.meta.ledger import (
+from argus_skill.regime_jump.ledger import (
     append_decision,
     attribution_summary,
     read_decisions,
 )
-from argus_skill.meta.meta_prompter import attribution_fact
+from argus_skill.regime_jump.meta_prompter import attribution_fact
 
 
 def test_attribution_counts_jumps_exploits_and_attributes_improvements() -> None:

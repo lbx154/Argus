@@ -19,11 +19,11 @@ from __future__ import annotations
 import json
 
 from argus_skill.engineer.checkpoint import CheckpointState
-from argus_skill.meta import ledger
-from argus_skill.meta.config import MetaConfig
-from argus_skill.meta.flow_controller import decide, record_decision
-from argus_skill.meta.meta_prompter import parse_meta_decision
-from argus_skill.meta.saturation import from_facts
+from argus_skill.regime_jump import ledger
+from argus_skill.regime_jump.config import MetaConfig
+from argus_skill.regime_jump.flow_controller import decide, record_decision
+from argus_skill.regime_jump.meta_prompter import parse_meta_decision
+from argus_skill.regime_jump.saturation import from_facts
 from argus_skill.verticals._base import load_vertical
 
 
@@ -288,7 +288,7 @@ def test_valley_immunity_window_suppresses_jump_and_decays(tmp_path):
     # After a jump, a post-jump exploration window opens: no new jump for N
     # rounds (develop the regime), grace block injected, window decays, then a
     # fresh jump can convene again.
-    from argus_skill.meta import ledger as _ledger
+    from argus_skill.regime_jump import ledger as _ledger
     _write_attempt(tmp_path, "a001_seed", 0.96, decision="promote", strategy_type="architecture")
     for i in range(2, 21):
         _write_attempt(tmp_path, f"a{i:03d}_arch", 0.97, strategy_type="architecture")

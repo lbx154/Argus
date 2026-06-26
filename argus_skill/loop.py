@@ -436,8 +436,8 @@ class SkillLoop:
         # — score + iterate it (do NOT skip on the train-only proxy gate, do NOT
         # restore on round 1) so the new regime can cross its initial valley.
         try:
-            from .meta.ledger import load_ledger as _load_meta_ledger
-            from .meta.meta_prompter import explore_window_block as _explore_block
+            from .regime_jump.ledger import load_ledger as _load_meta_ledger
+            from .regime_jump.meta_prompter import explore_window_block as _explore_block
 
             _ewin = int(getattr(_load_meta_ledger(_proot), "explore_window", 0) or 0)
             if _ewin > 0:
