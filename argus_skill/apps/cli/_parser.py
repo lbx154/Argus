@@ -71,6 +71,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="print the operator-facing ARGUS_* control knobs (default + current value) and exit",
     )
     daemon_grp.add_argument(
+        "--gc",
+        action="store_true",
+        help="garbage-collect stale projects (no live daemon/repl + untouched for "
+        "--gc-days) by moving them to ~/.argus-skill/projects_trash/, then exit",
+    )
+    daemon_grp.add_argument(
+        "--gc-days",
+        type=int,
+        default=None,
+        metavar="N",
+        help="with --gc: retention window in days (default 30, or "
+        "ARGUS_SKILL_PROJECT_RETENTION_DAYS)",
+    )
+    daemon_grp.add_argument(
+        "--gc-dry-run",
+        action="store_true",
+        help="with --gc: list what WOULD be pruned without moving anything",
+    )
+    daemon_grp.add_argument(
         "--no-daemon",
         action="store_true",
         help="skip auto-spawning the background daemon when entering the REPL",

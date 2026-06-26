@@ -46,6 +46,51 @@ DROP_FROM_DISK: frozenset[tuple[str, str]] = frozenset({
 })
 
 
+# High-value event types ALWAYS persisted, even in "signal" verbosity: mission
+# / round lifecycle, verdicts, skill-memory mutations, planner decisions,
+# acceptance checks, escalations. The noise we drop in "signal" mode is the
+# per-command / intermediate-message / idle-poll churn (engineer.progress
+# command_execution, session.roll, watchdog waits, telemetry deltas, match
+# diagnostics) that bloats events.jsonl to multi-MB without telling an operator
+# what changed. Errors and wins are preserved by a separate text-marker rule.
+HIGH_VALUE_EVENT_TYPES: frozenset[str] = frozenset({
+    "loop.start", "loop.done",
+    "round.start", "round.main.completed", "round.review.completed",
+    "round.escalated", "round.stall", "round.reviewer_backend_failure",
+    "skill.created", "skill.updated", "skill.archived",
+    "life.mission.started", "life.mission.completed",
+    "life.planner.verdict", "life.inbox.queued",
+    "checks.done", "operator_alert",
+})
+# In "signal" mode, an engineer.progress event is kept only if its text carries
+# a win/result/error marker (so a measured win or a traceback is never lost).
+_SIGNAL_TEXT_MARKERS = (
+    "RESULT", "correct=true", "cand_ms", "Traceback", "Error:",
+    "exit_code", "FAILED", "NO_TRACE", "RUNTIME_ERROR",
+)
+
+
+def _should_persist_for_verbosity(event: dict[str, Any], verbosity: str) -> bool:
+    """True if this event should hit disk at the given verbosity.
+
+    ``full`` keeps everything (legacy behaviour). ``signal`` keeps only
+    high-value types + anything carrying an error/win marker.
+    """
+    if verbosity != "signal":
+        return True
+    if not isinstance(event, dict):
+        return True
+    t = str(event.get("type", ""))
+    if t in HIGH_VALUE_EVENT_TYPES:
+        return True
+    tl = t.lower()
+    if "error" in tl or "fail" in tl or "escalat" in tl or "alert" in tl:
+        return True
+    text = str(event.get("text", "") or "")
+    return any(m in text for m in _SIGNAL_TEXT_MARKERS)
+
+
+
 class _Sink(Protocol):
     def handle_event(self, event: dict[str, Any]) -> None: ...
 
@@ -59,6 +104,7 @@ class JsonlEventSink:
         *,
         life_dir: Path,
         roll_bytes: int = ROLL_BYTES,
+        verbosity: str | None = None,
     ) -> None:
         self._downstream = downstream
         self._dir = Path(life_dir)
@@ -67,6 +113,12 @@ class JsonlEventSink:
         self._roll_bytes = max(1024 * 1024, int(roll_bytes))
         self._lock = threading.Lock()
         self._dir.mkdir(parents=True, exist_ok=True)
+        # "full" (default) persists everything; "signal" persists only
+        # high-value events. Explicit arg wins; else env; else "full" so no
+        # existing caller (e.g. an isolated teammate) changes behaviour.
+        if verbosity is None:
+            verbosity = os.environ.get("ARGUS_SKILL_EVENT_VERBOSITY", "full")
+        self._verbosity = "signal" if str(verbosity).strip().lower() == "signal" else "full"
 
     # --- Sink protocol -----------------------------------------------
 
@@ -78,6 +130,8 @@ class JsonlEventSink:
                 # Never let downstream failure break disk-logging path.
                 pass
         if self._is_idle_chatter(event):
+            return
+        if not _should_persist_for_verbosity(event, self._verbosity):
             return
         self._append(event)
 

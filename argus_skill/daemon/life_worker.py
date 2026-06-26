@@ -93,6 +93,11 @@ class LifeWorkerConfig:
     poll_interval: float = 5.0
     log_path: Path | None = None  # defaults to <life_dir>/daemon.log
     project_workdir: Path | None = None
+    # Persisted-events verbosity for the daemon's own events.jsonl. "signal"
+    # (default) keeps only high-value events (mission/round/verdict/skill/error/
+    # win); "full" keeps the exhaustive stream. Isolated teammates default to
+    # "full" (they build their own JsonlEventSink and never read this).
+    event_log_verbosity: str = "signal"
     continuous: bool = False
     continuous_objective: str = ""
     # When True (the default for the lifetime daemon) the supervisor keeps the
@@ -516,6 +521,13 @@ def run_handoff_child() -> int:
         force=True,
     )
     worker = LifeWorker(config)
+    # Housekeeping: prune stale projects on daemon boot too (covers a daemon
+    # started directly via --daemon, not just via the REPL). Best-effort.
+    try:
+        from ..core.project_gc import maybe_gc_stale_projects
+        maybe_gc_stale_projects(getattr(config, "global_root", None))
+    except Exception:  # noqa: BLE001
+        pass
     try:
         ready_path.write_text(
             json.dumps({
@@ -892,6 +904,7 @@ class LifeWorker:
             JsonlEventSink(
                 _DaemonSink(self, stream_reporter=stream_reporter),
                 life_dir=runtime_root,
+                verbosity=getattr(cfg, "event_log_verbosity", "signal"),
             ),
             life_dir=runtime_root,
         )

@@ -971,6 +971,13 @@ def run_manager_repl(args: argparse.Namespace) -> int:
         for name, was_created in rows.items():
             if was_created:
                 created.append(f"{scope}.{name}")
+    # Housekeeping: prune stale projects (no live daemon/repl + untouched for
+    # the retention window) to projects_trash/. Best-effort, never blocks boot.
+    try:
+        from ..core.project_gc import maybe_gc_stale_projects
+        maybe_gc_stale_projects(global_root)
+    except Exception:  # noqa: BLE001
+        pass
     theme = None  # populated in the locked body
 
     # Fail fast before we take the singleton lock if the current run
@@ -1117,61 +1124,39 @@ def _run_manager_repl_locked(
                 "pending forever. Start the executor with `argus --daemon`."
             )
 
-    # ── Banner ─────────────────────────────────────────────────────
+    # ── Banner (compact) ───────────────────────────────────────────
+    # One brand line + one live-status line. The full config table moved to
+    # `/status` (on demand) — a bare REPL launch should not wall-of-text the
+    # operator. Daemon/preflight WARNINGS are still surfaced (they're load-
+    # bearing), and the footer is honest about the chat-fast-path.
     print()
     print(render_logo(theme=theme))
-    print()
     print("  " + theme.italic(theme.gray(TAGLINE))
           + "  " + theme.dim(f"v{_argus_version}"))
-    print()
-    rule = theme.dim("─" * min(theme.width - 2, 60))
-    print("  " + rule)
-
     arrow = theme.dim("→")
     label = lambda s: theme.gray(f"{s:<10}")  # noqa: E731
-    cfg = chat_state["config"]
-    iter_status = theme.bold_green("on") if cfg["iterate"] else theme.bold("off")
-    iter_detail = (
-        f"default {cfg['cycles']} cycles · ${cfg['budget']:.0f} budget"
-        f" · /add --once to opt out"
+    pending_n = len(mem.backlog.pending())
+    print(
+        "  " + _format_daemon_mode_cell(theme, mem)
+        + theme.dim("  ·  ") + theme.bold(str(pending_n)) + theme.gray(" pending")
+        + theme.dim("  ·  ") + theme.cyan(str(mem.project.root))
     )
-    rows = [
-        ("mode",    f"{theme.bold('life')}    " + theme.dim("in-process · no daemon")),
-        ("backend", f"{theme.bold(backend_default)}   " + theme.dim("(memory or codex)")),
-        ("backlog", f"{theme.bold(str(len(mem.backlog.pending())))} "
-                    + theme.gray("pending")),
-        ("iterate", iter_status + "    "
-                    + theme.dim(iter_detail)),
-        ("verbose", theme.bold_green("always") + " "
-                    + theme.dim("(filter removed — every event is shown)")),
-        ("state",   theme.cyan(str(mem.project.root))),
-    ]
-    # Replace the static "in-process · no daemon" hint with live daemon
-    # status so the user sees whether the 7×24 worker is draining the
-    # backlog in the background. The lifetime-agent positioning is only
-    # honest if this is observable at a glance.
-    rows[0] = ("mode", _format_daemon_mode_cell(theme, mem))
-    for k, v in rows:
-        print(f"  {label(k)} {arrow} {v}")
-    if created:
-        print(f"  {label('init')} {arrow} " + theme.dim("created ")
-              + theme.cyan(", ".join(created)))
     if auto_spawn_msg:
         print(f"  {label('daemon')} {arrow} " + theme.dim(auto_spawn_msg))
     if no_daemon_warning:
         print(f"  {label('warn')} {arrow} " + theme.yellow(no_daemon_warning))
     if legacy_zombie_msg:
         print(f"  {label('warn')} {arrow} " + theme.yellow(legacy_zombie_msg))
-    # Preflight: surface codex-backend problems at launch, not mid-mission.
     if backend_default == "codex":
         warning = _codex_preflight_warning()
         if warning:
             print(f"  {label('warn')} {arrow} " + theme.yellow(warning))
-    print("  " + rule)
     print()
-    print("  " + theme.gray("free text is queued for the daemon to execute  ·  ")
-          + theme.cyan("/help") + theme.gray(" for commands  ·  ")
-          + theme.cyan("/exit") + theme.gray(" or Ctrl-D to leave"))
+    print("  " + theme.gray("greetings & questions are answered here  ·  ")
+          + theme.gray("a real task is queued for the daemon  ·  ")
+          + theme.cyan("/status") + theme.gray(" · ")
+          + theme.cyan("/help") + theme.gray(" · ")
+          + theme.cyan("/exit"))
     print()
 
     base_prompt = theme.bold(theme.cyan("argus"))

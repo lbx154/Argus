@@ -158,6 +158,7 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.status)
         + bool(args.daemon_runbook)
         + bool(getattr(args, "config_help", False))
+        + bool(getattr(args, "gc", False))
         + bool(args.watch)
         + bool(args.follow)
         + bool(getattr(args, "dashboard", False))
@@ -214,6 +215,8 @@ def main(argv: list[str] | None = None) -> int:
         from ...core.knobs import format_config_help
         sys.stdout.write(format_config_help())
         return 0
+    if getattr(args, "gc", False):
+        return _run_with_path_resolution_errors(lambda: _cmd_gc(args))
     if args.watch:
         return _run_with_path_resolution_errors(lambda: _cmd_watch(args))
     if args.follow:
@@ -1170,6 +1173,33 @@ def _render_gate_snapshot_lines(workdir: Path, stage: str | None) -> list[str]:
             f"    {mark} {gate.name} ({gate.kind}) — {gate.summary}"
         )
     return lines
+
+
+def _cmd_gc(args: argparse.Namespace) -> int:
+    """Prune stale projects (no live daemon/repl + untouched for --gc-days)."""
+    from ...core.project_gc import gc_stale_projects, retention_days_default
+
+    root = _resolve_global_root(args)
+    days = getattr(args, "gc_days", None)
+    if days is None:
+        days = retention_days_default()
+    dry = bool(getattr(args, "gc_dry_run", False))
+    pruned = gc_stale_projects(root, retention_days=days, dry_run=dry)
+    verb = "would prune" if dry else "moved to projects_trash/"
+    if not pruned:
+        sys.stdout.write(
+            f"argus-skill: no stale projects (retention={days}d; "
+            "live daemons/REPLs and recently-active projects are never touched).\n"
+        )
+        return 0
+    sys.stdout.write(f"argus-skill: {verb} {len(pruned)} stale project(s):\n")
+    for fp in pruned:
+        sys.stdout.write(f"  - {fp}\n")
+    if not dry:
+        sys.stdout.write(
+            f"  ↳ recoverable under {root / 'projects_trash'} — rm it when sure.\n"
+        )
+    return 0
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
