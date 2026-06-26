@@ -958,7 +958,7 @@ class LifeSupervisor:
             # When the reviewer truly certifies, supervisor.run() auto-
             # stops via ``_journal_has_full_emnlp_gate_success`` instead.
             uncertified_full_emnlp = (
-                self.config.full_emnlp_gate
+                self._effective_full_emnlp_gate(self._project_workdir())
                 and not self._journal_has_full_emnlp_gate_success()
             )
             if (
@@ -2055,7 +2055,7 @@ class LifeSupervisor:
     def _defer_project_done_for_operator_external_blocker(self, verdict: Any) -> Any:
         if not (
             getattr(verdict, "project_done", False)
-            and self.config.full_emnlp_gate
+            and self._effective_full_emnlp_gate(self._project_workdir())
             and not self._journal_has_full_emnlp_gate_success()
         ):
             return verdict
@@ -2553,7 +2553,7 @@ class LifeSupervisor:
         # needs. Mirrors the gating in
         # ``_defer_project_done_for_operator_external_blocker``.
         short_circuit = None
-        if self.config.full_emnlp_gate:
+        if self._effective_full_emnlp_gate(self._project_workdir()):
             short_circuit = self._operator_external_blocker_short_circuit_decision(
                 project_root=self._project_workdir(),
             )
