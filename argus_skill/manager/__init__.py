@@ -6,6 +6,6 @@ so the existing LifeSupervisor engine executes it stage-by-stage.
 """
 from __future__ import annotations
 
-from ._core import Division, Manager
+from ._core import Division, Manager, StageTransition
 
-__all__ = ["Manager", "Division"]
+__all__ = ["Manager", "Division", "StageTransition"]

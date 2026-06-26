@@ -23,6 +23,7 @@ the task and hands the current Stage to the existing Planner.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,6 +46,8 @@ from ..skills.vertical_select import (
 _OPTIMIZE_VERTICALS = frozenset(
     {"speedrun", "nanochat", "nanogpt_speedrun", "kernelbench"}
 )
+
+log = logging.getLogger(__name__)
 
 # Where the Manager's one persistent codex session lives (under project_root).
 _SESSION_FILE = ".manager_session.json"
@@ -154,6 +157,29 @@ class Division:
                 f"{len(self.stages)} stage(s): {' → '.join(self.stages)}")
 
 
+@dataclass
+class StageTransition:
+    """The Manager's verdict on whether/how to move the pipeline stage.
+
+    ``action`` is ``advance`` | ``hold`` | ``rollback``. A ``hold`` writes
+    nothing; ``advance``/``rollback`` are applied (the Manager is the SOLE
+    post-bootstrap writer of ``current_stage``). ``source`` records WHY this was
+    the verdict — useful for journaling and to distinguish a model decision from
+    a fail-safe HOLD.
+    """
+
+    action: str            # "advance" | "hold" | "rollback"
+    target_stage: str
+    reason: str
+    confidence: float = 0.0
+    current_stage: str = ""
+    # manager_llm | no_review_hold | no_runner_hold | failsafe_hold | illegal_target_hold
+    source: str = "manager_llm"
+
+    def is_write(self) -> bool:
+        return self.action in ("advance", "rollback")
+
+
 class Manager:
     """User-facing entry: divide a Task, then hand it to the existing engine.
 
@@ -252,6 +278,124 @@ class Manager:
                 )
 
         return classify_is_conversational(text, run_exec=run_exec)
+
+    # ---- stage-transition authority (the Manager OWNS the pipeline stage) ----
+    def decide_stage_transition(
+        self,
+        *,
+        review: Any = None,
+        planner_verdict: Any = None,
+        project_root: Path | str | None = None,
+        run_exec: Any = None,
+    ) -> StageTransition:
+        """Independently decide advance / hold / rollback for the pipeline stage,
+        then WRITE it. The Manager is the SOLE post-bootstrap writer of
+        ``current_stage`` — the reviewer/planner only ADVISE (via ``review`` /
+        ``planner_verdict``); the engineer never edits stage state.
+
+        THICK: the Manager makes its own LLM judgment from the reviewer's
+        structured feedback + the current-stage checklist, parses a strict JSON
+        verdict, and on advance/rollback calls
+        :func:`stage_checklists.advance_stage` / ``rollback_stage``.
+
+        Fail-safe — writes NOTHING and returns a HOLD when: ``review is None``
+        (no feedback → never advance), there is no backend, the LLM/parse errors,
+        or the model picks an illegal target. A HOLD simply leaves the stage put;
+        the mission/planner loop continues, so the daemon never deadlocks.
+        """
+        from ..skills.stage_checklists import (
+            _active_vertical_checklist_defs as _vertical_defs,
+            advance_stage as _advance,
+            current_stage as _current_stage,
+            format_stage_checklist as _format_checklist,
+            rollback_stage as _rollback,
+        )
+        from .stage_decider import (
+            build_stage_decision_prompt,
+            extract_answer,
+            parse_stage_decision,
+        )
+
+        root = Path(project_root) if project_root is not None else self.project_root
+        cur = _current_stage(root)
+
+        # No reviewer feedback → never advance.
+        if review is None:
+            return StageTransition(
+                "hold", cur, "no reviewer feedback", current_stage=cur,
+                source="no_review_hold",
+            )
+
+        # Build the LLM caller (mirrors is_conversational): no backend → safe HOLD.
+        if run_exec is None:
+            if self.runner is None and self._session is None:
+                return StageTransition(
+                    "hold", cur, "no manager backend", current_stage=cur,
+                    source="no_runner_hold",
+                )
+            from ..core.models import RunnerOptions
+
+            _backend = self._session or self.runner
+
+            def run_exec(prompt: str) -> Any:  # noqa: ANN401
+                return _backend.run_exec(
+                    prompt=prompt,
+                    options=RunnerOptions(
+                        reasoning_effort="low", skip_git_repo_check=True
+                    ),
+                    run_label="manager-stage",
+                )
+
+        try:
+            raw_order, _items = _vertical_defs(root)
+            order = [str(s).strip().lower() for s in raw_order]
+            cur_idx = order.index(cur) if cur in order else -1
+            next_stage = order[cur_idx + 1] if 0 <= cur_idx < len(order) - 1 else ""
+            earlier = order[:cur_idx] if cur_idx > 0 else []
+            checklist_md = _format_checklist(cur, role="planner", project_root=root)
+            prompt = build_stage_decision_prompt(
+                current_stage=cur,
+                next_stage=next_stage,
+                earlier_stages=earlier,
+                checklist_md=checklist_md,
+                review=review,
+                planner_verdict=planner_verdict,
+            )
+            raw = extract_answer(run_exec(prompt))
+            decision = parse_stage_decision(raw, current_stage=cur, stage_order=order)
+        except Exception:  # noqa: BLE001 — any failure → safe HOLD, write nothing
+            log.debug("manager stage decision failed", exc_info=True)
+            return StageTransition(
+                "hold", cur, "manager decision error", current_stage=cur,
+                source="failsafe_hold",
+            )
+
+        if decision.action == "advance":
+            try:
+                _advance(root, target_stage=decision.target_stage,
+                         reason=decision.reason, advanced_by="manager")
+            except ValueError:
+                return StageTransition(
+                    "hold", cur, "illegal advance target", current_stage=cur,
+                    source="illegal_target_hold",
+                )
+            return StageTransition("advance", decision.target_stage, decision.reason,
+                                   decision.confidence, cur, "manager_llm")
+
+        if decision.action == "rollback":
+            try:
+                _rollback(root, target_stage=decision.target_stage,
+                          reason=decision.reason, rolled_back_by="manager")
+            except ValueError:
+                return StageTransition(
+                    "hold", cur, "illegal rollback target", current_stage=cur,
+                    source="illegal_target_hold",
+                )
+            return StageTransition("rollback", decision.target_stage, decision.reason,
+                                   decision.confidence, cur, "manager_llm")
+
+        return StageTransition("hold", cur, decision.reason or "manager held",
+                               decision.confidence, cur, "manager_llm")
 
     # ---- skill-library approval (the Manager is the top-level authority) ----
     def approve_skill(
