@@ -13,6 +13,8 @@ Agent Team Lead
 When a mission decomposes into several genuinely independent subtasks, the engineer may act as a **team lead**: split the work, fan out autonomous **teammate engineers** (each its own loop, context, git worktree, and result shard), let them self-coordinate through a shared task board and a mailbox, then read every shard, synthesize one canonical result, and pass it through the normal mission reviewer. This is the Argus analogue of agent teams. Forming a team is **your judgment** — the harness never decides it for you, and **solo is the default**.
 
 ## When to form a team (and when NOT to)
+**First ask yourself: does this mission actually need MANY independent tasks run in PARALLEL right now?** Teammates exist to parallelize genuinely-independent work across spare capacity — they are not a default and they are not free (coordination + GPU/budget contention). If you cannot immediately name several concrete tasks that would each keep a teammate busy, **stay solo**. Only when that answer is a clear "yes" do the gates below apply.
+
 Form a team ONLY when ALL of these hold:
 - The mission splits into **2+ subtasks that are independent** (no subtask needs another's in-progress output), and
 - Each subtask **owns a disjoint set of files** (no two teammates edit the same path), and
