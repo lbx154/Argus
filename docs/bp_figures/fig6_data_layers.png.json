@@ -1,0 +1,29 @@
+{
+  "api": {
+    "base_url_source": "vault:/home/argustest/.argus-skill/capabilities/model_api.json:routes.image",
+    "endpoint": "/images/generations",
+    "key_source": "vault:/home/argustest/.argus-skill/capabilities/model_api.json:routes.image",
+    "provider": "codex",
+    "wire_api": "images"
+  },
+  "artifact": "docs/bp_figures/_studio/layers/stack.png",
+  "created_at_unix": 1782408840.029216,
+  "duration_seconds": 38.95,
+  "image": {
+    "bytes": 683461,
+    "exists": true,
+    "height": 1024,
+    "image": "docs/bp_figures/_studio/layers/stack.png",
+    "mime": "image/png",
+    "sha256": "33c8a6777b7aafd979bef697221d603361f99767ba13624324ca65998ed223a7",
+    "width": 1536
+  },
+  "model": "gpt-image-2",
+  "output_path": "docs/bp_figures/_studio/layers/stack.png",
+  "output_sha256": "33c8a6777b7aafd979bef697221d603361f99767ba13624324ca65998ed223a7",
+  "prompt": "Create one polished EMNLP method figure variant.\nPrompt template: argus-image2-paper-prompt-v1\nPrompt source: paper-framework-figure-studio-pro-v3.1.4a\nFigma-style technical diagram for an EMNLP/ACL paper. Subject: Ten Reproducible Trajectory Layers - every run, atomic & immutable.\n\nGeneral style:\n- EMNLP/ACL/NeurIPS/CS paper method figure, full-width two-column landscape.\n- Clean block-based Figma style with rounded cards (10-16px radius), neat alignment, soft pastel fills, dark-gray 2px borders, and compact information density.\n- Compact, information-rich, suitable for a PDF page-width figure; little wasted space but not crowded.\n- Tidy rounded or friendly sans-serif feel; must remain crisp and readable.\n- Moderate badge/icon use only when semantically useful; a few simple recognizable icons are fine, not a logo wall.\n- No heavy shadows, no gradients, no photorealism, no glassmorphism, no messy Excalidraw look.\n- Large readable labels, short phrases, balanced hierarchy, flat vector-like raster rendering on warm white #fbfaf7.\n- \u5e72\u51c0\u3001\u5bc6\u5b9e\u3001\u6a21\u5757\u5316\u3001Figma \u98ce\uff0c\u5706\u89d2\u5361\u7247\u4e3a\u4e3b\uff0c\u4f4e\u9971\u548c\u6d45\u8272\u5757\uff0c\u5c11\u91cf badge/logo\uff0c\u5c11\u7559\u767d\u4f46\u4e0d\u62e5\u6324\u3002\u6574\u4f53\u9002\u5408 EMNLP/ACL/NeurIPS \u8bba\u6587\u4e3b\u56fe\uff0c\u4e0d\u8981\u50cf\u968f\u624b\u767d\u677f\uff0c\u4e5f\u4e0d\u8981\u50cf\u827a\u672f\u63d2\u753b\u3002\n\nStyle intent:\n- Clean, dense, modular, Figma-like, mostly rounded cards, low-saturation pastel blocks.\n- Use small badges/icons sparingly; avoid empty space while preserving alignment.\n- It should look like a main figure in an EMNLP/ACL/NeurIPS paper, not a marketing graphic, stock illustration, dashboard screenshot, or casual whiteboard.\n\nPinned content that must appear exactly:\n- Title: \"Ten reproducible trajectory layers - every run, atomic & immutable\"\n- A vertical stack of ten thin layers, from bottom (finest) to top, each spelled exactly:\n  1 (bottom) \"codex rollout (finest)\"\n  2 \"events.jsonl\"\n  3 \"decisions.jsonl\"\n  4 \"activity.log\"\n  5 \"memory.jsonl\"\n  6 \"telemetry.jsonl\"\n  7 \"wiki (distilled know-how)\"\n  8 \"skills lifecycle\"\n  9 \"FTS5 / BM25 index\"\n  10 (top) \"anti-forgery guardrails\"\n- A vertical \"evidence chain\" rail on the right spanning all ten layers.\n- A small corner chip: \"measured today: ~10 GB scale (not TB)\".\n- SPELL EXACTLY every quoted label above. Do not invent alternate terminology, code identifiers, raw artifact paths, or extra labels.\n\nLayout variant:\n- 05 Layered architecture stack: ten clean stacked horizontal layers, alternating two pastels, a right-side vertical 'evidence chain' rail, corner chip top-right.\n- Keep the visible labels faithful to the pinned content, but use the layout variant to create a polished, dense, paper-native composition with visual hierarchy.\n- Prefer grouped modules, phase containers, compact chips, and clear arrows over a sparse chain of identical boxes.\n\nNegative prompt / Avoid:\n- no concrete code snippets, raw paths, tiny unreadable text, character-level vertical text, or dense paragraphs\n- no excessive logos or brand marks, no watermark\n- no photorealistic scenes, stock photos, glassmorphism, heavy gradients, heavy shadows, texture, or arbitrary decorative blobs\n- no messy whiteboard / Excalidraw-heavy sketch style\n- no large empty areas, overlapping cards, squashed labels, inconsistent terminology, or extra captions that make it look like a dashboard\n- no inconsistent terminology between figure and text\n\nAspect ratio:\n- 1536x1024 landscape\n\nFigma tokens for camera-ready cleanup:\n- Background #fbfaf7; stroke #1f2933 at 2px.\n- Corner radius 10-16px; card padding 12-20px; card gap 12-24px.\n- Pastels: acquisition #ffe2d1, parsing #fff2bd, memory/wiki #dcecff, agent #e2f7df, domains #eadfff, benchmark #fff1c9.\n- Text sizes: title 38-52px, section headers 22-30px, card labels 16-22px, chips 12-16px.\n",
+  "prompt_path": "docs/bp_figures/_studio/layers/stack.prompt.txt",
+  "prompt_sha256": "199535d3e61eed83506009fe7837867454b819f4773c7eadbd9ff859cb1190aa",
+  "requested_size": "1536x1024",
+  "sidecar": "docs/bp_figures/_studio/layers/stack.png.json"
+}
