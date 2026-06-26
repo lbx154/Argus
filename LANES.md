@@ -42,3 +42,35 @@ Done: #1-drain, #5-meta-attribution, #8-proxy-gate-visibility, #13-systemd-unit.
 2. The Claude loop does L-claude items only. It NEVER does L-operator (waits for lbx) or L-hapi (waits for HAPI), and NEVER touches OFF-LIMITS.
 3. Shared files (`daemon/life_worker.py`, `life/supervisor/_config.py`, `planner/planner.py`, `apps/cli/`): edit only your responsibility within them; expect rebases.
 4. Reviewer contract / schema and product-identity defaults change ONLY with lbx's sign-off.
+
+## Overnight L-claude status (2026-06-26)
+
+**Shipped by the autonomous loop (each tested + pushed):**
+- #1 drain-stop (`--daemon-stop --drain`), #5 meta jump-vs-exploit attribution,
+  #8 proxy-gated NO-SCORE visibility, #9 `--config-help` knob registry,
+  #11 operator_sim import-gated, #12 ghost dirs removed, #13 systemd unit.
+- #2 mostly closed by HAPI (`58c293f`: dropped the `argus start` paper bypass;
+  daemon now seeds AGENTS by vertical).
+
+**HELD for operator oversight — big/risky/decision-laden, NOT rushed unattended
+(per the honor code "谨慎重构" + the lane rule):**
+- **#7 dead blue/green handoff** — DECISION: delete it, or keep-disabled? You set
+  `ARGUS_SKILL_DAEMON_AUTO_RESTART=0` deliberately. Re-audit recommends DELETE
+  (~360 LOC dead in life_worker + planner `restart_daemon` prompts + supervisor
+  branches + research_profile instruction) now that #13 ships the real durability
+  answer. Atomic multi-file removal — best done with you watching the suite.
+- **#3-core strip EMNLP from supervisor/planner/loop** — entangled with #1 (the
+  `full_emnlp_gate` DEFAULT is your L-operator call) AND HAPI is concurrently
+  de-papering. Coordinate so we don't double-edit the completion path.
+- **#6 collapse team/ onto tools/subagent** — DECISION: which is load-bearing?
+  They're layered (team/_store mirrors subagent). Needs the keep/cut call + a
+  careful consolidation; `skills/run_contract` (L-hapi) uses subagent.
+- **#10 split the 3114-LOC LifeSupervisor god-object** — touches your
+  external-blocker latch + HAPI's per-role config; a big extraction that wants
+  characterization tests + your eyes.
+- **#14 observability → one event bus** — big; routing ~10 emitters through a new
+  bus risks subtly breaking event delivery (the thing we'd be improving). Wants
+  careful chunking with you available to verify.
+
+Autonomous loop PAUSED here (safe items done). Resume per-item with operator when
+awake, or restart the cron to keep attempting under supervision.
