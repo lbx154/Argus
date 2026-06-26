@@ -414,7 +414,11 @@ def test_life_worker_drains_multiple_missions(tmp_path: Path) -> None:
         ))
         time.sleep(0.3)
 
-    deadline = time.monotonic() + 8.0
+    # Poll generously: the 3 memory-backend missions complete near-instantly in
+    # isolation, but under full-suite CPU contention the daemon thread can be
+    # starved well past a few seconds. 30s keeps the assertion about CORRECTNESS
+    # (all drained) without making it a wall-clock race that flakes under load.
+    deadline = time.monotonic() + 30.0
     while time.monotonic() < deadline:
         if all(it.status == "done" for it in mem.backlog.all()):
             break

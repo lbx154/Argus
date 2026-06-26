@@ -991,7 +991,7 @@ def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> 
             print("daemon : not running   (start with `argus-skill --daemon`)")
             tid = chat_state.get("last_thread_id") if chat_state is not None else None
             if tid:
-                print(f"codex  : resuming session {tid[:12]}…  (/reset to drop)")
+                print("codex  : reusing the previous session  (/reset to start fresh)")
 
 
 # ---------------------------------------------------------------------------
@@ -1417,18 +1417,19 @@ def _run_manager_repl_locked(
                         # knows their backlog will not drain on its own.
                         no_daemon_warning = (
                             "daemon spawn did not confirm alive — backlog may "
-                            "not execute. Start one with `argus --daemon`."
+                            "not execute. Run /doctor for why + the fix."
                         )
                 else:
                     no_daemon_warning = (
                         "daemon auto-spawn failed — backlog will NOT be "
-                        "executed. Start one with `argus --daemon`."
+                        "executed. Run /doctor for why + the fix "
+                        "(often a rate-limited backend)."
                     )
         except Exception as exc:  # noqa: BLE001
             auto_spawn_msg = f"daemon auto-spawn skipped: {exc!s}"
             no_daemon_warning = (
                 "daemon not confirmed running — backlog may not execute. "
-                "Start one with `argus --daemon`."
+                "Run /doctor for why + the fix."
             )
     else:
         # --no-daemon: the REPL no longer executes missions, so without a
