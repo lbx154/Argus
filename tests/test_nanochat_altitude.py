@@ -13,6 +13,7 @@ from argus_skill.verticals._base import load_vertical, vertical_search_altitude
 from argus_skill.verticals.nanochat.stages import (
     _REF_BEST,
     _REF_OPTIMIZED_FROM_VANILLA,
+    _no_score_facts,
     search_altitude_context,
 )
 
@@ -250,3 +251,40 @@ def test_training_dynamics_failsoft_on_partial_profile(tmp_path):
     assert "~2700" in block
     assert "~40.0 GB" in block
     assert "Train-loss curve" not in block  # no curve data → no curve line
+
+
+def _write_no_score_attempt(root, name: str, wdelta: float | None) -> None:
+    """An attempt the agent's proxy gate skipped (no official score)."""
+    d = root / "attempts" / name
+    d.mkdir(parents=True, exist_ok=True)
+    obj: dict = {"decision": "PROFILE_GATE_FAIL_NO_SCORE", "official_scored": False}
+    if wdelta is not None:
+        obj["val_rg_all_weighted_delta"] = wdelta
+    (d / "summary.json").write_text(json.dumps(obj), encoding="utf-8")
+
+
+def test_no_score_facts_surfaces_proxy_gated_attempts(tmp_path):
+    _write_no_score_attempt(tmp_path, "a010_regime_jump", 0.0036)
+    _write_no_score_attempt(tmp_path, "a011_unrecorded", None)
+    out = _no_score_facts(tmp_path)
+    assert "Proxy-gated NO-SCORE" in out
+    assert "NO verdict" in out
+    assert "a010_regime_jump" in out
+    assert "+0.003600" in out
+    assert "(not recorded)" in out          # the wdelta=None case
+    assert "research call" in out           # the no-verdict disclaimer
+
+
+def test_no_score_facts_empty_when_none(tmp_path):
+    (tmp_path / "attempts").mkdir()
+    assert _no_score_facts(tmp_path) == ""
+
+
+def test_no_score_block_appended_to_altitude_context(tmp_path):
+    # The NO_SCORE block rides along on the full altitude context (which needs at
+    # least one SCORED attempt to render at all).
+    _write_attempt(tmp_path, "a001_scored", 0.97)
+    _write_no_score_attempt(tmp_path, "a002_gated", 0.005)
+    block = search_altitude_context(tmp_path)
+    assert "Proxy-gated NO-SCORE" in block
+    assert "a002_gated" in block

@@ -556,6 +556,70 @@ def _training_dynamics_block(project_root: object, attempts: list) -> str:
         return ""
 
 
+#: How many recent proxy-gated NO-SCORE attempts to list (with their proxy delta).
+_NO_SCORE_RECENT_N = 8
+
+
+def _no_score_facts(project_root: object) -> str:
+    """NO-VERDICT block: recent attempts that produced NO official score because
+    the agent's OWN train-only proxy gate skipped them
+    (``PROFILE_GATE_FAIL_NO_SCORE``), plus the proxy regression that tripped each
+    gate (``val_rg_all_weighted_delta``, >0 = worse than the floor).
+
+    The altitude block above only lists SCORED attempts, so the proxy-gate budget
+    sink — runs that trained on the B200 but never got an official number — was
+    invisible to the agent and the reviewer. This surfaces WHERE the budget went
+    without a score so the agent can judge whether a gated regime (e.g. a fresh
+    regime still in its valley) deserved a real score anyway. Facts only — the
+    harness makes no keep/score call. Fail-soft → "".
+    """
+    try:
+        adir = Path(str(project_root)) / "attempts"
+        if not adir.is_dir():
+            return ""
+        gated: list[tuple[str, float | None]] = []
+        for d in sorted(adir.iterdir(), key=lambda p: _attempt_index(p.name)):
+            if not d.is_dir():
+                continue
+            sj = d / "summary.json"
+            if not sj.exists():
+                continue
+            try:
+                o = json.loads(sj.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                continue
+            if not isinstance(o, dict) or str(o.get("decision")) != "PROFILE_GATE_FAIL_NO_SCORE":
+                continue
+            wd = o.get("val_rg_all_weighted_delta")
+            try:
+                wd = float(wd) if wd is not None else None
+            except (TypeError, ValueError):
+                wd = None
+            gated.append((d.name, wd))
+        if not gated:
+            return ""
+        lines = [
+            "## Proxy-gated NO-SCORE attempts — measured (NO verdict; YOU judge)",
+            f"{len(gated)} recorded attempt(s) produced NO official score because "
+            "YOUR OWN train-only proxy gate skipped them (PROFILE_GATE_FAIL_NO_SCORE) "
+            "— the cheap proxy showed a regression vs the floor, so the expensive "
+            "official scorer was not spent. The proxy delta that tripped each gate "
+            "(val_rg weighted, >0 = worse than floor):",
+        ]
+        for name, wd in gated[-_NO_SCORE_RECENT_N:]:
+            shown = f"{wd:+.6f}" if wd is not None else "(not recorded)"
+            lines.append(f"    {name} | proxy Δ {shown}")
+        lines.append(
+            "This is where B200 budget went without an official number. Whether a "
+            "gated regime deserved a real score anyway (e.g. a fresh regime still in "
+            "its initial-regression valley) is YOUR research call — not the "
+            "harness's.\n"
+        )
+        return "\n".join(lines) + "\n"
+    except Exception:  # noqa: BLE001 — must never break prompt building
+        return ""
+
+
 def search_altitude_context(project_root: object) -> str:
     """Return a NO-VERDICT 'search altitude' fact block, or ``""``.
 
@@ -652,7 +716,7 @@ def search_altitude_context(project_root: object) -> str:
             "saturated and the next candidate should change regime (per the "
             "SEARCH DISCIPLINE banner) — but that call is your research "
             "judgment, not the harness's.\n\n"
-        ) + _training_dynamics_block(project_root, attempts)
+        ) + _training_dynamics_block(project_root, attempts) + _no_score_facts(project_root)
     except Exception:  # noqa: BLE001 — must never break prompt building
         return ""
 
