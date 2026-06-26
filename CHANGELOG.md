@@ -6,6 +6,32 @@ the project adheres to semantic versioning once it leaves 0.x.
 
 ## [Unreleased]
 
+### Added
+- **Daemon-resident Curator owns the teammate pool (replaces the detached coordinator).**
+  `team/curator.py` is a managed thread in the daemon that keeps N teammates in
+  flight, owns each as a retained `Popen` handle, and is the single reaper
+  (per-child `killpg` + `task_board.fail` past the hard deadline), wired into
+  `daemon/life_worker.py` with `try/finally: curator.stop()`. Campaigns are
+  discovered via `.argus/team/<id>.json` markers (`team/registry.py`) so exactly
+  one Curator manages every root — a duplicate coordinator is structurally
+  impossible and a finished lead mission can never orphan the pool. Makes "the
+  daemon can't control the teammate lifecycle" disappear by construction.
+- **Deterministic leaderboard + a Curator agent role.** `team/leaderboard.py`
+  folds teammate shards (now carrying `{target, metric, mechanism}`) into a
+  per-target `{best, attempts}` ledger each tick; fresh teammates inherit a
+  "what's already tried — do NOT re-derive" block so the pool builds depth
+  instead of re-running exhausted breadth. The Curator is also a first-class LLM
+  role (`builtin_skills/curator/argus-curator-role.md`, `ARGUS_SKILL_CURATOR_*`)
+  that distills the leaderboard into `strategy.md` (low-frequency, best-effort).
+
+### Changed
+- **Retired the detached `nohup` coordinator.** `tools/team.py coordinate`, the
+  `/proc` cmdline liveness archaeology, the `pool.json` lead-heartbeat
+  orphan-protection, and the teammate self-SIGKILL are removed — superseded by
+  the resident Curator owning real process handles. `pool.json` is slimmed to
+  `{width, state}` (width 0 = pause). The two "Fixed" items below were the
+  best-effort coordinator-era mitigations the Curator now makes obsolete.
+
 ### Fixed
 - **Rolling-pool coordinator no longer over-spawns a teammate herd.**
   `tools/team.py` `refill_once` sized the pool on

@@ -1,5 +1,7 @@
 # Argus Teams × 新 main — 生命周期 / 集成诊断报告
 
+> **状态（2026-06-26 更新）**: 本报告诊断的问题**已实现并合并到 main（PR #78）** —— M1 daemon-resident Curator（止漏，live codex 跑通验证）+ M2 确定性 leaderboard + Curator agent 角色。**尚未部署**：线上 daemon 仍跑分叉 fork `c51d0dd`（installed package），部署需把 install 指向 main 或走 reconcile。**M3（near-death resume）** 待 dive/handoff port（见 `../plans/2026-06-26-team-lifecycle-reconcile-onto-main.md`）。
+
 - **日期**: 2026-06-26 ｜ **基线**: `origin/main @ 823dfcf`（真·最新；分支 `dev/team-latest`）
 - **方法**: systematic-debugging（先复现/理解/定位根因，**本报告不含修复**）
 - **范围**: `argus_skill/team/*` + `tools/team.py` + `agent-team-lead.md` 全读；daemon 侧集成接缝 grep；**daemon 实机（`/data/yijia/argus-skill` + 活进程）运行时核实**
