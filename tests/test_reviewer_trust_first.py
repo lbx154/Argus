@@ -76,3 +76,18 @@ def test_non_measured_keeps_anti_fabrication_floor(monkeypatch):
     # `continue` (not `done`) when a claim is NOT backed by shown evidence.
     p = _prompt(measured=False, monkeypatch=monkeypatch)
     assert "Default to `continue` whenever the agent's claims are not backed" in p
+
+
+def test_reviewer_reasons_in_prose_structured_only_at_handoff(monkeypatch):
+    # The reviewer must talk in natural language during its turn and emit the
+    # structured JSON ONLY as the final handoff — not format every message as
+    # JSON. codex --output-schema constrains only the FINAL response, so this is
+    # a prompt-framing change with no robustness loss.
+    p = _prompt(measured=False, monkeypatch=monkeypatch)
+    assert "talk normally" in p
+    assert "ONLY your FINAL message is the structured handoff" in p
+    assert "intermediate messages" in p
+    assert "FINAL handoff JSON object" in p
+    # the old "every message is JSON" framing is gone
+    assert "Return valid JSON matching the provided schema" not in p
+
