@@ -48,6 +48,9 @@ log = logging.getLogger(__name__)
 # --- constants -------------------------------------------------------------
 
 #: Known verticals. ``"research"`` is first and is the canonical default.
+#: ``"quant"`` is the finance factor-research vertical — a REPORT peer of
+#: ``research`` (it produces a reviewer-certified factor report, not a numeric
+#: metric), so it is NOT an optimize vertical and is never routed under speedrun.
 #: ``"speedrun"`` is the generic numeric-optimization vertical; the three
 #: per-task verticals below are the distinct Recursive "First Steps" tasks,
 #: each optimizing its OWN metric (so they are never conflated under speedrun):
@@ -55,7 +58,7 @@ log = logging.getLogger(__name__)
 #:   nanogpt_speedrun — Task 2: minimize wall-time to val_loss<=3.28 (8xH100)
 #:   kernelbench      — Task 3: maximize SOL score (B200 kernels)
 VERTICALS: tuple[str, ...] = (
-    "research", "speedrun",
+    "research", "quant", "speedrun",
     "nanochat", "nanogpt_speedrun", "kernelbench",
 )
 
@@ -184,18 +187,71 @@ _RESEARCH_SIGNALS: tuple[str, ...] = (
     "venue",
 )
 
+#: Finance factor-research signals. A hit routes the objective to the ``quant``
+#: vertical (a REPORT peer of ``research``, never an optimize/speedrun vertical).
+#: Mixes English and Chinese terms since finance objectives arrive in both.
+_QUANT_SIGNALS: tuple[str, ...] = (
+    "factor",
+    "因子",
+    "quant",
+    "quantitative",
+    "量化",
+    "backtest",
+    "回测",
+    "alpha",
+    "a-share",
+    "a股",
+    "ashare",
+    "股票",
+    "股市",
+    "equity factor",
+    "factor mining",
+    "factor zoo",
+    "ic/icir",
+    "icir",
+    "rankic",
+    "sharpe",
+    "long-short",
+    "portfolio",
+    "qlib",
+)
+
+
+def _looks_quant(text: object) -> bool:
+    """Whether the objective is a finance factor-research mission.
+
+    True when finance signals are present AND strictly dominate the research
+    signals and at least tie the speedrun signals — so a finance factor mission
+    routes to ``quant`` while a generic paper / generic optimize objective does
+    not. Cheap, deterministic, LLM-free.
+    """
+    t = text.lower() if isinstance(text, str) else ""
+    if not t:
+        return False
+    quant_hits = sum(1 for sig in _QUANT_SIGNALS if sig in t)
+    if quant_hits < 1:
+        return False
+    research_hits = sum(1 for sig in _RESEARCH_SIGNALS if sig in t)
+    speedrun_hits = sum(1 for sig in _SPEEDRUN_SIGNALS if sig in t)
+    return quant_hits > research_hits and quant_hits >= speedrun_hits
+
 
 def _heuristic_classify(objective: object) -> str:
     """Keyword/intent heuristic mapping an objective to a vertical.
 
-    Counts SPEEDRUN vs RESEARCH keyword hits. Returns ``"speedrun"`` only when
-    speedrun signals clearly dominate (strictly more speedrun hits than research
-    hits, and at least one speedrun hit); otherwise ``"research"`` — the safe
-    default, since producing a paper subsumes optimize work.
+    Order: finance factor-research (``quant``) is checked first — it is a REPORT
+    peer of ``research`` (not an optimize vertical), so a finance objective must
+    not be swallowed by the speedrun branch. Otherwise counts SPEEDRUN vs
+    RESEARCH keyword hits and returns ``"speedrun"`` only when speedrun signals
+    clearly dominate (strictly more speedrun hits than research hits, and at
+    least one speedrun hit); otherwise ``"research"`` — the safe default, since
+    producing a paper subsumes optimize work.
     """
     text = objective.lower() if isinstance(objective, str) else ""
     if not text:
         return "research"
+    if _looks_quant(text):
+        return "quant"
     speedrun_hits = sum(1 for sig in _SPEEDRUN_SIGNALS if sig in text)
     research_hits = sum(1 for sig in _RESEARCH_SIGNALS if sig in text)
     if speedrun_hits >= 1 and speedrun_hits > research_hits:
@@ -295,12 +351,16 @@ def classify_vertical(
         )
         answer = _parse_llm_vertical(getattr(result, "last_agent_message", "") or "")
         if answer is not None:
-            # Specialize a generic "speedrun" verdict to the right per-task vertical.
-            return (
-                _route_optimize_vertical(str(objective))
-                if answer == "speedrun"
-                else answer
-            )
+            # Specialize a generic "speedrun" verdict to the right per-task
+            # vertical; specialize a "research" verdict to "quant" when the
+            # objective is a finance factor-research mission (the LLM only
+            # knows the RESEARCH/SPEEDRUN dichotomy, but a factor report is a
+            # research-shaped REPORT mission served by the quant vertical).
+            if answer == "speedrun":
+                return _route_optimize_vertical(str(objective))
+            if _looks_quant(str(objective)):
+                return "quant"
+            return answer
     except Exception:  # noqa: BLE001 — any failure degrades to the heuristic
         log.warning("LLM vertical classification failed; using heuristic", exc_info=True)
 
@@ -352,10 +412,19 @@ def persist_vertical(project_root: object, vertical: str) -> None:
 
     Loads the existing state (or ``{}`` if missing/malformed), creates the
     ``research/`` directory if needed, and sets ``vertical`` to the normalized
-    name. When ``current_stage`` is unset or is not one of the vertical's own
-    stages (e.g. a stale paper stage left by a prior mis-routed run), it is
-    reset to the vertical's FIRST stage so the mission starts in the right
-    place. Written atomically.
+    name. Written atomically.
+
+    STAGE AUTHORITY — the harness must NOT control ``current_stage``; only the
+    reviewer agent moves it (advance via its verdict, or roll back via
+    ``stage_checklists.rollback_stage``). So this function SEEDS the vertical's
+    first stage only when no stage exists yet (bootstrap of a fresh state
+    file); it NEVER overwrites or resets an existing stage. A stale stage left
+    by a vertical change (e.g. a research ``run`` stage seen while persisting
+    the speedrun vertical after a classification false-positive) is real
+    progress — clobbering it to the first stage is an unauthorized rollback
+    that destroys evidence. It is left for the reviewer / rollback path to
+    handle, and the read-side ``current_stage()`` already falls back to the
+    vertical's first stage at read time without mutating the file.
 
     Fail-open: errors are logged, never raised — persistence is best-effort and
     must not break mission bootstrap.
@@ -373,24 +442,13 @@ def persist_vertical(project_root: object, vertical: str) -> None:
 
         payload["vertical"] = vert
 
-        first_stage = _vertical_first_stage(vert)
-        if first_stage:
-            order = []
-            try:
-                from ..verticals._base import (
-                    load_vertical,
-                    vertical_checklist_stage_order,
-                )
-
-                order = [
-                    _normalize_stage(s)
-                    for s in vertical_checklist_stage_order(load_vertical(vert))
-                ]
-            except Exception:  # noqa: BLE001 — best-effort
-                order = [first_stage]
-            current = payload.get("current_stage")
-            current_norm = _normalize_stage(current)
-            if current_norm not in order:
+        # SEED-ONLY, NEVER RESET. Stage authority belongs to the reviewer
+        # agent (see docstring). Write an initial stage only when none exists
+        # yet — leave any existing stage, even one not in this vertical's
+        # order, untouched.
+        if not _normalize_stage(payload.get("current_stage")):
+            first_stage = _vertical_first_stage(vert)
+            if first_stage:
                 payload["current_stage"] = first_stage
 
         path.parent.mkdir(parents=True, exist_ok=True)

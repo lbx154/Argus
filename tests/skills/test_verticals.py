@@ -114,6 +114,36 @@ def test_kernelbench_keeps_research_as_valid_benchmark_research_stage(tmp_path: 
     assert current_stage(root) == "research"
 
 
+def test_persist_vertical_never_resets_existing_stage(tmp_path: Path) -> None:
+    # Stage authority belongs to the reviewer agent, not the harness. A stage
+    # that is NOT in the (mis)persisted vertical's order — here a research
+    # ``run`` stage persisted under the speedrun vertical after a
+    # classification false-positive — must be PRESERVED, never clobbered to
+    # the vertical's first stage (that would be an unauthorized rollback that
+    # destroys real pipeline progress).
+    root = _project(tmp_path, "research", current="run")
+
+    persist_vertical(root, "speedrun")
+
+    payload = json.loads((root / "research" / "PIPELINE_STATE.json").read_text())
+    assert payload["vertical"] == "speedrun"
+    assert payload["current_stage"] == "run"  # preserved, NOT reset to "setup"
+
+
+def test_persist_vertical_seeds_first_stage_only_when_missing(tmp_path: Path) -> None:
+    # Bootstrap of a fresh state file with no stage yet still gets an initial
+    # stage seeded — that is initialization, not control.
+    (tmp_path / "research").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "research"}), encoding="utf-8"
+    )
+
+    persist_vertical(tmp_path, "research")
+
+    payload = json.loads((tmp_path / "research" / "PIPELINE_STATE.json").read_text())
+    assert payload["current_stage"] == "research"  # research vertical's first stage
+
+
 def test_kernelbench_research_checklist_is_not_paper_literature_gate(tmp_path: Path) -> None:
     root = _project(tmp_path, "kernelbench", current="research")
 
@@ -179,3 +209,74 @@ def test_full_pipeline_speedrun_env_yields_four_stages(
 def test_speedrun_reviewer_banner_is_innovation_coach() -> None:
     banner = speedrun_role_banner("reviewer")
     assert "INNOVATION COACH" in banner
+
+
+# --- quant (finance factor-research) vertical ------------------------------
+#
+# ``quant`` is the finance analog of ``research``: a REPORT vertical (it
+# produces a reviewer-certified factor report, not a numeric metric), reusing
+# the same 8 stage ids with finance semantics. These tests pin that it routes,
+# loads, certifies on the full-report gate, and ships its skill files.
+
+QUANT_STAGES: tuple[str, ...] = RESEARCH_STAGES  # same ids, finance semantics
+
+
+def test_classify_quant_objective_is_quant() -> None:
+    # A finance factor-research objective routes to the quant vertical...
+    assert classify_vertical("mine A-share equity factors and backtest alpha") == "quant"
+    assert classify_vertical("挖掘A股因子并回测,评估sharpe与IC/ICIR") == "quant"
+    assert classify_vertical("quantitative factor mining with qlib") == "quant"
+    # ...while a generic paper objective with no finance terms stays research.
+    assert classify_vertical("write an EMNLP paper with a literature review") == "research"
+    # ...and a generic optimize objective is NOT swallowed by quant.
+    assert classify_vertical("minimize the loss and beat the baseline score") == "speedrun"
+
+
+def test_quant_vertical_loads_and_exposes_contract() -> None:
+    from argus_skill.verticals._base import load_vertical, vertical_completion_gate
+
+    mod = load_vertical("quant")
+    assert tuple(mod.STAGE_ORDER) == QUANT_STAGES
+    # Same stage ids drive shell checks and reviewer checklists.
+    assert tuple(mod.STAGE_CHECKS.keys()) == QUANT_STAGES
+    assert tuple(mod.REVIEWER_CHECKLISTS.keys()) == QUANT_STAGES
+    # A factor report is certified on the full-report gate (like research),
+    # NOT a numeric speedrun metric.
+    assert vertical_completion_gate(mod) == "full_emnlp"
+
+
+def test_quant_is_a_report_vertical_not_optimize() -> None:
+    # The triage layer must treat quant as a research-shaped REPORT mission, not
+    # an optimize one — it produces a certified report, not a tuned number.
+    from argus_skill.manager._core import _OPTIMIZE_VERTICALS
+
+    assert "quant" not in _OPTIMIZE_VERTICALS
+
+
+def test_quant_reviewer_skill_paths_exist() -> None:
+    from argus_skill.verticals.quant.stages import REVIEWER_CHECKLISTS
+
+    builtin_root = Path(__file__).resolve().parents[2] / "argus_skill" / "builtin_skills"
+    missing = []
+    for stage, (skill_path, _instructions, _files) in REVIEWER_CHECKLISTS.items():
+        if not (builtin_root / skill_path).exists():
+            missing.append(f"{stage}: {skill_path}")
+    assert missing == []
+
+
+def test_quant_full_pipeline_checklist_is_finance_not_paper(tmp_path: Path) -> None:
+    root = _project(tmp_path, "quant", current="run")
+
+    text = format_full_pipeline_checklist(role="reviewer", project_root=root)
+
+    # All 8 stages render, with FINANCE checklist items (not the paper floor).
+    for stage in QUANT_STAGES:
+        assert f"### {stage}\n" in text
+    assert "research.hypotheses" in text
+    assert "research.go_no_go" in text
+    assert "economic" in text  # economic-mechanism mandate
+    assert "search ledger" in text  # search-breadth discipline
+    # It is a REPORT vertical (full_emnlp gate) -> keeps the submission-gate
+    # header, not the lean "(quant)" optimize header.
+    assert "final submission gate" in text
+

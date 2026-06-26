@@ -2376,8 +2376,10 @@ class LifeSupervisor:
             workdir = self._planner_workdir()
             persisted = _vsel._persisted_vertical(workdir)
             if persisted is not None:
-                # Trust the persisted vertical, but still normalize stale stages
-                # (e.g. vertical=kernelbench with current_stage=research).
+                # Trust the persisted vertical and re-persist it (sticky across
+                # restarts). This does NOT touch current_stage — stage authority
+                # is the reviewer agent's; persist_vertical only seeds a stage
+                # when none exists and never resets an existing one.
                 _vsel.persist_vertical(workdir, persisted)
                 self._emit({
                     "type": "life.vertical.resolved",

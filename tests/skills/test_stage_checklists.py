@@ -234,6 +234,99 @@ def test_rollback_stage_appends_history_across_calls(tmp_path: Path) -> None:
     assert payload["current_stage"] == "research"
 
 
+# --- stage advance (forward) ------------------------------------------------
+
+
+def test_advance_stage_moves_forward_and_marks_previous_done(tmp_path: Path) -> None:
+    from argus_skill.skills.stage_checklists import advance_stage
+
+    research_dir = tmp_path / "research"
+    research_dir.mkdir()
+    (research_dir / "PIPELINE_STATE.json").write_text(json.dumps({
+        "current_stage": "benchmark",
+        "stages": {"benchmark": {"status": "in_progress"}},
+    }), encoding="utf-8")
+
+    advance_stage(tmp_path, target_stage="run", reason="benchmark checklist satisfied")
+
+    payload = json.loads((research_dir / "PIPELINE_STATE.json").read_text(encoding="utf-8"))
+    assert payload["current_stage"] == "run"
+    # the stage just completed is stamped done
+    assert payload["stages"]["benchmark"]["status"] == "done"
+    # unified transition log records the advance
+    assert len(payload["stage_history"]) == 1
+    entry = payload["stage_history"][0]
+    assert entry["direction"] == "advance"
+    assert entry["from_stage"] == "benchmark"
+    assert entry["to_stage"] == "run"
+    assert entry["by"] == "manager"
+    # advance never touches the legacy rollback log
+    assert "rollback_history" not in payload
+
+
+def test_advance_stage_rejects_backward_or_skip(tmp_path: Path) -> None:
+    import pytest as _pytest
+
+    from argus_skill.skills.stage_checklists import advance_stage
+
+    research_dir = tmp_path / "research"
+    research_dir.mkdir()
+    (research_dir / "PIPELINE_STATE.json").write_text(json.dumps({
+        "current_stage": "benchmark",
+    }), encoding="utf-8")
+
+    with _pytest.raises(ValueError):
+        advance_stage(tmp_path, target_stage="research", reason="backward")  # earlier
+    with _pytest.raises(ValueError):
+        advance_stage(tmp_path, target_stage="analysis", reason="skip over run")  # skip
+    with _pytest.raises(ValueError):
+        advance_stage(tmp_path, target_stage="nonsense", reason="bad name")
+
+
+def test_advance_stage_is_vertical_aware_speedrun(tmp_path: Path) -> None:
+    import pytest as _pytest
+
+    from argus_skill.skills.stage_checklists import advance_stage
+
+    research_dir = tmp_path / "research"
+    research_dir.mkdir()
+    # speedrun order is setup -> optimize -> measure -> report
+    (research_dir / "PIPELINE_STATE.json").write_text(json.dumps({
+        "vertical": "speedrun",
+        "current_stage": "setup",
+    }), encoding="utf-8")
+
+    advance_stage(tmp_path, target_stage="optimize", reason="setup done")
+    payload = json.loads((research_dir / "PIPELINE_STATE.json").read_text(encoding="utf-8"))
+    assert payload["current_stage"] == "optimize"
+    assert payload["stages"]["setup"]["status"] == "done"
+
+    # a research stage name is not a valid speedrun stage
+    with _pytest.raises(ValueError):
+        advance_stage(tmp_path, target_stage="run", reason="wrong vertical")
+
+
+def test_rollback_stage_also_writes_unified_stage_history(tmp_path: Path) -> None:
+    from argus_skill.skills.stage_checklists import rollback_stage
+
+    research_dir = tmp_path / "research"
+    research_dir.mkdir()
+    (research_dir / "PIPELINE_STATE.json").write_text(json.dumps({
+        "current_stage": "run",
+        "stages": {"run": {"status": "in_progress"}},
+    }), encoding="utf-8")
+
+    rollback_stage(tmp_path, target_stage="benchmark", reason="stub evaluator")
+
+    payload = json.loads((research_dir / "PIPELINE_STATE.json").read_text(encoding="utf-8"))
+    # legacy log preserved
+    assert len(payload["rollback_history"]) == 1
+    # unified log additionally records the rollback
+    assert len(payload["stage_history"]) == 1
+    assert payload["stage_history"][0]["direction"] == "rollback"
+    assert payload["stage_history"][0]["by"] == "reviewer"
+
+
 # --- new evaluator-authenticity items --------------------------------------
 
 

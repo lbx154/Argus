@@ -730,6 +730,179 @@ def current_stage(project_root: Path | str = ".") -> str:
     return fallback
 
 
+def _set_stage(
+    project_root: Path | str,
+    *,
+    target_stage: str,
+    reason: str,
+    by: str,
+    direction: str,
+    mark_current_done: bool = False,
+    downgrade_downstream: bool = False,
+    legacy_rollback_history: bool = False,
+) -> str:
+    """Single vertical-aware read-modify-write of the pipeline stage state.
+
+    The ONE primitive behind :func:`advance_stage` and :func:`rollback_stage`.
+    Resolves the active vertical's stage order + items via
+    ``_active_vertical_checklist_defs`` (fails open to the research floor, so the
+    research/paper path stays byte-identical), validates ``target_stage`` against
+    them, then writes ``research/PIPELINE_STATE.json``:
+
+    * ``current_stage`` -> ``target_stage``
+    * if ``mark_current_done``: the *previous* stage's ``status`` -> ``done``
+      (the advance case stamps the stage just completed);
+    * if ``downgrade_downstream``: every stage strictly AFTER ``target_stage``
+      with status in {done, ready, in_progress} -> ``pending`` (the rollback
+      case, so the planner does not skip back over them);
+    * appends one entry to ``stage_history`` (the unified transition log):
+      ``{at, from_stage, to_stage, direction, reason, by}``;
+    * if ``legacy_rollback_history``: ALSO appends the legacy ``rollback_history``
+      entry (``{at, from_stage, to_stage, reason, rolled_back_by: by}``) so
+      existing rollback consumers/tests stay green.
+
+    ``direction`` is ``"advance"`` (target strictly later) or ``"rollback"``
+    (target strictly earlier). Atomic write (tmp + ``os.replace``-equivalent via
+    ``write_text``), ``indent=2, sort_keys=True`` + trailing newline. Raises
+    ``ValueError`` on an unknown target or one that violates ``direction``.
+    """
+    import datetime as _dt
+
+    root = Path(project_root)
+    state_path = root / "research" / "PIPELINE_STATE.json"
+    raw_order, items = _active_vertical_checklist_defs(project_root)
+    order = [_normalize_stage(s) for s in raw_order]
+    target = _normalize_stage(target_stage)
+    if target not in items or target not in order:
+        raise ValueError(f"unknown stage {target_stage!r}")
+
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    fallback_prev = order[0] if order else "research"
+    previous = _normalize_stage(payload.get("current_stage") or fallback_prev)
+    if previous not in order:
+        previous = fallback_prev
+
+    p_idx = order.index(previous)
+    t_idx = order.index(target)
+    if direction == "advance" and t_idx <= p_idx:
+        raise ValueError(
+            f"advance target {target!r} must be strictly later than current "
+            f"stage {previous!r}"
+        )
+    if direction == "rollback" and t_idx >= p_idx:
+        raise ValueError(
+            f"rollback target {target!r} must be strictly earlier than current "
+            f"stage {previous!r}"
+        )
+
+    payload["current_stage"] = target
+
+    stages = payload.get("stages")
+    if not isinstance(stages, dict):
+        stages = {}
+        payload["stages"] = stages
+
+    if mark_current_done:
+        prev_record = stages.get(previous)
+        if not isinstance(prev_record, dict):
+            prev_record = {}
+            stages[previous] = prev_record
+        prev_record["status"] = "done"
+
+    if downgrade_downstream:
+        for stage_name in order[t_idx + 1:]:
+            stage_record = stages.get(stage_name)
+            if not isinstance(stage_record, dict):
+                stage_record = {}
+                stages[stage_name] = stage_record
+            status = str(stage_record.get("status") or "").lower()
+            if status in {"done", "ready", "in_progress"}:
+                stage_record["status"] = "pending"
+
+    now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    history = payload.get("stage_history")
+    if not isinstance(history, list):
+        history = []
+        payload["stage_history"] = history
+    history.append({
+        "at": now_iso,
+        "from_stage": previous,
+        "to_stage": target,
+        "direction": direction,
+        "reason": reason,
+        "by": by,
+    })
+
+    if legacy_rollback_history:
+        rb_history = payload.get("rollback_history")
+        if not isinstance(rb_history, list):
+            rb_history = []
+            payload["rollback_history"] = rb_history
+        rb_history.append({
+            "at": now_iso,
+            "from_stage": previous,
+            "to_stage": target,
+            "reason": reason,
+            "rolled_back_by": by,
+        })
+
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return str(state_path)
+
+
+def advance_stage(
+    project_root: Path | str,
+    *,
+    target_stage: str,
+    reason: str,
+    advanced_by: str = "manager",
+) -> str:
+    """Move the pipeline state machine **forward** to the next stage.
+
+    ``target_stage`` must be the IMMEDIATE next stage in the active vertical's
+    order (no skipping). Stamps the just-completed (previous) stage
+    ``status=done`` and sets ``current_stage=target_stage``. Returns the written
+    state-file path. Raises ``ValueError`` if the target is unknown or is not the
+    immediate next stage.
+
+    Post-bootstrap, ``advance_stage`` / ``rollback_stage`` are the ONLY mutators
+    of ``current_stage`` — both invoked solely by the Manager, which owns stage
+    authority (reviewer/planner only advise; the engineer never edits stage
+    state).
+    """
+    raw_order, _items = _active_vertical_checklist_defs(project_root)
+    order = [_normalize_stage(s) for s in raw_order]
+    target = _normalize_stage(target_stage)
+    if target not in order:
+        raise ValueError(f"unknown stage {target_stage!r}")
+    cur_norm = _normalize_stage(current_stage(project_root))
+    if cur_norm in order:
+        nxt_idx = order.index(cur_norm) + 1
+        if nxt_idx >= len(order) or order[nxt_idx] != target:
+            raise ValueError(
+                f"advance target {target!r} must be the immediate next stage "
+                f"after {cur_norm!r}"
+            )
+    return _set_stage(
+        project_root,
+        target_stage=target,
+        reason=reason,
+        by=advanced_by,
+        direction="advance",
+        mark_current_done=True,
+    )
+
+
 def rollback_stage(
     project_root: Path | str,
     *,
@@ -760,71 +933,22 @@ def rollback_stage(
     Returns the rendered JSON file path written. Raises ``ValueError``
     if ``target_stage`` is unknown or not strictly earlier than the
     current stage.
+
+    Thin wrapper over :func:`_set_stage` (the shared primitive): a rollback is a
+    backward ``_set_stage`` that downgrades downstream stages and also appends
+    the legacy ``rollback_history`` entry for back-compat. The unified
+    ``stage_history`` log is written too.
     """
 
-    import datetime as _dt
-
-    root = Path(project_root)
-    state_path = root / "research" / "PIPELINE_STATE.json"
-    target = _normalize_stage(target_stage)
-    if target not in STAGE_CHECKLISTS:
-        raise ValueError(f"unknown stage {target_stage!r}")
-
-    try:
-        payload = json.loads(state_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        payload = {}
-    if not isinstance(payload, dict):
-        payload = {}
-
-    previous = _normalize_stage(payload.get("current_stage") or "research")
-    if previous not in STAGE_CHECKLISTS:
-        previous = "research"
-    if CANONICAL_STAGE_ORDER.index(target) >= CANONICAL_STAGE_ORDER.index(previous):
-        raise ValueError(
-            f"rollback target {target!r} must be strictly earlier than current "
-            f"stage {previous!r}"
-        )
-
-    payload["current_stage"] = target
-
-    stages = payload.get("stages")
-    if not isinstance(stages, dict):
-        stages = {}
-        payload["stages"] = stages
-
-    # Downgrade every stage strictly after the rollback target back to
-    # `pending`. Leave the target stage itself at whatever status it
-    # currently has (the engineer may want to mark it `pending` again
-    # via the next round, but we don't force that here).
-    target_index = CANONICAL_STAGE_ORDER.index(target)
-    for stage_name in CANONICAL_STAGE_ORDER[target_index + 1:]:
-        stage_record = stages.get(stage_name)
-        if not isinstance(stage_record, dict):
-            stage_record = {}
-            stages[stage_name] = stage_record
-        status = str(stage_record.get("status") or "").lower()
-        if status in {"done", "ready", "in_progress"}:
-            stage_record["status"] = "pending"
-
-    history = payload.get("rollback_history")
-    if not isinstance(history, list):
-        history = []
-        payload["rollback_history"] = history
-    history.append({
-        "at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
-        "from_stage": previous,
-        "to_stage": target,
-        "reason": reason,
-        "rolled_back_by": rolled_back_by,
-    })
-
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    return _set_stage(
+        project_root,
+        target_stage=target_stage,
+        reason=reason,
+        by=rolled_back_by,
+        direction="rollback",
+        downgrade_downstream=True,
+        legacy_rollback_history=True,
     )
-    return str(state_path)
 
 
 def _render_items(
