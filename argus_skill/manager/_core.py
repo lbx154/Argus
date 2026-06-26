@@ -22,9 +22,16 @@ the task and hands the current Stage to the existing Planner.
 """
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+try:  # POSIX advisory file locking; absent on Windows.
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX fallback
+    fcntl = None  # type: ignore[assignment]
 
 from ..skills import vertical_select
 from ..skills.vertical_select import (
@@ -38,6 +45,98 @@ from ..skills.vertical_select import (
 _OPTIMIZE_VERTICALS = frozenset(
     {"speedrun", "nanochat", "nanogpt_speedrun", "kernelbench"}
 )
+
+# Where the Manager's one persistent codex session lives (under project_root).
+_SESSION_FILE = ".manager_session.json"
+_SESSION_LOCK = ".manager_session.lock"
+
+
+class _ManagerSession:
+    """A flock-serialized, persistent codex session shared by every Manager LLM
+    call. The thread_id lives at ``<project_root>/.manager_session.json``; a
+    sibling ``.manager_session.lock`` serializes cross-process use so the REPL
+    front-end and the daemon never interleave a turn. Fail-open: any lock/IO
+    error degrades to a plain no-session call — the Manager's decision must never
+    be blocked by this.
+
+    This is a "runner-like" wrapper: it exposes ``run_exec(prompt=, options=,
+    run_label=)`` so it can be passed anywhere a runner is expected
+    (``classify_vertical``, ``approve_skill``). It IGNORES any incoming
+    ``resume_thread_id`` and always continues the persistent session instead.
+    """
+
+    def __init__(self, runner: Any, project_root: Path | str) -> None:
+        self.runner = runner
+        self.project_root = Path(project_root)
+        self._session_path = self.project_root / _SESSION_FILE
+        self._lock_path = self.project_root / _SESSION_LOCK
+
+    # --- persistent thread_id IO (corrupt/missing → None, never raises) ---
+    def _read_tid(self) -> str | None:
+        try:
+            data = json.loads(self._session_path.read_text(encoding="utf-8"))
+            tid = data.get("thread_id")
+            return str(tid) if tid else None
+        except Exception:  # noqa: BLE001 — missing/corrupt/unreadable → no session
+            return None
+
+    def _write_tid(self, tid: str) -> None:
+        # Atomic replace so a concurrent reader never sees a half-written file.
+        self.project_root.mkdir(parents=True, exist_ok=True)
+        tmp = self._session_path.with_suffix(
+            self._session_path.suffix + f".tmp.{os.getpid()}"
+        )
+        tmp.write_text(json.dumps({"thread_id": tid}), encoding="utf-8")
+        os.replace(tmp, self._session_path)
+
+    @property
+    def thread_id(self) -> str | None:
+        """The current persistent session thread_id (for tests / future
+        chat-reply wiring); ``None`` when no session has been established."""
+        return self._read_tid()
+
+    # --- the runner-like surface ---
+    def run_exec(
+        self,
+        *,
+        prompt: str,
+        options: Any,
+        run_label: str,
+        resume_thread_id: str | None = None,  # IGNORED: persistent session wins.
+    ) -> Any:
+        """Run one turn on the shared persistent session, serialized by flock.
+
+        Fail-open: ANY lock/IO error (or absence of ``fcntl``) degrades to a
+        plain no-session ``runner.run_exec`` — never raises, never blocks the
+        Manager's decision on session bookkeeping.
+        """
+        try:
+            self.project_root.mkdir(parents=True, exist_ok=True)
+            with self._lock_path.open("a+b") as fh:
+                if fcntl is not None:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+                try:
+                    tid = self._read_tid()
+                    result = self.runner.run_exec(
+                        prompt=prompt,
+                        options=options,
+                        run_label=run_label,
+                        resume_thread_id=tid,
+                    )
+                    new = getattr(result, "thread_id", None)
+                    if new:
+                        try:
+                            self._write_tid(str(new))
+                        except Exception:  # noqa: BLE001 — persist is best-effort
+                            pass
+                    return result
+                finally:
+                    if fcntl is not None:
+                        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        except Exception:  # noqa: BLE001 — fail-open to a plain no-session call
+            return self.runner.run_exec(
+                prompt=prompt, options=options, run_label=run_label
+            )
 
 
 @dataclass
@@ -66,11 +165,19 @@ class Manager:
     def __init__(self, project_root: Path | str = ".", runner: Any = None) -> None:
         self.project_root = Path(project_root)
         self.runner = runner
+        # One persistent, flock-serialized codex session shared by every Manager
+        # LLM call (front-end REPL + daemon). ``None`` when there is no runner —
+        # the classifier then falls back to the keyword heuristic as before.
+        self._session = (
+            _ManagerSession(runner, self.project_root) if runner is not None else None
+        )
 
     # ---- triage: is this a regular task, and which vertical/kind? ----
     def triage(self, task: str) -> tuple[str, str, bool]:
         """Return (vertical, kind, regular). Reuses vertical_select — no new classifier."""
-        vertical = normalize_vertical(classify_vertical(task, runner=self.runner))
+        vertical = normalize_vertical(
+            classify_vertical(task, runner=(self._session or self.runner))
+        )
         kind = "optimize" if vertical in _OPTIMIZE_VERTICALS else "research"
         return vertical, kind, self._is_regular(task)
 
@@ -130,8 +237,13 @@ class Manager:
                 return False
             from ..core.models import RunnerOptions
 
+            # Route the internal classify call through the shared persistent
+            # session when available, so this turn continues the one Manager
+            # conversation; otherwise fall back to a plain runner call.
+            _backend = self._session or self.runner
+
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
-                return self.runner.run_exec(
+                return _backend.run_exec(
                     prompt=prompt,
                     options=RunnerOptions(
                         reasoning_effort="low", skip_git_repo_check=True
@@ -163,7 +275,7 @@ class Manager:
             content=content,
             task=task,
             op=op,
-            runner=self.runner,
+            runner=(self._session or self.runner),
             reasoning_effort=reasoning_effort,
         )
 
