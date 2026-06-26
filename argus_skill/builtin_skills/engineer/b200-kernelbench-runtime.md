@@ -3,7 +3,7 @@ name: B200 KernelBench Runtime
 description: Operational playbook for B200 KernelBench/SOL runs: verify the B200 SSH endpoint, scorer port-forward, frozen official scorer, artifact capture, and the common infrastructure/correctness traps before optimizing kernels.
 category: benchmark-kernel-infrastructure
 priority: high
-version: 2
+version: 3
 created_at: 2026-06-18T00:00:00+00:00
 ---
 
@@ -91,6 +91,14 @@ a win than a correct-but-slow wrong one. Do NOT abandon a promising structural
 path the first time it errors and then burn rounds re-tuning a mechanism that
 already lost — treating a tooling failure as "this mechanism failed, switch" is
 the single most common way a strong kernel idea dies in the log.
+
+**Iterate compiles on a fast build-check, not the full scorer.** If the harness
+exposes a fast compile/smoke path separate from scoring (e.g. a `/compile`
+endpoint or a `compile_check.sh` that builds + runs ONE workload and returns the
+full error in seconds), use IT to debug compile/runtime errors — edit → build-
+check → read error → fix → repeat — and only run the full official scorer once
+the kernel compiles and passes the smoke run. Burning a full 12-workload ×
+50-iteration scoring run just to discover the build still fails wastes the round.
 
 ## You are not limited to Triton
 
