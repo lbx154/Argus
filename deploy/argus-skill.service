@@ -1,0 +1,41 @@
+# Argus 7×24 daemon — systemd --user unit (TEMPLATE).
+#
+# Install:
+#   1. cp deploy/argus-skill.service ~/.config/systemd/user/argus-skill.service
+#   2. Edit WorkingDirectory below to your project worktree (the daemon is
+#      cwd-bound: cwd → project fingerprint → which project it drives).
+#   3. Edit ExecStart/ExecStop to the ABSOLUTE path of the `argus-skill` console
+#      script if it is not on the unit's PATH (e.g. /path/to/venv/bin/argus-skill).
+#   4. systemctl --user daemon-reload && systemctl --user enable --now argus-skill
+#   5. For true 7×24 survival across logout/reboot:  loginctl enable-linger $USER
+#
+# This unit owns crash/reboot restart (Restart=on-failure) — the durable, simple
+# answer for an always-on agent. Stopping it drains to the mission boundary
+# (ExecStop below) so a running eval or a win being banked is never SIGKILLed.
+
+[Unit]
+Description=Argus — autonomous 7×24 benchmark research agent
+Documentation=https://github.com/lbx154/argus-skill
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# The project worktree this daemon drives (cwd-bound). EDIT ME.
+WorkingDirectory=%h/argus-project
+# Foreground daemon mode — systemd owns the process lifecycle.
+ExecStart=argus-skill --daemon-fg
+# Clean stop: quiesce + wait for the current mission to finish at its natural
+# boundary (no mid-mission SIGKILL). Pairs with TimeoutStopSec below.
+ExecStop=argus-skill --daemon-stop --drain
+# Let a draining mission finish; only then does systemd escalate to SIGKILL.
+TimeoutStopSec=1800
+KillSignal=SIGTERM
+Restart=on-failure
+RestartSec=10
+# Keep restart storms bounded if the daemon crash-loops on a bad config.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Install]
+WantedBy=default.target

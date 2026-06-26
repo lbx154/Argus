@@ -252,32 +252,27 @@ argus-skill --daemon --continuous \
 argus-skill --daemon --continuous --bounded \
   --objective "Add a unit-test suite for the data loader"
 
-argus-skill --status          # 查看状态
-argus-skill --daemon-stop     # 优雅停止
-argus-skill --daemon-runbook  # 升级清单
+argus-skill --status              # 查看状态
+argus-skill --daemon-stop --drain # 优雅停止：排空到 mission 边界再退（不中途 SIGKILL）
+argus-skill --daemon-runbook      # 升级清单
 ```
 
 > open-ended vs `--bounded` 是**显式开关**（`LifeSupervisorConfig.open_ended`），取代了过去从 objective 里猜 `7×24`/`ongoing`/`perpetual` 关键词的做法。
 
 Daemon 特性：POSIX double-fork（断 SSH 不影响）、预算控制（单任务/每日上限，纯管道）、Telegram 远程 nudge / 加任务。
 
-### systemd 部署
+### systemd 部署（7×24 持久化）
 
-```ini
-[Unit]
-Description=Argus Auto-Research Agent
-After=network.target
+仓库自带一个可直接用的 unit 模板 **`deploy/argus-skill.service`**（systemd `--user`）：crash/reboot 自动重启（`Restart=on-failure`），停止时用 `--daemon-stop --drain` 排空到 mission 边界(`TimeoutStopSec=1800`)，不会 SIGKILL 在跑的 eval / 正在 bank 的 win。
 
-[Service]
-Type=simple
-User=researcher
-Environment=ARGUS_SKILL_LIFE_BACKEND=codex
-ExecStart=/usr/local/bin/argus-skill --daemon-fg
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
+```bash
+cp deploy/argus-skill.service ~/.config/systemd/user/argus-skill.service
+# 编辑 WorkingDirectory 为你的项目 worktree（daemon 是 cwd-bound 的）
+systemctl --user daemon-reload && systemctl --user enable --now argus-skill
+loginctl enable-linger $USER   # 登出/重启后仍存活 = 真 7×24
 ```
+
+> 持久性由 systemd 负责（不是手搓的外部守护）。非 systemd 部署没有自动重启——`--daemon` double-fork 只断 TTY，不自带 respawn。
 
 ## 环境变量
 
