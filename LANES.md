@@ -62,9 +62,19 @@ Done: #1-drain, #5-meta-attribution, #8-proxy-gate-visibility, #13-systemd-unit.
 - **#3-core strip EMNLP from supervisor/planner/loop** — entangled with #1 (the
   `full_emnlp_gate` DEFAULT is your L-operator call) AND HAPI is concurrently
   de-papering. Coordinate so we don't double-edit the completion path.
-- **#6 collapse team/ onto tools/subagent** — DECISION: which is load-bearing?
-  They're layered (team/_store mirrors subagent). Needs the keep/cut call + a
-  careful consolidation; `skills/run_contract` (L-hapi) uses subagent.
+- **#6 collapse team/ onto tools/subagent** — CORRECTED (2026-06-26, after
+  studying the live SOL-ExecBench fleet): `team/` is LOAD-BEARING — it runs the
+  production teammate fleet (coordinator `tools/team.py` → N `team/teammate_entry`
+  headless missions on a shared task board, ~59 codex procs live). It is NOT a
+  duplicate of `tools/subagent` — two DISTINCT delegation models (team = peer
+  fleet on a board; subagent = single engineer-spawned background process). **Do
+  NOT collapse or delete team/** (that kills the SOL fleet). The only real overlap
+  is `team/_store.py` (~53 LOC) re-rolling subagent's tmp+os.replace atomic-write.
+  So #6 = DOCUMENT the two models as distinct + factor the ~50-LOC
+  atomic-write/flock helper into one shared util. Small + safe; no keep/cut call.
+  NB: the SOL deployment runs an OLDER checkout (apps/_life_repl/, engineer/
+  reviewer.py) — verify teammate_entry against the refactored runtime before it
+  pulls origin/main.
 - **#10 split the 3114-LOC LifeSupervisor god-object** — touches your
   external-blocker latch + HAPI's per-role config; a big extraction that wants
   characterization tests + your eyes.
