@@ -612,6 +612,7 @@ def _free_text_cmd(
     _maybe_name_session(chat_state, body)
     theme = chat_state.get("theme")
     life_dir = _life_dir_for(mem)
+    daemon_alive, daemon_pid = _daemon_alive_for(life_dir)
 
     if continuous:
         # Persist objective to disk so the daemon picks it up + plans more work.
@@ -622,8 +623,11 @@ def _free_text_cmd(
             enabled=True,
             objective=body,
         )
+        if not daemon_alive:
+            print(_no_executor_notice(item.id, theme), flush=True)
+            return
         queued = (
-            f"queued {item.id} — daemon executing (continuous on "
+            f"queued {item.id} — daemon (pid {daemon_pid}) executing (continuous on "
             f"backend={chat_state.get('backend')})"
         )
         print(theme.gray(queued) if theme is not None else queued, flush=True)
@@ -634,8 +638,16 @@ def _free_text_cmd(
         )
         return
 
+    if not daemon_alive:
+        # No executor: do NOT print "daemon executing" (a lie) and do NOT enter
+        # the 600s event-tail wait (which would just freeze on a log that never
+        # grows — the original "卡住" symptom). Tell the operator the truth and
+        # the one command that fixes it; the task is safely queued meanwhile.
+        print(_no_executor_notice(item.id, theme), flush=True)
+        return
+
     queued = (
-        f"queued {item.id} — daemon executing  "
+        f"queued {item.id} — daemon (pid {daemon_pid}) executing  "
         f"(Ctrl-C stops observing, not the task)"
     )
     print(theme.gray(queued) if theme is not None else queued, flush=True)
@@ -651,6 +663,34 @@ def _free_text_cmd(
             f"— use /status to check on the daemon."
         )
         print(theme.gray(note) if theme is not None else note, flush=True)
+
+
+def _daemon_alive_for(life_dir: Path | str) -> tuple[bool, int | None]:
+    """(alive, pid) for the daemon owning ``life_dir`` — fail-soft to (False, None)."""
+    try:
+        from ..daemon.life_worker import read_daemon_status
+
+        st = read_daemon_status(Path(life_dir))
+        return bool(getattr(st, "alive", False)), getattr(st, "pid", None)
+    except Exception:  # noqa: BLE001
+        return False, None
+
+
+def _no_executor_notice(item_id: str, theme: Any) -> str:
+    """Honest message when a task is queued but no daemon will execute it.
+
+    Replaces the old "queued — daemon executing" line (which lied when the
+    auto-spawn had failed) AND avoids the 600s tail-wait freeze. The task is
+    persisted, so it runs the moment an executor starts.
+    """
+    head = f"⚠ queued {item_id} — but NO daemon is running here, so it will NOT execute yet."
+    body = (
+        "   start the executor:  argus-skill --daemon   ·   diagnose:  /doctor\n"
+        "   your task is saved and runs the moment a daemon starts."
+    )
+    if theme is not None:
+        return theme.yellow(head) + "\n" + theme.gray(body)
+    return head + "\n" + body
 
 
 def _format_completion(
@@ -1207,7 +1247,7 @@ def _run_manager_repl_locked(
             )
             status = read_daemon_status(mem.project.root)
             if not status.alive:
-                cfg = _build_worker_config(args)
+                cfg = _build_worker_config(args, bundle=mem)
                 spawn_rc = spawn_detached_daemon(cfg)
                 if spawn_rc == 0:
                     started = wait_for_daemon_status(mem.project.root)

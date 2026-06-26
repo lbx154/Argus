@@ -66,6 +66,19 @@ def mem(tmp_path: Path) -> LifeMemory:
     return LifeMemory.open(root=tmp_path)
 
 
+@pytest.fixture(autouse=True)
+def _assume_daemon_alive(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests exercise the free-text → daemon attach/tail path, which only
+    runs when a daemon is alive. T2 added a liveness gate (so the REPL stops
+    lying "daemon executing" + freezing when no executor exists); default these
+    pre-T2 tests to "daemon alive" so they keep testing the attach path. The
+    honest no-daemon path has dedicated tests in test_ux_daemon_coupling.py.
+    """
+    monkeypatch.setattr(
+        manager_repl, "_daemon_alive_for", lambda life_dir: (True, 99999)
+    )
+
+
 @pytest.mark.parametrize(
     ("skills_env", "expected"),
     [

@@ -404,9 +404,16 @@ def main(argv: list[str] | None = None) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _build_worker_config(args: argparse.Namespace):
+def _build_worker_config(args: argparse.Namespace, *, bundle=None):
     from ...daemon.life_worker import LifeWorkerConfig
-    bundle = _resolve_project_bundle(args)
+    # When the REPL auto-spawns a daemon it MUST target the same project the
+    # REPL is queueing into — i.e. the resolved *session* bundle — not a fresh
+    # cwd-fingerprint resolve. Passing ``bundle`` keeps the daemon's life_dir
+    # identical to ``mem.project.root`` so the queued task is actually drained.
+    # (Without this, a `s-…` session REPL would spawn a daemon on the legacy
+    # cwd project and the task would sit pending forever — the "卡住" bug.)
+    if bundle is None:
+        bundle = _resolve_project_bundle(args)
     backend = getattr(args, "backend", None) or os.environ.get(
         "ARGUS_SKILL_LIFE_BACKEND",
         "codex",
