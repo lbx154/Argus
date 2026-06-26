@@ -227,3 +227,70 @@ def next_step_id(project_root: object) -> int:
             return sum(1 for _ in fh)
     except Exception:  # noqa: BLE001
         return 0
+
+
+def read_decisions(project_root: object) -> list[dict[str, Any]]:
+    """Read all decision rows from ``META_LEDGER.jsonl`` (best-effort, ``[]``)."""
+    try:
+        p = _jsonl_path(project_root)
+        if not p.exists():
+            return []
+        rows: list[dict[str, Any]] = []
+        with p.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except Exception:  # noqa: BLE001
+                    continue
+                if isinstance(obj, dict):
+                    rows.append(obj)
+        return rows
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def attribution_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """NO-VERDICT attribution from the decision log: are the regime-jumps actually
+    causing floor improvements, or just churning?
+
+    Each row carries ``mode`` / ``was_jump`` / ``performance`` (the promoted floor
+    at decision time — lower is better). A *floor improvement* is a strict decrease
+    in ``performance`` from one decision to the next, attributed to the PRIOR
+    cycle's mode (the cycle that produced the improving candidate). Pure counting —
+    the harness draws no conclusion; this exists so the agent/operator can SEE
+    whether the anti-greedy machinery moves the metric (the operator's "is the
+    scaffolding working?" question) instead of reconstructing it from jsonl by
+    hand.
+    """
+    jumps = sum(1 for r in rows if r.get("was_jump"))
+    exploits = sum(1 for r in rows if str(r.get("mode")) == "exploit")
+    explores = sum(1 for r in rows if str(r.get("mode")) == "explore")
+    perfs: list[tuple[float, dict[str, Any]]] = []
+    for r in rows:
+        try:
+            perfs.append((float(r.get("performance")), r))
+        except (TypeError, ValueError):
+            continue
+    improvements = after_jump = after_exploit = 0
+    eps = 1e-9
+    for k in range(1, len(perfs)):
+        prev_p, prev_r = perfs[k - 1]
+        cur_p, _ = perfs[k]
+        if cur_p < prev_p - eps:
+            improvements += 1
+            if prev_r.get("was_jump"):
+                after_jump += 1
+            elif str(prev_r.get("mode")) == "exploit":
+                after_exploit += 1
+    return {
+        "n_decisions": len(rows),
+        "jumps_fired": jumps,
+        "explores_fired": explores,
+        "exploits_fired": exploits,
+        "floor_improvements": improvements,
+        "improvements_after_jump": after_jump,
+        "improvements_after_exploit": after_exploit,
+    }

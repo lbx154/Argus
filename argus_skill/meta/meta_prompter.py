@@ -141,6 +141,30 @@ def build_meta_block(
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL | re.IGNORECASE)
 
 
+def attribution_fact(summary: dict) -> str:
+    """NO-VERDICT visibility line: are the regime-jumps causing floor improvements
+    or just churning? Pure counts from the decision log (see
+    ``ledger.attribution_summary``). Empty until at least one jump or improvement
+    is recorded, so it never adds noise on a fresh mission.
+    """
+    jumps = int(summary.get("jumps_fired", 0) or 0)
+    exploits = int(summary.get("exploits_fired", 0) or 0)
+    imp = int(summary.get("floor_improvements", 0) or 0)
+    after_jump = int(summary.get("improvements_after_jump", 0) or 0)
+    after_exploit = int(summary.get("improvements_after_exploit", 0) or 0)
+    if not jumps and not imp:
+        return ""
+    return (
+        "### Meta attribution (visibility — NO verdict)\n"
+        f"- Regime-jumps fired so far: {jumps}; exploit cycles: {exploits}.\n"
+        f"- Promoted-floor improvements: {imp} "
+        f"({after_jump} right after a jump-cycle, {after_exploit} after an "
+        "exploit-cycle).\n"
+        "- This is bookkeeping so you can see whether jumping is MOVING the floor "
+        "or just churning regimes; the interpretation is YOURS.\n\n"
+    )
+
+
 def explore_window_block(rounds_left: int, total: int = 0) -> str:
     """Valley-immunity framing — injected into the planner AND engineer while a
     post-jump exploration window is open.

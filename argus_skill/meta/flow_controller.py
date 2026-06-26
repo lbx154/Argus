@@ -16,14 +16,17 @@ from types import ModuleType
 from .config import MetaConfig, load_meta_config
 from .ledger import (
     append_decision,
+    attribution_summary,
     load_ledger,
     merge_forbidden,
     next_step_id,
+    read_decisions,
     set_jump_pending,
     tick_explore_window,
 )
 from .meta_prompter import (
     MetaDecision,
+    attribution_fact,
     build_meta_block,
     explore_window_block,
     parse_meta_decision,
@@ -89,6 +92,16 @@ def decide(
         block = build_meta_block(
             signal, ledger, _strategy_pool(vmod, project_root), mode, cfg
         )
+        # When the meta layer convenes (explore/jump → non-empty block), append a
+        # NO-VERDICT attribution line so the agent SEES whether prior jumps moved
+        # the floor or just churned. Best-effort: never break prompt building.
+        if block:
+            try:
+                block += attribution_fact(
+                    attribution_summary(read_decisions(project_root))
+                )
+            except Exception:  # noqa: BLE001
+                pass
         return FlowDecision(
             mode=mode,
             prompt_block=block,
