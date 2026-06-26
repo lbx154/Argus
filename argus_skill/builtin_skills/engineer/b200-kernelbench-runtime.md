@@ -3,7 +3,7 @@ name: B200 KernelBench Runtime
 description: Operational playbook for B200 KernelBench/SOL runs: verify the B200 SSH endpoint, scorer port-forward, frozen official scorer, artifact capture, and the common infrastructure/correctness traps before optimizing kernels.
 category: benchmark-kernel-infrastructure
 priority: high
-version: 1
+version: 2
 created_at: 2026-06-18T00:00:00+00:00
 ---
 
@@ -75,6 +75,36 @@ current session:
 - **NVIDIA tools may be locked down**. If `ncu` is unavailable, fall back to
   ptxas/SASS diagnostics, roofline arithmetic from official time, and
   mechanism-isolation variants.
+
+## A compile/runtime error is a bug to fix, not a dead end
+
+A scorer `RUNTIME_ERROR` / `NO_TRACE` (or a Triton lowering failure) is almost
+always a **fixable** compile/config bug — a wrong arch flag (`sm_100a` vs
+`sm_90a`), a misused CUTLASS 3.x / CuTe API, a dependency/version mismatch in
+`spec.dependencies`, or an unsupported codepath — **not** a verdict that the
+mechanism is wrong. The harness surfaces the full error: a failed workload's
+trace carries the complete traceback (the eval driver's `log`), and a
+pre-workload crash returns the build/`nvcc` stderr (read the `server_error=` /
+official-log output in full, not just the status word). **Read that full error
+and fix the build.** A compile error on the *right* (SOTA) approach is closer to
+a win than a correct-but-slow wrong one. Do NOT abandon a promising structural
+path the first time it errors and then burn rounds re-tuning a mechanism that
+already lost — treating a tooling failure as "this mechanism failed, switch" is
+the single most common way a strong kernel idea dies in the log.
+
+## You are not limited to Triton
+
+The official scorer accepts `spec.languages` of `pytorch`, `triton`,
+`cute_dsl`, `cutile`, `cudnn_frontend`, `cutlass`, `cudnn`, `cublas`, and
+`cuda_cpp`. For GEMM- and attention-heavy kernels the vendor cuBLAS/SDPA path is
+usually the floor, and **beating it generally requires REPLACING that GEMM with
+a hand-written fused kernel** (CUTLASS 3.x / CuTe DSL / CUDA C++), not trimming
+peripheral launch/tile knobs around a GEMM you left on cuBLAS. If you profiled
+the GEMM as the limiter, attack the GEMM itself. When a reference `examples/`
+tree ships with the benchmark (e.g. `cutlass/gemm`, `cute_dsl/...`,
+`cuda_cpp/...`), study the *structure* of the fast solution in the target
+language before writing your own — study the structure; the mechanism is your
+call.
 
 ## Required evidence artifacts
 
