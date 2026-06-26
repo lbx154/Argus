@@ -73,12 +73,13 @@ def _pick_session(global_root: Path) -> str | None:
 
     Returns the chosen session id, or None if the user aborts / none exist.
     """
-    from ...core.session import list_sessions
+    from ...core.session import list_sessions, live_daemon_sessions
 
-    sessions = list_sessions(global_root)
+    sessions = list_sessions(global_root, include_empty=False)
     if not sessions:
         sys.stderr.write("argus-skill: no previous sessions to resume.\n")
         return None
+    live_ids = {s.id for s in live_daemon_sessions(global_root)}
     now = time.time()
     sys.stdout.write("Resume which session?\n")
     for i, s in enumerate(sessions[:20], 1):
@@ -87,7 +88,8 @@ def _pick_session(global_root: Path) -> str | None:
                  else f"{int(age // 3600)}h" if age >= 3600
                  else f"{int(age // 60)}m")
         name = s.display_name or (s.objective[:40] if s.objective else "(unnamed)")
-        sys.stdout.write(f"  {i:>2}. {s.id}  {age_s:>4} ago  ·  {name}\n")
+        mark = "● live" if s.id in live_ids else "      "
+        sys.stdout.write(f"  {i:>2}. {mark}  {s.id}  {age_s:>4} ago  ·  {name}\n")
     try:
         raw = input("  number (or id, blank to cancel): ").strip()
     except (EOFError, KeyboardInterrupt):

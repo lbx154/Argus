@@ -112,11 +112,17 @@ def project_exists(global_root: Path | None, sid: str) -> bool:
     return (Path(root) / "projects" / sid).is_dir()
 
 
-def list_sessions(global_root: Path | None = None) -> list[SessionMeta]:
+def list_sessions(
+    global_root: Path | None = None, *, include_empty: bool = True
+) -> list[SessionMeta]:
     """All sessions (newest-active first).
 
     Includes legacy cwd-fingerprint projects with no session.json — synthesised
     from the dir mtime + continuous.json objective so they stay resumable.
+
+    With ``include_empty=False`` the content-less litter that bare launches mint
+    (no name, no objective, no backlog, no events) is hidden UNLESS it has a live
+    daemon — so the resume picker shows real/running work, not 70 empty shells.
     """
     root = global_root if global_root is not None else core_paths.global_root()
     projects = Path(root) / "projects"
@@ -140,9 +146,43 @@ def list_sessions(global_root: Path | None = None) -> list[SessionMeta]:
             except Exception:  # noqa: BLE001
                 pass
             meta = SessionMeta(id=d.name, created=mtime, last_active=mtime, objective=obj)
+        if not include_empty and not _session_is_meaningful(d, meta):
+            continue
         out.append(meta)
     out.sort(key=lambda m: m.last_active, reverse=True)
     return out
+
+
+def _project_has_content(project_dir: Path) -> bool:
+    """True if a project dir holds real work (backlog items or recorded events)."""
+    for name in ("backlog.jsonl", "events.jsonl"):
+        try:
+            f = project_dir / name
+            if f.exists() and f.stat().st_size > 2:
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def _session_is_meaningful(project_dir: Path, meta: "SessionMeta") -> bool:
+    """A session is worth listing if it is named, has an objective, holds real
+    work, or has a LIVE daemon — otherwise it is bare-launch litter."""
+    if (meta.display_name or "").strip() or (meta.objective or "").strip():
+        return True
+    if _project_has_content(project_dir):
+        return True
+    try:
+        from .daemon_lock import is_pid_running, read_daemon_pid
+
+        for lock in ("daemon.pid", "repl.pid"):
+            pid = read_daemon_pid(project_dir / lock)
+            if pid is not None and is_pid_running(pid):
+                return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
 
 
 def most_recent_session(global_root: Path | None = None) -> str | None:

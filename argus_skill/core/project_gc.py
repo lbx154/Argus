@@ -82,18 +82,50 @@ def _project_last_active(project_dir: Path) -> float:
     return newest
 
 
+def _project_is_empty(project_dir: Path) -> bool:
+    """True if a project holds no real work — bare-launch litter.
+
+    Empty = no backlog items, no events/memory, no named/objective session, no
+    continuous objective. Such dirs are minted by every bare ``argus-skill``
+    launch (a fresh session) and accumulate fast; they carry zero data, so
+    moving them to trash is safe even when recent.
+    """
+    import json
+
+    for name in ("backlog.jsonl", "events.jsonl", "memory.jsonl"):
+        try:
+            f = project_dir / name
+            if f.exists() and f.stat().st_size > 2:
+                return False
+        except OSError:
+            pass
+    for fname, keys in (("session.json", ("display_name", "objective")),
+                        ("continuous.json", ("objective",))):
+        try:
+            f = project_dir / fname
+            if f.exists():
+                data = json.loads(f.read_text(encoding="utf-8"))
+                if any(str(data.get(k) or "").strip() for k in keys):
+                    return False
+        except Exception:  # noqa: BLE001
+            pass
+    return True
+
+
 def gc_stale_projects(
     global_root: Path | None = None,
     *,
     retention_days: int | None = None,
     dry_run: bool = False,
+    sweep_empty: bool = True,
     now: float | None = None,
 ) -> list[str]:
-    """Move stale, not-live project dirs to ``projects_trash/<date>/``.
+    """Move stale/empty, not-live project dirs to ``projects_trash/<date>/``.
 
-    A project is pruned ONLY when it is both not-live (no running
-    daemon/repl) AND untouched for ``retention_days``. Returns the list of
-    fingerprints pruned (or that WOULD be pruned, when ``dry_run``).
+    A project is pruned when it is not-live (no running daemon/repl) AND either
+    (a) untouched for ``retention_days``, or (b) ``sweep_empty`` and it is
+    content-less litter (regardless of age — every bare launch mints one).
+    Returns the fingerprints pruned (or that WOULD be, when ``dry_run``).
 
     Fail-soft: a bad single project never aborts the sweep.
     """
@@ -116,8 +148,9 @@ def gc_stale_projects(
                 continue
             if _project_is_live(project_dir):
                 continue
-            if _project_last_active(project_dir) >= cutoff:
-                continue  # too recent
+            empty = sweep_empty and _project_is_empty(project_dir)
+            if not empty and _project_last_active(project_dir) >= cutoff:
+                continue  # not empty and too recent
             pruned.append(project_dir.name)
             if dry_run:
                 continue
