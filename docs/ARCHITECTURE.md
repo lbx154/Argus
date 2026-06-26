@@ -23,7 +23,7 @@ argus-skill (CLI)                         apps/cli/_parser.py + apps/cli/_core.p
                engineer/runner.py          reviewer/_core.py (+ reviewer_schema.json)
   sits on:
     core/  (budget, persistence, structured I/O, paths, locks)
-    meta/  (the SINGLE anti-stuck mechanism: regime-jump)
+    regime_jump/  (the SINGLE anti-stuck mechanism: regime-jump)
     verticals/<name>/  (the task-specific shape + reviewer gate)
     backend: agent_cli/ + adapters/  (codex / claude / copilot CLI runners)
 ```
@@ -41,7 +41,7 @@ argus-skill (CLI)                         apps/cli/_parser.py + apps/cli/_core.p
 | Reviewer | `reviewer/_core.py`, `reviewer/reviewer_schema.json` | the **sole source of truth for "done"** — no hardcoded completion gate |
 | Planner | `planner/planner.py` | L4 continuous planner: next tasks + (optional) meta decision |
 | Core (dumb pipe) | `core/models.py`, `core/ports.py`, `core/paths.py`, `core/pricing.py`, `core/daemon_lock.py`, `core/bootstrap.py` | budget, persistence, structured I/O, paths, locks |
-| Meta (anti-stuck) | `meta/` (`saturation.py`, `flow_controller.py`, `ledger.py`, `meta_prompter.py`, `config.py`) | regime-jump: DETECT (dumb counter) / JUDGE (planner LLM) / ENFORCE (never-cleared forbidden ledger). Fail-soft to no-op. |
+| Meta (anti-stuck) | `regime_jump/` (`saturation.py`, `flow_controller.py`, `ledger.py`, `meta_prompter.py`, `config.py`) | regime-jump: DETECT (dumb counter) / JUDGE (planner LLM) / ENFORCE (never-cleared forbidden ledger). Fail-soft to no-op. |
 | Verticals | `verticals/_base.py` + `verticals/{nanochat,nanogpt_speedrun,kernelbench,speedrun,research}/` | per-task shape via a plugin contract (`role_banner`, `completion_gate`, `search_altitude`, `strategy_pool`); the three metric verticals reuse `speedrun`'s shape by re-export |
 | Daemon | `daemon/life_worker.py` | detached 7×24 worker around `LifeSupervisor`; SIGTERM/drain, pid lock |
 | Backend | `agent_cli/agent_cli_runner.py`, `adapters/agent_cli_backend.py`, `adapters/memory_backend.py` | the CLI runner (codex/claude/copilot) + a deterministic memory backend for tests |

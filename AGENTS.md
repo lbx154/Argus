@@ -60,7 +60,7 @@ argus-skill / python -m argus_skill
 
 关键对象：
 
-- `SkillLoopConfig`: scientist/engineer/reviewer/matcher model、max rounds、check commands、writeback、distill-on-miss、runner flags、`paper_mission`。
+- `SkillLoopConfig`: engineer/reviewer/matcher model、max rounds、check commands、writeback、distill-on-miss、runner flags、`paper_mission`。
 - `SkillLoop.run(...)`: 主流程。
 - `_build_engineer_prompt(..., paper_mission)`: 拼 L1 engineer prompt。长 horizon 论文 contract 仅在 `paper_mission=True` 时注入。
 - 论文任务的识别**不再用关键词猜 objective 文本**，改由显式信号决定：`SkillLoopConfig.paper_mission`（默认 False；life 执行路径 `_SkillLoopRunner` 显式置 True）。已删除旧的 `argus_skill/core/paper_objective.py` 与 `_looks_like_paper_objective`。
@@ -104,7 +104,7 @@ L1 engineer round loop 在 `argus_skill/engineer/runner.py`。
 重读同一批 skill 文档空转（amnesia loop）。修复哲学：**不靠看门狗**，而是让
 session 结构上短命 + 跨 session 边界只交接「经过筛选的有价值记忆」。
 
-实现（`argus_skill/engineer/checkpoint.py` + `runner.py` + `reviewer.py`）：
+实现（`argus_skill/engineer/checkpoint.py` + `runner.py` + `argus_skill/reviewer/_core.py`）：
 
 - `CheckpointState`：小而**硬上限**的工作记忆（goal / done[] / tried_and_failed[]
   / open_blocker / next_step）。上限在 Python 里强制（不只在 prompt/schema），
@@ -137,7 +137,7 @@ session 结构上短命 + 跨 session 边界只交接「经过筛选的有价值
 一个健康 run（实测 RL pilot 出现过几百轮只在重读 `status.json` + 写 `MONITOR_*.md`），
 被长程 GPU 实验阻塞，而不是去推进不依赖它的独立工作。
 
-实现（`argus_skill/engineer/background_subagents.py` + `runner.py` + `reviewer.py`）：
+实现（`argus_skill/engineer/background_subagents.py` + `runner.py` + `argus_skill/reviewer/_core.py`）：
 
 - `background_subagents.py`（dependency-free，仿 `failed_tool_ledger.py`）：读
   `<workdir>/.argus_subagents/*.json` 注册表，把在跑的 job 分成 `self_watched`
@@ -484,7 +484,7 @@ pytest
 1. CLI 行为改 `apps/cli/_core.py` / `manager/repl.py` / `daemon/life_worker.py`。
 2. 单任务 agent prompt 改 `loop.py`。
 3. L1 执行可靠性改 `engineer/runner.py`。
-4. L2 验收标准改 `engineer/reviewer.py` 和相关 role skill。
+4. L2 验收标准改 `reviewer/_core.py` 和相关 role skill。
 5. L4 调度策略改 `life/supervisor/_core.py` / `planner/planner.py`。
 6. Skill 匹配、蒸馏、writeback 改 `skills/store.py` / `scientist/*`。
 7. EMNLP 质量是否合格改 `skills/stage_checklists.py` 的 checklist；manifest/freshness/policy artifact 构建-修复改 `skills/pipeline_contracts.py`。

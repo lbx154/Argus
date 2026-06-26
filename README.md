@@ -304,10 +304,11 @@ argus_skill/
 │   └── store.py               # skill 匹配器
 ├── engineer/
 │   ├── runner.py          # L1 engineer 轮次循环
-│   ├── reviewer.py        # L2 reviewer（唯一完成事实来源）
 │   └── checks.py          # check_commands 执行器
+├── reviewer/
+│   └── _core.py           # L2 reviewer（唯一完成事实来源）
 ├── life/
-│   ├── supervisor.py      # backlog / 预算 / L4 planner（领域无关编排）
+│   ├── supervisor/        # backlog / 预算 / L4 planner（领域无关编排）
 │   ├── memory.py          # 持久化状态 + 纯 recency 记忆注入
 │   └── special_prompts.py # 受信任的机器规则加载
 ├── daemon/
