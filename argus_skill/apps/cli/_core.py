@@ -263,14 +263,18 @@ def main(argv: list[str] | None = None) -> int:
             lambda: _cmd_lifecycle_transition(args, action="archive")
         )
 
-    # Default path: drop into the unified life REPL. The REPL itself
-    # auto-spawns a background daemon (unless ``--no-daemon`` was given
-    # or one is already alive) so the agent keeps draining the backlog
-    # 24/7 even after the operator detaches.
-    entry_error = _lifetime_entry_error(args)
-    if entry_error:
-        sys.stderr.write(f"argus-skill: {entry_error}\n")
-        return 2
+    # Default path: the unified Manager-conversation REPL. A bare interactive
+    # launch needs NO pre-set objective — the operator states the task in the
+    # conversation, and the REPL auto-spawns a daemon that drains whatever gets
+    # queued. But ``--continuous`` puts the auto-spawned daemon into autonomous
+    # 7×24 mode, which DOES require a mission objective + house rules (same gate
+    # as the explicit ``--daemon``). So hard-gate only the continuous case; a
+    # bare launch always enters the conversation.
+    if getattr(args, "continuous", False):
+        entry_error = _lifetime_entry_error(args)
+        if entry_error:
+            sys.stderr.write(f"argus-skill: {entry_error}\n")
+            return 2
 
     from ...manager.repl import run_manager_repl
     from ...tools.capability_vault import resolve_route_model

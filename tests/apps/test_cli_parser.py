@@ -286,28 +286,30 @@ def test_main_seeds_repl_continuous_flags(
     }
 
 
-def test_main_rejects_launch_without_objective(
+def test_main_bare_launch_enters_repl_without_objective(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Default REPL launch is gated: no objective -> refuse with guidance."""
+    """A bare ``argus-skill`` enters the Manager-conversation REPL with no
+    pre-set objective — the operator states the task in the conversation. The
+    objective/house-rules gate stays on the autonomous ``--continuous`` /
+    ``--daemon`` paths, not the bare interactive entry."""
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "codex")
     _seed_trusted_special_prompt(tmp_path, monkeypatch)
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
 
     called = {"hit": False}
 
-    def fake_run_manager_repl(args):  # pragma: no cover - must not run
+    def fake_run_manager_repl(args):
         called["hit"] = True
         return 0
 
     monkeypatch.setattr("argus_skill.manager.repl.run_manager_repl", fake_run_manager_repl)
 
     rc = main([])
-    assert rc == 2
-    assert called["hit"] is False
-    assert "no mission objective configured" in capsys.readouterr().err
+    assert rc == 0
+    assert called["hit"] is True
 
 
 def test_main_rejects_launch_without_special_prompt(
