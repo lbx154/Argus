@@ -328,6 +328,21 @@ def _gather_prior_work(cwd: Path, owns_paths: list[str], *, per_file_bytes: int 
             + "\n\n".join(chunks) + "\n\n---\n\n")
 
 
+def _read_optional_result() -> dict:
+    """Read an optional ``{metric, mechanism}`` the teammate's mission left at
+    ``ARGUS_TEAMMATE_RESULT_FILE`` (operator-wired into the objective). General —
+    no metric source is baked into the library; absent/corrupt → empty, so the
+    shard records a null metric and the leaderboard simply doesn't rank it."""
+    path = os.environ.get("ARGUS_TEAMMATE_RESULT_FILE", "").strip()
+    if not path:
+        return {}
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="argus_skill.team.teammate_entry")
     p.add_argument("--root", required=True)
@@ -376,8 +391,13 @@ def main(argv: list[str] | None = None) -> int:
             objective, cwd=cwd, life_dir=root / "life" / member_safe)
 
     stop.set()
+    _result = _read_optional_result()
     shard.write_text(
-        json.dumps({"member_id": args.member_id, "task_id": task_id, "success": success}) + "\n",
+        json.dumps({
+            "member_id": args.member_id, "task_id": task_id,
+            "target": task.get("target") or task_id, "success": success,
+            "metric": _result.get("metric"), "mechanism": _result.get("mechanism", ""),
+        }) + "\n",
         encoding="utf-8")
     if success:
         task_board.complete(root, task_id, shard=str(shard))
