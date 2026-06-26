@@ -920,34 +920,41 @@ class _SkillLoopRunner:
         # The per-project state dir (life_dir) holds inbox.jsonl + events.jsonl,
         # next to the reviewer checkpoint.json; derive both from the checkpoint.
         operator_checkpoint_path = _checkpoint_path_for(args, workdir)
-        try:
-            from ..life.operator_sim import operator_guidance_provider_from_env
+        # Only import + build the simulated operator when explicitly enabled, so
+        # the 808-LOC test-double in life/operator_sim.py never loads on a real
+        # production run (default OFF). Truthiness mirrors
+        # operator_sim.simulated_operator_enabled() exactly.
+        if os.environ.get("ARGUS_SKILL_SIMULATED_OPERATOR", "").strip().lower() in {
+            "1", "true", "yes", "on"
+        }:
+            try:
+                from ..life.operator_sim import operator_guidance_provider_from_env
 
-            # GROUNDING (Bug 1): the run's real telemetry does NOT live in the
-            # git work-tree. The daemon/REPL fan events out to
-            # ``<life_dir>/events.jsonl`` in the per-project state dir, right
-            # next to the per-round reviewer ``checkpoint.json``. So derive the
-            # trace path from the checkpoint's parent dir; only fall back to a
-            # work-tree-local events.jsonl when checkpoint persistence is off.
-            if operator_checkpoint_path is not None:
-                operator_trace_path = operator_checkpoint_path.parent / "events.jsonl"
-            else:
-                operator_trace_path = workdir / "events.jsonl"
+                # GROUNDING (Bug 1): the run's real telemetry does NOT live in the
+                # git work-tree. The daemon/REPL fan events out to
+                # ``<life_dir>/events.jsonl`` in the per-project state dir, right
+                # next to the per-round reviewer ``checkpoint.json``. So derive the
+                # trace path from the checkpoint's parent dir; only fall back to a
+                # work-tree-local events.jsonl when checkpoint persistence is off.
+                if operator_checkpoint_path is not None:
+                    operator_trace_path = operator_checkpoint_path.parent / "events.jsonl"
+                else:
+                    operator_trace_path = workdir / "events.jsonl"
 
-            sim_provider = operator_guidance_provider_from_env(
-                project_root=workdir,
-                objective=objective,
-                runner=self._backend,
-                model=args.engineer_model,
-                # GROUNDING (Bug 1): see the run's real progress.
-                trace_path=operator_trace_path,
-                checkpoint_path=operator_checkpoint_path,
-                # OBSERVABILITY (Bug 2): emit a marker event per intervention
-                # into the same sink that feeds events.jsonl.
-                on_event=sink.handle_event,
-            )
-        except Exception:  # noqa: BLE001 — wiring must never break a mission
-            sim_provider = None
+                sim_provider = operator_guidance_provider_from_env(
+                    project_root=workdir,
+                    objective=objective,
+                    runner=self._backend,
+                    model=args.engineer_model,
+                    # GROUNDING (Bug 1): see the run's real progress.
+                    trace_path=operator_trace_path,
+                    checkpoint_path=operator_checkpoint_path,
+                    # OBSERVABILITY (Bug 2): emit a marker event per intervention
+                    # into the same sink that feeds events.jsonl.
+                    on_event=sink.handle_event,
+                )
+            except Exception:  # noqa: BLE001 — wiring must never break a mission
+                sim_provider = None
         # REAL operator inbox (Change A): drain queued ``--notify`` / ``/nudge``
         # messages EACH engineer round — not just at mission start — so the
         # operator can steer a long in-flight mission instead of being locked out
