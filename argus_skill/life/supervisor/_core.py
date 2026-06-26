@@ -74,6 +74,7 @@ from ._helpers import (
     _normalize_planner_text,
     _operator_only_external_blocker_wait_reason_for_project,
     _planner_task_signature,
+    _resolve_task_dep_ids,
     _sanitize_planner_task_text,
 )
 
@@ -2926,6 +2927,16 @@ class LifeSupervisor:
         added_impact_scores: list[int] = []
 
         # Add new tasks to the backlog.
+        #
+        # Two passes so a planner-emitted DAG can be wired up before anything is
+        # enqueued. Pass 1 builds the surviving items (after dedup / recent-
+        # failure skips, exactly as before) WITHOUT adding them yet, and records
+        # each task's local ``key`` → real ``item.id`` in ``key_map``. Pass 2
+        # resolves each task's ``deps`` (local keys → real ids) onto the item and
+        # only then adds it. A flat task (no key/deps) flows through with an empty
+        # dep list, so its enqueue is byte-for-byte identical to the old path.
+        key_map: dict[str, str] = {}
+        pending_items: list[tuple[Any, Any]] = []  # (task, item)
         for task in verdict.new_tasks:
             sanitized_title = _sanitize_planner_task_text(task.title)
             sanitized_objective = _sanitize_planner_task_text(task.objective)
@@ -3001,8 +3012,35 @@ class LifeSupervisor:
                 iteration_max_cycles=self._item_iteration_cycles(),
                 iteration_budget_usd=self._item_iteration_budget(),
             )
-            self.memory.backlog.add(item)
+            # Reserve the signature now so a later sibling in the SAME batch
+            # with an identical title/objective still de-dupes against this
+            # one (matches the old single-pass behaviour). The item is not
+            # added to the backlog until pass 2.
             seen_signatures[signature] = item
+            if getattr(task, "key", ""):
+                key_map[task.key] = item.id
+            pending_items.append((task, item))
+
+        # Pass 2: resolve local dep keys to real item ids, then enqueue. Only
+        # intra-batch deps are supported — a key the planner referenced but did
+        # not define in THIS batch (typo, or an unsupported cross-cycle ref) is
+        # dropped with a warning so a stray key cannot wedge the item forever.
+        for task, item in pending_items:
+            task_deps = list(getattr(task, "deps", []) or [])
+            if task_deps:
+                resolved_ids, unresolved_keys = _resolve_task_dep_ids(
+                    task_deps, key_map
+                )
+                item.deps = resolved_ids
+                if unresolved_keys:
+                    log.warning(
+                        "life supervisor: dropping unresolved planner dep "
+                        "key(s) %s for task %r (only same-batch new_tasks deps "
+                        "are supported)",
+                        unresolved_keys,
+                        item.title,
+                    )
+            self.memory.backlog.add(item)
             added_titles.append(item.title)
             added_impact_scores.append(task.impact_score)
             self._emit({

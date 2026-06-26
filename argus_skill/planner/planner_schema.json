@@ -34,7 +34,7 @@
     },
     "new_tasks": {
       "type": "array",
-      "maxItems": 3,
+      "maxItems": 6,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -47,6 +47,17 @@
           "objective"
         ],
         "properties": {
+          "key": {
+            "type": "string",
+            "description": "OPTIONAL local reference name for this task, unique within this new_tasks batch (e.g. 'run-s0', 'analysis'). Other tasks in the same batch reference it via their deps. Omit for flat (non-DAG) tasks."
+          },
+          "deps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "OPTIONAL local keys (from sibling tasks' key fields, same batch only) that must complete before this task runs. Omit/empty for parallel or independent tasks."
+          },
           "title": {
             "type": "string",
             "minLength": 1

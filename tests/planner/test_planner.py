@@ -341,3 +341,161 @@ def test_stage_gate_block_surfaces_current_stage(monkeypatch, tmp_path) -> None:
         assert "COMPLETES THE CURRENT STAGE" in prompt, stage
         assert "FORBIDDEN" in prompt, stage
         assert "Downstream stages" in prompt, stage
+
+
+# ---------------------------------------------------------------------------
+# DAG new_tasks: key/deps parsing + prompt teaching + schema
+# ---------------------------------------------------------------------------
+
+
+def test_parse_planner_text_reads_key_and_deps() -> None:
+    """A DAG batch (parallel a/b + summary c) parses key/deps onto TaskSpec."""
+    txt = json.dumps({
+        "project_done": False,
+        "reason": "fan out then summarize",
+        "new_tasks": [
+            {
+                "key": "a",
+                "deps": [],
+                "title": "run seed 0",
+                "impact_score": 5,
+                "impact_area": "reliability",
+                "evidence": "need multi-seed variance",
+                "scope": "bounded",
+                "objective": "train seed=0; write experiments/run-a/summary.tsv",
+            },
+            {
+                "key": "b",
+                "deps": [],
+                "title": "run seed 1",
+                "impact_score": 5,
+                "impact_area": "reliability",
+                "evidence": "need multi-seed variance",
+                "scope": "bounded",
+                "objective": "train seed=1; write experiments/run-b/summary.tsv",
+            },
+            {
+                "key": "c",
+                "deps": ["a", "b"],
+                "title": "analyze",
+                "impact_score": 5,
+                "impact_area": "reliability",
+                "evidence": "fan-in summary",
+                "scope": "bounded",
+                "objective": "read run-a/run-b summaries; write analysis/RESULTS.md",
+            },
+        ],
+    })
+    v = parse_planner_text(txt)
+    assert not v.error
+    assert [t.key for t in v.new_tasks] == ["a", "b", "c"]
+    assert v.new_tasks[0].deps == []
+    assert v.new_tasks[1].deps == []
+    assert v.new_tasks[2].deps == ["a", "b"]
+
+
+def test_parse_planner_text_flat_task_has_empty_key_deps() -> None:
+    """Back-compat: a task with no key/deps parses to key='' / deps=[]."""
+    txt = json.dumps({
+        "project_done": False,
+        "reason": "one flat task",
+        "new_tasks": [{
+            "title": "fix the loader",
+            "impact_score": 5,
+            "impact_area": "correctness",
+            "evidence": "loader crashes on empty input",
+            "scope": "bounded",
+            "objective": "patch code/loader.py and add a regression test",
+        }],
+    })
+    v = parse_planner_text(txt)
+    assert len(v.new_tasks) == 1
+    assert v.new_tasks[0].key == ""
+    assert v.new_tasks[0].deps == []
+
+
+def test_parse_planner_text_accepts_up_to_six_tasks() -> None:
+    """maxItems is now 6 (fan-out + fan-in); the parser must not cap at 3."""
+    tasks = [
+        {
+            "key": f"k{i}",
+            "deps": [],
+            "title": f"task {i}",
+            "impact_score": 5,
+            "impact_area": "reliability",
+            "evidence": "needed",
+            "scope": "bounded",
+            "objective": f"do work {i} and write out/{i}.txt",
+        }
+        for i in range(6)
+    ]
+    txt = json.dumps({"project_done": False, "reason": "six", "new_tasks": tasks})
+    v = parse_planner_text(txt)
+    assert len(v.new_tasks) == 6
+
+
+def test_dag_teaching_section_in_preamble() -> None:
+    from argus_skill.planner.planner import _PLANNER_SYSTEM_PREAMBLE
+
+    text = _PLANNER_SYSTEM_PREAMBLE
+    assert "Emitting a DAG of new_tasks" in text
+    assert '"key"' in text and '"deps"' in text
+    # Self-contained objective requirement is taught.
+    assert "self-contained" in text
+    # The worked example (parallel seeds + fan-in analysis) is present.
+    assert "run-s0" in text
+    assert "analysis/RESULTS.md" in text
+    # Cap rule was raised to 6.
+    assert "Cap at 6 tasks" in text
+
+
+def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
+    """The structured-output schema validates both a key/deps DAG batch and a
+    plain flat batch (key/deps optional)."""
+    import jsonschema
+
+    from argus_skill.planner.planner import PLANNER_SCHEMA_PATH
+
+    with open(PLANNER_SCHEMA_PATH, encoding="utf-8") as fh:
+        schema = json.load(fh)
+
+    base = {
+        "project_done": False,
+        "reason": "x",
+        "restart_daemon": False,
+        "restart_reason": "",
+        "waiting": False,
+        "waiting_reason": "",
+        "meta_decision": None,
+    }
+
+    def _task(**over):
+        t = {
+            "title": "t",
+            "impact_score": 5,
+            "impact_area": "reliability",
+            "evidence": "e",
+            "scope": "bounded",
+            "objective": "o",
+        }
+        t.update(over)
+        return t
+
+    # DAG batch with key/deps validates.
+    dag = dict(base, new_tasks=[
+        _task(key="a", deps=[]),
+        _task(key="b", deps=[]),
+        _task(key="c", deps=["a", "b"]),
+    ])
+    jsonschema.validate(dag, schema)
+
+    # Flat batch (no key/deps) still validates.
+    flat = dict(base, new_tasks=[_task()])
+    jsonschema.validate(flat, schema)
+
+    # Six tasks validate (maxItems raised to 6); seven must fail.
+    six = dict(base, new_tasks=[_task(key=f"k{i}") for i in range(6)])
+    jsonschema.validate(six, schema)
+    seven = dict(base, new_tasks=[_task(key=f"k{i}") for i in range(7)])
+    with __import__("pytest").raises(jsonschema.ValidationError):
+        jsonschema.validate(seven, schema)

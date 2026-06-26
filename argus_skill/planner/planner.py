@@ -63,6 +63,15 @@ class TaskSpec:
     impact_area: str = ""
     evidence: str = ""
     scope: str = TASK_SCOPE_BOUNDED
+    # --- DAG fields (optional; flat tasks leave both at their defaults) ----
+    # ``key`` is this task's *local* reference name, unique within one batch
+    # of ``new_tasks``. Sibling tasks point at it via ``deps``. The supervisor
+    # maps these local keys to the real backlog item ids when it enqueues the
+    # batch (the keys themselves never reach the backlog). Empty ``key`` /
+    # empty ``deps`` (the default) ⇒ a plain flat task, scheduled exactly as
+    # before the DAG existed.
+    key: str = ""
+    deps: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -117,6 +126,8 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "waiting on and why no new work is queued; else empty string>\",\n"
     '  "new_tasks": [\n'
     "    {\n"
+    '      "key": "<OPTIONAL local ref name, unique in this batch; omit for flat tasks>",\n'
+    '      "deps": ["<OPTIONAL local keys of sibling tasks that must finish first; omit/[] for parallel work>"],\n'
     '      "title": "<short imperative title>",\n'
     '      "impact_score": <0-5 integer>,\n'
     '      "impact_area": "<correctness|security|operator_ux|performance|reliability|integration|requirement_gap|discovery>",\n'
@@ -217,16 +228,27 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "   host may interrupt planner wall-clock overruns and fall back to an\n"
     "   automatic gate-derived Engineer task.\n"
     "9) Order tasks by impact: most important first.\n"
-    "10) Cap at 3 tasks per planning cycle. For EMNLP/ACL/paper goals, prefer\n"
-    "   1 broad task over 3 microtasks unless the blockers are truly independent.\n"
-    "   Trust the Engineer model with multi-file, multi-validator objectives when\n"
-    "   the acceptance criteria are concrete; do not decompose a coherent paper\n"
-    "   repair into tiny tasks that can oscillate.\n"
+    "10) Cap at 6 tasks per planning cycle (enough to fit one fan-out+fan-in\n"
+    "   DAG, e.g. a few parallel sub-tasks plus one summarizer). For\n"
+    "   EMNLP/ACL/paper goals, prefer\n"
+    "   1 broad task over many microtasks unless the blockers are truly\n"
+    "   independent. Trust the Engineer model with multi-file, multi-validator\n"
+    "   objectives when the acceptance criteria are concrete; do not decompose a\n"
+    "   coherent paper repair into tiny tasks that can oscillate.\n"
     "11) NEVER repeat work already completed (check the journal below).\n"
     "12) NEVER propose vanity work (renames, comment polish, trivial\n"
     "   refactors) unless the operator explicitly asked for it.\n"
-    "13) Each non-paper task should be independently completable in one mission\n"
-    "   (not multi-step dependencies). Paper optimization tasks may be broad,\n"
+    "13) Each non-paper task should be a mission-level goal one Engineer can\n"
+    "   complete on its own. You do NOT have to cram everything into a single\n"
+    "   flat task: when a unit of work naturally splits into 'several parallel\n"
+    "   sub-tasks + one summary/dependent step', express it as a DAG inside this\n"
+    "   one batch of `new_tasks` (see '## Emitting a DAG of new_tasks' below) —\n"
+    "   give each task a `key`, leave `deps` empty for the ones that can run in\n"
+    "   parallel, and set `deps=[<prereq keys>]` on the steps that consume\n"
+    "   upstream results. Do NOT over-split: a task is still one mission-level\n"
+    "   objective, never a per-paragraph / per-function fragment. When there is\n"
+    "   no parallelism or dependency, just emit flat tasks (no `key`/`deps`) as\n"
+    "   before. Paper optimization tasks may be broad,\n"
     "   multi-file, and multi-validator because the Engineer is expected to run\n"
     "   long-horizon missions, not wait for Planner to decompose every paragraph.\n"
     "14) Set `restart_daemon=true` ONLY when the prompt says runtime\n"
@@ -314,6 +336,45 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "   id/path/progress or the blocker artifact path and operator action in\n"
     "   `waiting_reason`.\n"
     "19) Output JSON ONLY. No prose around it. No markdown fences.\n"
+    "\n"
+    "## Emitting a DAG of new_tasks (parallel sub-tasks + a dependent step)\n"
+    "When a single unit of work cleanly factors into 'several independent\n"
+    "sub-tasks that can run in parallel + one summary/dependent step that needs\n"
+    "their outputs', do NOT force it into one giant flat task and do NOT drop\n"
+    "the ordering on the floor. Express it as a small DAG inside this one batch\n"
+    "of `new_tasks`:\n"
+    "- Give every task a unique `key` (a short local name, batch-scoped only).\n"
+    "- Tasks that can run at the same time get NO `deps` (empty).\n"
+    "- A task that needs earlier results sets `deps=[<prereq key>, ...]` listing\n"
+    "  the sibling `key`s it waits on. The host maps these local keys to the\n"
+    "  real backlog item ids and only starts a task once all its deps are done;\n"
+    "  if a dep fails, the dependent task is skipped (it never runs on missing\n"
+    "  inputs). Dependencies only work WITHIN this one batch — you cannot depend\n"
+    "  on a task from a previous planning cycle, so emit a complete DAG subgraph\n"
+    "  in a single verdict.\n"
+    "- EACH `objective` MUST be self-contained, because the Engineer that runs\n"
+    "  it sees ONLY that objective — never the whole graph. So every objective\n"
+    "  must spell out: (a) what to do; (b) the EXACT path(s) of any upstream\n"
+    "  outputs it reads (the depended-on tasks must write to those paths); and\n"
+    "  (c) the EXACT path(s) where it writes its own outputs (so downstream\n"
+    "  tasks can read them). Wire the read/write paths to match across deps.\n"
+    "- Do NOT over-split: one task is still one mission-level objective an\n"
+    "  Engineer can finish on its own, never a per-paragraph or per-function\n"
+    "  shard. If there is no real parallelism or dependency, just emit flat\n"
+    "  tasks (omit `key`/`deps`) exactly as before.\n"
+    "Worked example — 3 seeds in parallel, then one analysis that fans them in:\n"
+    '  {\"key\":\"run-s0\",\"deps\":[],\"title\":\"train seed 0\",\"impact_score\":5,'
+    '\"impact_area\":\"reliability\",\"evidence\":\"need multi-seed variance\",'
+    '\"scope\":\"bounded\",\"objective\":\"train with seed=0; write metrics to '
+    'experiments/run-s0/summary.tsv\"}\n'
+    '  {\"key\":\"run-s1\",\"deps\":[],... ,\"objective\":\"train with seed=1; write '
+    'metrics to experiments/run-s1/summary.tsv\"}\n'
+    '  {\"key\":\"run-s2\",\"deps\":[],... ,\"objective\":\"train with seed=2; write '
+    'metrics to experiments/run-s2/summary.tsv\"}\n'
+    '  {\"key\":\"analysis\",\"deps\":[\"run-s0\",\"run-s1\",\"run-s2\"],... ,'
+    '\"objective\":\"read experiments/run-s0/summary.tsv, '
+    "experiments/run-s1/summary.tsv, experiments/run-s2/summary.tsv; compute "
+    'mean±95% CI; write analysis/RESULTS.md\"}\n'
 )
 
 
@@ -1027,6 +1088,13 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             impact_area = str(entry.get("impact_area", "")).strip()
             evidence = str(entry.get("evidence", "")).strip()
             scope = _parse_task_scope(entry.get("scope"))
+            # Optional DAG fields; back-compat: a flat task simply omits them.
+            key = str(entry.get("key", "")).strip()
+            deps = [
+                str(d).strip()
+                for d in (entry.get("deps") or [])
+                if str(d).strip()
+            ]
             if (
                 not title
                 or not objective
@@ -1042,9 +1110,11 @@ def parse_planner_text(text: str) -> PlannerVerdict:
                     impact_area=impact_area,
                     evidence=evidence,
                     scope=scope,
+                    key=key,
+                    deps=deps,
                 )
             )
-            if len(new_tasks) >= 3:
+            if len(new_tasks) >= 6:
                 break
     if project_done and tasks_raw:
         return PlannerVerdict(
