@@ -28,8 +28,8 @@ from typing import Any, Callable
 
 from .core.models import LoopOutcome, RoundRecord
 from .core.ports import RunnerBackend
-from .reviewer import Reviewer, ReviewerConfig
 from .engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
+from .reviewer import Reviewer, ReviewerConfig
 from .skills.missions import EngineerMission
 from .skills.role_match import render_skill_playbook
 from .skills.skill_router import SkillRouter
@@ -339,26 +339,76 @@ class SkillLoop:
         # operators can compute hit-rate, mean-rounds-with-skill, and
         # mean-rounds-without-skill from events.jsonl alone.
         try:
+            matcher_model = str(
+                getattr(
+                    self.skill_store,
+                    "matcher_model",
+                    self.config.resolved_matcher_model(),
+                )
+                or self.config.resolved_matcher_model()
+            )
+            distiller_model = str(self.config.engineer_model or "")
+            distiller_input_tokens = int(getattr(distill_result, "input_tokens", 0) or 0)
+            distiller_cached_input_tokens = int(
+                getattr(distill_result, "cached_input_tokens", 0) or 0
+            )
+            distiller_output_tokens = int(
+                getattr(distill_result, "output_tokens", 0) or 0
+            )
+            matcher_usage = {
+                "model": matcher_model,
+                "input_tokens": int(matcher_input_tokens or 0),
+                "cached_input_tokens": int(matcher_cached_input_tokens or 0),
+                "output_tokens": int(matcher_output_tokens or 0),
+            }
+            distiller_usage = {
+                "model": distiller_model,
+                "input_tokens": distiller_input_tokens,
+                "cached_input_tokens": distiller_cached_input_tokens,
+                "output_tokens": distiller_output_tokens,
+            }
+            self._emit({
+                "type": "skill.cost.completed",
+                "agent_layer": "scientist",
+                "matcher_model": matcher_model,
+                "distiller_model": distiller_model,
+                "matcher": matcher_usage,
+                "distiller": distiller_usage,
+                "matcher_input_tokens": matcher_usage["input_tokens"],
+                "matcher_cached_input_tokens": matcher_usage["cached_input_tokens"],
+                "matcher_output_tokens": matcher_usage["output_tokens"],
+                "distiller_input_tokens": distiller_usage["input_tokens"],
+                "distiller_cached_input_tokens": distiller_usage["cached_input_tokens"],
+                "distiller_output_tokens": distiller_usage["output_tokens"],
+                "input_tokens": (
+                    matcher_usage["input_tokens"] + distiller_usage["input_tokens"]
+                ),
+                "cached_input_tokens": (
+                    matcher_usage["cached_input_tokens"]
+                    + distiller_usage["cached_input_tokens"]
+                ),
+                "output_tokens": (
+                    matcher_usage["output_tokens"] + distiller_usage["output_tokens"]
+                ),
+                "usage_scope": "delta",
+            })
             self._emit({
                 "type": "skill.outcome",
                 "skill_name": skill_name or "",
                 "skill_hit": bool(skill_name) and not skill_distilled,
                 "skill_distilled": bool(skill_distilled),
+                "matcher_model": matcher_model,
+                "distiller_model": distiller_model,
                 "matcher_tokens": int(matcher_tokens or 0),
                 "matcher_input_tokens": matcher_input_tokens,
                 "matcher_cached_input_tokens": matcher_cached_input_tokens,
                 "matcher_output_tokens": matcher_output_tokens,
                 "distiller_tokens": int(
-                    (getattr(distill_result, "input_tokens", 0) or 0)
-                    + (getattr(distill_result, "output_tokens", 0) or 0)
+                    distiller_input_tokens + distiller_output_tokens
                 ),
-                "distiller_input_tokens": int(getattr(distill_result, "input_tokens", 0) or 0),
-                "distiller_cached_input_tokens": int(
-                    getattr(distill_result, "cached_input_tokens", 0) or 0
-                ),
-                "distiller_output_tokens": int(
-                    getattr(distill_result, "output_tokens", 0) or 0
-                ),
+                "distiller_input_tokens": distiller_input_tokens,
+                "distiller_cached_input_tokens": distiller_cached_input_tokens,
+                "distiller_output_tokens": distiller_output_tokens,
                 "rounds": int(len(rounds)),
                 "status": str(status),
                 "success": bool(status == "done"),

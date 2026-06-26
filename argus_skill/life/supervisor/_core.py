@@ -1283,8 +1283,40 @@ class LifeSupervisor:
         # Emit per-layer completion notifications with actual costs
         try:
             from ..notify import dispatch_journal_entry
+            sci_usd = cost_sink.scientist_usd()
             eng_usd = cost_sink.engineer_usd()
             rev_usd = cost_sink.reviewer_usd()
+            if (
+                cost_sink.scientist_input_tokens > 0
+                or cost_sink.scientist_output_tokens > 0
+            ):
+                sci_done = JournalEntry.new(
+                    kind="phase_change",
+                    title=item.title,
+                    summary=f"科学家/技能匹配完成: ${sci_usd:.4f}",
+                    tags=["life", "phase"],
+                    cost_usd=sci_usd,
+                    extra={
+                        "item_id": item.id,
+                        "objective": item.objective,
+                        "agent_layer": "scientist",
+                        "phase_status": "completed",
+                        "input_tokens": cost_sink.scientist_input_tokens,
+                        "output_tokens": cost_sink.scientist_output_tokens,
+                        "usage_by_model": {
+                            model: {
+                                "input_tokens": values[0],
+                                "cached_input_tokens": values[1],
+                                "output_tokens": values[2],
+                            }
+                            for model, values in (
+                                cost_sink.scientist_usage_by_model.items()
+                            )
+                        },
+                    },
+                )
+                self._inject_cumulative_cost(sci_done, in_flight_usd=usd)
+                dispatch_journal_entry(sci_done)
             # L1 engineer completed
             eng_done = JournalEntry.new(
                 kind="phase_change",
@@ -1410,6 +1442,22 @@ class LifeSupervisor:
                 "agent_layer": "planner" if iteration_outcome and iteration_outcome.get("requeued") else "engineer",
                 "engineer_model": self.engineer_model,
                 "reviewer_model": self.reviewer_model,
+                "scientist_cost_usd": cost_sink.scientist_usd(),
+                "engineer_cost_usd": cost_sink.engineer_usd(),
+                "reviewer_cost_usd": cost_sink.reviewer_usd(),
+                "scientist_input_tokens": cost_sink.scientist_input_tokens,
+                "scientist_cached_input_tokens": (
+                    cost_sink.scientist_cached_input_tokens
+                ),
+                "scientist_output_tokens": cost_sink.scientist_output_tokens,
+                "scientist_usage_by_model": {
+                    model: {
+                        "input_tokens": values[0],
+                        "cached_input_tokens": values[1],
+                        "output_tokens": values[2],
+                    }
+                    for model, values in cost_sink.scientist_usage_by_model.items()
+                },
                 "input_tokens": cost_sink.total_input_tokens(),
                 "output_tokens": cost_sink.total_output_tokens(),
                 "matched_skill": str(getattr(outcome, "matched_skill_name", "") or ""),
