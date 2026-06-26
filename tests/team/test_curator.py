@@ -283,3 +283,33 @@ def test_distill_skips_empty_response(tmp_path: Path) -> None:
     c = _fake_curator(tmp_path)
     assert c._distill_root(root, lambda p: "   ") is False
     assert (root / "strategy.md").read_text(encoding="utf-8") == "PRIOR"
+
+
+def test_tick_distills_at_interval_when_fn_present(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    pool.update(root, width=0, state="running")  # width 0 → focus on distill, no spawns
+    _seed_board(root, "kA", 1.0, "fuse")
+    calls: list = []
+
+    def fake(prompt: str) -> str:
+        calls.append(prompt)
+        return "## Strat\nkA: deepen"
+
+    c = cur.Curator(project_root=tmp_path, make_proc=lambda *a, **k: FakeProc(),
+                    distill_fn=fake, distill_interval_s=100.0)
+    c._tick(now=1000.0)
+    assert len(calls) == 1 and (root / "strategy.md").exists()
+    c._tick(now=1050.0)            # within interval → no distill
+    assert len(calls) == 1
+    c._tick(now=1200.0)            # past interval → distill again
+    assert len(calls) == 2
+
+
+def test_tick_no_distill_without_fn(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    _seed_board(root)
+    c = _fake_curator(tmp_path)  # no distill_fn → deterministic fold only
+    c._tick(now=1000.0)
+    assert not (root / "strategy.md").exists()

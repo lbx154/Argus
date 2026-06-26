@@ -79,7 +79,9 @@ class Curator:
                  tick_s: float = 5.0, teammate_timeout_s: float = 5400.0,
                  hard_grace_s: float = 600.0, exec_cmd: str = "",
                  now_fn: Callable[[], float] = time.time,
-                 make_proc: Callable[..., Any] | None = None) -> None:
+                 make_proc: Callable[..., Any] | None = None,
+                 distill_fn: Callable[[str], str] | None = None,
+                 distill_interval_s: float = 1260.0) -> None:
         self.project_root = Path(project_root)
         self.default_width = int(default_width)
         self.tick_s = float(tick_s)
@@ -88,8 +90,11 @@ class Curator:
         self._exec_cmd = exec_cmd
         self._now = now_fn
         self._make_proc = make_proc or self._default_make_proc
+        self._distill_fn = distill_fn
+        self.distill_interval_s = float(distill_interval_s)
         self._children: dict[str, TrackedTeammate] = {}
         self._fold_mtime: dict[str, float] = {}  # per-root shards mtime at last fold
+        self._distill_at: dict[str, float] = {}  # per-root wall-clock of last distill
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -238,6 +243,7 @@ class Curator:
                 if task_board.count_in_flight(root) == 0 and not self.live_owner_ids(root):
                     registry.remove_marker(self.project_root, marker["team_id"])
                 continue
+            self._maybe_distill(root, now)
             width = int(doc["width"]) if "width" in doc else self.default_width
             self._refill(root, width=width, cwd=cwd, now=now)
 
@@ -259,6 +265,17 @@ class Curator:
             except Exception:  # noqa: BLE001 — leaderboard upkeep must never break the tick
                 log.exception("curator: leaderboard fold failed for %s", root)
             self._fold_mtime[key] = mtime
+
+    def _maybe_distill(self, root: Path, now: float) -> None:
+        """Low-frequency LLM distill, at most every ``distill_interval_s``. No-op
+        without a distill function (a deterministic-only Curator)."""
+        if self._distill_fn is None:
+            return
+        key = str(root)
+        if now - self._distill_at.get(key, 0.0) < self.distill_interval_s:
+            return
+        self._distill_at[key] = now  # advance even on failure — best-effort, don't hammer
+        self._distill_root(root, self._distill_fn)
 
     def _distill_root(self, root: Path, distill_fn: Callable[[str], str]) -> bool:
         """Low-frequency LLM distill: read the leaderboard, ask the curator agent
