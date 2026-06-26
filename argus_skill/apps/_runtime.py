@@ -761,6 +761,7 @@ class _SkillLoopRunner:
         self.reviewer_backend = _role_backend("reviewer")
         self.planner_backend = _role_backend("planner")
         self.manager_backend = _role_backend("manager")
+        self.curator_backend = _role_backend("curator")
         self._args = args
         # The ONE Manager instance for this runner. All daemon-side Manager uses
         # (divide / is_conversational / approve_skill) go through this single

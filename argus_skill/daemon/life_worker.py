@@ -798,7 +798,7 @@ class LifeWorker:
 
     # -- main loop ------------------------------------------------------
 
-    def _build_curator(self) -> Any:
+    def _build_curator(self, runner: Any = None) -> Any:
         """Construct the resident Curator that owns every team campaign's pool,
         or ``None`` when this daemon has no project workspace (no teams without
         one). Lazily imported to keep the daemon free of team deps until needed.
@@ -813,7 +813,32 @@ class LifeWorker:
             tick_s=float(os.environ.get("ARGUS_TEAM_CURATOR_TICK_S", "5")),
             teammate_timeout_s=float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "5400")),
             hard_grace_s=float(os.environ.get("ARGUS_TEAMMATE_HARD_GRACE_S", "600")),
+            distill_fn=self._curator_distill_fn(runner),
+            distill_interval_s=float(os.environ.get("ARGUS_SKILL_CURATOR_DISTILL_INTERVAL_S", "1260")),
         )
+
+    def _curator_distill_fn(self, runner: Any) -> Any:
+        """Wrap the curator agent backend into a ``(prompt) -> str`` distill
+        function, or ``None`` when no runner/backend is available (the Curator
+        then runs deterministic-only — fold the board, write no strategy)."""
+        backend = getattr(runner, "curator_backend", None) or getattr(runner, "backend", None)
+        if backend is None:
+            return None
+        from ..core.models import RunnerOptions
+        from ..tools.capability_vault import resolve_route_model
+        model = os.environ.get("ARGUS_SKILL_CURATOR_MODEL") or resolve_route_model("curator")
+        effort = os.environ.get("ARGUS_SKILL_CURATOR_REASONING_EFFORT", "high")
+
+        def _distill(prompt: str) -> str:
+            result = backend.run_exec(
+                prompt=prompt,
+                options=RunnerOptions(model=model or None, reasoning_effort=effort,
+                                      skip_git_repo_check=True, full_auto=True),
+                run_label="curator.distill",
+            )
+            return getattr(result, "last_agent_message", "") or ""
+
+        return _distill
 
     def run_forever(self) -> int:
         self._install_signal_handlers()
@@ -1058,7 +1083,7 @@ class LifeWorker:
         # in flight and is the single reaper (the lead drops .argus/team campaign
         # markers under project_workdir, which the Curator watches). Stopped in
         # the finally below so a clean shutdown reaps every teammate it owns.
-        self._curator = self._build_curator()
+        self._curator = self._build_curator(runner)
         if self._curator is not None:
             self._curator.start()
 

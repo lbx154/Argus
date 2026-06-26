@@ -26,6 +26,35 @@ def test_build_curator_is_none_without_project_workdir(tmp_path: Path) -> None:
     assert w._build_curator() is None  # no teams without a project workspace
 
 
+class _FakeResult:
+    last_agent_message = "## Strategy\nkA: deepen the fused kernel"
+
+
+class _FakeBackend:
+    def __init__(self) -> None:
+        self.labels: list[str] = []
+
+    def run_exec(self, *, prompt, options, run_label):
+        self.labels.append(run_label)
+        return _FakeResult()
+
+
+def test_build_curator_distill_fn_calls_the_backend(tmp_path: Path) -> None:
+    backend = _FakeBackend()
+    runner = type("R", (), {})()
+    runner.curator_backend = backend
+    c = LifeWorker(_cfg(tmp_path, workdir=tmp_path / "proj"))._build_curator(runner)
+    assert c is not None and c._distill_fn is not None
+    # the daemon wraps the curator backend into the Curator's (prompt)->str distill_fn
+    assert c._distill_fn("PROMPT") == "## Strategy\nkA: deepen the fused kernel"
+    assert "curator.distill" in backend.labels
+
+
+def test_build_curator_no_distill_fn_without_runner(tmp_path: Path) -> None:
+    c = LifeWorker(_cfg(tmp_path, workdir=tmp_path / "proj"))._build_curator()
+    assert c is not None and c._distill_fn is None  # deterministic-only Curator
+
+
 def test_build_curator_reads_env_knobs(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_TEAM_DEFAULT_WIDTH", "12")
     monkeypatch.setenv("ARGUS_TEAMMATE_TIMEOUT_S", "100")
@@ -51,7 +80,7 @@ def test_run_forever_starts_and_stops_the_curator(tmp_path: Path, monkeypatch) -
             self.stopped = True
 
     spy = SpyCurator()
-    monkeypatch.setattr(worker, "_build_curator", lambda: spy)
+    monkeypatch.setattr(worker, "_build_curator", lambda *a, **k: spy)
 
     t = threading.Thread(target=worker.run_forever, daemon=True)
     t.start()
