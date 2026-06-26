@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from argus_skill.life.activity_log import (
@@ -133,3 +134,51 @@ def test_sink_survives_downstream_failure(tmp_path: Path) -> None:
     sink.handle_event({"type": "life.mission.started", "missions_started": 1, "title": "T"})
     log_text = (tmp_path / ACTIVITY_FILE).read_text(encoding="utf-8")
     assert "MISSION  start" in log_text
+
+
+def test_sink_groups_indents_and_timestamps(tmp_path: Path) -> None:
+    sink = ActivityLogSink(None, life_dir=tmp_path)
+    base = 1_000_000.0
+    seq = [
+        {"type": "life.mission.started", "item_id": "m1", "missions_started": 1, "title": "T"},
+        {"type": "round.main.completed", "round_index": 1},
+        {"type": "life.mission.completed", "item_id": "m1", "success": True, "rounds": 1},
+    ]
+    for i, ev in enumerate(seq):
+        ev["ts"] = base + i * 30
+        sink.handle_event(ev)
+
+    text = (tmp_path / ACTIVITY_FILE).read_text(encoding="utf-8")
+    lines = text.splitlines()
+    # Tree glyphs group the mission: opens, interior round, closes.
+    assert "┌─" in lines[0] and "MISSION  start" in lines[0]
+    assert "│" in lines[1] and "round=1" in lines[1]
+    assert "└─" in lines[2] and "MISSION  done" in lines[2]
+    # Local HH:MM:SS timestamp + relative gap on the head lines.
+    assert re.match(r"^\d\d:\d\d:\d\d \(\+0s\)", lines[0])
+    assert "(+30s)" in lines[1]
+
+
+def test_sink_wraps_long_reason_without_truncation(tmp_path: Path) -> None:
+    sink = ActivityLogSink(None, life_dir=tmp_path)
+    reason = (
+        "benchmark provenance missing because the harness never recorded the "
+        "dataset checksum and we cannot reproduce the score on a clean machine "
+        "so the round must continue until the evidence chain is complete again"
+    )
+    sink.handle_event({"type": "life.mission.started", "item_id": "m1", "missions_started": 1, "title": "T"})
+    sink.handle_event({
+        "type": "round.review.completed",
+        "round_index": 1,
+        "status": "continue",
+        "confidence": 0.4,
+        "reason": reason,
+    })
+    text = (tmp_path / ACTIVITY_FILE).read_text(encoding="utf-8")
+    assert "…" not in text  # never truncated
+    assert "↳" in text      # reason wrapped onto a continuation block
+    # Every word of the long reason survives somewhere in the file.
+    flat = " ".join(text.split())
+    for word in reason.split():
+        assert word in flat
+
