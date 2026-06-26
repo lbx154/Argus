@@ -1067,6 +1067,16 @@ class LifeWorker:
                         objective=sup.config.continuous_objective,
                         done_reason="planner declared project done",
                     )
+                # Idle auto-exit: the supervisor judged the project idle past
+                # the cap. Exit the outer loop so the process shuts down cleanly
+                # (the shutdown distillation below runs) — the session model
+                # respawns this daemon on the operator's next --resume.
+                if summary.get("stopped_by") == "idle_timeout":
+                    log.info(
+                        "daemon: idle-timeout reached; exiting cleanly "
+                        "(resume to continue)"
+                    )
+                    break
             except Exception:  # noqa: BLE001
                 log.exception("daemon: drain pass raised; sleeping and retrying")
             # Reset per-run counters so future drain passes work.
@@ -1093,7 +1103,36 @@ class LifeWorker:
             time.time() - (self._started_at or time.time()),
             self._missions_completed,
         )
+        self._distill_on_shutdown(sup)
         return 0
+
+    def _distill_on_shutdown(self, sup: Any) -> None:
+        """Final skill-distillation pass when the daemon stops cleanly.
+
+        This is where a daemon's accumulated lessons get promoted into the
+        argus source tree on death — it reuses the existing Manager skill gate
+        (``tidy_after_mission``), inventing no new judgement, and is fully
+        fail-soft. Skipped for the ``memory`` backend: distillation needs a real
+        LLM runner to classify placement, which the in-memory test/cheap backend
+        does not provide (and it would otherwise reach the global skill store).
+        """
+        if str(getattr(self.config, "backend", "") or "").lower() == "memory":
+            return
+        try:
+            from ..manager.skill_tidy import tidy_after_mission
+
+            counts = tidy_after_mission(sup._project_workdir(), sup.runner)
+        except Exception:  # noqa: BLE001 — shutdown distillation is best-effort
+            log.exception("daemon: shutdown distillation failed; non-critical")
+            return
+        promoted = (counts or {}).get("to_builtin", 0) + (counts or {}).get(
+            "to_vertical", 0
+        )
+        if promoted:
+            log.info(
+                "daemon: shutdown distillation promoted %d skill(s) to source",
+                promoted,
+            )
 
     def _wakeable_sleep(
         self,

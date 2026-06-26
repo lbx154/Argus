@@ -125,6 +125,26 @@ _PLAN_TERMINAL_IDLE = "planner_terminal_idle"
 _IDLE_BACKOFF_BASE_SECONDS = 15.0
 _IDLE_BACKOFF_CAP_SECONDS = 300.0
 
+# Idle auto-exit: a continuous daemon that has had no real mission to run for
+# longer than this wall-clock window exits cleanly (``stopped_by=idle_timeout``)
+# instead of spinning 7×24 on an empty backlog. The session model makes daemons
+# cheap to respawn (a `--resume`/`--continue` brings it right back), so an idle
+# daemon should release its slot rather than hold it forever. Default 30 min;
+# ``ARGUS_SKILL_DAEMON_IDLE_EXIT_MIN=0`` disables it (old never-exit behaviour).
+_DAEMON_IDLE_EXIT_DEFAULT_MINUTES = 30.0
+
+
+def _idle_exit_seconds() -> float:
+    """Idle wall-clock (s) before a continuous daemon auto-exits; 0 = never."""
+    raw = os.environ.get("ARGUS_SKILL_DAEMON_IDLE_EXIT_MIN", "").strip()
+    if not raw:
+        return _DAEMON_IDLE_EXIT_DEFAULT_MINUTES * 60.0
+    try:
+        minutes = float(raw)
+    except ValueError:
+        return _DAEMON_IDLE_EXIT_DEFAULT_MINUTES * 60.0
+    return max(0.0, minutes) * 60.0
+
 # Re-emit an unchanged lifecycle-block status/journal line at most this often
 # (a heartbeat) so a long-lived blocked state stays visible without spamming
 # the journal every tick.
@@ -231,6 +251,11 @@ class LifeSupervisor:
         # the moment a real mission runs.
         self._consecutive_idle_planner_cycles = 0
         self._suggested_sleep_s = 0.0
+        # Wall-clock (monotonic) of the first idle pass in the current idle
+        # streak — set by `_enter_idle_backoff`, cleared by `_reset_idle_backoff`
+        # — so `_maybe_idle_timeout` can auto-exit a long-idle continuous daemon.
+        # Spans the daemon outer-loop sleeps because the supervisor is reused.
+        self._idle_since: float | None = None
         self._last_open_ended_project_done_signature = ""
         # Lifecycle-block log-hygiene state: suppress identical held-state
         # emits except on change or a slow heartbeat.
@@ -406,6 +431,25 @@ class LifeSupervisor:
                 if stop_reason != "__silent_stop__":
                     self._emit_status(stop_reason)
                 stopped_by = stop_reason
+                break
+            # Idle auto-exit: a continuous daemon that has had no real work for
+            # longer than the cap exits cleanly so its slot is freed (the
+            # session model respawns it on `--resume`). `_idle_since` carries
+            # across the daemon's outer-loop sleeps, so this fires once the
+            # cumulative idle streak — not any single pass — crosses the window.
+            idle_stop = self._maybe_idle_timeout()
+            if idle_stop:
+                idle_s = round(time.monotonic() - (self._idle_since or 0.0), 1)
+                self._emit({
+                    "type": "life.daemon.idle_timeout",
+                    "idle_seconds": idle_s,
+                    "agent_layer": "planner",
+                })
+                self._emit_status(
+                    f"idle {idle_s:.0f}s with no work — daemon exiting "
+                    f"(resume to continue)"
+                )
+                stopped_by = idle_stop
                 break
             # Early auto-stop: if this is an EMNLP project and the gate
             # already passes, stop immediately — don't run any more ticks
@@ -1516,6 +1560,15 @@ class LifeSupervisor:
         # completion.
         if kind == "mission_complete":
             try:
+                # NOTE: this relative import is WRONG (`..manager` resolves to
+                # the non-existent `argus_skill.life.manager`), so this
+                # per-mission tidy has silently no-op'd via the fail-soft except
+                # below. Left as-is on purpose for now: fixing it flips
+                # per-mission skill distillation from dead → live (a real LLM
+                # classify + source write after EVERY mission, across all live
+                # daemons), which is a cost/behaviour change the operator must
+                # opt into — tracked separately. Distillation currently happens
+                # only on clean daemon shutdown (see life_worker._distill_on_shutdown).
                 from ..manager.skill_tidy import tidy_after_mission
 
                 counts = tidy_after_mission(
@@ -1655,13 +1708,35 @@ class LifeSupervisor:
     def _reset_idle_backoff(self) -> None:
         self._consecutive_idle_planner_cycles = 0
         self._suggested_sleep_s = 0.0
+        self._idle_since = None
         self._last_open_ended_project_done_signature = ""
 
     def _enter_idle_backoff(self) -> float:
         """Register one more no-work plan-cycle and return the suggested sleep."""
         self._consecutive_idle_planner_cycles += 1
+        if getattr(self, "_idle_since", None) is None:
+            self._idle_since = time.monotonic()
         self._suggested_sleep_s = self._idle_backoff_seconds()
         return self._suggested_sleep_s
+
+    def _maybe_idle_timeout(self) -> str:
+        """``"idle_timeout"`` once a continuous daemon has been idle too long.
+
+        Idle wall-clock is measured from ``_idle_since`` (first no-work pass)
+        and spans the daemon's outer-loop sleeps. Returns ``""`` when not in
+        continuous mode, when the feature is disabled (cap ≤ 0), or when the
+        streak is still within the window — so the only behaviour change is: a
+        genuinely idle 7×24 daemon releases its slot after the cap.
+        """
+        if not getattr(self.config, "continuous", False):
+            return ""
+        cap = _idle_exit_seconds()
+        idle_since = getattr(self, "_idle_since", None)
+        if cap <= 0 or idle_since is None:
+            return ""
+        if time.monotonic() - idle_since >= cap:
+            return "idle_timeout"
+        return ""
 
     def _should_journal_idle_repeat(self, kind: str) -> bool:
         """Heartbeat-gate repetitive idle/waiting JOURNAL appends.
