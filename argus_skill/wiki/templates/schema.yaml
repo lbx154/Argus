@@ -4,16 +4,16 @@
 
 pages:
   technique:
-    required: [id, type, status, title, tags, sources, confidence,
+    required: [id, type, status, title, tags, sources,
                created_at, last_reviewed_at]
     optional: [related_runs, related_projects, revisit_after, reviewer_note]
   conflict:
-    required: [id, type, status, title, sources, confidence,
+    required: [id, type, status, title, sources,
                created_at, last_reviewed_at]
     optional: [tags, related_runs, related_projects, reviewer_note,
                resolved_by_run]
   pattern:
-    required: [id, type, status, title, related_runs, confidence,
+    required: [id, type, status, title, related_runs,
                created_at, last_reviewed_at]
     optional: [tags, sources, related_projects, reviewer_note]
 
@@ -30,5 +30,4 @@ sources:
     required: [id, title, mission_id, created_at, tags]
 
 valid_status: [scratch, candidate, stable]
-valid_confidence: [low, med, high]
 valid_outcome: [success, partial, failure]

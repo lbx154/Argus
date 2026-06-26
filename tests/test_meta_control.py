@@ -201,11 +201,12 @@ def test_floor_anchor_ignores_reject_text_and_counts_no_score(tmp_path):
 # meta_decision parsing / validation (judge stays with the agent)
 # --------------------------------------------------------------------------- #
 def test_parse_valid_jump():
-    text = 'blah\n```json\n{"mode":"jump","confidence":0.6,"strategy_type":"optimizer","forbidden":["architecture"]}\n```\n'
+    text = 'blah\n```json\n{"mode":"jump","strategy_type":"optimizer","forbidden":["architecture"]}\n```\n'
     dec = parse_meta_decision(text, forbidden_axes=set(), require_jump=True)
     assert dec.present and dec.valid
     assert dec.strategy_type == "optimizer"
     assert dec.forbidden == ["architecture"]
+    assert not hasattr(dec, "confidence")
 
 
 def test_parse_rejects_repick_of_forbidden_regime():

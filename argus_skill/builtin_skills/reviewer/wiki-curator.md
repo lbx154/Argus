@@ -106,7 +106,6 @@ For each NEWLY added source this mission (from Step 1):
       (`.autors/<project>/wiki/data/tags.yaml`); empty list if unclear
     - `reviewer_note`: the `relevance:` line from the source body
       (M0.1 ingest_lit_matrix appends it), or empty
-    - `confidence: low`
     - `created_at: <today>`, `last_reviewed_at: <today>`
 - `sources/runs/<run-id>.md` with `outcome=failure` and a non-empty
   `failure_signature` that matches the signature of a prior run in
@@ -155,7 +154,6 @@ card = PageCard(
     sources=["papers/2406.12345.md"],  # paths under sources/
     related_runs=[],
     related_projects=[],
-    confidence="low",
     revisit_after=date(2026, 9, 4),
     created_at=date.today(),
     last_reviewed_at=date.today(),

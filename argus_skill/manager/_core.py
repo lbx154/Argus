@@ -228,7 +228,6 @@ class StageTransition:
     action: str            # "advance" | "hold" | "rollback"
     target_stage: str
     reason: str
-    confidence: float = 0.0
     current_stage: str = ""
     # manager_llm | no_review_hold | no_runner_hold | failsafe_hold | illegal_target_hold
     source: str = "manager_llm"
@@ -445,7 +444,7 @@ class Manager:
                     source="illegal_target_hold",
                 )
             return StageTransition("advance", decision.target_stage, decision.reason,
-                                   decision.confidence, cur, "manager_llm")
+                                   cur, "manager_llm")
 
         if decision.action == "rollback":
             try:
@@ -457,10 +456,10 @@ class Manager:
                     source="illegal_target_hold",
                 )
             return StageTransition("rollback", decision.target_stage, decision.reason,
-                                   decision.confidence, cur, "manager_llm")
+                                   cur, "manager_llm")
 
         return StageTransition("hold", cur, decision.reason or "manager held",
-                               decision.confidence, cur, "manager_llm")
+                               cur, "manager_llm")
 
     # ---- skill-library approval (the Manager is the top-level authority) ----
     def approve_skill(

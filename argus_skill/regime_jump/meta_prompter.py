@@ -31,7 +31,6 @@ class MetaDecision:
     """Parsed ``meta_decision`` from the planner (fail-soft)."""
 
     mode: str = "exploit"  # explore | exploit | jump
-    confidence: float = 0.0
     reasoning: str = ""
     strategy_type: str = "unknown"
     forbidden: list[str] = field(default_factory=list)
@@ -128,7 +127,6 @@ def build_meta_block(
         "```json\n"
         '"meta_decision": {\n'
         '  "mode": "jump",\n'
-        '  "confidence": 0.0,\n'
         '  "reasoning": "<why THIS regime — or, if you chose to stay, why>",\n'
         f'  "strategy_type": "<one of: {", ".join(a for a in STRATEGY_TYPES if a not in ("local","unknown"))}>",\n'
         '  "forbidden": ["<direction(s) you are now declaring dead, if any>"]\n'
@@ -249,10 +247,6 @@ def parse_meta_decision(
 
     dec = MetaDecision(present=True)
     dec.mode = str(obj.get("mode") or "exploit").strip().lower()
-    try:
-        dec.confidence = float(obj.get("confidence", 0.0) or 0.0)
-    except (TypeError, ValueError):
-        dec.confidence = 0.0
     dec.reasoning = str(obj.get("reasoning") or "").strip()[:600]
     dec.strategy_type = str(obj.get("strategy_type") or "unknown").strip().lower()
     raw_forbidden = obj.get("forbidden") or []

@@ -39,7 +39,7 @@ Transitions:
   those referencing missions had ``success=True``
 * ``stable    -> candidate`` (demote) when references >= 2 AND >= 2 of
   those referencing missions had ``success=False`` (the skill was tried
-  but failed twice — drop confidence)
+  but failed twice — demote it)
 * ``candidate -> scratch``   (demote) on same condition
 
 Mission success is read from the RunCard body — every RunCard the

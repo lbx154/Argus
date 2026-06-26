@@ -80,7 +80,7 @@ def _stage(root: Path) -> str:
 def test_hook_advances_stage_and_emits_event(tmp_path: Path) -> None:
     root = _project(tmp_path, current="research")
     runner = _runner_with(_StubRunner(
-        {"action": "advance", "target_stage": "plan", "reason": "done", "confidence": 0.9}
+        {"action": "advance", "target_stage": "plan", "reason": "done"}
     ))
     sink = _Sink()
 
@@ -91,12 +91,14 @@ def test_hook_advances_stage_and_emits_event(tmp_path: Path) -> None:
     assert decision["action"] == "advance"
     assert _stage(root) == "plan"
     assert any(e.get("type") == "life.manager.stage_decision" for e in sink.events)
+    # The retired self-reported confidence must not leak into the event payload.
+    assert "confidence" not in decision
 
 
 def test_hook_no_review_holds_and_does_not_write(tmp_path: Path) -> None:
     root = _project(tmp_path, current="research")
     runner = _runner_with(_StubRunner(
-        {"action": "advance", "target_stage": "plan", "reason": "x", "confidence": 1.0}
+        {"action": "advance", "target_stage": "plan", "reason": "x"}
     ))
     sink = _Sink()
 

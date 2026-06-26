@@ -56,7 +56,6 @@ def test_full_loop(tmp_path: Path):
         sources=["papers/2406.12345.md"],
         related_runs=[],
         related_projects=[],
-        confidence="low",
         revisit_after=date(2026, 3, 1),  # already overdue -> must surface as stale
         created_at=date(2026, 6, 4),
         last_reviewed_at=date(2026, 6, 4),

@@ -248,7 +248,7 @@ class _Outcome:
     # The Manager's stage-transition verdict for this mission completion (the
     # Manager is the sole post-bootstrap writer of current_stage). Shape:
     # ``{"action": advance|hold|rollback, "target_stage", "reason",
-    # "confidence", "current_stage", "source"}``. Empty dict when the decision
+    # "current_stage", "source"}``. Empty dict when the decision
     # was skipped (error) or never ran. Journaled by the supervisor; the stage
     # write itself already happened inside execute.
     stage_transition: dict = field(default_factory=dict)
@@ -1173,7 +1173,6 @@ class _SkillLoopRunner:
                 "action": st.action,
                 "target_stage": st.target_stage,
                 "reason": st.reason,
-                "confidence": st.confidence,
                 "current_stage": st.current_stage,
                 "source": st.source,
             }

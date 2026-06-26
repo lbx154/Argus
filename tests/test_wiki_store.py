@@ -84,7 +84,6 @@ def test_write_and_overwrite_page(tmp_wiki: Path):
         sources=[],
         related_runs=[],
         related_projects=[],
-        confidence="low",
         revisit_after=None,
         created_at=date(2026, 6, 4),
         last_reviewed_at=date(2026, 6, 4),

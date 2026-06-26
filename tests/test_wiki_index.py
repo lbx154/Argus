@@ -34,7 +34,6 @@ def _make_card(**over) -> PageCard:
         sources=[],
         related_runs=[],
         related_projects=[],
-        confidence="low",
         revisit_after=None,
         created_at=date(2026, 6, 4),
         last_reviewed_at=date(2026, 6, 4),

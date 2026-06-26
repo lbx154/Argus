@@ -205,7 +205,6 @@ def _mechanical_scratch_lift(wiki_root: Path, *, mission_id: str, emit: EventSin
             sources=[f"papers/{key}.md"],
             related_runs=[],
             related_projects=[],
-            confidence="low",
             revisit_after=None,
             created_at=today,
             last_reviewed_at=today,

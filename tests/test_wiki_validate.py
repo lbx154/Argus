@@ -50,7 +50,6 @@ def test_clean_wiki_validates(wiki: WikiStore):
         sources=["papers/2406.12345.md"],
         related_runs=[],
         related_projects=[],
-        confidence="low",
         revisit_after=None,
         created_at=date(2026, 6, 4),
         last_reviewed_at=date(2026, 6, 4),
@@ -71,7 +70,6 @@ def test_dangling_source_ref_fails(wiki: WikiStore):
         sources=["papers/9999.99999.md"],  # does not exist
         related_runs=[],
         related_projects=[],
-        confidence="low",
         revisit_after=None,
         created_at=date(2026, 6, 4),
         last_reviewed_at=date(2026, 6, 4),

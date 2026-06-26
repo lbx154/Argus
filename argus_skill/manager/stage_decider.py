@@ -28,7 +28,6 @@ class StageDecision:
     action: str       # "advance" | "hold" | "rollback"
     target_stage: str
     reason: str
-    confidence: float
 
 
 _VALID_ACTIONS = ("advance", "hold", "rollback")
@@ -126,7 +125,7 @@ def build_stage_decision_prompt(
         "- When in doubt, HOLD. Never advance on weak evidence.\n\n"
         "Reply with ONE JSON object and NOTHING else:\n"
         '{"action": "advance|hold|rollback", "target_stage": "<stage name>", '
-        '"reason": "<one sentence>", "confidence": <0.0-1.0>}\n'
+        '"reason": "<one sentence>"}\n'
         "For HOLD, set target_stage to the current stage."
     )
 
@@ -168,7 +167,7 @@ def parse_stage_decision(
     """
     cur = (current_stage or "").strip().lower()
     order = [str(s).strip().lower() for s in stage_order]
-    hold = StageDecision("hold", cur, "manager held (default)", 0.0)
+    hold = StageDecision("hold", cur, "manager held (default)")
 
     obj = _loads_first_json(raw_text)
     if not isinstance(obj, dict):
@@ -177,14 +176,10 @@ def parse_stage_decision(
     if action not in _VALID_ACTIONS:
         return hold
     reason = str(obj.get("reason") or "").strip()
-    try:
-        confidence = float(obj.get("confidence"))
-    except (TypeError, ValueError):
-        confidence = 0.0
     target = str(obj.get("target_stage") or "").strip().lower()
 
     if action == "hold":
-        return StageDecision("hold", cur, reason or "manager held", confidence)
+        return StageDecision("hold", cur, reason or "manager held")
 
     if cur not in order:
         return hold  # cannot validate ordering → safe HOLD
@@ -194,12 +189,12 @@ def parse_stage_decision(
         nxt_idx = cur_idx + 1
         if nxt_idx >= len(order) or target != order[nxt_idx]:
             return hold  # must be the immediate next stage
-        return StageDecision("advance", target, reason or "checklist satisfied", confidence)
+        return StageDecision("advance", target, reason or "checklist satisfied")
 
     # rollback
     if target not in order or order.index(target) >= cur_idx:
         return hold  # must be strictly earlier
-    return StageDecision("rollback", target, reason or "upstream evidence unreliable", confidence)
+    return StageDecision("rollback", target, reason or "upstream evidence unreliable")
 
 
 __all__ = [

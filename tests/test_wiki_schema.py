@@ -24,7 +24,6 @@ def test_page_card_roundtrip():
         sources=["papers/2406.12345.md"],
         related_runs=[],
         related_projects=[],
-        confidence="low",
         revisit_after=date(2026, 9, 4),
         created_at=date(2026, 6, 4),
         last_reviewed_at=date(2026, 6, 4),
@@ -41,7 +40,31 @@ def test_page_card_roundtrip():
     assert parsed == card
 
 
-def test_page_card_required_fields_enforced():
+def test_page_card_parses_legacy_confidence_key():
+    """Back-compat: a legacy card whose frontmatter still carries the retired
+    ``confidence`` key must load (the unknown key is silently dropped), not raise."""
+    legacy = (
+        "---\n"
+        "id: tech-legacy\n"
+        "type: technique\n"
+        "status: scratch\n"
+        "title: Legacy card\n"
+        "tags: []\n"
+        "sources: []\n"
+        "related_runs: []\n"
+        "related_projects: []\n"
+        "confidence: high\n"  # retired field still present on disk
+        "revisit_after: null\n"
+        "created_at: 2026-06-04\n"
+        "last_reviewed_at: 2026-06-04\n"
+        "reviewer_note: ''\n"
+        "---\n\n"
+        "Legacy body.\n"
+    )
+    parsed = parse_frontmatter(legacy, PageCard)
+    assert parsed.id == "tech-legacy"
+    assert parsed.status == "scratch"
+    assert not hasattr(parsed, "confidence")
     with pytest.raises(ValueError, match="status"):
         PageCard(
             id="x",
@@ -52,7 +75,6 @@ def test_page_card_required_fields_enforced():
             sources=[],
             related_runs=[],
             related_projects=[],
-            confidence="low",
             revisit_after=None,
             created_at=date(2026, 6, 4),
             last_reviewed_at=date(2026, 6, 4),

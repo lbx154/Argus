@@ -74,18 +74,21 @@ def _read_stage(root: Path) -> str:
 def test_decide_advance_writes_state(tmp_path: Path) -> None:
     root = _project(tmp_path, current="research")
     mgr = Manager(project_root=root, runner=_StubRunner(
-        {"action": "advance", "target_stage": "plan", "reason": "done", "confidence": 0.9}
+        {"action": "advance", "target_stage": "plan", "reason": "done"}
     ))
     st = mgr.decide_stage_transition(review=_review(), project_root=root)
     assert isinstance(st, StageTransition)
     assert st.action == "advance"
     assert _read_stage(root) == "plan"
+    # The self-reported confidence field is gone from the verdict dataclass.
+    import dataclasses
+    assert "confidence" not in [f.name for f in dataclasses.fields(StageTransition)]
 
 
 def test_decide_hold_writes_nothing(tmp_path: Path) -> None:
     root = _project(tmp_path, current="research")
     mgr = Manager(project_root=root, runner=_StubRunner(
-        {"action": "hold", "target_stage": "research", "reason": "more work", "confidence": 0.3}
+        {"action": "hold", "target_stage": "research", "reason": "more work"}
     ))
     st = mgr.decide_stage_transition(review=_review(status="continue"), project_root=root)
     assert st.action == "hold"
@@ -95,7 +98,7 @@ def test_decide_hold_writes_nothing(tmp_path: Path) -> None:
 def test_decide_rollback_writes_state(tmp_path: Path) -> None:
     root = _project(tmp_path, current="run")
     mgr = Manager(project_root=root, runner=_StubRunner(
-        {"action": "rollback", "target_stage": "benchmark", "reason": "stub evaluator", "confidence": 0.8}
+        {"action": "rollback", "target_stage": "benchmark", "reason": "stub evaluator"}
     ))
     st = mgr.decide_stage_transition(review=_review(status="continue"), project_root=root)
     assert st.action == "rollback"
@@ -117,7 +120,7 @@ def test_decide_no_runner_holds(tmp_path: Path) -> None:
 
 def test_decide_review_none_holds(tmp_path: Path) -> None:
     root = _project(tmp_path, current="research")
-    st = Manager(project_root=root, runner=_StubRunner({"action": "advance", "target_stage": "plan", "reason": "x", "confidence": 1.0})).decide_stage_transition(
+    st = Manager(project_root=root, runner=_StubRunner({"action": "advance", "target_stage": "plan", "reason": "x"})).decide_stage_transition(
         review=None, project_root=root
     )
     assert st.action == "hold"
@@ -139,7 +142,7 @@ def test_decide_illegal_skip_target_holds(tmp_path: Path) -> None:
     # advance to a non-immediate stage → parser fails closed to HOLD, no write.
     root = _project(tmp_path, current="research")
     mgr = Manager(project_root=root, runner=_StubRunner(
-        {"action": "advance", "target_stage": "run", "reason": "skip", "confidence": 1.0}
+        {"action": "advance", "target_stage": "run", "reason": "skip"}
     ))
     st = mgr.decide_stage_transition(review=_review(), project_root=root)
     assert st.action == "hold"
@@ -161,10 +164,12 @@ ORDER = ("research", "plan", "benchmark", "run", "analysis", "draft", "review", 
 
 def test_parse_advance_immediate_ok() -> None:
     d = parse_stage_decision(
-        '{"action":"advance","target_stage":"plan","reason":"ok","confidence":0.9}',
+        '{"action":"advance","target_stage":"plan","reason":"ok"}',
         current_stage="research", stage_order=ORDER,
     )
     assert d.action == "advance" and d.target_stage == "plan"
+    import dataclasses
+    assert "confidence" not in [f.name for f in dataclasses.fields(d)]
 
 
 def test_parse_advance_skip_holds() -> None:

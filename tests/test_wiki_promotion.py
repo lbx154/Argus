@@ -23,7 +23,6 @@ def _write_page(wiki: Path, kind: str, slug: str, status: str = "scratch") -> Pa
         "sources": [],
         "related_runs": [],
         "related_projects": [],
-        "confidence": "low",
         "revisit_after": None,
         "created_at": date.today().isoformat(),
         "last_reviewed_at": date.today().isoformat(),

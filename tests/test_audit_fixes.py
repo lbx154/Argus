@@ -45,7 +45,6 @@ def test_meta_decision_from_structured_obj_populates_forbidden_ledger(tmp_path):
     )
     meta_obj = {
         "mode": "jump",
-        "confidence": 0.7,
         "strategy_type": "optimizer",
         "forbidden": ["residual-temperature row-group tweaks"],
     }

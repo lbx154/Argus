@@ -23,11 +23,9 @@ import yaml
 
 CardType = Literal["technique", "conflict", "pattern"]
 CardStatus = Literal["scratch", "candidate", "stable"]
-Confidence = Literal["low", "med", "high"]
 
 _VALID_TYPES = {"technique", "conflict", "pattern"}
 _VALID_STATUSES = {"scratch", "candidate", "stable"}
-_VALID_CONFIDENCE = {"low", "med", "high"}
 _VALID_OUTCOMES = {"success", "partial", "failure"}
 
 
@@ -41,7 +39,6 @@ class PageCard:
     sources: list[str]
     related_runs: list[str]
     related_projects: list[str]
-    confidence: str
     revisit_after: date | None
     created_at: date
     last_reviewed_at: date
@@ -53,10 +50,6 @@ class PageCard:
             raise ValueError(f"type must be one of {_VALID_TYPES}, got {self.type!r}")
         if self.status not in _VALID_STATUSES:
             raise ValueError(f"status must be one of {_VALID_STATUSES}, got {self.status!r}")
-        if self.confidence not in _VALID_CONFIDENCE:
-            raise ValueError(
-                f"confidence must be one of {_VALID_CONFIDENCE}, got {self.confidence!r}"
-            )
 
 
 @dataclass
@@ -138,4 +131,9 @@ def parse_frontmatter(text: str, cls: type[T]) -> T:
             val = data.get(f.name)
             if isinstance(val, str):
                 data[f.name] = date.fromisoformat(val)
+    # Back-compat: legacy cards may carry retired frontmatter keys (e.g. the
+    # removed ``confidence`` field). Silently drop any key the dataclass no
+    # longer declares so old entries still load instead of raising TypeError.
+    known = {f.name for f in fields(cls)}
+    data = {k: v for k, v in data.items() if k in known}
     return cls(**data)
