@@ -66,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="print the daemon-safe upgrade / restart playbook and exit",
     )
     daemon_grp.add_argument(
+        "--config-help",
+        action="store_true",
+        help="print the operator-facing ARGUS_* control knobs (default + current value) and exit",
+    )
+    daemon_grp.add_argument(
         "--no-daemon",
         action="store_true",
         help="skip auto-spawning the background daemon when entering the REPL",

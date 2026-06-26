@@ -157,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.daemon_stop)
         + bool(args.status)
         + bool(args.daemon_runbook)
+        + bool(getattr(args, "config_help", False))
         + bool(args.watch)
         + bool(args.follow)
         + bool(getattr(args, "dashboard", False))
@@ -211,6 +212,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_status(args))
     if args.daemon_runbook:
         return _run_with_path_resolution_errors(lambda: _cmd_daemon_runbook(args))
+    if getattr(args, "config_help", False):
+        from ...core.knobs import format_config_help
+        sys.stdout.write(format_config_help())
+        return 0
     if args.watch:
         return _run_with_path_resolution_errors(lambda: _cmd_watch(args))
     if args.follow:
