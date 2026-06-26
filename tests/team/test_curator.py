@@ -227,3 +227,59 @@ def test_tick_folds_leaderboard_when_shards_present(tmp_path: Path) -> None:
     c._tick(now=100.0)
     # the resident Curator maintains the leaderboard deterministically each tick
     assert leaderboard.read(root)["kA"]["best"] == {"mechanism": "fuse", "metric": 2.0}
+
+
+def _seed_board(root: Path, target: str = "kA", metric: float = 1.2, mechanism: str = "fuse") -> None:
+    d = root / "shards"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{mechanism}.jsonl").write_text(json.dumps(
+        {"target": target, "metric": metric, "mechanism": mechanism, "success": True}) + "\n",
+        encoding="utf-8")
+    leaderboard.fold(root)
+
+
+def test_distill_writes_strategy_from_leaderboard(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    _seed_board(root, "kA", 1.2, "fuse")
+    captured: dict = {}
+
+    def fake(prompt: str) -> str:
+        captured["p"] = prompt
+        return "## Strategy\nPrioritize kA: deepen the fused kernel."
+
+    c = _fake_curator(tmp_path)
+    assert c._distill_root(root, fake) is True
+    strat = (root / "strategy.md").read_text(encoding="utf-8")
+    assert "Prioritize kA" in strat
+    assert "kA" in captured["p"] and "fuse" in captured["p"]  # leaderboard facts reach the LLM
+
+
+def test_distill_degrades_to_prior_on_failure(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "strategy.md").write_text("PRIOR", encoding="utf-8")
+    _seed_board(root)
+
+    def boom(prompt: str) -> str:
+        raise RuntimeError("llm down")
+
+    c = _fake_curator(tmp_path)
+    assert c._distill_root(root, boom) is False  # never raises
+    assert (root / "strategy.md").read_text(encoding="utf-8") == "PRIOR"  # prior kept
+
+
+def test_distill_noop_without_leaderboard(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    called: list = []
+    c = _fake_curator(tmp_path)
+    assert c._distill_root(root, lambda p: called.append(p) or "x") is False
+    assert called == []  # nothing to distill → LLM not even called
+
+
+def test_distill_skips_empty_response(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    _seed_board(root)
+    (root / "strategy.md").write_text("PRIOR", encoding="utf-8")
+    c = _fake_curator(tmp_path)
+    assert c._distill_root(root, lambda p: "   ") is False
+    assert (root / "strategy.md").read_text(encoding="utf-8") == "PRIOR"

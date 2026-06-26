@@ -32,6 +32,15 @@ from . import leaderboard, pool, registry, roster, task_board
 
 log = logging.getLogger(__name__)
 
+_CURATOR_FALLBACK = (
+    "You are the team Curator. You do NOT engineer. From the leaderboard below, "
+    "for the stalled / lowest targets name the single highest-expected-value next "
+    "move per target — either DEEPEN the current best, or try a genuinely NEW "
+    "mechanism (never one already tried, never a parameter sweep) — and say which "
+    "targets to prioritize. Judge by the MEASURED metric only. Output a concise "
+    "prioritized strategy.md."
+)
+
 
 class TrackedTeammate:
     """A teammate process the Curator owns by holding its ``Popen`` handle."""
@@ -250,6 +259,44 @@ class Curator:
             except Exception:  # noqa: BLE001 — leaderboard upkeep must never break the tick
                 log.exception("curator: leaderboard fold failed for %s", root)
             self._fold_mtime[key] = mtime
+
+    def _distill_root(self, root: Path, distill_fn: Callable[[str], str]) -> bool:
+        """Low-frequency LLM distill: read the leaderboard, ask the curator agent
+        for a forward strategy, write ``strategy.md``. Best-effort — any failure
+        or empty response keeps the prior strategy. Returns True iff it wrote."""
+        board = leaderboard.read(root)
+        if not board:
+            return False
+        try:
+            text = distill_fn(self._distill_prompt(board))
+        except Exception:  # noqa: BLE001 — distill must never break the tick
+            log.exception("curator: distill failed for %s", root)
+            return False
+        if not text or not text.strip():
+            return False
+        (Path(root) / "strategy.md").write_text(text.strip() + "\n", encoding="utf-8")
+        return True
+
+    def _distill_prompt(self, board: dict[str, Any]) -> str:
+        lines = ["# Current leaderboard (judge by MEASURED metric only)", ""]
+        for target, entry in sorted(board.items()):
+            best = entry.get("best")
+            best_s = (f"best `{best.get('mechanism') or '(unnamed)'}`={best.get('metric')}"
+                      if best else "NO measured attempt yet")
+            tried = ", ".join(
+                f"{a.get('mechanism') or '(unnamed)'}"
+                f"({'unmeasured' if a.get('metric') is None else a.get('metric')})"
+                for a in entry.get("attempts", []))
+            lines.append(f"- {target}: {best_s}; tried: {tried or '(none)'}")
+        return (self._curator_contract() + "\n\n" + "\n".join(lines)
+                + "\n\nWrite `strategy.md` now — prioritized next moves only.")
+
+    def _curator_contract(self) -> str:
+        try:
+            from ..skills.role_context import load_builtin_skill_text
+            return load_builtin_skill_text("curator/argus-curator-role.md", _CURATOR_FALLBACK)
+        except Exception:  # noqa: BLE001 — fall back to the inline contract
+            return _CURATOR_FALLBACK
 
     def _run(self) -> None:
         while not self._stop.is_set():
