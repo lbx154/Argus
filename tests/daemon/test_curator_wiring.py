@@ -33,9 +33,11 @@ class _FakeResult:
 class _FakeBackend:
     def __init__(self) -> None:
         self.labels: list[str] = []
+        self.opts: list = []
 
     def run_exec(self, *, prompt, options, run_label):
         self.labels.append(run_label)
+        self.opts.append(options)
         return _FakeResult()
 
 
@@ -43,11 +45,15 @@ def test_build_curator_distill_fn_calls_the_backend(tmp_path: Path) -> None:
     backend = _FakeBackend()
     runner = type("R", (), {})()
     runner.curator_backend = backend
-    c = LifeWorker(_cfg(tmp_path, workdir=tmp_path / "proj"))._build_curator(runner)
+    proj = tmp_path / "proj"
+    c = LifeWorker(_cfg(tmp_path, workdir=proj))._build_curator(runner)
     assert c is not None and c._distill_fn is not None
     # the daemon wraps the curator backend into the Curator's (prompt)->str distill_fn
     assert c._distill_fn("PROMPT") == "## Strategy\nkA: deepen the fused kernel"
     assert "curator.distill" in backend.labels
+    # distill runs CONTAINED in the project dir, so a stray agent file write can't
+    # land in the daemon's cwd (a real bug a live run surfaced)
+    assert backend.opts and backend.opts[0].working_dir == str(proj)
 
 
 def test_build_curator_no_distill_fn_without_runner(tmp_path: Path) -> None:

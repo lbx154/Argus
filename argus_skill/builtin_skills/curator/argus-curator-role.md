@@ -31,4 +31,4 @@ Produce a short `strategy.md` that, for the **stalled / lowest targets**:
 - **General by construction:** reason only about the generic `{target, mechanism, metric}` the leaderboard gives you. No task/box/hardware specifics belong in your role.
 
 ## Output
-Plain markdown for `strategy.md`: a short prioritized list of `target → next move (deepen|new mechanism) → one-line why`. Nothing else.
+**Reply with the strategy markdown directly** — a short prioritized list of `target → next move (deepen|new mechanism) → one-line why`. Do NOT create, edit, or read any files; your reply IS the strategy (the harness writes it).

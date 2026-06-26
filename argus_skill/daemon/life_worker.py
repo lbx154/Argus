@@ -828,12 +828,14 @@ class LifeWorker:
         from ..tools.capability_vault import resolve_route_model
         model = os.environ.get("ARGUS_SKILL_CURATOR_MODEL") or resolve_route_model("curator")
         effort = os.environ.get("ARGUS_SKILL_CURATOR_REASONING_EFFORT", "high")
+        workdir = str(self.config.project_workdir) if self.config.project_workdir else None
 
         def _distill(prompt: str) -> str:
             result = backend.run_exec(
                 prompt=prompt,
                 options=RunnerOptions(model=model or None, reasoning_effort=effort,
-                                      skip_git_repo_check=True, full_auto=True),
+                                      skip_git_repo_check=True, full_auto=True,
+                                      working_dir=workdir),
                 run_label="curator.distill",
             )
             return getattr(result, "last_agent_message", "") or ""

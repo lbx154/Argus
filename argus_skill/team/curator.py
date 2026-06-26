@@ -306,7 +306,9 @@ class Curator:
                 for a in entry.get("attempts", []))
             lines.append(f"- {target}: {best_s}; tried: {tried or '(none)'}")
         return (self._curator_contract() + "\n\n" + "\n".join(lines)
-                + "\n\nWrite `strategy.md` now — prioritized next moves only.")
+                + "\n\nReply with ONLY the strategy as markdown — a short prioritized "
+                "list of `target -> next move (deepen|new mechanism) -> one-line why`. "
+                "Do NOT create, edit, or read any files; your reply IS the strategy.")
 
     def _curator_contract(self) -> str:
         try:
