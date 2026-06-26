@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
 from argus_skill.team import curator as cur
-from argus_skill.team import roster, task_board
+from argus_skill.team import pool, registry, roster, task_board
 
 
 def test_spawn_tracked_records_real_child_and_roster_then_stop_reaps(tmp_path: Path) -> None:
@@ -141,3 +142,71 @@ def test_reap_keeps_alive_child_within_deadline(tmp_path: Path) -> None:
     res = c._reap(now=150.0)  # well within deadline
     assert res == {"dropped": [], "hard_killed": []}
     assert len(c._children) == 1
+
+
+# --- M1.4: tick / discover-from-registry / start-stop thread ----------------
+def test_tick_refills_active_root_from_marker(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    pool.update(root, width=2, state="running")
+    task_board.form(root, [{"task_id": f"t::{i}", "objective": "x"} for i in range(3)])
+    c = _fake_curator(tmp_path)
+    c._tick(now=100.0)
+    assert task_board.count_in_flight(root) == 2
+    assert len(c.live_owner_ids(root)) == 2
+
+
+def test_tick_uses_default_width_when_pool_unset(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    task_board.form(root, [{"task_id": f"t::{i}", "objective": "x"} for i in range(5)])
+    c = _fake_curator(tmp_path, default_width=3)
+    c._tick(now=100.0)  # no pool.json → default width 3
+    assert task_board.count_in_flight(root) == 3
+
+
+def test_tick_draining_stops_refill_and_removes_empty_marker(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    pool.update(root, state="draining")
+    task_board.form(root, [{"task_id": "t::a", "objective": "x"}])
+    c = _fake_curator(tmp_path)
+    c._tick(now=100.0)
+    assert task_board.count_in_flight(root) == 0  # draining never spawns
+    assert registry.list_markers(tmp_path) == []  # empty campaign → marker removed
+
+
+def test_tick_draining_keeps_marker_while_children_live(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    pool.update(root, width=1, state="running")
+    task_board.form(root, [{"task_id": "t::a", "objective": "x"}])
+    c = _fake_curator(tmp_path)
+    c._tick(now=100.0)
+    assert len(c.live_owner_ids(root)) == 1
+    pool.update(root, state="draining")
+    c._tick(now=101.0)  # child still alive → keep the marker
+    assert registry.list_markers(tmp_path) and len(c.live_owner_ids(root)) == 1
+    # child finishes cleanly (teammate_entry would mark the task done) → next tick removes marker
+    (tt,) = [t for t in c._children.values() if t.root == root]
+    tt.proc.exit(0)
+    task_board.complete(root, tt.task_id)
+    c._tick(now=102.0)
+    assert registry.list_markers(tmp_path) == []
+
+
+def test_start_then_stop_runs_ticks_and_reaps_real_child(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    pool.update(root, width=1, state="running")
+    task_board.form(root, [{"task_id": "t::a", "objective": "x"}])
+    c = cur.Curator(project_root=tmp_path, exec_cmd="sleep 60", tick_s=0.05)
+    c.start()
+    try:
+        deadline = time.time() + 5.0
+        while time.time() < deadline and not c.live_owner_ids(root):
+            time.sleep(0.05)
+        assert c.live_owner_ids(root)  # the resident loop kept N in flight on its own clock
+    finally:
+        c.stop()
+    assert c._children == {}  # stop() joined the thread and reaped every child

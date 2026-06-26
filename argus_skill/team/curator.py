@@ -17,16 +17,20 @@ stop kill the daemon itself.
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import shlex
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
 
-from . import roster, task_board
+from . import pool, registry, roster, task_board
+
+log = logging.getLogger(__name__)
 
 
 class TrackedTeammate:
@@ -76,6 +80,8 @@ class Curator:
         self._now = now_fn
         self._make_proc = make_proc or self._default_make_proc
         self._children: dict[str, TrackedTeammate] = {}
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
 
     # ---- spawning a tracked child --------------------------------------
     def _default_make_proc(self, root: Path, member_id: str, task_id: str,
@@ -198,9 +204,60 @@ class Curator:
                 hard_killed.append(mid)
         return {"dropped": dropped, "hard_killed": hard_killed}
 
+    # ---- the resident loop ---------------------------------------------
+    def _tick(self, now: float | None = None) -> None:
+        """One maintenance pass: reap finished/wedged children, then for every
+        active campaign keep the pool at its width (or wind a draining one down).
+
+        Discovery is centralised over the registry markers, so there is exactly
+        ONE place that manages every root — no per-lead-mission coordinator can
+        spawn a second manager (the duplicate-coordinator leak is impossible).
+        """
+        now = self._now() if now is None else now
+        self._reap(now=now)
+        for marker in registry.list_markers(self.project_root):
+            root = Path(marker["team_root"])
+            cwd = Path(marker.get("cwd") or root)
+            doc = pool.read(root)
+            state = doc.get("state", "running")
+            if state in ("draining", "dissolved"):
+                # Stop refilling and let in-flight teammates finish; the
+                # hard-deadline reaper still cleans wedged ones. Remove the
+                # marker once the campaign is genuinely empty.
+                if task_board.count_in_flight(root) == 0 and not self.live_owner_ids(root):
+                    registry.remove_marker(self.project_root, marker["team_id"])
+                continue
+            width = int(doc["width"]) if "width" in doc else self.default_width
+            self._refill(root, width=width, cwd=cwd, now=now)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self._tick()
+            except Exception:  # noqa: BLE001 — a tick must never kill the loop
+                log.exception("curator tick failed")
+            self._stop.wait(self.tick_s)
+
+    def start(self) -> None:
+        """Launch the resident maintenance thread (idempotent)."""
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, name="argus-curator",
+                                        daemon=True)
+        self._thread.start()
+
     def stop(self) -> None:
-        """Terminate every tracked child. The single, explicit teardown the
-        daemon calls — daemon=True threads alone never reap child processes."""
+        """Stop the loop and terminate every tracked child.
+
+        Joins the thread FIRST (so no tick races the teardown), then does the
+        explicit per-child killpg — daemon=True threads alone never reap child
+        processes, so this explicit call is what the daemon must invoke on exit.
+        """
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=self.tick_s + 5.0)
+            self._thread = None
         for tt in list(self._children.values()):
             self._terminate(tt)
         self._children.clear()
