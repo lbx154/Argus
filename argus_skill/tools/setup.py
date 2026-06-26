@@ -961,10 +961,10 @@ def run_setup() -> int:
     # Summary
     _summary(routes, gpu_config, keepalive_config, experiment_api, author)
 
-    print(_green("  ✓ Setup complete! You can now create a research project:"))
+    print(_green("  ✓ Setup complete! To start working on a project:"))
     print()
-    print(_dim('    python -m argus_skill.tools.new_auto_research_project \\'))
-    print(_dim('      --parent ~/research --objective "My EMNLP Paper"'))
+    print(_dim('    cd <your project directory>'))
+    print(_dim('    argus            # enter the Manager conversation to launch a mission'))
     print()
     return 0
 

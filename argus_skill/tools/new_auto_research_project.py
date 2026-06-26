@@ -1,33 +1,35 @@
-"""Create a clean-slate EMNLP auto-research project from the AGENTS template."""
+"""Project-bootstrap helpers shared by the daemon's continuous-mode seeding.
+
+This module no longer drives a standalone ``argus start`` paper launcher — that
+hardcoded paper bypass has been retired. The single supported way to start work
+is to run ``argus`` in a project directory and talk to the Manager, which lets
+the daemon bootstrap classify the objective's vertical and seed the matching
+AGENTS contract (paper vs. optimize).
+
+What remains here are the pure, vertical-agnostic bootstrap primitives the
+daemon's ``LifeWorker._seed_project_agents_and_venv`` / ``_seed_bootstrap_task``
+call: render an AGENTS.md from a copy-ready template, seed starter helper code,
+and build a per-project ``.venv``.
+"""
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import re
 import subprocess
 import sys
-from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
 from ..skills.builtins import (
-    AVAILABLE_DOMAINS,
-    DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
-    DOMAIN_DESCRIPTIONS,
     builtin_skill_source_path,
     iter_builtin_skill_texts,
-    seed_builtin_skills,
-    seed_builtin_skills_for_domain,
 )
 
-DEFAULT_PARENT = Path(os.environ.get("ARGUS_SKILL_PROJECT_PARENT", str(Path.home())))
-DEFAULT_PREFIX = "agent-emnlp-auto-research-v"
 DEFAULT_TEMPLATE = "agent-md-new-project-template.md"
 DEFAULT_PROJECT_CODE_DIR = "code"
 PYTHON = Path(os.environ.get("ARGUS_SKILL_PYTHON", sys.executable))
 COPY_READY_HEADING = "## Copy-ready `AGENTS.md`"
-TRAILER = "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 HARNESS_DECLARATION_HEADING = "## Argus harness modification map"
 HARNESS_ARCHITECTURE_DECLARATION = f"""
 {HARNESS_DECLARATION_HEADING}
@@ -91,40 +93,6 @@ class LaunchError(RuntimeError):
     """Raised when project bootstrapping cannot safely continue."""
 
 
-@dataclass(frozen=True)
-class LaunchConfig:
-    parent: Path = DEFAULT_PARENT
-    version: str | None = None
-    project_dir: Path | None = None
-    template_path: Path | None = None
-    objective: str | None = None
-    non_goals: str | None = None
-    compute_budget: str | None = None
-    domain: str | None = None  # e.g. "cv", "multimodal", "agent", "infra"
-    venue: str = "EMNLP"  # target publication venue: "EMNLP" | "AAAI"
-    start_daemon: bool = True
-    init_git: bool = True
-    dry_run: bool = False
-    overwrite_empty: bool = True
-    create_project_venv: bool = True
-
-
-@dataclass(frozen=True)
-class LaunchResult:
-    project_dir: Path
-    agents_path: Path
-    skills_dir: Path
-    project_name: str
-    version: str
-    domain: str | None
-    daemon_started: bool
-    git_commit: str | None
-    daemon_output: str
-    status_output: str
-    project_venv: Path | None = None
-    dry_run: bool = False
-
-
 def extract_copy_ready_agents_md(template_text: str) -> str:
     """Return the copy-ready AGENTS.md body from a built-in template.
 
@@ -175,8 +143,15 @@ def render_agents_md(
     objective: str | None = None,
     non_goals: str | None = None,
     compute_budget: str | None = None,
+    append_harness_map: bool = True,
 ) -> str:
-    """Fill the project-specific fields in the copy-ready AGENTS.md template."""
+    """Fill the project-specific fields in the copy-ready AGENTS.md template.
+
+    ``append_harness_map`` controls whether the paper-centric Argus harness
+    ownership map is appended. It is on by default (the research/paper template
+    relies on it) and turned off for optimize-vertical projects, whose AGENTS
+    contract is a lean benchmark-optimization mission with no paper pipeline.
+    """
     body = extract_copy_ready_agents_md(template_text)
     objective = objective or default_objective(project_name)
     non_goals = non_goals or default_non_goals(project_name, version)
@@ -191,7 +166,8 @@ def render_agents_md(
     }
     for old, new in replacements.items():
         body = body.replace(old, new)
-    body = append_harness_architecture_declaration(body)
+    if append_harness_map:
+        body = append_harness_architecture_declaration(body)
     unresolved = [
         token
         for token in (
@@ -328,146 +304,6 @@ def load_template_text(template_path: Path | None = None) -> str:
     raise LaunchError(f"built-in template not found: {DEFAULT_TEMPLATE}")
 
 
-def normalize_version(raw: str | None) -> str:
-    if raw is None:
-        raise LaunchError("version is required when project_dir is not provided")
-    value = raw.strip()
-    match = re.fullmatch(r"(?:v)?(\d+)", value)
-    if not match:
-        match = re.fullmatch(rf"{re.escape(DEFAULT_PREFIX)}(\d+)", value)
-    if not match:
-        raise LaunchError(f"version must look like '15', 'v15', or '{DEFAULT_PREFIX}15': {raw!r}")
-    return f"v{int(match.group(1))}"
-
-
-def next_version(parent: Path, *, prefix: str = DEFAULT_PREFIX) -> str:
-    max_seen = 0
-    if parent.exists():
-        for child in parent.iterdir():
-            if not child.is_dir() or not child.name.startswith(prefix):
-                continue
-            suffix = child.name[len(prefix):]
-            if suffix.isdigit():
-                max_seen = max(max_seen, int(suffix))
-    return f"v{max_seen + 1}"
-
-
-def resolve_project(config: LaunchConfig) -> tuple[Path, str, str]:
-    parent = config.parent.expanduser().resolve()
-    if config.project_dir is not None:
-        project_dir = config.project_dir.expanduser().resolve()
-        name = project_dir.name
-        match = re.fullmatch(rf"{re.escape(DEFAULT_PREFIX)}(\d+)", name)
-        version = f"v{int(match.group(1))}" if match else normalize_version(config.version or "1")
-        return project_dir, name, version
-    version = normalize_version(config.version) if config.version else next_version(parent)
-    name = f"{DEFAULT_PREFIX}{version.removeprefix('v')}"
-    return parent / name, name, version
-
-
-def create_project(config: LaunchConfig) -> LaunchResult:
-    project_dir, project_name, version = resolve_project(config)
-    agents_path = project_dir / "AGENTS.md"
-    skills_dir = project_dir / DEFAULT_PROJECT_BUILTIN_SKILLS_DIR
-    template_text = load_template_text(config.template_path)
-    agents_md = render_agents_md(
-        template_text,
-        project_name=project_name,
-        version=version,
-        objective=config.objective,
-        non_goals=config.non_goals,
-        compute_budget=config.compute_budget,
-    )
-    if config.dry_run:
-        return LaunchResult(
-            project_dir=project_dir,
-            agents_path=agents_path,
-            skills_dir=skills_dir,
-            project_name=project_name,
-            version=version,
-            domain=config.domain,
-            daemon_started=False,
-            git_commit=None,
-            daemon_output="",
-            status_output="",
-            project_venv=None,
-            dry_run=True,
-        )
-    _prepare_project_dir(project_dir, overwrite_empty=config.overwrite_empty)
-    agents_path.write_text(agents_md, encoding="utf-8")
-    if config.domain:
-        seed_builtin_skills_for_domain(skills_dir, config.domain, overwrite=True)
-    else:
-        seed_builtin_skills(skills_dir, overwrite=True)
-    seed_starter_code(project_dir, overwrite=True)
-    seed_research_bootstrap(
-        project_dir,
-        project_name=project_name,
-        objective=_continuous_objective_from_agents(agents_md),
-        venue=config.venue,
-        overwrite=True,
-    )
-    project_venv: Path | None = None
-    if config.create_project_venv:
-        try:
-            project_venv = init_project_venv(project_dir)
-        except (LaunchError, OSError, subprocess.TimeoutExpired) as exc:
-            # The launcher should not die just because the project venv
-            # bootstrap is slow/flaky; the user can rerun it manually.
-            print(
-                "argus-skill: warning: per-project .venv bootstrap failed "
-                f"({exc!s}). Run `python -m venv .venv` inside the project "
-                "directory and continue manually.",
-                file=sys.stderr,
-            )
-    git_commit = init_git(project_dir, project_name) if config.init_git else None
-    daemon_output = ""
-    status_output = ""
-    daemon_started = False
-    if config.start_daemon:
-        try:
-            daemon_output = start_daemon(project_dir, agents_md)
-            status_output = status(project_dir)
-            daemon_started = True
-        except LaunchError as exc:
-            # Most likely the lifetime entry gate (missing operator special
-            # prompt): the project is fully created, only the auto-start is
-            # deferred until the operator configures their house rules.
-            daemon_output = (
-                "daemon NOT auto-started — finish the operator setup, then run "
-                "`argus-skill --daemon --continuous --objective \"...\"` yourself.\n"
-                f"{exc}"
-            )
-    return LaunchResult(
-        project_dir=project_dir,
-        agents_path=agents_path,
-        skills_dir=skills_dir,
-        project_name=project_name,
-        version=version,
-        domain=config.domain,
-        daemon_started=daemon_started,
-        git_commit=git_commit,
-        daemon_output=daemon_output,
-        status_output=status_output,
-        project_venv=project_venv,
-    )
-
-
-def _prepare_project_dir(project_dir: Path, *, overwrite_empty: bool) -> None:
-    if project_dir.exists():
-        if not project_dir.is_dir():
-            raise LaunchError(f"project path exists but is not a directory: {project_dir}")
-        if any(project_dir.iterdir()):
-            raise LaunchError(
-                f"project directory is not empty: {project_dir}. "
-                "Use a new version/path; this launcher never deletes existing work."
-            )
-        if not overwrite_empty:
-            raise LaunchError(f"project directory already exists: {project_dir}")
-    else:
-        project_dir.mkdir(parents=True)
-
-
 def seed_starter_code(project_dir: Path, *, overwrite: bool = True) -> dict[Path, bool]:
     """Write starter project helper code into ``code/`` from bundled templates.
 
@@ -490,175 +326,6 @@ def seed_starter_code(project_dir: Path, *, overwrite: bool = True) -> dict[Path
     return result
 
 
-def seed_research_bootstrap(
-    project_dir: Path,
-    *,
-    project_name: str,
-    objective: str,
-    venue: str = "EMNLP",
-    overwrite: bool = True,
-) -> dict[Path, bool]:
-    """Write the initial auto-research ledger without claiming readiness.
-
-    The launcher always seeds starter helper code, so daemon empty-directory
-    preflight cannot reliably infer that the research ledger is missing. Keep
-    this bootstrap deterministic and conservative: it gives the first Engineer
-    stable files to extend, while all downstream stages remain non-successful
-    until real literature, benchmark, run, and paper artifacts exist.
-    """
-    files = _research_bootstrap_files(
-        project_name=project_name, objective=objective, venue=venue
-    )
-    result: dict[Path, bool] = {}
-    for relative_name, text in files.items():
-        target = project_dir / relative_name
-        if target.exists() and not overwrite:
-            result[target] = False
-            continue
-        old = target.read_text(encoding="utf-8") if target.exists() else None
-        if old == text:
-            result[target] = False
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
-        result[target] = True
-    return result
-
-
-def _research_bootstrap_files(
-    *, project_name: str, objective: str, venue: str = "EMNLP"
-) -> dict[str, str]:
-    from ..skills.venue_profiles import get_venue_profile
-
-    profile = get_venue_profile(venue)
-    # Preserve the historical EMNLP brief wording byte-for-byte; only
-    # diverge when a non-EMNLP venue is explicitly requested.
-    venue_brief_line = (
-        "EMNLP/ACL long paper"
-        if profile.key == "EMNLP"
-        else f"{profile.display_name} two-column paper ({profile.body_page_limit}-page body)"
-    )
-    pipeline_state = {
-        "current_stage": "research",
-        "vertical": "research",
-        "objective": objective,
-        "target_venue": profile.key,
-        "paper_scope": "long-paper",
-        "stages": {
-            "research": {
-                "status": "pending",
-                "artifact": "research/RESEARCH_BRIEF.md",
-                "notes": "Brief + literature combined. Find gap, survey papers, define direction.",
-            },
-            "plan": {
-                "status": "missing",
-                "artifact": "research/EXPERIMENT_PLAN.md",
-            },
-            "benchmark": {
-                "status": "missing",
-                "artifact": "experiments/BENCHMARK_PROVENANCE.md",
-            },
-            "run": {"status": "missing"},
-            "analysis": {"status": "missing"},
-            "draft": {"status": "missing"},
-            "review": {"status": "missing"},
-            "submission": {"status": "missing"},
-        },
-        "last_gate": {
-            "verdict": "pending",
-            "reason": (
-                "official launcher seed only; final readiness requires completed "
-                "literature grounding, full-scale evidence, paper reviews, and "
-                "the L2 reviewer marking `done` against the full pipeline checklist"
-            ),
-        },
-    }
-    return {
-        "research/PIPELINE_STATE.json": json.dumps(
-            pipeline_state,
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        "research/RESEARCH_BRIEF.md": (
-            "# Research Brief\n\n"
-            f"- Project: `{project_name}`\n"
-            f"- Research direction (from operator): {objective}\n"
-            f"- Target venue: {venue_brief_line}\n"
-            "- Current stage: research\n\n"
-            "## IMPORTANT: This is a DIRECTION, not a plan\n\n"
-            "The operator gave you a research DIRECTION, not a paper plan. "
-            "You must:\n\n"
-            "1. **Survey the field first.** Search arXiv, Semantic Scholar, "
-            "机器之心 for the latest work in this direction. Write "
-            "`research/LITERATURE_GROUNDING.json` (≥10 recent papers, ≥3 classics).\n"
-            "2. **Read reference code.** Clone top-3 related papers' repos to "
-            "`code/references/`. Read their actual code (not just abstracts). "
-            "Write `research/CODE_STUDY_NOTES.md` with what you discovered — "
-            "limitations, assumptions, missed opportunities.\n"
-            "3. **Find YOUR insight.** Based on literature + code study, identify "
-            "something surprising, counter-intuitive, or overlooked. Ask yourself:\n"
-            "   - What makes this interesting beyond 'we applied X to Y'?\n"
-            "   - What is the ONE key insight that makes this work?\n"
-            "   - Why hasn't anyone done this before? (If they have, pivot.)\n"
-            "4. **Reject mediocre ideas.** Write `research/IDEA_REJECTION_LOG.md`. "
-            "You MUST reject at least one candidate (including 'simple reproduction').\n"
-            "5. **Then design experiments.** Write `research/EXPERIMENT_PLAN.md` "
-            "with your insight as the central thesis, not reproduction.\n\n"
-            "## Resources\n\n"
-            "- GPU: `~/.argus-skill/capabilities/gpu_resources.json`\n"
-            "- API: `~/.argus-skill/capabilities/model_api.json`\n"
-            "- Skills: read `argus_builtin_skills/engineer/auto-research-pipeline.md`\n"
-        ),
-        "research/EXPERIMENT_PLAN.md": (
-            "# Experiment Plan\n\n"
-            "Seed scaffold only. Do not mark the plan stage ready until "
-            ""
-            ""
-            "and `experiments/BENCHMARK_PROVENANCE.md` contain source-backed content.\n\n"
-            "Required method target: use the available GPU budget for a meaningful "
-            "domain-appropriate trained/adapted model. Tiny scorers, prompt-only wrappers, "
-            "and exact-oracle policies are baselines/smoke tests unless the operator "
-            "explicitly lowers the scope.\n\n"
-            "Required evidence target: a complete multi-source matrix over at least "
-            "3 independent executed real benchmark families for every required "
-            "method/baseline condition, drawn from existing real benchmarks or official "
-            "task/data releases, with raw rows under `experiments/**` and status/progress "
-            "artifacts. Synthetic/local tasks are smoke-only and cannot support final "
-            "paper claims.\n"
-        ),
-        "research/CLAIMS_TO_TEST.md": (
-            "# Claims To Test\n\n"
-            "Seed scaffold only. Add claims after the literature and benchmark "
-            "plan identify the method, baselines, expected effects, ablations, "
-            "robustness checks, and failure cases.\n"
-        ),
-        "research/GO_NO_GO.md": (
-            "# Go / No-Go\n\n"
-            "Initial decision: no-go for drafting. Advance only after the full "
-            "benchmark matrix has completed and the run-stage full-scale evidence "
-            "checklist item is satisfied on current experiment artifacts.\n"
-        ),
-        "experiments/BENCHMARK_PROVENANCE.md": (
-            "# Benchmark Provenance\n\n"
-            "Seed scaffold only. Record surveyed benchmark papers, repositories, "
-            "licenses/access constraints, selected existing real benchmark sources, "
-            "sampling/adaptation logic, and the final task schema before running "
-            "experiments. Final evidence must not use synthetic/local benchmarks; "
-            "synthetic tasks are allowed only as smoke tests and must be excluded from "
-            "paper-facing result claims.\n"
-        ),
-        "experiments/MODEL_SCALE_PLAN.md": (
-            "# Model Scale Plan\n\n"
-            "Seed scaffold only. Before implementation, record the chosen model/backbone, "
-            "parameter count, trainable parameter count, training/adaptation recipe, "
-            "dataset size, GPU type/count, memory strategy, expected GPU-hours, checkpoint "
-            "or adapter path, and why this is a meaningful frontier-domain model rather "
-            "than a toy scorer.\n"
-        ),
-    }
-
-
 def iter_starter_code_templates() -> list[tuple[str, str]]:
     """Return deterministic starter-code templates bundled with this package."""
     package_root = resources.files(STARTER_CODE_TEMPLATE_PACKAGE)
@@ -667,25 +334,6 @@ def iter_starter_code_templates() -> list[tuple[str, str]]:
         resource = package_root / filename
         templates.append((filename, resource.read_text(encoding="utf-8")))
     return templates
-
-
-def init_git(project_dir: Path, project_name: str) -> str:
-    _run(["git", "init", "--quiet"], cwd=project_dir)
-    _run(
-        [
-            "git",
-            "add",
-            "AGENTS.md",
-            DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
-            DEFAULT_PROJECT_CODE_DIR,
-            "research",
-            "experiments",
-        ],
-        cwd=project_dir,
-    )
-    message = f"Seed {project_name} auto-research workspace\n\n{TRAILER}"
-    _run(["git", "commit", "--quiet", "-m", message], cwd=project_dir)
-    return _run(["git", "rev-parse", "--short", "HEAD"], cwd=project_dir).strip()
 
 
 def init_project_venv(project_dir: Path) -> Path:
@@ -781,55 +429,6 @@ def init_project_venv(project_dir: Path) -> Path:
     return venv_dir
 
 
-def start_daemon(project_dir: Path, agents_md: str) -> str:
-    objective = _continuous_objective_from_agents(agents_md)
-    return _run(
-        [
-            str(_argus_python()),
-            "-m",
-            "argus_skill",
-            "--daemon",
-            "--continuous",
-            "--objective",
-            objective,
-        ],
-        cwd=project_dir,
-        env=_argus_env(),
-        timeout=90,
-    )
-
-
-def status(project_dir: Path) -> str:
-    return _run(
-        [
-            str(_argus_python()),
-            "-m",
-            "argus_skill",
-            "--status",
-        ],
-        cwd=project_dir,
-        env=_argus_env(),
-        timeout=30,
-    )
-
-
-def _continuous_objective_from_agents(agents_md: str) -> str:
-    for line in agents_md.splitlines():
-        if line.startswith("- Primary paper goal: "):
-            return line.split(": ", 1)[1]
-    return "Start a clean-slate EMNLP/ACL long-paper auto-research project and continue until the L2 reviewer marks `done` against the full pipeline checklist."
-
-
-def _argus_env() -> dict[str, str]:
-    env = os.environ.copy()
-    repo_root = Path(__file__).resolve().parents[2]
-    existing = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = f"{repo_root}{os.pathsep}{existing}" if existing else str(repo_root)
-    env.setdefault("ARGUS_SKILL_SOURCE_ROOT", str(repo_root))
-    env.setdefault("ARGUS_SKILL_PYTHON", str(_argus_python()))
-    return env
-
-
 def _argus_python() -> Path:
     configured = Path(os.environ.get("ARGUS_SKILL_PYTHON", str(PYTHON))).expanduser()
     if configured.exists():
@@ -902,197 +501,3 @@ def _run(
             f"command failed with exit {proc.returncode}: {rendered}\n{output.strip()}"
         )
     return output
-
-
-def _interactive_domain_select() -> str | None:
-    """Interactively ask the user to pick a research domain."""
-    print("\n🔬 Select a research domain (loads only relevant skills):\n")
-    keys = list(AVAILABLE_DOMAINS.keys())
-    for i, key in enumerate(keys, 1):
-        desc = DOMAIN_DESCRIPTIONS[key]
-        print(f"  {i}. {desc}")
-    print(f"  {len(keys) + 1}. All domains (load everything — may be slow)")
-    print()
-    while True:
-        try:
-            choice = input("Domain [1-{}]: ".format(len(keys) + 1)).strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return None
-        if not choice:
-            continue
-        try:
-            idx = int(choice)
-        except ValueError:
-            # Try matching by name
-            if choice.lower() in AVAILABLE_DOMAINS:
-                return choice.lower()
-            print(f"  Invalid choice. Enter 1-{len(keys) + 1} or a domain name.")
-            continue
-        if 1 <= idx <= len(keys):
-            selected = keys[idx - 1]
-            print(f"\n  ✓ Selected: {DOMAIN_DESCRIPTIONS[selected]}\n")
-            return selected
-        elif idx == len(keys) + 1:
-            print("\n  ✓ Loading all domains\n")
-            return None
-        else:
-            print(f"  Invalid choice. Enter 1-{len(keys) + 1}.")
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="new-auto-research-project",
-        description=(
-            "Create an agent-emnlp-auto-research-vN workspace from the bundled "
-            "AGENTS.md template, export built-in skills, seed starter code, "
-            "initialize git, and optionally start the Argus continuous daemon."
-        ),
-    )
-    parser.add_argument(
-        "version",
-        nargs="?",
-        help="version to create, e.g. 15 or v15; omit to pick the next available version",
-    )
-    parser.add_argument(
-        "--parent",
-        type=Path,
-        default=DEFAULT_PARENT,
-        help=f"parent directory for versioned workspaces (default: {DEFAULT_PARENT})",
-    )
-    parser.add_argument(
-        "--project-dir",
-        type=Path,
-        default=None,
-        help="explicit project directory instead of parent + version naming",
-    )
-    parser.add_argument(
-        "--template",
-        type=Path,
-        default=None,
-        help=f"AGENTS template file (default: built-in {DEFAULT_TEMPLATE})",
-    )
-    parser.add_argument(
-        "--objective",
-        default=None,
-        help="project-specific primary paper goal to place in AGENTS.md and daemon objective",
-    )
-    parser.add_argument(
-        "--non-goals",
-        default=None,
-        help="project-specific non-goals to place in AGENTS.md",
-    )
-    parser.add_argument(
-        "--compute-budget",
-        default=None,
-        help="project-specific compute/API budget and stop conditions",
-    )
-    parser.add_argument(
-        "--no-start",
-        action="store_true",
-        help="create the workspace but do not start the Argus daemon",
-    )
-    parser.add_argument(
-        "--no-git",
-        action="store_true",
-        help="skip git init/add/commit",
-    )
-    parser.add_argument(
-        "--no-venv",
-        action="store_true",
-        help=(
-            "skip per-project `.venv` bootstrap. By default the launcher "
-            "creates an isolated virtualenv at `<project>/.venv` so the "
-            "agent can `pip install` experiment dependencies without "
-            "polluting the Argus framework venv."
-        ),
-    )
-    parser.add_argument(
-        "--venue",
-        choices=["emnlp", "aaai"],
-        default="emnlp",
-        help=(
-            "target publication venue (default: emnlp). Selects the format "
-            "contract — page budget, mandatory sections, LaTeX style, "
-            "anonymity block, and reviewer rubric — written into "
-            "research/PIPELINE_STATE.json's `target_venue`."
-        ),
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="print the resolved project path/version without creating files",
-    )
-    parser.add_argument(
-        "--domain",
-        choices=list(AVAILABLE_DOMAINS.keys()),
-        default=None,
-        help=(
-            "research domain to activate (only loads domain-relevant skills). "
-            "Available: " + ", ".join(f"{k} ({v})" for k, v in DOMAIN_DESCRIPTIONS.items())
-        ),
-    )
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-
-    # Interactive domain selection if not specified
-    domain = args.domain
-    if domain is None and sys.stdin.isatty() and not args.dry_run:
-        domain = _interactive_domain_select()
-
-    config = LaunchConfig(
-        parent=args.parent,
-        version=args.version,
-        project_dir=args.project_dir,
-        template_path=args.template,
-        objective=args.objective,
-        non_goals=args.non_goals,
-        compute_budget=args.compute_budget,
-        domain=domain,
-        venue=args.venue,
-        start_daemon=not args.no_start,
-        init_git=not args.no_git,
-        dry_run=args.dry_run,
-        create_project_venv=not args.no_venv,
-    )
-    try:
-        result = create_project(config)
-    except (LaunchError, OSError, subprocess.TimeoutExpired) as exc:
-        sys.stderr.write(f"new-auto-research-project: {exc}\n")
-        return 2
-    print(format_result(result))
-    return 0
-
-
-def format_result(result: LaunchResult) -> str:
-    lines = [
-        f"project : {result.project_dir}",
-        f"version : {result.version}",
-        f"domain  : {result.domain or 'all (no filter)'}",
-        f"AGENTS  : {result.agents_path}",
-        f"skills  : {result.skills_dir}",
-        f"code    : {result.project_dir / DEFAULT_PROJECT_CODE_DIR}",
-    ]
-    if result.dry_run:
-        lines.append("dry-run : no files created")
-        return "\n".join(lines)
-    if result.git_commit:
-        lines.append(f"commit  : {result.git_commit}")
-    if result.project_venv is not None:
-        lines.append(f"venv    : {result.project_venv}")
-    lines.append(f"daemon  : {'started' if result.daemon_started else 'not started'}")
-    if result.daemon_output.strip():
-        lines.append("")
-        lines.append(result.daemon_output.strip())
-    if result.status_output.strip():
-        lines.append("")
-        lines.append(result.status_output.strip())
-    return "\n".join(lines)
-
-
-if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main())

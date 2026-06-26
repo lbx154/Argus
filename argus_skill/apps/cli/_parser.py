@@ -348,21 +348,5 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip incremental re-index (faster; may miss recent rows)",
     )
 
-    start_parser = subparsers.add_parser(
-        "start",
-        help="Create a new auto-research project and start it",
-    )
-    start_parser.add_argument(
-        "goal",
-        metavar="objective",
-        help="the research goal (paper objective); seeds AGENTS.md + daemon objective",
-    )
-    start_parser.add_argument(
-        "rest",
-        nargs=argparse.REMAINDER,
-        help=("extra flags passed through verbatim to new_auto_research_project, e.g. "
-              "--venue aaai --compute-budget '...' --domain ... --no-start --dry-run"),
-    )
-
     return parser
 

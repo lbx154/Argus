@@ -196,8 +196,6 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_wiki_migrate(args))
     if args.command == "query":
         return _run_with_path_resolution_errors(lambda: _cmd_query(args))
-    if args.command == "start":
-        return _run_with_path_resolution_errors(lambda: _cmd_start(args))
     if args.daemon:
         return _run_with_path_resolution_errors(
             lambda: _cmd_daemon_start(args, foreground=False)
@@ -614,21 +612,6 @@ def _cmd_query(args: argparse.Namespace) -> int:
     else:
         print(render_text(result))
     return 0
-
-
-def _cmd_start(args: argparse.Namespace) -> int:
-    """``argus start "<objective>"`` — create a new auto-research project and start it.
-
-    Thin forwarder to ``argus_skill.tools.new_auto_research_project``, which builds the
-    project workspace (AGENTS.md / PIPELINE_STATE / identity card) and — unless
-    ``--no-start`` is passed through — launches the Argus daemon on the objective.
-    Any flags after the objective pass through verbatim (``--venue`` / ``--compute-budget``
-    / ``--domain`` / ``--no-start`` / ``--dry-run`` / ...).
-    """
-    from ...tools.new_auto_research_project import main as _start
-
-    rest = list(getattr(args, "rest", None) or [])
-    return _start(["--objective", args.goal, *rest])
 
 
 def _model_api_env(args: argparse.Namespace) -> dict[str, str]:

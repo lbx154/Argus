@@ -15,18 +15,27 @@ from argus_skill.verticals.research.paper_structural_minimums import (
     validate_paper_structural_minimums,
 )
 from argus_skill.skills.stage_checklists import format_stage_checklist
-from argus_skill.skills.venue_profiles import resolve_venue_profile
-from argus_skill.tools.new_auto_research_project import _research_bootstrap_files
+from argus_skill.skills.venue_profiles import get_venue_profile, resolve_venue_profile
 from argus_skill.tools.stage_check import _reviewer_checklist_for
 
 
 def _seed_project(tmp_path: Path, venue: str) -> Path:
-    """Seed a project the way the scaffolder would, for the given venue."""
-    files = _research_bootstrap_files(project_name="p", objective="obj", venue=venue)
-    for rel, text in files.items():
-        target = tmp_path / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
+    """Seed the minimal venue-bearing pipeline state a real project would have.
+
+    The standalone paper scaffolder was retired, so this writes the only field
+    the venue gates actually read — ``research/PIPELINE_STATE.json``'s
+    ``target_venue`` — directly, mirroring what the daemon bootstrap persists.
+    """
+    profile = get_venue_profile(venue)
+    state = {
+        "current_stage": "research",
+        "vertical": "research",
+        "objective": "obj",
+        "target_venue": profile.key,
+    }
+    target = tmp_path / "research" / "PIPELINE_STATE.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return tmp_path
 
 

@@ -619,24 +619,80 @@ class LifeWorker:
         bootstrap, matching the standalone launcher. Idempotent: skips each
         artifact that already exists so a re-bootstrap never clobbers operator
         or engineer edits.
+
+        The AGENTS contract is chosen by vertical: optimize-family verticals
+        (kernelbench / speedrun / nanochat / nanogpt_speedrun) get the lean
+        benchmark-optimization template (no paper pipeline, no venue), while
+        everything else (research) gets the paper/auto-research template. The
+        resolved vertical is also persisted into ``research/PIPELINE_STATE.json``
+        so the supervisor starts the mission in the right stage instead of
+        inheriting a stale paper stage.
         """
+        from ..skills.builtins import builtin_skill_source_path
+        from ..skills.vertical_select import classify_vertical, persist_vertical
         from ..tools.new_auto_research_project import (
             init_project_venv,
             load_template_text,
             render_agents_md,
         )
 
+        objective = (self.config.continuous_objective or "").strip()
+        vertical = classify_vertical(objective)
+        # The optimize-family verticals share the lean benchmark-optimization
+        # contract; only "research" uses the paper/auto-research template.
+        is_optimize = vertical in {
+            "kernelbench",
+            "speedrun",
+            "nanochat",
+            "nanogpt_speedrun",
+        }
+
         agents_path = project_root / "AGENTS.md"
         if not agents_path.exists():
-            objective = (self.config.continuous_objective or "").strip() or None
-            template_text = load_template_text(None)
-            agents_md = render_agents_md(
-                template_text,
-                project_name=project_root.name,
-                version="v1",
-                objective=objective,
-            )
+            objective_arg = objective or None
+            if is_optimize:
+                template_path = (
+                    builtin_skill_source_path()
+                    / "agent-md-optimize-project-template.md"
+                )
+                template_text = load_template_text(template_path)
+                agents_md = render_agents_md(
+                    template_text,
+                    project_name=project_root.name,
+                    version="v1",
+                    objective=objective_arg,
+                    non_goals=(
+                        "Do not produce a paper, venue submission, literature "
+                        "review, or LaTeX draft. Do not fabricate, hand-edit, or "
+                        "hard-code the benchmark metric, and do not weaken or "
+                        "bypass the correctness check to inflate the score."
+                    ),
+                    compute_budget=(
+                        "Run the real benchmark/harness on the allocated real "
+                        "hardware; every reported metric must be an actual "
+                        "measurement from an actual run. Stop and report honestly "
+                        "if the benchmark, GPU, or a required dependency is "
+                        "unavailable rather than fabricating a score."
+                    ),
+                    append_harness_map=False,
+                )
+            else:
+                template_text = load_template_text(None)
+                agents_md = render_agents_md(
+                    template_text,
+                    project_name=project_root.name,
+                    version="v1",
+                    objective=objective_arg,
+                )
             agents_path.write_text(agents_md, encoding="utf-8")
+
+        # Persist the resolved vertical (and reset current_stage to the
+        # vertical's first stage) so a kernel/optimize objective is never
+        # treated as a paper run.
+        try:
+            persist_vertical(project_root, vertical)
+        except Exception:  # noqa: BLE001 — best-effort, never break bootstrap
+            log.exception("daemon: failed to persist vertical during bootstrap")
 
         if not (project_root / ".venv").exists():
             init_project_venv(project_root)
@@ -687,12 +743,11 @@ class LifeWorker:
         except Exception:  # noqa: BLE001
             log.exception("daemon: failed to seed starter code during bootstrap")
 
-        # Parity with the standalone launcher's create_project: a
-        # continuous-mode project must also get an ``AGENTS.md`` (the engineer
-        # prompt instructs the agent to read it — without it the agent burns
-        # rounds on ``sed: can't read AGENTS.md``) and a per-project ``.venv``
-        # (so the agent pip-installs experiment deps into an overlay rather
-        # than the framework venv). Both are no-ops when already present.
+        # Every continuous-mode project must also get an ``AGENTS.md`` (the
+        # engineer prompt instructs the agent to read it — without it the agent
+        # burns rounds on ``sed: can't read AGENTS.md``) and a per-project
+        # ``.venv`` (so the agent pip-installs experiment deps into an overlay
+        # rather than the framework venv). Both are no-ops when already present.
         try:
             self._seed_project_agents_and_venv(Path(preflight.project_root))
         except Exception:  # noqa: BLE001

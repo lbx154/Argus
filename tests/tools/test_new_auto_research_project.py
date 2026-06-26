@@ -1,18 +1,12 @@
 from __future__ import annotations
 
-import json
-import py_compile
 from pathlib import Path
 
 import argus_skill.tools.new_auto_research_project as narp
-from argus_skill.skills.builtins import builtin_skill_count
 from argus_skill.tools.new_auto_research_project import (
-    LaunchConfig,
-    create_project,
     default_objective,
     extract_copy_ready_agents_md,
     load_template_text,
-    next_version,
     render_agents_md,
 )
 
@@ -143,125 +137,47 @@ def test_default_objective_is_coherent_paper_submission_goal() -> None:
     assert "submission package" in objective
 
 
-def test_bootstrap_default_venue_is_emnlp_byte_identical() -> None:
-    files = narp._research_bootstrap_files(project_name="x", objective="obj")
-    state = json.loads(files["research/PIPELINE_STATE.json"])
-    assert state["target_venue"] == "EMNLP"
-    assert "- Target venue: EMNLP/ACL long paper\n" in files["research/RESEARCH_BRIEF.md"]
+def test_optimize_template_renders_without_paper_or_venue() -> None:
+    """The optimize template renders a benchmark-optimization contract: it
+    fills the same placeholders, mentions optimization, and — when the
+    harness map is suppressed — carries no EMNLP/paper-venue prose."""
+    from argus_skill.skills.builtins import builtin_skill_source_path
 
-
-def test_bootstrap_aaai_venue_sets_target_and_brief() -> None:
-    files = narp._research_bootstrap_files(
-        project_name="x", objective="obj", venue="aaai"
+    template_path = (
+        builtin_skill_source_path() / "agent-md-optimize-project-template.md"
     )
-    state = json.loads(files["research/PIPELINE_STATE.json"])
-    assert state["target_venue"] == "AAAI"
-    brief = files["research/RESEARCH_BRIEF.md"]
-    assert "AAAI 2026" in brief
-    assert "EMNLP/ACL long paper" not in brief
-
-
-def test_create_project_without_daemon_exports_template_and_skills(tmp_path: Path) -> None:
-    result = create_project(
-        LaunchConfig(
-            parent=tmp_path,
-            version="v15",
-            start_daemon=False,
-            init_git=False,
-            create_project_venv=False,
-        )
+    rendered = render_agents_md(
+        load_template_text(template_path),
+        project_name="kbench-proj",
+        version="v1",
+        objective="maximize kernelbench SOL score on B200",
+        non_goals="Do not produce a paper or venue submission.",
+        compute_budget="Run the real harness on real hardware.",
+        append_harness_map=False,
     )
+    assert "[write the target research problem and deliverable]" not in rendered
+    assert "kernel" in rendered.lower()
+    assert "SOL" in rendered
+    assert "EMNLP" not in rendered
+    assert "Anonymous EMNLP Submission" not in rendered
 
-    # Behavior: project directory at the right path, daemon not started,
-    # AGENTS file is written, skills are exported, helper python files
-    # are present and compilable, pipeline state JSON has the right shape.
-    assert result.project_dir == tmp_path / "agent-emnlp-auto-research-v15"
-    assert result.daemon_started is False
-    assert result.agents_path.exists()
-    exported = sorted(result.skills_dir.rglob("*.md"))
-    assert len(exported) == builtin_skill_count()
-    assert (result.skills_dir / "agent-md-new-project-template.md").exists()
 
-    code_dir = result.project_dir / "code"
-    for required in ("__init__.py", "llm.py", "generate_image_2.py", "generate_image2_figure.py"):
-        assert (code_dir / required).exists(), f"missing {required}"
-    for path in (code_dir / "llm.py", code_dir / "generate_image_2.py",
-                 code_dir / "generate_image2_figure.py"):
-        py_compile.compile(str(path), doraise=True)
-
-    pipeline_state = json.loads(
-        (result.project_dir / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+def test_render_agents_md_can_suppress_harness_map() -> None:
+    """``append_harness_map=False`` drops the paper-centric Argus ownership map."""
+    body_with = render_agents_md(
+        load_template_text(),
+        project_name="p",
+        version="v1",
+        append_harness_map=True,
     )
-    assert pipeline_state["current_stage"] == "research"
-    assert pipeline_state["stages"]["research"]["status"] == "pending"
-    assert pipeline_state["stages"]["submission"]["status"] == "missing"
-    for required in (
-        "research/RESEARCH_BRIEF.md",
-        "research/EXPERIMENT_PLAN.md",
-        "research/CLAIMS_TO_TEST.md",
-        "research/GO_NO_GO.md",
-        "experiments/BENCHMARK_PROVENANCE.md",
-    ):
-        assert (result.project_dir / required).exists(), f"missing {required}"
-
-
-def test_create_project_without_domain_exports_all_skills(
-    tmp_path: Path,
-) -> None:
-    """Domain packs removed — all projects get the same skill set."""
-    result = create_project(
-        LaunchConfig(
-            parent=tmp_path,
-            version="v16",
-            start_daemon=False,
-            init_git=False,
-            create_project_venv=False,
-        )
+    body_without = render_agents_md(
+        load_template_text(),
+        project_name="p",
+        version="v1",
+        append_harness_map=False,
     )
-
-    exported = sorted(result.skills_dir.rglob("*.md"))
-    assert len(exported) > 0
-    assert (result.skills_dir / "engineer" / "auto-research-pipeline.md").exists()
-
-
-def test_next_version_uses_highest_existing_workspace(tmp_path: Path) -> None:
-    (tmp_path / "agent-emnlp-auto-research-v2").mkdir()
-    (tmp_path / "agent-emnlp-auto-research-v10").mkdir()
-    (tmp_path / "agent-emnlp-auto-research-not-a-version").mkdir()
-
-    assert next_version(tmp_path) == "v11"
-
-
-def test_create_project_seeds_an_isolated_venv(tmp_path: Path) -> None:
-    """The launcher must build an isolated `.venv` inside each project so
-    the agent can `pip install` experiment dependencies without polluting
-    the Argus framework venv.
-    """
-
-    result = create_project(
-        LaunchConfig(
-            parent=tmp_path,
-            version="v17",
-            start_daemon=False,
-            init_git=False,
-            create_project_venv=True,
-        )
-    )
-
-    project = result.project_dir
-    venv_dir = project / ".venv"
-    assert result.project_venv == venv_dir
-    assert venv_dir.is_dir(), "per-project virtualenv was not created"
-    # pyvenv.cfg is the canonical marker that this is a real venv.
-    assert (venv_dir / "pyvenv.cfg").exists()
-    # The venv must ship its own python interpreter binary.
-    py = venv_dir / "bin" / "python"
-    if not py.exists():
-        py = venv_dir / "Scripts" / "python.exe"
-    assert py.exists(), "project venv does not expose its own python"
-    # The launcher's gitignore should keep the venv out of git history.
-    gitignore = (project / ".gitignore").read_text(encoding="utf-8")
-    assert ".venv/" in gitignore
+    assert "## Argus harness modification map" in body_with
+    assert "## Argus harness modification map" not in body_without
 
 
 def test_default_compute_budget_mentions_project_venv() -> None:
