@@ -64,3 +64,5 @@ META_LEDGER.jsonl
 
 # 商业计划书 — 绝不入库
 docs/Argus_BP*
+.manager_session.json
+.manager_session.lock

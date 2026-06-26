@@ -54,11 +54,18 @@ Done: #1-drain, #5-meta-attribution, #8-proxy-gate-visibility, #13-systemd-unit.
 
 **HELD for operator oversight — big/risky/decision-laden, NOT rushed unattended
 (per the honor code "谨慎重构" + the lane rule):**
-- **#7 dead blue/green handoff** — DECISION: delete it, or keep-disabled? You set
-  `ARGUS_SKILL_DAEMON_AUTO_RESTART=0` deliberately. Re-audit recommends DELETE
-  (~360 LOC dead in life_worker + planner `restart_daemon` prompts + supervisor
-  branches + research_profile instruction) now that #13 ships the real durability
-  answer. Atomic multi-file removal — best done with you watching the suite.
+- **#7 blue/green handoff** — ⚠️ CORRECTED (verify-first hunt): it is **NOT dead
+  code**. Fully wired (planner `restart_daemon` → `supervisor._handle_planner_restart`
+  → `life_worker._maybe_handoff_after_source_change`) and **unit-tested with the flag
+  ON** (`tests/daemon/test_life_worker.py`); only the final candidate SPAWN is
+  env-gated `ARGUS_SKILL_DAEMON_AUTO_RESTART=0` (your deliberate default). It is the
+  ONLY self-architecture hot-reload path (systemd `Restart=on-failure` only restarts
+  on CRASH, not on source change). So "delete the dead handoff" was wrong —
+  RECOMMEND **keep-disabled** (cost = ~360 dormant LOC, not a correctness risk). The
+  one real defect is a doc-vs-behavior drift: `research_profile.py:323` + the planner
+  tell the agent to "rely on blue/green handoff", but it's disabled → the request
+  silently no-ops. FIX that line to "a human restarts the daemon at a clean mission
+  boundary" (matches your discipline), regardless of keep/delete.
 - **#3-core strip EMNLP from supervisor/planner/loop** — entangled with #1 (the
   `full_emnlp_gate` DEFAULT is your L-operator call) AND HAPI is concurrently
   de-papering. Coordinate so we don't double-edit the completion path.
@@ -72,9 +79,15 @@ Done: #1-drain, #5-meta-attribution, #8-proxy-gate-visibility, #13-systemd-unit.
   is `team/_store.py` (~53 LOC) re-rolling subagent's tmp+os.replace atomic-write.
   So #6 = DOCUMENT the two models as distinct + factor the ~50-LOC
   atomic-write/flock helper into one shared util. Small + safe; no keep/cut call.
-  NB: the SOL deployment runs an OLDER checkout (apps/_life_repl/, engineer/
-  reviewer.py) — verify teammate_entry against the refactored runtime before it
-  pulls origin/main.
+  ⚠️ CORRECTED AGAIN (after a verify-first hunt): the LIVE teammate fleet on THIS
+  box (`/home/argustest/sol-team`, 35+ `teammate_entry` procs) imports the LIVE
+  editable `/home/argustest/argus-skill` at HEAD with **ZERO version isolation** —
+  it does NOT run an older checkout. So any HEAD breakage hits the next teammate
+  spawn; a broken HEAD breaks the fleet. (A SEPARATE `/home/argustest/argustest2`
+  sol-selfhost lane IS a genuine isolated older checkout — that one is shielded,
+  the fleet is not.) Treat HEAD as live for the fleet: import-health-gate spawns or
+  pin the fleet to an immutable wheel; only commit to the live repo at a clean
+  fleet boundary.
 - **#10 split the 3114-LOC LifeSupervisor god-object** — touches your
   external-blocker latch + HAPI's per-role config; a big extraction that wants
   characterization tests + your eyes.
