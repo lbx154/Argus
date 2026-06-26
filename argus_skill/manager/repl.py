@@ -583,17 +583,22 @@ def _free_text_cmd(
     if runner is not None and not continuous and hasattr(
         runner, "chat_reply_if_conversational"
     ):
-        from ..apps._runtime import LifeStderrSink
-
         try:
+            chat_sink = _ChatReplySink(chat_state.get("theme"))
             if runner.chat_reply_if_conversational(
                 objective=body,
-                sink=LifeStderrSink(quiet=False),
+                sink=chat_sink,
                 seed_thread_id=chat_state.get("last_thread_id"),
             ):
                 chat_state["last_thread_id"] = getattr(
                     runner, "last_thread_id", None
                 )
+                if not chat_sink.replied:
+                    # Chat classified but produced no visible reply — say so
+                    # rather than leaving the operator staring at a blank line.
+                    fb = "(no reply)"
+                    _th = chat_state.get("theme")
+                    print(_th.gray(fb) if _th is not None else fb, flush=True)
                 return  # Manager replied front-stage; not a backlog task.
         except Exception:  # noqa: BLE001 — triage failure → treat as a task
             pass
@@ -691,6 +696,51 @@ def _no_executor_notice(item_id: str, theme: Any) -> str:
     if theme is not None:
         return theme.yellow(head) + "\n" + theme.gray(body)
     return head + "\n" + body
+
+
+def _extract_chat_reply_text(msg: str) -> str:
+    """Pull the human reply out of a chat result (plain text, or JSON-wrapped)."""
+    msg = (msg or "").strip()
+    if msg.startswith("{") and msg.endswith("}"):
+        try:
+            data = json.loads(msg)
+            for key in ("reply", "message", "text", "answer", "response"):
+                val = data.get(key)
+                if isinstance(val, str) and val.strip():
+                    return val.strip()
+        except Exception:  # noqa: BLE001
+            pass
+    return msg
+
+
+class _ChatReplySink:
+    """Clean display sink for the REPL chat fast-path.
+
+    Prints ONLY the agent's reply, suppressing the loop/round/progress
+    scaffolding ("🔧 round 1: main agent finished" etc.) that the full
+    mission renderer emits — a greeting should read like a chat reply, not a
+    mission trace. Fully fail-soft; tracks whether anything was shown.
+    """
+
+    def __init__(self, theme: Any = None) -> None:
+        self.theme = theme
+        self.replied = False
+
+    def handle_event(self, event: dict[str, Any]) -> None:  # EventSink protocol
+        try:
+            if str(event.get("type") or "") != "round.main.completed":
+                return  # swallow loop.start / progress / loop.done scaffolding
+            text = _extract_chat_reply_text(str(event.get("last_message") or ""))
+            if not text:
+                return
+            self.replied = True
+            if self.theme is not None:
+                print("  " + self.theme.cyan("argus") + self.theme.dim(" ↳ ")
+                      + text, flush=True)
+            else:
+                print(f"  argus ↳ {text}", flush=True)
+        except Exception:  # noqa: BLE001 — display must never break triage
+            pass
 
 
 def _format_completion(
