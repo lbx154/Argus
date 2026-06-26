@@ -627,6 +627,26 @@ class Reviewer:
             "never call `rollback_stage` and never write "
             "`research/PIPELINE_STATE.json`."
         )
+        # Checklist-feedback channel. The PLANNER owns the per-stage checklist
+        # (it authors/edits it via checklist_ops). The reviewer is FEEDBACK-ONLY:
+        # if the checklist ITSELF is wrong for this task, it reports rather than
+        # working around or silently honoring a broken item.
+        checklist_feedback_block = (
+            "## Checklist is Planner-owned — you give FEEDBACK, you do NOT edit it\n"
+            "The per-stage checklist above is authored by the Planner for THIS "
+            "task (seeded from the framework reference). If you judge the "
+            "checklist ITSELF to be wrong — an item that is irrelevant to this "
+            "task, over-strict, under-specified, missing an obvious gate, or "
+            "mis-stated — do NOT silently ignore it, do NOT work around it, and "
+            "do NOT edit or delete it (you have NO authority over the checklist "
+            "store; never write `research/CHECKLISTS.json`). Instead emit the "
+            "optional `checklist_feedback` object naming the `stage`, a one-line "
+            "`summary`, and per-item `{id, problem, suggested_fix}`. The Planner "
+            "reads it next cycle and performs the add/modify/remove. Judge the "
+            "engineer's ARTIFACTS against the checklist as written this round; "
+            "checklist_feedback is about fixing the checklist for FUTURE rounds, "
+            "not a reason to pass or fail the current artifacts."
+        )
         operator_text = (
             "\n".join(f"- {line}" for line in operator_messages)
             if operator_messages
@@ -803,6 +823,7 @@ class Reviewer:
             f"{stage_checklist}\n\n"
             f"{final_submission_block}"
             f"{rollback_block}\n\n"
+            f"{checklist_feedback_block}\n\n"
             f"{venv_skill_block}\n\n"
             f"{prior_checkpoint_block}"
             f"{escalate_block}"
@@ -831,6 +852,11 @@ class Reviewer:
             "Optional JSON keys (REQUIRED when scope is final_submission):\n"
             "- scope (`bounded` or `final_submission`)\n"
             "- checklist (array of {item, satisfied, evidence})\n"
+            "Optional JSON key (emit ONLY when the per-stage CHECKLIST ITSELF is\n"
+            "wrong/incomplete/over-strict for this task — ADVISORY to the Planner,\n"
+            "who owns the checklist; you never edit/delete it):\n"
+            "- checklist_feedback (object: stage, summary, items[{id, problem,\n"
+            "  suggested_fix}])\n"
             "Optional JSON keys (emit on any non-`done` verdict — see\n"
             "SKILL-EVOLUTION SIGNAL below):\n"
             "- failure_cause (`skill_gap` | `execution_mistake` |\n"

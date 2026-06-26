@@ -114,6 +114,23 @@
         "strategy_type": { "type": "string" },
         "forbidden": { "type": "array", "items": { "type": "string" } }
       }
+    },
+    "checklist_ops": {
+      "type": ["array", "null"],
+      "maxItems": 30,
+      "description": "OPTIONAL — you OWN the per-stage checklist. It is seeded from the framework reference; emit ops to tailor it to THIS task (add a missing item, modify an over/under-strict one, remove an irrelevant one, or seed a stage from the reference before editing). Stage-keyed only. The Reviewer cannot edit the checklist — it reports `checklist_feedback`; consume that and act here. Omit or use [] when the current checklist is already right.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["op", "stage", "id"],
+        "properties": {
+          "op": { "type": "string", "enum": ["seed", "add", "modify", "remove"] },
+          "stage": { "type": "string", "description": "the stage this item belongs to (e.g. 'research', 'simulate')" },
+          "id": { "type": "string", "description": "stable item id, e.g. 'simulate.seeds'; may be empty only for op=seed" },
+          "statement": { "type": "string", "maxLength": 1600, "description": "the checklist item text (required for add)" },
+          "evidence_hint": { "type": "string", "maxLength": 1600, "description": "where the reviewer looks for evidence" }
+        }
+      }
     }
   }
 }

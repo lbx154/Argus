@@ -51,15 +51,29 @@ def _normalize_vertical_name(name: object) -> str:
     return cleaned or DEFAULT_VERTICAL
 
 
-def load_vertical(name: object) -> ModuleType:
-    """Return the ``stages`` module for vertical ``name``.
+def load_vertical(name: object, project_root: object = None) -> ModuleType:
+    """Return the ``stages`` module (or a ``DataDomain`` shim) for vertical ``name``.
 
-    Imports ``argus_skill.verticals.<name>.stages`` (after normalizing the name
-    and stripping a trailing ``-needed`` sentinel). On any ``ImportError`` (or
-    other import-time failure) it falls back to the ``research`` vertical's
-    stages module — never raises — so a typo, a stale ``-needed`` placeholder,
-    or a half-built vertical degrades to the safe paper pipeline instead of
-    crashing the planner/reviewer loop.
+    Resolution order:
+
+    1. A real on-disk Python package ``argus_skill.verticals.<name>.stages`` —
+       imported via importlib (after normalizing the name and stripping a trailing
+       ``-needed`` sentinel). A REAL named vertical whose module exists but fails
+       to import raises LOUDLY (never silently degrades a metric mission into the
+       paper pipeline).
+    2. When ``project_root`` is given and ``name`` is NOT a Python package, a
+       project-local DATA domain (``research/DOMAINS/<name>.json``) — returned as
+       a duck-typed :class:`~argus_skill.verticals._data_domain.DataDomain` shim
+       the optional-hook accessors below consume unchanged.
+    3. The ``research`` vertical's stages module (the safe fallback) — so a typo,
+       a stale ``-needed`` placeholder, or a half-built vertical degrades to the
+       paper pipeline instead of crashing the loop.
+
+    ``project_root=None`` preserves today's behavior exactly (no data-domain
+    branch), so every existing call site stays byte-identical until it opts in.
+    Package import is tried FIRST so that after a data domain is PROMOTED to a
+    real ``verticals/<name>/`` package, resolution converges on the package and
+    the data domain becomes inert.
     """
     cleaned = _normalize_vertical_name(name)
     try:
@@ -77,6 +91,16 @@ def load_vertical(name: object) -> ModuleType:
                 f"back to {DEFAULT_VERTICAL!r} (that would turn this mission into the "
                 f"paper pipeline). Fix the vertical."
             ) from exc
+        # No Python package: try a project-local DATA domain before falling back.
+        if project_root is not None and cleaned != DEFAULT_VERTICAL:
+            try:
+                from ._data_domain import load_data_domain  # late import (cycle)
+
+                domain = load_data_domain(cleaned, project_root)
+                if domain is not None:
+                    return domain  # type: ignore[return-value]  # duck-typed shim
+            except Exception:  # noqa: BLE001 — data-domain load must never break
+                log.debug("load_vertical(%r): data-domain probe failed", name, exc_info=True)
         if cleaned != DEFAULT_VERTICAL:
             log.warning(
                 "load_vertical(%r): unknown/half-built vertical (%s), falling back to %r",

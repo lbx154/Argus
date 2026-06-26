@@ -245,6 +245,11 @@ class _Outcome:
     # ``{"forward_progress": bool, "headline": str, "blocker": str,
     # "recommended_next": str}``. Empty dict when no reviewer verdict exists.
     planner_report: dict = field(default_factory=dict)
+    # Reviewer → Planner checklist feedback from the final round (advisory; the
+    # reviewer never edits the checklist). Surfaced in the reviewer→planner
+    # journal block so the project Planner can act on it (via checklist_ops) next
+    # cycle. Empty dict when the reviewer raised no checklist complaint.
+    checklist_feedback: dict = field(default_factory=dict)
     # The Manager's stage-transition verdict for this mission completion (the
     # Manager is the sole post-bootstrap writer of current_stage). Shape:
     # ``{"action": advance|hold|rollback, "target_stage", "reason",
@@ -1156,6 +1161,7 @@ class _SkillLoopRunner:
         # Pull the reviewer's structured planner briefing off the final round
         # so the supervisor can journal it for the project planner verbatim.
         planner_report: dict = {}
+        checklist_feedback: dict = {}
         rounds_list = getattr(outcome, "rounds", None) or []
         if rounds_list:
             _final_review = getattr(rounds_list[-1], "review", None)
@@ -1163,6 +1169,9 @@ class _SkillLoopRunner:
                 report = getattr(_final_review, "planner_report", None)
                 if isinstance(report, dict):
                     planner_report = report
+                _cfb = getattr(_final_review, "checklist_feedback", None)
+                if isinstance(_cfb, dict) and _cfb:
+                    checklist_feedback = _cfb
         if mission_scope == "final_submission":
             final_review = None
             if rounds_list:
@@ -1194,6 +1203,7 @@ class _SkillLoopRunner:
             final_submission_certified=final_submission_certified,
             completion_evidence=completion_evidence,
             planner_report=planner_report,
+            checklist_feedback=checklist_feedback,
             stage_transition=stage_transition,
         )
 
@@ -1553,17 +1563,35 @@ def run_life_supervisor(
                 # fall back to an ad-hoc Manager only when the runner has none
                 # (e.g. the memory runner used in tests).
                 mgr = getattr(runner, "manager", None)
-                if mgr is not None:
-                    division = mgr.divide(continuous_objective)
-                else:
+                if mgr is None:
                     from ..manager import Manager
 
-                    division = Manager(
+                    mgr = Manager(
                         project_root=project_root,
                         runner=getattr(runner, "manager_backend", None)
                         or getattr(runner, "backend", None),
                         skill_store=getattr(runner, "_manager_skill_store", None),
-                    ).divide(continuous_objective)
+                    )
+                division = mgr.divide(
+                    continuous_objective,
+                    ask_on_new_domain=_env_flag("ARGUS_SKILL_DOMAIN_ASK", False),
+                )
+                # Headless driver: there is no live operator turn here, so an
+                # ask-mode proposal cannot be confirmed interactively. Commit it
+                # with a notice rather than discarding the authored domain. An
+                # interactive front-end instead surfaces ``proposed_domain`` and
+                # calls ``mgr.commit_domain`` after the operator confirms.
+                if (
+                    getattr(division, "pending_confirmation", False)
+                    and getattr(division, "proposed_domain", None) is not None
+                ):
+                    if not quiet:
+                        print(
+                            "[manager] ARGUS_SKILL_DOMAIN_ASK set but no interactive "
+                            f"turn here — committing proposed domain `{division.vertical}`",
+                            file=sys.stderr,
+                        )
+                    division = mgr.commit_domain(division.task, division.proposed_domain)
                 if not quiet:
                     print(division.headline(), file=sys.stderr)
             except Exception:  # noqa: BLE001 — never block a run on division

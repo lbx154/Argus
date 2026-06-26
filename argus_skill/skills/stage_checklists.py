@@ -1149,13 +1149,46 @@ def _active_vertical_checklist_defs(project_root):
         )
         from .vertical_select import resolve_vertical
 
-        mod = load_vertical(resolve_vertical(project_root))
+        mod = load_vertical(resolve_vertical(project_root), project_root=project_root)
         return (
             vertical_checklist_stage_order(mod),
             vertical_checklist_items(mod),
         )
     except Exception:  # noqa: BLE001 - vertical resolution must never break prompts
         return CANONICAL_STAGE_ORDER, STAGE_CHECKLISTS
+
+
+def _resolve_project_root_for_store(project_root):
+    """Resolve a concrete project root for the checklist-store read (never None)."""
+    import os
+
+    if project_root is None:
+        return os.environ.get("ARGUS_SKILL_PROJECT_ROOT") or "."
+    return project_root
+
+
+def _store_or_seed_items(project_root, vert_items, stage):
+    """Base checklist items for ``stage`` BEFORE the additive overlay.
+
+    The per-project, Planner-authored checklist store
+    (``research/CHECKLISTS.json``) is the source of truth for any stage the
+    Planner has authored: when ``store_items_for_stage`` returns non-``None`` it
+    REPLACES the seed for that stage (including a deliberately-emptied list). When
+    it returns ``None`` (the stage is absent from the store) the active vertical's
+    seed constant is used — byte-identical to the historical floor. Fail-open to
+    the seed on any store error so prompt building never breaks.
+    """
+    try:
+        from .checklist_store import store_items_for_stage
+
+        override = store_items_for_stage(
+            _resolve_project_root_for_store(project_root), stage
+        )
+        if override is not None:
+            return tuple(override)
+    except Exception:  # noqa: BLE001 — store read must never break prompt building
+        pass
+    return tuple(vert_items.get(stage, ()))
 
 
 def format_stage_checklist(
@@ -1188,7 +1221,7 @@ def format_stage_checklist(
     # byte-identical to the paper pipeline. A speedrun mission instead renders
     # its own 4-stage (setup/optimize/measure/report) items.
     _stage_order, vert_items = _active_vertical_checklist_defs(project_root)
-    items = vert_items.get(stage_norm, ())
+    items = _store_or_seed_items(project_root, vert_items, stage_norm)
     role_norm = (role or "engineer").strip().lower()
     extra, annotations = _overlay_for(stage_norm, role_norm, project_root)
     items = tuple(items) + extra
@@ -1289,7 +1322,7 @@ def format_full_pipeline_checklist(
         extra, annotations = _overlay_for(stage, role_norm, project_root)
         if extra or annotations:
             overlay_present = True
-        items = tuple(vert_items.get(stage, ())) + extra
+        items = _store_or_seed_items(project_root, vert_items, stage) + extra
         if not items:
             continue
         blocks.append(f"### {stage}\n{_render_items(items, annotations)}")

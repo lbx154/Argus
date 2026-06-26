@@ -82,17 +82,32 @@ def _strip_needed(value: str) -> str:
     return cleaned
 
 
-def _known_vertical(value: object) -> str | None:
+def _known_vertical(value: object, project_root: object = None) -> str | None:
     """Return the normalized vertical name if known, else ``None``.
 
-    Strips whitespace/case and a trailing ``-needed`` sentinel. Returns ``None``
-    for non-strings, junk, or any value that is not a recognised vertical so the
-    caller can fall through to the next precedence source.
+    Strips whitespace/case and a trailing ``-needed`` sentinel. A value that
+    names a built-in vertical (the ``VERTICALS`` tuple) is always accepted.
+    When ``project_root`` is given, a value that names an existing project-local
+    DATA domain (``research/DOMAINS/<name>.json``) is ALSO accepted — this is how
+    a Manager-authored data domain flows through the same resolution path as the
+    built-in verticals. Returns ``None`` for non-strings, junk, or any value that
+    is neither a built-in vertical nor an existing data domain, so the caller can
+    fall through to the next precedence source.
     """
     if not isinstance(value, str):
         return None
     cleaned = _strip_needed(value)
-    return cleaned if cleaned in VERTICALS else None
+    if cleaned in VERTICALS:
+        return cleaned
+    if project_root is not None and cleaned:
+        try:
+            from ..verticals._data_domain import data_domain_exists  # late (cycle)
+
+            if data_domain_exists(cleaned, project_root):
+                return cleaned
+        except Exception:  # noqa: BLE001 — data-domain probe must never raise here
+            return None
+    return None
 
 
 def normalize_vertical(value: object) -> str:
@@ -124,7 +139,7 @@ def _persisted_vertical(project_root: object) -> str | None:
         return None
     if not isinstance(payload, dict):
         return None
-    return _known_vertical(payload.get("vertical"))
+    return _known_vertical(payload.get("vertical"), project_root)
 
 
 def resolve_vertical(project_root: object = ".") -> str:
@@ -140,7 +155,7 @@ def resolve_vertical(project_root: object = ".") -> str:
     This is the read side consulted on every stage transition/gate; it never
     raises and never spends a token.
     """
-    env = _known_vertical(os.environ.get(ENV_VERTICAL))
+    env = _known_vertical(os.environ.get(ENV_VERTICAL), project_root)
     if env is not None:
         return env
 
@@ -389,11 +404,13 @@ def _parse_llm_vertical(message: str) -> str | None:
 # --- persistence (write side) ---------------------------------------------
 
 
-def _vertical_first_stage(vertical: str) -> str | None:
+def _vertical_first_stage(vertical: str, project_root: object = None) -> str | None:
     """Return the active vertical's first System-(B) checklist stage, if any.
 
     Late import to avoid a module-load cycle (``_base`` ↔ ``stage_checklists``).
-    Fail-open: any error yields ``None`` so persistence never breaks bootstrap.
+    ``project_root`` is threaded so a project-local DATA domain resolves to its
+    own first stage. Fail-open: any error yields ``None`` so persistence never
+    breaks bootstrap.
     """
     try:
         from ..verticals._base import (
@@ -401,7 +418,7 @@ def _vertical_first_stage(vertical: str) -> str | None:
             vertical_checklist_stage_order,
         )
 
-        order = vertical_checklist_stage_order(load_vertical(vertical))
+        order = vertical_checklist_stage_order(load_vertical(vertical, project_root=project_root))
         return _normalize_stage(order[0]) if order else None
     except Exception:  # noqa: BLE001 — best-effort: never break persistence
         return None
@@ -431,6 +448,11 @@ def persist_vertical(project_root: object, vertical: str) -> None:
     """
     try:
         vert = normalize_vertical(vertical)
+        # A project-local DATA domain name is valid even though it is not in the
+        # built-in ``VERTICALS`` tuple — keep it verbatim rather than collapsing
+        # it to the research default.
+        if _known_vertical(vertical, project_root) is not None:
+            vert = _strip_needed(str(vertical))
         path = _state_path(project_root)
 
         try:
@@ -447,7 +469,7 @@ def persist_vertical(project_root: object, vertical: str) -> None:
         # yet — leave any existing stage, even one not in this vertical's
         # order, untouched.
         if not _normalize_stage(payload.get("current_stage")):
-            first_stage = _vertical_first_stage(vert)
+            first_stage = _vertical_first_stage(vert, project_root)
             if first_stage:
                 payload["current_stage"] = first_stage
 

@@ -275,9 +275,22 @@ def tidy_after_mission(
 
         runtime = SkillStore(skills_global_root())
         manager = Manager(Path(project_root), runner)
-        return tidy_runtime_skills_to_source(
+        counts = tidy_runtime_skills_to_source(
             runtime, manager.classify_skill_placement, on_event=on_event
         )
+        # Data-domain promotion sweep. Headless: this NEVER writes to source — it
+        # only SURFACES proven, unpromoted data domains for the operator to
+        # approve (promotion to the argus source is an irreversible outward
+        # change that requires explicit user approval; the actual writeback runs
+        # via domain_tidy.promote_data_domain(approved=True) from an interactive
+        # surface). Gated by ARGUS_SKILL_PROMOTE_DOMAINS; fail-soft.
+        try:
+            from .domain_tidy import tidy_domains_after_mission
+
+            tidy_domains_after_mission(Path(project_root), approve=None, on_event=on_event)
+        except Exception:  # noqa: BLE001 — promotion sweep must never block tidy
+            log.debug("domain promotion sweep failed", exc_info=True)
+        return counts
     except Exception:  # noqa: BLE001 — tidy-up must never block mission completion
         log.warning("tidy_after_mission: setup failed; skipping tidy", exc_info=True)
         return dict(_ZERO)

@@ -1518,6 +1518,11 @@ class LifeSupervisor:
                     if isinstance(getattr(outcome, "planner_report", {}), dict)
                     else {}
                 ),
+                "checklist_feedback": (
+                    getattr(outcome, "checklist_feedback", {})
+                    if isinstance(getattr(outcome, "checklist_feedback", {}), dict)
+                    else {}
+                ),
                 "final_submission_certified": bool(
                     kind == "mission_complete"
                     and self._planner_scope_from_item(item)
@@ -3260,6 +3265,11 @@ class LifeSupervisor:
                         rendered = self._render_planner_report(report)
                         if rendered:
                             line += "\n" + rendered
+                    feedback = extra.get("checklist_feedback")
+                    if isinstance(feedback, dict) and feedback:
+                        rendered_fb = self._render_checklist_feedback(feedback)
+                        if rendered_fb:
+                            line += "\n" + rendered_fb
             lines.append(line)
         return "\n".join(lines) or "(empty)"
 
@@ -3300,3 +3310,37 @@ class LifeSupervisor:
                 why = _clean(entry.get("why"), 600)
                 parts.append(f"      - {path}" + (f"  — {why}" if why else ""))
         return "\n".join(parts)
+
+    @staticmethod
+    def _render_checklist_feedback(feedback: dict) -> str:
+        """Render the reviewer's ADVISORY checklist feedback for the Planner.
+
+        The reviewer is feedback-only — it never edits the checklist. This block
+        tells the Planner (the checklist OWNER) what to fix via ``checklist_ops``
+        next cycle. Returns "" when the object carries no usable signal.
+        """
+        def _clean(value: object, limit: int) -> str:
+            return str(value or "").strip()[:limit]
+
+        stage = _clean(feedback.get("stage"), 100)
+        summary = _clean(feedback.get("summary"), 600)
+        parts: list[str] = []
+        head = "    reviewer→planner CHECKLIST_FEEDBACK (you own the checklist — fix via checklist_ops)"
+        if stage:
+            head += f" [stage={stage}]"
+        parts.append(head)
+        if summary:
+            parts.append(f"      summary: {summary}")
+        items = feedback.get("items")
+        if isinstance(items, list):
+            for entry in items[:20]:
+                if not isinstance(entry, dict):
+                    continue
+                problem = _clean(entry.get("problem"), 600)
+                if not problem:
+                    continue
+                iid = _clean(entry.get("id"), 200)
+                fix = _clean(entry.get("suggested_fix"), 600)
+                label = f"      - {iid}: " if iid else "      - "
+                parts.append(label + problem + (f"  → {fix}" if fix else ""))
+        return "\n".join(parts) if len(parts) > 1 else ""

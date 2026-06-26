@@ -78,7 +78,38 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
         mission_lesson=_parse_mission_lesson(parsed),
         process_lesson=_parse_process_lesson(parsed),
         skill_ops=_parse_skill_ops(parsed),
+        checklist_feedback=_parse_checklist_feedback(parsed),
     )
+
+
+def _parse_checklist_feedback(parsed: dict) -> dict[str, Any] | None:
+    """Parse the reviewer's ADVISORY checklist feedback (fail-soft → ``None``).
+
+    The reviewer is feedback-only: it never writes the checklist store. This
+    structured complaint is surfaced to the Planner, who owns the edits. Returns
+    ``None`` when absent/empty so the Planner sees nothing to act on. Capped."""
+    raw = parsed.get("checklist_feedback")
+    if not isinstance(raw, dict):
+        return None
+    stage = str(raw.get("stage", "") or "").strip().lower()
+    summary = str(raw.get("summary", "") or "").strip()[:600]
+    items: list[dict[str, str]] = []
+    raw_items = raw.get("items")
+    if isinstance(raw_items, list):
+        for entry in raw_items[:20]:
+            if not isinstance(entry, dict):
+                continue
+            problem = str(entry.get("problem", "") or "").strip()
+            if not problem:
+                continue
+            items.append({
+                "id": str(entry.get("id", "") or "").strip()[:200],
+                "problem": problem[:600],
+                "suggested_fix": str(entry.get("suggested_fix", "") or "").strip()[:600],
+            })
+    if not stage and not summary and not items:
+        return None
+    return {"stage": stage, "summary": summary, "items": items}
 
 
 def _parse_checkpoint(parsed: dict) -> dict[str, Any]:

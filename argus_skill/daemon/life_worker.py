@@ -1013,16 +1013,25 @@ class LifeWorker:
                 # (e.g. the memory runner in tests). Fail-open either way —
                 # daemon start must never be blocked by division.
                 mgr = getattr(runner, "manager", None)
-                if mgr is not None:
-                    mgr.divide(init_objective)
-                else:
+                if mgr is None:
                     from ..manager import Manager
 
-                    Manager(
+                    mgr = Manager(
                         project_root=cfg.project_workdir or runtime_root,
                         runner=getattr(runner, "manager_backend", None)
                         or getattr(runner, "backend", None),
-                    ).divide(init_objective)
+                    )
+                _ask = str(os.environ.get("ARGUS_SKILL_DOMAIN_ASK", "")).strip().lower() in (
+                    "1", "true", "yes", "on",
+                )
+                division = mgr.divide(init_objective, ask_on_new_domain=_ask)
+                # Daemon is headless: an ask-mode proposal has no operator to
+                # confirm, so commit the authored domain directly.
+                if (
+                    getattr(division, "pending_confirmation", False)
+                    and getattr(division, "proposed_domain", None) is not None
+                ):
+                    mgr.commit_domain(division.task, division.proposed_domain)
             except Exception:  # noqa: BLE001 — never block daemon start on division
                 pass
         sup = LifeSupervisor(

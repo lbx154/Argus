@@ -147,6 +147,30 @@
         },
         "required": ["op", "name", "content", "why"]
       }
+    },
+    "checklist_feedback": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "OPTIONAL — ADVISORY feedback to the Planner when the per-stage checklist ITSELF is wrong/incomplete/over-strict for this task. You are FEEDBACK-ONLY: you never edit or delete the checklist; the Planner owns add/modify/remove and acts on this next cycle. Omit/null when the checklist is fine.",
+      "properties": {
+        "stage": { "type": "string", "maxLength": 100 },
+        "summary": { "type": "string", "maxLength": 600 },
+        "items": {
+          "type": ["array", "null"],
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "maxLength": 200 },
+              "problem": { "type": "string", "maxLength": 600 },
+              "suggested_fix": { "type": "string", "maxLength": 600 }
+            },
+            "required": ["id", "problem", "suggested_fix"]
+          }
+        }
+      },
+      "required": ["stage", "summary", "items"]
     }
   },
   "required": [
@@ -162,6 +186,7 @@
     "planner_report",
     "checklist",
     "checkpoint",
-    "skill_ops"
+    "skill_ops",
+    "checklist_feedback"
   ]
 }

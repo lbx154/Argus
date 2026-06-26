@@ -150,6 +150,14 @@ class ReviewDecision:
     # ``{"op": "create|update|delete|archive", "name": str, "content": str,
     # "why": str}``. Empty list when this round warrants no skill change.
     skill_ops: list[dict[str, Any]] = field(default_factory=list)
+    # Reviewer → Planner checklist feedback (ADVISORY; the reviewer is
+    # feedback-only and NEVER writes the checklist store). When the reviewer
+    # judges the per-stage checklist itself wrong / incomplete / over-strict for
+    # this task, it emits this so the Planner (the checklist OWNER) fixes it next
+    # cycle via ``checklist_ops``. Shape: ``{"stage": str, "summary": str,
+    # "items": [{"id": str, "problem": str, "suggested_fix": str}]}``. Empty/None
+    # when the reviewer has no complaint about the checklist itself.
+    checklist_feedback: dict[str, Any] | None = None
     # Side-channel: token usage of the reviewer subprocess that produced
     # this decision. Populated by ``Reviewer.evaluate`` and consumed by
     # telemetry/cost reporting. Not part of the reviewer's semantic output.
@@ -225,6 +233,7 @@ class ReviewDecision:
             "planner_report": dict(self.planner_report or {}),
             "checkpoint": dict(self.checkpoint or {}),
             "skill_ops": list(self.skill_ops or []),
+            "checklist_feedback": dict(self.checklist_feedback or {}),
             # Token bookkeeping (cost-tracking sinks read these).
             "input_tokens": int(self.input_tokens or 0),
             "cached_input_tokens": int(self.cached_input_tokens or 0),

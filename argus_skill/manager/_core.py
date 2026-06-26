@@ -216,13 +216,26 @@ class _ManagerSession:
 class Division:
     """The Manager's verdict on how to divide a Task."""
     task: str
-    vertical: str            # research | speedrun | nanochat | nanogpt_speedrun | kernelbench
-    kind: str                # "research" | "optimize"
+    vertical: str            # research | speedrun | … | a Manager-authored data domain
+    kind: str                # "research" | "optimize" | "custom"
     regular: bool            # True = maps to a preset pipeline; False = free-form
     stages: list[str]        # the vertical's Stage template (engine advances current_stage)
+    # Set when the Manager AUTHORED a new data domain for a task that fit no
+    # preset vertical. ``pending_confirmation`` means the proposal has NOT been
+    # written yet — the caller (an interactive REPL) must confirm and then call
+    # :meth:`Manager.commit_domain`. Autonomous callers receive an already-
+    # committed Division with ``pending_confirmation=False``.
+    proposed_domain: Any = None
+    pending_confirmation: bool = False
 
     def headline(self) -> str:
+        if self.proposed_domain is not None and self.pending_confirmation:
+            return (f"[manager] no preset vertical fit → PROPOSED new domain "
+                    f"`{self.vertical}` ({len(self.stages)} stage(s): "
+                    f"{' → '.join(self.stages)}) — awaiting confirmation")
         tag = "regular" if self.regular else "free-form"
+        if self.kind == "custom":
+            tag = "new domain"
         return (f"[manager] {self.kind} task ({tag}) → vertical={self.vertical}, "
                 f"{len(self.stages)} stage(s): {' → '.join(self.stages)}")
 
@@ -365,14 +378,116 @@ class Manager:
         return list(CANONICAL_STAGE_ORDER)
 
     # ---- the user-facing division step ----
-    def divide(self, task: str) -> Division:
+    def divide(self, task: str, *, ask_on_new_domain: bool = False) -> Division:
         """Classify → stages → COMMIT the vertical so the existing supervisor trusts
-        it (no re-classify). Returns the Division for display/confirmation."""
+        it (no re-classify). Returns the Division for display/confirmation.
+
+        When the Task carries NO preset-vertical signal (research / optimize /
+        quant), the Manager AUTHORS a new data domain instead of forcing the
+        research default. ``ask_on_new_domain`` controls the commit:
+
+        * ``False`` (autonomous): write the data domain + persist it immediately.
+        * ``True`` (ask): return a ``Division`` carrying the proposal with
+          ``pending_confirmation=True`` and write NOTHING — the caller confirms
+          with the operator and then calls :meth:`commit_domain`.
+
+        If authoring fails (no backend / ambiguous proposal) it falls through to
+        today's preset path (the research default), so behavior is never worse
+        than before.
+        """
+        if task and task.strip() and not self._matches_preset(task):
+            proposal = self._author_domain(task)
+            if proposal is not None:
+                if ask_on_new_domain:
+                    return Division(
+                        task=task, vertical=proposal.name, kind="custom",
+                        regular=True, stages=list(proposal.stages),
+                        proposed_domain=proposal, pending_confirmation=True,
+                    )
+                return self.commit_domain(task, proposal)
+            # authoring failed → fall through to the preset path (research default)
         vertical, kind, regular = self.triage(task)
         stages = self.plan_stages(vertical)
         persist_vertical(self.project_root, vertical)   # supervisor reads & trusts this
         return Division(task=task, vertical=vertical, kind=kind,
                         regular=regular, stages=stages)
+
+    @staticmethod
+    def _matches_preset(task: str) -> bool:
+        """Whether the Task carries any preset-vertical signal (research / optimize
+        / quant). When it does NOT, the Manager authors a new data domain."""
+        t = (task or "").lower()
+        if not t.strip():
+            return False
+        for sigs in (
+            vertical_select._SPEEDRUN_SIGNALS,
+            vertical_select._RESEARCH_SIGNALS,
+            vertical_select._QUANT_SIGNALS,
+        ):
+            if any(s in t for s in sigs):
+                return True
+        return False
+
+    def _author_domain(self, task: str) -> Any:
+        """Author a new domain (name + stages) via the Manager LLM, or ``None``.
+
+        Returns a :class:`~argus_skill.manager.domain_author.DomainProposal` on a
+        clean proposal; ``None`` when there is no backend or the proposal is
+        ambiguous (fail-closed → caller uses the research default)."""
+        backend = self._session or self.runner
+        if backend is None:
+            return None
+        from ..core.models import RunnerOptions
+        from ..verticals._data_domain import list_data_domains
+        from .domain_author import build_domain_author_prompt, parse_domain_proposal
+        from .stage_decider import extract_answer
+
+        existing = list_data_domains(self.project_root)
+        known = list(vertical_select.VERTICALS)
+        prompt = build_domain_author_prompt(
+            task, known_verticals=known, existing_data_domains=existing
+        )
+        try:
+            result = backend.run_exec(
+                prompt=prompt,
+                options=RunnerOptions(reasoning_effort="low", skip_git_repo_check=True),
+                run_label="manager-domain-author",
+            )
+            return parse_domain_proposal(
+                extract_answer(result),
+                known_verticals=known,
+                existing_data_domains=existing,
+            )
+        except Exception:  # noqa: BLE001 — authoring must never crash division
+            log.debug("manager domain authoring failed", exc_info=True)
+            return None
+
+    def commit_domain(self, task: str, proposal: Any) -> Division:
+        """Write the authored data domain to disk and persist it as the active
+        vertical (so the supervisor trusts it). On any write error, fall back to
+        the research default. Called autonomously by :meth:`divide` or by the REPL
+        after operator confirmation."""
+        from ..verticals._data_domain import write_data_domain
+
+        try:
+            write_data_domain(
+                self.project_root,
+                proposal.name,
+                stages=list(proposal.stages),
+                created_by="manager",
+            )
+        except Exception:  # noqa: BLE001 — write failed → safe research fallback
+            log.warning("commit_domain(%r) write failed; using research", proposal.name, exc_info=True)
+            persist_vertical(self.project_root, "research")
+            stages = self.plan_stages("research")
+            return Division(task=task, vertical="research", kind="research",
+                            regular=False, stages=stages)
+        persist_vertical(self.project_root, proposal.name)
+        return Division(
+            task=task, vertical=proposal.name, kind="custom", regular=True,
+            stages=list(proposal.stages), proposed_domain=proposal,
+            pending_confirmation=False,
+        )
 
     # ---- conversational-intent decision (the Manager owns this) ----
     def is_conversational(self, text: str, *, run_exec: Any = None) -> bool:

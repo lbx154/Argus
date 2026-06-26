@@ -13,12 +13,15 @@ removed entirely — the L2 reviewer subsumed its responsibility.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 from ..core.models import RunnerOptions
 from ..core.ports import RunnerBackend
@@ -95,6 +98,11 @@ class PlannerVerdict:
     # later. ``project_done`` stays False; ``new_tasks`` stays empty.
     waiting: bool = False
     waiting_reason: str = ""
+    # The Planner OWNS the per-stage checklist. ``checklist_ops`` carries the
+    # add/modify/remove/seed edits it authored this cycle; ``plan_next`` applies
+    # them to the per-project checklist store after the verdict is parsed. Empty
+    # for a cycle that did not touch the checklist (back-compat default).
+    checklist_ops: list[dict] = field(default_factory=list)
 
 
 _PLANNER_SYSTEM_PREAMBLE = (
@@ -136,6 +144,15 @@ _PLANNER_SYSTEM_PREAMBLE = (
     '      "objective": "<detailed, actionable objective with '
     "acceptance criteria>\"\n"
     "    }\n"
+    "  ],\n"
+    '  "checklist_ops": [\n'
+    "    {\n"
+    '      "op": "<seed|add|modify|remove>",\n'
+    '      "stage": "<the stage this checklist item belongs to>",\n'
+    '      "id": "<stable item id, e.g. simulate.seeds; may be empty only for op=seed>",\n'
+    '      "statement": "<the checklist item text (required for add)>",\n'
+    '      "evidence_hint": "<where the reviewer looks for evidence>"\n'
+    "    }\n"
     "  ]\n"
     "}\n\n"
     "Rules:\n"
@@ -161,6 +178,17 @@ _PLANNER_SYSTEM_PREAMBLE = (
     "   that stage happens to be. (Sole carve-out: the parallel paper-drafting\n"
     "   track in rule 7, when a long run is already progressing in the\n"
     "   background — prose-only drafting that does NOT advance the stage.)\n"
+    "0b) CHECKLIST OWNERSHIP — you OWN the per-stage checklist shown above. It is\n"
+    "   SEEDED from the framework reference, not frozen: when the reference is\n"
+    "   wrong, incomplete, or mis-calibrated for THIS task/domain, author it with\n"
+    "   `checklist_ops` (seed a stage from the reference, then add/modify/remove\n"
+    "   items). For a Manager-authored NEW domain the seed is usually empty, so\n"
+    "   you must WRITE the current stage's checklist before the engineer/reviewer\n"
+    "   have a gate to work against. The Reviewer CANNOT edit the checklist — it\n"
+    "   only reports `checklist_feedback` (surfaced in the `reviewer→planner:`\n"
+    "   block); read that feedback and act on it here. You may NOT remove/modify a\n"
+    "   protected scientific-integrity floor item on a paper vertical (those edits\n"
+    "   are silently refused); for a data domain you have full authority.\n"
     "1) Your default job is continuous high-value discovery: keep looking\n"
     "   for useful work, not busywork. `project_done=true` is allowed ONLY\n"
     "   when:\n"
@@ -536,6 +564,19 @@ class Planner:
                 output_tokens=output_tokens,
             )
         parsed = parse_planner_text(text)
+        # The Planner OWNS the per-stage checklist: apply any authored ops to the
+        # per-project store AFTER the verdict is parsed (so the NEXT cycle / the
+        # next reviewer round sees them; never mid-round). Fail-soft: any error
+        # leaves the store untouched and planning continues.
+        if parsed.checklist_ops:
+            try:
+                from ..skills.checklist_store import apply_checklist_ops
+                from ..skills.harness_overlay import resolve_project_root
+
+                summary = apply_checklist_ops(resolve_project_root(), parsed.checklist_ops)
+                log.debug("planner applied checklist_ops: %s", summary)
+            except Exception:  # noqa: BLE001 — checklist write must never break planning
+                log.debug("planner checklist_ops application failed", exc_info=True)
         # Meta-control: persist the agent's own meta_decision — merge any
         # AGENT-declared forbidden directions into the never-cleared ledger and
         # append the decision-log row. The harness never invents a forbidden
@@ -1043,6 +1084,35 @@ def _parse_task_scope(value: object) -> str:
 
 
 
+_VALID_CHECKLIST_OPS = frozenset({"seed", "add", "modify", "remove"})
+
+
+def _parse_checklist_ops(data: dict) -> list[dict]:
+    """Parse the Planner's per-stage ``checklist_ops`` (fail-soft, capped).
+
+    Drops malformed entries and any unknown op; a non-list value yields ``[]`` so
+    the loop applies nothing. ``apply_checklist_ops`` enforces the protected-floor
+    policy and bounds — this only normalizes shape."""
+    raw = data.get("checklist_ops")
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    for entry in raw[:30]:
+        if not isinstance(entry, dict):
+            continue
+        op = str(entry.get("op", "")).strip().lower()
+        stage = str(entry.get("stage", "")).strip().lower()
+        if op not in _VALID_CHECKLIST_OPS or not stage:
+            continue
+        item: dict[str, str] = {"op": op, "stage": stage, "id": str(entry.get("id", "")).strip()}
+        if "statement" in entry:
+            item["statement"] = str(entry.get("statement") or "").strip()
+        if "evidence_hint" in entry:
+            item["evidence_hint"] = str(entry.get("evidence_hint") or "").strip()
+        out.append(item)
+    return out
+
+
 def parse_planner_text(text: str) -> PlannerVerdict:
     """Parse a planner JSON verdict out of an agent message.
 
@@ -1067,6 +1137,7 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             error="unparseable planner output",
         )
     data, blob = found
+    checklist_ops = _parse_checklist_ops(data)
     project_done = _parse_json_bool(data.get("project_done", True), True)
     reason = str(data.get("reason", ""))
     restart_daemon = _parse_json_bool(data.get("restart_daemon", False), False)
@@ -1139,6 +1210,7 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             raw_text=blob,
             waiting=True,
             waiting_reason=waiting_reason,
+            checklist_ops=checklist_ops,
         )
     if not project_done and not new_tasks and not restart_daemon:
         # Inconsistent: not done but no tasks → retry later, don't mark done.
@@ -1155,6 +1227,7 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             new_tasks=[],
             raw_text=blob,
             error=error,
+            checklist_ops=checklist_ops,
         )
     return PlannerVerdict(
         project_done=project_done,
@@ -1164,4 +1237,5 @@ def parse_planner_text(text: str) -> PlannerVerdict:
         restart_reason=restart_reason,
         raw_text=blob,
         cached_input_tokens=0,
+        checklist_ops=checklist_ops,
     )
