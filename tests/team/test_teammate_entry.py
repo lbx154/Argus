@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from argus_skill.team import task_board as tb
@@ -60,3 +61,93 @@ def test_main_no_task_returns_2(tmp_path: Path) -> None:
     rc = te.main(["--root", str(root), "--member-id", "t1::ghost", "--cwd", str(tmp_path),
                   "--mission-cmd", "true"])
     assert rc == 2
+
+
+def test_run_one_mission_has_no_hard_self_sigkill_timer(tmp_path: Path, monkeypatch) -> None:
+    # The teammate no longer SIGKILLs ITSELF on a hard deadline — the Curator owns
+    # the process and is the single reaper. So only the SOFT watchdog timer is armed.
+    import argus_skill.apps._runtime as rt
+    for var in ("ENGINEER", "REVIEWER", "AUTHOR"):
+        monkeypatch.setenv(f"ARGUS_SKILL_{var}_MODEL", "m")
+    monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / "skills"))
+
+    intervals: list[float] = []
+    real_timer = te.threading.Timer
+
+    def rec(interval, fn, *a, **k):
+        intervals.append(interval)
+        return real_timer(interval, lambda: None)  # never actually fires
+
+    monkeypatch.setattr(te.threading, "Timer", rec)
+
+    class _Outcome:
+        success = True
+
+    class _Runner:
+        def __init__(self, ns):
+            pass
+
+        def execute(self, *, objective, sink):
+            return _Outcome()
+
+    monkeypatch.setattr(rt, "_SkillLoopRunner", _Runner)
+
+    ok = te.run_one_engineer_mission("obj", cwd=str(tmp_path), life_dir=tmp_path / "life",
+                                     max_rounds=1, timeout_s=10.0)
+    assert ok is True
+    assert intervals == [10.0]  # ONLY the soft watchdog; no hard self-kill timer
+
+
+def _shard(root: Path, member: str = "t1::w1") -> dict:
+    return json.loads((root / "shards" / (member.replace(":", "_") + ".jsonl")).read_text().strip())
+
+
+def test_shard_carries_metric_mechanism_target_from_result_file(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / ".argus_team" / "t1"
+    _form_claim(root)
+    result = tmp_path / "result.json"
+    result.write_text(json.dumps({"metric": 1.85, "mechanism": "fused softmax"}), encoding="utf-8")
+    monkeypatch.setenv("ARGUS_TEAMMATE_RESULT_FILE", str(result))
+    monkeypatch.setattr(te, "run_one_engineer_mission", lambda *a, **k: True)
+    rc = te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a",
+                  "--cwd", str(tmp_path)])
+    assert rc == 0
+    rec = _shard(root)
+    assert rec["metric"] == 1.85 and rec["mechanism"] == "fused softmax"
+    assert rec["target"] == "t1::a" and rec["success"] is True
+
+
+def test_shard_metric_null_without_result_file(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / ".argus_team" / "t1"
+    _form_claim(root)
+    monkeypatch.delenv("ARGUS_TEAMMATE_RESULT_FILE", raising=False)
+    monkeypatch.setattr(te, "run_one_engineer_mission", lambda *a, **k: True)
+    te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a",
+             "--cwd", str(tmp_path)])
+    rec = _shard(root)
+    assert rec["metric"] is None and rec["mechanism"] == "" and rec["target"] == "t1::a"
+
+
+def test_teammate_inherits_leaderboard_block_in_objective(tmp_path: Path, monkeypatch) -> None:
+    from argus_skill.team import leaderboard as lb
+    root = tmp_path / ".argus_team" / "t1"
+    tb.form(root, [{"task_id": "t1::a", "objective": "optimize kA", "target": "kA"}])
+    tb.claim_specific(root, "t1::a", "t1::w1", now=1.0)
+    d = root / "shards"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "prev.jsonl").write_text(json.dumps(
+        {"target": "kA", "metric": 1.9, "mechanism": "persistent", "success": True}) + "\n",
+        encoding="utf-8")
+    lb.fold(root)
+
+    captured: dict = {}
+
+    def _capture(objective, **k):
+        captured["obj"] = objective
+        return True
+
+    monkeypatch.setattr(te, "run_one_engineer_mission", _capture)
+    te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a",
+             "--cwd", str(tmp_path)])
+    # the fresh teammate sees what's already been tried, plus its own objective
+    assert "persistent" in captured["obj"] and "optimize kA" in captured["obj"]

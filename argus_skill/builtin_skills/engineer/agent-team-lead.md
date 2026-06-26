@@ -13,6 +13,8 @@ Agent Team Lead
 When a mission decomposes into several genuinely independent subtasks, the engineer may act as a **team lead**: split the work, fan out autonomous **teammate engineers** (each its own loop, context, git worktree, and result shard), let them self-coordinate through a shared task board and a mailbox, then read every shard, synthesize one canonical result, and pass it through the normal mission reviewer. This is the Argus analogue of agent teams. Forming a team is **your judgment** — the harness never decides it for you, and **solo is the default**.
 
 ## When to form a team (and when NOT to)
+**First ask yourself: does this mission actually need MANY independent tasks run in PARALLEL right now?** Teammates exist to parallelize genuinely-independent work across spare capacity — they are not a default and they are not free (coordination + GPU/budget contention). If you cannot immediately name several concrete tasks that would each keep a teammate busy, **stay solo**. Only when that answer is a clear "yes" do the gates below apply.
+
 Form a team ONLY when ALL of these hold:
 - The mission splits into **2+ subtasks that are independent** (no subtask needs another's in-progress output), and
 - Each subtask **owns a disjoint set of files** (no two teammates edit the same path), and
@@ -27,17 +29,15 @@ Stay solo (do not form a team) when the work is sequential, tightly coupled, edi
 4. Bound the team size by available resources (GPUs / budget), not by ambition.
 
 ## How to run the team (rolling pool)
-Use `python -m argus_skill.tools.team`. The model is a **rolling pool**, not a batch: a dumb **coordinator** keeps N teammates always in flight from a priority backlog you maintain. You never `spawn` teammates yourself and you never `wait` on a whole batch — that idle seam is exactly what this avoids.
-1. `form --root <team_root> --team-id <tid> --mission "<objective>" --tasks tasks.jsonl` — write the initial backlog + roster. One JSON object per line: `{task_id, title, objective, owns_paths, deps?, priority?}` (lower `priority` = pulled first; default 100). **Lane-prefix `task_id`s as `<tid>::<name>`** so any subagent a teammate spawns stays lane-scoped. Bake the full teammate contract (below) into each task's `objective` — that text is what the teammate runs.
-2. Launch ONE coordinator, detached:
-   `nohup python -m argus_skill.tools.team coordinate --root <team_root> --team-id <tid> --cwd <workspace> --width <N> --poll 5 --ttl 180 --lead-ttl 1800 --max-wall 21600 >coordinator.log 2>&1 &`
-   It maintains exactly N teammates in flight (claims top-priority pending + spawns a fresh `w<k>` on each) and reassigns any stale teammate — on its own clock, independent of your reasoning.
+Use `python -m argus_skill.tools.team`. The model is a **rolling pool**, not a batch: the daemon-resident **Curator** keeps N teammates always in flight from a priority backlog you maintain. You never `spawn` teammates yourself, never launch a coordinator, and never `wait` on a whole batch — that idle seam is exactly what this avoids.
+1. `form --root <team_root> --team-id <tid> --cwd <workspace> --mission "<objective>" --tasks tasks.jsonl` — write the initial backlog + roster, and drop the campaign marker the Curator watches. One JSON object per line: `{task_id, title, objective, owns_paths, deps?, priority?}` (lower `priority` = pulled first; default 100). **Lane-prefix `task_id`s as `<tid>::<name>`** so any subagent a teammate spawns stays lane-scoped. Bake the full teammate contract (below) into each task's `objective` — that text is what the teammate runs. `--cwd` is where teammates run (the live workspace).
+2. **Nothing to launch.** The moment you `form` a team, the daemon's resident Curator discovers it and keeps exactly N teammates in flight (claims top-priority pending + spawns a fresh `w<k>` on each), reaps any that finish or wedge, and OWNS every teammate process — on its own clock, independent of your reasoning. There is no coordinator to start and no lead heartbeat to beat: the Curator is persistent, so a finished lead mission can never orphan the pool.
 3. Enter your **judgment loop** (you do NOT spawn and do NOT `wait` a barrier):
-   - `pool-set --root <team_root> --width <N> --state running` each pass — sets the pool width AND beats your **lead heartbeat**. **Heartbeat often**: call it at the START of every mission/round and **before any long score-reading / synthesis phase**; if your heartbeat lapses past `--lead-ttl` the coordinator assumes you died and stops (so it never orphan-spawns).
+   - `pool-set --root <team_root> --width <N> --state running` to set the pool width (the Curator enforces it; `--width 0` pauses without draining).
    - Read newly-landed `shards/*.jsonl`; for each candidate compare its **MEASURED** metric against the current best and record only real improvements into your canonical artifact (you are its only writer).
    - Keep the backlog stocked with `form`: **breadth** (new untouched targets) and/or **depth** (re-`form` a promising target with a "try a new mechanism" objective at a lower `priority`).
    - Tune `--width` via `pool-set` if the route is saturated or idle.
-4. Wind down: `pool-set --state draining` (keep beating the heartbeat while it drains) → the coordinator stops spawning and exits once nothing is in flight → synthesize the final canonical artifact → mission L2 reviewer → `dissolve --root <team_root> --repo <repo>`.
+4. Wind down: `pool-set --state draining` → the Curator stops spawning and lets the in-flight teammates finish, dropping the campaign once nothing is in flight → synthesize the final canonical artifact → mission L2 reviewer → `dissolve --root <team_root> --repo <repo>`.
 
 ## Teammate system prompt — REQUIRED contract
 Every teammate you spawn MUST be given a system prompt that states ALL of:
@@ -70,4 +70,4 @@ Every teammate you spawn MUST be given a system prompt that states ALL of:
 - Overlapping `owns_paths` between teammates (causes overwrites).
 - Spawning a teammate without the continuity / ownership / anti-fraud system-prompt contract.
 - The lead "helping" by editing inside a teammate's worktree, or merging by letting teammates write the canonical artifact directly.
-- Spawning teammates yourself or `wait`-ing on a whole batch instead of running the coordinator + judgment loop; letting your lead heartbeat lapse (via missed `pool-set`) so the coordinator stops mid-campaign.
+- Spawning teammates yourself or `wait`-ing on a whole batch instead of letting the resident Curator run the pool while you stay in the judgment loop.

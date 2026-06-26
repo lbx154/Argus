@@ -108,27 +108,8 @@ def next_member_id(root: Path, *, prefix: str = "w") -> str:
         return f"{prefix}{seq}"
 
 
-def mark(root: Path, member_id: str, *, status: str, now: float) -> None:
-    with _store.locked(_lock(root)):
-        doc = load(root)
-        for m in doc.get("members", []):
-            if m.get("id") == member_id:
-                m["status"] = status
-                m["heartbeat_ts"] = now
-        _store.atomic_write_json(_path(root), doc)
-
-
 def set_state(root: Path, state: str) -> None:
     with _store.locked(_lock(root)):
         doc = load(root)
         doc["state"] = state
         _store.atomic_write_json(_path(root), doc)
-
-
-def stale_members(root: Path, *, ttl: float, now: float) -> list[str]:
-    """Members marked running/idle whose heartbeat aged past ``ttl``."""
-    out: list[str] = []
-    for m in members(root):
-        if m.get("status") in ("running", "idle") and now - float(m.get("heartbeat_ts", 0)) > ttl:
-            out.append(m["id"])
-    return out

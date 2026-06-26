@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from argus_skill.team import registry
 from argus_skill.tools import team
 
 
@@ -78,91 +79,36 @@ def test_spawn_claims_specific_task_no_crossing(tmp_path: Path, capsys) -> None:
     assert by_id["t1::b"]["owner"] == "t1::w2"
 
 
-def test_refill_once_caps_and_idempotent(tmp_path: Path) -> None:
-    from argus_skill.tools import team as teamcli
-    from argus_skill.team import task_board as tb
-    root = tmp_path / "t"
-    tb.form(root, [{"task_id": f"k{i}", "objective": "opt", "owns_paths": [f"k{i}/**"]}
-                   for i in range(5)])
-    calls = []
-    def fake_spawn(r, *, member_id, task_id, cwd, exec_cmd=""):
-        calls.append((member_id, task_id)); return 4242
-    res = teamcli.refill_once(root, width=3, cwd=tmp_path, ttl=180.0, now=1.0, spawn_fn=fake_spawn)
-    assert len(res["spawned"]) == 3 and len(calls) == 3
-    assert tb.count_in_flight(root) == 3
-    res2 = teamcli.refill_once(root, width=3, cwd=tmp_path, ttl=180.0, now=2.0, spawn_fn=fake_spawn)
-    assert res2["spawned"] == [] and len(calls) == 3       # idempotent when full
-
-
-def test_refill_once_drains_short_backlog(tmp_path: Path) -> None:
-    from argus_skill.tools import team as teamcli
-    from argus_skill.team import task_board as tb
-    root = tmp_path / "t"
-    tb.form(root, [{"task_id": "k0", "objective": "opt", "owns_paths": ["k0/**"]},
-                   {"task_id": "k1", "objective": "opt", "owns_paths": ["k1/**"]}])
-    res = teamcli.refill_once(root, width=10, cwd=tmp_path, ttl=180.0, now=1.0,
-                              spawn_fn=lambda r, **k: 1)
-    assert len(res["spawned"]) == 2                          # only 2 tasks exist
-
-
-def test_refill_once_reassigns_then_fills(tmp_path: Path) -> None:
-    from argus_skill.tools import team as teamcli
-    from argus_skill.team import task_board as tb
-    root = tmp_path / "t"
-    tb.form(root, [{"task_id": "k0", "objective": "opt", "owns_paths": ["k0/**"]}])
-    tb.claim_top(root, "w0", now=1.0)                        # k0 claimed by a (now dead) teammate
-    tb.heartbeat(root, "k0", now=1.0)
-    # ttl small -> k0 is stale; refill should reassign it and re-spawn
-    res = teamcli.refill_once(root, width=1, cwd=tmp_path, ttl=0.0, now=100.0,
-                              spawn_fn=lambda r, **k: 1)
-    assert res["reassigned"] == ["k0"] and len(res["spawned"]) == 1
-
-
-def test_should_stop_conditions(tmp_path: Path) -> None:
-    from argus_skill.tools import team as teamcli
-    run = {"state": "running", "lead_heartbeat_ts": 100.0}
-    drn = {"state": "draining", "lead_heartbeat_ts": 100.0}
-    assert teamcli._should_stop(run, in_flight=3, elapsed=10, lead_ttl=300, max_wall=1000, now=110) is None
-    assert teamcli._should_stop(drn, in_flight=0, elapsed=10, lead_ttl=300, max_wall=1000, now=110) == "drained"
-    assert teamcli._should_stop(drn, in_flight=2, elapsed=10, lead_ttl=300, max_wall=1000, now=110) is None
-    assert teamcli._should_stop(run, in_flight=3, elapsed=10, lead_ttl=300, max_wall=1000, now=500) == "lead-heartbeat-stale"
-    assert teamcli._should_stop(run, in_flight=3, elapsed=2000, lead_ttl=300, max_wall=1000, now=110) == "max-wall"
-
-
 def test_pool_set_cli(tmp_path: Path, capsys) -> None:
     root = tmp_path / "t"
     rc, out = _call(capsys, "pool-set", "--root", str(root), "--width", "6", "--state", "running")
     doc = json.loads(out)
     assert rc == 0
-    assert doc["width"] == 6 and doc["state"] == "running" and doc["lead_heartbeat_ts"] > 0
+    assert doc["width"] == 6 and doc["state"] == "running"
+    assert "lead_heartbeat_ts" not in doc  # heartbeat removed (resident Curator)
 
 
-def test_coordinate_once_fills_to_width(tmp_path: Path, capsys) -> None:
-    from argus_skill.team import task_board as tb
+def test_form_writes_campaign_marker(tmp_path: Path, capsys, monkeypatch) -> None:
+    project_root = tmp_path / "proj"
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(project_root))
+    root = tmp_path / ".argus_team" / "t1"
+    tasks = tmp_path / "tasks.jsonl"
+    tasks.write_text(json.dumps({"task_id": "a", "objective": "x"}) + "\n", encoding="utf-8")
+    rc, _ = _call(capsys, "form", "--root", str(root), "--team-id", "t1",
+                  "--cwd", str(tmp_path / "ws"), "--tasks", str(tasks))
+    assert rc == 0
+    markers = registry.list_markers(project_root)
+    assert len(markers) == 1
+    assert markers[0]["team_id"] == "t1"
+    assert markers[0]["team_root"] == str(root)
+    assert markers[0]["cwd"] == str(tmp_path / "ws")
+
+
+def test_form_without_project_root_writes_no_marker(tmp_path: Path, capsys, monkeypatch) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_PROJECT_ROOT", raising=False)
     root = tmp_path / "t"
     tasks = tmp_path / "tasks.jsonl"
-    tasks.write_text("".join(
-        json.dumps({"task_id": f"k{i}", "objective": "opt", "owns_paths": [f"k{i}/**"]}) + "\n"
-        for i in range(3)), encoding="utf-8")
-    _call(capsys, "form", "--root", str(root), "--team-id", "t", "--tasks", str(tasks))
-    # one tick, width 2, stub teammate that exits immediately (no real codex)
-    rc, out = _call(capsys, "coordinate", "--root", str(root), "--team-id", "t",
-                    "--cwd", str(tmp_path), "--width", "2", "--once", "--exec-cmd", "true")
-    res = json.loads(out)
-    assert rc == 0 and res["stopped"] == "once" and len(res["spawned"]) == 2
-    assert sorted(s["member_id"] for s in res["spawned"]) == ["w1", "w2"]
-    assert tb.count_in_flight(root) == 2          # the 2 claimed tasks occupy the pool
-
-
-def test_coordinate_draining_does_not_spawn(tmp_path: Path, capsys) -> None:
-    root = tmp_path / "t"
-    tasks = tmp_path / "tasks.jsonl"
-    tasks.write_text(json.dumps({"task_id": "k0", "objective": "opt", "owns_paths": ["k0/**"]}) + "\n",
-                     encoding="utf-8")
-    _call(capsys, "form", "--root", str(root), "--team-id", "t", "--tasks", str(tasks))
-    _call(capsys, "pool-set", "--root", str(root), "--state", "draining")
-    # draining + nothing in flight -> stop immediately, spawn nothing
-    rc, out = _call(capsys, "coordinate", "--root", str(root), "--team-id", "t",
-                    "--cwd", str(tmp_path), "--width", "4", "--exec-cmd", "true")
-    res = json.loads(out)
-    assert rc == 0 and res["stopped"] == "drained"
+    tasks.write_text(json.dumps({"task_id": "a", "objective": "x"}) + "\n", encoding="utf-8")
+    _call(capsys, "form", "--root", str(root), "--team-id", "t1", "--tasks", str(tasks))
+    # no project root → manual/test use; nothing would discover a marker, so none is written
+    assert registry.list_markers(tmp_path) == []

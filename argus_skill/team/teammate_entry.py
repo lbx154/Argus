@@ -27,7 +27,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import signal
 import subprocess
 import sys
 import threading
@@ -187,31 +186,16 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
         return False
     life_dir = Path(life_dir)
     life_dir.mkdir(parents=True, exist_ok=True)
-    # Two-tier time-box so one hard kernel can never hold a slot for hours.
-    # (soft) a Timer sets stop_event at timeout_s; the runner polls it between
-    #        engineer rounds and exits cleanly, recording the task done/failed.
+    # Soft time-box: a Timer sets stop_event at timeout_s; the runner polls it
+    # between engineer rounds and exits cleanly, recording the task done/failed.
+    # The HARD wall-clock deadline is NOT enforced here anymore — the daemon-
+    # resident Curator owns this process and is the single reaper, so a wedged
+    # teammate is killpg'd (and its task freed) from the parent. A teammate that
+    # SIGKILLs itself would bypass the Curator's bookkeeping (lost shard).
     stop_event = threading.Event()
     watchdog = threading.Timer(timeout_s, stop_event.set)
     watchdog.daemon = True
     watchdog.start()
-    # (hard) backstop: the soft stop_event above only fires if the mission
-    # actually polls it; a teammate wedged in a long codex/bash/ssh call (e.g. a
-    # slow or hung B200 scoring round) can blow far past timeout_s and never exit.
-    # Those leaked processes pile up until the box is overloaded (300+ teammates
-    # → load 256 / 128 cores on 2026-06-19). So unconditionally SIGKILL our own
-    # process `hard_grace` seconds after the soft deadline — the owned task's
-    # heartbeat then goes stale and the coordinator reassigns it.
-    hard_grace = float(os.environ.get("ARGUS_TEAMMATE_HARD_GRACE_S", "600"))
-
-    def _hard_timebox_kill() -> None:
-        sys.stderr.write(
-            f"teammate_entry: HARD time-box kill — alive > {timeout_s + hard_grace:.0f}s "
-            f"(soft deadline {timeout_s:.0f}s did not stop the mission)\n")
-        os.kill(os.getpid(), signal.SIGKILL)
-
-    hard = threading.Timer(timeout_s + hard_grace, _hard_timebox_kill)
-    hard.daemon = True
-    hard.start()
     # Forced grounding (opt-in): search the real SOTA FIRST and fold it into the
     # objective, so the engineer can't skip the search by claiming it already
     # knows. No-op unless ARGUS_TEAMMATE_FORCE_RESEARCH is set.
@@ -234,7 +218,6 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
         return False
     finally:
         watchdog.cancel()
-        hard.cancel()
     return bool(getattr(outcome, "success", False))
 
 
@@ -343,6 +326,21 @@ def _gather_prior_work(cwd: Path, owns_paths: list[str], *, per_file_bytes: int 
             + "\n\n".join(chunks) + "\n\n---\n\n")
 
 
+def _read_optional_result() -> dict:
+    """Read an optional ``{metric, mechanism}`` the teammate's mission left at
+    ``ARGUS_TEAMMATE_RESULT_FILE`` (operator-wired into the objective). General —
+    no metric source is baked into the library; absent/corrupt → empty, so the
+    shard records a null metric and the leaderboard simply doesn't rank it."""
+    path = os.environ.get("ARGUS_TEAMMATE_RESULT_FILE", "").strip()
+    if not path:
+        return {}
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="argus_skill.team.teammate_entry")
     p.add_argument("--root", required=True)
@@ -369,6 +367,14 @@ def main(argv: list[str] | None = None) -> int:
         objective = prior + objective
         sys.stderr.write(f"teammate_entry: inherited {len(prior)} chars of prior work "
                          f"for {task_id} (cross-teammate evolution)\n")
+    # Leaderboard inheritance: tell a fresh teammate what's already been tried on
+    # this target so it builds depth instead of re-deriving breadth. No-op until a
+    # leaderboard exists; disable with ARGUS_TEAMMATE_INHERIT_LEADERBOARD=0.
+    if os.environ.get("ARGUS_TEAMMATE_INHERIT_LEADERBOARD", "").strip().lower() not in ("0", "false", "no"):
+        from . import leaderboard as _lb
+        lb_block = _lb.objective_block(root, task.get("target") or task_id)
+        if lb_block:
+            objective = lb_block + objective
     member_safe = args.member_id.replace(":", "_")
 
     (root / "shards").mkdir(parents=True, exist_ok=True)
@@ -391,8 +397,13 @@ def main(argv: list[str] | None = None) -> int:
             objective, cwd=cwd, life_dir=root / "life" / member_safe)
 
     stop.set()
+    _result = _read_optional_result()
     shard.write_text(
-        json.dumps({"member_id": args.member_id, "task_id": task_id, "success": success}) + "\n",
+        json.dumps({
+            "member_id": args.member_id, "task_id": task_id,
+            "target": task.get("target") or task_id, "success": success,
+            "metric": _result.get("metric"), "mechanism": _result.get("mechanism", ""),
+        }) + "\n",
         encoding="utf-8")
     if success:
         task_board.complete(root, task_id, shard=str(shard))
