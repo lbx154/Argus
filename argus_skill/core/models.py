@@ -143,6 +143,14 @@ class ReviewDecision:
     # "next_step"}``. Fail-soft: empty dict when the reviewer omitted it or the
     # round errored before a verdict (runner then keeps the prior checkpoint).
     checkpoint: dict[str, Any] = field(default_factory=dict)
+    # Skill-memory operations the reviewer requests for THIS round (success or
+    # failure). ``create``/``update`` are PROPOSALS — each carries a reusable
+    # capability playbook (``content`` markdown) that the Manager generality-gate
+    # must approve before it is stored; ``delete``/``archive`` retire a matched
+    # skill the reviewer found wrong or harmful. Each item:
+    # ``{"op": "create|update|delete|archive", "name": str, "content": str,
+    # "why": str}``. Empty list when this round warrants no skill change.
+    skill_ops: list[dict[str, Any]] = field(default_factory=list)
     # Side-channel: token usage of the reviewer subprocess that produced
     # this decision. Populated by ``Reviewer.evaluate`` and consumed by
     # telemetry/cost reporting. Not part of the reviewer's semantic output.
@@ -218,6 +226,7 @@ class ReviewDecision:
             "checklist": list(self.checklist or []),
             "planner_report": dict(self.planner_report or {}),
             "checkpoint": dict(self.checkpoint or {}),
+            "skill_ops": list(self.skill_ops or []),
             # Token bookkeeping (cost-tracking sinks read these).
             "input_tokens": int(self.input_tokens or 0),
             "cached_input_tokens": int(self.cached_input_tokens or 0),

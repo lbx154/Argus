@@ -130,7 +130,11 @@ def test_load_vertical_named_but_broken_fails_loud(monkeypatch):
 
 def test_dead_author_prompts_removed():
     from argus_skill.skills.skill_prompts import Prompts
-    assert hasattr(Prompts, "distill") and hasattr(Prompts, "revise")  # live ones stay
-    assert not hasattr(Prompts, "execute")  # 0-callsite dead methods gone
+    # Skill memory is reviewer-proposed + Manager-gated now; the in-process
+    # distill/revise prompts are gone. Matcher + parser stay.
+    assert hasattr(Prompts, "skill_match") and hasattr(Prompts, "parse_skill_output")
+    assert not hasattr(Prompts, "distill")
+    assert not hasattr(Prompts, "revise")
+    assert not hasattr(Prompts, "execute")
     assert not hasattr(Prompts, "repair")
     assert not hasattr(Prompts, "refine_from_feedback")

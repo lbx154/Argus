@@ -64,12 +64,10 @@ def _done_review() -> str:
 
 def _build_loop(backend: MemoryBackend, skills_dir: Path) -> SkillLoop:
     config = SkillLoopConfig(
-        author_model="m",
         engineer_model="m",
         reviewer_model="m",
         max_rounds=3,
         check_commands=[],
-        skill_writeback=False,
         backend_failure_backoff_seconds=0,
     )
     return SkillLoop(
@@ -388,8 +386,8 @@ def test_curated_checkpoint_persists_across_missions_via_file(tmp_path: Path) ->
 
     def _make_loop(backend: MemoryBackend, skills: Path) -> SkillLoop:
         config = SkillLoopConfig(
-            author_model="m", engineer_model="m", reviewer_model="m",
-            max_rounds=3, check_commands=[], skill_writeback=False,
+            engineer_model="m", reviewer_model="m",
+            max_rounds=3, check_commands=[],
             backend_failure_backoff_seconds=0,
             checkpoint_path=ckpt,
         )

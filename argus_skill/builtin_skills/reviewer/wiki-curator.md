@@ -3,7 +3,6 @@ name: Wiki Curator
 description: At mission close, synthesize new pages/* cards from this mission's freshly-appended sources/*, optionally promote existing cards, and regenerate queries/*. Reviewer-only -- engineer never invokes this.
 category: research-wiki
 version: 1
-author_model: gpt-5.5
 created_at: 2026-06-04T00:00:00+00:00
 ---
 

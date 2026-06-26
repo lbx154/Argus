@@ -188,7 +188,6 @@ class LayeredSkillStore:
         *,
         task_description: str,
         raw_distill_output: str,
-        author_model: str,
         on_event: Callable[[dict], None] | None = None,
         enforce_quality_gate: bool = True,
     ) -> Skill | None:
@@ -200,49 +199,8 @@ class LayeredSkillStore:
         return self.project.save_distilled(
             task_description=task_description,
             raw_distill_output=raw_distill_output,
-            author_model=author_model,
             on_event=on_event,
             enforce_quality_gate=enforce_quality_gate,
-        )
-
-    def writeback_from_trajectory(
-        self,
-        *,
-        skill: Skill,
-        task_description: str,
-        successful_trajectory: str,
-        distiller: Any | None = None,
-        author_model: str = "",
-        revise: bool = False,
-        on_event: Callable[[dict], None] | None = None,
-    ) -> None:
-        self.store_for_skill(skill).writeback_from_trajectory(
-            skill=skill,
-            task_description=task_description,
-            successful_trajectory=successful_trajectory,
-            distiller=distiller,
-            author_model=author_model,
-            revise=revise,
-            on_event=on_event,
-        )
-
-    def promote_lesson(
-        self,
-        *,
-        skill: Skill,
-        lesson_text: str,
-        task_description: str,
-        distiller: Any,
-        author_model: str = "",
-        on_event: Callable[[dict], None] | None = None,
-    ) -> bool:
-        return self.store_for_skill(skill).promote_lesson(
-            skill=skill,
-            lesson_text=lesson_text,
-            task_description=task_description,
-            distiller=distiller,
-            author_model=author_model,
-            on_event=on_event,
         )
 
     def update_skill(

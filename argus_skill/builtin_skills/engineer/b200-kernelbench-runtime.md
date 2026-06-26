@@ -4,7 +4,6 @@ description: Operational playbook for B200 KernelBench/SOL runs: verify the B200
 category: benchmark-kernel-infrastructure
 priority: high
 version: 1
-author_model: gpt-5.5
 created_at: 2026-06-18T00:00:00+00:00
 ---
 

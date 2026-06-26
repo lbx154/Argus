@@ -1,24 +1,23 @@
-"""SkillLoop — the integrated matcher → distiller → supervised-engineer flow.
+"""SkillLoop — the integrated matcher → supervised-engineer flow.
 
 This is the new code that argus-skill exists to deliver. It composes:
 
   * ``SkillStore`` (vendored from skill-agent): horizontal skill cache.
-  * ``Distiller``  (vendored from skill-agent): playbook authoring (runs on
-    the engineer backend; there is no separate author agent).
   * ``SupervisedEngineer`` (new, with ``Reviewer`` vendored from ArgusBot):
     vertical round-loop that supervises the engineer until the reviewer
     is satisfied.
 
+Skill memory is REVIEWER-owned: there is no separate authoring agent. The
+reviewer emits ``skill_ops`` per round (create/update PROPOSALS gated by the
+Manager generality check; delete/archive applied directly), and the loop
+applies them at mission end.
+
 End-to-end shape:
 
-    task → matcher
-        ├── high-fit hit  → engineer round-loop with skill block injected
-        └── miss          → distill new skill → engineer round-loop with new skill
-    engineer round-loop:
-        engineer turn → checks → reviewer
-            done    → write skill back, return success
+    task → matcher → engineer round-loop (engineer turn → checks → reviewer)
+            done    → confirm a proven candidate, apply skill_ops, return success
             continue → inject next_action, next round
-            blocked → stop with reason
+            blocked → stop with reason; still apply skill_ops
 """
 from __future__ import annotations
 
@@ -32,30 +31,19 @@ from .core.ports import RunnerBackend
 from .reviewer import Reviewer, ReviewerConfig
 from .engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from .skills.missions import EngineerMission
-from .skills.skill_author import Distiller, DistillerConfig
 from .skills.role_match import render_skill_playbook
+from .skills.skill_router import SkillRouter
 from .skills.store import Skill, SkillStore
 
 log = logging.getLogger(__name__)
 
 
-# Terminal mission statuses that represent a genuine learning failure (as
-# opposed to success or an environmental/backend abort). ``error`` is excluded
-# because it is a runner/backend failure, not a content lesson about the task.
-# These only BOUND the failure window — whether a failure actually teaches a
-# skill is the REVIEWER's call (``failure_cause == "skill_gap"`` + a
-# non-empty ``mission_lesson``), never a status heuristic.
-_REVISABLE_FAILURE_STATUSES = frozenset({"blocked", "max_rounds", "no_progress"})
-
-
 @dataclass
 class SkillLoopConfig:
     """All knobs for one SkillLoop.run invocation, in one place."""
-    author_model: str = "gpt-5.5"
     engineer_model: str = "gpt-5.5"
     reviewer_model: str | None = None  # default: same as engineer (cheap)
     matcher_model: str | None = None   # default: same as engineer
-    author_reasoning_effort: str = "high"
     engineer_reasoning_effort: str | None = "high"
     reviewer_reasoning_effort: str = "high"
     matcher_reasoning_effort: str | None = "high"
@@ -71,15 +59,10 @@ class SkillLoopConfig:
     hard_escalate_rounds: int = 24
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
-    skill_writeback: bool = False
-    # Author layer disabled — engineer does all work, reviewer verifies.
-    skill_revise_on_writeback: bool = False
-    # Self-evolution from FAILURE: when a mission terminates without success
-    # (blocked / max_rounds / no_progress) on a matched own-role skill, merge
-    # the reviewer's structured failure lesson back into that skill so the next
-    # mission inherits the lesson. Complements writeback (which learns only from
-    # success). Best-effort, deduplicated, and skips freshly-distilled skills.
-    skill_revise_on_failure: bool = False
+    # Reviewer-owned skill memory: the reviewer emits ``skill_ops`` per round
+    # (create/update PROPOSALS gated by the Manager generality check;
+    # delete/archive applied directly). Off by default; the daemon enables it.
+    skill_ops_enabled: bool = False
     full_auto: bool = True
     skip_git_repo_check: bool = True
     dangerous_yolo: bool = False
@@ -160,13 +143,19 @@ class SkillLoop:
             matcher_model=self.config.resolved_matcher_model(),
             matcher_reasoning_effort=self.config.matcher_reasoning_effort,
         )
-        # Skill distillation reuses the engineer backend; there is no
-        # separate author agent.
-        self.distiller = Distiller(engineer_runner)
         self.engineer_mission = EngineerMission(
             self.skill_store, on_event=self.on_event
         )
         self.reviewer = Reviewer(self.reviewer_runner, skill_store=self.skill_store)
+        # The single front door to the skill library: selection (delegated to the
+        # role matcher) + validated CRUD (independence → mechanical → Manager
+        # generality/correctness gate). No role mutates skills directly.
+        self.skill_router = SkillRouter(
+            skill_store=self.skill_store,
+            matcher=self.engineer_mission,
+            judge_runner=self.reviewer_runner,
+            judge_model=self.config.resolved_reviewer_model(),
+        )
         self.supervised = SupervisedEngineer(
             engineer_runner=engineer_runner,
             reviewer=self.reviewer,
@@ -206,7 +195,7 @@ class SkillLoop:
 
         ``objective_for_skill`` is the *clean* operator objective, with
         no prelude / boilerplate / identity-card prefix. It is what the
-        skill matcher, the distiller, and ``task_history`` should see —
+        skill matcher and ``task_history`` should see —
         otherwise we end up indexing skills under "### Memory context"
         boilerplate (literally happened, see commit history).
         Falls back to ``task`` when not supplied for back-compat.
@@ -223,7 +212,7 @@ class SkillLoop:
         # from research/PIPELINE_STATE.json target_venue; EMNLP by default.
         from .skills.venue_profiles import venue_excluded_skill_files
 
-        match = self.engineer_mission.match(
+        match = self.skill_router.select(
             skill_task, extra_exclude=venue_excluded_skill_files(workdir)
         )
         matcher_tokens = match.input_tokens + match.output_tokens
@@ -241,7 +230,7 @@ class SkillLoop:
         # No proactive distill-on-miss: a missed match never authors a skill
         # pre-emptively (that minted a throwaway playbook for every trivial
         # task). Skill creation is now gated solely by the reviewer's
-        # ``skill_gap`` verdict on the OUTCOME — see Step 4c / _evolve_skill_from_failure.
+        # ``skill_gap`` verdict on the OUTCOME — see Step 4 / _apply_skill_ops.
 
         skill_text = render_skill_playbook(
             self.skill_store, primary_skills, reference_skills
@@ -283,58 +272,27 @@ class SkillLoop:
             scope=scope,
         )
 
-        # Step 4: learn from the OUTCOME. The loop only decides WHICH of three
-        # channels fires; the author (guided by the skill-authoring meta-skill)
-        # does the writing, and a change is kept ("入库") only when it proves
-        # EFFECTIVE — confirmed when a round carrying it gets a good reviewer
-        # verdict, discarded/reverted when it does not. The reviewer judges the
-        # ROUND's effect, never the skill text (judging text is worse than chance).
-        if status == "done" and skill is not None:
-            # 4a — a CANDIDATE skill that was reused and just succeeded has proved
-            # itself: confirm it (入库). Not on its BIRTH mission (skill_distilled):
-            # a fresh skill must prove on an independent later round.
-            if not skill_distilled and getattr(skill, "provisional", False):
-                try:
-                    if self.skill_store.confirm_provisional(skill):
-                        self._emit({"type": "skill.confirmed",
-                                    "text": f"confirmed {skill.name} — it proved effective"})
-                except Exception as exc:  # noqa: BLE001 — never break the loop
-                    log.warning("confirm_provisional failed (%s: %s)",
-                                type(exc).__name__, exc)
-            # 4b — ABSORB: fold the winning path into the skill. A content-revising
-            # writeback re-marks the skill provisional (the revision must re-prove).
-            if self.config.skill_writeback:
-                try:
-                    trajectory = self._summarize_trajectory(rounds)
-                    self.skill_store.writeback_from_trajectory(
-                        skill=skill,
-                        task_description=skill_task,
-                        successful_trajectory=trajectory,
-                        distiller=self.distiller if self.config.skill_revise_on_writeback else None,
-                        author_model=self.config.author_model,
-                        revise=self.config.skill_revise_on_writeback,
-                        on_event=self.on_event,
-                    )
-                    self._emit({"type": "skill.writeback",
-                                "text": f"absorbed the winning path into {skill.name} v{skill.version}"})
-                except Exception as exc:
-                    log.warning("skill writeback failed (%s: %s)", type(exc).__name__, exc)
-                    self._emit({"type": "skill.writeback.error",
-                                "text": f"writeback failed: {type(exc).__name__}"})
-
-        # 4c — on FAILURE: discard an unproven candidate that did not pan out, or
-        # (reviewer-attributed skill_gap) optimize the matched skill / create a
-        # missing one. The reviewer — not a status heuristic — decides whether the
-        # failure carries a fixable, reusable lesson vs a dead idea.
-        elif (
-            status in _REVISABLE_FAILURE_STATUSES
-            and self.config.skill_revise_on_failure
+        # Step 4: learn from the OUTCOME. The REVIEWER owns skill memory: it
+        # emits ``skill_ops`` per round (create/update PROPOSALS gated by the
+        # Manager generality-check; delete/archive applied directly). The loop
+        # only applies what the reviewer requested — there is no separate author.
+        # A matched CANDIDATE that just proved effective is confirmed ("入库");
+        # the provisional→confirm lifecycle still gates effectiveness.
+        if (
+            status == "done"
+            and skill is not None
+            and getattr(skill, "provisional", False)
         ):
-            self._evolve_skill_from_failure(
-                skill=skill,
-                skill_task=skill_task,
-                rounds=rounds,
-            )
+            try:
+                if self.skill_store.confirm_provisional(skill):
+                    self._emit({"type": "skill.confirmed",
+                                "text": f"confirmed {skill.name} — it proved effective"})
+            except Exception as exc:  # noqa: BLE001 — never break the loop
+                log.warning("confirm_provisional failed (%s: %s)",
+                            type(exc).__name__, exc)
+
+        if self.config.skill_ops_enabled:
+            self._apply_skill_ops(rounds=rounds, skill_task=skill_task)
 
         outcome = LoopOutcome(
             status=status,
@@ -680,156 +638,43 @@ class SkillLoop:
             return []
         return [str(item).strip() for item in collected if str(item).strip()]
 
-    @staticmethod
-    def _summarize_trajectory(rounds: list[RoundRecord]) -> str:
-        lines: list[str] = []
-        for r in rounds:
-            lines.append(f"### Round {r.round_index} (review={r.review.status}, conf={r.review.confidence:.2f})")
-            if r.engineer_message:
-                snippet = r.engineer_message.strip()
-                if len(snippet) > 800:
-                    snippet = snippet[:800] + "…"
-                lines.append(snippet)
-            for c in r.checks:
-                tag = "PASS" if c.passed else "FAIL"
-                lines.append(f"- [{tag}] `{c.command}` (exit={c.exit_code})")
-            if r.review.round_summary_markdown:
-                lines.append(r.review.round_summary_markdown.strip())
-            lines.append("")
-        return "\n".join(lines).strip()
-
     # ------------------------------------------------------------------
-    # Self-evolution from failure
+    # Reviewer-owned skill memory (applied at mission end from per-round ops)
     # ------------------------------------------------------------------
-    @staticmethod
-    def _find_reviewer_lesson(rounds: list[RoundRecord]) -> tuple[str, str] | None:
-        """Return the most recent reviewer-decided ``(lesson, cause)`` for a
-        fixable failure, or ``None`` when the reviewer attributed no fixable
-        ``skill_gap``.
-
-        We scan rounds back-to-front because the terminal round may merely be
-        a ``continue`` (e.g. a ``max_rounds`` stop) while the substantive
-        ``skill_gap`` postmortem — the corrected hyperparameter/config regime —
-        was authored a round or two earlier. The reviewer OWNS this decision:
-        we never synthesize a lesson from raw logs.
-        """
-        for rec in reversed(rounds or []):
-            review = getattr(rec, "review", None)
-            if review is None:
-                continue
-            cause = (getattr(review, "failure_cause", "") or "").strip()
-            lesson = (getattr(review, "mission_lesson", "") or "").strip()
-            if cause == "skill_gap" and lesson:
-                return lesson, cause
-        return None
-
-    def _evolve_skill_from_failure(
+    def _apply_skill_ops(
         self,
         *,
-        skill: Skill | None,
-        skill_task: str,
         rounds: list[RoundRecord],
+        skill_task: str,
     ) -> None:
-        """Reviewer-driven learning on a FAILED mission. The loop only routes:
+        """Hand the reviewer's per-round ``skill_ops`` (aggregated across the
+        mission) to the SkillRouter, which runs the validation pipeline
+        (independence → mechanical → Manager generality/correctness gate) and
+        applies create/update/archive. Best-effort — the router never raises."""
+        ops = self._collect_skill_ops(rounds)
+        if not ops:
+            return
+        self.skill_router.apply_ops(ops, task=skill_task, on_event=self.on_event)
 
-        * an unproven CANDIDATE that still failed -> it did not prove itself, so
-          discard it (revert a revision, delete a fresh skill).
-        * a matched (confirmed) skill + reviewer ``skill_gap`` lesson -> OPTIMIZE it
-          (the revision becomes a candidate that must re-prove).
-        * no skill + reviewer ``skill_gap`` lesson -> CREATE the missing skill as a
-          candidate.
-
-        The author (guided by the authoring meta-skill) does the writing; the
-        reviewer owns the IF — no ``skill_gap`` lesson means learn nothing (no
-        false-learning).
-        """
-        try:
-            # An unproven candidate carried into this round and still failed did
-            # not pan out -> drop it (revert a revision / delete a fresh skill).
-            if skill is not None and getattr(skill, "provisional", False):
-                outcome = self.skill_store.discard_provisional(skill, on_event=self.on_event)
-                if outcome != "noop":
-                    self._emit({"type": "skill.candidate.dropped",
-                                "text": f"{skill.name}: unproven candidate {outcome} "
-                                        f"(carried a failed round)"})
-                return
-
-            found = self._find_reviewer_lesson(rounds)
-            if found is None:
-                # No fixable skill_gap (method_failure / dead idea / environmental).
-                # Manufacture nothing — that is exactly the false-learning to avoid.
-                return
-            lesson, _cause = found
-
-            if skill is None:
-                self._create_skill_from_lesson(skill_task=skill_task, lesson=lesson)
-                return
-
-            # OPTIMIZE the matched (confirmed) skill: fold the lesson in. The
-            # revision becomes a candidate (provisional) that must re-prove.
-            updated = self.skill_store.promote_lesson(
-                skill=skill,
-                lesson_text=lesson,
-                task_description=skill_task,
-                distiller=self.distiller,
-                author_model=self.config.author_model,
-                on_event=self.on_event,
-            )
-            self._emit({
-                "type": "skill.optimized" if updated else "skill.optimize.rejected",
-                "text": (f"optimized {skill.name} -> v{skill.version} (candidate)"
-                         if updated else f"{skill.name}: author declined to revise"),
-            })
-        except Exception as exc:  # noqa: BLE001 — never break the loop
-            log.warning("skill self-evolution failed (%s: %s)", type(exc).__name__, exc)
-            self._emit({"type": "skill.lesson.error",
-                        "text": f"self-evolution failed: {type(exc).__name__}"})
-
-    def _create_skill_from_lesson(self, *, skill_task: str, lesson: str) -> None:
-        """No skill covered a mission that hit a fixable gap -> AUTHOR the missing
-        skill (guided by the authoring meta-skill) and persist it as a CANDIDATE
-        that must prove effective on a later round to be kept. Reached only via
-        ``_evolve_skill_from_failure`` (gated by ``skill_revise_on_failure`` + a
-        reviewer ``skill_gap`` lesson), so the reviewer owns the IF."""
-        augmented = (
-            f"{skill_task}\n\n"
-            f"A prior attempt at this objective FAILED and the reviewer diagnosed a "
-            f"FIXABLE skill/configuration gap (not a dead idea), with this lesson:\n\n"
-            f"{lesson}\n\n"
-            f"Author the missing capability playbook so a future agent avoids this gap."
-        )
-        try:
-            distill_result = self.distiller.distill(
-                task_description=augmented,
-                config=DistillerConfig(
-                    model=self.config.author_model,
-                    reasoning_effort=self.config.author_reasoning_effort,
-                    extra_args=self.config.extra_args,
-                    skip_git_repo_check=self.config.skip_git_repo_check,
-                    full_auto=self.config.full_auto,
-                ),
-                on_event=self.on_event,
-            )
-            raw = (distill_result.last_agent_message or "").strip()
-            if not raw:
-                self._emit({"type": "skill.lesson.error",
-                            "text": "create: author returned empty"})
-                return
-            new_skill = self.skill_store.save_distilled(
-                task_description=skill_task,
-                raw_distill_output=raw,
-                author_model=self.config.author_model,
-                on_event=self.on_event,
-                provisional=True,
-            )
-            if new_skill is not None:
-                self._emit({"type": "skill.created",
-                            "text": f"created candidate skill {new_skill.name} from a "
-                                    f"reviewer skill_gap lesson"})
-        except Exception as exc:  # noqa: BLE001 — never break the loop
-            log.warning("skill creation failed (%s: %s)", type(exc).__name__, exc)
-            self._emit({"type": "skill.lesson.error",
-                        "text": f"create failed: {type(exc).__name__}"})
+    @staticmethod
+    def _collect_skill_ops(rounds: list[RoundRecord]) -> list[dict]:
+        """Aggregate ``skill_ops`` across all rounds, de-duplicating identical
+        (op, name, content-prefix) requests the reviewer may repeat round to
+        round."""
+        seen: set[tuple] = set()
+        ops: list[dict] = []
+        for rec in rounds or []:
+            review = getattr(rec, "review", None)
+            for op in (getattr(review, "skill_ops", None) or []):
+                if not isinstance(op, dict):
+                    continue
+                key = (op.get("op"), op.get("name", ""),
+                       (op.get("content", "") or "")[:200])
+                if key in seen:
+                    continue
+                seen.add(key)
+                ops.append(op)
+        return ops
 
 
 __all__ = ["SkillLoop", "SkillLoopConfig"]

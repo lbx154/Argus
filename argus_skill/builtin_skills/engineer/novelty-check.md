@@ -3,7 +3,6 @@ name: Novelty Check
 description: Verify that a proposed method/idea has not already been done in recent literature. Extracts 3-5 core technical claims, searches arXiv / Semantic Scholar / OpenAlex per claim, and returns a verdict per claim with citations. Catches "I thought this was novel but it's Smith et al. 2024" before committing experiment budget.
 category: paper-ideation
 version: 1
-author_model: gpt-5.5
 created_at: 2026-06-01T00:00:00+00:00
 ---
 

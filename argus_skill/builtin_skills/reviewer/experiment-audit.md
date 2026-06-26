@@ -3,7 +3,6 @@ name: Experiment Audit
 description: Audit experiment integrity before claiming results. Uses cross-model review (reviewer route) to check for fake ground truth, score normalization fraud, phantom results, dead code, and insufficient scope. Run after experiments complete and before paper claims are written.
 category: reviewer
 version: 1
-author_model: gpt-5.5
 created_at: 2026-06-03T00:00:00+00:00
 source: ported from ARIS skills/experiment-audit/SKILL.md
 ---

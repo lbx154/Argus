@@ -36,7 +36,6 @@ _DEFAULT_IMAGE_REVIEW_MODEL = _DEFAULT_TEXT_MODEL
 _DEFAULT_ROUTE_MODELS = {
     "engineer": _DEFAULT_TEXT_MODEL,
     "reviewer": _DEFAULT_TEXT_MODEL,
-    "author": _DEFAULT_TEXT_MODEL,
     "planner": _DEFAULT_TEXT_MODEL,
     "text": _DEFAULT_TEXT_MODEL,
     "image": _DEFAULT_IMAGE_MODEL,
@@ -45,7 +44,6 @@ _DEFAULT_ROUTE_MODELS = {
 _ROUTE_FALLBACKS = {
     "engineer": ("engineer", "text", "default"),
     "reviewer": ("reviewer", "text", "default"),
-    "author": ("author", "text", "default"),
     "planner": ("planner", "reviewer", "text", "default"),
     "text": ("text", "default"),
     "image": ("image", "default"),
@@ -559,14 +557,6 @@ def save_model_api_grant(grant: ModelApiGrant, path: Path | None = None) -> Path
             provider=grant.provider,
             wire_api=grant.wire_api,
         ),
-        "author": ModelApiRoute(
-            name="author",
-            api_key=grant.api_key,
-            base_url=grant.base_url,
-            model=grant.text_models[-1] if grant.text_models else _DEFAULT_ROUTE_MODELS["author"],
-            provider=grant.provider,
-            wire_api=grant.wire_api,
-        ),
         "text": ModelApiRoute(
             name="text",
             api_key=grant.api_key,
@@ -659,7 +649,7 @@ def discover_model_api_routes(env: Mapping[str, str] | None = None) -> list[Mode
         )
     )
     routes: list[ModelApiRoute] = []
-    for route_name in ("engineer", "reviewer", "author", "planner", "text", "image", "image_review"):
+    for route_name in ("engineer", "reviewer", "planner", "text", "image", "image_review"):
         api_key, key_source = _route_env_value(source, route_name, "api_key")
         if not api_key:
             api_key = global_key
@@ -708,7 +698,7 @@ def bootstrap_model_api_vault(env: Mapping[str, str] | None = None) -> Path:
 def status_payload(env: Mapping[str, str]) -> dict[str, Any]:
     grant = load_model_api_grant(env)
     vault = default_vault_path(env)
-    route_names = ("engineer", "reviewer", "author", "text", "image", "image_review")
+    route_names = ("engineer", "reviewer", "text", "image", "image_review")
     routes: dict[str, dict[str, Any]] = {}
     for route_name in route_names:
         route = load_model_api_route(route_name, env)

@@ -81,6 +81,7 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
         failure_cause=_parse_failure_cause(parsed),
         mission_lesson=_parse_mission_lesson(parsed),
         process_lesson=_parse_process_lesson(parsed),
+        skill_ops=_parse_skill_ops(parsed),
     )
 
 
@@ -216,6 +217,38 @@ def _parse_checklist(parsed: dict) -> list[dict[str, Any]]:
             "evidence": str(entry.get("evidence", "")).strip(),
         })
     return items
+
+
+_VALID_SKILL_OPS = frozenset({"create", "update", "delete", "archive"})
+
+
+def _parse_skill_ops(parsed: dict) -> list[dict[str, Any]]:
+    """Reviewer-requested skill-memory operations for this round. Fail-soft:
+    any malformed entry is dropped, an unknown ``op`` is dropped, and a
+    non-list value yields ``[]`` so the loop simply applies nothing.
+
+    ``create``/``update`` MUST carry ``content`` (the playbook markdown);
+    ``delete``/``archive``/``update`` MUST carry ``name``. Entries missing the
+    field their op needs are dropped here so downstream never half-applies."""
+    raw = parsed.get("skill_ops")
+    if not isinstance(raw, list):
+        return []
+    ops: list[dict[str, Any]] = []
+    for entry in raw[:8]:
+        if not isinstance(entry, dict):
+            continue
+        op = str(entry.get("op", "")).strip().lower()
+        if op not in _VALID_SKILL_OPS:
+            continue
+        name = str(entry.get("name", "")).strip()[:200]
+        content = str(entry.get("content", "")).strip()[:12000]
+        why = str(entry.get("why", "")).strip()[:1000]
+        if op in {"create", "update"} and not content:
+            continue
+        if op in {"update", "delete", "archive"} and not name:
+            continue
+        ops.append({"op": op, "name": name, "content": content, "why": why})
+    return ops
 
 
 def _load_json(text: str) -> dict | None:

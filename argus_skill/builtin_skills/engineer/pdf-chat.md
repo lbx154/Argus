@@ -3,7 +3,6 @@ name: PDF Chat
 description: Read academic PDFs progressively (head → brief → section → page → full) instead of dumping the entire file into context. Use to inspect your own generated paper, read a related-work PDF, or do a reviewer-style re-read of main.pdf without burning the context window.
 category: research
 version: 1
-author_model: gpt-5.5
 created_at: 2026-06-03T00:00:00+00:00
 source: inspired by ARIS skills/deepxiv (no SDK dependency — self-contained pdftotext/pypdf)
 ---

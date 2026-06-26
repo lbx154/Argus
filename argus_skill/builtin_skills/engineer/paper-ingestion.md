@@ -3,7 +3,6 @@ name: Paper Ingestion
 description: Signal B (literature) handler for the self-evolve loop. Scans research/PAPERS/ for operator-dropped PDFs / arxiv IDs (or fetches a single one via --arxiv), extracts method, code repo, and evaluation benchmark per paper, dedups proposed methods against existing skills, and writes ranked entries to research/IDEA_CANDIDATES.md so the standard idea-discovery / idea-creator / novelty-check / kill-argument pipeline picks them up. Optional follow-up: if a paper's method is high-novelty AND has a public benchmark, route to mint-skill to wrap the method as a new skill validated against the paper's reported number.
 category: self-evolve
 version: 1
-author_model: gpt-5.5
 created_at: 2026-06-01T00:00:00+00:00
 ---
 

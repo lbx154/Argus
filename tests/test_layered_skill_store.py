@@ -33,7 +33,6 @@ def _make_skill(name: str, description: str = "", category: str = "x") -> Skill:
         category=category,
         content=f"## When to use\n- {category} tasks\n\n## How to solve\n- step 1\n",
         version=1,
-        author_model="test",
         created_at="2026-05-03T00:00:00+00:00",
     )
 
@@ -135,7 +134,6 @@ def test_save_distilled_lands_in_project_by_default(tmp_path: Path) -> None:
     skill = layered.save_distilled(
         task_description="say hi to the user",
         raw_distill_output=raw,
-        author_model="test",
         enforce_quality_gate=False,
     )
     assert skill is not None
@@ -153,20 +151,6 @@ def test_save_dispatches_to_existing_layer(tmp_path: Path) -> None:
     assert layered.layer_for_skill(reloaded) == LAYER_GLOBAL
     assert "new note" in reloaded.content
     assert layered.layer_summaries(LAYER_PROJECT) == []
-
-
-def test_writeback_dispatches_to_owning_layer(tmp_path: Path) -> None:
-    layered = _layered(tmp_path)
-    g = _write(layered.global_, "matcher-flow")
-    layered.writeback_from_trajectory(
-        skill=g,
-        task_description="resolve flake via monotonic clock",
-        successful_trajectory="ran tests, all green",
-    )
-    reloaded = layered.load(g.path)
-    assert reloaded.task_history  # history was appended
-    # And the skill stayed in global.
-    assert layered.layer_for_path(g.path) == LAYER_GLOBAL
 
 
 def test_update_skill_dispatches_to_owning_layer(tmp_path: Path) -> None:

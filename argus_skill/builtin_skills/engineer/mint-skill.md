@@ -3,7 +3,6 @@ name: Mint Skill
 description: Auto-evolve loop — when a mission's trajectory shows the agent tried to use a tool that didn't exist, the supervisor enqueues a mint-skill mission targeted at that missing tool. The engineer (this skill) writes a candidate skill markdown + executable script + ≥3 held-out fixtures, runs the validator, and iterates until the held-out gate passes. Never mints judgment skills (reviewer / kill-argument / novelty-check etc. are blacklisted because SkillLens says LLM judges of skill text are 46.4% worse than chance — only execution-measurable skills can be safely auto-minted).
 category: self-evolve
 version: 1
-author_model: gpt-5.5
 created_at: 2026-06-01T00:00:00+00:00
 ---
 
@@ -147,7 +146,6 @@ name: <Human Skill Name>
 description: <one-line contract from Step 2>
 category: self-evolve-minted
 version: 1
-author_model: gpt-5.5
 created_at: <iso ts>
 ---
 

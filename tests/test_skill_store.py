@@ -15,7 +15,6 @@ def _write_skill(skills_dir: Path, name: str, description: str, category: str) -
         category=category,
         content=f"## When to use\n- {category} tasks\n\n## How to solve\n- step 1\n",
         version=1,
-        author_model="test",
         created_at="2026-05-03T00:00:00+00:00",
     )
     SkillStore(skills_dir).save(skill)
@@ -92,7 +91,6 @@ def test_save_distilled_extracts_name_and_description(tmp_path: Path) -> None:
     skill = store.save_distilled(
         task_description="set up an nginx site",
         raw_distill_output=raw,
-        author_model="gpt-5.4",
         enforce_quality_gate=False,
     )
     assert skill is not None

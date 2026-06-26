@@ -3,7 +3,6 @@ name: EMNLP Paper Drafting
 description: Draft an EMNLP or ACL-style LaTeX paper from local research artifacts, figures, and claims-evidence tables while preserving anti-fabrication discipline.
 category: paper-writing
 version: 1
-author_model: gpt-5.5
 created_at: 2026-05-23T00:00:00+00:00
 ---
 

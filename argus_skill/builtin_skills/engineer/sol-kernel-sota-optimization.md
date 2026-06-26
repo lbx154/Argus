@@ -3,7 +3,6 @@ name: SOL Kernel SOTA Optimization
 description: A senior-researcher methodology for KernelBench/SOL-ExecBench GPU kernel optimization — the machine as throughputs+latencies, the bottleneck taxonomy, counter-free diagnosis by micro-benchmark isolation (when ncu is locked), an optimization toolkit ordered by leverage (algorithm first, micro-opts last), the Hopper/Blackwell pattern library, operator→bottleneck→structure priors, and the experimental discipline. Distilled human expertise to learn, not a kernel to copy.
 category: benchmark-kernel-optimization
 version: 4
-author_model: gpt-5.5
 created_at: 2026-06-17T00:00:00+00:00
 ---
 

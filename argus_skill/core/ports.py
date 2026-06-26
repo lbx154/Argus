@@ -66,17 +66,7 @@ class SkillSource(Protocol):
         *,
         task_description: str,
         raw_distill_output: str,
-        author_model: str,
     ) -> Any:
-        ...
-
-    def writeback_from_trajectory(
-        self,
-        *,
-        skill: Any,
-        task_description: str,
-        successful_trajectory: str,
-    ) -> None:
         ...
 
 

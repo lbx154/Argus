@@ -3,7 +3,6 @@ name: Idea Discovery
 description: Systematically mine recent literature for a real research gap before committing to an experiment plan. Searches arXiv / Semantic Scholar / OpenAlex / ACL Anthology, clusters trends, identifies measured-and-confirmed phenomena that nobody has yet given a mechanism for, and writes IDEA_CANDIDATES.md ranked by novelty × tractability. Train-free; the gap-discovery itself runs purely on inference + literature lookup.
 category: paper-ideation
 version: 1
-author_model: gpt-5.5
 created_at: 2026-06-01T00:00:00+00:00
 ---
 

@@ -3,7 +3,6 @@ name: EMNLP Academic Language Review
 description: Score and revise an EMNLP/ACL paper for academic prose, narrative framing, and claim calibration before final layout review.
 category: paper-review
 version: 1
-author_model: gpt-5.5
 created_at: 2026-05-25T00:00:00+00:00
 ---
 

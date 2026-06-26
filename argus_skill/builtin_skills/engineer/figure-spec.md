@@ -3,7 +3,6 @@ name: Figure Spec (deterministic SVG)
 description: Generate publication-quality architecture, workflow, pipeline, and audit-cascade diagrams as editable vector SVG from a structured JSON spec. Deterministic — same spec produces byte-identical SVG. Preferred over AI image generation for formal architecture/workflow figures where edit-ability and reproducibility matter; use paper-illustration-image2 (gpt-image-2) for teasers/conceptual figures that should look painterly.
 category: paper-figures
 version: 1
-author_model: gpt-5.5
 created_at: 2026-06-01T00:00:00+00:00
 ---
 

@@ -39,7 +39,6 @@ from typing import Any, Callable, Iterable
 DEFAULT_REQUIRED_ROUTES: tuple[str, ...] = (
     "engineer",
     "reviewer",
-    "author",
     "text",
 )
 # Optional routes — checked if vault has them, but absence is OK.
@@ -286,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
         "--required",
         nargs="*",
         default=list(DEFAULT_REQUIRED_ROUTES),
-        help="routes that must succeed (default: engineer reviewer author text)",
+        help="routes that must succeed (default: engineer reviewer text)",
     )
     parser.add_argument(
         "--optional",

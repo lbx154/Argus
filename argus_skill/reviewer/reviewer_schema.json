@@ -136,6 +136,22 @@
         }
       },
       "required": ["goal", "done", "tried_and_failed", "maturing", "open_blocker", "next_step", "active_line", "env_facts"]
+    },
+    "skill_ops": {
+      "type": ["array", "null"],
+      "maxItems": 8,
+      "description": "OPTIONAL — skill-memory operations warranted by THIS round (success OR failure). create/update PROPOSE a reusable capability playbook (markdown) that a Manager generality-gate must approve before it is stored; delete/archive retire a matched skill you found wrong or harmful. Omit or use [] when this round warrants no skill change.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "op": { "type": "string", "enum": ["create", "update", "delete", "archive"] },
+          "name": { "type": "string", "maxLength": 200 },
+          "content": { "type": "string", "maxLength": 12000 },
+          "why": { "type": "string", "maxLength": 1000 }
+        },
+        "required": ["op"]
+      }
     }
   },
   "required": [

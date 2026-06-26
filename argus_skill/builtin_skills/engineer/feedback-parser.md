@@ -3,7 +3,6 @@ name: Feedback Parser
 description: Signal C (user feedback) handler for the self-evolve loop. Reads operator messages from inbox.jsonl (written by `argus-skill --notify`), classifies each into directive / question / nudge / STOP / praise, extracts the structured intent for directives ("for X use Y" → patch target skill), and either edits an existing skill (L1 polish) or routes to mint-skill (L2 new). Records "feedback already absorbed" stamps so the planner doesn't keep re-applying the same operator message; validation is "operator did not repeat the same nudge in next mission".
 category: self-evolve
 version: 1
-author_model: gpt-5.5
 created_at: 2026-06-01T00:00:00+00:00
 ---
 

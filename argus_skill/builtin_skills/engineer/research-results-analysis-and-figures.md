@@ -3,7 +3,6 @@ name: Research Results Analysis And Figures
 description: Turn raw experiment outputs into paper-ready tables, plots, failure taxonomies, and a claims-evidence matrix without inventing missing numbers.
 category: research-analysis
 version: 1
-author_model: gpt-5.5
 created_at: 2026-05-23T00:00:00+00:00
 ---
 

@@ -3,7 +3,6 @@ name: Skill Authoring Guide
 description: Meta-skill that guides the author when it AUTHORS a new skill (no skill matched a mission that hit a fixable gap) or OPTIMIZES an existing one (a matched skill was used but a problem remained). Encodes what a good skill is, how to generalize a single mission's lesson into reusable expertise, the quality bar, and the anti-false-learning rules. The loop decides WHEN; this guide governs HOW.
 category: self-evolve
 version: 1
-author_model: gpt-5.5
 created_at: 2026-06-18T00:00:00+00:00
 ---
 

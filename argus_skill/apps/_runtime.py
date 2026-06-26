@@ -873,12 +873,8 @@ class _SkillLoopRunner:
             ),
             "max_rounds": args.max_rounds,
             "check_commands": list(getattr(args, "check_commands", []) or []),
-            "skill_writeback": _env_flag(
-                "ARGUS_SKILL_SKILL_WRITEBACK",
-                default=True,
-            ),
-            "skill_revise_on_failure": _env_flag(
-                "ARGUS_SKILL_SKILL_REVISE_ON_FAILURE",
+            "skill_ops_enabled": _env_flag(
+                "ARGUS_SKILL_SKILL_OPS",
                 default=True,
             ),
             "dangerous_yolo": not safe_mode,

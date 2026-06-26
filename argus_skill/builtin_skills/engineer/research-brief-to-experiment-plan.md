@@ -3,7 +3,6 @@ name: Research Brief To Experiment Plan
 description: Convert an operator research seed into a literature/code-derived idea and falsifiable experiment plan with hypotheses, baselines, metrics, budgets, and artifact contracts.
 category: research-planning
 version: 1
-author_model: gpt-5.5
 created_at: 2026-05-23T00:00:00+00:00
 ---
 

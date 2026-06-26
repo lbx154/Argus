@@ -3,7 +3,6 @@ name: Speedrun SOTA Optimization
 description: A senior-researcher methodology for training-speedrun benchmarks (modded-nanogpt / NanoGPT-speedrun and kin) — minimize wall-clock to a fixed quality target under a statistical validity gate. Opens with a research-first discipline (you are knowledge-limited: retrieve, reproduce, and corroborate the concrete prior art before you build — invention is recombination, and frontier agents measurably fail to re-implement known gains) and a named technique menu to search for. Then: the training run as steps x per-step-cost, the bottleneck taxonomy (convergence-bound vs step-cost-bound vs comms-bound vs precision-stability-bound), where-does-the-wall-clock-go diagnosis, the statistical-validity discipline (N=3 iterate / N=10 certify / bank-the-floor / stack-don't-revert / quality-vs-power), an optimization toolkit ordered by leverage (optimizer & schedule first, kernels & precision last), the optimizer/architecture prior library, and the experimental discipline. Distilled human expertise to learn, not a recipe to copy.
 category: benchmark-training-speedrun
 version: 2
-author_model: gpt-5.5
 created_at: 2026-06-18T00:00:00+00:00
 ---
 

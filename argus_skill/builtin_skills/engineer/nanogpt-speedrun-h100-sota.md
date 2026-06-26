@@ -3,7 +3,6 @@ name: NanoGPT Speedrun H100 SOTA
 description: Playbook for Recursive Task 2 / NanoGPT speedrun on 8×H100: use the frozen scorer, preserve environment parity, maintain a certified global-best floor, run basin-hopping/co-tuning experiments, and document real verifier results toward SOTA.
 category: benchmark-training-speedrun
 version: 1
-author_model: gpt-5.5
 created_at: 2026-06-17T00:00:00+00:00
 ---
 

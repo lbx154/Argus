@@ -46,8 +46,6 @@ def test_skill_loop_defaults_use_high_reasoning_effort() -> None:
     assert config.engineer_model == "gpt-5.5"
     assert config.engineer_reasoning_effort == "high"
     assert config.matcher_reasoning_effort == "high"
-    assert config.author_model == "gpt-5.5"
-    assert config.author_reasoning_effort == "high"
     assert config.reviewer_reasoning_effort == "high"
 
 
@@ -78,7 +76,6 @@ def _seed_skill(skills_dir: Path, *, provisional: bool = False) -> None:
     store.save_distilled(
         task_description="say hi to the user",
         raw_distill_output=SKILL_MD,
-        author_model="memory",
         provisional=provisional,
     )
 
@@ -110,7 +107,7 @@ def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
         skills_dir=skills_dir,
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=4, skill_writeback=True),
+        config=SkillLoopConfig(max_rounds=4),
     )
     outcome = loop.run("say hi to the user", workdir=tmp_path)
 
@@ -216,7 +213,6 @@ def test_render_skill_playbook_injects_all_high_fit_skills(tmp_path: Path) -> No
             category="demo",
             content="## When to use\n- demo tasks\n\n## How to solve\n- step 1\n",
             version=1,
-            author_model="test",
             created_at="2026-05-03T00:00:00+00:00",
         )
 

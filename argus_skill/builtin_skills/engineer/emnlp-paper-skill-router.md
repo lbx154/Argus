@@ -3,7 +3,6 @@ name: EMNLP Paper Skill Router
 description: Route EMNLP/ACL paper repair work to the right built-in skill without duplicating long paper, citation, figure, evidence, and validation rules.
 category: skill-routing
 version: 1
-author_model: gpt-5.5
 created_at: 2026-05-26T00:00:00+00:00
 ---
 

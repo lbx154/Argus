@@ -3,7 +3,6 @@ name: AAAI Paper Drafting
 description: Draft an AAAI-2026 two-column LaTeX paper (aaai2026.sty) from local research artifacts, figures, and claims-evidence tables while preserving anti-fabrication discipline.
 category: paper-writing
 version: 1
-author_model: gpt-5.5
 created_at: 2026-06-14T00:00:00+00:00
 ---
 

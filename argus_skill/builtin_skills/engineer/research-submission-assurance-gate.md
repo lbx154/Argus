@@ -3,7 +3,6 @@ name: Research Submission Assurance Gate
 description: Decide whether a research draft can be called EMNLP/ACL submission-ready by checking experiment integrity, result-to-claim support, paper claims, citations, prose quality, layout, strongest rejection arguments, and package completeness.
 category: research-audit
 version: 1
-author_model: gpt-5.5
 created_at: 2026-05-23T00:00:00+00:00
 ---
 

@@ -135,7 +135,6 @@ class Skill:
     category: str
     content: str
     version: int = 1
-    author_model: str = ""
     created_at: str = ""
     task_history: list[str] = field(default_factory=list)
     path: str = ""
@@ -163,7 +162,6 @@ class Skill:
             f"description: {self.description}\n"
             f"category: {self.category}\n"
             f"version: {self.version}\n"
-            f"author_model: {self.author_model}\n"
             f"created_at: {self.created_at}\n"
             f"{provisional_lines}"
             f"{history}"
@@ -200,7 +198,6 @@ class Skill:
             category=_get("category"),
             content=content,
             version=_parse_skill_version(_get("version")),
-            author_model=_get("author_model") or _get("scientist_model"),
             created_at=_get("created_at"),
             task_history=history,
             path=path,
@@ -367,16 +364,15 @@ class SkillStore:
         *,
         task_description: str,
         raw_distill_output: str,
-        author_model: str,
         on_event: "Callable[[dict], None] | None" = None,
         enforce_quality_gate: bool = True,
         provisional: bool = False,
     ) -> "Skill | None":
-        """Parse the raw author output and persist it.
+        """Parse the reviewer-authored skill markdown and persist it.
 
         We do NOT gate on the skill TEXT: judging a skill's prose is worse than
         chance (SkillLens), so quality is proven by EFFECT instead — a freshly
-        distilled skill is born ``provisional`` and is only confirmed (kept) when
+        created skill is born ``provisional`` and is only confirmed (kept) when
         a later round that carries it gets an effective reviewer verdict; an
         ineffective one is discarded. ``enforce_quality_gate`` is accepted for
         backward compatibility but ignored.
@@ -386,7 +382,7 @@ class SkillStore:
             if on_event is not None:
                 try:
                     on_event({"type": "skill.distill.rejected",
-                              "text": "distiller returned empty content"})
+                              "text": "skill proposal had empty content"})
                 except Exception:  # noqa: BLE001
                     log.debug("skill.distill.rejected emit failed", exc_info=True)
             return None
@@ -396,7 +392,6 @@ class SkillStore:
             category=category,
             content=content,
             version=1,
-            author_model=author_model,
             created_at=datetime.now(timezone.utc).isoformat(),
             task_history=[],
             provisional=bool(provisional),
@@ -405,77 +400,55 @@ class SkillStore:
         self.save(skill)
         return skill
 
-    def writeback_from_trajectory(
+    def update_skill_content(
         self,
-        *,
         skill: Skill,
-        task_description: str,
-        successful_trajectory: str,
-        distiller: "Any | None" = None,
-        author_model: str = "",
-        revise: bool = False,
+        new_markdown: str,
+        *,
+        task_desc: str = "",
         on_event: "Callable[[dict], None] | None" = None,
-    ) -> None:
-        """Append task to history; optionally have the author revise.
-
-        Default behavior (``revise=False``) is the legacy v0.1 path:
-        history-append + timestamp refresh, no markdown edits.
-
-        When ``revise=True`` and ``distiller`` is provided, the author
-        is asked (via :meth:`Distiller.revise`) to produce a revised
-        playbook that integrates the successful trajectory. On a
-        successful parse the new content replaces ``skill.content`` and
-        ``skill.version`` is bumped. On any failure (LLM error, parse
-        miss, oversize) we fall back to the legacy history-only path so
-        the writeback never crashes the hot path.
-        """
+    ) -> "Skill | None":
+        """Replace a skill's body with reviewer-authored revised markdown (NO LLM
+        call). The revision is a CANDIDATE: snapshot the last-confirmed version so
+        an ineffective revision can be reverted, bump the version, and re-mark
+        ``provisional`` so it must prove effective again. Returns the updated
+        skill, or ``None`` on a malformed/empty proposal."""
         if not skill.path:
-            return
+            return None
+        _name, description, _category, content = Prompts.parse_skill_output(new_markdown)
+        content = content if (content or "").strip() else (new_markdown or "")
+        if len(content.strip()) < 100:
+            return None
+        snap = self._prev_snapshot_path(skill)
+        if snap is not None and not skill.provisional and not snap.exists():
+            try:
+                snap.write_text(skill.render(), encoding="utf-8")
+            except OSError as snap_exc:
+                log.warning("update: cannot write revert snapshot (%s); aborting "
+                            "to protect the confirmed skill", snap_exc)
+                return None
+        self.update_skill(skill, content, task_desc)
+        if description.strip():
+            skill.description = description.strip()
+        skill.provisional = True
+        self.save(skill)
+        if on_event is not None:
+            on_event({"type": "skill.revised", "skill": skill.name,
+                      "version": skill.version,
+                      "text": f"{skill.name} → v{skill.version} (reviewer update)"})
+        return skill
 
-        revised_ok = False
-        if revise and distiller is not None:
-            revised_ok = self._revise_via_distiller(
-                skill=skill,
-                task_description=task_description,
-                change_kind="success_trajectory",
-                evidence=successful_trajectory or "",
-                distiller=distiller,
-                author_model=author_model,
-                on_event=on_event,
-            )
-
-        if not revised_ok:
-            append_task_history(skill, task_description)
-            skill.created_at = datetime.now(timezone.utc).isoformat()
-            self.save(skill)
-
-    def promote_lesson(
-        self,
-        *,
-        skill: Skill,
-        lesson_text: str,
-        task_description: str,
-        distiller: "Any",
-        author_model: str = "",
-        on_event: "Callable[[dict], None] | None" = None,
-    ) -> bool:
-        """Auto-merge a reviewer-emitted lesson into the skill markdown.
-
-        Returns ``True`` if the markdown was updated and version bumped,
-        ``False`` if the revise call failed and the skill was left
-        untouched. Best-effort: never raises.
-        """
-        if not skill.path or not (lesson_text or "").strip():
-            return False
-        return self._revise_via_distiller(
-            skill=skill,
-            task_description=task_description,
-            change_kind="failure_lesson",
-            evidence=lesson_text,
-            distiller=distiller,
-            author_model=author_model,
-            on_event=on_event,
-        )
+    def archive(self, skill: Skill) -> "Path | None":
+        """Retire a skill (move it to ``skills/_archive/``) and clear caches.
+        The reviewer's direct authority to remove a wrong/harmful playbook.
+        Returns the archived path, or ``None`` when nothing was moved."""
+        if not skill.path:
+            return None
+        from .lifecycle import archive_skill  # local import: avoid cycle
+        archived = archive_skill(skill.path)
+        self._summary_cache.pop(str(skill.path), None)
+        self._match_cache.clear()
+        return archived
 
     # ------------------------------------------------------------------
     # Provisional (candidate) lifecycle — a skill change is proven by EFFECT:
@@ -551,85 +524,6 @@ class SkillStore:
             log.warning("discard_provisional failed (%s: %s)", type(exc).__name__, exc)
             return "noop"
 
-
-    def _revise_via_distiller(
-        self,
-        *,
-        skill: Skill,
-        task_description: str,
-        change_kind: str,
-        evidence: str,
-        distiller: "Any",
-        author_model: str,
-        on_event: "Callable[[dict], None] | None",
-    ) -> bool:
-        from .skill_author import DistillerConfig  # local import: avoid cycle
-        try:
-            cfg = DistillerConfig(
-                model=author_model or skill.author_model or "gpt-5.5",
-                reasoning_effort="high",
-                skip_git_repo_check=True,
-                full_auto=True,
-            )
-            result = distiller.revise(
-                old_skill_md=skill.render(),
-                task_description=task_description,
-                change_kind=change_kind,
-                evidence=evidence,
-                config=cfg,
-                on_event=on_event,
-            )
-            raw = (result.last_agent_message or "").strip()
-            if not raw:
-                return False
-            name, description, category, content = Prompts.parse_skill_output(raw)
-            # Sanity gate: refuse pathological revisions that would
-            # destroy matchability.
-            if not content.strip() or len(content) < 200:
-                log.warning("revise produced empty/tiny content (%d chars); rejecting.",
-                            len(content))
-                return False
-            new_content = content if content.lstrip().startswith("#") else raw
-            # The revision is a CANDIDATE: snapshot the last-confirmed version so
-            # an ineffective revision can be reverted, then mark provisional so it
-            # must prove effective (reviewer verdict next round) before it sticks.
-            snap = self._prev_snapshot_path(skill)
-            if snap is not None and not skill.provisional and not snap.exists():
-                try:
-                    snap.write_text(skill.render(), encoding="utf-8")
-                except OSError as snap_exc:
-                    # Without a revert snapshot we must NOT overwrite a confirmed
-                    # skill — a later failed revision would be archived with nothing
-                    # to restore. Abort the revision; the confirmed skill stays
-                    # intact (writeback falls back to history-only append).
-                    log.warning("revise: cannot write revert snapshot (%s); aborting "
-                                "revision to protect the confirmed skill", snap_exc)
-                    return False
-            # Preserve identity unless the author explicitly proposed
-            # rename + we accept it (we do not, in v0.2).
-            self.update_skill(skill, new_content, task_description)
-            if author_model:
-                skill.author_model = author_model
-            skill.provisional = True
-            self.save(skill)
-            if on_event:
-                on_event({
-                    "type": "skill.revised",
-                    "text": f"{skill.name} → v{skill.version} ({change_kind})",
-                    "skill": skill.name,
-                    "version": skill.version,
-                    "change_kind": change_kind,
-                })
-            return True
-        except Exception as exc:  # noqa: BLE001 — best-effort
-            log.warning("skill revise (%s) failed: %s: %s",
-                        change_kind, type(exc).__name__, exc)
-            if on_event:
-                on_event({
-                    "type": "skill.revise.error",
-                    "text": f"{change_kind}: {type(exc).__name__}",
-                })
-            return False
 
     # ------------------------------------------------------------------
     # Matching

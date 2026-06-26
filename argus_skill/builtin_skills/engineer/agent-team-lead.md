@@ -3,7 +3,6 @@ name: Agent Team Lead
 description: How the engineer acts as a team lead — decompose a mission into file-disjoint subtasks, spawn self-looping teammate engineers, coordinate via a shared task board and mailbox, then synthesize and gate the merged result.
 category: role-identity
 version: 1
-author_model: gpt-5.5
 created_at: 2026-06-17T00:00:00+00:00
 ---
 

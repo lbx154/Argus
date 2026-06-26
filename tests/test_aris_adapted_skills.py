@@ -77,11 +77,6 @@ def test_aris_adapted_skills_are_present(skill_path: str, expected_name: str) ->
     fm = _parse_frontmatter(md.read_text(encoding="utf-8"))
     assert fm is not None
     assert fm["name"] == expected_name
-    # author_model must be 5.5 (matches the rest of the bundle's standard)
-    assert fm.get("author_model") == "gpt-5.5", (
-        f"{skill_path}: author_model should be gpt-5.5, "
-        f"got {fm.get('author_model')!r}"
-    )
 
 
 def test_figure_renderer_script_is_present_and_importable() -> None:

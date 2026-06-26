@@ -3,7 +3,6 @@ name: Agent Research Benchmark Runner
 description: Run agent-research benchmark experiments reproducibly, including baselines, ablations, manifests, logs, cost fields, and resumable background status files.
 category: research-experiments
 version: 1
-author_model: gpt-5.5
 created_at: 2026-05-23T00:00:00+00:00
 ---
 

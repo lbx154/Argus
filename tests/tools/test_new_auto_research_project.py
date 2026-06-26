@@ -127,8 +127,8 @@ def test_rendered_agents_md_has_no_stale_validator_or_critic_prose() -> None:
     for phrase in forbidden:
         assert phrase not in rendered, f"stale prose leaked into AGENTS.md: {phrase!r}"
 
-    # The live skill distiller/compaction modules are still referenced.
-    assert "skills/skill_author.py" in rendered
+    # The live skill-memory modules are still referenced.
+    assert "skills/skill_router.py" in rendered
     assert "skills/compaction.py" in rendered
     # The completion contract is described in reviewer-certification terms.
     assert "scope: final_submission" in rendered
