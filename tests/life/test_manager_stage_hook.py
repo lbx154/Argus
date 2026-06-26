@@ -57,7 +57,6 @@ def _runner_with(backend) -> _SkillLoopRunner:  # noqa: ANN001
 def _review(status: str = "done") -> ReviewDecision:
     return ReviewDecision(
         status=status,  # type: ignore[arg-type]
-        confidence=0.9,
         reason="checklist satisfied",
         next_action="advance",
         planner_report={"forward_progress": True, "headline": "done"},

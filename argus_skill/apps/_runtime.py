@@ -553,7 +553,6 @@ class _MemoryRunner:
             "type": "round.review.completed",
             "round_index": 1,
             "status": "done",
-            "confidence": 1.0,
             "reason": "memory backend: synthetic acknowledgement",
             "next_action": "",
             "input_tokens": 100,

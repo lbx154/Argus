@@ -210,7 +210,6 @@ class Reviewer:
             )
             return ReviewDecision(
                 status="blocked",
-                confidence=0.0,
                 reason=reason,
                 next_action=(
                     "Restore the reviewer schema at that path, or restart the "
@@ -261,7 +260,6 @@ class Reviewer:
             log.exception("reviewer runner raised")
             return ReviewDecision(
                 status="blocked",
-                confidence=0.0,
                 reason=msg,
                 next_action="Resolve the reviewer runner failure before retrying.",
                 round_summary_markdown=f"# Review Summary\n\n- {msg}\n",
@@ -283,7 +281,6 @@ class Reviewer:
                 )
                 return ReviewDecision(
                     status="blocked",
-                    confidence=0.0,
                     reason=reason,
                     next_action=(
                         "Reviewer backend died before any verdict — do NOT treat "
@@ -301,7 +298,6 @@ class Reviewer:
                 )
             return ReviewDecision(
                 status="continue",
-                confidence=0.0,
                 reason=f"Reviewer returned empty output. exit={result.exit_code}",
                 next_action="Continue implementation and provide concrete completed work.",
                 round_summary_markdown="# Review Summary\n\n- Reviewer returned empty output.\n",
@@ -313,7 +309,6 @@ class Reviewer:
         if parsed is None:
             return ReviewDecision(
                 status="continue",
-                confidence=0.0,
                 reason="Reviewer output was not valid JSON.",
                 next_action="Continue implementation and include clear completion evidence.",
                 round_summary_markdown="# Review Summary\n\n- Reviewer output was not valid JSON.\n",
@@ -708,7 +703,6 @@ class Reviewer:
             "  the engineer needs — do NOT summarize away critical information\n\n"
             "Required keys of the FINAL handoff JSON object:\n"
             "- status\n"
-            "- confidence\n"
             "- reason\n"
             "- next_action\n"
             "- round_summary_markdown\n"

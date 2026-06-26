@@ -20,7 +20,6 @@ from argus_skill.core.models import ReviewDecision
 def _full_review() -> ReviewDecision:
     return ReviewDecision(
         status="continue",
-        confidence=0.93,
         reason="Acceptance check failed on BibTeX entries.",
         next_action="Add real BibTeX from Semantic Scholar before rerunning.",
         round_summary_markdown="- evidence: jq OK\n- blocker: BibTeX missing\n",
@@ -54,12 +53,12 @@ def _full_review() -> ReviewDecision:
 def test_to_event_payload_forwards_every_structured_field() -> None:
     review = _full_review()
     payload = review.to_event_payload(round_index=2, round_max=5,
-                                      text="review: continue (conf=0.93)")
+                                      text="review: continue")
 
-    # Type + the 6 fields runner.py historically forwarded.
+    # Type + the structured fields runner.py forwards.
     assert payload["type"] == "round.review.completed"
     assert payload["status"] == "continue"
-    assert payload["confidence"] == 0.93
+    assert "confidence" not in payload
     assert payload["round_summary_markdown"].startswith("- evidence:")
     assert payload["completion_summary_markdown"] == "Mission not complete."
     assert payload["failure_cause"] == "skill_gap"
@@ -91,7 +90,7 @@ def test_to_event_payload_handles_empty_synthesized_verdict() -> None:
     empty structured fields and zero tokens. Helper must not crash and
     must emit consistent shape so consumers can rely on keys existing."""
     review = ReviewDecision(
-        status="error", confidence=0.0,
+        status="error",
         reason="daemon stop", next_action="",
     )
     payload = review.to_event_payload(
@@ -117,7 +116,7 @@ def test_to_event_payload_extras_can_override_helpers_but_not_lose_data() -> Non
     assert payload["round_index"] == 2
     # All reviewer fields still there.
     for k in (
-        "status", "confidence", "checklist", "planner_report",
+        "status", "checklist", "planner_report",
         "mission_lesson", "scope", "checkpoint", "verification_summary",
     ):
         assert k in payload

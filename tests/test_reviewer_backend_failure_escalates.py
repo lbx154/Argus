@@ -5,7 +5,7 @@ On 2026-06-25 a refactor ``git mv``'d ``reviewer_schema.json`` out from under a
 running daemon. The daemon held the import-time schema path in memory, so every
 reviewer round handed codex a now-missing ``--output-schema`` file; codex exited
 1 "before turn completion". The reviewer's no-output branch returned
-``status="continue"`` (confidence 0.0), so the supervised loop ran the SOLE
+``status="continue"``, so the supervised loop ran the SOLE
 completion gate BLIND for ~1.5h (27 rounds, ~$8) with no real review — the
 opposite of the operator's "reviewer is the single source of truth" contract.
 
@@ -72,7 +72,6 @@ def test_backend_death_is_blocked_not_continue() -> None:
     assert decision.status == "blocked"
     assert decision.status != "continue"
     assert decision.backend_unavailable is True
-    assert decision.confidence == 0.0
     assert decision.failure_cause == "environmental"
 
 
@@ -136,7 +135,6 @@ class _DeadBackendReviewer:
         self.calls += 1
         return ReviewDecision(
             status="blocked",
-            confidence=0.0,
             reason=(
                 "Reviewer backend returned no output (exit=1, fatal_error="
                 "Process exited with code 1 before turn completion)."
@@ -204,7 +202,6 @@ def test_loop_recovers_when_reviewer_backend_comes_back(tmp_path: Path) -> None:
             if self.calls == 1:
                 return ReviewDecision(
                     status="blocked",
-                    confidence=0.0,
                     reason="transient backend blip",
                     next_action="retry",
                     failure_cause="environmental",
@@ -212,7 +209,6 @@ def test_loop_recovers_when_reviewer_backend_comes_back(tmp_path: Path) -> None:
                 )
             return ReviewDecision(
                 status="done",
-                confidence=0.95,
                 reason="objective met",
                 next_action="none",
             )

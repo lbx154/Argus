@@ -52,7 +52,6 @@ def test_skill_loop_defaults_use_high_reasoning_effort() -> None:
 def _continue_review() -> str:
     return json.dumps({
         "status": "continue",
-        "confidence": 0.4,
         "reason": "Engineer started but did not yet meet the criterion.",
         "next_action": "Print the actual greeting and confirm.",
         "round_summary_markdown": "# Review Summary\n\n- Round 1 incomplete.\n",
@@ -63,7 +62,6 @@ def _continue_review() -> str:
 def _done_review() -> str:
     return json.dumps({
         "status": "done",
-        "confidence": 0.95,
         "reason": "Greeting was produced as required.",
         "next_action": "No further action needed.",
         "round_summary_markdown": "# Review Summary\n\n- Greeting printed.\n",
@@ -137,7 +135,6 @@ def test_skill_loop_blocked_short_circuits(tmp_path: Path) -> None:
     backend.queue("engineer-r1", CannedResponse(message="Cannot proceed: missing API key."))
     backend.queue("reviewer", CannedResponse(message=json.dumps({
         "status": "blocked",
-        "confidence": 0.99,
         "reason": "Missing required credential.",
         "next_action": "Provide API key.",
         "round_summary_markdown": "# Review\n\n- blocked on credential\n",

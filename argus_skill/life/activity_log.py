@@ -128,9 +128,7 @@ def _round_main_completed(e: dict[str, Any]) -> _Parts:
 
 def _round_review_completed(e: dict[str, Any]) -> _Parts:
     status = _txt(e, "status") or "?"
-    conf = e.get("confidence")
-    conf_part = f"  conf={conf:.2f}" if isinstance(conf, (int, float)) else ""
-    primary = f"reviewer  round={e.get('round_index', '?')}  verdict={status}{conf_part}"
+    primary = f"reviewer  round={e.get('round_index', '?')}  verdict={status}"
     return ("ROUND", primary, _full(e, "reason"))
 
 

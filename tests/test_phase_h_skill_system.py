@@ -21,7 +21,6 @@ SKILL_MD = (
 def _done_review() -> str:
     return json.dumps({
         "status": "done",
-        "confidence": 0.95,
         "reason": "Work completed.",
         "next_action": "No further action.",
         "round_summary_markdown": "# Review\n\n- done\n",

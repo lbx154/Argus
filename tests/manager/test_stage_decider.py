@@ -47,7 +47,6 @@ def _review(status: str = "done"):
 
     return ReviewDecision(
         status=status,  # type: ignore[arg-type]
-        confidence=0.9,
         reason="checklist satisfied",
         next_action="advance",
         checklist=[{"item": "research.first_score_plan", "satisfied": True, "evidence": "X"}],

@@ -34,7 +34,6 @@ from argus_skill.planner import PlannerVerdict, TaskSpec
 def _decision(**kw) -> ReviewDecision:
     base = dict(
         status="done",
-        confidence=1.0,
         reason="ok",
         next_action="",
         round_summary_markdown="# x",
@@ -107,7 +106,6 @@ def _parse(payload: dict) -> ReviewDecision | None:
 def test_parser_reads_scope_and_checklist() -> None:
     decision = _parse({
         "status": "done",
-        "confidence": 0.95,
         "reason": "all items verified",
         "next_action": "",
         "round_summary_markdown": "# Review\n- ok",
@@ -128,7 +126,6 @@ def test_parser_reads_scope_and_checklist() -> None:
 def test_parser_defaults_when_scope_checklist_absent() -> None:
     decision = _parse({
         "status": "done",
-        "confidence": 0.9,
         "reason": "bounded task done",
         "next_action": "",
         "round_summary_markdown": "# Review\n- ok",
@@ -143,7 +140,6 @@ def test_parser_defaults_when_scope_checklist_absent() -> None:
 def test_parser_drops_malformed_scope() -> None:
     decision = _parse({
         "status": "done",
-        "confidence": 0.9,
         "reason": "x",
         "next_action": "",
         "round_summary_markdown": "# Review",

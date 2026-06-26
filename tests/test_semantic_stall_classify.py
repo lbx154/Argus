@@ -17,7 +17,6 @@ def _review(status: str, *, forward_progress=None) -> ReviewDecision:
         planner_report["forward_progress"] = forward_progress
     return ReviewDecision(
         status=status,
-        confidence=0.5,
         reason="r",
         next_action="keep going",
         planner_report=planner_report,

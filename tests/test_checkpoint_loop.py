@@ -30,7 +30,6 @@ SKILL_MD = (
 def _continue_review(checkpoint: dict | None = None) -> str:
     payload = {
         "status": "continue",
-        "confidence": 0.4,
         "reason": "More work needed.",
         "next_action": "Keep going.",
         "round_summary_markdown": "# r\n",
@@ -44,7 +43,6 @@ def _continue_review(checkpoint: dict | None = None) -> str:
 def _done_review() -> str:
     return json.dumps({
         "status": "done",
-        "confidence": 0.95,
         "reason": "Met criterion.",
         "next_action": "—",
         "round_summary_markdown": "# done\n",

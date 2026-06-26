@@ -63,7 +63,9 @@ def test_render_line_milestone_and_drop() -> None:
 
 
 def test_render_line_round_milestones() -> None:
-    # Reviewer verdict per round is the key debugging signal.
+    # Reviewer verdict per round is the key debugging signal. The reviewer no
+    # longer self-reports a confidence; the line must NOT carry a ``conf=`` token
+    # even if a stale event still includes a confidence field.
     verdict = render_line({
         "type": "round.review.completed",
         "round_index": 3,
@@ -74,6 +76,7 @@ def test_render_line_round_milestones() -> None:
     assert verdict is not None
     assert "ROUND" in verdict and "reviewer" in verdict
     assert "round=3" in verdict and "verdict=continue" in verdict
+    assert "conf=" not in verdict
     assert "benchmark provenance missing" in verdict
 
     built = render_line({"type": "round.main.completed", "round_index": 3})

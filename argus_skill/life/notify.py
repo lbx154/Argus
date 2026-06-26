@@ -744,12 +744,6 @@ def _round_progress_label(current: int | None, max_rounds: int | None) -> str:
     return str(current)
 
 
-def _format_confidence(value: Any) -> str:
-    if isinstance(value, (int, float)):
-        return f"{float(value):.2f}"
-    return ""
-
-
 def _l2_icon(status: str) -> str:
     normalized = status.lower()
     if normalized in {"done", "pass", "passed", "success"}:
@@ -1057,9 +1051,6 @@ class TelegramStreamReporter:
         lines = [
             f"{_l2_icon(status)} <b>L2 审查 Round {_esc(round_label)}：{_esc(status)}</b>",
         ]
-        confidence = _format_confidence(event.get("confidence"))
-        if confidence:
-            lines.append(f"confidence：{_esc(confidence)}")
         reason = str(event.get("reason") or "").strip()
         if reason:
             lines.append(f"reason：{_esc(_truncate_display(reason, 220))}")
