@@ -1299,6 +1299,11 @@ def _run_manager_repl_locked(
     arrow = theme.dim("→")
     label = lambda s: theme.gray(f"{s:<10}")  # noqa: E731
     pending_n = len(mem.backlog.pending())
+    # ``global_root`` is a local of the OUTER run_manager_repl; inside this
+    # locked body it lives only in chat_state. Bind it here so the session-name
+    # lookup AND the live-daemon hint below resolve (they were silently failing
+    # on a NameError before, swallowed by their try/except).
+    global_root = chat_state.get("global_root")
     # Session line (Codex/Claude-Code style): which session this is, and whether
     # it's a fresh one or a resumed one.
     _sid = getattr(args, "session_id", None)
@@ -1320,6 +1325,33 @@ def _run_manager_repl_locked(
         + theme.dim("  ·  ") + theme.bold(str(pending_n)) + theme.gray(" pending")
         + theme.dim("  ·  ") + theme.cyan(str(mem.project.root))
     )
+    # Surface a LIVE daemon running elsewhere so a fresh session never hides the
+    # operator's actual running work. (Answers "why does it say no daemon?" —
+    # the daemon is alive under another project; offer the one command to reach
+    # it.) Only shown when THIS session has no daemon of its own.
+    try:
+        _here_alive, _ = _daemon_alive_for(mem.project.root)
+        if not _here_alive:
+            from ..core.session import live_daemon_sessions
+            _others = [
+                s for s in live_daemon_sessions(global_root)
+                if str((global_root / "projects" / s.id)) != str(mem.project.root)
+            ]
+            if _others:
+                _o = _others[0]
+                _onm = _o.display_name or (_o.objective[:32] if _o.objective else _o.id)
+                _extra = f" (+{len(_others) - 1} more)" if len(_others) > 1 else ""
+                print(
+                    f"  {label('daemon')} {arrow} "
+                    + theme.yellow(f"a daemon is already running: {_onm}{_extra}")
+                    + theme.dim("  —  ")
+                    + theme.cyan("argus-skill --continue")
+                    + theme.dim(" to attach, or ")
+                    + theme.cyan("/daemons")
+                    + theme.dim(" to list")
+                )
+    except Exception:  # noqa: BLE001 — banner hint must never break startup
+        pass
     if auto_spawn_msg:
         print(f"  {label('daemon')} {arrow} " + theme.dim(auto_spawn_msg))
     if no_daemon_warning:

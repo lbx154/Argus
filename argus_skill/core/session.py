@@ -150,6 +150,30 @@ def most_recent_session(global_root: Path | None = None) -> str | None:
     return sessions[0].id if sessions else None
 
 
+def live_daemon_sessions(global_root: Path | None = None) -> list[SessionMeta]:
+    """Sessions/projects that currently have a LIVE daemon, newest-active first.
+
+    A running daemon is the operator's actual work; the session model must not
+    bury it. Used to (a) surface it on a fresh-session banner and (b) make
+    ``--continue`` prefer it over an empty just-minted session. Liveness is the
+    lightweight ``daemon.pid`` + pid-alive check (no daemon-layer import).
+    """
+    from .daemon_lock import is_pid_running, read_daemon_pid
+
+    root = global_root if global_root is not None else core_paths.global_root()
+    projects = Path(root) / "projects"
+    out: list[SessionMeta] = []
+    for meta in list_sessions(global_root):
+        try:
+            pid = read_daemon_pid(projects / meta.id / "daemon.pid")
+        except Exception:  # noqa: BLE001
+            pid = None
+        if pid is not None and is_pid_running(pid):
+            out.append(meta)
+    return out  # already newest-active-first (list_sessions sorts)
+
+
+
 class SessionResolutionError(ValueError):
     """Raised when a requested resume target does not exist."""
 
@@ -183,7 +207,12 @@ def resolve_session(
         )
         return sid, True
     if mode == "continue":
-        sid = most_recent_session(global_root)
+        # Prefer a session with a LIVE daemon (the operator's actual running
+        # work) over a more-recent but empty just-minted session — otherwise
+        # `--continue` would attach to a litter session and the real daemon
+        # stays buried. Fall back to plain most-recent when none are live.
+        live = live_daemon_sessions(global_root)
+        sid = live[0].id if live else most_recent_session(global_root)
         if not sid:
             raise SessionResolutionError("no previous session to --continue")
         return sid, False

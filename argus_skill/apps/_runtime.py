@@ -1305,31 +1305,33 @@ _TEST_DAEMON_PLANNER_SCRIPT_ENV = "ARGUS_SKILL_DAEMON_TEST_PLANNER_SCRIPT"
 
 
 def _format_daemon_mode_cell(theme, mem: _SplitMemory) -> str:  # noqa: ANN001
-    """Banner ``mode`` cell — life + daemon liveness in one line.
+    """Banner ``executor`` cell — the honest one-line daemon state.
 
-    Shows ``life ⚡ daemon: alive (pid X · up Yh)`` when a 7×24 worker
-    is draining the backlog in the background, or
-    ``life · in-process · no daemon (start --daemon for 7×24)`` when not.
+    Shows ``life ⚡ daemon: pid X · up Y`` when a 7×24 worker is draining this
+    project's backlog, or ``life · no daemon — tasks queue until --daemon`` when
+    not. (The old "in-process" wording lied: since the REPL/daemon fusion the
+    REPL never executes missions itself — only a daemon drains the backlog.)
     """
     try:
         from ..daemon.life_worker import read_daemon_status
         from .cli import _format_short_duration
         status = read_daemon_status(mem.project.root)
     except Exception:  # noqa: BLE001
-        return f"{theme.bold('life')}    " + theme.dim("in-process · no daemon")
+        return f"{theme.bold('life')}    " + theme.yellow("no daemon") + theme.dim(
+            " — tasks queue until `argus-skill --daemon`"
+        )
     if status.alive and status.pid is not None:
         uptime = _format_short_duration(status.uptime_seconds or 0.0)
         body = (
             f"{theme.bold('life')}  "
             + theme.bold_green("⚡ daemon")
-            + theme.dim(f": pid {status.pid} · up {uptime}")
+            + theme.dim(f": pid {status.pid} · up {uptime} ▸ draining")
         )
         return body
     return (
         f"{theme.bold('life')}    "
-        + theme.dim("in-process · ")
         + theme.yellow("no daemon")
-        + theme.dim("  (start with `argus-skill --daemon` for 7×24)")
+        + theme.dim("  — tasks queue until you start one (`argus-skill --daemon`)")
     )
 
 
