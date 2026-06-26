@@ -273,35 +273,6 @@ def seed_builtin_skills_for_vertical(
     return created
 
 
-def seed_vertical_layer(vertical: str, *, overwrite: bool = False) -> dict[str, bool]:
-    """Seed a vertical's OWN skills into its runtime VERTICAL layer.
-
-    Populates ``~/.argus-skill/verticals/<vertical>/skills/`` from the
-    version-controlled source ``argus_skill/verticals/<vertical>/skills/``.
-    Unlike :func:`seed_builtin_skills_for_vertical` (which mixes in the
-    cross-vertical builtins to populate an agent WORKSPACE), this seeds ONLY the
-    vertical's own domain skills into the middle layer of the three-layer skill
-    library — the cross-vertical skills live in the global layer. Idempotent:
-    existing files are preserved unless ``overwrite``.
-    """
-    from ..core.paths import skills_vertical_root
-
-    target = skills_vertical_root(vertical)
-    target.mkdir(parents=True, exist_ok=True)
-    created: dict[str, bool] = {}
-    for filename, text in iter_vertical_skill_texts(vertical):
-        if filename.endswith(".md"):
-            _validate_builtin(filename, text)
-        dest = target / filename
-        if dest.exists() and not overwrite:
-            created[filename] = False
-            continue
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write_text(dest, text)
-        created[filename] = True
-    return created
-
-
 def _validate_builtin(filename: str, text: str) -> None:
     skill = Skill.parse(text, filename)
     if not skill.name.strip():

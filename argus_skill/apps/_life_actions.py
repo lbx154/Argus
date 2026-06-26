@@ -419,8 +419,10 @@ def render_skills_cmd(cwd: Path, tokens: Sequence[str]) -> str:
         if len(tokens) < 2:
             return "usage: /skills promote <name> [--to-vertical <vertical>]"
         name = tokens[1]
-        # Optional ``--to-vertical <v>`` routes to a vertical layer instead of
-        # global (the Manager-tidy direction, exposed for manual use).
+        # ``--to-vertical <v>`` files the skill into that vertical's SOURCE dir
+        # (verticals/<v>/skills/); otherwise it goes to builtin_skills/. Both
+        # write into the argus repo and commit (the Manager-tidy direction,
+        # exposed for manual use).
         to_vertical: str | None = None
         rest = list(tokens[2:])
         if "--to-vertical" in rest:
@@ -430,56 +432,44 @@ def render_skills_cmd(cwd: Path, tokens: Sequence[str]) -> str:
             to_vertical = rest[i + 1].strip().lower()
 
         from ..core import paths as core_paths
-        from ..core.project import project_fingerprint
-        from ..skills.layered import LayeredSkillStore
+        from ..manager.skill_tidy import commit_to_source, write_skill_to_source
+        from ..skills.store import SkillStore
         from ..skills.vertical_select import VERTICALS
 
-        try:
-            fp = project_fingerprint(cwd).fingerprint
-        except Exception as exc:  # noqa: BLE001
-            return f"could not compute project fingerprint: {exc}"
+        if to_vertical is not None and (
+            to_vertical not in VERTICALS or to_vertical == "research"
+        ):
+            known = ", ".join(v for v in VERTICALS if v != "research")
+            return f"unknown/invalid vertical {to_vertical!r}; known: {known}"
 
-        vertical_dir = None
-        if to_vertical is not None:
-            if to_vertical not in VERTICALS:
-                return (
-                    f"unknown vertical {to_vertical!r}; "
-                    f"known: {', '.join(VERTICALS)}"
-                )
-            if to_vertical == "research":
-                return (
-                    "the 'research' vertical has no skill layer; "
-                    "use plain /skills promote <name> (→ global)"
-                )
-            try:
-                from ..skills.builtins import seed_vertical_layer
-
-                seed_vertical_layer(to_vertical)
-            except Exception:  # noqa: BLE001 — best-effort seed; layer still usable
-                pass
-            vertical_dir = core_paths.skills_vertical_root(to_vertical)
-
-        layered = LayeredSkillStore(
-            project_dir=core_paths.project_skills_root(fp),
-            vertical_dir=vertical_dir,
-            global_dir=core_paths.skills_global_root(),
-        )
+        runtime = SkillStore(core_paths.skills_global_root())
         target = None
-        for s in layered.project.list_summaries():
+        role = ""
+        for s in runtime.list_summaries():
             if s["name"].casefold() == name.casefold():
-                target = layered.project.load(s["path"])
+                target = runtime.load(s["path"])
+                role = s.get("role") or ""
                 break
         if target is None:
-            return f"no project skill named {name!r} to promote"
+            return f"no skill named {name!r} in the runtime library"
+
         try:
             if to_vertical is not None:
-                promoted = layered.promote_to_vertical(target, to_vertical)
-                return (
-                    f"promoted {promoted.name} → vertical:{to_vertical} "
-                    f"({promoted.path})"
+                dest = write_skill_to_source(
+                    target, "vertical", vertical=to_vertical, role=role
                 )
-            promoted = layered.promote_to_global(target)
+                label = f"verticals/{to_vertical}"
+            else:
+                dest = write_skill_to_source(target, "global", role=role)
+                label = "builtin"
         except Exception as exc:  # noqa: BLE001
             return f"promote failed: {exc}"
-        return f"promoted {promoted.name} → global ({promoted.path})"
+        if dest is None:
+            return "promote failed: invalid target"
+
+        committed = commit_to_source(
+            [dest], f"chore(skills): promote '{target.name}' into {label} [manual]"
+        )
+        tail = "" if committed else " (written, but git commit failed — commit manually)"
+        return f"promoted {target.name} → {label} source ({dest}){tail}"
     return f"unknown /skills subcommand: {op}  (try ls | promote)"
