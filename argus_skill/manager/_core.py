@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,34 @@ log = logging.getLogger(__name__)
 # Where the Manager's one persistent codex session lives (under project_root).
 _SESSION_FILE = ".manager_session.json"
 _SESSION_LOCK = ".manager_session.lock"
+
+
+def _session_lock_timeout_s() -> float:
+    """Bounded wait for the shared Manager session lock (default 120s). Manager
+    turns are short LLM calls (classify / stage / skill-review), so 120s easily
+    covers a normal turn while capping starvation if a peer turn hangs."""
+    raw = os.environ.get("ARGUS_SKILL_MANAGER_LOCK_TIMEOUT_S", "")
+    try:
+        return max(0.0, float(raw)) if raw.strip() else 120.0
+    except ValueError:
+        return 120.0
+
+
+def _acquire_session_lock(fh: Any, *, timeout: float) -> bool:
+    """Acquire ``LOCK_EX`` non-blocking, retrying up to ``timeout`` seconds.
+
+    Returns True if acquired, False if the peer held it past the budget (a
+    long/hung turn) — so the caller can fail-open instead of blocking forever.
+    """
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.2)
 
 
 class _ManagerSession:
@@ -109,37 +138,65 @@ class _ManagerSession:
     ) -> Any:
         """Run one turn on the shared persistent session, serialized by flock.
 
-        Fail-open: ANY lock/IO error (or absence of ``fcntl``) degrades to a
-        plain no-session ``runner.run_exec`` — never raises, never blocks the
-        Manager's decision on session bookkeeping.
+        The session lock is acquired NON-blocking with a bounded wait
+        (``ARGUS_SKILL_MANAGER_LOCK_TIMEOUT_S``, default 120s), so a long/hung turn
+        in the peer process (REPL vs daemon share one lock per cwd) can't freeze
+        this one indefinitely — if it can't be acquired in time we fall open to a
+        plain no-session call.
+
+        Fail-open recovery: if anything in the session-mode path fails (lock setup,
+        a corrupt resume tid, a runner that does not accept ``resume_thread_id``),
+        we fall back to ONE plain no-session call — a deliberate recovery + runner
+        compatibility shim. The fallback runs AFTER the lock is released, never
+        nested under it.
         """
-        try:
-            self.project_root.mkdir(parents=True, exist_ok=True)
-            with self._lock_path.open("a+b") as fh:
-                if fcntl is not None:
-                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-                try:
-                    tid = self._read_tid()
-                    result = self.runner.run_exec(
-                        prompt=prompt,
-                        options=options,
-                        run_label=run_label,
-                        resume_thread_id=tid,
-                    )
-                    new = getattr(result, "thread_id", None)
-                    if new:
-                        try:
-                            self._write_tid(str(new))
-                        except Exception:  # noqa: BLE001 — persist is best-effort
-                            pass
-                    return result
-                finally:
-                    if fcntl is not None:
-                        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-        except Exception:  # noqa: BLE001 — fail-open to a plain no-session call
+        def _no_session() -> Any:
             return self.runner.run_exec(
                 prompt=prompt, options=options, run_label=run_label
             )
+
+        try:
+            self.project_root.mkdir(parents=True, exist_ok=True)
+            fh = self._lock_path.open("a+b")
+        except Exception:  # noqa: BLE001 — lock setup failed → no-session fail-open
+            return _no_session()
+
+        try:
+            if fcntl is not None and not _acquire_session_lock(
+                fh, timeout=_session_lock_timeout_s()
+            ):
+                # Peer holds a long/hung turn past the budget → don't block forever;
+                # a no-session call uses a fresh thread, so it can't corrupt the
+                # shared session.
+                return _no_session()
+            try:
+                tid = self._read_tid()
+                result = self.runner.run_exec(
+                    prompt=prompt,
+                    options=options,
+                    run_label=run_label,
+                    resume_thread_id=tid,
+                )
+                new = getattr(result, "thread_id", None)
+                if new:
+                    try:
+                        self._write_tid(str(new))
+                    except Exception:  # noqa: BLE001 — persist is best-effort
+                        pass
+                return result
+            finally:
+                if fcntl is not None:
+                    try:
+                        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                    except Exception:  # noqa: BLE001
+                        pass
+        except Exception:  # noqa: BLE001 — session-mode failed (lock released) → no-session
+            return _no_session()
+        finally:
+            try:
+                fh.close()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 @dataclass
