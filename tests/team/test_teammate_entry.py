@@ -127,3 +127,28 @@ def test_shard_metric_null_without_result_file(tmp_path: Path, monkeypatch) -> N
              "--cwd", str(tmp_path)])
     rec = _shard(root)
     assert rec["metric"] is None and rec["mechanism"] == "" and rec["target"] == "t1::a"
+
+
+def test_teammate_inherits_leaderboard_block_in_objective(tmp_path: Path, monkeypatch) -> None:
+    from argus_skill.team import leaderboard as lb
+    root = tmp_path / ".argus_team" / "t1"
+    tb.form(root, [{"task_id": "t1::a", "objective": "optimize kA", "target": "kA"}])
+    tb.claim_specific(root, "t1::a", "t1::w1", now=1.0)
+    d = root / "shards"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "prev.jsonl").write_text(json.dumps(
+        {"target": "kA", "metric": 1.9, "mechanism": "persistent", "success": True}) + "\n",
+        encoding="utf-8")
+    lb.fold(root)
+
+    captured: dict = {}
+
+    def _capture(objective, **k):
+        captured["obj"] = objective
+        return True
+
+    monkeypatch.setattr(te, "run_one_engineer_mission", _capture)
+    te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a",
+             "--cwd", str(tmp_path)])
+    # the fresh teammate sees what's already been tried, plus its own objective
+    assert "persistent" in captured["obj"] and "optimize kA" in captured["obj"]

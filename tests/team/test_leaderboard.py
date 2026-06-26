@@ -64,3 +64,17 @@ def test_fold_writes_leaderboard_json(tmp_path: Path) -> None:
 
 def test_fold_empty_when_no_shards(tmp_path: Path) -> None:
     assert lb.fold(tmp_path) == {}
+
+
+def test_objective_block_lists_best_and_tried(tmp_path: Path) -> None:
+    _shard(tmp_path, "w1", "kA", 1.5, "fuse")
+    _shard(tmp_path, "w2", "kA", 1.9, "persistent")
+    lb.fold(tmp_path)
+    block = lb.objective_block(tmp_path, "kA")
+    assert "re-derive" in block.lower()
+    assert "persistent" in block and "fuse" in block and "1.9" in block
+
+
+def test_objective_block_empty_for_unknown_target(tmp_path: Path) -> None:
+    lb.fold(tmp_path)
+    assert lb.objective_block(tmp_path, "nope") == ""

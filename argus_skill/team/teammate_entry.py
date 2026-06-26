@@ -369,6 +369,14 @@ def main(argv: list[str] | None = None) -> int:
         objective = prior + objective
         sys.stderr.write(f"teammate_entry: inherited {len(prior)} chars of prior work "
                          f"for {task_id} (cross-teammate evolution)\n")
+    # Leaderboard inheritance: tell a fresh teammate what's already been tried on
+    # this target so it builds depth instead of re-deriving breadth. No-op until a
+    # leaderboard exists; disable with ARGUS_TEAMMATE_INHERIT_LEADERBOARD=0.
+    if os.environ.get("ARGUS_TEAMMATE_INHERIT_LEADERBOARD", "").strip().lower() not in ("0", "false", "no"):
+        from . import leaderboard as _lb
+        lb_block = _lb.objective_block(root, task.get("target") or task_id)
+        if lb_block:
+            objective = lb_block + objective
     member_safe = args.member_id.replace(":", "_")
 
     (root / "shards").mkdir(parents=True, exist_ok=True)

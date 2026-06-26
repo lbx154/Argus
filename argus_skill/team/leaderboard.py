@@ -104,3 +104,27 @@ def read(root: Path) -> dict[str, Any]:
     """The last folded leaderboard (``{}`` if none yet)."""
     doc = _store.read_json(_path(root), default={})
     return doc if isinstance(doc, dict) else {}
+
+
+def objective_block(root: Path, target: str) -> str:
+    """A 'what's already been tried — do NOT re-derive' block for ``target``,
+    prepended to a fresh teammate's objective so it builds DEPTH on the best or
+    tries a genuinely new mechanism instead of re-running exhausted breadth.
+    Empty string when the target has no recorded attempts yet."""
+    entry = read(root).get(str(target))
+    if not entry:
+        return ""
+    attempts = entry.get("attempts") or []
+    if not attempts:
+        return ""
+    lines = ["## LEADERBOARD — already tried on this target (do NOT re-derive)"]
+    best = entry.get("best")
+    if best:
+        lines.append(f"Current BEST: `{best.get('mechanism') or '(unnamed)'}` = {best.get('metric')}")
+    lines.append("Mechanisms already attempted — build DEPTH on the best, or try a "
+                 "genuinely NEW one; do NOT repeat these:")
+    for a in attempts:
+        m = a.get("metric")
+        lines.append(f"- {a.get('mechanism') or '(unnamed)'}: "
+                     f"{'unmeasured' if m is None else m}")
+    return "\n".join(lines) + "\n\n"
