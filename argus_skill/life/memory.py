@@ -1323,16 +1323,32 @@ class MemoryBundle:
         cwd: Path | str | None = None,
         *,
         global_root: Path | None = None,
+        fingerprint: str | None = None,
+        label: str | None = None,
     ) -> "MemoryBundle":
+        """Open the memory bundle for a project.
+
+        Default (``fingerprint=None``): identity derives from the cwd /
+        git-remote (legacy behaviour, unchanged). When ``fingerprint`` is
+        given (e.g. a session id), it keys ``projects/<fingerprint>/``
+        directly — the session model passes the resolved session id here so a
+        fresh ``argus-skill`` opens a NEW project regardless of cwd.
+        """
         from ..core.project import project_fingerprint  # local: avoid cycle
 
-        identity = project_fingerprint(cwd)
-        worktree = Path(identity.cwd)
+        if fingerprint is None:
+            identity = project_fingerprint(cwd)
+            fingerprint = identity.fingerprint
+            label = label or identity.label
+            worktree = Path(identity.cwd)
+        else:
+            worktree = Path(cwd).resolve() if cwd else Path.cwd().resolve()
+            label = label or fingerprint
         return cls(
             global_mem=GlobalMemory.open(global_root),
             project=ProjectMemory.open(
-                identity.fingerprint,
-                label=identity.label,
+                fingerprint,
+                label=label,
                 global_root=global_root,
             ),
             project_worktree=worktree,
