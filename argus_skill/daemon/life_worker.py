@@ -84,10 +84,8 @@ class LifeWorkerConfig:
     backend: str = "codex"  # "codex" | "memory"
     engineer_model: str = "gpt-5.5"
     reviewer_model: str = "gpt-5.5"
-    author_model: str = "gpt-5.5"
     engineer_reasoning_effort: str = "high"
     reviewer_reasoning_effort: str = "high"
-    author_reasoning_effort: str = "high"
     per_mission_cap_usd: float = 30.0
     daily_cap_usd: float = 180.0
     planner_task_iteration_max_cycles: int = 6
@@ -340,10 +338,8 @@ def _config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
         "backend": config.backend,
         "engineer_model": config.engineer_model,
         "reviewer_model": config.reviewer_model,
-        "author_model": config.author_model,
         "engineer_reasoning_effort": config.engineer_reasoning_effort,
         "reviewer_reasoning_effort": config.reviewer_reasoning_effort,
-        "author_reasoning_effort": config.author_reasoning_effort,
         "per_mission_cap_usd": config.per_mission_cap_usd,
         "daily_cap_usd": config.daily_cap_usd,
         "planner_task_iteration_max_cycles": config.planner_task_iteration_max_cycles,
@@ -372,15 +368,11 @@ def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         backend=str(data.get("backend") or "codex"),
         engineer_model=str(data.get("engineer_model") or resolve_route_model("engineer")),
         reviewer_model=str(data.get("reviewer_model") or resolve_route_model("reviewer")),
-        author_model=str(data.get("author_model") or resolve_route_model("author")),
         engineer_reasoning_effort=str(
             data.get("engineer_reasoning_effort") or "high"
         ),
         reviewer_reasoning_effort=str(
             data.get("reviewer_reasoning_effort") or "high"
-        ),
-        author_reasoning_effort=str(
-            data.get("author_reasoning_effort") or "high"
         ),
         per_mission_cap_usd=float(data.get("per_mission_cap_usd") or 30.0),
         daily_cap_usd=float(data.get("daily_cap_usd") or 180.0),
@@ -1206,7 +1198,6 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     ns.backend = cfg.backend
     ns.engineer_model = cfg.engineer_model
     ns.reviewer_model = cfg.reviewer_model
-    ns.author_model = cfg.author_model
     ns.engineer_reasoning_effort = os.environ.get(
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
         cfg.engineer_reasoning_effort,
@@ -1214,10 +1205,6 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     ns.reviewer_reasoning_effort = os.environ.get(
         "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
         cfg.reviewer_reasoning_effort,
-    )
-    ns.author_reasoning_effort = os.environ.get(
-        "ARGUS_SKILL_AUTHOR_REASONING_EFFORT",
-        cfg.author_reasoning_effort,
     )
     default_skills_dir = (
         core_paths.skills_global_root()

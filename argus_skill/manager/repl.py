@@ -461,14 +461,9 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
 
         ns = argparse.Namespace(
             backend=backend or "codex",
-            author_model=os.environ.get("ARGUS_SKILL_AUTHOR_MODEL")
-            or resolve_route_model("author"),
             engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL")
             or resolve_route_model("engineer"),
             reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL"),
-            author_reasoning_effort=os.environ.get(
-                "ARGUS_SKILL_AUTHOR_REASONING_EFFORT", "high"
-            ),
             engineer_reasoning_effort=os.environ.get(
                 "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high"
             ),

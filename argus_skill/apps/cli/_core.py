@@ -283,14 +283,9 @@ def main(argv: list[str] | None = None) -> int:
         life_dir=args.life_dir,
         color=None,
         backend=backend_default,
-        author_model=os.environ.get("ARGUS_SKILL_AUTHOR_MODEL")
-        or resolve_route_model("author"),
         engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL")
         or resolve_route_model("engineer"),
         reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL"),
-        author_reasoning_effort=os.environ.get(
-            "ARGUS_SKILL_AUTHOR_REASONING_EFFORT", "high"
-        ),
         engineer_reasoning_effort=os.environ.get(
             "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high"
         ),
@@ -335,16 +330,11 @@ def _build_worker_config(args: argparse.Namespace):
         or resolve_route_model("engineer"),
         reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL")
         or resolve_route_model("reviewer"),
-        author_model=os.environ.get("ARGUS_SKILL_AUTHOR_MODEL")
-        or resolve_route_model("author"),
         engineer_reasoning_effort=os.environ.get(
             "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high"
         ),
         reviewer_reasoning_effort=os.environ.get(
             "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high"
-        ),
-        author_reasoning_effort=os.environ.get(
-            "ARGUS_SKILL_AUTHOR_REASONING_EFFORT", "high"
         ),
         per_mission_cap_usd=float(os.environ.get("ARGUS_SKILL_PER_MISSION_CAP_USD", "30.0")),
         daily_cap_usd=float(os.environ.get("ARGUS_SKILL_DAILY_CAP_USD", "180.0")),

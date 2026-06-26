@@ -917,14 +917,8 @@ class _SkillLoopRunner:
         # Operators can opt back into sandbox via ARGUS_SKILL_SAFE_MODE=1.
         safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
         config_kwargs = {
-            "author_model": args.author_model,
             "engineer_model": args.engineer_model,
             "reviewer_model": args.reviewer_model,
-            "author_reasoning_effort": getattr(
-                args,
-                "author_reasoning_effort",
-                "high",
-            ),
             "engineer_reasoning_effort": getattr(
                 args, "engineer_reasoning_effort", "high"
             ),
@@ -1573,13 +1567,6 @@ def _invoke_supervisor(
     )
     reviewer_default = resolve_route_model("reviewer")
     ns.reviewer_model = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL") or reviewer_default
-    ns.author_model = os.environ.get("ARGUS_SKILL_AUTHOR_MODEL") or resolve_route_model(
-        "author"
-    )
-    ns.author_reasoning_effort = os.environ.get(
-        "ARGUS_SKILL_AUTHOR_REASONING_EFFORT",
-        "high",
-    )
     ns.engineer_reasoning_effort = os.environ.get(
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
         "high",
@@ -1612,10 +1599,8 @@ def _invoke_supervisor(
         f"- Runner backend: {runner_backend}\n"
         f"- Engineer model: {ns.engineer_model}\n"
         f"- Reviewer model: {ns.reviewer_model}\n"
-        f"- Scientist model: {ns.author_model}\n"
         f"- Engineer reasoning effort: {ns.engineer_reasoning_effort or '(default)'}\n"
         f"- Reviewer reasoning effort: {ns.reviewer_reasoning_effort or '(default)'}\n"
-        f"- Scientist reasoning effort: {ns.author_reasoning_effort or '(default)'}\n"
         f"- Max rounds per mission: {ns.max_rounds}\n"
         f"- Per-mission budget cap: ${per_mission_cap_usd:.2f}\n"
         f"- Daily budget cap: ${daily_cap_usd:.2f}\n"
