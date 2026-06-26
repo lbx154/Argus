@@ -56,6 +56,9 @@ def isolated_source(tmp_path, monkeypatch):
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     subprocess.run(["git", "-C", str(root), "config", "user.email", "t@t"], check=True)
     subprocess.run(["git", "-C", str(root), "config", "user.name", "t"], check=True)
+    # Auto-commit is opt-in (default OFF so a real mission never commits to the
+    # operator's repo); these source-writing tests exercise the commit path.
+    monkeypatch.setenv("ARGUS_SKILL_AUTOCOMMIT_SKILLS", "1")
     return root, builtin
 
 
@@ -172,6 +175,7 @@ def test_tidy_routes_to_source_and_commits(isolated_source, tmp_path, monkeypatc
 
 def test_commit_to_source_failsoft_non_git(tmp_path, monkeypatch) -> None:
     # builtin path under a NON-git dir → commit returns False, no raise.
+    monkeypatch.setenv("ARGUS_SKILL_AUTOCOMMIT_SKILLS", "1")  # opt in, so we reach the git logic
     builtin = tmp_path / "nogit" / "builtin_skills"
     builtin.mkdir(parents=True)
     monkeypatch.setattr(builtins_mod, "builtin_skill_source_path", lambda: builtin)

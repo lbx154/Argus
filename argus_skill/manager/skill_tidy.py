@@ -124,23 +124,52 @@ def write_skill_to_source(
     return dest
 
 
+def _autocommit_enabled() -> bool:
+    """Whether end-of-mission skill tidy-up may git-commit to the argus source repo.
+
+    Default OFF: for an editable install the source root IS the operator's own
+    working tree (often on ``main`` with hand-staged work), and an autonomous
+    commit there collides with a hand-driven git workflow. Opt in with
+    ``ARGUS_SKILL_AUTOCOMMIT_SKILLS=1``.
+    """
+    return os.environ.get("ARGUS_SKILL_AUTOCOMMIT_SKILLS", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 def commit_to_source(paths: list[Path], message: str) -> bool:
     """Best-effort ``git add`` + ``git commit`` of ``paths`` in the argus repo.
 
-    Returns ``True`` on success. Any failure (read-only package, non-git tree,
-    nothing staged, commit error) → ``False``, logged — never raises. The files
-    are left in the working tree so a later run / the operator can still commit.
+    Default OFF (``ARGUS_SKILL_AUTOCOMMIT_SKILLS`` unset): the tidied skill files
+    are written but NOT committed, so an autonomous mission never commits to the
+    operator's live editable-install repo. When enabled, commits ONLY the given
+    paths via ``git commit --only`` — never the operator's ambient staged index,
+    so a hand-staged change can never be swept into an automated commit. Returns
+    ``True`` only on an actual commit. Any failure (read-only package, non-git
+    tree, nothing to commit, commit error) → ``False``, logged, never raises. The
+    files are left in the working tree so a later run / the operator can commit.
     """
     if not paths:
         return False
+    if not _autocommit_enabled():
+        log.info(
+            "commit_to_source: skill auto-commit disabled (default); %d skill "
+            "file(s) written, not committed. Set ARGUS_SKILL_AUTOCOMMIT_SKILLS=1 "
+            "to opt in.",
+            len(paths),
+        )
+        return False
     root = _argus_source_root()
+    strs = [str(p) for p in paths]
     try:
         subprocess.run(
-            ["git", "-C", str(root), "add", "--", *[str(p) for p in paths]],
+            ["git", "-C", str(root), "add", "--", *strs],
             check=True, capture_output=True,
         )
+        # --only: commit ONLY these paths, never the operator's ambient staged
+        # index, so a hand-staged change is never swept into an automated commit.
         subprocess.run(
-            ["git", "-C", str(root), "commit", "-m", message],
+            ["git", "-C", str(root), "commit", "--only", "-m", message, "--", *strs],
             check=True, capture_output=True,
         )
         return True
