@@ -134,7 +134,8 @@ def test_pool_set_cli(tmp_path: Path, capsys) -> None:
     rc, out = _call(capsys, "pool-set", "--root", str(root), "--width", "6", "--state", "running")
     doc = json.loads(out)
     assert rc == 0
-    assert doc["width"] == 6 and doc["state"] == "running" and doc["lead_heartbeat_ts"] > 0
+    assert doc["width"] == 6 and doc["state"] == "running"
+    assert "lead_heartbeat_ts" not in doc  # heartbeat removed (resident Curator)
 
 
 def test_coordinate_once_fills_to_width(tmp_path: Path, capsys) -> None:
