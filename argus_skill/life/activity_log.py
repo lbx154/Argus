@@ -198,9 +198,21 @@ def _life_status(e: dict[str, Any]) -> _Parts:
     return ("STATUS", "", _full(e, "text"))
 
 
+def _manager_stage_decision(e: dict[str, Any]) -> _Parts | None:
+    # The Manager emits a stage decision after every mission; most are HOLD
+    # (stage unchanged — not a milestone). Surface only real transitions.
+    action = str(e.get("action") or "").lower()
+    if action not in ("advance", "rollback"):
+        return None
+    cur = _txt(e, "current_stage")
+    tgt = _txt(e, "target_stage")
+    move = f"{cur} → {tgt}" if cur and tgt else (tgt or cur or "?")
+    return ("MANAGER", f"stage {action}  {move}", _full(e, "reason"))
+
+
 # Curated allow-list: event ``type`` -> (category, primary, detail) renderer.
 # Anything not listed here is intentionally omitted from activity.log.
-RENDERERS: dict[str, Callable[[dict[str, Any]], _Parts]] = {
+RENDERERS: dict[str, Callable[[dict[str, Any]], _Parts | None]] = {
     "life.mission.started": _mission_started,
     "life.mission.completed": _mission_completed,
     "life.mission.orphaned": _mission_orphaned,
@@ -215,6 +227,7 @@ RENDERERS: dict[str, Callable[[dict[str, Any]], _Parts]] = {
     "life.planner.deferred": _planner_deferred,
     "life.supervisor.error": _supervisor_error,
     "life.auth_failure": _auth_failure,
+    "life.manager.stage_decision": _manager_stage_decision,
     "life.inbox.queued": _inbox_queued,
     "life.inbox.drained": _inbox_drained,
     "life.project.bootstrap_required": _bootstrap_required,

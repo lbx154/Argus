@@ -100,6 +100,26 @@ def test_render_line_drops_noise() -> None:
     assert kept == "STATUS   planner: project done"
 
 
+def test_render_line_manager_stage_decision() -> None:
+    # A real transition renders a MANAGER milestone with the stage move.
+    line = render_line({
+        "type": "life.manager.stage_decision",
+        "action": "advance",
+        "current_stage": "benchmark",
+        "target_stage": "run",
+        "reason": "benchmark checklist satisfied",
+    })
+    assert line is not None
+    assert "MANAGER" in line and "advance" in line and "benchmark → run" in line
+    # A HOLD is not a milestone (stage unchanged) -> dropped.
+    assert render_line({
+        "type": "life.manager.stage_decision",
+        "action": "hold",
+        "current_stage": "benchmark",
+        "target_stage": "benchmark",
+    }) is None
+
+
 def test_sink_passes_through_and_writes_only_milestones(tmp_path: Path) -> None:
     rec = _Recorder()
     sink = ActivityLogSink(rec, life_dir=tmp_path)

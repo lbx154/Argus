@@ -112,6 +112,7 @@ def advance(state: LogState, etype: str, event: dict[str, Any]) -> str:
         "round.main.completed",
         "round.review.completed",
         "engineer.failure_nudge",
+        "life.manager.stage_decision",
     ):
         r = _round_of(event)
         if r is not None:

@@ -90,6 +90,16 @@ def test_failure_nudge_uses_round_field() -> None:
     assert s.round_index == 4
 
 
+def test_manager_stage_decision_groups_under_mission() -> None:
+    # The Manager's stage decision is emitted before the mission closes, so it
+    # nests as an interior line; with nothing open it degrades to FLAT.
+    s = lv.LogState()
+    _adv(s, "life.mission.started", item_id="m1")
+    assert _adv(s, "life.manager.stage_decision", action="advance") == lv.MID
+    s2 = lv.LogState()
+    assert _adv(s2, "life.manager.stage_decision", action="advance") == lv.FLAT
+
+
 def test_orphaned_mission_reopens() -> None:
     s = lv.LogState()
     _adv(s, "life.mission.started", item_id="m1")
