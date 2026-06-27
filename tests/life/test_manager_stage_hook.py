@@ -22,8 +22,8 @@ class _Result:
 
 
 class _StubRunner:
-    def __init__(self, verdict: dict) -> None:
-        self._text = json.dumps(verdict)
+    def __init__(self, verdict: dict | str) -> None:
+        self._text = verdict if isinstance(verdict, str) else json.dumps(verdict)
 
     def run_exec(self, *, prompt: str, options, run_label: str):  # noqa: ANN001
         return _Result(self._text)
@@ -32,6 +32,23 @@ class _StubRunner:
 class _BoomRunner:
     def run_exec(self, *, prompt: str, options, run_label: str):  # noqa: ANN001
         raise RuntimeError("backend down")
+
+
+class _EmptyThenRunner:
+    """Returns ``empties`` empty turns (the gpt-5.5/fnyweg flake) then the real
+    verdict — exercises decide_stage_transition's empty-output retry."""
+
+    def __init__(self, verdict: dict, *, empties: int = 1) -> None:
+        self._text = json.dumps(verdict)
+        self._empties_left = empties
+        self.calls = 0
+
+    def run_exec(self, *, prompt: str, options, run_label: str):  # noqa: ANN001
+        self.calls += 1
+        if self._empties_left > 0:
+            self._empties_left -= 1
+            return _Result("")
+        return _Result(self._text)
 
 
 class _Sink:
@@ -89,10 +106,42 @@ def test_hook_advances_stage_and_emits_event(tmp_path: Path) -> None:
     )
 
     assert decision["action"] == "advance"
+    assert decision["diagnostic"] == "valid_target"
     assert _stage(root) == "plan"
     assert any(e.get("type") == "life.manager.stage_decision" for e in sink.events)
     # The retired self-reported confidence must not leak into the event payload.
     assert "confidence" not in decision
+
+
+def test_hook_retries_on_empty_output_then_advances(tmp_path: Path, monkeypatch) -> None:
+    # An empty manager turn (gpt-5.5/fnyweg flake) must NOT silently default-HOLD
+    # and wedge the stage — it retries and picks up the real advance verdict.
+    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda *_a, **_k: None)
+    root = _project(tmp_path, current="research")
+    backend = _EmptyThenRunner(
+        {"action": "advance", "target_stage": "plan", "reason": "done"}, empties=1
+    )
+    runner = _runner_with(backend)
+    decision = runner._decide_stage_transition(
+        rounds_list=[_Round(_review())], workdir=root, sink=_Sink()
+    )
+    assert backend.calls == 2  # one empty, then retried into the real verdict
+    assert decision["action"] == "advance"
+    assert _stage(root) == "plan"
+
+
+def test_hook_persistent_empty_falls_back_to_safe_hold(tmp_path: Path, monkeypatch) -> None:
+    # If every turn is empty, retries exhaust to a safe hold — no deadlock,
+    # stage unchanged, nothing wrongly advanced.
+    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda *_a, **_k: None)
+    root = _project(tmp_path, current="research")
+    backend = _EmptyThenRunner({}, empties=99)
+    runner = _runner_with(backend)
+    decision = runner._decide_stage_transition(
+        rounds_list=[_Round(_review())], workdir=root, sink=_Sink()
+    )
+    assert decision["action"] == "hold"
+    assert _stage(root) == "research"
 
 
 def test_hook_no_review_holds_and_does_not_write(tmp_path: Path) -> None:
@@ -107,7 +156,25 @@ def test_hook_no_review_holds_and_does_not_write(tmp_path: Path) -> None:
 
     assert decision["action"] == "hold"
     assert decision["source"] == "no_review_hold"
+    assert decision["diagnostic"] == ""
     assert _stage(root) == "research"
+
+
+def test_hook_parse_hold_event_carries_diagnostic(tmp_path: Path) -> None:
+    root = _project(tmp_path, current="research")
+    runner = _runner_with(_StubRunner("not json at all"))
+    sink = _Sink()
+
+    decision = runner._decide_stage_transition(
+        rounds_list=[_Round(_review())], workdir=root, sink=sink
+    )
+
+    assert decision["action"] == "hold"
+    assert decision["source"] == "manager_llm"
+    assert decision["diagnostic"] == "no_json_object"
+    assert _stage(root) == "research"
+    event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
+    assert event["diagnostic"] == "no_json_object"
 
 
 def test_hook_backend_error_holds_and_never_raises(tmp_path: Path) -> None:

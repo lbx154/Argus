@@ -257,6 +257,8 @@ class StageTransition:
     current_stage: str = ""
     # manager_llm | no_review_hold | no_runner_hold | failsafe_hold | illegal_target_hold
     source: str = "manager_llm"
+    # Non-secret parser/runtime code for log triage (never raw model output).
+    diagnostic: str = ""
 
     def is_write(self) -> bool:
         return self.action in ("advance", "rollback")
@@ -626,12 +628,25 @@ class Manager:
             )
             prompt = self._role_skill_block(_match_objective) + prompt
             raw = extract_answer(run_exec(prompt))
+            # gpt-5.5/fnyweg (and other backends) occasionally return an EMPTY
+            # turn. An empty raw makes parse_stage_decision fall back to a silent
+            # "manager held (default)" — which, after a DONE reviewer verdict,
+            # wedges current_stage FOREVER (research completes but never advances
+            # to plan, because no later mission re-triggers a stage decision).
+            # Retry a couple of times on an empty response before accepting a
+            # hold, mirroring the planner's empty-output retry. A genuine,
+            # non-empty hold verdict is never retried.
+            _empty_retries = 0
+            while not str(raw or "").strip() and _empty_retries < 2:
+                _empty_retries += 1
+                time.sleep(1.0)
+                raw = extract_answer(run_exec(prompt))
             decision = parse_stage_decision(raw, current_stage=cur, stage_order=order)
         except Exception:  # noqa: BLE001 — any failure → safe HOLD, write nothing
             log.debug("manager stage decision failed", exc_info=True)
             return StageTransition(
                 "hold", cur, "manager decision error", current_stage=cur,
-                source="failsafe_hold",
+                source="failsafe_hold", diagnostic="exception",
             )
 
         if decision.action == "advance":
@@ -642,9 +657,10 @@ class Manager:
                 return StageTransition(
                     "hold", cur, "illegal advance target", current_stage=cur,
                     source="illegal_target_hold",
+                    diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("advance", decision.target_stage, decision.reason,
-                                   cur, "manager_llm")
+                                   cur, "manager_llm", decision.diagnostic)
 
         if decision.action == "rollback":
             try:
@@ -654,12 +670,13 @@ class Manager:
                 return StageTransition(
                     "hold", cur, "illegal rollback target", current_stage=cur,
                     source="illegal_target_hold",
+                    diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("rollback", decision.target_stage, decision.reason,
-                                   cur, "manager_llm")
+                                   cur, "manager_llm", decision.diagnostic)
 
         return StageTransition("hold", cur, decision.reason or "manager held",
-                               cur, "manager_llm")
+                               cur, "manager_llm", decision.diagnostic)
 
     # ---- skill-library approval (the Manager is the top-level authority) ----
     def approve_skill(
