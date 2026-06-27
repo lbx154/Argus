@@ -100,7 +100,9 @@ def test_objective_block_lists_best_and_tried(tmp_path: Path) -> None:
     _shard(tmp_path, "w2", "kA", 1.9, "persistent")
     lb.fold(tmp_path)
     block = lb.objective_block(tmp_path, "kA")
-    assert "re-derive" in block.lower()
+    low = block.lower()
+    assert "build on the best" in low                   # neutral, domain-agnostic framing
+    assert "re-derive" not in low and "depth" not in low  # no optimization-search ritual
     assert "persistent" in block and "fuse" in block and "1.9" in block
 
 

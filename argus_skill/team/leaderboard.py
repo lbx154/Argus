@@ -3,9 +3,10 @@
 The Curator folds teammate result shards into a per-target leaderboard. This is
 the HIGH-frequency, **deterministic** half of the curator design — pure code, no
 LLM, no agent ritual (the LLM only runs the low-frequency ``distill`` step). It
-exists to stop the "every mechanism scored once, all stuck at the same low
-score" failure: ``objective_block`` shows a fresh teammate what has already been
-tried so it builds depth instead of re-deriving breadth.
+exists to stop the "every approach tried once, none carried through, all stuck
+at the same weak result" failure: ``objective_block`` shows a fresh teammate
+what has already been tried so it builds on the best instead of re-running the
+same breadth.
 
 Generality red line: the metric and its direction are the only operator-specific
 inputs, and both are DATA — the metric arrives in the shard (see
@@ -116,24 +117,24 @@ def read(root: Path) -> dict[str, Any]:
 
 
 def objective_block(root: Path, target: str) -> str:
-    """A 'what's already been tried — do NOT re-derive' block for ``target``,
-    prepended to a fresh teammate's objective so it builds DEPTH on the best or
-    tries a genuinely new mechanism instead of re-running exhausted breadth.
-    Empty string when the target has no recorded attempts yet."""
+    """A 'what's already been tried — don't repeat it' block for ``target``,
+    prepended to a fresh teammate's objective so it builds on the best result so
+    far or tries a genuinely different approach instead of re-running what is
+    already exhausted. Empty string when the target has no recorded attempts yet."""
     entry = read(root).get(str(target))
     if not entry:
         return ""
     attempts = entry.get("attempts") or []
     if not attempts:
         return ""
-    lines = ["## LEADERBOARD — already tried on this target (do NOT re-derive)"]
+    lines = ["## LEADERBOARD — already attempted on this target (don't repeat these)"]
     best = entry.get("best")
     if best:
-        lines.append(f"Current BEST: `{best.get('mechanism') or '(unnamed)'}` = {best.get('metric')}")
-    lines.append("Mechanisms already attempted — build DEPTH on the best, or try a "
-                 "genuinely NEW one; do NOT repeat these:")
+        lines.append(f"Best so far: `{best.get('mechanism') or '(unnamed)'}` = {best.get('metric')}")
+    lines.append("Approaches already attempted — build on the best, or try a "
+                 "genuinely different one; don't just repeat these:")
     for a in attempts:
         m = a.get("metric")
         lines.append(f"- {a.get('mechanism') or '(unnamed)'}: "
-                     f"{'unmeasured' if m is None else m}")
+                     f"{'no outcome recorded' if m is None else m}")
     return "\n".join(lines) + "\n\n"

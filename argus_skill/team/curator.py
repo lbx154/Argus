@@ -34,11 +34,12 @@ log = logging.getLogger(__name__)
 
 _CURATOR_FALLBACK = (
     "You are the team Curator. You do NOT engineer. From the leaderboard below, "
-    "for the stalled / lowest targets name the single highest-expected-value next "
-    "move per target — either DEEPEN the current best, or try a genuinely NEW "
-    "mechanism (never one already tried, never a parameter sweep) — and say which "
-    "targets to prioritize. Judge by the MEASURED metric only. Output a concise "
-    "prioritized strategy.md."
+    "for the stalled / weakest targets name the single highest-expected-value "
+    "next move per target — either carry the leading approach further toward "
+    "completion, or try a genuinely different one (never an approach already "
+    "tried) — and say which targets to prioritize. Judge each target by its "
+    "recorded outcome; a target with no recorded outcome is unproven, not good. "
+    "Output a concise prioritized strategy.md."
 )
 
 
@@ -295,20 +296,21 @@ class Curator:
         return True
 
     def _distill_prompt(self, board: dict[str, Any]) -> str:
-        lines = ["# Current leaderboard (judge by MEASURED metric only)", ""]
+        lines = ["# Current leaderboard (judge each target by its recorded outcome)", ""]
         for target, entry in sorted(board.items()):
             best = entry.get("best")
             best_s = (f"best `{best.get('mechanism') or '(unnamed)'}`={best.get('metric')}"
-                      if best else "NO measured attempt yet")
+                      if best else "no recorded outcome yet")
             tried = ", ".join(
                 f"{a.get('mechanism') or '(unnamed)'}"
-                f"({'unmeasured' if a.get('metric') is None else a.get('metric')})"
+                f"({'no outcome' if a.get('metric') is None else a.get('metric')})"
                 for a in entry.get("attempts", []))
             lines.append(f"- {target}: {best_s}; tried: {tried or '(none)'}")
         return (self._curator_contract() + "\n\n" + "\n".join(lines)
                 + "\n\nReply with ONLY the strategy as markdown — a short prioritized "
-                "list of `target -> next move (deepen|new mechanism) -> one-line why`. "
-                "Do NOT create, edit, or read any files; your reply IS the strategy.")
+                "list of `target -> next move (build on best | try a different approach) "
+                "-> one-line why`. Do NOT create, edit, or read any files; your reply IS "
+                "the strategy.")
 
     def _curator_contract(self) -> str:
         try:
