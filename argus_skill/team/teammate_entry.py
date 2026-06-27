@@ -67,6 +67,21 @@ def _build_runner_ns(cwd: str, *, max_rounds: int, paper_mission: bool,
     return ns
 
 
+_DEFAULT_RESEARCH_PROMPT = (
+    "Use the web_search tool to research how the best-known / SOTA approach "
+    "handles the problem in the TASK below. Output ONLY a short plain-text summary "
+    "(5-12 lines): the SOTA approach, the key technique(s), and the specific "
+    "sources/references to build on. Do NOT write code or read local files."
+    "\n\nTASK:\n{objective}"
+)
+
+_DEFAULT_PROFILE_HEADER = (
+    "[LIVE PROFILE — measured just now. The flagged bottlenecks are below. "
+    "Address the #1 bottleneck first; do not write a candidate that ignores this "
+    "data.]"
+)
+
+
 def _forced_web_research(objective: str, *, cwd: str) -> str:
     """Opt-in pre-mission grounding step (general; gated by env).
 
@@ -85,14 +100,11 @@ def _forced_web_research(objective: str, *, cwd: str) -> str:
         return objective
     agent_bin = os.environ.get("ARGUS_TEAMMATE_RESEARCH_CODEX", "codex")
     timeout_s = float(os.environ.get("ARGUS_TEAMMATE_RESEARCH_TIMEOUT_S", "180"))
-    prompt = (
-        "Use the web_search tool to research how the best open-source / SOTA "
-        "implementation handles the operation in the TASK below — check vLLM, "
-        "SGLang, FlashInfer, CUTLASS, cuDNN, Triton, and any relevant PyTorch PR. "
-        "Output ONLY a short plain-text summary (5-12 lines): the SOTA approach, "
-        "the key technique(s), and the specific library/kernel/source to base on. "
-        "Do NOT write code or read local files.\n\nTASK:\n" + objective[:1000]
-    )
+    # Domain-neutral default; an operator pins the domain (e.g. a GPU-kernel
+    # library list) via ARGUS_TEAMMATE_RESEARCH_PROMPT — a template with a
+    # ``{objective}`` placeholder. No domain is baked into the library.
+    template = os.environ.get("ARGUS_TEAMMATE_RESEARCH_PROMPT", "").strip() or _DEFAULT_RESEARCH_PROMPT
+    prompt = template.replace("{objective}", objective[:1000])
     try:
         res = subprocess.run(
             [agent_bin, "exec", "--skip-git-repo-check", prompt],
@@ -111,10 +123,9 @@ def _forced_web_research(objective: str, *, cwd: str) -> str:
     summary = summary[-1800:]
     sys.stderr.write("teammate_entry: forced web research prepended "
                      f"({len(summary)} chars)\n")
-    return ("[LIVE SOTA RESEARCH — performed via web_search just now, BEFORE you "
-            "loaded any local/inherited context. BUILD YOUR CANDIDATE ON THIS: "
-            "match this SOTA/baseline first, then beat it; do NOT ignore it to "
-            "continue a previous bespoke direction.]\n"
+    return ("[LIVE RESEARCH — performed via web_search just now, BEFORE you loaded "
+            "any local/inherited context. Ground your work in this; do NOT ignore "
+            "it to continue a previous bespoke direction.]\n"
             + summary + "\n--- end research ---\n\n" + objective)
 
 
@@ -159,10 +170,10 @@ def _forced_profile(objective: str, *, cwd: str) -> str:
         return objective  # nothing usable came back
     report = report[:3000]
     sys.stderr.write(f"teammate_entry: forced profile prepended ({len(report)} chars)\n")
-    return ("[LIVE NCU PROFILE — measured on the B200 just now. The op's kernels "
-            "and their bottlenecks are below. ATTACK THE #1 KERNEL'S FLAGGED "
-            "BOTTLENECK FIRST; do not write a candidate that ignores this data.]\n"
-            + report + "\n--- end profile ---\n\n" + objective)
+    # Domain-neutral default; an operator pins the framing (e.g. NCU/roofline
+    # wording) via ARGUS_TEAMMATE_PROFILE_HEADER. No box/profiler specifics here.
+    header = os.environ.get("ARGUS_TEAMMATE_PROFILE_HEADER", "").strip() or _DEFAULT_PROFILE_HEADER
+    return header + "\n" + report + "\n--- end profile ---\n\n" + objective
 
 
 def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,

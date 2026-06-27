@@ -190,6 +190,66 @@ def test_forced_profile_keeps_non_kernel_report(tmp_path: Path, monkeypatch) -> 
     assert out != "optimize the request parser"  # i.e. the profile was kept, not dropped
 
 
+class _FakeProc:
+    def __init__(self, stdout: str) -> None:
+        self.stdout = stdout
+
+
+def test_forced_research_default_prompt_is_domain_neutral(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_TEAMMATE_FORCE_RESEARCH", "1")
+    monkeypatch.delenv("ARGUS_TEAMMATE_RESEARCH_PROMPT", raising=False)
+    captured: dict = {}
+
+    def fake_run(argv, **k):
+        captured["prompt"] = argv[-1]
+        return _FakeProc("web search done; the SOTA approach is X using technique Y; source: paperZ.")
+
+    monkeypatch.setattr(te.subprocess, "run", fake_run)
+    te._forced_web_research("survey diffusion-policy robotics papers", cwd=str(tmp_path))
+    p = captured["prompt"]
+    for lib in ("vLLM", "CUTLASS", "Triton", "cuDNN", "FlashInfer"):
+        assert lib not in p  # no hardcoded GPU-kernel domain in the default
+    assert "survey diffusion-policy robotics papers" in p  # objective interpolated
+
+
+def test_forced_research_prompt_is_operator_configurable(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_TEAMMATE_FORCE_RESEARCH", "1")
+    monkeypatch.setenv("ARGUS_TEAMMATE_RESEARCH_PROMPT", "DOMAIN: check libA, libB. TASK:\n{objective}")
+    captured: dict = {}
+
+    def fake_run(argv, **k):
+        captured["prompt"] = argv[-1]
+        return _FakeProc("web search: libA is best.")
+
+    monkeypatch.setattr(te.subprocess, "run", fake_run)
+    te._forced_web_research("optimize the GEMM epilogue", cwd=str(tmp_path))
+    assert "libA" in captured["prompt"] and "optimize the GEMM epilogue" in captured["prompt"]
+
+
+def _profile_out(tmp_path, monkeypatch, *, header_env=None) -> str:
+    monkeypatch.setenv("ARGUS_TEAMMATE_FORCE_PROFILE", "1")
+    if header_env is None:
+        monkeypatch.delenv("ARGUS_TEAMMATE_PROFILE_HEADER", raising=False)
+    else:
+        monkeypatch.setenv("ARGUS_TEAMMATE_PROFILE_HEADER", header_env)
+    report = "Top function parse_request 62% self; the hot path is JSON decoding in the request handler."
+    rf = tmp_path / "p.txt"
+    rf.write_text(report, encoding="utf-8")
+    monkeypatch.setenv("ARGUS_TEAMMATE_PROFILE_CMD", f"cat {rf}")
+    return te._forced_profile("optimize the parser", cwd=str(tmp_path))
+
+
+def test_forced_profile_default_header_is_domain_neutral(tmp_path: Path, monkeypatch) -> None:
+    out = _profile_out(tmp_path, monkeypatch)
+    assert "NCU" not in out and "B200" not in out  # no GPU framing in the default
+    assert "LIVE PROFILE" in out and "bottleneck" in out.lower()
+
+
+def test_forced_profile_header_is_operator_configurable(tmp_path: Path, monkeypatch) -> None:
+    out = _profile_out(tmp_path, monkeypatch, header_env="[MY NCU PROFILE — attack the kernel]")
+    assert "[MY NCU PROFILE — attack the kernel]" in out
+
+
 def test_teammate_inherits_leaderboard_block_in_objective(tmp_path: Path, monkeypatch) -> None:
     from argus_skill.team import leaderboard as lb
     root = tmp_path / ".argus_team" / "t1"
