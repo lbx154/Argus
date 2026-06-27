@@ -171,6 +171,35 @@
         }
       },
       "required": ["stage", "summary", "items"]
+    },
+    "step_back": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "MANDATORY whenever THIS round produced a MEASURED result (a metric / score / eval output / benchmark number), success OR failure — a fresh-skeptic reflection on the RESULTS that is INDEPENDENT of your status verdict and is emitted EVEN ON A CLEAN SUCCESS. Set null ONLY when this round produced no measured result at all (pure wiring / setup / run-wait). Mirrors ARIS result-to-claim; it exists to stop the project getting locked into its initial plan.",
+      "properties": {
+        "supported_by_results": { "type": "string", "enum": ["yes", "partial", "no"] },
+        "surprises": { "type": "string", "maxLength": 1200 },
+        "new_questions": {
+          "type": "array",
+          "maxItems": 5,
+          "items": { "type": "string", "maxLength": 400 }
+        },
+        "alt_directions": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "direction": { "type": "string", "maxLength": 500 },
+              "why": { "type": "string", "maxLength": 500 },
+              "cheap_to_test": { "type": "boolean" }
+            },
+            "required": ["direction", "why", "cheap_to_test"]
+          }
+        }
+      },
+      "required": ["supported_by_results", "surprises", "new_questions", "alt_directions"]
     }
   },
   "required": [
@@ -187,6 +216,7 @@
     "checklist",
     "checkpoint",
     "skill_ops",
-    "checklist_feedback"
+    "checklist_feedback",
+    "step_back"
   ]
 }

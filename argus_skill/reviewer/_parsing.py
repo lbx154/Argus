@@ -79,7 +79,57 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
         process_lesson=_parse_process_lesson(parsed),
         skill_ops=_parse_skill_ops(parsed),
         checklist_feedback=_parse_checklist_feedback(parsed),
+        step_back=_parse_step_back(parsed),
     )
+
+
+def _parse_step_back(parsed: dict) -> dict[str, Any] | None:
+    """Parse the reviewer's STEP-BACK reflection on this round's measured result
+    (fail-soft → ``None``).
+
+    This is the anti-plan-lock-in channel: a fresh-skeptic critique authored on
+    EVERY round that produced a measured result — including a clean success — so
+    the planner is forced to consider NEW questions / alternative directions even
+    when the plan appears to be working. Returns ``None`` when absent / not a dict
+    / carries no usable signal, so the planner simply sees nothing to triage on a
+    pure wiring / run-wait round. Caps mirror the schema; a malformed
+    ``alt_directions`` entry is dropped, never raised."""
+    raw = parsed.get("step_back")
+    if not isinstance(raw, dict):
+        return None
+    supported = str(raw.get("supported_by_results", "") or "").strip().lower()
+    if supported not in {"yes", "partial", "no"}:
+        supported = ""
+    surprises = str(raw.get("surprises", "") or "").strip()[:1200]
+    new_questions: list[str] = []
+    raw_q = raw.get("new_questions")
+    if isinstance(raw_q, list):
+        for q in raw_q[:5]:
+            text = str(q or "").strip()[:400]
+            if text:
+                new_questions.append(text)
+    alt_directions: list[dict[str, Any]] = []
+    raw_alt = raw.get("alt_directions")
+    if isinstance(raw_alt, list):
+        for entry in raw_alt[:4]:
+            if not isinstance(entry, dict):
+                continue
+            direction = str(entry.get("direction", "") or "").strip()
+            if not direction:
+                continue
+            alt_directions.append({
+                "direction": direction[:500],
+                "why": str(entry.get("why", "") or "").strip()[:500],
+                "cheap_to_test": bool(entry.get("cheap_to_test")),
+            })
+    if not supported and not surprises and not new_questions and not alt_directions:
+        return None
+    return {
+        "supported_by_results": supported,
+        "surprises": surprises,
+        "new_questions": new_questions,
+        "alt_directions": alt_directions,
+    }
 
 
 def _parse_checklist_feedback(parsed: dict) -> dict[str, Any] | None:

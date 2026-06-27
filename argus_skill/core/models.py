@@ -158,6 +158,19 @@ class ReviewDecision:
     # "items": [{"id": str, "problem": str, "suggested_fix": str}]}``. Empty/None
     # when the reviewer has no complaint about the checklist itself.
     checklist_feedback: dict[str, Any] | None = None
+    # Reviewer → Planner STEP-BACK reflection on THIS round's measured result
+    # (the anti-plan-lock-in channel). Distinct from ``planner_report`` (which
+    # only carries real signal when ``forward_progress=False``): ``step_back`` is
+    # authored on EVERY round that produced a measured result — INCLUDING a clean
+    # success — as a fresh-skeptic critique that surfaces NEW questions and
+    # alternative directions even when the plan is "working". Shape:
+    # ``{"supported_by_results": "yes|partial|no", "surprises": str,
+    # "new_questions": [str], "alt_directions": [{"direction", "why",
+    # "cheap_to_test"}]}``. The planner is REQUIRED (planner rule 17d) to triage
+    # each ``alt_direction`` — spawn it as a new DAG branch or explicitly
+    # defer/reject it. Fail-soft: ``None`` when the round had no measured result
+    # (pure wiring/run-wait) or the reviewer omitted it.
+    step_back: dict[str, Any] | None = None
     # Side-channel: token usage of the reviewer subprocess that produced
     # this decision. Populated by ``Reviewer.evaluate`` and consumed by
     # telemetry/cost reporting. Not part of the reviewer's semantic output.
@@ -234,6 +247,7 @@ class ReviewDecision:
             "checkpoint": dict(self.checkpoint or {}),
             "skill_ops": list(self.skill_ops or []),
             "checklist_feedback": dict(self.checklist_feedback or {}),
+            "step_back": (dict(self.step_back) if isinstance(self.step_back, dict) else None),
             # Token bookkeeping (cost-tracking sinks read these).
             "input_tokens": int(self.input_tokens or 0),
             "cached_input_tokens": int(self.cached_input_tokens or 0),

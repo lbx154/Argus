@@ -1523,6 +1523,11 @@ class LifeSupervisor:
                     if isinstance(getattr(outcome, "checklist_feedback", {}), dict)
                     else {}
                 ),
+                "step_back": (
+                    getattr(outcome, "step_back", None)
+                    if isinstance(getattr(outcome, "step_back", None), dict)
+                    else None
+                ),
                 "final_submission_certified": bool(
                     kind == "mission_complete"
                     and self._planner_scope_from_item(item)
@@ -3270,6 +3275,11 @@ class LifeSupervisor:
                         rendered_fb = self._render_checklist_feedback(feedback)
                         if rendered_fb:
                             line += "\n" + rendered_fb
+                    step_back = extra.get("step_back")
+                    if isinstance(step_back, dict) and step_back:
+                        rendered_sb = self._render_step_back(step_back)
+                        if rendered_sb:
+                            line += "\n" + rendered_sb
             lines.append(line)
         return "\n".join(lines) or "(empty)"
 
@@ -3312,7 +3322,51 @@ class LifeSupervisor:
         return "\n".join(parts)
 
     @staticmethod
-    def _render_checklist_feedback(feedback: dict) -> str:
+    def _render_step_back(step_back: dict) -> str:
+        """Render the reviewer's STEP-BACK reflection for the Planner.
+
+        This is the anti-plan-lock-in block: a fresh-skeptic critique of THIS
+        round's measured result, authored even on a clean success. The planner
+        is REQUIRED (rule 17d) to triage each alt_direction. Returns "" when the
+        object carries no usable signal.
+        """
+        def _clean(value: object, limit: int) -> str:
+            return str(value or "").strip()[:limit]
+
+        supported = _clean(step_back.get("supported_by_results"), 16)
+        surprises = _clean(step_back.get("surprises"), 1200)
+        parts: list[str] = [
+            "    reviewer→planner STEP_BACK (anti-plan-lock-in — you MUST triage,"
+            " rule 17d):"
+        ]
+        if supported:
+            parts.append(f"      supported_by_results: {supported}")
+        if surprises:
+            parts.append(f"      surprises: {surprises}")
+        questions = step_back.get("new_questions")
+        if isinstance(questions, list) and questions:
+            parts.append("      new_questions:")
+            for q in questions[:5]:
+                text = _clean(q, 400)
+                if text:
+                    parts.append(f"        - {text}")
+        alts = step_back.get("alt_directions")
+        if isinstance(alts, list) and alts:
+            parts.append("      alt_directions (triage EACH — branch or reject with reason):")
+            for entry in alts[:4]:
+                if not isinstance(entry, dict):
+                    continue
+                direction = _clean(entry.get("direction"), 500)
+                if not direction:
+                    continue
+                why = _clean(entry.get("why"), 500)
+                cheap = bool(entry.get("cheap_to_test"))
+                tag = " [cheap_to_test]" if cheap else ""
+                parts.append(f"        - {direction}{tag}" + (f"  — {why}" if why else ""))
+        # Header-only render carries no signal worth showing the planner.
+        if len(parts) == 1:
+            return ""
+        return "\n".join(parts)
         """Render the reviewer's ADVISORY checklist feedback for the Planner.
 
         The reviewer is feedback-only — it never edits the checklist. This block

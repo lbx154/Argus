@@ -250,6 +250,13 @@ class _Outcome:
     # journal block so the project Planner can act on it (via checklist_ops) next
     # cycle. Empty dict when the reviewer raised no checklist complaint.
     checklist_feedback: dict = field(default_factory=dict)
+    # Reviewer → Planner STEP-BACK reflection from the final round (the anti-
+    # plan-lock-in channel). Authored on EVERY round with a measured result —
+    # including a clean success — surfacing new questions / alternative
+    # directions the planner must triage (rule 17d). ``None`` when the round had
+    # no measured result or the reviewer omitted it. Shape: see
+    # ``ReviewDecision.step_back``.
+    step_back: dict | None = None
     # The Manager's stage-transition verdict for this mission completion (the
     # Manager is the sole post-bootstrap writer of current_stage). Shape:
     # ``{"action": advance|hold|rollback, "target_stage", "reason",
@@ -1162,6 +1169,7 @@ class _SkillLoopRunner:
         # so the supervisor can journal it for the project planner verbatim.
         planner_report: dict = {}
         checklist_feedback: dict = {}
+        step_back: dict | None = None
         rounds_list = getattr(outcome, "rounds", None) or []
         if rounds_list:
             _final_review = getattr(rounds_list[-1], "review", None)
@@ -1172,6 +1180,9 @@ class _SkillLoopRunner:
                 _cfb = getattr(_final_review, "checklist_feedback", None)
                 if isinstance(_cfb, dict) and _cfb:
                     checklist_feedback = _cfb
+                _sb = getattr(_final_review, "step_back", None)
+                if isinstance(_sb, dict) and _sb:
+                    step_back = _sb
         if mission_scope == "final_submission":
             final_review = None
             if rounds_list:
@@ -1204,6 +1215,7 @@ class _SkillLoopRunner:
             completion_evidence=completion_evidence,
             planner_report=planner_report,
             checklist_feedback=checklist_feedback,
+            step_back=step_back,
             stage_transition=stage_transition,
         )
 

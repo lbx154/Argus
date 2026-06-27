@@ -23,6 +23,7 @@ from ._parsing import (
     _find_decision_in_messages,
     _parse_checkpoint,
     _parse_planner_report,
+    _parse_step_back,
     parse_decision_text,
 )
 
@@ -35,4 +36,5 @@ __all__ = [
     "_load_wiki_curator_skill_if_present",
     "_parse_checkpoint",
     "_parse_planner_report",
+    "_parse_step_back",
 ]
