@@ -113,6 +113,27 @@ battle without losing precision. That is the difference between an expert and a
 parameter-sweeper — knowing which physical lever is still untapped, and being
 willing to write the kernel to reach it.
 
+## The method transfers — but match each kernel's attention contract
+
+The same TF32 flash dropped into a *second* hard kernel
+(`002_decoder_layer_full_block`, a LLaMA GQA decoder that materialized its
+seq² scores with a custom masked-softmax). First attempt: **0/18,
+`[INCORRECT_NUMERICAL]`.** A transfer failure is a *contract* mismatch, not a
+dead end — read the kernel to find which clause differs:
+
+- This kernel **folds `1/sqrt(d)` into q inside the RoPE kernel** (`q = (...) *
+  0.0884`), so `scores = q@k` is *already* scaled. My flash applied `sm_scale =
+  d^-0.5` again → a double-scale → wrong softmax. Fix: pass `sm_scale=1.0`.
+- Its mask was genuine causal (matched), and its GQA (32 q / 8 kv) just needed
+  the 8 KV heads expanded to 32 once (cheap) before the MHA flash.
+
+With the scale contract matched: official, locked clocks, **18/18 correct,
+2.459 → 1.694 ms (1.45×).** Lesson: a kernel optimization *technique* is reusable
+process data, but a *drop-in* is not — always reconcile the three attention
+clauses (scale, mask semantics, head/GQA layout) against the target kernel before
+trusting the result. The official `[INCORRECT_NUMERICAL]` is what tells you a
+clause is off.
+
 ## The transferable rules
 
 1. **Roofline before code.** Know the wall (memory / compute / latency) and the
