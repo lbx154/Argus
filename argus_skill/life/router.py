@@ -62,9 +62,17 @@ _CLASSIFY_INSTRUCTIONS = (
 )
 
 
-def build_classify_prompt(text: str) -> str:
-    """Render the prompt sent to the model for chat-vs-task classification."""
+def build_classify_prompt(text: str, role_skill_block: str = "") -> str:
+    """Render the prompt sent to the model for chat-vs-task classification.
+
+    ``role_skill_block`` is OPTIONALLY prepended to the prompt — the Manager
+    passes its role skill block here so the classifier shares the same injected
+    identity/duties context the Manager's other LLM calls use. It defaults to
+    ``""`` so every existing caller (and a Manager with no ``skill_store``) gets
+    a byte-for-byte identical prompt to before this parameter existed.
+    """
     return (
+        f"{role_skill_block}"
         f"{_CLASSIFY_INSTRUCTIONS}\n\n"
         "## Operator message\n"
         f"{(text or '').strip()}\n\n"
@@ -85,6 +93,7 @@ def classify_is_conversational(
     text: str,
     *,
     run_exec: Callable[[str], Any],
+    role_skill_block: str = "",
 ) -> bool:
     """Model-based chat/task classifier.
 
@@ -95,12 +104,16 @@ def classify_is_conversational(
     mission pipeline) for any task-like answer, parse failure, non-zero
     exit, or backend exception — false positives lose operator work, so
     the bias is hard toward TASK.
+
+    ``role_skill_block`` is forwarded to :func:`build_classify_prompt` and
+    defaults to ``""`` — so an existing caller that does not pass it gets a
+    byte-for-byte identical prompt to before.
     """
     cleaned = (text or "").strip()
     if not cleaned:
         return False
     try:
-        result = run_exec(build_classify_prompt(cleaned))
+        result = run_exec(build_classify_prompt(cleaned, role_skill_block))
     except Exception:  # noqa: BLE001 — any backend error -> treat as task
         return False
     if int(getattr(result, "exit_code", 0) or 0) != 0:

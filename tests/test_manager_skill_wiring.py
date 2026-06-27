@@ -136,3 +136,106 @@ def test_manager_decision_prompt_unchanged_without_store(tmp_path: Path) -> None
     )
     assert cap.prompts
     assert "Argus manager role skill" not in cap.prompts[0]
+
+
+# --------------------------------------------------------------------------
+# 4. Manager injects its role skill into classify AND approve too
+# --------------------------------------------------------------------------
+class _CapturingRunner:
+    """A runner whose ``run_exec`` records the prompt; tolerates the persistent
+    session's extra ``resume_thread_id`` kwarg. Used to capture the approve gate's
+    prompt at the Manager level (the approval call goes through the session)."""
+
+    def __init__(self, message: str = '{"approve": true, "why": "ok"}') -> None:
+        self.message = message
+        self.prompts: list[str] = []
+
+    def run_exec(self, *, prompt: str, options=None, run_label: str = "",
+                 resume_thread_id=None) -> object:
+        self.prompts.append(prompt)
+
+        class _R:
+            last_agent_message = self.message
+            thread_id = None
+
+        return _R()
+
+
+def test_manager_classify_prompt_carries_role_skill_when_store_present(
+    tmp_path: Path,
+) -> None:
+    from argus_skill.skills.store import SkillStore
+
+    store = SkillStore(tmp_path / "skills")
+    mgr = Manager(project_root=tmp_path, runner=object(), skill_store=store)
+
+    seen: list[str] = []
+
+    def run_exec(prompt: str) -> object:
+        seen.append(prompt)
+
+        class _R:
+            last_agent_message = "TASK"
+            exit_code = 0
+
+        return _R()
+
+    mgr.is_conversational("是不是要做点什么", run_exec=run_exec)
+    assert seen, "manager never built a classify prompt"
+    # The fixed manager role skill is prepended to the classify prompt.
+    assert "Argus manager role skill" in seen[0]
+    assert "Argus Manager Role" in seen[0]
+    # The classify contract is intact (CHAT/TASK labels still present).
+    assert "CHAT" in seen[0] and "TASK" in seen[0]
+
+
+def test_manager_classify_prompt_unchanged_without_store(tmp_path: Path) -> None:
+    from argus_skill.life.router import build_classify_prompt
+
+    mgr = Manager(project_root=tmp_path, runner=object(), skill_store=None)
+    seen: list[str] = []
+
+    def run_exec(prompt: str) -> object:
+        seen.append(prompt)
+
+        class _R:
+            last_agent_message = "TASK"
+            exit_code = 0
+
+        return _R()
+
+    text = "是不是要做点什么"
+    mgr.is_conversational(text, run_exec=run_exec)
+    assert seen
+    # No store → no role-skill header, byte-for-byte the legacy classify prompt.
+    assert "Argus manager role skill" not in seen[0]
+    assert seen[0] == build_classify_prompt(text)
+
+
+def test_manager_approve_prompt_carries_role_skill_when_store_present(
+    tmp_path: Path,
+) -> None:
+    from argus_skill.skills.store import SkillStore
+
+    store = SkillStore(tmp_path / "skills")
+    runner = _CapturingRunner()
+    mgr = Manager(project_root=tmp_path, runner=runner, skill_store=store)
+
+    verdict = mgr.approve_skill(content="a reusable playbook", task="a task")
+    assert runner.prompts, "manager never built an approve prompt"
+    # The fixed manager role skill is prepended to the approval gate prompt.
+    assert "Argus manager role skill" in runner.prompts[0]
+    assert "Argus Manager Role" in runner.prompts[0]
+    # The approval contract is intact (the gate's own rubric heading survives).
+    assert "skill-library gate" in runner.prompts[0]
+    assert verdict.approved is True
+
+
+def test_manager_approve_prompt_unchanged_without_store(tmp_path: Path) -> None:
+    runner = _CapturingRunner()
+    mgr = Manager(project_root=tmp_path, runner=runner, skill_store=None)
+    mgr.approve_skill(content="a reusable playbook", task="a task")
+    assert runner.prompts
+    # No store → no role-skill header on the approval prompt (back-compat).
+    assert "Argus manager role skill" not in runner.prompts[0]
+    assert runner.prompts[0].startswith("You are the Manager's skill-library gate")

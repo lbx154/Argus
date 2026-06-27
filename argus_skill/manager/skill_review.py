@@ -88,17 +88,25 @@ def approve_skill(
     runner: Any,
     model: str = "",
     reasoning_effort: str = "low",
+    role_skill_block: str = "",
 ) -> ApprovalVerdict:
     """Judge a proposed skill playbook's generalizability. Returns
     ``ApprovalVerdict``. Fail-soft and CONSERVATIVE: any error, empty/unparseable
     judge output, or missing runner → ``approved=False`` (a skill is kept out of
-    the library unless the gate affirmatively passes it)."""
+    the library unless the gate affirmatively passes it).
+
+    ``role_skill_block`` is OPTIONALLY prepended to the judge prompt — the Manager
+    passes its role skill block here so the approval gate shares the same injected
+    identity/duties context the Manager's other LLM calls use. It defaults to
+    ``""`` so every existing caller (and a Manager with no ``skill_store``) gets a
+    byte-for-byte identical prompt to before this parameter existed."""
     if not (content or "").strip():
         return ApprovalVerdict(False, "empty proposal")
     if runner is None:
         return ApprovalVerdict(False, "no manager runner available")
 
     prompt = (
+        f"{role_skill_block}"
         "You are the Manager's skill-library gate — the top-level authority on "
         "what enters the shared skill library. A reviewer PROPOSED a capability "
         f"playbook (op={op}) after working a task. Judge whether it is BOTH "

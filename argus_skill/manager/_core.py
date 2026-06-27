@@ -521,7 +521,9 @@ class Manager:
                     run_label="manager-converse",
                 )
 
-        return classify_is_conversational(text, run_exec=run_exec)
+        return classify_is_conversational(
+            text, run_exec=run_exec, role_skill_block=self._role_skill_block(text)
+        )
 
     # ---- stage-transition authority (the Manager OWNS the pipeline stage) ----
     def decide_stage_transition(
@@ -683,6 +685,7 @@ class Manager:
             op=op,
             runner=(self._session or self.runner),
             reasoning_effort=reasoning_effort,
+            role_skill_block=self._role_skill_block(task),
         )
 
     # ---- skill-library tidy-up (the Manager is the "janitor") ----

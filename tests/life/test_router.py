@@ -109,6 +109,42 @@ def test_classify_prompt_contains_message_and_labels() -> None:
     assert "CHAT" in prompt and "TASK" in prompt
 
 
+# ---------- role_skill_block injection (Manager wires its role skill in) ----
+
+def test_classify_prompt_byte_identical_when_block_empty() -> None:
+    # The default empty role_skill_block must produce a prompt byte-for-byte
+    # identical to the legacy one-arg call (full back-compat for every caller
+    # that does not pass a block — and for a Manager with no skill_store).
+    assert build_classify_prompt("你好", "") == build_classify_prompt("你好")
+
+
+def test_classify_prompt_prepends_non_empty_block() -> None:
+    block = "ROLE_SKILL_SENTINEL\n\n"
+    prompt = build_classify_prompt("你好", block)
+    # The block is prepended verbatim, ahead of the original instructions.
+    assert prompt.startswith(block)
+    assert "ROLE_SKILL_SENTINEL" in prompt
+    # The rest of the prompt is exactly the legacy prompt appended after it.
+    assert prompt == block + build_classify_prompt("你好")
+
+
+def test_classify_forwards_role_skill_block_to_prompt() -> None:
+    # classify_is_conversational threads role_skill_block through to the prompt
+    # the model actually receives.
+    run = _runner(_FakeResult(message="TASK"))
+    classify_is_conversational(
+        "fix it", run_exec=run, role_skill_block="ROLE_SKILL_SENTINEL\n\n"
+    )
+    assert run.calls and "ROLE_SKILL_SENTINEL" in run.calls[0]  # type: ignore[attr-defined]
+
+
+def test_classify_default_block_is_byte_identical_in_call() -> None:
+    # Not passing role_skill_block sends the legacy prompt unchanged.
+    run_default = _runner(_FakeResult(message="TASK"))
+    classify_is_conversational("fix it", run_exec=run_default)
+    assert run_default.calls == [build_classify_prompt("fix it")]  # type: ignore[attr-defined]
+
+
 # ---------- chat prompt builder (unchanged surface) -----------------------
 
 def test_build_chat_prompt_contains_user_message() -> None:

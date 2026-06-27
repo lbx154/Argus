@@ -18,6 +18,7 @@ from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus_skill.manager import skill_tidy
 from argus_skill.manager.skill_review import (
     PlacementVerdict,
+    approve_skill,
     classify_skill_placement,
 )
 from argus_skill.skills.store import Skill, SkillStore
@@ -25,6 +26,23 @@ from argus_skill.skills.store import Skill, SkillStore
 
 def _runner(message: str) -> MemoryBackend:
     return MemoryBackend(default=CannedResponse(message=message))
+
+
+class _CapturingRunner:
+    """Records the prompt passed to ``run_exec`` and returns a canned verdict so
+    the approval gate's prompt can be asserted byte-for-byte."""
+
+    def __init__(self, message: str = '{"approve": true, "why": "ok"}') -> None:
+        self.message = message
+        self.prompts: list[str] = []
+
+    def run_exec(self, *, prompt: str, options=None, run_label: str = "") -> object:
+        self.prompts.append(prompt)
+
+        class _R:
+            last_agent_message = self.message
+
+        return _R()
 
 
 def _skill(name: str, *, provisional: bool = False) -> Skill:
@@ -104,8 +122,46 @@ def test_placement_unparseable_is_stay() -> None:
     assert v.placement == "stay"
 
 
-# --- write_skill_to_source: lands in the right source dir -------------------
+# --- approve_skill: role_skill_block injection (Manager wires role skill) ----
 
+
+def test_approve_prompt_byte_identical_when_block_empty() -> None:
+    # Default empty role_skill_block → the judge prompt is byte-for-byte the
+    # legacy one (full back-compat for every caller that does not pass a block).
+    default = _CapturingRunner()
+    explicit = _CapturingRunner()
+    approve_skill(content="some playbook", task="a task", runner=default)
+    approve_skill(
+        content="some playbook", task="a task", runner=explicit, role_skill_block=""
+    )
+    assert default.prompts and explicit.prompts
+    assert default.prompts[0] == explicit.prompts[0]
+
+
+def test_approve_prompt_prepends_non_empty_block() -> None:
+    block = "ROLE_SKILL_SENTINEL\n\n"
+    cap = _CapturingRunner()
+    approve_skill(
+        content="some playbook", task="a task", runner=cap, role_skill_block=block
+    )
+    assert cap.prompts
+    prompt = cap.prompts[0]
+    # The block is prepended verbatim, ahead of the gate's own instructions.
+    assert prompt.startswith(block)
+    assert "ROLE_SKILL_SENTINEL" in prompt
+    # And the rest is exactly the legacy prompt (block + legacy == new).
+    legacy = _CapturingRunner()
+    approve_skill(content="some playbook", task="a task", runner=legacy)
+    assert prompt == block + legacy.prompts[0]
+
+
+def test_approve_signature_has_role_skill_block() -> None:
+    import inspect
+
+    assert "role_skill_block" in inspect.signature(approve_skill).parameters
+
+
+# --- write_skill_to_source: lands in the right source dir -------------------
 
 def test_write_skill_to_builtin(isolated_source) -> None:
     _root, builtin = isolated_source
