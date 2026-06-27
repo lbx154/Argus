@@ -47,9 +47,9 @@ def form(root: Path, tasks: list[dict[str, Any]]) -> None:
             "task_id": spec["task_id"],
             "title": spec.get("title", ""),
             "objective": spec.get("objective", ""),
-            # The optimization target this task contributes to (a kernel, etc.).
-            # Several tasks (breadth + depth re-forms) can share one target, so the
-            # leaderboard aggregates by target, not task_id. Defaults to task_id.
+            # The target this task contributes to. Several tasks (breadth + depth
+            # re-forms) can share one target, so the leaderboard aggregates by
+            # target, not task_id. Defaults to task_id.
             "target": spec.get("target") or spec["task_id"],
             # Optimization direction for this target's metric, for the leaderboard:
             # True = lower is better (latency / error-count / loss), False = higher

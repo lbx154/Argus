@@ -71,7 +71,7 @@ def _build_runner_ns(cwd: str, *, max_rounds: int, paper_mission: bool,
     # a paper-fan-out team enables them per teammate via ARGUS_TEAMMATE_PAPER_MISSION.
     ns.paper_mission = _env_bool("ARGUS_TEAMMATE_PAPER_MISSION", paper_mission)
     # Time-box: the runner interrupts the codex mission when this event is set,
-    # so a hard kernel can't hang a teammate for hours.
+    # so a hard task can't hang a teammate for hours.
     if stop_event is not None:
         ns.stop_event = stop_event
     return ns
@@ -110,9 +110,9 @@ def _forced_web_research(objective: str, *, cwd: str) -> str:
         return objective
     agent_bin = os.environ.get("ARGUS_TEAMMATE_RESEARCH_CODEX", "codex")
     timeout_s = float(os.environ.get("ARGUS_TEAMMATE_RESEARCH_TIMEOUT_S", "180"))
-    # Domain-neutral default; an operator pins the domain (e.g. a GPU-kernel
-    # library list) via ARGUS_TEAMMATE_RESEARCH_PROMPT — a template with a
-    # ``{objective}`` placeholder. No domain is baked into the library.
+    # Domain-neutral default; an operator pins the domain (e.g. the specific
+    # libraries / prior art to search) via ARGUS_TEAMMATE_RESEARCH_PROMPT — a
+    # template with a ``{objective}`` placeholder. No domain is baked into the library.
     template = os.environ.get("ARGUS_TEAMMATE_RESEARCH_PROMPT", "").strip() or _DEFAULT_RESEARCH_PROMPT
     prompt = template.replace("{objective}", objective[:1000])
     try:
@@ -172,7 +172,7 @@ def _forced_profile(objective: str, *, cwd: str) -> str:
         return objective
     report = raw.strip()
     # Keep any non-empty profile. The library is domain-agnostic, so it does NOT
-    # require a particular word (the old ``"kernel" not in report`` check silently
+    # require a particular word (an earlier hard-coded domain-word check silently
     # discarded a perfectly good py-spy / cProfile / EXPLAIN-ANALYZE report). An
     # operator can demand a substring via ARGUS_TEAMMATE_PROFILE_REQUIRE_SUBSTR.
     _require = os.environ.get("ARGUS_TEAMMATE_PROFILE_REQUIRE_SUBSTR", "").strip()
@@ -180,8 +180,9 @@ def _forced_profile(objective: str, *, cwd: str) -> str:
         return objective  # nothing usable came back
     report = report[:3000]
     sys.stderr.write(f"teammate_entry: forced profile prepended ({len(report)} chars)\n")
-    # Domain-neutral default; an operator pins the framing (e.g. NCU/roofline
-    # wording) via ARGUS_TEAMMATE_PROFILE_HEADER. No box/profiler specifics here.
+    # Domain-neutral default; an operator pins the framing (e.g. the profiler's
+    # name and how to read its output) via ARGUS_TEAMMATE_PROFILE_HEADER. No
+    # box/profiler specifics here.
     header = os.environ.get("ARGUS_TEAMMATE_PROFILE_HEADER", "").strip() or _DEFAULT_PROFILE_HEADER
     return header + "\n" + report + "\n--- end profile ---\n\n" + objective
 
@@ -196,14 +197,14 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
     recursion. Events go to the isolated ``life_dir``. Returns True on success.
 
     Time-boxed: capped at ``max_rounds`` engineer rounds AND a wall-clock
-    ``timeout_s`` (a watchdog sets the runner's stop_event), so a hard kernel
+    ``timeout_s`` (a watchdog sets the runner's stop_event), so a hard task
     can never hang a teammate for hours. Both default low and are env-tunable
     (ARGUS_TEAMMATE_MAX_ROUNDS, ARGUS_TEAMMATE_TIMEOUT_S).
     """
     if max_rounds is None:
         max_rounds = int(os.environ.get("ARGUS_TEAMMATE_MAX_ROUNDS", "200"))
     if timeout_s is None:
-        timeout_s = float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "5400"))  # 90 min: profile + iterate >=3-4 mechanisms toward roofline (aligned with the full engineer, not a shallow one-shot)
+        timeout_s = float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "5400"))  # 90 min: measure + iterate >=3-4 distinct approaches (aligned with the full engineer, not a shallow one-shot)
     # A teammate's events go to its isolated ``life_dir``, NOT the daemon's
     # ``<global_root>/projects/<fingerprint>/events.jsonl`` that the reviewer's
     # engineer-execution-log audit greps — so that audit would inspect a
@@ -234,9 +235,9 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
     # objective, so the engineer can't skip the search by claiming it already
     # knows. No-op unless ARGUS_TEAMMATE_FORCE_RESEARCH is set.
     objective = _forced_web_research(objective, cwd=cwd)
-    # Then force ONE profiling pass so the engineer optimizes from measured
-    # bottlenecks (roofline/occupancy/grid), not guesses — the data-driven loop.
-    # No-op unless ARGUS_TEAMMATE_FORCE_PROFILE + ARGUS_TEAMMATE_PROFILE_CMD set.
+    # Then force ONE profiling pass so the engineer works from measured
+    # bottlenecks, not guesses — the data-driven loop. No-op unless
+    # ARGUS_TEAMMATE_FORCE_PROFILE + ARGUS_TEAMMATE_PROFILE_CMD set.
     objective = _forced_profile(objective, cwd=cwd)
     ns = _build_runner_ns(cwd, max_rounds=max_rounds, paper_mission=paper_mission,
                           stop_event=stop_event)
@@ -402,8 +403,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(f"teammate_entry: inherited {len(prior)} chars of prior work "
                          f"for {task_id} (cross-teammate evolution)\n")
     # Leaderboard inheritance: tell a fresh teammate what's already been tried on
-    # this target so it builds depth instead of re-deriving breadth. No-op until a
-    # leaderboard exists; disable with ARGUS_TEAMMATE_INHERIT_LEADERBOARD=0.
+    # this target so it builds on the best instead of re-running the same breadth.
+    # No-op until a leaderboard exists; disable with ARGUS_TEAMMATE_INHERIT_LEADERBOARD=0.
     if os.environ.get("ARGUS_TEAMMATE_INHERIT_LEADERBOARD", "").strip().lower() not in ("0", "false", "no"):
         from . import leaderboard as _lb
         lb_block = _lb.objective_block(root, task.get("target") or task_id)

@@ -20,7 +20,7 @@ Form a team ONLY when ALL of these hold:
 - Each subtask **owns a disjoint set of files** (no two teammates edit the same path), and
 - Each subtask is **separately completable and verifiable** on its own.
 
-Stay solo (do not form a team) when the work is sequential, tightly coupled, edits shared files, or is small enough that coordination overhead would exceed the benefit. A multi-target optimization mission (e.g. "optimize these N kernels to hit SLO") is the canonical fit: one teammate per target (or per shard of targets).
+Stay solo (do not form a team) when the work is sequential, tightly coupled, edits shared files, or is small enough that coordination overhead would exceed the benefit. A multi-target mission (e.g. "optimize these N independent components against a shared metric") is the canonical fit: one teammate per target (or per shard of targets).
 
 ## How to split the work
 1. Enumerate the independent subtasks.
