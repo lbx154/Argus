@@ -83,6 +83,30 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="research/GO_NO_GO.md",
         ),
         ChecklistItem(
+            id="research.signal_derisk",
+            statement=(
+                "Before leaving the research stage, the locked idea passed a REAL "
+                "judgemental minimal experiment (<=10 min, <=$1) on a model/data "
+                "this box can actually run: research/SIGNAL_DERISK.json records "
+                "verdict=pass with measured baseline_metric and proposed_metric "
+                "that DIFFER by at least min_meaningful_delta in the "
+                "success_direction (the core signal provably MOVES), within budget "
+                "(cost_usd<=1.0, duration_s<=600), and research/SIGNAL_DERISK_LOG.txt "
+                "carries the verbatim commands + raw outputs of that run. Numbers "
+                "are COMPUTED from the run, never estimated. A dead signal "
+                "(baseline==proposed, no movement, wrong direction, or the model "
+                "cannot even exhibit the behaviour the idea needs) means PIVOT the "
+                "idea and re-run the de-risk — it is NOT allowed to enter the plan "
+                "stage. Mechanically re-checkable with `python -m "
+                "argus_skill.skills.signal_derisk validate`."
+            ),
+            evidence_hint=(
+                "research/SIGNAL_DERISK.json (verdict=pass, non-degenerate delta in "
+                "success_direction, in budget) + research/SIGNAL_DERISK_LOG.txt "
+                "(real commands + raw outputs)"
+            ),
+        ),
+        ChecklistItem(
             id="research.references",
             statement=(
                 "Reference repos that will be reused or compared against are "

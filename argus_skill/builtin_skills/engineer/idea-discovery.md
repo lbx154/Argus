@@ -75,7 +75,21 @@ For each top-ranked cluster, produce:
 - Falsifier: <what observation would refute the hypothesis>
 - Approximate budget: <token count, wall time>
 
+**Local Feasibility** (read this turn's `## GPU Resource Allocation` /
+`## Available APIs` / operator-constraint blocks — do NOT assume a model/GPU you
+cannot actually run here):
+- Critical signal comes from: <API-call output | gradient/training | inference>
+- Needs training? <yes/no>; GPU memory needed vs available: <est. vs this box>
+- **Will the core signal MOVE on the locally-available model?** <yes/no/unknown —
+  e.g. "NO: the only available frontier API refuses 100% of the harmful prompts
+  this safety signal needs, so the signal can't move here">
+- **Executable on deployed setup**: YES / NO / CONDITIONAL (condition: <...>)
+
 **Novelty bet**: <what makes this not a re-measurement>
+
+> A candidate whose core signal cannot move on the locally-runnable model is
+> already dead — drop or pivot it here, before it reaches the signal-de-risk
+> gate (engineer/idea-feasibility-derisk) at the end of research.
 
 **Anticipated kill-argument**: <strongest 50-word rejection a hostile
 reviewer would write; this skill must articulate it so kill-argument

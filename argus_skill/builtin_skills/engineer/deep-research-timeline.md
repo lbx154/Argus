@@ -1,6 +1,6 @@
 ---
 name: Deep Research via Source Timeline
-description: Depth of research is measured by reconstructing the FIELD'S TIMELINE (founding work → key turning points → current SOTA → open frontier), each node backed by a real curl-fetched paper — NOT by paper count. Forces real search (curl arxiv/Crossref, since Copilot web-search is unavailable) instead of reciting the model's prior knowledge.
+description: Depth of research is measured by reconstructing the FIELD'S TIMELINE (founding work → key turning points → current SOTA → open frontier), each node backed by a real fetched source (curl arXiv/Crossref OR codex web_search via the Responses API) — NOT by paper count. Forces real search instead of reciting the model's prior knowledge; reach for web_search for conference/OpenReview/recent work that curl-on-arXiv misses.
 category: engineer
 version: 1
 ---
@@ -25,8 +25,19 @@ exactly where your paper plugs in.
 
 ## How to do it (timeline-driven, REAL search only)
 
-Copilot's built-in web_search is unavailable here. Do **real** retrieval with
-`curl` against public APIs (no key needed):
+Two real-search channels — use BOTH:
+- **`curl` to public APIs (no key)** — arXiv + Crossref, the systematic auditable
+  deep-dive (the reviewer greps your log for these). Recipes below.
+- **codex `web_search` (via the Responses API — it WORKS)** — an earlier note
+  here said web_search is "unavailable"; that was wrong (it was the `--ghc`
+  WebSearch limit, NOT codex's own tool, which reaches the open web through the
+  Responses API). Use it for what curl-on-arXiv MISSES: conference pages
+  (ICML/ICLR/NeurIPS virtual sites + ACL Anthology), OpenReview, very recent work
+  (last ~3 months), and 机器之心 / 新智元 trend coverage. It returns real,
+  already-verified URLs — record each in the timeline node's source like a curl
+  hit (still spot-check it).
+
+Do **real** retrieval (never model memory). arXiv/Crossref curl recipes:
 
 1. **Fix the direction(s)** from the research objective. Pick the 2–4 lines of
    work the paper actually sits on (e.g. "tool-use agent benchmarks",

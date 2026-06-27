@@ -44,10 +44,27 @@ query ran. Process audit catches it; do not be the engineer it catches.
    entries that don't match any logged response, → the research stage is
    BLOCKED and you redo it with real curl evidence.
 
-## The two APIs (public, no key, work behind the Copilot proxy)
+## Two retrieval channels — both real, both auditable, use BOTH for depth
 
-Copilot web search is blocked here, but plain `curl` to these two endpoints
-works with no credentials. Use them directly.
+1. **`curl` to public APIs (the systematic, auditable deep-dive)** — arXiv +
+   Crossref work with no key behind the proxy. This is the auditable core: the
+   reviewer greps your execution log for these calls. Use curl for systematic
+   arXiv/Crossref fan-out and timeline construction.
+2. **codex `web_search` (the breadth channel — via the Responses API, it WORKS)**
+   — an earlier note said "Copilot web search is blocked"; that was a mistake
+   (it referred to the `--ghc` WebSearch limit, NOT codex's own `web_search`
+   tool, which reaches the open web through the Responses API). Use `web_search`
+   for exactly what curl-on-arXiv MISSES: conference pages (ICML / ICLR / NeurIPS
+   virtual sites + **ACL Anthology**), **OpenReview** submissions, very recent
+   work (last ~3 months not yet indexed), **机器之心 / 新智元** trend coverage,
+   and "has someone already solved this idea?". `web_search` returns real,
+   already-verified URLs (not model memory), so each hit is a real source you
+   still spot-check and source-track like a curl hit.
+
+Neither channel is model memory. The arXiv/Crossref `curl` recipes are below;
+reach for `web_search` whenever the literature is recent, conference-published,
+or on OpenReview — places where curl-on-arXiv is blind. For each `web_search`
+hit you keep, record its real URL in `retrieved_via` exactly like a curl source.
 
 ### arXiv (Atom XML — title / abstract / arxiv id)
 

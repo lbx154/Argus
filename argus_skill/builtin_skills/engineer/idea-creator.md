@@ -27,25 +27,33 @@ not the harness.
 ### Step 1 — rank candidates
 
 Reviewer agent (gpt-5.5 via `author` route) reads
-`IDEA_CANDIDATES.md` and ranks by joint **novelty × tractability × stake**:
+`IDEA_CANDIDATES.md` and ranks by joint **novelty × tractability × stake ×
+local_feasibility** — read each candidate's `Local Feasibility` block:
 
 ```json
 {
   "ranking": [
     {"id": "I-1", "novelty": "high", "tractability": "med",
-     "stake": "high", "rank_score": 0.81,
+     "stake": "high", "local_feasibility": "executable", "rank_score": 0.81,
      "pilot_recommendation": "run"},
     {"id": "I-2", "novelty": "med", "tractability": "high",
-     "stake": "med", "rank_score": 0.62,
+     "stake": "med", "local_feasibility": "conditional", "rank_score": 0.62,
      "pilot_recommendation": "queue"},
-    {"id": "I-3", "novelty": "low", "tractability": "high",
-     "stake": "low", "rank_score": 0.31,
+    {"id": "I-3", "novelty": "high", "tractability": "high",
+     "stake": "high", "local_feasibility": "unfeasible", "rank_score": 0.0,
      "pilot_recommendation": "drop"}
   ]
 }
 ```
 
-The reviewer rules on scores; the harness does not impose a threshold.
+`local_feasibility` ∈ {`executable`, `conditional`, `unfeasible`, `unknown`}
+comes straight from the candidate's `Local Feasibility` block (does the core
+signal MOVE on a model this box can actually run?). **An `unfeasible` candidate
+must NOT be recommended `run`** no matter how novel — a signal that cannot move
+locally is a dead pilot (e.g. a safety idea on a frontier API that refuses every
+harmful prompt). The reviewer rules on scores; the harness does not impose a
+threshold, but piloting an `unfeasible` idea is forbidden — it would only be
+killed at the signal-de-risk gate after wasting the pilot.
 
 ### Step 2 — design pilots for the top 1-3
 
