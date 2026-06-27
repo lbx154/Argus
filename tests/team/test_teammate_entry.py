@@ -156,6 +156,25 @@ def test_shard_metric_null_without_result_file(tmp_path: Path, monkeypatch) -> N
     assert rec["metric"] is None and rec["mechanism"] == "" and rec["target"] == "t1::a"
 
 
+def test_shard_carries_lower_is_better_from_task(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / ".argus_team" / "t1"
+    tb.form(root, [{"task_id": "t1::a", "objective": "x", "target": "kLat", "lower_is_better": True}])
+    tb.claim_specific(root, "t1::a", "t1::w1", now=1.0)
+    monkeypatch.setattr(te, "run_one_engineer_mission", lambda *a, **k: True)
+    te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a", "--cwd", str(tmp_path)])
+    rec = _shard(root)
+    assert rec["lower_is_better"] is True and rec["target"] == "kLat"
+
+
+def test_shard_omits_lower_is_better_when_task_unset(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / ".argus_team" / "t1"
+    _form_claim(root)  # task with no lower_is_better
+    monkeypatch.setattr(te, "run_one_engineer_mission", lambda *a, **k: True)
+    te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a", "--cwd", str(tmp_path)])
+    rec = _shard(root)
+    assert "lower_is_better" not in rec  # absent → leaderboard uses its global default
+
+
 def test_teammate_inherits_leaderboard_block_in_objective(tmp_path: Path, monkeypatch) -> None:
     from argus_skill.team import leaderboard as lb
     root = tmp_path / ".argus_team" / "t1"

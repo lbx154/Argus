@@ -66,8 +66,7 @@ def fold(root: Path, *, lower_is_better: bool | None = None) -> dict[str, Any]:
     null metric is recorded (so it counts as "tried") but never wins ``best``.
     Single-writer atomic write — teammates never touch this file.
     """
-    if lower_is_better is None:
-        lower_is_better = _env_lower_is_better()
+    global_dir = _env_lower_is_better() if lower_is_better is None else lower_is_better
     by_target: dict[str, list[dict[str, Any]]] = {}
     for rec in _read_shards(root):
         target = rec.get("target") or rec.get("task_id")
@@ -76,6 +75,16 @@ def fold(root: Path, *, lower_is_better: bool | None = None) -> dict[str, Any]:
 
     board: dict[str, Any] = {}
     for target, recs in by_target.items():
+        # Per-target direction: a shard's explicit ``lower_is_better`` (the operator
+        # sets it on the task at ``form`` time) wins; otherwise the global default.
+        # So one campaign can mix higher-better (a speedup) and lower-better (a
+        # latency / error-count / loss) targets without silently inverting.
+        tdir = global_dir
+        for r in recs:
+            v = r.get("lower_is_better")
+            if v is not None:
+                tdir = bool(v)
+                break
         per_mech: dict[str, float | None] = {}
         for r in recs:
             mech = str(r.get("mechanism") or "")
@@ -85,13 +94,13 @@ def fold(root: Path, *, lower_is_better: bool | None = None) -> dict[str, Any]:
                 continue
             metric = float(metric)
             cur = per_mech.get(mech)
-            if cur is None or _better(metric, cur, lower_is_better):
+            if cur is None or _better(metric, cur, tdir):
                 per_mech[mech] = metric
         attempts = [{"mechanism": m, "metric": v} for m, v in sorted(per_mech.items())]
         measured = [(m, v) for m, v in per_mech.items() if v is not None]
         best = None
         if measured:
-            chooser = min if lower_is_better else max
+            chooser = min if tdir else max
             bm, bv = chooser(measured, key=lambda kv: kv[1])
             best = {"mechanism": bm, "metric": bv}
         board[target] = {"best": best, "attempts": attempts}

@@ -406,13 +406,16 @@ def main(argv: list[str] | None = None) -> int:
 
     stop.set()
     _result = _read_optional_result()
-    shard.write_text(
-        json.dumps({
-            "member_id": args.member_id, "task_id": task_id,
-            "target": task.get("target") or task_id, "success": success,
-            "metric": _result.get("metric"), "mechanism": _result.get("mechanism", ""),
-        }) + "\n",
-        encoding="utf-8")
+    _rec = {
+        "member_id": args.member_id, "task_id": task_id,
+        "target": task.get("target") or task_id, "success": success,
+        "metric": _result.get("metric"), "mechanism": _result.get("mechanism", ""),
+    }
+    # Carry the target's optimization direction so the leaderboard ranks per-target;
+    # omit when the task didn't set it → the leaderboard uses its global default.
+    if task.get("lower_is_better") is not None:
+        _rec["lower_is_better"] = bool(task["lower_is_better"])
+    shard.write_text(json.dumps(_rec) + "\n", encoding="utf-8")
     if success:
         task_board.complete(root, task_id, shard=str(shard))
     else:
