@@ -1,6 +1,6 @@
 ---
 name: Kernel Optimization Process — Worked Trace (019 decoder layer)
-description: A complete, honest research trace of optimizing a hard, already-good kernel — roofline diagnosis, reading the tolerance, testing the obvious lever (bf16) and letting the OFFICIAL scorer reject it, profiling to LOCATE the cost, then WRITING a custom TF32-tensor-core flash kernel that clears the rtol=1e-5 tolerance and wins 1.75× on the official harness. This is high-quality PROCESS DATA: a weaker model that follows this method reaches an expert's diagnosis and an expert's kernel. Optimize from measurement and physics, not vibes.
+description: A complete, honest research trace of optimizing a hard, already-good kernel — roofline diagnosis, reading the tolerance, testing the obvious lever (bf16) and letting the OFFICIAL scorer reject it, profiling to LOCATE the cost, then WRITING a custom TF32-tensor-core flash kernel that clears the rtol=1e-5 tolerance and wins 1.85× on the official harness. This is high-quality PROCESS DATA: a weaker model that follows this method reaches an expert's diagnosis and an expert's kernel. Optimize from measurement and physics, not vibes.
 category: benchmark-kernel-method
 priority: high
 version: 1
@@ -93,11 +93,18 @@ correctness vs fp32 SDPA:  max_abs_err 0.0027–0.0029 < 0.004  → 100% within 
 per-op speed (seq=4096):   fp32 EFFICIENT 2.51 ms → TF32 flash 1.80 ms  (1.39×)
 ```
 
+Then **tune the block tiling** — but knowing the constraint: fp32 tiles are 4
+bytes/element, so SMEM is the binding limit. A sweep shows the big-block configs
+(BM=128,BN=128 / num_stages=3) **OOM on shared memory**, and the sweet spot is a
+*tall, thin* tile (`BM=128, BN=32`): 2.51 ms → **1.19 ms** per-op (2.1×). Lesson:
+for an fp32 flash, tune toward large BM / small BN to fit SMEM, not the bf16
+"square big tile" intuition.
+
 Integrated into the full layer and scored by the OFFICIAL harness (locked
 clocks, 16/16 workloads):
 
 ```
-RESULT correct=true  16/16  cand_ms: 3.056 → 1.742 ms   →  1.75× faster, official, verified
+RESULT correct=true  16/16  cand_ms: 3.056 → 1.653 ms   →  1.85× faster, official, verified
 ```
 
 The gamble paid because the diagnosis was physical, not a guess: bf16 lost the
