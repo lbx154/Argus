@@ -36,6 +36,15 @@ from pathlib import Path
 from . import task_board
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name, "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return default
+
+
 def _build_runner_ns(cwd: str, *, max_rounds: int, paper_mission: bool,
                      stop_event=None) -> argparse.Namespace:
     """Replicate the daemon's runner namespace (life_worker._runner_namespace)."""
@@ -58,8 +67,9 @@ def _build_runner_ns(cwd: str, *, max_rounds: int, paper_mission: bool,
     ns.color = None
     ns.verbose = False
     ns.quiet = True
-    # Teammate optimizes one kernel — not a paper — so keep the EMNLP paper gates off.
-    ns.paper_mission = paper_mission
+    # Paper gates (EMNLP) default OFF for a teammate (the common optimize case);
+    # a paper-fan-out team enables them per teammate via ARGUS_TEAMMATE_PAPER_MISSION.
+    ns.paper_mission = _env_bool("ARGUS_TEAMMATE_PAPER_MISSION", paper_mission)
     # Time-box: the runner interrupts the codex mission when this event is set,
     # so a hard kernel can't hang a teammate for hours.
     if stop_event is not None:

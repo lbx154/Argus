@@ -250,6 +250,21 @@ def test_forced_profile_header_is_operator_configurable(tmp_path: Path, monkeypa
     assert "[MY NCU PROFILE — attack the kernel]" in out
 
 
+def test_paper_mission_env_override(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_MODEL", "m")
+    monkeypatch.setenv("ARGUS_SKILL_REVIEWER_MODEL", "m")
+    monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / "skills"))
+    # a paper-fan-out team can turn the EMNLP gates ON per teammate
+    monkeypatch.setenv("ARGUS_TEAMMATE_PAPER_MISSION", "1")
+    assert te._build_runner_ns(str(tmp_path), max_rounds=1, paper_mission=False).paper_mission is True
+    # ...and force them off explicitly
+    monkeypatch.setenv("ARGUS_TEAMMATE_PAPER_MISSION", "0")
+    assert te._build_runner_ns(str(tmp_path), max_rounds=1, paper_mission=True).paper_mission is False
+    # unset → the passed default
+    monkeypatch.delenv("ARGUS_TEAMMATE_PAPER_MISSION", raising=False)
+    assert te._build_runner_ns(str(tmp_path), max_rounds=1, paper_mission=True).paper_mission is True
+
+
 def test_teammate_inherits_leaderboard_block_in_objective(tmp_path: Path, monkeypatch) -> None:
     from argus_skill.team import leaderboard as lb
     root = tmp_path / ".argus_team" / "t1"
