@@ -77,6 +77,14 @@ _BACKEND_FAILURE_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
     "connection closed",
     "connection aborted",
     "network error",
+    # Codex/Copilot CLI subprocess died mid-turn before emitting a verdict
+    # (e.g. gpt-5.5 occasionally exits 2: "Process exited with code 2 before
+    # turn completion"). Treat as a transient backend failure so the engineer
+    # retries in a fresh session (skip reviewer, backoff, re-run) instead of
+    # burning a full reviewer round on a no-output turn; the streak threshold
+    # still terminates if it keeps dying.
+    "before turn completion",
+    "cli exited with code",
 )
 
 _EFFECTIVE_PROGRESS_TIMEOUT_MARKER = "effective progress timeout"
