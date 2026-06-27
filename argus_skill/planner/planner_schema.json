@@ -10,7 +10,8 @@
     "waiting",
     "waiting_reason",
     "new_tasks",
-    "meta_decision"
+    "meta_decision",
+    "checklist_ops"
   ],
   "properties": {
     "project_done": {
@@ -44,19 +45,21 @@
           "impact_area",
           "evidence",
           "scope",
-          "objective"
+          "objective",
+          "key",
+          "deps"
         ],
         "properties": {
           "key": {
-            "type": "string",
-            "description": "OPTIONAL local reference name for this task, unique within this new_tasks batch (e.g. 'run-s0', 'analysis'). Other tasks in the same batch reference it via their deps. Omit for flat (non-DAG) tasks."
+            "type": ["string", "null"],
+            "description": "OPTIONAL local reference name for this task, unique within this new_tasks batch (e.g. 'run-s0', 'analysis'). Other tasks in the same batch reference it via their deps. Use null for flat (non-DAG) tasks."
           },
           "deps": {
-            "type": "array",
+            "type": ["array", "null"],
             "items": {
               "type": "string"
             },
-            "description": "OPTIONAL local keys (from sibling tasks' key fields, same batch only) that must complete before this task runs. Omit/empty for parallel or independent tasks."
+            "description": "OPTIONAL local keys (from sibling tasks' key fields, same batch only) that must complete before this task runs. Use null or [] for parallel or independent tasks."
           },
           "title": {
             "type": "string",
@@ -118,17 +121,17 @@
     "checklist_ops": {
       "type": ["array", "null"],
       "maxItems": 30,
-      "description": "OPTIONAL — you OWN the per-stage checklist. It is seeded from the framework reference; emit ops to tailor it to THIS task (add a missing item, modify an over/under-strict one, remove an irrelevant one, or seed a stage from the reference before editing). Stage-keyed only. The Reviewer cannot edit the checklist — it reports `checklist_feedback`; consume that and act here. Omit or use [] when the current checklist is already right.",
+      "description": "OPTIONAL — you OWN the per-stage checklist. It is seeded from the framework reference; emit ops to tailor it to THIS task (add a missing item, modify an over/under-strict one, remove an irrelevant one, or seed a stage from the reference before editing). Stage-keyed only. The Reviewer cannot edit the checklist — it reports `checklist_feedback`; consume that and act here. Use null or [] when the current checklist is already right.",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["op", "stage", "id"],
+        "required": ["op", "stage", "id", "statement", "evidence_hint"],
         "properties": {
           "op": { "type": "string", "enum": ["seed", "add", "modify", "remove"] },
           "stage": { "type": "string", "description": "the stage this item belongs to (e.g. 'research', 'simulate')" },
           "id": { "type": "string", "description": "stable item id, e.g. 'simulate.seeds'; may be empty only for op=seed" },
-          "statement": { "type": "string", "maxLength": 1600, "description": "the checklist item text (required for add)" },
-          "evidence_hint": { "type": "string", "maxLength": 1600, "description": "where the reviewer looks for evidence" }
+          "statement": { "type": ["string", "null"], "maxLength": 1600, "description": "the checklist item text (required for add); null when not setting it" },
+          "evidence_hint": { "type": ["string", "null"], "maxLength": 1600, "description": "where the reviewer looks for evidence; null when not setting it" }
         }
       }
     }

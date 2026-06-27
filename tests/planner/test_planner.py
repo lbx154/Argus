@@ -467,6 +467,7 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
         "waiting": False,
         "waiting_reason": "",
         "meta_decision": None,
+        "checklist_ops": None,
     }
 
     def _task(**over):
@@ -477,6 +478,8 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
             "evidence": "e",
             "scope": "bounded",
             "objective": "o",
+            "key": None,
+            "deps": None,
         }
         t.update(over)
         return t

@@ -1160,7 +1160,7 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             evidence = str(entry.get("evidence", "")).strip()
             scope = _parse_task_scope(entry.get("scope"))
             # Optional DAG fields; back-compat: a flat task simply omits them.
-            key = str(entry.get("key", "")).strip()
+            key = str(entry.get("key") or "").strip()
             deps = [
                 str(d).strip()
                 for d in (entry.get("deps") or [])
