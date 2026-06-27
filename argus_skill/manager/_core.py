@@ -452,7 +452,7 @@ class Manager:
         try:
             result = backend.run_exec(
                 prompt=prompt,
-                options=RunnerOptions(reasoning_effort="low", skip_git_repo_check=True),
+                options=RunnerOptions(reasoning_effort="high", skip_git_repo_check=True),
                 run_label="manager-domain-author",
             )
             return parse_domain_proposal(
@@ -518,7 +518,7 @@ class Manager:
                 return _backend.run_exec(
                     prompt=prompt,
                     options=RunnerOptions(
-                        reasoning_effort="low", skip_git_repo_check=True
+                        reasoning_effort="high", skip_git_repo_check=True
                     ),
                     run_label="manager-converse",
                 )
@@ -569,6 +569,7 @@ class Manager:
         from .stage_decider import (
             build_stage_decision_prompt,
             extract_answer,
+            fallback_empty_stage_decision,
             parse_stage_decision,
         )
 
@@ -597,7 +598,7 @@ class Manager:
                 return _backend.run_exec(
                     prompt=prompt,
                     options=RunnerOptions(
-                        reasoning_effort="low", skip_git_repo_check=True
+                        reasoning_effort="high", skip_git_repo_check=True
                     ),
                     run_label="manager-stage",
                 )
@@ -641,7 +642,14 @@ class Manager:
                 _empty_retries += 1
                 time.sleep(1.0)
                 raw = extract_answer(run_exec(prompt))
-            decision = parse_stage_decision(raw, current_stage=cur, stage_order=order)
+            if not str(raw or "").strip():
+                decision = fallback_empty_stage_decision(
+                    review, current_stage=cur, stage_order=order
+                )
+            else:
+                decision = parse_stage_decision(
+                    raw, current_stage=cur, stage_order=order
+                )
         except Exception:  # noqa: BLE001 — any failure → safe HOLD, write nothing
             log.debug("manager stage decision failed", exc_info=True)
             return StageTransition(
@@ -685,7 +693,7 @@ class Manager:
         content: str,
         task: str,
         op: str = "create",
-        reasoning_effort: str = "low",
+        reasoning_effort: str = "high",
     ) -> Any:
         """Judge whether a reviewer-proposed skill may enter the library.
 

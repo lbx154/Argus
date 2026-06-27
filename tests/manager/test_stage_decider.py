@@ -63,7 +63,13 @@ def _review(
         checklist=(
             checklist
             if checklist is not None
-            else [{"item": "research.first_score_plan", "satisfied": True, "evidence": "X"}]
+            else [
+                {
+                    "item": "research.first_score_plan",
+                    "satisfied": True,
+                    "evidence": "X",
+                }
+            ]
         ),
         planner_report=report,
     )

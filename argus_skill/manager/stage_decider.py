@@ -264,7 +264,10 @@ def fallback_empty_stage_decision(
     cur = (current_stage or "").strip().lower()
     order = [str(s).strip().lower() for s in stage_order]
 
-    def hold(diagnostic: str, reason: str = "manager held after empty output") -> StageDecision:
+    def hold(
+        diagnostic: str,
+        reason: str = "manager held after empty output",
+    ) -> StageDecision:
         return StageDecision("hold", cur, reason, diagnostic)
 
     if cur not in order:
