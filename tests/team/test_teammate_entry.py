@@ -175,6 +175,21 @@ def test_shard_omits_lower_is_better_when_task_unset(tmp_path: Path, monkeypatch
     assert "lower_is_better" not in rec  # absent → leaderboard uses its global default
 
 
+def test_forced_profile_keeps_non_kernel_report(tmp_path: Path, monkeypatch) -> None:
+    # A general profile (py-spy / cProfile / EXPLAIN ANALYZE) that never says "kernel"
+    # must NOT be silently discarded.
+    monkeypatch.setenv("ARGUS_TEAMMATE_FORCE_PROFILE", "1")
+    monkeypatch.delenv("ARGUS_TEAMMATE_PROFILE_REQUIRE_SUBSTR", raising=False)
+    report = ("Top function: parse_request 62% self time; allocate_buffer 18%; "
+              "the hot path is JSON decoding in the request handler.")
+    rf = tmp_path / "prof.txt"
+    rf.write_text(report, encoding="utf-8")
+    monkeypatch.setenv("ARGUS_TEAMMATE_PROFILE_CMD", f"cat {rf}")
+    out = te._forced_profile("optimize the request parser", cwd=str(tmp_path))
+    assert "parse_request" in out and "optimize the request parser" in out
+    assert out != "optimize the request parser"  # i.e. the profile was kept, not dropped
+
+
 def test_teammate_inherits_leaderboard_block_in_objective(tmp_path: Path, monkeypatch) -> None:
     from argus_skill.team import leaderboard as lb
     root = tmp_path / ".argus_team" / "t1"

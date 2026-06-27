@@ -150,8 +150,13 @@ def _forced_profile(objective: str, *, cwd: str) -> str:
         sys.stderr.write(f"teammate_entry: forced profile skipped: {exc}\n")
         return objective
     report = raw.strip()
-    if len(report) < 40 or "kernel" not in report.lower():
-        return objective  # no usable profile came back
+    # Keep any non-empty profile. The library is domain-agnostic, so it does NOT
+    # require a particular word (the old ``"kernel" not in report`` check silently
+    # discarded a perfectly good py-spy / cProfile / EXPLAIN-ANALYZE report). An
+    # operator can demand a substring via ARGUS_TEAMMATE_PROFILE_REQUIRE_SUBSTR.
+    _require = os.environ.get("ARGUS_TEAMMATE_PROFILE_REQUIRE_SUBSTR", "").strip()
+    if len(report) < 40 or (_require and _require.lower() not in report.lower()):
+        return objective  # nothing usable came back
     report = report[:3000]
     sys.stderr.write(f"teammate_entry: forced profile prepended ({len(report)} chars)\n")
     return ("[LIVE NCU PROFILE — measured on the B200 just now. The op's kernels "
