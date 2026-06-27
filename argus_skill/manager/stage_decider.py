@@ -28,6 +28,7 @@ class StageDecision:
     action: str       # "advance" | "hold" | "rollback"
     target_stage: str
     reason: str
+    diagnostic: str = ""
 
 
 _VALID_ACTIONS = ("advance", "hold", "rollback")
@@ -130,23 +131,40 @@ def build_stage_decision_prompt(
     )
 
 
-def _loads_first_json(text: str) -> Any:
+def _loads_first_json(text: str) -> tuple[Any, str]:
     cleaned = (text or "").strip()
+    if not cleaned:
+        return None, "empty_output"
     # Strip a leading/trailing markdown code fence if present.
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
     cleaned = re.sub(r"\s*```$", "", cleaned).strip()
     try:
-        return json.loads(cleaned)
+        return json.loads(cleaned), "json"
     except Exception:  # noqa: BLE001 — fall through to brace extraction
         pass
     start = cleaned.find("{")
     end = cleaned.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        try:
-            return json.loads(cleaned[start : end + 1])
-        except Exception:  # noqa: BLE001
-            return None
-    return None
+    if start == -1 or end == -1 or end <= start:
+        return None, "no_json_object"
+    try:
+        return json.loads(cleaned[start : end + 1]), "json_extracted"
+    except Exception:  # noqa: BLE001
+        return None, "malformed_json"
+
+
+def _normalized_stage_label(value: Any) -> str:
+    """Normalize harmless target-stage decoration without guessing semantics."""
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    text = text.replace("`", "")
+    text = text.strip(" \t\r\n'\"")
+    text = re.sub(r"\s+", " ", text)
+    if text.startswith("the "):
+        text = text[4:].strip()
+    if text.endswith(" stage"):
+        text = text[: -len(" stage")].strip()
+    return text
 
 
 def parse_stage_decision(
@@ -167,39 +185,126 @@ def parse_stage_decision(
     """
     cur = (current_stage or "").strip().lower()
     order = [str(s).strip().lower() for s in stage_order]
-    hold = StageDecision("hold", cur, "manager held (default)")
+    hold = StageDecision("hold", cur, "manager held (default)", "default_hold")
 
-    obj = _loads_first_json(raw_text)
+    obj, load_diagnostic = _loads_first_json(raw_text)
     if not isinstance(obj, dict):
-        return hold
+        diagnostic = (
+            "non_object_json"
+            if load_diagnostic in {"json", "json_extracted"}
+            else load_diagnostic
+        )
+        return StageDecision(hold.action, hold.target_stage, hold.reason, diagnostic)
     action = str(obj.get("action") or "").strip().lower()
     if action not in _VALID_ACTIONS:
-        return hold
+        return StageDecision("hold", cur, "manager held (default)", "unknown_action")
     reason = str(obj.get("reason") or "").strip()
-    target = str(obj.get("target_stage") or "").strip().lower()
+    raw_target = obj.get("target_stage")
+    target = _normalized_stage_label(raw_target)
 
     if action == "hold":
-        return StageDecision("hold", cur, reason or "manager held")
+        return StageDecision("hold", cur, reason or "manager held", "intentional_hold")
 
     if cur not in order:
-        return hold  # cannot validate ordering → safe HOLD
+        return StageDecision(
+            "hold", cur, "manager held (default)", "unknown_current_stage"
+        )  # cannot validate ordering → safe HOLD
 
     cur_idx = order.index(cur)
     if action == "advance":
         nxt_idx = cur_idx + 1
-        if nxt_idx >= len(order) or target != order[nxt_idx]:
-            return hold  # must be the immediate next stage
-        return StageDecision("advance", target, reason or "checklist satisfied")
+        if nxt_idx >= len(order):
+            return StageDecision("hold", cur, "manager held (default)", "no_next_stage")
+        next_stage = order[nxt_idx]
+        if not target and order.count(next_stage) == 1:
+            return StageDecision(
+                "advance",
+                next_stage,
+                reason or "checklist satisfied",
+                "inferred_next_stage",
+            )
+        if target != next_stage:
+            return StageDecision(
+                "hold", cur, "manager held (default)", "illegal_advance_target"
+            )  # must be the immediate next stage
+        diagnostic = "normalized_target_stage" if raw_target != target else "valid_target"
+        return StageDecision(
+            "advance", target, reason or "checklist satisfied", diagnostic
+        )
 
     # rollback
+    target = str(raw_target or "").strip().lower()
+    if not target:
+        return StageDecision(
+            "hold", cur, "manager held (default)", "missing_rollback_target"
+        )
     if target not in order or order.index(target) >= cur_idx:
-        return hold  # must be strictly earlier
-    return StageDecision("rollback", target, reason or "upstream evidence unreliable")
+        return StageDecision(
+            "hold", cur, "manager held (default)", "illegal_rollback_target"
+        )  # must be strictly earlier
+    return StageDecision(
+        "rollback", target, reason or "upstream evidence unreliable", "valid_target"
+    )
+
+
+def fallback_empty_stage_decision(
+    review: Any,
+    *,
+    current_stage: str,
+    stage_order: Sequence[str],
+) -> StageDecision:
+    """Resolve persistent empty manager-stage output without wedging a stage.
+
+    Empty output is not a Manager judgment. After the Manager core exhausts its
+    retries, this fallback may advance only from a reviewer-certified current
+    stage: latest reviewer status is ``done``, structured planner progress is
+    explicitly true, and every reviewer-supplied checklist item is satisfied
+    with evidence. Anything missing or ambiguous remains a HOLD.
+    """
+    cur = (current_stage or "").strip().lower()
+    order = [str(s).strip().lower() for s in stage_order]
+
+    def hold(diagnostic: str, reason: str = "manager held after empty output") -> StageDecision:
+        return StageDecision("hold", cur, reason, diagnostic)
+
+    if cur not in order:
+        return hold("empty_output_unknown_current_stage")
+    cur_idx = order.index(cur)
+    if cur_idx >= len(order) - 1:
+        return hold("empty_output_no_next_stage")
+
+    status = str(getattr(review, "status", "") or "").strip().lower()
+    if status != "done":
+        return hold("empty_output_review_not_done")
+
+    report = getattr(review, "planner_report", None)
+    if not isinstance(report, dict) or report.get("forward_progress") is not True:
+        return hold("empty_output_no_forward_progress")
+
+    items = getattr(review, "checklist", None)
+    if not isinstance(items, list) or not items:
+        return hold("empty_output_missing_checklist")
+    for item in items:
+        if not isinstance(item, dict):
+            return hold("empty_output_invalid_checklist")
+        if not bool(item.get("satisfied")):
+            return hold("empty_output_unsatisfied_checklist")
+        if not str(item.get("evidence", "")).strip():
+            return hold("empty_output_missing_checklist_evidence")
+
+    next_stage = order[cur_idx + 1]
+    return StageDecision(
+        "advance",
+        next_stage,
+        "reviewer certified current-stage checklist after empty manager output",
+        "empty_output_certified_advance",
+    )
 
 
 __all__ = [
     "StageDecision",
     "extract_answer",
+    "fallback_empty_stage_decision",
     "build_stage_decision_prompt",
     "parse_stage_decision",
 ]

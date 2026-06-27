@@ -1237,6 +1237,7 @@ class _SkillLoopRunner:
                 "reason": st.reason,
                 "current_stage": st.current_stage,
                 "source": st.source,
+                "diagnostic": st.diagnostic,
             }
             sink.handle_event({"type": "life.manager.stage_decision", **decision})
             return decision

@@ -71,12 +71,25 @@ def _runner_with(backend) -> _SkillLoopRunner:  # noqa: ANN001
     return r
 
 
-def _review(status: str = "done") -> ReviewDecision:
+def _review(
+    status: str = "done",
+    *,
+    checklist: list[dict] | None = None,
+    forward_progress: bool | None = True,
+) -> ReviewDecision:
+    report = {"headline": "done"}
+    if forward_progress is not None:
+        report["forward_progress"] = forward_progress
     return ReviewDecision(
         status=status,  # type: ignore[arg-type]
         reason="checklist satisfied",
         next_action="advance",
-        planner_report={"forward_progress": True, "headline": "done"},
+        checklist=(
+            checklist
+            if checklist is not None
+            else [{"item": "research.first_score_plan", "satisfied": True, "evidence": "X"}]
+        ),
+        planner_report=report,
     )
 
 
@@ -130,18 +143,49 @@ def test_hook_retries_on_empty_output_then_advances(tmp_path: Path, monkeypatch)
     assert _stage(root) == "plan"
 
 
-def test_hook_persistent_empty_falls_back_to_safe_hold(tmp_path: Path, monkeypatch) -> None:
-    # If every turn is empty, retries exhaust to a safe hold — no deadlock,
-    # stage unchanged, nothing wrongly advanced.
+def test_hook_persistent_empty_done_satisfied_advances(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # If every Manager turn is empty after a certified reviewer verdict, the
+    # Manager-owned fallback advances to the immediate next stage.
     monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda *_a, **_k: None)
     root = _project(tmp_path, current="research")
     backend = _EmptyThenRunner({}, empties=99)
     runner = _runner_with(backend)
+    sink = _Sink()
     decision = runner._decide_stage_transition(
-        rounds_list=[_Round(_review())], workdir=root, sink=_Sink()
+        rounds_list=[_Round(_review())], workdir=root, sink=sink
+    )
+    assert backend.calls == 3
+    assert decision["action"] == "advance"
+    assert decision["target_stage"] == "plan"
+    assert decision["diagnostic"] == "empty_output_certified_advance"
+    assert _stage(root) == "plan"
+    event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
+    assert event["diagnostic"] == "empty_output_certified_advance"
+
+
+def test_hook_persistent_empty_unsatisfied_checklist_holds(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda *_a, **_k: None)
+    root = _project(tmp_path, current="research")
+    backend = _EmptyThenRunner({}, empties=99)
+    runner = _runner_with(backend)
+    sink = _Sink()
+    review = _review(
+        checklist=[
+            {"item": "research.first_score_plan", "satisfied": False, "evidence": ""}
+        ]
+    )
+    decision = runner._decide_stage_transition(
+        rounds_list=[_Round(review)], workdir=root, sink=sink
     )
     assert decision["action"] == "hold"
+    assert decision["diagnostic"] == "empty_output_unsatisfied_checklist"
     assert _stage(root) == "research"
+    event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
+    assert event["diagnostic"] == "empty_output_unsatisfied_checklist"
 
 
 def test_hook_no_review_holds_and_does_not_write(tmp_path: Path) -> None:
