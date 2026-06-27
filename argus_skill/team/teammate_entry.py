@@ -36,6 +36,15 @@ from pathlib import Path
 from . import task_board
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name, "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return default
+
+
 def _build_runner_ns(cwd: str, *, max_rounds: int, paper_mission: bool,
                      stop_event=None) -> argparse.Namespace:
     """Replicate the daemon's runner namespace (life_worker._runner_namespace)."""
@@ -58,13 +67,29 @@ def _build_runner_ns(cwd: str, *, max_rounds: int, paper_mission: bool,
     ns.color = None
     ns.verbose = False
     ns.quiet = True
-    # Teammate optimizes one kernel — not a paper — so keep the EMNLP paper gates off.
-    ns.paper_mission = paper_mission
+    # Paper gates (EMNLP) default OFF for a teammate (the common optimize case);
+    # a paper-fan-out team enables them per teammate via ARGUS_TEAMMATE_PAPER_MISSION.
+    ns.paper_mission = _env_bool("ARGUS_TEAMMATE_PAPER_MISSION", paper_mission)
     # Time-box: the runner interrupts the codex mission when this event is set,
-    # so a hard kernel can't hang a teammate for hours.
+    # so a hard task can't hang a teammate for hours.
     if stop_event is not None:
         ns.stop_event = stop_event
     return ns
+
+
+_DEFAULT_RESEARCH_PROMPT = (
+    "Use the web_search tool to research how the best-known / SOTA approach "
+    "handles the problem in the TASK below. Output ONLY a short plain-text summary "
+    "(5-12 lines): the SOTA approach, the key technique(s), and the specific "
+    "sources/references to build on. Do NOT write code or read local files."
+    "\n\nTASK:\n{objective}"
+)
+
+_DEFAULT_PROFILE_HEADER = (
+    "[LIVE PROFILE — measured just now. The flagged bottlenecks are below. "
+    "Address the #1 bottleneck first; do not write a candidate that ignores this "
+    "data.]"
+)
 
 
 def _forced_web_research(objective: str, *, cwd: str) -> str:
@@ -85,14 +110,11 @@ def _forced_web_research(objective: str, *, cwd: str) -> str:
         return objective
     agent_bin = os.environ.get("ARGUS_TEAMMATE_RESEARCH_CODEX", "codex")
     timeout_s = float(os.environ.get("ARGUS_TEAMMATE_RESEARCH_TIMEOUT_S", "180"))
-    prompt = (
-        "Use the web_search tool to research how the best open-source / SOTA "
-        "implementation handles the operation in the TASK below — check vLLM, "
-        "SGLang, FlashInfer, CUTLASS, cuDNN, Triton, and any relevant PyTorch PR. "
-        "Output ONLY a short plain-text summary (5-12 lines): the SOTA approach, "
-        "the key technique(s), and the specific library/kernel/source to base on. "
-        "Do NOT write code or read local files.\n\nTASK:\n" + objective[:1000]
-    )
+    # Domain-neutral default; an operator pins the domain (e.g. the specific
+    # libraries / prior art to search) via ARGUS_TEAMMATE_RESEARCH_PROMPT — a
+    # template with a ``{objective}`` placeholder. No domain is baked into the library.
+    template = os.environ.get("ARGUS_TEAMMATE_RESEARCH_PROMPT", "").strip() or _DEFAULT_RESEARCH_PROMPT
+    prompt = template.replace("{objective}", objective[:1000])
     try:
         res = subprocess.run(
             [agent_bin, "exec", "--skip-git-repo-check", prompt],
@@ -111,10 +133,9 @@ def _forced_web_research(objective: str, *, cwd: str) -> str:
     summary = summary[-1800:]
     sys.stderr.write("teammate_entry: forced web research prepended "
                      f"({len(summary)} chars)\n")
-    return ("[LIVE SOTA RESEARCH — performed via web_search just now, BEFORE you "
-            "loaded any local/inherited context. BUILD YOUR CANDIDATE ON THIS: "
-            "match this SOTA/baseline first, then beat it; do NOT ignore it to "
-            "continue a previous bespoke direction.]\n"
+    return ("[LIVE RESEARCH — performed via web_search just now, BEFORE you loaded "
+            "any local/inherited context. Ground your work in this; do NOT ignore "
+            "it to continue a previous bespoke direction.]\n"
             + summary + "\n--- end research ---\n\n" + objective)
 
 
@@ -150,14 +171,20 @@ def _forced_profile(objective: str, *, cwd: str) -> str:
         sys.stderr.write(f"teammate_entry: forced profile skipped: {exc}\n")
         return objective
     report = raw.strip()
-    if len(report) < 40 or "kernel" not in report.lower():
-        return objective  # no usable profile came back
+    # Keep any non-empty profile. The library is domain-agnostic, so it does NOT
+    # require a particular word (an earlier hard-coded domain-word check silently
+    # discarded a perfectly good py-spy / cProfile / EXPLAIN-ANALYZE report). An
+    # operator can demand a substring via ARGUS_TEAMMATE_PROFILE_REQUIRE_SUBSTR.
+    _require = os.environ.get("ARGUS_TEAMMATE_PROFILE_REQUIRE_SUBSTR", "").strip()
+    if len(report) < 40 or (_require and _require.lower() not in report.lower()):
+        return objective  # nothing usable came back
     report = report[:3000]
     sys.stderr.write(f"teammate_entry: forced profile prepended ({len(report)} chars)\n")
-    return ("[LIVE NCU PROFILE — measured on the B200 just now. The op's kernels "
-            "and their bottlenecks are below. ATTACK THE #1 KERNEL'S FLAGGED "
-            "BOTTLENECK FIRST; do not write a candidate that ignores this data.]\n"
-            + report + "\n--- end profile ---\n\n" + objective)
+    # Domain-neutral default; an operator pins the framing (e.g. the profiler's
+    # name and how to read its output) via ARGUS_TEAMMATE_PROFILE_HEADER. No
+    # box/profiler specifics here.
+    header = os.environ.get("ARGUS_TEAMMATE_PROFILE_HEADER", "").strip() or _DEFAULT_PROFILE_HEADER
+    return header + "\n" + report + "\n--- end profile ---\n\n" + objective
 
 
 def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
@@ -170,14 +197,22 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
     recursion. Events go to the isolated ``life_dir``. Returns True on success.
 
     Time-boxed: capped at ``max_rounds`` engineer rounds AND a wall-clock
-    ``timeout_s`` (a watchdog sets the runner's stop_event), so a hard kernel
+    ``timeout_s`` (a watchdog sets the runner's stop_event), so a hard task
     can never hang a teammate for hours. Both default low and are env-tunable
     (ARGUS_TEAMMATE_MAX_ROUNDS, ARGUS_TEAMMATE_TIMEOUT_S).
     """
     if max_rounds is None:
         max_rounds = int(os.environ.get("ARGUS_TEAMMATE_MAX_ROUNDS", "200"))
     if timeout_s is None:
-        timeout_s = float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "5400"))  # 90 min: profile + iterate >=3-4 mechanisms toward roofline (aligned with the full engineer, not a shallow one-shot)
+        timeout_s = float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "5400"))  # 90 min: measure + iterate >=3-4 distinct approaches (aligned with the full engineer, not a shallow one-shot)
+    # A teammate's events go to its isolated ``life_dir``, NOT the daemon's
+    # ``<global_root>/projects/<fingerprint>/events.jsonl`` that the reviewer's
+    # engineer-execution-log audit greps — so that audit would inspect a
+    # co-located daemon's shared log and mis-attribute other missions' commands.
+    # Disable checkpoint persistence: the audit is then omitted, and a single-shot
+    # teammate (no cross-mission continuity) won't collide with sibling teammates
+    # on a shared checkpoint.json.
+    os.environ["ARGUS_SKILL_CHECKPOINT_PERSIST"] = "0"
     try:
         from argus_skill.apps._runtime import LifeStderrSink, _SkillLoopRunner
         from argus_skill.life.event_log import JsonlEventSink
@@ -200,9 +235,9 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
     # objective, so the engineer can't skip the search by claiming it already
     # knows. No-op unless ARGUS_TEAMMATE_FORCE_RESEARCH is set.
     objective = _forced_web_research(objective, cwd=cwd)
-    # Then force ONE profiling pass so the engineer optimizes from measured
-    # bottlenecks (roofline/occupancy/grid), not guesses — the data-driven loop.
-    # No-op unless ARGUS_TEAMMATE_FORCE_PROFILE + ARGUS_TEAMMATE_PROFILE_CMD set.
+    # Then force ONE profiling pass so the engineer works from measured
+    # bottlenecks, not guesses — the data-driven loop. No-op unless
+    # ARGUS_TEAMMATE_FORCE_PROFILE + ARGUS_TEAMMATE_PROFILE_CMD set.
     objective = _forced_profile(objective, cwd=cwd)
     ns = _build_runner_ns(cwd, max_rounds=max_rounds, paper_mission=paper_mission,
                           stop_event=stop_event)
@@ -368,8 +403,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(f"teammate_entry: inherited {len(prior)} chars of prior work "
                          f"for {task_id} (cross-teammate evolution)\n")
     # Leaderboard inheritance: tell a fresh teammate what's already been tried on
-    # this target so it builds depth instead of re-deriving breadth. No-op until a
-    # leaderboard exists; disable with ARGUS_TEAMMATE_INHERIT_LEADERBOARD=0.
+    # this target so it builds on the best instead of re-running the same breadth.
+    # No-op until a leaderboard exists; disable with ARGUS_TEAMMATE_INHERIT_LEADERBOARD=0.
     if os.environ.get("ARGUS_TEAMMATE_INHERIT_LEADERBOARD", "").strip().lower() not in ("0", "false", "no"):
         from . import leaderboard as _lb
         lb_block = _lb.objective_block(root, task.get("target") or task_id)
@@ -398,13 +433,16 @@ def main(argv: list[str] | None = None) -> int:
 
     stop.set()
     _result = _read_optional_result()
-    shard.write_text(
-        json.dumps({
-            "member_id": args.member_id, "task_id": task_id,
-            "target": task.get("target") or task_id, "success": success,
-            "metric": _result.get("metric"), "mechanism": _result.get("mechanism", ""),
-        }) + "\n",
-        encoding="utf-8")
+    _rec = {
+        "member_id": args.member_id, "task_id": task_id,
+        "target": task.get("target") or task_id, "success": success,
+        "metric": _result.get("metric"), "mechanism": _result.get("mechanism", ""),
+    }
+    # Carry the target's optimization direction so the leaderboard ranks per-target;
+    # omit when the task didn't set it → the leaderboard uses its global default.
+    if task.get("lower_is_better") is not None:
+        _rec["lower_is_better"] = bool(task["lower_is_better"])
+    shard.write_text(json.dumps(_rec) + "\n", encoding="utf-8")
     if success:
         task_board.complete(root, task_id, shard=str(shard))
     else:

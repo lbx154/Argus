@@ -3,9 +3,10 @@
 The Curator folds teammate result shards into a per-target leaderboard. This is
 the HIGH-frequency, **deterministic** half of the curator design — pure code, no
 LLM, no agent ritual (the LLM only runs the low-frequency ``distill`` step). It
-exists to stop the "every mechanism scored once, all stuck at the same low
-score" failure: ``objective_block`` shows a fresh teammate what has already been
-tried so it builds depth instead of re-deriving breadth.
+exists to stop the "every approach tried once, none carried through, all stuck
+at the same weak result" failure: ``objective_block`` shows a fresh teammate
+what has already been tried so it builds on the best instead of re-running the
+same breadth.
 
 Generality red line: the metric and its direction are the only operator-specific
 inputs, and both are DATA — the metric arrives in the shard (see
@@ -66,8 +67,7 @@ def fold(root: Path, *, lower_is_better: bool | None = None) -> dict[str, Any]:
     null metric is recorded (so it counts as "tried") but never wins ``best``.
     Single-writer atomic write — teammates never touch this file.
     """
-    if lower_is_better is None:
-        lower_is_better = _env_lower_is_better()
+    global_dir = _env_lower_is_better() if lower_is_better is None else lower_is_better
     by_target: dict[str, list[dict[str, Any]]] = {}
     for rec in _read_shards(root):
         target = rec.get("target") or rec.get("task_id")
@@ -76,6 +76,16 @@ def fold(root: Path, *, lower_is_better: bool | None = None) -> dict[str, Any]:
 
     board: dict[str, Any] = {}
     for target, recs in by_target.items():
+        # Per-target direction: a shard's explicit ``lower_is_better`` (the operator
+        # sets it on the task at ``form`` time) wins; otherwise the global default.
+        # So one campaign can mix higher-better (a speedup) and lower-better (a
+        # latency / error-count / loss) targets without silently inverting.
+        tdir = global_dir
+        for r in recs:
+            v = r.get("lower_is_better")
+            if v is not None:
+                tdir = bool(v)
+                break
         per_mech: dict[str, float | None] = {}
         for r in recs:
             mech = str(r.get("mechanism") or "")
@@ -85,13 +95,13 @@ def fold(root: Path, *, lower_is_better: bool | None = None) -> dict[str, Any]:
                 continue
             metric = float(metric)
             cur = per_mech.get(mech)
-            if cur is None or _better(metric, cur, lower_is_better):
+            if cur is None or _better(metric, cur, tdir):
                 per_mech[mech] = metric
         attempts = [{"mechanism": m, "metric": v} for m, v in sorted(per_mech.items())]
         measured = [(m, v) for m, v in per_mech.items() if v is not None]
         best = None
         if measured:
-            chooser = min if lower_is_better else max
+            chooser = min if tdir else max
             bm, bv = chooser(measured, key=lambda kv: kv[1])
             best = {"mechanism": bm, "metric": bv}
         board[target] = {"best": best, "attempts": attempts}
@@ -107,24 +117,24 @@ def read(root: Path) -> dict[str, Any]:
 
 
 def objective_block(root: Path, target: str) -> str:
-    """A 'what's already been tried — do NOT re-derive' block for ``target``,
-    prepended to a fresh teammate's objective so it builds DEPTH on the best or
-    tries a genuinely new mechanism instead of re-running exhausted breadth.
-    Empty string when the target has no recorded attempts yet."""
+    """A 'what's already been tried — don't repeat it' block for ``target``,
+    prepended to a fresh teammate's objective so it builds on the best result so
+    far or tries a genuinely different approach instead of re-running what is
+    already exhausted. Empty string when the target has no recorded attempts yet."""
     entry = read(root).get(str(target))
     if not entry:
         return ""
     attempts = entry.get("attempts") or []
     if not attempts:
         return ""
-    lines = ["## LEADERBOARD — already tried on this target (do NOT re-derive)"]
+    lines = ["## LEADERBOARD — already attempted on this target (don't repeat these)"]
     best = entry.get("best")
     if best:
-        lines.append(f"Current BEST: `{best.get('mechanism') or '(unnamed)'}` = {best.get('metric')}")
-    lines.append("Mechanisms already attempted — build DEPTH on the best, or try a "
-                 "genuinely NEW one; do NOT repeat these:")
+        lines.append(f"Best so far: `{best.get('mechanism') or '(unnamed)'}` = {best.get('metric')}")
+    lines.append("Approaches already attempted — build on the best, or try a "
+                 "genuinely different one; don't just repeat these:")
     for a in attempts:
         m = a.get("metric")
         lines.append(f"- {a.get('mechanism') or '(unnamed)'}: "
-                     f"{'unmeasured' if m is None else m}")
+                     f"{'no outcome recorded' if m is None else m}")
     return "\n".join(lines) + "\n\n"

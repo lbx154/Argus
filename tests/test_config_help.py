@@ -36,6 +36,20 @@ def test_registry_covers_the_key_operator_knobs() -> None:
     assert "ARGUS_SKILL_PLANNER_RUNNER_BIN" in names
 
 
+def test_registry_covers_the_team_teammate_knobs() -> None:
+    """The teammate forced-grounding + leaderboard-direction control surface is
+    documented — an operator running a non-GPU team needs these to be discoverable."""
+    names = {k.name for k in KNOBS}
+    for must in (
+        "ARGUS_TEAMMATE_RESEARCH_PROMPT",
+        "ARGUS_TEAMMATE_PROFILE_HEADER",
+        "ARGUS_TEAMMATE_PROFILE_REQUIRE_SUBSTR",
+        "ARGUS_TEAMMATE_PAPER_MISSION",
+        "ARGUS_LEADERBOARD_LOWER_IS_BETTER",
+    ):
+        assert must in names, must
+
+
 def test_format_shows_default_when_unset() -> None:
     out = format_config_help(env={})
     assert "ARGUS_SKILL_LIFE_BACKEND" in out
