@@ -57,6 +57,23 @@ _EMPTY_CONCERN_PREFIXES = (
     "no anomal", "no problem",
 )
 
+# Contrast/alarm tokens that mark a "no anomaly ... BUT X" reassure-then-pivot
+# note as a REAL concern despite the calm opener.
+_CONCERN_SIGNAL_TOKENS = (
+    "but ", "however", "though", "except", "warn", "fail", "error", "collaps",
+    "crash", "regress", "degrad", "stuck", "diverg", "hack", "drop",
+    "但", "不过", "然而", "却", "失败", "报错", "异常", "崩", "塌", "为零",
+)
+
+
+def _has_real_signal(low: str) -> bool:
+    """True if a prefix-matched note still carries a real alarm — a contrast/
+    alarm token, or notable extra length beyond the bland opener. Prevents
+    ``startswith()`` from swallowing "no anomaly ... but reward collapsed to
+    zero". Fails SAFE: when unsure, treat as a real concern (stop the run)."""
+    return len(low) > 40 or any(t in low for t in _CONCERN_SIGNAL_TOKENS)
+
+
 def _clean_concern(value: object) -> str:
     """Normalize a supervisor concern note; empty when nothing noteworthy.
 
@@ -66,7 +83,13 @@ def _clean_concern(value: object) -> str:
     """
     text = " ".join(str(value or "").split())
     low = text.lower().strip(".")
-    if low in _EMPTY_CONCERNS or low.startswith(_EMPTY_CONCERN_PREFIXES):
+    if low in _EMPTY_CONCERNS:
+        return ""
+    # Prefix match clears ONLY when the whole note is that reassurance — NOT
+    # "no anomaly ... but reward collapsed" (reassure-then-pivot real alarm),
+    # which startswith() alone would have swallowed into "" and let the bad run
+    # keep burning GPU.
+    if low.startswith(_EMPTY_CONCERN_PREFIXES) and not _has_real_signal(low):
         return ""
     return text[:600]
 

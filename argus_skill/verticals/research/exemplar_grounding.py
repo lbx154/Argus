@@ -240,7 +240,10 @@ def validate_exemplar_grounding(
                 ))
 
     report.exemplar_count = len(exemplars)
-    if exemplars and report.exemplar_count < MIN_EXEMPLARS:
+    # NOT `if exemplars and ...`: an empty exemplars list ([]) is falsy and would
+    # short-circuit, letting the WORST case (0 exemplars) slip past this gate —
+    # exactly the case that most needs blocking. Gate on the count directly.
+    if report.exemplar_count < MIN_EXEMPLARS:
         report.issues.append(GroundingIssue(
             code="too_few_exemplars",
             detail=(

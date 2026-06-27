@@ -177,7 +177,14 @@ def _clean_concern(value: object) -> str:
         "nothing of note", "all good", "all healthy", "looks healthy",
         "no anomal", "no problem",
     )
-    if low in empties or low.startswith(prefixes):
+    if low in empties:
+        return ""
+    # Prefix match clears ONLY a pure reassurance — NOT "no anomaly ... but
+    # reward collapsed to zero" (reassure-then-pivot real alarm); startswith()
+    # alone swallowed those and let a degrading run keep going. Reuse the shared
+    # fail-safe signal check (keep the note on any contrast/alarm signal).
+    from ..tools.subagent._normalize import _has_real_signal
+    if low.startswith(prefixes) and not _has_real_signal(low):
         return ""
     return text
 

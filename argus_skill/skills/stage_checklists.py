@@ -762,8 +762,8 @@ def _set_stage(
       existing rollback consumers/tests stay green.
 
     ``direction`` is ``"advance"`` (target strictly later) or ``"rollback"``
-    (target strictly earlier). Atomic write (tmp + ``os.replace``-equivalent via
-    ``write_text``), ``indent=2, sort_keys=True`` + trailing newline. Raises
+    (target strictly earlier). Atomic write (sibling tmp file + ``os.replace``),
+    ``indent=2, sort_keys=True`` + trailing newline. Raises
     ``ValueError`` on an unknown target or one that violates ``direction``.
     """
     import datetime as _dt
@@ -853,10 +853,17 @@ def _set_stage(
         })
 
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(
+    # ATOMIC write: render to a sibling temp file then os.replace() (atomic on
+    # POSIX). A crash mid-write (OOM / pod eviction / mission restart) must never
+    # leave PIPELINE_STATE.json empty or half-written — every reader fail-opens
+    # to the floor stage, silently resetting the whole project back to research.
+    import os as _os
+    _tmp = state_path.with_suffix(state_path.suffix + f".tmp.{_os.getpid()}")
+    _tmp.write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    _os.replace(_tmp, state_path)
     return str(state_path)
 
 
