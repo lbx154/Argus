@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from argus_skill.team import task_board as tb
@@ -96,6 +97,33 @@ def test_run_one_mission_has_no_hard_self_sigkill_timer(tmp_path: Path, monkeypa
                                      max_rounds=1, timeout_s=10.0)
     assert ok is True
     assert intervals == [10.0]  # ONLY the soft watchdog; no hard self-kill timer
+
+
+def test_teammate_forces_checkpoint_persist_off(tmp_path: Path, monkeypatch) -> None:
+    # A teammate writes its events to its own life_dir, not <global_root>/projects/<fp>/.
+    # The reviewer's engineer-log audit greps the latter, so it must be disabled for a
+    # teammate (else it audits a co-located daemon's shared log → wrong verdicts). Forcing
+    # it off also stops teammates sharing one checkpoint.json.
+    import argus_skill.apps._runtime as rt
+    for var in ("ENGINEER", "REVIEWER"):
+        monkeypatch.setenv(f"ARGUS_SKILL_{var}_MODEL", "m")
+    monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / "skills"))
+    monkeypatch.setenv("ARGUS_SKILL_CHECKPOINT_PERSIST", "1")  # operator/daemon default
+
+    class _Outcome:
+        success = True
+
+    class _Runner:
+        def __init__(self, ns):
+            pass
+
+        def execute(self, *, objective, sink):
+            return _Outcome()
+
+    monkeypatch.setattr(rt, "_SkillLoopRunner", _Runner)
+    te.run_one_engineer_mission("obj", cwd=str(tmp_path), life_dir=tmp_path / "life",
+                                max_rounds=1, timeout_s=10.0)
+    assert os.environ["ARGUS_SKILL_CHECKPOINT_PERSIST"] == "0"
 
 
 def _shard(root: Path, member: str = "t1::w1") -> dict:

@@ -178,6 +178,14 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
         max_rounds = int(os.environ.get("ARGUS_TEAMMATE_MAX_ROUNDS", "200"))
     if timeout_s is None:
         timeout_s = float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "5400"))  # 90 min: profile + iterate >=3-4 mechanisms toward roofline (aligned with the full engineer, not a shallow one-shot)
+    # A teammate's events go to its isolated ``life_dir``, NOT the daemon's
+    # ``<global_root>/projects/<fingerprint>/events.jsonl`` that the reviewer's
+    # engineer-execution-log audit greps — so that audit would inspect a
+    # co-located daemon's shared log and mis-attribute other missions' commands.
+    # Disable checkpoint persistence: the audit is then omitted, and a single-shot
+    # teammate (no cross-mission continuity) won't collide with sibling teammates
+    # on a shared checkpoint.json.
+    os.environ["ARGUS_SKILL_CHECKPOINT_PERSIST"] = "0"
     try:
         from argus_skill.apps._runtime import LifeStderrSink, _SkillLoopRunner
         from argus_skill.life.event_log import JsonlEventSink
