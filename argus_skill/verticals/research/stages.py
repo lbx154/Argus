@@ -107,13 +107,29 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "engineer/research-brief-to-experiment-plan.md",
         "Evaluate the research foundation on these dimensions:\n"
         "1. Problem clarity — is the research gap well-defined and grounded in literature?\n"
-        "2. Literature coverage — ≥10 recent papers + ≥3 classic anchors surveyed?\n"
+        "2. TIMELINE coverage (NOT paper count) — does `research/RESEARCH_TIMELINE.md` reconstruct the field's lineage end-to-end (founding work → key turning points → current SOTA → open frontier = the paper's entry point)? Depth is a CONNECTED timeline you can trace founding→frontier without gaps, NOT a paper tally; a flat list or a broken/gappy timeline is shallow regardless of how many papers it cites.\n"
         "3. Source diversity — both scholarly (arXiv, Semantic Scholar) and trend sources (机器之心 etc.) checked?\n"
         "4. Trend grounding — are trend insights converted to testable research questions?\n"
         "5. Direction viability — is this a real frontier gap, not just an incremental tweak?\n"
         "6. Reference code — were related papers' official repos cloned and studied?\n"
-        "Pass threshold: clear gap identified with literature backing, not just agent brainstorming.",
-        ["research/RESEARCH_BRIEF.md", "research/LITERATURE_GROUNDING.json",
+        "7. **Real-search audit (HARD)** — the literature must be EARNED from real "
+        "retrieval, not recited from model knowledge. Run engineer-process-audit: "
+        "grep the engineer's execution log for real `curl` calls to "
+        "`export.arxiv.org` and `api.crossref.org` and confirm there are ≥5 such "
+        "real arxiv/Crossref queries (GPT-Researcher-style fan-out). Then spot-check "
+        "≥2 entries in LITERATURE_GROUNDING.json by independently `curl`-ing their "
+        "`url`/DOI to confirm the paper actually exists and the title/abstract match "
+        "(not hallucinated). BLOCK the stage if any of: the execution log shows 0 "
+        "(or <5) real curl arxiv/Crossref calls; the literature was clearly backed "
+        "from the model's own knowledge with no `retrieved_via`/`url`/real-`abstract` "
+        "provenance per entry; or any file's metadata claims it 'queried/searched "
+        "official scholarly sources' with no matching real curl in the log "
+        "(fabricated provenance). On block, require a redo with real `curl` evidence "
+        "per the engineer/deep-research-timeline + deep-research-via-api skills (real curl search, organized as a CONNECTED timeline, not a count).\n"
+        "Pass threshold: clear gap identified with literature backing earned from "
+        "real curl arxiv/Crossref searches, not just agent brainstorming or recalled papers.",
+        ["research/RESEARCH_TIMELINE.md", "research/RESEARCH_BRIEF.md",
+         "research/LITERATURE_GROUNDING.json",
          "research/SOURCE_DISCOVERY.md", "research/TREND_INSIGHTS.md"],
     ),
     "plan": (
