@@ -32,6 +32,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 import statistics
 import subprocess
 import time
@@ -294,22 +295,117 @@ def _clean_kernel(task_id: str) -> str:
     return k[:52]
 
 
-def _scrape_teams(root: Path) -> dict:
-    """The project's active rolling teammate pool: which agent is optimizing
-    which target right now.
+def _num_id(mid: str) -> int:
+    digits = "".join(ch for ch in mid if ch.isdigit())
+    return int(digits) if digits else 0
 
-    Reads the live ``teammate_entry`` processes directly — their cmdline carries
-    ``--root/--member-id/--task-id`` — instead of the roster, whose per-member
-    ``pid``/status go stale (and a ``mailbox`` subdir can shadow a newest-team
-    heuristic). Returns ``{}`` for projects with no running team."""
+
+def _team_member_activity(life_dir: Path) -> dict:
+    """Current role (engineer / reviewer), live ACTIVITY, action text + round for
+    ONE teammate, from its own events.jsonl. Activity is a coarse, display-only
+    label (thinking / reading / coding / profiling / evaluating / reviewing /
+    diffing) inferred from the newest decisive event — it drives the little
+    character's pose on the board, nothing in the research loop depends on it."""
+    evs = _iter_jsonl(life_dir / "events.jsonl")
+    if not evs:
+        return {"role": "engineer", "activity": "starting", "action": "启动中…",
+                "round": None, "idle": None}
+    role = None
+    activity = None
+    action = ""
+    rnd = None
+    last_ts = None
+    for e in reversed(evs):
+        t = str(e.get("type") or "")
+        kind = str(e.get("kind") or "")
+        raw = e.get("action_summary") or e.get("text") or ""
+        low = str(e.get("text") or "").lower()
+        if last_ts is None:
+            last_ts = e.get("ts") or e.get("time")
+        if not action and raw:
+            action = str(raw).strip().replace("\n", " ")[:110]
+        if rnd is None and isinstance(e.get("round_index"), int):
+            rnd = e["round_index"]
+        if role is None:
+            if t.startswith("round.review") or t.startswith("reviewer"):
+                role = "reviewer"
+            elif t.startswith("engineer") or t.startswith("round.engineer"):
+                role = "engineer"
+        if activity is None:
+            if t.startswith("round.review") or t.startswith("reviewer"):
+                activity = "reviewing"
+            elif kind == "command_execution":
+                if "eval_solution" in low or "result problem=" in low or re.search(r":(?:226\d|910\d)\b", low):
+                    activity = "evaluating"
+                elif "profile" in low or " ncu" in low or "nsys" in low or "torch.profiler" in low:
+                    activity = "profiling"
+                elif "git diff" in low or "git checkout" in low or "git apply" in low or "git revert" in low:
+                    activity = "diffing"
+                elif "triton" in low or "torch.compile" in low or "apply_patch" in low or "<<'py" in low or "<<py" in low or "cutlass" in low or ".cu" in low:
+                    activity = "coding"
+                elif any(k in low for k in ("sed -n", "cat ", "grep", "find ", " ls ", "head -", "tail -", "stat ", " wc ", "curl ", "nvidia-smi")):
+                    activity = "reading"
+                else:
+                    activity = "coding"
+            elif kind == "agent_message" or t.endswith("agent_message"):
+                stripped = low.lstrip()
+                activity = "reviewing" if (stripped.startswith('{"status"') or '"reason"' in stripped) else "thinking"
+            elif "watchdog" in t:
+                activity = "thinking"
+        if role is not None and activity is not None and action and rnd is not None:
+            break
+    idle = int(time.time() - last_ts) if isinstance(last_ts, (int, float)) else None
+    return {"role": role or "engineer", "activity": activity or "thinking",
+            "action": action or "…", "round": rnd, "idle": idle}
+
+
+_CAND_RE = re.compile(
+    r"correct=true.{0,80}?cand_ms=([0-9.]+).{0,90}?clocks_locked=True.{0,40}?official=true"
+)
+
+
+def _kernel_progress(team_dir: Path, task_id: str) -> dict:
+    """Verified baseline / best cand_ms + speedup for one kernel, scanned from its
+    official.log audit trail (correct=true + clocks_locked + official=true ONLY —
+    no unbacked numbers)."""
+    wd = team_dir / "work" / task_id
+    base = best = None
+    verified = 0
+    adir = wd / "attempts"
+    if adir.is_dir():
+        for L in sorted(adir.glob("*/official.log")):
+            try:
+                txt = L.read_text(errors="replace")
+            except Exception:
+                continue
+            for m in _CAND_RE.finditer(txt):
+                v = float(m.group(1))
+                if base is None:
+                    base = v
+                best = v if best is None else min(best, v)
+                verified += 1
+    rj = _read_json(wd / "result.json")
+    if best is None and isinstance(rj.get("metric"), (int, float)):
+        best = float(rj["metric"])
+    spd = round(base / best, 2) if (base and best and best > 0) else None
+    return {"best": best, "base": base, "speedup": spd, "verified": verified}
+
+
+def _scrape_teams(root: Path) -> dict:
+    """The project's active rolling teammate pool, ENRICHED: for every live
+    teammate, which kernel it owns, whether its engineer or reviewer is acting
+    right now, that role's current action, and the kernel's verified best/speedup.
+
+    Reads live ``teammate_entry`` processes directly (their cmdline carries
+    ``--root/--member-id/--task-id``). Works for any team campaign whose ``--root``
+    is a real team dir (has ``roster.json``), not just ``experiments/teams``."""
     try:
         r = subprocess.run(["ps", "-eo", "etimes=,args="],
                            capture_output=True, text=True, timeout=6)
         lines = r.stdout.splitlines()
     except Exception:
         lines = []
-    agents = []
-    team_rel = ""
+    raw: list[tuple[str, str, int | None, Path]] = []
     for ln in lines:
         if "argus_skill.team.teammate_entry" not in ln:
             continue
@@ -329,35 +425,53 @@ def _scrape_teams(root: Path) -> dict:
                 tid = toks[i + 1]
             elif t == "--root" and i + 1 < len(toks):
                 rt = toks[i + 1]
-        if not (rt and "experiments/teams" in rt):
+        if not (mid and rt):
             continue
-        # keep only THIS project's teammates (its team dir resolves under root)
-        if not (root / rt).exists():
+        rtp = Path(rt)
+        # this project's team campaign: rt is a real team dir AND resolves under
+        # (or equals) the project root. Generalized beyond experiments/teams.
+        if not (rtp / "roster.json").exists():
             continue
-        team_rel = team_rel or rt
-        if mid:
-            agents.append({"id": mid,
-                           "kernel": _clean_kernel(tid) if tid else "?",
-                           "age": etimes})
-    if not team_rel:
+        if not (rtp == Path(root) or (root / rt).exists() or str(rtp).startswith(str(root))):
+            continue
+        raw.append((mid, tid, etimes, rtp))
+    if not raw:
         return {}
-    team_dir = root / team_rel
+    team_dir = raw[0][3]
     pool = _read_json(team_dir / "pool.json")
-
-    def _num(a: dict) -> int:
-        digits = "".join(ch for ch in a["id"] if ch.isdigit())
-        return int(digits) if digits else 0
-
-    agents.sort(key=_num)
+    agents = []
+    for mid, tid, age, rtp in raw:
+        act = _team_member_activity(team_dir / "life" / mid)
+        prog = _kernel_progress(team_dir, tid) if tid else {}
+        agents.append({
+            "id": mid,
+            "kernel": _clean_kernel(tid) if tid else "?",
+            "task": tid,
+            "age": age,
+            "role": act["role"],
+            "activity": act["activity"],
+            "action": act["action"],
+            "round": act["round"],
+            "idle": act["idle"],
+            "best": prog.get("best"),
+            "base": prog.get("base"),
+            "speedup": prog.get("speedup"),
+            "verified": prog.get("verified", 0),
+        })
+    agents.sort(key=lambda a: _num_id(a["task"]) or _num_id(a["id"]))
     now = time.time()
     lead_hb = pool.get("lead_heartbeat_ts")
+    improved = [a for a in agents if a["speedup"] and a["speedup"] > 1.03]
+    best_win = max((a["speedup"] for a in improved), default=None)
     return {
         "team_id": team_dir.name,
         "width": pool.get("width"),
         "state": pool.get("state") or "",
         "lead_age": int(now - lead_hb) if lead_hb else None,
         "running": len(agents),
-        "agents": agents[:120],
+        "improved": len(improved),
+        "best_speedup": best_win,
+        "agents": agents[:60],
     }
 
 
@@ -772,6 +886,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"
   --green:#27a567; --green-soft:#e3f6ec;
   --amber:#e0930f; --amber-soft:#fbf0d8;
   --red:#e0544e; --red-soft:#fbe5e4;
+  --violet:#7c5cff; --violet-soft:#ece7ff;
   --sans:'Outfit','Noto Sans SC',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
 }
 *{box-sizing:border-box;margin:0;padding:0}
@@ -842,6 +957,86 @@ body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sa
 .agent .aid{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--blue-d)}
 .agent .ak{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .agent .aage{font-size:10px;color:var(--dim);font-family:var(--mono)}
+/* ── team war-room: 4-role command center + 24-teammate live grid ── */
+.warroom{display:flex;gap:9px;flex-wrap:wrap;margin:2px 0 13px}
+.wr{flex:1;min-width:235px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 13px;display:flex;gap:12px;align-items:center}
+.wr .wr-body{flex:1;min-width:0}
+.wr .guy{flex:none;transform:scale(1.12)}
+.wr.mgr .guy .body{background:var(--amber)} .wr.mgr .guy .legL,.wr.mgr .guy .legR{background:#9a6a0a}
+.wr.plan .guy .body{background:var(--blue-d)} .wr.plan .guy .legL,.wr.plan .guy .legR{background:#15368a}
+.wr.score .guy .body{background:var(--green)} .wr.score .guy .legL,.wr.score .guy .legR{background:#176c45}
+.wr .wr-role{font-size:10.5px;font-weight:700;letter-spacing:.6px;margin-bottom:6px;display:flex;align-items:center;gap:7px;text-transform:uppercase}
+.wr.mgr .wr-role{color:var(--violet)} .wr.plan .wr-role{color:var(--blue-d)} .wr.score .wr-role{color:var(--green)}
+.wr .wr-role .ic{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 20%,transparent)}
+.wr .wr-main{font-size:13px;font-weight:600;color:var(--ink);line-height:1.4}
+.wr .wr-sub{font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.wr .wr-nums{display:flex;gap:18px;margin-top:5px}
+.wr .wr-nums b{font-family:var(--mono);font-size:19px;color:var(--ink);line-height:1.1}
+.wr .wr-nums span{font-size:10.5px;color:var(--dim);display:block;margin-top:1px}
+.tmgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:9px;max-height:600px;overflow-y:auto;padding:2px}
+.tm{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:10px 12px;border-top:3px solid var(--line)}
+.tm.eng{border-top-color:var(--blue)} .tm.rev{border-top-color:var(--violet)}
+.tm.win{box-shadow:0 0 0 1.5px var(--green) inset}
+.tm .tm-h{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
+.tm .tm-k{font-size:12.5px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tm .tm-rnd{font-family:var(--mono);font-size:10px;color:var(--dim);white-space:nowrap}
+.tm-pipe{display:flex;align-items:center;gap:5px;margin:8px 0 7px}
+.tm-pipe .r{font-size:10px;font-weight:700;padding:3px 0;border-radius:7px;border:1px solid var(--line);color:var(--dim);background:var(--soft);flex:1;text-align:center}
+.tm-pipe .r.on.eng{color:#fff;background:linear-gradient(135deg,var(--blue),#5b96ff);border-color:transparent}
+.tm-pipe .r.on.rev{color:#fff;background:linear-gradient(135deg,var(--violet),#9b7bff);border-color:transparent}
+.tm-pipe .ar{color:var(--dim);font-size:12px}
+.tm .tm-act{font-size:11px;color:var(--muted);line-height:1.42;height:31px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.tm .tm-f{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-family:var(--mono)}
+.tm .tm-ms{font-size:12px;color:var(--ink);font-weight:600}
+.tm .tm-ms .lab{color:var(--dim);font-weight:400;font-size:10px}
+.tm .spd{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:var(--green-soft);color:var(--green)}
+.tm .spd.flat{background:var(--soft);color:var(--dim)}
+/* ── pixel-art research lab: a little character per agent ── */
+.lab{background:linear-gradient(#eef4ff,#e3ecfb);border:1px solid var(--line);border-radius:14px;padding:14px 12px 10px;
+  background-image:linear-gradient(#eef4ff,#e3ecfb),repeating-linear-gradient(0deg,transparent 0 23px,#0001 23px 24px),repeating-linear-gradient(90deg,transparent 0 23px,#0001 23px 24px);
+  image-rendering:pixelated}
+.wsgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:11px}
+.ws{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 5px 7px;background:#ffffffcc;border:1px solid var(--line);
+  border-radius:10px;border-bottom:3px solid var(--line);position:relative}
+.ws.eng{border-bottom-color:var(--blue)} .ws.rev{border-bottom-color:var(--violet)}
+.ws.win{box-shadow:0 0 0 2px var(--green) inset;background:#f3fdf7cc}
+.ws .bubble{font-size:17px;line-height:1;height:21px;filter:drop-shadow(0 1px 0 #0002)}
+.ws.act-thinking .bubble{animation:bpulse 1.5s ease-in-out infinite}
+.ws.act-evaluating .bubble{animation:bspin 1.2s linear infinite}
+.ws.act-profiling .bubble,.ws.act-reading .bubble{animation:bbob 1.5s ease-in-out infinite}
+.guy{position:relative;width:26px;height:30px;animation:hop 2.4s ease-in-out infinite}
+.guy i{position:absolute;display:block;image-rendering:pixelated}
+.guy .hair{left:6px;top:-1px;width:14px;height:5px;background:#5a3a22;border-radius:3px 3px 0 0}
+.guy .head{left:7px;top:2px;width:12px;height:10px;background:#f3c79a;border-radius:2px;
+  background-image:radial-gradient(circle 1.1px at 4px 5px,#23344f 99%,transparent),radial-gradient(circle 1.1px at 9px 5px,#23344f 99%,transparent)}
+.guy .body{left:5px;top:12px;width:16px;height:11px;border-radius:3px;background:var(--blue)}
+.guy .armL,.guy .armR{top:13px;width:3px;height:8px;background:#f3c79a;border-radius:2px}
+.guy .armL{left:3px} .guy .armR{right:3px}
+.guy .legL,.guy .legR{top:22px;width:5px;height:7px;background:#34507a;border-radius:0 0 2px 2px}
+.guy .legL{left:6px} .guy .legR{right:6px}
+.ws.rev .guy .body{background:var(--violet)} .ws.rev .guy .legL,.ws.rev .guy .legR{background:#5b3aa8}
+.ws.act-coding .guy .armL{animation:tapA .42s steps(2,jump-none) infinite}
+.ws.act-coding .guy .armR{animation:tapB .42s steps(2,jump-none) infinite}
+.ws.act-diffing .guy .armR{animation:tapB .55s steps(2,jump-none) infinite}
+.ws.act-reading .guy{animation:lean 2.4s ease-in-out infinite}
+.ws .desk{margin-top:3px;width:36px;height:21px;background:#bcd4f2;border:2px solid #34507a;border-radius:3px;
+  display:flex;align-items:center;justify-content:center;position:relative}
+.ws .desk .scr{font-family:var(--mono);font-size:8px;font-weight:700;color:#13357f}
+.ws.act-evaluating .desk{animation:glow 1.1s ease-in-out infinite}
+.ws .desk::after{content:'';position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);width:11px;height:4px;background:#34507a;border-radius:0 0 2px 2px}
+.ws .k{font-size:11px;font-weight:700;color:var(--ink);margin-top:7px;text-align:center;line-height:1.15}
+.ws .doing{font-size:10.5px;color:var(--muted);text-align:center}
+.ws .doing b{color:var(--ink)} .ws.rev .doing .rv{color:var(--violet);font-weight:700}
+.ws .meta{display:flex;gap:6px;align-items:center;font-family:var(--mono);font-size:10px;color:var(--dim);margin-top:1px}
+.ws .meta .spd2{font-weight:700;color:var(--green)}
+@keyframes hop{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+@keyframes bbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+@keyframes bpulse{0%,100%{opacity:.5;transform:scale(.9)}50%{opacity:1;transform:scale(1.12)}}
+@keyframes bspin{to{transform:rotate(360deg)}}
+@keyframes tapA{from{transform:translateY(0)}to{transform:translateY(-3px)}}
+@keyframes tapB{from{transform:translateY(-3px)}to{transform:translateY(0)}}
+@keyframes lean{0%,100%{transform:rotate(0)}50%{transform:rotate(4deg)}}
+@keyframes glow{0%,100%{box-shadow:0 0 0 0 var(--green-soft)}50%{box-shadow:0 0 7px 1px var(--green)}}
 /* 指标 chips */
 .chips{display:flex;gap:10px;flex-wrap:wrap}
 .chip{flex:1;min-width:78px;padding:13px 14px;background:var(--soft);border-radius:11px;text-align:center}
@@ -999,10 +1194,34 @@ function card(d){
   const tm=d.teams||{};
   let teamsBlock='';
   if(tm.agents&&tm.agents.length){
-    const ags=tm.agents.map(a=>`<div class="agent"><span class="aid">${esc(a.id)}</span><span class="ak">${esc(a.kernel)}</span>${a.age!=null?`<span class="aage">已跑 ${a.age}s</span>`:''}</div>`).join('');
-    teamsBlock=`<div><div class="section-label">团队智能体 · 谁在优化什么</div>
-      <div class="teampool"><span class="pill run">${tm.running} 在岗</span><span class="pill">目标 ${tm.width||'?'}</span><span>状态 ${tm.state||'—'}</span>${tm.lead_age!=null?`<span>主控心跳 ${tm.lead_age}s 前</span>`:''}</div>
-      <div class="agents">${ags}</div></div>`;
+    const fmt=v=>v==null?'—':(v<10?(+v).toFixed(4):(+v).toFixed(2));
+    const ACT={thinking:['💭','构思中'],reading:['📖','读代码/查资料'],coding:['⌨️','写内核'],profiling:['🔬','profile 内核'],evaluating:['🚀','跑官方评分'],reviewing:['🔍','评审裁决'],diffing:['🔀','对比/回退'],starting:['✨','启动中']};
+    const GUY='<div class="guy"><i class="hair"></i><i class="head"></i><i class="body"></i><i class="armL"></i><i class="armR"></i><i class="legL"></i><i class="legR"></i></div>';
+    const cards=tm.agents.map(a=>{
+      const win=a.speedup&&a.speedup>1.03, onR=a.role==='reviewer';
+      const ac=ACT[a.activity]||ACT.thinking;
+      const ms=a.best!=null?fmt(a.best)+' ms':'基线中';
+      const spd=a.speedup?`<span class="spd2">${a.speedup}×</span>`:'';
+      return `<div class="ws ${onR?'rev':'eng'} act-${a.activity} ${win?'win':''}" title="${esc(a.action||'')}">
+        <div class="bubble">${ac[0]}</div>${GUY}
+        <div class="desk"><span class="scr">${esc((a.kernel||'').slice(0,3))}</span></div>
+        <div class="k">${esc(a.kernel)}</div>
+        <div class="doing">${onR?'<span class="rv">评审员·</span>':''}<b>${ac[1]}</b></div>
+        <div class="meta">${a.round!=null?'第'+a.round+'轮':''}<span>${ms}</span>${spd}</div></div>`;
+    }).join('');
+    const mgr=`<div class="wr mgr">${GUY}<div class="wr-body"><div class="wr-role"><span class="ic"></span>Manager · Curator 池</div>
+      <div class="wr-nums"><span><b>${tm.running}</b>在岗</span><span><b>${tm.width||tm.running}</b>目标宽度</span></div>
+      <div class="wr-sub">维持池满,teammate 死了自动补 · ${tm.state||'运行中'}</div></div></div>`;
+    const plan=`<div class="wr plan">${GUY}<div class="wr-body"><div class="wr-role"><span class="ic"></span>Planner · ${ROLE_CN[d.active_role]||'监督'}</div>
+      <div class="wr-main">${esc((d.current_action||'巡视全局…').slice(0,66))}</div>
+      <div class="wr-sub">看全 ${tm.running} 路 · 重排优先级 · 跨 kernel 蒸馏过程数据</div></div></div>`;
+    const score=`<div class="wr score">${GUY}<div class="wr-body"><div class="wr-role"><span class="ic"></span>战绩 · 官方验证</div>
+      <div class="wr-nums"><span><b>${tm.improved||0}</b>已提速</span><span><b>${tm.best_speedup?tm.best_speedup+'×':'—'}</b>最佳加速</span></div>
+      <div class="wr-sub">仅计 official=true 锁频背书的真实加速</div></div></div>`;
+    teamsBlock=`<div><div class="section-label">作战室 · 四角色协作（Manager · Planner · Engineer ⇄ Reviewer）</div>
+      <div class="warroom">${mgr}${plan}${score}</div>
+      <div class="section-label">研究所 · ${tm.running} 个小人实时作业（🔵 工程师 / 🟣 评审员，看头顶气泡知道在干嘛）</div>
+      <div class="lab"><div class="wsgrid">${cards}</div></div></div>`;
   }else if(tm.team_id){
     teamsBlock=`<div><div class="section-label">团队智能体</div><div class="empty">当前无在岗 agent（池子刚轮换/补充中，目标 ${tm.width||'?'} · ${tm.state||'—'}）</div></div>`;
   }
