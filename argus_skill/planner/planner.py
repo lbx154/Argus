@@ -687,7 +687,7 @@ class Planner:
         # other vertical (e.g. speedrun) those blocks are suppressed and the
         # vertical's banner is prepended so the planner runs that vertical's loop
         # instead of demanding/rebuilding a research gate.
-        _vmod = load_vertical(resolve_vertical(_proot))
+        _vmod = load_vertical(resolve_vertical(_proot), project_root=_proot)
         _full_emnlp = vertical_completion_gate(_vmod) == "full_emnlp"
         optimize_banner = vertical_role_banner(_vmod, "planner")
 

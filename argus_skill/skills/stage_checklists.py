@@ -1312,7 +1312,9 @@ def _full_pipeline_title(project_root) -> str:
         from .vertical_select import resolve_vertical
 
         vertical = resolve_vertical(project_root)
-        if vertical_completion_gate(load_vertical(vertical)) != "full_emnlp":
+        if vertical_completion_gate(
+            load_vertical(vertical, project_root=project_root)
+        ) != "full_emnlp":
             return f"## Full pipeline checklist ({vertical})\n"
     except Exception:  # noqa: BLE001 — title must never break prompt building
         pass

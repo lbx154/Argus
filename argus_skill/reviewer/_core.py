@@ -503,7 +503,7 @@ class Reviewer:
         # "full_emnlp"); for any other vertical (e.g. speedrun) those blocks are
         # suppressed and the vertical's banner is prepended so the reviewer judges
         # only that vertical's metric instead of paper-pipeline artifacts.
-        _vmod = load_vertical(resolve_vertical(_proot))
+        _vmod = load_vertical(resolve_vertical(_proot), project_root=_proot)
         _full_emnlp = vertical_completion_gate(_vmod) == "full_emnlp"
         optimize_banner = vertical_role_banner(_vmod, "reviewer")
         # Live search-altitude facts (NO verdict) so the reviewer can SEE the

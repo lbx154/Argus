@@ -2071,7 +2071,7 @@ class LifeSupervisor:
             vertical_completion_gate,
         )
 
-        mod = load_vertical(resolve_vertical(workdir))
+        mod = load_vertical(resolve_vertical(workdir), project_root=workdir)
         return vertical_completion_gate(mod) == "full_emnlp"
 
     def _final_submission_cert_path(self) -> Path:

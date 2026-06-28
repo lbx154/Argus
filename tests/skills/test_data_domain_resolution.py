@@ -48,6 +48,19 @@ def test_store_override_shows_in_render(tmp_path, monkeypatch):
     assert "simulate.seeds" in body and "Run at least 3 seeds" in body
 
 
+def test_data_domain_gate_is_not_full_emnlp(tmp_path, monkeypatch):
+    # R5-1: the gate / prompt call sites must thread project_root into load_vertical
+    # so a Manager-authored data domain (completion_gate="none") is honored, not
+    # silently resolved to research/full_emnlp -- which would wedge a metric mission
+    # forever (the EMNLP gate can never certify). The full-pipeline title is one such
+    # site: a data domain must render as itself, not the EMNLP final-submission gate.
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    dd.write_data_domain(tmp_path, "robotics_sim", stages=["scope", "measure"])
+    vs.persist_vertical(tmp_path, "robotics_sim")
+    body = sc.format_full_pipeline_checklist(role="reviewer", project_root=tmp_path)
+    assert "robotics_sim" in body and "final submission gate" not in body
+
+
 def test_store_override_replaces_seed_for_research_stage(tmp_path, monkeypatch):
     # Even for a paper vertical, an authored store entry REPLACES the seed for that
     # stage (non-protected edits), while other stages keep the seed.

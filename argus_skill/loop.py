@@ -475,7 +475,7 @@ class SkillLoop:
         )
 
         _proot = resolve_project_root()
-        _vmod = load_vertical(resolve_vertical(_proot))
+        _vmod = load_vertical(resolve_vertical(_proot), project_root=_proot)
         _full_emnlp = vertical_completion_gate(_vmod) == "full_emnlp"
         # Measured-benchmark mode (operator opt-in via ARGUS_SKILL_MEASURED_MODE):
         # the task has a TRUSTED scorer whose measured number is the ONLY judge, so

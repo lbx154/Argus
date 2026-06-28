@@ -370,7 +370,10 @@ class Manager:
         try:
             from ..verticals._base import load_vertical
 
-            order = getattr(load_vertical(vertical), "STAGE_ORDER", None)
+            order = getattr(
+                load_vertical(vertical, project_root=self.project_root),
+                "STAGE_ORDER", None,
+            )
             if order:
                 return list(order)
         except Exception:  # noqa: BLE001 — fall back, never crash division
