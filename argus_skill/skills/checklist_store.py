@@ -116,10 +116,14 @@ def store_items_for_stage(project_root: object, stage: str) -> "tuple[Any, ...] 
     if stage_n not in stages:
         return None
     rows = stages.get(stage_n)
-    if not isinstance(rows, list):
-        return ()
-    items = [it for it in (_coerce_item(r) for r in rows) if it is not None]
-    return tuple(items)
+    if isinstance(rows, list):
+        items = [it for it in (_coerce_item(r) for r in rows) if it is not None]
+    else:
+        items = []
+    # Re-inject the protected anti-fraud floor so no write path (planner add-over,
+    # or a direct edit of CHECKLISTS.json) can drop/weaken it from the rendered
+    # checklist the reviewer certifies against.
+    return tuple(_with_protected_floor(project_root, stage_n, items))
 
 
 def load_checklist_store(project_root: object) -> dict[str, list[Any]]:
@@ -174,6 +178,44 @@ def _paper_gate_protected_ids(project_root: object) -> frozenset[str]:
         return frozenset()
 
 
+def _with_protected_floor(project_root: object, stage: str, items: list[Any]) -> list[Any]:
+    """Re-validate the protected anti-fraud floor for ``stage`` on READ.
+
+    On a paper vertical, force each :data:`PROTECTED_ITEM_IDS` seed item for the
+    stage to its canonical seed text (replacing any weakened override copy in
+    place) and append any protected floor item the override dropped. The write
+    guard in :func:`apply_checklist_ops` only covers the Planner-ops path; this
+    read-side re-injection (mirroring ``harness_overlay``'s re-validate-on-read) is
+    what makes the floor un-removable against ANY writer — including a direct edit
+    of ``research/CHECKLISTS.json`` by the unsandboxed engineer subprocess. No-op
+    for a non-paper gate or if seed resolution fails (fail-open).
+    """
+    try:
+        protected = _paper_gate_protected_ids(project_root)
+        if not protected:
+            return items
+        seed_by_id = {
+            s.id: s for s in seed_items_for(project_root, stage) if s.id in protected
+        }
+        if not seed_by_id:
+            return items
+        out: list[Any] = []
+        seen: set[str] = set()
+        for it in items:
+            iid = getattr(it, "id", None)
+            if iid in seed_by_id:
+                out.append(seed_by_id[iid])  # canonical floor text, in place
+                seen.add(iid)
+            else:
+                out.append(it)
+        for iid, seed_item in seed_by_id.items():
+            if iid not in seen:
+                out.append(seed_item)  # protected floor item the override dropped
+        return out
+    except Exception:  # noqa: BLE001 — re-injection must never break prompt building
+        return items
+
+
 def _row(item_id: str, statement: str, evidence_hint: str) -> dict[str, str]:
     return {
         "id": item_id,
@@ -199,8 +241,9 @@ def apply_checklist_ops(
     * ``modify`` — update an existing item's statement/evidence by ``id``.
     * ``remove`` — drop an item by ``id``.
 
-    ``modify``/``remove`` on a paper-vertical PROTECTED floor id are refused
-    (counted as ``skipped``). Atomic write, ``revision`` bumped. Fail-soft: any
+    ``add``/``modify``/``remove`` on a paper-vertical PROTECTED floor id are
+    refused (counted as ``skipped``) — the floor is the Planner's read-only base.
+    Atomic write, ``revision`` bumped. Fail-soft: any
     error leaves the store untouched. Returns ``{applied, skipped, revision}``.
     """
     if not ops:
@@ -244,7 +287,7 @@ def apply_checklist_ops(
             if not item_id:
                 skipped += 1
                 continue
-            if op in {"modify", "remove"} and item_id in protected:
+            if op in {"add", "modify", "remove"} and item_id in protected:
                 skipped += 1
                 continue
 

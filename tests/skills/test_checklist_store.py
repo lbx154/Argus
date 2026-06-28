@@ -86,3 +86,41 @@ def test_per_stage_cap(tmp_path):
     cs.apply_checklist_ops(tmp_path, ops)
     items = cs.store_items_for_stage(tmp_path, "scope")
     assert len(items) == cs.MAX_ITEMS_PER_STAGE
+
+
+def test_protected_floor_not_overwritable_via_add(tmp_path):
+    # `add` of a protected id must be refused too (it strips + replaces the floor
+    # item) — the round-2 bypass: only modify/remove were guarded.
+    cs.apply_checklist_ops(tmp_path, [{"op": "seed", "stage": "run", "id": ""}])
+    seed_stmt = {i.id: i.statement for i in cs.store_items_for_stage(tmp_path, "run")}
+    res = cs.apply_checklist_ops(tmp_path, [
+        {"op": "add", "stage": "run", "id": "run.score_variance",
+         "statement": "trivially satisfied", "evidence_hint": ""},
+    ])
+    after = {i.id: i.statement for i in cs.store_items_for_stage(tmp_path, "run")}
+    assert after["run.score_variance"] == seed_stmt["run.score_variance"]  # not weakened
+    assert res["skipped"] >= 1
+
+
+def test_protected_floor_reinjected_when_store_emptied_directly(tmp_path):
+    # Bypass apply_checklist_ops entirely: write a CHECKLISTS.json that EMPTIES the
+    # run stage (what an unsandboxed engineer subprocess can do). The read path must
+    # re-inject the protected floor so the reviewer still sees it.
+    path = tmp_path / "research" / "CHECKLISTS.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"revision": 9, "stages": {"run": []}}))
+    ids = {i.id for i in cs.store_items_for_stage(tmp_path, "run")}
+    assert "run.score_variance" in ids  # re-injected despite the emptied store
+
+
+def test_protected_floor_reinjected_canonical_when_weakened_directly(tmp_path):
+    # A direct edit that REPLACES a protected item's statement with weak text is
+    # canonicalized back to the seed statement on read.
+    canon = {i.id: i.statement for i in cs.seed_items_for(tmp_path, "run")}["run.score_variance"]
+    path = tmp_path / "research" / "CHECKLISTS.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"revision": 9, "stages": {"run": [
+        {"id": "run.score_variance", "statement": "N/A trivially satisfied", "evidence_hint": ""},
+    ]}}))
+    after = {i.id: i.statement for i in cs.store_items_for_stage(tmp_path, "run")}
+    assert after["run.score_variance"] == canon  # canonical floor text restored
