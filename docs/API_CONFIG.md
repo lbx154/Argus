@@ -18,7 +18,7 @@ Each route can use a different provider, base URL, API key, wire API, and model:
 |---|---|
 | `engineer` | main coding/research execution model |
 | `reviewer` | reviewer gate model |
-| `scientist` | skill distillation / planning model |
+| `planner` | planner / supervisor 推理 model |
 | `text` | generic text-model fallback |
 | `image` | image generation, e.g. `gpt-image-2` |
 | `image_review` | vision/text model that reviews generated images |

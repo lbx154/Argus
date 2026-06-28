@@ -116,8 +116,8 @@ research → plan → benchmark → run → analysis → draft → review → su
 
 Skill 是给 agent 复用的横向能力（playbook），不是 harness 的判断逻辑。按角色分两个目录：
 
-- **Engineer skills（42 个）**：编排（`auto-research-pipeline` 主入口、`emnlp-paper-skill-router` / `aaai-paper-skill-router`）、文献（`arxiv-paper-search`、`semantic-scholar-search`、`research-ideation`）、规划（`research-brief-to-experiment-plan`、`ablation-planner`、`training-infrastructure-guide`）、实验（`agent-research-benchmark-runner`、`experiment-audit`）、分析（`research-results-analysis-and-figures`、`result-to-claim`、`claims-evidence-audit`）、写作（`emnlp-paper-drafting` / `aaai-paper-drafting`、`paper-illustration-image2`、`paper-framework-figure-studio-pro` 等）、审查与提交（`emnlp-format-preflight` / `aaai-format-preflight`、`paper-infrastructure-review`、`research-submission-assurance-gate`）、角色（`argus-engineer-role`、`argus-planner-role`）。会议格式相关的 skill（drafting / format-preflight / skill-router / academic-language-review）按 `target_venue` 自动只暴露对应 venue 的那套。
-- **Reviewer skills（10 个）**：`experiment-plan-review`（plan）、`experiment-results-review`（run）、`academic-paper-peer-review-benchmark`（draft 宽松 / submission 严格）、`emnlp-academic-language-review` / `aaai-academic-language-review`（review，按 venue）、`argus-reviewer-role`、`reviewer-engineer-handoff`。
+- **Engineer skills（60 个）**：编排（`auto-research-pipeline` 主入口、`emnlp-paper-skill-router` / `aaai-paper-skill-router`）、文献（`arxiv-paper-search`、`semantic-scholar-search`、`research-ideation`）、规划（`research-brief-to-experiment-plan`、`ablation-planner`、`training-infrastructure-guide`）、实验（`agent-research-benchmark-runner`、`experiment-audit`）、分析（`research-results-analysis-and-figures`、`result-to-claim`、`claims-evidence-audit`）、写作（`emnlp-paper-drafting` / `aaai-paper-drafting`、`paper-illustration-image2`、`paper-framework-figure-studio-pro` 等）、审查与提交（`emnlp-format-preflight` / `aaai-format-preflight`、`paper-infrastructure-review`、`research-submission-assurance-gate`）、角色（`argus-engineer-role`、`argus-planner-role`）。会议格式相关的 skill（drafting / format-preflight / skill-router / academic-language-review）按 `target_venue` 自动只暴露对应 venue 的那套。
+- **Reviewer skills（12 个）**：`experiment-plan-review`（plan）、`experiment-results-review`（run）、`academic-paper-peer-review-benchmark`（draft 宽松 / submission 严格）、`emnlp-academic-language-review` / `aaai-academic-language-review`（review，按 venue）、`argus-reviewer-role`、`reviewer-engineer-handoff`。
 
 miss 的能力由 distiller 在线蒸馏（复用 engineer backend，不是独立 agent）。
 
@@ -222,16 +222,17 @@ argus-skill --setup
 
 ### 4. 创建研究项目
 
+不再有独立的"建项目"启动器（旧的 `python -m argus_skill.tools.new_auto_research_project` 已退役）。现在创建并启动一个项目 = 在一个**项目目录**里直接拉起 argus：daemon 的 bootstrap 会从 objective 自动分类 vertical、生成对应的 `AGENTS.md` 契约并初始化 `PIPELINE_STATE`。
+
 ```bash
-python -m argus_skill.tools.new_auto_research_project \
-  --parent ~/research \
-  --venue aaai \
+mkdir -p ~/research/world-models && cd ~/research/world-models
+argus-skill --daemon --continuous \
   --objective "World Model for Agent Action Selection"
 ```
 
-自动创建项目目录、导出内置 skill、初始化 PIPELINE_STATE，并启动 7×24 daemon（加 `--no-start` 只建目录不启）。常用参数见 `--help`：`--objective`（主目标）、`--non-goals`、`--compute-budget`、`--project-dir`、`--venue {emnlp,aaai}`（目标会议格式，默认 `emnlp`）、`--no-start`、`--no-git`、`--dry-run`。
+daemon 是 **cwd-bound** 的（项目状态绑在当前目录）。启动前须满足下方「Daemon 启动硬门禁」——① 用 `--continuous --objective` 提供 mission objective；② `~/.argus-skill/special_prompts/` 至少放一个机器规则 `*.md`。也可直接跑 bare `argus-skill`（不带 flag）进 REPL 跟 Manager 对话，由它驱动同一套 bootstrap。
 
-> **会议格式（`--venue`）**：决定整套排版契约——页数预算、必需章节、LaTeX 模板/样式、匿名作者块、reviewer rubric——写进 `PIPELINE_STATE.json` 的 `target_venue`。`emnlp`（默认）= ACL/EMNLP 8 页正文、References 第 9 页起、强制 Limitations/Ethics、acl.sty。`aaai` = AAAI-2026 两栏 7 页正文、References 第 8 页起、References 后接 Reproducibility Checklist、aaai2026.sty（不要 `\bibliographystyle`，禁 hyperref/navigator/`\nocopyright`）。所有格式 gate、stage checklist 与 reviewer skill 都按 `target_venue` 自动切换；EMNLP 行为保持不变。
+> **会议格式（research vertical）**：论文排版契约由 `PIPELINE_STATE.json` 的 `target_venue` 决定（默认 `emnlp`）。`emnlp` = ACL/EMNLP 8 页正文、References 第 9 页起、强制 Limitations/Ethics、acl.sty；`aaai` = AAAI-2026 两栏 7 页正文、References 后接 Reproducibility Checklist、aaai2026.sty。所有格式 gate、stage checklist 与 reviewer skill 都按 `target_venue` 自动切换。
 
 ### 5. 监控进度
 
@@ -304,8 +305,8 @@ loginctl enable-linger $USER   # 登出/重启后仍存活 = 真 7×24
 ```
 argus_skill/
 ├── builtin_skills/
-│   ├── engineer/          # 25 个 engineer skill（agent 的 playbook）
-│   ├── reviewer/          # 6 个 reviewer skill
+│   ├── engineer/          # 60 个 engineer skill（agent 的 playbook）
+│   ├── reviewer/          # 12 个 reviewer skill
 │   └── *.md               # 项目模板
 ├── tools/
 │   ├── stage_check.py     # 分阶段 shell 检查 + reviewer checklist

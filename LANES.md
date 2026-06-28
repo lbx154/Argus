@@ -15,7 +15,7 @@
 | Lane | Subsystems / dirs | Owner |
 |---|---|---|
 | **L-hapi** | `skills/`, `manager/`, `reviewer/`, the per-role **backend/runner** wiring (`apps/_runtime.py` `_role_backend`, `agent_cli/`, `adapters/`, the `author_model` plumbing) | HAPI |
-| **L-claude** | `meta/`, `verticals/`, `daemon/` (drain + handoff, NOT the role-config), `life/supervisor/_core.py` (structure), `life/` observability (`event_log/notify/telemetry/telegram_bot/activity_log/stage_budget`), `planner/planner.py` (EMNLP/restart, NOT backend config), `apps/cli/` (flags), `tools/subagent/` + `team/`, `core/knobs` (new), `deploy/`, `docs/`, `tools/new_auto_research_project.py` | claude loop |
+| **L-claude** | `regime_jump/`, `verticals/`, `daemon/` (drain + handoff, NOT the role-config), `life/supervisor/_core.py` (structure), `life/` observability (`event_log/notify/telemetry/telegram_bot/activity_log/stage_budget`), `planner/planner.py` (EMNLP/restart, NOT backend config), `apps/cli/` (flags), `tools/subagent/` + `team/`, `core/knobs` (new), `deploy/`, `docs/`, `tools/new_auto_research_project.py` | claude loop |
 | **L-operator** | product-identity **semantics** (default vertical / paper-vs-benchmark defaults), any reviewer-contract / schema change | lbx (decision) |
 | **OFF-LIMITS** | `argus_skill/islands/`, top-level `argus/` | other collaborators — **nobody in this effort touches** |
 
