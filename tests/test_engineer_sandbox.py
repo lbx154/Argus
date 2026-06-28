@@ -116,6 +116,32 @@ def test_writable_roots_drops_candidate_under_forbidden(monkeypatch):
     assert not any("/.argus-skill/" in r for r in sandbox.writable_roots())
 
 
+def test_fail_closed_workdir_returns_real_nonsymlink_dir(tmp_path, monkeypatch):
+    fake_tmp = tmp_path / "tmp"
+    fake_tmp.mkdir()
+    monkeypatch.setattr(sandbox.tempfile, "tempdir", str(fake_tmp))
+    wd = sandbox.fail_closed_workdir()
+    assert Path(wd).is_dir() and not Path(wd).is_symlink()
+    assert os.path.realpath(wd).startswith(os.path.realpath(str(fake_tmp)))
+
+
+def test_fail_closed_workdir_rejects_preplanted_symlink(tmp_path, monkeypatch):
+    # The pid-derived scratch path is predictable and /tmp is engineer-writable, so
+    # a prior sandboxed turn can pre-plant it as a symlink to the gate brain. The
+    # rootless reviewer -C must NOT resolve there.
+    fake_tmp = tmp_path / "tmp"
+    fake_tmp.mkdir()
+    monkeypatch.setattr(sandbox.tempfile, "tempdir", str(fake_tmp))
+    gate_brain = tmp_path / "gate_brain"
+    gate_brain.mkdir()
+    (fake_tmp / f"argus-sandbox-scratch-{os.getpid()}").symlink_to(
+        gate_brain, target_is_directory=True
+    )
+    wd = sandbox.fail_closed_workdir()
+    assert not Path(wd).is_symlink()
+    assert os.path.realpath(wd) != os.path.realpath(str(gate_brain))
+
+
 # ── codex command construction ───────────────────────────────────────────────
 def _codex_runner():
     return AgentCliRunner(agent_bin="codex")

@@ -93,13 +93,31 @@ def fail_closed_workdir() -> str:
     would hand a sandboxed role write access to the WHOLE filesystem (incl. the
     gate brain and the package source). So whenever no workdir is supplied we
     fall closed to a private, per-process scratch dir under the temp root instead
-    of ever emitting a rootless ``-s workspace-write``."""
+    of ever emitting a rootless ``-s workspace-write``.
+
+    The pid-derived path is predictable and ``/tmp`` is in the sandboxed
+    engineer's ``--add-dir`` allowlist, so a prior turn can PRE-PLANT it as a
+    symlink to the gate brain (``mkdir(exist_ok=True)`` follows the link, handing
+    the rootless reviewer's ``-C`` the real inode). If the scratch is a symlink or
+    resolves under a forbidden root we abandon it for a fresh, unpredictable,
+    non-symlink dir — mirroring ``writable_roots``' realpath hardening for this
+    ``-C`` path."""
     d = Path(tempfile.gettempdir()) / f"argus-sandbox-scratch-{os.getpid()}"
     try:
         d.mkdir(parents=True, exist_ok=True)
+        if not d.is_symlink():
+            real = os.path.realpath(d)
+            forbidden = [os.path.realpath(f) for f in forbidden_write_roots()]
+            if not _is_forbidden(real, forbidden):
+                return real
+    except Exception:  # pragma: no cover — defensive
+        pass
+    # Pre-planted symlink / forbidden target, or mkdir failed: a fresh,
+    # unpredictable, non-symlink scratch that could not have been pre-planted.
+    try:
+        return tempfile.mkdtemp(prefix=f"argus-sandbox-scratch-{os.getpid()}-")
     except Exception:  # pragma: no cover — defensive
         return tempfile.gettempdir()
-    return str(d)
 
 
 def writable_roots(*, life_root: str | os.PathLike[str] | None = None) -> list[str]:
