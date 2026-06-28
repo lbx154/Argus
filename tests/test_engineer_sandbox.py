@@ -92,6 +92,23 @@ def test_writable_roots_never_grants_the_venv():
     assert prefix in sandbox.forbidden_write_roots()
 
 
+def test_writable_roots_resolves_symlinked_candidate_into_venv(tmp_path, monkeypatch):
+    """Cross-session escape: a sandboxed session can write ~/.cache, so it could
+    repoint it at the venv via symlink. writable_roots() must realpath candidates
+    so the symlinked ~/.cache resolves into the (forbidden) venv and is DROPPED —
+    not handed back as a writable allowlist entry pointing at site-packages."""
+    venv = tmp_path / "venv"
+    (venv / "lib").mkdir(parents=True)
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".cache").symlink_to(venv)          # attacker repoints ~/.cache → venv
+    monkeypatch.setattr(sandbox.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(sandbox.sys, "prefix", str(venv))
+    roots = sandbox.writable_roots()
+    real_venv = os.path.realpath(str(venv))
+    assert not any(r == real_venv or r.startswith(real_venv + os.sep) for r in roots)
+
+
 def test_writable_roots_drops_candidate_under_forbidden(monkeypatch):
     # If the python env prefix were somehow under ~/.argus-skill, it must be dropped.
     home = str(Path.home())

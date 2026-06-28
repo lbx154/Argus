@@ -124,10 +124,17 @@ def writable_roots(*, life_root: str | os.PathLike[str] | None = None) -> list[s
     # cached installs still work.
     if os.path.isdir("/scratch"):
         candidates.append("/scratch")
-    forbidden = forbidden_write_roots(life_root=life_root)
+    # Resolve symlinks on BOTH sides before the forbidden check (and hand codex
+    # the real inode): a prior sandboxed session can write ~/.cache, so it could
+    # repoint an allowlisted dir at the venv / gate brain via symlink and escape
+    # on the next spawn. Comparing real paths closes that cross-session vector.
+    forbidden = [os.path.realpath(f) for f in forbidden_write_roots(life_root=life_root)]
     out: list[str] = []
     for c in candidates:
-        cp = str(Path(c))
+        try:
+            cp = os.path.realpath(c)
+        except Exception:  # pragma: no cover — defensive
+            cp = str(Path(c))
         if _is_forbidden(cp, forbidden):
             continue
         if cp not in out:
