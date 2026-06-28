@@ -169,8 +169,12 @@ class Curator:
             task = task_board.claim_top(root, mid, now=now)
             if task is None:
                 break  # backlog empty
+            # Per-task cwd: a task may carry its own working dir (independent
+            # project workdirs — one per kernel). Fall back to the shared campaign
+            # cwd when the task didn't specify one (legacy single-repo campaigns).
+            task_cwd = Path(task.get("cwd") or cwd)
             self._spawn_tracked(root, member_id=mid, task_id=task["task_id"],
-                                cwd=cwd, now=now)
+                                cwd=task_cwd, now=now)
             spawned.append({"member_id": mid, "task_id": task["task_id"]})
         return {"spawned": spawned, "in_flight": in_flight, "live": len(live),
                 "occupied": occupied, "free": free, "reassigned": reassigned}

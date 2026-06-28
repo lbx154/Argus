@@ -71,6 +71,31 @@ def test_refill_fills_to_width_then_idempotent(tmp_path: Path) -> None:
     assert c._refill(root, width=3, cwd=tmp_path, now=101.0)["spawned"] == []
 
 
+def test_refill_uses_per_task_cwd_else_campaign(tmp_path: Path) -> None:
+    """A task carrying its own ``cwd`` is spawned in that dir (independent per-kernel
+    workdirs); a task without one falls back to the shared campaign cwd (legacy)."""
+    root = tmp_path / "team"
+    wd_a = tmp_path / "kernels" / "a"
+    task_board.form(root, [
+        {"task_id": "t::a", "objective": "x", "priority": 1, "cwd": str(wd_a)},
+        {"task_id": "t::b", "objective": "x", "priority": 2},  # no cwd
+    ])
+    seen: dict[str, str] = {}
+
+    def make_proc(root_, member_id, task_id, cwd):  # noqa: ANN001
+        seen[task_id] = str(cwd)
+        return FakeProc()
+
+    c = cur.Curator(project_root=tmp_path, make_proc=make_proc)
+    campaign = tmp_path / "campaign"
+    c._refill(root, width=5, cwd=campaign, now=100.0)
+    assert seen["t::a"] == str(wd_a)         # per-task cwd honored
+    assert seen["t::b"] == str(campaign)     # legacy fallback to campaign cwd
+    # and the roster records each child's real workdir
+    members = {m["task_id"]: m["worktree"] for m in roster.members(root)}
+    assert members["t::a"] == str(wd_a) and members["t::b"] == str(campaign)
+
+
 def test_refill_stops_when_backlog_empty(tmp_path: Path) -> None:
     root = tmp_path / "team"
     task_board.form(root, [{"task_id": "t::a", "objective": "x"}])

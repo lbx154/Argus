@@ -56,6 +56,11 @@ def form(root: Path, tasks: list[dict[str, Any]]) -> None:
             # (a speedup / score). None (default) → the leaderboard's global default.
             "lower_is_better": spec.get("lower_is_better"),
             "owns_paths": list(spec.get("owns_paths", [])),
+            # Per-task working directory. When set, the Curator spawns this task's
+            # teammate in its OWN dir, so N tasks can be independent project
+            # workdirs (e.g. one per kernel) instead of all sharing the campaign
+            # cwd. Empty → fall back to the campaign cwd (legacy behaviour).
+            "cwd": str(spec.get("cwd", "") or ""),
             "deps": list(spec.get("deps", [])),
             "state": "pending",
             "owner": "",
