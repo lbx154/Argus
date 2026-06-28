@@ -78,6 +78,32 @@ def _find_problem_dir(problem: str) -> Path | None:
     return hits[0] if hits else None
 
 
+def _sign_result_if_full_coverage(
+    problem: str, cand_ms: float, correct: bool, max_workloads: int | None
+) -> dict | None:
+    """Return a signed result dict for a correct FULL-COVERAGE eval, else ``None``.
+
+    Signing is gated on (a) a configured ``ARGUS_EVAL_SIGNING_KEY``, (b) ``correct``,
+    and (c) FULL coverage — a truncated run (``max_workloads`` set, including the
+    ``/compile`` 1-workload smoke) is NOT signed. Without (c) a kernel specialised to
+    a single workload could POST ``max_workloads=1`` and obtain a valid signature for
+    a fast partial-coverage 'win'; refusing to sign a partial run means the harness
+    verifier (which rejects unsigned results) never banks it. Fail-open: a missing
+    key / cryptography never breaks the eval — the result is simply unsigned.
+    """
+    signing_key = os.environ.get("ARGUS_EVAL_SIGNING_KEY", "").strip()
+    if not signing_key or not correct or max_workloads:
+        return None
+    try:
+        from argus_skill.team import result_provenance as _rp
+        signed = {"target": problem, "metric": cand_ms,
+                  "mechanism": "official-eval", "correct": True}
+        signed["sig"] = _rp.sign_result(signed, _rp.read_key(signing_key))
+        return signed
+    except Exception:  # noqa: BLE001 — signing must never break an eval
+        return None
+
+
 def _run(problem: str, solution_code: str | None, solution_json: dict | None,
          max_workloads: int | None) -> dict:
     src = _find_problem_dir(problem)
@@ -135,19 +161,12 @@ def _run(problem: str, solution_code: str | None, solution_json: dict | None,
         # Optional provenance: when ARGUS_EVAL_SIGNING_KEY is set, attach a SIGNED
         # result object the operator's eval client writes verbatim as the teammate's
         # result.json. The harness verifies it with the public key, so an unsandboxed
-        # engineer cannot forge its own banked metric. Only a correct eval is signed
-        # (a failed eval banks nothing). Best-effort: a missing key/cryptography never
-        # breaks the eval — the result_signed block is simply absent.
-        signing_key = os.environ.get("ARGUS_EVAL_SIGNING_KEY", "").strip()
-        if signing_key and correct:
-            try:
-                from argus_skill.team import result_provenance as _rp
-                signed = {"target": problem, "metric": cand_ms,
-                          "mechanism": "official-eval", "correct": True}
-                signed["sig"] = _rp.sign_result(signed, _rp.read_key(signing_key))
-                result["result_signed"] = signed
-            except Exception as exc:  # noqa: BLE001 — signing must never break an eval
-                result["sign_error"] = str(exc)
+        # engineer cannot forge its own banked metric. Only a correct, FULL-COVERAGE
+        # eval is signed — a partial / `/compile` smoke run gets no signature, so a
+        # kernel specialised to one workload cannot bank a partial-coverage win.
+        signed = _sign_result_if_full_coverage(problem, cand_ms, correct, max_workloads)
+        if signed is not None:
+            result["result_signed"] = signed
         return result
 
 
