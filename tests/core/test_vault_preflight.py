@@ -114,24 +114,17 @@ def test_required_route_404_fails_preflight() -> None:
 
 
 def test_missing_route_in_vault_marked_skipped_and_fails_required() -> None:
-    # engineer route is missing from vault → skipped → counts as
-    # "required failure" because the route is required and not ok.
+    # engineer route missing from vault → skipped + not ok → a required FAILURE,
+    # so the daemon must NOT start. (Previously this sailed through preflight as
+    # ok=True — the exact doom-loop the check exists to prevent.)
     report = check_routes(
         probe=_probe_always_ok,
         route_loader=_route_loader_missing_engineer,
     )
     engineer = next(c for c in report.checks if c.name == "engineer")
-    assert engineer.skipped
-    assert not engineer.ok
-    # Skipped required routes count as required_failures
-    failed = [c.name for c in report.required_failures]
-    # NOTE: skipped routes with ok=False ARE required_failures by current
-    # semantics — the daemon shouldn't start with a missing required route
-    assert "engineer" not in failed or engineer.skipped
-    # Either way preflight should not say ok if a required route is missing
-    # (Implementation flexibility: we accept skipped-with-reason as OK
-    # because the reason tells the operator. The bigger danger is "we
-    # probed and got 404"; that's covered by the explicit 404 test.)
+    assert engineer.skipped and not engineer.ok
+    assert "engineer" in [c.name for c in report.required_failures]
+    assert not report.ok
 
 
 def test_unusable_route_skipped_with_reason() -> None:
@@ -142,6 +135,8 @@ def test_unusable_route_skipped_with_reason() -> None:
     engineer = next(c for c in report.checks if c.name == "engineer")
     assert engineer.skipped
     assert "not configured" in engineer.skip_reason
+    # A required route that is unusable / unconfigured FAILS preflight.
+    assert not report.ok
 
 
 def test_partial_failure_only_engineer_404() -> None:

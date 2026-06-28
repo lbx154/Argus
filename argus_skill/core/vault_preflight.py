@@ -84,12 +84,19 @@ class PreflightReport:
 
     @property
     def required_failures(self) -> list[RouteCheck]:
-        return [c for c in self.checks if c.required and not c.ok and not c.skipped]
+        # A required route that is unusable / missing / corrupt is marked
+        # skipped with ok=False by check_routes — that is a FAILURE, not a pass.
+        # (Only the optional image / wire_api=images skips set ok=True; they are
+        # required=False and excluded anyway.) Previously excluding `skipped`
+        # here let a missing/corrupt required route boot the 7x24 daemon straight
+        # into the doom-loop this preflight exists to prevent.
+        return [c for c in self.checks if c.required and not c.ok]
 
     @property
     def ok(self) -> bool:
-        """True iff every REQUIRED route passed (or was skipped with reason).
-        Optional routes that fail don't fail the preflight."""
+        """True iff every REQUIRED route passed (a config-present optional skip
+        sets ok=True). A required route that is unusable / missing / corrupt is a
+        failure; optional routes that fail don't fail the preflight."""
         return not self.required_failures
 
     def to_dict(self) -> dict:
