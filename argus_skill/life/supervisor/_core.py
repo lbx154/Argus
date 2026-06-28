@@ -3367,6 +3367,9 @@ class LifeSupervisor:
         if len(parts) == 1:
             return ""
         return "\n".join(parts)
+
+    @staticmethod
+    def _render_checklist_feedback(feedback: dict) -> str:
         """Render the reviewer's ADVISORY checklist feedback for the Planner.
 
         The reviewer is feedback-only — it never edits the checklist. This block
