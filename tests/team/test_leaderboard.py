@@ -29,6 +29,19 @@ def test_fold_best_per_target_higher_is_better(tmp_path: Path) -> None:
     assert board["kB"]["best"]["metric"] == 2.1
 
 
+def test_fold_tolerates_non_numeric_metric(tmp_path: Path) -> None:
+    # A non-numeric metric (an unsandboxed engineer can write ANY JSON to its
+    # result.json) must NOT raise out of fold — that aborts the fold before the
+    # atomic write and freezes the board forever. Record it as tried-but-unmeasured
+    # and keep folding the real metrics.
+    _shard(tmp_path, "bad", "kA", "fast", "hardcode")        # non-numeric metric
+    _shard(tmp_path, "good", "kA", 1.5, "fuse", lower=True)
+    board = lb.fold(tmp_path)                                 # must not raise
+    assert board["kA"]["best"] == {"mechanism": "fuse", "metric": 1.5}
+    mechs = {a["mechanism"]: a["metric"] for a in board["kA"]["attempts"]}
+    assert mechs["hardcode"] is None and mechs["fuse"] == 1.5
+
+
 def test_fold_lower_is_better(tmp_path: Path) -> None:
     _shard(tmp_path, "w1", "kA", 10.0, "a")
     _shard(tmp_path, "w2", "kA", 7.0, "b")

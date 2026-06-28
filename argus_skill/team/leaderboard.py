@@ -93,7 +93,16 @@ def fold(root: Path, *, lower_is_better: bool | None = None) -> dict[str, Any]:
             if metric is None:
                 per_mech.setdefault(mech, None)  # tried, but unmeasured
                 continue
-            metric = float(metric)
+            try:
+                metric = float(metric)
+            except (TypeError, ValueError):
+                # A non-numeric metric (an unsandboxed engineer can write ANY
+                # JSON to its result.json) must NOT raise out of fold — that
+                # aborts the whole fold before the atomic write and, with the
+                # curator advancing fold-mtime on failure, freezes the board
+                # forever. Record it as tried-but-unmeasured, like a null metric.
+                per_mech.setdefault(mech, None)
+                continue
             cur = per_mech.get(mech)
             if cur is None or _better(metric, cur, tdir):
                 per_mech[mech] = metric

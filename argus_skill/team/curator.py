@@ -269,6 +269,11 @@ class Curator:
                 leaderboard.fold(root)
             except Exception:  # noqa: BLE001 — leaderboard upkeep must never break the tick
                 log.exception("curator: leaderboard fold failed for %s", root)
+                # Leave _fold_mtime UNCHANGED on failure: advancing it here would
+                # record the (poison) shard-dir state as permanently processed, so
+                # fold would never retry until a new shard bumps the mtime — and
+                # then re-raise. Not advancing means the next tick retries.
+                return
             self._fold_mtime[key] = mtime
 
     def _maybe_distill(self, root: Path, now: float) -> None:
