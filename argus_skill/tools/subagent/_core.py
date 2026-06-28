@@ -653,11 +653,13 @@ def _supervisor_summarize_report(task_id: str, event: str, task_data: dict[str, 
     )
 
     try:
+        from ...core.sandbox import codex_sandbox_args, codex_sandbox_env
         result = subprocess.run(
             [codex, "exec", "--json", "-m", SUPERVISOR_MODEL,
              "--skip-git-repo-check", "--ephemeral",
-             "--dangerously-bypass-approvals-and-sandbox", prompt],
+             *codex_sandbox_args(working_dir=run_dir), prompt],
             capture_output=True, text=True, timeout=90,
+            env=codex_sandbox_env(),
         )
         return _codex_last_agent_message(result.stdout)
     except Exception:
@@ -992,19 +994,20 @@ def _run_codex(
     never blinds the supervisor. Never raises — returns ([], thread_id) on error.
     """
     codex = _find_codex()
+    from ...core.sandbox import codex_sandbox_args, codex_sandbox_env
 
     def _exec(tid: str | None) -> subprocess.CompletedProcess[str]:
         cmd = [codex, "exec"]
         if tid:
             cmd.append("resume")
         cmd += ["--json", "-m", model, "--skip-git-repo-check",
-                "--dangerously-bypass-approvals-and-sandbox"]
+                *codex_sandbox_args(working_dir=cwd)]
         if tid:
             cmd.append(tid)
         cmd.append("-")  # stream prompt via stdin
         return subprocess.run(
             cmd, input=prompt, capture_output=True, text=True,
-            timeout=timeout, cwd=cwd,
+            timeout=timeout, cwd=cwd, env=codex_sandbox_env(),
         )
 
     try:

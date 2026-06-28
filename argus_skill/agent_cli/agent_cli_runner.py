@@ -19,6 +19,7 @@ from .runner_backend import (
     RunnerBackend,
     default_runner_bin,
 )
+from ..core.sandbox import sandboxed_child_env
 
 EventCallback = Callable[[str, str], None]
 InactivityDecision = Literal["continue", "restart"]
@@ -45,6 +46,13 @@ class RunnerOptions:
     reasoning_effort: str | None = None
     dangerous_yolo: bool = False
     full_auto: bool = False
+    # Codex sandbox policy. When set (e.g. "workspace-write"), the codex command
+    # is built with ``-s <mode> -C <working_dir> --add-dir <add_dirs>`` so writes
+    # are confined to the workspace + add_dirs, and the child env is scrubbed of
+    # push-capable VCS credentials with PYTHONSAFEPATH=1 — INSTEAD of
+    # ``--dangerously-bypass-approvals-and-sandbox``. None = legacy behaviour
+    # (dangerous_yolo / full_auto flags), so existing callers are unaffected.
+    sandbox_mode: str | None = None
     skip_git_repo_check: bool = False
     extra_args: list[str] | None = None
     working_dir: str | None = None
@@ -85,6 +93,7 @@ class AgentCliRunner:
     ) -> AgentRunResult:
         if self.before_exec is not None:
             self.before_exec()
+        options = self._apply_sandbox_policy(options)
         command = self._build_command(prompt=prompt, resume_thread_id=resume_thread_id, options=options)
         command[0] = self._resolve_executable(command[0])
         process = subprocess.Popen(
@@ -95,6 +104,7 @@ class AgentCliRunner:
             text=True,
             bufsize=1,
             cwd=options.working_dir or None,
+            env=sandboxed_child_env() if options.sandbox_mode else None,
         )
         if self._prompt_via_stdin():
             self._write_prompt(process=process, prompt=prompt)
@@ -283,6 +293,40 @@ class AgentCliRunner:
             return self._build_copilot_command(prompt=prompt, resume_thread_id=resume_thread_id, options=options)
         return self._build_codex_command(resume_thread_id=resume_thread_id, options=options)
 
+    def _apply_sandbox_policy(self, options: RunnerOptions) -> RunnerOptions:
+        """Gated, default-OFF containment chokepoint for codex builder roles.
+
+        When ``ARGUS_SKILL_ENGINEER_SANDBOX`` is set, convert an otherwise
+        un-sandboxed codex role (one that would run ``--dangerously-bypass``)
+        into ``-s workspace-write`` confined to its workdir plus the writable
+        allowlist, and clear the dangerous flags. This single chokepoint covers
+        EVERY AgentCliRunner role (engineer / reviewer / planner / manager
+        classify), so no spawn site can be missed. No-op when the gate is off,
+        when an explicit ``sandbox_mode`` was already chosen, for non-codex
+        backends, or for non-builder calls.
+        """
+        if self.backend in (BACKEND_CLAUDE, BACKEND_COPILOT):
+            return options
+        if options.sandbox_mode is not None:
+            return options
+        if not (options.dangerous_yolo or options.full_auto):
+            return options
+        from ..core.sandbox import engineer_sandbox_mode, writable_roots
+
+        mode = engineer_sandbox_mode()
+        if mode is None:
+            return options
+        import dataclasses
+
+        merged = list(dict.fromkeys([*(options.add_dirs or []), *writable_roots()]))
+        return dataclasses.replace(
+            options,
+            sandbox_mode=mode,
+            dangerous_yolo=False,
+            full_auto=False,
+            add_dirs=merged,
+        )
+
     def _build_codex_command(self, *, resume_thread_id: str | None, options: RunnerOptions) -> list[str]:
         command = [self.agent_bin, "exec"]
         if resume_thread_id:
@@ -292,7 +336,23 @@ class AgentCliRunner:
             command.extend(["-m", options.model])
         if options.reasoning_effort:
             command.extend(["-c", f'model_reasoning_effort="{options.reasoning_effort}"'])
-        if options.dangerous_yolo:
+        if options.sandbox_mode:
+            # Sandboxed role: confine writes to the workspace (-C) plus the
+            # explicit --add-dir allowlist; keep network on for research. This
+            # replaces the dangerous bypass so the engineer cannot write the
+            # package source / edit its own gate. The writable allowlist is the
+            # caller's responsibility (it MUST exclude ~/.argus-skill, the
+            # package, and ~/.codex).
+            command.extend(["-s", options.sandbox_mode])
+            if options.working_dir:
+                command.extend(["-C", options.working_dir])
+            for extra_dir in options.add_dirs or []:
+                command.extend(["--add-dir", extra_dir])
+            if options.sandbox_mode == "workspace-write":
+                # workspace-write defaults network OFF; force it on explicitly
+                # rather than relying on the agent-writable config.toml.
+                command.extend(["-c", "sandbox_workspace_write.network_access=true"])
+        elif options.dangerous_yolo:
             command.append("--dangerously-bypass-approvals-and-sandbox")
         elif options.full_auto:
             command.append("--full-auto")
