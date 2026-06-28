@@ -460,6 +460,12 @@ def _release(cfg: dict, lease_id: str) -> dict:
         return {"released": lease_id, "parked": True, **res}
 
 
+#: Bootstrap TTL for the detached-run placeholder lease — long enough to cover a
+#: cold ``import argus_skill`` in the supervisor on a loaded pod, short enough that
+#: a supervisor that never cold-starts can't leak a phantom lease holding the cards.
+_DETACH_BOOTSTRAP_TTL_S = 120.0
+
+
 def run(cfg: dict, command: list[str], *, detach: bool, owner: str,
         gpus: str, ttl: float | None) -> dict:
     """Free the cards, run ``command`` under a lease, restore on completion.
@@ -469,11 +475,16 @@ def run(cfg: dict, command: list[str], *, detach: bool, owner: str,
     """
     if detach:
         lease_id = uuid.uuid4().hex[:12]
-        # The supervisor writes its own lease (recording its pid) and releases
-        # on child exit, so the lease lifetime == job lifetime, independent of
-        # the agent. Claim up front so the job starts on free cards.
+        # Stop the keep-alive AND write the lease under the SAME lock (mirroring
+        # _acquire), so there is never a window where the cards are freed but no
+        # lease exists — a concurrent park/_release would otherwise re-park the
+        # keep-alive on top of the just-launched job. A short bootstrap TTL bounds
+        # this pid-less placeholder so a supervisor that never cold-starts can't
+        # leak a phantom lease; _supervise adopts the same lease_id with its own
+        # pid + the job's real ttl below.
         with _lock():
             _stop_keepalive(cfg["match"], timeout=20.0)
+            _write_lease(lease_id, owner, None, _DETACH_BOOTSTRAP_TTL_S, gpus)
         _wait_vram_released(cfg["match"])
         log_path = _state_dir() / f"job-{lease_id}.log"
         sup_cmd = [

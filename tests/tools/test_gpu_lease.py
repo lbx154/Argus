@@ -168,3 +168,33 @@ def test_write_lease_ttl_none_has_no_expiry(tmp_path, monkeypatch):
     gpu_lease._write_lease("n", "agent", pid=None, ttl=None, gpus="")
     meta = _json.loads((gpu_lease._leases_dir() / "n.json").read_text())
     assert meta["expires_at"] is None
+
+
+def test_detach_run_holds_a_lease_before_supervisor_starts(tmp_path, monkeypatch):
+    # R4-3: run --detach must write the lease UNDER THE LOCK, so there is no
+    # window where the cards are freed but no lease exists -- otherwise a
+    # concurrent park/_release re-parks the keep-alive on top of the live job.
+    _isolate_state(tmp_path, monkeypatch)
+    monkeypatch.setattr(gpu_lease, "_stop_keepalive",
+                        lambda match, *, timeout: {"freed": []})
+    monkeypatch.setattr(gpu_lease, "_wait_vram_released", lambda match, **k: [])
+
+    class _FakeProc:
+        pid = 4321
+
+    # do NOT actually cold-start the supervisor subprocess
+    monkeypatch.setattr(gpu_lease.subprocess, "Popen", lambda *a, **k: _FakeProc())
+
+    res = gpu_lease.run({"match": "gpu_load.py"}, ["python", "bench.py"],
+                        detach=True, owner="agent", gpus="0", ttl=None)
+    assert res["detached"] is True
+    # The placeholder lease is already on disk the instant run() returns.
+    assert [m["id"] for m in gpu_lease.active_leases()] == [res["lease"]]
+
+    # ...so a concurrent park is REFUSED (cannot clobber the detached job).
+    def _boom(cfg):
+        raise AssertionError("park must not start keep-alive over the detached job")
+
+    monkeypatch.setattr(gpu_lease, "_start_keepalive", _boom)
+    park = gpu_lease.park({"match": "gpu_load.py"})
+    assert park["refused"] is True and res["lease"] in park["active_leases"]
