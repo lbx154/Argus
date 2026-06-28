@@ -119,6 +119,7 @@ def gc_stale_projects(
     dry_run: bool = False,
     sweep_empty: bool = True,
     now: float | None = None,
+    exclude: set[str] | None = None,
 ) -> list[str]:
     """Move stale/empty, not-live project dirs to ``projects_trash/<date>/``.
 
@@ -127,10 +128,17 @@ def gc_stale_projects(
     content-less litter (regardless of age — every bare launch mints one).
     Returns the fingerprints pruned (or that WOULD be, when ``dry_run``).
 
+    ``exclude`` names project fingerprints that must NEVER be pruned. A startup
+    sweep runs BEFORE the caller's own ``repl.pid`` / ``daemon.pid`` lock is
+    written, so a just-resolved ``--resume <id>`` of a long-parked project is
+    not-yet-live and would otherwise be trashed out from under the session that
+    is resuming it. The caller passes its own session fingerprint here.
+
     Fail-soft: a bad single project never aborts the sweep.
     """
     if retention_days is None:
         retention_days = retention_days_default()
+    exclude = exclude or set()
     now = time.time() if now is None else now
     cutoff = now - retention_days * 86400.0
 
@@ -146,6 +154,8 @@ def gc_stale_projects(
         try:
             if not project_dir.is_dir():
                 continue
+            if project_dir.name in exclude:
+                continue  # the caller's own active session — never prune
             if _project_is_live(project_dir):
                 continue
             empty = sweep_empty and _project_is_empty(project_dir)
@@ -177,10 +187,16 @@ def gc_stale_projects(
     return pruned
 
 
-def maybe_gc_stale_projects(global_root: Path | None = None) -> list[str]:
-    """Startup-hook wrapper: run GC, swallow everything (never break boot)."""
+def maybe_gc_stale_projects(
+    global_root: Path | None = None, *, exclude: set[str] | None = None
+) -> list[str]:
+    """Startup-hook wrapper: run GC, swallow everything (never break boot).
+
+    ``exclude`` is forwarded so a startup sweep never trashes the caller's own
+    just-resolved (and not-yet-locked) session.
+    """
     try:
-        return gc_stale_projects(global_root)
+        return gc_stale_projects(global_root, exclude=exclude)
     except Exception:  # noqa: BLE001 — GC is best-effort housekeeping
         log.exception("project-gc: sweep failed (ignored)")
         return []

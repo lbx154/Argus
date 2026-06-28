@@ -527,7 +527,14 @@ def run_handoff_child() -> int:
     # started directly via --daemon, not just via the REPL). Best-effort.
     try:
         from ..core.project_gc import maybe_gc_stale_projects
-        maybe_gc_stale_projects(getattr(config, "global_root", None))
+        # Exclude THIS daemon's own project: the sweep runs before daemon.pid is
+        # acquired, so a freshly-resumed long-parked project would otherwise be
+        # trashed out from under the daemon starting on it.
+        _fp = getattr(config, "project_fingerprint", "") or ""
+        maybe_gc_stale_projects(
+            getattr(config, "global_root", None),
+            exclude={_fp} if _fp else None,
+        )
     except Exception:  # noqa: BLE001
         pass
     try:

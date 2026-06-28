@@ -1277,7 +1277,10 @@ def run_manager_repl(args: argparse.Namespace) -> int:
     # the retention window) to projects_trash/. Best-effort, never blocks boot.
     try:
         from ..core.project_gc import maybe_gc_stale_projects
-        maybe_gc_stale_projects(global_root)
+        # Exclude THIS session: the sweep runs before repl.pid is written, so a
+        # just-resolved --resume of a long-parked project is not-yet-live and
+        # would otherwise be trashed out from under the session resuming it.
+        maybe_gc_stale_projects(global_root, exclude={mem.project.root.name})
     except Exception:  # noqa: BLE001
         pass
     # Mark this session active (so the resume picker orders it first) and load

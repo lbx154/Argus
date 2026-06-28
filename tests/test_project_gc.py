@@ -82,3 +82,15 @@ def test_mixed_set(tmp_path):
     assert pruned == ["old0000000001"]
     assert (tmp_path / "projects" / "new0000000001").exists()
     assert (tmp_path / "projects" / "alive000000001").exists()
+
+
+def test_excluded_session_is_never_pruned(tmp_path):
+    # The resume-GC data-loss guard: a stale, not-live project that is the
+    # caller's OWN just-resolved session must survive the startup sweep (it is
+    # not-yet-locked), even though by age it would otherwise be trashed.
+    _make_project(tmp_path, "resuming00001", age_days=99)
+    _make_project(tmp_path, "other00000001", age_days=99)
+    pruned = gc_stale_projects(tmp_path, retention_days=30, exclude={"resuming00001"})
+    assert pruned == ["other00000001"]                                  # the other stale one goes
+    assert (tmp_path / "projects" / "resuming00001").exists()           # the resumed one survives
+    assert not (tmp_path / "projects" / "other00000001").exists()
