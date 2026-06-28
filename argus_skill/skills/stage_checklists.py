@@ -749,7 +749,7 @@ def current_stage(project_root: Path | str = ".") -> str:
     order, items = _active_vertical_checklist_defs(project_root)
     fallback = _normalize_stage(order[0]) if order else "research"
     stage = _normalize_stage(payload.get("current_stage") if isinstance(payload, dict) else None)
-    if stage in items:
+    if stage in {_normalize_stage(s) for s in order}:
         return stage
     return fallback
 
@@ -797,7 +797,13 @@ def _set_stage(
     raw_order, items = _active_vertical_checklist_defs(project_root)
     order = [_normalize_stage(s) for s in raw_order]
     target = _normalize_stage(target_stage)
-    if target not in items or target not in order:
+    # Stage EXISTENCE is governed by STAGE_ORDER, not CHECKLIST_ITEMS: a
+    # Manager-authored data domain has a full stage `order` but an EMPTY items dict
+    # (the Planner authors per-stage items into research/CHECKLISTS.json, which is
+    # not merged here), so validating against `items` would ValueError on every
+    # transition and pin the mission to stage 1 forever. Built-in verticals key
+    # every stage, so order-membership == items-membership for them (unchanged).
+    if target not in order:
         raise ValueError(f"unknown stage {target_stage!r}")
 
     try:

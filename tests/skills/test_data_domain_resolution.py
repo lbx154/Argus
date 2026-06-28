@@ -61,6 +61,19 @@ def test_data_domain_gate_is_not_full_emnlp(tmp_path, monkeypatch):
     assert "robotics_sim" in body and "final submission gate" not in body
 
 
+def test_data_domain_can_advance_past_first_stage(tmp_path, monkeypatch):
+    # R6-1: a data domain has a full stage ORDER but an EMPTY CHECKLIST_ITEMS dict
+    # (the Planner authors items into research/CHECKLISTS.json separately). Stage
+    # existence must be validated against the order, not items -- else every
+    # transition ValueErrors and the mission is pinned to stage 1 forever.
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    dd.write_data_domain(tmp_path, "robotics_sim", stages=["scope", "build", "report"])
+    vs.persist_vertical(tmp_path, "robotics_sim")
+    assert sc.current_stage(tmp_path) == "scope"
+    sc.advance_stage(tmp_path, target_stage="build", reason="r6-1 regression")
+    assert sc.current_stage(tmp_path) == "build"  # advanced, not stuck on scope
+
+
 def test_store_override_replaces_seed_for_research_stage(tmp_path, monkeypatch):
     # Even for a paper vertical, an authored store entry REPLACES the seed for that
     # stage (non-protected edits), while other stages keep the seed.
