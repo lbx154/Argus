@@ -145,6 +145,15 @@ def _idle_exit_seconds() -> float:
         return _DAEMON_IDLE_EXIT_DEFAULT_MINUTES * 60.0
     return max(0.0, minutes) * 60.0
 
+
+def _per_mission_distill_enabled() -> bool:
+    """Whether to distill a reusable skill from EACH mission's process data at
+    completion. OFF by default (it's an LLM classify + commit after every mission);
+    ``ARGUS_SKILL_PER_MISSION_DISTILL=1`` opts in. When off, distillation runs only
+    on clean daemon shutdown."""
+    return os.environ.get("ARGUS_SKILL_PER_MISSION_DISTILL", "").strip().lower() in (
+        "1", "true", "yes", "on")
+
 # Re-emit an unchanged lifecycle-block status/journal line at most this often
 # (a heartbeat) so a long-lived blocked state stays visible without spamming
 # the journal every tick.
@@ -1568,18 +1577,16 @@ class LifeSupervisor:
         # domain-specific one → verticals/<v>/skills/ — then commit. Anything too
         # specific is left in the runtime library. Fully fail-soft; never blocks
         # completion.
-        if kind == "mission_complete":
+        if kind == "mission_complete" and _per_mission_distill_enabled():
             try:
-                # NOTE: this relative import is WRONG (`..manager` resolves to
-                # the non-existent `argus_skill.life.manager`), so this
-                # per-mission tidy has silently no-op'd via the fail-soft except
-                # below. Left as-is on purpose for now: fixing it flips
-                # per-mission skill distillation from dead → live (a real LLM
-                # classify + source write after EVERY mission, across all live
-                # daemons), which is a cost/behaviour change the operator must
-                # opt into — tracked separately. Distillation currently happens
-                # only on clean daemon shutdown (see life_worker._distill_on_shutdown).
-                from ..manager.skill_tidy import tidy_after_mission
+                # Per-mission skill distillation: classify THIS mission's process
+                # data into a reusable skill (builtin / vertical) + commit, so the
+                # next mission inherits what was learned. OFF by default and gated
+                # on ARGUS_SKILL_PER_MISSION_DISTILL because it is an LLM classify +
+                # source write after EVERY mission across all live daemons (a real
+                # cost). When the gate is off, distillation happens only on clean
+                # daemon shutdown (see life_worker._distill_on_shutdown).
+                from ...manager.skill_tidy import tidy_after_mission
 
                 counts = tidy_after_mission(
                     self._project_workdir(),
