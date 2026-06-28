@@ -42,9 +42,13 @@ current behavior.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -281,15 +285,35 @@ def _alias_index() -> dict[str, VenueProfile]:
     return index
 
 
-def get_venue_profile(key: str | None) -> VenueProfile:
-    """Return the profile for ``key`` (case-insensitive, alias-aware).
+def _normalize_venue_key(key: str) -> str:
+    """Collapse a venue token to its canonical form: uppercase, drop separators,
+    and strip a trailing 2- or 4-digit year — so ``aaai2026`` / ``AAAI 2026`` /
+    ``AAAI-26`` all reduce to ``AAAI`` (and ``EMNLP 2026`` -> ``EMNLP``)."""
+    compact = re.sub(r"[^A-Z0-9]", "", key.upper())
+    return re.sub(r"(?:20)?\d{2}$", "", compact)
 
-    Unknown / empty keys fall back to the EMNLP default so callers never
-    have to guard against ``None``.
+
+def get_venue_profile(key: str | None) -> VenueProfile:
+    """Return the profile for ``key`` (case-insensitive, alias- and variant-aware).
+
+    Tolerates the natural venue tokens a planner writes — ``aaai2026``,
+    ``AAAI 2026``, ``AAAI-26`` all resolve to AAAI, not the EMNLP default. An empty
+    key returns the EMNLP default silently; a NON-empty key that STILL matches
+    nothing is logged loudly before falling back (a silently-misgraded paper is far
+    worse than a noisy log), so callers never have to guard against ``None``.
     """
     if not key:
         return VENUE_PROFILES[DEFAULT_VENUE_KEY]
-    return _alias_index().get(str(key).strip().upper(), VENUE_PROFILES[DEFAULT_VENUE_KEY])
+    index = _alias_index()
+    raw = str(key).strip().upper()
+    profile = index.get(raw) or index.get(_normalize_venue_key(raw))
+    if profile is not None:
+        return profile
+    log.warning(
+        "venue %r matched no known profile (%s); grading against the %s default",
+        key, ", ".join(sorted(index)), DEFAULT_VENUE_KEY,
+    )
+    return VENUE_PROFILES[DEFAULT_VENUE_KEY]
 
 
 def _venue_key_from_pipeline_state(project_root: Path) -> str | None:

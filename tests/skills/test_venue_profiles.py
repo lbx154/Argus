@@ -28,6 +28,18 @@ def test_emnlp_profile_reproduces_current_constants() -> None:
     assert p.forbidden_packages == ()
 
 
+def test_aaai_variant_tokens_resolve_to_aaai() -> None:
+    # R5-2: a planner naturally writes "aaai2026" / "AAAI 2026" / "AAAI-26" -- all
+    # must resolve to the AAAI profile, not silently fall back to EMNLP (which would
+    # grade an AAAI paper by EMNLP rules -- the exact failure this seam exists to stop).
+    for token in ("AAAI", "aaai", "aaai2026", "AAAI 2026", "AAAI-26", "AAAI2026", "aaai-2026"):
+        assert get_venue_profile(token).key == AAAI_PROFILE.key, token
+    # EMNLP variants still resolve to EMNLP; an unknown/empty venue falls back.
+    assert get_venue_profile("EMNLP 2026").key == EMNLP_PROFILE.key
+    assert get_venue_profile("NeurIPS").key == DEFAULT_VENUE_KEY
+    assert get_venue_profile("").key == DEFAULT_VENUE_KEY
+
+
 def test_aaai_profile_matches_verified_facts() -> None:
     p = AAAI_PROFILE
     assert p.key == "AAAI"
