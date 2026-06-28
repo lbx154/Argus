@@ -126,12 +126,29 @@ def _run(problem: str, solution_code: str | None, solution_json: dict | None,
                        f"status={status} cand_ms={cand_ms:.4f} "
                        f"workloads={passed}/{total} clocks_locked={clocks_locked} "
                        f"official=true")
-        return {"ok": True, "correct": correct, "cand_ms": cand_ms,
+        result = {"ok": True, "correct": correct, "cand_ms": cand_ms,
                 "per_workload_ms": lat, "workloads": f"{passed}/{total}",
                 "status": status, "clocks_locked": clocks_locked, "official": True,
                 "result_line": result_line, "problem": str(rel),
                 "failure_reasons": row.get("failure_reasons", []),
                 "stderr_tail": stderr_tail if not correct else ""}
+        # Optional provenance: when ARGUS_EVAL_SIGNING_KEY is set, attach a SIGNED
+        # result object the operator's eval client writes verbatim as the teammate's
+        # result.json. The harness verifies it with the public key, so an unsandboxed
+        # engineer cannot forge its own banked metric. Only a correct eval is signed
+        # (a failed eval banks nothing). Best-effort: a missing key/cryptography never
+        # breaks the eval — the result_signed block is simply absent.
+        signing_key = os.environ.get("ARGUS_EVAL_SIGNING_KEY", "").strip()
+        if signing_key and correct:
+            try:
+                from argus_skill.team import result_provenance as _rp
+                signed = {"target": problem, "metric": cand_ms,
+                          "mechanism": "official-eval", "correct": True}
+                signed["sig"] = _rp.sign_result(signed, _rp.read_key(signing_key))
+                result["result_signed"] = signed
+            except Exception as exc:  # noqa: BLE001 — signing must never break an eval
+                result["sign_error"] = str(exc)
+        return result
 
 
 class Handler(BaseHTTPRequestHandler):

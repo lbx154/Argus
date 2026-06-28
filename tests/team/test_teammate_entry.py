@@ -288,3 +288,62 @@ def test_teammate_inherits_leaderboard_block_in_objective(tmp_path: Path, monkey
              "--cwd", str(tmp_path)])
     # the fresh teammate sees what's already been tried, plus its own objective
     assert "persistent" in captured["obj"] and "optimize kA" in captured["obj"]
+
+
+def _setup_verify(tmp_path: Path, monkeypatch, signed: dict):
+    """Form/claim a task with target kA, write `signed` as result.json, set the
+    verify key, and stub the mission. Returns the team root."""
+    from argus_skill.team import result_provenance as rp
+    root = tmp_path / ".argus_team" / "t1"
+    tb.form(root, [{"task_id": "t1::a", "objective": "x", "target": "kA"}])
+    tb.claim_specific(root, "t1::a", "t1::w1", now=1.0)
+    priv, pub = rp.generate_keypair()
+    (tmp_path / "pub.pem").write_bytes(pub)
+    if signed.get("_sign"):  # sign with the matching private key
+        signed = {k: v for k, v in signed.items() if k != "_sign"}
+        signed["sig"] = rp.sign_result(signed, priv)
+    result = tmp_path / "result.json"
+    result.write_text(json.dumps(signed), encoding="utf-8")
+    monkeypatch.setenv("ARGUS_TEAMMATE_RESULT_FILE", str(result))
+    monkeypatch.setenv("ARGUS_TEAMMATE_RESULT_VERIFY_KEY", str(tmp_path / "pub.pem"))
+    monkeypatch.setattr(te, "run_one_engineer_mission", lambda *a, **k: True)
+    return root
+
+
+def test_verify_key_rejects_forged_result(tmp_path: Path, monkeypatch) -> None:
+    # With a verify key set, a hand-forged result.json (no valid sig) is NOT banked.
+    root = _setup_verify(tmp_path, monkeypatch,
+                         {"target": "kA", "metric": 0.0001, "mechanism": "x", "correct": True})
+    te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a", "--cwd", str(tmp_path)])
+    assert _shard(root)["metric"] is None  # forged metric rejected
+
+
+def test_verify_key_accepts_signed_result(tmp_path: Path, monkeypatch) -> None:
+    # A result validly signed (target matches the task) IS banked.
+    root = _setup_verify(tmp_path, monkeypatch,
+                         {"target": "kA", "metric": 1.85, "mechanism": "official-eval",
+                          "correct": True, "_sign": True})
+    te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a", "--cwd", str(tmp_path)])
+    assert _shard(root)["metric"] == 1.85
+
+
+def test_verify_key_rejects_target_replay(tmp_path: Path, monkeypatch) -> None:
+    # A result validly signed for a DIFFERENT kernel (kB) cannot bank under target kA.
+    root = _setup_verify(tmp_path, monkeypatch,
+                         {"target": "kB", "metric": 0.01, "mechanism": "official-eval",
+                          "correct": True, "_sign": True})
+    te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a", "--cwd", str(tmp_path)])
+    assert _shard(root)["metric"] is None  # signed but wrong target → rejected
+
+
+def test_no_verify_key_is_backward_compatible(tmp_path: Path, monkeypatch) -> None:
+    # Without a verify key set, an unsigned result.json is banked as before.
+    root = tmp_path / ".argus_team" / "t1"
+    _form_claim(root)
+    monkeypatch.delenv("ARGUS_TEAMMATE_RESULT_VERIFY_KEY", raising=False)
+    result = tmp_path / "result.json"
+    result.write_text(json.dumps({"metric": 2.5, "mechanism": "m"}), encoding="utf-8")
+    monkeypatch.setenv("ARGUS_TEAMMATE_RESULT_FILE", str(result))
+    monkeypatch.setattr(te, "run_one_engineer_mission", lambda *a, **k: True)
+    te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a", "--cwd", str(tmp_path)])
+    assert _shard(root)["metric"] == 2.5

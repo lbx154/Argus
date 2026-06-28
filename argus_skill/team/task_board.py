@@ -40,38 +40,65 @@ def _load_all(root: Path) -> list[dict[str, Any]]:
     return [t for t in out if isinstance(t, dict)]
 
 
+# Liveness/ownership fields that belong to a teammate ACTIVELY working a task.
+# A re-form of an already-running campaign (operator re-runs ``team form`` while
+# the Curator has teammates in flight) must NOT reset these to the pending
+# defaults: doing so silently de-owns the task, drops ``count_in_flight`` to 0,
+# and lets the pool double-spawn a second teammate into the SAME workdir on the
+# next reap. The static spec fields are always refreshed from the new spec.
+_LIVE_OWNERSHIP_FIELDS = ("state", "owner", "claim_ts", "heartbeat_ts", "attempts")
+
+
 def form(root: Path, tasks: list[dict[str, Any]]) -> None:
-    """Create the task records for a team from a list of partial specs."""
-    for spec in tasks:
-        task = {
-            "task_id": spec["task_id"],
-            "title": spec.get("title", ""),
-            "objective": spec.get("objective", ""),
-            # The target this task contributes to. Several tasks (breadth + depth
-            # re-forms) can share one target, so the leaderboard aggregates by
-            # target, not task_id. Defaults to task_id.
-            "target": spec.get("target") or spec["task_id"],
-            # Optimization direction for this target's metric, for the leaderboard:
-            # True = lower is better (latency / error-count / loss), False = higher
-            # (a speedup / score). None (default) → the leaderboard's global default.
-            "lower_is_better": spec.get("lower_is_better"),
-            "owns_paths": list(spec.get("owns_paths", [])),
-            # Per-task working directory. When set, the Curator spawns this task's
-            # teammate in its OWN dir, so N tasks can be independent project
-            # workdirs (e.g. one per kernel) instead of all sharing the campaign
-            # cwd. Empty → fall back to the campaign cwd (legacy behaviour).
-            "cwd": str(spec.get("cwd", "") or ""),
-            "deps": list(spec.get("deps", [])),
-            "state": "pending",
-            "owner": "",
-            "result_shard": spec.get("result_shard", ""),
-            "reason": "",
-            "claim_ts": 0.0,
-            "heartbeat_ts": 0.0,
-            "attempts": 0,
-            "priority": int(spec.get("priority", 100)),
-        }
-        _store.atomic_write_json(_path(root, task["task_id"]), task)
+    """Create (or refresh) the task records for a team from partial specs.
+
+    Idempotent over an ACTIVE campaign: when a task record already exists and a
+    teammate is mid-flight on it (``state`` is ``claimed``/``running``), its
+    ownership/liveness fields are PRESERVED and only the static spec fields
+    (title/objective/target/priority/...) are refreshed. Re-running ``form`` on a
+    live fleet therefore never de-owns a task a Curator teammate is working —
+    which would otherwise defeat the pool's double-spawn guard. Takes the board
+    lock so the read-merge can't race a concurrent claim/heartbeat/reassign.
+    """
+    with _store.locked(_lock(root)):
+        for spec in tasks:
+            tid = spec["task_id"]
+            task = {
+                "task_id": tid,
+                "title": spec.get("title", ""),
+                "objective": spec.get("objective", ""),
+                # The target this task contributes to. Several tasks (breadth + depth
+                # re-forms) can share one target, so the leaderboard aggregates by
+                # target, not task_id. Defaults to task_id.
+                "target": spec.get("target") or tid,
+                # Optimization direction for this target's metric, for the leaderboard:
+                # True = lower is better (latency / error-count / loss), False = higher
+                # (a speedup / score). None (default) → the leaderboard's global default.
+                "lower_is_better": spec.get("lower_is_better"),
+                "owns_paths": list(spec.get("owns_paths", [])),
+                # Per-task working directory. When set, the Curator spawns this task's
+                # teammate in its OWN dir, so N tasks can be independent project
+                # workdirs (e.g. one per kernel) instead of all sharing the campaign
+                # cwd. Empty → fall back to the campaign cwd (legacy behaviour).
+                "cwd": str(spec.get("cwd", "") or ""),
+                "deps": list(spec.get("deps", [])),
+                "state": "pending",
+                "owner": "",
+                "result_shard": spec.get("result_shard", ""),
+                "reason": "",
+                "claim_ts": 0.0,
+                "heartbeat_ts": 0.0,
+                "attempts": 0,
+                "priority": int(spec.get("priority", 100)),
+            }
+            prior = _store.read_json(_path(root, tid), default=None)
+            if isinstance(prior, dict) and prior.get("state") in ("claimed", "running"):
+                # A teammate is mid-flight on this task — keep its ownership and
+                # only refresh the static spec fields rebuilt above.
+                for field in _LIVE_OWNERSHIP_FIELDS:
+                    if field in prior:
+                        task[field] = prior[field]
+            _store.atomic_write_json(_path(root, tid), task)
 
 
 def _done_ids(tasks: list[dict[str, Any]]) -> set[str]:

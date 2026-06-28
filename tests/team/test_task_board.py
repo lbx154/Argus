@@ -124,3 +124,32 @@ def test_count_in_flight(tmp_path: Path) -> None:
     assert tb.count_in_flight(tmp_path) == 1
     tb.complete(tmp_path, "a")                 # running -> done
     assert tb.count_in_flight(tmp_path) == 0
+
+
+def test_form_preserves_live_ownership_on_reform(tmp_path: Path) -> None:
+    # Re-running form() on an ALREADY-ACTIVE campaign must NOT de-own a task a
+    # teammate is mid-flight on — that would drop count_in_flight to 0 and let the
+    # pool double-spawn a second teammate into the same workdir (the live bug).
+    tb.form(tmp_path, [{"task_id": "a", "objective": "v1", "priority": 100}])
+    tb.claim_specific(tmp_path, "a", "w1", now=1.0)
+    tb.heartbeat(tmp_path, "a", now=2.0)                  # claimed -> running
+    # operator re-runs the launcher (`team form`) while w1 is still working "a"
+    tb.form(tmp_path, [{"task_id": "a", "objective": "v2-updated", "priority": 5}])
+    snap = {t["task_id"]: t for t in tb.snapshot(tmp_path)}["a"]
+    # ownership/liveness PRESERVED ...
+    assert snap["state"] == "running" and snap["owner"] == "w1"
+    assert snap["heartbeat_ts"] == 2.0
+    # ... while static spec fields ARE refreshed
+    assert snap["objective"] == "v2-updated" and snap["priority"] == 5
+    # the double-spawn guard (count_in_flight) is NOT defeated
+    assert tb.count_in_flight(tmp_path) == 1
+
+
+def test_form_reopens_non_live_tasks(tmp_path: Path) -> None:
+    # A done/pending task is not "live" — re-form resets it to the pending spec.
+    tb.form(tmp_path, [{"task_id": "a", "objective": "x"}])
+    tb.claim_specific(tmp_path, "a", "w1", now=1.0)
+    tb.complete(tmp_path, "a")                            # state=done
+    tb.form(tmp_path, [{"task_id": "a", "objective": "x2"}])
+    snap = {t["task_id"]: t for t in tb.snapshot(tmp_path)}["a"]
+    assert snap["state"] == "pending" and snap["owner"] == "" and snap["objective"] == "x2"
