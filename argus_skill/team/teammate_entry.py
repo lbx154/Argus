@@ -115,10 +115,19 @@ def _forced_web_research(objective: str, *, cwd: str) -> str:
     # template with a ``{objective}`` placeholder. No domain is baked into the library.
     template = os.environ.get("ARGUS_TEAMMATE_RESEARCH_PROMPT", "").strip() or _DEFAULT_RESEARCH_PROMPT
     prompt = template.replace("{objective}", objective[:1000])
+    # Route this raw codex spawn through the same gated containment policy as the
+    # run_exec chokepoint. Gate OFF (default): no extra flag + inherited env, so
+    # the command is byte-for-byte unchanged. Gate ON: confined to ``cwd`` with
+    # the writable allowlist and scrubbed VCS creds, so a forced-research turn
+    # cannot escape the sandbox the operator turned on for the rest of the fleet.
+    from ..core.sandbox import codex_sandbox_args, codex_sandbox_env, engineer_sandbox_mode
+
+    _sbx = codex_sandbox_args(working_dir=cwd) if engineer_sandbox_mode() else []
     try:
         res = subprocess.run(
-            [agent_bin, "exec", "--skip-git-repo-check", prompt],
+            [agent_bin, "exec", "--skip-git-repo-check", *_sbx, prompt],
             cwd=str(cwd), capture_output=True, text=True, timeout=timeout_s,
+            env=codex_sandbox_env(),
         )
         raw = res.stdout or ""
     except Exception as exc:  # noqa: BLE001 — research is best-effort
