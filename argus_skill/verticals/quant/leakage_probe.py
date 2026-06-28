@@ -3,18 +3,17 @@
 Real PIT data hygiene cannot be enforced from inside the harness — it lives
 in how the user assembled their feature pipeline. What the harness *can* do
 is run a falsification probe: corrupt the future, re-run the engine, and
-confirm the IC of a factor whose signal is supposed to come from time
-``t`` does **not** drop catastrophically when information after ``t`` is
-hidden. If it does, the engine is reading the future.
+confirm a metric DERIVED FROM THE SCORE (which a clean engine computes WITHOUT
+reading the future) stays **invariant** when information after ``t`` is hidden.
+If it moves, the score is reading the future.
 
 This module ships:
 
 * :class:`LeakageProbe` — a Protocol any leakage check can satisfy.
 * :class:`NaNFutureLeakageProbe` — a reference implementation: replace the
-  forward-return panel with NaN starting at horizon ``h`` and verify the
-  engine still produces a result without using the masked rows. A naive
-  engine that secretly reads ``forward_returns[t+1]`` will either crash or
-  produce identical numbers (proving it depends on data it shouldn't).
+  forward-return panel with NaN, re-run, and check a score-derived metric
+  (``turnover``) is unchanged. A clean score is invariant; a score that secretly
+  reads ``forward_returns`` shifts that metric (or makes it NaN) — and is caught.
 
 The probe is *advisory* — it does not certify "no leakage" in the strict
 sense, only that the engine survives a basic future-mask. The reviewer's
@@ -59,33 +58,32 @@ class LeakageProbe(Protocol):
         ...
 
 
-def _materially_different(a: float, b: float, *, tol: float = 0.05) -> bool:
-    """``True`` iff |a - b| > ``tol``, treating NaN as 'unmeasurable, fail open'."""
-    if math.isnan(a) or math.isnan(b):
-        return True
-    return abs(a - b) > tol
-
-
 @dataclass
 class NaNFutureLeakageProbe:
-    """Reference probe: mask the forward returns, expect the IC to collapse.
+    """Reference probe: mask the forward returns and require a SCORE-DERIVED
+    metric to stay INVARIANT.
 
-    The probe sets ``engine.panel.forward_returns`` to NaN, runs the trial,
-    and compares the masked-IC to the baseline IC. A clean engine yields a
-    masked IC that is NaN or close to zero (since there is no signal to
-    correlate against). A leaky engine that secretly read the future returns
-    as part of its score keeps producing the original IC — a clear
-    contradiction.
+    The earlier design compared the *IC* before/after masking — but IC is
+    ``Spearman(score, forward_returns)`` by definition, so masking the future
+    nulls IC for ANY engine (the correlation TARGET is destroyed, not just the
+    score input). That made the probe pass unconditionally — a falsification
+    check that could never falsify (a perfect look-ahead score passed too).
 
-    This implementation is intentionally tied to the toy
-    :mod:`~.reference_engine` panel shape; users with their own engines write
-    their own probe (the Protocol is the contract). The fallback ``getattr``
-    keeps the probe a no-op rather than crashing on engines that don't expose
-    a panel.
+    Instead we watch a metric DERIVED FROM THE SCORE that a clean engine computes
+    WITHOUT reading forward returns — ``turnover`` (a pure function of the
+    score→portfolio map). A clean score is invariant when the future is hidden, so
+    the metric does not move; a leaky score (one that reads ``forward_returns``)
+    changes, or goes NaN, when the future is masked. PASS = invariant, FAIL = moved.
+
+    Intentionally tied to the toy :mod:`~.reference_engine` (whose ``turnover`` is
+    score-only); users with their own engines write their own probe (the Protocol
+    is the contract). ``metric_key`` may name any score-derived,
+    forward-return-independent metric the engine reports. The fallback ``getattr``
+    keeps the probe a no-op rather than crashing on engines without a panel.
     """
 
     name: str = "nan-future-returns"
-    metric_key: str = "ic"
+    metric_key: str = "turnover"
     tolerance: float = 0.05
 
     def check(self, engine: BacktestEngine, spec: BacktestSpec) -> LeakageReport:
@@ -104,8 +102,8 @@ class NaNFutureLeakageProbe:
                 ),
             )
         # Mask future returns and re-run, then restore. Holding the original
-        # array out of the engine's reach for the duration of the probe is the
-        # whole point — a leak shows up as the metric refusing to budge.
+        # array out of the engine's reach is the whole point — a clean score is
+        # unmoved; a score that secretly reads the future shifts.
         original = np.asarray(panel.forward_returns).copy()
         try:
             np.copyto(panel.forward_returns, np.nan)
@@ -114,22 +112,23 @@ class NaNFutureLeakageProbe:
             )
         finally:
             np.copyto(panel.forward_returns, original)
-        # A clean engine should produce |masked| << |baseline| (no signal left).
-        # Pass when the masked IC is materially smaller than the baseline.
+        # PASS when the score-derived metric is INVARIANT to hiding the future
+        # (the score did not read forward returns). FAIL when it moved or went
+        # NaN (the score path is reading data it must not — look-ahead).
         passed = (
-            math.isnan(masked)
-            or abs(masked) < self.tolerance
-            or abs(masked) < 0.5 * abs(baseline)
+            not math.isnan(baseline)
+            and not math.isnan(masked)
+            and abs(masked - baseline) <= self.tolerance
         )
         rationale = (
             f"baseline {self.metric_key}={baseline:.4f}, "
             f"forward-returns-masked {self.metric_key}={masked:.4f}; "
             + (
-                "metric collapsed as expected → no obvious look-ahead in the "
-                "score path."
+                "score-derived metric unchanged when the future was hidden → the "
+                "score does not read forward returns."
                 if passed
-                else "metric did NOT collapse when the future was hidden — "
-                "engine is reading data it should not have."
+                else "score-derived metric MOVED (or went NaN) when the future "
+                "was hidden — the score path is reading forward returns (look-ahead)."
             )
         )
         return LeakageReport(
