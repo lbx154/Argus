@@ -42,6 +42,11 @@ def test_gate_default_off(gate_off):
     ("0", None),
     ("", None),
     ("garbage", None),
+    # SECURITY: a containment-disabling value must NOT resolve to a "sandbox"
+    # mode — it falls to None (honest legacy bypass), never a fake sandbox that
+    # leaves ~/.argus-skill / the package / ~/.codex writable.
+    ("danger-full-access", None),
+    ("DANGER-FULL-ACCESS", None),
 ])
 def test_gate_env_parsing(monkeypatch, val, expected):
     monkeypatch.setenv(_ENV, val)
@@ -69,6 +74,22 @@ def test_writable_roots_includes_research_caches():
     roots = sandbox.writable_roots()
     assert any(r.endswith("/.cache") for r in roots)   # pip / HF / torch
     assert any(r.endswith("/.kube") for r in roots)     # B200 kubectl token cache
+    assert any(r.endswith("/.triton") for r in roots)   # Triton JIT/autotune cache
+    assert any(r.endswith("/.nv") for r in roots)       # NVIDIA ptxas/nvrtc cache
+
+
+def test_writable_roots_never_grants_the_venv():
+    """CRITICAL escape invariant: the active venv (sys.prefix) must NEVER be in
+    the --add-dir allowlist and MUST be forbidden. Its site-packages auto-runs
+    .pth / sitecustomize.py at the start of every python process, so write access
+    there escapes the sandbox into the next un-sandboxed interpreter (the exact
+    self-gate-rewrite vector this sandbox exists to stop)."""
+    import sys as _sys
+    prefix = str(Path(_sys.prefix))
+    roots = sandbox.writable_roots()
+    assert prefix not in roots
+    assert not any(r == prefix or r.startswith(prefix + os.sep) for r in roots)
+    assert prefix in sandbox.forbidden_write_roots()
 
 
 def test_writable_roots_drops_candidate_under_forbidden(monkeypatch):
@@ -128,10 +149,35 @@ def test_chokepoint_respects_explicit_mode(gate_on):
     assert o.sandbox_mode == "read-only"  # caller's explicit choice wins
 
 
-def test_chokepoint_skips_non_builder_calls(gate_on):
-    # A call with neither dangerous_yolo nor full_auto is not a builder role.
+def test_chokepoint_converts_all_codex_roles_when_on(gate_on):
+    # Fix3: gate ON contains EVERY codex role, including ones that set neither
+    # dangerous_yolo nor full_auto (they previously fell through to codex's
+    # config default = danger-full-access, a silent un-sandboxed hole).
     o = _codex_runner()._apply_sandbox_policy(RunnerOptions(working_dir="/wd"))
-    assert o.sandbox_mode is None
+    assert o.sandbox_mode == "workspace-write"
+
+
+def test_chokepoint_fail_closed_when_no_workdir(gate_on):
+    # Fix2: a sandboxed role with no working_dir must NOT be left to root its
+    # writable workspace at the inherited cwd ("/"). The chokepoint pins a
+    # contained -C, and the built command never emits -s without -C.
+    o = _codex_runner()._apply_sandbox_policy(RunnerOptions(dangerous_yolo=True))
+    assert o.sandbox_mode == "workspace-write"
+    assert o.working_dir and o.working_dir != "/" and os.path.isabs(o.working_dir)
+    cmd = _codex_runner()._build_codex_command(resume_thread_id=None, options=o)
+    assert "-C" in cmd
+    c_root = cmd[cmd.index("-C") + 1]
+    assert c_root not in ("/", "") and c_root == o.working_dir
+
+
+def test_build_codex_command_never_rootless_sandbox():
+    # Even called directly with no working_dir, -s must come with a contained -C.
+    cmd = _codex_runner()._build_codex_command(
+        resume_thread_id=None,
+        options=RunnerOptions(sandbox_mode="workspace-write"),
+    )
+    assert "-s" in cmd and "-C" in cmd
+    assert cmd[cmd.index("-C") + 1] not in ("/", "")
 
 
 def test_chokepoint_skips_non_codex_backend(gate_on):
@@ -175,3 +221,45 @@ def test_no_hardcoded_bypass_left_in_subagent_spawns():
     import argus_skill.tools.subagent._core as sub
     src = Path(sub.__file__).read_text()
     assert "--dangerously-bypass-approvals-and-sandbox" not in src
+
+
+def test_no_raw_codex_spawn_bypasses_gate_anywhere():
+    """Repo-wide invariant (not just one file): the literal dangerous bypass may
+    appear ONLY in the runner/policy (the gated default-OFF fallback). Every
+    other module that spawns codex (e.g. team/teammate_entry.py) must go through
+    codex_sandbox_args/codex_sandbox_env, so enabling the gate contains them too.
+    Guards against a future raw spawn re-opening the hole the PR closed."""
+    import argus_skill
+    pkg_root = Path(argus_skill.__file__).resolve().parent
+    allowed = {"agent_cli/agent_cli_runner.py", "core/sandbox.py"}
+    offenders = []
+    for p in pkg_root.rglob("*.py"):
+        rel = p.relative_to(pkg_root).as_posix()
+        if rel in allowed:
+            continue
+        if "--dangerously-bypass-approvals-and-sandbox" in p.read_text():
+            offenders.append(rel)
+    assert offenders == [], f"raw codex bypass outside the gated chokepoint: {offenders}"
+
+
+def test_teammate_research_spawn_is_gated():
+    """team/teammate_entry.py's forced-research codex spawn must route through the
+    sandbox helpers so it is contained when the gate is on (it was an un-gated
+    danger-full-access spawn before this fix)."""
+    import argus_skill.team.teammate_entry as te
+    src = Path(te.__file__).read_text()
+    assert "codex_sandbox_args" in src and "codex_sandbox_env" in src
+
+
+# ── default-OFF inertness (must stay byte-for-byte legacy) ────────────────────
+def test_off_path_inert_for_all_roles(gate_off):
+    r = _codex_runner()
+    # dangerous_yolo role unchanged
+    o1 = r._apply_sandbox_policy(RunnerOptions(dangerous_yolo=True, working_dir="/wd"))
+    assert o1.sandbox_mode is None and o1.dangerous_yolo is True
+    # non-dangerous role also unchanged (Fix3 must not leak into the OFF path)
+    o2 = r._apply_sandbox_policy(RunnerOptions(working_dir="/wd"))
+    assert o2.sandbox_mode is None and o2.working_dir == "/wd"
+    # legacy command still emits the bypass and no -s
+    cmd = r._build_codex_command(resume_thread_id=None, options=o1)
+    assert "--dangerously-bypass-approvals-and-sandbox" in cmd and "-s" not in cmd

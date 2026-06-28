@@ -20,10 +20,16 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 _SANDBOX_ENV = "ARGUS_SKILL_ENGINEER_SANDBOX"
-_VALID_MODES = {"workspace-write", "read-only", "danger-full-access"}
+# Only genuinely-containing modes are accepted. ``danger-full-access`` is
+# deliberately NOT here: it leaves ~/.argus-skill / the package / ~/.codex fully
+# writable, so accepting it would let a run *present* as "sandboxed" while the
+# self-gate-rewrite hole stays wide open. An unknown/dangerous value resolves to
+# ``None`` (the honest legacy bypass), never a fake sandbox.
+_VALID_MODES = {"workspace-write", "read-only"}
 
 
 def engineer_sandbox_mode() -> str | None:
@@ -49,7 +55,14 @@ def _package_root() -> str | None:
 def forbidden_write_roots(*, life_root: str | os.PathLike[str] | None = None) -> list[str]:
     """Paths a sandboxed builder must NEVER be able to write."""
     home = Path.home()
-    roots = [str(home / ".argus-skill"), str(home / ".codex")]
+    # ~/.argus-skill = the gate's brain; ~/.codex = codex config; the package
+    # source = the harness itself; ``sys.prefix`` = the active venv, whose
+    # site-packages auto-runs ``.pth`` / ``sitecustomize.py`` at the start of
+    # EVERY python process — so a write there escapes the sandbox into the next
+    # un-sandboxed interpreter (the daemon worker, the gate-check subprocess,
+    # the reviewer/planner). On a non-editable install ``sys.prefix`` also *is*
+    # where the package source lives.
+    roots = [str(home / ".argus-skill"), str(home / ".codex"), str(Path(sys.prefix))]
     pkg = _package_root()
     if pkg:
         roots.append(pkg)
@@ -72,6 +85,23 @@ def _is_forbidden(path: str, forbidden: list[str]) -> bool:
     return False
 
 
+def fail_closed_workdir() -> str:
+    """A contained write-root for a sandboxed spawn that has NO project workdir.
+
+    Without ``-C``, codex ``workspace-write`` roots its writable workspace at the
+    inherited cwd — and the 7x24 daemon runs at ``/`` (``os.chdir("/")``), which
+    would hand a sandboxed role write access to the WHOLE filesystem (incl. the
+    gate brain and the package source). So whenever no workdir is supplied we
+    fall closed to a private, per-process scratch dir under the temp root instead
+    of ever emitting a rootless ``-s workspace-write``."""
+    d = Path(tempfile.gettempdir()) / f"argus-sandbox-scratch-{os.getpid()}"
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except Exception:  # pragma: no cover — defensive
+        return tempfile.gettempdir()
+    return str(d)
+
+
 def writable_roots(*, life_root: str | os.PathLike[str] | None = None) -> list[str]:
     """``--add-dir`` allowlist for a sandboxed builder: the minimal set of
     out-of-cwd dirs autonomous research legitimately writes. The project workdir
@@ -79,11 +109,19 @@ def writable_roots(*, life_root: str | os.PathLike[str] | None = None) -> list[s
     under a forbidden root is dropped."""
     home = Path.home()
     candidates = [
-        str(home / ".cache"),   # pip / HuggingFace / torch / conda caches
-        sys.prefix,             # active python env prefix (so `pip install` works)
-        str(home / ".kube"),    # kubectl/oidc token cache (B200 access)
+        str(home / ".cache"),    # pip / HuggingFace / torch / conda caches
+        str(home / ".triton"),   # Triton JIT / autotune cache (kernel work)
+        str(home / ".nv"),       # NVIDIA compute cache (ptxas / nvrtc)
+        str(home / ".kube"),     # kubectl / oidc token cache (B200 access)
         "/tmp",
     ]
+    # NOTE: ``sys.prefix`` (the active venv) is deliberately NOT writable — its
+    # site-packages auto-runs ``.pth`` / ``sitecustomize.py`` at interpreter
+    # start, so granting write there is a sandbox escape (and on a non-editable
+    # install it is also the package source). Mission deps must install to a
+    # workdir-local target (e.g. ``pip install --target <workdir>/.pylibs``),
+    # never the live env; pip's download cache (~/.cache) stays writable so
+    # cached installs still work.
     if os.path.isdir("/scratch"):
         candidates.append("/scratch")
     forbidden = forbidden_write_roots(life_root=life_root)
@@ -138,8 +176,10 @@ def codex_sandbox_args(
     if mode is None:
         return ["--dangerously-bypass-approvals-and-sandbox"]
     args = ["-s", mode]
-    if working_dir:
-        args += ["-C", str(working_dir)]
+    # Always pin ``-C``. Without it, workspace-write roots its writable workspace
+    # at the inherited cwd (the daemon's ``/``), exposing the whole FS — so fall
+    # closed to a private scratch dir rather than emit a rootless ``-s``.
+    args += ["-C", str(working_dir) if working_dir else fail_closed_workdir()]
     for extra in writable_roots(life_root=life_root):
         args += ["--add-dir", extra]
     if mode == "workspace-write":

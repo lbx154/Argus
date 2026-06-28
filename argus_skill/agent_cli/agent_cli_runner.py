@@ -296,35 +296,45 @@ class AgentCliRunner:
     def _apply_sandbox_policy(self, options: RunnerOptions) -> RunnerOptions:
         """Gated, default-OFF containment chokepoint for codex builder roles.
 
-        When ``ARGUS_SKILL_ENGINEER_SANDBOX`` is set, convert an otherwise
-        un-sandboxed codex role (one that would run ``--dangerously-bypass``)
-        into ``-s workspace-write`` confined to its workdir plus the writable
-        allowlist, and clear the dangerous flags. This single chokepoint covers
-        EVERY AgentCliRunner role (engineer / reviewer / planner / manager
-        classify), so no spawn site can be missed. No-op when the gate is off,
-        when an explicit ``sandbox_mode`` was already chosen, for non-codex
-        backends, or for non-builder calls.
+        When ``ARGUS_SKILL_ENGINEER_SANDBOX`` is set, convert EVERY codex role
+        into ``-s <mode>`` confined to its workdir plus the writable allowlist,
+        clear the dangerous flags, and pin a ``-C`` (falling closed to a private
+        scratch dir when the caller passed no workdir, so the writable workspace
+        is NEVER the inherited cwd ``/``). This single chokepoint covers every
+        AgentCliRunner role (engineer / reviewer / planner / manager classify /
+        plan-mode), including ones that today fall through to codex's config
+        default (danger-full-access on the box) because they set neither
+        ``dangerous_yolo`` nor ``full_auto``. No-op when the gate is off, when an
+        explicit ``sandbox_mode`` was already chosen, or for non-codex backends —
+        so the default path stays byte-for-byte unchanged.
         """
         if self.backend in (BACKEND_CLAUDE, BACKEND_COPILOT):
             return options
         if options.sandbox_mode is not None:
             return options
-        if not (options.dangerous_yolo or options.full_auto):
-            return options
-        from ..core.sandbox import engineer_sandbox_mode, writable_roots
+        from ..core.sandbox import (
+            engineer_sandbox_mode,
+            fail_closed_workdir,
+            writable_roots,
+        )
 
         mode = engineer_sandbox_mode()
         if mode is None:
+            # Gate OFF: byte-for-byte legacy behaviour for EVERY role.
             return options
         import dataclasses
 
         merged = list(dict.fromkeys([*(options.add_dirs or []), *writable_roots()]))
+        # Fail closed: a sandboxed role with no -C would root its writable
+        # workspace at the inherited cwd (the daemon's "/"). Pin a contained dir.
+        working_dir = options.working_dir or fail_closed_workdir()
         return dataclasses.replace(
             options,
             sandbox_mode=mode,
             dangerous_yolo=False,
             full_auto=False,
             add_dirs=merged,
+            working_dir=working_dir,
         )
 
     def _build_codex_command(self, *, resume_thread_id: str | None, options: RunnerOptions) -> list[str]:
@@ -344,8 +354,15 @@ class AgentCliRunner:
             # caller's responsibility (it MUST exclude ~/.argus-skill, the
             # package, and ~/.codex).
             command.extend(["-s", options.sandbox_mode])
+            # Always pin -C. Emitting -s workspace-write with no -C roots the
+            # writable workspace at the inherited cwd (the daemon's "/"), which
+            # would expose the whole FS — fall closed to a private scratch dir.
             if options.working_dir:
                 command.extend(["-C", options.working_dir])
+            else:
+                from ..core.sandbox import fail_closed_workdir
+
+                command.extend(["-C", fail_closed_workdir()])
             for extra_dir in options.add_dirs or []:
                 command.extend(["--add-dir", extra_dir])
             if options.sandbox_mode == "workspace-write":
