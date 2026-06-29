@@ -1038,6 +1038,20 @@ class _SkillLoopRunner:
                 }
         except (TypeError, ValueError):
             pass
+        # paper_mission follows the VERTICAL, not the True default. An optimize
+        # vertical (kernelbench / speedrun / nanochat / nanogpt_speedrun) is never
+        # a paper mission: force it off so the supervisor picks the lean grind
+        # scaffold instead of the research run-stage pilot gate (the source of the
+        # "kernel objective → fill PILOT_OPERATOR_DECISION_TEMPLATE.json" misroute).
+        try:
+            from ..skills.vertical_select import resolve_vertical
+            from ..verticals._base import load_vertical, vertical_completion_gate
+            _proot = Path(args.workdir).expanduser() if args.workdir else Path.cwd()
+            if vertical_completion_gate(load_vertical(resolve_vertical(_proot),
+                                                      project_root=_proot)) != "full_emnlp":
+                config_kwargs["paper_mission"] = False
+        except Exception:  # noqa: BLE001 — fail-soft: keep the default paper_mission
+            pass
         config = self._SkillLoopConfig(**config_kwargs)
         workdir = (
             Path(args.workdir).expanduser() if args.workdir else Path.cwd()

@@ -477,6 +477,11 @@ class SkillLoop:
         _proot = resolve_project_root()
         _vmod = load_vertical(resolve_vertical(_proot), project_root=_proot)
         _full_emnlp = vertical_completion_gate(_vmod) == "full_emnlp"
+        # An optimize vertical (kernelbench/speedrun/…) is never a paper mission —
+        # keep the engineer prompt consistent with the supervisor scaffold even if
+        # a stale True default leaks in.
+        if not _full_emnlp:
+            paper_mission = False
         # Measured-benchmark mode (operator opt-in via ARGUS_SKILL_MEASURED_MODE):
         # the task has a TRUSTED scorer whose measured number is the ONLY judge, so
         # the ground-truth / stage-checklist GATE framing — which forces the
