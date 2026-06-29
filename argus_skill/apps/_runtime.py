@@ -859,6 +859,19 @@ class _SkillLoopRunner:
 
         return _ctx()
 
+    def run_exec(self, **kwargs):
+        """Proxy to the manager backend so manager-side skill-library gates can
+        run_exec against this runner directly.
+
+        ``Manager.approve_skill`` / ``classify_skill_placement`` pass
+        ``runner=(self._session or self.runner)``; on the daemon ``_session`` is
+        this ``_SkillLoopRunner``, which had no ``run_exec`` — so both the skill
+        gate and placement raised ``AttributeError`` (caught → distillation
+        silently no-op'd). Delegate to the same backend the Manager itself uses.
+        """
+        backend = self.manager_backend or self._backend
+        return backend.run_exec(**kwargs)
+
     def _maybe_chat_outcome(
         self,
         *,
