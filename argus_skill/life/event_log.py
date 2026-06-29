@@ -114,11 +114,13 @@ class JsonlEventSink:
         self._roll_bytes = max(1024 * 1024, int(roll_bytes))
         self._lock = threading.Lock()
         self._dir.mkdir(parents=True, exist_ok=True)
-        # "full" (default) persists everything; "signal" persists only
-        # high-value events. Explicit arg wins; else env; else "full" so no
-        # existing caller (e.g. an isolated teammate) changes behaviour.
+        # "signal" (default) persists only high-value events + error/win markers —
+        # this is the SELLABLE trajectory: a clean per-mission episode, no
+        # command/idle/heartbeat churn. "full" keeps everything for deep debug.
+        # Errors are NEVER dropped (full, untruncated, via markers). Explicit arg
+        # wins; else env; else "signal" so teammates emit clean episodes too.
         if verbosity is None:
-            verbosity = os.environ.get("ARGUS_SKILL_EVENT_VERBOSITY", "full")
+            verbosity = os.environ.get("ARGUS_SKILL_EVENT_VERBOSITY", "signal")
         self._verbosity = "signal" if str(verbosity).strip().lower() == "signal" else "full"
 
     # --- Sink protocol -----------------------------------------------

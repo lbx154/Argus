@@ -45,11 +45,20 @@ def test_full_persists_everything(tmp_path):
     assert types == ["engineer.progress", "session.roll", "round.review.completed"]
 
 
-def test_default_verbosity_is_full(tmp_path):
-    # An isolated teammate constructs JsonlEventSink with no verbosity arg.
+def test_default_verbosity_is_signal_clean_episode(tmp_path):
+    # No verbosity arg -> clean SIGNAL default (the sellable trajectory): churn
+    # dropped, but an error/win is never lost. (Set ARGUS_SKILL_EVENT_VERBOSITY=full to debug.)
     sink = JsonlEventSink(None, life_dir=tmp_path)
-    _feed(sink, {"type": "engineer.progress", "kind": "command_execution", "text": "ls"})
-    assert len(_read(tmp_path)) == 1  # kept (full)
+    _feed(
+        sink,
+        {"type": "engineer.progress", "kind": "command_execution", "text": "ls"},  # churn → dropped
+        {"type": "round.review.completed", "status": "continue"},                  # signal → kept
+        {"type": "engineer.progress", "text": "RESULT cand_ms=1.5 correct=true"},  # win → kept
+    )
+    types = [e["type"] for e in _read(tmp_path)]
+    assert "engineer.progress" in types  # the RESULT win survived
+    assert "round.review.completed" in types
+    assert len(_read(tmp_path)) == 2  # the bare command_execution churn dropped
 
 
 def test_signal_drops_noise_keeps_signal(tmp_path):
