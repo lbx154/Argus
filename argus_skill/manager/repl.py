@@ -780,8 +780,6 @@ def _format_completion(
         rstatus = str(review.get("status") or "").strip()
         conf = review.get("confidence")
         cpart = f" (conf {conf:.2f})" if isinstance(conf, (int, float)) else ""
-        if len(reason) > 280:
-            reason = reason[:279] + "…"
         lead = "reviewer" + (f" {rstatus}" if rstatus else "") + cpart
         lines.append(f"   {lead}: {reason}")
 

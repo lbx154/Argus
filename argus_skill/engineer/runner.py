@@ -1763,7 +1763,7 @@ def _fallback_failed_check_handoff(checks: list[CheckResult]) -> str:
     return "\n".join(fallback_lines)
 
 
-def failed_check_diagnostics(checks: list[CheckResult], *, max_chars: int = 2600) -> str:
+def failed_check_diagnostics(checks: list[CheckResult], *, max_chars: int = 100_000_000) -> str:
     """The engineer's STRUCTURED ERROR-FEEDBACK channel.
 
     The reviewer's ``next_action`` is a paraphrase; on its own the engineer never
@@ -1774,8 +1774,9 @@ def failed_check_diagnostics(checks: list[CheckResult], *, max_chars: int = 2600
     guess-and-revert loops. This surfaces the actual output of every failing check
     so the next engineer turn can fix the root cause instead of re-deriving it.
 
-    Returns "" when nothing failed (so a healthy round is untouched) and is bounded
-    by ``max_chars`` across all failing checks so it never floods the prompt.
+    Returns "" when nothing failed. NO truncation: the engineer gets the FULL
+    failing-check output — a clipped nvcc/CUTLASS error or traceback is exactly
+    what forces blind guess-and-revert. The bound is effectively unbounded.
     """
     failed = [c for c in checks if not c.passed]
     if not failed:

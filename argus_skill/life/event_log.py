@@ -198,7 +198,7 @@ class JsonlEventSink:
             try:
                 json.dumps(v)
             except Exception:  # noqa: BLE001
-                out[k] = repr(v)[:500]
+                out[k] = repr(v)  # full repr — events.jsonl is the ground-truth replay; don't clip diagnostics
         return out
 
     def _maybe_roll(self) -> None:

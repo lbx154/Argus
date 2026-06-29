@@ -125,7 +125,7 @@ def run_backtest(
             status="error",
             engine=getattr(engine, "name", ""),
             error=f"{type(exc).__name__}: {exc}",
-            warnings=(traceback.format_exc().strip().splitlines()[-1],),
+            warnings=(traceback.format_exc().strip(),),  # full traceback — reviewer audits the whole stack, not one line
         )
     payload = _result_payload(spec, result)
     payload["elapsed_s"] = round(time.time() - started, 6)

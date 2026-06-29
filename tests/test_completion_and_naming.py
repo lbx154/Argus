@@ -47,12 +47,13 @@ def test_completion_degrades_without_review_or_cost():
     assert any("record: /p" in ln for ln in lines)
 
 
-def test_completion_truncates_runaway_reason():
+def test_completion_keeps_full_reviewer_reason():
+    # reviewer is the done-ness authority — its verdict is NOT truncated (terminal wraps).
     final = {"status": "ok", "_last_review": {"reason": "x" * 500}}
     lines = _format_completion(final, "i", "/p", workdir="/p")
     review_line = next(ln for ln in lines if "reviewer" in ln)
-    assert review_line.endswith("…")
-    assert len(review_line) < 320  # bounded, not the full 500
+    assert not review_line.endswith("…")
+    assert "x" * 500 in review_line  # full reason kept
 
 
 # ---- session auto-naming --------------------------------------------------

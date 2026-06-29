@@ -187,7 +187,7 @@ def _forced_profile(objective: str, *, cwd: str) -> str:
     _require = os.environ.get("ARGUS_TEAMMATE_PROFILE_REQUIRE_SUBSTR", "").strip()
     if len(report) < 40 or (_require and _require.lower() not in report.lower()):
         return objective  # nothing usable came back
-    report = report[:3000]
+    # no cap: the #1 bottleneck can sit anywhere in the profile — feed it whole
     sys.stderr.write(f"teammate_entry: forced profile prepended ({len(report)} chars)\n")
     # Domain-neutral default; an operator pins the framing (e.g. the profiler's
     # name and how to read its output) via ARGUS_TEAMMATE_PROFILE_HEADER. No

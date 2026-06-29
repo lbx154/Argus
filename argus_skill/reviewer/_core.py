@@ -1234,7 +1234,7 @@ class Reviewer:
         )
 
 
-_MAX_SHARED_CTX_CHARS = 30000
+_MAX_SHARED_CTX_CHARS = 100_000_000  # effectively no cap: reviewer must see the FULL engineer reasoning/prev-review to audit honesty
 
 
 def _format_engineer_shared_context(

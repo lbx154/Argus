@@ -546,7 +546,7 @@ def scrape_all(roots: list[Path] | None = None) -> dict:
             projects.append(scrape_project(life))
         except Exception as exc:  # noqa: BLE001 — one bad project must not break all
             projects.append({"life_dir": str(life), "title": life.name,
-                             "error": repr(exc)[:120], "alive": False, "stages": [],
+                             "error": repr(exc), "alive": False, "stages": [],
                              "events": [], "backlog": [], "enrich": {"panels": []}})
     # alive first, then by mission count
     projects.sort(key=lambda p: (not p.get("alive"), -p.get("missions", 0)))
@@ -826,7 +826,7 @@ def serve(port: int = 8787, roots: list[Path] | None = None) -> int:
                     try:
                         payload = json.dumps(scrape_project_detail(life)).encode()
                     except Exception as exc:  # noqa: BLE001
-                        payload = json.dumps({"error": repr(exc)[:200]}).encode()
+                        payload = json.dumps({"error": repr(exc)}).encode()
                     self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -846,7 +846,7 @@ def serve(port: int = 8787, roots: list[Path] | None = None) -> int:
                     try:
                         payload = json.dumps(scrape_stage_detail(life, stage)).encode()
                     except Exception as exc:  # noqa: BLE001
-                        payload = json.dumps({"error": repr(exc)[:200]}).encode()
+                        payload = json.dumps({"error": repr(exc)}).encode()
                     self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")

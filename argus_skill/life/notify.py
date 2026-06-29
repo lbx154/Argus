@@ -127,7 +127,7 @@ def _land_local_alert(payload: dict[str, Any]) -> None:
     kind = str(payload.get("kind") or "")
     title = str(payload.get("title") or "")
     summary = str(payload.get("summary") or "")
-    log.warning("OPERATOR ATTENTION [%s] %s — %s", kind, title, summary[:500])
+    log.warning("OPERATOR ATTENTION [%s] %s — %s", kind, title, summary)
     path = _operator_alert_path()
     if path is None:
         return

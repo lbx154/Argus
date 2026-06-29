@@ -5,7 +5,9 @@ import sys
 
 from ..core.models import CheckResult
 
-CHECK_OUTPUT_TAIL_CHARS = 60000
+# No truncation: the FULL check output (nvcc/CUTLASS build log, traceback, mismatch
+# diff) must reach the engineer — clipping the error is what forces blind retries.
+CHECK_OUTPUT_TAIL_CHARS = 100_000_000
 
 
 def run_checks(

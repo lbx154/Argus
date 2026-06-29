@@ -121,7 +121,7 @@ def _run(problem: str, solution_code: str | None, solution_json: dict | None,
             sname = "solution.py"
         out = Path(td) / "out"
         cmd = ["python", "scripts/run_dataset.py", str(stage),
-               "--solution-name", sname, "-o", str(out)]
+               "--solution-name", sname, "-o", str(out), "--keep-staging", "--verbose"]
         if max_workloads:
             cmd += ["--max-workloads", str(int(max_workloads))]
         env = dict(os.environ, FLASHINFER_TRACE_DIR=str(TRACE_DIR))
@@ -130,15 +130,17 @@ def _run(problem: str, solution_code: str | None, solution_json: dict | None,
                                   text=True, timeout=EVAL_TIMEOUT)
         except subprocess.TimeoutExpired:
             return {"ok": False, "error": "eval timeout", "problem": str(rel)}
-        stderr_tail = (proc.stderr or "")[-2000:]
+        cli_logs = "\n".join(Path(p).read_text() for p in glob.glob(str(out / "**" / "*_cli.log"), recursive=True) + glob.glob(str(out / "*_cli.log")))
+        build_log = ((proc.stdout or "") + "\n" + (proc.stderr or "") + "\n" + cli_logs).strip()  # FULL, untruncated
+        stderr_tail = (proc.stderr or "")
         clocks_locked = "proceeding unlocked" not in (proc.stdout + proc.stderr).lower()
         # parse summary.json (list of {problem,total,passed,failed,latencies_ms})
         summ_files = glob.glob(str(out / "**" / "summary.json"), recursive=True) \
             or glob.glob(str(out / "summary.json"))
         if not summ_files:
-            return {"ok": False, "error": "no summary.json (eval failed)",
-                    "stderr": stderr_tail, "stdout": (proc.stdout or "")[-2000:],
-                    "problem": str(rel)}
+            return {"ok": False, "error": "no summary.json (build/eval failed)",
+                    "build_log": build_log, "stderr": stderr_tail,
+                    "stdout": (proc.stdout or ""), "problem": str(rel)}
         summary = json.loads(Path(summ_files[0]).read_text())
         row = summary[0] if isinstance(summary, list) and summary else {}
         total = int(row.get("total", 0))
@@ -157,7 +159,8 @@ def _run(problem: str, solution_code: str | None, solution_json: dict | None,
                 "status": status, "clocks_locked": clocks_locked, "official": True,
                 "result_line": result_line, "problem": str(rel),
                 "failure_reasons": row.get("failure_reasons", []),
-                "stderr_tail": stderr_tail if not correct else ""}
+                "stderr_tail": stderr_tail if not correct else "",
+                "build_log": build_log if not correct else ""}
         # Optional provenance: when ARGUS_EVAL_SIGNING_KEY is set, attach a SIGNED
         # result object the operator's eval client writes verbatim as the teammate's
         # result.json. The harness verifies it with the public key, so an unsandboxed
