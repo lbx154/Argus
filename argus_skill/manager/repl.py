@@ -594,28 +594,89 @@ def _maybe_name_session(chat_state: dict[str, Any], task_text: str) -> None:
         pass
 
 
+def manager_triage(mem: Any, body: str, chat_state: dict[str, Any]) -> str | None:
+    """The Manager is the FIRST responder to every operator line. Classify the
+    input as conversation vs a real task. Returns the Manager's chat reply text
+    when it is conversational (the caller shows it and does NOT enqueue), or
+    ``None`` when it is a task (caller routes it to the backlog). Fail-soft → None
+    (treat as a task). Reused by the line REPL and the TUI so the Manager greets
+    the operator on both surfaces, in every mode (no longer gated to non-continuous).
+    """
+    runner = _ensure_manager_runner(chat_state, mem)
+    if runner is None or not hasattr(runner, "chat_reply_if_conversational"):
+        return None
+    captured: list[str] = []
+
+    class _Capture:
+        def handle_event(self, event: dict[str, Any]) -> None:
+            try:
+                if str(event.get("type") or "") != "round.main.completed":
+                    return
+                text = _extract_chat_reply_text(str(event.get("last_message") or ""))
+                if text:
+                    captured.append(text)
+            except Exception:  # noqa: BLE001
+                pass
+
+    try:
+        if runner.chat_reply_if_conversational(
+            objective=body, sink=_Capture(),
+            seed_thread_id=chat_state.get("last_thread_id"),
+        ):
+            chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
+            return captured[0] if captured else "(no reply)"
+    except Exception:  # noqa: BLE001 — triage failure → treat as a task
+        return None
+    return None
+
+
+def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
+                    iterate: bool = True, max_cycles: int = 6,
+                    budget: float = 30.0) -> tuple[Any, bool, int | None]:
+    """Enqueue ``body`` as a head-priority mission (NO blocking tail — the caller
+    decides whether to follow). Handles the blocked-continuation rewrite and, in
+    continuous mode, persists the objective for the daemon. Returns
+    ``(item, daemon_alive, daemon_pid)``. Shared by the line REPL and the TUI."""
+    # Blocked-continuation: a reply to a just-blocked mission continues the same
+    # objective (answer appended + queued to inbox), not a brand-new task.
+    if chat_state.get("blocked_item_id"):
+        prior = str(chat_state.get("last_objective") or body)
+        chat_state.pop("blocked_item_id", None)
+        chat_state.pop("blocked_question", None)
+        try:
+            from ..apps._inbox import queue_inbox_message
+            queue_inbox_message(_life_dir_for(mem), body, source="repl.answer")
+        except Exception:  # noqa: BLE001
+            pass
+        body = f"{prior}\n\n操作员答复：{body}"
+    chat_state["last_objective"] = body
+    pending = mem.backlog.pending()
+    head_priority = min((it.priority for it in pending), default=100)
+    free_priority = min(head_priority - 1, -1)
+    item = _add_only(mem, body, priority=free_priority, iterate=iterate,
+                     iteration_max_cycles=max_cycles, iteration_budget_usd=budget)
+    _maybe_name_session(chat_state, body)
+    life_dir = _life_dir_for(mem)
+    daemon_alive, daemon_pid = _daemon_alive_for(life_dir)
+    if chat_state.get("config", {}).get("continuous", False):
+        chat_state["continuous_objective"] = body
+        from ..daemon.life_worker import write_continuous_config
+        write_continuous_config(life_dir, enabled=True, objective=body)
+    return item, daemon_alive, daemon_pid
+
+
 def _free_text_cmd(
     mem: Any,
     text: str,
     chat_state: dict[str, Any],
 ) -> None:
-    """Free-text input: enqueue at the head + attach to the daemon's run.
+    """Free-text input: Manager triage FIRST, then enqueue + attach.
 
-    Free-text typed at the prompt expresses intent ``run THIS now``, so we
-    inject the new item with a priority that beats anything ``/add`` can
-    produce. Since the 2026-06-26 REPL/daemon fusion the REPL does **not**
-    execute the mission itself — the 7×24 daemon is the sole executor. We
-    write the backlog item (and, in continuous mode, the objective to disk)
-    and then *attach* by tailing ``events.jsonl`` until the daemon reports
-    the mission completed.
-
-    Supports ``--once`` / ``--cycles=N`` / ``--budget=$X`` inline flags
-    (same as ``/add``). When no flags are present, session-wide defaults
-    from ``chat_state["config"]`` are used.
-
-    When ``config["continuous"]`` is True, the objective is persisted so the
-    daemon plans further work; the REPL then live-follows every event until
-    the operator hits Ctrl-C.
+    The Manager is the operator's first point of contact: every line is
+    classified (conversation → answered in-band; task → queued for the 7×24
+    daemon). A real task is injected at head priority; the REPL then attaches by
+    tailing ``events.jsonl`` until the daemon reports completion. Supports
+    ``--once`` / ``--cycles=N`` / ``--budget=$X`` inline flags.
     """
     cfg = chat_state.get("config", {})
     continuous = cfg.get("continuous", False)
@@ -626,82 +687,23 @@ def _free_text_cmd(
         default_budget=cfg.get("budget", 30.0),
     )
     body = body or text.strip()
-
-    # Continuation: if the last mission BLOCKED on an operator decision, treat
-    # this reply as the answer — feed it to the inbox AND re-queue the original
-    # objective with the answer appended, so the same task continues instead of
-    # the reply being triaged as a brand-new objective / chat. Blocked items are
-    # terminal (cannot be un-blocked), so a fresh head-priority item carries the
-    # work forward; the inbox answer is spliced into round 1 by the supervisor.
-    if chat_state.get("blocked_item_id"):
-        prior = str(chat_state.get("last_objective") or body)
-        chat_state.pop("blocked_item_id", None)
-        chat_state.pop("blocked_question", None)
-        try:
-            from ..apps._inbox import queue_inbox_message
-            queue_inbox_message(_life_dir_for(mem), body, source="repl.answer")
-        except Exception:  # noqa: BLE001 — inbox is best-effort; objective still carries it
-            pass
-        body = f"{prior}\n\n操作员答复：{body}"
-    chat_state["last_objective"] = body
-
-    # Manager front-end triage (operator REPL only). Before the input ever
-    # touches the backlog, ask the Manager whether it's conversation (greeting /
-    # capability question / ack) rather than a real task. If so, the Manager
-    # replies in-band, front-stage, and we DON'T enqueue it — the 7×24 daemon
-    # never sees chat. A task falls through unchanged. Skipped for continuous
-    # mode (that path persists an objective + plans further work) and for the
-    # memory backend (no real runner → _ensure returns None). Best-effort: any
-    # failure falls back to the task path.
-    runner = _ensure_manager_runner(chat_state, mem)
-    if runner is not None and not continuous and hasattr(
-        runner, "chat_reply_if_conversational"
-    ):
-        try:
-            chat_sink = _ChatReplySink(chat_state.get("theme"))
-            if runner.chat_reply_if_conversational(
-                objective=body,
-                sink=chat_sink,
-                seed_thread_id=chat_state.get("last_thread_id"),
-            ):
-                chat_state["last_thread_id"] = getattr(
-                    runner, "last_thread_id", None
-                )
-                if not chat_sink.replied:
-                    # Chat classified but produced no visible reply — say so
-                    # rather than leaving the operator staring at a blank line.
-                    fb = "(no reply)"
-                    _th = chat_state.get("theme")
-                    print(_th.gray(fb) if _th is not None else fb, flush=True)
-                return  # Manager replied front-stage; not a backlog task.
-        except Exception:  # noqa: BLE001 — triage failure → treat as a task
-            pass
-
-    pending = mem.backlog.pending()
-    head_priority = min((it.priority for it in pending), default=100)
-    free_priority = min(head_priority - 1, -1)
-    item = _add_only(
-        mem,
-        body,
-        priority=free_priority,
-        iterate=iterate,
-        iteration_max_cycles=max_cycles,
-        iteration_budget_usd=budget,
-    )
-    _maybe_name_session(chat_state, body)
     theme = chat_state.get("theme")
+
+    # Manager front door — answer conversation, route tasks. Skipped only for a
+    # blocked-continuation answer (which must continue the task, not be re-chatted).
+    if not chat_state.get("blocked_item_id"):
+        reply = manager_triage(mem, body, chat_state)
+        if reply is not None:
+            line = (("  " + theme.cyan("argus") + theme.dim(" ↳ ") + reply)
+                    if theme is not None else f"  argus ↳ {reply}")
+            print(line, flush=True)
+            return
+
+    item, daemon_alive, daemon_pid = enqueue_mission(
+        mem, body, chat_state, iterate=iterate, max_cycles=max_cycles, budget=budget)
     life_dir = _life_dir_for(mem)
-    daemon_alive, daemon_pid = _daemon_alive_for(life_dir)
 
     if continuous:
-        # Persist objective to disk so the daemon picks it up + plans more work.
-        chat_state["continuous_objective"] = body
-        from ..daemon.life_worker import write_continuous_config
-        write_continuous_config(
-            life_dir,
-            enabled=True,
-            objective=body,
-        )
         if not daemon_alive:
             print(_no_executor_notice(item.id, theme), flush=True)
             return
@@ -747,6 +749,7 @@ def _free_text_cmd(
             f"— use /status to check on the daemon."
         )
         print(theme.gray(note) if theme is not None else note, flush=True)
+
 
 
 def _daemon_alive_for(life_dir: Path | str) -> tuple[bool, int | None]:

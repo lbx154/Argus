@@ -49,6 +49,55 @@ def test_dispatch_exit_unknown() -> None:
     assert out is None
 
 
+def test_manager_triage_no_runner_is_task(tmp_path) -> None:
+    """memory backend → no manager runner → triage returns None (it's a task)."""
+    from argus_skill.life.memory import LifeMemory
+    mem = LifeMemory.open(root=tmp_path)
+    assert manager_repl.manager_triage(mem, "hello", {"backend": "memory"}) is None
+
+
+def test_manager_triage_chat_returns_reply(tmp_path, monkeypatch) -> None:
+    """A conversational line → the manager's reply text (caller does NOT enqueue)."""
+    from argus_skill.life.memory import LifeMemory
+    mem = LifeMemory.open(root=tmp_path)
+
+    class _Runner:
+        last_thread_id = "t1"
+
+        def chat_reply_if_conversational(self, objective, sink, seed_thread_id=None):
+            sink.handle_event({"type": "round.main.completed", "last_message": "hi there"})
+            return True
+
+    monkeypatch.setattr(manager_repl, "_ensure_manager_runner", lambda cs, m: _Runner())
+    assert manager_repl.manager_triage(mem, "hello", {}) == "hi there"
+
+
+def test_manager_triage_task_falls_through(tmp_path, monkeypatch) -> None:
+    from argus_skill.life.memory import LifeMemory
+    mem = LifeMemory.open(root=tmp_path)
+
+    class _Runner:
+        last_thread_id = None
+
+        def chat_reply_if_conversational(self, objective, sink, seed_thread_id=None):
+            return False  # not conversational → task
+
+    monkeypatch.setattr(manager_repl, "_ensure_manager_runner", lambda cs, m: _Runner())
+    assert manager_repl.manager_triage(mem, "optimize the kernel", {}) is None
+
+
+def test_enqueue_mission_heads_the_queue(tmp_path) -> None:
+    from argus_skill.life.memory import BacklogItem, LifeMemory
+    mem = LifeMemory.open(root=tmp_path)
+    mem.backlog.add(BacklogItem.new(title="old", objective="old", priority=100))
+    cs: dict[str, Any] = {"backend": "memory", "config": {}}
+    item, _alive, _pid = manager_repl.enqueue_mission(mem, "grind kernel 012", cs)
+    pending = mem.backlog.pending()
+    assert pending[0].objective == "grind kernel 012"
+    assert pending[0].id == item.id
+    assert cs["last_objective"] == "grind kernel 012"
+
+
 class _Plain:
     """A no-op theme stub (handlers only call color methods)."""
     def __getattr__(self, _):
