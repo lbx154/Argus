@@ -105,8 +105,11 @@ bytes/instructions in flight, you are latency-bound no matter how fast the units
 - **No fabricated numbers.** Every bandwidth/%peak you write is arithmetic on a real
   scorer-measured time over a byte count from the fixed API contract — never invented,
   never nudged to make a roofline close.
-- Reproduce baselines on the **same hardware/harness**; label "SOTA-oriented" unless
-  the protocol matches a real leaderboard.
+- Reproduce baselines **once** on the same hardware/harness; label "SOTA-oriented" unless
+  the protocol matches a real leaderboard. After that, a scorer-verified best is a **fixed
+  floor, not a hypothesis** — do NOT re-score or re-audit old attempts to re-confirm it.
+  Reproducibility is not the goal and small run-to-run jitter is not regression; spend the
+  round shipping a **new mechanism that beats the floor**, then score it once.
 
 ---
 

@@ -140,6 +140,10 @@ def objective_block(root: Path, target: str) -> str:
     best = entry.get("best")
     if best:
         lines.append(f"Best so far: `{best.get('mechanism') or '(unnamed)'}` = {best.get('metric')}")
+        lines.append("This best is a VERIFIED, FIXED FLOOR — take it as given. Do NOT "
+                     "re-score, reproduce, or audit old attempts to re-confirm it; that "
+                     "is wasted budget, not progress. Spend the whole mission BEATING it "
+                     "with a new mechanism, then score that once.")
     lines.append("Approaches already attempted — build on the best, or try a "
                  "genuinely different one; don't just repeat these:")
     for a in attempts:
