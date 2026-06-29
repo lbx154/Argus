@@ -914,16 +914,23 @@ class _SkillLoopRunner:
                 resume_thread_id=None,
             )
 
-        # The Manager owns the chat-vs-task decision; the runner only executes
-        # it. Route through the runner's single Manager instance (manager
-        # backend) rather than constructing a throwaway one.
-        if self.manager.is_conversational(objective, run_exec=_classify_run_exec):
+        # The Manager owns the lego-block route decision (chat / simple /
+        # complex); the runner only executes it. Route through the runner's
+        # single Manager instance (manager backend). This whole fast-path is
+        # gated to operator-REPL input (``_allow_chat_fast_path``), so daemon /
+        # backlog / planner work NEVER takes chat or simple — it always runs the
+        # full pipeline with the reviewer gate. The operator is the reviewer for
+        # an interactive simple one-shot.
+        route = self.manager.route(objective, run_exec=_classify_run_exec)
+        if route == "chat":
             return self._chat_quick_reply(
-                objective=objective,
-                sink=sink,
-                seed_thread_id=seed_thread_id,
+                objective=objective, sink=sink, seed_thread_id=seed_thread_id,
             )
-        return None
+        if route == "simple":
+            return self._simple_quick_reply(
+                objective=objective, sink=sink, seed_thread_id=seed_thread_id,
+            )
+        return None  # complex → full mission pipeline
 
     def chat_reply_if_conversational(
         self,
@@ -1397,10 +1404,125 @@ class _SkillLoopRunner:
             auth_failure=auth_fail,
         )
 
+    def _simple_match_skill_block(self, objective: str) -> str:
+        """Best-effort ONE engineer-skill match for the SIMPLE path (the '+skill'
+        lego block). Fail-soft to '' — a simple one-shot runs codex-only when no
+        store/skill is available, never erroring on the fast path."""
+        try:
+            from ..skills.role_match import match_role_skills
+            from ..skills.store import SkillStore
+            skills_dir = getattr(self._args, "skills_dir", None)
+            if not skills_dir:
+                return ""
+            store = SkillStore(
+                Path(skills_dir), runner=self._backend,
+                matcher_model=getattr(self._args, "matcher_model", "")
+                or self._args.engineer_model,
+            )
+            match = match_role_skills(store, role="engineer", task=objective,
+                                      on_event=self._current_sink and self._current_sink.handle_event)
+            return str(getattr(match, "block", "") or "")
+        except Exception:  # noqa: BLE001 — skill is an OPTIONAL block
+            return ""
 
-# ---------------------------------------------------------------------------
-# Daemon-mode banner cell + codex preflight
-# ---------------------------------------------------------------------------
+    def _simple_quick_reply(
+        self,
+        *,
+        objective: str,
+        sink: EventSink,
+        seed_thread_id: str | None = None,
+    ) -> _Outcome:
+        """SIMPLE one-shot: at most ONE skill match + ONE bounded codex turn with
+        tools, then done. The lego block between CHAT (no tools) and COMPLEX (full
+        pipeline): NO planner, NO iterative reviewer loop, NO skill writeback — the
+        operator verifies it. Only ever reached from operator-REPL input (gated by
+        ``_allow_chat_fast_path``), so autonomous work never lands here.
+        """
+        from ..core.models import RunnerOptions
+        from ..life.router import build_simple_prompt
+
+        args = self._args
+        safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
+        seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
+
+        sink.handle_event({
+            "type": "loop.start",
+            "text": f"simple: {objective[:80]}",
+        })
+
+        self._current_sink = sink
+        self._current_failure_ledger = None
+        skill_block = self._simple_match_skill_block(objective)
+        prompt = build_simple_prompt(objective=objective, skill_block=skill_block)
+        workdir = (
+            Path(args.workdir).expanduser() if args.workdir else Path.cwd()
+        )
+        try:
+            result = self._backend.run_exec(
+                prompt=prompt,
+                options=RunnerOptions(
+                    model=args.engineer_model,
+                    reasoning_effort=getattr(args, "engineer_reasoning_effort", "high"),
+                    full_auto=safe_mode,
+                    skip_git_repo_check=True,
+                    dangerous_yolo=not safe_mode,
+                    working_dir=str(workdir),
+                ),
+                run_label="simple-1",
+                resume_thread_id=seed,
+            )
+        finally:
+            self._current_sink = None
+
+        last_msg = (result.last_agent_message or "").strip()
+        new_tid = getattr(result, "thread_id", None)
+        round_thread_id = new_tid or seed
+        status = "error" if getattr(result, "exit_code", 0) != 0 else "done"
+        if should_clear_thread_id_after_outcome(
+            status=status,
+            fatal_error=str(getattr(result, "fatal_error", "") or ""),
+        ):
+            self.last_thread_id = None
+            self._next_seed_thread_id = None
+            new_tid = None
+        elif new_tid:
+            self.last_thread_id = new_tid
+            self._next_seed_thread_id = new_tid
+
+        sink.handle_event({
+            "type": "round.main.completed",
+            "round_index": 1,
+            "input_tokens": int(getattr(result, "input_tokens", 0) or 0),
+            "cached_input_tokens": int(getattr(result, "cached_input_tokens", 0) or 0),
+            "output_tokens": int(getattr(result, "output_tokens", 0) or 0),
+            "usage_scope": "delta",
+            "last_message": last_msg,
+            "session_id": round_thread_id,
+            "turn_completed": True,
+        })
+
+        fatal = getattr(result, "fatal_error", None)
+        success = (result.exit_code == 0) and not fatal
+        status = "done" if success else "error"
+        stop_reason = "" if success else (str(fatal) if fatal else f"exit={result.exit_code}")
+        auth_fail = getattr(self._backend, "_auth_failure_detected", False)
+        if auth_fail:
+            self._backend._auth_failure_detected = False
+
+        sink.handle_event({
+            "type": "loop.done",
+            "text": f"status={status} rounds=1 (simple)",
+        })
+
+        return _Outcome(
+            success=success,
+            status=status,
+            stop_reason=stop_reason,
+            rounds=1,
+            last_thread_id=new_tid,
+            chat_mode=False,
+            auth_failure=auth_fail,
+        )
 
 
 _TEST_DAEMON_PLANNER_SCRIPT_ENV = "ARGUS_SKILL_DAEMON_TEST_PLANNER_SCRIPT"

@@ -244,14 +244,15 @@ class Division:
 class StageTransition:
     """The Manager's verdict on whether/how to move the pipeline stage.
 
-    ``action`` is ``advance`` | ``hold`` | ``rollback``. A ``hold`` writes
-    nothing; ``advance``/``rollback`` are applied (the Manager is the SOLE
-    post-bootstrap writer of ``current_stage``). ``source`` records WHY this was
-    the verdict — useful for journaling and to distinguish a model decision from
-    a fail-safe HOLD.
+    ``action`` is ``advance`` | ``hold`` | ``rollback`` | ``complete``. A
+    ``hold`` writes nothing; ``advance``/``rollback`` are applied to
+    ``current_stage`` and ``complete`` marks the final stage done while leaving
+    ``current_stage`` coherent. ``source`` records WHY this was the verdict —
+    useful for journaling and to distinguish a model decision from a fail-safe
+    HOLD.
     """
 
-    action: str            # "advance" | "hold" | "rollback"
+    action: str            # "advance" | "hold" | "rollback" | "complete"
     target_stage: str
     reason: str
     current_stage: str = ""
@@ -261,7 +262,7 @@ class StageTransition:
     diagnostic: str = ""
 
     def is_write(self) -> bool:
-        return self.action in ("advance", "rollback")
+        return self.action in ("advance", "rollback", "complete")
 
 
 class Manager:
@@ -530,6 +531,36 @@ class Manager:
             text, run_exec=run_exec, role_skill_block=self._role_skill_block(text)
         )
 
+    def route(self, text: str, *, run_exec: Any = None) -> str:
+        """The Manager's lego-block router: pick the SMALLEST block that fits the
+        operator's input — ``"chat"`` (one codex reply), ``"simple"`` (one bounded
+        codex turn, no reviewer/planner), or ``"complex"`` (the full mission
+        pipeline). The Manager owns this call. Reuses
+        ``life/router.classify_route`` (biases hard to ``"complex"`` so real work
+        never silently skips the reviewer). With no backend, returns ``"complex"``
+        — the safe default that never drops work to a bad classify."""
+        from ..life.router import classify_route
+
+        if run_exec is None:
+            if self.runner is None:
+                return "complex"
+            from ..core.models import RunnerOptions
+
+            _backend = self._session or self.runner
+
+            def run_exec(prompt: str) -> Any:  # noqa: ANN401
+                return _backend.run_exec(
+                    prompt=prompt,
+                    options=RunnerOptions(
+                        reasoning_effort="high", skip_git_repo_check=True
+                    ),
+                    run_label="manager-route",
+                )
+
+        return classify_route(
+            text, run_exec=run_exec, role_skill_block=self._role_skill_block(text)
+        )
+
     # ---- stage-transition authority (the Manager OWNS the pipeline stage) ----
     def decide_stage_transition(
         self,
@@ -561,6 +592,9 @@ class Manager:
             advance_stage as _advance,
         )
         from ..skills.stage_checklists import (
+            complete_final_stage as _complete,
+        )
+        from ..skills.stage_checklists import (
             current_stage as _current_stage,
         )
         from ..skills.stage_checklists import (
@@ -573,6 +607,7 @@ class Manager:
             build_stage_decision_prompt,
             extract_answer,
             fallback_empty_stage_decision,
+            final_stage_completion_decision,
             parse_stage_decision,
         )
 
@@ -653,6 +688,15 @@ class Manager:
                 decision = parse_stage_decision(
                     raw, current_stage=cur, stage_order=order
                 )
+                final_decision = final_stage_completion_decision(
+                    review,
+                    current_stage=cur,
+                    stage_order=order,
+                    trigger_diagnostic=decision.diagnostic,
+                    trigger_reason=decision.reason,
+                )
+                if final_decision is not None:
+                    decision = final_decision
         except Exception:  # noqa: BLE001 — any failure → safe HOLD, write nothing
             log.debug("manager stage decision failed", exc_info=True)
             return StageTransition(
@@ -671,6 +715,18 @@ class Manager:
                     diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("advance", decision.target_stage, decision.reason,
+                                   cur, "manager_llm", decision.diagnostic)
+
+        if decision.action == "complete":
+            try:
+                _complete(root, reason=decision.reason, completed_by="manager")
+            except ValueError:
+                return StageTransition(
+                    "hold", cur, "illegal final-stage completion", current_stage=cur,
+                    source="illegal_target_hold",
+                    diagnostic="stage_write_illegal_target",
+                )
+            return StageTransition("complete", decision.target_stage, decision.reason,
                                    cur, "manager_llm", decision.diagnostic)
 
         if decision.action == "rollback":

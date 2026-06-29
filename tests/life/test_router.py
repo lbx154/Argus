@@ -17,7 +17,10 @@ import pytest
 from argus_skill.life.router import (
     build_chat_prompt,
     build_classify_prompt,
+    build_route_prompt,
+    build_simple_prompt,
     classify_is_conversational,
+    classify_route,
 )
 
 
@@ -48,6 +51,51 @@ def _runner(result_or_exc: Any):
 
     _run_exec.calls = calls  # type: ignore[attr-defined]
     return _run_exec
+
+
+# ---------- 3-tier route: CHAT / SIMPLE / COMPLEX -------------------------
+
+@pytest.mark.parametrize(("answer", "expected"), [
+    ("CHAT", "chat"), ("chat", "chat"), (" CHAT ", "chat"),
+    ("SIMPLE", "simple"), ("simple", "simple"), ("SIMPLE.", "simple"),
+    ("COMPLEX", "complex"), ("complex", "complex"),
+])
+def test_classify_route_three_way(answer: str, expected: str) -> None:
+    assert classify_route("x", run_exec=_runner(_FakeResult(message=answer))) == expected
+
+
+@pytest.mark.parametrize("answer", ["", "TASK", "CHATTER", "SIMPLY", "maybe", "yes"])
+def test_classify_route_unknown_biases_complex(answer: str) -> None:
+    """Anything not an exact CHAT/SIMPLE/COMPLEX token routes to complex — real
+    work must never silently skip the reviewer gate."""
+    assert classify_route("x", run_exec=_runner(_FakeResult(message=answer))) == "complex"
+
+
+def test_classify_route_empty_is_complex_without_calling_model() -> None:
+    run = _runner(_FakeResult(message="CHAT"))
+    assert classify_route("   ", run_exec=run) == "complex"
+    assert run.calls == []  # type: ignore[attr-defined]
+
+
+def test_classify_route_nonzero_exit_is_complex() -> None:
+    assert classify_route("x", run_exec=_runner(_FakeResult(message="SIMPLE", exit_code=1))) == "complex"
+
+
+def test_classify_route_backend_exception_is_complex() -> None:
+    assert classify_route("x", run_exec=_runner(RuntimeError("boom"))) == "complex"
+
+
+def test_route_prompt_has_three_labels() -> None:
+    p = build_route_prompt("do a thing")
+    assert "CHAT" in p and "SIMPLE" in p and "COMPLEX" in p
+    assert "do a thing" in p
+
+
+def test_simple_prompt_allows_tools_and_injects_skill() -> None:
+    p = build_simple_prompt(objective="17*23=?", skill_block="USE base-arith")
+    assert "17*23" in p
+    assert "USE base-arith" in p
+    assert "may use tools" in p.lower() or "MAY use tools" in p
 
 
 # ---------- the model says CHAT -> chat -----------------------------------

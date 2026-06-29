@@ -80,6 +80,86 @@ def build_classify_prompt(text: str, role_skill_block: str = "") -> str:
     )
 
 
+# ── 3-tier route (CHAT / SIMPLE / COMPLEX) ──────────────────────────────────
+# The manager picks the SMALLEST block that fits, lego-style:
+#   CHAT    → one codex reply, no tools (greeting / capability / ack)
+#   SIMPLE  → one bounded codex turn (+ at most one skill), tools allowed, but
+#             NO planner and NO iterative reviewer loop — for a self-contained
+#             one-shot the operator can eyeball (a standalone math problem, a
+#             short explanation, a small snippet, a tiny single-file edit)
+#   COMPLEX → the full mission pipeline (matcher → engineer rounds → reviewer
+#             every round → skill ops → planner) — for anything that needs
+#             verification, measurement, iteration, or touches the repo broadly
+# Conservative by construction: the reviewer is the sole done-ness gate, so the
+# classifier biases HARD toward COMPLEX — SIMPLE only on a clearly trivial,
+# self-verifying one-shot; everything ambiguous, repo-spanning, measured, or
+# benchmark-facing is COMPLEX.
+_ROUTE_INSTRUCTIONS = (
+    "You are a strict intent router for a coding-agent cockpit. Read the "
+    "operator's single message and answer with EXACTLY one word — CHAT, "
+    "SIMPLE, or COMPLEX — and nothing else.\n\n"
+    "CHAT: greetings, thanks, acknowledgements, small talk, or questions about "
+    "who/what you are or what you can do (identity / capability questions). No "
+    "work is requested.\n\n"
+    "SIMPLE: a self-contained request that ONE bounded codex turn can finish and "
+    "the operator can verify at a glance — a standalone math/logic problem, a "
+    "short factual or how-to explanation, a small self-contained code snippet, a "
+    "tiny single-file edit. No measurement, no benchmark, no multi-step build, "
+    "nothing whose correctness needs an independent reviewer.\n\n"
+    "COMPLEX: anything that builds/optimizes/measures, runs an eval or benchmark, "
+    "spans multiple files or the wider repo, needs iteration or verification, is "
+    "a follow-up/continuation, or is ambiguous. When in doubt, answer COMPLEX — "
+    "skipping the reviewer on real work is the costly mistake.\n\n"
+    "Output only the single word."
+)
+
+
+def build_route_prompt(text: str, role_skill_block: str = "") -> str:
+    """Render the prompt for the 3-tier CHAT/SIMPLE/COMPLEX route decision."""
+    return (
+        f"{role_skill_block}"
+        f"{_ROUTE_INSTRUCTIONS}\n\n"
+        "## Operator message\n"
+        f"{(text or '').strip()}\n\n"
+        "## Your answer (CHAT, SIMPLE, or COMPLEX)\n"
+    )
+
+
+def classify_route(
+    text: str,
+    *,
+    run_exec: Callable[[str], Any],
+    role_skill_block: str = "",
+) -> str:
+    """Model-based 3-tier router. Returns ``"chat"``, ``"simple"``, or
+    ``"complex"``. Biases HARD toward ``"complex"``: an empty message, a
+    non-zero exit, a backend exception, or any unrecognised answer all route to
+    ``"complex"`` so real work never silently skips the reviewer gate."""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return "complex"
+    try:
+        result = run_exec(build_route_prompt(cleaned, role_skill_block))
+    except Exception:  # noqa: BLE001 — any backend error -> full pipeline
+        return "complex"
+    if int(getattr(result, "exit_code", 0) or 0) != 0:
+        return "complex"
+    answer = _extract_answer(result).strip()
+    token = ""
+    for ch in answer:
+        if ch.isalpha():
+            token += ch
+        elif token:
+            break
+    up = token.upper()
+    if up == "CHAT":
+        return "chat"
+    if up == "SIMPLE":
+        return "simple"
+    return "complex"
+
+
+
 def _extract_answer(result: Any) -> str:
     """Pull the model's reply text out of a RunnerResult-shaped object."""
     msg = getattr(result, "last_agent_message", None)
@@ -167,8 +247,40 @@ def build_chat_prompt(*, objective: str, identity_card: str = "") -> str:
     return "\n\n".join(sections)
 
 
+_SIMPLE_SYSTEM_INSTRUCTIONS = (
+    "## You are the argus-skill MANAGER handling a SIMPLE one-shot task\n"
+    "The operator asked for something a single bounded turn can finish — and "
+    "they will verify the result themselves, so there is NO reviewer and NO "
+    "iteration after this. Do the task NOW, completely, in this one turn.\n\n"
+    "Rules:\n"
+    "1. You MAY use tools (read/edit files, run shell) when the task needs them; "
+    "for a pure question just answer.\n"
+    "2. Stay tightly scoped to exactly what was asked — do not start a "
+    "multi-step build, do not wander the repo, do not open new workstreams. If "
+    "the task turns out to be bigger than one turn, say so plainly instead of "
+    "half-doing it.\n"
+    "3. End with one short line stating what you did (and the answer / the file "
+    "you changed). No `## Verification` / `## Summary` scaffolding.\n"
+)
+
+
+def build_simple_prompt(*, objective: str, skill_block: str = "") -> str:
+    """Render the prompt for the SIMPLE one-shot path (tools allowed, no
+    reviewer). ``skill_block`` is an optional matched-skill playbook prepended
+    as guidance; empty when no skill matched."""
+    sections: list[str] = []
+    if skill_block.strip():
+        sections.append("## Relevant skill\n" + skill_block.strip())
+    sections.append(_SIMPLE_SYSTEM_INSTRUCTIONS)
+    sections.append("## Task\n" + objective.strip())
+    return "\n\n".join(sections)
+
+
 __all__ = [
     "classify_is_conversational",
+    "classify_route",
     "build_classify_prompt",
+    "build_route_prompt",
     "build_chat_prompt",
+    "build_simple_prompt",
 ]

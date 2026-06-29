@@ -162,6 +162,38 @@ def test_execute_dispatches_to_chat_path_on_greeting() -> None:
     assert backend.calls[0]["options"].reasoning_effort == "high"
 
 
+def test_execute_simple_path_one_turn_no_reviewer(tmp_path: Path) -> None:
+    """A SIMPLE one-shot → ``_simple_quick_reply``: one bounded codex turn with
+    tools, NO reviewer loop, NO planner. Distinct from CHAT (chat_mode=False, the
+    'simple' loop.done marker) and from COMPLEX (no full pipeline)."""
+    backend = _FakeBackend(response_message="17*23 = 391.", classify_answer="SIMPLE")
+    runner = _make_runner(backend)
+    runner._args.skills_dir = str(tmp_path)  # empty store → no skill match call
+    sink = _RecordingSink()
+
+    out = runner.execute(objective="算 17*23", sink=sink)
+
+    assert out.success is True and out.status == "done" and out.rounds == 1
+    assert out.chat_mode is False  # it's a task, not chat
+    assert len(backend.calls) == 1
+    assert backend.calls[0]["run_label"] == "simple-1"
+    types = [e.get("type") for e in sink.events]
+    assert "round.review.completed" not in types  # NO reviewer
+    assert "round.review.started" not in types
+    assert any(e.get("type") == "loop.done" and "(simple)" in str(e.get("text"))
+               for e in sink.events)
+    assert "算 17*23" in backend.calls[0]["prompt"]
+
+
+def test_execute_complex_answer_uses_full_pipeline() -> None:
+    """A COMPLEX route answer must NOT short-circuit — the fast-path returns None
+    so the full mission pipeline runs."""
+    backend = _FakeBackend(classify_answer="COMPLEX")
+    runner = _make_runner(backend)
+    out = runner._maybe_chat_outcome(objective="optimize the kernel", sink=_RecordingSink())
+    assert out is None
+
+
 def test_execute_dispatches_to_chat_path_on_chinese_capability_question() -> None:
     backend = _FakeBackend(response_message="我可以帮你读代码、改文件、跑测试。")
     runner = _make_runner(backend)
