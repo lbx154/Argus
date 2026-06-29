@@ -733,6 +733,28 @@ def _write_events(life_dir: Path, events: list[dict[str, Any]]) -> None:
             fh.write(_json.dumps(ev) + "\n")
 
 
+def test_tail_mission_events_renders_unlabelled_progress(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Live progress: engineer.progress carries no item_id, so it must still
+    render (it's what shows 'what it's doing'); a sibling item's event is skipped;
+    the matching mission.completed still returns."""
+    _write_events(
+        tmp_path,
+        [
+            {"type": "engineer.progress", "text": "reading the kernel def"},
+            {"type": "engineer.progress", "item_id": "other", "text": "NOT MINE"},
+            {"type": "life.mission.completed", "item_id": "me", "status": "blocked",
+             "success": False, "cost_usd": 0.1},
+        ],
+    )
+    final = manager_repl.tail_mission_events(tmp_path, "me", timeout=2.0)
+    assert final is not None and final["status"] == "blocked"
+    out = capsys.readouterr().out
+    assert "reading the kernel def" in out
+    assert "NOT MINE" not in out
+
+
 def test_tail_mission_events_returns_completed(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

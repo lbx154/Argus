@@ -156,7 +156,12 @@ def tail_mission_events(
                     continue
                 if not isinstance(event, dict):
                     continue
-                if str(event.get("item_id") or "") != str(item_id):
+                ev_item = str(event.get("item_id") or "")
+                # Render this mission's events AND the unlabelled engineer/reviewer
+                # progress stream (engineer.progress carries no item_id) — that
+                # stream is what shows "what it's doing" live. Only skip events
+                # clearly tagged for a DIFFERENT item.
+                if ev_item and ev_item != str(item_id):
                     continue
                 saw_event = True
                 current_layer = _follow_layer_from_event(event, current_layer)
