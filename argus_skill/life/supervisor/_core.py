@@ -1300,6 +1300,22 @@ class LifeSupervisor:
         outcome: Any = None
         exc_str: str | None = None
         t0 = time.time()
+        # Per-item codex SESSION ISOLATION (anti context-pollution). The runner
+        # chains its codex thread across execute() calls; left unchecked, a brand
+        # new, unrelated backlog item RESUMES the previous mission's session and
+        # inherits all its context (a plain "你上一个任务干了什么" was resuming a
+        # kernel-optimization session and reading its GROUND_TRUTH). A NEW item
+        # must start a FRESH session; only iteration cycles of the SAME item keep
+        # the thread for continuity. Curated cross-mission memory still flows via
+        # the checkpoint/prelude — this only resets the raw thread bleed.
+        if getattr(self, "_last_mission_item_id", None) != item.id:
+            for _attr in ("_next_seed_thread_id", "last_thread_id"):
+                try:
+                    if hasattr(self.runner, _attr):
+                        setattr(self.runner, _attr, None)
+                except Exception:  # noqa: BLE001
+                    pass
+        self._last_mission_item_id = item.id
         try:
             execute_kwargs: dict[str, Any] = {
                 "objective": item.objective,
