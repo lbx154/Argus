@@ -289,7 +289,11 @@ def run_manager_tui(mem: Any, chat_state: dict, global_root: Any) -> int:
     ])
     app = Application(
         layout=Layout(root, focused_element=inp),
-        key_bindings=kb, full_screen=True, mouse_support=True,
+        key_bindings=kb, full_screen=True,
+        # mouse_support OFF on purpose: when on, prompt_toolkit captures mouse
+        # events and the terminal's native click-drag SELECT/COPY stops working.
+        # Off → the operator can select and copy text the normal way.
+        mouse_support=False,
         refresh_interval=0.5, style=Style.from_dict(_STYLE),
     )
     # No synthetic auto-greet (it made the user's own "你好" look like a second
