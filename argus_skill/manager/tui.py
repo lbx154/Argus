@@ -82,7 +82,8 @@ def run_manager_tui(mem: Any, chat_state: dict, global_root: Any) -> int:
 
     life_dir = _repl._life_dir_for(mem)
     feed: list[tuple[str, str]] = []  # (style_class, text)
-    spin = {"i": 0, "stage": "idle", "cost": chat_state.get("last_cost_usd"), "busy": ""}
+    spin = {"i": 0, "stage": "idle", "act": "", "cost": chat_state.get("last_cost_usd"),
+            "busy": ""}
     hdr = {"ts": 0.0, "daemon": "○ no daemon", "on": False, "pend": 0}
     stop = threading.Event()
 
@@ -121,12 +122,17 @@ def run_manager_tui(mem: Any, chat_state: dict, global_root: Any) -> int:
         c = f"${cost:.2f}" if isinstance(cost, (int, float)) else "$0.00"
         moving = spin["stage"] != "idle" or spin["busy"]
         sp = _SPINNER[spin["i"] % len(_SPINNER)] if moving else "●"
-        stage = spin["busy"] or spin["stage"]
+        if spin["busy"]:
+            activity = spin["busy"]
+        elif spin["stage"] == "idle":
+            activity = "idle"
+        else:
+            activity = " ".join(x for x in (spin["stage"], spin["act"]) if x)
         return [
             ("class:status.brand", "  argus  "),
             ("class:status.on" if hdr["on"] else "class:status.off", hdr["daemon"]),
             ("class:status", f"   {hdr['pend']} pending   {c}   "),
-            ("class:status.spin", f"{sp} {stage}"),
+            ("class:status.spin", f"{sp} {activity}"),
             ("class:status", "                                                  "),
         ]
 
@@ -144,7 +150,13 @@ def run_manager_tui(mem: Any, chat_state: dict, global_root: Any) -> int:
         return out
 
     def feed_text() -> Any:
-        return [(s, t + "\n") for s, t in feed[-500:]] or [("class:feed", "")]
+        frags: list[tuple[str, str]] = [(s, t + "\n") for s, t in feed[-1000:]]
+        # Pin the viewport to the BOTTOM: a FormattedTextControl anchors to the
+        # top and clips, so a growing log gets stuck on the first screen. The
+        # ``[SetCursorPosition]`` marker fragment tells the Window where the
+        # cursor is; the Window scrolls to keep it visible → always tail.
+        frags.append(("[SetCursorPosition]", ""))
+        return frags
 
     # ---- background events tail → invalidate on new lines ---------------
     def tail() -> None:
@@ -170,14 +182,30 @@ def run_manager_tui(mem: Any, chat_state: dict, global_root: Any) -> int:
                 except Exception:  # noqa: BLE001
                     continue
                 t = str(e.get("type") or "")
+                layer = _follow_layer_from_event(e, layer)
                 if t in ("life.phase.started", "round.start", "loop.start"):
-                    spin["stage"] = "engineer"
+                    spin["stage"] = layer or "engineer"
                 elif t == "round.review.started":
                     spin["stage"] = "reviewer"
+                elif t == "engineer.progress":
+                    # Surface what codex is doing RIGHT NOW: reasoning vs running
+                    # a shell command (the event text is the command or the
+                    # model's prose). Keeps the status bar honest live.
+                    spin["stage"] = layer or spin["stage"]
+                    txt = str(e.get("text") or "").strip()
+                    low = txt.lower()
+                    is_cmd = (txt.startswith(("/bin/bash", "./")) or " -lc " in txt
+                              or low.startswith(("bash", "python", "cd ", "rg ", "sed ",
+                                                 "find ", "ls ", "cat ", "grep ", "git ",
+                                                 "make ", "nvcc", "pytest", "echo ")))
+                    spin["act"] = "⚙ 跑命令" if is_cmd else "💭 思考中"
+                elif t in ("life.planner.start",):
+                    spin["stage"] = "planner"
+                    spin["act"] = "💭 规划中"
                 elif t in ("life.mission.completed", "loop.done"):
                     spin["stage"] = "idle"
+                    spin["act"] = ""
                     spin["cost"] = e.get("cost_usd") or spin["cost"]
-                layer = _follow_layer_from_event(e, layer)
                 r = _format_follow_event(e, layer)
                 if r:
                     push(r)
@@ -205,7 +233,7 @@ def run_manager_tui(mem: Any, chat_state: dict, global_root: Any) -> int:
                     push(buf.getvalue())
             else:
                 # Manager is the FIRST responder: triage chat vs task.
-                spin["busy"] = "manager…"
+                spin["busy"] = "💭 manager 思考中…"
                 invalidate()
                 reply = None
                 if not chat_state.get("blocked_item_id"):
@@ -264,20 +292,10 @@ def run_manager_tui(mem: Any, chat_state: dict, global_root: Any) -> int:
         key_bindings=kb, full_screen=True, mouse_support=True,
         refresh_interval=0.5, style=Style.from_dict(_STYLE),
     )
-    # Opening greeting comes from the MANAGER itself (its system prompt owns the
-    # self-introduction + example tasks) — not a hardcoded banner. Fire it on a
-    # worker thread so startup stays instant; fall back to one neutral line when
-    # there's no manager runner (e.g. memory backend).
-    def _greet() -> None:
-        try:
-            reply = _repl.manager_triage(mem, "你好", chat_state)
-        except Exception:  # noqa: BLE001
-            reply = None
-        push(f"argus ↳ {reply}" if reply
-             else "manager 在此 — 直接用大白话说你的任务即可；/help 看命令。",
-             "class:feed.argus")
-        invalidate()
-    threading.Thread(target=_greet, daemon=True).start()
+    # No synthetic auto-greet (it made the user's own "你好" look like a second
+    # reply). The manager introduces itself — from its own system prompt — the
+    # first time the operator says hello. Open with one neutral, dim ready line.
+    push("manager 待命中 — 说你的任务或打个招呼，我先帮你分流。/help 看命令。", "class:feed")
     try:
         app.run()
     finally:
