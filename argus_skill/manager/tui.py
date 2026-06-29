@@ -264,11 +264,20 @@ def run_manager_tui(mem: Any, chat_state: dict, global_root: Any) -> int:
         key_bindings=kb, full_screen=True, mouse_support=True,
         refresh_interval=0.5, style=Style.from_dict(_STYLE),
     )
-    push("我是 argus-skill 的 manager — 你的第一接待。直接用大白话描述任务即可，我先分流再派活。",
-         "class:feed.argus")
-    push("能干的活，比如：① 优化 CUDA/Triton kernel 刷过某 benchmark（SOL-ExecBench / KernelBench）；"
-         "② 复现并实测某个研究 benchmark、诚实报数；③ 带测试实现/重构一个功能。  /help 看命令。",
-         "class:feed")
+    # Opening greeting comes from the MANAGER itself (its system prompt owns the
+    # self-introduction + example tasks) — not a hardcoded banner. Fire it on a
+    # worker thread so startup stays instant; fall back to one neutral line when
+    # there's no manager runner (e.g. memory backend).
+    def _greet() -> None:
+        try:
+            reply = _repl.manager_triage(mem, "你好", chat_state)
+        except Exception:  # noqa: BLE001
+            reply = None
+        push(f"argus ↳ {reply}" if reply
+             else "manager 在此 — 直接用大白话说你的任务即可；/help 看命令。",
+             "class:feed.argus")
+        invalidate()
+    threading.Thread(target=_greet, daemon=True).start()
     try:
         app.run()
     finally:
