@@ -155,6 +155,15 @@ def test_build_chat_prompt_contains_user_message() -> None:
     assert "## Required output" not in out
 
 
+def test_build_chat_prompt_self_identifies_as_manager_with_examples() -> None:
+    """On a greeting/capability question the manager must introduce itself as the
+    argus-skill manager and offer concrete example tasks."""
+    out = build_chat_prompt(objective="你能干啥")
+    assert "argus-skill MANAGER" in out
+    assert "example task" in out.lower()
+    assert "SOL-ExecBench" in out or "KernelBench" in out
+
+
 def test_build_chat_prompt_includes_identity_when_given() -> None:
     out = build_chat_prompt(objective="who are you", identity_card="I am argus.")
     assert "I am argus." in out
