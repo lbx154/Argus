@@ -317,6 +317,41 @@ def test_free_text_runs_just_typed_objective_not_older_pending(
     assert captured["tail_item_id"] == pending[0].id
 
 
+def test_blocked_verdict_sets_question_and_reply_continues(mem: LifeMemory) -> None:
+    """A blocked mission with an operator_question must (1) be remembered in
+    chat_state and (2) make the next free-text reply CONTINUE the same objective
+    (answer appended + queued to inbox), not be triaged as a brand-new task."""
+    chat_state: dict[str, Any] = {"backend": "memory"}
+    blocked_review = {"status": "blocked", "operator_question": "刷哪两道题？"}
+
+    def fake_tail(life_dir: Any, item_id: str, **kwargs: Any) -> dict[str, Any]:
+        return {"type": "life.mission.completed", "item_id": item_id,
+                "status": "blocked", "cost_usd": 0.0, "_last_review": blocked_review}
+
+    with patch.object(manager_repl, "tail_mission_events", side_effect=fake_tail):
+        manager_repl._free_text_cmd(mem, "研究 SOL-ExecBench，刷到 SOTA", chat_state=chat_state)
+
+    assert chat_state["blocked_question"] == "刷哪两道题？"
+    assert chat_state.get("blocked_item_id")
+
+    with patch.object(manager_repl, "tail_mission_events", side_effect=fake_tail):
+        manager_repl._free_text_cmd(mem, "012 和 005", chat_state=chat_state)
+
+    cont = mem.backlog.pending()[0].objective
+    assert "研究 SOL-ExecBench，刷到 SOTA" in cont
+    assert "操作员答复：012 和 005" in cont
+    inbox_file = manager_repl._life_dir_for(mem) / "inbox.jsonl"
+    assert inbox_file.exists() and "012 和 005" in inbox_file.read_text(encoding="utf-8")
+
+
+def test_non_blocked_outcome_clears_blocked_state(mem: LifeMemory) -> None:
+    chat_state: dict[str, Any] = {"blocked_item_id": "x", "blocked_question": "q"}
+    manager_repl._record_mission_outcome(
+        chat_state, {"item_id": "x", "status": "success", "cost_usd": 0.0})
+    assert "blocked_item_id" not in chat_state
+    assert "blocked_question" not in chat_state
+
+
 def test_free_text_beats_aggressive_priority_zero_pending(mem: LifeMemory) -> None:
     """Even if a queued ``/add`` item has priority 0, free text still wins the
     head slot the daemon will claim first."""

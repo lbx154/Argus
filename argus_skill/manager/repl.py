@@ -197,13 +197,20 @@ def _follow_events_stream(
     *,
     theme: Any = None,
     header: str | None = None,
-) -> None:
+    until_item_id: str | None = None,
+) -> dict[str, Any] | None:
     """Stream-render ``events.jsonl`` until Ctrl-C (REPL ``--follow`` loop).
 
     Shared by continuous free-text mode and ``/run`` so the REPL has a single
     live-tail implementation. Mirrors the standalone
     :func:`apps.cli._core._cmd_follow` loop but renders every item (no
     per-item filter) and returns cleanly to the REPL on ``KeyboardInterrupt``.
+
+    When ``until_item_id`` is given, stop tailing as soon as THAT item's
+    ``life.mission.completed`` arrives and return it (with the last
+    ``round.review.completed`` attached as ``_last_review``) — so a blocked
+    verdict can be surfaced to the operator instead of scrolling past while the
+    follow loop keeps spinning. Returns ``None`` on Ctrl-C / no match.
     """
     from ..apps.cli._follow import _follow_layer_from_event, _format_follow_event
 
@@ -212,6 +219,7 @@ def _follow_events_stream(
         print(theme.gray(header) if theme is not None else header, flush=True)
     fh = None
     current_layer = "engineer"
+    last_review: dict[str, Any] | None = None
     try:
         # Wait for the log to exist, then seek to its end so we only show
         # events produced from now on.
@@ -222,7 +230,7 @@ def _follow_events_stream(
             except FileNotFoundError:
                 time.sleep(0.4)
             except OSError:
-                return
+                return None
         while True:
             line = fh.readline()
             if not line:
@@ -244,10 +252,20 @@ def _follow_events_stream(
                 continue
             if not isinstance(event, dict):
                 continue
+            if str(event.get("type") or "") == "round.review.completed":
+                last_review = event
             current_layer = _follow_layer_from_event(event, current_layer)
             rendered = _format_follow_event(event, current_layer)
             if rendered:
                 print(rendered, flush=True)
+            if (
+                until_item_id
+                and str(event.get("type") or "") == "life.mission.completed"
+                and str(event.get("item_id") or "") == until_item_id
+            ):
+                if last_review is not None:
+                    event.setdefault("_last_review", last_review)
+                return event
     except KeyboardInterrupt:
         note = "\n(stopped following — daemon keeps running; /status to check)"
         print(theme.gray(note) if theme is not None else note, flush=True)
@@ -571,6 +589,24 @@ def _free_text_cmd(
     )
     body = body or text.strip()
 
+    # Continuation: if the last mission BLOCKED on an operator decision, treat
+    # this reply as the answer — feed it to the inbox AND re-queue the original
+    # objective with the answer appended, so the same task continues instead of
+    # the reply being triaged as a brand-new objective / chat. Blocked items are
+    # terminal (cannot be un-blocked), so a fresh head-priority item carries the
+    # work forward; the inbox answer is spliced into round 1 by the supervisor.
+    if chat_state.get("blocked_item_id"):
+        prior = str(chat_state.get("last_objective") or body)
+        chat_state.pop("blocked_item_id", None)
+        chat_state.pop("blocked_question", None)
+        try:
+            from ..apps._inbox import queue_inbox_message
+            queue_inbox_message(_life_dir_for(mem), body, source="repl.answer")
+        except Exception:  # noqa: BLE001 — inbox is best-effort; objective still carries it
+            pass
+        body = f"{prior}\n\n操作员答复：{body}"
+    chat_state["last_objective"] = body
+
     # Manager front-end triage (operator REPL only). Before the input ever
     # touches the backlog, ask the Manager whether it's conversation (greeting /
     # capability question / ack) rather than a real task. If so, the Manager
@@ -636,11 +672,15 @@ def _free_text_cmd(
             f"backend={chat_state.get('backend')})"
         )
         print(theme.gray(queued) if theme is not None else queued, flush=True)
-        _follow_events_stream(
+        final = _follow_events_stream(
             life_dir,
             theme=theme,
             header="🔄 following daemon (Ctrl-C to stop observing; daemon keeps running)…",
+            until_item_id=item.id,
         )
+        if final is not None:
+            _record_mission_outcome(chat_state, final)
+            _surface_blocked_question(chat_state, theme)
         return
 
     if not daemon_alive:
@@ -662,6 +702,7 @@ def _free_text_cmd(
         _record_mission_outcome(chat_state, final)
         for line in _format_completion(final, item.id, life_dir):
             print(theme.dim(line) if theme is not None else line, flush=True)
+        _surface_blocked_question(chat_state, theme)
     else:
         note = (
             f"{item.id} still running (no completion within the observe window) "
@@ -805,6 +846,30 @@ def _record_mission_outcome(
         chat_state["last_cost_usd"] = float(cost) if cost is not None else None
     except (TypeError, ValueError):
         chat_state["last_cost_usd"] = None
+    # Remember a blocked verdict so the next free-text reply continues THIS item
+    # (answer injected) instead of being triaged as a brand-new objective. The
+    # operator question is surfaced by ``_surface_blocked_question``. Cleared on
+    # any non-blocked outcome.
+    review = completed_event.get("_last_review") or {}
+    if str(review.get("status") or completed_event.get("status") or "") == "blocked":
+        chat_state["blocked_item_id"] = completed_event.get("item_id")
+        chat_state["blocked_question"] = (
+            str(review.get("operator_question") or "").strip()
+            or str(review.get("reason") or "").strip()
+        )
+    else:
+        chat_state.pop("blocked_item_id", None)
+        chat_state.pop("blocked_question", None)
+
+
+def _surface_blocked_question(chat_state: dict[str, Any], theme: Any) -> None:
+    """Print the operator question for a just-blocked mission, if any. The
+    operator answers by typing a normal reply — no slash command needed."""
+    q = str(chat_state.get("blocked_question") or "").strip()
+    if not q:
+        return
+    line = f"❓ 需要你定夺：{q}（直接回复即可继续该任务）"
+    print(theme.yellow(line) if theme is not None else line, flush=True)
 
 
 def _format_elapsed(seconds: float) -> str:

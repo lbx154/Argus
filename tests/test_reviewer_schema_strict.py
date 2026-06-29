@@ -61,3 +61,25 @@ def test_skill_ops_items_require_all_keys():
         "why",
     }
     assert "skill_ops" in schema["required"]
+
+
+def test_operator_question_parsing_blocked_only():
+    """blocked uses the reviewer's question (or falls back to next_action's first
+    sentence); done/continue never carry one; a blocked verdict still parses with
+    the field present (strict-mode required + nullable)."""
+    from argus_skill.reviewer._parsing import parse_decision_text
+
+    common = ('"round_summary_markdown":"x","completion_summary_markdown":"",'
+              '"failure_cause":"","mission_lesson":"","process_lesson":"","scope":"",'
+              '"planner_report":{},"checklist":[],"checkpoint":{},"skill_ops":[],'
+              '"checklist_feedback":null,"step_back":null')
+    blk = parse_decision_text(
+        '{"status":"blocked","reason":"r","next_action":"n",'
+        '"operator_question":"刷哪两道题？",' + common + '}')
+    assert blk is not None and blk.operator_question == "刷哪两道题？"
+    fb = parse_decision_text(
+        '{"status":"blocked","reason":"r","next_action":"先选路线。再跑题。",' + common + '}')
+    assert fb is not None and fb.operator_question == "先选路线"
+    cont = parse_decision_text(
+        '{"status":"continue","reason":"r","next_action":"keep going",' + common + '}')
+    assert cont is not None and cont.operator_question == ""

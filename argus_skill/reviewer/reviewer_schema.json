@@ -17,6 +17,10 @@
       "minLength": 1,
       "maxLength": 1500
     },
+    "operator_question": {
+      "type": ["string", "null"],
+      "maxLength": 500
+    },
     "round_summary_markdown": {
       "type": "string",
       "minLength": 1,
@@ -206,6 +210,7 @@
     "status",
     "reason",
     "next_action",
+    "operator_question",
     "round_summary_markdown",
     "completion_summary_markdown",
     "failure_cause",

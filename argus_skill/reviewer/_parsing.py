@@ -68,6 +68,9 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
         status=status,
         reason=reason,
         next_action=next_action,
+        operator_question=_parse_operator_question(
+            parsed, status=status, next_action=next_action, reason=reason
+        ),
         round_summary_markdown=round_summary_markdown,
         completion_summary_markdown=completion_summary_markdown,
         scope=_parse_scope(parsed),
@@ -382,6 +385,29 @@ def _parse_next_action(parsed: dict, *, status: str) -> str | None:
     if status == "continue":
         return "Continue implementation and include clear completion evidence."
     return None
+
+
+def _parse_operator_question(
+    parsed: dict, *, status: str, next_action: str | None, reason: str | None
+) -> str:
+    """ONE plain-language question for the operator, surfaced verbatim by the
+    REPL when the agent is blocked on an operator decision.
+
+    Prefer the reviewer's own ``operator_question`` (it should phrase it in the
+    operator's language). Only emit on ``blocked`` — done/continue never ask. If
+    blocked but the reviewer omitted it, fall back to the first sentence of
+    ``next_action`` (else ``reason``) so a block is still a human question, never
+    a silent dead-end. Capped to the schema's 500 chars. Empty otherwise."""
+    if status != "blocked":
+        return ""
+    direct = _parse_required_text(parsed.get("operator_question"))
+    if direct is not None:
+        return direct[:500]
+    fallback = (next_action or "").strip() or (reason or "").strip()
+    if not fallback:
+        return ""
+    first = fallback.replace("\n", " ").split("。")[0].split(". ")[0].strip()
+    return (first or fallback)[:500]
 
 
 def _parse_round_summary(parsed: dict) -> str | None:

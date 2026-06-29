@@ -85,6 +85,14 @@ def test_to_event_payload_forwards_every_structured_field() -> None:
     assert payload["text"].startswith("review: continue")
 
 
+def test_to_event_payload_forwards_operator_question() -> None:
+    review = ReviewDecision(
+        status="blocked", reason="r", next_action="n",
+        operator_question="刷哪两道题？",
+    )
+    assert review.to_event_payload()["operator_question"] == "刷哪两道题？"
+
+
 def test_to_event_payload_handles_empty_synthesized_verdict() -> None:
     """The daemon-stop / backend-failure synthesized verdicts have
     empty structured fields and zero tokens. Helper must not crash and

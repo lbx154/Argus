@@ -97,6 +97,14 @@ class ReviewDecision:
     status: ReviewStatus
     reason: str
     next_action: str
+    # ONE plain-language question, in the operator's own language, asked when a
+    # ``blocked`` verdict needs an OPERATOR decision (route/budget/which-task)
+    # the agent cannot make alone. The REPL surfaces this verbatim and the
+    # operator's free-text reply continues the same objective — so a block is a
+    # human question, not a JSON gate packet. Empty on done/continue or when the
+    # block is purely engineer-repairable. Distinct from ``next_action`` (the
+    # engineer-facing instruction).
+    operator_question: str = ""
     round_summary_markdown: str = ""
     completion_summary_markdown: str = ""
     # Phase 1 reviewer→skill feedback loop. Reviewer may classify the
@@ -233,6 +241,7 @@ class ReviewDecision:
             "status": self.status,
             "reason": self.reason,
             "next_action": self.next_action,
+            "operator_question": self.operator_question or "",
             "round_summary_markdown": self.round_summary_markdown or "",
             "completion_summary_markdown": self.completion_summary_markdown or "",
             "failure_cause": self.failure_cause or "",
