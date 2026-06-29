@@ -29,6 +29,7 @@ classifiers = [
 dependencies = [
   "rich>=13.7",
   "PyYAML>=6",
+  "prompt_toolkit>=3",
 ]
 
 [project.optional-dependencies]

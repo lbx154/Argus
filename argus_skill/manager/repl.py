@@ -68,6 +68,39 @@ from ..life import BacklogItem, LifeMemory, MemoryBundle
 log = logging.getLogger(__name__)
 
 
+#: Slash commands surfaced to completion + the command palette + /help. (label,
+#: one-line help). The dispatcher in ``dispatch_command`` is the source of truth;
+#: this list mirrors it for the UI. Keep in sync when adding a command.
+SLASH_COMMANDS: list[tuple[str, str]] = [
+    ("/help", "show commands"),
+    ("/status", "identity · backlog · journal · daemon"),
+    ("/doctor", "diagnose daemon/build failures"),
+    ("/daemons", "list live daemons across projects"),
+    ("/attach", "live-follow another project's daemon"),
+    ("/plan", "preview a step plan before queuing"),
+    ("/start", "enable continuous (7×24) mode"),
+    ("/continuous", "continuous start|stop [objective]"),
+    ("/identity", "view/edit identity card"),
+    ("/project", "view/edit project card"),
+    ("/backlog", "list pending (or all) items"),
+    ("/add", "queue a mission [--once --cycles=N --budget=$X]"),
+    ("/stop", "disable iteration on an item"),
+    ("/done", "mark item done"),
+    ("/skip", "skip an item"),
+    ("/rm", "remove an item"),
+    ("/journal", "tail last N journal entries"),
+    ("/note", "append a journal note"),
+    ("/nudge", "send live operator guidance"),
+    ("/backend", "show/change backend"),
+    ("/config", "view/change session defaults"),
+    ("/reset", "drop codex session (fresh next mission)"),
+    ("/run", "follow daemon draining the backlog"),
+    ("/skills", "list/promote project skills"),
+    ("/exit", "leave"),
+]
+
+
+
 # ---------------------------------------------------------------------------
 # Event-tail helpers (REPL = attach client; the daemon is the sole executor)
 # ---------------------------------------------------------------------------
@@ -1604,6 +1637,17 @@ def _run_manager_repl_locked(
     sep = theme.dim(" › ")
     resume_marker = theme.dim(" ↻")  # subtle indicator when codex session is being reused
 
+    # Full-screen TUI (opencode/Claude-Code style) on a real terminal; falls back
+    # to the line REPL below for non-TTY / NO_COLOR / ARGUS_SKILL_NO_TUI / missing
+    # prompt_toolkit. The TUI reuses dispatch_command, so commands behave the same.
+    try:
+        from .tui import run_manager_tui, tui_available
+        if tui_available():
+            return run_manager_tui(mem, chat_state, global_root)
+    except Exception:  # noqa: BLE001 — any TUI import/start failure → line REPL
+        pass
+
+
     while True:
         prompt = (
             base_prompt + (resume_marker if chat_state.get("last_thread_id") else "") + sep
@@ -1625,61 +1669,69 @@ def _run_manager_repl_locked(
             print(theme.gray("bye."))
             return 0
 
-        if not line.startswith("/"):
-            _free_text_cmd(mem, raw, chat_state)
-            continue
+        if dispatch_command(line, raw, mem, chat_state, global_root, theme) == "exit":
+            print(theme.gray("bye."))
+            return 0
 
-        try:
-            tokens = shlex.split(line)
-        except ValueError as exc:
-            print(theme.red(f"parse error: {exc}"))
-            continue
-        cmd = tokens[0].lower()
-        rest = tokens[1:]
-        rest_text = line[len(tokens[0]):].lstrip()
 
+def dispatch_command(line, raw, mem, chat_state, global_root, theme) -> str | None:
+    """Run one REPL line (slash command or free text). Shared by the line REPL
+    and the TUI so both surfaces dispatch identically — handlers print to stdout;
+    the TUI captures that. Returns "exit" to quit, else None."""
+    if not line.startswith("/"):
+        _free_text_cmd(mem, raw, chat_state)
+        return None
+    try:
+        tokens = shlex.split(line)
+    except ValueError as exc:
+        print(theme.red(f"parse error: {exc}"))
+        return None
+    cmd = tokens[0].lower()
+    rest = tokens[1:]
+    rest_text = line[len(tokens[0]):].lstrip()
+    if True:
         if cmd in ("/help", "/commands"):
             sys.stdout.write(_render_help(theme))
             sys.stdout.flush()
-            continue
+            return None
         if cmd == "/status":
             _status_cmd(mem, chat_state)
-            continue
+            return None
         if cmd == "/doctor":
             _doctor_cmd(mem, chat_state, global_root)
-            continue
+            return None
         if cmd == "/daemons":
             _daemons_cmd(chat_state, global_root, mem.project.root)
-            continue
+            return None
         if cmd == "/attach":
             _attach_cmd(chat_state, global_root, rest_text)
-            continue
+            return None
         if cmd == "/plan":
             _plan_cmd(mem, chat_state, rest_text)
-            continue
+            return None
         if cmd == "/start":
             _continuous_cmd(mem, f"start {rest_text}".strip(), chat_state)
-            continue
+            return None
         if cmd == "/continuous":
             _continuous_cmd(mem, rest_text, chat_state)
-            continue
+            return None
         if cmd == "/identity":
             _identity_cmd(mem, rest, rest_text)
-            continue
+            return None
         if cmd == "/project":
             _project_cmd(mem, rest, rest_text)
-            continue
+            return None
         if cmd == "/backlog":
             include_all = bool(rest) and rest[0].lower() == "all"
             _backlog_list_cmd(mem, include_all=include_all)
-            continue
+            return None
         if cmd == "/add":
             if not rest_text:
                 print(theme.gray(
                     "usage: /add <objective>  "
                     "[--once] [--cycles=N] [--budget=$X]"
                 ))
-                continue
+                return None
             cfg = chat_state.get("config", {})
             iterate, max_cycles, budget, body = _parse_add_flags(
                 rest_text,
@@ -1689,7 +1741,7 @@ def _run_manager_repl_locked(
             )
             if not body:
                 print(theme.gray("/add: empty objective after flags"))
-                continue
+                return None
             _add_only(
                 mem,
                 body,
@@ -1697,19 +1749,19 @@ def _run_manager_repl_locked(
                 iteration_max_cycles=max_cycles,
                 iteration_budget_usd=budget,
             )
-            continue
+            return None
         if cmd == "/stop":
             if not rest:
                 print(theme.gray("usage: /stop <item_id>"))
-                continue
+                return None
             print(stop_iteration(mem, rest[0]))
-            continue
+            return None
         if cmd in ("/done", "/skip", "/rm"):
             if not rest:
                 print(theme.gray(f"usage: {cmd} <item_id>"))
-                continue
+                return None
             _status_change_cmd(mem, cmd, rest[0])
-            continue
+            return None
         if cmd == "/journal":
             n = 10
             if rest:
@@ -1717,49 +1769,50 @@ def _run_manager_repl_locked(
                     n = int(rest[0])
                 except ValueError:
                     print(theme.gray(f"usage: /journal [N]  (got: {rest[0]!r})"))
-                    continue
+                    return None
             _journal_tail_cmd(mem, n)
-            continue
+            return None
         if cmd == "/note":
             if not rest_text:
                 print(theme.gray("usage: /note <text>"))
-                continue
+                return None
             print(theme.gray(append_note(mem, rest_text)))
-            continue
+            return None
         if cmd in ("/nudge", "/inject", "/notify"):
             if not rest_text:
                 print(theme.gray("usage: /nudge <message>  (one line, "
                                  "spliced into the next engineer round)"))
-                continue
+                return None
             from ..apps._inbox import queue_inbox_message
             queue_inbox_message(mem.project.root, rest_text, source="repl.nudge")
             print(theme.gray(
                 f"nudge queued ({len(rest_text)} chars) → next mission round "
                 f"will see it as operator guidance"
             ))
-            continue
+            return None
         if cmd == "/backend":
             _backend_cmd(rest, chat_state)
-            continue
+            return None
         if cmd == "/config":
             _config_cmd(rest, chat_state, life_dir=mem.project.root)
-            continue
+            return None
         if cmd in ("/verbose", "/quiet"):
             print(theme.gray(
                 "verbose is always on now (the toggle was removed). "
                 "every event is rendered."
             ))
-            continue
+            return None
         if cmd == "/reset":
             print(theme.gray(render_reset_cmd(chat_state)))
-            continue
+            return None
         if cmd == "/run":
             _run_cmd(mem, rest, chat_state)
-            continue
+            return None
         if cmd == "/skills":
             _skills_cmd(mem, rest)
-            continue
+            return None
         print(theme.gray(f"unknown command: {cmd}  (try /help)"))
+        return None
 
 
 __all__ = [
