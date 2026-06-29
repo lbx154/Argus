@@ -63,8 +63,10 @@ def test_reassign_skips_live_owner_cli(tmp_path: Path, capsys, monkeypatch) -> N
     from argus_skill.team import task_board as tb
     root = tmp_path / ".argus_team" / "t1"
     tb.form(root, [{"task_id": "k0", "objective": "x"}, {"task_id": "k1", "objective": "y"}])
-    tb.claim_specific(root, "k0", "alive", now=1.0); tb.heartbeat(root, "k0", now=1.0)
-    tb.claim_specific(root, "k1", "dead", now=1.0); tb.heartbeat(root, "k1", now=1.0)
+    tb.claim_specific(root, "k0", "alive", now=1.0)
+    tb.heartbeat(root, "k0", now=1.0)
+    tb.claim_specific(root, "k1", "dead", now=1.0)
+    tb.heartbeat(root, "k1", now=1.0)
     monkeypatch.setattr(team, "_live_member_ids", lambda r: {"alive"})
     rc, out = _call(capsys, "reassign", "--root", str(root), "--ttl", "-1")
     assert json.loads(out)["reassigned"] == ["k1"]  # k0's live owner preserved
