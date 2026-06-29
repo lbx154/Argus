@@ -13,6 +13,16 @@ OWN session leaders (``start_new_session=True``) and the Curator owns each one b
 **retaining its ``Popen`` handle** — reaping via ``proc.poll()`` and killing via
 *per-child* ``killpg(os.getpgid(pid), …)``. A shared process group would let a
 stop kill the daemon itself.
+
+Restart durability: in-memory ``Popen`` handles are lost when the daemon dies
+uncleanly (SIGKILL/crash/forced restart), so a fresh Curator would never see the
+prior teammates — they keep running as init-orphans while it over-spawns
+duplicates on the same tasks. The roster is the on-disk PID registry; on first
+sight of each root the Curator **adopts** still-alive roster members (verified
+against ``/proc`` cmdline so a recycled PID can't be mistaken for one) into its
+tracked pool, so every lifecycle path (live-owner accounting, deadline reaping,
+``stop`` kill) covers them too. Adoption is what makes orphaning impossible
+*across restarts*, not just within one daemon life.
 """
 from __future__ import annotations
 
@@ -41,6 +51,42 @@ _CURATOR_FALLBACK = (
     "recorded outcome; a target with no recorded outcome is unproven, not good. "
     "Output a concise prioritized strategy.md."
 )
+
+
+def _pid_is_teammate(pid: int, member_id: str) -> bool:
+    """True iff ``pid`` is alive AND its cmdline is the teammate we recorded.
+
+    Defends against PID recycling: a dead teammate's pid may be reused by an
+    unrelated process, so we adopt only when ``teammate_entry`` and this exact
+    member id are both on the command line."""
+    try:
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\x00", b" ").decode("utf-8", "replace")
+    except OSError:
+        return False
+    return "teammate_entry" in cmdline and member_id in cmdline
+
+
+class _AdoptedProc:
+    """Popen-shaped handle for a teammate adopted from the roster after a daemon
+    restart. We never had the original ``Popen``, so liveness/teardown go through
+    the raw pid; ``poll``/``wait`` mimic the subset ``TrackedTeammate`` and
+    ``_terminate`` rely on, so adopted children flow through every owned-child
+    path unchanged."""
+
+    def __init__(self, pid: int, member_id: str) -> None:
+        self.pid = int(pid)
+        self._member_id = member_id
+
+    def poll(self) -> int | None:
+        return None if _pid_is_teammate(self.pid, self._member_id) else 0
+
+    def wait(self, timeout: float | None = None) -> int:
+        end = (time.time() + timeout) if timeout else None
+        while self.poll() is None:
+            if end is not None and time.time() >= end:
+                raise subprocess.TimeoutExpired(self._member_id, timeout or 0)
+            time.sleep(0.1)
+        return 0
 
 
 class TrackedTeammate:
@@ -94,6 +140,7 @@ class Curator:
         self._distill_fn = distill_fn
         self.distill_interval_s = float(distill_interval_s)
         self._children: dict[str, TrackedTeammate] = {}
+        self._adopted_roots: set[str] = set()  # roots whose roster orphans were adopted
         self._fold_mtime: dict[str, float] = {}  # per-root shards mtime at last fold
         self._distill_at: dict[str, float] = {}  # per-root wall-clock of last distill
         self._stop = threading.Event()
@@ -140,6 +187,40 @@ class Curator:
         root = Path(root)
         return {mid for mid, tt in self._children.items()
                 if tt.root == root and tt.alive()}
+
+    # ---- adoption: reclaim teammates left running by a prior daemon ------
+    def _adopt_orphans(self, root: Path, *, now: float | None = None) -> list[str]:
+        """Adopt roster members of ``root`` still running after a restart.
+
+        A daemon that dies uncleanly never runs ``stop()``, so its tracked
+        ``Popen`` handles are lost and the teammates reparent to init. The roster
+        keeps each member's ``pid``/``cwd``/``task_id``, so a fresh Curator reads
+        it once per root and folds any still-alive teammate back into ``_children``
+        — verified via cmdline so a recycled pid can't be adopted. Without this
+        they're invisible to live-owner accounting (→ duplicate spawns) and to the
+        reaper (→ never killed). Runs once per root; later spawns are ours.
+        """
+        key = str(Path(root))
+        if key in self._adopted_roots:
+            return []
+        self._adopted_roots.add(key)
+        now = self._now() if now is None else now
+        adopted: list[str] = []
+        for m in roster.members(root):
+            mid, pid = m.get("id"), m.get("pid")
+            if not mid or mid in self._children or not pid:
+                continue
+            if m.get("status") != "running" or not _pid_is_teammate(int(pid), mid):
+                continue
+            self._children[mid] = TrackedTeammate(
+                _AdoptedProc(int(pid), mid), member_id=mid,
+                task_id=m.get("task_id", ""), root=Path(root), started_at=now,
+                timeout_s=self.teammate_timeout_s, hard_grace_s=self.hard_grace_s)
+            adopted.append(mid)
+        if adopted:
+            log.info("curator: adopted %d orphaned teammate(s) for %s: %s",
+                     len(adopted), root, ", ".join(adopted))
+        return adopted
 
     # ---- refill: keep ``width`` teammates in flight from the backlog ----
     def _refill(self, root: Path, *, width: int, cwd: Path,
@@ -238,6 +319,7 @@ class Curator:
         for marker in registry.list_markers(self.project_root):
             root = Path(marker["team_root"])
             cwd = Path(marker.get("cwd") or root)
+            self._adopt_orphans(root, now=now)  # reclaim prior-daemon teammates first
             self._maybe_fold(root)
             doc = pool.read(root)
             state = doc.get("state", "running")

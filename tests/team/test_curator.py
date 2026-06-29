@@ -1,12 +1,93 @@
 from __future__ import annotations
 
-import os
 import json
+import os
 import time
 from pathlib import Path
 
 from argus_skill.team import curator as cur
 from argus_skill.team import leaderboard, pool, registry, roster, task_board
+
+
+# --- restart durability: adopt orphans the prior daemon left running --------
+def test_pid_is_teammate_verifies_real_cmdline(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+    # a live process whose argv looks like a teammate for member w42
+    p = subprocess.Popen([sys.executable, "-c",
+                          "import time; time.sleep(30)  # argus_skill.team.teammate_entry w42"])
+    try:
+        for _ in range(50):  # wait for exec so /proc cmdline is populated
+            if cur._pid_is_teammate(p.pid, "w42"):
+                break
+            time.sleep(0.05)
+        assert cur._pid_is_teammate(p.pid, "w42") is True
+        assert cur._pid_is_teammate(p.pid, "w99") is False   # wrong member id
+        assert cur._pid_is_teammate(2_000_000_000, "w42") is False  # dead pid
+    finally:
+        p.kill()
+        p.wait()
+
+
+def test_adopt_reclaims_running_roster_orphan_once(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "team"
+    roster.add_member(root, {"id": "w1", "pid": 4242, "worktree": str(tmp_path),
+                             "task_id": "t::a", "status": "running"})
+    monkeypatch.setattr(cur, "_pid_is_teammate", lambda pid, mid: pid == 4242)
+    c = _fake_curator(tmp_path)
+    assert c._adopt_orphans(root, now=100.0) == ["w1"]
+    assert "w1" in c._children and c.live_owner_ids(root) == {"w1"}
+    # idempotent: a second pass does not re-adopt
+    assert c._adopt_orphans(root, now=200.0) == []
+
+
+def test_adopt_then_stop_kills_real_orphan(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+    root = tmp_path / "team"
+    p = subprocess.Popen([sys.executable, "-c",
+                          "import time; time.sleep(60)  # argus_skill.team.teammate_entry w7"],
+                         start_new_session=True)
+    roster.add_member(root, {"id": "w7", "pid": p.pid, "task_id": "t::a", "status": "running"})
+    c = _fake_curator(tmp_path)
+    for _ in range(50):  # wait for exec so cmdline-verified adoption can match
+        if cur._pid_is_teammate(p.pid, "w7"):
+            break
+        time.sleep(0.05)
+    assert c._adopt_orphans(root) == ["w7"]
+    try:
+        c.stop()  # must kill the adopted orphan, not just tracked Popen children
+        assert p.wait(timeout=5) is not None
+    finally:
+        if p.poll() is None:
+            p.kill()
+            p.wait()
+
+
+def test_adopt_skips_dead_or_finished_members(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "team"
+    roster.add_member(root, {"id": "dead", "pid": 1, "task_id": "t::a", "status": "running"})
+    roster.add_member(root, {"id": "done", "pid": 4242, "task_id": "t::b", "status": "done"})
+    monkeypatch.setattr(cur, "_pid_is_teammate", lambda pid, mid: pid == 4242)  # 4242 alive
+    c = _fake_curator(tmp_path)
+    assert c._adopt_orphans(root) == []  # dead pid + non-running status → neither adopted
+    assert c._children == {}
+
+
+def test_tick_adopts_orphans_so_no_duplicate_spawn(tmp_path: Path, monkeypatch) -> None:
+    """The orphan bug: a restart that loses tracking re-spawns on tasks already
+    running. Adopting the orphan makes it a live owner, so refill won't duplicate."""
+    root = tmp_path / "team"
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    pool.update(root, width=1, state="running")
+    task_board.form(root, [{"task_id": "t::a", "objective": "x"}])
+    task_board.claim_top(root, "w1", now=100.0)  # the orphan already owns t::a
+    roster.add_member(root, {"id": "w1", "pid": 4242, "task_id": "t::a", "status": "running"})
+    monkeypatch.setattr(cur, "_pid_is_teammate", lambda pid, mid: pid == 4242)
+    c = _fake_curator(tmp_path)
+    c._tick(now=500.0)  # past ttl: would reassign+respawn if orphan were invisible
+    assert c.live_owner_ids(root) == {"w1"}
+    assert task_board.count_in_flight(root) == 1  # NOT 2 — no duplicate on t::a
 
 
 def test_spawn_tracked_records_real_child_and_roster_then_stop_reaps(tmp_path: Path) -> None:
