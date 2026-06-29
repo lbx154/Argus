@@ -58,6 +58,11 @@ def _clean_follow_text(text: str, *, limit: int | None = 220) -> str:
     text = text.replace("```", " ")
     text = re.sub(r"\[([^\]]+)\]\(\(?[^)\n]+\)?\)", r"\1", text)
     text = " ".join(text.split())
+    # Full-output mode (the TUI sets ARGUS_SKILL_FOLLOW_FULL): never truncate, so
+    # the activity pane shows the whole reasoning/command instead of a clipped
+    # one-liner. The CLI single-line follow keeps the default cap.
+    if os.environ.get("ARGUS_SKILL_FOLLOW_FULL", "").strip() in ("1", "true", "yes", "on"):
+        limit = None
     if limit is None or len(text) <= limit:
         return text
     return text[: max(1, limit - 1)].rstrip() + "…"

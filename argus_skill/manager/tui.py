@@ -36,9 +36,13 @@ _STYLE = {
     "status.off": "bg:#1f2430 #bf616a bold",
     "status.spin": "bg:#1f2430 #ebcb8b",
     "frame.border": "#4c566a",
-    "frame.label": "#88c0d0 bold",
+    "frame.label": "#81a1c1 bold",
     "task.id": "#88c0d0",
     "task.body": "#d8dee9",
+    "task.run": "#ebcb8b bold",
+    "task.pend": "#81a1c1",
+    "task.done": "#a3be8c",
+    "task.fail": "#bf616a bold",
     "feed": "#d8dee9",
     "feed.you": "#88c0d0 bold",
     "feed.argus": "#a3be8c",
@@ -81,16 +85,25 @@ def run_manager_tui(mem: Any, chat_state: dict, global_root: Any) -> int:
     from . import repl as _repl
 
     life_dir = _repl._life_dir_for(mem)
+    # Full event text in the ACTIVITY pane (no 220-char clip) — the pane wraps.
+    os.environ.setdefault("ARGUS_SKILL_FOLLOW_FULL", "1")
     feed: list[tuple[str, str]] = []  # (style_class, text)
     spin = {"i": 0, "stage": "idle", "act": "", "cost": chat_state.get("last_cost_usd"),
             "busy": ""}
     hdr = {"ts": 0.0, "daemon": "○ no daemon", "on": False, "pend": 0}
+    # ACTIVITY scroll: ``off`` = lines scrolled up from the bottom (0 = following
+    # the live tail). PageUp pauses follow; PageDown / End resume it.
+    view = {"off": 0}
     stop = threading.Event()
 
     def push(text: str, style: str = "class:feed") -> None:
-        for ln in str(text).splitlines() or [""]:
-            feed.append((style, ln))
-        del feed[:-2000]
+        lines = str(text).splitlines() or [""]
+        feed.extend((style, ln) for ln in lines)
+        del feed[:-4000]
+        # If the operator is scrolled up reading history, keep their view anchored
+        # (don't yank to the bottom) by advancing the offset past the new lines.
+        if view["off"] > 0:
+            view["off"] += len(lines)
 
     def invalidate() -> None:
         try:
@@ -137,25 +150,45 @@ def run_manager_tui(mem: Any, chat_state: dict, global_root: Any) -> int:
         ]
 
     def tasks_text() -> Any:
-        out: list[tuple[str, str]] = []
+        """Left pane: current + pending + recent finished tasks with status."""
+        _ICON = {"running": ("class:task.run", "◐"), "pending": ("class:task.pend", "○"),
+                 "done": ("class:task.done", "✓"), "failed": ("class:task.fail", "✗"),
+                 "blocked": ("class:task.fail", "⊘")}
         try:
-            items = (mem.backlog.pending() or [])[:16]
+            items = list(mem.backlog.all()) if hasattr(mem, "backlog") else []
         except Exception:  # noqa: BLE001
             items = []
         if not items:
-            return [("class:task.body", " (no pending tasks)")]
-        for it in items:
-            out.append(("class:task.id", f" {it.id[:6]} "))
-            out.append(("class:task.body", f"{it.objective[:26]}\n"))
-        return out
+            return [("class:task.body", " (no tasks yet)")]
+        running = [it for it in items if getattr(it, "status", "") == "running"]
+        pending = [it for it in items if getattr(it, "status", "") == "pending"]
+        done = [it for it in items if getattr(it, "status", "") in ("done", "failed", "blocked")]
+        done = sorted(done, key=lambda it: getattr(it, "finished_ts", 0) or 0, reverse=True)[:10]
+        out: list[tuple[str, str]] = []
+        for label, group in (("NOW", running), ("QUEUE", pending), ("HISTORY", done)):
+            if not group:
+                continue
+            out.append(("class:frame.label", f" {label}\n"))
+            for it in group[:16]:
+                sc, ic = _ICON.get(getattr(it, "status", ""), ("class:task.pend", "·"))
+                out.append((sc, f" {ic} "))
+                obj = " ".join(str(getattr(it, "objective", "")).split())
+                out.append(("class:task.body", f"{obj[:24]}\n"))
+        return out or [("class:task.body", " (no tasks yet)")]
 
     def feed_text() -> Any:
-        frags: list[tuple[str, str]] = [(s, t + "\n") for s, t in feed[-1000:]]
-        # Pin the viewport to the BOTTOM: a FormattedTextControl anchors to the
-        # top and clips, so a growing log gets stuck on the first screen. The
-        # ``[SetCursorPosition]`` marker fragment tells the Window where the
-        # cursor is; the Window scrolls to keep it visible → always tail.
-        frags.append(("[SetCursorPosition]", ""))
+        lines = feed[-4000:]
+        n = len(lines)
+        frags: list[tuple[str, str]] = []
+        # The cursor marker drives the Window's scroll: at the last line when
+        # following (off=0 → bottom), or ``off`` lines up when paused.
+        cursor_at = max(0, n - 1 - max(0, view["off"]))
+        for i, (s, t) in enumerate(lines):
+            if i == cursor_at:
+                frags.append(("[SetCursorPosition]", ""))
+            frags.append((s, t + "\n"))
+        if not lines:
+            frags.append(("[SetCursorPosition]", ""))
         return frags
 
     # ---- background events tail → invalidate on new lines ---------------
@@ -275,11 +308,26 @@ def run_manager_tui(mem: Any, chat_state: dict, global_root: Any) -> int:
         stop.set()
         ev.app.exit(0)
 
+    # ACTIVITY scroll: PageUp pauses the live tail and scrolls back through
+    # history; PageDown scrolls toward the bottom; End jumps back to following.
+    @kb.add("pageup")
+    def _(ev) -> None:
+        view["off"] = min(view["off"] + 10, max(0, len(feed) - 1))
+
+    @kb.add("pagedown")
+    def _(ev) -> None:
+        view["off"] = max(view["off"] - 10, 0)
+
+    @kb.add("end")
+    @kb.add("c-e")
+    def _(ev) -> None:
+        view["off"] = 0  # resume following the live tail
+
     body = VSplit([
         Frame(Window(FormattedTextControl(tasks_text), wrap_lines=True),
-              title="TASKS", width=D(min=20, weight=1)),
+              title="TASKS", width=D(min=22, weight=1)),
         Frame(Window(FormattedTextControl(feed_text), wrap_lines=True),
-              title="ACTIVITY", width=D(weight=3)),
+              title="ACTIVITY  ·  PgUp/PgDn scroll · End follow", width=D(weight=3)),
     ])
     root = HSplit([
         Window(FormattedTextControl(header), height=1, style="class:status"),
