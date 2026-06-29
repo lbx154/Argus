@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -136,8 +137,34 @@ def cmd_claim(a: argparse.Namespace) -> int:
     return 0
 
 
+def _live_member_ids(root: Path) -> set[str]:
+    """Member ids whose teammate_entry process is alive for THIS root, so a
+    reassign never resets a still-running teammate's task on a merely-stalled
+    heartbeat (the live-owner guard reassign_stale exists for is otherwise inert
+    on this CLI path). Best-effort: any discovery error → empty set."""
+    try:
+        out = subprocess.run(
+            ["pgrep", "-af", "argus_skill.team.teammate_entry"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout
+    except Exception:  # noqa: BLE001 — discovery is best-effort, never block reassign
+        return set()
+    rootstr = str(root)
+    ids: set[str] = set()
+    for line in out.splitlines():
+        if f"--root {rootstr}" not in line:
+            continue
+        m = re.search(r"--member-id (\S+)", line)
+        if m:
+            ids.add(m.group(1))
+    return ids
+
+
 def cmd_reassign(a: argparse.Namespace) -> int:
-    ids = task_board.reassign_stale(Path(a.root), ttl=a.ttl, now=time.time())
+    ids = task_board.reassign_stale(
+        Path(a.root), ttl=a.ttl, now=time.time(),
+        live_owners=_live_member_ids(Path(a.root)),
+    )
     print(json.dumps({"reassigned": ids}))
     return 0
 

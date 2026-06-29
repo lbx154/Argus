@@ -57,6 +57,19 @@ def test_claim_and_reassign_cli(tmp_path: Path, capsys) -> None:
     assert json.loads(out)["reassigned"] == ["k0"]
 
 
+def test_reassign_skips_live_owner_cli(tmp_path: Path, capsys, monkeypatch) -> None:
+    # A teammate whose process is still alive must NOT have its (stale-heartbeat)
+    # task reset out from under it -- only the dead owner's task is reassigned.
+    from argus_skill.team import task_board as tb
+    root = tmp_path / ".argus_team" / "t1"
+    tb.form(root, [{"task_id": "k0", "objective": "x"}, {"task_id": "k1", "objective": "y"}])
+    tb.claim_specific(root, "k0", "alive", now=1.0); tb.heartbeat(root, "k0", now=1.0)
+    tb.claim_specific(root, "k1", "dead", now=1.0); tb.heartbeat(root, "k1", now=1.0)
+    monkeypatch.setattr(team, "_live_member_ids", lambda r: {"alive"})
+    rc, out = _call(capsys, "reassign", "--root", str(root), "--ttl", "-1")
+    assert json.loads(out)["reassigned"] == ["k1"]  # k0's live owner preserved
+
+
 def test_spawn_claims_specific_task_no_crossing(tmp_path: Path, capsys) -> None:
     # the M1 bug: parallel spawn claimed next-pending, crossing member IDs.
     root = tmp_path / ".argus_team" / "t1"
