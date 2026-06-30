@@ -212,6 +212,32 @@ class _ManagerSession:
                 pass
 
 
+def reset_manager_session(project_root: Path | str) -> bool:
+    """Drop the Manager's persistent codex session pointer at ``project_root``.
+
+    EN: A new daemon is a fresh isolation generation — it must NOT resume the
+    prior daemon's Manager conversation, which otherwise grows unbounded across
+    generations until codex auto-compaction. Stage truth lives in
+    ``research/PIPELINE_STATE.json``, so dropping the thread_id pointer loses
+    nothing load-bearing; the on-disk codex transcript stays auditable.
+    中文：新 daemon 是全新的隔离代际，绝不能 resume 上一个 daemon 的 Manager
+    会话（它会跨代际无界增长，直到 codex 有损压缩）。stage 真相在
+    ``research/PIPELINE_STATE.json`` 里，清掉 thread_id 指针不丢任何承重信息；
+    盘上的 codex transcript 不动，仍可审计。
+
+    Best-effort, never raises (boot must not be blocked). Returns True if a
+    session pointer existed. / 尽力而为、绝不抛异常（不能阻塞 daemon 启动）；
+    原本存在会话指针时返回 True。
+    """
+    session_path = Path(project_root) / _SESSION_FILE
+    try:
+        existed = session_path.exists()
+        session_path.unlink(missing_ok=True)
+        return existed
+    except Exception:  # noqa: BLE001 — best-effort; never block boot / 尽力而为，不阻塞启动
+        return False
+
+
 @dataclass
 class Division:
     """The Manager's verdict on how to divide a Task."""
