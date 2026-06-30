@@ -3443,6 +3443,23 @@ class LifeSupervisor:
                         if rendered_sb:
                             line += "\n" + rendered_sb
             lines.append(line)
+        # Self-evolution (过程数据 read-loop): surface RECURRING process lessons
+        # the reviewer flagged so the Planner can act on a SYSTEMIC process
+        # problem (re-scope missions / add guidance), deduped + highlighted out
+        # of the raw journal. Deliberately NOT injected into the per-round
+        # engineer prompt (that would be bloat); the Planner builds once per
+        # cycle, so this is cheap + high-signal. / 自进化：把 reviewer 标的复现
+        # 过程教训去重拎出来给 Planner 处理系统性问题；不塞进每轮 engineer prompt。
+        try:
+            from ..memory import process_lessons_from_journal
+
+            lessons = process_lessons_from_journal(self.memory.journal, limit=3)
+        except Exception:  # noqa: BLE001
+            lessons = []
+        if lessons:
+            lines.append("")
+            lines.append("## Recurring process lessons (act if systemic)")
+            lines.extend(f"- {ll}" for ll in lessons)
         return "\n".join(lines) or "(empty)"
 
     @staticmethod

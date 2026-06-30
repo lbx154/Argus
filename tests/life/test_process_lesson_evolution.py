@@ -83,3 +83,38 @@ def test_supervisor_journals_process_lesson_deduped(tmp_path: Path) -> None:
                if getattr(e, "kind", "") == "self_evolve.process_lesson"]
     assert len(entries) == 1  # deduped, empty skipped
     assert entries[0].extra["lesson"] == "freeze the floor"
+
+
+def test_planner_render_surfaces_recurring_process_lessons(tmp_path: Path) -> None:
+    """Self-evolution READ-loop closure (过程数据): the Planner's journal render
+    highlights the deduped recurring process lessons so a systemic process
+    problem gets acted on — WITHOUT bloating the per-round engineer prelude."""
+    mem, sup = _sup(tmp_path)
+    item = BacklogItem.new(title="t", objective="o")
+    sup._maybe_journal_process_lesson(
+        item, _Outcome(process_lesson="measure before claiming a speedup"))
+    rendered = sup._render_journal_for_planner()
+    assert "Recurring process lessons" in rendered
+    assert "measure before claiming a speedup" in rendered
+
+    # The engineer memory prelude is still NOT bloated with it (rejected path).
+    pre_mem = MemoryBundle.for_cwd(tempfile.mkdtemp())
+    pre_mem.init()
+    pre_mem.project.memory.append(JournalEntry.new(
+        kind="self_evolve.process_lesson", title="p", summary="x",
+        extra={"lesson": "measure before claiming a speedup"}))
+    assert "measure before claiming a speedup" not in pre_mem.render_prelude(objective="o")
+
+
+def test_process_lessons_from_journal_helper_dedup() -> None:
+    # The shared helper both consumers use: newest-first, deduped, fail-soft.
+    from argus_skill.life.memory import process_lessons_from_journal
+
+    m = MemoryBundle.for_cwd(tempfile.mkdtemp())
+    m.init()
+    for lesson in ["a", "a", "b"]:
+        m.project.memory.append(JournalEntry.new(
+            kind="self_evolve.process_lesson", title="p", summary=lesson,
+            extra={"lesson": lesson}))
+    assert process_lessons_from_journal(m.project.memory, limit=3) == ["b", "a"]
+    assert m.project.recent_process_lessons(limit=3) == ["b", "a"]  # delegates

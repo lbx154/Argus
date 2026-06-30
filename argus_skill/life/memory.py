@@ -1273,27 +1273,45 @@ class ProjectMemory:
         )
 
     def recent_process_lessons(self, *, limit: int = 3) -> list[str]:
-        """Recent distinct reviewer-judged PROCESS lessons for this project — the
-        self-evolution signal the supervisor journals as
-        ``self_evolve.process_lesson``. Surfaced UNCONDITIONALLY in the prelude
-        (not relevance-gated) so the agent always carries forward how to work
-        better. Newest first, deduped. Fail-soft to []."""
-        try:
-            out: list[str] = []
-            seen: set[str] = set()
-            for e in reversed(self.memory.all()):
-                if getattr(e, "kind", "") != "self_evolve.process_lesson":
-                    continue
-                lesson = str((e.extra or {}).get("lesson", "")).strip()
-                key = lesson[:120].lower()
-                if lesson and key not in seen:
-                    seen.add(key)
-                    out.append(lesson)
-                if len(out) >= max(1, limit):
-                    break
-            return out
-        except Exception:  # noqa: BLE001
-            return []
+        """Recent distinct reviewer-judged PROCESS lessons for this project.
+
+        EN: Journaled as ``self_evolve.process_lesson``. The Planner surfaces the
+        RECURRING ones (see ``LifeSupervisor._render_journal_for_planner``) so a
+        systemic process problem gets acted on. Deliberately NOT force-injected
+        into the engineer prelude — that would be per-round prompt bloat.
+        中文：以 ``self_evolve.process_lesson`` 落库；由 Planner 把复现的拎出来
+        处理系统性过程问题（见 ``_render_journal_for_planner``），故意不塞进
+        engineer prelude（每轮膨胀）。最新在前、去重、失败返回 []。
+        """
+        return process_lessons_from_journal(self.memory, limit=limit)
+
+
+def process_lessons_from_journal(journal: Journal, *, limit: int = 3) -> list[str]:
+    """Recent distinct ``self_evolve.process_lesson`` lessons from a journal.
+
+    EN: Newest first, deduped (first 120 chars, case-folded), fail-soft to [].
+    Shared by ``ProjectMemory.recent_process_lessons`` and the Planner journal
+    render so both read the self-evolution PROCESS signal the same way.
+    中文：从 journal 取最近、去重（前 120 字、忽略大小写）的过程教训，最新在前、
+    失败返回 []；供 ``ProjectMemory.recent_process_lessons`` 与 Planner journal
+    渲染共用，统一读取自进化过程信号。
+    """
+    try:
+        out: list[str] = []
+        seen: set[str] = set()
+        for e in reversed(journal.all()):
+            if getattr(e, "kind", "") != "self_evolve.process_lesson":
+                continue
+            lesson = str((getattr(e, "extra", None) or {}).get("lesson", "")).strip()
+            key = lesson[:120].lower()
+            if lesson and key not in seen:
+                seen.add(key)
+                out.append(lesson)
+            if len(out) >= max(1, limit):
+                break
+        return out
+    except Exception:  # noqa: BLE001
+        return []
 
 
 @dataclass
