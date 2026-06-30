@@ -281,7 +281,6 @@ class Reviewer:
         config: ReviewerConfig,
         planner_review_instruction: str = "",
         active_skill_id: str | None = None,
-        engineer_reasoning_summary: str = "",
         prev_review_summary: str = "",
         raw_evidence: str = "",
         scope: str = "",
@@ -328,7 +327,6 @@ class Reviewer:
             main_error=main_error,
             checks=checks,
             active_skill_id=active_skill_id,
-            engineer_reasoning_summary=engineer_reasoning_summary,
             prev_review_summary=prev_review_summary,
             raw_evidence=raw_evidence,
             scope=scope,
@@ -441,7 +439,6 @@ class Reviewer:
         main_error: str | None,
         checks: list[CheckResult],
         active_skill_id: str | None = None,
-        engineer_reasoning_summary: str = "",
         prev_review_summary: str = "",
         raw_evidence: str = "",
         scope: str = "",
@@ -659,7 +656,6 @@ class Reviewer:
         )
         shared_context_block = _format_engineer_shared_context(
             skill_used=active_skill_id,
-            engineer_reasoning_summary=engineer_reasoning_summary,
             prev_review_summary=prev_review_summary,
         )
         # v12 phase-4: when callers (e.g. harbor_adapter) collect richer
@@ -1252,27 +1248,26 @@ _MAX_SHARED_CTX_CHARS = 100_000_000  # effectively no cap: reviewer must see the
 def _format_engineer_shared_context(
     *,
     skill_used: str | None,
-    engineer_reasoning_summary: str,
     prev_review_summary: str,
 ) -> str:
     """Render the read-only shared context block injected into reviewer prompts.
 
     Keep this renderer stable because the same block is consumed across
     engineer/reviewer round boundaries.
+
+    The engineer's final message is rendered exactly once, under "Main agent
+    last summary"; its full reasoning/process is available to the reviewer via
+    the ``engineer_log_path`` audit block. We therefore do NOT echo a separate
+    ``engineer_reasoning_summary`` here — the sole caller fed it the same string
+    as ``main_summary``, so it only duplicated input tokens every reviewer round.
     """
     skill = (skill_used or "").strip()
-    reasoning = (engineer_reasoning_summary or "").strip()
     prev = (prev_review_summary or "").strip()
-    if not skill and not reasoning and not prev:
+    if not skill and not prev:
         return ""
     parts = ["Shared read-only context (do NOT modify; advisory only):"]
     if skill:
         parts.append(f"- skill_used: {skill}")
-    if reasoning:
-        if len(reasoning) > _MAX_SHARED_CTX_CHARS:
-            reasoning = reasoning[:_MAX_SHARED_CTX_CHARS].rstrip() + "..."
-        indented = "\n".join("    " + line for line in reasoning.splitlines())
-        parts.append("- engineer_reasoning_summary:\n" + indented)
     if prev:
         if len(prev) > _MAX_SHARED_CTX_CHARS:
             prev = prev[:_MAX_SHARED_CTX_CHARS].rstrip() + "..."

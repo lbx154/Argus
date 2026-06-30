@@ -1235,6 +1235,9 @@ class SupervisedEngineer:
                     supervised_config.check_commands,
                     timeout_seconds=supervised_config.check_timeout_seconds,
                     cwd=str(workdir),
+                    artifacts_dir=(
+                        workdir / ".argus" / "checks" / f"round-{round_index}"
+                    ),
                 )
                 if on_event:
                     on_event({
@@ -1288,48 +1291,57 @@ class SupervisedEngineer:
                             "escalate external blockers to `blocked`"
                         ),
                     })
-            try:
-                review = self.reviewer.evaluate(
-                    objective=objective,
-                    original_objective=original_objective or objective,
-                    round_index=round_index,
-                    session_id=supervised_config.session_id,
-                    main_summary=engineer_message or "(no message)",
-                    main_error=engineer_result.fatal_error,
-                    checks=checks_results,
-                    config=self.reviewer_config,
-                    engineer_reasoning_summary=engineer_message or "",
-                    prev_review_summary=prev_review_summary,
-                    scope=scope,
-                    prior_checkpoint=checkpoint.to_dict(),
-                    background_context=background_advisory,
-                    escalate_hint=escalate_hint,
-                    engineer_log_path=supervised_config.engineer_log_path,
-                )
-            except Exception as exc:  # noqa: BLE001
-                msg = f"reviewer raised {type(exc).__name__}: {exc}"
-                log.exception("reviewer raised during supervised round")
-                review = ReviewDecision(
-                    status="blocked",
-                    reason=msg,
-                    next_action="Resolve the reviewer runner failure before retrying.",
-                    round_summary_markdown=f"# Review Summary\n\n- {msg}\n",
-                    completion_summary_markdown="",
-                    failure_cause="environmental",
-                    backend_unavailable=True,
-                )
-            review = _coerce_review_for_failed_checks(review, checks_results)
-            # Reviewer backend death (codex subprocess died / output-schema
-            # missing / runner raised) renders NO verdict. It must NEVER be
-            # laundered into a silent "continue": on 2026-06-25 a stale
-            # import-time schema path made every reviewer round exit 1, and the
-            # loop ran the sole completion gate BLIND for ~1.5h. Route it through
-            # the SAME transient-backoff + escalate-to-error machinery the
-            # engineer backend-failure path uses. ``backend_unavailable`` is an
-            # explicit infra-death marker — distinct from a genuine
-            # ``status="blocked"`` verdict (e.g. "blocked on GPU quota"), which
-            # is a real model judgment and is handled normally by ``_classify``.
-            if getattr(review, "backend_unavailable", False):
+            # Evaluate the reviewer, retrying ONLY the reviewer on an infra flake.
+            # The engineer's output for THIS round is already valid and in hand, so
+            # a reviewer subprocess crash / 429 / missing-output-schema must retry
+            # the (cheap) reviewer leg — NOT discard the round and re-run the
+            # (xhigh) engineer turn. We leave this inner loop with a real verdict,
+            # or by failing loud once the reviewer-backend streak hits threshold.
+            while True:
+                try:
+                    review = self.reviewer.evaluate(
+                        objective=objective,
+                        original_objective=original_objective or objective,
+                        round_index=round_index,
+                        session_id=supervised_config.session_id,
+                        main_summary=engineer_message or "(no message)",
+                        main_error=engineer_result.fatal_error,
+                        checks=checks_results,
+                        config=self.reviewer_config,
+                        prev_review_summary=prev_review_summary,
+                        scope=scope,
+                        prior_checkpoint=checkpoint.to_dict(),
+                        background_context=background_advisory,
+                        escalate_hint=escalate_hint,
+                        engineer_log_path=supervised_config.engineer_log_path,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    msg = f"reviewer raised {type(exc).__name__}: {exc}"
+                    log.exception("reviewer raised during supervised round")
+                    review = ReviewDecision(
+                        status="blocked",
+                        reason=msg,
+                        next_action="Resolve the reviewer runner failure before retrying.",
+                        round_summary_markdown=f"# Review Summary\n\n- {msg}\n",
+                        completion_summary_markdown="",
+                        failure_cause="environmental",
+                        backend_unavailable=True,
+                    )
+                review = _coerce_review_for_failed_checks(review, checks_results)
+                # Reviewer backend death (codex subprocess died / output-schema
+                # missing / runner raised) renders NO verdict. It must NEVER be
+                # laundered into a silent "continue": on 2026-06-25 a stale
+                # import-time schema path made every reviewer round exit 1, and the
+                # loop ran the sole completion gate BLIND for ~1.5h. Route it through
+                # the SAME transient-backoff + escalate-to-error machinery the
+                # engineer backend-failure path uses. ``backend_unavailable`` is an
+                # explicit infra-death marker — distinct from a genuine
+                # ``status="blocked"`` verdict (e.g. "blocked on GPU quota"), which
+                # is a real model judgment and is handled normally by ``_classify``.
+                if not getattr(review, "backend_unavailable", False):
+                    # A real reviewer verdict arrived — leave the retry loop and
+                    # handle it on the normal path below.
+                    break
                 reviewer_backend_failure_streak += 1
                 rb_threshold = max(
                     1, int(supervised_config.backend_failure_threshold or 1)
@@ -1359,18 +1371,20 @@ class SupervisedEngineer:
                             + review.reason
                         ),
                     })
-                rounds.append(RoundRecord(
-                    round_index=round_index,
-                    engineer_message=engineer_message,
-                    engineer_exit_code=engineer_result.exit_code,
-                    checks=checks_results,
-                    review=review,
-                    fatal_error=engineer_result.fatal_error,
-                ))
                 if (
                     reviewer_backend_failure_streak >= rb_threshold
                     or round_index >= supervised_config.max_rounds
                 ):
+                    # Failing loud: record this round (with the in-hand engineer
+                    # output) and stop — do not run the completion gate blind.
+                    rounds.append(RoundRecord(
+                        round_index=round_index,
+                        engineer_message=engineer_message,
+                        engineer_exit_code=engineer_result.exit_code,
+                        checks=checks_results,
+                        review=review,
+                        fatal_error=engineer_result.fatal_error,
+                    ))
                     return (
                         "error",
                         rounds,
@@ -1378,7 +1392,7 @@ class SupervisedEngineer:
                         (
                             "Reviewer backend unavailable for "
                             f"{reviewer_backend_failure_streak} consecutive "
-                            "round(s); failing loud rather than running the "
+                            "attempt(s); failing loud rather than running the "
                             "completion gate without a real review. "
                             + review.reason
                         ),
@@ -1401,7 +1415,8 @@ class SupervisedEngineer:
                             ),
                         })
                     time.sleep(backoff_seconds)
-                last_next_action = review.next_action
+                # Retry ONLY the reviewer against the SAME engineer output — do
+                # not fall through to a fresh (xhigh) engineer turn.
                 continue
             # A real reviewer verdict arrived — reset the reviewer-backend streak.
             reviewer_backend_failure_streak = 0
@@ -1763,7 +1778,7 @@ def _fallback_failed_check_handoff(checks: list[CheckResult]) -> str:
     return "\n".join(fallback_lines)
 
 
-def failed_check_diagnostics(checks: list[CheckResult], *, max_chars: int = 100_000_000) -> str:
+def failed_check_diagnostics(checks: list[CheckResult], *, max_chars: int = 24_000) -> str:
     """The engineer's STRUCTURED ERROR-FEEDBACK channel.
 
     The reviewer's ``next_action`` is a paraphrase; on its own the engineer never
@@ -1774,22 +1789,31 @@ def failed_check_diagnostics(checks: list[CheckResult], *, max_chars: int = 100_
     guess-and-revert loops. This surfaces the actual output of every failing check
     so the next engineer turn can fix the root cause instead of re-deriving it.
 
-    Returns "" when nothing failed. NO truncation: the engineer gets the FULL
-    failing-check output — a clipped nvcc/CUTLASS error or traceback is exactly
-    what forces blind guess-and-revert. The bound is effectively unbounded.
+    Returns "" when nothing failed. When a check's full output was persisted to
+    disk (``output_path``), this emits ONLY the absolute path and a grep hint —
+    codex reads the file on demand instead of paying to re-ingest the whole log
+    every round. When there is no persisted log (no workdir), it falls back to an
+    inline, budget-bounded tail of the output so the error is never lost.
     """
     failed = [c for c in checks if not c.passed]
     if not failed:
         return ""
     parts = [
         "## Acceptance-check output — the REAL error, fix THIS (do not guess or just retry)",
-        "These acceptance commands FAILED this round. Their literal output below is the "
+        "These acceptance commands FAILED this round. Their literal output is the "
         "ground truth for what is wrong. Read it, find the root cause, and fix it.",
     ]
     budget = max(400, int(max_chars))
     truncated = False
     for check in failed:
         parts.append(f"$ {check.command}   (exit={check.exit_code})")
+        if check.output_path:
+            # Full log on disk — hand codex the path, not the blob.
+            parts.append(
+                f"full log: {check.output_path}  "
+                "(grep/sed/less this file for the complete output)"
+            )
+            continue
         tail = (check.output_tail or "").strip()
         if not tail:
             continue

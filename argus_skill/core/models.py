@@ -89,6 +89,12 @@ class CheckResult:
     exit_code: int
     passed: bool
     output_tail: str
+    # Absolute path to the failing check's FULL output on disk (written under
+    # ``<workdir>/.argus/checks/round-<n>/``). When set, prompts carry only this
+    # path — codex greps/seds the file — instead of inlining the (potentially
+    # MB-scale) log. Empty when the check passed or no workdir was available to
+    # persist a log, in which case a bounded head+tail window is inlined.
+    output_path: str = ""
 
 
 @dataclass

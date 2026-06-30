@@ -22,8 +22,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from argus_skill.core.models import ReviewDecision, RunnerResult
 from argus_skill.engineer.runner import (
     EngineerConfig,
@@ -116,10 +114,14 @@ def test_empty_clean_output_stays_continue() -> None:
 class _HealthyEngineerRunner:
     """Engineer always succeeds, so each round reaches the reviewer call."""
 
+    def __init__(self) -> None:
+        self.calls = 0
+
     def run_exec(self, **_kwargs):
+        self.calls += 1
         return RunnerResult(
             exit_code=0,
-            agent_messages=["implemented the next increment"],
+            agent_messages=[f"implemented increment #{self.calls}"],
             thread_id="t1",
             fatal_error=None,
         )
@@ -147,9 +149,11 @@ class _DeadBackendReviewer:
 
 def test_loop_escalates_to_error_on_reviewer_backend_death(tmp_path: Path) -> None:
     events: list[dict] = []
+    engineer = _HealthyEngineerRunner()
+    reviewer = _DeadBackendReviewer()
     engine = SupervisedEngineer(
-        engineer_runner=_HealthyEngineerRunner(),
-        reviewer=_DeadBackendReviewer(),
+        engineer_runner=engineer,
+        reviewer=reviewer,
         engineer_config=EngineerConfig(model="gpt-5.5"),
         reviewer_config=ReviewerConfig(model="gpt-5.5"),
     )
@@ -170,7 +174,12 @@ def test_loop_escalates_to_error_on_reviewer_backend_death(tmp_path: Path) -> No
 
     # Must FAIL LOUD at the threshold — never run blind to max_rounds.
     assert status == "error"
-    assert len(rounds) == 2  # stopped exactly at backend_failure_threshold
+    # F8: the reviewer flake retries the REVIEWER in place — it must NOT re-run
+    # the (xhigh) engineer turn. So the engineer ran once, the reviewer twice,
+    # and only ONE round record was banked (not one per reviewer flake).
+    assert engineer.calls == 1
+    assert reviewer.calls == 2  # retried up to backend_failure_threshold
+    assert len(rounds) == 1
     assert "reviewer backend unavailable" in reason.lower()
 
     alerts = [e for e in events if e.get("type") == "round.reviewer_backend_failure"]
@@ -213,9 +222,11 @@ def test_loop_recovers_when_reviewer_backend_comes_back(tmp_path: Path) -> None:
                 next_action="none",
             )
 
+    engineer = _HealthyEngineerRunner()
+    reviewer = _FlakyThenDoneReviewer()
     engine = SupervisedEngineer(
-        engineer_runner=_HealthyEngineerRunner(),
-        reviewer=_FlakyThenDoneReviewer(),
+        engineer_runner=engineer,
+        reviewer=reviewer,
         engineer_config=EngineerConfig(model="gpt-5.5"),
         reviewer_config=ReviewerConfig(model="gpt-5.5"),
     )
@@ -234,5 +245,58 @@ def test_loop_recovers_when_reviewer_backend_comes_back(tmp_path: Path) -> None:
         on_event=events.append,
     )
     assert status == "done"
-    # round 1 = transient blip (retry), round 2 = real done verdict.
-    assert len(rounds) == 2
+    # F8: the transient reviewer blip retried the REVIEWER in place; the engineer
+    # ran exactly once and its single output was reused for the real verdict.
+    assert engineer.calls == 1
+    assert reviewer.calls == 2  # blip, then the real "done" verdict
+    assert len(rounds) == 1
+
+
+def test_reviewer_flake_does_not_rerun_engineer(tmp_path: Path) -> None:
+    # The exact F8 contract: a reviewer infra flake reuses the engineer output
+    # already in hand; the round record stores that ONE engineer turn's message,
+    # never a second (xhigh) engineer turn's output.
+    class _FlakyThenContinueReviewer:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def evaluate(self, **_kwargs) -> ReviewDecision:
+            self.calls += 1
+            if self.calls == 1:
+                return ReviewDecision(
+                    status="blocked",
+                    reason="transient backend blip",
+                    next_action="retry",
+                    failure_cause="environmental",
+                    backend_unavailable=True,
+                )
+            return ReviewDecision(status="done", reason="ok", next_action="none")
+
+    engineer = _HealthyEngineerRunner()
+    reviewer = _FlakyThenContinueReviewer()
+    engine = SupervisedEngineer(
+        engineer_runner=engineer,
+        reviewer=reviewer,
+        engineer_config=EngineerConfig(model="gpt-5.5"),
+        reviewer_config=ReviewerConfig(model="gpt-5.5"),
+    )
+    config = SupervisedConfig(
+        max_rounds=10,
+        backend_failure_threshold=2,
+        backend_failure_backoff_seconds=0.0,
+        effective_progress_timeout_seconds=0,
+        background_subagent_advisory=False,
+    )
+    status, rounds, _final_msg, _reason, _tid = engine.run(
+        objective="minimize val_bpb",
+        engineer_prompt_builder=lambda _next_action: "do the next increment",
+        supervised_config=config,
+        workdir=tmp_path,
+        on_event=lambda _e: None,
+    )
+    assert status == "done"
+    assert engineer.calls == 1  # NOT re-run for the reviewer flake
+    assert len(rounds) == 1
+    # The single engineer turn's output (#1) is what got reviewed — not a
+    # discarded-and-regenerated second turn.
+    assert "increment #1" in rounds[0].engineer_message

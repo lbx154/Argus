@@ -20,6 +20,8 @@ htmlcov/
 /skills/
 .argus-skill/
 .argus_subagents/
+# per-round failing-check logs (give-access artifacts, never benchmark evidence)
+.argus/
 
 # scratch
 benchmarks/results/
