@@ -1167,6 +1167,9 @@ def test_chat_reply_if_conversational_true_emits_chat(
         def is_conversational(self, text: str, *, run_exec: Any = None) -> bool:
             return True
 
+        def route(self, text: str, *, run_exec: Any = None) -> str:
+            return "chat"
+
     # The runner now holds the ONE Manager instance; route through it.
     runner.manager = _FakeManager()
 
@@ -1201,6 +1204,9 @@ def test_maybe_chat_outcome_false_returns_none(
 
         def is_conversational(self, text: str, *, run_exec: Any = None) -> bool:
             return False
+
+        def route(self, text: str, *, run_exec: Any = None) -> str:
+            return "complex"
 
     # The runner now holds the ONE Manager instance; route through it.
     runner.manager = _FakeManager()

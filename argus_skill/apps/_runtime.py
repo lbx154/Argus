@@ -969,19 +969,6 @@ class _SkillLoopRunner:
         seed_thread_id: str | None = None,
         scope: str = "",
     ) -> _Outcome:
-        # Bounded status/history safety valve: if an operator asks "what did the
-        # previous task do?" and that line has already reached the bounded
-        # backlog, answer it as a one-shot local status query. Without this
-        # guard, the item inherits the current repo's paper-analysis stage gate.
-        from ..life.router import is_bounded_status_history_question
-
-        if is_bounded_status_history_question(objective, scope):
-            return self._simple_quick_reply(
-                objective=objective,
-                sink=sink,
-                seed_thread_id=seed_thread_id,
-            )
-
         # Chat fast-path (operator-REPL-only; gated by _allow_chat_fast_path).
         # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
         # only gate it so the 7×24 daemon (``_allow_chat_fast_path=False``) does
@@ -1665,7 +1652,6 @@ def _repl_check_commands_for_open_ended(
     return _apply_bounded_to_check_commands(
         commands,
         bounded=not open_ended,
-        objective=objective,
     )
 
 
