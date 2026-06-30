@@ -861,6 +861,40 @@ class LifeSupervisor:
 
     _MINT_SKILL_TAG = "mint-skill"  # back-compat: tests import this
 
+    def _maybe_journal_process_lesson(
+        self, item: BacklogItem, outcome: Any
+    ) -> None:
+        """Close the self-evolution loop on PROCESS data ("过程数据").
+
+        The reviewer judges a reusable PROCESS lesson every mission (how the
+        agent worked, where it wasted/repeated rounds, a workaround that helped),
+        but it was WRITE-ONLY — produced and never consumed. Persist it as a
+        ``self_evolve.process_lesson`` journal entry (deduped against the recent
+        window) so future missions can learn from accumulated process data via
+        the prelude. Fail-soft: a self-evolve issue must never break the tick.
+        """
+        lesson = str(getattr(outcome, "process_lesson", "") or "").strip()
+        if not lesson:
+            return
+        try:
+            key = lesson[:160].lower()
+            recent = self.memory.journal.all()[-200:]
+            for e in recent:
+                if (getattr(e, "kind", "") == "self_evolve.process_lesson"
+                        and str(e.extra.get("lesson", ""))[:160].lower() == key):
+                    return  # already surfaced recently — don't spam
+            entry = JournalEntry.new(
+                kind="self_evolve.process_lesson",
+                title="process lesson",
+                summary=lesson[:200],
+                tags=["self_evolve", "process_lesson"],
+                extra={"lesson": lesson, "item_id": item.id},
+            )
+            self.memory.journal.append(entry)
+            self._inject_cumulative_cost(entry)
+        except Exception:  # noqa: BLE001 — never block completion on self-evolve
+            log.exception("process-lesson journaling failed; continuing")
+
     def _maybe_journal_self_evolve_advisory(
         self, item: BacklogItem, result: dict[str, Any] | None
     ) -> list[str]:
@@ -1563,6 +1597,7 @@ class LifeSupervisor:
             },
         )
         self.memory.journal.append(entry)
+        self._maybe_journal_process_lesson(item, outcome)
         self._persist_final_submission_cert_if_needed(entry)
         self._inject_cumulative_cost(entry)
         try:

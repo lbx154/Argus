@@ -1272,6 +1272,29 @@ class ProjectMemory:
             recency_n=recency_n,
         )
 
+    def recent_process_lessons(self, *, limit: int = 3) -> list[str]:
+        """Recent distinct reviewer-judged PROCESS lessons for this project — the
+        self-evolution signal the supervisor journals as
+        ``self_evolve.process_lesson``. Surfaced UNCONDITIONALLY in the prelude
+        (not relevance-gated) so the agent always carries forward how to work
+        better. Newest first, deduped. Fail-soft to []."""
+        try:
+            out: list[str] = []
+            seen: set[str] = set()
+            for e in reversed(self.memory.all()):
+                if getattr(e, "kind", "") != "self_evolve.process_lesson":
+                    continue
+                lesson = str((e.extra or {}).get("lesson", "")).strip()
+                key = lesson[:120].lower()
+                if lesson and key not in seen:
+                    seen.add(key)
+                    out.append(lesson)
+                if len(out) >= max(1, limit):
+                    break
+            return out
+        except Exception:  # noqa: BLE001
+            return []
+
 
 @dataclass
 class MemoryBundle:
@@ -1414,6 +1437,14 @@ class MemoryBundle:
                     f"- **{ts_iso} · {entry.title}** ({entry.kind}): "
                     f"{entry.summary}"
                 )
+        # Self-evolution: the agent's own accumulated PROCESS lessons (how to work
+        # better) — surfaced every mission so it stops repeating process mistakes.
+        process_lessons = self.project.recent_process_lessons(limit=3)
+        if process_lessons:
+            lines.append("")
+            lines.append("#### How to work better (your recent process lessons)")
+            for lesson in process_lessons:
+                lines.append(f"- {lesson[:400]}")
         return "\n".join(lines).strip() + "\n"
 
 

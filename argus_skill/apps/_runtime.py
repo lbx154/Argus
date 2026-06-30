@@ -257,6 +257,12 @@ class _Outcome:
     # no measured result or the reviewer omitted it. Shape: see
     # ``ReviewDecision.step_back``.
     step_back: dict | None = None
+    # Reviewer-judged reusable PROCESS lesson from the final round (the agent's
+    # own self-evolution signal — how it worked, where it wasted/repeated rounds,
+    # a workaround that helped). Distinct from the research METHOD. The supervisor
+    # journals this as ``self_evolve.process_lesson`` so future missions can learn
+    # from accumulated process data. Empty when the round had nothing reusable.
+    process_lesson: str = ""
     # The Manager's stage-transition verdict for this mission completion (the
     # Manager is the sole post-bootstrap writer of current_stage). Shape:
     # ``{"action": advance|hold|rollback, "target_stage", "reason",
@@ -939,12 +945,12 @@ class _SkillLoopRunner:
         sink: EventSink,
         seed_thread_id: str | None = None,
     ) -> bool:
-        """Front-end hook: classify + (if chat) reply in-band; return whether it was chat.
+        """Front-end hook: classify + (if chat/simple) reply in-band.
 
         Used by the Manager REPL front-end to triage free text BEFORE it ever
-        reaches the backlog. Returns True iff the input was conversational and a
-        chat reply was emitted to ``sink`` (so the caller can skip enqueueing);
-        False means "this is a task — enqueue it for the daemon".
+        reaches the backlog. Returns True iff a direct reply was emitted to
+        ``sink`` (so the caller can skip enqueueing); False means "this is
+        complex work — enqueue it for the daemon".
         """
         return self._maybe_chat_outcome(
             objective=objective,
@@ -963,11 +969,24 @@ class _SkillLoopRunner:
         seed_thread_id: str | None = None,
         scope: str = "",
     ) -> _Outcome:
+        # Bounded status/history safety valve: if an operator asks "what did the
+        # previous task do?" and that line has already reached the bounded
+        # backlog, answer it as a one-shot local status query. Without this
+        # guard, the item inherits the current repo's paper-analysis stage gate.
+        from ..life.router import is_bounded_status_history_question
+
+        if is_bounded_status_history_question(objective, scope):
+            return self._simple_quick_reply(
+                objective=objective,
+                sink=sink,
+                seed_thread_id=seed_thread_id,
+            )
+
         # Chat fast-path (operator-REPL-only; gated by _allow_chat_fast_path).
         # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
-        # only gate it so the 7×24 daemon (``_allow_chat_fast_path=False``) is
-        # never classified — agent-produced backlog work must not be second-
-        # guessed. Behaviour is byte-for-byte identical to the prior inline path.
+        # only gate it so the 7×24 daemon (``_allow_chat_fast_path=False``) does
+        # not classify arbitrary autonomous work — agent-produced backlog work
+        # must not be second-guessed.
         if self._allow_chat_fast_path:
             _chat = self._maybe_chat_outcome(
                 objective=objective,
@@ -1204,6 +1223,7 @@ class _SkillLoopRunner:
         planner_report: dict = {}
         checklist_feedback: dict = {}
         step_back: dict | None = None
+        process_lesson: str = ""
         rounds_list = getattr(outcome, "rounds", None) or []
         if rounds_list:
             _final_review = getattr(rounds_list[-1], "review", None)
@@ -1217,6 +1237,7 @@ class _SkillLoopRunner:
                 _sb = getattr(_final_review, "step_back", None)
                 if isinstance(_sb, dict) and _sb:
                     step_back = _sb
+                process_lesson = str(getattr(_final_review, "process_lesson", "") or "")
         if mission_scope == "final_submission":
             final_review = None
             if rounds_list:
@@ -1250,6 +1271,7 @@ class _SkillLoopRunner:
             planner_report=planner_report,
             checklist_feedback=checklist_feedback,
             step_back=step_back,
+            process_lesson=process_lesson,
             stage_transition=stage_transition,
         )
 
@@ -1435,8 +1457,9 @@ class _SkillLoopRunner:
         """SIMPLE one-shot: at most ONE skill match + ONE bounded codex turn with
         tools, then done. The lego block between CHAT (no tools) and COMPLEX (full
         pipeline): NO planner, NO iterative reviewer loop, NO skill writeback — the
-        operator verifies it. Only ever reached from operator-REPL input (gated by
-        ``_allow_chat_fast_path``), so autonomous work never lands here.
+        operator verifies it. Reached from operator-REPL input (gated by
+        ``_allow_chat_fast_path``) and from the narrow bounded status/history
+        backlog safety valve; autonomous build/optimization work never lands here.
         """
         from ..core.models import RunnerOptions
         from ..life.router import build_simple_prompt
@@ -1629,12 +1652,21 @@ def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = 
 # Supervisor driver (used by both `life run` and chat-mode free text)
 # ---------------------------------------------------------------------------
 
-def _repl_check_commands_for_open_ended(commands: list[str], *, open_ended: bool) -> list[str]:
+def _repl_check_commands_for_open_ended(
+    commands: list[str],
+    *,
+    open_ended: bool,
+    objective: str = "",
+) -> list[str]:
     from ..daemon.life_worker import _apply_bounded_to_check_commands
 
     # WHY M0.7: REPL-launched bounded missions share the same root cause as
     # daemon missions; stage_check must receive --bounded at acceptance time.
-    return _apply_bounded_to_check_commands(commands, bounded=not open_ended)
+    return _apply_bounded_to_check_commands(
+        commands,
+        bounded=not open_ended,
+        objective=objective,
+    )
 
 
 def _build_repl_supervisor_config(
@@ -1831,6 +1863,7 @@ def _invoke_supervisor(
     ns.check_commands = _repl_check_commands_for_open_ended(
         list(getattr(ns, "check_commands", []) or []),
         open_ended=open_ended,
+        objective=continuous_objective,
     )
 
     # Runtime context injected into every mission prelude so the agent
