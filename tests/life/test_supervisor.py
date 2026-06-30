@@ -116,3 +116,68 @@ def test_skill_miss_scientist_spend_is_journaled_and_budgeted(
     assert blocked["item_id"] == second.id
     assert "daily budget remaining" in blocked["reason"]
 
+
+# ---- F3: effective per-mission cap + mid-mission budget_exhausted pause -------
+
+
+def test_effective_per_mission_cap_clamps_to_smaller_of_item_and_global() -> None:
+    """The enforced cap is the smaller of the operator's per-item budget and the
+    global per-mission cap — one number for both preflight and the breaker."""
+    budget = LifeBudget(per_mission_cap_usd=30.0, daily_cap_usd=180.0)
+    cheap = BacklogItem.new(title="t", objective="o", max_cost_usd=10.0)
+    pricey = BacklogItem.new(title="t", objective="o", max_cost_usd=50.0)
+    assert budget.effective_per_mission_cap(cheap) == 10.0   # item budget binds
+    assert budget.effective_per_mission_cap(pricey) == 30.0  # global cap binds
+
+
+class _BudgetExhaustedRunner:
+    """A runner whose mission trips the mid-mission cost breaker — it returns a
+    ``budget_exhausted`` outcome (success=False), as ``LifeRuntime.execute`` does
+    when ``SupervisedEngineer.run`` stops on the per-mission cap."""
+
+    def execute(self, **kwargs: Any) -> _Outcome:
+        # The supervisor must hand us a live per-mission budget probe.
+        assert "per_mission_budget" in kwargs and kwargs["per_mission_budget"] is not None
+        return _Outcome(success=False, status="budget_exhausted", final_message="paused")
+
+
+def test_budget_exhausted_outcome_leaves_item_pending_and_journals_budget_pause(
+    tmp_path,
+) -> None:
+    mem = LifeMemory.open(tmp_path / "life")
+    sink = _RecordingSink()
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(per_mission_cap_usd=30.0, daily_cap_usd=180.0, max_missions=2),
+        poll_interval_seconds=0.01,
+    )
+    sup = LifeSupervisor(
+        memory=mem, runner=_BudgetExhaustedRunner(), sink=sink, config=cfg,
+    )
+
+    item = mem.backlog.add(BacklogItem.new(
+        title="long mission",
+        objective="something that overruns the per-mission cap",
+        max_cost_usd=30.0,
+    ))
+
+    result = sup.tick()
+
+    # Hard pause, NOT a completion — reviewer stays the sole done-ness authority.
+    assert result is not None
+    assert result["status"] == "budget_pause"
+    assert result["item_id"] == item.id
+    assert result.get("success") is not True
+    # Item rolled back to pending so the next tick resumes it from checkpoint.
+    rows = {row.id: row for row in mem.backlog.all()}
+    assert rows[item.id].status == "pending"
+    # Exactly one budget_pause journal entry; no mission_complete.
+    pauses = [e for e in mem.journal.all() if e.kind == "budget_pause"]
+    assert len(pauses) == 1
+    assert pauses[0].extra["item_id"] == item.id
+    assert pauses[0].extra["cap_usd"] == 30.0
+    assert not [e for e in mem.journal.all() if e.kind == "mission_complete"]
+    # A life.mission.completed event marks it as a non-success budget_pause.
+    completed = [e for e in sink.events if e.get("type") == "life.mission.completed"]
+    assert completed and completed[-1]["status"] == "budget_pause"
+    assert completed[-1]["success"] is False
+

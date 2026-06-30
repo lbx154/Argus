@@ -968,6 +968,7 @@ class _SkillLoopRunner:
         prelude_context: str = "",
         seed_thread_id: str | None = None,
         scope: str = "",
+        per_mission_budget: Any | None = None,
     ) -> _Outcome:
         # Chat fast-path (operator-REPL-only; gated by _allow_chat_fast_path).
         # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
@@ -1182,6 +1183,7 @@ class _SkillLoopRunner:
                 objective_for_skill=objective,
                 original_objective=original_objective or objective,
                 scope=mission_scope,
+                per_mission_budget=per_mission_budget,
             )
         finally:
             self._current_sink = None
@@ -1285,7 +1287,10 @@ class _SkillLoopRunner:
                 project_root=workdir,
                 runner=getattr(self, "manager_backend", None) or self._backend,
                 skill_store=getattr(self, "_manager_skill_store", None),
-            ).decide_stage_transition(review=final_review, project_root=workdir)
+            ).decide_stage_transition(
+                review=final_review, project_root=workdir,
+                on_event=sink.handle_event,
+            )
             decision = {
                 "action": st.action,
                 "target_stage": st.target_stage,

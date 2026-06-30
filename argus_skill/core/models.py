@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
 
 ReviewStatus = Literal["done", "continue", "blocked"]
-LoopStatus = Literal["done", "max_rounds", "blocked", "no_progress", "error"]
+LoopStatus = Literal["done", "max_rounds", "blocked", "no_progress", "error", "budget_exhausted"]
 
 
 @dataclass

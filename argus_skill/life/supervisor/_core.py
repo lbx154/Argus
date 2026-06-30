@@ -1259,6 +1259,12 @@ class LifeSupervisor:
     # One mission
     # ------------------------------------------------------------------
 
+    def _effective_per_mission_cap(self, item: BacklogItem) -> float:
+        """The cap enforced for ``item`` (min of operator per-item budget and the
+        global per-mission cap). Delegates to ``LifeBudget`` so the preflight
+        ``can_start`` check and the mid-mission breaker use one number (F3)."""
+        return self.config.budget.effective_per_mission_cap(item)
+
     def _run_one(self, item: BacklogItem) -> dict[str, Any]:
         prelude = self.memory.render_prelude(objective=item.objective)
         item_metadata = self._render_backlog_item_metadata(item)
@@ -1412,16 +1418,27 @@ class LifeSupervisor:
             original_objective = (
                 getattr(item, "original_objective", "") or item.objective
             )
+            # F3: a LIVE per-mission budget probe — the engine reads cost_sink each
+            # round and hard-stops if the effective cap is reached mid-mission.
+            from ._config import MissionBudget
+            mission_budget = MissionBudget(
+                cap_usd=self._effective_per_mission_cap(item),
+                spent=cost_sink.total_usd,
+            )
             try:
                 from inspect import Parameter, signature
 
                 params = signature(self.runner.execute).parameters
-                if "original_objective" in params or any(
+                _accepts_kw = any(
                     p.kind == Parameter.VAR_KEYWORD for p in params.values()
-                ):
+                )
+                if "original_objective" in params or _accepts_kw:
                     execute_kwargs["original_objective"] = original_objective
+                if "per_mission_budget" in params or _accepts_kw:
+                    execute_kwargs["per_mission_budget"] = mission_budget
             except (TypeError, ValueError):
                 execute_kwargs["original_objective"] = original_objective
+                execute_kwargs["per_mission_budget"] = mission_budget
             outcome = self.runner.execute(**execute_kwargs)
         except Exception as exc:  # noqa: BLE001
             exc_str = f"{type(exc).__name__}: {exc}"
@@ -1541,6 +1558,41 @@ class LifeSupervisor:
         # separate critic agent. ``iteration_outcome`` is retained as ``None``
         # so the downstream journal/event payloads stay schema-compatible.
         iteration_outcome: dict[str, Any] | None = None
+
+        # F3: the mid-mission cost breaker fired — PAUSE, do not fail/complete.
+        # Roll the item back to PENDING (next tick re-runs from its checkpoint) and
+        # journal a budget_pause. Anti-cheat: a budget-stopped mission is NEVER
+        # marked done/success — the reviewer stays the sole done-ness authority.
+        if status == "budget_exhausted":
+            cap = self._effective_per_mission_cap(item)
+            self.memory.backlog.update(item.id, status="pending")
+            entry = JournalEntry.new(
+                kind="budget_pause",
+                title=f"budget pause: {item.title}",
+                summary=(
+                    f"per-mission cap ${cap:.2f} reached (spent ${usd:.2f}) "
+                    "mid-mission — item left pending, resumes from checkpoint"
+                ),
+                tags=["budget"],
+                cost_usd=usd,
+                extra={"item_id": item.id, "cap_usd": cap, "spent_usd": usd},
+            )
+            self.memory.journal.append(entry)
+            self._inject_cumulative_cost(entry)
+            try:
+                from ..notify import dispatch_journal_entry
+                dispatch_journal_entry(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("notify dispatch failed; continuing")
+            self._emit({
+                "type": "life.mission.completed",
+                "item_id": item.id,
+                "success": False,
+                "status": "budget_pause",
+                "cost_usd": usd,
+                "journal_entry_id": entry.id,
+            })
+            return {"status": "budget_pause", "item_id": item.id, "cost_usd": usd}
 
         # Update backlog row.
         if iteration_outcome and iteration_outcome.get("requeued"):

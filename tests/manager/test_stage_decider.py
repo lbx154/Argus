@@ -359,3 +359,63 @@ def test_fallback_empty_stage_decision_unknown_current_holds() -> None:
     )
     assert d.action == "hold"
     assert d.diagnostic == "empty_output_unknown_current_stage"
+
+
+# --- F3: the manager-stage codex turn is metered ----------------------------
+
+
+class _MeteredResult:
+    """A RunnerResult shape that also carries token usage."""
+
+    def __init__(self, msg: str) -> None:
+        self.last_agent_message = msg
+        self.exit_code = 0
+        self.input_tokens = 4_000
+        self.cached_input_tokens = 1_000
+        self.output_tokens = 300
+
+
+class _MeteredRunner:
+    def __init__(self, verdict: dict) -> None:
+        self._text = json.dumps(verdict)
+
+    def run_exec(self, *, prompt: str, options, run_label: str):  # noqa: ANN001
+        return _MeteredResult(self._text)
+
+
+def test_decide_stage_transition_emits_codex_util_cost(tmp_path: Path) -> None:
+    """The manager-stage codex turn was invisible to the cost sink; it now emits
+    a ``codex.util.completed`` event carrying its per-turn token usage so the
+    per-mission number and the daily cap account for it (F3 PART B)."""
+    root = _project(tmp_path, current="research")
+    mgr = Manager(project_root=root, runner=_MeteredRunner(
+        {"action": "advance", "target_stage": "plan", "reason": "done"}
+    ))
+    events: list[dict] = []
+    st = mgr.decide_stage_transition(
+        review=_review(), project_root=root, on_event=events.append,
+    )
+    assert st.action == "advance"  # the decision itself is unaffected
+
+    util = [e for e in events if e.get("type") == "codex.util.completed"]
+    assert len(util) == 1
+    ev = util[0]
+    assert ev["agent_layer"] == "manager"
+    assert ev["run_label"] == "manager-stage"
+    assert ev["input_tokens"] == 4_000
+    assert ev["cached_input_tokens"] == 1_000
+    assert ev["output_tokens"] == 300
+    assert ev["usage_scope"] == "delta"
+
+
+def test_decide_stage_transition_metering_is_failsoft_without_on_event(
+    tmp_path: Path,
+) -> None:
+    """No ``on_event`` → no metering, but the decision still proceeds normally."""
+    root = _project(tmp_path, current="research")
+    mgr = Manager(project_root=root, runner=_MeteredRunner(
+        {"action": "advance", "target_stage": "plan", "reason": "done"}
+    ))
+    st = mgr.decide_stage_transition(review=_review(), project_root=root)
+    assert st.action == "advance"
+    assert _read_stage(root) == "plan"

@@ -627,6 +627,7 @@ class Manager:
         planner_verdict: Any = None,
         project_root: Path | str | None = None,
         run_exec: Any = None,
+        on_event: Any = None,
     ) -> StageTransition:
         """Independently decide advance / hold / rollback for the pipeline stage,
         then WRITE it. The Manager is the SOLE post-bootstrap writer of
@@ -735,6 +736,20 @@ class Manager:
                     ),
                     run_label="manager-stage",
                 )
+
+            # F3: meter each manager-stage codex turn (incl. the empty-output
+            # retries below) so its tokens fold into the per-mission cost sink +
+            # the daily cap — they were previously invisible. Fail-soft.
+            from ..core.cost_events import metered_run_exec
+            try:
+                from ..tools.capability_vault import resolve_route_model
+                _mmodel = resolve_route_model("manager") or ""
+            except Exception:  # noqa: BLE001
+                _mmodel = ""
+            run_exec = metered_run_exec(
+                run_exec, on_event, layer="manager", model=_mmodel,
+                run_label="manager-stage",
+            )
 
         try:
             cur_idx = order.index(cur) if cur in order else -1

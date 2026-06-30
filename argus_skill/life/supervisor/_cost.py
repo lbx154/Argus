@@ -37,6 +37,12 @@ class _CostTrackingSink:
         self.scientist_cached_input_tokens = 0
         self.scientist_output_tokens = 0
         self.scientist_usage_by_model: dict[str, list[int]] = {}
+        # F3: otherwise-unaccounted codex calls (manager stage/route/converse/
+        # domain-author, vertical-classify) report via codex.util.completed.
+        self.util_input_tokens = 0
+        self.util_cached_input_tokens = 0
+        self.util_output_tokens = 0
+        self.util_usage_by_model: dict[str, list[int]] = {}
         self._on_phase_change = on_phase_change
         self._reviewer_notified = False
         self._engineer_round_count = 0
@@ -79,6 +85,17 @@ class _CostTrackingSink:
                 self.reviewer_output_tokens += out_tok
             elif kind == "skill.cost.completed":
                 self._record_scientist_usage(event)
+            elif kind == "codex.util.completed":
+                in_tok, cached_tok, out_tok = self._usage_delta(event, layer="util")
+                self.util_input_tokens += in_tok
+                self.util_cached_input_tokens += cached_tok
+                self.util_output_tokens += out_tok
+                if any((in_tok, cached_tok, out_tok)):
+                    key = str(event.get("model") or self.engineer_model)
+                    bucket = self.util_usage_by_model.setdefault(key, [0, 0, 0])
+                    bucket[0] += in_tok
+                    bucket[1] += cached_tok
+                    bucket[2] += out_tok
         except Exception:  # noqa: BLE001
             log.debug("cost-tracking sink ignored malformed event", exc_info=True)
         # Always forward.
@@ -105,7 +122,25 @@ class _CostTrackingSink:
             log.exception("downstream close raised; continuing")
 
     def total_usd(self) -> float:
-        return self.scientist_usd() + self.engineer_usd() + self.reviewer_usd()
+        return (
+            self.scientist_usd()
+            + self.engineer_usd()
+            + self.reviewer_usd()
+            + self.util_usd()
+        )
+
+    def util_usd(self) -> float:
+        total = 0.0
+        for model, values in self.util_usage_by_model.items():
+            input_tokens, cached_input_tokens, output_tokens = values
+            total += usd_for_tokens(
+                model,
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                price_lookup=price_for,
+            )
+        return total
 
     def scientist_usd(self) -> float:
         total = 0.0
@@ -143,6 +178,7 @@ class _CostTrackingSink:
             self.scientist_input_tokens
             + self.engineer_input_tokens
             + self.reviewer_input_tokens
+            + self.util_input_tokens
         )
 
     def total_output_tokens(self) -> int:
@@ -150,6 +186,7 @@ class _CostTrackingSink:
             self.scientist_output_tokens
             + self.engineer_output_tokens
             + self.reviewer_output_tokens
+            + self.util_output_tokens
         )
 
     def _record_scientist_usage(self, event: dict[str, Any]) -> None:

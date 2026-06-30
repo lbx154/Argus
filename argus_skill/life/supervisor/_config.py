@@ -4,7 +4,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from ...core.ports import EventSink
 from ..memory import BacklogItem, Journal
@@ -18,6 +18,19 @@ class _MemoryView(Protocol):
     def journal(self) -> Any: ...
 
     def render_prelude(self, *, objective: str) -> str: ...
+
+@dataclass
+class MissionBudget:
+    """A LIVE per-mission spend probe handed to the engine so it can enforce the
+    per-mission cap MID-mission (F3). ``spent`` is a callable (bound to the live
+    ``cost_sink.total_usd``), NOT a snapshot — it is read each round. ``cap_usd``
+    <= 0 disables the breaker (``exceeded`` is then always False)."""
+    cap_usd: float
+    spent: Callable[[], float]
+
+    def exceeded(self) -> bool:
+        return self.cap_usd > 0 and self.spent() >= self.cap_usd
+
 
 @dataclass
 class LifeBudget:
@@ -64,6 +77,12 @@ class LifeBudget:
         spent = journal.total_cost_since(day_start)
         return max(0.0, float(self.daily_cap_usd) - float(spent))
 
+    def effective_per_mission_cap(self, item: BacklogItem) -> float:
+        """The cap actually enforced for ``item``: the smaller of the operator's
+        per-item budget and the global per-mission cap. Single source of truth for
+        both the preflight ``can_start`` check and the mid-mission breaker (F3)."""
+        return float(min(item.max_cost_usd, self.per_mission_cap_usd))
+
     def can_start(
         self,
         *,
@@ -86,7 +105,7 @@ class LifeBudget:
         # Use the smaller of (operator-requested mission budget, our
         # per-mission cap) when comparing to daily remaining — same
         # number the supervisor will actually permit.
-        effective_cap = min(item.max_cost_usd, self.per_mission_cap_usd)
+        effective_cap = self.effective_per_mission_cap(item)
         if remain < effective_cap:
             return False, (
                 f"daily budget remaining ${remain:.2f} < "
@@ -191,5 +210,6 @@ class _MissionRunner(Protocol):
         preload_injects: list[str] | None = None,
         prelude_context: str = "",
         scope: str = "",
+        per_mission_budget: "MissionBudget | None" = None,
     ) -> Any:  # MissionOutcome
         raise NotImplementedError

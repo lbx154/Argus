@@ -25,7 +25,10 @@ import re
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import TYPE_CHECKING, Callable, Protocol
+
+if TYPE_CHECKING:
+    from ..life.supervisor._config import MissionBudget
 
 from ..core.models import (
     CheckResult,
@@ -874,6 +877,7 @@ class SupervisedEngineer:
         seed_thread_id: str | None = None,
         failed_tool_ledger: _AdvisoryLedger | None = None,
         scope: str = "",
+        per_mission_budget: "MissionBudget | None" = None,
     ) -> tuple[LoopStatus, list[RoundRecord], str, str, str | None]:
         """Run the supervised loop.
 
@@ -939,6 +943,39 @@ class SupervisedEngineer:
         last_round_had_compaction = False
 
         for round_index in range(1, supervised_config.max_rounds + 1):
+            # F3: mid-mission cost circuit-breaker. Before doing any work this
+            # round, stop if the live per-mission spend has reached the cap.
+            # ``round_index > 1`` guarantees round 1 always runs (spend is 0 at
+            # entry); a misconfigured cap<=0 is a no-op via ``exceeded()``. This is
+            # a hard STOP, NOT a completion — the supervisor leaves the item pending
+            # and journals a budget_pause; the reviewer stays the sole done-ness
+            # authority (anti-cheat). The thread is kept (budget_exhausted is not
+            # poisoned) so the paused mission resumes from its checkpoint.
+            if (
+                per_mission_budget is not None
+                and round_index > 1
+                and per_mission_budget.exceeded()
+            ):
+                _spent = per_mission_budget.spent()
+                _cap = per_mission_budget.cap_usd
+                if on_event:
+                    on_event({
+                        "type": "round.budget_exhausted",
+                        "round_index": round_index,
+                        "spent_usd": _spent,
+                        "cap_usd": _cap,
+                        "text": (
+                            f"per-mission cap ${_cap:.2f} reached "
+                            f"(spent ${_spent:.2f}) — pausing mission"
+                        ),
+                    })
+                return (
+                    "budget_exhausted",
+                    rounds,
+                    last_engineer_message,
+                    f"per-mission cap ${_cap:.2f} reached (spent ${_spent:.2f})",
+                    current_thread_id,
+                )
             # F5: apply the session rolls FIRST — before building the prompt — so
             # the post-roll thread state is known when we decide include_static.
             # The roll bodies are UNCHANGED: they only mutate current_thread_id /

@@ -198,7 +198,7 @@ class SkillLoop:
             failed_tool_ledger: Any | None = None,
             objective_for_skill: str | None = None,
             original_objective: str | None = None,
-            scope: str = "") -> LoopOutcome:
+            scope: str = "", per_mission_budget: Any | None = None) -> LoopOutcome:
         """Run one mission end-to-end.
 
         ``task`` is the *full* prompt the engineer sees (typically a long
@@ -285,6 +285,7 @@ class SkillLoop:
             seed_thread_id=seed_thread_id,
             failed_tool_ledger=failed_tool_ledger,
             scope=scope,
+            per_mission_budget=per_mission_budget,
         )
 
         # Step 4: learn from the OUTCOME. The REVIEWER owns skill memory: it
