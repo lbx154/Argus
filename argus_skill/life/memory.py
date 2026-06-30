@@ -1437,14 +1437,6 @@ class MemoryBundle:
                     f"- **{ts_iso} · {entry.title}** ({entry.kind}): "
                     f"{entry.summary}"
                 )
-        # Self-evolution: the agent's own accumulated PROCESS lessons (how to work
-        # better) — surfaced every mission so it stops repeating process mistakes.
-        process_lessons = self.project.recent_process_lessons(limit=3)
-        if process_lessons:
-            lines.append("")
-            lines.append("#### How to work better (your recent process lessons)")
-            for lesson in process_lessons:
-                lines.append(f"- {lesson[:400]}")
         return "\n".join(lines).strip() + "\n"
 
 

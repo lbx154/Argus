@@ -32,16 +32,20 @@ def test_recent_process_lessons_dedup_newest_first() -> None:
     assert got == ["freeze the floor", "measure before claiming"]  # newest first, deduped
 
 
-def test_render_prelude_surfaces_process_lessons() -> None:
+def test_process_lessons_journaled_not_force_injected() -> None:
     m = MemoryBundle.for_cwd(tempfile.mkdtemp())
     m.init()
     m.project.memory.append(JournalEntry.new(
         kind="self_evolve.process_lesson", title="process lesson",
         summary="x", tags=["self_evolve"],
         extra={"lesson": "Run the official eval before claiming a speedup."}))
+    # Process lessons are NOT force-injected into the prompt prelude (that would
+    # be prompt bloat / re-pollution). They are journaled as durable, retrievable
+    # data — to be distilled into skills the matcher pulls when relevant.
     pre = m.render_prelude(objective="optimize a kernel")
-    assert "work better" in pre
-    assert "Run the official eval before claiming a speedup." in pre
+    assert "Run the official eval before claiming a speedup." not in pre
+    assert m.project.recent_process_lessons() == [
+        "Run the official eval before claiming a speedup."]
 
 
 @dataclass
