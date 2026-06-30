@@ -988,6 +988,43 @@ def rollback_stage(
     )
 
 
+def complete_final_stage(
+    project_root: Path | str,
+    *,
+    reason: str,
+    completed_by: str = "manager",
+) -> str:
+    """Mark the FINAL pipeline stage ``done`` without moving ``current_stage``.
+
+    Used by the Manager when the reviewer certifies the final-submission stage:
+    the project stays on its last stage (e.g. ``submission``) but that stage's
+    ``status`` is stamped ``done`` so the project reads as complete. This is the
+    terminal counterpart to :func:`advance_stage` / :func:`rollback_stage` and,
+    like them, is a Manager-owned mutation (gated by the stage-transition
+    authority context).
+
+    Raises ``ValueError`` if ``current_stage`` is not the last stage in the
+    active vertical's order (it is illegal to "complete" a non-final stage —
+    advance to it first).
+    """
+    raw_order, _items = _active_vertical_checklist_defs(project_root)
+    order = [_normalize_stage(s) for s in raw_order]
+    cur = _normalize_stage(current_stage(project_root))
+    if not order or cur != order[-1]:
+        raise ValueError(
+            f"complete target must be the final stage {order[-1] if order else '?'!r}; "
+            f"current stage is {cur!r}"
+        )
+    return _set_stage(
+        project_root,
+        target_stage=cur,
+        reason=reason,
+        by=completed_by,
+        direction="complete",
+        mark_current_done=True,
+    )
+
+
 def _render_items(
     items: Iterable[ChecklistItem],
     annotations: dict[str, list[str]] | None = None,

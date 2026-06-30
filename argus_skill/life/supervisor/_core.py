@@ -116,6 +116,7 @@ _PLAN_HANDOFF = "daemon_handoff"
 _PLAN_ERROR = "planner_error"
 _PLAN_AWAITING = "awaiting_external"
 _PLAN_TERMINAL_IDLE = "planner_terminal_idle"
+_PLAN_MANAGER_ROLLBACK = "manager_blocked_rollback"
 
 # Idle backoff for the "no new work" outcomes (awaiting-external / planner
 # retry / planner error). Each consecutive idle plan-cycle doubles the host's
@@ -424,6 +425,45 @@ class LifeSupervisor:
             dangerous_yolo=not safe_mode,
         )
 
+    def _consume_manager_blocked_rollback_before_planner(self) -> dict[str, Any] | None:
+        """Consume a current Manager-blocked rollback packet before planning.
+
+        ``Manager.decide_stage_transition(review=None)`` already validates
+        ``research/STAGE_CHECK_MANAGER_BLOCKED.json`` and writes rollback only
+        when the packet is current, internally consistent, and targets an
+        earlier stage. This supervisor hook narrows when it is called: the
+        continuous daemon has no backlog item to run and is about to ask the
+        planner for more work. A valid packet must win that race; stale or
+        mismatched packets fall through as a no-op.
+        """
+        try:
+            from ...manager import Manager
+
+            root = self._planner_workdir()
+            st = Manager(project_root=root, runner=None).decide_stage_transition(
+                review=None,
+                project_root=root,
+            )
+        except Exception:  # noqa: BLE001
+            log.debug("pre-planner manager rollback check skipped", exc_info=True)
+            return None
+        if st.action != "rollback":
+            return None
+        decision = {
+            "action": st.action,
+            "target_stage": st.target_stage,
+            "reason": st.reason,
+            "current_stage": st.current_stage,
+            "source": st.source,
+            "diagnostic": st.diagnostic,
+        }
+        self._emit({"type": "life.manager.stage_decision", **decision})
+        self._emit_status(
+            "manager consumed rollback-accepted stage-check packet; "
+            f"rolled back to {st.target_stage}"
+        )
+        return decision
+
     # ------------------------------------------------------------------
     # Public driving methods
     # ------------------------------------------------------------------
@@ -497,6 +537,12 @@ class LifeSupervisor:
             if outcome is None:
                 # Backlog empty — continuous mode: ask planner for more
                 if self.config.continuous and self.config.continuous_objective:
+                    manager_rollback = (
+                        self._consume_manager_blocked_rollback_before_planner()
+                    )
+                    if manager_rollback is not None:
+                        stopped_by = _PLAN_MANAGER_ROLLBACK
+                        break
                     gate_reason = self._planner_cycle_gate_reason()
                     if gate_reason:
                         self._emit({
@@ -575,6 +621,12 @@ class LifeSupervisor:
             # Auth failure flagged by _run_one: propagate immediately
             if outcome.get("auth_failure"):
                 stopped_by = "auth_failure"
+                break
+            manager_rollback = (
+                self._consume_manager_blocked_rollback_before_planner()
+            )
+            if manager_rollback is not None:
+                stopped_by = _PLAN_MANAGER_ROLLBACK
                 break
             post_mission_stop = self._post_mission_hook(outcome)
             if post_mission_stop:
