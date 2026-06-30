@@ -26,12 +26,21 @@ This skill is not a copyediting pass. It is a calibrated reject/accept simulatio
 - The evidence is missing so completely that the right action is to run experiments, not simulate final peer review.
 
 ## Reviewer stance
-- Review like a skeptical EMNLP/ACL PC reviewer, not like the author.
+- Review like a skeptical EMNLP/ACL/AAAI PC reviewer, not like the author. Your default is **reject**: a paper earns acceptance, it is not presumed acceptable.
+- **When in doubt, reject.** If you are unsure whether the evidence is strong enough, the result is reproducible, the scale is adequate, or a claim is supported, treat it as NOT satisfied and choose `continue` (or a `Reject` decision at final submission). Borderline ⇒ reject, never accept-by-default.
 - Prefer `continue` over `done` if any major reviewer objection remains actionable.
 - Do not reward a PDF merely for existing. A PDF with weak evidence, copied benchmarks, stale artifacts, or underfilled body pages is a reject.
+- **The "diagnostic / null-result / bounded-scope" reframing does NOT lower the evidence bar.** Re-labelling a paper "diagnostic" or "characterization" does not waive the scale and integrity hard blockers below (≥3 real benchmark families, non-pilot scale, multi-model where claims generalize). A 40-row, single-model, single-seed study is a *pilot*, not an AAAI paper, whether or not it calls itself "diagnostic". Honesty about a null result is good; it does not substitute for adequate evidence.
 - Every weakness must include a concrete fix. The reviewer handoff should be professional and short enough for a smaller engineer model to execute.
 - Separate paper-quality issues from environment blockers. Missing web/LaTeX access can be `blocked`; weak experiments, stale manifests, bad prose, and format failures are `continue`.
 - Treat review artifacts, calibration files, and readiness reports as evidence, not optimization targets. A paper passes only when the manuscript, raw artifacts, generated figures/tables, and validators independently satisfy the underlying condition.
+
+### Calibration anchors (be this harsh)
+Real top-venue (AAAI/ACL/NeurIPS) acceptance is competitive. Calibrate to these, not to "no obvious errors":
+- Single model + single seed + tens of rows, OR a null/tiny effect within noise → **Overall 3–4, Decision: Reject.** This is the common case for a first auto-generated draft; do not inflate it.
+- One solid positive result, ≥3 real benchmark families, but single-model / limited ablations → **Overall 5, Borderline, Decision: Reject** (resubmit after broadening).
+- Multi-model, adequately powered, clear supported headline result, clean writing/format → **Overall 6–7, Decision: Accept.**
+- Most plausible auto-generated drafts deserve Reject on first pass. Accepting a weak paper is a worse error than asking for another iteration.
 
 ## Required input artifacts to inspect or demand
 - Manuscript: `paper/main.tex`, section files, `paper/main.pdf`, and `paper/main.log`.
@@ -90,25 +99,35 @@ Score each dimension 1--5. Most plausible drafts should land in the 2--4 range; 
    - If the reason requires new experiments, say so directly; do not ask the engineer to paper over it with prose.
 
 ## Recommendation mapping
-- **Strong Accept**: mean >= 4.5, no dimension below 4, no hard blockers.
-- **Accept**: mean >= 4.0, no dimension below 3, no hard blockers.
-- **Weak Accept**: mean >= 3.5, no dimension below 3, only minor fixable issues.
-- **Weak Reject**: mean >= 2.5 or any dimension below 3, with at least one major weakness.
-- **Reject**: mean < 2.5 or any critical flaw.
+Compute the mean of the eight dimension scores, then assign a calibrated **Overall (1–10)** and a **binary Decision (Accept / Reject)** — no "Weak Accept / Borderline" hedge; you must commit to Accept or Reject (borderline ⇒ Reject).
 
-Hard blockers force **Reject** or **Weak Reject** regardless of mean: failed the full pipeline checklist for `final_submission`, pilot-scale final evidence, duplicated benchmark expansion, fewer than 3 executed real benchmark source families for final evidence, single-source or same-family-only benchmark evidence for broad effectiveness claims, missing nontrivial baseline for comparative claims, unsupported headline claim, stale manifest/digest, unresolved citations, self-drawn non-data figure where image-2 output is required, severe overfull boxes, underfilled long-paper body, or missing limitations/ethics.
+Overall anchors (AAAI/ACL/NeurIPS-calibrated):
+- **8–10**: Strong/award quality — technically strong, broad evidence, clear impact. (mean ≥ 4.5)
+- **6–7**: Accept — technically solid, adequately powered (multi-model or ≥3 real benchmark families with non-pilot scale), supported headline result, no hard blocker. (mean ≥ 4.0, no dimension below 3)
+- **5**: Borderline → **Reject** — one solid result but under-powered/single-model or limited ablations; resubmit after broadening.
+- **3–4**: Reject — under-powered (single model/seed, pilot-scale, tens of rows), null/tiny effect within noise, or a major unsupported claim.
+- **1–2**: Strong Reject — trivial result, critical flaw, fabricated/duplicated evidence, or a hard blocker.
+
+**Decision rule:** `Decision: Accept` ONLY when Overall ≥ 6 AND mean ≥ 4.0 AND no dimension below 3 AND no hard blocker. Everything else is `Decision: Reject`.
+
+**`done` rule (final_submission):** mark the mission `done` ONLY when `Decision: Accept` (Overall ≥ 6). A `Reject` (Overall ≤ 5), even a "Weak/Borderline" one, is `continue` — return the per-dimension scores and the strongest reject reason as actionable engineer feedback so the next round can fix it.
+
+Hard blockers force **Reject** (Overall ≤ 4) regardless of mean: failed the full pipeline checklist for `final_submission`, pilot-scale final evidence, duplicated benchmark expansion, fewer than 3 executed real benchmark source families for final evidence, single-source or same-family-only benchmark evidence for any generalizing claim, single-model evidence for any claim that reads as model-general, missing nontrivial baseline for comparative claims, unsupported headline claim, an internal numeric/table inconsistency in a claim-supporting statement, stale manifest/digest, unresolved citations, self-drawn non-data figure where image-2 output is required, severe overfull boxes, underfilled long-paper body, or missing limitations/ethics. The "diagnostic/null-result/bounded-scope" label does NOT exempt a paper from these.
 
 ## Reviewer output contract
 When this skill applies, include a compact simulated-review section inside `round_summary_markdown`:
 
 ```markdown
 ### Simulated peer-review benchmark
-- Recommendation: Weak Reject
+- Decision: Reject
+- Overall: 4/10
 - Scores: contribution 4, evidence 2, experiments 2, literature 3, reproducibility 3, writing 4, format/layout 2, strongest-objection 2
 - Strongest accept argument: ...
 - Strongest reject argument: ...
 - Blocking issues: ...
 ```
+
+The `Decision` and `Overall` are the gate: `status: done` is allowed ONLY with `Decision: Accept` and `Overall >= 6`. With `Decision: Reject` (Overall <= 5) you MUST emit `status: continue` and put the per-dimension scores + the strongest reject argument + concrete repairs into `next_action`.
 
 If `status` is `continue`, make `next_action` a concise engineer prompt:
 
