@@ -166,7 +166,7 @@ def test_config_path_is_threaded_into_evaluate(tmp_path: Path) -> None:
     )
     engine.run(
         objective="implement the increment",
-        engineer_prompt_builder=lambda _next_action: "do the increment",
+        engineer_prompt_builder=lambda _next_action, _include_static=True: "do the increment",
         supervised_config=config,
         workdir=tmp_path,
         on_event=lambda _e: None,
@@ -189,7 +189,7 @@ def test_empty_config_path_threads_empty_string(tmp_path: Path) -> None:
     )
     engine.run(
         objective="implement the increment",
-        engineer_prompt_builder=lambda _next_action: "do the increment",
+        engineer_prompt_builder=lambda _next_action, _include_static=True: "do the increment",
         supervised_config=config,
         workdir=tmp_path,
         on_event=lambda _e: None,

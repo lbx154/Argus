@@ -421,6 +421,101 @@ def test_curated_checkpoint_persists_across_missions_via_file(tmp_path: Path) ->
     assert "add code/run_condition.py runner" in prompt
 
 
+# ---- F5: resume rounds send DELTA only; static is a byte-stable prefix -------
+
+_STATIC_MARKERS = ("## Required output", "## Pipeline stage is Manager-owned")
+# Last line of the static block's final section ("## Required output") — a stable
+# anchor for extracting the static prefix for the byte-stability check.
+_STATIC_END = "describing what you changed."
+
+
+def test_resume_round_omits_static_preamble_but_keeps_delta(tmp_path: Path) -> None:
+    """Round 2 resumes round 1's thread → its prompt OMITS the static preamble
+    (already in the thread) but still carries the per-round DELTA (the reviewer's
+    next_action). This is the F5 prefix-cache win."""
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("distiller", CannedResponse(message=SKILL_MD))
+    backend.queue("engineer-r1", CannedResponse(message="r1 work", thread_id="tid-1"))
+    backend.queue("reviewer", CannedResponse(message=_continue_review()))
+    backend.queue("engineer-r2", CannedResponse(message="r2 work", thread_id="tid-1"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    loop = _build_loop(backend, tmp_path / "skills")
+    out = loop.run("task", workdir=tmp_path)
+    assert out.successful
+
+    prompts = {label: p for label, p, _ in backend.history if label.startswith("engineer-")}
+    r1, r2 = prompts["engineer-r1"], prompts["engineer-r2"]
+    for marker in _STATIC_MARKERS:
+        assert marker in r1
+    assert "## Reviewer guidance from prior round" not in r1
+    for marker in _STATIC_MARKERS:
+        assert marker not in r2
+    assert "## Reviewer guidance from prior round" in r2
+    assert "Finish the work." in r2
+
+
+def test_seeded_round1_resends_static(tmp_path: Path) -> None:
+    """A seeded mission has a non-None thread on round 1, yet must still send its
+    OWN static (the round_index==1 clause)."""
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("distiller", CannedResponse(message=SKILL_MD))
+    backend.queue("engineer-r1", CannedResponse(message="work", thread_id="tid-x"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    loop = _build_loop(backend, tmp_path / "skills")
+    out = loop.run("task", workdir=tmp_path, seed_thread_id="seed-thread")
+    assert out.successful
+    r1 = next(p for label, p, _ in backend.history if label == "engineer-r1")
+    for marker in _STATIC_MARKERS:
+        assert marker in r1
+
+
+def test_session_roll_resends_static(tmp_path: Path, monkeypatch) -> None:
+    """A mid-mission session roll (shift limit) clears the thread, so the post-roll
+    round re-includes the full static preamble (anti-amnesia hedge)."""
+    monkeypatch.setenv("ARGUS_SKILL_SHIFT_ROUND_LIMIT", "1")
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("distiller", CannedResponse(message=SKILL_MD))
+    backend.queue("engineer-r1", CannedResponse(message="r1", thread_id="tid-1"))
+    backend.queue("reviewer", CannedResponse(message=_continue_review()))
+    backend.queue("engineer-r2", CannedResponse(message="r2", thread_id="tid-2"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    loop = _build_loop(backend, tmp_path / "skills")
+    out = loop.run("task", workdir=tmp_path)
+    assert out.successful
+    r2 = next(p for label, p, _ in backend.history if label == "engineer-r2")
+    for marker in _STATIC_MARKERS:
+        assert marker in r2
+
+
+def test_static_prefix_is_byte_stable(tmp_path: Path, monkeypatch) -> None:
+    """Across two FULL-send rounds (round 1 + a rolled round 2), the static prefix
+    is byte-identical — the gpt-5.5 prefix-cache contract."""
+    monkeypatch.setenv("ARGUS_SKILL_SHIFT_ROUND_LIMIT", "1")
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("distiller", CannedResponse(message=SKILL_MD))
+    backend.queue("engineer-r1", CannedResponse(message="r1", thread_id="tid-1"))
+    backend.queue("reviewer", CannedResponse(message=_continue_review()))
+    backend.queue("engineer-r2", CannedResponse(message="r2", thread_id="tid-2"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    loop = _build_loop(backend, tmp_path / "skills")
+    out = loop.run("task", workdir=tmp_path)
+    assert out.successful
+    prompts = {label: p for label, p, _ in backend.history if label.startswith("engineer-")}
+    r1, r2 = prompts["engineer-r1"], prompts["engineer-r2"]
+
+    def _static(p: str) -> str:
+        return p[: p.index(_STATIC_END) + len(_STATIC_END)]
+    assert _static(r1) == _static(r2), "static prefix drifted between two full-send rounds"
+
+
 def test_no_checkpoint_path_keeps_handoff_in_memory_only(tmp_path: Path) -> None:
     """Without ``checkpoint_path`` (default None), nothing is written to disk
     (legacy behaviour preserved)."""

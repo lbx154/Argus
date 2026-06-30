@@ -89,7 +89,7 @@ def test_round_main_completed_emitted_with_engineer_tokens(tmp_path: Path) -> No
     events: list[dict] = []
     se.run(
         objective="demo",
-        engineer_prompt_builder=lambda na: "PROMPT",
+        engineer_prompt_builder=lambda na, _include_static=True: "PROMPT",
         supervised_config=SupervisedConfig(max_rounds=1, check_commands=[]),
         workdir=tmp_path,
         on_event=events.append,

@@ -76,7 +76,7 @@ def test_advisory_injected_and_wait_sentinel_skips_reviewer(tmp_path: Path, monk
     events: list[dict] = []
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="finish the supervised run and evaluate",
-        engineer_prompt_builder=lambda _na: "Do the task.",
+        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
         supervised_config=SupervisedConfig(max_rounds=5, check_commands=[]),
         workdir=tmp_path,
         on_event=events.append,
@@ -112,7 +112,7 @@ def test_unknown_wait_target_falls_through_to_review(tmp_path: Path, monkeypatch
     events: list[dict] = []
     status, _rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="do the thing",
-        engineer_prompt_builder=lambda _na: "Do the task.",
+        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
         supervised_config=SupervisedConfig(max_rounds=3, check_commands=[]),
         workdir=tmp_path,
         on_event=events.append,
@@ -132,7 +132,7 @@ def test_no_advisory_without_inflight_subagents(tmp_path: Path) -> None:
 
     _engineer(backend).run(
         objective="do the thing",
-        engineer_prompt_builder=lambda _na: "Do the task.",
+        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
         supervised_config=SupervisedConfig(max_rounds=3, check_commands=[]),
         workdir=tmp_path,
         on_event=None,
@@ -150,7 +150,7 @@ def test_flag_disables_advisory(tmp_path: Path) -> None:
 
     _engineer(backend).run(
         objective="do the thing",
-        engineer_prompt_builder=lambda _na: "Do the task.",
+        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
         supervised_config=SupervisedConfig(
             max_rounds=3, check_commands=[], background_subagent_advisory=False,
         ),

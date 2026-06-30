@@ -37,6 +37,7 @@ from ..core.models import (
     RunnerResult,
 )
 from ..core.ports import RunnerBackend
+from ..reviewer import Reviewer, ReviewerConfig
 from .background_subagents import (
     find_waitable_subagent,
     parse_wait_sentinel,
@@ -45,7 +46,6 @@ from .background_subagents import (
 )
 from .checkpoint import CheckpointState, load_checkpoint, save_checkpoint
 from .checks import all_checks_passed, run_checks
-from ..reviewer import Reviewer, ReviewerConfig
 
 log = logging.getLogger(__name__)
 
@@ -561,6 +561,11 @@ class _EffectiveProgressWatchdog:
     def current_interrupt_reason(self) -> str | None:
         return self._interrupt_reason
 
+    def compaction_count(self) -> int:
+        """Number of codex auto-compactions observed this round (F5 hedge):
+        the loop forces a full STATIC re-send next round when this is > 0."""
+        return int(self._compaction_count)
+
     def _refresh_effective_progress(self) -> None:
         if self._project_changed():
             self._mark_effective_progress()
@@ -862,7 +867,7 @@ class SupervisedEngineer:
         *,
         objective: str,
         original_objective: str | None = None,
-        engineer_prompt_builder: Callable[[str | None], str],
+        engineer_prompt_builder: Callable[[str | None, bool], str],
         supervised_config: SupervisedConfig,
         workdir: Path,
         on_event: Callable[[dict], None] | None = None,
@@ -872,11 +877,13 @@ class SupervisedEngineer:
     ) -> tuple[LoopStatus, list[RoundRecord], str, str, str | None]:
         """Run the supervised loop.
 
-        ``engineer_prompt_builder(next_action)`` is called once per round.
-        On round 1, ``next_action`` is ``None``; on subsequent rounds,
-        it is the reviewer's ``next_action`` from the previous round.
-        The builder is responsible for assembling the full engineer
-        prompt (task + skill block + injection text).
+        ``engineer_prompt_builder(next_action, include_static)`` is called once
+        per round. On round 1, ``next_action`` is ``None``; on subsequent rounds,
+        it is the reviewer's ``next_action`` from the previous round. ``include_static``
+        is True on round 1 / after a session roll / after a codex compaction — the
+        builder then returns the full STATIC preamble + DELTA; otherwise it returns
+        the per-round DELTA only (the resumed thread already holds the static),
+        which restores the gpt-5.5 prefix-cache discount on resume rounds (F5).
 
         Codex session continuity: round N+1 reuses round N's
         ``thread_id`` as ``resume_thread_id``. ``seed_thread_id`` (if
@@ -927,55 +934,15 @@ class SupervisedEngineer:
         # past the model's usable context. 0 on the first round of a mission, so
         # a normally-sized inherited thread is still resumed.
         last_input_tokens = 0
+        # F5: when the previous round triggered a codex auto-compaction, force a
+        # full STATIC re-send next round (the compaction may have discarded it).
+        last_round_had_compaction = False
 
         for round_index in range(1, supervised_config.max_rounds + 1):
-            engineer_prompt = engineer_prompt_builder(last_next_action)
-            # Prepend the curated working-memory block (same splice mechanism
-            # as the failed-tool advisory below). This is the engineer's only
-            # memory of prior rounds once the session has been rolled.
-            checkpoint_block = checkpoint.render_for_engineer()
-            if checkpoint_block:
-                engineer_prompt = checkpoint_block + "\n\n" + engineer_prompt
-            # Repeated-tool-failure interrupt: if the same tool/command has
-            # failed multiple times this mission and we haven't yet
-            # nudged the agent about it, splice an advisory at the top
-            # of this round's prompt. The ledger tracks "already nudged"
-            # so the warning fires only once per tool per mission, not
-            # every subsequent round.
-            if failed_tool_ledger is not None:
-                try:
-                    advisory = failed_tool_ledger.render_advisory()
-                except Exception:  # noqa: BLE001 — ledger must never break the loop
-                    advisory = ""
-                if advisory:
-                    engineer_prompt = advisory + "\n\n" + engineer_prompt
-                    if on_event:
-                        on_event({
-                            "type": "engineer.failure_nudge",
-                            "round": round_index,
-                            "text": "repeated tool failures detected — advisory injected",
-                        })
-            # Background-subagent advisory: if this mission launched long jobs as
-            # SUPERVISED subagents, surface them so the engineer does not spend
-            # the round babysitting a self-watched run (its own supervisor
-            # already watches it and reports on terminal). Same splice mechanism
-            # as the blocks above. Recomputed each round so it reflects the live
-            # registry, and reused for the reviewer so its forward_progress /
-            # next_action judgement is aligned. Never breaks the loop.
-            background_advisory = ""
-            if supervised_config.background_subagent_advisory:
-                try:
-                    background_advisory = render_background_subagents_advisory(workdir)
-                except Exception:  # noqa: BLE001 — advisory must never break the loop
-                    background_advisory = ""
-                if background_advisory:
-                    engineer_prompt = background_advisory + "\n\n" + engineer_prompt
-                    if on_event:
-                        on_event({
-                            "type": "engineer.background_subagents",
-                            "round": round_index,
-                            "text": "background subagent advisory injected",
-                        })
+            # F5: apply the session rolls FIRST — before building the prompt — so
+            # the post-roll thread state is known when we decide include_static.
+            # The roll bodies are UNCHANGED: they only mutate current_thread_id /
+            # rounds_on_thread and emit session.roll.
             # Token-size session roll: the cross-mission counterpart to the
             # round-count roll below. A thread resumed across many short
             # missions carries the entire cross-mission transcript while
@@ -1009,7 +976,7 @@ class SupervisedEngineer:
                 rounds_on_thread = 0
             # Proactive session roll: once the current Codex thread has lived
             # for the shift limit, drop it so THIS round starts a fresh session
-            # seeded only by the curated checkpoint (prepended above), not the
+            # seeded only by the curated checkpoint (appended below), not the
             # accumulated history. This is the structural bound that prevents
             # the repeated-auto-compaction amnesia loop — no watchdog needed.
             shift_limit = int(getattr(supervised_config, "shift_round_limit", 0) or 0)
@@ -1031,6 +998,64 @@ class SupervisedEngineer:
                     })
                 current_thread_id = None
                 rounds_on_thread = 0
+            # F5: send the byte-stable STATIC preamble only when the thread is
+            # fresh — round 1 (even a seeded mission, which must send its OWN
+            # static), a just-rolled/cleared thread, or right after a codex
+            # compaction (anti-amnesia hedge, HARD CONSTRAINT). Otherwise the
+            # resumed thread already holds the static, so send DELTA only.
+            include_static = (
+                round_index == 1
+                or current_thread_id is None
+                or last_round_had_compaction
+            )
+            engineer_prompt = engineer_prompt_builder(last_next_action, include_static)
+            # F5: the per-round changing blocks are APPENDED (not prepended) so the
+            # STATIC prefix stays byte-stable in front for the prefix-cache. They
+            # are sent EVERY round (both full and resume) — the checkpoint
+            # especially must reach a fresh post-roll session.
+            delta_tail: list[str] = []
+            # Curated working-memory block — the engineer's only memory of prior
+            # rounds once the session has been rolled.
+            checkpoint_block = checkpoint.render_for_engineer()
+            if checkpoint_block:
+                delta_tail.append(checkpoint_block)
+            # Repeated-tool-failure interrupt: if the same tool/command has failed
+            # multiple times this mission and we haven't yet nudged the agent, add
+            # an advisory. The ledger tracks "already nudged" so it fires once per
+            # tool per mission, not every subsequent round.
+            if failed_tool_ledger is not None:
+                try:
+                    advisory = failed_tool_ledger.render_advisory()
+                except Exception:  # noqa: BLE001 — ledger must never break the loop
+                    advisory = ""
+                if advisory:
+                    delta_tail.append(advisory)
+                    if on_event:
+                        on_event({
+                            "type": "engineer.failure_nudge",
+                            "round": round_index,
+                            "text": "repeated tool failures detected — advisory injected",
+                        })
+            # Background-subagent advisory: if this mission launched long jobs as
+            # SUPERVISED subagents, surface them so the engineer does not babysit a
+            # self-watched run. Recomputed each round (live registry) and reused
+            # for the reviewer so its forward_progress/next_action stays aligned.
+            background_advisory = ""
+            if supervised_config.background_subagent_advisory:
+                try:
+                    background_advisory = render_background_subagents_advisory(workdir)
+                except Exception:  # noqa: BLE001 — advisory must never break the loop
+                    background_advisory = ""
+                if background_advisory:
+                    delta_tail.append(background_advisory)
+                    if on_event:
+                        on_event({
+                            "type": "engineer.background_subagents",
+                            "round": round_index,
+                            "text": "background subagent advisory injected",
+                        })
+            if delta_tail:
+                engineer_prompt = engineer_prompt + "\n\n" + "\n\n".join(delta_tail)
             if on_event:
                 on_event({
                     "type": "round.start",
@@ -1039,7 +1064,7 @@ class SupervisedEngineer:
                     "text": f"engineer round {round_index}"
                             + (" (resuming codex session)" if current_thread_id else ""),
                 })
-            engineer_result = self._run_engineer(
+            engineer_result, round_compactions = self._run_engineer(
                 prompt=engineer_prompt,
                 workdir=workdir,
                 run_label=f"engineer-r{round_index}",
@@ -1047,6 +1072,9 @@ class SupervisedEngineer:
                 supervised_config=supervised_config,
                 on_event=on_event,
             )
+            # F5: remember whether codex compacted this round, so the NEXT round
+            # re-sends the full STATIC preamble (the compaction may have dropped it).
+            last_round_had_compaction = round_compactions > 0
             # Capture thread_id so the next round (and the next mission,
             # via the return value) can resume the same codex session.
             new_tid = getattr(engineer_result, "thread_id", None)
@@ -1525,7 +1553,7 @@ class SupervisedEngineer:
         resume_thread_id: str | None = None,
         supervised_config: SupervisedConfig | None = None,
         on_event: Callable[[dict], None] | None = None,
-    ) -> RunnerResult:
+    ) -> tuple[RunnerResult, int]:
         effective_progress_provider: Callable[[], str | None] | None = None
         effective_progress_watchdog: _EffectiveProgressWatchdog | None = None
         hard_idle_seconds = 0
@@ -1563,6 +1591,13 @@ class SupervisedEngineer:
                 run_label=run_label,
                 resume_thread_id=resume_thread_id,
             )
+            # F5: per-round compaction count (0 when no watchdog) — the loop forces
+            # a full STATIC re-send next round when this is > 0 (anti-amnesia hedge).
+            _compactions = (
+                effective_progress_watchdog.compaction_count()
+                if effective_progress_watchdog is not None
+                else 0
+            )
             if (
                 effective_progress_watchdog is not None
                 and effective_progress_watchdog.current_interrupt_reason()
@@ -1576,8 +1611,8 @@ class SupervisedEngineer:
                         else -1
                     ),
                     fatal_error=effective_progress_watchdog.current_interrupt_reason(),
-                )
-            return result
+                ), _compactions
+            return result, _compactions
         except Exception as exc:  # noqa: BLE001
             msg = f"engineer runner raised {type(exc).__name__}: {exc}"
             log.exception("engineer runner raised during %s", run_label)
@@ -1585,7 +1620,7 @@ class SupervisedEngineer:
                 exit_code=-1,
                 fatal_error=msg,
                 stderr_lines=[msg],
-            )
+            ), 0
 
     @staticmethod
     def _classify(

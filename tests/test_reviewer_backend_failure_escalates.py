@@ -166,7 +166,7 @@ def test_loop_escalates_to_error_on_reviewer_backend_death(tmp_path: Path) -> No
     )
     status, rounds, _final_msg, reason, _tid = engine.run(
         objective="minimize val_bpb",
-        engineer_prompt_builder=lambda _next_action: "do the next increment",
+        engineer_prompt_builder=lambda _next_action, _include_static=True: "do the next increment",
         supervised_config=config,
         workdir=tmp_path,
         on_event=events.append,
@@ -239,7 +239,7 @@ def test_loop_recovers_when_reviewer_backend_comes_back(tmp_path: Path) -> None:
     )
     status, rounds, _final_msg, _reason, _tid = engine.run(
         objective="minimize val_bpb",
-        engineer_prompt_builder=lambda _next_action: "do the next increment",
+        engineer_prompt_builder=lambda _next_action, _include_static=True: "do the next increment",
         supervised_config=config,
         workdir=tmp_path,
         on_event=events.append,
@@ -289,7 +289,7 @@ def test_reviewer_flake_does_not_rerun_engineer(tmp_path: Path) -> None:
     )
     status, rounds, _final_msg, _reason, _tid = engine.run(
         objective="minimize val_bpb",
-        engineer_prompt_builder=lambda _next_action: "do the next increment",
+        engineer_prompt_builder=lambda _next_action, _include_static=True: "do the next increment",
         supervised_config=config,
         workdir=tmp_path,
         on_event=lambda _e: None,

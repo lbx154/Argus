@@ -251,7 +251,7 @@ class SkillLoop:
         skill_name = skill.name if skill else None
 
         # Step 3: supervised round-loop
-        def build_prompt(next_action: str | None) -> str:
+        def build_prompt(next_action: str | None, include_static: bool = True) -> str:
             extra = self._collect_extra_guidance()
             return self._build_engineer_prompt(
                 task=task,
@@ -260,6 +260,7 @@ class SkillLoop:
                 extra_guidance=extra,
                 paper_mission=self.config.paper_mission,
                 original_request=request_anchor,
+                include_static=include_static,
             )
 
         status, rounds, final_message, reason, last_thread_id = self.supervised.run(
@@ -458,8 +459,16 @@ class SkillLoop:
         extra_guidance: list[str] | None = None,
         paper_mission: bool = False,
         original_request: str = "",
+        include_static: bool = True,
     ) -> str:
+        # STATIC = byte-stable prefix (constant within a mission: task / skill /
+        # resolved stage / role) → restores gpt-5.5 prefix-cache. DELTA = the
+        # per-round changing tail (reviewer next_action, operator guidance, the
+        # regime-jump explore window). On a RESUMED thread we send DELTA only;
+        # STATIC is re-sent on round 1 / after a session roll / after a compaction
+        # (the anti-amnesia hedge). See SupervisedEngineer.run (F5).
         sections: list[str] = []
+        delta_sections: list[str] = []
         # Vertical-native prompt framing (resolved up-front so it can gate the
         # paper-execution contract below): the active vertical supplies the
         # engineer role banner, and the long-horizon paper contract applies ONLY
@@ -503,7 +512,7 @@ class SkillLoop:
 
             _ewin = int(getattr(_load_meta_ledger(_proot), "explore_window", 0) or 0)
             if _ewin > 0:
-                sections.append(_explore_block(_ewin))
+                delta_sections.append(_explore_block(_ewin))
         except Exception:  # noqa: BLE001 — meta grace must never break prompt building
             pass
         # Stage-aware SETUP action control (deterministic safety net). General:
@@ -628,14 +637,14 @@ class SkillLoop:
                 "  and the next concrete command."
             )
         if next_action:
-            sections.append(
+            delta_sections.append(
                 "## Reviewer guidance from prior round\n"
                 "The previous round was judged incomplete. Address the\n"
                 "following before declaring done:\n\n"
                 + next_action
             )
         if extra_guidance:
-            sections.append(
+            delta_sections.append(
                 "## Operator guidance (injected since last round)\n"
                 + "\n\n".join(extra_guidance)
             )
@@ -707,7 +716,13 @@ class SkillLoop:
             "Below the verification block, add a short `## Summary`\n"
             "section (≤8 bullets) describing what you changed."
         )
-        return "\n\n".join(sections)
+        static_text = "\n\n".join(sections)
+        delta_text = "\n\n".join(delta_sections)
+        if include_static:
+            # Full send (round 1 / post-roll / post-compaction): STATIC then DELTA.
+            return static_text + ("\n\n" + delta_text if delta_text else "")
+        # Resume send: DELTA only (may be "" when nothing changed this round).
+        return delta_text
 
     def _collect_extra_guidance(self) -> list[str]:
         if self.extra_guidance_provider is None:
