@@ -1,17 +1,17 @@
 """Optional BM25 prefilter for the skill matcher.
 
-When the skill pool is small (N <= 200 by default), the LLM matcher
+When the skill pool is small (N <= 40 by default), the LLM matcher
 itself is the cheapest precise selector: a single call to a small router
 model (gpt-4o-mini / haiku-3.5) judges all candidates in one pass for
 ~$0.05 — see `loop.py:resolved_matcher_model` env note. No prefilter is
 needed; adding one only burns latency.
 
-When the pool grows past ~200, the matcher prompt starts to crowd the
-small-model context window (each candidate summary is ~50 tokens, so
-500 candidates = 25k tokens just for the listing). At that point a
-cheap BM25 prefilter to top-K=20 keeps the matcher honest *and* the
-prompt small. This module implements that prefilter as a clean opt-in
-hook that the `SkillStore.find_relevant` matcher can call before
+When the pool grows past the threshold (the real argus role pools sit at
+~75-80 candidates, each summary ~50 tokens ≈ 3.8k tokens just for the
+listing), a cheap BM25 prefilter to top-K=30 narrows the candidate set
+before the LLM matcher so the matcher prompt stays small while the LLM
+still makes the final relevance call. This module implements that
+prefilter as a clean hook that `SkillStore.find_relevant` calls before
 shipping to the LLM.
 
 Design notes
@@ -27,10 +27,11 @@ Design notes
   index-building error → return the unfiltered candidate list and let
   the LLM matcher take over. Selection accuracy must never regress just
   because the prefilter tripped.
-* **Threshold is env-tunable.** Default 200 is conservative: empirically
-  argus pools sit at 50-100, so the prefilter stays inactive until the
-  store actually grows. Set ``ARGUS_SKILL_BM25_PREFILTER_THRESHOLD=0`` to
-  force it on for debugging.
+* **Threshold is env-tunable.** Default 40 makes the prefilter ACTIVE for
+  the real role pools (~75-80) while small bootstrapping/test stores
+  (<40) stay LLM-only (no recall change for them). Set
+  ``ARGUS_SKILL_BM25_PREFILTER_THRESHOLD=0`` to force it on for debugging,
+  ``ARGUS_SKILL_BM25_PREFILTER_TOPK`` to tune the post-prefilter size.
 
 References
 ----------
@@ -54,8 +55,8 @@ from typing import Sequence
 log = logging.getLogger(__name__)
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
-_DEFAULT_THRESHOLD = 200
-_DEFAULT_TOP_K = 20
+_DEFAULT_THRESHOLD = 40
+_DEFAULT_TOP_K = 30
 
 # BM25 hyperparameters — Okapi defaults from Robertson & Zaragoza (2009).
 _K1 = 1.5

@@ -353,7 +353,7 @@ class Manager:
         self.mission = ManagerMission(skill_store)
 
     # ---- skill injection (fixed role skill + matched adaptive block) ----
-    def _role_skill_block(self, objective: str) -> str:
+    def _role_skill_block(self, objective: str, *, match: bool = True) -> str:
         """Build the Manager's injected skill block for a decision prompt.
 
         Returns ``""`` when no ``skill_store`` is wired (the default) — so the
@@ -370,6 +370,12 @@ class Manager:
 
         The caller PREPENDS it to the decision prompt; it never alters the
         decision's output contract/schema.
+
+        ``match=False`` injects ONLY the fixed role identity and SKIPS the matcher
+        LLM call (F6) — for pure-classification callers (route / is_conversational
+        / decide_stage_transition) that need the fixed manager role context but do
+        NOT consume matched skill bodies, so a matcher call each time is pure burn.
+        ``approve_skill`` keeps ``match=True`` — it judges from the matched bodies.
         """
         if self.skill_store is None:
             return ""
@@ -382,7 +388,7 @@ class Manager:
         )
         # Adaptive matched manager skill(s). Fail-soft: a matcher hiccup must
         # never break a stage decision, so any error degrades to role skill only.
-        if (objective or "").strip():
+        if match and (objective or "").strip():
             try:
                 match = self.mission.match(objective)
                 if match.block:
@@ -580,7 +586,7 @@ class Manager:
                 )
 
         return classify_is_conversational(
-            text, run_exec=run_exec, role_skill_block=self._role_skill_block(text)
+            text, run_exec=run_exec, role_skill_block=self._role_skill_block(text, match=False)
         )
 
     def route(self, text: str, *, run_exec: Any = None) -> str:
@@ -610,7 +616,7 @@ class Manager:
                 )
 
         return classify_route(
-            text, run_exec=run_exec, role_skill_block=self._role_skill_block(text)
+            text, run_exec=run_exec, role_skill_block=self._role_skill_block(text, match=False)
         )
 
     # ---- stage-transition authority (the Manager OWNS the pipeline stage) ----
@@ -752,7 +758,7 @@ class Manager:
             _match_objective = " ".join(
                 p for p in (cur, str(getattr(review, "reason", "") or "")) if p
             )
-            prompt = self._role_skill_block(_match_objective) + prompt
+            prompt = self._role_skill_block(_match_objective, match=False) + prompt
             raw = extract_answer(run_exec(prompt))
             # gpt-5.5/fnyweg (and other backends) occasionally return an EMPTY
             # turn. An empty raw makes parse_stage_decision fall back to a silent

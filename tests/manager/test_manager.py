@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 
-from argus_skill.manager import Manager, Division
+from argus_skill.manager import Division, Manager
 from argus_skill.verticals.research.stages import STAGE_ORDER as RESEARCH_STAGES
 
 
@@ -80,3 +80,52 @@ def test_manager_owns_chat_vs_task_decision():
     assert mgr.is_conversational(
         "minimize val_bpb on train.py", run_exec=lambda p: _FakeResult("TASK")
     ) is False
+
+
+# ---- F6: pure classification must NOT fire the skill matcher ----------------
+
+class _CountingMission:
+    """Stand-in ManagerMission that counts matcher calls (the LLM burn F6 cuts)."""
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def match(self, objective: str):
+        self.calls += 1
+
+        class _M:
+            block = ""
+        return _M()
+
+
+def _mgr_with_store(tmp_path):
+    mgr = Manager(project_root=tmp_path, runner=None, skill_store=object())
+    mgr.mission = _CountingMission()  # type: ignore[assignment]
+    return mgr
+
+
+def test_role_skill_block_match_false_still_injects_fixed_role(tmp_path):
+    mgr = _mgr_with_store(tmp_path)
+    block = mgr._role_skill_block("optimize a CUDA kernel", match=False)
+    assert block.strip()                       # fixed role identity still injected
+    assert "manager" in block.lower()
+    assert mgr.mission.calls == 0              # matcher NEVER called
+
+
+def test_role_skill_block_match_true_fires_matcher(tmp_path):
+    mgr = _mgr_with_store(tmp_path)
+    mgr._role_skill_block("optimize a CUDA kernel", match=True)
+    assert mgr.mission.calls == 1             # default path still matches
+
+
+def test_route_does_not_fire_matcher(tmp_path):
+    mgr = _mgr_with_store(tmp_path)
+    out = mgr.route("hello", run_exec=lambda p: _FakeResult("COMPLEX"))
+    assert mgr.mission.calls == 0
+    assert out in ("chat", "simple", "complex")
+
+
+def test_is_conversational_does_not_fire_matcher(tmp_path):
+    mgr = _mgr_with_store(tmp_path)
+    out = mgr.is_conversational("hi there", run_exec=lambda p: _FakeResult("CHAT"))
+    assert mgr.mission.calls == 0
+    assert out is True

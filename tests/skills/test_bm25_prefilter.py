@@ -23,14 +23,15 @@ def _summary(name: str, desc: str, category: str = "") -> dict:
 
 
 def test_prefilter_disabled_for_small_pool():
-    # 50 ≤ default threshold 200 → disabled
-    assert not is_prefilter_enabled(50)
-    assert not is_prefilter_enabled(200)
+    # ≤ default threshold 40 → disabled (small bootstrap/test stores stay LLM-only)
+    assert not is_prefilter_enabled(40)
+    assert not is_prefilter_enabled(30)
 
 
 def test_prefilter_enabled_above_threshold():
-    assert is_prefilter_enabled(201)
-    assert is_prefilter_enabled(10_000)
+    # real role pools (~75-80) now activate the prefilter
+    assert is_prefilter_enabled(41)
+    assert is_prefilter_enabled(80)
 
 
 def test_threshold_env_override(monkeypatch: pytest.MonkeyPatch):
@@ -47,8 +48,16 @@ def test_threshold_zero_forces_on(monkeypatch: pytest.MonkeyPatch):
 
 def test_invalid_threshold_falls_back_to_default(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ARGUS_SKILL_BM25_PREFILTER_THRESHOLD", "not-a-number")
-    assert not is_prefilter_enabled(50)
-    assert is_prefilter_enabled(201)
+    assert not is_prefilter_enabled(40)
+    assert is_prefilter_enabled(41)
+
+
+def test_default_topk_is_30(monkeypatch):
+    # No top_k arg + no env → the default top_k=30 narrows a >30 pool to 30.
+    monkeypatch.delenv("ARGUS_SKILL_BM25_PREFILTER_TOPK", raising=False)
+    pool = [_summary(f"s{i}", "x y z") for i in range(50)]
+    out = bm25_prefilter("task", pool)
+    assert len(out) == 30
 
 
 def test_bm25_returns_full_list_when_topk_ge_n():

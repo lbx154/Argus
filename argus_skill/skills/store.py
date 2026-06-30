@@ -613,8 +613,10 @@ class SkillStore:
         # Optional BM25 prefilter: when the pool is large enough that the
         # matcher prompt would crowd the small-router context window, we
         # cheaply prune to top-K candidates first. Threshold is env-tunable
-        # via ``ARGUS_SKILL_BM25_PREFILTER_THRESHOLD`` (default 200), so the
-        # default behaviour at our current N=50 is unchanged. See
+        # via ``ARGUS_SKILL_BM25_PREFILTER_THRESHOLD`` (default 40), so it is
+        # now ACTIVE for the real role pools (~75-80) — narrowing to top-K=30
+        # before the LLM matcher, which still makes the final relevance call —
+        # while small bootstrap/test stores (<40) stay LLM-only. See
         # ``argus_skill/skills/bm25_prefilter.py`` for the rationale.
         from .bm25_prefilter import bm25_prefilter, is_prefilter_enabled
         pre_n = len(summaries)
