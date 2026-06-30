@@ -124,17 +124,6 @@ def write_skill_to_source(
     return dest
 
 
-def _promote_min_tasks() -> int:
-    """Minimum number of DISTINCT tasks a skill must have proven on before it may
-    persist from the project/runtime store (Tier A) into the argus repo (Tier B).
-    Default 2 — a one-off skill stays project-local. Tunable via
-    ``ARGUS_SKILL_PROMOTE_MIN_TASKS``."""
-    try:
-        return max(1, int(os.environ.get("ARGUS_SKILL_PROMOTE_MIN_TASKS", "2")))
-    except (TypeError, ValueError):
-        return 2
-
-
 def _autocommit_enabled() -> bool:
     """Whether end-of-mission skill tidy-up may git-commit to the argus source repo.
 
@@ -221,21 +210,7 @@ def tidy_runtime_skills_to_source(
             continue  # factory skill already in source → skip
         try:
             skill = runtime_store.load(summ.get("path") or "")
-            # PROMOTION GATE (criterion 1/3 — multi-task validated). A skill must
-            # be PROVEN across ≥N distinct tasks before it may persist into the
-            # argus repo (Tier B). ``task_history`` dedupes by distinct task, so
-            # its length is the cross-task evidence. A one-off skill stays in the
-            # project/runtime store (Tier A) and is never written to source. The
-            # remaining criteria (better-than-existing, generalizable) ride the
-            # ``classify`` placement judgment below + a future matcher compare.
-            history = [h for h in (getattr(skill, "task_history", []) or []) if str(h).strip()]
-            if len(history) < _promote_min_tasks():
-                counts["stayed"] += 1
-                _emit(on_event, f"{(summ.get('name') or '').strip()} stays "
-                                f"(only {len(history)} task(s); need "
-                                f"{_promote_min_tasks()} to enter repo)")
-                continue
-            task_hint = " ".join(history) or (
+            task_hint = " ".join(getattr(skill, "task_history", []) or []) or (
                 getattr(skill, "description", "") or ""
             )
             verdict = classify(
