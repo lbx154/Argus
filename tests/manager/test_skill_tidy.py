@@ -45,7 +45,7 @@ class _CapturingRunner:
         return _R()
 
 
-def _skill(name: str, *, provisional: bool = False) -> Skill:
+def _skill(name: str, *, provisional: bool = False, tasks: int = 2) -> Skill:
     return Skill(
         name=name,
         description=f"do {name}",
@@ -54,6 +54,9 @@ def _skill(name: str, *, provisional: bool = False) -> Skill:
         version=1,
         created_at="2026-05-03T00:00:00+00:00",
         provisional=provisional,
+        # task_history dedupes by distinct task; ``tasks`` controls how many
+        # distinct tasks this skill has proven on (the promotion-gate signal).
+        task_history=[f"task {name} {i}" for i in range(tasks)],
     )
 
 
@@ -227,6 +230,28 @@ def test_tidy_routes_to_source_and_commits(isolated_source, tmp_path, monkeypatc
         capture_output=True, text=True,
     ).stdout
     assert status.strip() == ""  # everything committed
+
+
+def test_promotion_gate_keeps_one_off_skills_project_local(
+    isolated_source, tmp_path, monkeypatch
+) -> None:
+    """A skill proven on only ONE task must NOT persist into the argus repo — it
+    stays in the project/runtime store. Only multi-task-validated skills promote."""
+    _root, builtin = isolated_source
+    monkeypatch.setattr(skill_tidy, "_collect_source_skill_names", lambda: set())
+
+    runtime = SkillStore(tmp_path / "runtime")
+    runtime.save(_skill("one off", tasks=1))     # 1 task → gated, stays
+    runtime.save(_skill("proven gen", tasks=3))  # 3 tasks → promotes
+
+    def classify(*, content, task):
+        return PlacementVerdict("global", "", "general")
+
+    counts = skill_tidy.tidy_runtime_skills_to_source(runtime, classify)
+    assert counts["to_builtin"] == 1            # only the proven one
+    assert counts["stayed"] == 1                # the one-off was held back
+    assert (builtin / "proven-gen.md").exists()
+    assert not (builtin / "one-off.md").exists()
 
 
 def test_commit_to_source_failsoft_non_git(tmp_path, monkeypatch) -> None:
