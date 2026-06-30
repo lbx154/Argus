@@ -191,6 +191,14 @@ class ReviewDecision:
     input_tokens: int = 0
     cached_input_tokens: int = 0
     output_tokens: int = 0
+    # F7 side-channel (like input_tokens above — NOT semantic output, deliberately
+    # absent from ``to_event_payload``): the codex thread_id the reviewer ran on,
+    # and the sha256 of the STATIC preamble it sent. The supervised loop reads
+    # these to resume the reviewer's OWN thread across rounds (re-sending only the
+    # per-round delta), and to force a full re-send when the static rubric changes
+    # mid-mission (stage/objective/vertical drift) — the fingerprint guard.
+    thread_id: str | None = None
+    static_fingerprint: str = ""
     # True ONLY when the reviewer rendered NO verdict because its BACKEND was
     # unavailable — the codex subprocess died, the output-schema file was
     # missing, or the runner raised. This is an INFRASTRUCTURE failure, never a

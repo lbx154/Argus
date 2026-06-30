@@ -11,6 +11,7 @@ Public surface kept identical: ``Reviewer.evaluate(...) -> ReviewDecision``,
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,6 +24,22 @@ from ..skills.role_context import format_role_context, load_builtin_skill_text
 from ._parsing import _find_decision_in_messages
 
 log = logging.getLogger(__name__)
+
+# F7 anti-rubber-stamp guard. Prepended to the per-round DELTA only when the
+# reviewer is RESUMING its own thread (the full static rubric is already in the
+# thread). Resuming saves tokens; it must NEVER become deference to the prior
+# verdict. The role/rubric/decision-rules from earlier in the thread still bind,
+# but THIS round's artifacts (below) are the only evidence — re-verify against
+# them. This preserves reviewer independence under HARD CONSTRAINT 3.
+_REEVALUATE_HEADER = (
+    "## NEW ROUND — RE-EVALUATE INDEPENDENTLY (resumed reviewer)\n"
+    "You are resuming your OWN thread ONLY to avoid re-sending the static rubric "
+    "— NOT to defer to your previous verdict. The role, rubric, and decision "
+    "rules from earlier in this thread still bind, but THIS round's artifacts "
+    "below are the ONLY evidence: re-verify against them from scratch. Your prior "
+    "verdict is not a prior and must never be rubber-stamped; judge this round on "
+    "its own checks, summary, and log audit.\n\n"
+)
 
 
 @dataclass
@@ -288,6 +305,8 @@ class Reviewer:
         background_context: str = "",
         escalate_hint: str = "",
         engineer_log_path: str = "",
+        resume_thread_id: str | None = None,
+        prior_static_fingerprint: str = "",
     ) -> ReviewDecision:
         # Defense-in-depth (root-cause guard for the 2026-06-25 incident): if the
         # reviewer output-schema file is missing, codex aborts with exit 1
@@ -316,7 +335,14 @@ class Reviewer:
                 failure_cause="environmental",
                 backend_unavailable=True,
             )
-        prompt = self._build_prompt(
+        # F7: split the prompt into a byte-stable STATIC preamble (the ~50KB
+        # role/rubric/decision-rules + mission anchors) and a per-round DELTA
+        # (this round's checks/summary/log-audit/altitude). When the reviewer can
+        # resume its OWN codex thread from last round AND the static preamble has
+        # not changed (same fingerprint), send ONLY the delta — the rubric is
+        # already in the thread. Any static drift (stage/objective/vertical change)
+        # flips the fingerprint and forces a full re-send (anti-staleness guard).
+        common = dict(
             objective=objective,
             original_objective=original_objective or objective,
             operator_messages=operator_messages or [],
@@ -335,10 +361,22 @@ class Reviewer:
             escalate_hint=escalate_hint,
             engineer_log_path=engineer_log_path,
         )
+        static, delta_base = self._render(resumed=False, **common)
+        new_fp = hashlib.sha256(static.encode("utf-8")).hexdigest()
+        resume = (
+            resume_thread_id
+            if (resume_thread_id and new_fp == prior_static_fingerprint)
+            else None
+        )
+        # ``delta_base`` was rendered resumed=False (no RE-EVALUATE header); when
+        # we ARE resuming, prepend the anti-rubber-stamp header — identical to
+        # ``_render(resumed=True)[1]`` but without a second (matcher-firing) render.
+        delta = (_REEVALUATE_HEADER + delta_base) if resume else delta_base
+        prompt = delta if resume else static + delta
         try:
             result = self.runner.run_exec(
                 prompt=prompt,
-                resume_thread_id=None,
+                resume_thread_id=resume,
                 options=RunnerOptions(
                     model=config.model,
                     reasoning_effort=config.reasoning_effort,
@@ -365,6 +403,12 @@ class Reviewer:
         rev_in = int(getattr(result, "input_tokens", 0) or 0)
         rev_cached = int(getattr(result, "cached_input_tokens", 0) or 0)
         rev_out = int(getattr(result, "output_tokens", 0) or 0)
+        # F7: the thread this turn ran on + the static fingerprint we just sent.
+        # Set on EVERY result-bearing return path so the supervised loop can
+        # resume this thread next round (and detect static drift). The earlier
+        # schema-missing / runner-raised returns have no ``result`` → thread_id
+        # stays None (the loop must start a fresh reviewer session there).
+        rev_tid = getattr(result, "thread_id", None)
         if not result.agent_messages:
             fatal = str(getattr(result, "fatal_error", "") or "").strip()
             if fatal or result.exit_code != 0:
@@ -390,6 +434,8 @@ class Reviewer:
                     input_tokens=rev_in,
                     cached_input_tokens=rev_cached,
                     output_tokens=rev_out,
+                    thread_id=rev_tid,
+                    static_fingerprint=new_fp,
                 )
             return ReviewDecision(
                 status="continue",
@@ -399,6 +445,8 @@ class Reviewer:
                 input_tokens=rev_in,
                 cached_input_tokens=rev_cached,
                 output_tokens=rev_out,
+                thread_id=rev_tid,
+                static_fingerprint=new_fp,
             )
         parsed = _find_decision_in_messages(result.agent_messages)
         if parsed is None:
@@ -410,6 +458,8 @@ class Reviewer:
                 input_tokens=rev_in,
                 cached_input_tokens=rev_cached,
                 output_tokens=rev_out,
+                thread_id=rev_tid,
+                static_fingerprint=new_fp,
             )
         # Phase-2 instrumentation: cost-tracking sinks (e.g. LifeSupervisor's
         # _CostTrackingSink) read these fields off ``round.review.completed``
@@ -418,6 +468,10 @@ class Reviewer:
         parsed.input_tokens = rev_in
         parsed.cached_input_tokens = rev_cached
         parsed.output_tokens = rev_out
+        # F7: carry the thread + static fingerprint so the loop resumes this
+        # reviewer thread next round and detects mid-mission static drift.
+        parsed.thread_id = rev_tid
+        parsed.static_fingerprint = new_fp
         # The L2 reviewer's verdict is authoritative — the harness must not
         # second-guess it with keyword heuristics on the engineer's summary.
         # If a generic role-acknowledgment turn slips through, that is a
@@ -426,9 +480,10 @@ class Reviewer:
         # post-filter.
         return parsed
 
-    def _build_prompt(
+    def _render(
         self,
         *,
+        resumed: bool = False,
         objective: str,
         original_objective: str = "",
         operator_messages: list[str],
@@ -446,7 +501,18 @@ class Reviewer:
         background_context: str = "",
         escalate_hint: str = "",
         engineer_log_path: str = "",
-    ) -> str:
+    ) -> tuple[str, str]:
+        """F7: render the reviewer prompt as ``(static_preamble, round_delta)``.
+
+        ``static_preamble`` is a byte-stable prefix (role/rubric/decision-rules +
+        immutable mission anchors) suitable for prefix-cache reuse AND for codex
+        thread resume — it is identical across rounds of a mission unless the
+        stage/objective/vertical drift. ``round_delta`` is this round's evidence
+        (altitude, checkpoint, escalation, log-audit, summary, checks). When
+        ``resumed`` the delta is prefixed with the anti-rubber-stamp RE-EVALUATE
+        header. Callers concatenate ``static + delta`` for a full send, or send
+        ``delta`` alone when resuming a thread that already holds the static.
+        """
         error_text = main_error or "none"
         check_text = summarize_checks(checks)
         reviewer_role_context = format_role_context(
@@ -774,10 +840,12 @@ class Reviewer:
             final_submission_block = ""
         from ..skills.ground_truth import ground_truth_mandate
 
-        return (
+        # F7: STATIC preamble — byte-stable across rounds (prefix-cache + thread
+        # resume). ``search_altitude_block`` and the per-round checkpoint/
+        # escalation/log-audit blocks were REORDERED out of here into the delta.
+        static = (
             ground_truth_mandate("reviewer")
             + optimize_banner
-            + search_altitude_block
             + "You are the reviewer sub-agent for an argus-skill autoloop run.\n"
             "Decide whether the objective is fully complete.\n\n"
             + _verification_directive()
@@ -802,9 +870,6 @@ class Reviewer:
             f"{rollback_block}\n\n"
             f"{checklist_feedback_block}\n\n"
             f"{venv_skill_block}\n\n"
-            f"{prior_checkpoint_block}"
-            f"{escalate_block}"
-            f"{engineer_log_audit_block}"
             "**Length constraints:** be thorough in `round_summary_markdown` (brief\n"
             "bullets, not essays); `next_action` must carry ALL specific issues,\n"
             "failure details, and repair steps — do NOT summarize away critical\n"
@@ -1063,7 +1128,20 @@ class Reviewer:
             f"{operator_text}\n\n"
             "Planner guidance for this review:\n"
             f"{planner_review_instruction or 'none'}\n\n"
-            f"Round: {round_index}\n"
+        )
+        # F7: per-round DELTA — everything that changes round to round. When the
+        # reviewer resumes its own thread the static above is already in-context,
+        # so ONLY this delta is re-sent. The RE-EVALUATE header (resumed only) is
+        # the anti-rubber-stamp guard; ``search_altitude_block`` and the
+        # checkpoint/escalation/log-audit blocks live here (reordered out of the
+        # static prefix) precisely because they vary per round.
+        delta = (
+            (_REEVALUATE_HEADER if resumed else "")
+            + search_altitude_block
+            + f"{prior_checkpoint_block}"
+            + f"{escalate_block}"
+            + f"{engineer_log_audit_block}"
+            + f"Round: {round_index}\n"
             f"Session ID: {session_id or 'none'}\n"
             f"{shared_context_block}"
             f"{background_block}"
@@ -1074,6 +1152,23 @@ class Reviewer:
             f"{check_text}\n"
             f"{evidence_block}"
         )
+        return static, delta
+
+    def _build_prompt(self, **kwargs: Any) -> str:
+        """Full reviewer prompt (static + round-1 delta). Kept for the unit tests
+        and any non-resuming caller; ``evaluate`` uses ``_render`` directly."""
+        static, delta = self._render(resumed=False, **kwargs)
+        return static + delta
+
+    def _build_static_preamble(self, **kwargs: Any) -> str:
+        """The byte-stable static preamble alone (for the fingerprint + resume)."""
+        static, _ = self._render(resumed=False, **kwargs)
+        return static
+
+    def _build_round_delta(self, *, resumed: bool, **kwargs: Any) -> str:
+        """This round's delta alone; ``resumed`` prepends the RE-EVALUATE header."""
+        _, delta = self._render(resumed=resumed, **kwargs)
+        return delta
 
 
 _MAX_SHARED_CTX_CHARS = 100_000_000  # effectively no cap: reviewer must see the FULL engineer reasoning/prev-review to audit honesty

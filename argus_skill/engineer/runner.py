@@ -904,6 +904,16 @@ class SupervisedEngineer:
         semantic_stall_streak = 0
         backend_failure_streak = 0
         reviewer_backend_failure_streak = 0
+        # F7: the reviewer resumes its OWN persisted codex thread across rounds so
+        # it re-sends only the per-round DELTA (not the ~50KB static rubric) each
+        # round. Mirrors the engineer thread state below and REUSES the same
+        # thread_token_limit / shift_round_limit roll knobs (no new config). These
+        # are LOCAL to run(): the reviewer thread never crosses a mission boundary
+        # (its static preamble's objective anchor is fixed only within a mission).
+        reviewer_thread_id: str | None = None
+        reviewer_rounds_on_thread = 0
+        reviewer_last_input_tokens = 0
+        reviewer_static_fingerprint = ""
         current_thread_id: str | None = seed_thread_id
         # Curated working-memory checkpoint. Loaded once (cross-mission / crash
         # continuity), carried in memory across rounds, re-authored by the
@@ -1362,6 +1372,55 @@ class SupervisedEngineer:
             # the (cheap) reviewer leg — NOT discard the round and re-run the
             # (xhigh) engineer turn. We leave this inner loop with a real verdict,
             # or by failing loud once the reviewer-backend streak hits threshold.
+            #
+            # F7: proactively roll the reviewer's OWN thread on the same knobs as
+            # the engineer (token-size + shift-count) so it never accrues enough
+            # history to trigger codex's lossy auto-compaction; then resume what
+            # survives. ``reviewer_resume_id`` is read by every evaluate below
+            # (incl. the F8 retries) and dropped to None on backend death.
+            _rv_token_limit = int(
+                getattr(supervised_config, "thread_token_limit", 0) or 0
+            )
+            if (
+                _rv_token_limit > 0
+                and reviewer_thread_id
+                and reviewer_last_input_tokens >= _rv_token_limit
+            ):
+                if on_event:
+                    on_event({
+                        "type": "session.roll",
+                        "round_index": round_index,
+                        "reason": "reviewer_token_limit",
+                        "text": (
+                            f"reviewer thread reached {reviewer_last_input_tokens} "
+                            f"input tokens (>= {_rv_token_limit}); starting a fresh "
+                            "reviewer session"
+                        ),
+                    })
+                reviewer_thread_id = None
+                reviewer_rounds_on_thread = 0
+            _rv_shift_limit = int(
+                getattr(supervised_config, "shift_round_limit", 0) or 0
+            )
+            if (
+                _rv_shift_limit > 0
+                and reviewer_thread_id
+                and reviewer_rounds_on_thread >= _rv_shift_limit
+            ):
+                if on_event:
+                    on_event({
+                        "type": "session.roll",
+                        "round_index": round_index,
+                        "reason": "reviewer_shift_limit",
+                        "text": (
+                            f"reviewer thread reached {reviewer_rounds_on_thread} "
+                            f"rounds (>= {_rv_shift_limit}); starting a fresh "
+                            "reviewer session"
+                        ),
+                    })
+                reviewer_thread_id = None
+                reviewer_rounds_on_thread = 0
+            reviewer_resume_id = reviewer_thread_id
             while True:
                 try:
                     review = self.reviewer.evaluate(
@@ -1379,6 +1438,8 @@ class SupervisedEngineer:
                         background_context=background_advisory,
                         escalate_hint=escalate_hint,
                         engineer_log_path=supervised_config.engineer_log_path,
+                        resume_thread_id=reviewer_resume_id,
+                        prior_static_fingerprint=reviewer_static_fingerprint,
                     )
                 except Exception as exc:  # noqa: BLE001
                     msg = f"reviewer raised {type(exc).__name__}: {exc}"
@@ -1405,8 +1466,33 @@ class SupervisedEngineer:
                 # is a real model judgment and is handled normally by ``_classify``.
                 if not getattr(review, "backend_unavailable", False):
                     # A real reviewer verdict arrived — leave the retry loop and
-                    # handle it on the normal path below.
+                    # handle it on the normal path below. F7: update the reviewer
+                    # thread state so the NEXT round resumes this thread and sends
+                    # only the delta. A changed/absent thread_id resets the count.
+                    reviewer_static_fingerprint = (
+                        getattr(review, "static_fingerprint", "")
+                        or reviewer_static_fingerprint
+                    )
+                    _rtid = getattr(review, "thread_id", None)
+                    if _rtid:
+                        if _rtid == reviewer_thread_id:
+                            reviewer_rounds_on_thread += 1
+                        else:
+                            reviewer_rounds_on_thread = 1
+                        reviewer_thread_id = _rtid
+                    else:
+                        reviewer_thread_id = None
+                        reviewer_rounds_on_thread = 0
+                    reviewer_last_input_tokens = int(
+                        getattr(review, "input_tokens", 0) or 0
+                    )
                     break
+                # F7×F8: the reviewer thread we just tried may be poisoned (codex
+                # died / out-of-room). Drop it so the retry below opens a FRESH
+                # reviewer session instead of resuming the dead thread.
+                reviewer_thread_id = None
+                reviewer_rounds_on_thread = 0
+                reviewer_resume_id = None
                 reviewer_backend_failure_streak += 1
                 rb_threshold = max(
                     1, int(supervised_config.backend_failure_threshold or 1)
