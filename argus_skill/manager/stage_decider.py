@@ -25,7 +25,7 @@ from typing import Any, Sequence
 class StageDecision:
     """The parsed + validated stage verdict from the Manager's model call."""
 
-    action: str       # "advance" | "hold" | "rollback"
+    action: str       # "advance" | "hold" | "rollback" | "complete"
     target_stage: str
     reason: str
     diagnostic: str = ""
@@ -304,10 +304,52 @@ def fallback_empty_stage_decision(
     )
 
 
+def _review_certifies_completion(review: Any) -> str:
+    status = str(getattr(review, "status", "") or "").strip().lower()
+    if status != "done":
+        return "review_not_done"
+    report = getattr(review, "planner_report", None)
+    if not isinstance(report, dict) or report.get("forward_progress") is not True:
+        return "no_forward_progress"
+    items = getattr(review, "checklist", None)
+    if not isinstance(items, list) or not items:
+        return "missing_checklist"
+    for item in items:
+        if not isinstance(item, dict):
+            return "invalid_checklist"
+        if not bool(item.get("satisfied")):
+            return "unsatisfied_checklist"
+        if not str(item.get("evidence", "")).strip():
+            return "missing_checklist_evidence"
+    return ""
+
+
+def final_stage_completion_decision(
+    review: Any,
+    *,
+    current_stage: str,
+    stage_order: Sequence[str],
+    trigger_diagnostic: str = "",
+    trigger_reason: str = "",
+) -> StageDecision | None:
+    """Return a COMPLETE decision when the final stage is reviewer-certified."""
+    cur = (current_stage or "").strip().lower()
+    order = [str(s).strip().lower() for s in stage_order]
+    if not order or cur != order[-1]:
+        return None
+    missing = _review_certifies_completion(review)
+    if missing:
+        return None
+    reason = trigger_reason or "reviewer certified final-stage checklist"
+    diagnostic = trigger_diagnostic or "final_stage_certified_complete"
+    return StageDecision("complete", cur, reason, diagnostic)
+
+
 __all__ = [
     "StageDecision",
     "extract_answer",
     "fallback_empty_stage_decision",
+    "final_stage_completion_decision",
     "build_stage_decision_prompt",
     "parse_stage_decision",
 ]

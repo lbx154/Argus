@@ -265,6 +265,58 @@ class StageTransition:
         return self.action in ("advance", "rollback", "complete")
 
 
+def _read_json_object(path: Path) -> dict[str, Any] | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _manager_blocked_rollback_artifact(
+    root: Path,
+    *,
+    current_stage: str,
+    stage_order: list[str],
+) -> dict[str, Any] | None:
+    payload = _read_json_object(root / "research" / "STAGE_CHECK_MANAGER_BLOCKED.json")
+    if payload is None:
+        return None
+    if payload.get("outcome") != "MANAGER_BLOCKED":
+        return None
+    if payload.get("status") != "rollback-accepted":
+        return None
+    if payload.get("current_stage") != current_stage:
+        return None
+    if payload.get("requested_stage") != current_stage:
+        return None
+    target = payload.get("rollback_target")
+    if not isinstance(target, str) or not target:
+        return None
+    if payload.get("earliest_broken_stage") != target:
+        return None
+    if payload.get("manager_action_required") != f"rollback_stage_to_{target}":
+        return None
+    if payload.get("pipeline_stage_fields_clean") is not True:
+        return None
+    try:
+        current_idx = stage_order.index(current_stage)
+        target_idx = stage_order.index(target)
+    except ValueError:
+        return None
+    if target_idx >= current_idx:
+        return None
+    evidence_files = payload.get("evidence_files")
+    if not isinstance(evidence_files, dict) or not evidence_files:
+        return None
+    for rel in evidence_files.values():
+        if not isinstance(rel, str) or not rel:
+            return None
+        if not (root / rel).exists():
+            return None
+    return payload
+
+
 class Manager:
     """User-facing entry: divide a Task, then hand it to the existing engine.
 
@@ -614,6 +666,43 @@ class Manager:
         root = Path(project_root) if project_root is not None else self.project_root
         cur = _current_stage(root)
 
+        try:
+            raw_order, _items = _vertical_defs(root)
+            order = [str(s).strip().lower() for s in raw_order]
+        except Exception:  # noqa: BLE001
+            log.debug("manager stage-order lookup failed", exc_info=True)
+            order = []
+
+        artifact = _manager_blocked_rollback_artifact(
+            root, current_stage=cur, stage_order=order
+        )
+        if artifact is not None:
+            target = str(artifact["rollback_target"])
+            try:
+                _rollback(
+                    root,
+                    target_stage=target,
+                    reason=(
+                        "stage_check accepted positive evidence rollback packet: "
+                        f"earliest_broken_stage={artifact['earliest_broken_stage']}"
+                    ),
+                    rolled_back_by="manager",
+                )
+            except ValueError:
+                return StageTransition(
+                    "hold", cur, "illegal rollback artifact target", current_stage=cur,
+                    source="illegal_target_hold",
+                    diagnostic="manager_blocked_artifact_illegal_target",
+                )
+            return StageTransition(
+                "rollback",
+                target,
+                "stage_check accepted positive evidence rollback packet",
+                cur,
+                "manager_blocked_rollback_artifact",
+                "accepted_manager_blocked_artifact",
+            )
+
         # No reviewer feedback → never advance.
         if review is None:
             return StageTransition(
@@ -642,8 +731,6 @@ class Manager:
                 )
 
         try:
-            raw_order, _items = _vertical_defs(root)
-            order = [str(s).strip().lower() for s in raw_order]
             cur_idx = order.index(cur) if cur in order else -1
             next_stage = order[cur_idx + 1] if 0 <= cur_idx < len(order) - 1 else ""
             earlier = order[:cur_idx] if cur_idx > 0 else []

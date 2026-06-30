@@ -13,6 +13,8 @@ from pathlib import Path
 
 from argus_skill.apps._runtime import _SkillLoopRunner
 from argus_skill.core.models import ReviewDecision
+from argus_skill.life.memory import BacklogItem, LifeMemory
+from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 
 
 class _Result:
@@ -32,6 +34,54 @@ class _StubRunner:
 class _BoomRunner:
     def run_exec(self, *, prompt: str, options, run_label: str):  # noqa: ANN001
         raise RuntimeError("backend down")
+
+
+class _NullMissionRunner:
+    """Mission runner; never invoked when the backlog is empty."""
+
+
+class _PlannerCalled(Exception):
+    pass
+
+
+class _ExplodingPlannerRunner:
+    def run_exec(self, *, prompt: str, options, run_label: str, resume_thread_id=None):  # noqa: ANN001
+        raise _PlannerCalled("planner should not run before Manager rollback")
+
+
+class _MissionOutcome:
+    success = True
+    status = "done"
+    stop_reason = ""
+    rounds = 1
+    matched_skill_name = ""
+    skill_distilled = False
+    had_follow_up = False
+    final_submission_certified = False
+    completion_evidence = ""
+    planner_report: dict = {}
+    checklist_feedback: dict = {}
+    step_back = None
+    auth_failure = False
+
+
+class _WritesRollbackPacketMissionRunner:
+    def __init__(self, project_root: Path) -> None:
+        self.project_root = project_root
+        self.calls = 0
+
+    def execute(
+        self,
+        *,
+        objective: str,
+        sink,  # noqa: ANN001
+        prelude_context: str = "",
+        scope: str = "",
+        original_objective: str = "",
+    ) -> _MissionOutcome:
+        self.calls += 1
+        _seed_manager_blocked_packet(self.project_root)
+        return _MissionOutcome()
 
 
 class _EmptyThenRunner:
@@ -105,6 +155,58 @@ def _project(tmp_path: Path, *, current: str) -> Path:
         json.dumps({"current_stage": current}), encoding="utf-8"
     )
     return tmp_path
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _submission_project(tmp_path: Path) -> Path:
+    _write_json(
+        tmp_path / "research" / "PIPELINE_STATE.json",
+        {
+            "current_stage": "submission",
+            "stages": {
+                "research": {"status": "done"},
+                "plan": {"status": "done"},
+                "benchmark": {"status": "done"},
+                "run": {"status": "done"},
+                "analysis": {"status": "done"},
+                "draft": {"status": "done"},
+                "review": {"status": "done"},
+                "submission": {"status": "pending"},
+            },
+        },
+    )
+    return tmp_path
+
+
+def _seed_manager_blocked_packet(root: Path) -> None:
+    evidence_files = {
+        "analysis_route_decision": "paper/ANALYSIS_ROUTE_DECISION.json",
+        "evidence_bundle": "experiments/run_stage/EVIDENCE_BUNDLE.json",
+        "manager_action_request": "research/MANAGER_ACTION_REQUEST.json",
+        "pipeline_state": "research/PIPELINE_STATE.json",
+        "run_stage_routing_request": "experiments/run_stage/RUN_STAGE_ROUTING_REQUEST.json",
+    }
+    for key, rel in evidence_files.items():
+        if key != "pipeline_state":
+            _write_json(root / rel, {"ok": True})
+    _write_json(
+        root / "research" / "STAGE_CHECK_MANAGER_BLOCKED.json",
+        {
+            "outcome": "MANAGER_BLOCKED",
+            "status": "rollback-accepted",
+            "requested_stage": "submission",
+            "current_stage": "submission",
+            "earliest_broken_stage": "run",
+            "rollback_target": "run",
+            "manager_action_required": "rollback_stage_to_run",
+            "pipeline_stage_fields_clean": True,
+            "evidence_files": evidence_files,
+        },
+    )
 
 
 def _stage(root: Path) -> str:
@@ -239,3 +341,183 @@ def test_hook_backend_error_holds_and_never_raises(tmp_path: Path) -> None:
     # Manager swallows the LLM error → fail-safe HOLD; stage untouched.
     assert decision["action"] == "hold"
     assert _stage(root) == "research"
+
+
+def test_hook_consumes_manager_blocked_rollback_artifact_before_no_review_hold(
+    tmp_path: Path,
+) -> None:
+    root = _submission_project(tmp_path)
+    _seed_manager_blocked_packet(root)
+    runner = _runner_with(_BoomRunner())
+    sink = _Sink()
+
+    decision = runner._decide_stage_transition(rounds_list=[], workdir=root, sink=sink)
+
+    assert decision["action"] == "rollback"
+    assert decision["target_stage"] == "run"
+    assert decision["source"] == "manager_blocked_rollback_artifact"
+    assert decision["diagnostic"] == "accepted_manager_blocked_artifact"
+    assert _stage(root) == "run"
+
+    state = json.loads(
+        (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert state["stages"]["run"]["status"] == "done"
+    assert state["stages"]["analysis"]["status"] == "pending"
+    assert state["stages"]["draft"]["status"] == "pending"
+    assert state["stages"]["review"]["status"] == "pending"
+    assert state["stages"]["submission"]["status"] == "pending"
+    assert state["rollback_history"][-1]["from_stage"] == "submission"
+    assert state["rollback_history"][-1]["to_stage"] == "run"
+    assert state["stage_history"][-1]["direction"] == "rollback"
+    assert state["stage_history"][-1]["by"] == "manager"
+
+    event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
+    assert event["action"] == "rollback"
+    assert event["source"] == "manager_blocked_rollback_artifact"
+    assert event["diagnostic"] == "accepted_manager_blocked_artifact"
+
+
+def test_hook_consumes_manager_blocked_rollback_artifact_before_review_llm(
+    tmp_path: Path,
+) -> None:
+    root = _submission_project(tmp_path)
+    _seed_manager_blocked_packet(root)
+    runner = _runner_with(_BoomRunner())
+    sink = _Sink()
+
+    decision = runner._decide_stage_transition(
+        rounds_list=[_Round(_review(status="continue", forward_progress=False))],
+        workdir=root,
+        sink=sink,
+    )
+
+    assert decision["action"] == "rollback"
+    assert decision["target_stage"] == "run"
+    assert decision["source"] == "manager_blocked_rollback_artifact"
+    assert decision["diagnostic"] == "accepted_manager_blocked_artifact"
+    assert _stage(root) == "run"
+
+    event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
+    assert event["action"] == "rollback"
+    assert event["source"] == "manager_blocked_rollback_artifact"
+    assert event["diagnostic"] == "accepted_manager_blocked_artifact"
+
+
+def test_supervisor_consumes_manager_blocked_rollback_before_planner(
+    tmp_path: Path,
+) -> None:
+    root = _submission_project(tmp_path / "project")
+    _seed_manager_blocked_packet(root)
+    memory = LifeMemory.open(tmp_path / "life")
+    sink = _Sink()
+    sup = LifeSupervisor(
+        memory=memory,
+        runner=_NullMissionRunner(),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            continuous=True,
+            continuous_objective="paper objective",
+            project_worktree=root,
+            paper_mission=False,
+            full_emnlp_gate=False,
+            open_ended=False,
+        ),
+        planner_runner=_ExplodingPlannerRunner(),
+    )
+
+    result = sup.run()
+
+    assert result["stopped_by"] == "manager_blocked_rollback"
+    assert _stage(root) == "run"
+    event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
+    assert event["action"] == "rollback"
+    assert event["source"] == "manager_blocked_rollback_artifact"
+    assert event["diagnostic"] == "accepted_manager_blocked_artifact"
+    assert not any(e.get("type") == "life.planner.start" for e in sink.events)
+
+
+def test_supervisor_consumes_manager_blocked_rollback_after_mission_before_hook(
+    tmp_path: Path,
+) -> None:
+    root = _submission_project(tmp_path / "project")
+    memory = LifeMemory.open(tmp_path / "life")
+    memory.backlog.add(
+        BacklogItem.new(
+            title="completed submission control mission",
+            objective="refresh rollback-accepted packet",
+        )
+    )
+    sink = _Sink()
+    runner = _WritesRollbackPacketMissionRunner(root)
+    post_mission_calls = {"count": 0}
+
+    def _post_mission_hook(_outcome: dict) -> str:
+        post_mission_calls["count"] += 1
+        return "post_mission_hook_called"
+
+    sup = LifeSupervisor(
+        memory=memory,
+        runner=runner,
+        sink=sink,
+        config=LifeSupervisorConfig(
+            continuous=True,
+            continuous_objective="paper objective",
+            project_worktree=root,
+            paper_mission=False,
+            full_emnlp_gate=False,
+            open_ended=False,
+            post_mission_hook=_post_mission_hook,
+        ),
+        planner_runner=_ExplodingPlannerRunner(),
+    )
+
+    result = sup.run()
+
+    assert runner.calls == 1
+    assert result["stopped_by"] == "manager_blocked_rollback"
+    assert post_mission_calls["count"] == 0
+    assert _stage(root) == "run"
+    event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
+    assert event["action"] == "rollback"
+    assert event["source"] == "manager_blocked_rollback_artifact"
+    assert event["diagnostic"] == "accepted_manager_blocked_artifact"
+    assert not any(e.get("type") == "life.post_mission.stop" for e in sink.events)
+    assert not any(e.get("type") == "life.planner.start" for e in sink.events)
+
+
+def test_supervisor_ignores_stale_manager_blocked_packet_after_one_rollback(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = _submission_project(tmp_path / "project")
+    _seed_manager_blocked_packet(root)
+    memory = LifeMemory.open(tmp_path / "life")
+    sup = LifeSupervisor(
+        memory=memory,
+        runner=_NullMissionRunner(),
+        sink=_Sink(),
+        config=LifeSupervisorConfig(
+            continuous=True,
+            continuous_objective="paper objective",
+            project_worktree=root,
+            paper_mission=False,
+            full_emnlp_gate=False,
+            open_ended=False,
+        ),
+        planner_runner=None,
+    )
+    assert sup.run()["stopped_by"] == "manager_blocked_rollback"
+    assert _stage(root) == "run"
+
+    planner_calls = {"count": 0}
+
+    def _fake_plan_next_work():
+        planner_calls["count"] += 1
+        return "planner_retry"
+
+    monkeypatch.setattr(sup, "_plan_next_work", _fake_plan_next_work)
+
+    assert sup.run()["stopped_by"] == "planner_retry"
+    assert planner_calls["count"] == 1
+    assert _stage(root) == "run"
