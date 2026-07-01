@@ -6,6 +6,7 @@ import json
 from argus_skill.tools.trajectory_bundle import (
     _BUNDLE_SCHEMA_VERSION,
     bundle_project,
+    find_codex_sessions_by_thread_ids,
 )
 
 
@@ -65,3 +66,55 @@ def test_bundle_dry_run_writes_nothing(tmp_path):
     m = bundle_project(proj, out, copy=False, now=3.0)
     assert not out.exists()  # nothing written
     assert {ll.layer for ll in m.layers} == {"events", "decisions", "activity"}
+
+
+def _make_codex_root(tmp_path):
+    """A synthetic ~/.codex/sessions tree with rollout-<ts>-<thread_id>.jsonl."""
+    root = tmp_path / "codex" / "sessions" / "2026" / "07" / "01"
+    root.mkdir(parents=True)
+    tid_a = "019f0db7-2b70-7760-a733-e0f7df2f9ab8"
+    tid_b = "019f0dc9-aaaa-7760-b733-e0f7df2f0000"
+    (root / f"rollout-2026-07-01T10-00-00-{tid_a}.jsonl").write_text(
+        '{"payload":"a"}\n', encoding="utf-8")
+    (root / f"rollout-2026-07-01T11-00-00-{tid_b}.jsonl").write_text(
+        '{"payload":"b"}\n', encoding="utf-8")
+    (root / "rollout-2026-07-01T12-00-00-unrelated-uuid.jsonl").write_text(
+        '{"payload":"c"}\n', encoding="utf-8")
+    return tmp_path / "codex" / "sessions", tid_a, tid_b
+
+
+def test_find_codex_sessions_by_thread_ids_matches_by_filename(tmp_path):
+    codex_root, tid_a, tid_b = _make_codex_root(tmp_path)
+    hits = find_codex_sessions_by_thread_ids([tid_a], codex_root=codex_root)
+    assert len(hits) == 1 and tid_a in hits[0]
+    both = find_codex_sessions_by_thread_ids([tid_a, tid_b], codex_root=codex_root)
+    assert len(both) == 2
+    # unknown id → no match; fail-soft, not an error
+    assert find_codex_sessions_by_thread_ids(["nope"], codex_root=codex_root) == []
+    assert find_codex_sessions_by_thread_ids([], codex_root=codex_root) == []
+    # missing root → []
+    assert find_codex_sessions_by_thread_ids([tid_a], codex_root=tmp_path / "gone") == []
+
+
+def test_bundle_auto_resolves_thread_ids(tmp_path):
+    proj = _make_project(tmp_path)
+    codex_root, tid_a, _ = _make_codex_root(tmp_path)
+    out = tmp_path / "b3"
+    m = bundle_project(proj, out, thread_ids=[tid_a], codex_root=codex_root, now=4.0)
+    codex_layers = [ll for ll in m.layers if ll.layer == "codex"]
+    assert len(codex_layers) == 1
+    assert tid_a in codex_layers[0].rel
+    assert (out / codex_layers[0].rel).exists()
+
+
+def test_bundle_dedups_explicit_and_thread_id_codex(tmp_path):
+    proj = _make_project(tmp_path)
+    codex_root, tid_a, _ = _make_codex_root(tmp_path)
+    # the same rollout supplied both explicitly AND via its thread id → counted once
+    explicit = next(codex_root.rglob(f"*{tid_a}*.jsonl"))
+    out = tmp_path / "b4"
+    m = bundle_project(
+        proj, out, codex_session_paths=[explicit], thread_ids=[tid_a],
+        codex_root=codex_root, now=5.0)
+    codex_layers = [ll for ll in m.layers if ll.layer == "codex"]
+    assert len(codex_layers) == 1  # de-duplicated, not bundled twice
