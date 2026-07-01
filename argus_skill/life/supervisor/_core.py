@@ -102,7 +102,6 @@ _price_for = price_for
 _PLANNER_DEDUP_STATUSES = {"pending", "running", "done"}
 _PLANNER_RECENT_HISTORY_WINDOW = 20
 _PLANNER_RECENT_FAILURE_STATUS = "no_progress"
-_FOLLOWUP_CRITIC_MIN_IMPACT_SCORE = 5
 _PLANNER_SCOPE_BOUNDED = "bounded"
 _PLANNER_SCOPE_FINAL_SUBMISSION = "final_submission"
 
@@ -1553,11 +1552,11 @@ class LifeSupervisor:
                 ),
             })
 
-        # The post-mission critic/polish iteration loop was removed. The L1
-        # engineer does the work and the L2 reviewer verifies it; there is no
-        # separate critic agent. ``iteration_outcome`` is retained as ``None``
-        # so the downstream journal/event payloads stay schema-compatible.
-        iteration_outcome: dict[str, Any] | None = None
+        # The post-mission critic/polish iteration loop was removed (the L1
+        # engineer works, the L2 reviewer verifies — no separate critic agent).
+        # The ``iteration`` journal/event keys below are kept EMPTY only for
+        # schema back-compat. / 事后 critic/迭代循环已移除；下方 journal/event 的
+        # ``iteration`` 字段保留为空，仅为 schema 向后兼容。
 
         # F3: the mid-mission cost breaker fired — PAUSE, do not fail/complete.
         # Roll the item back to PENDING (next tick re-runs from its checkpoint) and
@@ -1595,22 +1594,14 @@ class LifeSupervisor:
             return {"status": "budget_pause", "item_id": item.id, "cost_usd": usd}
 
         # Update backlog row.
-        if iteration_outcome and iteration_outcome.get("requeued"):
-            # Item is back to ``pending``; do not mark_done. The next
-            # tick will pick it up and re-execute with the polished
-            # objective.
-            pass
-        elif success:
+        if success:
             self.memory.backlog.mark_done(item.id)
         else:
             err = exc_str or stop_reason or "unspecified failure"
             self.memory.backlog.mark_failed(item.id, error=err)
 
         # Journal entry.
-        if iteration_outcome and iteration_outcome.get("requeued"):
-            kind = "mission_iterated"
-        else:
-            kind = "mission_complete" if success else "mission_failed"
+        kind = "mission_complete" if success else "mission_failed"
         summary_parts = [
             f"status={status}",
             f"rounds={rounds}",
@@ -1619,16 +1610,6 @@ class LifeSupervisor:
             f"tokens_out={cost_sink.total_output_tokens()}",
             f"cost_usd=${usd:.4f}",
         ]
-        if iteration_outcome:
-            summary_parts.append(
-                f"iter={iteration_outcome.get('cycles_done', 0)}/{item.iteration_max_cycles}"
-            )
-            if iteration_outcome.get("requeued"):
-                summary_parts.append(
-                    f"improvements={iteration_outcome.get('improvement_count', 0)}"
-                )
-            elif iteration_outcome.get("stop_reason"):
-                summary_parts.append(f"iter_stop={iteration_outcome['stop_reason']}")
         if stop_reason:
             summary_parts.append(f"reason={stop_reason}")
         if exc_str:
@@ -1651,7 +1632,7 @@ class LifeSupervisor:
                 "terminal_status": status if kind == "mission_failed" else "",
                 "stop_reason": (stop_reason or err) if kind == "mission_failed" else "",
                 "failure_reason": err if kind == "mission_failed" else "",
-                "agent_layer": "planner" if iteration_outcome and iteration_outcome.get("requeued") else "engineer",
+                "agent_layer": "engineer",
                 "engineer_model": self.engineer_model,
                 "reviewer_model": self.reviewer_model,
                 "scientist_cost_usd": cost_sink.scientist_usd(),
@@ -1697,7 +1678,7 @@ class LifeSupervisor:
                     == _PLANNER_SCOPE_FINAL_SUBMISSION
                     and getattr(outcome, "final_submission_certified", False)
                 ),
-                "iteration": iteration_outcome or {},
+                "iteration": {},
             },
         )
         self.memory.journal.append(entry)
@@ -1722,7 +1703,7 @@ class LifeSupervisor:
             "rounds": rounds,
             "cost_usd": usd,
             "journal_entry_id": entry.id,
-            "iteration": iteration_outcome or None,
+            "iteration": None,
         })
 
         # Manager "janitor": when a mission completes successfully, review the
@@ -1761,7 +1742,7 @@ class LifeSupervisor:
             "rounds": rounds,
             "cost_usd": usd,
             "journal_entry_id": entry.id,
-            "iteration": iteration_outcome,
+            "iteration": None,
             "auth_failure": auth_failure,
         }
 
@@ -2321,23 +2302,6 @@ class LifeSupervisor:
             reason=wait_reason,
             new_tasks=[],
         )
-
-    # ------------------------------------------------------------------
-    # Iteration loop
-    # ------------------------------------------------------------------
-
-    def _render_recent_journal_for_planner(self, item_id: str) -> str:
-        """A tiny tail of journal entries for the current item, plain text."""
-        try:
-            entries = self.memory.journal.tail(6)
-        except Exception:  # noqa: BLE001
-            return ""
-        lines: list[str] = []
-        for e in entries:
-            extra = getattr(e, "extra", None) or {}
-            if isinstance(extra, dict) and extra.get("item_id") == item_id:
-                lines.append(f"- {e.kind}: {e.summary}")
-        return "\n".join(lines[-3:])
 
     def _inject_cumulative_cost(
         self, entry: Any, *, in_flight_usd: float = 0.0,
