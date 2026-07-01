@@ -906,6 +906,32 @@ class Manager:
             role_skill_block=self._role_skill_block(task),
         )
 
+    def review_self_repair(
+        self,
+        *,
+        diff: str,
+        files: list[str],
+        test_tail: str,
+        reasoning_effort: str = "high",
+    ) -> Any:
+        """Judge whether a captured self-repair may be landed to the shared branch.
+
+        The Manager owns the merge gate (most context, project-level view). Runs on
+        THIS Manager's backend and returns a ``SelfRepairVerdict`` — conservative,
+        fail-closed. The caller still enforces the independent test gate.
+        Manager 把关自修复能否合入共享分支;跑在 Manager 自己的后端,保守、失败即拒;
+        调用方另外强制独立测试门。
+        """
+        from ..life.self_evolve import review_self_repair as _review
+
+        return _review(
+            (self._session or self.runner),
+            diff=diff,
+            files=files,
+            test_tail=test_tail,
+            reasoning_effort=reasoning_effort,
+        )
+
     # ---- skill-library tidy-up (the Manager is the "janitor") ----
     def classify_skill_placement(self, *, content: str, task: str) -> Any:
         """Decide where a project-distilled skill belongs: global / a vertical /
