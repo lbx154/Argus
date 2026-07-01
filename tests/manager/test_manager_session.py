@@ -16,6 +16,8 @@ import json
 import threading
 import time
 
+import pytest
+
 from argus_skill.manager import Manager
 from argus_skill.manager._core import _ManagerSession, _SESSION_FILE
 
@@ -64,6 +66,62 @@ def test_session_resumes_and_persists_thread_id(tmp_path):
     assert r2.thread_id == "t2"
     assert json.loads((tmp_path / _SESSION_FILE).read_text())["thread_id"] == "t2"
     assert sess.thread_id == "t2"
+
+
+def test_session_resumes_stripped_persisted_thread_id_and_persists_next(tmp_path):
+    (tmp_path / _SESSION_FILE).write_text(
+        json.dumps({"thread_id": "  existing-tid  "}), encoding="utf-8"
+    )
+    fake = _RecordingRunner()
+    sess = _ManagerSession(fake, tmp_path)
+
+    result = sess.run_exec(prompt="a", options=None, run_label="x")
+
+    assert fake.resumes == ["existing-tid"]
+    assert result.thread_id == "t1"
+    assert json.loads((tmp_path / _SESSION_FILE).read_text())["thread_id"] == "t1"
+    assert sess.thread_id == "t1"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"thread_id": ""},
+        {"thread_id": "   \t  "},
+        {"thread_id": 123},
+        {"thread_id": ["t1"]},
+        {"thread_id": {"id": "t1"}},
+        ["t1"],
+        123,
+        "t1",
+        None,
+    ],
+)
+def test_session_ignores_malformed_persisted_thread_id(tmp_path, payload):
+    (tmp_path / _SESSION_FILE).write_text(json.dumps(payload), encoding="utf-8")
+    fake = _RecordingRunner()
+    sess = _ManagerSession(fake, tmp_path)
+
+    result = sess.run_exec(prompt="a", options=None, run_label="x")
+
+    assert fake.resumes == [None]
+    assert result.thread_id == "t1"
+    assert json.loads((tmp_path / _SESSION_FILE).read_text())["thread_id"] == "t1"
+    assert sess.thread_id == "t1"
+
+
+def test_session_ignores_corrupt_persisted_thread_id(tmp_path):
+    (tmp_path / _SESSION_FILE).write_text("{not valid json", encoding="utf-8")
+    fake = _RecordingRunner()
+    sess = _ManagerSession(fake, tmp_path)
+
+    result = sess.run_exec(prompt="a", options=None, run_label="x")
+
+    assert fake.resumes == [None]
+    assert result.thread_id == "t1"
+    assert json.loads((tmp_path / _SESSION_FILE).read_text())["thread_id"] == "t1"
+    assert sess.thread_id == "t1"
 
 
 def test_session_ignores_incoming_resume_thread_id(tmp_path):

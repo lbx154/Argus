@@ -120,8 +120,13 @@ class _ManagerSession:
     def _read_tid(self) -> str | None:
         try:
             data = json.loads(self._session_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return None
             tid = data.get("thread_id")
-            return str(tid) if tid else None
+            if not isinstance(tid, str):
+                return None
+            tid = tid.strip()
+            return tid or None
         except Exception:  # noqa: BLE001 — missing/corrupt/unreadable → no session
             return None
 
