@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal
 
+from ..core.sandbox import sandboxed_child_env
 from .models import AgentRunResult
 from .runner_backend import (
     BACKEND_CLAUDE,
@@ -19,7 +20,6 @@ from .runner_backend import (
     RunnerBackend,
     default_runner_bin,
 )
-from ..core.sandbox import sandboxed_child_env
 
 EventCallback = Callable[[str, str], None]
 InactivityDecision = Literal["continue", "restart"]
@@ -475,7 +475,23 @@ class AgentCliRunner:
             command.extend(merged_extra_args)
         if resume_thread_id:
             command.extend(["--resume", resume_thread_id])
-        command.extend(["-p", prompt])
+        # Copilot CLI (@github/copilot) has NO structured-output / schema flag
+        # (codex --output-schema, claude --json-schema); its --output-format json
+        # only wraps EVENTS while the assistant CONTENT stays free-form. The
+        # reviewer/planner need a schema-valid JSON verdict (reviewer is the SOLE
+        # done-authority), so on copilot we embed the compact schema + a strict
+        # "JSON only" instruction IN THE PROMPT so the model self-constrains.
+        # Skip on a resumed thread (the contract already lives in the
+        # conversation) and fail-open. / copilot CLI 无结构化输出/schema 参数，
+        # --output-format json 只包事件、内容仍自由文本；reviewer/planner 需要
+        # schema 合法的 JSON 裁决，故在 prompt 里嵌入压缩 schema + 严格"只回 JSON"
+        # 指令让模型自约束；resume 时跳过（契约已在对话里），失败不阻塞。
+        effective_prompt = prompt
+        if options.output_schema_path and not resume_thread_id:
+            suffix = self._copilot_schema_suffix(options.output_schema_path)
+            if suffix:
+                effective_prompt = prompt + suffix
+        command.extend(["-p", effective_prompt])
         return command
 
     @staticmethod
@@ -533,6 +549,34 @@ class AgentCliRunner:
         raw = Path(path).read_text(encoding="utf-8")
         parsed = json.loads(raw)
         return json.dumps(parsed, ensure_ascii=True, separators=(",", ":"))
+
+    def _copilot_schema_suffix(self, schema_path: str) -> str:
+        """Prompt-embedded output contract for backends without a schema flag.
+
+        EN: Copilot has no ``--output-schema``. Append the compact JSON Schema +
+        a strict "reply with ONLY schema-valid JSON" instruction so the
+        reviewer/planner verdict parses instead of degrading to a prose reply
+        (which the strict parser rejects → the reviewer, the sole done-authority,
+        would fall back to ``continue``). Fail-soft to "" — a missing/invalid
+        schema must never block a run.
+        中文：copilot 没有 ``--output-schema``。把压缩后的 JSON Schema + 严格
+        "只回合法 JSON"指令追加到 prompt，让 reviewer/planner 裁决可解析，而不是
+        退化成散文（严格 parser 会拒 → reviewer 退回 ``continue``）。schema
+        缺失/非法时返回 ""，绝不阻塞运行。
+        """
+        try:
+            schema_text = self._load_compact_schema_text(schema_path)
+        except Exception:  # noqa: BLE001 — no/invalid schema → no suffix, fail-open
+            return ""
+        if not schema_text.strip():
+            return ""
+        return (
+            "\n\n--- OUTPUT CONTRACT (STRICT) ---\n"
+            "Your FINAL message MUST be exactly one JSON object that validates "
+            "against this JSON Schema. No prose, no markdown fences, nothing "
+            "before or after it:\n"
+            f"{schema_text}\n"
+        )
 
     def _emit(self, stream: str, line: str) -> None:
         if self.event_callback is None:
