@@ -377,6 +377,34 @@ def land_self_repair(
     return LandResult(True, target_branch, commit, pushed_to, "landed as argus")
 
 
+def push_commit_to_remote_main(
+    repo_root: Path, *, commit: str, remote: str, main_ref: str = "main",
+) -> tuple[bool, str]:
+    """Advance the REMOTE ``main_ref`` to ``commit`` with a NORMAL (non-force) push.
+
+    EN: the deliberate, operator-opted-in "gated direct-to-main" path — used ONLY
+    after a self-repair has passed the independent test gate AND Manager review and
+    been landed as ``argus``. A normal push fast-forwards the remote branch or is
+    REFUSED (a diverged main — e.g. another operator pushed — is never clobbered).
+    The LOCAL checked-out main is untouched (we push a commit ref, not the local
+    branch), so the daemon's working tree cannot desync.
+    中文:经操作者明确开启的"gated 直推 main":仅在自修复过了独立测试门 + Manager 审、
+    并已以 argus 落地后才走。普通推 → 能快进才推,main 分叉即拒、绝不覆盖他人提交;
+    不动本地 main,只推该 commit 到远端 ref。
+    """
+    if not commit or not remote:
+        return False, "missing commit/remote"
+    rc, _, err = _git(
+        repo_root, "push", remote, f"{commit}:refs/heads/{main_ref}", timeout=120,
+    )
+    if rc == 0:
+        return True, f"{remote}/{main_ref}"
+    # Non-ff (diverged main) or auth/other → do NOT force; report and move on.
+    log.warning("self-evolve: push to %s/%s refused/failed (not clobbering): %s",
+                remote, main_ref, err)
+    return False, err[:200]
+
+
 # --- orchestrator ----------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -499,6 +527,7 @@ class SelfEvolveSink:
         target_branch: str,
         remote: str | None,
         pr_base: str | None,
+        push_main_ref: str | None = None,
     ) -> None:
         self.downstream = downstream
         self.runner = runner
@@ -506,6 +535,9 @@ class SelfEvolveSink:
         self.target_branch = target_branch
         self.remote = remote
         self.pr_base = pr_base
+        # Operator-opted-in "gated direct-to-main": after a gated+approved land,
+        # also advance this REMOTE ref (normal, non-force). None = off (default).
+        self.push_main_ref = push_main_ref
 
     @classmethod
     def build(cls, downstream, *, runner):
@@ -527,11 +559,18 @@ class SelfEvolveSink:
             target = "argus-evolve"
         remote = os.environ.get("ARGUS_SKILL_SELF_EVOLVE_REMOTE", "").strip() or None
         pr_base = os.environ.get("ARGUS_SKILL_SELF_EVOLVE_PR_BASE", "").strip() or None
+        push_main = os.environ.get("ARGUS_SKILL_SELF_EVOLVE_PUSH_MAIN", "").strip() or None
+        if push_main and remote:
+            log.warning(
+                "self-evolve: GATED DIRECT-TO-MAIN is ON — approved+tested "
+                "improvements will be pushed to %s/%s (non-force).", remote, push_main,
+            )
         # Ensure the target branch exists off the current main (once, best-effort).
         cls._ensure_branch(root, target)
         return cls(
             downstream, runner=runner, repo_root=root,
             target_branch=target, remote=remote, pr_base=pr_base,
+            push_main_ref=push_main,
         )
 
     @staticmethod
@@ -580,6 +619,23 @@ class SelfEvolveSink:
         if outcome.land is not None:
             ev["landed_commit"] = outcome.land.commit
             ev["pushed_to"] = outcome.land.pushed_to
+        # Gated direct-to-main (operator opt-in): after a gated + approved + landed
+        # improvement, advance the REMOTE main via a normal (non-force) push. A
+        # diverged main is refused, never clobbered; the local checkout is untouched.
+        if (
+            outcome.stage == "landed"
+            and outcome.land is not None
+            and outcome.land.commit
+            and self.push_main_ref
+            and self.remote
+        ):
+            ok, where = push_commit_to_remote_main(
+                self.repo_root, commit=outcome.land.commit,
+                remote=self.remote, main_ref=self.push_main_ref,
+            )
+            ev["pushed_to_main"] = where if ok else None
+            if not ok:
+                ev["push_main_refused"] = where
         # Best-effort PR once something has actually been pushed to the remote.
         if (
             outcome.stage == "landed"

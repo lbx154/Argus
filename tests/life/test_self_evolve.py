@@ -288,3 +288,49 @@ def test_evolve_sink_rejects_leave_branch_untouched(repo: Path) -> None:
     sink.handle_event({"type": "self_repair.captured", "commit": commit, "files": files})
     assert "self_evolve.rejected" in [e.get("type") for e in down.events]
     assert _git(repo, "rev-parse", "argus-evolve") == before   # not advanced
+
+
+# --- gated direct-to-main push ---------------------------------------------
+
+def test_push_to_main_fast_forwards_remote(repo: Path, tmp_path: Path) -> None:
+    from argus_skill.life.self_evolve import push_commit_to_remote_main
+
+    _git(repo, "branch", "argus-evolve", "main")
+    bare = tmp_path / "prod.git"
+    subprocess.run(["git", "init", "--bare", "-b", "main", str(bare)], capture_output=True)
+    _git(repo, "remote", "add", "prod", str(bare))
+    _git(repo, "push", "prod", "main")
+    commit, files = _capture_commit(repo, edits={"argus_skill/m.py": "def f():\n    return 42\n"})
+    land = land_self_repair(repo, source_commit=commit, files=files,
+                            target_branch="argus-evolve", message="argus: land")
+    ok, where = push_commit_to_remote_main(repo, commit=land.commit, remote="prod", main_ref="main")
+    assert ok and where == "prod/main"
+    # remote main now carries argus's approved commit, authored by argus
+    assert _git(bare, "log", "-1", "--format=%an", "main") == ARGUS_AUTHOR_NAME
+    assert "return 42" in _git(bare, "show", "main:argus_skill/m.py")
+
+
+def test_push_to_main_refuses_diverged_remote(repo: Path, tmp_path: Path) -> None:
+    from argus_skill.life.self_evolve import push_commit_to_remote_main
+
+    _git(repo, "branch", "argus-evolve", "main")
+    bare = tmp_path / "prod.git"
+    subprocess.run(["git", "init", "--bare", "-b", "main", str(bare)], capture_output=True)
+    _git(repo, "remote", "add", "prod", str(bare))
+    _git(repo, "push", "prod", "main")
+    # Another operator advances remote main so it diverges from our base.
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", str(bare), str(other)], capture_output=True)
+    _git(other, "config", "user.email", "lsk@t")
+    _git(other, "config", "user.name", "lsk")
+    (other / "unrelated.txt").write_text("lsk work\n")
+    _git(other, "add", "-A")
+    _git(other, "commit", "-m", "lsk change")
+    _git(other, "push", "origin", "main")
+    # argus's push must be REFUSED (non-ff), never clobbering lsk's commit.
+    commit, files = _capture_commit(repo, edits={"argus_skill/m.py": "def f():\n    return 7\n"})
+    land = land_self_repair(repo, source_commit=commit, files=files,
+                            target_branch="argus-evolve", message="argus: land")
+    ok, msg = push_commit_to_remote_main(repo, commit=land.commit, remote="prod", main_ref="main")
+    assert not ok                                            # refused, not forced
+    assert _git(bare, "log", "-1", "--format=%an", "main") == "lsk"   # lsk's commit intact
