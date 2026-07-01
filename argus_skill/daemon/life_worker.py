@@ -1010,6 +1010,27 @@ class LifeWorker:
             life_dir=runtime_root,
         )
 
+        # Controlled self-EVOLUTION (opt-in via ARGUS_SKILL_SELF_EVOLVE): each
+        # captured self-repair is run through an independent test gate + Manager
+        # review, and the approved ones are landed AS 'argus' onto a dedicated
+        # branch (ARGUS_SKILL_SELF_EVOLVE_BRANCH, default argus-evolve) and pushed
+        # ONLY to an explicitly-configured remote (ARGUS_SKILL_SELF_EVOLVE_REMOTE)
+        # — never the shared main. Wired UNDER SelfRepairSink so it receives the
+        # self_repair.captured events that sink emits. Inert off a git checkout /
+        # without a Manager runner; fail-soft.
+        # 受控自演化(默认关):每个捕获过独立测试门 + Manager 审,批准的以 'argus' 身份
+        # 落到专属分支并仅 push 到显式配置的 remote,绝不碰共享 main。
+        if _truthy_env("ARGUS_SKILL_SELF_EVOLVE", "0"):
+            try:
+                from ..life.self_evolve import SelfEvolveSink
+                manager_runner = (
+                    getattr(runner, "manager_backend", None)
+                    or getattr(runner, "backend", None)
+                )
+                sink = SelfEvolveSink.build(sink, runner=manager_runner)
+            except Exception:  # noqa: BLE001 — evolve wiring must never block boot
+                log.exception("daemon: self-evolve sink wiring failed; continuing")
+
         # Self-repair capture (opt-in via ARGUS_SKILL_SELF_REPAIR_CAPTURE): when a
         # self-hosted mission edits the RUNNING argus_skill source (a code-level
         # self-improvement), snapshot that change onto a review branch instead of
