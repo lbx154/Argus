@@ -449,7 +449,6 @@ def _maybe_accept_manager_blocked_rollback(
 
 def main() -> int:
     import argparse
-    import importlib
 
     parser = argparse.ArgumentParser(prog="stage-check")
     parser.add_argument("--project-root", type=Path, default=Path("."))
@@ -495,10 +494,20 @@ def main() -> int:
     # imports they don't need. Module-level re-exports (STAGE_ORDER etc.)
     # remain pointed at the research vertical for backward compat.
     global STAGE_CHECKS, STAGE_ORDER, REVIEWER_CHECKLISTS  # noqa: PLW0603
+    # Use the canonical resolver — the SAME one the runtime uses
+    # (supervisor/_core.py, loop.py, _runtime.py). It resolves both packaged
+    # verticals AND project-local DATA domains (research/DOMAINS/<name>.json),
+    # returning a duck-typed shim that exposes STAGE_CHECKS/STAGE_ORDER/
+    # REVIEWER_CHECKLISTS. Raw importlib saw ONLY packaged verticals, so
+    # stage_check crashed ("unknown vertical") on every data-domain vertical the
+    # runtime resolves fine — the acceptance gate could never run for them.
+    # 用规范解析器(与运行时一致):兼容打包 vertical 与项目本地 data-domain,否则
+    # data-domain vertical 运行时能解析、stage_check 却崩,验收门永远跑不起来。
+    from ..verticals._base import load_vertical
     try:
-        vmod = importlib.import_module(f"argus_skill.verticals.{vertical_name}.stages")
-    except ImportError as exc:
-        print(f"❌ unknown vertical {vertical_name!r}: {exc}", file=sys.stderr)
+        vmod = load_vertical(vertical_name, project_root=root)
+    except Exception as exc:  # noqa: BLE001 — a real vertical whose module errored
+        print(f"❌ vertical {vertical_name!r} failed to load: {exc}", file=sys.stderr)
         return 2
     STAGE_CHECKS = vmod.STAGE_CHECKS
     STAGE_ORDER = vmod.STAGE_ORDER
