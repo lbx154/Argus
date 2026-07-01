@@ -1010,6 +1010,23 @@ class LifeWorker:
             life_dir=runtime_root,
         )
 
+        # Self-repair capture (opt-in via ARGUS_SKILL_SELF_REPAIR_CAPTURE): when a
+        # self-hosted mission edits the RUNNING argus_skill source (a code-level
+        # self-improvement), snapshot that change onto a review branch instead of
+        # leaving an unreviewed floating mutation. Inert off a git checkout or when
+        # the flag is unset; fail-soft so it can never block daemon boot.
+        # 自修复捕获(默认关,ARGUS_SKILL_SELF_REPAIR_CAPTURE 开):自托管 mission 改到
+        # 正在运行的 argus_skill 源码时,快照到 review 分支而非留作未审的游离改动。
+        if _truthy_env("ARGUS_SKILL_SELF_REPAIR_CAPTURE", "0"):
+            try:
+                from ..life.self_repair import SelfRepairSink
+                sink = SelfRepairSink.build(
+                    sink,
+                    session_label=str(getattr(cfg, "project_label", "") or "daemon"),
+                )
+            except Exception:  # noqa: BLE001 — capture wiring must never block boot
+                log.exception("daemon: self-repair sink wiring failed; continuing")
+
         if cfg.project_workdir is not None:
             bootstrap_preflight = inspect_project_bootstrap(
                 cfg.project_workdir,
