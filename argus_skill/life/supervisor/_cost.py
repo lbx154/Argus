@@ -116,11 +116,13 @@ class _CostTrackingSink:
                 self.copilot_premium_requests += self._premium_delta(event)
             elif kind == "skill.cost.completed":
                 self._record_scientist_usage(event)
+                self.copilot_premium_requests += self._premium_delta(event)
             elif kind == "codex.util.completed":
                 in_tok, cached_tok, out_tok = self._usage_delta(event, layer="util")
                 self.util_input_tokens += in_tok
                 self.util_cached_input_tokens += cached_tok
                 self.util_output_tokens += out_tok
+                self.copilot_premium_requests += self._premium_delta(event)
                 if any((in_tok, cached_tok, out_tok)):
                     key = str(event.get("model") or self.engineer_model)
                     bucket = self.util_usage_by_model.setdefault(key, [0, 0, 0])

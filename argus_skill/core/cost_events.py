@@ -40,6 +40,11 @@ def emit_codex_util_cost(
             "input_tokens": int(getattr(result, "input_tokens", 0) or 0),
             "cached_input_tokens": int(getattr(result, "cached_input_tokens", 0) or 0),
             "output_tokens": int(getattr(result, "output_tokens", 0) or 0),
+            # Copilot premium-request delta (0.0 off copilot). Without this a
+            # copilot-backed Manager util turn bills premium the sink never sees.
+            # copilot 高级请求增量(非 copilot 为 0.0)——否则 Manager 的 copilot 工具轮
+            # 花费不进入成本表。
+            "premium_requests": float(getattr(result, "premium_requests", 0.0) or 0.0),
             "usage_scope": "delta",
         })
     except Exception:  # noqa: BLE001 — metering must never break the caller

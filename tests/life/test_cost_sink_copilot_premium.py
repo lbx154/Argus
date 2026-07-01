@@ -93,6 +93,24 @@ def test_sink_zero_premium_is_free_for_codex() -> None:
     assert sink.copilot_usd() == 0.0
 
 
+def test_sink_folds_manager_util_and_scientist_premium() -> None:
+    # A live copilot run also bills premium on the Manager's util turns
+    # (codex.util.completed) and the scientist distiller (skill.cost.completed);
+    # both must fold into the SAME meter, not just engineer/reviewer.
+    sink = _sink()
+    sink.handle_event({
+        "type": "codex.util.completed", "model": "gpt-5.5",
+        "premium_requests": 7.5, "usage_scope": "delta",
+    })
+    sink.handle_event({
+        "type": "skill.cost.completed", "agent_layer": "scientist",
+        "premium_requests": 7.5, "usage_scope": "delta",
+    })
+    assert sink.copilot_premium_requests == 15.0     # manager util + distiller
+    assert sink.copilot_usd() == 15.0 * 0.04
+    assert sink.total_usd() >= sink.copilot_usd()
+
+
 def test_copilot_rate_is_configurable(monkeypatch) -> None:
     from argus_skill.life.supervisor import _cost
 

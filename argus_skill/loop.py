@@ -399,6 +399,13 @@ class SkillLoop:
                 "output_tokens": (
                     matcher_usage["output_tokens"] + distiller_usage["output_tokens"]
                 ),
+                # Copilot premium-request delta for the distiller turn (0.0 off
+                # copilot; matcher premium is a documented residual — it rides the
+                # SkillMatch object which does not yet carry premium_requests).
+                # 蒸馏轮的 copilot 高级请求增量(非 copilot 为 0.0；matcher 的暂为已知残留)。
+                "premium_requests": float(
+                    getattr(distill_result, "premium_requests", 0.0) or 0.0
+                ),
                 "usage_scope": "delta",
             })
             self._emit({
