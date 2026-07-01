@@ -68,6 +68,12 @@ class RunnerResult:
     input_tokens: int = 0
     cached_input_tokens: int = 0
     output_tokens: int = 0
+    # Copilot bills in PREMIUM REQUESTS, not tokens (it reports no input tokens),
+    # so this is copilot's native cost unit — this call's DELTA (already
+    # de-cumulated per thread by the backend adapter). 0.0 for codex/claude.
+    # Copilot 以「高级请求数」计费而非 token（它不报输入 token），故这是 copilot 的
+    # 原生成本单位——本次调用的增量（适配层已按线程去累计）。codex/claude 恒为 0.0。
+    premium_requests: float = 0.0
 
     @property
     def last_agent_message(self) -> str:
@@ -191,6 +197,11 @@ class ReviewDecision:
     input_tokens: int = 0
     cached_input_tokens: int = 0
     output_tokens: int = 0
+    # Copilot's native cost unit for the reviewer subprocess (this round's
+    # DELTA; 0.0 for codex/claude). Consumed by cost-tracking sinks alongside
+    # the token side-channels above.
+    # Copilot 下 reviewer 子进程的原生成本单位（本轮增量；codex/claude 为 0.0）。
+    premium_requests: float = 0.0
     # F7 side-channel (like input_tokens above — NOT semantic output, deliberately
     # absent from ``to_event_payload``): the codex thread_id the reviewer ran on,
     # and the sha256 of the STATIC preamble it sent. The supervised loop reads
@@ -275,6 +286,8 @@ class ReviewDecision:
             "input_tokens": int(self.input_tokens or 0),
             "cached_input_tokens": int(self.cached_input_tokens or 0),
             "output_tokens": int(self.output_tokens or 0),
+            # Copilot premium-request delta (cost sinks fold it into USD).
+            "premium_requests": float(self.premium_requests or 0.0),
             "backend_unavailable": bool(self.backend_unavailable),
             "usage_scope": "delta",
         }

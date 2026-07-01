@@ -274,6 +274,10 @@ class AgentCliBackend:
         self._auth_failure_detected: bool = False
         self._usage_lock = threading.Lock()
         self._thread_usage_totals: dict[str, tuple[int, int, int]] = {}
+        # Copilot reports premiumRequests as a session-cumulative total; keep the
+        # last-seen total per thread to charge each call only its delta.
+        # copilot 的 premiumRequests 是会话累计值；按线程存上次累计，只计本次增量。
+        self._thread_premium_totals: dict[str, float] = {}
 
     # --- RunnerBackend.run_exec ------------------------------------------
 
@@ -376,6 +380,12 @@ class AgentCliBackend:
             thread_id=argus_result.thread_id or resume_thread_id,
             raw_totals=(raw_input_tokens, raw_cached_input_tokens, raw_output_tokens),
         )
+        premium_requests = self._premium_delta_for_thread(
+            thread_id=argus_result.thread_id or resume_thread_id,
+            raw_total=_sum_copilot_premium_requests(
+                getattr(argus_result, "json_events", None)
+            ),
+        )
         return RunnerResult(
             exit_code=argus_result.exit_code,
             agent_messages=list(argus_result.agent_messages or []),
@@ -386,6 +396,7 @@ class AgentCliBackend:
             input_tokens=input_tokens,
             cached_input_tokens=cached_input_tokens,
             output_tokens=output_tokens,
+            premium_requests=premium_requests,
         )
 
     def _usage_delta_for_thread(
@@ -420,6 +431,33 @@ class AgentCliBackend:
             )
             return raw_totals
         return deltas
+
+    def _premium_delta_for_thread(
+        self,
+        *,
+        thread_id: str | None,
+        raw_total: float,
+    ) -> float:
+        """Convert copilot's session-cumulative premiumRequests into this call's
+        delta. Mirrors ``_usage_delta_for_thread`` for the scalar case.
+        把 copilot 会话累计的 premiumRequests 转成本次调用的增量（标量版）。"""
+        if raw_total <= 0.0:
+            return 0.0
+        if not thread_id:
+            return raw_total
+
+        with self._usage_lock:
+            previous = self._thread_premium_totals.get(thread_id)
+            self._thread_premium_totals[thread_id] = raw_total
+
+        if previous is None:
+            return raw_total
+        delta = raw_total - previous
+        if delta < 0.0:
+            # Cumulative counter reset (new session on the same id) — charge the
+            # current total as a fresh delta rather than a negative credit.
+            return raw_total
+        return delta
 
 
 def _sum_token_counts(events: list[dict[str, Any]] | None) -> tuple[int, int, int]:
@@ -473,6 +511,35 @@ def _sum_token_counts(events: list[dict[str, Any]] | None) -> tuple[int, int, in
                     out_tok = _coerce_int(content.get("output_tokens"))
         if in_tok > 0 or cached_tok > 0 or out_tok > 0:
             last = (in_tok, cached_tok, out_tok)
+    return last
+
+
+def _sum_copilot_premium_requests(events: list[dict[str, Any]] | None) -> float:
+    """Best-effort copilot premium-request total from its JSON event stream.
+
+    EN: The copilot CLI ends each turn with a ``result`` event carrying
+    ``usage.premiumRequests`` — a SESSION-CUMULATIVE running total (turn 1: 7.5,
+    after a resumed turn: 15, …), NOT a per-turn delta. We return the LAST such
+    total seen; the backend adapter de-cumulates it into this call's delta
+    per-thread (mirroring how codex token totals are handled). codex/claude
+    emit no such field → 0.0.
+    中文：copilot CLI 每轮以 ``result`` 事件收尾，带 ``usage.premiumRequests``——这是
+    「会话累计」总数（第 1 轮 7.5，续接后 15…），非单轮增量。这里取最后一次的累计值；
+    适配层再按线程把它去累计成本次调用的增量（与 codex token 累计处理一致）。
+    codex/claude 无此字段 → 0.0。
+    """
+    if not events:
+        return 0.0
+    last = 0.0
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        usage = event.get("usage") if isinstance(event.get("usage"), dict) else None
+        if usage is None:
+            continue
+        raw = usage.get("premiumRequests")
+        if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            last = float(raw)
     return last
 
 

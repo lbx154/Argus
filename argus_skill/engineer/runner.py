@@ -1152,6 +1152,9 @@ class SupervisedEngineer:
                         getattr(engineer_result, "cached_input_tokens", 0) or 0
                     ),
                     "output_tokens": int(getattr(engineer_result, "output_tokens", 0) or 0),
+                    "premium_requests": float(
+                        getattr(engineer_result, "premium_requests", 0.0) or 0.0
+                    ),
                     "usage_scope": "delta",
                 })
 
