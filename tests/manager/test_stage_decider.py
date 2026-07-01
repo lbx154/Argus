@@ -156,6 +156,21 @@ def test_decide_rollback_writes_state(tmp_path: Path) -> None:
     assert _read_stage(root) == "benchmark"
 
 
+@pytest.mark.parametrize("target", ["`benchmark`", "benchmark stage"])
+def test_decide_rollback_accepts_harmless_target_formatting(
+    tmp_path: Path, target: str
+) -> None:
+    root = _project(tmp_path, current="run")
+    mgr = Manager(project_root=root, runner=_StubRunner(
+        {"action": "rollback", "target_stage": target, "reason": "stub evaluator"}
+    ))
+    st = mgr.decide_stage_transition(review=_review(status="continue"), project_root=root)
+    assert st.action == "rollback"
+    assert st.target_stage == "benchmark"
+    assert st.diagnostic == "normalized_target_stage"
+    assert _read_stage(root) == "benchmark"
+
+
 # --- decide_stage_transition: fail-safe HOLDs ----------------------------
 
 
@@ -316,6 +331,38 @@ def test_parse_rollback_must_be_earlier() -> None:
     )
     assert bad.action == "hold"
     assert bad.diagnostic == "illegal_rollback_target"
+
+
+@pytest.mark.parametrize("target", ["`benchmark`", "benchmark stage"])
+def test_parse_rollback_harmless_target_formatting_ok(target: str) -> None:
+    d = parse_stage_decision(
+        json.dumps({"action": "rollback", "target_stage": target, "reason": "ok"}),
+        current_stage="run",
+        stage_order=("research", "plan", "benchmark", "run"),
+    )
+    assert d.action == "rollback"
+    assert d.target_stage == "benchmark"
+    assert d.diagnostic == "normalized_target_stage"
+
+
+@pytest.mark.parametrize(
+    ("target", "diagnostic"),
+    [
+        ("", "missing_rollback_target"),
+        ("run", "illegal_rollback_target"),
+        ("analysis", "illegal_rollback_target"),
+        ("unknown", "illegal_rollback_target"),
+    ],
+)
+def test_parse_rollback_illegal_targets_hold(target: str, diagnostic: str) -> None:
+    d = parse_stage_decision(
+        json.dumps({"action": "rollback", "target_stage": target, "reason": "bad"}),
+        current_stage="run",
+        stage_order=("research", "plan", "benchmark", "run", "analysis"),
+    )
+    assert d.action == "hold"
+    assert d.target_stage == "run"
+    assert d.diagnostic == diagnostic
 
 
 def test_parse_rollback_missing_target_holds() -> None:

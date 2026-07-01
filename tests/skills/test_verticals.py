@@ -42,6 +42,11 @@ RESEARCH_STAGES: tuple[str, ...] = (
 SPEEDRUN_STAGES: tuple[str, ...] = ("setup", "optimize", "measure", "report")
 
 
+@pytest.fixture(autouse=True)
+def _isolate_forced_vertical_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+
+
 def _project(tmp_path: Path, vertical: str | None, *, current: str = "run") -> Path:
     (tmp_path / "research").mkdir(parents=True, exist_ok=True)
     payload: dict = {"current_stage": current}
@@ -279,4 +284,3 @@ def test_quant_full_pipeline_checklist_is_finance_not_paper(tmp_path: Path) -> N
     # It is a REPORT vertical (full_emnlp gate) -> keeps the submission-gate
     # header, not the lean "(quant)" optimize header.
     assert "final submission gate" in text
-

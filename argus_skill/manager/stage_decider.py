@@ -233,7 +233,6 @@ def parse_stage_decision(
         )
 
     # rollback
-    target = str(raw_target or "").strip().lower()
     if not target:
         return StageDecision(
             "hold", cur, "manager held (default)", "missing_rollback_target"
@@ -242,8 +241,9 @@ def parse_stage_decision(
         return StageDecision(
             "hold", cur, "manager held (default)", "illegal_rollback_target"
         )  # must be strictly earlier
+    diagnostic = "normalized_target_stage" if raw_target != target else "valid_target"
     return StageDecision(
-        "rollback", target, reason or "upstream evidence unreliable", "valid_target"
+        "rollback", target, reason or "upstream evidence unreliable", diagnostic
     )
 
 

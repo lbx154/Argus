@@ -283,11 +283,12 @@ def test_advance_stage_rejects_backward_or_skip(tmp_path: Path) -> None:
         advance_stage(tmp_path, target_stage="nonsense", reason="bad name")
 
 
-def test_advance_stage_is_vertical_aware_speedrun(tmp_path: Path) -> None:
+def test_advance_stage_is_vertical_aware_speedrun(tmp_path: Path, monkeypatch) -> None:
     import pytest as _pytest
 
     from argus_skill.skills.stage_checklists import advance_stage
 
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
     research_dir = tmp_path / "research"
     research_dir.mkdir()
     # speedrun order is setup -> optimize -> measure -> report

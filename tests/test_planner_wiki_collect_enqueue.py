@@ -22,6 +22,7 @@ def test_planner_suggests_wiki_collect_when_cooldown_elapsed_and_backlog_empty(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
     wiki = _make_wiki(tmp_path)
     save_bot_state(
         wiki / "data" / "bot_state.json",
@@ -46,6 +47,7 @@ def test_planner_does_not_suggest_wiki_collect_when_cooldown_active(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
     wiki = _make_wiki(tmp_path)
     # Just collected 1 hour ago -- cooldown still active.
     save_bot_state(
