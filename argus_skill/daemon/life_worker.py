@@ -31,7 +31,7 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import MutableMapping
+from collections.abc import Iterable, MutableMapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -166,6 +166,53 @@ def continuous_mode_error(backend: str, enabled: bool, objective: str) -> str:
             "ARGUS_SKILL_LIFE_BACKEND=memory cannot plan"
         )
     return ""
+
+
+def _preflight_route_on_codex(route: str) -> bool:
+    """Will this preflight route actually run on the codex/Azure backend?
+
+    EN: Mirrors ``_runtime._role_backend`` resolution
+    (``ARGUS_SKILL_{ROLE}_BACKEND`` → ``ARGUS_SKILL_RUNNER_BACKEND`` → codex). A
+    role pinned to copilot/claude authenticates through its OWN CLI (the copilot
+    subscription / claude), NOT the ``model_api`` vault — so probing its Azure
+    route is a FALSE gate. The generic ``text`` route (no dedicated backend env)
+    follows the default runner backend. Unknown/typo'd values fall back to codex
+    so the safety probe is preserved (fail-closed toward probing).
+    中文：镜像 ``_role_backend`` 的解析顺序。固定到 copilot/claude 的角色用自己的 CLI
+    (copilot 订阅 / claude) 认证，不走 ``model_api`` vault，故探测其 Azure 路由是误判
+    的门禁。通用 ``text`` 路由跟随默认 runner backend。未知/拼错值回退 codex 以保留
+    安全探测。
+    """
+    from ..agent_cli.runner_backend import BACKEND_CODEX, normalize_runner_backend
+
+    runner_default = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND", "").strip()
+    if route in ("engineer", "reviewer", "planner", "manager", "curator"):
+        raw = os.environ.get(f"ARGUS_SKILL_{route.upper()}_BACKEND", "").strip()
+        chosen = raw or runner_default
+    else:  # "text" and any other generic route track the default runner backend
+        chosen = runner_default
+    if not chosen:
+        return True  # nothing overridden → codex default → probe it
+    try:
+        return normalize_runner_backend(chosen) == BACKEND_CODEX
+    except Exception:  # noqa: BLE001 — unknown value: keep the safety probe
+        return True
+
+
+def required_codex_routes(required: Iterable[str] | None = None) -> list[str]:
+    """The subset of preflight routes that will hit the codex/Azure model_api.
+
+    Roles routed to copilot/claude are excluded (they never touch the Azure
+    vault). When this returns ``[]`` the daemon can skip the vault preflight
+    entirely — e.g. a fully copilot-backed run needs no Azure routes at all.
+    返回真正会打到 codex/Azure model_api 的预检路由子集；copilot/claude 的角色被排除。
+    返回 ``[]`` 时可整体跳过 vault 预检（如全 copilot 运行无需任何 Azure 路由）。
+    """
+    from ..core.vault_preflight import DEFAULT_REQUIRED_ROUTES
+
+    routes = list(required) if required is not None else list(DEFAULT_REQUIRED_ROUTES)
+    return [r for r in routes if _preflight_route_on_codex(r)]
+
 
 def _continuous_config_path(life_dir: Path) -> Path:
     return life_dir / "continuous.json"
@@ -1072,32 +1119,43 @@ class LifeWorker:
         # Vault pre-flight: refuse to start daemon if a required
         # model_api route is misconfigured (e.g. wrong deployment
         # name → 404 on every mission, observed 2026-06-01: 47 min /
-        # $2.50 doom loop). The codex backend is the only one that
-        # talks to the real model API; memory backend (tests) skips.
-        # Operator override via ARGUS_SKILL_SKIP_VAULT_PREFLIGHT=1.
+        # $2.50 doom loop). Only routes that actually run on the codex/Azure
+        # backend are probed — roles pinned to copilot/claude authenticate via
+        # their own CLI (copilot subscription / claude), not the model_api vault,
+        # so a fully copilot-backed run needs NO Azure routes and skips this.
+        # memory backend (tests) skips. Override: ARGUS_SKILL_SKIP_VAULT_PREFLIGHT=1.
+        # 只探测真正跑在 codex/Azure 后端的路由；固定到 copilot/claude 的角色用自己的
+        # CLI 认证，不走 model_api vault，故全 copilot 运行无需 Azure 路由、直接跳过。
         if (
             cfg.backend == "codex"
             and os.environ.get("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "").strip() not in ("1", "true", "yes")
         ):
-            from ..core.vault_preflight import (
-                check_routes as _vault_preflight_check,
-            )
-            from ..core.vault_preflight import (
-                format_report as _vault_preflight_format,
-            )
-            try:
-                preflight = _vault_preflight_check()
-            except Exception as exc:  # noqa: BLE001 - never fail-start on preflight infra bug
-                log.warning("vault preflight infra failed; proceeding: %s", exc)
-                preflight = None
-            if preflight is not None and not preflight.ok:
-                sys.stderr.write(_vault_preflight_format(preflight) + "\n")
-                sys.stderr.write(
-                    "argus-skill: daemon refused to start due to vault preflight "
-                    "failure. Fix the routes above, or set "
-                    "ARGUS_SKILL_SKIP_VAULT_PREFLIGHT=1 to bypass.\n"
+            codex_routes = required_codex_routes()
+            if not codex_routes:
+                log.info(
+                    "vault preflight skipped: no required route runs on the codex "
+                    "backend (roles on copilot/claude authenticate via their own CLI)"
                 )
-                return 2
+            else:
+                from ..core.vault_preflight import (
+                    check_routes as _vault_preflight_check,
+                )
+                from ..core.vault_preflight import (
+                    format_report as _vault_preflight_format,
+                )
+                try:
+                    preflight = _vault_preflight_check(required=codex_routes)
+                except Exception as exc:  # noqa: BLE001 - never fail-start on preflight infra bug
+                    log.warning("vault preflight infra failed; proceeding: %s", exc)
+                    preflight = None
+                if preflight is not None and not preflight.ok:
+                    sys.stderr.write(_vault_preflight_format(preflight) + "\n")
+                    sys.stderr.write(
+                        "argus-skill: daemon refused to start due to vault preflight "
+                        "failure. Fix the routes above, or set "
+                        "ARGUS_SKILL_SKIP_VAULT_PREFLIGHT=1 to bypass.\n"
+                    )
+                    return 2
 
         log.info(
             "daemon: ready (life_dir=%s backend=%s pid=%d)",
