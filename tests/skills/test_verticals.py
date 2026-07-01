@@ -12,8 +12,9 @@ The auto-research loop runs ONE of two *verticals*, selected by a single
 These tests pin the vertical-native API (the old paper|optimize "pipeline mode"
 shims are gone):
 
-* ``resolve_vertical`` precedence — env ``ARGUS_SKILL_VERTICAL`` > persisted
-  ``vertical`` > ``"research"``.
+* ``resolve_vertical`` precedence — explicit non-default env
+  ``ARGUS_SKILL_VERTICAL`` > persisted data-domain under default env
+  ``"research"`` > persisted ``vertical`` > ``"research"``.
 * ``classify_vertical`` heuristic — a nanochat/optimize objective -> speedrun,
   a paper objective -> research.
 * ``format_full_pipeline_checklist`` renders research's 8 stages by default and
@@ -92,6 +93,9 @@ def test_classify_nanochat_objective_is_nanochat() -> None:
 
 
 def test_classify_routes_per_task_verticals() -> None:
+    assert classify_vertical("kernel a") == "kernelbench"
+    assert classify_vertical("kernel b") == "kernelbench"
+    assert classify_vertical("kernelbench") == "kernelbench"
     assert (
         classify_vertical("minimize wall-clock time to val_loss 3.28 nanogpt speedrun on 8xH100")
         == "nanogpt_speedrun"

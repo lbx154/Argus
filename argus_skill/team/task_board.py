@@ -21,8 +21,17 @@ def _lock(root: Path) -> Path:
     return Path(root) / ".tasks.lock"
 
 
+def _task_filename(task_id: str) -> str:
+    if not isinstance(task_id, str):
+        raise TypeError("task_id must be a string")
+    invalid = not task_id or task_id in {".", ".."} or any(c in task_id for c in "/\\\0")
+    if invalid:
+        raise ValueError(f"invalid task_id for task board path: {task_id!r}")
+    return f"{task_id}.json"
+
+
 def _path(root: Path, task_id: str) -> Path:
-    return _tasks_dir(root) / f"{task_id}.json"
+    return _tasks_dir(root) / _task_filename(task_id)
 
 
 def _load_all(root: Path) -> list[dict[str, Any]]:

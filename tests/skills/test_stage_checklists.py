@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from argus_skill.skills.stage_checklists import (
     CANONICAL_STAGE_ORDER,
     STAGE_CHECKLISTS,
@@ -13,6 +15,16 @@ from argus_skill.skills.stage_checklists import (
     get_stage_checklist,
     list_stages,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_project_vertical_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_PROJECT_ROOT", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    monkeypatch.chdir(tmp_path)
 
 
 def test_canonical_stage_order_covers_eight_stages() -> None:

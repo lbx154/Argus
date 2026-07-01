@@ -9,11 +9,25 @@ from pathlib import Path
 from typing import Any
 
 
+def _validate_member_id(member: str) -> str:
+    if (
+        not member
+        or member in {".", ".."}
+        or "/" in member
+        or "\\" in member
+        or "\x00" in member
+    ):
+        raise ValueError(f"invalid mailbox member id: {member!r}")
+    return member
+
+
 def _box(root: Path, member: str) -> Path:
+    member = _validate_member_id(member)
     return Path(root) / "mailbox" / member / "inbox.jsonl"
 
 
 def _offset_path(root: Path, member: str) -> Path:
+    member = _validate_member_id(member)
     return Path(root) / "mailbox" / member / "inbox.offset"
 
 

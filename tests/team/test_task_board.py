@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from argus_skill.team import task_board as tb
 
 
@@ -77,6 +79,14 @@ def test_claim_specific_rejects_taken_or_missing(tmp_path: Path) -> None:
     assert tb.claim_specific(tmp_path, "a", "w1", now=1.0)["owner"] == "w1"
     assert tb.claim_specific(tmp_path, "a", "w2", now=2.0) is None   # already taken
     assert tb.claim_specific(tmp_path, "nope", "w3", now=3.0) is None  # missing
+
+
+@pytest.mark.parametrize("task_id", ["", ".", "..", "../escape", "nested/task", r"nested\task"])
+def test_task_ids_cannot_escape_task_storage(tmp_path: Path, task_id: str) -> None:
+    with pytest.raises(ValueError, match="invalid task_id"):
+        tb.form(tmp_path, [{"task_id": task_id, "objective": "bad"}])
+    assert not (tmp_path / "escape.json").exists()
+    assert not any((tmp_path / "tasks").glob("*.json"))
 
 
 def test_form_stores_priority(tmp_path: Path) -> None:

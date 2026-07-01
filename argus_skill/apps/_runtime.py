@@ -1038,20 +1038,6 @@ class _SkillLoopRunner:
         config_kwargs["engineer_log_path"] = (
             str(_eng_log_ckpt.parent / "events.jsonl") if _eng_log_ckpt is not None else ""
         )
-        try:
-            from inspect import signature
-
-            sig = signature(self._SkillLoopConfig)
-            if not any(
-                param.kind == param.VAR_KEYWORD for param in sig.parameters.values()
-            ):
-                config_kwargs = {
-                    key: value
-                    for key, value in config_kwargs.items()
-                    if key in sig.parameters
-                }
-        except (TypeError, ValueError):
-            pass
         # paper_mission follows the VERTICAL, not the True default. An optimize
         # vertical (kernelbench / speedrun / nanochat / nanogpt_speedrun) is never
         # a paper mission: force it off so the supervisor picks the lean grind
@@ -1065,6 +1051,20 @@ class _SkillLoopRunner:
                                                       project_root=_proot)) != "full_emnlp":
                 config_kwargs["paper_mission"] = False
         except Exception:  # noqa: BLE001 — fail-soft: keep the default paper_mission
+            pass
+        try:
+            from inspect import signature
+
+            sig = signature(self._SkillLoopConfig)
+            if not any(
+                param.kind == param.VAR_KEYWORD for param in sig.parameters.values()
+            ):
+                config_kwargs = {
+                    key: value
+                    for key, value in config_kwargs.items()
+                    if key in sig.parameters
+                }
+        except (TypeError, ValueError):
             pass
         config = self._SkillLoopConfig(**config_kwargs)
         workdir = (

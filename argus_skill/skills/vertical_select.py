@@ -27,7 +27,9 @@ Three sides of the selector live here:
 
 Precedence for the resolved vertical (read side):
 
-    env ``ARGUS_SKILL_VERTICAL``  >  persisted ``vertical``  >  "research"
+    explicit non-default env ``ARGUS_SKILL_VERTICAL``  >  persisted
+    project-local DATA domain when env is the safe default ``research``  >
+    persisted ``vertical``  >  "research"
 
 Provenance: repurposed from ``pipeline_mode.py`` (mode paper|optimize →
 vertical research|speedrun). The prompt builders (planner / reviewer / loop)
@@ -142,24 +144,41 @@ def _persisted_vertical(project_root: object) -> str | None:
     return _known_vertical(payload.get("vertical"), project_root)
 
 
+def _is_project_data_domain(value: str | None, project_root: object) -> bool:
+    """Whether ``value`` names a project-local DATA domain, not a built-in vertical."""
+    if value is None or value in VERTICALS:
+        return False
+    try:
+        from ..verticals._data_domain import data_domain_exists  # late (cycle)
+
+        return data_domain_exists(value, project_root)
+    except Exception:  # noqa: BLE001 — resolver must remain fail-open
+        return False
+
+
 def resolve_vertical(project_root: object = ".") -> str:
     """Resolve the active vertical (cheap, deterministic, no LLM).
 
     Precedence:
 
         1. env ``ARGUS_SKILL_VERTICAL`` — only if it names a known vertical
-           (a trailing ``-needed`` sentinel is stripped first)
-        2. persisted ``vertical`` in ``research/PIPELINE_STATE.json``
-        3. ``"research"`` (the safe default)
+           (a trailing ``-needed`` sentinel is stripped first). Explicit
+           non-default env values win.
+        2. persisted project-local DATA domain when the env value is only the
+           safe default ``"research"``
+        3. persisted ``vertical`` in ``research/PIPELINE_STATE.json``
+        4. ``"research"`` (the safe default)
 
     This is the read side consulted on every stage transition/gate; it never
     raises and never spends a token.
     """
     env = _known_vertical(os.environ.get(ENV_VERTICAL), project_root)
+    persisted = _persisted_vertical(project_root)
     if env is not None:
+        if env == DEFAULT_VERTICAL and _is_project_data_domain(persisted, project_root):
+            return persisted
         return env
 
-    persisted = _persisted_vertical(project_root)
     if persisted is not None:
         return persisted
 
@@ -269,8 +288,11 @@ def _heuristic_classify(objective: object) -> str:
         return "quant"
     speedrun_hits = sum(1 for sig in _SPEEDRUN_SIGNALS if sig in text)
     research_hits = sum(1 for sig in _RESEARCH_SIGNALS if sig in text)
+    specific_optimize_vertical = _route_optimize_vertical(text)
+    if specific_optimize_vertical != "speedrun" and research_hits == 0:
+        return specific_optimize_vertical
     if speedrun_hits >= 1 and speedrun_hits > research_hits:
-        return _route_optimize_vertical(text)
+        return specific_optimize_vertical
     return "research"
 
 
@@ -293,6 +315,11 @@ def _route_optimize_vertical(text: object) -> str:
         "gpu kernel",
         "cuda kernel",
         "kernel optimization",
+        "kernel-a",
+        "kernel a",
+        "kernel-b",
+        "kernel b",
+        "kernel bench",
         "torch eager",
         "eager_time",
         "b200",

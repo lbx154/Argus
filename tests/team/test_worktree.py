@@ -8,6 +8,9 @@ import pytest
 from argus_skill.team import worktree as wt
 
 
+INVALID_IDS = ["", ".", "..", "../escape", "a/b", "a\\b", "bad\x00id"]
+
+
 def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -22,6 +25,32 @@ def repo(tmp_path: Path) -> Path:
     _git(tmp_path, "add", "-A")
     _git(tmp_path, "commit", "-qm", "init")
     return tmp_path
+
+
+@pytest.mark.parametrize("bad_id", INVALID_IDS)
+def test_path_for_rejects_invalid_team_ids(repo: Path, bad_id: str) -> None:
+    with pytest.raises(ValueError):
+        wt.path_for(repo, bad_id, "tm-1")
+
+
+@pytest.mark.parametrize("bad_id", INVALID_IDS)
+def test_path_for_rejects_invalid_member_ids(repo: Path, bad_id: str) -> None:
+    with pytest.raises(ValueError):
+        wt.path_for(repo, "t1", bad_id)
+
+
+def test_create_rejects_invalid_team_id_without_escape(repo: Path) -> None:
+    with pytest.raises(ValueError):
+        wt.create(repo, team_id="../escape", member_id="tm-1")
+
+    assert not (repo / "escape").exists()
+
+
+def test_create_rejects_invalid_member_id_without_escape(repo: Path) -> None:
+    with pytest.raises(ValueError):
+        wt.create(repo, team_id="t1", member_id="../escape")
+
+    assert not (repo / ".argus_team" / "t1" / "escape").exists()
 
 
 def test_create_makes_isolated_worktree(repo: Path) -> None:

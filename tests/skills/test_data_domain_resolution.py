@@ -5,6 +5,8 @@ The highest-value regression check: with NO project data domain and NO
 """
 from __future__ import annotations
 
+import json
+
 from argus_skill.skills import checklist_store as cs
 from argus_skill.skills import stage_checklists as sc
 from argus_skill.skills import vertical_select as vs
@@ -34,6 +36,37 @@ def test_data_domain_resolves_and_seeds_first_stage(tmp_path, monkeypatch):
     assert sc.current_stage(tmp_path) == "scope"           # seeded to the domain's first stage
     order, _items = sc._active_vertical_checklist_defs(tmp_path)
     assert list(order) == ["scope", "simulate", "measure", "report"]
+
+
+def test_default_research_env_preserves_persisted_data_domain(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "research")
+    dd.write_data_domain(tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"])
+    vs.persist_vertical(tmp_path, "robotics_sim")
+
+    assert vs.resolve_vertical(tmp_path) == "robotics_sim"
+
+
+def test_current_stage_uses_data_domain_under_default_research_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "research")
+    dd.write_data_domain(tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"])
+    vs.persist_vertical(tmp_path, "robotics_sim")
+    state_path = tmp_path / "research" / "PIPELINE_STATE.json"
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    payload["current_stage"] = "simulate"
+    state_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert sc.current_stage(tmp_path) == "simulate"
+    body = sc.format_stage_checklist("simulate", role="reviewer", project_root=tmp_path)
+    assert "research.literature" not in body
+
+
+def test_explicit_non_default_env_override_still_wins(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "speedrun")
+    dd.write_data_domain(tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"])
+    vs.persist_vertical(tmp_path, "robotics_sim")
+
+    assert vs.resolve_vertical(tmp_path) == "speedrun"
+    assert sc.current_stage(tmp_path) == "setup"
 
 
 def test_store_override_shows_in_render(tmp_path, monkeypatch):

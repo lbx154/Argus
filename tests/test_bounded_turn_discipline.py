@@ -12,7 +12,16 @@ These tests lock in that the turn-discipline / bounded-progress contract is
 present in the engineer prompt and does not contradict the long-horizon
 "own the whole stage" framing.
 """
+import pytest
+
 from argus_skill.loop import SkillLoop
+
+
+@pytest.fixture(autouse=True)
+def _isolate_project_vertical_env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_PROJECT_ROOT", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    monkeypatch.chdir(tmp_path)
 
 
 def _prompt(task: str, *, paper_mission: bool = False) -> str:
@@ -70,4 +79,3 @@ def test_long_horizon_contract_gated_on_explicit_flag_not_keywords():
     on = _prompt(paper_text, paper_mission=True)
     assert "## Long-horizon paper execution contract" not in off
     assert "## Long-horizon paper execution contract" in on
-
