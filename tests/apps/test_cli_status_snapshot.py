@@ -12,6 +12,8 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 
+import pytest
+
 from argus_skill.apps.cli import (
     _read_current_stage,
     _render_gate_snapshot_lines,
@@ -65,13 +67,29 @@ def test_read_current_stage_returns_none_when_state_missing(tmp_path: Path) -> N
     assert _read_current_stage(tmp_path) is None
 
 
-def test_read_current_stage_reads_pipeline_state_json(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"current_stage": "review"}, "review"),
+        ({"current_stage": "  review  "}, "review"),
+        ({"current_stage": ""}, None),
+        ({"current_stage": "   \t  "}, None),
+        ({"current_stage": ["review"]}, None),
+        ({"current_stage": 3}, None),
+        ({"current_stage": {"name": "review"}}, None),
+        ({"vertical": "maintainability"}, None),
+        (["review"], None),
+        (3, None),
+        ("review", None),
+    ],
+)
+def test_read_current_stage_normalizes_pipeline_state_json(
+    tmp_path: Path, payload: object, expected: str | None
+) -> None:
     state_path = tmp_path / "research" / "PIPELINE_STATE.json"
     state_path.parent.mkdir()
-    state_path.write_text(
-        json.dumps({"current_stage": "review"}), encoding="utf-8"
-    )
-    assert _read_current_stage(tmp_path) == "review"
+    state_path.write_text(json.dumps(payload), encoding="utf-8")
+    assert _read_current_stage(tmp_path) == expected
 
 
 def test_read_current_stage_tolerates_corrupt_state(tmp_path: Path) -> None:

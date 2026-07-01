@@ -1047,8 +1047,13 @@ def _read_current_stage(workdir: Path) -> str | None:
     try:
         import json as _json
         data = _json.loads(state_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return None
         stage = data.get("current_stage")
-        return str(stage) if stage else None
+        if not isinstance(stage, str):
+            return None
+        stage = stage.strip()
+        return stage or None
     except (OSError, ValueError):
         return None
 
