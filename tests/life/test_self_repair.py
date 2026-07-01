@@ -138,6 +138,19 @@ def test_self_source_repo_root_none_outside_git(tmp_path: Path) -> None:
     assert self_source_repo_root(pkg_file=str(fake)) is None
 
 
+def test_path_like_label_becomes_one_flat_branch_segment(repo: Path) -> None:
+    # A project_label that is a path must NOT inject extra "/" levels into the
+    # branch name (observed live: session "home/argustest/argus-skill").
+    (repo / "argus_skill" / "tools" / "checker.py").write_text("def check():\n    return 5\n")
+    res = capture_self_repair(
+        repo, files={"argus_skill/tools/checker.py"},
+        session_label="/home/argustest/argus-skill", message="m",
+    )
+    assert res is not None
+    assert res.branch == "argus-self-repair/home-argustest-argus-skill"
+    assert res.branch.count("/") == 1  # exactly one level under the prefix
+
+
 class _RecordingSink:
     def __init__(self) -> None:
         self.events: list[dict] = []

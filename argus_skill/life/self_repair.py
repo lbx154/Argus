@@ -39,6 +39,21 @@ _SELF_SUBPATHS: tuple[str, ...] = ("argus_skill", "tests")
 _BRANCH_PREFIX = "argus-self-repair"
 
 
+def _safe_branch_segment(label: str) -> str:
+    """Sanitise a session label into a single flat, git-ref-safe branch segment.
+
+    A daemon's project_label can be a path (e.g. the workdir), which would inject
+    extra ``/`` levels into the branch name — so collapse everything that isn't
+    ``[A-Za-z0-9._-]`` to ``-``, trim, and fall back to ``session``.
+    把可能是路径的 label 压成单段安全分支名(否则 ``/`` 会多切出层级)。
+    """
+    import re
+
+    seg = re.sub(r"[^A-Za-z0-9._-]+", "-", str(label or "")).strip("-._")
+    return seg or "session"
+
+
+
 @dataclass(frozen=True)
 class CaptureResult:
     """Outcome of one self-repair capture."""
@@ -152,7 +167,7 @@ def capture_self_repair(
     )
     if not safe:
         return None
-    branch = f"{_BRANCH_PREFIX}/{session_label}"
+    branch = f"{_BRANCH_PREFIX}/{_safe_branch_segment(session_label)}"
     try:
         # Parent = existing review-branch tip, else HEAD.
         rc, tip, _ = _git(repo_root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}")
