@@ -10,6 +10,47 @@ file is **route-based** rather than "one URL/key for everything":
 This file is outside the repository and is written with mode `0600`. Source code,
 paper artifacts, prompts, and sidecars should never contain raw API keys.
 
+## Running on the GitHub Copilot backend (no Azure key)
+
+If you have a GitHub Copilot subscription and don't want to configure an Azure /
+OpenAI `model_api` vault at all, run every role on the **copilot** backend. The
+copilot CLI authenticates through its own subscription (`~/.copilot`), so no vault
+key is needed, and the daemon's vault preflight **auto-skips** when no role runs on
+codex (see `required_codex_routes`). 中文：有 Copilot 订阅就可以整套跑在 copilot 后端，
+不需要 Azure/OpenAI 的 model_api vault；copilot CLI 用自己的订阅认证，vault 预检会自动跳过。
+
+```bash
+# one switch routes every role (engineer/reviewer/planner/manager/curator,
+# and the matcher/distiller that ride on them) to the copilot CLI:
+export ARGUS_SKILL_RUNNER_BACKEND=copilot
+
+# optional: pin one role to a different backend, e.g. reviewer back on codex:
+#   export ARGUS_SKILL_REVIEWER_BACKEND=codex
+# optional: pick a cheaper copilot model per role (default is gpt-5.5):
+#   export ARGUS_SKILL_ENGINEER_MODEL=gpt-5.4-mini
+```
+
+Prerequisites: `copilot` CLI on `PATH` and logged in (`copilot` once, interactively,
+to complete device auth). Verify the wiring with a one-shot probe:
+
+```bash
+copilot --output-format json --stream on --no-auto-update --no-ask-user \
+        --allow-all-tools -p "reply with exactly: OK"
+```
+
+**Models.** Copilot has its own registry — `gpt-5.5` (argus's default), `gpt-5.4`,
+`gpt-5.4-mini`, and the `claude-*` family (`claude-opus-4.8`, `claude-sonnet-4.6`,
+…). argus passes each role's model straight through; `auto` lets Copilot choose.
+
+**Cost / control.** Copilot bills in **premium requests**, not tokens (it reports
+no input tokens). A single `gpt-5.5` turn measured at **7.5 premium requests**, so
+copilot is not free — argus meters each request's delta and prices it into the same
+`total_usd()` the per-mission breaker and daily cap already enforce, at
+`ARGUS_SKILL_COPILOT_USD_PER_PREMIUM_REQUEST` (default GitHub's `$0.04`). Lower the
+model (`gpt-5.4-mini`) or the per-mission cap to bound spend. 中文：copilot 按「高级请求
+数」计费，单次 gpt-5.5 约 7.5 个高级请求；argus 会计量并按每请求单价折算进 `total_usd()`，
+纳入已有的每 mission 熔断与日额度，故 copilot 花费同样可控。
+
 ## Route model
 
 Each route can use a different provider, base URL, API key, wire API, and model:
