@@ -354,6 +354,30 @@ class EngineerConfig:
     full_auto: bool = True
     skip_git_repo_check: bool = True
     dangerous_yolo: bool = False
+    # Pipeline stages in which the engineer runs with codex's native live
+    # web_search enabled (``codex exec --search``). Default: the research stage,
+    # so idea discovery / literature grounding does REAL live search instead of
+    # cached/recalled results. Empty set → never enable it.
+    live_search_stages: frozenset[str] = frozenset({"research"})
+
+
+def _engineer_live_search(workdir: Any, stages: "frozenset[str]") -> bool:
+    """Whether to enable codex ``--search`` for this engineer round.
+
+    True when the project's current pipeline stage is in ``stages`` (default:
+    the research stage, where idea discovery happens). ``current_stage`` resolves
+    the framework default (``research``) when no ``PIPELINE_STATE`` exists yet, so
+    a fresh/bootstrapping project also gets live search during ideation. Any hard
+    error resolving the stage fails closed to False — never break the round.
+    """
+    if not stages:
+        return False
+    try:
+        from ..skills.stage_checklists import current_stage
+
+        return (current_stage(workdir) or "").strip().lower() in stages
+    except Exception:  # noqa: BLE001 — stage lookup must never break the round
+        return False
 
 
 @dataclass
@@ -1711,6 +1735,9 @@ class SupervisedEngineer:
                     skip_git_repo_check=self.engineer_config.skip_git_repo_check,
                     dangerous_yolo=self.engineer_config.dangerous_yolo,
                     working_dir=str(workdir),
+                    live_search=_engineer_live_search(
+                        workdir, self.engineer_config.live_search_stages
+                    ),
                     external_interrupt_reason_provider=effective_progress_provider,
                     watchdog_hard_idle_seconds=hard_idle_seconds,
                 ),
