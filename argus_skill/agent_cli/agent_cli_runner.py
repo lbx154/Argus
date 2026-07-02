@@ -54,7 +54,7 @@ class RunnerOptions:
     # (dangerous_yolo / full_auto flags), so existing callers are unaffected.
     sandbox_mode: str | None = None
     skip_git_repo_check: bool = False
-    # Enable codex's native live web_search tool (``codex exec --search``).
+    # Enable codex's native live web_search tool (``-c web_search="live"``).
     live_search: bool = False
     extra_args: list[str] | None = None
     working_dir: str | None = None
@@ -378,10 +378,11 @@ class AgentCliRunner:
         if options.skip_git_repo_check:
             command.append("--skip-git-repo-check")
         if getattr(options, "live_search", False):
-            # Enable codex's native live web_search tool (no per-call approval).
-            # Used for the research/ideation stage so idea discovery does real
-            # live literature search instead of cached/recalled results.
-            command.append("--search")
+            # codex exec enables live web search via CONFIG, not a flag (there is
+            # no `--search` on `exec`). Valid ``web_search`` variants are
+            # disabled/cached/indexed/live; force ``live`` so idea discovery does
+            # real live searches instead of the cached default.
+            command.extend(["-c", 'web_search="live"'])
         if options.output_schema_path and not resume_thread_id:
             command.extend(["--output-schema", options.output_schema_path])
         merged_extra_args = [*self.default_extra_args]

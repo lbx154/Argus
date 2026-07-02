@@ -1,9 +1,9 @@
-"""codex live web_search (idea-stage) wiring — the ``--search`` feature.
+"""codex live web_search (idea-stage) wiring — the ``web_search="live"`` feature.
 
 Idea discovery runs in the research stage; there the engineer enables codex's
 native live web_search so literature grounding is real, not cached/recalled.
 These tests pin the three links of the chain:
-  1. RunnerOptions.live_search -> ``--search`` in the codex command
+  1. RunnerOptions.live_search -> ``-c web_search="live"`` in the codex command
   2. the core->agent_cli options translation carries the flag
   3. the research-stage gate turns it on for research, off elsewhere
 """
@@ -28,8 +28,8 @@ def _cmd(live: bool) -> list[str]:
 
 
 def test_search_flag_present_only_when_live():
-    assert "--search" in _cmd(True)
-    assert "--search" not in _cmd(False)
+    assert any('web_search="live"' in a for a in _cmd(True))
+    assert not any('web_search="live"' in a for a in _cmd(False))
 
 
 def test_core_and_agentcli_both_have_field():

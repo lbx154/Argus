@@ -22,6 +22,7 @@ End-to-end shape:
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -249,6 +250,30 @@ class SkillLoop:
             self.skill_store, primary_skills, reference_skills
         )
         skill_name = skill.name if skill else None
+
+        # Candidate SOURCE augmentation: on the research stage, run ONE codex
+        # live-web-search ideation and APPEND its candidates to
+        # research/IDEA_CANDIDATES.md so idea-creator ranks over a richer pool.
+        # Selection is untouched; fail-open + run-once. Opt-out via
+        # ARGUS_SKILL_IDEA_SEARCH=0.
+        if os.environ.get("ARGUS_SKILL_IDEA_SEARCH", "1").strip().lower() not in (
+            "0", "false", "no", "off",
+        ):
+            try:
+                from .skills.stage_checklists import current_stage as _cur_stage
+                from .skills.idea_search import (
+                    augment_idea_candidates as _augment_ideas,
+                )
+
+                if (_cur_stage(workdir) or "").strip().lower() == "research":
+                    _augment_ideas(
+                        self.engineer_runner,
+                        workdir,
+                        direction=task,
+                        model=self.config.engineer_model,
+                    )
+            except Exception:  # noqa: BLE001 — a candidate source never blocks
+                log.debug("idea-search hook skipped", exc_info=True)
 
         # Step 3: supervised round-loop
         def build_prompt(next_action: str | None, include_static: bool = True) -> str:

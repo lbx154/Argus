@@ -61,6 +61,14 @@ The reviewer ranks clusters by:
 
 ### Step 4 — write IDEA_CANDIDATES.md
 
+> **Pre-seeded candidates**: a codex live-web-search pass may have already
+> appended candidates to `research/IDEA_CANDIDATES.md` under a
+> `<!-- source: codex-web-search -->` marker (ids `WS-N`). Treat these as an
+> ADDITIONAL source — MERGE and re-rank them alongside your own `I-N` clusters,
+> do NOT overwrite them. Apply the operator's constraints (e.g. train-free,
+> target venue, beat-baseline) here during ranking, not as a filter on the raw
+> pool.
+
 For each top-ranked cluster, produce:
 
 ```markdown
