@@ -1073,7 +1073,14 @@ def test_life_worker_retries_planning_after_planner_error(
     monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
 
     worker = LifeWorker(
-        LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.01)
+        # resume_continuous=True == a supervisor's crash/reboot self-heal launch:
+        # the ONLY path that (correctly) adopts the project's persisted campaign.
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            poll_interval=0.01,
+            resume_continuous=True,
+        )
     )
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
@@ -1125,7 +1132,14 @@ def test_life_worker_keeps_continuous_enabled_on_terminal_idle(
     monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
 
     worker = LifeWorker(
-        LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.01)
+        # resume_continuous=True == a supervisor's crash/reboot self-heal launch:
+        # the ONLY path that (correctly) adopts the project's persisted campaign.
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            poll_interval=0.01,
+            resume_continuous=True,
+        )
     )
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
 

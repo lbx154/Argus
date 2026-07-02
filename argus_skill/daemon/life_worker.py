@@ -102,6 +102,12 @@ class LifeWorkerConfig:
     event_log_verbosity: str = "full"
     continuous: bool = False
     continuous_objective: str = ""
+    # Opt-in to adopt THIS project's persisted continuous campaign
+    # (``<life_dir>/continuous.json``) at boot. Off by default: a fresh/manual
+    # daemon must NOT silently inherit a project-level campaign it was not asked
+    # to run (see ``--resume-continuous``). Supervisors that restart the campaign
+    # daemon pass it True to preserve crash-recovery.
+    resume_continuous: bool = False
     # When True (the default for the lifetime daemon) the supervisor keeps the
     # mission alive after the planner certifies ``project_done`` instead of
     # hard-stopping. Set False (via ``--bounded``) for a one-shot bounded goal.
@@ -278,6 +284,25 @@ def write_continuous_config(
         os.replace(str(tmp), str(path))
     except OSError:
         log.warning("failed to write continuous config to %s", path)
+
+
+def _apply_continuous_suppression(
+    state: dict, enabled: bool, objective: str
+) -> tuple[bool, str]:
+    """Gate a persisted continuous read against a fresh-daemon suppression.
+
+    ``state`` is a mutable ``{"active": bool, "objective": str}``. While active,
+    a still-identical stale-boot campaign (enabled + same objective) is reported
+    disabled, so a daemon that did NOT opt to resume never silently adopts the
+    project's ambient campaign. Any change from the suppressed boot state (the
+    operator re-arming with a different objective, or the campaign being
+    disabled) lifts the suppression permanently — runtime arming is honored.
+    """
+    if state.get("active"):
+        if enabled and (objective or "").strip() == state.get("objective", ""):
+            return False, objective
+        state["active"] = False
+    return enabled, objective
 
 
 # ---------------------------------------------------------------------------
@@ -1056,11 +1081,37 @@ class LifeWorker:
             if bootstrap_preflight.should_bootstrap:
                 self._seed_bootstrap_task(mem, sink, bootstrap_preflight)
 
+        # A fresh (non-resume) daemon must NOT adopt the project's persisted
+        # continuous campaign — the operator manages daemons, and a daemon that
+        # was not asked to resume has no business silently continuing a campaign
+        # an earlier launch armed. Suppress a stale enabled-at-boot campaign
+        # (leaving its on-disk state intact) unless this launch opted to resume
+        # (--continuous / --resume-continuous) or the operator re-arms it live.
+        resume_intent = bool(cfg.continuous or getattr(cfg, "resume_continuous", False))
+        _boot = read_continuous_state(runtime_root)
+        _suppress = {
+            "active": bool(_boot.enabled) and not resume_intent,
+            "objective": (_boot.objective or "").strip(),
+        }
+        if _suppress["active"]:
+            log.warning(
+                "daemon: NOT resuming this project's persisted continuous campaign "
+                "(objective=%r) — this launch did not opt in. Use --resume-continuous "
+                "to auto-resume, or --continuous --objective to re-arm. Campaign "
+                "state left intact.",
+                _suppress["objective"][:80],
+            )
+
         # Build a config provider that reads continuous.json from disk,
         # so the REPL can enable/disable continuous mode while the daemon
-        # is running — no daemon restart needed.
+        # is running — no daemon restart needed. A suppressed stale-boot
+        # campaign stays off until the operator re-arms it (any change from the
+        # boot state lifts the suppression and is then honored live).
         def _continuous_provider() -> tuple[bool, str]:
             enabled, objective = read_continuous_config(runtime_root)
+            enabled, objective = _apply_continuous_suppression(
+                _suppress, enabled, objective
+            )
             if continuous_mode_error(cfg.backend, enabled, objective):
                 if enabled:
                     write_continuous_config(

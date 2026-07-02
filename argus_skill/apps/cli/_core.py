@@ -166,7 +166,14 @@ def _lifetime_entry_error(args: argparse.Namespace) -> str:
     from ...life.special_prompts import describe_special_prompt_gate
 
     objective = str(getattr(args, "objective", "") or "").strip()
-    if not objective:
+    # A daemon only inherits the project's persisted continuous objective when
+    # THIS launch opts to resume (--continuous or --resume-continuous). Without
+    # that intent a fresh/manual daemon must NOT silently adopt an ambient
+    # campaign an earlier launch armed.
+    _resume_intent = bool(
+        getattr(args, "continuous", False) or getattr(args, "resume_continuous", False)
+    )
+    if not objective and _resume_intent:
         try:
             bundle = _resolve_project_bundle(args)
             _, persisted = read_continuous_config(bundle.project.root)
@@ -177,7 +184,8 @@ def _lifetime_entry_error(args: argparse.Namespace) -> str:
         return (
             "no mission objective configured — the lifetime agent must be told "
             "what to work on. Launch with `--continuous --objective \"<goal>\"` "
-            "(persisted to <life_dir>/continuous.json for later runs)."
+            "(persisted to <life_dir>/continuous.json), or `--resume-continuous` "
+            "to resume a previously-armed campaign for this project."
         )
 
     ok, detail = describe_special_prompt_gate()
@@ -446,6 +454,7 @@ def _build_worker_config(args: argparse.Namespace, *, bundle=None):
         poll_interval=float(os.environ.get("ARGUS_SKILL_DAEMON_POLL_S", "5.0")),
         continuous=getattr(args, "continuous", False),
         continuous_objective=getattr(args, "objective", ""),
+        resume_continuous=getattr(args, "resume_continuous", False),
         continuous_open_ended=not bool(getattr(args, "bounded", False)),
     )
 

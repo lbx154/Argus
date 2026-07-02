@@ -132,6 +132,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="continuous improvement objective (used with --continuous)",
     )
     daemon_grp.add_argument(
+        "--resume-continuous",
+        dest="resume_continuous",
+        action="store_true",
+        help="resume THIS project's persisted continuous campaign "
+             "(<life_dir>/continuous.json) if one is armed. Off by default so a "
+             "fresh/manual daemon never silently inherits a campaign it was not "
+             "asked to run; supervisors (systemd / keepalive) pass this to "
+             "auto-heal a restarted campaign daemon.",
+    )
+    daemon_grp.add_argument(
         "--bounded",
         action="store_true",
         help="treat the mission as a bounded one-shot goal: hard-stop once the "
