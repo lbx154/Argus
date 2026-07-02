@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import time
 
-import pytest
-
 from argus_skill.life.supervisor import _core as sup_core
 from argus_skill.life.supervisor._core import _idle_exit_seconds
 
@@ -168,3 +166,43 @@ def test_distill_on_shutdown_is_failsoft(monkeypatch):
     worker.config = _Backend("codex")
     # must not raise even though tidy explodes
     worker._distill_on_shutdown(_Sup())
+
+
+# ---- operator clock-out: graceful stop quiesces continuous (别干了) ---------
+
+def test_operator_stop_quiesces_continuous(tmp_path):
+    """A graceful stop of a continuous daemon flips continuous.json to
+    enabled=false so the campaign does NOT resurrect on the next launch."""
+    from argus_skill.daemon import life_worker
+    from argus_skill.daemon.life_worker import (
+        read_continuous_config,
+        write_continuous_config,
+    )
+
+    write_continuous_config(tmp_path, enabled=True, objective="run the campaign")
+    assert read_continuous_config(tmp_path) == (True, "run the campaign")
+
+    worker = life_worker.LifeWorker.__new__(life_worker.LifeWorker)
+    worker.config = _Cfg(continuous=True)
+    worker._quiesce_continuous_on_operator_stop(tmp_path, "run the campaign")
+
+    enabled, objective = read_continuous_config(tmp_path)
+    assert enabled is False  # clocked out — stays dead
+    assert objective == "run the campaign"  # preserved so operator can re-arm
+
+
+def test_operator_stop_noop_when_not_continuous(tmp_path):
+    """A non-continuous daemon must not touch continuous.json on stop."""
+    from argus_skill.daemon import life_worker
+    from argus_skill.daemon.life_worker import (
+        read_continuous_config,
+        write_continuous_config,
+    )
+
+    write_continuous_config(tmp_path, enabled=True, objective="someone else's campaign")
+    worker = life_worker.LifeWorker.__new__(life_worker.LifeWorker)
+    worker.config = _Cfg(continuous=False)
+    worker._quiesce_continuous_on_operator_stop(tmp_path, "someone else's campaign")
+
+    enabled, _ = read_continuous_config(tmp_path)
+    assert enabled is True  # untouched

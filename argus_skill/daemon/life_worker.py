@@ -1284,6 +1284,17 @@ class LifeWorker:
             if self._curator is not None:
                 self._curator.stop()
 
+        # Operator clock-out (别干了): a graceful stop (SIGTERM/SIGINT set
+        # self._stop — including a bare ``kill`` and ``--daemon-stop``) quiesces
+        # continuous mode so the campaign does NOT silently resurrect on the next
+        # daemon launch. A crash (SIGKILL / power loss) never reaches here, so
+        # continuous stays enabled and the campaign auto-resumes — the intended
+        # crash-recovery.
+        if self._stop.is_set():
+            self._quiesce_continuous_on_operator_stop(
+                runtime_root, sup.config.continuous_objective
+            )
+
         log.info(
             "daemon: stopping cleanly (uptime=%.1fs missions=%d)",
             time.time() - (self._started_at or time.time()),
@@ -1291,6 +1302,35 @@ class LifeWorker:
         )
         self._distill_on_shutdown(sup)
         return 0
+
+    def _quiesce_continuous_on_operator_stop(
+        self, runtime_root: Path, objective: str
+    ) -> None:
+        """Operator clock-out (别干了): disable continuous mode on a graceful stop.
+
+        When the daemon is asked to stop (SIGTERM/SIGINT — including a bare
+        ``kill`` and ``--daemon-stop``), it "clocks out": it flips
+        ``continuous.json`` to ``enabled=false`` so the campaign stays stopped
+        and does NOT silently resurrect when a fresh daemon is later launched on
+        this project. The objective is preserved so the operator can re-arm.
+
+        A crash (SIGKILL / OOM / power loss) never runs this path, so continuous
+        stays enabled and the campaign auto-resumes — the intended crash
+        recovery. No-op for a non-continuous daemon. Best-effort: never blocks
+        shutdown.
+        """
+        if not getattr(self.config, "continuous", False):
+            return
+        try:
+            write_continuous_config(
+                runtime_root,
+                enabled=False,
+                objective=objective,
+                done_reason="operator stop (graceful SIGTERM/SIGINT — clock out)",
+            )
+            log.info("daemon: quiesced continuous mode on operator stop (clock out)")
+        except Exception:  # noqa: BLE001 — quiesce is best-effort
+            log.exception("daemon: failed to quiesce continuous on operator stop")
 
     def _distill_on_shutdown(self, sup: Any) -> None:
         """Final skill-distillation pass when the daemon stops cleanly.
