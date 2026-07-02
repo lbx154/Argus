@@ -7,6 +7,8 @@ a score-derived, forward-independent metric (turnover) for INVARIANCE instead.
 """
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from argus_skill.verticals.quant.backtest import BacktestSpec
@@ -54,6 +56,19 @@ def test_probe_restores_forward_returns():
     before = np.asarray(panel.forward_returns).copy()
     NaNFutureLeakageProbe().check(ToyBacktestEngine(panel=panel, registry=registry), spec)
     assert np.allclose(panel.forward_returns, before, equal_nan=True)
+
+
+def test_all_nan_ic_returns_explicit_nan_without_runtime_warning():
+    panel, registry, spec = _fixture()
+    panel.forward_returns[:, :] = np.nan
+    engine = ToyBacktestEngine(panel=panel, registry=registry)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        result = engine.run(spec)
+
+    assert np.isnan(result.metrics["ic"])
+    assert np.isnan(result.metrics["icir"])
 
 
 def test_missing_panel_is_a_failing_noop():

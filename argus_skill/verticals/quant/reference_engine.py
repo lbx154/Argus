@@ -213,9 +213,14 @@ class ToyBacktestEngine:
         per_day_ic = np.array(
             [_spearman(score[t], fwd[t]) for t in range(T)], dtype=float
         )
-        ic = float(np.nanmean(per_day_ic))
-        ic_std = float(np.nanstd(per_day_ic))
-        icir = ic / ic_std if ic_std > 0 else float("nan")
+        if np.isnan(per_day_ic).all():
+            ic = float("nan")
+            ic_std = float("nan")
+            icir = float("nan")
+        else:
+            ic = float(np.nanmean(per_day_ic))
+            ic_std = float(np.nanstd(per_day_ic))
+            icir = ic / ic_std if ic_std > 0 else float("nan")
 
         weights, turnover = self._portfolio(score)
         gross_pnl = np.nansum(weights * fwd, axis=1)
