@@ -218,6 +218,39 @@ def test_plan_next_passes_planner_config_to_runner() -> None:
     assert "## Stage checklist" in sent_prompt
 
 
+def test_plan_next_forwards_dead_wire_block_to_prompt() -> None:
+    # Red-team MAJOR-fix: prove the dead_wire_block is forwarded ALL THE WAY to
+    # the prompt handed to the runner — through plan_next -> _build_planner_prompt.
+    # A direct _build_planner_prompt call would miss a forgotten forward inside
+    # plan_next (the exact dead-wire anti-pattern this feature fights).
+    runner = _FakeRunner(json.dumps({"project_done": True, "reason": "x", "new_tasks": []}))
+    Planner(runner).plan_next(
+        continuous_objective="goal",
+        journal_tail="",
+        dead_wire_block="SENTINEL_DW_9137",
+        budget_remaining_usd=1.0,
+        planning_cycle=0,
+        runtime_change_summary="",
+    )
+    sent_prompt, _ = runner.calls[0]
+    assert "SENTINEL_DW_9137" in sent_prompt
+
+
+def test_plan_next_default_omits_dead_wire_block() -> None:
+    # Healthy path: no dead_wire_block => nothing spurious in the prompt.
+    runner = _FakeRunner(json.dumps({"project_done": True, "reason": "x", "new_tasks": []}))
+    Planner(runner).plan_next(
+        continuous_objective="goal",
+        journal_tail="",
+        budget_remaining_usd=1.0,
+        planning_cycle=0,
+        runtime_change_summary="",
+    )
+    sent_prompt, _ = runner.calls[0]
+    assert "SENTINEL_DW_9137" not in sent_prompt
+    assert "Open structural dead-wires" not in sent_prompt
+
+
 def test_plan_next_returns_error_verdict_on_runner_exception() -> None:
     class _BrokenRunner:
         def run_exec(self, **_):

@@ -2840,6 +2840,7 @@ class LifeSupervisor:
             )
 
         journal_tail = self._render_journal_for_planner()
+        dead_wire_block = self._render_dead_wires_for_planner()
         remaining = self.config.budget.remaining_today(self.memory.journal)
 
         try:
@@ -2855,6 +2856,7 @@ class LifeSupervisor:
                 verdict = planner.plan_next(
                     continuous_objective=self.config.continuous_objective,
                     journal_tail=journal_tail,
+                    dead_wire_block=dead_wire_block,
                     budget_remaining_usd=remaining,
                     planning_cycle=self._planning_cycles - 1,
                     runtime_change_summary=self._planner_runtime_with_idle_note(),
@@ -3486,6 +3488,27 @@ class LifeSupervisor:
             lines.append("## Recurring process lessons (act if systemic)")
             lines.extend(f"- {ll}" for ll in lessons)
         return "\n".join(lines) or "(empty)"
+
+    def _render_dead_wires_for_planner(self) -> str:
+        """Live dead-wire ledger for the planner prompt (C Phase-2 · close-loop).
+
+        每个规划周期实时重跑纯守恒探针,把**当前还开着的** dead wire 端给 planner。
+        This RE-RUNS the pure ConservationProbe read-only (it does NOT journal —
+        the epoch-gated delegate owns the audit trail) and renders the CURRENT
+        open gaps. Self-clearing: a wire vanishes the instant its consumer fires.
+
+        Fail-soft + kill-switchable: any probe/render error, or the probe turned
+        off, yields "" so the planner prompt is byte-for-byte unchanged and
+        planning proceeds exactly as today.
+        """
+        try:
+            if not _flow_conservation_probe_enabled():
+                return ""
+            from ..self_experiment import render_open_gaps_block, run_probe
+            return render_open_gaps_block(run_probe(cast(Any, self.memory)))
+        except Exception:  # noqa: BLE001 — never let the ledger break planning
+            log.exception("dead-wire ledger render failed; planning continues")
+            return ""
 
     @staticmethod
     def _render_planner_report(report: dict) -> str:

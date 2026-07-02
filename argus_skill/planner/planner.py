@@ -494,6 +494,7 @@ class Planner:
         *,
         continuous_objective: str,
         journal_tail: str = "",
+        dead_wire_block: str = "",
         budget_remaining_usd: float = 0.0,
         planning_cycle: int = 0,
         runtime_change_summary: str = "",
@@ -525,6 +526,7 @@ class Planner:
         prompt = self._build_planner_prompt(
             continuous_objective=continuous_objective,
             journal_tail=journal_tail,
+            dead_wire_block=dead_wire_block,
             budget_remaining_usd=budget_remaining_usd,
             planning_cycle=planning_cycle,
             runtime_change_summary=runtime_change_summary,
@@ -642,6 +644,7 @@ class Planner:
         *,
         continuous_objective: str,
         journal_tail: str,
+        dead_wire_block: str = "",
         budget_remaining_usd: float,
         planning_cycle: int,
         runtime_change_summary: str = "",
@@ -964,6 +967,12 @@ class Planner:
             + wiki_block
             + ("\n" if wiki_block else "")
             + search_altitude_block
+            # Standing dead-wire ledger (self-experiment · C Phase-2): CURRENTLY-
+            # open flow-conservation gaps (producer fired, consumer never did),
+            # with a triage mandate. Empty on the healthy path, so the normal
+            # prompt is unchanged. / 活的 dead-wire 台账:当前还开着的守恒缺口 + 分诊指令;
+            # 健康路径下为空,不改变正常 prompt。
+            + dead_wire_block
             # Meta-control layer (saturation → enforced regime-jump). When the
             # floor has been frozen past the threshold, this block CONVENES a
             # jump turn: the never-cleared forbidden ledger + coverage + strategy

@@ -349,6 +349,65 @@ def maybe_journal_gap_advisory(
     return written
 
 
+# --------------------------------------------------------------------------
+# Live surfacing to the planner (C Phase-2 · close-the-loop)
+# --------------------------------------------------------------------------
+def render_open_gaps_block(
+    findings: Iterable[GapFinding],
+    invariants: Iterable[FlowInvariant] = INVARIANTS,
+) -> str:
+    """Render the CURRENTLY-open dead wires as a planner-prompt block.
+
+    把"当前还开着的" dead wire 渲染成 planner prompt 里的一个专属区块。这是 C 的
+    闭环:探针只是**发现** gap(OBSERVE);这个区块每个规划周期把 gap 实时端到
+    planner 面前,让 agent(planner L4)决定"要不要开一个查根因的 mission、还是写
+    一行理由驳回"—— **消费决策归 agent**,harness 只负责如实呈现结构信号。
+
+    Pure + deterministic: no journaling, no LLM, no side effects. Returns ``""``
+    when there are no open gaps, so on the HEALTHY path the planner prompt is
+    byte-for-byte unchanged. It is COUNT-framed ("producer fired Nx, consumer
+    fired 0x") and explicitly NOT a verdict — the harness stays a dumb counter.
+
+    HONEST FRAMING: this is a **dormant smoke detector**. The two seed invariants
+    (process_lesson→skill, missing_tool→skill) may currently be ALIVE in the
+    running daemon (skill.created fires from the distillation wire + reviewer
+    skill_ops), so this block is EXPECTED to be empty in production — it only
+    fires when a genuinely dead wire exists. Shipping reliable surfacing infra,
+    not a near-term behavior change.
+    """
+    findings = list(findings or [])
+    if not findings:
+        return ""
+    inv_by_name = {inv.name: inv for inv in invariants}
+    rows: list[str] = []
+    for f in findings:
+        inv = inv_by_name.get(f.invariant_name)
+        wire = (
+            f" ['{inv.producer_kind}' -> '{inv.consumer_kind}']" if inv is not None else ""
+        )
+        samples = ", ".join(list(f.sample_sites)[:3]) or "(none)"
+        rows.append(
+            f"- {f.invariant_name}{wire}: producer fired {f.producer_count}x, "
+            f"consumer fired {f.consumer_count}x. sample producers: {samples}"
+        )
+    header = (
+        "\n## Open structural dead-wires (self-experiment · flow-conservation)\n"
+        "The harness COUNTS producer->consumer signal pairs across the WHOLE run. "
+        "A wire below fired its producer many times while its consumer NEVER fired "
+        "— a silent structural gap with no single-point error. This is a COUNT "
+        "ONLY, not a verdict, and it grants NO budget/scope.\n"
+        "MANDATE — for EACH wire: either queue ONE root-cause investigation/repair "
+        "mission that opens the sample producer sites and finds why the consumer is "
+        "disconnected, OR explicitly defer/reject it with a one-line reason — do "
+        "NOT silently drop it. YOU decide whether each is worth repairing, the root "
+        "cause, and how (or why not). This does NOT override rule 0 / the stage "
+        "gate: if the current stage checklist forbids this work now, defer with "
+        "that as the reason. A wire drops off this list automatically once its "
+        "consumer fires.\n"
+    )
+    return header + "\n".join(rows)
+
+
 __all__ = [
     "GAP_KIND",
     "DEFAULT_RECENT_WINDOW",
@@ -360,4 +419,5 @@ __all__ = [
     "resolve_events_dir",
     "run_probe",
     "maybe_journal_gap_advisory",
+    "render_open_gaps_block",
 ]
