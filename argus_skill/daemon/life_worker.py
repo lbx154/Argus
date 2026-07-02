@@ -139,6 +139,7 @@ _HANDOFF_CONFIG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_CONFIG"
 _HANDOFF_READY_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_READY"
 _HANDOFF_TOKEN_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_TOKEN"
 _HANDOFF_GEN_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_GEN"
+_HANDOFF_LOG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_LOG"
 _SOURCE_SIGNATURE_ENV = "ARGUS_SKILL_DAEMON_SOURCE_SIGNATURE"
 _TEST_SOURCE_SIGNATURE_FILE_ENV = "ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE"
 _TEST_ALLOW_MEMORY_CONTINUOUS_ENV = "ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS"
@@ -501,13 +502,15 @@ def _spawn_handoff_candidate(
     except OSError:
         log.exception("daemon handoff: failed to write config")
         return False
-    log_path = _daemon_log_path(config.life_dir, config.log_path)
+    boot_id = _new_boot_id()
+    log_path = _daemon_log_path(config.life_dir, config.log_path, boot_id)
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     env = os.environ.copy()
     env[_HANDOFF_CONFIG_ENV] = str(config_path)
     env[_HANDOFF_READY_ENV] = str(ready_path)
     env[_HANDOFF_TOKEN_ENV] = token
+    env[_HANDOFF_LOG_ENV] = str(log_path)
     env[_SOURCE_SIGNATURE_ENV] = source_signature
     env[_HANDOFF_GEN_ENV] = str(_handoff_generation() + 1)
     cmd = [
@@ -640,6 +643,13 @@ def run_handoff_child() -> int:
         config_path.unlink(missing_ok=True)
     except OSError:
         log.exception("handoff candidate: failed to publish active status")
+
+    # This candidate just took over — repoint daemon.log at its own boot log so
+    # readers follow the live process (the incumbent's boot log is left intact,
+    # never interleaved). Fail-soft: skip if the handoff log env is absent.
+    _hlog = os.environ.get(_HANDOFF_LOG_ENV, "")
+    if _hlog:
+        _point_active_daemon_log(config.life_dir, Path(_hlog))
 
     try:
         return worker.run_forever()
@@ -1729,8 +1739,55 @@ def _daemon_status_path(life_dir: Path) -> Path:
     return life_dir / "daemon.status.json"
 
 
-def _daemon_log_path(life_dir: Path, override: Path | None = None) -> Path:
-    return override if override is not None else life_dir / "daemon.log"
+def _new_boot_id() -> str:
+    """Per-boot daemon id — UTC timestamp + a short random suffix (collision-free
+    even on a sub-second restart). Segments each boot's log so consecutive daemon
+    runs on the same project never interleave in one file."""
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:6]
+
+
+def _daemon_log_path(
+    life_dir: Path, override: Path | None = None, boot_id: str | None = None
+) -> Path:
+    """Per-boot daemon log path. An explicit ``override`` (``config.log_path``)
+    always wins. Otherwise each boot gets its OWN file
+    ``<life_dir>/daemons/boot-<id>.log``; the stable ``<life_dir>/daemon.log``
+    symlink (:func:`_point_active_daemon_log`) points at the current boot for
+    back-compat readers / ``tail`` / ``--status``. Identity stays per-PROJECT (one
+    daemon per life_dir) — this only segments that one daemon's log by boot."""
+    if override is not None:
+        return override
+    return life_dir / "daemons" / f"boot-{boot_id or _new_boot_id()}.log"
+
+
+def _point_active_daemon_log(life_dir: Path, target: Path) -> None:
+    """(Re)point ``<life_dir>/daemon.log`` at the active boot's log file so every
+    existing reader / ``tail`` / ``--status`` keeps resolving the live log. A
+    pre-existing legacy regular ``daemon.log`` is preserved (renamed aside), not
+    clobbered. Best-effort — never breaks daemon startup."""
+    link = life_dir / "daemon.log"
+    try:
+        if link.is_symlink():
+            link.unlink()
+        elif link.exists():
+            link.rename(life_dir / "daemon.log.pre-segment")
+        os.symlink(os.path.relpath(target, life_dir), link)
+    except OSError:
+        log.debug("could not point daemon.log -> %s", target, exc_info=True)
+
+
+def _redirect_std_to_log(log_path: Path, *, keep_console: bool = False) -> int | None:
+    """dup2 stdout+stderr to ``log_path`` (append) so ALL output — Python logs and
+    codex subprocess output — lands in the per-boot log. Returns a saved copy of
+    the original stderr fd when ``keep_console`` (so the caller can still tee
+    Python logs to the terminal / journald), else None."""
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    saved = os.dup(2) if keep_console else None
+    fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    os.dup2(fd, sys.stdout.fileno())
+    os.dup2(fd, sys.stderr.fileno())
+    os.close(fd)
+    return saved
 
 
 def _daemon_status_payload(config: LifeWorkerConfig, *, started_at_iso: str) -> dict[str, Any]:
@@ -2025,7 +2082,9 @@ def spawn_detached_daemon(config: LifeWorkerConfig) -> int:
         )
         return 2
     config.life_dir.mkdir(parents=True, exist_ok=True)
-    log_path = _daemon_log_path(config.life_dir, config.log_path)
+    boot_id = _new_boot_id()
+    log_path = _daemon_log_path(config.life_dir, config.log_path, boot_id)
+    _point_active_daemon_log(config.life_dir, log_path)
     pid_path = _daemon_pid_path(config.life_dir)
     status_path = _daemon_status_path(config.life_dir)
 
@@ -2142,11 +2201,29 @@ def run_foreground(config: LifeWorkerConfig) -> int:
         )
         return 2
 
-    if not logging.getLogger().handlers:
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        )
+    # We own the daemon — segment THIS boot's output into its own per-boot log
+    # (fixes --daemon-fg previously writing no file); the daemon.log symlink
+    # points here. keep_console tees Python logs to the original stderr (terminal
+    # / journald) so an interactive fg run still shows progress.
+    boot_id = _new_boot_id()
+    log_path = _daemon_log_path(config.life_dir, config.log_path, boot_id)
+    _point_active_daemon_log(config.life_dir, log_path)
+    saved_console = _redirect_std_to_log(log_path, keep_console=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        force=True,
+    )
+    if saved_console is not None:
+        try:
+            _console = os.fdopen(saved_console, "w", buffering=1)
+            _handler = logging.StreamHandler(_console)
+            _handler.setFormatter(
+                logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+            )
+            logging.getLogger().addHandler(_handler)
+        except OSError:
+            pass
 
     started_iso = datetime.now(timezone.utc).isoformat()
     try:
