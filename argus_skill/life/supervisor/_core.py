@@ -154,6 +154,34 @@ def _per_mission_distill_enabled() -> bool:
     return os.environ.get("ARGUS_SKILL_PER_MISSION_DISTILL", "").strip().lower() in (
         "1", "true", "yes", "on")
 
+
+def _flow_conservation_probe_enabled() -> bool:
+    """Whether to run the self-experiment flow-conservation probe (approach C).
+    ON by default; ``ARGUS_SKILL_FLOW_CONSERVATION_PROBE=0`` opts out. Pure +
+    deterministic + no LLM — it only journals suspected dead-wire signals for
+    the reviewer/planner to judge."""
+    return os.environ.get(
+        "ARGUS_SKILL_FLOW_CONSERVATION_PROBE", "1"
+    ).strip().lower() in ("1", "true", "yes", "on")
+
+
+# Run the probe once every N completed missions (epoch gate). Reading the whole
+# events.jsonl every tick would be wasteful, and a dead wire is a slow-moving
+# structural fact — checking every few missions is plenty. The gate also lets
+# producers accumulate past ``min_producer`` before the first scan.
+_FLOW_PROBE_DEFAULT_EVERY = 5
+
+
+def _flow_conservation_probe_every() -> int:
+    """Missions between probe runs; ``ARGUS_SKILL_FLOW_CONSERVATION_PROBE_EVERY``
+    overrides (min 1). Invalid / unset falls back to the default."""
+    raw = os.environ.get("ARGUS_SKILL_FLOW_CONSERVATION_PROBE_EVERY", "").strip()
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return _FLOW_PROBE_DEFAULT_EVERY
+    return n if n >= 1 else _FLOW_PROBE_DEFAULT_EVERY
+
 # Re-emit an unchanged lifecycle-block status/journal line at most this often
 # (a heartbeat) so a long-lived blocked state stays visible without spamming
 # the journal every tick.
@@ -899,6 +927,22 @@ class LifeSupervisor:
             self._maybe_journal_recurring_failure_advisory(item, result)
         except Exception:  # noqa: BLE001 — never let self-evolve crash tick
             log.exception("recurring-failure advisory hook raised; tick continues")
+        # Self-experiment hook (approach C · OBSERVE): epoch-gated flow-
+        # conservation probe. Where Signals A/B scan ONE finished mission, this
+        # scans the WHOLE accumulated signal history for DEAD WIRES — a producer
+        # signal that keeps firing while its intended consumer never does (the
+        # class of deep structural bug argus couldn't previously find, e.g.
+        # process_lesson produced N times but skill.created 0). Pure counting,
+        # no LLM; writes a structural advisory the reviewer/planner may act on.
+        try:
+            if (
+                _flow_conservation_probe_enabled()
+                and self._missions_started > 0
+                and self._missions_started % _flow_conservation_probe_every() == 0
+            ):
+                self._maybe_journal_flow_conservation_advisory()
+        except Exception:  # noqa: BLE001 — never let self-experiment crash tick
+            log.exception("flow-conservation probe hook raised; tick continues")
         return result
 
     # ------------------------------------------------------------------
@@ -974,6 +1018,23 @@ class LifeSupervisor:
             memory=cast(Any, self.memory),
             on_cost=self._inject_cumulative_cost,
         ).maybe_journal_advisory(item, result)
+
+    def _maybe_journal_flow_conservation_advisory(self) -> list[str]:
+        """Surface suspected DEAD WIRES (flow-conservation gaps) as journal
+        advisories. Thin delegate — see ``self_experiment`` (approach C · OBSERVE).
+
+        Scans the accumulated journal + events.jsonl for producer→consumer
+        wires where the producer fired ``>= min_producer`` times but the consumer
+        never did. Returns the invariant names newly surfaced this run. The
+        repair DECISION stays with the agent — the harness only counts.
+        """
+        from ..self_experiment import maybe_journal_gap_advisory, run_probe
+        findings = run_probe(cast(Any, self.memory))
+        return maybe_journal_gap_advisory(
+            cast(Any, self.memory),
+            findings,
+            on_cost=self._inject_cumulative_cost,
+        )
 
     # ------------------------------------------------------------------
     # F5 project-lifecycle gate
