@@ -255,25 +255,45 @@ class SkillLoop:
         # live-web-search ideation and APPEND its candidates to
         # research/IDEA_CANDIDATES.md so idea-creator ranks over a richer pool.
         # Selection is untouched; fail-open + run-once. Opt-out via
-        # ARGUS_SKILL_IDEA_SEARCH=0.
+        # ARGUS_SKILL_IDEA_SEARCH=0. Recorded on the event stream so operators
+        # (cockpit / --follow / events.jsonl) see the extra candidate source.
         if os.environ.get("ARGUS_SKILL_IDEA_SEARCH", "1").strip().lower() not in (
             "0", "false", "no", "off",
         ):
             try:
                 from .skills.stage_checklists import current_stage as _cur_stage
                 from .skills.idea_search import (
+                    _already_seeded as _ideas_seeded,
                     augment_idea_candidates as _augment_ideas,
                 )
 
-                if (_cur_stage(workdir) or "").strip().lower() == "research":
-                    _augment_ideas(
+                if (_cur_stage(workdir) or "").strip().lower() == "research" and not (
+                    _ideas_seeded(workdir)
+                ):
+                    self._emit({
+                        "type": "idea.search.started",
+                        "text": "codex live web-search: seeding candidate ideas",
+                    })
+                    _n = _augment_ideas(
                         self.engineer_runner,
                         workdir,
                         direction=task,
                         model=self.config.engineer_model,
                     )
+                    self._emit({
+                        "type": "idea.search.completed",
+                        "text": (
+                            f"appended {_n} web-search candidate(s) to "
+                            "research/IDEA_CANDIDATES.md"
+                        ),
+                        "count": _n,
+                    })
             except Exception:  # noqa: BLE001 — a candidate source never blocks
                 log.debug("idea-search hook skipped", exc_info=True)
+                self._emit({
+                    "type": "idea.search.skipped",
+                    "text": "idea-search hook error (fail-open)",
+                })
 
         # Step 3: supervised round-loop
         def build_prompt(next_action: str | None, include_static: bool = True) -> str:

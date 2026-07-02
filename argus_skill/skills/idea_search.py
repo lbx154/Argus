@@ -130,6 +130,10 @@ def augment_idea_candidates(
 
         from ..core.models import RunnerOptions
 
+        log.info(
+            "idea-search: running codex live web-search (model=%s, n=%d) for %r",
+            model, n, resolved[:80],
+        )
         result = runner.run_exec(
             prompt=_build_prompt(resolved, n),
             options=RunnerOptions(

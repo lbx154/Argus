@@ -139,3 +139,100 @@ def test_direction_falls_back_to_brief():
 def test_none_runner_fails_open():
     d = _workdir()
     assert augment_idea_candidates(None, d, direction="x") == 0
+
+
+# --- loop-level: the research-stage hook records events on the stream --------
+
+def test_loop_emits_idea_search_events(tmp_path):
+    """SkillLoop must record the codex-web-search candidate seeding on its event
+    stream (cockpit / --follow / events.jsonl), not just via python logging."""
+    import json
+
+    from argus_skill import SkillLoop, SkillLoopConfig
+    from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+
+    # Force the research stage so the hook fires.
+    (tmp_path / "research").mkdir()
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "research", "current_stage": "research"}),
+        encoding="utf-8",
+    )
+
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("distiller", CannedResponse(message=""))
+    # the codex idea-search candidate source
+    backend.queue("idea-search", CannedResponse(message=_CANDIDATES))
+    backend.queue("engineer-r1", CannedResponse(message="Wrote research brief; done."))
+    backend.queue("reviewer", CannedResponse(message=json.dumps({
+        "status": "done",
+        "reason": "Ideas produced.",
+        "next_action": "none",
+        "round_summary_markdown": "# Review\n\n- ok\n",
+        "completion_summary_markdown": "Done.",
+    })))
+
+    events: list = []
+    loop = SkillLoop(
+        skills_dir=tmp_path / "skills",
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=2),
+        on_event=events.append,
+    )
+    loop.run("detect unfaithful chain-of-thought reasoning", workdir=tmp_path)
+
+    types = [e.get("type") for e in events]
+    assert "idea.search.started" in types
+    completed = [e for e in events if e.get("type") == "idea.search.completed"]
+    assert completed and completed[0]["count"] == 2
+
+    # the seeded candidates actually landed in the pool
+    text = _read_candidates(str(tmp_path))
+    assert SOURCE_MARKER in text and "## Candidate WS-1" in text
+
+    # idea-search ran with live_search=True
+    labels = [lbl for lbl, _p, _o in backend.history]
+    assert "idea-search" in labels
+    opts = next(o for lbl, _p, o in backend.history if lbl == "idea-search")
+    assert getattr(opts, "live_search", False) is True
+
+
+def test_loop_idea_search_run_once_no_reemit(tmp_path):
+    """A second research-stage pass must NOT re-run codex or re-emit started."""
+    import json
+
+    from argus_skill import SkillLoop, SkillLoopConfig
+    from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+
+    (tmp_path / "research").mkdir()
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({"current_stage": "research"}), encoding="utf-8",
+    )
+    # pre-seed the marker -> _already_seeded is True
+    (tmp_path / "research" / "IDEA_CANDIDATES.md").write_text(
+        f"{SOURCE_MARKER}\n## Candidate WS-1: prior\n", encoding="utf-8",
+    )
+
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("distiller", CannedResponse(message=""))
+    backend.queue("engineer-r1", CannedResponse(message="done."))
+    backend.queue("reviewer", CannedResponse(message=json.dumps({
+        "status": "done", "reason": "x", "next_action": "none",
+        "round_summary_markdown": "# r\n", "completion_summary_markdown": "d",
+    })))
+
+    events: list = []
+    loop = SkillLoop(
+        skills_dir=tmp_path / "skills",
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=2),
+        on_event=events.append,
+    )
+    loop.run("detect unfaithful CoT", workdir=tmp_path)
+
+    assert "idea.search.started" not in [e.get("type") for e in events]
+    assert "idea-search" not in [lbl for lbl, _p, _o in backend.history]
+
