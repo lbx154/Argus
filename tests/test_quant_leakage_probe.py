@@ -10,12 +10,14 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+import pytest
 
 from argus_skill.verticals.quant.backtest import BacktestSpec
 from argus_skill.verticals.quant.factors import FactorSpec, InMemoryFactorRegistry
 from argus_skill.verticals.quant.leakage_probe import NaNFutureLeakageProbe
 from argus_skill.verticals.quant.reference_engine import (
     ToyBacktestEngine,
+    ToyPanel,
     make_synthetic_panel,
 )
 
@@ -58,9 +60,80 @@ def test_probe_restores_forward_returns():
     assert np.allclose(panel.forward_returns, before, equal_nan=True)
 
 
-def test_all_nan_ic_returns_explicit_nan_without_runtime_warning():
-    panel, registry, spec = _fixture()
-    panel.forward_returns[:, :] = np.nan
+def test_equal_weight_keeps_mean_over_finite_factor_ranks():
+    factors = (
+        FactorSpec(factor_id="f0", source="toy", direction=1.0),
+        FactorSpec(factor_id="f1", source="toy", direction=1.0),
+    )
+    registry = InMemoryFactorRegistry.from_iter(factors)
+    panel = ToyPanel(
+        factor_values=np.array(
+            [[[1.0, np.nan], [2.0, np.nan], [3.0, 30.0], [4.0, 10.0]]]
+        ),
+        forward_returns=np.zeros((1, 4), dtype=float),
+        factor_order=("f0", "f1"),
+    )
+    engine = ToyBacktestEngine(panel=panel, registry=registry)
+    sub, signs = engine._resolve_factor_columns(("f0", "f1"))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        score = engine._combine(sub, signs, "equal_weight")
+
+    expected = np.array([[0.0, 1.0 / 3.0, 5.0 / 6.0, 0.5]])
+    assert np.allclose(score, expected)
+
+
+def test_equal_weight_all_nan_factor_ranks_do_not_warn():
+    factors = (
+        FactorSpec(factor_id="f0", source="toy", direction=1.0),
+        FactorSpec(factor_id="f1", source="toy", direction=1.0),
+    )
+    registry = InMemoryFactorRegistry.from_iter(factors)
+    panel = ToyPanel(
+        factor_values=np.full((3, 4, 2), np.nan, dtype=float),
+        forward_returns=np.arange(12, dtype=float).reshape(3, 4) / 100.0,
+        factor_order=("f0", "f1"),
+    )
+    engine = ToyBacktestEngine(panel=panel, registry=registry)
+    equal_sub, equal_signs = engine._resolve_factor_columns(("f0", "f1"))
+    single_sub, single_signs = engine._resolve_factor_columns(("f0",))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        equal_score = engine._combine(equal_sub, equal_signs, "equal_weight")
+        single_score = engine._combine(single_sub, single_signs, "single")
+
+    assert np.isnan(equal_score).all()
+    assert np.isnan(single_score).all()
+
+
+@pytest.mark.parametrize("weighting", ["single", "equal_weight"])
+def test_all_nan_run_ic_aggregation_does_not_warn(weighting):
+    if weighting == "single":
+        factors = (FactorSpec(factor_id="f0", source="toy", direction=1.0),)
+        factor_order = ("f0",)
+        factor_ids = ["f0"]
+        factor_values = np.full((3, 4, 1), np.nan, dtype=float)
+    else:
+        factors = (
+            FactorSpec(factor_id="f0", source="toy", direction=1.0),
+            FactorSpec(factor_id="f1", source="toy", direction=1.0),
+        )
+        factor_order = ("f0", "f1")
+        factor_ids = ["f0", "f1"]
+        factor_values = np.full((3, 4, 2), np.nan, dtype=float)
+    registry = InMemoryFactorRegistry.from_iter(factors)
+    panel = ToyPanel(
+        factor_values=factor_values,
+        forward_returns=np.arange(12, dtype=float).reshape(3, 4) / 100.0,
+        factor_order=factor_order,
+    )
+    spec = BacktestSpec(
+        run_id=f"all-nan-run-{weighting}",
+        factor_ids=factor_ids,
+        weighting=weighting,
+    )
     engine = ToyBacktestEngine(panel=panel, registry=registry)
 
     with warnings.catch_warnings():
@@ -69,6 +142,43 @@ def test_all_nan_ic_returns_explicit_nan_without_runtime_warning():
 
     assert np.isnan(result.metrics["ic"])
     assert np.isnan(result.metrics["icir"])
+
+
+def test_mixed_nan_run_ic_aggregation_matches_finite_values():
+    fspec = FactorSpec(factor_id="f0", source="toy", direction=1.0)
+    registry = InMemoryFactorRegistry.from_iter([fspec])
+    panel = ToyPanel(
+        factor_values=np.array(
+            [
+                [[np.nan], [np.nan], [np.nan], [np.nan]],
+                [[1.0], [2.0], [3.0], [4.0]],
+                [[1.0], [2.0], [3.0], [4.0]],
+            ],
+            dtype=float,
+        ),
+        forward_returns=np.array(
+            [
+                [0.04, 0.03, 0.02, 0.01],
+                [0.01, 0.02, 0.03, 0.04],
+                [0.04, 0.03, 0.02, 0.01],
+            ],
+            dtype=float,
+        ),
+        factor_order=("f0",),
+    )
+    spec = BacktestSpec(
+        run_id="mixed-nan-run",
+        factor_ids=["f0"],
+        weighting="single",
+    )
+    engine = ToyBacktestEngine(panel=panel, registry=registry)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        result = engine.run(spec)
+
+    assert np.isclose(result.metrics["ic"], 0.0)
+    assert np.isclose(result.metrics["icir"], 0.0)
 
 
 def test_missing_panel_is_a_failing_noop():

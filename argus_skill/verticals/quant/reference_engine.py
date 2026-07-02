@@ -178,7 +178,11 @@ class ToyBacktestEngine:
                 raise ValueError("weighting='single' requires exactly one factor")
             return ranks[:, :, 0]
         if weighting == "equal_weight":
-            return np.nanmean(ranks, axis=2)
+            finite_counts = np.isfinite(ranks).sum(axis=2)
+            rank_sums = np.nansum(ranks, axis=2)
+            score = np.full((T, S), np.nan, dtype=float)
+            np.divide(rank_sums, finite_counts, out=score, where=finite_counts > 0)
+            return score
         raise ValueError(f"unsupported weighting {weighting!r}")
 
     def _portfolio(self, score: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -213,14 +217,14 @@ class ToyBacktestEngine:
         per_day_ic = np.array(
             [_spearman(score[t], fwd[t]) for t in range(T)], dtype=float
         )
-        if np.isnan(per_day_ic).all():
+        finite_ic = per_day_ic[np.isfinite(per_day_ic)]
+        if finite_ic.size == 0:
             ic = float("nan")
             ic_std = float("nan")
-            icir = float("nan")
         else:
-            ic = float(np.nanmean(per_day_ic))
-            ic_std = float(np.nanstd(per_day_ic))
-            icir = ic / ic_std if ic_std > 0 else float("nan")
+            ic = float(np.mean(finite_ic))
+            ic_std = float(np.std(finite_ic))
+        icir = ic / ic_std if ic_std > 0 else float("nan")
 
         weights, turnover = self._portfolio(score)
         gross_pnl = np.nansum(weights * fwd, axis=1)
