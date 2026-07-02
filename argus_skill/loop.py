@@ -276,11 +276,13 @@ class SkillLoop:
             "0", "false", "no", "off",
         ):
             try:
-                from .skills.stage_checklists import current_stage as _cur_stage
                 from .skills.idea_search import (
                     _already_seeded as _ideas_seeded,
+                )
+                from .skills.idea_search import (
                     augment_idea_candidates as _augment_ideas,
                 )
+                from .skills.stage_checklists import current_stage as _cur_stage
 
                 if (_cur_stage(workdir) or "").strip().lower() == "research" and not (
                     _ideas_seeded(workdir)

@@ -25,7 +25,7 @@ import re
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 if TYPE_CHECKING:
     from ..life.supervisor._config import MissionBudget
