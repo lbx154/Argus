@@ -352,7 +352,7 @@ class AgentCliBackend:
             options.watchdog_hard_idle_seconds
             or self._default_watchdog_hard_idle_seconds
         )
-        return argus_cls(
+        kwargs = dict(
             model=options.model,
             reasoning_effort=options.reasoning_effort,
             dangerous_yolo=options.dangerous_yolo,
@@ -366,6 +366,12 @@ class AgentCliBackend:
             watchdog_soft_idle_seconds=soft_idle,
             watchdog_hard_idle_seconds=hard_idle,
         )
+        # Forward live_search ONLY when the target RunnerOptions supports it — an
+        # older external/vendored ArgusBot copy (or a test stub) may not have the
+        # field; then we degrade gracefully to no live search rather than crash.
+        if "live_search" in getattr(argus_cls, "__dataclass_fields__", {}):
+            kwargs["live_search"] = getattr(options, "live_search", False)
+        return argus_cls(**kwargs)
 
     def _translate_result(
         self,

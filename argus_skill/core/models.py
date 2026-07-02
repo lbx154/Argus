@@ -28,6 +28,11 @@ class RunnerOptions:
     working_dir: str | None = None
     extra_args: list[str] | None = None
     skip_git_repo_check: bool = False
+    # Enable codex's native live web_search tool for this call (``codex exec
+    # --search``). Off by default; turned on for the research/ideation stage so
+    # idea discovery does real live literature search instead of cached/recalled
+    # results. No-op on backends that do not build a codex command.
+    live_search: bool = False
     full_auto: bool = False
     dangerous_yolo: bool = False
     # Watchdog hooks — propagated to the codex subprocess so an outer

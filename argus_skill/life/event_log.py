@@ -61,6 +61,7 @@ HIGH_VALUE_EVENT_TYPES: frozenset[str] = frozenset({
     "life.mission.started", "life.mission.completed",
     "life.planner.verdict", "life.inbox.queued",
     "life.daemon.idle_timeout",
+    "idea.search.started", "idea.search.completed", "idea.search.skipped",
     "checks.done", "operator_alert",
 })
 # In "signal" mode, an engineer.progress event is kept only if its text carries
