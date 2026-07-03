@@ -1,15 +1,44 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+
+import pytest
 
 from argus_skill.team import registry
 from argus_skill.tools import team
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_project_root(tmp_path: Path, monkeypatch) -> None:
+    """Confine the team CLI's campaign-marker writes to an isolated tmp dir.
+
+    ``argus_skill/tools/team.py`` writes a registry marker into
+    ``$ARGUS_SKILL_PROJECT_ROOT`` whenever it is set. Under the daemon that env var
+    points at the REAL repo, so a CLI test that runs ``form --team-id ...`` without
+    controlling it would plant a live phantom campaign marker in the production
+    registry (its ``team_root`` being this test's since-deleted tmp) — which the
+    resident Curator then churns/crashes on. Pin the var to an isolated tmp root so
+    no test in this module can leak a marker into a real project root. A test that
+    needs a specific value (e.g. ``test_form_writes_campaign_marker``) overrides
+    this with its own ``monkeypatch.setenv`` in the test body."""
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path / "_isolated_project_root"))
+
+
 def _call(capsys, *args: str) -> tuple[int, str]:
     rc = team.main(list(args))
     return rc, capsys.readouterr().out
+
+
+def test_project_root_env_is_hermetic(tmp_path: Path) -> None:
+    """The autouse fixture must keep ``ARGUS_SKILL_PROJECT_ROOT`` inside the test's
+    tmp dir, so the team CLI can never write a campaign marker into a real registry
+    (the daemon exports this var pointing at the live repo). Guards against the
+    phantom-marker leak that crash-looped the resident Curator."""
+    val = os.environ.get("ARGUS_SKILL_PROJECT_ROOT", "")
+    assert val, "ARGUS_SKILL_PROJECT_ROOT must be pinned by the hermetic fixture"
+    assert Path(val).is_relative_to(tmp_path)
 
 
 def test_form_spawn_status_dissolve(tmp_path: Path, capsys) -> None:
