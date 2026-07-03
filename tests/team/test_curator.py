@@ -157,6 +157,7 @@ def test_refill_uses_per_task_cwd_else_campaign(tmp_path: Path) -> None:
     workdirs); a task without one falls back to the shared campaign cwd (legacy)."""
     root = tmp_path / "team"
     wd_a = tmp_path / "kernels" / "a"
+    wd_a.mkdir(parents=True, exist_ok=True)  # a real per-task workdir
     task_board.form(root, [
         {"task_id": "t::a", "objective": "x", "priority": 1, "cwd": str(wd_a)},
         {"task_id": "t::b", "objective": "x", "priority": 2},  # no cwd
@@ -169,6 +170,7 @@ def test_refill_uses_per_task_cwd_else_campaign(tmp_path: Path) -> None:
 
     c = cur.Curator(project_root=tmp_path, make_proc=make_proc)
     campaign = tmp_path / "campaign"
+    campaign.mkdir(parents=True, exist_ok=True)  # a real campaign cwd
     c._refill(root, width=5, cwd=campaign, now=100.0)
     assert seen["t::a"] == str(wd_a)         # per-task cwd honored
     assert seen["t::b"] == str(campaign)     # legacy fallback to campaign cwd
@@ -177,13 +179,69 @@ def test_refill_uses_per_task_cwd_else_campaign(tmp_path: Path) -> None:
     assert members["t::a"] == str(wd_a) and members["t::b"] == str(campaign)
 
 
+def test_refill_fails_task_whose_cwd_vanished_no_hot_loop(tmp_path: Path) -> None:
+    """A task whose recorded working dir has vanished is FAILED (not spawned, not
+    re-homed): a failed task leaves the pending set, so it is never re-claimed —
+    no crash hot-loop — and its reason keeps the dead path visible."""
+    root = tmp_path / "team"
+    dead = tmp_path / "argus-evolve-gate-DELETED"  # never created
+    task_board.form(root, [{"task_id": "t::a", "objective": "x", "cwd": str(dead)}])
+    c = _fake_curator(tmp_path)
+    res = c._refill(root, width=1, cwd=tmp_path, now=100.0)
+    assert res["spawned"] == [] and res["failed_dead_cwd"] == ["t::a"]
+    task = next(t for t in task_board.snapshot(root) if t["task_id"] == "t::a")
+    assert task["state"] == "failed"
+    assert "vanished" in task["reason"] and str(dead) in task["reason"]  # breadcrumb
+    # no hot-loop: the failed task is never re-claimed on the next refill
+    res2 = c._refill(root, width=1, cwd=tmp_path, now=105.0)
+    assert res2["spawned"] == [] and res2["failed_dead_cwd"] == []
+
+
+def test_refill_fails_task_when_campaign_cwd_vanished(tmp_path: Path) -> None:
+    """The actual incident shape: the task carries no cwd, so it inherits the
+    campaign (marker) cwd — and THAT temp dir vanished. Still fail honestly rather
+    than crash the spawn or run in the wrong place."""
+    root = tmp_path / "team"
+    dead_campaign = tmp_path / "gate-tmp-gone"  # never created
+    task_board.form(root, [{"task_id": "t::a", "objective": "x"}])  # no per-task cwd
+    c = _fake_curator(tmp_path)
+    res = c._refill(root, width=1, cwd=dead_campaign, now=100.0)
+    assert res["failed_dead_cwd"] == ["t::a"] and res["spawned"] == []
+    task = next(t for t in task_board.snapshot(root) if t["task_id"] == "t::a")
+    assert task["state"] == "failed"
+
+
+def test_tick_one_poisoned_campaign_never_starves_the_others(tmp_path: Path) -> None:
+    """Isolation guarantee: a marker whose spawn raises (e.g. its cwd vanished in
+    the TOCTOU window after the exists-check) must NOT abort the whole tick — every
+    OTHER healthy campaign still gets refilled the same tick."""
+    root_a = tmp_path / "A"           # poisoned: spawning raises
+    registry.write_marker(tmp_path, team_id="A", team_root=root_a, cwd=tmp_path, now=1.0)
+    pool.update(root_a, width=1, state="running")
+    task_board.form(root_a, [{"task_id": "a::1", "objective": "x"}])
+    root_b = tmp_path / "B"           # healthy
+    registry.write_marker(tmp_path, team_id="B", team_root=root_b, cwd=tmp_path, now=2.0)
+    pool.update(root_b, width=1, state="running")
+    task_board.form(root_b, [{"task_id": "b::1", "objective": "x"}])
+
+    def make_proc(root_, member_id, task_id, cwd):  # noqa: ANN001
+        if Path(root_) == root_a:  # simulate a Popen failure for campaign A only
+            raise FileNotFoundError(2, "No such file or directory", str(cwd))
+        return FakeProc()
+
+    c = cur.Curator(project_root=tmp_path, make_proc=make_proc)
+    # "A" sorts before "B": if A's failure aborted the tick, B would be starved.
+    c._tick(now=100.0)  # must NOT raise
+    assert len(c.live_owner_ids(root_b)) == 1          # B refilled despite A raising
+    assert task_board.count_in_flight(root_b) == 1
+
+
 def test_refill_stops_when_backlog_empty(tmp_path: Path) -> None:
     root = tmp_path / "team"
     task_board.form(root, [{"task_id": "t::a", "objective": "x"}])
     c = _fake_curator(tmp_path)
     res = c._refill(root, width=5, cwd=tmp_path, now=100.0)
     assert len(res["spawned"]) == 1  # only one task available
-
 
 def test_refill_reassigns_dead_owner_then_refills(tmp_path: Path) -> None:
     root = tmp_path / "team"

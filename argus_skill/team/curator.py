@@ -245,6 +245,7 @@ class Curator:
         if cap > 0:
             free = min(free, cap)
         spawned: list[dict[str, Any]] = []
+        failed_dead_cwd: list[str] = []
         for _ in range(free):
             mid = roster.next_member_id(root)
             task = task_board.claim_top(root, mid, now=now)
@@ -254,11 +255,29 @@ class Curator:
             # project workdirs — one per kernel). Fall back to the shared campaign
             # cwd when the task didn't specify one (legacy single-repo campaigns).
             task_cwd = Path(task.get("cwd") or cwd)
+            # A vanished working dir is UNRECOVERABLE for this unit of work. The
+            # Curator is domain-agnostic plumbing: it must NOT silently re-home the
+            # task in some other dir (running research work in the wrong place →
+            # wrong/contaminated results), and it must NOT leave it pending/claimed
+            # (it would be re-claimed and re-crash every ttl → a hot-loop that
+            # starves the tick). So FAIL it honestly and ONCE: a failed task leaves
+            # the pending set (claim_top only picks pending) so it is never retried,
+            # and its recorded reason + this log keep the vanished path visible —
+            # e.g. a leaked self-evolve gate temp dir — instead of masking it.
+            if not task_cwd.is_dir():
+                task_board.fail(root, task["task_id"],
+                                reason=f"working dir vanished before spawn: {task_cwd}")
+                log.error("curator: task %s working dir vanished (%s) — failing the "
+                          "task, not spawning; it will not be retried",
+                          task["task_id"], task_cwd)
+                failed_dead_cwd.append(task["task_id"])
+                continue
             self._spawn_tracked(root, member_id=mid, task_id=task["task_id"],
                                 cwd=task_cwd, now=now)
             spawned.append({"member_id": mid, "task_id": task["task_id"]})
         return {"spawned": spawned, "in_flight": in_flight, "live": len(live),
-                "occupied": occupied, "free": free, "reassigned": reassigned}
+                "occupied": occupied, "free": free, "reassigned": reassigned,
+                "failed_dead_cwd": failed_dead_cwd}
 
     # ---- reaping --------------------------------------------------------
     def _terminate(self, tt: TrackedTeammate, *, grace: float = 2.0) -> None:
@@ -317,22 +336,40 @@ class Curator:
         now = self._now() if now is None else now
         self._reap(now=now)
         for marker in registry.list_markers(self.project_root):
-            root = Path(marker["team_root"])
-            cwd = Path(marker.get("cwd") or root)
-            self._adopt_orphans(root, now=now)  # reclaim prior-daemon teammates first
-            self._maybe_fold(root)
-            doc = pool.read(root)
-            state = doc.get("state", "running")
-            if state in ("draining", "dissolved"):
-                # Stop refilling and let in-flight teammates finish; the
-                # hard-deadline reaper still cleans wedged ones. Remove the
-                # marker once the campaign is genuinely empty.
-                if task_board.count_in_flight(root) == 0 and not self.live_owner_ids(root):
-                    registry.remove_marker(self.project_root, marker["team_id"])
-                continue
-            self._maybe_distill(root, now)
-            width = int(doc["width"]) if "width" in doc else self.default_width
-            self._refill(root, width=width, cwd=cwd, now=now)
+            # Per-campaign isolation: a single poisoned marker (e.g. a working dir
+            # that vanished under it, or a corrupt pool file) must NEVER abort the
+            # whole tick and starve every OTHER campaign of its refill. Fail loudly
+            # — full traceback, with the campaign id — and carry on to the next.
+            try:
+                self._tick_marker(marker, now=now)
+            except Exception:  # noqa: BLE001 — one campaign must not sink the tick
+                log.exception("curator: tick failed for campaign %s; skipping it "
+                              "this tick", (marker or {}).get("team_id", "?"))
+
+    def _tick_marker(self, marker: dict[str, Any], *, now: float) -> None:
+        """Maintain ONE campaign for this tick: adopt prior-daemon orphans, fold
+        the leaderboard, then refill the pool (or wind a draining campaign down).
+
+        Split out of :meth:`_tick` so every campaign is processed inside its OWN
+        try-boundary — a failure here (a vanished cwd, a corrupt pool file, …)
+        stays contained to this campaign instead of aborting the tick for all.
+        """
+        root = Path(marker["team_root"])
+        cwd = Path(marker.get("cwd") or root)
+        self._adopt_orphans(root, now=now)  # reclaim prior-daemon teammates first
+        self._maybe_fold(root)
+        doc = pool.read(root)
+        state = doc.get("state", "running")
+        if state in ("draining", "dissolved"):
+            # Stop refilling and let in-flight teammates finish; the hard-deadline
+            # reaper still cleans wedged ones. Remove the marker once the campaign
+            # is genuinely empty.
+            if task_board.count_in_flight(root) == 0 and not self.live_owner_ids(root):
+                registry.remove_marker(self.project_root, marker["team_id"])
+            return
+        self._maybe_distill(root, now)
+        width = int(doc["width"]) if "width" in doc else self.default_width
+        self._refill(root, width=width, cwd=cwd, now=now)
 
     def _maybe_fold(self, root: Path) -> None:
         """Deterministically re-fold the leaderboard when shards have changed.
