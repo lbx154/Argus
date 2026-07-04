@@ -362,14 +362,22 @@ class Manager:
         runner: Any = None,
         *,
         skill_store: Any = None,
+        manager_session_root: Path | str | None = None,
     ) -> None:
         self.project_root = Path(project_root)
         self.runner = runner
+        self.manager_session_root = (
+            Path(manager_session_root)
+            if manager_session_root is not None
+            else self.project_root
+        )
         # One persistent, flock-serialized codex session shared by every Manager
-        # LLM call (front-end REPL + daemon). ``None`` when there is no runner —
+        # LLM call within THIS Argus session. ``None`` when there is no runner —
         # the classifier then falls back to the keyword heuristic as before.
         self._session = (
-            _ManagerSession(runner, self.project_root) if runner is not None else None
+            _ManagerSession(runner, self.manager_session_root)
+            if runner is not None
+            else None
         )
         # Optional role-mission skill matcher (the same scaffold engineer,
         # reviewer, and planner use). ``None`` skill_store ⇒ an empty match and

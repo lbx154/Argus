@@ -94,6 +94,24 @@ def test_round1_reviewer_prompt_carries_full_rubric() -> None:
     assert review.static_fingerprint  # non-empty sha256
 
 
+def test_reviewer_runner_receives_configured_working_dir(tmp_path: Path) -> None:
+    backend = MemoryBackend()
+    backend.queue("reviewer", CannedResponse(message=_review_json("done"), thread_id="rv1"))
+    r = Reviewer(backend, skill_store=None)
+
+    _evaluate(
+        r,
+        config=ReviewerConfig(
+            model="m",
+            reasoning_effort="high",
+            working_dir=str(tmp_path),
+        ),
+    )
+
+    _label, _prompt, options = backend.history[-1]
+    assert options.working_dir == str(tmp_path)
+
+
 def test_resumed_reviewer_prompt_is_delta_only() -> None:
     backend = MemoryBackend()
     backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))

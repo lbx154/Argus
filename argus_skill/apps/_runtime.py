@@ -804,6 +804,11 @@ class _SkillLoopRunner:
             if getattr(args, "workdir", None)
             else Path.cwd()
         )
+        _manager_session_root = (
+            Path(getattr(args, "manager_session_root")).expanduser()
+            if getattr(args, "manager_session_root", None)
+            else _manager_workdir
+        )
         # Skill matcher for the Manager (same adaptive library the SkillLoop/
         # planner/reviewer match against). Pointed at the daemon's skills dir so
         # the Manager injects its fixed role skill plus any matched manager skill
@@ -815,7 +820,9 @@ class _SkillLoopRunner:
             project_root=_manager_workdir,
             runner=self.manager_backend or self._backend,
             skill_store=self._manager_skill_store,
+            manager_session_root=_manager_session_root,
         )
+        self._manager_session_root = _manager_session_root
         # Session continuity: seed_thread_id is the codex session id from
         # the previous mission in the same REPL session. We propagate it
         # into the *first* engineer round of this mission, then update
@@ -1319,6 +1326,7 @@ class _SkillLoopRunner:
                 project_root=workdir,
                 runner=getattr(self, "manager_backend", None) or self._backend,
                 skill_store=getattr(self, "_manager_skill_store", None),
+                manager_session_root=getattr(self, "_manager_session_root", workdir),
             ).decide_stage_transition(
                 review=final_review, project_root=workdir,
                 on_event=sink.handle_event,
@@ -1884,6 +1892,10 @@ def _invoke_supervisor(
         str(_memory_global_root(mem) / "skills"),
     )
     ns.workdir = os.environ.get("ARGUS_SKILL_WORKDIR")
+    try:
+        ns.manager_session_root = str(_memory_project_root(mem))
+    except Exception:  # noqa: BLE001
+        ns.manager_session_root = None
     # Life-mode default: 500 engineer rounds. The earlier low cap was
     # too small for "implement + test + polish" tasks that need many
     # tool calls. Override via ARGUS_SKILL_MAX_ROUNDS.

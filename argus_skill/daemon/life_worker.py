@@ -1164,7 +1164,7 @@ class LifeWorker:
         try:
             from ..manager import reset_manager_session as _reset_mgr_session
 
-            _mgr_session_root = cfg.project_workdir or runtime_root
+            _mgr_session_root = runtime_root
             if _mgr_session_root and _reset_mgr_session(_mgr_session_root):
                 log.info(
                     "daemon boot: cleared prior Manager codex session at %s",
@@ -1190,6 +1190,7 @@ class LifeWorker:
                         project_root=cfg.project_workdir or runtime_root,
                         runner=getattr(runner, "manager_backend", None)
                         or getattr(runner, "backend", None),
+                        manager_session_root=runtime_root,
                     )
                 _ask = str(os.environ.get("ARGUS_SKILL_DOMAIN_ASK", "")).strip().lower() in (
                     "1", "true", "yes", "on",
@@ -1578,6 +1579,7 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
         if cfg.project_workdir is not None
         else os.environ.get("ARGUS_SKILL_WORKDIR")
     )
+    ns.manager_session_root = str(cfg.life_dir)
     ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "500"))
     ns.plan_mode = os.environ.get("ARGUS_SKILL_PLAN_MODE", "auto")
     ns.plan_model = os.environ.get("ARGUS_SKILL_PLAN_MODEL")

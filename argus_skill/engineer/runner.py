@@ -1458,7 +1458,10 @@ class SupervisedEngineer:
                         main_summary=engineer_message or "(no message)",
                         main_error=engineer_result.fatal_error,
                         checks=checks_results,
-                        config=self.reviewer_config,
+                        config=replace(
+                            self.reviewer_config,
+                            working_dir=str(workdir),
+                        ),
                         prev_review_summary=prev_review_summary,
                         scope=scope,
                         prior_checkpoint=checkpoint.to_dict(),

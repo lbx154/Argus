@@ -50,6 +50,7 @@ class ReviewerConfig:
     skip_git_repo_check: bool = False
     full_auto: bool = False
     dangerous_yolo: bool = False
+    working_dir: str | None = None
 
 
 SCHEMA_PATH = str(Path(__file__).with_name("reviewer_schema.json"))
@@ -385,6 +386,7 @@ class Reviewer:
                     skip_git_repo_check=config.skip_git_repo_check,
                     extra_args=list(config.extra_args) if config.extra_args else None,
                     output_schema_path=self.schema_path,
+                    working_dir=config.working_dir,
                 ),
                 run_label="reviewer",
             )

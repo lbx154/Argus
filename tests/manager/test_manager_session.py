@@ -68,6 +68,22 @@ def test_session_resumes_and_persists_thread_id(tmp_path):
     assert sess.thread_id == "t2"
 
 
+def test_manager_session_root_is_independent_from_project_root(tmp_path):
+    project_root = tmp_path / "same-workdir"
+    session_root = tmp_path / "sessions" / "s-1"
+    fake = _RecordingRunner()
+
+    mgr = Manager(
+        project_root=project_root,
+        runner=fake,
+        manager_session_root=session_root,
+    )
+    mgr._session.run_exec(prompt="a", options=None, run_label="x")  # type: ignore[union-attr]
+
+    assert (session_root / _SESSION_FILE).exists()
+    assert not (project_root / _SESSION_FILE).exists()
+
+
 def test_session_resumes_stripped_persisted_thread_id_and_persists_next(tmp_path):
     (tmp_path / _SESSION_FILE).write_text(
         json.dumps({"thread_id": "  existing-tid  "}), encoding="utf-8"
