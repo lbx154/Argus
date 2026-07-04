@@ -1003,6 +1003,7 @@ class LifeWorker:
             mem = LifeMemory.open(cfg.life_dir)
             runtime_root = cfg.life_dir
         mem.init()
+        os.environ["ARGUS_SKILL_AGENT_IO_LOG"] = str(runtime_root / "agent_io.jsonl")
 
         # Build the runner the same way the REPL does. Importing here
         # keeps daemon.life_worker free of CLI-only deps until needed.

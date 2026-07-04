@@ -17,6 +17,7 @@ the underlying ``AgentCliRunner.run_exec`` to return a synthetic
 """
 from __future__ import annotations
 
+import json
 import sys
 from dataclasses import dataclass
 from types import ModuleType
@@ -136,6 +137,7 @@ def fake_agent_cli(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _make_argus_result(
     *,
+    command: list[str] | None = None,
     exit_code: int = 0,
     agent_messages: list[str] | None = None,
     json_events: list[dict[str, Any]] | None = None,
@@ -145,7 +147,7 @@ def _make_argus_result(
     stderr_lines: list[str] | None = None,
 ) -> AgentRunResult:
     return AgentRunResult(
-        command=["codex", "exec", "-"],
+        command=list(command or ["codex", "exec", "-"]),
         exit_code=exit_code,
         thread_id=thread_id,
         agent_messages=list(agent_messages or []),
@@ -240,6 +242,57 @@ def test_run_exec_translates_options_and_result(
     assert result.input_tokens == 250
     assert result.cached_input_tokens == 25
     assert result.output_tokens == 75
+
+
+def test_run_exec_writes_full_agent_io_log(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_path = tmp_path / "agent_io.jsonl"
+    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
+    backend = AgentCliBackend(backend="copilot")
+
+    def fake_run_exec(
+        self: Any,
+        *,
+        prompt: Any,
+        resume_thread_id: Any,
+        options: Any,
+        run_label: str,
+    ) -> AgentRunResult:
+        assert self.event_callback is not None
+        self.event_callback("stdout", '{"type":"agent_message","message":"thinking"}')
+        self.event_callback("stderr", "tool stderr line")
+        return _make_argus_result(
+            command=["copilot", "-p", "<prompt>"],
+            agent_messages=["final answer"],
+            json_events=[{"type": "agent_message", "message": "thinking"}],
+            stdout_lines=['{"type":"agent_message","message":"thinking"}'],
+            stderr_lines=["tool stderr line"],
+            thread_id="thread-1",
+        )
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+
+    backend.run_exec(
+        prompt="full prompt text",
+        options=RunnerOptions(model="gpt-5.5", working_dir=str(tmp_path)),
+        run_label="manager",
+        resume_thread_id="old-thread",
+    )
+
+    rows = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert [row["kind"] for row in rows] == ["start", "stream", "stream", "complete"]
+    assert rows[0]["prompt"] == "full prompt text"
+    assert rows[0]["run_label"] == "manager"
+    assert rows[1]["stream"] == "stdout"
+    assert rows[1]["line"].startswith('{"type"')
+    assert rows[2]["stream"] == "stderr"
+    assert rows[-1]["agent_messages"] == ["final answer"]
+    assert rows[-1]["stdout_lines"]
+    assert rows[-1]["stderr_lines"] == ["tool stderr line"]
+    assert rows[-1]["thread_id"] == "thread-1"
 
 
 def test_run_exec_normalizes_recoverable_reconnect_notice(

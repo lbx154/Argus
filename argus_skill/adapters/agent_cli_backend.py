@@ -30,10 +30,13 @@ at 0 (the loop never branches on token counts).
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
 import threading
+import time
+from pathlib import Path
 from typing import Any
 
 from ..core.models import RunnerOptions, RunnerResult
@@ -60,6 +63,7 @@ _RUNNER_DEFAULT_HARD_IDLE_SECONDS = 60 * 60
 _RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
 _LEGACY_CODEX_PROFILE_SWITCHES = {"-c", "--config"}
 _LEGACY_CODEX_PROFILE_PAYLOADS = {"profile=auto-max", "config_profile=auto-max"}
+_AGENT_IO_LOG_ENV = "ARGUS_SKILL_AGENT_IO_LOG"
 
 
 def looks_like_auth_failure(stderr_lines) -> bool:  # noqa: ANN001
@@ -139,6 +143,20 @@ def _strip_legacy_codex_profile_args(
     if removed:
         return cleaned or None
     return list(extra_args)
+
+
+def _jsonl_append(path: Path, row: dict[str, Any], lock: threading.Lock) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(row, ensure_ascii=False, separators=(",", ":"))
+    except Exception:  # noqa: BLE001
+        return
+    try:
+        with lock:
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+    except OSError:
+        return
 
 
 # --- ArgusBot import (lazy, with friendly error) ---------------------------
@@ -254,10 +272,13 @@ class AgentCliBackend:
             if backend is not None
             else deps["DEFAULT_RUNNER_BACKEND"]
         )
+        self._external_event_callback = event_callback
+        self._io_log_lock = threading.Lock()
+        self._io_context = threading.local()
         self._argus_runner = deps["AgentCliRunner"](
             agent_bin=runner_bin,
             backend=chosen,
-            event_callback=event_callback,
+            event_callback=self._stream_event_callback,
             default_extra_args=default_extra_args,
             before_exec=before_exec,
         )
@@ -293,6 +314,25 @@ class AgentCliBackend:
         # so stale True from a previous call cannot stick across missions.
         self._auth_failure_detected = False
         argus_options = self._translate_options(options)
+        call_id = f"{int(time.time() * 1000)}-{threading.get_ident()}"
+        log_path = self._agent_io_log_path(options)
+        self._io_context.current = {
+            "call_id": call_id,
+            "run_label": run_label,
+            "log_path": str(log_path) if log_path is not None else "",
+        }
+        self._log_agent_io(log_path, {
+            "kind": "start",
+            "call_id": call_id,
+            "run_label": run_label,
+            "backend": self._argus_runner.backend,
+            "model": options.model,
+            "reasoning_effort": options.reasoning_effort,
+            "working_dir": options.working_dir,
+            "resume_thread_id": resume_thread_id,
+            "prompt": prompt,
+            "ts": time.time(),
+        })
         try:
             argus_result = self._argus_runner.run_exec(
                 prompt=prompt,
@@ -302,12 +342,30 @@ class AgentCliBackend:
             )
         except FileNotFoundError as exc:
             log.exception("codex CLI binary not found")
+            self._log_agent_io(log_path, {
+                "kind": "error",
+                "call_id": call_id,
+                "run_label": run_label,
+                "backend": getattr(self._argus_runner, "backend", ""),
+                "error": f"runner binary not found: {exc}",
+                "ts": time.time(),
+            })
+            self._io_context.current = None
             return RunnerResult(
                 exit_code=127,
                 fatal_error=f"runner binary not found: {exc}",
             )
         except Exception as exc:  # noqa: BLE001 — last-line safety net
             log.exception("codex runner raised")
+            self._log_agent_io(log_path, {
+                "kind": "error",
+                "call_id": call_id,
+                "run_label": run_label,
+                "backend": getattr(self._argus_runner, "backend", ""),
+                "error": f"{type(exc).__name__}: {exc}",
+                "ts": time.time(),
+            })
+            self._io_context.current = None
             return RunnerResult(
                 exit_code=-1,
                 fatal_error=f"{type(exc).__name__}: {exc}",
@@ -330,7 +388,54 @@ class AgentCliBackend:
                 run_label, argus_result.exit_code,
             )
 
+        self._log_agent_io(log_path, {
+            "kind": "complete",
+            "call_id": call_id,
+            "run_label": run_label,
+            "backend": getattr(self._argus_runner, "backend", ""),
+            "command": list(getattr(argus_result, "command", []) or []),
+            "exit_code": getattr(argus_result, "exit_code", None),
+            "thread_id": getattr(argus_result, "thread_id", None),
+            "turn_completed": getattr(argus_result, "turn_completed", None),
+            "turn_failed": getattr(argus_result, "turn_failed", None),
+            "fatal_error": getattr(argus_result, "fatal_error", None),
+            "agent_messages": list(getattr(argus_result, "agent_messages", []) or []),
+            "stdout_lines": list(getattr(argus_result, "stdout_lines", []) or []),
+            "stderr_lines": list(getattr(argus_result, "stderr_lines", []) or []),
+            "json_events": list(getattr(argus_result, "json_events", []) or []),
+            "ts": time.time(),
+        })
+        self._io_context.current = None
         return self._translate_result(argus_result, resume_thread_id=resume_thread_id)
+
+    def _agent_io_log_path(self, options: RunnerOptions) -> Path | None:
+        raw = os.environ.get(_AGENT_IO_LOG_ENV, "").strip()
+        if raw:
+            return Path(raw).expanduser()
+        if options.working_dir:
+            return Path(options.working_dir).expanduser() / ".argus" / "agent_io.jsonl"
+        return None
+
+    def _log_agent_io(self, path: Path | None, row: dict[str, Any]) -> None:
+        if path is None:
+            return
+        _jsonl_append(path, row, self._io_log_lock)
+
+    def _stream_event_callback(self, stream: str, line: str) -> None:
+        ctx = getattr(self._io_context, "current", None) or {}
+        log_path = str(ctx.get("log_path") or "")
+        if log_path:
+            self._log_agent_io(Path(log_path), {
+                "kind": "stream",
+                "call_id": ctx.get("call_id"),
+                "run_label": ctx.get("run_label"),
+                "backend": getattr(self._argus_runner, "backend", ""),
+                "stream": stream,
+                "line": line,
+                "ts": time.time(),
+            })
+        if self._external_event_callback is not None:
+            self._external_event_callback(stream, line)
 
     # --- helpers ----------------------------------------------------------
 

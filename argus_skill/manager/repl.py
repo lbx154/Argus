@@ -2279,6 +2279,7 @@ def run_manager_repl(args: argparse.Namespace) -> int:
         sys.stderr.write(f"argus-skill: {exc}\n")
         return 2
     state = mem.init()
+    os.environ["ARGUS_SKILL_AGENT_IO_LOG"] = str(mem.project.root / "agent_io.jsonl")
     created: list[str] = []
     for scope, rows in state.items():
         for name, was_created in rows.items():
