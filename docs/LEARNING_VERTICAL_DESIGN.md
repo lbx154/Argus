@@ -207,3 +207,58 @@ argus_skill/skills/vertical_select.py               "learning" registered
 - **D** first-class vertical is the backbone; `learn --once` is a dry-run-by-default
   shortcut.
 - **E** material formats: md/txt/PDF/URL, behind the §4.7 safety guardrails.
+
+## 10. Verification (how to test the foundation)
+
+**Automated:**
+
+```bash
+cd <repo>
+# the new tests (5 ingest + 15 safety + 12 wiki/provenance)
+python -m pytest tests/test_learning_ingest.py \
+  tests/skills/test_protected_and_learning.py \
+  tests/test_wiki_router_and_provenance.py -v
+# regression (CLI parser + skills + manager)
+python -m pytest tests/apps tests/skills tests/manager -q
+```
+
+**Manual — the `learn` input channel** (use an isolated workdir):
+
+```bash
+rm -rf /tmp/learn-test && mkdir -p /tmp/learn-test
+printf 'GRPO clips the ratio asymmetrically for stability.\n' > /tmp/learn-test/note.md
+python -m argus_skill learn --material /tmp/learn-test/note.md --base /tmp/learn-test
+# inspect:
+cat /tmp/learn-test/.autors/learning/wiki/sources/notes/note.md   # immutable source
+cat /tmp/learn-test/learning/MATERIAL_MANIFEST.json               # sha256/extractor/char_count audit
+cat /tmp/learn-test/research/PIPELINE_STATE.json                  # vertical == learning
+# edge cases:
+python -m argus_skill learn --material /tmp/learn-test/x.bin --base /tmp/learn-test  # -> unsupported format error
+python -m argus_skill learn --material /tmp/learn-test/note.md --base /tmp/learn-test # -> already present (immutable)
+```
+
+**Manual — the protected floor is live** (a role-identity skill is un-archivable
+even without an explicit `protected: true` flag):
+
+```bash
+python - <<'PY'
+import tempfile, pathlib
+from argus_skill.skills.store import Skill, SkillStore
+from argus_skill.skills.skill_router import SkillRouter
+d = pathlib.Path(tempfile.mkdtemp())/"skills"; d.mkdir()
+store = SkillStore(d)
+body = "## Title\nGov\n## Description\nx\n## When to use\na\n## How to solve\nb\n"
+store.save(Skill(name="Gov", description="x", category="role-identity", content=body))
+print(SkillRouter(skill_store=store).apply_ops([{"op":"archive","name":"Gov"}], task="t"))
+# expect: {'created': 0, 'updated': 0, 'archived': 0, 'rejected': 1}
+PY
+```
+
+**Known unrelated failures** in a full `pytest tests/` run (NOT from this change —
+proven to fail identically on pristine HEAD via `git stash`):
+`tests/test_session_resume.py::...poisoned_resume_thread` (idea-search live-call
+sequence, env-dependent) and
+`tests/daemon/test_life_worker.py::...stop_event...` (daemon vault-preflight makes
+a live gpt-5.5 network probe — TimeoutError/502). To confirm attribution:
+`git stash && python -m pytest <test> && git stash pop`.
+
