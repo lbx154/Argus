@@ -398,5 +398,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip incremental re-index (faster; may miss recent rows)",
     )
 
+    learn_parser = subparsers.add_parser(
+        "learn",
+        help="Ingest learning material so a learning mission can update Argus's "
+             "own skill + wiki libraries from it",
+    )
+    learn_parser.add_argument(
+        "--material", type=Path, action="append", required=True,
+        help="Path to a learning material file (.md/.txt/.rst/.pdf). Repeatable.",
+    )
+    learn_parser.add_argument(
+        "--project", default="learning",
+        help="Wiki project slug for the learning knowledge base (default: learning)",
+    )
+    learn_parser.add_argument(
+        "--base", type=Path, default=Path.cwd(),
+        help="Workdir where the learning mission will run (default: cwd)",
+    )
+    learn_parser.add_argument(
+        "--ingested-by", default="learn@manual",
+        help="Provenance string for the ingested_by manifest field",
+    )
+
     return parser
 

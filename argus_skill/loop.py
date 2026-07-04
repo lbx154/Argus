@@ -816,7 +816,10 @@ class SkillLoop:
         """Hand the reviewer's per-round ``skill_ops`` (aggregated across the
         mission) to the SkillRouter, which runs the validation pipeline
         (independence → mechanical → Manager generality/correctness gate) and
-        applies create/update/archive. Best-effort — the router never raises."""
+        applies create/update/archive. Protected/governing skills (frontmatter
+        ``protected: true`` or an anti-cheat/guardrail/role-identity category) are
+        refused for removal and gated diff-aware on update inside the router.
+        Best-effort — the router never raises."""
         ops = self._collect_skill_ops(rounds)
         if not ops:
             return

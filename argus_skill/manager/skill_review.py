@@ -143,6 +143,69 @@ def approve_skill(
     return ApprovalVerdict(approved, why or ("approved" if approved else "rejected"))
 
 
+def approve_skill_update(
+    *,
+    old_content: str,
+    new_content: str,
+    task: str,
+    why: str = "",
+    runner: Any,
+    model: str = "",
+    reasoning_effort: str = "low",
+    role_skill_block: str = "",
+) -> ApprovalVerdict:
+    """Diff-aware gate for UPDATING a PROTECTED / governing (or currently-active)
+    skill. Unlike :func:`approve_skill` (which sees only the new text), this sees
+    BOTH the old and new body and judges whether the revision is a FAITHFUL
+    IMPROVEMENT rather than a regression or a removal of still-correct guidance.
+
+    Fail-soft and CONSERVATIVE: any error, empty/unparseable output, or missing
+    runner -> ``approved=False`` (a protected skill is never blindly overwritten).
+    """
+    if not (new_content or "").strip():
+        return ApprovalVerdict(False, "empty revision")
+    if runner is None:
+        return ApprovalVerdict(False, "no runner for update gate")
+
+    prompt = (
+        f"{role_skill_block}"
+        "You are the gate on a revision to a PROTECTED / governing skill. Compare "
+        "the OLD and NEW playbooks and decide whether the NEW one is a FAITHFUL "
+        "IMPROVEMENT — it preserves every still-correct instruction, does not "
+        "weaken a guardrail or drop correct guidance, and its changes are sound.\n\n"
+        f"## Why the reviewer wants this change\n{(why or '(no reason given)').strip()[:1000]}\n\n"
+        f"## Task context\n{task.strip()[:1500]}\n\n"
+        f"## OLD playbook\n{old_content.strip()[:8000]}\n\n"
+        f"## NEW playbook\n{new_content.strip()[:8000]}\n\n"
+        "Reply with ONLY a JSON object: "
+        '{"approve": true|false, "why": "<one short clause>"}. '
+        "Approve ONLY if the new version keeps everything correct in the old and "
+        "improves it; REJECT any regression, removed-but-still-valid guidance, or "
+        "weakened guardrail. When in doubt, reject."
+    )
+    try:
+        result = runner.run_exec(
+            prompt=prompt,
+            options=RunnerOptions(
+                model=model or None,
+                reasoning_effort=reasoning_effort,
+                skip_git_repo_check=True,
+                full_auto=True,
+            ),
+            run_label="manager.skill_update_review",
+        )
+    except Exception as exc:  # noqa: BLE001 — gate must never break the loop
+        log.warning("skill update gate failed (%s: %s)", type(exc).__name__, exc)
+        return ApprovalVerdict(False, f"gate error: {type(exc).__name__}")
+
+    parsed = _extract_json(getattr(result, "last_agent_message", "") or "")
+    if parsed is None:
+        return ApprovalVerdict(False, "gate returned no JSON verdict")
+    approved = bool(parsed.get("approve"))
+    why_out = str(parsed.get("why", "")).strip()[:500]
+    return ApprovalVerdict(approved, why_out or ("approved" if approved else "rejected"))
+
+
 @dataclass
 class PlacementVerdict:
     """Where a project-distilled skill should be tidied to.
@@ -242,6 +305,7 @@ def classify_skill_placement(
 
 __all__ = [
     "approve_skill",
+    "approve_skill_update",
     "ApprovalVerdict",
     "classify_skill_placement",
     "PlacementVerdict",

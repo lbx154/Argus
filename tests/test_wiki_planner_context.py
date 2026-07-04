@@ -32,6 +32,33 @@ def test_planner_prompt_includes_wiki_block_when_present(
     assert "open-contradictions" in prompt or "c1" in prompt
 
 
+def test_planner_prompt_surfaces_by_status_so_learned_pages_reach_planner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A freshly learned technique page shows up only in queries/by-status.md
+    (never in the static query_pack.md), so the planner must inject by-status."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
+    wiki = tmp_path / ".autors" / "demo" / "wiki"
+    (wiki / "queries").mkdir(parents=True)
+    (wiki / "query_pack.md").write_text("# pack\nhow-to-use protocol only\n")
+    (wiki / "queries" / "by-status.md").write_text(
+        "# Cards by status\n\n## candidate\n- `technique/grpo-async-clip` -- Async clip\n"
+    )
+
+    prompt = Planner._build_planner_prompt(
+        continuous_objective="research X",
+        journal_tail="",
+        budget_remaining_usd=10.0,
+        planning_cycle=0,
+        runtime_change_summary="",
+        mission=None,
+    )
+    assert "by-status.md" in prompt
+    assert "grpo-async-clip" in prompt
+
+
 def test_planner_prompt_omits_wiki_block_when_absent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

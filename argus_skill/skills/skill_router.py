@@ -42,6 +42,15 @@ EventSink = Callable[[dict], None]
 _MIN_CONTENT_CHARS = 120
 _REQUIRED_SECTION_HINTS = ("when to use", "how to solve")
 
+# A skill whose CATEGORY marks it as a governing/guardrail playbook is protected
+# at the harness level exactly like an explicit ``protected: true`` frontmatter
+# flag: a self-modifying mission may STRENGTHEN it (only via the diff-aware update
+# gate) but never archive/delete it, and may not shadow it with a same-named
+# create. This is the one legitimate hard rule (anti-cheat / self-governance),
+# enforced mechanically — no judge, no bypass. Note ``learning`` is deliberately
+# NOT here: learned skills must stay reversible.
+_PROTECTED_CATEGORIES = frozenset({"anti-cheat", "guardrail", "role-identity"})
+
 
 class SkillRouter:
     """Owns skill selection + validated CRUD for one skill store."""
@@ -73,6 +82,16 @@ class SkillRouter:
     def restart_session(self) -> None:
         self._thread_id = None
 
+    @staticmethod
+    def _is_protected(skill: Any) -> bool:
+        """A skill is protected when its frontmatter carries ``protected: true``
+        OR its category names a governing/guardrail class. Both paths are the
+        harness's mechanical self-governance floor."""
+        if getattr(skill, "protected", False):
+            return True
+        category = (getattr(skill, "category", "") or "").strip().lower()
+        return category in _PROTECTED_CATEGORIES
+
     # -- selection (delegates to the role matcher; no new matching logic) --
     def select(self, task: str, **kwargs: Any) -> Any:
         if self.matcher is None:
@@ -88,7 +107,14 @@ class SkillRouter:
         on_event: EventSink | None = None,
     ) -> dict[str, int]:
         """Apply reviewer-proposed ops. Best-effort: one failing op never breaks
-        the others. Returns a small counts summary."""
+        the others. Returns a small counts summary.
+
+        Self-governance is enforced by the PROTECTED floor (a skill with
+        frontmatter ``protected: true`` or a governing category — see
+        ``_is_protected``): such a skill is never archived/deleted and only
+        updated through the diff-aware gate. Ordinary skills the mission merely
+        USED remain freely retirable — retiring a skill you found wrong/harmful is
+        the flywheel working, not a self-governance breach."""
         counts = {"created": 0, "updated": 0, "archived": 0, "rejected": 0}
         for op in ops or []:
             kind = (op.get("op") or "").strip().lower()
@@ -101,6 +127,8 @@ class SkillRouter:
                 elif kind in ("archive", "delete"):
                     if self._handle_retire(op, on_event):
                         counts["archived"] += 1
+                    else:
+                        counts["rejected"] += 1
             except Exception as exc:  # noqa: BLE001 — one bad op never breaks the rest
                 log.warning("skill_op %s failed (%s: %s)", kind, type(exc).__name__, exc)
                 self._emit(on_event, {"type": "skill.op.error",
@@ -108,7 +136,12 @@ class SkillRouter:
         return counts
 
     # ------------------------------------------------------------------
-    def _handle_proposal(self, op: dict, task: str, on_event: EventSink | None) -> bool:
+    def _handle_proposal(
+        self,
+        op: dict,
+        task: str,
+        on_event: EventSink | None,
+    ) -> bool:
         from ..manager.skill_review import approve_skill
 
         content = (op.get("content") or "").strip()
@@ -121,6 +154,18 @@ class SkillRouter:
             return False
 
         name, description, category, _ = Prompts.parse_skill_output(content)
+        # Self-governance: a CREATE must not SHADOW a protected skill by reusing
+        # its name. A top-level shadow with an identical display name wins the
+        # matcher's last-wins name resolution and would neutralize the protected
+        # playbook WITHOUT ever touching it (so the archive/update gates never
+        # fire). Block it here; genuine improvements must go through an update.
+        if kind == "create":
+            clash = self._find_skill_by_name(name)
+            if clash is not None and self._is_protected(clash):
+                self._reject(on_event, kind,
+                             f"name collides with protected skill '{name}' — "
+                             f"revise it via an update, do not shadow it")
+                return False
         # 2. independence — not a near-duplicate (an update is allowed to resemble
         # the very skill it revises, so exclude that one from the comparison).
         exclude = op.get("name") if kind == "update" else None
@@ -156,6 +201,20 @@ class SkillRouter:
                 self._emit(on_event, {"type": "skill.op.error",
                                       "text": f"update: skill '{op.get('name')}' not found"})
                 return False
+            # A PROTECTED (governing) skill is never blindly overwritten: it must
+            # clear the diff-aware gate that sees old+new and rejects any
+            # regression. It already cleared the mechanical/dedup/generality checks
+            # above; this is the extra floor.
+            if self._is_protected(target):
+                uv = self._approve_update(
+                    old_content=target.content, new_content=content,
+                    task=task, why=op.get("why", ""),
+                )
+                if uv is None or not uv.approved:
+                    why = uv.why if uv is not None else "no diff-aware judge available"
+                    self._reject(on_event, kind,
+                                 f"protected update requires diff-aware approval: {why}")
+                    return False
             updated = self.skill_store.update_skill_content(
                 target, content, task_desc=task, on_event=on_event)
             if updated is not None:
@@ -176,12 +235,24 @@ class SkillRouter:
             return True
         return False
 
-    def _handle_retire(self, op: dict, on_event: EventSink | None) -> bool:
+    def _handle_retire(
+        self,
+        op: dict,
+        on_event: EventSink | None,
+    ) -> bool:
         name = (op.get("name") or "").strip()
         target = self._find_skill_by_name(name)
         if target is None:
             self._emit(on_event, {"type": "skill.op.error",
                                   "text": f"archive: skill '{name}' not found"})
+            return False
+        # Self-governance floor (mechanical, always on): a governing/protected
+        # skill may be strengthened but never removed. Ordinary skills the mission
+        # merely used stay retirable (retiring a wrong/harmful skill is the
+        # reviewer's direct authority — the flywheel working as designed).
+        if self._is_protected(target):
+            self._refuse_self_governance(on_event, op.get("op"), name,
+                                         "protected — may be strengthened, never removed")
             return False
         archived = self.skill_store.archive(target)
         if archived is None:
@@ -190,6 +261,38 @@ class SkillRouter:
         self._emit(on_event, {"type": "skill.archived",
                               "text": f"archived {name}" + (f": {why}" if why else "")})
         return True
+
+    # ------------------------------------------------------------------
+    def _approve_update(self, *, old_content: str, new_content: str,
+                        task: str, why: str) -> "Any | None":
+        """Diff-aware approval for a protected/active skill update. Prefers a
+        Manager method when present, else the module function on the judge runner.
+        Returns ``None`` when no judge is available (caller treats that as a
+        refusal for protected/active skills — never a blind overwrite)."""
+        fn = getattr(self.manager, "approve_skill_update", None)
+        if fn is not None:
+            try:
+                return fn(old_content=old_content, new_content=new_content,
+                          task=task, why=why)
+            except Exception as exc:  # noqa: BLE001 — gate must never break the loop
+                log.warning("manager update gate failed (%s: %s)",
+                            type(exc).__name__, exc)
+                from ..manager.skill_review import ApprovalVerdict
+                return ApprovalVerdict(False, f"gate error: {type(exc).__name__}")
+        if self.judge_runner is not None:
+            from ..manager.skill_review import approve_skill_update
+            return approve_skill_update(
+                old_content=old_content, new_content=new_content, task=task,
+                why=why, runner=self.judge_runner, model=self.judge_model,
+            )
+        return None
+
+    def _refuse_self_governance(self, on_event: EventSink | None, kind: str,
+                                name: str, reason: str) -> None:
+        """Refuse (and audit) a destructive op that targets a protected skill or
+        the skill governing the current mission."""
+        self._emit(on_event, {"type": "skill.op.refused",
+                              "text": f"{kind} '{name}' refused: {reason}"})
 
     # ------------------------------------------------------------------
     @staticmethod
