@@ -417,26 +417,18 @@ def test_repl_help_matches_documented_command_surface(tmp_path: Path) -> None:
     )
     out = result.stdout + result.stderr
     for fragment in (
-        "/help",
-        "/status",
-        "/config [key=val ...]",
-        "/identity [edit|set",
-        "/project [set",
-        "/backlog [all]",
-        "/add <text> [--once] [--cycles=N] [--budget=$X]",
-        "/done|/skip|/rm <id>",
-        "/stop <id>",
-        "/journal [N]",
-        "/note <text>",
-        "/nudge <text>",
-        "/run [opts]",
-        "/skills [ls|promote <name>]",
-        "/reset",
-        "/backend",
-        "/exit  /quit  :q",
+        "Argus",
+        "one cockpit, one mode",
+        "Type what you need in natural language",
+        "Manager",
+        "Planner",
+        "Engineer",
+        "Reviewer",
+        "Exit with /exit",
     ):
         assert fragment in out
-    assert "/correct" not in out
+    assert "/config [key=val ...]" not in out
+    assert "/add <text>" not in out
 
 
 def test_project_cmd_reads_and_updates_project_card(

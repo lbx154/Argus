@@ -1,6 +1,7 @@
 """Tests for GlobalMemory / ProjectMemory / MemoryBundle (Phase 2 split)."""
 from __future__ import annotations
 
+import json
 import subprocess
 from argparse import Namespace
 from pathlib import Path
@@ -16,6 +17,17 @@ from argus_skill.life import (
     MemoryBundle,
     ProjectMemory,
 )
+
+
+def _write_project_event(journal, entry: JournalEntry) -> None:
+    row = {
+        "type": "user.note" if entry.kind == "note" else "life.mission.completed",
+        "journal_kind": entry.kind,
+        **entry.to_jsonable(),
+    }
+    journal.path.parent.mkdir(parents=True, exist_ok=True)
+    with journal.path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -195,7 +207,8 @@ def test_project_memory_journal_isolated_per_fingerprint(
 ) -> None:
     a = ProjectMemory.open("aaaaaaaaaaaa")
     b = ProjectMemory.open("bbbbbbbbbbbb")
-    a.memory.append(
+    _write_project_event(
+        a.memory,
         JournalEntry.new(kind="note", title="a-only", summary="exclusive to a")
     )
     assert [e.title for e in a.memory.all()] == ["a-only"]
@@ -204,7 +217,8 @@ def test_project_memory_journal_isolated_per_fingerprint(
 
 def test_project_memory_relevant_memory_for(isolated_home: Path) -> None:
     proj = ProjectMemory.open("aaaaaaaaaaaa")
-    proj.memory.append(
+    _write_project_event(
+        proj.memory,
         JournalEntry.new(
             kind="mission_complete",
             title="refactor sqlite store",
@@ -293,7 +307,8 @@ def test_memory_bundle_render_prelude_excludes_cross_project_journal(
             tags=["postgres"],
         )
     )
-    bundle.project.memory.append(
+    _write_project_event(
+        bundle.project.memory,
         JournalEntry.new(
             kind="mission_complete",
             title="local postgres migration script",
@@ -328,9 +343,9 @@ def test_memory_bundle_journal_writes_are_project_only(
         summary="right repo",
         cost_usd=0.25,
     )
-    bundle.journal.append(local)
+    _write_project_event(bundle.journal, local)
 
-    # Reads and writes are strictly project-scoped.
+    # Reads are strictly project-scoped and derive from project events.
     assert [entry.title for entry in bundle.journal.all()] == ["local new"]
     assert [entry.title for entry in bundle.journal.tail(5)] == ["local new"]
     assert bundle.journal.path == bundle.project.memory.path
@@ -394,10 +409,12 @@ def test_cli_status_and_prelude_are_project_scoped(
     bundle_b.project.project_card.path.write_text(
         "# beta\nBeta project card\n", encoding="utf-8"
     )
-    bundle_a.project.memory.append(
+    _write_project_event(
+        bundle_a.project.memory,
         JournalEntry.new(kind="note", title="alpha memory", summary="alpha only")
     )
-    bundle_b.project.memory.append(
+    _write_project_event(
+        bundle_b.project.memory,
         JournalEntry.new(kind="note", title="beta memory", summary="beta only")
     )
     bundle_a.global_mem.journal.append(

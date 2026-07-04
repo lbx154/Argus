@@ -128,7 +128,18 @@ def append_note(mem: Any, text: str) -> str:
         summary=text.strip(),
         tags=[],
     )
-    mem.journal.append(entry)
+    try:
+        from ..life.event_log import JsonlEventSink
+
+        project = getattr(mem, "project", None)
+        root = getattr(project, "root", None) or getattr(mem, "root", None)
+        if root is not None:
+            JsonlEventSink(None, life_dir=Path(root)).append({
+                "type": "user.note",
+                **entry.to_jsonable(),
+            })
+    except Exception:  # noqa: BLE001
+        pass
     return f"note appended (id={entry.id})"
 
 

@@ -367,20 +367,47 @@ class EventJournal(Journal):
             "user_note": "user.note",
         }.get(kind, f"life.{kind}")
 
-    def append(self, entry: JournalEntry) -> None:
-        self._maybe_rotate()
-        row = {
-            "type": self._event_type_for_kind(entry.kind),
-            "journal_kind": entry.kind,
-            **entry.to_jsonable(),
-        }
-        _atomic_append_jsonl(self.path, row)
+    def append(self, entry: JournalEntry) -> None:  # noqa: ARG002
+        """Retired write API: project journals are derived from events only."""
+        return None
+
+    @staticmethod
+    def _entry_from_event(row: dict[str, Any]) -> JournalEntry | None:
+        if row.get("journal_kind") or row.get("type") == EventJournal.LEGACY_EVENT_TYPE:
+            return JournalEntry.from_jsonable(row)
+        etype = str(row.get("type") or "")
+        kind = {
+            "life.mission.started": "mission_started",
+            "life.mission.completed": (
+                "mission_complete" if row.get("success", True) else "mission_failed"
+            ),
+            "life.planner.verdict": "planner_cycle",
+            "life.planner.error": "planner_error",
+            "life.planner.waiting": "planner_waiting",
+            "life.budget.pause": "budget_pause",
+            "life.lifecycle.block": "lifecycle_block",
+            "user.note": "user_note",
+        }.get(etype)
+        if kind is None:
+            return None
+        return JournalEntry.from_jsonable({
+            "id": str(row.get("id") or row.get("item_id") or uuid.uuid4().hex[:12]),
+            "ts": row.get("ts", time.time()),
+            "kind": kind,
+            "title": row.get("title") or row.get("objective") or etype,
+            "summary": row.get("summary") or row.get("reason") or row.get("text") or "",
+            "tags": row.get("tags") or [etype],
+            "cost_usd": row.get("cost_usd", 0.0),
+            "extra": row,
+        })
 
     def _rows(self) -> list[dict[str, Any]]:
-        return [
-            r for r in _read_jsonl_history(self.path)
-            if r.get("journal_kind") or r.get("type") == self.LEGACY_EVENT_TYPE
-        ]
+        rows: list[dict[str, Any]] = []
+        for event in _read_jsonl_history(self.path):
+            entry = self._entry_from_event(event)
+            if entry is not None:
+                rows.append(entry.to_jsonable())
+        return rows
 
     def all(self) -> list[JournalEntry]:
         return [JournalEntry.from_jsonable(r) for r in self._rows()]

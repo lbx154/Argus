@@ -284,8 +284,14 @@ def test_status_uses_env_caps_and_pauses_when_budget_exhausted(
 ) -> None:
     life_root, repo = project_with_history
     bundle = MemoryBundle.for_cwd(repo, global_root=life_root)
-    bundle.journal.append(
-        JournalEntry.new(kind="budget", title="spent", summary="daily spend", cost_usd=5.0)
+    (bundle.project.root / "events.jsonl").write_text(
+        json.dumps({
+            "type": "life.mission.completed",
+            "ts": time.time(),
+            "cost_usd": 5.0,
+            "success": True,
+        }) + "\n",
+        encoding="utf-8",
     )
     monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "2.5")
     monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "5.0")
