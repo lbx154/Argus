@@ -45,6 +45,60 @@ def test_build_worker_config_without_bundle_resolves_cwd(tmp_path):
     assert cfg.life_dir.name  # resolved to *some* project dir, no crash
 
 
+def test_fresh_idle_session_does_not_autospawn_on_boot():
+    """Bare `argus` opens a new empty cockpit, not an implicit resume executor."""
+    fresh = argparse.Namespace(no_daemon=False, continuous=False, session_is_new=True)
+    assert manager_repl._should_autospawn_on_boot(fresh) is False
+
+    resumed = argparse.Namespace(no_daemon=False, continuous=False, session_is_new=False)
+    assert manager_repl._should_autospawn_on_boot(resumed) is True
+
+    continuous = argparse.Namespace(no_daemon=False, continuous=True, session_is_new=True)
+    assert manager_repl._should_autospawn_on_boot(continuous) is True
+
+    disabled = argparse.Namespace(no_daemon=True, continuous=True, session_is_new=False)
+    assert manager_repl._should_autospawn_on_boot(disabled) is False
+
+
+def test_first_task_autostarts_daemon_for_fresh_session(tmp_path, monkeypatch):
+    """After the operator enters a task, the daemon starts on that session bundle."""
+    gr = tmp_path / "root"
+    mem = MemoryBundle.for_cwd(tmp_path, global_root=gr, fingerprint="s-fresh001")
+    mem.init()
+    captured: dict[str, object] = {}
+
+    def fake_build_worker_config(args: argparse.Namespace, *, bundle: object = None):
+        captured["bundle"] = bundle
+        return argparse.Namespace(life_dir=mem.project.root)
+
+    class _Status:
+        alive = True
+        pid = 4242
+
+    monkeypatch.setattr(manager_repl, "_daemon_alive_for", lambda life_dir: (False, None))
+    monkeypatch.setattr("argus_skill.apps.cli._build_worker_config", fake_build_worker_config)
+    monkeypatch.setattr(manager_repl, "_spawn_daemon_from_cockpit", lambda cfg: 0)
+    monkeypatch.setattr(
+        "argus_skill.daemon.life_worker.wait_for_daemon_status",
+        lambda life_dir: _Status(),
+    )
+
+    item, alive, pid = manager_repl.enqueue_mission(
+        mem,
+        "do real work",
+        {
+            "backend": "memory",
+            "config": {"continuous": False},
+            "auto_start_daemon_on_task": True,
+            "open_ended": True,
+        },
+    )
+
+    assert item.objective == "do real work"
+    assert alive is True and pid == 4242
+    assert captured["bundle"] is mem
+
+
 # ---- T2: honest messaging + no freeze when no daemon ---------------------
 
 def test_no_executor_notice_is_honest_and_actionable():

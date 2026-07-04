@@ -767,6 +767,78 @@ def _project_cmd(mem: _CommonMemory, tokens: list[str], rest_text: str) -> None:
     print(render_project_cmd(mem, tokens, rest_text))
 
 
+def _should_autospawn_on_boot(args: argparse.Namespace) -> bool:
+    """Whether opening the cockpit should immediately start a daemon.
+
+    A fresh, non-continuous cockpit is just an empty conversation surface. Starting
+    an executor before the operator enters a task can make old cwd-project state
+    look "resumed" and is exactly the context-pollution footgun the session model
+    is meant to avoid. Resume/continue and explicit continuous launches still boot
+    an executor immediately because they are attaching to known work.
+    """
+    if getattr(args, "no_daemon", False):
+        return False
+    if bool(getattr(args, "continuous", False)):
+        return True
+    return not bool(getattr(args, "session_is_new", False))
+
+
+def _autospawn_daemon_for_task(
+    mem: Any,
+    chat_state: dict[str, Any],
+) -> tuple[bool, int | None]:
+    """Start THIS session's daemon after the first real task is queued.
+
+    The REPL no longer auto-spawns for an empty fresh session, but the daemon is
+    still the sole executor. Once a task exists, start the daemon against the
+    same ``mem`` bundle so it drains the new session, not the legacy cwd project.
+    Fail-soft and report the error through ``chat_state`` for the caller to show.
+    """
+    life_dir = _life_dir_for(mem)
+    alive, pid = _daemon_alive_for(life_dir)
+    if alive:
+        return alive, pid
+    backend = str(
+        chat_state.get("backend")
+        or os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
+    )
+    continuous = bool(chat_state.get("config", {}).get("continuous", False))
+    objective = str(chat_state.get("continuous_objective") or "").strip()
+    try:
+        from ..daemon.life_worker import continuous_mode_error
+        error = continuous_mode_error(backend, continuous, objective)
+        if error:
+            chat_state["daemon_autostart_error"] = error
+            return False, None
+        from ..apps.cli import _build_worker_config
+        from ..daemon.life_worker import wait_for_daemon_status
+
+        cfg_args = argparse.Namespace(
+            backend=backend,
+            continuous=continuous,
+            objective=objective,
+            resume_continuous=continuous,
+            bounded=not bool(chat_state.get("open_ended", True)),
+        )
+        rc = _spawn_daemon_from_cockpit(_build_worker_config(cfg_args, bundle=mem))
+        if rc != 0:
+            chat_state["daemon_autostart_error"] = (
+                f"daemon auto-start failed (rc={rc}); run /doctor"
+            )
+            return False, None
+        st = wait_for_daemon_status(life_dir)
+        if st is not None and getattr(st, "alive", False) and getattr(st, "pid", None):
+            return True, getattr(st, "pid", None)
+        chat_state["daemon_autostart_error"] = (
+            "daemon auto-start returned success but no live pid was confirmed"
+        )
+    except Exception as exc:  # noqa: BLE001
+        chat_state["daemon_autostart_error"] = (
+            f"daemon auto-start skipped: {type(exc).__name__}: {exc}"
+        )
+    return False, None
+
+
 def _continuous_cmd(
     mem: _SplitMemory,
     arg_text: str,
@@ -1312,6 +1384,8 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
         chat_state["continuous_objective"] = body
         from ..daemon.life_worker import write_continuous_config
         write_continuous_config(life_dir, enabled=True, objective=body)
+    if not daemon_alive and chat_state.get("auto_start_daemon_on_task"):
+        daemon_alive, daemon_pid = _autospawn_daemon_for_task(mem, chat_state)
     return item, daemon_alive, daemon_pid
 
 
@@ -1361,6 +1435,12 @@ def _free_text_cmd(
     if continuous:
         if not daemon_alive:
             print(_no_executor_notice(item.id, theme), flush=True)
+            if chat_state.get("daemon_autostart_error"):
+                msg = str(chat_state.pop("daemon_autostart_error"))
+                print(
+                    theme.yellow("   " + msg) if theme is not None else f"   {msg}",
+                    flush=True,
+                )
             return
         queued = (
             f"queued {item.id} — daemon (pid {daemon_pid}) executing (continuous on "
@@ -1393,6 +1473,12 @@ def _free_text_cmd(
         # grows — the original "卡住" symptom). Tell the operator the truth and
         # the one command that fixes it; the task is safely queued meanwhile.
         print(_no_executor_notice(item.id, theme), flush=True)
+        if chat_state.get("daemon_autostart_error"):
+            msg = str(chat_state.pop("daemon_autostart_error"))
+            print(
+                theme.yellow("   " + msg) if theme is not None else f"   {msg}",
+                flush=True,
+            )
         return
 
     queued = (
@@ -2223,6 +2309,11 @@ def run_manager_repl(args: argparse.Namespace) -> int:
     # display_name — a resumed session keeps its original name.
     chat_state["session_id"] = _session_id
     chat_state["global_root"] = global_root
+    chat_state["auto_start_daemon_on_task"] = (
+        not bool(getattr(args, "no_daemon", False))
+        and bool(getattr(args, "session_is_new", False))
+        and not bool(getattr(args, "continuous", False))
+    )
     chat_state["session_named"] = bool(
         session_meta is not None and getattr(session_meta, "display_name", "")
     )
@@ -2314,7 +2405,7 @@ def _run_manager_repl_locked(
                     legacy_zombie_msg = None
         except Exception:  # noqa: BLE001
             pass
-    if not getattr(args, "no_daemon", False):
+    if _should_autospawn_on_boot(args):
         try:
             from ..apps.cli import _build_worker_config
             from ..daemon.life_worker import (
@@ -2358,20 +2449,25 @@ def _run_manager_repl_locked(
                 "Run /doctor for why + the fix."
             )
     else:
-        # --no-daemon: the REPL no longer executes missions, so without a
-        # daemon nothing drains the backlog. Warn unless one happens to be
-        # alive already (e.g. launched separately via `argus-skill --daemon`).
+        # --no-daemon, or a fresh idle session: do not start an executor until
+        # there is an actual task to drain. This avoids implicit resume of stale
+        # cwd-project backlog/events on a bare `argus` launch.
         try:
             from ..daemon.life_worker import read_daemon_status
             status = read_daemon_status(mem.project.root)
         except Exception:  # noqa: BLE001
             status = None
-        if status is None or not getattr(status, "alive", False):
+        if (
+            getattr(args, "no_daemon", False)
+            and (status is None or not getattr(status, "alive", False))
+        ):
             no_daemon_warning = (
                 "--no-daemon: NO executor running — submitted items will sit "
                 "pending forever. Start the executor here with `/daemon start` "
                 "or from another shell with `argus-skill --daemon`."
             )
+        elif status is None or not getattr(status, "alive", False):
+            auto_spawn_msg = "fresh session; daemon starts after your first real task"
 
     global_root = chat_state.get("global_root")
 
