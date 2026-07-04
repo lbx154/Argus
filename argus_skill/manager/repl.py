@@ -770,17 +770,11 @@ def _project_cmd(mem: _CommonMemory, tokens: list[str], rest_text: str) -> None:
 def _should_autospawn_on_boot(args: argparse.Namespace) -> bool:
     """Whether opening the cockpit should immediately start a daemon.
 
-    A fresh, non-continuous cockpit is just an empty conversation surface. Starting
-    an executor before the operator enters a task can make old cwd-project state
-    look "resumed" and is exactly the context-pollution footgun the session model
-    is meant to avoid. Resume/continue and explicit continuous launches still boot
-    an executor immediately because they are attaching to known work.
+    The daemon is the executor, so even a bare fresh cockpit starts one
+    immediately. The context-pollution guard is NOT "delay daemon start"; it is
+    "start it against the resolved session bundle", never the legacy cwd project.
     """
-    if getattr(args, "no_daemon", False):
-        return False
-    if bool(getattr(args, "continuous", False)):
-        return True
-    return not bool(getattr(args, "session_is_new", False))
+    return not bool(getattr(args, "no_daemon", False))
 
 
 def _autospawn_daemon_for_task(
@@ -2449,9 +2443,9 @@ def _run_manager_repl_locked(
                 "Run /doctor for why + the fix."
             )
     else:
-        # --no-daemon, or a fresh idle session: do not start an executor until
-        # there is an actual task to drain. This avoids implicit resume of stale
-        # cwd-project backlog/events on a bare `argus` launch.
+        # --no-daemon: the REPL no longer executes missions, so without a
+        # daemon nothing drains the backlog. Warn unless one happens to be
+        # alive already (e.g. launched separately via `argus-skill --daemon`).
         try:
             from ..daemon.life_worker import read_daemon_status
             status = read_daemon_status(mem.project.root)
@@ -2466,8 +2460,6 @@ def _run_manager_repl_locked(
                 "pending forever. Start the executor here with `/daemon start` "
                 "or from another shell with `argus-skill --daemon`."
             )
-        elif status is None or not getattr(status, "alive", False):
-            auto_spawn_msg = "fresh session; daemon starts after your first real task"
 
     global_root = chat_state.get("global_root")
 

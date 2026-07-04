@@ -45,10 +45,10 @@ def test_build_worker_config_without_bundle_resolves_cwd(tmp_path):
     assert cfg.life_dir.name  # resolved to *some* project dir, no crash
 
 
-def test_fresh_idle_session_does_not_autospawn_on_boot():
-    """Bare `argus` opens a new empty cockpit, not an implicit resume executor."""
+def test_fresh_idle_session_autospawns_on_boot():
+    """Bare `argus` starts an executor, but it is keyed to the fresh session."""
     fresh = argparse.Namespace(no_daemon=False, continuous=False, session_is_new=True)
-    assert manager_repl._should_autospawn_on_boot(fresh) is False
+    assert manager_repl._should_autospawn_on_boot(fresh) is True
 
     resumed = argparse.Namespace(no_daemon=False, continuous=False, session_is_new=False)
     assert manager_repl._should_autospawn_on_boot(resumed) is True
