@@ -538,7 +538,11 @@ class SkillLoop:
             vertical_role_banner,
         )
 
-        _proot = resolve_project_root()
+        _worktree_root = resolve_project_root()
+        _artifact_root = Path(
+            os.environ.get("ARGUS_SKILL_ARTIFACT_ROOT", "") or _worktree_root
+        ).expanduser()
+        _proot = _artifact_root
         _vmod = load_vertical(resolve_vertical(_proot), project_root=_proot)
         _full_emnlp = vertical_completion_gate(_vmod) == "full_emnlp"
         # An optimize vertical (kernelbench/speedrun/…) is never a paper mission —
@@ -583,6 +587,16 @@ class SkillLoop:
             _stage_now = _current_stage(_proot)
         except Exception:  # noqa: BLE001 — stage read is best-effort
             _stage_now = None
+        sections.append(
+            "## Artifact root — keep harness state session-scoped\n"
+            f"- Command working directory: `{_worktree_root}`\n"
+            f"- Harness artifact root: `{_artifact_root}`\n"
+            "- Write pipeline/checklist/domain/audit artifacts under the harness "
+            "artifact root. Do not reuse or mutate the command worktree's "
+            "`research/PIPELINE_STATE.json`, `research/CHECKLISTS.json`, or "
+            "`research/DOMAINS/` unless the operator explicitly asks for repo "
+            "artifact edits.\n"
+        )
         sections.append(
             "## Pipeline stage is Manager-owned — do NOT edit it\n"
             "You may create/update NON-stage fields in "
@@ -703,7 +717,6 @@ class SkillLoop:
                 "## Operator guidance (injected since last round)\n"
                 + "\n\n".join(extra_guidance)
             )
-        from .skills.harness_overlay import resolve_project_root
         from .skills.stage_checklists import format_stage_checklist
 
         # Always-on project-venv reminder. Injected for every stage / every
@@ -720,7 +733,7 @@ class SkillLoop:
         except Exception:  # noqa: BLE001 - defensive; missing skill is non-fatal
             pass
 
-        _proot = resolve_project_root()
+        _proot = _artifact_root
         # Reuse the stage resolved (guarded) near the top of this builder so a
         # broken state read degrades to "no stage checklist" instead of raising.
         stage = _stage_now

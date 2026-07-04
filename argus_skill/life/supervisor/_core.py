@@ -367,6 +367,18 @@ class LifeSupervisor:
             return Path(root)
         return Path.cwd()
 
+    def _artifact_root(self) -> Path:
+        configured = getattr(self.config, "artifact_root", None)
+        if configured is not None:
+            return Path(configured).expanduser()
+        telemetry_dir = getattr(self.config, "telemetry_dir", None)
+        if telemetry_dir is not None:
+            return Path(telemetry_dir).expanduser()
+        root = getattr(self.memory, "root", None)
+        if root:
+            return Path(root)
+        return self._project_workdir()
+
     def _current_pipeline_stage(self) -> str | None:
         """Read current stage through the active vertical contract.
 
@@ -376,7 +388,7 @@ class LifeSupervisor:
         first valid stage (``setup`` for kernelbench/speedrun).
         """
         try:
-            root = self._planner_workdir()
+            root = self._artifact_root()
             from ...skills.stage_checklists import current_stage
 
             return current_stage(root)
@@ -430,7 +442,7 @@ class LifeSupervisor:
         try:
             from ...manager import Manager
 
-            root = self._planner_workdir()
+            root = self._artifact_root()
             st = Manager(project_root=root, runner=None).decide_stage_transition(
                 review=None,
                 project_root=root,
@@ -498,7 +510,7 @@ class LifeSupervisor:
             if (
                 self.config.continuous
                 and self.config.continuous_objective
-                and self._effective_full_emnlp_gate(self._project_workdir())
+                and self._effective_full_emnlp_gate(self._artifact_root())
                 and self._journal_has_full_emnlp_gate_success()
             ):
                 self._emit_status(
@@ -1060,8 +1072,11 @@ class LifeSupervisor:
             #
             # When the reviewer truly certifies, supervisor.run() auto-
             # stops via ``_journal_has_full_emnlp_gate_success`` instead.
+            artifact_root = (
+                self._artifact_root() if hasattr(self, "_artifact_root") else memory_root
+            )
             uncertified_full_emnlp = (
-                self._effective_full_emnlp_gate(self._project_workdir())
+                self._effective_full_emnlp_gate(artifact_root)
                 and not self._journal_has_full_emnlp_gate_success()
             )
             if (
@@ -2025,7 +2040,7 @@ class LifeSupervisor:
     def _defer_project_done_for_operator_external_blocker(self, verdict: Any) -> Any:
         if not (
             getattr(verdict, "project_done", False)
-            and self._effective_full_emnlp_gate(self._project_workdir())
+            and self._effective_full_emnlp_gate(self._artifact_root())
             and not self._journal_has_full_emnlp_gate_success()
         ):
             return verdict
@@ -2335,7 +2350,7 @@ class LifeSupervisor:
         On the first planner cycle (guarded by ``self._vertical_resolved``)
         we infer the vertical (``research`` vs ``speedrun``) from the continuous
         objective — trusting an explicit research-profile override when one is
-        declared — and persist it into ``research/PIPELINE_STATE.json`` so every
+        declared — and persist it into the session artifact root so every
         downstream stage/gate read (``resolve_vertical``) sees a stable vertical
         for the rest of the run.
 
@@ -2354,14 +2369,14 @@ class LifeSupervisor:
         # research / speedrun) sticky across restarts.
         try:
             from ...skills import vertical_select as _vsel
-            workdir = self._planner_workdir()
-            persisted = _vsel._persisted_vertical(workdir)
+            artifact_root = self._artifact_root()
+            persisted = _vsel._persisted_vertical(artifact_root)
             if persisted is not None:
                 # Trust the persisted vertical and re-persist it (sticky across
                 # restarts). This does NOT touch current_stage — stage authority
                 # is the reviewer agent's; persist_vertical only seeds a stage
                 # when none exists and never resets an existing one.
-                _vsel.persist_vertical(workdir, persisted)
+                _vsel.persist_vertical(artifact_root, persisted)
                 self._emit({
                     "type": "life.vertical.resolved",
                     "vertical": persisted,
@@ -2395,8 +2410,8 @@ class LifeSupervisor:
                 runner=self.planner_runner,
                 profile_hint=profile_hint,
             )
-            workdir = self._planner_workdir()
-            vertical_select.persist_vertical(workdir, vertical)
+            artifact_root = self._artifact_root()
+            vertical_select.persist_vertical(artifact_root, vertical)
             self._emit({
                 "type": "life.vertical.resolved",
                 "vertical": vertical,
@@ -2457,7 +2472,7 @@ class LifeSupervisor:
         # needs. Mirrors the gating in
         # ``_defer_project_done_for_operator_external_blocker``.
         short_circuit = None
-        if self._effective_full_emnlp_gate(self._project_workdir()):
+        if self._effective_full_emnlp_gate(self._artifact_root()):
             short_circuit = self._operator_external_blocker_short_circuit_decision(
                 project_root=self._project_workdir(),
             )
@@ -2556,7 +2571,7 @@ class LifeSupervisor:
 
         if (
             verdict.project_done
-            and self._effective_full_emnlp_gate(self._project_workdir())
+            and self._effective_full_emnlp_gate(self._artifact_root())
             and not self._journal_has_full_emnlp_gate_success()
         ):
             from ...planner import TaskSpec

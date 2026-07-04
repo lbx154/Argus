@@ -192,6 +192,10 @@ class LifeSupervisorConfig:
     # so long-running shell experiments still show process/artifact progress.
     telemetry_dir: Path | None = None
     telemetry_interval_seconds: float = 10.0
+    # Session-scoped root for pipeline/checklist/domain artifacts. The command
+    # working tree may be a git repo, but harness state must not leak across
+    # sessions that share that repo.
+    artifact_root: Path | None = None
 
 
 class _MissionRunner(Protocol):

@@ -231,6 +231,35 @@ def test_codex_skill_loop_runner_strips_legacy_auto_max_profile(
     assert runner.backend is runner._backend
 
 
+def test_skill_loop_runner_uses_session_root_for_manager_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    session_root = tmp_path / "session"
+    repo.mkdir()
+    session_root.mkdir()
+
+    class FakeAgentCliBackend:
+        def __init__(self, *, backend, default_extra_args=None, stop_event=None, **kwargs):
+            self.backend = backend
+
+    monkeypatch.setattr(agent_cli_backend_mod, "AgentCliBackend", FakeAgentCliBackend)
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+
+    runner = _runtime._SkillLoopRunner(
+        argparse.Namespace(
+            stop_event=None,
+            workdir=str(repo),
+            manager_session_root=str(session_root),
+        ),
+        seed_thread_id=None,
+    )
+
+    assert runner.manager.project_root == session_root
+    assert runner._artifact_root == session_root
+    assert os.environ["ARGUS_SKILL_ARTIFACT_ROOT"] == str(session_root)
+
+
 def test_invoke_and_track_clears_stale_thread_id_on_poisoned_outcome(
     mem: LifeMemory,
 ) -> None:

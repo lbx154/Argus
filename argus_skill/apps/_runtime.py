@@ -791,6 +791,8 @@ class _SkillLoopRunner:
             if getattr(args, "manager_session_root", None)
             else _manager_workdir
         )
+        self._artifact_root = _manager_session_root
+        os.environ["ARGUS_SKILL_ARTIFACT_ROOT"] = str(_manager_session_root)
         # Skill matcher for the Manager (same adaptive library the SkillLoop/
         # planner/reviewer match against). Pointed at the daemon's skills dir so
         # the Manager injects its fixed role skill plus any matched manager skill
@@ -799,7 +801,7 @@ class _SkillLoopRunner:
         # behaviour), since this must never block daemon start-up.
         self._manager_skill_store = self._build_manager_skill_store(args)
         self.manager = Manager(
-            project_root=_manager_workdir,
+            project_root=_manager_session_root,
             runner=self.manager_backend or self._backend,
             skill_store=self._manager_skill_store,
             manager_session_root=_manager_session_root,
@@ -1064,7 +1066,10 @@ class _SkillLoopRunner:
         try:
             from ..skills.vertical_select import resolve_vertical
             from ..verticals._base import load_vertical, vertical_completion_gate
-            _proot = Path(args.workdir).expanduser() if args.workdir else Path.cwd()
+            _proot = Path(
+                os.environ.get("ARGUS_SKILL_ARTIFACT_ROOT", "")
+                or (Path(args.workdir).expanduser() if args.workdir else Path.cwd())
+            )
             if vertical_completion_gate(load_vertical(resolve_vertical(_proot),
                                                       project_root=_proot)) != "full_emnlp":
                 config_kwargs["paper_mission"] = False
@@ -1299,12 +1304,13 @@ class _SkillLoopRunner:
                 getattr(rounds_list[-1], "review", None) if rounds_list else None
             )
             st = Manager(
-                project_root=workdir,
+                project_root=getattr(self, "_artifact_root", workdir),
                 runner=getattr(self, "manager_backend", None) or self._backend,
                 skill_store=getattr(self, "_manager_skill_store", None),
                 manager_session_root=getattr(self, "_manager_session_root", workdir),
             ).decide_stage_transition(
-                review=final_review, project_root=workdir,
+                review=final_review,
+                project_root=getattr(self, "_artifact_root", workdir),
                 on_event=sink.handle_event,
             )
             decision = {
@@ -1690,6 +1696,7 @@ def _build_repl_supervisor_config(
     project_worktree: Path | None,
     stop_event: threading.Event,
     project_root: Path,
+    artifact_root: Path | None,
     runtime_context: str,
     continuous: bool,
     continuous_objective: str,
@@ -1717,6 +1724,7 @@ def _build_repl_supervisor_config(
         open_ended=open_ended,
         full_emnlp_gate=open_ended,
         telemetry_dir=project_root,
+        artifact_root=artifact_root or project_root,
         telemetry_interval_seconds=telemetry_interval_from_env(),
     )
 
@@ -1732,6 +1740,7 @@ def run_life_supervisor(
     per_mission_cap_usd: float,
     daily_cap_usd: float,
     project_worktree: Path | None = None,
+    artifact_root: Path | None = None,
     quiet: bool = False,
     runtime_context: str = "",
     continuous: bool = False,
@@ -1773,7 +1782,7 @@ def run_life_supervisor(
                     from ..manager import Manager
 
                     mgr = Manager(
-                        project_root=project_root,
+                        project_root=artifact_root or project_root,
                         runner=getattr(runner, "manager_backend", None)
                         or getattr(runner, "backend", None),
                         skill_store=getattr(runner, "_manager_skill_store", None),
@@ -1810,6 +1819,7 @@ def run_life_supervisor(
             project_worktree=project_worktree,
             stop_event=stop_event,
             project_root=project_root,
+            artifact_root=artifact_root,
             runtime_context=runtime_context,
             continuous=continuous,
             continuous_objective=continuous_objective,
@@ -1901,6 +1911,10 @@ def _invoke_supervisor(
         f"- Per-mission budget cap: ${per_mission_cap_usd:.2f}\n"
         f"- Daily budget cap: ${daily_cap_usd:.2f}\n"
         f"- Mode: {mode_label}\n"
+        f"- Command workdir: {Path.cwd()}\n"
+        f"- Harness artifact root: {_memory_project_root(mem)}\n"
+        "- Keep pipeline/checklist/domain/audit artifacts in the harness artifact "
+        "root; do not reuse stale `research/` state from the command workdir.\n"
     )
     from ..life.research_profile import render_research_profile_context
 
@@ -1924,6 +1938,7 @@ def _invoke_supervisor(
         per_mission_cap_usd=per_mission_cap_usd,
         daily_cap_usd=daily_cap_usd,
         project_worktree=getattr(mem, "project_worktree", None) or Path.cwd(),
+        artifact_root=_memory_project_root(mem),
         quiet=quiet,
         runtime_context=runtime_context,
         continuous=continuous,
