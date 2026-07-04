@@ -12,6 +12,7 @@ from __future__ import annotations
 
 # ruff: noqa: I001
 import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -96,6 +97,138 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     except (json.JSONDecodeError, OSError):
         return None
     return value if isinstance(value, dict) else None
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _knowledge_curation_review_gate(project_root: Path) -> tuple[bool, str, str]:
+    """Validate the bounded knowledge-curation review artifacts.
+
+    Data-domain curation missions do not produce paper artifacts. Their review
+    gate is the curated library certification: evidence anchoring, wiki
+    source/index integrity, honest no-op/churn accounting, provisional skill
+    state, scratch wiki state, and an unchanged Manager-owned pipeline state.
+    """
+    issues: list[str] = []
+    facts: list[str] = []
+
+    cert_path = project_root / "research" / "REVIEW_CERTIFICATION.json"
+    cert = _read_json(cert_path)
+    if cert is None:
+        return False, "certification missing or invalid", (
+            f"missing/invalid {cert_path.relative_to(project_root)}"
+        )
+
+    def require(condition: bool, code: str, detail: str) -> None:
+        if condition:
+            facts.append(f"[ok] {code}: {detail}")
+        else:
+            issues.append(f"[{code}] {detail}")
+
+    material_path = project_root / "material.md"
+    source_note_path = project_root / ".autors" / "learning" / "wiki" / "sources" / "notes" / "material.md"
+    wiki_root = project_root / ".autors" / "learning" / "wiki"
+    wiki_card_path = wiki_root / "pages" / "techniques" / "grpo-practical-tricks.md"
+    by_status_path = wiki_root / "queries" / "by-status.md"
+    skill_path = Path(os.environ.get("ARGUS_SKILL_SKILLS_DIR") or "/tmp/learn-skills") / "grpo-practical-tricks.md"
+    pipeline_state_path = project_root / "research" / "PIPELINE_STATE.json"
+
+    require(cert.get("verdict") == "review_gate_ready", "verdict", "review certification verdict is review_gate_ready")
+    require(cert.get("validate_wiki") == "pass", "cert_validate_wiki", "certification records validate_wiki: pass")
+    require(cert.get("all_evidence_quote_checks_pass") is True, "cert_quote_checks", "certification records all quote checks passing")
+    require(
+        cert.get("honest_null_ok") == {
+            "no_op": False,
+            "reviewed_create_ops": 2,
+            "review_repair_ops": 1,
+            "fabricated_churn": False,
+        },
+        "honest_null_ok",
+        "reviewed create/repair accounting matches curation review contract",
+    )
+
+    pipeline_guard = cert.get("pipeline_state_guard")
+    if not isinstance(pipeline_guard, dict):
+        issues.append("[pipeline_guard] missing pipeline_state_guard object")
+    elif pipeline_state_path.exists():
+        actual_pipeline_sha = _sha256(pipeline_state_path)
+        require(
+            pipeline_guard.get("byte_unchanged_during_review") is True
+            and pipeline_guard.get("stage_fields_edited") is False
+            and pipeline_guard.get("sha256_after_round") == actual_pipeline_sha
+            and pipeline_guard.get("sha256_before_round") == pipeline_guard.get("sha256_after_round"),
+            "pipeline_state",
+            f"pipeline hash is unchanged at {actual_pipeline_sha}",
+        )
+    else:
+        issues.append("[pipeline_state] research/PIPELINE_STATE.json missing")
+
+    provenance = cert.get("provenance_recheck_table")
+    if not isinstance(provenance, list) or not provenance:
+        issues.append("[provenance] provenance_recheck_table missing or empty")
+    elif material_path.exists() and source_note_path.exists():
+        material = material_path.read_text(encoding="utf-8")
+        source_note = source_note_path.read_text(encoding="utf-8")
+        bad_rows = []
+        for idx, row in enumerate(provenance):
+            if not isinstance(row, dict):
+                bad_rows.append(f"row {idx} not an object")
+                continue
+            quote = row.get("quote")
+            if not isinstance(quote, str) or not quote:
+                bad_rows.append(f"row {idx} missing quote")
+                continue
+            if not row.get("pass") or (quote not in material and quote not in source_note):
+                bad_rows.append(str(row.get("locator") or f"row {idx}"))
+        require(not bad_rows, "provenance", f"{len(provenance)} evidence quote(s) are verbatim in immutable material")
+    else:
+        issues.append("[provenance] material.md or immutable source note missing")
+
+    try:
+        from argus_skill.wiki.store import WikiStore
+        from argus_skill.wiki.validate import validate_wiki
+
+        store = WikiStore(wiki_root)
+        validate_wiki(store)
+        page = store.read_page("technique", "grpo-practical-tricks")
+        require(getattr(page, "status", None) == "scratch", "wiki_status", "GRPO technique card remains scratch")
+        require(
+            list(getattr(page, "sources", [])) == ["notes/material.md"],
+            "wiki_sources",
+            "GRPO technique card sources resolve via notes/material.md",
+        )
+        source_checks = []
+        for source in getattr(page, "sources", []):
+            source_path = wiki_root / "sources" / source
+            source_checks.append(source_path.exists())
+        require(all(source_checks), "wiki_source_resolution", "every wiki card source entry resolves to an existing source file")
+    except Exception as exc:  # noqa: BLE001
+        issues.append(f"[validate_wiki] live wiki validation failed: {type(exc).__name__}: {exc}")
+
+    if by_status_path.exists():
+        by_status = by_status_path.read_text(encoding="utf-8")
+        require(
+            "## scratch" in by_status and "technique/grpo-practical-tricks" in by_status,
+            "wiki_index",
+            "by-status.md lists technique/grpo-practical-tricks under scratch",
+        )
+    else:
+        issues.append("[wiki_index] .autors/learning/wiki/queries/by-status.md missing")
+
+    if skill_path.exists():
+        skill_text = skill_path.read_text(encoding="utf-8")
+        require("provisional: true" in skill_text, "skill_provisional", f"{skill_path} remains provisional")
+    else:
+        issues.append(f"[skill_provisional] {skill_path} missing")
+
+    for path in (wiki_card_path, material_path, source_note_path):
+        require(path.exists(), "required_path", f"{path.relative_to(project_root) if path.is_relative_to(project_root) else path} exists")
+
+    if issues:
+        return False, f"{len(issues)} curation review issue(s)", "\n".join(issues)
+    return True, "curation review certification, wiki integrity, and library state verified", "\n".join(facts)
 
 
 def _certified_math_synth_setup_override(
@@ -574,27 +707,44 @@ def main() -> int:
         for finding in blocked_findings:
             print(f"  {'📋' if args.bounded else '❌'} {finding}")
 
-    # 2. Run automated F4 (structural) + F3 (advisory) gates that apply
-    #    at this stage. STRUCTURAL gate failures count into the round
-    #    exit code — they are anti-fraud / provenance guards (e.g. broken
-    #    evidence chains). ADVISORY findings (mediocrity facts) NEVER
-    #    count — they are facts the reviewer reads to make their own
-    #    judgment. The gate map + kind lives in
-    #    argus_skill.skills.automated_gates.{STAGE_GATES,GATE_KINDS}.
-    from argus_skill.skills.automated_gates import (
-        run_stage_gates,
-    )
-
-    gate_results = run_stage_gates(
-        root,
-        stage=stage,
-        proposed_condition=os.environ.get("ARGUS_SKILL_PROPOSED_CONDITION") or None,
-        baseline_condition=os.environ.get("ARGUS_SKILL_BASELINE_CONDITION") or None,
-    )
+    # 2. Run automated structural/advisory gates for the active vertical.
+    #
+    # The paper automated-gates router is research-vertical-specific. Project
+    # data domains such as knowledge_curation carry their own checklist surface
+    # and must not be forced to create paper/main.tex, paper review questions,
+    # exemplar PDFs, or experiment audits to clear a learning-curation review.
+    gate_results: list[Any] = []
     structural_block = 0
     advisory_count = bounded_state_advisory
     structural_pass = 0
     structural_fail = 0
+    if vertical_name == "knowledge_curation" and stage == "review":
+        passed_gate, summary, detail = _knowledge_curation_review_gate(root)
+        print()
+        print(f"🛡  Automated gates for stage '{stage}' (vertical: {vertical_name}):")
+        mark = "✅" if passed_gate else "❌"
+        print(f"  {mark} knowledge_curation_review (structural) — {summary}")
+        if detail:
+            for line in detail.splitlines():
+                print(f"     {line}")
+        if passed_gate:
+            structural_pass += 1
+        else:
+            structural_fail += 1
+            structural_block += 1
+    elif vertical_name == "research":
+        # F4/F3 research paper gates. STRUCTURAL failures block; ADVISORY facts
+        # only inform the reviewer.
+        from argus_skill.skills.automated_gates import (
+            run_stage_gates,
+        )
+
+        gate_results = run_stage_gates(
+            root,
+            stage=stage,
+            proposed_condition=os.environ.get("ARGUS_SKILL_PROPOSED_CONDITION") or None,
+            baseline_condition=os.environ.get("ARGUS_SKILL_BASELINE_CONDITION") or None,
+        )
     if gate_results:
         print()
         print(f"🛡  Automated gates for stage '{stage}':")
