@@ -291,6 +291,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_wiki_migrate(args))
     if args.command == "query":
         return _run_with_path_resolution_errors(lambda: _cmd_query(args))
+    if args.command == "learn":
+        return _run_with_path_resolution_errors(lambda: _cmd_learn(args))
     if args.daemon:
         return _run_with_path_resolution_errors(
             lambda: _cmd_daemon_start(args, foreground=False)
@@ -705,6 +707,52 @@ def _cmd_wiki_ingest(args: argparse.Namespace) -> int:
     else:
         print(f"no LIT_MATRIX.tsv at {lit}, skipping enrichment")
 
+    return 0
+
+
+def _cmd_learn(args: argparse.Namespace) -> int:
+    import json
+
+    from ...skills.vertical_select import persist_vertical
+    from ...verticals.learning.ingest import ingest_material
+    from ...wiki.bootstrap import init_wiki
+    from ...wiki.store import WikiStore
+
+    base = args.base.expanduser()
+    wiki_root = init_wiki(args.project, base=base)
+    store = WikiStore(wiki_root)
+
+    manifests: list[dict] = []
+    for material in args.material:
+        path = material.expanduser()
+        if not path.exists():
+            sys.stderr.write(f"argus-skill: material not found: {path}\n")
+            return 2
+        try:
+            manifest = ingest_material(path, store, ingested_by=args.ingested_by)
+        except ValueError as exc:
+            sys.stderr.write(f"argus-skill: {exc}\n")
+            return 2
+        manifests.append(manifest)
+        status = "ingested" if manifest["written"] else "already present (immutable)"
+        print(f"{status}: {manifest['source_id']} "
+              f"({manifest['char_count']} chars via {manifest['extractor']})")
+
+    manifest_dir = base / "learning"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    (manifest_dir / "MATERIAL_MANIFEST.json").write_text(
+        json.dumps({"materials": manifests}, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    persist_vertical(base, "learning")
+
+    print(f"\nmaterial staged immutably under {wiki_root / 'sources' / 'notes'}")
+    print(f"vertical persisted (learning) at {base}")
+    print(
+        "next: run the daemon in this workdir to start the learning mission, e.g.\n"
+        f"  cd {base} && argus-skill --daemon --continuous "
+        "--objective 'Study the ingested material and update your skill+wiki libraries'"
+    )
     return 0
 
 

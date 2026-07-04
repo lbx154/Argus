@@ -149,6 +149,13 @@ class Skill:
     # is the reviewer's verdict on the ROUND, never a judge of the skill text.
     # Absent in legacy frontmatter -> ``False`` (confirmed).
     provisional: bool = False
+    # Protected = a GOVERNING skill (a vertical's seed skill, an anti-cheat /
+    # guardrail playbook, a role-identity skill) that a self-modifying mission
+    # must not be able to remove or blindly overwrite. SkillRouter refuses to
+    # archive/delete a protected skill, and only lets an UPDATE through the
+    # strong diff-aware + Manager gate (never the cheap overwrite path). Absent
+    # in legacy frontmatter -> ``False`` (an ordinary, freely-editable skill).
+    protected: bool = False
 
     def render(self) -> str:
         history = ""
@@ -159,6 +166,7 @@ class Skill:
             )
             history = f"task_history:\n{items}\n"
         provisional_lines = "provisional: true\n" if self.provisional else ""
+        protected_lines = "protected: true\n" if self.protected else ""
         return (
             f"---\n"
             f"name: {self.name}\n"
@@ -166,6 +174,7 @@ class Skill:
             f"category: {self.category}\n"
             f"version: {self.version}\n"
             f"created_at: {self.created_at}\n"
+            f"{protected_lines}"
             f"{provisional_lines}"
             f"{history}"
             f"---\n\n"
@@ -205,6 +214,8 @@ class Skill:
             task_history=history,
             path=path,
             provisional=_get("provisional").strip().strip('"').strip("'").lower()
+            in {"true", "yes", "1"},
+            protected=_get("protected").strip().strip('"').strip("'").lower()
             in {"true", "yes", "1"},
         )
 

@@ -62,6 +62,7 @@ log = logging.getLogger(__name__)
 VERTICALS: tuple[str, ...] = (
     "research", "quant", "speedrun",
     "nanochat", "nanogpt_speedrun", "kernelbench",
+    "learning",
 )
 
 #: The safe default vertical when intent is unclear or state is missing.

@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import uuid
 from contextlib import contextmanager
+from datetime import date
 from pathlib import Path
 from typing import Iterator, TypeVar
 
@@ -122,8 +123,55 @@ class WikiStore:
         if not pages_root.exists():
             return out
         for md in sorted(pages_root.rglob("*.md")):
+            # Retired pages are tombstoned under pages/_retired/ — out of
+            # circulation and out of the derived indexes. Test the path RELATIVE
+            # to pages/ so an unrelated ancestor dir named _retired can't hide
+            # every page.
+            if "_retired" in md.relative_to(pages_root).parts:
+                continue
             out.append(parse_frontmatter(md.read_text(encoding="utf-8"), PageCard))
         return out
+
+    def retire_page(
+        self,
+        card_type: str,
+        card_id: str,
+        *,
+        reason: str,
+        retired_by: str,
+        today: "date | None" = None,
+    ) -> Path:
+        """Tombstone a page: move it out of circulation into ``pages/_retired/``
+        with a retirement stamp, preserving the original card verbatim for audit
+        and rollback. Pages are NEVER hard-deleted, and ``sources/`` (the immutable
+        fact layer) is never touched. This is the wiki analogue of a skill archive.
+        Raises ``FileNotFoundError`` if the page does not exist.
+        """
+        subdir = _PAGE_SUBDIR[card_type]
+        stem = _validate_stem(card_id)
+        src = self.root / "pages" / subdir / f"{stem}.md"
+        dest = self.root / "pages" / "_retired" / subdir / f"{stem}.md"
+        stamp = (today or date.today()).isoformat()
+        with self._wiki_lock():
+            if not src.exists():
+                raise FileNotFoundError(f"page not found: {src}")
+            # Never overwrite an existing tombstone: if this stem was retired
+            # before (re-created then re-retired), keep every retirement record.
+            if dest.exists():
+                for i in range(2, 100000):
+                    alt = dest.with_name(f"{stem}.{i}.md")
+                    if not alt.exists():
+                        dest = alt
+                        break
+            original = src.read_text(encoding="utf-8").rstrip()
+            tomb = (
+                f"{original}\n\n"
+                f"_RETIRED {stamp} by {retired_by}: "
+                f"{(reason or '').strip() or '(no reason given)'}_\n"
+            )
+            _atomic_write_text(dest, tomb)
+            src.unlink()
+        return dest
 
     def iter_run_sources(self) -> list[SourceRun]:
         out: list[SourceRun] = []
