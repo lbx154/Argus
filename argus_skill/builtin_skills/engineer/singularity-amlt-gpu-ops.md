@@ -164,3 +164,99 @@ Whenever infrastructure changes affect a benchmark run, record:
 - The next action: wait, resume, submit new job, restore data/env, or collect
   a completed run.
 
+## `research/INFRA_STATUS.md` template
+
+Use this reusable evidence shape after every bounded Singularity/AMLT
+inspection or infrastructure-affecting action. Paste only observed command
+outputs or concise excerpts; do not invent a status from memory.
+
+````markdown
+# INFRA_STATUS
+
+## Experiment / Job
+
+- experiment:
+- job:
+- cluster / SKU:
+- portal URL or AMLT identity:
+- checked_utc:
+
+## AMLT State
+
+Command:
+
+```bash
+amlt status <experiment>
+amlt show <experiment> :<job>
+amlt logs view -n 80 <experiment> :<job>
+```
+
+Observed result:
+
+```text
+<verbatim bounded output or exact log excerpt>
+```
+
+## SSH / Tunnel Probe
+
+Command:
+
+```bash
+ssh -o BatchMode=yes -o ConnectTimeout=15 <alias> 'hostname; date -u'
+```
+
+Observed result:
+
+```text
+<verbatim output, or exact error>
+```
+
+## GPU Probe
+
+Command:
+
+```bash
+ssh <alias> 'nvidia-smi --query-gpu=index,name,memory.used,utilization.gpu --format=csv,noheader'
+```
+
+Observed result:
+
+```text
+<verbatim output, or exact error>
+```
+
+## Frozen Path / Environment Checks
+
+Command:
+
+```bash
+ssh <alias> '
+  test -x <frozen-python-or-scorer> &&
+  test -d <frozen-data-path> &&
+  test -d <frozen-output-root>
+'
+```
+
+Observed result:
+
+```text
+<verbatim output, or exact missing path/error>
+```
+
+## Blocker Class
+
+- capacity:
+- connectivity:
+- environment_parity:
+- scorer_or_data:
+- none:
+
+## Next Action
+
+- wait / poll at:
+- resume:
+- submit new job:
+- restore data/env:
+- collect completed run:
+- stop and ask human:
+````
