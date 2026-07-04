@@ -557,6 +557,7 @@ def _follow_events_stream(
     theme: Any = None,
     header: str | None = None,
     until_item_id: str | None = None,
+    until_first_completion: bool = False,
 ) -> dict[str, Any] | None:
     """Stream-render ``events.jsonl`` until Ctrl-C (REPL ``--follow`` loop).
 
@@ -647,14 +648,13 @@ def _follow_events_stream(
             )
             if rendered:
                 print(rendered, flush=True)
-            if (
-                until_item_id
-                and str(event.get("type") or "") == "life.mission.completed"
-                and str(event.get("item_id") or "") == until_item_id
-            ):
-                if last_review is not None:
-                    event.setdefault("_last_review", last_review)
-                return event
+            if str(event.get("type") or "") == "life.mission.completed":
+                if until_first_completion or (
+                    until_item_id and str(event.get("item_id") or "") == until_item_id
+                ):
+                    if last_review is not None:
+                        event.setdefault("_last_review", last_review)
+                    return event
     except KeyboardInterrupt:
         note = "\n(stopped following — daemon keeps running; /status to check)"
         print(theme.gray(note) if theme is not None else note, flush=True)
@@ -1401,7 +1401,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
 
 def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
                     iterate: bool = True, max_cycles: int = 6,
-                    budget: float = 30.0) -> tuple[Any, bool, int | None]:
+                    budget: float = 30.0) -> tuple[Any | None, bool, int | None]:
     """Enqueue ``body`` as a head-priority mission (NO blocking tail — the caller
     decides whether to follow). Handles the blocked-continuation rewrite and, in
     continuous mode, persists the objective for the daemon. Returns
@@ -1420,18 +1420,25 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
         body = f"{prior}\n\n操作员答复：{body}"
     chat_state["last_objective"] = body
     _manager_divide_user_task(mem, body, chat_state)
+    life_dir = _life_dir_for(mem)
+    if chat_state.get("config", {}).get("continuous", False):
+        # User task is a PROJECT objective, not an Engineer work item. Arm the
+        # planner first; it will decompose into backlog items. This gives the
+        # intended chain: User -> Manager -> Planner -> Engineer -> Reviewer.
+        chat_state["continuous_objective"] = body
+        from ..daemon.life_worker import write_continuous_config
+        write_continuous_config(life_dir, enabled=True, objective=body)
+        daemon_alive, daemon_pid = _daemon_alive_for(life_dir)
+        if not daemon_alive and chat_state.get("auto_start_daemon_on_task"):
+            daemon_alive, daemon_pid = _autospawn_daemon_for_task(mem, chat_state)
+        return None, daemon_alive, daemon_pid
     pending = mem.backlog.pending()
     head_priority = min((it.priority for it in pending), default=100)
     free_priority = min(head_priority - 1, -1)
     item = _add_only(mem, body, priority=free_priority, iterate=iterate,
                      iteration_max_cycles=max_cycles, iteration_budget_usd=budget)
     _maybe_name_session(chat_state, body)
-    life_dir = _life_dir_for(mem)
     daemon_alive, daemon_pid = _daemon_alive_for(life_dir)
-    if chat_state.get("config", {}).get("continuous", False):
-        chat_state["continuous_objective"] = body
-        from ..daemon.life_worker import write_continuous_config
-        write_continuous_config(life_dir, enabled=True, objective=body)
     if not daemon_alive and chat_state.get("auto_start_daemon_on_task"):
         daemon_alive, daemon_pid = _autospawn_daemon_for_task(mem, chat_state)
     return item, daemon_alive, daemon_pid
@@ -1482,7 +1489,13 @@ def _free_text_cmd(
 
     if continuous:
         if not daemon_alive:
-            print(_no_executor_notice(item.id, theme), flush=True)
+            print(
+                _no_executor_notice(
+                    getattr(item, "id", "planner-objective"),
+                    theme,
+                ),
+                flush=True,
+            )
             if chat_state.get("daemon_autostart_error"):
                 msg = str(chat_state.pop("daemon_autostart_error"))
                 print(
@@ -1491,8 +1504,9 @@ def _free_text_cmd(
                 )
             return
         queued = (
-            f"queued {item.id} — daemon (pid {daemon_pid}) executing (continuous on "
-            f"backend={chat_state.get('backend')})"
+            "objective handed to Planner — "
+            f"daemon (pid {daemon_pid}) planning/executing "
+            f"(continuous on backend={chat_state.get('backend')})"
         )
         print(theme.gray(queued) if theme is not None else queued, flush=True)
         # Multi-agent live view: pin the four-role panel and refresh it in place
@@ -1500,7 +1514,7 @@ def _free_text_cmd(
         # non-interactive so tests and logs are unchanged.
         if sys.stdout.isatty():
             final = follow_mission_live_roles(
-                life_dir, item.id, theme=theme,
+                life_dir, None, theme=theme,
                 header="following daemon (Ctrl-C stops observing; daemon keeps running)…",
             )
         else:
@@ -1508,7 +1522,8 @@ def _free_text_cmd(
                 life_dir,
                 theme=theme,
                 header="following daemon (Ctrl-C to stop observing; daemon keeps running)…",
-                until_item_id=item.id,
+                until_item_id=None,
+                until_first_completion=True,
             )
         if final is not None:
             _record_mission_outcome(chat_state, final)

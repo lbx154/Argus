@@ -125,6 +125,30 @@ def test_user_task_is_manager_divided_before_enqueue(tmp_path, monkeypatch):
     assert events[-1]["vertical"]
 
 
+def test_continuous_user_task_arms_planner_not_direct_engineer_item(
+    tmp_path, monkeypatch
+):
+    gr = tmp_path / "root"
+    mem = MemoryBundle.for_cwd(tmp_path, global_root=gr, fingerprint="s-plan001")
+    mem.init()
+    monkeypatch.setattr(manager_repl, "_daemon_alive_for", lambda life_dir: (False, None))
+
+    item, _alive, _pid = manager_repl.enqueue_mission(
+        mem,
+        "build an autonomous research report",
+        {
+            "backend": "memory",
+            "config": {"continuous": True},
+        },
+    )
+
+    assert item is None
+    assert mem.backlog.all() == []
+    continuous = json.loads((mem.project.root / "continuous.json").read_text())
+    assert continuous["enabled"] is True
+    assert continuous["objective"] == "build an autonomous research report"
+
+
 # ---- T2: honest messaging + no freeze when no daemon ---------------------
 
 def test_no_executor_notice_is_honest_and_actionable():
