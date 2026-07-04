@@ -2,7 +2,7 @@
 
 Post-mission scanner that surfaces *recurring infrastructure failure*
 patterns across missions as ``self_evolve.recurring_failure_advisory``
-journal entries. The mint decision ("is this recurrence worth a distilled
+events. The mint decision ("is this recurrence worth a distilled
 debugging skill?") belongs to the reviewer/planner agent per skill 04;
 this module only does the **structural** half (detect + count + surface).
 
@@ -11,25 +11,27 @@ Signal A flags a *missing tool* from a single mission, Signal B flags the
 *same failure class recurring across N distinct missions* — the signal
 that the agent keeps rediscovering the same fix instead of distilling it.
 
-State lives entirely in the journal:
+State lives entirely in events.jsonl:
 
 * Per mission, each detected signature is recorded once as a low-level
-  ``self_evolve.failure_observation`` entry (idempotent per mission+sig).
+  ``self_evolve.failure_observation`` event (idempotent per mission+sig).
   These are counting rows; they are filtered out of the planner context
   render so they do not crowd it.
 * When a signature's distinct-mission count within the lookback window
   reaches ``min_recurrence``, a single visible
-  ``self_evolve.recurring_failure_advisory`` entry is surfaced (deduped
+  ``self_evolve.recurring_failure_advisory`` event is surfaced (deduped
   so it is not re-emitted every tick).
 """
 from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from typing import Any, Callable
 
+from .event_log import JsonlEventSink
 from .failure_signature_detector import scan_failure_signatures
-from .memory import JournalEntry, LifeMemory
+from .memory import LifeMemory
 
 # Reuse Signal A's anti-recursion tag + result-unpacking + event-tailing
 # so both advisors agree on what a "mint mission" is and how to read a
@@ -38,7 +40,7 @@ from .self_evolve_advisor import MINT_SKILL_TAG, SelfEvolveAdvisor
 
 log = logging.getLogger(__name__)
 
-# Journal kinds written by this advisor.
+# Event types written by this advisor.
 OBSERVATION_KIND = "self_evolve.failure_observation"
 ADVISORY_KIND = "self_evolve.recurring_failure_advisory"
 
@@ -50,20 +52,20 @@ DEFAULT_MIN_RECURRENCE = 3
 # 7×24 daemon, so recurrence is measured over wall-clock days.
 DEFAULT_LOOKBACK_DAYS = 7.0
 
-# Upper bound on journal rows read per tick (cost guard). Generously
+# Upper bound on event-history rows read per tick (cost guard). Generously
 # larger than any realistic number of entries in the lookback window.
 _MAX_TAIL = 4000
 
 
 class RecurringFailureAdvisor:
     """Per-tick post-mission scanner. Stateless across constructor
-    calls; all state lives in the journal."""
+    calls; all state lives in events.jsonl."""
 
     def __init__(
         self,
         memory: LifeMemory,
         *,
-        on_cost: Callable[[JournalEntry], None] | None = None,
+        on_cost: Callable[[Any], None] | None = None,
         min_recurrence: int = DEFAULT_MIN_RECURRENCE,
         lookback_days: float = DEFAULT_LOOKBACK_DAYS,
     ) -> None:
@@ -113,10 +115,9 @@ class RecurringFailureAdvisor:
                 continue
             count = self._distinct_mission_count(sig.signature, recent)
             if count >= self.min_recurrence:
-                entry = self._build_advisory_entry(sig, count)
-                self.memory.journal.append(entry)
-                self._on_cost(entry)
-                recent.append(entry)
+                event = self._build_advisory_event(sig, count)
+                self._append_event(event)
+                recent.append(self._event_to_entry(event))
                 surfaced.append(sig.signature)
         return surfaced
 
@@ -124,8 +125,8 @@ class RecurringFailureAdvisor:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _recent_entries(self) -> list[JournalEntry]:
-        """Journal rows within the lookback window (bounded read)."""
+    def _recent_entries(self) -> list[Any]:
+        """Event-backed history rows within the lookback window (bounded read)."""
         try:
             rows = list(self.memory.journal.tail(_MAX_TAIL))
         except Exception:  # noqa: BLE001
@@ -136,9 +137,9 @@ class RecurringFailureAdvisor:
         return [e for e in rows if float(getattr(e, "ts", 0.0) or 0.0) >= cutoff]
 
     def _maybe_record_observation(
-        self, sig: Any, mission_id: str, recent: list[JournalEntry]
+        self, sig: Any, mission_id: str, recent: list[Any]
     ) -> None:
-        """Append one observation row per (mission, signature). Idempotent:
+        """Append one observation event per (mission, signature). Idempotent:
         skip if this mission already has an observation for this sig in the
         recent window."""
         sig_tag = f"sig:{sig.signature}"
@@ -150,27 +151,31 @@ class RecurringFailureAdvisor:
             if sig_tag in tags and mission_tag in tags:
                 return
         evidence_lines = "\n".join(f"- {x}" for x in (sig.evidence or ()))
-        entry = JournalEntry.new(
-            kind=OBSERVATION_KIND,
-            title=f"infra failure: {sig.signature}",
-            summary=(
+        event = {
+            "type": OBSERVATION_KIND,
+            "title": f"infra failure: {sig.signature}",
+            "summary": (
                 f"{sig.category}: {sig.context} (mission {mission_id})\n"
                 f"{evidence_lines}"
             ),
-            tags=[
+            "tags": [
                 "self-evolve",
                 "failure-observation",
                 sig_tag,
                 mission_tag,
                 f"category:{sig.category}",
             ],
-        )
-        self.memory.journal.append(entry)
-        self._on_cost(entry)
-        recent.append(entry)
+            "signature": sig.signature,
+            "category": sig.category,
+            "context": sig.context,
+            "mission_id": mission_id,
+            "evidence": list(sig.evidence or ()),
+        }
+        self._append_event(event)
+        recent.append(self._event_to_entry(event))
 
     def _distinct_mission_count(
-        self, signature: str, recent: list[JournalEntry]
+        self, signature: str, recent: list[Any]
     ) -> int:
         """Count DISTINCT missions that hit ``signature`` in the window.
 
@@ -192,7 +197,7 @@ class RecurringFailureAdvisor:
         return len(missions)
 
     def _already_advised(
-        self, signature: str, recent: list[JournalEntry]
+        self, signature: str, recent: list[Any]
     ) -> bool:
         """True if an advisory for this signature is already in the recent
         window (dedup — don't re-surface every tick)."""
@@ -204,14 +209,28 @@ class RecurringFailureAdvisor:
                 return True
         return False
 
+    def _append_event(self, event: dict[str, Any]) -> None:
+        root = getattr(self.memory, "root", None)
+        if root is None:
+            return
+        try:
+            JsonlEventSink(None, life_dir=Path(root)).append(event)
+        except Exception:  # noqa: BLE001
+            log.exception("recurring-failure advisory event write failed")
+
+    def _event_to_entry(self, event: dict[str, Any]) -> Any:
+        from .memory import EventJournal
+
+        return EventJournal._entry_from_event(event)
+
     @staticmethod
-    def _build_advisory_entry(sig: Any, count: int) -> JournalEntry:
+    def _build_advisory_event(sig: Any, count: int) -> dict[str, Any]:
         evidence_lines = "\n".join(f"- {x}" for x in (sig.evidence or ()))
         if getattr(sig, "category", "") == "external_capability":
-            return JournalEntry.new(
-                kind=ADVISORY_KIND,
-                title=f"recurring external capability blocker: {sig.signature} (×{count})",
-                summary=(
+            return {
+                "type": ADVISORY_KIND,
+                "title": f"recurring external capability blocker: {sig.signature} (×{count})",
+                "summary": (
                     f"The external capability blocker '{sig.signature}' "
                     f"({sig.context}) has now recurred across {count} distinct "
                     f"missions. Treat this as an operator/provider dependency "
@@ -219,7 +238,7 @@ class RecurringFailureAdvisor:
                     f"keep blind-retrying the same failing call or fabricate "
                     f"local fallback artifacts.\n{evidence_lines}"
                 ),
-                tags=[
+                "tags": [
                     "self-evolve",
                     "advisory",
                     "recurring-failure",
@@ -227,11 +246,16 @@ class RecurringFailureAdvisor:
                     f"sig:{sig.signature}",
                     f"category:{sig.category}",
                 ],
-            )
-        return JournalEntry.new(
-            kind=ADVISORY_KIND,
-            title=f"recurring infra failure: {sig.signature} (×{count})",
-            summary=(
+                "signature": sig.signature,
+                "category": sig.category,
+                "context": sig.context,
+                "distinct_mission_count": count,
+                "evidence": list(sig.evidence or ()),
+            }
+        return {
+            "type": ADVISORY_KIND,
+            "title": f"recurring infra failure: {sig.signature} (×{count})",
+            "summary": (
                 f"The infrastructure failure class '{sig.signature}' "
                 f"({sig.category}: {sig.context}) has now recurred across "
                 f"{count} distinct missions. The agent keeps rediscovering "
@@ -241,14 +265,19 @@ class RecurringFailureAdvisor:
                 f"verifies the fix). Mint only if the fix is verifiable by "
                 f"re-running and asserting the error is gone.\n{evidence_lines}"
             ),
-            tags=[
+            "tags": [
                 "self-evolve",
                 "advisory",
                 "recurring-failure",
                 f"sig:{sig.signature}",
                 f"category:{sig.category}",
             ],
-        )
+            "signature": sig.signature,
+            "category": sig.category,
+            "context": sig.context,
+            "distinct_mission_count": count,
+            "evidence": list(sig.evidence or ()),
+        }
 
 
 __all__ = [

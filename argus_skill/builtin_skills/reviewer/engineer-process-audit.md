@@ -95,7 +95,7 @@ that round — a shell command, a tool call, or a reasoning beat. Substitute
 
 If you find any of these, return `continue` (or `blocked` when the operator must
 act) EVEN IF the artifact traces to the checklist. Name the process defect
-explicitly in `reason` AND in `process_lesson`:
+explicitly in `reason`:
 
 - (a) **Hardcoded** the expected value/answer instead of computing it.
 - (b) **Skipped** a required step and wrote the result directly.

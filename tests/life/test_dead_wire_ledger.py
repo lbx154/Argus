@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.life.memory import JournalEntry, LifeMemory
+from argus_skill.life.memory import LifeMemory
 from argus_skill.life.self_experiment import (
     ConservationProbe,
     GapFinding,
@@ -37,18 +37,17 @@ def test_render_empty_when_no_findings() -> None:
 # --------------------------------------------------------------------------
 def test_render_contains_counts_and_mandate() -> None:
     finding = GapFinding(
-        invariant_name="process_lesson_to_skill",
+        invariant_name="missing_tool_to_skill",
         producer_count=7,
         consumer_count=0,
-        sample_sites=["journal:self_evolve.process_lesson:a1"],
+        sample_sites=["journal:self_evolve.missing_tool_advisory:a1"],
     )
     block = render_open_gaps_block([finding])
     # the wire identity + counts + sample
-    assert "process_lesson_to_skill" in block
-    assert "self_evolve.process_lesson" in block
-    assert "skill.created" in block
+    assert "missing_tool_to_skill" in block
+    assert "self_evolve.missing_tool_advisory" in block
     assert "7x" in block and "0x" in block
-    assert "journal:self_evolve.process_lesson:a1" in block
+    assert "journal:self_evolve.missing_tool_advisory:a1" in block
     # COUNT-framing + triage mandate + stage-gate subordination (non-negotiable)
     assert "COUNT ONLY" in block
     assert "defer/reject" in block
@@ -60,18 +59,18 @@ def test_render_contains_counts_and_mandate() -> None:
 # 3. scan -> render integration (a real dead wire surfaces)
 # --------------------------------------------------------------------------
 def test_scan_to_render_surfaces_dead_wire() -> None:
-    journal = [{"kind": "self_evolve.process_lesson"} for _ in range(7)]
+    journal = [{"kind": "self_evolve.missing_tool_advisory"} for _ in range(7)]
     findings = ConservationProbe().scan(journal, [])
-    assert [f.invariant_name for f in findings] == ["process_lesson_to_skill"]
+    assert [f.invariant_name for f in findings] == ["missing_tool_to_skill"]
     block = render_open_gaps_block(findings)
-    assert "process_lesson_to_skill" in block
+    assert "missing_tool_to_skill" in block
 
 
 # --------------------------------------------------------------------------
 # 4. CLOSE-THE-LOOP: consumer fires => scan empty => ledger self-clears
 # --------------------------------------------------------------------------
 def test_ledger_self_clears_when_consumer_fires() -> None:
-    journal = [{"kind": "self_evolve.process_lesson"} for _ in range(7)]
+    journal = [{"kind": "self_evolve.missing_tool_advisory"} for _ in range(7)]
     events = [{"type": "skill.created"}]  # the wire is now ALIVE
     findings = ConservationProbe().scan(journal, events)
     assert findings == []
@@ -86,7 +85,7 @@ def test_run_probe_then_render_end_to_end(tmp_path: Path) -> None:
     _append_lessons(mem, 6)
     _write_events(mem, [])  # no skill.created => dead wire
     block = render_open_gaps_block(run_probe(mem))
-    assert "process_lesson_to_skill" in block
+    assert "missing_tool_to_skill" in block
     assert "6x" in block
 
 
@@ -136,4 +135,4 @@ def test_render_unknown_invariant_drops_bracket() -> None:
 
 
 # keep the imported test symbols referenced so linters see the reuse
-_ = (JournalEntry, LifeMemory)
+_ = LifeMemory

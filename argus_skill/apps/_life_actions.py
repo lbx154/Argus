@@ -4,10 +4,11 @@ from __future__ import annotations
 import argparse
 import json
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Sequence
 
-from ..life import BacklogItem, JournalEntry
+from ..life import BacklogItem
 
 
 def format_backlog_list(mem: Any, *, include_all: bool) -> str:
@@ -122,12 +123,7 @@ def format_journal_tail(mem: Any, n: int) -> str:
 
 
 def append_note(mem: Any, text: str) -> str:
-    entry = JournalEntry.new(
-        kind="user_note",
-        title="manual note",
-        summary=text.strip(),
-        tags=[],
-    )
+    note_id = uuid.uuid4().hex[:12]
     try:
         from ..life.event_log import JsonlEventSink
 
@@ -136,11 +132,14 @@ def append_note(mem: Any, text: str) -> str:
         if root is not None:
             JsonlEventSink(None, life_dir=Path(root)).append({
                 "type": "user.note",
-                **entry.to_jsonable(),
+                "id": note_id,
+                "title": "manual note",
+                "summary": text.strip(),
+                "tags": [],
             })
     except Exception:  # noqa: BLE001
         pass
-    return f"note appended (id={entry.id})"
+    return f"note appended (id={note_id})"
 
 
 def stop_iteration(mem: Any, item_id: str) -> str:

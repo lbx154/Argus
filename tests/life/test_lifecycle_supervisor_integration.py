@@ -313,6 +313,7 @@ class _GateStub:
         self.config = SimpleNamespace(full_emnlp_gate=full_emnlp_gate)
         self.journal_entries: list[object] = []
         self.emitted: list[str] = []
+        self.events: list[dict] = []
         self.memory = SimpleNamespace(
             root=memory_root,
             journal=SimpleNamespace(append=self.journal_entries.append),
@@ -344,8 +345,8 @@ class _GateStub:
     def _emit_status(self, text: str) -> None:
         self.emitted.append(text)
 
-    def _inject_cumulative_cost(self, entry: object) -> None:  # noqa: D401
-        return None
+    def _emit(self, event: dict) -> None:
+        self.events.append(event)
 
     def block(self):
         item = SimpleNamespace(id="item-1", title="finish paper")
@@ -374,8 +375,8 @@ def test_gate_suppresses_premature_done_for_uncertified_emnlp(tmp_path: Path) ->
     )
     result = stub.block()
     assert result is None  # allocatable → dispatch proceeds
-    assert "lifecycle_transition" not in _journal_kinds(stub)
-    assert "lifecycle_block" not in _journal_kinds(stub)
+    assert not any(e.get("type") == "life.lifecycle.transition" for e in stub.events)
+    assert not any(e.get("type") == "life.lifecycle.block" for e in stub.events)
     # nothing premature was persisted
     assert load_persisted(tmp_path / "mem") == {}
 
@@ -411,9 +412,13 @@ def test_gate_repairs_existing_persisted_done_once(tmp_path: Path) -> None:
     assert history[-1].to_state == ProjectState.WRITING
     assert history[-1].reason == "full_emnlp_gate_not_certified"
     assert any(h.reason == "submission_artifact_present" for h in history)
-    assert "lifecycle_transition" in _journal_kinds(stub)
+    assert any(
+        event.get("type") == "life.lifecycle.transition"
+        and event.get("to_state") == "writing"
+        for event in stub.events
+    )
 
-    # A second tick must NOT repair again or re-spam the journal: persisted
+    # A second tick must NOT repair again or re-spam the event timeline: persisted
     # is now WRITING, decide_next_state re-fires DONE which is suppressed.
     stub2 = _GateStub(
         project_root=stub._project_root,
@@ -422,7 +427,7 @@ def test_gate_repairs_existing_persisted_done_once(tmp_path: Path) -> None:
         certified=False,
     )
     assert stub2.block() is None
-    assert "lifecycle_transition" not in _journal_kinds(stub2)
+    assert not any(e.get("type") == "life.lifecycle.transition" for e in stub2.events)
     assert load_persisted(memory_root)["state"] == "writing"
 
 
@@ -456,9 +461,9 @@ def test_gate_keeps_legacy_done_when_gate_disabled(tmp_path: Path) -> None:
 
 
 def test_lifecycle_block_is_deduped_across_repeated_ticks(tmp_path: Path) -> None:
-    # Cut #2 log hygiene: a project sitting in the same blocked state must emit
-    # the held-item status + journal line only ONCE, not on every tick — this
-    # is what used to flood events.jsonl / activity.log with tens of thousands
+    # Log hygiene: a project sitting in the same blocked state must emit
+    # the held-item status + event line only ONCE, not on every tick — this
+    # is what used to flood events.jsonl with tens of thousands
     # of identical lines. Dispatch behavior is unchanged: every call still
     # returns the block dict so the supervisor keeps holding the item.
     stub = _GateStub(
@@ -473,11 +478,10 @@ def test_lifecycle_block_is_deduped_across_repeated_ticks(tmp_path: Path) -> Non
     gate_lines = [t for t in stub.emitted if "lifecycle gate" in t]
     assert len(gate_lines) == 1
 
-    block_journal = [
-        e for e in stub.journal_entries
-        if getattr(e, "kind", "") == "lifecycle_block"
+    block_events = [
+        e for e in stub.events if e.get("type") == "life.lifecycle.block"
     ]
-    assert len(block_journal) == 1
+    assert len(block_events) == 1
 
 
 def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> None:
@@ -537,7 +541,6 @@ def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> N
     statuses: list[str] = []
     sup._emit = emitted.append
     sup._emit_status = statuses.append
-    sup._inject_cumulative_cost = lambda entry: None
     sup._render_journal_for_planner = lambda: ""
     sup._planner_project_context = lambda: ""
     sup._planner_config = lambda: PlannerConfig(
@@ -550,9 +553,9 @@ def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> N
     assert LifeSupervisor._plan_next_work(sup) == "awaiting_external"
 
     assert any(s.startswith("awaiting external dependency:") for s in statuses)
-    waiting_entries = [
-        e for e in mem.journal.all() if e.kind == "planner_waiting"
+    waiting_events = [
+        e for e in emitted
+        if isinstance(e, dict) and e.get("type") == "life.planner.waiting"
     ]
-    assert len(waiting_entries) == 1
-    assert "awaiting external dependency; backoff" in waiting_entries[0].summary
-    assert "IMAGE2_OPERATOR_ACTION_REQUIRED.md" in waiting_entries[0].summary
+    assert len(waiting_events) == 1
+    assert "IMAGE2_OPERATOR_ACTION_REQUIRED.md" in waiting_events[0]["reason"]

@@ -8,8 +8,8 @@ is now certified by the L2 reviewer's full-pipeline checklist verdict:
   verdict scoped to ``final_submission`` whose checklist is non-empty and
   every item is satisfied with concrete evidence (fail-closed).
 * The reviewer JSON parser must parse ``scope`` / ``checklist`` fail-closed.
-* ``LifeSupervisor._journal_has_full_emnlp_gate_success`` reads the journal
-  for a ``mission_complete`` entry stamped ``final_submission_certified``,
+* ``LifeSupervisor._journal_has_full_emnlp_gate_success`` reads the event
+  timeline for a ``life.mission.completed`` event stamped ``final_submission_certified``,
   never a validator call.
 """
 from __future__ import annotations
@@ -19,7 +19,8 @@ from pathlib import Path
 
 from argus_skill.core.models import ReviewDecision
 from argus_skill.reviewer import _find_decision_in_messages
-from argus_skill.life.memory import BacklogItem, JournalEntry, LifeMemory
+from argus_skill.life.event_log import JsonlEventSink
+from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor import (
     LifeBudget,
     LifeSupervisor,
@@ -167,7 +168,8 @@ def _make_supervisor(tmp_path: Path) -> LifeSupervisor:
     class _Runner:
         pass
 
-    return LifeSupervisor(memory=mem, runner=_Runner(), sink=_Sink(), config=cfg)
+    sink = JsonlEventSink(_Sink(), life_dir=mem.root, verbosity="full")
+    return LifeSupervisor(memory=mem, runner=_Runner(), sink=sink, config=cfg)
 
 
 def _make_supervisor_cfg(tmp_path: Path, **cfg_kwargs) -> LifeSupervisor:
@@ -183,7 +185,25 @@ def _make_supervisor_cfg(tmp_path: Path, **cfg_kwargs) -> LifeSupervisor:
     class _Runner:
         pass
 
-    return LifeSupervisor(memory=mem, runner=_Runner(), sink=_Sink(), config=cfg)
+    sink = JsonlEventSink(_Sink(), life_dir=mem.root, verbosity="full")
+    return LifeSupervisor(memory=mem, runner=_Runner(), sink=sink, config=cfg)
+
+
+def _append_event(sup: LifeSupervisor, event: dict) -> None:
+    path = Path(sup.memory.root) / "events.jsonl"
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(event) + "\n")
+
+
+def _events(sup: LifeSupervisor) -> list[dict]:
+    path = Path(sup.memory.root) / "events.jsonl"
+    if not path.exists():
+        return []
+    out: list[dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            out.append(json.loads(line))
+    return out
 
 
 def test_backlog_metadata_paper_guidance_driven_by_explicit_flag(tmp_path: Path) -> None:
@@ -245,33 +265,42 @@ def test_journal_gate_true_only_with_certified_entry(tmp_path: Path) -> None:
     assert sup._journal_has_full_emnlp_gate_success() is False
 
     # A completed mission that was NOT certified must not pass the gate.
-    sup.memory.journal.append(JournalEntry.new(
-        kind="mission_complete",
-        title="bounded task",
-        summary="status=done",
-        extra={"final_submission_certified": False},
-    ))
+    _append_event(
+        sup,
+        {
+            "type": "life.mission.completed",
+            "title": "bounded task",
+            "success": True,
+            "final_submission_certified": False,
+        },
+    )
     assert sup._journal_has_full_emnlp_gate_success() is False
 
-    # A certified final-submission entry passes the gate.
-    sup.memory.journal.append(JournalEntry.new(
-        kind="mission_complete",
-        title="final submission",
-        summary="status=done",
-        extra={"final_submission_certified": True},
-    ))
+    # A certified final-submission event passes the gate.
+    _append_event(
+        sup,
+        {
+            "type": "life.mission.completed",
+            "title": "final submission",
+            "success": True,
+            "final_submission_certified": True,
+        },
+    )
     assert sup._journal_has_full_emnlp_gate_success() is True
 
 
 def test_journal_gate_ignores_stale_validator_text(tmp_path: Path) -> None:
-    """Legacy journal prose mentioning the old gate must NOT certify."""
+    """Legacy prose mentioning the old gate must NOT certify."""
     sup = _make_supervisor(tmp_path)
-    sup.memory.journal.append(JournalEntry.new(
-        kind="mission_complete",
-        title="legacy",
-        summary="validate-full-emnlp exited 0",
-        extra={"completion_summary": "validate-full-emnlp exited 0"},
-    ))
+    _append_event(
+        sup,
+        {
+            "type": "life.mission.completed",
+            "title": "legacy",
+            "success": True,
+            "completion_summary": "validate-full-emnlp exited 0",
+        },
+    )
     assert sup._journal_has_full_emnlp_gate_success() is False
 
 
@@ -371,9 +400,17 @@ def test_open_ended_project_done_idles_when_state_unchanged(
     assert sup._plan_next_work() == "planner_terminal_idle"
     assert calls == 1
 
-    kinds = [entry.kind for entry in sup.memory.journal.all()]
-    assert kinds.count("planner_retry") == 1
-    assert kinds.count("planner_idle") == 1
+    events = _events(sup)
+    assert sum(
+        1
+        for event in events
+        if event.get("type") == "life.planner.verdict"
+        and event.get("project_done") is True
+        and event.get("open_ended_objective") is True
+    ) == 1
+    assert sum(
+        1 for event in events if event.get("type") == "life.planner.terminal_idle"
+    ) == 1
 
 
 def test_non_open_ended_project_done_stops_normally(
@@ -400,10 +437,13 @@ def test_non_open_ended_project_done_stops_normally(
     monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
 
     assert sup._plan_next_work() is False
-    kinds = [entry.kind for entry in sup.memory.journal.all()]
-    assert "planner_done" in kinds
-    assert "planner_retry" not in kinds
-    assert "planner_idle" not in kinds
+    events = _events(sup)
+    assert any(
+        event.get("type") == "life.planner.verdict"
+        and event.get("project_done") is True
+        for event in events
+    )
+    assert not any(event.get("type") == "life.planner.terminal_idle" for event in events)
 
 
 def test_open_ended_project_change_replans_and_enqueues_tasks(
@@ -573,12 +613,10 @@ def test_should_journal_idle_repeat_heartbeat_gate(tmp_path: Path) -> None:
     assert sup._should_journal_idle_repeat("planner_idle") is False
 
 
-def test_repeated_planner_waiting_collapses_to_one_journal_append(
+def test_repeated_planner_waiting_emits_structured_events(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Change A: many waiting cycles write ONE journal entry (no echo chamber)
-    EVEN WHEN the planner rewrites the reason every cycle (the real failure
-    mode), while still emitting a status every cycle for operator visibility."""
+    """Waiting cycles are structured events, not journal prose."""
     sup = _waiting_supervisor(tmp_path, monkeypatch)
     statuses: list[str] = []
     sup._emit_status = statuses.append  # type: ignore[method-assign]
@@ -597,8 +635,10 @@ def test_repeated_planner_waiting_collapses_to_one_journal_append(
     for _ in range(3):  # below K, so no probe yet
         assert sup._plan_next_work() == "awaiting_external"
 
-    waiting = [e for e in sup.memory.journal.all() if e.kind == "planner_waiting"]
-    assert len(waiting) == 1  # collapsed despite the varied reason text
+    waiting = [
+        event for event in _events(sup) if event.get("type") == "life.planner.waiting"
+    ]
+    assert len(waiting) == 3
     assert len(statuses) == 3  # status still fires every cycle
 
 
@@ -622,10 +662,12 @@ def test_k_idle_cycles_dispatch_one_verification_probe(tmp_path: Path, monkeypat
     assert len(probes) == 1
     assert probes[0].status == "pending"
     assert sup._consecutive_idle_planner_cycles == 0
-    # de-poisoned: one waiting entry across all K cycles; the dispatch is journaled.
-    waiting = [e for e in sup.memory.journal.all() if e.kind == "planner_waiting"]
-    assert len(waiting) == 1
-    assert any(e.kind == "planner_verification_probe" for e in sup.memory.journal.all())
+    events = _events(sup)
+    waiting = [event for event in events if event.get("type") == "life.planner.waiting"]
+    assert len(waiting) == K
+    assert any(
+        event.get("type") == "life.planner.verification_probe" for event in events
+    )
 
 
 def test_verification_probe_not_restacked_while_pending(tmp_path: Path, monkeypatch) -> None:
@@ -672,14 +714,19 @@ def test_no_progress_streak_escalates_to_operator(tmp_path: Path) -> None:
         sup._update_no_progress_streak(
             kind="mission_complete", report={"forward_progress": False}
         )
-        assert [
-            e for e in sup.memory.journal.all() if e.kind == "planner_stall_escalation"
-        ] == []
+        assert not any(
+            event.get("type") == "life.planner.stall_escalation"
+            for event in _events(sup)
+        )
 
     sup._update_no_progress_streak(
         kind="mission_complete", report={"forward_progress": False}
     )
-    esc = [e for e in sup.memory.journal.all() if e.kind == "planner_stall_escalation"]
+    esc = [
+        event
+        for event in _events(sup)
+        if event.get("type") == "life.planner.stall_escalation"
+    ]
     assert len(esc) == 1
     assert sup._consecutive_no_progress_missions == 0
 
@@ -703,9 +750,10 @@ def test_no_progress_streak_reset_by_real_progress(tmp_path: Path) -> None:
     sup._update_no_progress_streak(
         kind="mission_complete", report={"forward_progress": False}
     )
-    assert [
-        e for e in sup.memory.journal.all() if e.kind == "planner_stall_escalation"
-    ] == []
+    assert not any(
+        event.get("type") == "life.planner.stall_escalation"
+        for event in _events(sup)
+    )
 
 
 def test_no_progress_streak_ignores_unknown_and_non_complete(tmp_path: Path) -> None:
@@ -718,30 +766,28 @@ def test_no_progress_streak_ignores_unknown_and_non_complete(tmp_path: Path) -> 
     sup._update_no_progress_streak(kind="mission_complete", report={})
     sup._update_no_progress_streak(kind="mission_complete", report="not-a-dict")
     assert sup._consecutive_no_progress_missions == 0
-    assert [
-        e for e in sup.memory.journal.all() if e.kind == "planner_stall_escalation"
-    ] == []
+    assert not any(
+        event.get("type") == "life.planner.stall_escalation"
+        for event in _events(sup)
+    )
 
 
-def test_stuck_state_kinds_are_operator_notified() -> None:
-    """The blocking/stall journal kinds reach the operator's notify channel."""
-    from argus_skill.life.notify import DEFAULT_NOTIFY_KINDS
+def test_stuck_state_events_are_high_value() -> None:
+    """Blocking/stall event types are persisted in the default signal log."""
+    from argus_skill.life.event_log import HIGH_VALUE_EVENT_TYPES
 
-    for kind in (
-        "planner_waiting",
-        "planner_idle",
-        "lifecycle_block",
-        "planner_verification_probe",
-        "planner_stall_escalation",
+    for event_type in (
+        "life.planner.waiting",
+        "life.planner.terminal_idle",
+        "life.lifecycle.block",
+        "life.planner.verification_probe",
+        "life.planner.stall_escalation",
     ):
-        assert kind in DEFAULT_NOTIFY_KINDS
+        assert event_type in HIGH_VALUE_EVENT_TYPES
 
 
-def test_probe_and_escalation_actually_dispatch_to_notify(tmp_path: Path, monkeypatch) -> None:
-    """Regression: the verification probe AND the stall escalation must actually
-    CALL dispatch_journal_entry (not merely sit in the allow-list), so the
-    operator is pinged whenever the harness intervenes or escalates."""
-    import argus_skill.life.notify as notify_mod
+def test_probe_and_escalation_emit_events(tmp_path: Path, monkeypatch) -> None:
+    """Verification probes and stall escalations are first-class events."""
     from argus_skill.life.supervisor._core import (
         _STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS as N,
     )
@@ -749,20 +795,19 @@ def test_probe_and_escalation_actually_dispatch_to_notify(tmp_path: Path, monkey
         _VERIFICATION_PROBE_AFTER_IDLE_CYCLES as K,
     )
 
-    dispatched: list[str] = []
-    monkeypatch.setattr(
-        notify_mod,
-        "dispatch_journal_entry",
-        lambda entry, **kw: dispatched.append(getattr(entry, "kind", "?")),
-    )
-
     sup = _waiting_supervisor(tmp_path, monkeypatch, reason="neighbor present")
     for _ in range(K):
         sup._plan_next_work()
-    assert "planner_verification_probe" in dispatched
+    assert any(
+        event.get("type") == "life.planner.verification_probe"
+        for event in _events(sup)
+    )
 
     for _ in range(N):
         sup._update_no_progress_streak(
             kind="mission_complete", report={"forward_progress": False}
         )
-    assert "planner_stall_escalation" in dispatched
+    assert any(
+        event.get("type") == "life.planner.stall_escalation"
+        for event in _events(sup)
+    )

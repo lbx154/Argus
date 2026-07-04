@@ -18,6 +18,15 @@ from argus_skill.life.memory import (
     LifeMemory,
 )
 
+
+def _append_legacy_event(mem: LifeMemory, entry: JournalEntry) -> None:
+    path = Path(mem.root) / "events.jsonl"
+    row = entry.to_jsonable()
+    row["journal_kind"] = entry.kind
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row) + "\n")
+
+
 # ---------- Journal --------------------------------------------------------
 
 def test_journal_append_and_read(tmp_path: Path) -> None:
@@ -295,12 +304,12 @@ def test_identity_user_edit_preserved(tmp_path: Path) -> None:
 def test_life_memory_init(tmp_path: Path) -> None:
     mem = LifeMemory.open(tmp_path)
     state = mem.init()
-    assert state == {"identity": True, "journal": True, "backlog": True}
+    assert state == {"identity": True, "events": True, "backlog": True}
     # Second init should be no-op.
     state2 = mem.init()
-    assert state2 == {"identity": False, "journal": False, "backlog": False}
+    assert state2 == {"identity": False, "events": False, "backlog": False}
     assert (tmp_path / "identity.md").exists()
-    assert (tmp_path / "journal.jsonl").exists()
+    assert (tmp_path / "events.jsonl").exists()
     assert (tmp_path / "backlog.jsonl").exists()
 
 
@@ -310,7 +319,8 @@ def test_relevant_journal_returns_most_recent(tmp_path: Path) -> None:
     # lets the agent judge relevance.
     mem = LifeMemory.open(tmp_path)
     mem.init()
-    mem.journal.append(
+    _append_legacy_event(
+        mem,
         JournalEntry.new(
             kind="mission_complete",
             title="Refactored authentication module",
@@ -318,7 +328,8 @@ def test_relevant_journal_returns_most_recent(tmp_path: Path) -> None:
             tags=["auth", "security"],
         )
     )
-    mem.journal.append(
+    _append_legacy_event(
+        mem,
         JournalEntry.new(
             kind="mission_complete",
             title="CSS tweaks",
@@ -326,7 +337,8 @@ def test_relevant_journal_returns_most_recent(tmp_path: Path) -> None:
             tags=["frontend"],
         )
     )
-    mem.journal.append(
+    _append_legacy_event(
+        mem,
         JournalEntry.new(
             kind="mission_failed",
             title="Authentication retry attempt",
@@ -351,8 +363,9 @@ def test_relevant_journal_recency_ignores_overlap(tmp_path: Path) -> None:
     # agent's call, not the harness's.
     mem = LifeMemory.open(tmp_path)
     mem.init()
-    mem.journal.append(
-        JournalEntry.new(kind="x", title="Pancake recipe", summary="Mix flour with milk.")
+    _append_legacy_event(
+        mem,
+        JournalEntry.new(kind="x", title="Pancake recipe", summary="Mix flour with milk."),
     )
     hits = mem.relevant_journal_for("Add a database migration to users table")
     assert [h.title for h in hits] == ["Pancake recipe"]
@@ -361,7 +374,8 @@ def test_relevant_journal_recency_ignores_overlap(tmp_path: Path) -> None:
 def test_render_prelude_marks_non_authoritative(tmp_path: Path) -> None:
     mem = LifeMemory.open(tmp_path)
     mem.init()
-    mem.journal.append(
+    _append_legacy_event(
+        mem,
         JournalEntry.new(
             kind="mission_complete",
             title="Database migration helper",

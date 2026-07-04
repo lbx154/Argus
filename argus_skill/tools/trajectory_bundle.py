@@ -28,12 +28,11 @@ from pathlib import Path
 _BUNDLE_SCHEMA_VERSION = 1
 
 # Canonical argus project trajectory layers → their on-disk filename.
-# Project journal data is now concrete typed rows inside events.jsonl.
+# The canonical timeline is events.jsonl; legacy activity/journal files are not
+# copied as separate truth surfaces.
 _LAYER_FILES: dict[str, str] = {
     "events": "events.jsonl",
     "decisions": "decisions.jsonl",
-    "activity": "activity.log",
-    "journal": "journal.jsonl",
     "backlog": "backlog.jsonl",
     "telemetry": "telemetry.jsonl",
     "inbox": "inbox.jsonl",

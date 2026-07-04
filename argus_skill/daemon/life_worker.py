@@ -1016,7 +1016,6 @@ class LifeWorker:
         # backlog goes empty or the budget caps. Then we sleep
         # poll_interval seconds and try again — items may have been
         # /add'd from a coexisting REPL.
-        from ..life.activity_log import ActivityLogSink
         from ..life.event_log import JsonlEventSink
 
         # Telegram live-streaming reporter (daemon thread). Disabled unless
@@ -1033,17 +1032,12 @@ class LifeWorker:
         except Exception:  # noqa: BLE001
             log.debug("telegram stream reporter unavailable; continuing")
 
-        # ActivityLogSink (outermost) renders a concise, high-signal
-        # <life_dir>/activity.log for debugging; JsonlEventSink keeps the
-        # exhaustive events.jsonl replay surface; _DaemonSink drives the
-        # daemon log + telegram. Events flow outermost -> innermost.
-        sink = ActivityLogSink(
-            JsonlEventSink(
-                _DaemonSink(self, stream_reporter=stream_reporter),
-                life_dir=runtime_root,
-                verbosity=getattr(cfg, "event_log_verbosity", "signal"),
-            ),
+        # events.jsonl is the single persistent timeline; _DaemonSink drives
+        # daemon stderr/debug and telegram streaming.
+        sink = JsonlEventSink(
+            _DaemonSink(self, stream_reporter=stream_reporter),
             life_dir=runtime_root,
+            verbosity=getattr(cfg, "event_log_verbosity", "signal"),
         )
 
         # Controlled self-EVOLUTION (opt-in via ARGUS_SKILL_SELF_EVOLVE): each

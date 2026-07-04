@@ -36,10 +36,7 @@ from typing import Any, cast
 
 from ...core.ports import EventSink
 from ...core.pricing import price_for, usd_for_tokens
-from ..memory import (
-    BacklogItem,
-    JournalEntry,
-)
+from ..memory import BacklogItem
 from ..project_lifecycle import (
     LifecycleEvent,
     ProjectState,
@@ -158,7 +155,7 @@ def _per_mission_distill_enabled() -> bool:
 def _flow_conservation_probe_enabled() -> bool:
     """Whether to run the self-experiment flow-conservation probe (approach C).
     ON by default; ``ARGUS_SKILL_FLOW_CONSERVATION_PROBE=0`` opts out. Pure +
-    deterministic + no LLM — it only journals suspected dead-wire signals for
+    deterministic + no LLM — it only emits suspected dead-wire signals for
     the reviewer/planner to judge."""
     return os.environ.get(
         "ARGUS_SKILL_FLOW_CONSERVATION_PROBE", "1"
@@ -182,17 +179,13 @@ def _flow_conservation_probe_every() -> int:
         return _FLOW_PROBE_DEFAULT_EVERY
     return n if n >= 1 else _FLOW_PROBE_DEFAULT_EVERY
 
-# Re-emit an unchanged lifecycle-block status/journal line at most this often
+# Re-emit an unchanged lifecycle-block status/event line at most this often
 # (a heartbeat) so a long-lived blocked state stays visible without spamming
-# the journal every tick.
+# the event timeline every tick.
 _LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
 
-# Suppress identical planner_waiting / planner_idle JOURNAL appends except on a
-# reason change or this heartbeat. A long external wait would otherwise flood the
-# journal with hundreds of near-identical "awaiting ..." rows — which then poison
-# the planner's own next-cycle context: it re-reads its own stale memory and
-# re-concludes the same wait (an echo chamber). The per-cycle event + status are
-# still emitted every cycle, so operator visibility is unchanged.
+# Legacy heartbeat used by budget pauses and tests that exercise the old idle
+# gate. Planner waiting/idling is now represented by structured events.
 _PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS = 1800.0
 
 # Stall escalation: after this many consecutive idle planner cycles concluding the
@@ -244,8 +237,8 @@ class LifeSupervisor:
 
     - Before each mission, we render ``LifeMemory.render_prelude(...)``
       using the live objective and forward it as ``prelude_context``.
-    - After each mission, we append a ``mission_complete`` /
-      ``mission_failed`` journal entry so the next mission can recall it.
+    - After each mission, we emit a ``life.mission.completed`` event so the
+      next mission can recall it from the event-backed history.
     """
 
     def __init__(
@@ -300,7 +293,7 @@ class LifeSupervisor:
         self._last_lifecycle_block_at = 0.0
         # Planner idle/waiting log-hygiene + stall-escalation state (same family
         # as the lifecycle-block heartbeat above): suppress repeated identical
-        # planner_waiting/planner_idle journal appends, and rate-limit the
+        # planner_waiting/planner_idle events, and rate-limit the
         # verification-probe stall-breaker.
         self._last_planner_idle_sig: str | None = None
         self._last_planner_idle_at = 0.0
@@ -325,44 +318,15 @@ class LifeSupervisor:
             return
         for it in reaped:
             requeued = it.status == "pending"
-            if requeued:
-                kind = "mission_requeued"
-                title = f"recovered after restart: {it.title}"
-                summary = (
-                    f"item_id={it.id} "
-                    f"retry={it.orphan_retries}/3 "
-                    f"will resume automatically"
-                )
-            else:
-                kind = "mission_orphaned"
-                title = f"orphaned (max retries): {it.title}"
-                summary = (
-                    f"item_id={it.id} "
-                    f"retries={it.orphan_retries} "
-                    f"err={it.last_error}"
-                )
-            entry = JournalEntry.new(
-                kind=kind,
-                title=title,
-                summary=summary,
-                tags=list(it.tags) + ["life", "orphan"],
-            )
-            try:
-                self.memory.journal.append(entry)
-            except Exception:  # noqa: BLE001
-                log.exception("life supervisor: failed to journal orphan %s", it.id)
-            self._inject_cumulative_cost(entry)
-            try:
-                from ..notify import dispatch_journal_entry
-                dispatch_journal_entry(entry)
-            except Exception:  # noqa: BLE001
-                log.exception("notify dispatch failed; continuing")
             self._emit({
-                "type": "life.mission.orphaned",
+                "type": (
+                    "life.mission.requeued" if requeued else "life.mission.orphaned"
+                ),
                 "item_id": it.id,
                 "title": it.title,
                 "started_ts": it.started_ts,
                 "error": it.last_error,
+                "orphan_retries": it.orphan_retries,
             })
 
     @staticmethod
@@ -719,32 +683,18 @@ class LifeSupervisor:
                 log.exception("life supervisor: failed to mark running item failed: %s", item_id)
                 continue
             recovered.append(item_id)
-            entry = JournalEntry.new(
-                kind="mission_failed",
-                title=title,
-                summary=f"status=supervisor_error; rounds=0; exc={error}",
-                tags=list(getattr(item, "tags", []) or []) + ["life"],
-                extra={
-                    "item_id": item_id,
-                    "objective": objective,
-                    "terminal_status": "supervisor_error",
-                    "failure_reason": failure_reason,
-                    "agent_layer": "supervisor",
-                },
-            )
-            try:
-                self.memory.journal.append(entry)
-                self._inject_cumulative_cost(entry)
-            except Exception:  # noqa: BLE001
-                log.exception("life supervisor: failed to journal supervisor error")
             self._emit({
                 "type": "life.mission.completed",
                 "item_id": item_id,
+                "title": title,
+                "objective": objective,
                 "success": False,
                 "status": "supervisor_error",
                 "rounds": 0,
                 "cost_usd": 0.0,
-                "journal_entry_id": entry.id,
+                "terminal_status": "supervisor_error",
+                "failure_reason": failure_reason,
+                "agent_layer": "supervisor",
             })
         return recovered
 
@@ -798,7 +748,7 @@ class LifeSupervisor:
         )
         return f"{note}\n\n{base}" if base else note
 
-    def _recent_no_progress_failures(self) -> dict[tuple[str, str], JournalEntry]:
+    def _recent_no_progress_failures(self) -> dict[tuple[str, str], Any]:
         """Return recent failed task signatures quarantined from replanning."""
         try:
             # Read a wider tail and drop Signal-B failure-observation rows
@@ -812,7 +762,7 @@ class LifeSupervisor:
         except Exception:  # noqa: BLE001
             log.exception("life supervisor: failed to read recent journal for planner")
             return {}
-        matches: dict[tuple[str, str], JournalEntry] = {}
+        matches: dict[tuple[str, str], Any] = {}
         for entry in reversed(recent_entries):
             if not _is_recent_no_progress_failure(entry):
                 continue
@@ -854,26 +804,17 @@ class LifeSupervisor:
         )
         if not ok:
             # Don't fail the item — it'll be retried next supervisor
-            # run when the daily cap rolls over. Just journal it and
-            # signal the caller to exit cleanly. Heartbeat-gate the journal
-            # append + operator notify (same gate as the idle-await path) so a
-            # long budget pause cannot flood — and poison — the planner's
-            # next-cycle context; the per-tick status still carries the reason.
+            # run when the daily cap rolls over. Emit a heartbeat-gated event
+            # so a long budget pause cannot flood the timeline.
             self._emit_status(f"budget block: {reason}")
             if self._should_journal_idle_repeat("budget_pause"):
-                entry = JournalEntry.new(
-                    kind="budget_pause",
-                    title=f"paused before '{item.title}'",
-                    summary=reason,
-                    tags=["budget"],
-                )
-                self.memory.journal.append(entry)
-                self._inject_cumulative_cost(entry)
-                try:
-                    from ..notify import dispatch_journal_entry
-                    dispatch_journal_entry(entry)
-                except Exception:  # noqa: BLE001
-                    log.exception("notify dispatch failed; continuing")
+                self._emit({
+                    "type": "life.budget.pause",
+                    "item_id": item.id,
+                    "title": item.title,
+                    "reason": reason,
+                    "agent_layer": "supervisor",
+                })
             return {"status": "budget_pause", "item_id": item.id, "reason": reason}
 
         if not self.config.continuous and self._missions_started >= self.config.budget.max_missions:
@@ -909,7 +850,7 @@ class LifeSupervisor:
         # mint decision is judgment** ("is this worth minting? was it
         # a typo? did we just work around it?"). Per skill 04, harness
         # only does the structural half. We write each detected signal
-        # as a journal advisory; the reviewer / planner reads recent
+        # as an event advisory; the reviewer / planner reads recent
         # advisories and decides whether to request a mint-skill
         # mission. This mirrors how F3 mediocrity_finding surfaces
         # facts to the reviewer without ruling.
@@ -932,7 +873,7 @@ class LifeSupervisor:
         # scans the WHOLE accumulated signal history for DEAD WIRES — a producer
         # signal that keeps firing while its intended consumer never does (the
         # class of deep structural bug argus couldn't previously find, e.g.
-        # process_lesson produced N times but skill.created 0). Pure counting,
+        # missing-tool advisories produced N times but skill.created 0). Pure counting,
         # no LLM; writes a structural advisory the reviewer/planner may act on.
         try:
             if (
@@ -950,7 +891,7 @@ class LifeSupervisor:
     # ------------------------------------------------------------------
     # Logic lives in argus_skill/life/self_evolve_advisor.py per
     # docs/edit-principle/skills/06-keep-files-small.md. supervisor.py is already
-    # ~1800 lines; the self-evolve concern (advisory journaling +
+    # ~1800 lines; the self-evolve concern (advisory event emission +
     # dedup + event tailing) belongs in its own module so it can be
     # discovered + tested + refactored independently.
 
@@ -971,22 +912,21 @@ class LifeSupervisor:
     def _maybe_journal_self_evolve_advisory(
         self, item: BacklogItem, result: dict[str, Any] | None
     ) -> list[str]:
-        """Surface missing-tool patterns as journal advisories.
+        """Surface missing-tool patterns as event advisories.
 
         Thin delegate — see ``self_evolve_advisor.SelfEvolveAdvisor``
         for the logic. Kept here as a stable method on supervisor so
         existing tests + monkeypatches don't have to change.
         """
         from ..self_evolve_advisor import SelfEvolveAdvisor
-        return SelfEvolveAdvisor(
-            memory=cast(Any, self.memory),
-            on_cost=self._inject_cumulative_cost,
-        ).maybe_journal_advisory(item, result)
+        return SelfEvolveAdvisor(memory=cast(Any, self.memory)).maybe_journal_advisory(
+            item, result
+        )
 
     def _maybe_journal_recurring_failure_advisory(
         self, item: BacklogItem, result: dict[str, Any] | None
     ) -> list[str]:
-        """Surface recurring infra-failure patterns as journal advisories.
+        """Surface recurring infra-failure patterns as event advisories.
 
         Thin delegate — see ``recurring_failure_advisor.RecurringFailureAdvisor``
         (Signal B). Kept as a stable supervisor method for tests/monkeypatch.
@@ -994,14 +934,13 @@ class LifeSupervisor:
         from ..recurring_failure_advisor import RecurringFailureAdvisor
         return RecurringFailureAdvisor(
             memory=cast(Any, self.memory),
-            on_cost=self._inject_cumulative_cost,
         ).maybe_journal_advisory(item, result)
 
     def _maybe_journal_flow_conservation_advisory(self) -> list[str]:
-        """Surface suspected DEAD WIRES (flow-conservation gaps) as journal
+        """Surface suspected DEAD WIRES (flow-conservation gaps) as event
         advisories. Thin delegate — see ``self_experiment`` (approach C · OBSERVE).
 
-        Scans the accumulated journal + events.jsonl for producer→consumer
+        Scans the accumulated event history for producer→consumer
         wires where the producer fired ``>= min_producer`` times but the consumer
         never did. Returns the invariant names newly surfaced this run. The
         repair DECISION stays with the agent — the harness only counts.
@@ -1011,7 +950,6 @@ class LifeSupervisor:
         return maybe_journal_gap_advisory(
             cast(Any, self.memory),
             findings,
-            on_cost=self._inject_cumulative_cost,
         )
 
     # ------------------------------------------------------------------
@@ -1129,8 +1067,8 @@ class LifeSupervisor:
             #   (a) repair an already-persisted bad DONE back to WRITING
             #       once (preserving history via append_event), and
             #   (b) suppress a fresh ``submission_artifact_present`` DONE
-            #       transition *before* it is applied/journaled/persisted
-            #       so we don't re-fire + spam the journal every tick.
+            #       transition *before* it is applied/persisted
+            #       so we don't re-fire + spam the event timeline every tick.
             #
             # When the reviewer truly certifies, supervisor.run() auto-
             # stops via ``_journal_has_full_emnlp_gate_success`` instead.
@@ -1164,17 +1102,13 @@ class LifeSupervisor:
                         "sidecar at %s: %s",
                         memory_root, exc,
                     )
-                entry = JournalEntry.new(
-                    kind="lifecycle_transition",
-                    title="done → writing",
-                    summary=(
-                        "premature DONE from preflight main.pdf repaired; "
-                        "EMNLP final_submission not yet reviewer-certified"
-                    ),
-                    tags=["lifecycle", ProjectState.WRITING.value],
-                )
-                self.memory.journal.append(entry)
-                self._inject_cumulative_cost(entry)
+                self._emit({
+                    "type": "life.lifecycle.transition",
+                    "from_state": ProjectState.DONE.value,
+                    "to_state": ProjectState.WRITING.value,
+                    "reason": "full_emnlp_gate_not_certified",
+                    "agent_layer": "supervisor",
+                })
 
             event = decide_next_state(status)
             if (
@@ -1184,7 +1118,7 @@ class LifeSupervisor:
                 and event.reason == "submission_artifact_present"
             ):
                 # Suppress non-persistently: drop the event entirely so it
-                # is never applied, journaled, or persisted. The project
+                # is never applied or persisted. The project
                 # stays WRITING (allocatable) until the reviewer certifies.
                 event = None
             if event is not None:
@@ -1200,25 +1134,22 @@ class LifeSupervisor:
                         "could not persist lifecycle transition to %s: %s",
                         memory_root, exc,
                     )
-                entry = JournalEntry.new(
-                    kind="lifecycle_transition",
-                    title=(
-                        f"{event.from_state.value} → {event.to_state.value}"
-                    ),
-                    summary=event.reason,
-                    tags=["lifecycle", event.to_state.value],
-                )
-                self.memory.journal.append(entry)
-                self._inject_cumulative_cost(entry)
+                self._emit({
+                    "type": "life.lifecycle.transition",
+                    "from_state": event.from_state.value,
+                    "to_state": event.to_state.value,
+                    "reason": event.reason,
+                    "agent_layer": "supervisor",
+                })
 
             # Advisory time signals (incubating_time / running_evidence_gap
             # / writing_idle) are PULLED on demand by --status / cockpit /
-            # telegram digest, not PUSHED into the journal every tick.
+            # telegram digest, not PUSHED into the event timeline every tick.
             # See ``advisory_time_signals`` in project_lifecycle.py. The
-            # harness must not spam the journal with non-event facts.
+            # harness must not spam the timeline with non-event facts.
 
             if not is_token_allocatable(status):
-                # Log hygiene: the held-item status/journal line is identical
+                # Log hygiene: the held-item status/event line is identical
                 # every tick a project sits in the same non-allocatable state.
                 # Emit + journal only when the (state, item) signature changes
                 # or a heartbeat interval elapses — otherwise a long block used
@@ -1246,14 +1177,14 @@ class LifeSupervisor:
                         f"lifecycle gate: project state={state_value}; "
                         f"backlog item {item.id!r} held"
                     )
-                    entry = JournalEntry.new(
-                        kind="lifecycle_block",
-                        title=f"held '{item.title}' (state={state_value})",
-                        summary=reason,
-                        tags=["lifecycle", state_value],
-                    )
-                    self.memory.journal.append(entry)
-                    self._inject_cumulative_cost(entry)
+                    self._emit({
+                        "type": "life.lifecycle.block",
+                        "item_id": item.id,
+                        "title": item.title,
+                        "lifecycle_state": state_value,
+                        "reason": reason,
+                        "agent_layer": "supervisor",
+                    })
                 return {
                     "status": "lifecycle_block",
                     "item_id": item.id,
@@ -1269,7 +1200,7 @@ class LifeSupervisor:
 
         LifeBudget tracks per-mission and daily caps; we approximate the
         project's total budget as ``daily_cap * 30`` (a month of running)
-        and spent as the journal-recorded cumulative cost. If either is
+        and spent as the event-recorded cumulative cost. If either is
         unavailable, returns ``(0.0, 0.0)`` and the F5 budget gate stays
         dormant for that tick.
         """
@@ -1353,27 +1284,7 @@ class LifeSupervisor:
             "objective": item.objective,
             "missions_started": self._missions_started,
         })
-        # Notify: mission starting (engineer layer)
-        try:
-            start_entry = JournalEntry.new(
-                kind="mission_started",
-                title=item.title,
-                summary=f"objective={item.objective[:200]}",
-                tags=list(item.tags) + ["life"],
-                extra={
-                    "item_id": item.id,
-                    "objective": item.objective,
-                    "agent_layer": "engineer",
-                },
-            )
-            self.memory.journal.append(start_entry)
-            self._inject_cumulative_cost(start_entry)
-            from ..notify import dispatch_journal_entry
-            dispatch_journal_entry(start_entry)
-        except Exception:  # noqa: BLE001
-            log.debug("mission_started notify failed; non-critical")
-
-        # Phase-change callback: notifies Telegram when reviewer starts
+        # Phase-change callback.
         def _phase_cb(layer: str, info: dict[str, Any]) -> None:
             try:
                 self._emit({
@@ -1382,27 +1293,8 @@ class LifeSupervisor:
                     "agent_layer": layer,
                     "round_index": info.get("round_index", 0),
                 })
-                from ..notify import dispatch_journal_entry
-                entry = JournalEntry.new(
-                    kind="phase_change",
-                    title=item.title,
-                    summary=f"round {info.get('round_index', '?')}: {layer} 开始评审",
-                    tags=["life", "phase"],
-                    extra={
-                        "item_id": item.id,
-                        "objective": item.objective,
-                        "agent_layer": layer,
-                        "engineer_rounds": info.get("engineer_rounds", 0),
-                    },
-                )
-                # Don't journal phase changes — just notify.
-                # Pass in-flight cost so cumulative includes current mission.
-                self._inject_cumulative_cost(
-                    entry, in_flight_usd=cost_sink.total_usd(),
-                )
-                dispatch_journal_entry(entry)
             except Exception:  # noqa: BLE001
-                log.debug("phase_change notify failed; non-critical")
+                log.debug("phase_change event failed; non-critical")
 
         cost_sink = _CostTrackingSink(
             self.sink,
@@ -1495,84 +1387,6 @@ class LifeSupervisor:
         stop_reason = str(getattr(outcome, "stop_reason", "") or "")
         usd = cost_sink.total_usd()
 
-        # Emit per-layer completion notifications with actual costs
-        try:
-            from ..notify import dispatch_journal_entry
-            sci_usd = cost_sink.scientist_usd()
-            eng_usd = cost_sink.engineer_usd()
-            rev_usd = cost_sink.reviewer_usd()
-            if (
-                cost_sink.scientist_input_tokens > 0
-                or cost_sink.scientist_output_tokens > 0
-            ):
-                sci_done = JournalEntry.new(
-                    kind="phase_change",
-                    title=item.title,
-                    summary=f"科学家/技能匹配完成: ${sci_usd:.4f}",
-                    tags=["life", "phase"],
-                    cost_usd=sci_usd,
-                    extra={
-                        "item_id": item.id,
-                        "objective": item.objective,
-                        "agent_layer": "scientist",
-                        "phase_status": "completed",
-                        "input_tokens": cost_sink.scientist_input_tokens,
-                        "output_tokens": cost_sink.scientist_output_tokens,
-                        "usage_by_model": {
-                            model: {
-                                "input_tokens": values[0],
-                                "cached_input_tokens": values[1],
-                                "output_tokens": values[2],
-                            }
-                            for model, values in (
-                                cost_sink.scientist_usage_by_model.items()
-                            )
-                        },
-                    },
-                )
-                self._inject_cumulative_cost(sci_done, in_flight_usd=usd)
-                dispatch_journal_entry(sci_done)
-            # L1 engineer completed
-            eng_done = JournalEntry.new(
-                kind="phase_change",
-                title=item.title,
-                summary=f"工程师完成: {rounds}轮, ${eng_usd:.4f}",
-                tags=["life", "phase"],
-                cost_usd=eng_usd,
-                extra={
-                    "item_id": item.id,
-                    "objective": item.objective,
-                    "agent_layer": "engineer",
-                    "phase_status": "completed",
-                    "rounds": rounds,
-                    "input_tokens": cost_sink.engineer_input_tokens,
-                    "output_tokens": cost_sink.engineer_output_tokens,
-                },
-            )
-            self._inject_cumulative_cost(eng_done, in_flight_usd=usd)
-            dispatch_journal_entry(eng_done)
-            # L2 reviewer completed (only if reviewer was actually used)
-            if cost_sink.reviewer_input_tokens > 0:
-                rev_done = JournalEntry.new(
-                    kind="phase_change",
-                    title=item.title,
-                    summary=f"审查员完成: ${rev_usd:.4f}",
-                    tags=["life", "phase"],
-                    cost_usd=rev_usd,
-                    extra={
-                        "item_id": item.id,
-                        "objective": item.objective,
-                        "agent_layer": "reviewer",
-                        "phase_status": "completed",
-                        "input_tokens": cost_sink.reviewer_input_tokens,
-                        "output_tokens": cost_sink.reviewer_output_tokens,
-                    },
-                )
-                self._inject_cumulative_cost(rev_done, in_flight_usd=usd)
-                dispatch_journal_entry(rev_done)
-        except Exception:  # noqa: BLE001
-            log.debug("layer completion notify failed; non-critical")
-
         # Auth failure: the codex backend detected an expired/invalid
         # token. Stop this drain pass so we do not immediately continue
         # with stale credentials, but do not signal the daemon's global
@@ -1598,37 +1412,20 @@ class LifeSupervisor:
         # ``iteration`` 字段保留为空，仅为 schema 向后兼容。
 
         # F3: the mid-mission cost breaker fired — PAUSE, do not fail/complete.
-        # Roll the item back to PENDING (next tick re-runs from its checkpoint) and
-        # journal a budget_pause. Anti-cheat: a budget-stopped mission is NEVER
-        # marked done/success — the reviewer stays the sole done-ness authority.
+        # Roll the item back to PENDING (next tick re-runs from its checkpoint).
+        # Anti-cheat: a budget-stopped mission is NEVER marked done/success —
+        # the reviewer stays the sole done-ness authority.
         if status == "budget_exhausted":
             cap = self._effective_per_mission_cap(item)
             self.memory.backlog.update(item.id, status="pending")
-            entry = JournalEntry.new(
-                kind="budget_pause",
-                title=f"budget pause: {item.title}",
-                summary=(
-                    f"per-mission cap ${cap:.2f} reached (spent ${usd:.2f}) "
-                    "mid-mission — item left pending, resumes from checkpoint"
-                ),
-                tags=["budget"],
-                cost_usd=usd,
-                extra={"item_id": item.id, "cap_usd": cap, "spent_usd": usd},
-            )
-            self.memory.journal.append(entry)
-            self._inject_cumulative_cost(entry)
-            try:
-                from ..notify import dispatch_journal_entry
-                dispatch_journal_entry(entry)
-            except Exception:  # noqa: BLE001
-                log.exception("notify dispatch failed; continuing")
             self._emit({
                 "type": "life.mission.completed",
                 "item_id": item.id,
                 "success": False,
                 "status": "budget_pause",
                 "cost_usd": usd,
-                "journal_entry_id": entry.id,
+                "cap_usd": cap,
+                "spent_usd": usd,
             })
             return {"status": "budget_pause", "item_id": item.id, "cost_usd": usd}
 
@@ -1639,95 +1436,30 @@ class LifeSupervisor:
             err = exc_str or stop_reason or "unspecified failure"
             self.memory.backlog.mark_failed(item.id, error=err)
 
-        # Journal entry.
         kind = "mission_complete" if success else "mission_failed"
-        summary_parts = [
-            f"status={status}",
-            f"rounds={rounds}",
-            f"elapsed={elapsed:.1f}s",
-            f"tokens_in={cost_sink.total_input_tokens()}",
-            f"tokens_out={cost_sink.total_output_tokens()}",
-            f"cost_usd=${usd:.4f}",
-        ]
-        if stop_reason:
-            summary_parts.append(f"reason={stop_reason}")
-        if exc_str:
-            summary_parts.append(f"exc={exc_str}")
-        entry = JournalEntry.new(
-            kind=kind,
-            title=item.title,
-            summary="; ".join(summary_parts),
-            tags=list(item.tags) + ["life"],
-            cost_usd=usd,
-            extra={
-                "item_id": item.id,
-                "objective": item.objective,
-                "planner_task_signature": {
-                    "title": _normalize_planner_text(item.title),
-                    "objective": _normalize_planner_text(item.objective),
-                }
-                if kind == "mission_failed"
-                else {},
-                "terminal_status": status if kind == "mission_failed" else "",
-                "stop_reason": (stop_reason or err) if kind == "mission_failed" else "",
-                "failure_reason": err if kind == "mission_failed" else "",
-                "agent_layer": "engineer",
-                "engineer_model": self.engineer_model,
-                "reviewer_model": self.reviewer_model,
-                "scientist_cost_usd": cost_sink.scientist_usd(),
-                "engineer_cost_usd": cost_sink.engineer_usd(),
-                "reviewer_cost_usd": cost_sink.reviewer_usd(),
-                "scientist_input_tokens": cost_sink.scientist_input_tokens,
-                "scientist_cached_input_tokens": (
-                    cost_sink.scientist_cached_input_tokens
-                ),
-                "scientist_output_tokens": cost_sink.scientist_output_tokens,
-                "scientist_usage_by_model": {
-                    model: {
-                        "input_tokens": values[0],
-                        "cached_input_tokens": values[1],
-                        "output_tokens": values[2],
-                    }
-                    for model, values in cost_sink.scientist_usage_by_model.items()
-                },
-                "input_tokens": cost_sink.total_input_tokens(),
-                "output_tokens": cost_sink.total_output_tokens(),
-                "matched_skill": str(getattr(outcome, "matched_skill_name", "") or ""),
-                "skill_distilled": bool(getattr(outcome, "skill_distilled", False)),
-                "had_follow_up": bool(getattr(outcome, "had_follow_up", False)),
-                "completion_summary": self._completion_evidence_from_outcome(outcome),
-                "planner_report": (
-                    getattr(outcome, "planner_report", {})
-                    if isinstance(getattr(outcome, "planner_report", {}), dict)
-                    else {}
-                ),
-                "checklist_feedback": (
-                    getattr(outcome, "checklist_feedback", {})
-                    if isinstance(getattr(outcome, "checklist_feedback", {}), dict)
-                    else {}
-                ),
-                "step_back": (
-                    getattr(outcome, "step_back", None)
-                    if isinstance(getattr(outcome, "step_back", None), dict)
-                    else None
-                ),
-                "final_submission_certified": bool(
-                    kind == "mission_complete"
-                    and self._planner_scope_from_item(item)
-                    == _PLANNER_SCOPE_FINAL_SUBMISSION
-                    and getattr(outcome, "final_submission_certified", False)
-                ),
-                "iteration": {},
-            },
+        final_submission_certified = bool(
+            kind == "mission_complete"
+            and self._planner_scope_from_item(item) == _PLANNER_SCOPE_FINAL_SUBMISSION
+            and getattr(outcome, "final_submission_certified", False)
         )
-        self.memory.journal.append(entry)
-        self._persist_final_submission_cert_if_needed(entry)
-        self._inject_cumulative_cost(entry)
-        try:
-            from ..notify import dispatch_journal_entry
-            dispatch_journal_entry(entry)
-        except Exception:  # noqa: BLE001
-            log.exception("notify dispatch failed; continuing")
+        planner_report = (
+            getattr(outcome, "planner_report", {})
+            if isinstance(getattr(outcome, "planner_report", {}), dict)
+            else {}
+        )
+        checklist_feedback = (
+            getattr(outcome, "checklist_feedback", {})
+            if isinstance(getattr(outcome, "checklist_feedback", {}), dict)
+            else {}
+        )
+        step_back = (
+            getattr(outcome, "step_back", None)
+            if isinstance(getattr(outcome, "step_back", None), dict)
+            else None
+        )
+        completion_summary = self._completion_evidence_from_outcome(outcome)
+        if final_submission_certified:
+            self._persist_final_submission_certification(title=item.title)
 
         self._update_no_progress_streak(
             kind=kind, report=getattr(outcome, "planner_report", {})
@@ -1736,11 +1468,51 @@ class LifeSupervisor:
         self._emit({
             "type": "life.mission.completed",
             "item_id": item.id,
+            "title": item.title,
+            "objective": item.objective,
             "success": success,
             "status": status,
             "rounds": rounds,
+            "elapsed_seconds": elapsed,
             "cost_usd": usd,
-            "journal_entry_id": entry.id,
+            "planner_task_signature": {
+                "title": _normalize_planner_text(item.title),
+                "objective": _normalize_planner_text(item.objective),
+            }
+            if kind == "mission_failed"
+            else {},
+            "terminal_status": status if kind == "mission_failed" else "",
+            "stop_reason": (stop_reason or err) if kind == "mission_failed" else "",
+            "failure_reason": err if kind == "mission_failed" else "",
+            "agent_layer": "engineer",
+            "engineer_model": self.engineer_model,
+            "reviewer_model": self.reviewer_model,
+            "scientist_cost_usd": cost_sink.scientist_usd(),
+            "engineer_cost_usd": cost_sink.engineer_usd(),
+            "reviewer_cost_usd": cost_sink.reviewer_usd(),
+            "scientist_input_tokens": cost_sink.scientist_input_tokens,
+            "scientist_cached_input_tokens": (
+                cost_sink.scientist_cached_input_tokens
+            ),
+            "scientist_output_tokens": cost_sink.scientist_output_tokens,
+            "scientist_usage_by_model": {
+                model: {
+                    "input_tokens": values[0],
+                    "cached_input_tokens": values[1],
+                    "output_tokens": values[2],
+                }
+                for model, values in cost_sink.scientist_usage_by_model.items()
+            },
+            "input_tokens": cost_sink.total_input_tokens(),
+            "output_tokens": cost_sink.total_output_tokens(),
+            "matched_skill": str(getattr(outcome, "matched_skill_name", "") or ""),
+            "skill_distilled": bool(getattr(outcome, "skill_distilled", False)),
+            "had_follow_up": bool(getattr(outcome, "had_follow_up", False)),
+            "completion_summary": completion_summary,
+            "planner_report": planner_report,
+            "checklist_feedback": checklist_feedback,
+            "step_back": step_back,
+            "final_submission_certified": final_submission_certified,
             "iteration": None,
         })
 
@@ -1779,7 +1551,6 @@ class LifeSupervisor:
             "status": status,
             "rounds": rounds,
             "cost_usd": usd,
-            "journal_entry_id": entry.id,
             "iteration": None,
             "auth_failure": auth_failure,
         }
@@ -1817,32 +1588,6 @@ class LifeSupervisor:
                 "count": len(out),
                 "messages": out,
             })
-            # Opt #4: persistent absorption record. Earlier the inbox
-            # drain only injected operator nudges into the engineer's
-            # one-round prompt + emitted a transient event. That
-            # gave the operator no way to confirm "did the daemon
-            # actually see my notify?" hours later. Now we write a
-            # ``inbox.injected`` journal entry per drain so the
-            # operator (via --status / --watch / cockpit) can verify
-            # absorption, and the feedback-parser skill (run later
-            # by the engineer/planner agent) has a stable record to
-            # iterate over for L1 polish / L2 mint decisions.
-            try:
-                summary = " | ".join(
-                    (m if len(m) < 80 else m[:77] + "...") for m in out
-                )
-                entry = JournalEntry.new(
-                    kind="inbox.injected",
-                    title=f"{len(out)} operator message(s) injected",
-                    summary=summary,
-                    tags=["inbox", "feedback"],
-                )
-                self.memory.journal.append(entry)
-                self._inject_cumulative_cost(entry)
-            except Exception:  # noqa: BLE001
-                log.exception(
-                    "inbox journal-write failed; messages still injected to engineer"
-                )
         return out
 
     def _maybe_stop(self) -> str:
@@ -1936,7 +1681,7 @@ class LifeSupervisor:
         the planner rewrites the reason every cycle (fresh audit timestamps and
         details), so a reason-keyed gate would never collapse the spam. Returns
         True (and updates the suppression state) when the kind differs from the
-        last journaled idle entry or a heartbeat window has elapsed; False for an
+        last idle entry or a heartbeat window has elapsed; False for an
         in-window repeat that should be suppressed — so a long external wait
         cannot flood, and poison, the planner's own next-cycle context. The
         per-cycle event + status still carry the live reason, so operator
@@ -2053,8 +1798,8 @@ class LifeSupervisor:
         ):
             return None
 
-        # New operator input is state change. Drain it into the journal so the
-        # next planner call can see it in journal_tail, then re-plan normally.
+        # New operator input is state change. Drain it into the inbox context so
+        # the next planner call can see it, then re-plan normally.
         if self._drain_user_inbox():
             self._last_open_ended_project_done_signature = ""
             return None
@@ -2075,30 +1820,6 @@ class LifeSupervisor:
         self._emit_status(
             "planner: project already done and unchanged; idling without planner call"
         )
-        if self._should_journal_idle_repeat("planner_idle"):
-            entry = JournalEntry.new(
-                kind="planner_idle",
-                title="planner idle: unchanged project_done",
-                summary=(
-                    "skipped planner; open-ended project_done state unchanged; "
-                    f"backoff {sleep_s:.0f}s"
-                ),
-                tags=["life", "planner", "idle"],
-                cost_usd=0.0,
-                extra={
-                    "agent_layer": "planner",
-                    "open_ended_objective": True,
-                    "unchanged_project_done": True,
-                    "suggested_sleep_s": sleep_s,
-                },
-            )
-            self.memory.journal.append(entry)
-            self._inject_cumulative_cost(entry)
-            try:
-                from ..notify import dispatch_journal_entry
-                dispatch_journal_entry(entry)
-            except Exception:  # noqa: BLE001
-                log.exception("notify dispatch failed; continuing")
         return _PLAN_TERMINAL_IDLE
 
     def _planner_task_tags(self, task: Any) -> list[str]:
@@ -2196,16 +1917,16 @@ class LifeSupervisor:
     def _journal_has_full_emnlp_gate_success(self) -> bool:
         """Decide whether the project-final completion gate has passed.
 
-        Source of truth (post-validator-retirement): the journal. A
+        Source of truth (post-validator-retirement): the event timeline. A
         ``final_submission`` mission is certified complete only when the
         reviewer returns a full-pipeline completion verdict, which the
-        supervisor records as a ``mission_complete`` journal entry carrying
-        ``extra["final_submission_certified"] = True``. We no longer call the
+        supervisor records as a ``life.mission.completed`` event carrying
+        ``final_submission_certified = True``. We no longer call the
         hardcoded ``validate_full_emnlp_readiness`` validator — the reviewer's
         checklist verdict is the single source of truth.
 
         Fail-closed: only an explicit certified entry counts. We scan the
-        recent journal tail for such an entry.
+        recent event-backed history tail for such an entry.
         """
         if self._final_submission_cert_path().exists():
             return True
@@ -2256,21 +1977,13 @@ class LifeSupervisor:
         )
         return root / "final_submission_certified.json"
 
-    def _persist_final_submission_cert_if_needed(self, entry: JournalEntry) -> None:
-        extra = getattr(entry, "extra", {}) or {}
-        if not (
-            getattr(entry, "kind", "") == "mission_complete"
-            and isinstance(extra, dict)
-            and extra.get("final_submission_certified") is True
-        ):
-            return
+    def _persist_final_submission_certification(self, *, title: str) -> None:
         path = self._final_submission_cert_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
         payload = {
-            "certified_at": getattr(entry, "ts", time.time()),
-            "journal_entry_id": getattr(entry, "id", ""),
-            "title": getattr(entry, "title", ""),
+            "certified_at": time.time(),
+            "title": title,
         }
         try:
             tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -2401,25 +2114,6 @@ class LifeSupervisor:
         ]
         return "\n".join(parts)
 
-    def _inject_cumulative_cost(
-        self, entry: Any, *, in_flight_usd: float = 0.0,
-    ) -> None:
-        """Stamp ``cumulative_cost_usd`` onto ``entry.extra``.
-
-        ``in_flight_usd`` is an optional cost from the *current* mission
-        that hasn't been journaled yet (e.g. during phase-change
-        notifications that fire mid-execution).
-        """
-        try:
-            cumul = self.memory.journal.total_cost_since(0) + max(0.0, in_flight_usd)
-            extra = getattr(entry, "extra", None)
-            if extra is None:
-                entry.extra = {"cumulative_cost_usd": round(cumul, 2)}
-            else:
-                extra["cumulative_cost_usd"] = round(cumul, 2)
-        except Exception:  # noqa: BLE001
-            pass
-
     # ------------------------------------------------------------------
     # Hot-reload continuous config
     # ------------------------------------------------------------------
@@ -2461,28 +2155,6 @@ class LifeSupervisor:
             "cost_usd": planner_cost_usd,
         })
         self._emit_status(f"awaiting external dependency: {reason}")
-        if self._should_journal_idle_repeat("planner_waiting"):
-            entry = JournalEntry.new(
-                kind="planner_waiting",
-                title=f"planner cycle #{self._planning_cycles}",
-                summary=f"awaiting external dependency; backoff {sleep_s:.0f}s :: {reason}",
-                tags=["life", "planner", "awaiting"],
-                cost_usd=planner_cost_usd,
-                extra={
-                    "agent_layer": "planner",
-                    "waiting": True,
-                    "reason": reason,
-                    "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
-                    "suggested_sleep_s": sleep_s,
-                },
-            )
-            self.memory.journal.append(entry)
-            self._inject_cumulative_cost(entry)
-            try:
-                from ..notify import dispatch_journal_entry
-                dispatch_journal_entry(entry)
-            except Exception:  # noqa: BLE001
-                log.exception("notify dispatch failed; continuing")
         return _PLAN_AWAITING
 
     def _maybe_dispatch_verification_probe(self, verdict: Any) -> bool:
@@ -2547,8 +2219,8 @@ class LifeSupervisor:
             return False
         self._last_verification_probe_at = now
         # Reset the idle counter so we don't immediately re-escalate before the
-        # probe's real result lands in the journal (a real mission run also
-        # resets it via _reset_idle_backoff()).
+        # probe's real result lands in the event timeline (a real mission run
+        # also resets it via _reset_idle_backoff()).
         self._consecutive_idle_planner_cycles = 0
         self._suggested_sleep_s = 0.0
         self._emit({
@@ -2557,34 +2229,12 @@ class LifeSupervisor:
             "reason": reason,
             "idle_cycles": n,
         })
-        entry = JournalEntry.new(
-            kind="planner_verification_probe",
-            title=f"planner cycle #{self._planning_cycles}",
-            summary=(
-                f"idled {n} cycles on the same blocker; dispatched one "
-                "verification-probe mission to re-test it against current reality"
-            ),
-            tags=["life", "planner", "verification_probe"],
-            extra={
-                "agent_layer": "planner",
-                "verification_probe": True,
-                "waiting_reason": reason,
-                "idle_cycles": n,
-            },
-        )
-        self.memory.journal.append(entry)
-        self._inject_cumulative_cost(entry)
-        try:
-            from ..notify import dispatch_journal_entry
-            dispatch_journal_entry(entry)
-        except Exception:  # noqa: BLE001
-            log.exception("notify dispatch failed; continuing")
         return True
 
     def _update_no_progress_streak(self, *, kind: str, report: Any) -> None:
         """Track consecutive 'completed but no forward progress' missions and,
-        once the reviewer-judged streak crosses a threshold, escalate to the
-        OPERATOR (a notified event + journal entry — NOT a mission, NOT a verdict).
+        once the reviewer-judged streak crosses a threshold, emit an operator
+        attention event (NOT a mission, NOT a verdict).
 
         Domain-agnostic by construction: it counts ONLY the L2 reviewer's own
         ``forward_progress`` boolean (agent judgment). The harness never decides
@@ -2613,28 +2263,6 @@ class LifeSupervisor:
             "consecutive_no_progress_missions": n,
             "objective": (self.config.continuous_objective or "")[:200],
         })
-        entry = JournalEntry.new(
-            kind="planner_stall_escalation",
-            title="operator attention: project stalled (no forward progress)",
-            summary=(
-                f"{n} consecutive missions completed with the L2 reviewer judging "
-                "forward_progress=false — the agent system is doing work but not "
-                "advancing the goal (e.g. repeated no-score / blocked refuges). "
-                "Operator attention recommended."
-            ),
-            tags=["life", "planner", "stall", "operator"],
-            extra={
-                "agent_layer": "planner",
-                "consecutive_no_progress_missions": n,
-            },
-        )
-        self.memory.journal.append(entry)
-        self._inject_cumulative_cost(entry)
-        try:
-            from ..notify import dispatch_journal_entry
-            dispatch_journal_entry(entry)
-        except Exception:  # noqa: BLE001
-            log.exception("notify dispatch failed; continuing")
 
     def _wiki_collect_task_if_due_under_blocker(self) -> Any | None:
         project_root = self._project_workdir()
@@ -2712,23 +2340,6 @@ class LifeSupervisor:
             "output_tokens": 0,
             "cost_usd": 0.0,
         })
-        entry = JournalEntry.new(
-            kind="planner_cycle",
-            title=f"planner cycle #{self._planning_cycles}",
-            summary=f"enqueued 1 wiki_collect task: {item.title}",
-            tags=["life", "planner", "wiki_collect"],
-            cost_usd=0.0,
-            extra={
-                "agent_layer": "planner",
-                "objective": self.config.continuous_objective[:200],
-                "proposed_tasks": 1,
-                "enqueued_tasks": 1,
-                "enqueued_titles": [item.title],
-                "wiki_collect_escape_valve": True,
-            },
-        )
-        self.memory.journal.append(entry)
-        self._inject_cumulative_cost(entry)
         return True
 
     def _resolve_vertical_once(self) -> None:
@@ -2844,20 +2455,11 @@ class LifeSupervisor:
 
         if self.planner_runner is None:
             self._emit_status("planner error: no planner runner wired; retry later")
-            entry = JournalEntry.new(
-                kind="planner_error",
-                title="planner unavailable",
-                summary="no planner runner wired",
-                tags=["life", "planner"],
-                extra={"agent_layer": "planner", "error": "no planner runner wired"},
-            )
-            self.memory.journal.append(entry)
-            self._inject_cumulative_cost(entry)
-            try:
-                from ..notify import dispatch_journal_entry
-                dispatch_journal_entry(entry)
-            except Exception:  # noqa: BLE001
-                log.exception("notify dispatch failed; continuing")
+            self._emit({
+                "type": "life.planner.error",
+                "cycle": self._planning_cycles,
+                "error": "no planner runner wired",
+            })
             return None
 
         # Only skip the planner on an operator-only external blocker when the
@@ -2920,23 +2522,6 @@ class LifeSupervisor:
                 "cycle": self._planning_cycles,
                 "error": f"{type(exc).__name__}: {exc}",
             })
-            entry = JournalEntry.new(
-                kind="planner_error",
-                title=f"planner cycle #{self._planning_cycles}",
-                summary=f"{type(exc).__name__}: {exc}",
-                tags=["life", "planner"],
-                extra={
-                    "agent_layer": "planner",
-                    "error": f"{type(exc).__name__}: {exc}",
-                },
-            )
-            self.memory.journal.append(entry)
-            self._inject_cumulative_cost(entry)
-            try:
-                from ..notify import dispatch_journal_entry
-                dispatch_journal_entry(entry)
-            except Exception:  # noqa: BLE001
-                log.exception("notify dispatch failed; continuing")
             return None
 
         planner_cost_usd = usd_for_tokens(
@@ -2955,25 +2540,6 @@ class LifeSupervisor:
                 "raw_text": verdict.raw_text,
             })
             self._emit_status(f"planner error: {verdict.error}; retry later")
-            entry = JournalEntry.new(
-                kind="planner_error",
-                title=f"planner cycle #{self._planning_cycles}",
-                summary=f"{verdict.error}: {verdict.reason}",
-                tags=["life", "planner"],
-                extra={
-                    "agent_layer": "planner",
-                    "error": verdict.error,
-                    "reason": verdict.reason,
-                    "raw_text": verdict.raw_text,
-                },
-            )
-            self.memory.journal.append(entry)
-            self._inject_cumulative_cost(entry)
-            try:
-                from ..notify import dispatch_journal_entry
-                dispatch_journal_entry(entry)
-            except Exception:  # noqa: BLE001
-                log.exception("notify dispatch failed; continuing")
             # A planner error is a no-work outcome: back off before retrying so
             # a persistently-failing planner cannot spin every poll interval.
             self._enter_idle_backoff()
@@ -3034,7 +2600,7 @@ class LifeSupervisor:
                         impact_score=5,
                         impact_area="requirement_gap",
                         evidence=(
-                            "Planner attempted project_done without a journal entry "
+                            "Planner attempted project_done without an event "
                             "certifying full-pipeline final-submission readiness."
                         ),
                         scope=_PLANNER_SCOPE_FINAL_SUBMISSION,
@@ -3068,30 +2634,6 @@ class LifeSupervisor:
             self._emit_status(
                 "planner: project done — continuing later for open-ended objective"
             )
-            entry = JournalEntry.new(
-                kind="planner_retry",
-                title="planner suggests continuing",
-                summary=(
-                    f"project_done=true; continuing later for open-ended objective: "
-                    f"{verdict.reason}"
-                ),
-                tags=["life", "planner"],
-                cost_usd=planner_cost_usd,
-                extra={
-                    "agent_layer": "planner",
-                    "open_ended_objective": True,
-                    "restart_daemon": verdict.restart_daemon,
-                    "restart_reason": verdict.restart_reason,
-                    "reason": verdict.reason,
-                },
-            )
-            self.memory.journal.append(entry)
-            self._inject_cumulative_cost(entry)
-            try:
-                from ..notify import dispatch_journal_entry
-                dispatch_journal_entry(entry)
-            except Exception:  # noqa: BLE001
-                log.exception("notify dispatch failed; continuing")
             return _PLAN_RETRY
 
         if verdict.project_done:
@@ -3115,25 +2657,6 @@ class LifeSupervisor:
             self._emit_status(
                 f"planner: project done — {verdict.reason}"
             )
-            entry = JournalEntry.new(
-                kind="planner_done",
-                title="planner declares project done",
-                summary=verdict.reason,
-                tags=["life", "planner"],
-                cost_usd=planner_cost_usd,
-                extra={
-                    "agent_layer": "planner",
-                    "restart_daemon": verdict.restart_daemon,
-                    "restart_reason": verdict.restart_reason,
-                },
-            )
-            self.memory.journal.append(entry)
-            self._inject_cumulative_cost(entry)
-            try:
-                from ..notify import dispatch_journal_entry
-                dispatch_journal_entry(entry)
-            except Exception:  # noqa: BLE001
-                log.exception("notify dispatch failed; continuing")
             if verdict.restart_daemon and self._handle_planner_restart(
                 verdict.restart_reason
             ):
@@ -3160,31 +2683,6 @@ class LifeSupervisor:
                 "restart_daemon": True,
                 "restart_reason": restart_reason,
             })
-            entry = JournalEntry.new(
-                kind="planner_cycle",
-                title=f"planner cycle #{self._planning_cycles}",
-                summary=f"planner requested daemon restart: {restart_reason}",
-                tags=["life", "planner"],
-                cost_usd=planner_cost_usd,
-                extra={
-                    "agent_layer": "planner",
-                    "objective": self.config.continuous_objective[:200],
-                    "proposed_tasks": 0,
-                    "enqueued_tasks": 0,
-                    "skipped_duplicate_tasks": 0,
-                    "enqueued_titles": [],
-                    "skipped_duplicate_titles": [],
-                    "restart_daemon": True,
-                    "restart_reason": restart_reason,
-                },
-            )
-            self.memory.journal.append(entry)
-            self._inject_cumulative_cost(entry)
-            try:
-                from ..notify import dispatch_journal_entry
-                dispatch_journal_entry(entry)
-            except Exception:  # noqa: BLE001
-                log.exception("notify dispatch failed; continuing")
             if self._handle_planner_restart(restart_reason):
                 self._emit_status("daemon_handoff")
                 return "daemon_handoff"
@@ -3200,26 +2698,6 @@ class LifeSupervisor:
                 "raw_text": verdict.raw_text,
             })
             self._emit_status("planner error: produced no tasks; retry later")
-            entry = JournalEntry.new(
-                kind="planner_error",
-                title=f"planner cycle #{self._planning_cycles}",
-                summary=verdict.reason or "planner produced no tasks",
-                tags=["life", "planner"],
-                cost_usd=planner_cost_usd,
-                extra={
-                    "agent_layer": "planner",
-                    "error": "planner produced no tasks",
-                    "reason": verdict.reason,
-                    "raw_text": verdict.raw_text,
-                },
-            )
-            self.memory.journal.append(entry)
-            self._inject_cumulative_cost(entry)
-            try:
-                from ..notify import dispatch_journal_entry
-                dispatch_journal_entry(entry)
-            except Exception:  # noqa: BLE001
-                log.exception("notify dispatch failed; continuing")
             # No tasks, no waiting flag, not done: a degenerate no-work cycle.
             # Back off so repeated empty plans cannot spin the daemon.
             self._enter_idle_backoff()
@@ -3378,49 +2856,6 @@ class LifeSupervisor:
                 "manager_intent": manager_intent,
             })
 
-        summary_parts = [
-            f"proposed {len(verdict.new_tasks)} task(s)",
-            (
-                "enqueued "
-                f"{len(added_titles)} task(s): "
-                + (", ".join(added_titles) if added_titles else "(none)")
-            ),
-        ]
-        if skipped_duplicate_titles:
-            summary_parts.append(
-                "skipped "
-                f"{len(skipped_duplicate_titles)} duplicate(s): "
-                + ", ".join(skipped_duplicate_titles)
-            )
-        if skipped_recent_failure_titles:
-            summary_parts.append(
-                "quarantined "
-                f"{len(skipped_recent_failure_titles)} recent no_progress repeat(s): "
-                + ", ".join(skipped_recent_failure_titles)
-            )
-
-        entry = JournalEntry.new(
-            kind="planner_cycle",
-            title=f"planner cycle #{self._planning_cycles}",
-            summary="; ".join(summary_parts),
-            tags=["life", "planner"],
-            cost_usd=planner_cost_usd,
-            extra={
-                "agent_layer": "planner",
-                "objective": self.config.continuous_objective[:200],
-                "proposed_tasks": len(verdict.new_tasks),
-                "enqueued_tasks": len(added_titles),
-                "skipped_duplicate_tasks": len(skipped_duplicate_titles),
-                "skipped_recent_failure_tasks": len(skipped_recent_failure_titles),
-                "enqueued_titles": added_titles,
-                "enqueued_impact_scores": added_impact_scores,
-                "skipped_duplicate_titles": skipped_duplicate_titles,
-                "skipped_recent_failure_titles": skipped_recent_failure_titles,
-                "restart_daemon": verdict.restart_daemon,
-                "restart_reason": verdict.restart_reason,
-                "manager_intent": manager_intent,
-            },
-        )
         self._emit({
             "type": "life.planner.verdict",
             "cycle": self._planning_cycles,
@@ -3442,13 +2877,6 @@ class LifeSupervisor:
             "restart_reason": verdict.restart_reason,
             "manager_intent": manager_intent,
         })
-        self.memory.journal.append(entry)
-        self._inject_cumulative_cost(entry)
-        try:
-            from ..notify import dispatch_journal_entry
-            dispatch_journal_entry(entry)
-        except Exception:  # noqa: BLE001
-            log.exception("notify dispatch failed; continuing")
         if verdict.restart_daemon and self._handle_planner_restart(
             verdict.restart_reason
         ):
@@ -3474,7 +2902,7 @@ class LifeSupervisor:
             return 30.0
 
     def _render_journal_for_planner(self) -> str:
-        """Render recent journal entries for the planner's context."""
+        """Render recent event-backed history for the planner's context."""
         try:
             # Read a larger tail and drop low-level Signal-B failure-
             # observation rows (counting plumbing) BEFORE truncating, so a

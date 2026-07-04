@@ -2,7 +2,7 @@
 
 Post-mission scanner that surfaces missing-tool patterns from a
 finished mission's trajectory as ``self_evolve.missing_tool_advisory``
-journal entries. The mint decision ("is this worth minting? was it a
+events. The mint decision ("is this worth minting? was it a
 typo? did we work around it?") belongs to the reviewer/planner agent
 per skill 04; this module only does the **structural** half.
 
@@ -13,11 +13,11 @@ gets its own module.
 
 Public surface:
 
-* :class:`SelfEvolveAdvisor` — holds the dedup-by-recent-journal
+* :class:`SelfEvolveAdvisor` — holds the dedup-by-recent-event-history
   state machine; instantiated per-tick from supervisor.
 
 The supervisor uses this via a thin delegate
-(``_maybe_journal_self_evolve_advisory`` is just a one-liner that
+(``_maybe_journal_self_evolve_advisory`` is just a compatibility wrapper that
 constructs + calls). Tests can either drive the supervisor delegate
 or this class directly.
 """
@@ -28,7 +28,8 @@ import logging
 from pathlib import Path
 from typing import Any, Callable
 
-from .memory import BacklogItem, JournalEntry, LifeMemory
+from .event_log import JsonlEventSink
+from .memory import BacklogItem, LifeMemory
 from .missing_tool_detector import scan_mission
 
 log = logging.getLogger(__name__)
@@ -38,10 +39,10 @@ log = logging.getLogger(__name__)
 # mission's own missing-tool noise must not generate fresh advisories).
 MINT_SKILL_TAG = "mint-skill"
 
-# Kind written to the journal for each surfaced missing-tool signal.
+# Event type written for each surfaced missing-tool signal.
 ADVISORY_KIND = "self_evolve.missing_tool_advisory"
 
-# Recent-journal window size used to dedup re-surfacing of the same
+# Recent event-history window size used to dedup re-surfacing of the same
 # tool across multiple ticks. Larger = stronger dedup; smaller = the
 # agent gets reminded again sooner if it ignored the advisory.
 DEFAULT_RECENT_WINDOW = 200
@@ -49,13 +50,13 @@ DEFAULT_RECENT_WINDOW = 200
 
 class SelfEvolveAdvisor:
     """Per-tick post-mission scanner. Stateless across constructor
-    calls; all state lives in the journal."""
+    calls; all state lives in events.jsonl."""
 
     def __init__(
         self,
         memory: LifeMemory,
         *,
-        on_cost: Callable[[JournalEntry], None] | None = None,
+        on_cost: Callable[[Any], None] | None = None,
         recent_window: int = DEFAULT_RECENT_WINDOW,
     ) -> None:
         self.memory = memory
@@ -66,11 +67,11 @@ class SelfEvolveAdvisor:
         self, item: BacklogItem, result: dict[str, Any] | None
     ) -> list[str]:
         """Detect missing-tool signals in the just-finished mission and
-        write them to the journal as advisory entries.
+        write them to events.jsonl as advisory events.
 
         Returns the list of tool_name slugs surfaced this tick (empty
         when no signal, or when every signal was already in the recent
-        journal window).
+        event-history window).
 
         Does NOT enqueue any BacklogItem — that's the agent's job.
         Reviewer recommends via ``next_action``; planner batch-enqueues
@@ -103,9 +104,8 @@ class SelfEvolveAdvisor:
         for sig in signals:
             if sig.tool_name in recent_tools:
                 continue
-            entry = self._build_advisory_entry(sig, item)
-            self.memory.journal.append(entry)
-            self._on_cost(entry)
+            event = self._build_advisory_event(sig, item)
+            self._append_event(event)
             recent_tools.add(sig.tool_name)
             surfaced.append(sig.tool_name)
         return surfaced
@@ -113,6 +113,15 @@ class SelfEvolveAdvisor:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _append_event(self, event: dict[str, Any]) -> None:
+        root = getattr(self.memory, "root", None)
+        if root is None:
+            return
+        try:
+            JsonlEventSink(None, life_dir=Path(root)).append(event)
+        except Exception:  # noqa: BLE001
+            log.exception("self-evolve advisory event write failed")
 
     @staticmethod
     def _unpack_result(
@@ -143,25 +152,30 @@ class SelfEvolveAdvisor:
         return agent_messages, check_output_tails, fatal_error
 
     @staticmethod
-    def _build_advisory_entry(sig: Any, item: BacklogItem) -> JournalEntry:
+    def _build_advisory_event(sig: Any, item: BacklogItem) -> dict[str, Any]:
         evidence_lines = "\n".join(f"- {e}" for e in (sig.evidence or ()))
-        return JournalEntry.new(
-            kind=ADVISORY_KIND,
-            title=f"missing tool: {sig.tool_name}",
-            summary=(
+        return {
+            "type": ADVISORY_KIND,
+            "title": f"missing tool: {sig.tool_name}",
+            "summary": (
                 f"{sig.kind}: {sig.context} "
                 f"(source mission {item.id})\n{evidence_lines}"
             ),
-            tags=[
+            "tags": [
                 "self-evolve",
                 "advisory",
                 f"kind:{sig.kind}",
                 f"tool:{sig.tool_name}",
             ],
-        )
+            "tool_name": sig.tool_name,
+            "kind": sig.kind,
+            "context": sig.context,
+            "source_item_id": item.id,
+            "evidence": list(sig.evidence or ()),
+        }
 
     def _recent_advisory_tools(self) -> set[str]:
-        """Return tool_name slugs already advised in the recent journal
+        """Return tool_name slugs already advised in the recent event-history
         window. Used to suppress per-tick re-surfacing of the same
         signal."""
         tools: set[str] = set()

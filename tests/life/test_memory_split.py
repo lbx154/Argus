@@ -378,13 +378,13 @@ def test_memory_bundle_uses_core_paths_project_root(
 # ---------------------------------------------------------------------------
 
 def test_life_memory_still_works(tmp_path: Path) -> None:
-    """The legacy LifeMemory facade must keep its old behaviour."""
+    """The LifeMemory facade uses the canonical event timeline."""
     from argus_skill.life import LifeMemory
 
     mem = LifeMemory.open(tmp_path)
     mem.init()
     assert (tmp_path / "identity.md").exists()
-    assert (tmp_path / "journal.jsonl").exists()
+    assert (tmp_path / "events.jsonl").exists()
     assert (tmp_path / "backlog.jsonl").exists()
 
 

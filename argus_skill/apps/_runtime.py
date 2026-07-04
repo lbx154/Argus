@@ -257,12 +257,6 @@ class _Outcome:
     # no measured result or the reviewer omitted it. Shape: see
     # ``ReviewDecision.step_back``.
     step_back: dict | None = None
-    # Reviewer-judged reusable PROCESS lesson from the final round (the agent's
-    # own self-evolution signal — how it worked, where it wasted/repeated rounds,
-    # a workaround that helped). Distinct from the research METHOD. The supervisor
-    # journals this as ``self_evolve.process_lesson`` so future missions can learn
-    # from accumulated process data. Empty when the round had nothing reusable.
-    process_lesson: str = ""
     # The Manager's stage-transition verdict for this mission completion (the
     # Manager is the sole post-bootstrap writer of current_stage). Shape:
     # ``{"action": advance|hold|rollback, "target_stage", "reason",
@@ -666,23 +660,11 @@ class _SkillLoopRunner:
     var was unset, while the UI happily printed ``backend: codex``.
     """
 
-    def distill_process_lessons(self, journal: Any) -> dict:
-        """Route accumulated reviewer process_lessons through the last mission's
-        skill gate (self-evolution wire). No-op if no mission has run. Fail-soft."""
-        loop = getattr(self, "_last_loop", None)
-        if loop is None:
-            return {"created": 0, "reason": "no loop"}
-        try:
-            return loop.distill_process_lessons(journal)
-        except Exception:  # noqa: BLE001
-            return {"created": 0, "reason": "error"}
-
     def __init__(self, args: argparse.Namespace, *, seed_thread_id: str | None = None) -> None:
         from ..loop import SkillLoop, SkillLoopConfig
 
         self._SkillLoop = SkillLoop
         self._SkillLoopConfig = SkillLoopConfig
-        self._last_loop = None
         try:
             from ..adapters.agent_cli_backend import AgentCliBackend
             from ..adapters.stream_progress import make_stream_progress_callback
@@ -1196,9 +1178,6 @@ class _SkillLoopRunner:
             extra_guidance_provider=extra_guidance_provider,
             manager=getattr(self, "manager", None),
         )
-        # Keep the last loop so the daemon's clean-shutdown pass can feed the
-        # accumulated reviewer process_lessons through this loop's skill gate.
-        self._last_loop = loop
         full_task = objective
         if prelude_context:
             full_task = f"{prelude_context}\n---\n## Live objective\n{objective}"
@@ -1251,7 +1230,6 @@ class _SkillLoopRunner:
         planner_report: dict = {}
         checklist_feedback: dict = {}
         step_back: dict | None = None
-        process_lesson: str = ""
         rounds_list = getattr(outcome, "rounds", None) or []
         if rounds_list:
             _final_review = getattr(rounds_list[-1], "review", None)
@@ -1265,7 +1243,6 @@ class _SkillLoopRunner:
                 _sb = getattr(_final_review, "step_back", None)
                 if isinstance(_sb, dict) and _sb:
                     step_back = _sb
-                process_lesson = str(getattr(_final_review, "process_lesson", "") or "")
         if mission_scope == "final_submission":
             final_review = None
             if rounds_list:
@@ -1299,7 +1276,6 @@ class _SkillLoopRunner:
             planner_report=planner_report,
             checklist_feedback=checklist_feedback,
             step_back=step_back,
-            process_lesson=process_lesson,
             stage_transition=stage_transition,
         )
 

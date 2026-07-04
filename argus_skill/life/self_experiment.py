@@ -8,7 +8,7 @@
     **一次都没出现**,那这条线就"疑似断了"—— 一个 dead wire。
 
 这正是 argus 之前**发现不了**的那一类"结构性深 bug":
-``self_evolve.process_lesson`` 被产出了 7 次,但 ``skill.created`` 是 0 —— 蒸馏
+``self_evolve.missing_tool_advisory`` 被产出了多次,但 ``skill.created`` 是 0 —— 蒸馏
 线断了,却没有任何单点报错。守恒律把这类"负空间"的缺失变成一个可数、可复现、
 不可编造的结构信号。
 
@@ -16,11 +16,11 @@
 
 * 本模块只做**领域无关的笨计数**。它绝不判断"这个 gap 值不值得修"、"根因是
   什么"、"怎么修"—— 那些是 reviewer / planner(agent)的科研判断。探针只把
-  结构信号写进 journal(``self_experiment.gap_suspected``),让 agent 自己去
+  结构信号写进 events.jsonl(``self_experiment.gap_suspected``),让 agent 自己去
   接触、去判断、去修。
 * **诚实的局限**(不过度声称):这是"consumer 整类缺席"的检测,不是逐 producer
   的因果归因。如果 ``skill.created`` 是由**别的** producer(如 reviewer 的
-  skill_ops)产生的,本探针会把 process_lesson→skill 这条线也算作"活着"(假
+  skill_ops)产生的,本探针会把 missing_tool→skill 这条线也算作"活着"(假
   阴性)。宁可漏报、绝不编造 —— 逐 producer 因果探针是 v2 的事。
 * 加新不变式只需往 :data:`INVARIANTS` 里加一行;两端信号必须是**可靠持久化**
   的(journal kind / event type 都落 canonical events.jsonl)。
@@ -28,11 +28,11 @@
 Public surface:
 
 * :class:`FlowInvariant` — 一条守恒律的声明(producer/consumer 各自的 kind + 来源)。
-* :data:`INVARIANTS` — 已证实的两条 dead-wire 候选(flagship = process_lesson→skill)。
+* :data:`INVARIANTS` — 已证实的 dead-wire 候选(flagship = missing_tool→skill)。
 * :class:`GapFinding` — 一次扫描命中的结构缺口。
 * :class:`ConservationProbe` — 纯计数扫描器(``scan`` 无副作用、无 LLM)。
 * :func:`read_events_jsonl` / :func:`run_probe` — 从 memory 落盘处读流并扫描。
-* :func:`maybe_journal_gap_advisory` — 把命中写成 journal 建议(按 recent 窗口去重)。
+* :func:`maybe_journal_gap_advisory` — 把命中写成 event 建议(按 recent 窗口去重)。
 
 供 supervisor 通过一个 epoch-gated 的一行 fail-soft delegate 调用(见
 ``argus_skill/life/supervisor/_core.py`` tick())。
@@ -45,15 +45,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
-from .memory import JournalEntry, LifeMemory
+from .event_log import JsonlEventSink
+from .memory import LifeMemory
 
 log = logging.getLogger(__name__)
 
-# Journal kind written for each suspected flow-conservation gap. Advisory
+# Event type written for each suspected flow-conservation gap. Advisory
 # only — the agent (reviewer/planner) decides whether to act.
 GAP_KIND = "self_experiment.gap_suspected"
 
-# Recent-journal window used to dedup re-surfacing the same invariant across
+# Recent event-history window used to dedup re-surfacing the same invariant across
 # ticks. Matches the advisor's convention (self_evolve_advisor.py).
 DEFAULT_RECENT_WINDOW = 200
 
@@ -83,24 +84,14 @@ class FlowInvariant:
     min_producer: int = 3
 
 
-# Seed registry — two proven dead-wire candidates. Both endpoints are reliably
+# Seed registry — proven dead-wire candidates. Both endpoints are reliably
 # persisted, both are real conservation laws in the self-evolve subsystem.
 #
-#   process_lesson_to_skill  ── FLAGSHIP, reproduces the real observed bug:
-#       7 self_evolve.process_lesson produced → 0 skill.created consumed.
-#   missing_tool_to_skill    ── a surfaced missing-tool advisory should
+#   missing_tool_to_skill ── a surfaced missing-tool advisory should
 #       eventually mint a skill; a channel that never does is dead.
 #
 # 加新不变式:再加一个 FlowInvariant(...) 即可。两端务必是可靠持久化的信号。
 INVARIANTS: tuple[FlowInvariant, ...] = (
-    FlowInvariant(
-        name="process_lesson_to_skill",
-        producer_kind="self_evolve.process_lesson",
-        producer_source=_JOURNAL,
-        consumer_kind="skill.created",
-        consumer_source=_EVENTS,
-        min_producer=3,
-    ),
     FlowInvariant(
         name="missing_tool_to_skill",
         producer_kind="self_evolve.missing_tool_advisory",
@@ -270,15 +261,15 @@ def run_probe(
 
 
 # --------------------------------------------------------------------------
-# Surfacing (writes advisory journal entries; dedup by recent window)
+# Surfacing (writes advisory events; dedup by recent window)
 # --------------------------------------------------------------------------
 def _invariant_tag(name: str) -> str:
     return f"invariant:{name}"
 
 
 def _recent_gap_invariants(memory: LifeMemory, window: int) -> set[str]:
-    """Invariant names already surfaced within the recent journal window, so a
-    standing gap isn't re-journaled every epoch."""
+    """Invariant names already surfaced within the recent event-history window,
+    so a standing gap isn't re-emitted every epoch."""
     seen: set[str] = set()
     try:
         tail = getattr(memory.journal, "tail", None)
@@ -301,8 +292,8 @@ def maybe_journal_gap_advisory(
     recent_window: int = DEFAULT_RECENT_WINDOW,
     on_cost: Any = None,
 ) -> list[str]:
-    """Write each *new* :class:`GapFinding` to the journal as a
-    ``self_experiment.gap_suspected`` entry. Skips any invariant already
+    """Write each *new* :class:`GapFinding` to events.jsonl as a
+    ``self_experiment.gap_suspected`` event. Skips any invariant already
     surfaced in the recent window. Returns the invariant names newly written.
 
     Fail-soft: the caller (supervisor) wraps this in try/except — a self-
@@ -323,27 +314,29 @@ def maybe_journal_gap_advisory(
             f"dead. Structural signal only; investigate whether the consumer is "
             f"disconnected and decide if it is worth repairing."
         )
-        entry = JournalEntry.new(
-            kind=GAP_KIND,
-            title=f"suspected dead wire: {f.invariant_name}",
-            summary=summary,
-            tags=["self-experiment", _invariant_tag(f.invariant_name)],
-            extra={
+        event = {
+            "type": GAP_KIND,
+            "title": f"suspected dead wire: {f.invariant_name}",
+            "summary": summary,
+            "tags": ["self-experiment", _invariant_tag(f.invariant_name)],
+            "invariant": f.invariant_name,
+            "producer_count": f.producer_count,
+            "consumer_count": f.consumer_count,
+            "sample_sites": list(f.sample_sites),
+            "extra": {
                 "invariant": f.invariant_name,
                 "producer_count": f.producer_count,
                 "consumer_count": f.consumer_count,
                 "sample_sites": list(f.sample_sites),
             },
-        )
+        }
         try:
-            memory.journal.append(entry)
+            root = getattr(memory, "root", None)
+            if root is None:
+                continue
+            JsonlEventSink(None, life_dir=Path(root)).append(event)
         except Exception:  # noqa: BLE001
             continue
-        if callable(on_cost):
-            try:
-                on_cost(entry)
-            except Exception:  # noqa: BLE001
-                pass
         written.append(f.invariant_name)
     return written
 
@@ -368,7 +361,7 @@ def render_open_gaps_block(
     fired 0x") and explicitly NOT a verdict — the harness stays a dumb counter.
 
     HONEST FRAMING: this is a **dormant smoke detector**. The two seed invariants
-    (process_lesson→skill, missing_tool→skill) may currently be ALIVE in the
+    (missing_tool→skill) may currently be ALIVE in the
     running daemon (skill.created fires from the distillation wire + reviewer
     skill_ops), so this block is EXPECTED to be empty in production — it only
     fires when a genuinely dead wire exists. Shipping reliable surfacing infra,

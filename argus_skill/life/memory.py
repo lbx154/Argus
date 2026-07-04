@@ -344,9 +344,9 @@ class EventJournal(Journal):
     """Journal API backed by the canonical ``events.jsonl`` timeline.
 
     ``memory.jsonl`` used to be a second, parallel truth surface. Project memory
-    now appends ``JournalEntry`` rows as concrete event types into ``events.jsonl``
-    and reads them back from the same file. ``journal.entry`` is accepted only as
-    a legacy read shape and is never written.
+    now reads concrete event types from ``events.jsonl``. The old
+    ``JournalEntry`` write API is retired; ``journal.entry`` is accepted only as a
+    legacy read shape and is never written.
     """
 
     LEGACY_EVENT_TYPE = "journal.entry"
@@ -387,6 +387,14 @@ class EventJournal(Journal):
             "life.budget.pause": "budget_pause",
             "life.lifecycle.block": "lifecycle_block",
             "user.note": "user_note",
+            "self_evolve.missing_tool_advisory": (
+                "self_evolve.missing_tool_advisory"
+            ),
+            "self_evolve.failure_observation": "self_evolve.failure_observation",
+            "self_evolve.recurring_failure_advisory": (
+                "self_evolve.recurring_failure_advisory"
+            ),
+            "self_experiment.gap_suspected": "self_experiment.gap_suspected",
         }.get(etype)
         if kind is None:
             return None
@@ -1095,7 +1103,7 @@ class LifeMemory:
         return cls(
             root=root,
             identity=IdentityCard(root / "identity.md"),
-            journal=Journal(root / "journal.jsonl"),
+            journal=EventJournal(root / "events.jsonl"),
             backlog=Backlog(root / "backlog.jsonl"),
         )
 
@@ -1104,7 +1112,7 @@ class LifeMemory:
         self.root.mkdir(parents=True, exist_ok=True)
         return {
             "identity": self.identity.ensure_default(),
-            "journal": self._touch(self.journal.path),
+            "events": self._touch(self.journal.path),
             "backlog": self._touch(self.backlog.path),
         }
 
@@ -1364,48 +1372,6 @@ class ProjectMemory:
             min_score=min_score,
             recency_n=recency_n,
         )
-
-    def recent_process_lessons(self, *, limit: int = 3) -> list[str]:
-        """Recent distinct reviewer-judged PROCESS lessons for this project.
-
-        EN: Journaled as ``self_evolve.process_lesson``. The Planner surfaces the
-        RECURRING ones (see ``LifeSupervisor._render_journal_for_planner``) so a
-        systemic process problem gets acted on. Deliberately NOT force-injected
-        into the engineer prelude — that would be per-round prompt bloat.
-        中文：以 ``self_evolve.process_lesson`` 落库；由 Planner 把复现的拎出来
-        处理系统性过程问题（见 ``_render_journal_for_planner``），故意不塞进
-        engineer prelude（每轮膨胀）。最新在前、去重、失败返回 []。
-        """
-        return process_lessons_from_journal(self.memory, limit=limit)
-
-
-def process_lessons_from_journal(journal: Journal, *, limit: int = 3) -> list[str]:
-    """Recent distinct ``self_evolve.process_lesson`` lessons from a journal.
-
-    EN: Newest first, deduped (first 120 chars, case-folded), fail-soft to [].
-    Shared by ``ProjectMemory.recent_process_lessons`` and the Planner journal
-    render so both read the self-evolution PROCESS signal the same way.
-    中文：从 journal 取最近、去重（前 120 字、忽略大小写）的过程教训，最新在前、
-    失败返回 []；供 ``ProjectMemory.recent_process_lessons`` 与 Planner journal
-    渲染共用，统一读取自进化过程信号。
-    """
-    try:
-        out: list[str] = []
-        seen: set[str] = set()
-        for e in reversed(journal.all()):
-            if getattr(e, "kind", "") != "self_evolve.process_lesson":
-                continue
-            lesson = str((getattr(e, "extra", None) or {}).get("lesson", "")).strip()
-            key = lesson[:120].lower()
-            if lesson and key not in seen:
-                seen.add(key)
-                out.append(lesson)
-            if len(out) >= max(1, limit):
-                break
-        return out
-    except Exception:  # noqa: BLE001
-        return []
-
 
 @dataclass
 class MemoryBundle:

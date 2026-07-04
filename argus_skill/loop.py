@@ -195,21 +195,6 @@ class SkillLoop:
     # Public API
     # ------------------------------------------------------------------
 
-    def distill_process_lessons(self, journal: Any) -> dict:
-        """Feed accumulated reviewer PROCESS lessons into skill creation through
-        THIS loop's router gate — the missing self-evolution wire. The reviewer's
-        process_lesson channel was journaled + shown to the Planner but never fed
-        to skill creation; this routes recurring lessons through the same
-        mechanical/dedup/Manager gate the reviewer's skill_ops use. Fail-soft.
-        把累积的 reviewer 过程教训经本 loop 的 router 门喂进造 skill —— 补上断掉的自演化线。
-        """
-        from .skills.lesson_distill import distill_process_lessons as _distill
-
-        return _distill(
-            journal=journal, router=self.skill_router,
-            synth_runner=self.reviewer_runner, on_event=self.on_event,
-        )
-
     def run(self, task: str, *, workdir: Path | None = None, seed_thread_id: str | None = None,
             failed_tool_ledger: Any | None = None,
             objective_for_skill: str | None = None,

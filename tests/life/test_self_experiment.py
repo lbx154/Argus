@@ -1,10 +1,11 @@
 """Tests for the flow-conservation probe (approach C · Phase-1 OBSERVE).
 
-Offline + deterministic: journal is a real on-disk :class:`LifeMemory` under
-``tmp_path``; events are hand-written events.jsonl rows. No LLM, no network.
+Offline + deterministic: event history is a real on-disk :class:`LifeMemory`
+under ``tmp_path``; events are hand-written events.jsonl rows. No LLM, no
+network.
 
-The flagship test reproduces the real observed bug the probe exists to catch:
-N ``self_evolve.process_lesson`` produced, 0 ``skill.created`` consumed.
+The flagship test catches a dead self-evolve wire:
+N ``self_evolve.missing_tool_advisory`` produced, 0 ``skill.created`` consumed.
 """
 from __future__ import annotations
 
@@ -31,24 +32,33 @@ def _memory(tmp_path: Path) -> LifeMemory:
     return LifeMemory.open(tmp_path / "life")
 
 
-def _append_lessons(mem: LifeMemory, n: int, *, kind: str = "self_evolve.process_lesson") -> None:
-    for i in range(n):
-        mem.journal.append(
-            JournalEntry.new(
-                kind=kind,
-                title=f"lesson {i}",
-                summary=f"process lesson number {i}",
-                extra={"lesson": f"lesson-{i}"},
-            )
-        )
+def _append_lessons(
+    mem: LifeMemory,
+    n: int,
+    *,
+    kind: str = "self_evolve.missing_tool_advisory",
+) -> None:
+    _write_events(
+        mem,
+        [
+            {
+                "type": kind,
+                "title": f"signal {i}",
+                "summary": f"self-evolve signal number {i}",
+                "ts": float(i),
+            }
+            for i in range(n)
+        ],
+    )
 
 
 def _write_events(mem: LifeMemory, events: list[dict]) -> None:
     path = Path(mem.root) / "events.jsonl"
-    path.write_text(
-        "\n".join(json.dumps(e) for e in events) + ("\n" if events else ""),
-        encoding="utf-8",
-    )
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    addition = "\n".join(json.dumps(e) for e in events)
+    if addition:
+        addition += "\n"
+    path.write_text(existing + addition, encoding="utf-8")
 
 
 def _gap_entries(mem: LifeMemory) -> list[JournalEntry]:
@@ -58,7 +68,7 @@ def _gap_entries(mem: LifeMemory) -> list[JournalEntry]:
 # --------------------------------------------------------------------------
 # 1. flagship regression — the real bug must be detectable + non-fabricable
 # --------------------------------------------------------------------------
-def test_flagship_process_lesson_dead_wire(tmp_path: Path) -> None:
+def test_flagship_missing_tool_dead_wire(tmp_path: Path) -> None:
     mem = _memory(tmp_path)
     _append_lessons(mem, 7)  # 7 producers
     # events with NO skill.created — the wire is dead
@@ -67,7 +77,7 @@ def test_flagship_process_lesson_dead_wire(tmp_path: Path) -> None:
     findings = run_probe(mem)
 
     names = {f.invariant_name for f in findings}
-    assert names == {"process_lesson_to_skill"}
+    assert names == {"missing_tool_to_skill"}
     (f,) = findings
     assert f.producer_count == 7
     assert f.consumer_count == 0
@@ -121,7 +131,7 @@ def test_missing_tool_invariant_fires(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------
-# 5. scan is pure — no journal writes as a side effect
+# 5. scan is pure — no writes as a side effect
 # --------------------------------------------------------------------------
 def test_scan_is_pure(tmp_path: Path) -> None:
     mem = _memory(tmp_path)
@@ -134,27 +144,24 @@ def test_scan_is_pure(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------
-# 6. surfacing writes an advisory entry with the right shape
+# 6. surfacing writes an advisory event with the right shape
 # --------------------------------------------------------------------------
 def test_maybe_journal_writes_advisory(tmp_path: Path) -> None:
     mem = _memory(tmp_path)
     _append_lessons(mem, 6)
     _write_events(mem, [])
-    costs: list[JournalEntry] = []
-
     findings = run_probe(mem)
-    written = maybe_journal_gap_advisory(mem, findings, on_cost=costs.append)
+    written = maybe_journal_gap_advisory(mem, findings)
 
-    assert written == ["process_lesson_to_skill"]
+    assert written == ["missing_tool_to_skill"]
     entries = _gap_entries(mem)
     assert len(entries) == 1
     entry = entries[0]
     assert entry.kind == GAP_KIND
-    assert "invariant:process_lesson_to_skill" in entry.tags
+    assert "invariant:missing_tool_to_skill" in entry.tags
     assert entry.extra["producer_count"] == 6
     assert entry.extra["consumer_count"] == 0
     assert entry.extra["sample_sites"]
-    assert costs == [entry]  # on_cost fired once
 
 
 # --------------------------------------------------------------------------
@@ -168,7 +175,7 @@ def test_dedup_across_calls(tmp_path: Path) -> None:
     first = maybe_journal_gap_advisory(mem, run_probe(mem))
     second = maybe_journal_gap_advisory(mem, run_probe(mem))
 
-    assert first == ["process_lesson_to_skill"]
+    assert first == ["missing_tool_to_skill"]
     assert second == []  # already surfaced within the recent window
     assert len(_gap_entries(mem)) == 1  # exactly one advisory persisted
 
@@ -204,7 +211,7 @@ def test_missing_events_file_is_empty(tmp_path: Path) -> None:
     # run_probe with 5 producers + no events file => dead wire, no raise
     _append_lessons(mem, 5)
     findings = run_probe(mem)
-    assert [f.invariant_name for f in findings] == ["process_lesson_to_skill"]
+    assert [f.invariant_name for f in findings] == ["missing_tool_to_skill"]
 
 
 # --------------------------------------------------------------------------
