@@ -57,7 +57,7 @@ GAP_KIND = "self_experiment.gap_suspected"
 # ticks. Matches the advisor's convention (self_evolve_advisor.py).
 DEFAULT_RECENT_WINDOW = 200
 
-# Signal sources understood by the probe. "journal" = journal.entry events
+# Signal sources understood by the probe. "journal" = events with journal_kind
 # counted by ``.kind``; "events" = rows in events.jsonl counted by ``["type"]``.
 _JOURNAL = "journal"
 _EVENTS = "events"
@@ -70,7 +70,7 @@ class FlowInvariant:
 
     Counting is by exact kind/type equality — deliberately dumb and
     non-fabricable. Both endpoints must be reliably persisted in canonical
-    events.jsonl (journal kinds as journal.entry events, event types as events).
+    events.jsonl (journal kinds via journal_kind, event types via type).
     """
 
     name: str

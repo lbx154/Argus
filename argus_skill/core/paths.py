@@ -24,8 +24,8 @@ Current runtime layout::
             └─ repl.pid
 
 The global root holds only cross-project *identity* and shared skills. The
-per-project ``events.jsonl`` is the canonical timeline; project journal entries
-are stored there as ``type="journal.entry"`` events. ``journal_path`` is retained
+per-project ``events.jsonl`` is the canonical timeline; project journal data is
+stored there as typed events with a ``journal_kind`` field. ``journal_path`` is retained
 only for legacy single-project tooling.
 
 Legacy compatibility helpers kept for older tests / tooling:

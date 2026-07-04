@@ -28,7 +28,7 @@ from pathlib import Path
 _BUNDLE_SCHEMA_VERSION = 1
 
 # Canonical argus project trajectory layers → their on-disk filename.
-# Project journal entries are now ``journal.entry`` rows inside events.jsonl.
+# Project journal data is now concrete typed rows inside events.jsonl.
 _LAYER_FILES: dict[str, str] = {
     "events": "events.jsonl",
     "decisions": "decisions.jsonl",

@@ -344,21 +344,42 @@ class EventJournal(Journal):
     """Journal API backed by the canonical ``events.jsonl`` timeline.
 
     ``memory.jsonl`` used to be a second, parallel truth surface. Project memory
-    now appends ``JournalEntry`` rows as ``type="journal.entry"`` events into
-    ``events.jsonl`` and reads them back from the same file.
+    now appends ``JournalEntry`` rows as concrete event types into ``events.jsonl``
+    and reads them back from the same file. ``journal.entry`` is accepted only as
+    a legacy read shape and is never written.
     """
 
-    EVENT_TYPE = "journal.entry"
+    LEGACY_EVENT_TYPE = "journal.entry"
+
+    @staticmethod
+    def _event_type_for_kind(kind: str) -> str:
+        return {
+            "mission_started": "life.mission.started",
+            "mission_complete": "life.mission.completed",
+            "mission_failed": "life.mission.completed",
+            "budget_pause": "life.budget.pause",
+            "planner_cycle": "life.planner.verdict",
+            "planner_done": "life.planner.verdict",
+            "planner_error": "life.planner.error",
+            "planner_waiting": "life.planner.waiting",
+            "lifecycle_block": "life.lifecycle.block",
+            "phase_change": "life.phase.completed",
+            "user_note": "user.note",
+        }.get(kind, f"life.{kind}")
 
     def append(self, entry: JournalEntry) -> None:
         self._maybe_rotate()
-        row = {"type": self.EVENT_TYPE, **entry.to_jsonable()}
+        row = {
+            "type": self._event_type_for_kind(entry.kind),
+            "journal_kind": entry.kind,
+            **entry.to_jsonable(),
+        }
         _atomic_append_jsonl(self.path, row)
 
     def _rows(self) -> list[dict[str, Any]]:
         return [
             r for r in _read_jsonl_history(self.path)
-            if r.get("type") == self.EVENT_TYPE
+            if r.get("journal_kind") or r.get("type") == self.LEGACY_EVENT_TYPE
         ]
 
     def all(self) -> list[JournalEntry]:
@@ -1397,9 +1418,10 @@ class MemoryBundle:
     def journal(self) -> Journal:
         """The active journal view for this run.
 
-        Writes and reads land as ``journal.entry`` events in the canonical
-        ``projects/<fingerprint>/events.jsonl`` timeline. Nothing is mirrored to
-        a global journal, so no cross-project audit trail accumulates.
+        Writes and reads land as concrete typed events with a ``journal_kind``
+        field in the canonical ``projects/<fingerprint>/events.jsonl`` timeline.
+        Nothing is mirrored to a global journal, so no cross-project audit trail
+        accumulates.
         """
         return self.project.memory
 

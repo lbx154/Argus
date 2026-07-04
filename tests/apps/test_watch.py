@@ -341,7 +341,8 @@ def test_watch_subprocess_renders_inbox_guidance_and_keeps_offset(tmp_path: Path
         project_root / "events.jsonl",
         [
             {
-                "type": "journal.entry",
+                "type": "life.mission.completed",
+                "journal_kind": "mission_complete",
                 "id": "journal-1",
                 "ts": time.time(),
                 "kind": "mission_complete",
@@ -474,7 +475,8 @@ def test_watch_subprocess_redirected_output_flushes_and_exits_on_sigterm(
         global_root / "projects" / fingerprint / "events.jsonl",
         [
             {
-                "type": "journal.entry",
+                "type": "life.mission.completed",
+                "journal_kind": "mission_complete",
                 "id": "journal-1",
                 "ts": time.time(),
                 "kind": "mission_complete",
@@ -566,7 +568,8 @@ def test_watch_subprocess_shows_paused_budget_when_exhausted(tmp_path: Path) -> 
         global_root / "projects" / fingerprint / "events.jsonl",
         [
             {
-                "type": "journal.entry",
+                "type": "life.mission.completed",
+                "journal_kind": "mission_complete",
                 "id": "journal-1",
                 "ts": time.time(),
                 "kind": "mission_complete",
