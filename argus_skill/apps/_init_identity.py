@@ -129,7 +129,7 @@ def _render(a: dict[str, str]) -> str:
         f"- Pause and append a journal entry of kind `budget_pause` when budget\n"
         f"  caps are reached; do not silently retry.{extra_red_block}\n\n"
         f"## Always-do\n"
-        f"- Read this card and the per-project card (if any) before each mission.\n"
+        f"- Read this card before each mission.\n"
         f"- End every engineer round with a verbatim `## Verification` block\n"
         f"  showing actual command output (pytest, ruff, mypy, etc.).\n"
         f"- When the reviewer rejects, address its concrete `next_action`; do not\n"

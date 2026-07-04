@@ -83,7 +83,6 @@ def test_project_subtree(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     fp = "abc123def456"
     assert paths.project_root(fp) == tmp_path / "projects" / fp
-    assert paths.project_md_path(fp) == tmp_path / "projects" / fp / "project.md"
     assert paths.project_memory_path(fp) == tmp_path / "projects" / fp / "events.jsonl"
     assert paths.project_backlog_path(fp) == tmp_path / "projects" / fp / "backlog.jsonl"
     assert paths.project_skills_root(fp) == tmp_path / "projects" / fp / "skills"

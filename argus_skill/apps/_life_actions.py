@@ -365,44 +365,6 @@ def render_identity_cmd(
     return f"unknown /identity subcommand: {sub}"
 
 
-def _project_card_path(mem: Any) -> Path:
-    project = getattr(mem, "project", None)
-    card = getattr(project, "project_card", None)
-    if card is not None:
-        return Path(getattr(card, "path", card))
-    card = getattr(mem, "project_card", None)
-    if card is not None:
-        return Path(getattr(card, "path", card))
-    root = getattr(project, "root", None)
-    if root is None:
-        root = getattr(mem, "root", None)
-    if root is None:
-        raise AttributeError("memory object does not expose a project card path")
-    return Path(root) / "project.md"
-
-
-def render_project_cmd(
-    mem: Any,
-    tokens: Sequence[str],
-    rest_text: str,
-    *,
-    empty_hint: str = "set",
-) -> str:
-    path = _project_card_path(mem)
-    if not tokens:
-        text = path.read_text(encoding="utf-8").strip() if path.exists() else ""
-        return text or f"(project card empty — try /project {empty_hint})"
-    sub = tokens[0].lower()
-    if sub == "set":
-        body = rest_text[len("set"):].lstrip() if rest_text.lower().startswith("set") else ""
-        if not body:
-            return "usage: /project set <text>"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(body.rstrip() + "\n", encoding="utf-8")
-        return "project card updated"
-    return f"unknown /project subcommand: {sub}"
-
-
 def render_reset_cmd(chat_state: dict[str, Any]) -> str:
     old = chat_state.get("last_thread_id")
     chat_state["last_thread_id"] = None

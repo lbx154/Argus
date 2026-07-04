@@ -11,7 +11,6 @@ Data sources per project (all already emitted by the daemon):
   - ``<life>/daemon.status.json``  — pid, started, backend, caps
   - ``<life>/events.jsonl``        — mission count, cost, recent events
   - ``<life>/backlog.jsonl``       — task list + statuses
-  - ``<life>/project.md``          — first line ``# <project root>``
   - ``<root>/research/PIPELINE_STATE.json`` — vertical + stage states
 
 Optional, auto-detected enrichment (no per-project config):
@@ -96,16 +95,7 @@ def _resolve_project_root(life_dir: Path) -> Path | None:
         p = Path(cwd)
         if p.exists():
             return p
-    pm = life_dir / "project.md"
-    if not pm.exists():
-        return None
-    try:
-        first = pm.read_text(encoding="utf-8", errors="replace").splitlines()[0]
-    except (OSError, IndexError):
-        return None
-    first = first.lstrip("# ").strip()
-    p = Path(first)
-    return p if p.exists() else None
+    return None
 
 
 # ---------------------------------------------------------------------------

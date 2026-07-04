@@ -11,9 +11,6 @@ Three storage shapes:
   changes; the file is small (tens-to-hundreds of items).
 - ``IdentityCard``: a single ``identity.md`` markdown file the user
   edits freely. We just read it.
-- ``ProjectCard``: a per-project ``project.md`` markdown file that
-  captures repo-specific conventions and red lines.
-
 The :class:`LifeMemory` facade bundles the global files plus a small
 retrieval helper that returns the most recent N journal entries as
 advisory context. The harness deliberately does NOT score prior missions
@@ -963,7 +960,7 @@ operator-binding. Edit freely.
   caps are reached; do not silently retry.
 
 ## Always-do
-- Read this card and the per-project card (if any) before each mission.
+- Read this card before each mission.
 - End every engineer round with a verbatim `## Verification` block
   showing actual command output (pytest, ruff, mypy, etc.).
 - When the reviewer rejects, address its concrete `next_action`; do not
@@ -976,42 +973,6 @@ operator-binding. Edit freely.
 <!-- Free-form: anything you want the agent to remember about you,
 your habits, your projects, conventions. The agent reads this every
 mission. -->
-"""
-
-
-_DEFAULT_PROJECT_CARD = """\
-# {label}
-
-(Edit me — this is the per-project card for {label}. Capture repo
-conventions, folder layout, "always do X / never touch Y" rules,
-contact points for the team, and any project-specific gotchas. The
-agent reads this before every mission targeting this project.)
-
-## Project label
-- `{label}`
-
-## Conventions
--
--
--
-
-## Red lines
--
--
--
-"""
-
-_LEGACY_PROJECT_CARD = """\
-# {label}
-
-(Edit me — this is the per-project identity card. Capture conventions,
-folder layout, "always do X / never touch Y" rules, contact points for
-the team, etc. The agent reads this before every mission targeting
-this project.)
-
-## Conventions
-
-## Red lines
 """
 
 
@@ -1036,38 +997,6 @@ class IdentityCard:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(_DEFAULT_IDENTITY, encoding="utf-8")
         return True
-
-
-class ProjectCard:
-    """Per-project counterpart to :class:`IdentityCard`.
-
-    Same on-disk shape (a free-form markdown file) but seeded with a
-    project-scoped template that reminds the user to capture
-    conventions / red lines for *this* repo.
-    """
-
-    def __init__(self, path: Path, *, label: str = "this project") -> None:
-        self.path = Path(path)
-        self.label = label
-
-    def read(self) -> str:
-        if not self.path.exists():
-            return ""
-        return self.path.read_text(encoding="utf-8")
-
-    def ensure_default(self) -> bool:
-        rendered = _DEFAULT_PROJECT_CARD.format(label=self.label or "this project")
-        if not self.path.exists():
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(rendered, encoding="utf-8")
-            return True
-
-        existing = self.read()
-        legacy = _LEGACY_PROJECT_CARD.format(label=self.label or "this project")
-        if existing == legacy:
-            self.path.write_text(rendered, encoding="utf-8")
-            return True
-        return False
 
 
 # ---------------------------------------------------------------------------
@@ -1213,13 +1142,13 @@ class LifeMemory:
 #
 # * :class:`GlobalMemory` — agent-wide identity card and operator audit
 #   journal under ``~/.argus-skill/``.
-# * :class:`ProjectMemory` — per-project card, memory log, and backlog
-#   under ``~/.argus-skill/projects/<fingerprint>/``. Lazy-created on
+# * :class:`ProjectMemory` — per-project event log and backlog under
+#   ``~/.argus-skill/projects/<fingerprint>/``. Lazy-created on
 #   first access so we don't litter ``projects/`` with empty trees.
 #
 # :class:`MemoryBundle` is a thin convenience wrapper that holds one of
-# each plus a unified :meth:`render_prelude` that merges global identity,
-# project card, and relevant entries from the current project's journal.
+# each plus a unified :meth:`render_prelude` that merges global identity
+# and relevant entries from the current project's event history.
 #
 # :class:`LifeMemory` is unchanged; existing code keeps working.
 
@@ -1311,10 +1240,8 @@ class GlobalMemory:
 class ProjectMemory:
     """Per-project memory under ``~/.argus-skill/projects/<fingerprint>/``.
 
-    Holds three things:
+    Holds two things:
 
-    * ``project_card`` — markdown card describing the repo (conventions,
-      red lines, contact points). Seeded on first ``init()``.
     * ``memory`` — journal API backed by the canonical per-project
       ``events.jsonl`` timeline. ``memory.jsonl`` is no longer created.
     * ``backlog`` — pending mission queue scoped to this project.
@@ -1323,7 +1250,6 @@ class ProjectMemory:
     fingerprint: str
     label: str
     root: Path
-    project_card: ProjectCard
     memory: Journal
     backlog: Backlog
 
@@ -1343,7 +1269,6 @@ class ProjectMemory:
             fingerprint=fingerprint,
             label=resolved_label,
             root=root,
-            project_card=ProjectCard(root / "project.md", label=resolved_label),
             memory=EventJournal(root / "events.jsonl"),
             backlog=Backlog(root / "backlog.jsonl"),
         )
@@ -1352,7 +1277,6 @@ class ProjectMemory:
         """Create the project directory + seed defaults if missing."""
         self.root.mkdir(parents=True, exist_ok=True)
         return {
-            "project_card": self.project_card.ensure_default(),
             "events": _touch_file(self.memory.path),
             "backlog": _touch_file(self.backlog.path),
         }
@@ -1466,34 +1390,30 @@ class MemoryBundle:
         *,
         objective: str,
         identity_chars: int = 600,
-        project_chars: int = 600,
         max_project_entries: int = 3,
     ) -> str:
         """Render a unified memory prelude for prompt injection.
 
-        Order is: global identity → project card → relevant project
-        memories. Cross-project journal entries are intentionally excluded:
+        Order is: global identity → relevant project memories. Cross-project
+        journal entries are intentionally excluded:
         workspace prompts must not satisfy or steer the current mission with
         artifacts from another project.
         """
         identity = self.global_mem.identity.read().strip()
         if identity_chars > 0:
             identity = identity[:identity_chars]
-        project_card = self.project.project_card.read().strip()
-        if project_chars > 0:
-            project_card = project_card[:project_chars]
 
         project_hits = self.project.relevant_memory_for(
             objective, max_entries=max_project_entries
         )
 
-        if not (identity or project_card or project_hits):
+        if not (identity or project_hits):
             return ""
 
         lines: list[str] = []
         lines.append("### Memory context (non-authoritative)")
         lines.append(
-            "The following identity card, project card, and prior-mission "
+            "The following identity card and prior-mission "
             "notes are advisory. If they conflict with the current "
             "objective, the live repo state, or explicit user "
             "instructions, **ignore them**."
@@ -1502,10 +1422,6 @@ class MemoryBundle:
             lines.append("")
             lines.append("#### Identity")
             lines.append(identity)
-        if project_card:
-            lines.append("")
-            lines.append(f"#### Project card · {self.project.label}")
-            lines.append(project_card)
         if project_hits:
             lines.append("")
             lines.append("#### Recent prior runs (this project)")

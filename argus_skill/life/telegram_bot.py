@@ -7,7 +7,6 @@ Polls ``getUpdates`` with long-polling and dispatches commands:
 * ``/status`` — reply with daemon / active queue / history / cost summary
 * ``/config [key=val ...]`` — view/change session defaults
 * ``/identity`` / ``/identity set <text>`` — view or update the identity card
-* ``/project`` / ``/project set <text>`` — view or update the project card
 * ``/backend [codex|memory]`` — show or change the active backend
 * ``/reset`` — drop the current codex session id
 * ``/skills [ls|promote <name>]`` — inspect or promote skills
@@ -47,7 +46,6 @@ from ..apps._life_actions import (
     render_backend_cmd,
     render_config_cmd,
     render_identity_cmd,
-    render_project_cmd,
     render_reset_cmd,
     render_run_command,
     render_skills_cmd,
@@ -138,8 +136,6 @@ _HELP_TEXT = """🤖 <b>argus-skill 命令列表</b>
 /config [key=val ...] — 调整会话默认值
 /identity — 查看身份卡
 /identity set <text> — 单条消息更新身份卡
-/project — 查看项目卡
-/project set <text> — 单条消息更新项目卡
 /backend [codex|memory] — 查看或切换后端
 /reset — 清除当前 codex 会话
 /skills [ls|promote <name>] — 查看或提升技能
@@ -205,7 +201,6 @@ class _CommandRouter:
             "/status": self._cmd_status,
             "/config": self._cmd_config,
             "/identity": self._cmd_identity,
-            "/project": self._cmd_project,
             "/backend": self._cmd_backend,
             "/reset": self._cmd_reset,
             "/skills": self._cmd_skills,
@@ -451,20 +446,6 @@ class _CommandRouter:
         mem = LifeMemory.open(self.life_dir)
         tokens = shlex.split(arg) if arg.strip() else []
         body = render_identity_cmd(mem, tokens, arg)
-        self._reply(f"<pre>{_esc(body)}</pre>")
-
-    def _cmd_project(self, arg: str) -> None:
-        from .memory import LifeMemory
-
-        mem = LifeMemory.open(self.life_dir)
-        tokens = shlex.split(arg) if arg.strip() else []
-        body = render_project_cmd(mem, tokens, arg)
-        if body.startswith("usage: /project set"):
-            self._reply("用法: /project set <text>")
-            return
-        if body.startswith("unknown /project subcommand"):
-            self._reply("Telegram 不支持 /project edit；请使用 /project 或 /project set <text>")
-            return
         self._reply(f"<pre>{_esc(body)}</pre>")
 
     def _cmd_backend(self, arg: str) -> None:

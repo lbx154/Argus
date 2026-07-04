@@ -23,7 +23,6 @@ Do NOT invoke this skill outside a planner-scheduled wiki_collect mission.
 
 Read in this order; each item should be short:
 
-- `project.md`
 - `AGENTS.md` and any top-level `*goal*.md`
 - The matched special prompts at `$ARGUS_SKILL_SPECIAL_PROMPTS_DIR`, or
   `~/.argus-skill/special_prompts/`

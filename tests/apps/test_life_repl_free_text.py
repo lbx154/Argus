@@ -431,41 +431,6 @@ def test_repl_help_matches_documented_command_surface(tmp_path: Path) -> None:
     assert "/add <text>" not in out
 
 
-def test_project_cmd_reads_and_updates_project_card(
-    mem: LifeMemory, capsys: pytest.CaptureFixture[str]
-) -> None:
-    mem.identity.path.write_text("identity: initial\n", encoding="utf-8")
-    (mem.root / "project.md").write_text("project: initial\n", encoding="utf-8")
-
-    manager_repl._project_cmd(mem, [], "")
-    out = capsys.readouterr().out
-    assert "project: initial" in out
-
-    manager_repl._project_cmd(mem, ["set"], "set project: updated")
-    out = capsys.readouterr().out
-    assert "project card updated" in out
-    assert (mem.root / "project.md").read_text(encoding="utf-8") == "project: updated\n"
-    assert mem.identity.read() == "identity: initial\n"
-
-
-def test_repl_startup_preserves_custom_project_card_byte_for_byte(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    monkeypatch.chdir(repo)
-    bundle = MemoryBundle.for_cwd(repo)
-    custom = "# custom\n\n## Project label\n- keep me\n"
-    bundle.project.project_card.path.parent.mkdir(parents=True, exist_ok=True)
-    bundle.project.project_card.path.write_text(custom, encoding="utf-8")
-
-    created = bundle.init()
-
-    assert created["project"]["project_card"] is False
-    assert bundle.project.project_card.path.read_text(encoding="utf-8") == custom
-
-
 # ---------------------------------------------------------------------------
 # Singleton lock
 # ---------------------------------------------------------------------------

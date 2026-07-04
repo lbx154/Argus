@@ -15,7 +15,9 @@ def _make_daemon(root: Path, fingerprint: str, *, project_dir: Path,
     life.mkdir(parents=True)
     (life / "daemon.status.json").write_text(json.dumps(
         {"pid": pid, "backend": "codex"}), encoding="utf-8")
-    (life / "project.md").write_text(f"# {project_dir}\n", encoding="utf-8")
+    (life / "session.json").write_text(
+        json.dumps({"cwd": str(project_dir)}), encoding="utf-8"
+    )
     (life / "events.jsonl").write_text(
         json.dumps({"type": "life.mission.completed", "cost_usd": 1.5}) + "\n"
         + json.dumps({"type": "engineer.progress", "text": "hello"}) + "\n",

@@ -35,7 +35,6 @@ from .memory import (
     JournalEntry,
     LifeMemory,
     MemoryBundle,
-    ProjectCard,
     ProjectMemory,
 )
 
@@ -51,7 +50,6 @@ __all__ = [
     "JournalEntry",
     "LifeMemory",
     "MemoryBundle",
-    "ProjectCard",
     "ProjectMemory",
 ]
 

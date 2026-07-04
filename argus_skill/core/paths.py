@@ -12,7 +12,6 @@ Current runtime layout::
     │   └─ *_archive/
     └─ projects/
         └─ <fingerprint>/
-            ├─ project.md
             ├─ events.jsonl
             ├─ backlog.jsonl
             ├─ skills/
@@ -64,7 +63,6 @@ __all__ = [
     "skills_archive_root",
     "projects_root",
     "project_root",
-    "project_md_path",
     "project_memory_path",
     "project_backlog_path",
     "project_skills_root",
@@ -187,10 +185,6 @@ def project_root(fingerprint: str) -> Path:
     if not fingerprint or "/" in fingerprint or fingerprint.startswith("."):
         raise ValueError(f"invalid project fingerprint: {fingerprint!r}")
     return projects_root() / fingerprint
-
-
-def project_md_path(fingerprint: str) -> Path:
-    return project_root(fingerprint) / "project.md"
 
 
 def project_memory_path(fingerprint: str) -> Path:

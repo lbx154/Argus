@@ -127,7 +127,6 @@ def test_project_memory_paths_under_projects_root(isolated_home: Path) -> None:
     proj = ProjectMemory.open("abc123abc123", label="my-project")
     expected_root = isolated_home / "projects" / "abc123abc123"
     assert proj.root == expected_root
-    assert proj.project_card.path == expected_root / "project.md"
     assert proj.memory.path == expected_root / "events.jsonl"
     assert proj.backlog.path == expected_root / "backlog.jsonl"
     assert proj.label == "my-project"
@@ -140,53 +139,20 @@ def test_project_memory_lazy_creation(isolated_home: Path) -> None:
     assert not expected_root.exists()
 
 
-def test_project_memory_init_seeds_project_card(isolated_home: Path) -> None:
+def test_project_memory_init_seeds_events_and_backlog(isolated_home: Path) -> None:
     proj = ProjectMemory.open("abc123abc123", label="my-project")
     created = proj.init()
     assert created == {
-        "project_card": True,
         "events": True,
         "backlog": True,
     }
-    card_text = proj.project_card.path.read_text(encoding="utf-8")
-    assert "# my-project" in card_text
-    assert "## Project label" in card_text
-    assert "## Conventions" in card_text
-    assert "## Red lines" in card_text
-    assert card_text.strip()
-
-
-def test_project_memory_init_upgrades_legacy_blank_card(isolated_home: Path) -> None:
-    proj = ProjectMemory.open("abc123abc123", label="my-project")
-    legacy = """\
-# my-project
-
-(Edit me — this is the per-project identity card. Capture conventions,
-folder layout, "always do X / never touch Y" rules, contact points for
-the team, etc. The agent reads this before every mission targeting
-this project.)
-
-## Conventions
-
-## Red lines
-"""
-    proj.project_card.path.parent.mkdir(parents=True, exist_ok=True)
-    proj.project_card.path.write_text(legacy, encoding="utf-8")
-
-    created = proj.init()
-    assert created["project_card"] is True
-    card_text = proj.project_card.path.read_text(encoding="utf-8")
-    assert "## Project label" in card_text
-    assert "## Conventions" in card_text
-    assert "## Red lines" in card_text
-    assert card_text.startswith("# my-project\n")
+    assert not (proj.root / "project.md").exists()
 
 
 def test_project_memory_init_idempotent(isolated_home: Path) -> None:
     proj = ProjectMemory.open("abc123abc123")
     proj.init()
     assert proj.init() == {
-        "project_card": False,
         "events": False,
         "backlog": False,
     }
@@ -283,11 +249,9 @@ def test_memory_bundle_init_creates_both(
     bundle = MemoryBundle.for_cwd(tmp_path)
     created = bundle.init()
     assert created["global"]["identity"] is True
-    assert created["project"]["project_card"] is True
-    card_text = bundle.project.project_card.path.read_text(encoding="utf-8")
-    assert f"# {bundle.project.label}" in card_text
-    assert "## Conventions" in card_text
-    assert "## Red lines" in card_text
+    assert created["project"]["events"] is True
+    assert created["project"]["backlog"] is True
+    assert not (bundle.project.root / "project.md").exists()
     # idempotent
     assert bundle.init()["global"] == {"identity": False}
     # Per-project logs only: bundle init must never create a global journal.
@@ -319,8 +283,6 @@ def test_memory_bundle_render_prelude_excludes_cross_project_journal(
     rendered = bundle.render_prelude(objective="upgrade postgres again")
     assert "Memory context (non-authoritative)" in rendered
     assert "Identity" in rendered
-    assert "Project card" in rendered
-    assert "this project" in rendered
     assert "local postgres migration" in rendered
     assert "cross-project postgres" not in rendered
     assert "other projects" not in rendered
@@ -403,12 +365,6 @@ def test_cli_status_and_prelude_are_project_scoped(
     bundle_a.init()
     bundle_b.init()
 
-    bundle_a.project.project_card.path.write_text(
-        "# alpha\nAlpha project card\n", encoding="utf-8"
-    )
-    bundle_b.project.project_card.path.write_text(
-        "# beta\nBeta project card\n", encoding="utf-8"
-    )
     _write_project_event(
         bundle_a.project.memory,
         JournalEntry.new(kind="note", title="alpha memory", summary="alpha only")
@@ -429,10 +385,8 @@ def test_cli_status_and_prelude_are_project_scoped(
 
     prelude_a = bundle_a.render_prelude(objective="alpha objective")
     prelude_b = bundle_b.render_prelude(objective="beta objective")
-    assert "Alpha project card" in prelude_a
     assert "alpha memory" in prelude_a
     assert "beta memory" not in prelude_a
-    assert "Beta project card" in prelude_b
     assert "beta memory" in prelude_b
     assert "alpha memory" not in prelude_b
 

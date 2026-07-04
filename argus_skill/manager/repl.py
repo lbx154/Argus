@@ -48,7 +48,6 @@ from ..apps._life_actions import (
     render_backend_cmd,
     render_config_cmd,
     render_identity_cmd,
-    render_project_cmd,
     render_reset_cmd,
     render_skills_cmd,
     stop_iteration,
@@ -738,8 +737,7 @@ def _identity_cmd(mem: _CommonMemory, tokens: list[str], rest_text: str) -> None
     print(render_identity_cmd(mem, tokens, rest_text))
 
 
-def _project_cmd(mem: _CommonMemory, tokens: list[str], rest_text: str) -> None:
-    print(render_project_cmd(mem, tokens, rest_text))
+
 
 
 def _should_autospawn_on_boot(args: argparse.Namespace) -> bool:
@@ -2658,9 +2656,6 @@ def dispatch_command(line, raw, mem, chat_state, global_root, theme) -> str | No
         if cmd == "/identity":
             _identity_cmd(mem, rest, rest_text)
             return None
-        if cmd == "/project":
-            _project_cmd(mem, rest, rest_text)
-            return None
         if cmd == "/backlog":
             include_all = bool(rest) and rest[0].lower() == "all"
             _backlog_list_cmd(mem, include_all=include_all)
@@ -2766,7 +2761,6 @@ __all__ = [
     "_CONFIG_DEFAULTS",
     "_config_cmd",
     "_identity_cmd",
-    "_project_cmd",
     "_continuous_cmd",
     "_backlog_list_cmd",
     "_status_change_cmd",
