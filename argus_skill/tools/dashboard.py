@@ -644,7 +644,6 @@ def _paper_detail(root: Path) -> dict:
 def scrape_project_detail(life_dir: Path) -> dict:
     base = scrape_project(life_dir)
     events = _iter_jsonl(life_dir / "events.jsonl")
-    memory = _iter_jsonl(life_dir / "memory.jsonl")
     backlog = _iter_jsonl(life_dir / "backlog.jsonl")
     root = Path(base["root"]) if base.get("root") else None
     pipe = _read_json(root / "research" / "PIPELINE_STATE.json") if root else {}
@@ -670,7 +669,7 @@ def scrape_project_detail(life_dir: Path) -> dict:
         "stage_detail": stage_detail,
         "last_gate": pipe.get("last_gate", {}),
         "rollback_history": (pipe.get("rollback_history") or [])[-8:][::-1],
-        "mission_timeline": _mission_timeline(events + memory),
+        "mission_timeline": _mission_timeline(events),
         "backlog_full": [{"status": b.get("status", "?"), "title": b.get("title", "")}
                          for b in backlog[-25:][::-1]],
         "events_full": _recent_events(events, 40)[::-1],

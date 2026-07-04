@@ -23,7 +23,7 @@
   skill_ops)产生的,本探针会把 process_lesson→skill 这条线也算作"活着"(假
   阴性)。宁可漏报、绝不编造 —— 逐 producer 因果探针是 v2 的事。
 * 加新不变式只需往 :data:`INVARIANTS` 里加一行;两端信号必须是**可靠持久化**
-  的(journal kind 落 memory.jsonl;event type 是 HIGH_VALUE 才稳落 events.jsonl)。
+  的(journal kind / event type 都落 canonical events.jsonl)。
 
 Public surface:
 
@@ -57,7 +57,7 @@ GAP_KIND = "self_experiment.gap_suspected"
 # ticks. Matches the advisor's convention (self_evolve_advisor.py).
 DEFAULT_RECENT_WINDOW = 200
 
-# Signal sources understood by the probe. "journal" = entries in memory.jsonl
+# Signal sources understood by the probe. "journal" = journal.entry events
 # counted by ``.kind``; "events" = rows in events.jsonl counted by ``["type"]``.
 _JOURNAL = "journal"
 _EVENTS = "events"
@@ -69,9 +69,8 @@ class FlowInvariant:
     lead to a ``consumer`` signal downstream.
 
     Counting is by exact kind/type equality — deliberately dumb and
-    non-fabricable. Both endpoints must be reliably persisted (a journal
-    ``kind`` always lands in memory.jsonl; an event ``type`` only lands in
-    events.jsonl if it is a HIGH_VALUE type — see event_log.py).
+    non-fabricable. Both endpoints must be reliably persisted in canonical
+    events.jsonl (journal kinds as journal.entry events, event types as events).
     """
 
     name: str

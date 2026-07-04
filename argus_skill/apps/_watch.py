@@ -276,8 +276,8 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
         bundle = life  # MemoryBundle-like
         project_root = Path(getattr(bundle.project, "root"))
         global_root = Path(getattr(bundle, "global_root"))
-        # Split memory: the project journal is memory.jsonl (no global log).
-        journal_file = project_root / "memory.jsonl"
+        # Split memory: journal entries live in the canonical events timeline.
+        journal_file = project_root / "events.jsonl"
     else:
         bundle = None
         project_root = Path(life)

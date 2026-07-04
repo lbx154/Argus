@@ -13,7 +13,7 @@ Current runtime layout::
     └─ projects/
         └─ <fingerprint>/
             ├─ project.md
-            ├─ memory.jsonl
+            ├─ events.jsonl
             ├─ backlog.jsonl
             ├─ skills/
             ├─ continuous.json
@@ -24,9 +24,9 @@ Current runtime layout::
             └─ repl.pid
 
 The global root holds only cross-project *identity* and shared skills. The
-journal/log is per-project (``projects/<fingerprint>/memory.jsonl``); there is
-no global journal so no cross-project audit trail accumulates. ``journal_path``
-is retained only for legacy single-project tooling.
+per-project ``events.jsonl`` is the canonical timeline; project journal entries
+are stored there as ``type="journal.entry"`` events. ``journal_path`` is retained
+only for legacy single-project tooling.
 
 Legacy compatibility helpers kept for older tests / tooling:
 
@@ -194,7 +194,7 @@ def project_md_path(fingerprint: str) -> Path:
 
 
 def project_memory_path(fingerprint: str) -> Path:
-    return project_root(fingerprint) / "memory.jsonl"
+    return project_root(fingerprint) / "events.jsonl"
 
 
 def project_backlog_path(fingerprint: str) -> Path:

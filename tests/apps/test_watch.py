@@ -338,9 +338,10 @@ def test_watch_subprocess_renders_inbox_guidance_and_keeps_offset(tmp_path: Path
     offset_path = project_root / "inbox.offset"
     offset_path.write_text("0", encoding="utf-8")
     _write_events(
-        project_root / "memory.jsonl",
+        project_root / "events.jsonl",
         [
             {
+                "type": "journal.entry",
                 "id": "journal-1",
                 "ts": time.time(),
                 "kind": "mission_complete",
@@ -349,13 +350,7 @@ def test_watch_subprocess_renders_inbox_guidance_and_keeps_offset(tmp_path: Path
                 "tags": [],
                 "cost_usd": 1.5,
                 "extra": {},
-            }
-        ],
-    )
-
-    _write_events(
-        project_root / "events.jsonl",
-        [
+            },
             {
                 "type": "life.inbox.queued",
                 "source": "cli.notify",
@@ -476,9 +471,10 @@ def test_watch_subprocess_redirected_output_flushes_and_exits_on_sigterm(
         encoding="utf-8",
     )
     _write_events(
-        global_root / "projects" / fingerprint / "memory.jsonl",
+        global_root / "projects" / fingerprint / "events.jsonl",
         [
             {
+                "type": "journal.entry",
                 "id": "journal-1",
                 "ts": time.time(),
                 "kind": "mission_complete",
@@ -567,9 +563,10 @@ def test_watch_subprocess_shows_paused_budget_when_exhausted(tmp_path: Path) -> 
     (global_root / "projects" / fingerprint).mkdir(parents=True, exist_ok=True)
 
     _write_events(
-        global_root / "projects" / fingerprint / "memory.jsonl",
+        global_root / "projects" / fingerprint / "events.jsonl",
         [
             {
+                "type": "journal.entry",
                 "id": "journal-1",
                 "ts": time.time(),
                 "kind": "mission_complete",

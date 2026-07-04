@@ -119,7 +119,7 @@ def _resolve_global_root(args: argparse.Namespace) -> Path:
 def _checkpoint_path_for(args: argparse.Namespace, workdir: Path) -> Path | None:
     """Per-project curated-checkpoint file in the project state dir.
 
-    Lives next to ``events.jsonl`` / ``memory.jsonl`` under
+    Lives next to ``events.jsonl`` under
     ``<global_root>/projects/<fingerprint>/checkpoint.json`` so the reviewer's
     per-round handoff survives across missions and daemon restarts, never the
     git work-tree (which the agent might commit). Set

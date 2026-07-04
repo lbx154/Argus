@@ -340,6 +340,52 @@ class Journal:
         return total
 
 
+class EventJournal(Journal):
+    """Journal API backed by the canonical ``events.jsonl`` timeline.
+
+    ``memory.jsonl`` used to be a second, parallel truth surface. Project memory
+    now appends ``JournalEntry`` rows as ``type="journal.entry"`` events into
+    ``events.jsonl`` and reads them back from the same file.
+    """
+
+    EVENT_TYPE = "journal.entry"
+
+    def append(self, entry: JournalEntry) -> None:
+        self._maybe_rotate()
+        row = {"type": self.EVENT_TYPE, **entry.to_jsonable()}
+        _atomic_append_jsonl(self.path, row)
+
+    def _rows(self) -> list[dict[str, Any]]:
+        return [
+            r for r in _read_jsonl_history(self.path)
+            if r.get("type") == self.EVENT_TYPE
+        ]
+
+    def all(self) -> list[JournalEntry]:
+        return [JournalEntry.from_jsonable(r) for r in self._rows()]
+
+    def tail(self, n: int = 20) -> list[JournalEntry]:
+        if n <= 0:
+            return []
+        return [JournalEntry.from_jsonable(r) for r in self._rows()[-n:]]
+
+    def total_cost_since(self, ts: float) -> float:
+        signature = (
+            _path_signature(self.path),
+            _path_signature(_journal_rollover_path(self.path)),
+        )
+        cached = self._total_cost_cache.get(ts)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+        total = sum(
+            float(r.get("cost_usd", 0.0))
+            for r in self._rows()
+            if float(r.get("ts", 0.0)) >= ts
+        )
+        self._total_cost_cache[ts] = (signature, total)
+        return total
+
+
 # ---------------------------------------------------------------------------
 # Backlog
 # ---------------------------------------------------------------------------
@@ -1176,7 +1222,7 @@ class GlobalMemory:
         Bundled default skills are also seeded into ``<root>/skills`` as a
         side effect. The global root holds only cross-project *identity*; it
         deliberately does **not** seed a global journal. Logs are per-project
-        (``projects/<fingerprint>/memory.jsonl``) so nothing accumulates a
+        (``projects/<fingerprint>/events.jsonl``) so nothing accumulates a
         cross-project audit trail. The ``journal`` attribute is retained as a
         lazy, write-on-demand handle for legacy/standalone callers only.
         """
@@ -1213,9 +1259,8 @@ class ProjectMemory:
 
     * ``project_card`` — markdown card describing the repo (conventions,
       red lines, contact points). Seeded on first ``init()``.
-    * ``memory`` — append-only journal scoped to this project. Used the
-      same way as :class:`Journal` but kept separate from the global log
-      so cross-project search doesn't leak unrelated context.
+    * ``memory`` — journal API backed by the canonical per-project
+      ``events.jsonl`` timeline. ``memory.jsonl`` is no longer created.
     * ``backlog`` — pending mission queue scoped to this project.
     """
 
@@ -1243,7 +1288,7 @@ class ProjectMemory:
             label=resolved_label,
             root=root,
             project_card=ProjectCard(root / "project.md", label=resolved_label),
-            memory=Journal(root / "memory.jsonl"),
+            memory=EventJournal(root / "events.jsonl"),
             backlog=Backlog(root / "backlog.jsonl"),
         )
 
@@ -1252,7 +1297,7 @@ class ProjectMemory:
         self.root.mkdir(parents=True, exist_ok=True)
         return {
             "project_card": self.project_card.ensure_default(),
-            "memory": _touch_file(self.memory.path),
+            "events": _touch_file(self.memory.path),
             "backlog": _touch_file(self.backlog.path),
         }
 
@@ -1350,11 +1395,11 @@ class MemoryBundle:
 
     @property
     def journal(self) -> Journal:
-        """The active log for this run — strictly the project journal.
+        """The active journal view for this run.
 
-        Writes and reads both land in ``projects/<fingerprint>/memory.jsonl``.
-        Nothing is mirrored to a global journal: each project owns its own log
-        so no cross-project audit trail (memory poison) can accumulate.
+        Writes and reads land as ``journal.entry`` events in the canonical
+        ``projects/<fingerprint>/events.jsonl`` timeline. Nothing is mirrored to
+        a global journal, so no cross-project audit trail accumulates.
         """
         return self.project.memory
 

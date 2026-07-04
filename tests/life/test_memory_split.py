@@ -116,7 +116,7 @@ def test_project_memory_paths_under_projects_root(isolated_home: Path) -> None:
     expected_root = isolated_home / "projects" / "abc123abc123"
     assert proj.root == expected_root
     assert proj.project_card.path == expected_root / "project.md"
-    assert proj.memory.path == expected_root / "memory.jsonl"
+    assert proj.memory.path == expected_root / "events.jsonl"
     assert proj.backlog.path == expected_root / "backlog.jsonl"
     assert proj.label == "my-project"
     assert proj.fingerprint == "abc123abc123"
@@ -133,7 +133,7 @@ def test_project_memory_init_seeds_project_card(isolated_home: Path) -> None:
     created = proj.init()
     assert created == {
         "project_card": True,
-        "memory": True,
+        "events": True,
         "backlog": True,
     }
     card_text = proj.project_card.path.read_text(encoding="utf-8")
@@ -175,7 +175,7 @@ def test_project_memory_init_idempotent(isolated_home: Path) -> None:
     proj.init()
     assert proj.init() == {
         "project_card": False,
-        "memory": False,
+        "events": False,
         "backlog": False,
     }
 

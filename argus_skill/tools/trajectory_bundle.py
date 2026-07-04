@@ -27,16 +27,12 @@ from pathlib import Path
 
 _BUNDLE_SCHEMA_VERSION = 1
 
-# Canonical argus project trajectory layers → their on-disk filename. Both the
-# split ``memory.jsonl`` (MemoryBundle) and single-root ``journal.jsonl``
-# (LifeMemory) are listed; whichever exists is bundled, the other is `missing`.
-# 规范的 argus 项目轨迹层 → 落盘文件名；memory.jsonl 与 journal.jsonl 都列，存在
-# 哪个收哪个，另一个记为 missing。
+# Canonical argus project trajectory layers → their on-disk filename.
+# Project journal entries are now ``journal.entry`` rows inside events.jsonl.
 _LAYER_FILES: dict[str, str] = {
     "events": "events.jsonl",
     "decisions": "decisions.jsonl",
     "activity": "activity.log",
-    "memory": "memory.jsonl",
     "journal": "journal.jsonl",
     "backlog": "backlog.jsonl",
     "telemetry": "telemetry.jsonl",
