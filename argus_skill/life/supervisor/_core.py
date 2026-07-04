@@ -959,36 +959,14 @@ class LifeSupervisor:
     def _maybe_journal_process_lesson(
         self, item: BacklogItem, outcome: Any
     ) -> None:
-        """Close the self-evolution loop on PROCESS data ("过程数据").
+        """Retired compatibility hook.
 
-        The reviewer judges a reusable PROCESS lesson every mission (how the
-        agent worked, where it wasted/repeated rounds, a workaround that helped),
-        but it was WRITE-ONLY — produced and never consumed. Persist it as a
-        ``self_evolve.process_lesson`` journal entry (deduped against the recent
-        window) so future missions can learn from accumulated process data via
-        the prelude. Fail-soft: a self-evolve issue must never break the tick.
+        Reviewer-authored process lessons were extra explanatory text with no
+        reliable product value. We no longer request, journal, or feed them to
+        Planner; reusable behavior should be explicit skill_ops or derived
+        offline from events.jsonl.
         """
-        lesson = str(getattr(outcome, "process_lesson", "") or "").strip()
-        if not lesson:
-            return
-        try:
-            key = lesson[:160].lower()
-            recent = self.memory.journal.all()[-200:]
-            for e in recent:
-                if (getattr(e, "kind", "") == "self_evolve.process_lesson"
-                        and str(e.extra.get("lesson", ""))[:160].lower() == key):
-                    return  # already surfaced recently — don't spam
-            entry = JournalEntry.new(
-                kind="self_evolve.process_lesson",
-                title="process lesson",
-                summary=lesson[:200],
-                tags=["self_evolve", "process_lesson"],
-                extra={"lesson": lesson, "item_id": item.id},
-            )
-            self.memory.journal.append(entry)
-            self._inject_cumulative_cost(entry)
-        except Exception:  # noqa: BLE001 — never block completion on self-evolve
-            log.exception("process-lesson journaling failed; continuing")
+        return None
 
     def _maybe_journal_self_evolve_advisory(
         self, item: BacklogItem, result: dict[str, Any] | None
@@ -1743,7 +1721,6 @@ class LifeSupervisor:
             },
         )
         self.memory.journal.append(entry)
-        self._maybe_journal_process_lesson(item, outcome)
         self._persist_final_submission_cert_if_needed(entry)
         self._inject_cumulative_cost(entry)
         try:
@@ -3544,23 +3521,6 @@ class LifeSupervisor:
                         if rendered_sb:
                             line += "\n" + rendered_sb
             lines.append(line)
-        # Self-evolution (过程数据 read-loop): surface RECURRING process lessons
-        # the reviewer flagged so the Planner can act on a SYSTEMIC process
-        # problem (re-scope missions / add guidance), deduped + highlighted out
-        # of the raw journal. Deliberately NOT injected into the per-round
-        # engineer prompt (that would be bloat); the Planner builds once per
-        # cycle, so this is cheap + high-signal. / 自进化：把 reviewer 标的复现
-        # 过程教训去重拎出来给 Planner 处理系统性问题；不塞进每轮 engineer prompt。
-        try:
-            from ..memory import process_lessons_from_journal
-
-            lessons = process_lessons_from_journal(self.memory.journal, limit=3)
-        except Exception:  # noqa: BLE001
-            lessons = []
-        if lessons:
-            lines.append("")
-            lines.append("## Recurring process lessons (act if systemic)")
-            lines.extend(f"- {ll}" for ll in lessons)
         return "\n".join(lines) or "(empty)"
 
     def _render_dead_wires_for_planner(self) -> str:

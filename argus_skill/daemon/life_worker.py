@@ -1407,23 +1407,9 @@ class LifeWorker:
         """
         if str(getattr(self.config, "backend", "") or "").lower() == "memory":
             return
-        # Self-evolution wire: turn the run's accumulated reviewer process_lessons
-        # into skills through the same gate skill_ops use (the success-path channel
-        # that was never fed to skill creation). Runs BEFORE tidy so a new skill gets
-        # promoted to source below. Opt-out: ARGUS_SKILL_DISTILL_PROCESS_LESSONS=0.
-        if _truthy_env("ARGUS_SKILL_DISTILL_PROCESS_LESSONS", "1"):
-            try:
-                distill = getattr(sup.runner, "distill_process_lessons", None)
-                journal = getattr(getattr(sup, "memory", None), "journal", None)
-                if distill is not None and journal is not None:
-                    res = distill(journal) or {}
-                    if res.get("created"):
-                        log.info(
-                            "daemon: process-lesson distillation created %d skill(s) "
-                            "from %d lesson(s)", res["created"], res.get("lessons", 0),
-                        )
-            except Exception:  # noqa: BLE001 — best-effort, never blocks shutdown
-                log.exception("daemon: process-lesson distillation failed; non-critical")
+        # Process-lesson distillation is retired. Reusable behavior should be
+        # captured as explicit skill_ops or derived offline from events.jsonl,
+        # not as an extra reviewer-written explanatory text stream.
         try:
             from ..manager.skill_tidy import tidy_after_mission
 
