@@ -9,6 +9,7 @@ bundle. T2 stops the REPL from claiming "daemon executing" (and freezing in a
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -97,6 +98,31 @@ def test_first_task_autostarts_daemon_for_fresh_session(tmp_path, monkeypatch):
     assert item.objective == "do real work"
     assert alive is True and pid == 4242
     assert captured["bundle"] is mem
+
+
+def test_user_task_is_manager_divided_before_enqueue(tmp_path, monkeypatch):
+    gr = tmp_path / "root"
+    mem = MemoryBundle.for_cwd(tmp_path, global_root=gr, fingerprint="s-user001")
+    mem.init()
+    monkeypatch.setattr(manager_repl, "_daemon_alive_for", lambda life_dir: (False, None))
+
+    item, _alive, _pid = manager_repl.enqueue_mission(
+        mem,
+        "write a research report",
+        {"backend": "memory", "config": {"continuous": False}},
+    )
+
+    events = [
+        json.loads(line)
+        for line in (mem.project.root / "events.jsonl").read_text().splitlines()
+    ]
+    assert item.objective == "write a research report"
+    assert [event["type"] for event in events] == [
+        "life.manager.started",
+        "life.manager.completed",
+    ]
+    assert events[-1]["agent_layer"] == "manager"
+    assert events[-1]["vertical"]
 
 
 # ---- T2: honest messaging + no freeze when no daemon ---------------------

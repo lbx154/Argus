@@ -1274,6 +1274,59 @@ def _maybe_name_session(chat_state: dict[str, Any], task_text: str) -> None:
         pass
 
 
+def _emit_manager_event(mem: Any, event: dict[str, Any]) -> None:
+    try:
+        from ..life.event_log import JsonlEventSink
+
+        JsonlEventSink(None, life_dir=_life_dir_for(mem)).append(event)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _manager_divide_user_task(mem: Any, body: str, chat_state: dict[str, Any]) -> None:
+    """Run Manager division for an operator-submitted task before enqueue.
+
+    This is intentionally a USER-ENTRY gate. Planner-generated backlog items are
+    already the Planner's decomposition and must not be routed back through
+    Manager again.
+    """
+    _emit_manager_event(mem, {
+        "type": "life.manager.started",
+        "agent_layer": "manager",
+        "objective": body,
+        "text": "manager routing user task",
+    })
+    try:
+        runner = _ensure_manager_runner(chat_state, mem)
+        mgr = getattr(runner, "manager", None) if runner is not None else None
+        if mgr is None:
+            from ..manager import Manager
+
+            mgr = Manager(
+                project_root=getattr(mem, "project_worktree", None) or Path.cwd(),
+                runner=None,
+            )
+        division = mgr.divide(body, ask_on_new_domain=False)
+        _emit_manager_event(mem, {
+            "type": "life.manager.completed",
+            "agent_layer": "manager",
+            "objective": body,
+            "vertical": getattr(division, "vertical", ""),
+            "kind": getattr(division, "kind", ""),
+            "regular": bool(getattr(division, "regular", False)),
+            "stages": list(getattr(division, "stages", []) or []),
+            "text": f"manager routed user task to {getattr(division, 'vertical', '')}",
+        })
+    except Exception as exc:  # noqa: BLE001
+        _emit_manager_event(mem, {
+            "type": "life.manager.failed",
+            "agent_layer": "manager",
+            "objective": body,
+            "error": f"{type(exc).__name__}: {exc}",
+            "text": "manager routing user task failed",
+        })
+
+
 def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                    *, on_phase: Any = None) -> str | None:
     """The Manager is the FIRST responder to every operator line. Classify the
@@ -1366,6 +1419,7 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
             pass
         body = f"{prior}\n\n操作员答复：{body}"
     chat_state["last_objective"] = body
+    _manager_divide_user_task(mem, body, chat_state)
     pending = mem.backlog.pending()
     head_priority = min((it.priority for it in pending), default=100)
     free_priority = min(head_priority - 1, -1)
@@ -2686,6 +2740,7 @@ def dispatch_command(line, raw, mem, chat_state, global_root, theme) -> str | No
             if not body:
                 print(theme.gray("/add: empty objective after flags"))
                 return None
+            _manager_divide_user_task(mem, body, chat_state)
             _add_only(
                 mem,
                 body,
