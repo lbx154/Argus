@@ -111,3 +111,68 @@ def test_left_box_handles_cjk_content() -> None:
     # Just ensure it doesn't crash and the CJK survives.
     assert "word_freq.py" in out
     assert "创建" in out
+
+
+# ── truecolor palette + gradient ──────────────────────────────────────────
+
+def test_truecolor_off_by_default_keeps_8color() -> None:
+    """A plain enabled theme (tests, basic TTY) still emits 8-colour SGR so
+    downstream expectations and low-capability terminals are unaffected."""
+    t = Theme(enabled=True)  # truecolor defaults False
+    assert t.truecolor is False
+    assert t.red("x") == "\x1b[31mx\x1b[0m"
+    assert t.cyan("x") == "\x1b[36mx\x1b[0m"
+
+
+def test_truecolor_emits_24bit_sgr() -> None:
+    t = Theme(enabled=True, truecolor=True)
+    # Catppuccin Mocha red #f38ba8 = (243,139,168)
+    assert t.red("x") == "\x1b[38;2;243;139;168mx\x1b[0m"
+    # magenta maps to mauve #cba6f7 = (203,166,247)
+    assert t.magenta("x") == "\x1b[38;2;203;166;247mx\x1b[0m"
+    # bold_blue → bold + mocha blue #89b4fa
+    out = t.bold_blue("x")
+    assert out.startswith("\x1b[1m\x1b[38;2;137;180;250m") and out.endswith("\x1b[0m")
+
+
+def test_gradient_plain_when_disabled() -> None:
+    t = Theme(enabled=False)
+    assert t.gradient("ARGUS") == "ARGUS"
+
+
+def test_gradient_falls_back_to_accent_without_truecolor() -> None:
+    t = Theme(enabled=True, truecolor=False)
+    out = t.gradient("ARGUS")
+    # Single bold accent span (no per-char 24-bit codes).
+    assert out.startswith("\x1b[1m\x1b[35m") and out.endswith("\x1b[0m")
+    assert out.count("\x1b[38;2;") == 0
+
+
+def test_gradient_truecolor_is_per_character() -> None:
+    t = Theme(enabled=True, truecolor=True)
+    out = t.gradient("ABCDE")
+    # One 24-bit fg code per non-space character.
+    assert out.count("\x1b[38;2;") == 5
+    # First and last chars differ in hue (a real ramp, not a flat fill).
+    import re
+    codes = re.findall(r"\x1b\[38;2;(\d+;\d+;\d+)m", out)
+    assert codes[0] != codes[-1]
+
+
+def test_gradient_leaves_spaces_uncolored() -> None:
+    t = Theme(enabled=True, truecolor=True)
+    out = t.gradient("A B")
+    # Two inked chars → two colour codes; the space is untouched.
+    assert out.count("\x1b[38;2;") == 2
+
+
+def test_supports_truecolor_reads_colorterm(monkeypatch) -> None:
+    from argus_skill.cli import theme as theme_mod
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setenv("COLORTERM", "truecolor")
+    assert theme_mod.supports_truecolor() is True
+    monkeypatch.setenv("COLORTERM", "")
+    monkeypatch.delenv("VTE_VERSION", raising=False)
+    monkeypatch.setenv("TERM", "dumb")
+    monkeypatch.setenv("TERM_PROGRAM", "")
+    assert theme_mod.supports_truecolor() is False

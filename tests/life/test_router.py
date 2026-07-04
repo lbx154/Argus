@@ -198,9 +198,23 @@ def test_classify_default_block_is_byte_identical_in_call() -> None:
 def test_build_chat_prompt_contains_user_message() -> None:
     out = build_chat_prompt(objective="你好")
     assert "你好" in out
-    assert "CHAT mode" in out
-    assert "Verification" not in out or "OFF" in out
+    assert "argus-skill MANAGER" in out
+    # Chat is now a capable acting turn: tools are ALLOWED when the message needs
+    # them (no more hard "do not run any tool" lockdown).
+    assert "MAY run shell commands" in out
+    assert "Do NOT invoke any tool" not in out
     assert "## Required output" not in out
+
+
+def test_build_chat_prompt_allows_tools_and_engineer_handoff() -> None:
+    """The conversational front door must let the manager execute commands and
+    escalate real work to the engineer→reviewer pipeline — not refuse."""
+    out = build_chat_prompt(objective="看看现在 GPU 占用")
+    assert "MAY run shell commands" in out
+    assert "engineer" in out.lower()
+    # no leftover prose-only lockdown
+    assert "prose only" not in out.lower()
+    assert "reviewer is OFF" not in out
 
 
 def test_build_chat_prompt_self_identifies_as_manager_with_examples() -> None:

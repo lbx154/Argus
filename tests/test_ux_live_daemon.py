@@ -86,6 +86,21 @@ def test_daemon_mode_cell_no_daemon_is_honest(tmp_path):
     assert "in-process" not in cell  # the old misleading wording is gone
 
 
+def test_daemon_mode_cell_uses_no_ambiguous_width_emoji():
+    """Regression: the banner daemon cell must use the plain ``●`` status dot,
+    NOT an emoji (⚡ ⚙ 💭 ❓ 🚀 …). Emoji have East-Asian ambiguous/wide width and
+    corrupt this tightly-packed status line's column math next to CJK text — the
+    exact "字符错位" class the tui glyph test guards against, which slipped into
+    the alive branch here."""
+    import inspect
+    from argus_skill.apps import _runtime
+
+    source = inspect.getsource(_runtime._format_daemon_mode_cell)
+    for glyph in ("⚡", "⚙", "💭", "❓", "🚀", "▸"):
+        assert glyph not in source, f"banned glyph {glyph!r} in daemon-cell renderer"
+    assert "● daemon" in source  # the safe indicator, consistent with /roles
+
+
 # ---- /daemons + /attach (UX-G) ------------------------------------------
 
 def test_daemons_cmd_lists_live_and_attach_rejects_unknown(tmp_path, capsys):

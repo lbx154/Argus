@@ -1,0 +1,175 @@
+"""Tests for the inline animated status line (cli/live_status.py).
+
+Deterministic: every test injects an explicit ``stream``, ``clock`` and
+``enabled`` so nothing depends on real TTY detection, wall-clock timing, or the
+background thread's scheduling.
+"""
+from __future__ import annotations
+
+import io
+import time
+
+import pytest
+
+from argus_skill.cli.live_status import (
+    FRAMES,
+    LiveStatus,
+    _fmt_elapsed,
+    _spinner_enabled,
+)
+from argus_skill.cli.theme import Theme
+
+
+# ── enable / disable gating ──────────────────────────────────────────────
+
+def test_disabled_when_stream_not_a_tty():
+    ls = LiveStatus("x", stream=io.StringIO())
+    assert ls.enabled is False
+
+
+def test_disabled_respects_no_color(monkeypatch):
+    class _TTY(io.StringIO):
+        def isatty(self):  # noqa: D401
+            return True
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    assert _spinner_enabled(_TTY()) is False
+
+
+def test_disabled_respects_opt_out_env(monkeypatch):
+    class _TTY(io.StringIO):
+        def isatty(self):
+            return True
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("ARGUS_SKILL_NO_SPINNER", "1")
+    assert _spinner_enabled(_TTY()) is False
+
+
+def test_enabled_on_real_tty(monkeypatch):
+    class _TTY(io.StringIO):
+        def isatty(self):
+            return True
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_NO_SPINNER", raising=False)
+    assert _spinner_enabled(_TTY()) is True
+
+
+def test_disabled_context_writes_nothing():
+    buf = io.StringIO()
+    with LiveStatus("thinking…", stream=buf, enabled=False) as ls:
+        assert ls.enabled is False
+    assert buf.getvalue() == ""  # byte-for-byte no-op when disabled
+
+
+# ── elapsed formatting ───────────────────────────────────────────────────
+
+@pytest.mark.parametrize("secs,expected", [
+    (0, "0s"), (3, "3s"), (59, "59s"), (60, "1m 0s"), (75, "1m 15s"), (605, "10m 5s"),
+])
+def test_fmt_elapsed(secs, expected):
+    assert _fmt_elapsed(secs) == expected
+
+
+# ── frame rendering ──────────────────────────────────────────────────────
+
+def test_render_frame_has_spinner_label_elapsed_and_erase():
+    ls = LiveStatus("思考中…", stream=io.StringIO(), enabled=True, clock=lambda: 3.0)
+    ls._start = 0.0
+    frame = ls.render_frame()
+    assert frame.startswith("\r\x1b[2K")     # erases the line first
+    assert FRAMES[0] in frame                # current spinner glyph
+    assert "思考中…" in frame                 # the label
+    assert "3s" in frame                     # elapsed
+    assert "Ctrl-C to cancel" in frame       # hint
+
+
+def test_render_frame_advances_spinner_glyph():
+    ls = LiveStatus("x", stream=io.StringIO(), enabled=True, clock=lambda: 0.0)
+    ls._start = 0.0
+    ls._frame = 0
+    assert FRAMES[0] in ls.render_frame()
+    ls._frame = 3
+    assert FRAMES[3] in ls.render_frame()
+
+
+def test_render_frame_theme_colors_applied():
+    ls = LiveStatus("x", theme=Theme(enabled=True), stream=io.StringIO(),
+                    enabled=True, clock=lambda: 1.0)
+    ls._start = 0.0
+    assert "\x1b[" in ls.render_frame()  # ANSI colour codes present
+
+
+def test_render_frame_plain_without_theme():
+    ls = LiveStatus("x", theme=None, stream=io.StringIO(),
+                    enabled=True, clock=lambda: 1.0)
+    ls._start = 0.0
+    frame = ls.render_frame()
+    # Only the erase-line control sequence — no colour SGR codes.
+    assert frame.startswith("\r\x1b[2K")
+    assert "\x1b[33m" not in frame and "\x1b[1m" not in frame
+
+
+# ── phrase rotation + live update ────────────────────────────────────────
+
+def test_phrases_rotate_over_time():
+    clock = {"t": 0.0}
+    ls = LiveStatus(
+        "a", stream=io.StringIO(), enabled=True,
+        phrases=["one", "two", "three"], phrase_interval=5.0,
+        clock=lambda: clock["t"],
+    )
+    ls._start = 0.0
+    clock["t"] = 0.0
+    assert ls._current_label() == "one"
+    clock["t"] = 5.0
+    assert ls._current_label() == "two"
+    clock["t"] = 12.0  # 12 / 5 = 2 → third phrase
+    assert ls._current_label() == "three"
+    clock["t"] = 16.0  # 16 / 5 = 3 → index 3 % 3 = 0 → wraps to first
+    assert ls._current_label() == "one"
+
+
+def test_update_changes_label_when_no_phrases():
+    ls = LiveStatus("first", stream=io.StringIO(), enabled=True, clock=lambda: 0.0)
+    ls._start = 0.0
+    assert ls._current_label() == "first"
+    ls.update("second")
+    assert ls._current_label() == "second"
+
+
+def test_empty_label_falls_back():
+    ls = LiveStatus("", stream=io.StringIO(), enabled=True, clock=lambda: 0.0)
+    assert ls._current_label() == "working…"
+
+
+# ── context manager lifecycle (real thread, real stream) ─────────────────
+
+def test_enabled_context_animates_then_erases():
+    buf = io.StringIO()
+    with LiveStatus("thinking…", stream=buf, enabled=True, interval=0.02):
+        time.sleep(0.1)  # let the daemon thread paint a few frames
+    out = buf.getvalue()
+    assert "\x1b[?25l" in out          # cursor hidden on enter
+    assert "thinking…" in out          # animated at least once
+    assert out.endswith("\r\x1b[2K\x1b[?25h")  # erased + cursor restored on exit
+
+
+def test_exit_does_not_suppress_exceptions():
+    buf = io.StringIO()
+    with pytest.raises(ValueError):
+        with LiveStatus("x", stream=buf, enabled=True, interval=0.02):
+            raise ValueError("boom")
+    # even on exception the line is cleaned up
+    assert buf.getvalue().endswith("\r\x1b[2K\x1b[?25h")
+
+
+def test_broken_stream_does_not_crash():
+    class _Broken(io.StringIO):
+        def write(self, *_a):  # noqa: D401
+            raise OSError("pipe closed")
+
+    # Must not raise even though every write fails.
+    with LiveStatus("x", stream=_Broken(), enabled=True, interval=0.02):
+        time.sleep(0.05)

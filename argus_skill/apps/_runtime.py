@@ -896,6 +896,7 @@ class _SkillLoopRunner:
         objective: str,
         sink: EventSink,
         seed_thread_id: str | None = None,
+        phase_cb: Any = None,
     ) -> "_Outcome | None":
         # Chat fast-path (operator-REPL/Manager-front-end-only).
         # Conversational input (greetings, capability questions, acks) doesn't
@@ -939,15 +940,26 @@ class _SkillLoopRunner:
         # backlog / planner work NEVER takes chat or simple — it always runs the
         # full pipeline with the reviewer gate. The operator is the reviewer for
         # an interactive simple one-shot.
+        def _phase(label: str) -> None:
+            if callable(phase_cb):
+                try:
+                    phase_cb(label)
+                except Exception:  # noqa: BLE001 — a UI callback must never break triage
+                    pass
+
+        _phase("判断闲聊还是任务…")
         route = self.manager.route(objective, run_exec=_classify_run_exec)
         if route == "chat":
+            _phase("组织回应…")
             return self._chat_quick_reply(
                 objective=objective, sink=sink, seed_thread_id=seed_thread_id,
             )
         if route == "simple":
+            _phase("直接执行一次性小任务…")
             return self._simple_quick_reply(
                 objective=objective, sink=sink, seed_thread_id=seed_thread_id,
             )
+        _phase("转交后台执行（复杂任务）…")
         return None  # complex → full mission pipeline
 
     def chat_reply_if_conversational(
@@ -956,6 +968,7 @@ class _SkillLoopRunner:
         objective: str,
         sink: EventSink,
         seed_thread_id: str | None = None,
+        phase_cb: Any = None,
     ) -> bool:
         """Front-end hook: classify + (if chat/simple) reply in-band.
 
@@ -963,11 +976,15 @@ class _SkillLoopRunner:
         reaches the backlog. Returns True iff a direct reply was emitted to
         ``sink`` (so the caller can skip enqueueing); False means "this is
         complex work — enqueue it for the daemon".
+
+        ``phase_cb(label)`` is invoked at the real phase transitions (classify →
+        reply) so a live status line can reflect the actual step.
         """
         return self._maybe_chat_outcome(
             objective=objective,
             sink=sink,
             seed_thread_id=seed_thread_id,
+            phase_cb=phase_cb,
         ) is not None
 
     def execute(
@@ -1561,10 +1578,15 @@ _TEST_DAEMON_PLANNER_SCRIPT_ENV = "ARGUS_SKILL_DAEMON_TEST_PLANNER_SCRIPT"
 def _format_daemon_mode_cell(theme, mem: _SplitMemory) -> str:  # noqa: ANN001
     """Banner ``executor`` cell — the honest one-line daemon state.
 
-    Shows ``life ⚡ daemon: pid X · up Y`` when a 7×24 worker is draining this
-    project's backlog, or ``life · no daemon — tasks queue until --daemon`` when
-    not. (The old "in-process" wording lied: since the REPL/daemon fusion the
-    REPL never executes missions itself — only a daemon drains the backlog.)
+    Shows ``life ● daemon: pid X · up Y · draining`` when a 7×24 worker is
+    draining this project's backlog, or ``life · no daemon`` when not. (The old
+    "in-process" wording lied: since the REPL/daemon fusion the REPL never
+    executes missions itself — only a daemon drains the backlog.)
+
+    Uses the plain ``●`` status dot (as everywhere else — /roles, /daemons),
+    NOT an emoji: a lightning/gear/etc. emoji has East-Asian *ambiguous/wide*
+    width and desyncs column math next to the CJK text on this line, producing
+    the "字符错位" corruption the tui glyph test guards against.
     """
     try:
         from ..daemon.life_worker import read_daemon_status
@@ -1578,8 +1600,8 @@ def _format_daemon_mode_cell(theme, mem: _SplitMemory) -> str:  # noqa: ANN001
         uptime = _format_short_duration(status.uptime_seconds or 0.0)
         body = (
             f"{theme.bold('life')}  "
-            + theme.bold_green("⚡ daemon")
-            + theme.dim(f": pid {status.pid} · up {uptime} ▸ draining")
+            + theme.bold_green("● daemon")
+            + theme.dim(f": pid {status.pid} · up {uptime} · draining")
         )
         return body
     return (

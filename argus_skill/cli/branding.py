@@ -61,18 +61,27 @@ def _gradient_palette(theme: Theme) -> list[str]:
 
 
 def render_logo(*, theme: Theme) -> str:
-    """Render the logo, picking the variant that fits the terminal."""
+    """Render the logo, picking the variant that fits the terminal.
+
+    On a 24-bit terminal the whole block gets one smooth mauve→blue→teal
+    ramp shared across rows (each column the same hue, so the block letters
+    read as a single gradient wordmark). On a basic colour TTY it falls back
+    to the coarse per-row cyan→blue→mauve tri-tone.
+    """
     full_lines = LOGO_FULL.strip("\n").splitlines()
     full_w = max(len(ln) for ln in full_lines)
     if theme.width >= full_w:
         lines = full_lines
-        palette = _gradient_palette(theme)
     else:
         lines = LOGO_COMPACT.strip("\n").splitlines()
-        # Compact logo is only 5 rows tall; cycle the gradient.
-        full_palette = _gradient_palette(theme)
-        palette = full_palette[: len(lines)]
 
+    if getattr(theme, "truecolor", False):
+        # Smooth horizontal gradient shared across every row.
+        block_w = max(len(ln) for ln in lines)
+        return "\n".join(theme.gradient(ln, width=block_w) for ln in lines)
+
+    # Non-truecolor: coarse per-row tri-tone (cyan → blue → mauve).
+    palette = _gradient_palette(theme)
     out: list[str] = []
     for i, ln in enumerate(lines):
         method = palette[i % len(palette)]

@@ -90,6 +90,12 @@ def discover_life_dirs(roots: list[Path] | None = None) -> list[Path]:
 
 
 def _resolve_project_root(life_dir: Path) -> Path | None:
+    session = _read_json(life_dir / "session.json")
+    cwd = str(session.get("cwd") or "").strip()
+    if cwd:
+        p = Path(cwd)
+        if p.exists():
+            return p
     pm = life_dir / "project.md"
     if not pm.exists():
         return None
@@ -889,8 +895,8 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"
   --violet:#7c5cff; --violet-soft:#ece7ff;
   --sans:'Outfit','Noto Sans SC',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
 }
-*{box-sizing:border-box;margin:0;padding:0}
-body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;
+*{box-sizing:border-box;margin:0;padding:0;min-width:0}
+body{min-height:100vh;overflow-x:hidden;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;
   background:radial-gradient(70% 50% at 50% -5%,#e9f1ff 0%,transparent 70%),var(--bg);background-attachment:fixed}
 .wrap{max-width:1240px;margin:0 auto;padding:30px clamp(16px,3vw,40px) 70px}
 /* 顶栏 */
@@ -934,7 +940,7 @@ body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sa
 /* 阶段流水线 */
 .section-label{font-size:12px;color:var(--muted);font-weight:500;margin-bottom:8px}
 .pipe{display:flex;gap:6px;flex-wrap:wrap}
-.pipe .st{flex:1;min-width:52px;text-align:center;font-size:12px;padding:8px 4px;border-radius:9px;
+.pipe .st{flex:0 1 auto;min-width:64px;max-width:130px;text-align:center;font-size:12px;padding:8px 12px;border-radius:9px;
   border:1px solid var(--line);color:var(--dim);background:var(--soft);font-weight:500;position:relative}
 .pipe .st.done{color:var(--green);background:var(--green-soft);border-color:transparent}
 .pipe .st.done::after{content:'✓';position:absolute;top:-6px;right:-3px;font-size:11px;background:var(--green);color:#fff;border-radius:50%;width:15px;height:15px;line-height:15px}
@@ -948,23 +954,15 @@ body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sa
 .loop .ag.active{color:#fff;background:linear-gradient(135deg,var(--blue),#5b96ff);border-color:transparent;
   font-weight:600;box-shadow:0 3px 10px rgba(47,109,240,.25)}
 .loop .arr{color:var(--dim);font-size:15px}
-/* 团队智能体池 */
-.teampool{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:9px;font-size:12px;color:var(--muted)}
-.teampool .pill{padding:3px 11px;border-radius:999px;background:var(--blue-soft);color:var(--blue-d);font-weight:700;font-family:var(--mono)}
-.teampool .pill.run{background:var(--green-soft);color:var(--green)}
-.agents{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:7px;max-height:264px;overflow-y:auto}
-.agent{display:flex;flex-direction:column;gap:1px;padding:7px 10px;background:var(--soft);border:1px solid var(--line);border-radius:9px;border-left:3px solid var(--blue)}
-.agent .aid{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--blue-d)}
-.agent .ak{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.agent .aage{font-size:10px;color:var(--dim);font-family:var(--mono)}
-/* ── team war-room: 4-role command center + 24-teammate live grid ── */
+/* ── team war-room: 4-role command center ── */
 .warroom{display:flex;gap:9px;flex-wrap:wrap;margin:2px 0 13px}
 .wr{flex:1;min-width:235px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 13px;display:flex;gap:12px;align-items:center}
 .wr .wr-body{flex:1;min-width:0}
-.wr .guy{flex:none;transform:scale(1.12)}
-.wr.mgr .guy .body{background:var(--amber)} .wr.mgr .guy .legL,.wr.mgr .guy .legR{background:#9a6a0a}
-.wr.plan .guy .body{background:var(--blue-d)} .wr.plan .guy .legL,.wr.plan .guy .legR{background:#15368a}
-.wr.score .guy .body{background:var(--green)} .wr.score .guy .legL,.wr.score .guy .legR{background:#176c45}
+.wr-badge{flex:none;width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+  font-size:14px;font-weight:700;color:#fff}
+.wr.mgr .wr-badge{background:linear-gradient(135deg,var(--amber),#f0b23a)}
+.wr.plan .wr-badge{background:linear-gradient(135deg,var(--blue-d),var(--blue))}
+.wr.score .wr-badge{background:linear-gradient(135deg,var(--green),#3ecf85)}
 .wr .wr-role{font-size:10.5px;font-weight:700;letter-spacing:.6px;margin-bottom:6px;display:flex;align-items:center;gap:7px;text-transform:uppercase}
 .wr.mgr .wr-role{color:var(--violet)} .wr.plan .wr-role{color:var(--blue-d)} .wr.score .wr-role{color:var(--green)}
 .wr .wr-role .ic{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 20%,transparent)}
@@ -973,70 +971,25 @@ body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sa
 .wr .wr-nums{display:flex;gap:18px;margin-top:5px}
 .wr .wr-nums b{font-family:var(--mono);font-size:19px;color:var(--ink);line-height:1.1}
 .wr .wr-nums span{font-size:10.5px;color:var(--dim);display:block;margin-top:1px}
-.tmgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:9px;max-height:600px;overflow-y:auto;padding:2px}
-.tm{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:10px 12px;border-top:3px solid var(--line)}
-.tm.eng{border-top-color:var(--blue)} .tm.rev{border-top-color:var(--violet)}
-.tm.win{box-shadow:0 0 0 1.5px var(--green) inset}
-.tm .tm-h{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
-.tm .tm-k{font-size:12.5px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tm .tm-rnd{font-family:var(--mono);font-size:10px;color:var(--dim);white-space:nowrap}
-.tm-pipe{display:flex;align-items:center;gap:5px;margin:8px 0 7px}
-.tm-pipe .r{font-size:10px;font-weight:700;padding:3px 0;border-radius:7px;border:1px solid var(--line);color:var(--dim);background:var(--soft);flex:1;text-align:center}
-.tm-pipe .r.on.eng{color:#fff;background:linear-gradient(135deg,var(--blue),#5b96ff);border-color:transparent}
-.tm-pipe .r.on.rev{color:#fff;background:linear-gradient(135deg,var(--violet),#9b7bff);border-color:transparent}
-.tm-pipe .ar{color:var(--dim);font-size:12px}
-.tm .tm-act{font-size:11px;color:var(--muted);line-height:1.42;height:31px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.tm .tm-f{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-family:var(--mono)}
-.tm .tm-ms{font-size:12px;color:var(--ink);font-weight:600}
-.tm .tm-ms .lab{color:var(--dim);font-weight:400;font-size:10px}
-.tm .spd{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:var(--green-soft);color:var(--green)}
-.tm .spd.flat{background:var(--soft);color:var(--dim)}
-/* ── pixel-art research lab: a little character per agent ── */
-.lab{background:linear-gradient(#eef4ff,#e3ecfb);border:1px solid var(--line);border-radius:14px;padding:14px 12px 10px;
-  background-image:linear-gradient(#eef4ff,#e3ecfb),repeating-linear-gradient(0deg,transparent 0 23px,#0001 23px 24px),repeating-linear-gradient(90deg,transparent 0 23px,#0001 23px 24px);
-  image-rendering:pixelated}
-.wsgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:11px}
-.ws{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 5px 7px;background:#ffffffcc;border:1px solid var(--line);
-  border-radius:10px;border-bottom:3px solid var(--line);position:relative}
-.ws.eng{border-bottom-color:var(--blue)} .ws.rev{border-bottom-color:var(--violet)}
-.ws.win{box-shadow:0 0 0 2px var(--green) inset;background:#f3fdf7cc}
-.ws .bubble{font-size:17px;line-height:1;height:21px;filter:drop-shadow(0 1px 0 #0002)}
-.ws.act-thinking .bubble{animation:bpulse 1.5s ease-in-out infinite}
-.ws.act-evaluating .bubble{animation:bspin 1.2s linear infinite}
-.ws.act-profiling .bubble,.ws.act-reading .bubble{animation:bbob 1.5s ease-in-out infinite}
-.guy{position:relative;width:26px;height:30px;animation:hop 2.4s ease-in-out infinite}
-.guy i{position:absolute;display:block;image-rendering:pixelated}
-.guy .hair{left:6px;top:-1px;width:14px;height:5px;background:#5a3a22;border-radius:3px 3px 0 0}
-.guy .head{left:7px;top:2px;width:12px;height:10px;background:#f3c79a;border-radius:2px;
-  background-image:radial-gradient(circle 1.1px at 4px 5px,#23344f 99%,transparent),radial-gradient(circle 1.1px at 9px 5px,#23344f 99%,transparent)}
-.guy .body{left:5px;top:12px;width:16px;height:11px;border-radius:3px;background:var(--blue)}
-.guy .armL,.guy .armR{top:13px;width:3px;height:8px;background:#f3c79a;border-radius:2px}
-.guy .armL{left:3px} .guy .armR{right:3px}
-.guy .legL,.guy .legR{top:22px;width:5px;height:7px;background:#34507a;border-radius:0 0 2px 2px}
-.guy .legL{left:6px} .guy .legR{right:6px}
-.ws.rev .guy .body{background:var(--violet)} .ws.rev .guy .legL,.ws.rev .guy .legR{background:#5b3aa8}
-.ws.act-coding .guy .armL{animation:tapA .42s steps(2,jump-none) infinite}
-.ws.act-coding .guy .armR{animation:tapB .42s steps(2,jump-none) infinite}
-.ws.act-diffing .guy .armR{animation:tapB .55s steps(2,jump-none) infinite}
-.ws.act-reading .guy{animation:lean 2.4s ease-in-out infinite}
-.ws .desk{margin-top:3px;width:36px;height:21px;background:#bcd4f2;border:2px solid #34507a;border-radius:3px;
-  display:flex;align-items:center;justify-content:center;position:relative}
-.ws .desk .scr{font-family:var(--mono);font-size:8px;font-weight:700;color:#13357f}
-.ws.act-evaluating .desk{animation:glow 1.1s ease-in-out infinite}
-.ws .desk::after{content:'';position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);width:11px;height:4px;background:#34507a;border-radius:0 0 2px 2px}
-.ws .k{font-size:11px;font-weight:700;color:var(--ink);margin-top:7px;text-align:center;line-height:1.15}
-.ws .doing{font-size:10.5px;color:var(--muted);text-align:center}
-.ws .doing b{color:var(--ink)} .ws.rev .doing .rv{color:var(--violet);font-weight:700}
-.ws .meta{display:flex;gap:6px;align-items:center;font-family:var(--mono);font-size:10px;color:var(--dim);margin-top:1px}
-.ws .meta .spd2{font-weight:700;color:var(--green)}
-@keyframes hop{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
-@keyframes bbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
-@keyframes bpulse{0%,100%{opacity:.5;transform:scale(.9)}50%{opacity:1;transform:scale(1.12)}}
-@keyframes bspin{to{transform:rotate(360deg)}}
-@keyframes tapA{from{transform:translateY(0)}to{transform:translateY(-3px)}}
-@keyframes tapB{from{transform:translateY(-3px)}to{transform:translateY(0)}}
-@keyframes lean{0%,100%{transform:rotate(0)}50%{transform:rotate(4deg)}}
-@keyframes glow{0%,100%{box-shadow:0 0 0 0 var(--green-soft)}50%{box-shadow:0 0 7px 1px var(--green)}}
+/* ── live agent roster: flat activity cards, no sprite/emoji dependency ── */
+.lab{background:var(--soft);border:1px solid var(--line);border-radius:14px;padding:12px}
+.acgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:9px}
+.acard{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--blue);border-radius:10px;padding:10px 12px}
+.acard.rev{border-left-color:var(--violet)}
+.acard.win{box-shadow:0 0 0 1.5px var(--green) inset;background:var(--green-soft)}
+.acard .ac-top{display:flex;align-items:center;gap:7px}
+.acard .ac-role{flex:none;width:22px;height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:700;color:#fff;background:var(--blue)}
+.acard.rev .ac-role{background:var(--violet)}
+.acard .ac-kernel{flex:1;min-width:0;font-size:12.5px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acard .ac-act{display:inline-block;margin-top:8px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--blue-soft);color:var(--blue-d)}
+.acard.rev .ac-act{background:var(--violet-soft);color:var(--violet)}
+.acard .ac-foot{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+.acard .ac-ms{color:var(--ink);font-weight:600}
+.acard .ac-spd{font-weight:700;color:var(--green)}
+.section-label .lgd{display:inline-flex;align-items:center;gap:4px;margin-left:10px;font-weight:500}
+.section-label .lgd::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--blue)}
+.section-label .lgd.rev::before{background:var(--violet)}
 /* 指标 chips */
 .chips{display:flex;gap:10px;flex-wrap:wrap}
 .chip{flex:1;min-width:78px;padding:13px 14px;background:var(--soft);border-radius:11px;text-align:center}
@@ -1049,7 +1002,7 @@ body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sa
 .lb .row:last-child{border-bottom:none}
 .lb .row.ours{background:var(--green-soft);font-weight:600}
 .lb .row.ref{color:var(--muted)}
-.lb .row .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:64%}
+.lb .row .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:64%;min-width:0}
 .lb .row .sc{font-family:var(--mono)}
 .lb .row .tagm{font-size:10px;padding:1px 7px;border-radius:999px;margin-left:6px}
 .lb .row.ours .tagm{background:var(--green);color:#fff}
@@ -1060,11 +1013,11 @@ body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sa
 .bl .it .s.running{background:var(--blue-soft);color:var(--blue-d)}
 .bl .it .s.failed{background:var(--red-soft);color:var(--red)}
 .bl .it .s.pending{background:var(--soft);color:var(--muted)}
-.bl .it .t{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bl .it .t{flex:1;min-width:0;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ev{max-height:140px;overflow-y:auto;border:1px solid var(--line);border-radius:11px;padding:8px 12px;background:var(--soft)}
 .ev .e{display:flex;gap:9px;padding:3px 0;font-size:12px}
 .ev .e .ty{flex-shrink:0;width:108px;color:var(--blue);font-family:var(--mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ev .e .tx{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev .e .tx{flex:1;min-width:0;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .foot{margin-top:28px;font-size:12px;color:var(--dim);text-align:center;font-family:var(--mono)}
 .empty{color:var(--dim);font-size:13px;padding:6px 0}
 /* 可点击卡片 + 触感 */
@@ -1109,14 +1062,14 @@ body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sa
 .tl .ti:first-child{border-top:none}
 .tl .ti .dot{width:8px;height:8px;border-radius:50%}
 .tl .ti .dot.ok{background:var(--green)} .tl .ti .dot.bad{background:var(--red)}
-.tl .ti .txt{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl .ti .txt{min-width:0;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tl .ti .cost{font-family:var(--mono);color:var(--muted);font-size:11px;white-space:nowrap}
 /* 实验逐seed */
 .att{border-top:1px solid var(--line);padding:11px 0}
 .att:first-child{border-top:none}
 .att .top{display:flex;justify-content:space-between;align-items:center;gap:10px}
-.att .top .nm{font-size:13px;font-weight:600;font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.att .top .mean{font-family:var(--mono);font-weight:700;color:var(--blue-d);white-space:nowrap}
+.att .top .nm{flex:1;min-width:0;font-size:13px;font-weight:600;font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att .top .mean{flex-shrink:0;font-family:var(--mono);font-weight:700;color:var(--blue-d);white-space:nowrap}
 .att .top .pm{font-size:10px;background:var(--amber-soft);color:var(--amber);padding:1px 7px;border-radius:999px;margin-left:6px}
 .att .seeds{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
 .att .seeds .sd{font-family:var(--mono);font-size:10.5px;color:var(--muted);background:var(--soft);padding:2px 7px;border-radius:6px}
@@ -1125,7 +1078,7 @@ body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sa
 .list .li{padding:7px 0;border-top:1px solid var(--line);font-size:12.5px;display:flex;gap:9px}
 .list .li:first-child{border-top:none}
 .list .li .k{flex-shrink:0;color:var(--blue);font-family:var(--mono);font-size:11.5px;min-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.list .li .v{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.list .li .v{flex:1;min-width:0;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* 骨架屏 */
 .sk{background:linear-gradient(90deg,var(--soft) 25%,#e3ebf7 50%,var(--soft) 75%);background-size:200% 100%;
   animation:shimmer 1.3s infinite;border-radius:8px}
@@ -1140,8 +1093,8 @@ body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--sa
 .artf{padding:7px 0;border-top:1px solid var(--line)}
 .artf:first-child{border-top:none}
 .artf .afh{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
-.artf .afn{font-family:var(--mono);font-size:11.5px;color:var(--blue-d);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.artf .afk{font-size:10px;color:var(--muted);white-space:nowrap}
+.artf .afn{flex:1;min-width:0;font-family:var(--mono);font-size:11.5px;color:var(--blue-d);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.artf .afk{flex-shrink:0;font-size:10px;color:var(--muted);white-space:nowrap}
 .artf .afs{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.5;max-height:54px;overflow:hidden}
 .art2{font-size:12px;color:var(--muted);padding:4px 0}
 /* prefers-reduced-motion (mandatory — taste §6.B, Impeccable, fdpro §2):
@@ -1195,33 +1148,29 @@ function card(d){
   let teamsBlock='';
   if(tm.agents&&tm.agents.length){
     const fmt=v=>v==null?'—':(v<10?(+v).toFixed(4):(+v).toFixed(2));
-    const ACT={thinking:['💭','构思中'],reading:['📖','读代码/查资料'],coding:['⌨️','写内核'],profiling:['🔬','profile 内核'],evaluating:['🚀','跑官方评分'],reviewing:['🔍','评审裁决'],diffing:['🔀','对比/回退'],starting:['✨','启动中']};
-    const GUY='<div class="guy"><i class="hair"></i><i class="head"></i><i class="body"></i><i class="armL"></i><i class="armR"></i><i class="legL"></i><i class="legR"></i></div>';
+    const ACT_CN={thinking:'构思中',reading:'读代码 / 查资料',coding:'写内核',profiling:'profile 内核',evaluating:'跑官方评分',reviewing:'评审裁决',diffing:'对比 / 回退',starting:'启动中'};
     const cards=tm.agents.map(a=>{
       const win=a.speedup&&a.speedup>1.03, onR=a.role==='reviewer';
-      const ac=ACT[a.activity]||ACT.thinking;
       const ms=a.best!=null?fmt(a.best)+' ms':'基线中';
-      const spd=a.speedup?`<span class="spd2">${a.speedup}×</span>`:'';
-      return `<div class="ws ${onR?'rev':'eng'} act-${a.activity} ${win?'win':''}" title="${esc(a.action||'')}">
-        <div class="bubble">${ac[0]}</div>${GUY}
-        <div class="desk"><span class="scr">${esc((a.kernel||'').slice(0,3))}</span></div>
-        <div class="k">${esc(a.kernel)}</div>
-        <div class="doing">${onR?'<span class="rv">评审员·</span>':''}<b>${ac[1]}</b></div>
-        <div class="meta">${a.round!=null?'第'+a.round+'轮':''}<span>${ms}</span>${spd}</div></div>`;
+      const spd=a.speedup?`<span class="ac-spd">${a.speedup}×</span>`:'';
+      return `<div class="acard ${onR?'rev':''} ${win?'win':''}" title="${esc(a.action||'')}">
+        <div class="ac-top"><span class="ac-role">${onR?'评':'工'}</span><span class="ac-kernel">${esc(a.kernel)}</span></div>
+        <span class="ac-act">${ACT_CN[a.activity]||'构思中'}</span>
+        <div class="ac-foot"><span>${a.round!=null?'第'+a.round+'轮':''}</span><span class="ac-ms">${ms}</span>${spd}</div></div>`;
     }).join('');
-    const mgr=`<div class="wr mgr">${GUY}<div class="wr-body"><div class="wr-role"><span class="ic"></span>Manager · Curator 池</div>
+    const mgr=`<div class="wr mgr"><div class="wr-badge">M</div><div class="wr-body"><div class="wr-role"><span class="ic"></span>Manager · Curator 池</div>
       <div class="wr-nums"><span><b>${tm.running}</b>在岗</span><span><b>${tm.width||tm.running}</b>目标宽度</span></div>
       <div class="wr-sub">维持池满,teammate 死了自动补 · ${tm.state||'运行中'}</div></div></div>`;
-    const plan=`<div class="wr plan">${GUY}<div class="wr-body"><div class="wr-role"><span class="ic"></span>Planner · ${ROLE_CN[d.active_role]||'监督'}</div>
+    const plan=`<div class="wr plan"><div class="wr-badge">P</div><div class="wr-body"><div class="wr-role"><span class="ic"></span>Planner · ${ROLE_CN[d.active_role]||'监督'}</div>
       <div class="wr-main">${esc((d.current_action||'巡视全局…').slice(0,66))}</div>
       <div class="wr-sub">看全 ${tm.running} 路 · 重排优先级 · 跨 kernel 蒸馏过程数据</div></div></div>`;
-    const score=`<div class="wr score">${GUY}<div class="wr-body"><div class="wr-role"><span class="ic"></span>战绩 · 官方验证</div>
+    const score=`<div class="wr score"><div class="wr-badge">★</div><div class="wr-body"><div class="wr-role"><span class="ic"></span>战绩 · 官方验证</div>
       <div class="wr-nums"><span><b>${tm.improved||0}</b>已提速</span><span><b>${tm.best_speedup?tm.best_speedup+'×':'—'}</b>最佳加速</span></div>
       <div class="wr-sub">仅计 official=true 锁频背书的真实加速</div></div></div>`;
     teamsBlock=`<div><div class="section-label">作战室 · 四角色协作（Manager · Planner · Engineer ⇄ Reviewer）</div>
       <div class="warroom">${mgr}${plan}${score}</div>
-      <div class="section-label">研究所 · ${tm.running} 个小人实时作业（🔵 工程师 / 🟣 评审员，看头顶气泡知道在干嘛）</div>
-      <div class="lab"><div class="wsgrid">${cards}</div></div></div>`;
+      <div class="section-label">研究所 · ${tm.running} 个 agent 实时作业<span class="lgd">工程师</span><span class="lgd rev">评审员</span></div>
+      <div class="lab"><div class="acgrid">${cards}</div></div></div>`;
   }else if(tm.team_id){
     teamsBlock=`<div><div class="section-label">团队智能体</div><div class="empty">当前无在岗 agent（池子刚轮换/补充中，目标 ${tm.width||'?'} · ${tm.state||'—'}）</div></div>`;
   }

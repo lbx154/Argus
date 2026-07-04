@@ -1,0 +1,591 @@
+"""Resolve, for each agent role, its backend / model / reasoning-effort and its
+live activity — so the cockpit can show *what every role is doing right now*.
+
+Argus runs four cooperating roles (plus a curator pool):
+
+* **Manager**  — front door: classifies operator free text as chat vs task,
+  approves distilled skills, decides stage transitions.
+* **Planner**  — when the backlog is empty, plans the next batch of work
+  (continuous mode) and drives EMNLP finalization dispatch.
+* **Engineer** — L1: writes code / runs commands, one round at a time.
+* **Reviewer** — L2: structured done / continue / blocked verdict.
+
+Each role independently resolves three knobs at runtime, all surfaced here:
+
+* **backend** — ``ARGUS_SKILL_{ROLE}_BACKEND`` → ``ARGUS_SKILL_RUNNER_BACKEND``
+  → ``ARGUS_SKILL_LIFE_BACKEND`` → ``codex`` (one of Codex / Claude Code /
+  Copilot; ``memory`` in tests).
+* **model** — ``ARGUS_SKILL_{ROLE}_MODEL`` (``ARGUS_SKILL_PLAN_MODEL`` for the
+  planner) → the capability-vault route → the ``gpt-5.5`` default.
+* **reasoning effort** — ``ARGUS_SKILL_{ROLE}_REASONING_EFFORT`` → ``high``.
+  Only meaningful for reasoning models (gpt-5.x / o-series); shown as ``—`` for
+  a non-reasoning model.
+
+Live activity is derived from the project's ``events.jsonl`` tail (no new
+telemetry): the newest event mapped to each role, the role that is active right
+now, and a short human label of what it is doing.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+# Public role order (front-to-back through a mission's lifecycle).
+ROLES: tuple[str, ...] = ("manager", "planner", "engineer", "reviewer")
+
+_BACKEND_LABEL = {
+    "codex": "Codex",
+    "claude": "Claude Code",
+    "copilot": "Copilot",
+    "memory": "memory",
+}
+
+# Which vault route + env overrides each role reads for its model. The Manager's
+# REPL triage runner reuses the engineer route/effort (see repl._ensure_manager_
+# runner), so we mirror that here.
+_ROLE_ROUTE = {
+    "manager": "engineer",
+    "planner": "planner",
+    "engineer": "engineer",
+    "reviewer": "reviewer",
+    "curator": "curator",
+}
+_ROLE_MODEL_ENV = {
+    "manager": "ARGUS_SKILL_ENGINEER_MODEL",
+    "planner": "ARGUS_SKILL_PLAN_MODEL",
+    "engineer": "ARGUS_SKILL_ENGINEER_MODEL",
+    "reviewer": "ARGUS_SKILL_REVIEWER_MODEL",
+    "curator": "ARGUS_SKILL_CURATOR_MODEL",
+}
+_ROLE_EFFORT_ENV = {
+    "manager": "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
+    "planner": "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
+    "engineer": "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
+    "reviewer": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
+    "curator": "ARGUS_SKILL_CURATOR_REASONING_EFFORT",
+}
+
+_ROLE_DESC = {
+    "manager": "front door · 分流闲聊/任务、批复 skill",
+    "planner": "backlog 空时排新任务、终审分流",
+    "engineer": "L1 执行 · 写代码 / 跑命令",
+    "reviewer": "L2 验收 · done / continue / blocked",
+    "curator": "skill 池维护 · 蒸馏 / 回写",
+}
+
+
+# ── config resolution ─────────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class RoleConfig:
+    role: str
+    backend: str          # normalized: codex / claude / copilot / memory
+    backend_label: str    # display: Codex / Claude Code / Copilot
+    model: str
+    effort: str | None    # None → not a reasoning model (effort N/A)
+    desc: str
+
+
+def _normalize_backend(raw: str) -> str:
+    raw = (raw or "").strip().lower()
+    if raw == "memory":
+        return "memory"
+    try:
+        from ..agent_cli.runner_backend import normalize_runner_backend
+        return normalize_runner_backend(raw or None)
+    except Exception:  # noqa: BLE001 — never fail the display
+        return raw or "codex"
+
+
+def _resolve_backend(role: str, env: Mapping[str, str]) -> str:
+    for var in (
+        f"ARGUS_SKILL_{role.upper()}_BACKEND",
+        "ARGUS_SKILL_RUNNER_BACKEND",
+        "ARGUS_SKILL_LIFE_BACKEND",
+    ):
+        val = (env.get(var) or "").strip()
+        if val:
+            return _normalize_backend(val)
+    return "codex"
+
+
+def _resolve_model(role: str, env: Mapping[str, str]) -> str:
+    explicit = (env.get(_ROLE_MODEL_ENV.get(role, "")) or "").strip()
+    if explicit:
+        return explicit
+    shared = (env.get("ARGUS_SKILL_MODEL") or "").strip()
+    if shared:
+        return shared
+    try:
+        from ..tools.capability_vault import resolve_route_model
+        return resolve_route_model(_ROLE_ROUTE.get(role, "text"), env)
+    except Exception:  # noqa: BLE001
+        return "gpt-5.5"
+
+
+def is_reasoning_model(model: str) -> bool:
+    """True when ``model`` supports a reasoning-effort knob (gpt-5.x / o-series).
+
+    A non-reasoning model (e.g. a plain chat model) has no effort setting, so
+    the display shows ``—`` rather than a misleading value.
+    """
+    m = (model or "").strip().lower()
+    if not m:
+        return False
+    if m.startswith("gpt-5") or m.startswith("gpt5"):
+        return True
+    if re.match(r"^o[1-9]", m):  # o1 / o3 / o4 …
+        return True
+    return "reason" in m
+
+
+def _resolve_effort(role: str, model: str, env: Mapping[str, str]) -> str | None:
+    if not is_reasoning_model(model):
+        return None
+    val = (env.get(_ROLE_EFFORT_ENV.get(role, "")) or "").strip()
+    if val:
+        return val
+    if role == "manager":
+        # REPL Manager triage reuses the engineer effort; Manager._core else
+        # hardcodes "high".
+        val = (env.get("ARGUS_SKILL_ENGINEER_REASONING_EFFORT") or "").strip()
+        if val:
+            return val
+    return "high"  # runtime default across roles
+
+
+def resolve_role_config(role: str, *, env: Mapping[str, str] | None = None) -> RoleConfig:
+    env = env if env is not None else os.environ
+    backend = _resolve_backend(role, env)
+    model = _resolve_model(role, env)
+    effort = _resolve_effort(role, model, env)
+    return RoleConfig(
+        role=role,
+        backend=backend,
+        backend_label=_BACKEND_LABEL.get(backend, backend or "codex"),
+        model=model,
+        effort=effort,
+        desc=_ROLE_DESC.get(role, ""),
+    )
+
+
+def resolve_all_roles(
+    roles: Sequence[str] = ROLES, *, env: Mapping[str, str] | None = None
+) -> list[RoleConfig]:
+    return [resolve_role_config(r, env=env) for r in roles]
+
+
+# ── live activity (from events.jsonl) ─────────────────────────────────────
+
+@dataclass(frozen=True)
+class RoleActivity:
+    role: str
+    active: bool          # the role acting right now
+    label: str            # short "what it is doing"
+    status: str           # running / idle / done / blocked / …
+    age_s: float | None   # seconds since the driving event
+
+
+def _tail_jsonl(path: Path, *, limit: int = 200) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    out: list[dict[str, Any]] = []
+    for ln in lines[-limit:]:
+        ln = ln.strip()
+        if not ln:
+            continue
+        try:
+            out.append(json.loads(ln))
+        except json.JSONDecodeError:
+            continue
+    return out
+
+
+def _event_role(event: dict[str, Any]) -> str | None:
+    layer = event.get("agent_layer")
+    if isinstance(layer, str) and layer in ROLES:
+        return layer
+    etype = str(event.get("type") or "")
+    if etype.startswith("life.planner."):
+        return "planner"
+    if etype.startswith("round.review") or etype.startswith("reviewer"):
+        return "reviewer"
+    if etype in {"life.mission.started", "loop.start", "round.start",
+                 "round.main.completed", "loop.done", "engineer.progress"} \
+            or etype.startswith("engineer"):
+        return "engineer"
+    if etype.startswith("manager") or etype.startswith("life.manager"):
+        return "manager"
+    return None
+
+
+_CMD_PREFIXES = ("/bin/bash", "./", "bash", "python", "cd ", "rg ", "sed ",
+                 "find ", "ls ", "cat ", "grep ", "git ", "make ", "nvcc",
+                 "pytest", "echo ", "curl ", "npm ", "node ", "go ", "cargo ")
+
+
+def _unwrap_shell(t: str) -> str:
+    """Strip a ``/bin/bash -lc "…"`` (or ``bash -lc '…'``) wrapper so the panel
+    shows the actual command, not the shell boilerplate."""
+    m = re.search(r"-lc\s+(['\"])(.+)\1\s*$", t)
+    if m:
+        return m.group(2).strip()
+    m = re.search(r"-lc\s+(.+)$", t)
+    if m:
+        return m.group(1).strip()
+    return t
+
+
+def _describe_engineer_progress(text: str) -> str:
+    t = " ".join(str(text or "").split())
+    low = t.lower()
+    is_cmd = (t.startswith(("/bin/bash", "./")) or " -lc " in t
+              or low.startswith(_CMD_PREFIXES))
+    if is_cmd:
+        cmd = _unwrap_shell(t)
+        return "跑命令 · " + cmd[:72]
+    return "思考中" + (f" · {t[:60]}" if t else "")
+
+
+def _describe_event(event: dict[str, Any]) -> tuple[str, str]:
+    """Return ``(label, status)`` for a role-activity event."""
+    etype = str(event.get("type") or "")
+    status = str(event.get("status") or "")
+    if etype == "engineer.progress":
+        return _describe_engineer_progress(str(event.get("text") or "")), "running"
+    if etype == "round.review.started":
+        return "评审裁决中", "running"
+    if etype == "round.review.completed":
+        return f"裁决 {status or 'done'}", status or "done"
+    if etype == "round.start":
+        rnd = event.get("round_index")
+        return (f"第 {rnd} 轮" if rnd is not None else "开始一轮"), "running"
+    if etype == "loop.start" or etype == "life.mission.started":
+        return "启动任务", "running"
+    if etype == "loop.done" or etype == "life.mission.completed":
+        return f"完成 · {status}" if status else "完成", status or "done"
+    if etype.startswith("life.planner"):
+        verdict = str(event.get("verdict") or event.get("decision") or "")
+        if etype.endswith("start"):
+            return "规划新任务中", "running"
+        return (f"规划裁决 {verdict}" if verdict else "规划完成"), verdict or "done"
+    # generic
+    text = str(event.get("text") or event.get("reason") or event.get("title") or "")
+    return (" ".join(text.split())[:70] or etype), status or ""
+
+
+def role_activity(life_dir: Path | str, *, now: float | None = None,
+                  active_window_s: float = 90.0) -> dict[str, RoleActivity]:
+    """Latest activity per role, plus which role is acting right now.
+
+    Reads the ``events.jsonl`` tail. A role is ``active`` when it owns the most
+    recent activity event and that event is fresh (< ``active_window_s``).
+    """
+    now = now if now is not None else time.time()
+    life_dir = Path(life_dir)
+    events = _tail_jsonl(life_dir / "events.jsonl")
+    latest: dict[str, dict[str, Any]] = {}
+    newest_role: str | None = None
+    newest_ts: float | None = None
+    for ev in events:
+        role = _event_role(ev)
+        if role is None:
+            continue
+        latest[role] = ev
+        ts = ev.get("ts") or ev.get("time")
+        newest_role = role
+        if isinstance(ts, (int, float)):
+            newest_ts = float(ts)
+
+    out: dict[str, RoleActivity] = {}
+    for role in ROLES:
+        ev = latest.get(role)
+        if ev is None:
+            out[role] = RoleActivity(role=role, active=False, label="idle",
+                                     status="idle", age_s=None)
+            continue
+        label, status = _describe_event(ev)
+        ts = ev.get("ts") or ev.get("time")
+        age = (now - float(ts)) if isinstance(ts, (int, float)) else None
+        active = (
+            role == newest_role
+            and status not in {"done", "blocked", "idle"}
+            and (age is None or age <= active_window_s)
+        )
+        out[role] = RoleActivity(role=role, active=active,
+                                 label=label or "idle",
+                                 status=status or "idle", age_s=age)
+    return out
+
+
+# ── rendering (theme is duck-typed: any object with red/green/…/bold/dim) ──
+
+_ROLE_TITLE = {
+    "manager": "Manager", "planner": "Planner",
+    "engineer": "Engineer", "reviewer": "Reviewer", "curator": "Curator",
+}
+
+
+def _fmt_age(age_s: float | None) -> str:
+    if age_s is None:
+        return ""
+    s = int(age_s)
+    if s < 1:
+        return "刚刚"
+    if s < 60:
+        return f"{s}s 前"
+    if s < 3600:
+        return f"{s // 60}m 前"
+    return f"{s // 3600}h 前"
+
+
+def _paint(theme: Any, method: str, text: str) -> str:
+    if theme is None or not text:
+        return text
+    fn = getattr(theme, method, None)
+    if not callable(fn):
+        return text
+    try:
+        return str(fn(text))
+    except Exception:  # noqa: BLE001
+        return text
+
+
+def _effort_method(effort: str) -> str:
+    return {
+        "low": "dim", "medium": "cyan", "high": "yellow",
+        "xhigh": "magenta", "max": "bold_red",
+    }.get((effort or "").lower(), "yellow")
+
+
+def _disp_width(text: str) -> int:
+    """Printable column width, counting CJK/full-width glyphs as 2 columns and
+    ignoring ANSI codes — so right-alignment survives the Chinese title."""
+    import unicodedata
+    s = _ANSI_STRIP(text)
+    w = 0
+    for ch in s:
+        w += 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+    return w
+
+
+def _clip_display(text: str, budget: int) -> str:
+    """Trim a (plain, un-ANSI'd) string to at most ``budget`` display columns,
+    CJK-aware, adding an ellipsis when it had to cut. Used to keep fixed panel
+    lines from ever reaching the terminal edge (which would wrap and desync the
+    in-place live redraw)."""
+    import unicodedata
+    if _disp_width(text) <= budget:
+        return text
+    acc, w = "", 0
+    for ch in text:
+        cw = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+        if w + cw > budget - 1:
+            break
+        acc += ch
+        w += cw
+    return acc + "…"
+
+
+def _clip_ansi_line(s: str, budget: int) -> str:
+    """Clamp a possibly ANSI-colored line to at most ``budget`` display columns,
+    keeping escape sequences intact (never cut mid-escape) and re-appending a
+    reset if the cut happened inside a color run. This is the universal safety
+    net that guarantees no panel line ever reaches the terminal edge — a wrapped
+    line would desync the in-place live redraw and duplicate the header."""
+    import re
+    import unicodedata
+    if budget <= 0:
+        return ""
+    if _disp_width(s) <= budget:
+        return s
+    ansi = re.compile(r"\x1b\[[0-9;]*m")
+    out: list[str] = []
+    w = 0
+    i = 0
+    saw_color = False
+    n = len(s)
+    while i < n:
+        m = ansi.match(s, i)
+        if m:
+            out.append(m.group())
+            saw_color = True
+            i = m.end()
+            continue
+        ch = s[i]
+        cw = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+        if w + cw > budget:
+            break
+        out.append(ch)
+        w += cw
+        i += 1
+    res = "".join(out)
+    if saw_color:
+        res += "\x1b[0m"
+    return res
+
+
+def format_roles_panel(
+    theme: Any,
+    configs: Sequence[RoleConfig],
+    activities: Mapping[str, RoleActivity],
+    *,
+    header_right: str = "",
+    width: int = 80,
+) -> str:
+    """A compact, colored per-role panel: backend · model · effort, then the
+    live activity on its own indented line. ``theme`` is optional (plain when
+    ``None``); ``header_right`` is an already-styled right-aligned string
+    (e.g. the daemon status)."""
+    name_w = max((len(_ROLE_TITLE.get(c.role, c.role)) for c in configs),
+                 default=8)
+    lines: list[str] = []
+    title_text = "四角色 · 后端 / 模型 / 推理强度 / 当前动作"
+    # Keep every line strictly narrower than the terminal: a line that reaches the
+    # FULL width auto-wraps to a second screen row, which throws off the live
+    # in-place redraw's cursor-up count (→ duplicate header). On a narrow terminal
+    # drop the right-hand daemon tag, then clip the title itself, so the title row
+    # is always ≤ width-2.
+    if header_right and (width - 5 - _disp_width(header_right)) < 8:
+        header_right = ""  # no room for the tag on this row
+    if header_right:
+        title_text = _clip_display(title_text, max(8, width - 5 - _disp_width(header_right)))
+        title = _paint(theme, "gray", title_text)
+        gap = max(1, width - 4 - _disp_width(title_text) - _disp_width(header_right))
+        lines.append("  " + title + " " * gap + header_right)
+    else:
+        title_text = _clip_display(title_text, max(8, width - 4))
+        title = _paint(theme, "gray", title_text)
+        lines.append("  " + title)
+    lines.append("")
+    for c in configs:
+        act = activities.get(c.role)
+        active = bool(act and act.active)
+        dot = _paint(theme, "bold_green" if active else "gray",
+                     "●" if active else "○")
+        name = _ROLE_TITLE.get(c.role, c.role).ljust(name_w)
+        name = _paint(theme, "bold_magenta" if active else "bold", name)
+        sep = _paint(theme, "dim", " · ")
+        backend = _paint(theme, "cyan", c.backend_label)
+        model = _paint(theme, "bold", c.model)
+        if c.effort:
+            effort = (_paint(theme, "dim", "effort ")
+                      + _paint(theme, _effort_method(c.effort), c.effort))
+        else:
+            effort = _paint(theme, "dim", "effort —")
+        lines.append(f"  {dot} {name}  {backend}{sep}{model}{sep}{effort}")
+        # activity line (indented under the name). Clip the free-text label so a
+        # long command never wraps — an in-place live redraw relies on a fixed
+        # line count. Prefix "       ↳ " is 9 cols; keep the whole line ≤ width-2
+        # (2-col margin) so it never reaches the terminal edge and wraps.
+        label = act.label if act else "idle"
+        age = _fmt_age(act.age_s) if act else ""
+        stat = act.status if act else "idle"
+        tail = age + ((" · " + stat) if (age and stat and stat != "idle") else "")
+        meta_plain = f"  ({tail})" if tail else ""
+        budget = max(12, width - 11 - _disp_width(meta_plain))
+        if _disp_width(label) > budget:
+            # trim to budget columns (CJK-aware), add ellipsis
+            acc = ""
+            w = 0
+            import unicodedata as _ud
+            for ch in label:
+                cw = 2 if _ud.east_asian_width(ch) in ("W", "F") else 1
+                if w + cw > budget - 1:
+                    break
+                acc += ch
+                w += cw
+            label = acc + "…"
+        act_txt = label if active else _paint(theme, "dim", label)
+        meta = _paint(theme, "dim", meta_plain) if tail else ""
+        arrow = _paint(theme, "magenta" if active else "dim", "↳")
+        lines.append(f"       {arrow} {act_txt}{meta}")
+    lines.append("")
+    # Footer env-var hint. Use the fully-detailed form when it fits; on a narrow
+    # terminal fall back to a compact pointer (and finally clip) so this fixed
+    # line never wraps and desyncs the in-place live redraw.
+    hint_full = "改后端/模型/强度：ARGUS_SKILL_<ROLE>_{BACKEND,MODEL,REASONING_EFFORT}"
+    hint_short = "改后端/模型/强度 → ARGUS_SKILL_<ROLE>_*"
+    if _disp_width(hint_full) <= width - 2:
+        hint = hint_full
+    elif _disp_width(hint_short) <= width - 2:
+        hint = hint_short
+    else:
+        hint = _clip_display(hint_short, max(4, width - 3))
+    lines.append("  " + _paint(theme, "dim", hint))
+    # Universal safety net: guarantee no line ever reaches the terminal edge, so
+    # the in-place live redraw's line count always matches the screen rows.
+    return "\n".join(_clip_ansi_line(ln, width - 1) for ln in lines)
+
+
+def _ANSI_STRIP(s: str) -> str:
+    import re as _re
+    return _re.sub(r"\x1b\[[0-9;]*m", "", s)
+
+
+def format_roles_banner(
+    theme: Any,
+    configs: Sequence[RoleConfig] | None = None,
+    *,
+    label: str = "roles",
+    collapse: bool = False,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    """Compact, config-only per-role block for the startup banner — one line per
+    role: ``<name>  <backend> · <model> · effort <e>``. No live activity (all
+    idle at launch); that lives in the on-demand ``/roles`` panel.
+
+    Always lists all four roles by default so the operator explicitly sees each
+    role's engine on launch. Pass ``collapse=True`` to fold identical roles into
+    a single line when every role shares the same backend + model + effort.
+    """
+    configs = list(configs) if configs is not None else resolve_all_roles(env=env)
+    if not configs:
+        return ""
+    lbl = _paint(theme, "gray", f"{label:<7}")
+    sep = _paint(theme, "dim", " · ")
+
+    def _cfg_span(c: RoleConfig) -> str:
+        backend = _paint(theme, "cyan", c.backend_label)
+        model = _paint(theme, "bold", c.model)
+        if c.effort:
+            eff = _paint(theme, "dim", "effort ") + _paint(theme, _effort_method(c.effort), c.effort)
+        else:
+            eff = _paint(theme, "dim", "effort —")
+        return f"{backend}{sep}{model}{sep}{eff}"
+
+    keys = {(c.backend_label, c.model, c.effort) for c in configs}
+    if collapse and len(keys) == 1:
+        one = _cfg_span(configs[0])
+        hint = _paint(theme, "dim", "  ·  四角色实时动作自动常驻，无需 /roles")
+        return f"  {lbl} {one}{hint}"
+
+    name_w = max(len(_ROLE_TITLE.get(c.role, c.role)) for c in configs)
+    lines: list[str] = []
+    for i, c in enumerate(configs):
+        head = lbl if i == 0 else _paint(theme, "gray", " " * 7)
+        name = _paint(theme, "bold", _ROLE_TITLE.get(c.role, c.role).ljust(name_w))
+        lines.append(f"  {head} {name}  {_cfg_span(c)}")
+    lines.append("  " + _paint(theme, "gray", " " * 7) + " "
+                 + _paint(theme, "dim", "四角色实时动作自动常驻在输入框上方 · 无需 /roles"))
+    return "\n".join(lines)
+
+
+def render_roles_snapshot(
+    life_dir: Path | str, theme: Any = None, *, width: int = 80,
+    header_right: str = "", env: Mapping[str, str] | None = None,
+) -> str:
+    """One-shot convenience: resolve configs + live activity and render."""
+    configs = resolve_all_roles(env=env)
+    activities = role_activity(life_dir)
+    return format_roles_panel(theme, configs, activities,
+                              header_right=header_right, width=width)

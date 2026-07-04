@@ -74,7 +74,9 @@ log = logging.getLogger(__name__)
 SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/help", "show commands"),
     ("/status", "identity · backlog · journal · daemon"),
+    ("/roles", "per-role backend · model · effort · live activity"),
     ("/doctor", "diagnose daemon/build failures"),
+    ("/daemon", "start/stop/status the executor for this cockpit"),
     ("/daemons", "list live daemons across projects"),
     ("/attach", "live-follow another project's daemon"),
     ("/plan", "preview a step plan before queuing"),
@@ -151,12 +153,19 @@ def tail_mission_events(
     ``None`` on timeout (does not raise) and on ``KeyboardInterrupt`` (the user
     stops *observing* — the mission keeps running in the daemon).
     """
-    from ..apps.cli._follow import _follow_layer_from_event, _format_follow_event
+    from ..apps.cli._follow import (
+        _follow_layer_from_event,
+        _format_follow_event,
+        _read_backlog_rows,
+        _select_backlog_row_by_id,
+    )
 
     events_path = Path(life_dir) / "events.jsonl"
+    backlog_path = Path(life_dir) / "backlog.jsonl"
     deadline = time.monotonic() + max(0.0, float(timeout))
     offset = 0
     current_layer = "engineer"
+    current_mission: dict[str, str] = {"item_id": str(item_id), "title": "", "objective": ""}
     last_review: dict[str, Any] | None = None
     # We read from the start of the log and rely on the ``item_id`` filter to
     # isolate this mission. The backlog item was just enqueued with a freshly
@@ -198,9 +207,34 @@ def tail_mission_events(
                     continue
                 saw_event = True
                 current_layer = _follow_layer_from_event(event, current_layer)
+                if str(event.get("type") or "") in {"life.mission.started", "life.mission.completed"}:
+                    ctx_item_id = str(
+                        event.get("item_id") or current_mission.get("item_id") or item_id
+                    )
+                    title = str(event.get("title") or current_mission.get("title") or "")
+                    objective = str(
+                        event.get("objective") or current_mission.get("objective") or ""
+                    )
+                    if ctx_item_id:
+                        row = _select_backlog_row_by_id(
+                            _read_backlog_rows(backlog_path),
+                            ctx_item_id,
+                        )
+                        if row is not None:
+                            title = str(row.get("title") or title)
+                            objective = str(row.get("objective") or objective)
+                    current_mission = {
+                        "item_id": ctx_item_id,
+                        "title": title,
+                        "objective": objective,
+                    }
                 if str(event.get("type") or "") == "round.review.completed":
                     last_review = event
-                rendered = _format_follow_event(event, current_layer)
+                rendered = _format_follow_event(
+                    event,
+                    current_layer,
+                    mission_context=current_mission,
+                )
                 if rendered:
                     print(rendered, flush=True)
                 if str(event.get("type") or "") == "life.mission.completed":
@@ -230,6 +264,293 @@ def _sleep_until(deadline: float, interval: float) -> None:
     time.sleep(min(interval, remaining))
 
 
+def follow_mission_live_roles(
+    life_dir: Path | str,
+    item_id: str | None,
+    *,
+    theme: Any = None,
+    timeout: float = 3600.0,
+    header: str | None = None,
+    interval: float = 1.0,
+) -> dict[str, Any] | None:
+    """Live multi-agent view: pin the four-role panel and refresh it in place
+    while a mission runs, so the operator watches Engineer / Reviewer / Planner /
+    Manager work in real time WITHOUT typing ``/roles watch``.
+
+    Reuses the ``/roles`` panel (per-role backend/model/effort + current
+    activity, active role highlighted) driven off ``events.jsonl``. Detects the
+    mission's ``life.mission.completed`` (attaching the last reviewer verdict as
+    ``_last_review``) and returns it; ``None`` on Ctrl-C / timeout (the daemon
+    keeps running). TTY-only — the caller falls back to the scrolling tail for
+    non-interactive / piped output.
+    """
+    from ..cli.roles_status import render_roles_snapshot
+
+    life_dir = Path(life_dir)
+    events_path = life_dir / "events.jsonl"
+    width = getattr(theme, "width", 80) if theme is not None else 80
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    offset = 0
+    last_review: dict[str, Any] | None = None
+    completed: dict[str, Any] | None = None
+    prev_lines = 0
+
+    def _daemon_right() -> str:
+        try:
+            from ..daemon.life_worker import read_daemon_status
+            st = read_daemon_status(life_dir)
+            if getattr(st, "alive", False) and getattr(st, "pid", None):
+                s = f"● daemon {st.pid}"
+                return theme.bold_green(s) if theme is not None else s
+        except Exception:  # noqa: BLE001
+            pass
+        s = "○ no daemon"
+        return theme.gray(s) if theme is not None else s
+
+    if header:
+        print(theme.gray(header) if theme is not None else header, flush=True)
+    try:
+        sys.stdout.write("\x1b[?25l")  # hide cursor during in-place redraw
+        sys.stdout.flush()
+        while time.monotonic() < deadline:
+            # Drain new events to spot completion + the latest reviewer verdict.
+            try:
+                with events_path.open("r", encoding="utf-8") as fh:
+                    fh.seek(offset)
+                    chunk = fh.read()
+                    offset = fh.tell()
+            except OSError:
+                chunk = ""
+            for raw in chunk.splitlines():
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    ev = json.loads(raw)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if not isinstance(ev, dict):
+                    continue
+                t = str(ev.get("type") or "")
+                if t == "round.review.completed":
+                    last_review = ev
+                if t == "life.mission.completed":
+                    ev_item = str(ev.get("item_id") or "")
+                    if not item_id or not ev_item or ev_item == str(item_id):
+                        completed = ev
+            panel = render_roles_snapshot(
+                life_dir, theme, width=width, header_right=_daemon_right()
+            )
+            n = panel.count("\n") + 1
+            if prev_lines:
+                # cursor up + clear to end of screen (robust against any wrap)
+                sys.stdout.write(f"\x1b[{prev_lines}A\x1b[J")
+            sys.stdout.write(panel + "\n")
+            sys.stdout.flush()
+            prev_lines = n
+            if completed is not None:
+                if last_review is not None:
+                    completed.setdefault("_last_review", last_review)
+                return completed
+            time.sleep(interval)
+        return None
+    except KeyboardInterrupt:
+        note = "\n(stopped observing — mission keeps running in the daemon; /status to check)"
+        print(theme.gray(note) if theme is not None else note, flush=True)
+        return None
+    finally:
+        try:
+            sys.stdout.write("\x1b[?25h")  # restore cursor
+            sys.stdout.flush()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _drain_available_bytes(fd: int, first: bytes) -> bytes:
+    """After ``first`` byte(s) arrive, non-blocking-drain any more that are
+    already buffered (multibyte CJK char, fast typing, paste) so the first
+    keystroke is captured whole and echoes correctly when seeded into readline."""
+    import select as _select
+    data = bytes(first)
+    while len(data) < 8192:
+        try:
+            r, _, _ = _select.select([fd], [], [], 0.0)
+        except (OSError, ValueError):
+            break
+        if not r:
+            break
+        try:
+            more = os.read(fd, 4096)
+        except OSError:
+            break
+        if not more:
+            break
+        data += more
+    return data
+
+
+def read_message_with_live_cockpit(
+    prompt: str,
+    mem: Any,
+    theme: Any,
+    *,
+    interval: float = 1.0,
+) -> str | None:
+    """Read one operator message while a LIVE four-role cockpit is pinned above
+    the prompt — so the operator always sees what Manager / Planner / Engineer /
+    Reviewer are doing WITHOUT ever typing ``/roles``.
+
+    The panel refreshes in place ~1×/s; the moment the operator starts typing it
+    is dismissed and the keystroke is handed to the normal (readline-editable)
+    input path — CJK-safe. Degrades to a plain prompt on any of: not a TTY, no
+    ``termios``, ``ARGUS_SKILL_COCKPIT_LIVE=0``, no life-dir, no live daemon, a
+    too-short terminal, or any unexpected error (the core input path is never
+    put at risk)."""
+    from ..apps._input_helpers import read_pasted_message
+    if os.environ.get("ARGUS_SKILL_COCKPIT_LIVE", "1") == "0":
+        return read_pasted_message(prompt)
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return read_pasted_message(prompt)
+    try:
+        import termios
+        import tty
+    except Exception:  # noqa: BLE001 — no POSIX terminal control
+        return read_pasted_message(prompt)
+    try:
+        life_dir = _life_dir_for(mem)
+    except Exception:  # noqa: BLE001
+        life_dir = None
+    if life_dir is None:
+        return read_pasted_message(prompt)
+    # Only pin the cockpit when a daemon is actually alive — that is when there is
+    # real multi-agent activity worth watching. Idle-with-no-daemon → plain prompt
+    # (no panel spam before every line).
+    def _daemon_right() -> str:
+        try:
+            from ..daemon.life_worker import read_daemon_status
+            st = read_daemon_status(life_dir)
+            if getattr(st, "alive", False) and getattr(st, "pid", None):
+                lab = f"● daemon {st.pid}"
+                return theme.bold_green(lab) if theme is not None else lab
+        except Exception:  # noqa: BLE001
+            pass
+        lab = "○ no daemon"
+        return theme.gray(lab) if theme is not None else lab
+
+    try:
+        from ..daemon.life_worker import read_daemon_status
+        st0 = read_daemon_status(life_dir)
+        if not (getattr(st0, "alive", False) and getattr(st0, "pid", None)):
+            return read_pasted_message(prompt)
+    except Exception:  # noqa: BLE001
+        return read_pasted_message(prompt)
+
+    from ..cli.roles_status import render_roles_snapshot
+    import select as _select
+
+    width = getattr(theme, "width", 80) if theme is not None else 80
+    # Need room for the panel (12) + hint (1) + prompt (1) + margin; else plain.
+    try:
+        import shutil
+        rows = shutil.get_terminal_size((80, 24)).lines
+    except Exception:  # noqa: BLE001
+        rows = 24
+    if rows < 16:
+        return read_pasted_message(prompt)
+
+    hint = ("直接开始输入即可对话 · Ctrl-C 刷新 · Ctrl-D 退出"
+            if theme is not None else "(type to chat · Ctrl-D exits)")
+
+    def _block() -> str:
+        panel = render_roles_snapshot(life_dir, theme, width=width,
+                                      header_right=_daemon_right())
+        hint_line = "  " + (theme.dim(hint) if theme is not None else hint)
+        return panel + "\n" + hint_line + "\n" + prompt
+
+    fd = sys.stdin.fileno()
+    try:
+        old = termios.tcgetattr(fd)
+    except Exception:  # noqa: BLE001
+        return read_pasted_message(prompt)
+
+    raw: bytes = b""
+    interrupted = False
+    up = 0
+    try:
+        tty.setcbreak(fd)  # disables ICANON + ECHO, keeps ISIG (Ctrl-C → SIGINT)
+        sys.stdout.write("\x1b[?25l")
+        block = _block()
+        sys.stdout.write(block)
+        sys.stdout.flush()
+        up = block.count("\n")
+        while True:
+            try:
+                r, _, _ = _select.select([fd], [], [], interval)
+            except (OSError, ValueError):
+                r = [fd]  # cannot poll → just read
+            if r:
+                try:
+                    first = os.read(fd, 1)
+                except OSError:
+                    first = b""
+                raw = _drain_available_bytes(fd, first)
+                break
+            block = _block()
+            sys.stdout.write("\r\x1b[%dA\x1b[J" % up)  # up to panel top, clear region
+            sys.stdout.write(block)
+            sys.stdout.flush()
+            up = block.count("\n")
+    except KeyboardInterrupt:
+        interrupted = True
+    finally:
+        try:
+            sys.stdout.write("\r\x1b[%dA\x1b[J" % up)  # erase the transient cockpit
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            sys.stdout.write("\x1b[?25h")
+            sys.stdout.flush()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ── classify the first keystroke ──────────────────────────────────────────
+    if interrupted:
+        return ""  # Ctrl-C while idle → just refresh the cockpit
+    if raw == b"" or raw[:1] == b"\x04":
+        return None  # Ctrl-D / EOF → quit
+    if raw[:1] in (b"\r", b"\n"):
+        return ""  # bare Enter → refresh
+    if raw[:1] == b"\x1b" or raw[:1] in (b"\x7f", b"\x08"):
+        # escape sequence (arrow/fn) or backspace → dismiss to a clean prompt
+        return read_pasted_message(prompt)
+    seed = raw.decode("utf-8", "replace")
+    seed = "".join(ch for ch in seed if ch >= " " or ch == "\t").strip("\ufffd")
+    if not seed:
+        return read_pasted_message(prompt)
+    # Seed readline so the first keystroke shows and stays fully editable.
+    try:
+        import readline
+
+        def _hook() -> None:
+            readline.insert_text(seed)
+            readline.redisplay()
+
+        readline.set_pre_input_hook(_hook)
+        try:
+            return read_pasted_message(prompt)
+        finally:
+            readline.set_pre_input_hook(None)
+    except Exception:  # noqa: BLE001 — readline missing → prepend the seed
+        rest = read_pasted_message(prompt)
+        if rest is None:
+            return seed
+        return seed + rest
+
+
 def _follow_events_stream(
     life_dir: Path | str,
     *,
@@ -250,13 +571,20 @@ def _follow_events_stream(
     verdict can be surfaced to the operator instead of scrolling past while the
     follow loop keeps spinning. Returns ``None`` on Ctrl-C / no match.
     """
-    from ..apps.cli._follow import _follow_layer_from_event, _format_follow_event
+    from ..apps.cli._follow import (
+        _follow_layer_from_event,
+        _format_follow_event,
+        _read_backlog_rows,
+        _select_backlog_row_by_id,
+    )
 
     events_path = Path(life_dir) / "events.jsonl"
+    backlog_path = Path(life_dir) / "backlog.jsonl"
     if header:
         print(theme.gray(header) if theme is not None else header, flush=True)
     fh = None
     current_layer = "engineer"
+    current_mission: dict[str, str] = {"item_id": "", "title": "", "objective": ""}
     last_review: dict[str, Any] | None = None
     try:
         # Wait for the log to exist, then seek to its end so we only show
@@ -290,10 +618,33 @@ def _follow_events_stream(
                 continue
             if not isinstance(event, dict):
                 continue
+            if str(event.get("type") or "") in {"life.mission.started", "life.mission.completed"}:
+                item_id = str(event.get("item_id") or current_mission.get("item_id") or "")
+                title = str(event.get("title") or current_mission.get("title") or "")
+                objective = str(
+                    event.get("objective") or current_mission.get("objective") or ""
+                )
+                if item_id:
+                    row = _select_backlog_row_by_id(
+                        _read_backlog_rows(backlog_path),
+                        item_id,
+                    )
+                    if row is not None:
+                        title = str(row.get("title") or title)
+                        objective = str(row.get("objective") or objective)
+                current_mission = {
+                    "item_id": item_id,
+                    "title": title,
+                    "objective": objective,
+                }
             if str(event.get("type") or "") == "round.review.completed":
                 last_review = event
             current_layer = _follow_layer_from_event(event, current_layer)
-            rendered = _format_follow_event(event, current_layer)
+            rendered = _format_follow_event(
+                event,
+                current_layer,
+                mission_context=current_mission,
+            )
             if rendered:
                 print(rendered, flush=True)
             if (
@@ -481,6 +832,269 @@ def _continuous_cmd(
     )
 
 
+def _is_argus_cli_invocation(text: str) -> bool:
+    alias, note = _cockpit_cli_alias(text)
+    return alias is not None or note is not None
+
+
+def _cockpit_cli_alias(text: str) -> tuple[str | None, str | None]:
+    """Map pasted shell invocations to cockpit commands.
+
+    Operators often paste the exact fix shown by a CLI hint (for example
+    ``argus-skill --daemon``) into the already-open cockpit. Treating that as a
+    research task is never useful, so command-shaped input is intercepted before
+    manager triage.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return None, None
+    try:
+        tokens = shlex.split(stripped)
+    except ValueError:
+        return None, None
+    if not tokens:
+        return None, None
+
+    args: list[str]
+    exe = Path(tokens[0]).name
+    if exe in {"argus-skill", "argus"}:
+        args = tokens[1:]
+    elif (
+        len(tokens) >= 3
+        and Path(tokens[0]).name.startswith("python")
+        and tokens[1] == "-m"
+        and tokens[2].replace("-", "_") == "argus_skill"
+    ):
+        args = tokens[3:]
+    else:
+        return None, None
+
+    if not args or any(a in {"-h", "--help"} for a in args):
+        return (
+            "/help",
+            "inside cockpit: using /help instead of queuing a shell command.",
+        )
+    if "--status" in args:
+        return (
+            "/status",
+            "inside cockpit: using /status instead of queuing a shell command.",
+        )
+    if "--daemon-stop" in args:
+        stop_args = []
+        if "--drain" in args:
+            stop_args.append("--drain")
+        if "--force" in args:
+            stop_args.append("--force")
+        suffix = (" " + " ".join(stop_args)) if stop_args else ""
+        return (
+            f"/daemon stop{suffix}",
+            "inside cockpit: using /daemon stop instead of queuing a shell command.",
+        )
+    if "--daemon" in args:
+        return (
+            "/daemon start",
+            "inside cockpit: using /daemon start instead of queuing a shell command.",
+        )
+    if "--follow" in args:
+        return "/run", "inside cockpit: using /run instead of queuing a shell command."
+    if "--watch" in args:
+        return (
+            None,
+            "already in the cockpit. Use /status for state, /run to follow, "
+            "or /help for commands.",
+        )
+    return (
+        None,
+        "this is the cockpit, not a shell. Shell-shaped argus-skill input was "
+        "not queued; use /help.",
+    )
+
+
+def _daemon_cmd(
+    mem: _SplitMemory,
+    arg_text: str,
+    chat_state: dict[str, Any],
+) -> None:
+    """``/daemon`` — control the executor bound to this cockpit/session."""
+    try:
+        tokens = shlex.split(arg_text) if arg_text.strip() else []
+    except ValueError as exc:
+        print(f"parse error: {exc}")
+        return
+    sub = tokens[0].lower() if tokens else "status"
+    opts = tokens[1:] if tokens else []
+    life_dir = _life_dir_for(mem)
+
+    from ..apps.cli import _format_short_duration
+    from ..daemon.life_worker import (
+        continuous_mode_error,
+        read_daemon_status,
+        stop_daemon,
+        wait_for_daemon_status,
+    )
+
+    def _print_status() -> None:
+        st = read_daemon_status(life_dir)
+        if st.alive and st.pid is not None:
+            up = _format_short_duration(st.uptime_seconds or 0.0)
+            print(
+                f"daemon: alive (pid {st.pid}, up {up}, "
+                f"backend {st.backend or '?'})"
+            )
+        else:
+            print("daemon: not running. Start it with /daemon start")
+
+    if sub in {"status", "show", "ls"}:
+        _print_status()
+        return
+
+    if sub in {"stop", "off", "down"}:
+        rc = stop_daemon(life_dir, drain="--drain" in opts, force="--force" in opts)
+        if rc == 0:
+            print("daemon: stopped")
+        else:
+            print(f"daemon: stop did not complete (rc={rc}); see the message above.")
+        return
+
+    if sub in {"restart", "reload"}:
+        stop_daemon(life_dir, drain="--drain" in opts, force="--force" in opts)
+        sub = "start"
+
+    if sub not in {"start", "on", "up"}:
+        print("usage: /daemon [status|start|stop|restart] [--drain] [--force]")
+        return
+
+    existing = read_daemon_status(life_dir)
+    if existing.alive and existing.pid is not None:
+        up = _format_short_duration(existing.uptime_seconds or 0.0)
+        print(f"daemon: already running (pid {existing.pid}, up {up})")
+        return
+
+    backend = str(
+        chat_state.get("backend")
+        or os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
+    )
+    continuous = bool(chat_state.get("config", {}).get("continuous", False))
+    objective = str(chat_state.get("continuous_objective") or "").strip()
+    error = continuous_mode_error(backend, continuous, objective)
+    if error:
+        print(error)
+        return
+
+    cfg_args = argparse.Namespace(
+        backend=backend,
+        continuous=continuous,
+        objective=objective,
+        resume_continuous=continuous,
+        bounded=not bool(chat_state.get("open_ended", True)),
+    )
+    try:
+        from ..apps.cli import _build_worker_config
+        cfg = _build_worker_config(cfg_args, bundle=mem)
+    except AttributeError:
+        from ..daemon.life_worker import LifeWorkerConfig
+        cfg = LifeWorkerConfig(
+            life_dir=life_dir,
+            global_root=(
+                Path(chat_state["global_root"]) if chat_state.get("global_root") else None
+            ),
+            project_workdir=Path.cwd(),
+            backend=backend,
+            continuous=continuous,
+            continuous_objective=objective,
+            resume_continuous=continuous,
+            continuous_open_ended=bool(chat_state.get("open_ended", True)),
+        )
+
+    rc = _spawn_daemon_from_cockpit(cfg)
+    if rc != 0:
+        print(f"daemon: start failed (rc={rc}). Run /doctor for why + the fix.")
+        tail = _daemon_log_tail(life_dir)
+        if tail:
+            print(tail)
+        return
+    from ..cli.live_status import LiveStatus
+    with LiveStatus(
+        "启动 daemon…",
+        theme=chat_state.get("theme"),
+        phrases=["启动 daemon…", "等待执行器上线…"],
+        hint="",
+    ):
+        started = wait_for_daemon_status(life_dir)
+    if started is not None and started.alive and started.pid is not None:
+        print(f"daemon: started (pid {started.pid})")
+    else:
+        print(
+            "daemon: spawn returned success but no live pid was confirmed. "
+            "Run /doctor."
+        )
+        tail = _daemon_log_tail(life_dir)
+        if tail:
+            print(tail)
+
+
+def _spawn_daemon_from_cockpit(cfg: Any) -> int:
+    """Start a daemon from the cockpit without forking from TUI worker threads."""
+    import threading
+
+    if threading.current_thread() is threading.main_thread():
+        from ..daemon.life_worker import spawn_detached_daemon
+
+        return spawn_detached_daemon(cfg)
+
+    import subprocess
+
+    from ..daemon.life_worker import _config_payload
+
+    payload = json.dumps(_config_payload(cfg), ensure_ascii=False)
+    code = (
+        "import json, sys; "
+        "from argus_skill.daemon.life_worker import _config_from_payload, "
+        "spawn_detached_daemon; "
+        "cfg = _config_from_payload(json.loads(sys.stdin.read())); "
+        "raise SystemExit(spawn_detached_daemon(cfg))"
+    )
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            input=payload,
+            text=True,
+            capture_output=True,
+            timeout=12,
+            cwd=str(Path.cwd()),
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"daemon: helper spawn failed: {type(exc).__name__}: {exc}")
+        return 2
+    if proc.stdout.strip():
+        print(proc.stdout.strip())
+    if proc.stderr.strip():
+        print(proc.stderr.strip())
+    return int(proc.returncode)
+
+
+def _daemon_log_tail(
+    life_dir: Path | str,
+    *,
+    max_lines: int = 14,
+    max_chars: int = 3000,
+) -> str:
+    """Small daemon.log tail for failed cockpit starts."""
+    path = Path(life_dir) / "daemon.log"
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return f"daemon log: {path} (not readable yet)"
+    text = text.strip()
+    if not text:
+        return f"daemon log: {path} (empty)"
+    lines = text.splitlines()[-max_lines:]
+    body = "\n".join(lines)
+    if len(body) > max_chars:
+        body = "…" + body[-max_chars:]
+    return f"daemon log tail ({path}):\n{body}"
+
+
 def _backlog_list_cmd(mem: _CommonMemory, *, include_all: bool) -> None:
     print(format_backlog_list(mem, include_all=include_all))
 
@@ -594,23 +1208,47 @@ def _maybe_name_session(chat_state: dict[str, Any], task_text: str) -> None:
         pass
 
 
-def manager_triage(mem: Any, body: str, chat_state: dict[str, Any]) -> str | None:
+def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
+                   *, on_phase: Any = None) -> str | None:
     """The Manager is the FIRST responder to every operator line. Classify the
     input as conversation vs a real task. Returns the Manager's chat reply text
     when it is conversational (the caller shows it and does NOT enqueue), or
     ``None`` when it is a task (caller routes it to the backlog). Fail-soft → None
     (treat as a task). Reused by the line REPL and the TUI so the Manager greets
     the operator on both surfaces, in every mode (no longer gated to non-continuous).
+
+    ``on_phase(label)`` — optional callback invoked at the REAL phase
+    transitions (classify → reply), so a live status line reflects what the
+    Manager is actually doing rather than a timed cosmetic rotation.
     """
     runner = _ensure_manager_runner(chat_state, mem)
     if runner is None or not hasattr(runner, "chat_reply_if_conversational"):
         return None
     captured: list[str] = []
 
+    def _progress_label(event: dict[str, Any]) -> str | None:
+        # Turn a streaming chat-turn action into a short live spinner label so the
+        # operator SEES the manager execute commands (chat can now run tools).
+        try:
+            from ..apps.cli._follow import _clean_follow_text
+            txt = str(event.get("text") or event.get("kind") or "").strip()
+            if not txt:
+                return None
+            return _clean_follow_text(txt, limit=64)
+        except Exception:  # noqa: BLE001
+            return None
+
     class _Capture:
         def handle_event(self, event: dict[str, Any]) -> None:
             try:
-                if str(event.get("type") or "") != "round.main.completed":
+                etype = str(event.get("type") or "")
+                if etype == "engineer.progress":
+                    if callable(on_phase):
+                        lbl = _progress_label(event)
+                        if lbl:
+                            on_phase(lbl)
+                    return
+                if etype != "round.main.completed":
                     return
                 text = _extract_chat_reply_text(str(event.get("last_message") or ""))
                 if text:
@@ -622,9 +1260,21 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any]) -> str | Non
         if runner.chat_reply_if_conversational(
             objective=body, sink=_Capture(),
             seed_thread_id=chat_state.get("last_thread_id"),
+            phase_cb=on_phase,
         ):
             chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
             return captured[0] if captured else "(no reply)"
+    except TypeError:
+        # Older runner without phase_cb support — retry without it (fail-soft).
+        try:
+            if runner.chat_reply_if_conversational(
+                objective=body, sink=_Capture(),
+                seed_thread_id=chat_state.get("last_thread_id"),
+            ):
+                chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
+                return captured[0] if captured else "(no reply)"
+        except Exception:  # noqa: BLE001
+            return None
     except Exception:  # noqa: BLE001 — triage failure → treat as a task
         return None
     return None
@@ -692,7 +1342,12 @@ def _free_text_cmd(
     # Manager front door — answer conversation, route tasks. Skipped only for a
     # blocked-continuation answer (which must continue the task, not be re-chatted).
     if not chat_state.get("blocked_item_id"):
-        reply = manager_triage(mem, body, chat_state)
+        # Live status while the Manager thinks — the label is driven by the REAL
+        # phase (classify → reply / hand-off), not a timed cosmetic rotation, so
+        # it honestly reflects what the Manager is doing. No-op on non-TTY.
+        from ..cli.live_status import LiveStatus
+        with LiveStatus("manager 判断中…", theme=theme) as _live:
+            reply = manager_triage(mem, body, chat_state, on_phase=_live.update)
         if reply is not None:
             line = (("  " + theme.cyan("argus") + theme.dim(" ↳ ") + reply)
                     if theme is not None else f"  argus ↳ {reply}")
@@ -712,12 +1367,21 @@ def _free_text_cmd(
             f"backend={chat_state.get('backend')})"
         )
         print(theme.gray(queued) if theme is not None else queued, flush=True)
-        final = _follow_events_stream(
-            life_dir,
-            theme=theme,
-            header="🔄 following daemon (Ctrl-C to stop observing; daemon keeps running)…",
-            until_item_id=item.id,
-        )
+        # Multi-agent live view: pin the four-role panel and refresh it in place
+        # (interactive TTY). Falls back to the scrolling event tail when piped /
+        # non-interactive so tests and logs are unchanged.
+        if sys.stdout.isatty():
+            final = follow_mission_live_roles(
+                life_dir, item.id, theme=theme,
+                header="following daemon (Ctrl-C stops observing; daemon keeps running)…",
+            )
+        else:
+            final = _follow_events_stream(
+                life_dir,
+                theme=theme,
+                header="following daemon (Ctrl-C to stop observing; daemon keeps running)…",
+                until_item_id=item.id,
+            )
         if final is not None:
             _record_mission_outcome(chat_state, final)
             _surface_blocked_question(chat_state, theme)
@@ -737,7 +1401,10 @@ def _free_text_cmd(
     )
     print(theme.gray(queued) if theme is not None else queued, flush=True)
 
-    final = tail_mission_events(life_dir, item.id, theme=theme)
+    if sys.stdout.isatty():
+        final = follow_mission_live_roles(life_dir, item.id, theme=theme)
+    else:
+        final = tail_mission_events(life_dir, item.id, theme=theme)
     if final is not None:
         _record_mission_outcome(chat_state, final)
         for line in _format_completion(final, item.id, life_dir):
@@ -770,14 +1437,19 @@ def _no_executor_notice(item_id: str, theme: Any) -> str:
     auto-spawn had failed) AND avoids the 600s tail-wait freeze. The task is
     persisted, so it runs the moment an executor starts.
     """
-    head = f"⚠ queued {item_id} — but NO daemon is running here, so it will NOT execute yet."
+    head = f"queued {item_id} — but NO daemon is running here, so it will NOT execute yet."
     body = (
-        "   start the executor:  argus-skill --daemon   ·   diagnose:  /doctor\n"
+        "   in this cockpit:  /daemon start   ·   diagnose:  /doctor\n"
+        "   from another shell:  argus-skill --daemon\n"
         "   your task is saved and runs the moment a daemon starts."
     )
     if theme is not None:
-        return theme.yellow(head) + "\n" + theme.gray(body)
-    return head + "\n" + body
+        head_lines = theme.wrap_after(head, first_indent=2, hang_indent=2)
+        head_out = "\u26a0 " + head_lines[0]
+        if len(head_lines) > 1:
+            head_out += "\n" + "\n".join(head_lines[1:])
+        return theme.yellow(head_out) + "\n" + theme.gray(body)
+    return f"\u26a0 {head}\n{body}"
 
 
 def _extract_chat_reply_text(msg: str) -> str:
@@ -1030,14 +1702,19 @@ def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> 
     from ..apps._inbox import count_pending_inbox_messages
     from ..daemon.life_worker import ContinuousConfigState, read_continuous_state
 
+    # Fixed label width so every "label: value" row's colon lines up in one
+    # column instead of drifting per-line (each print used to hand-pick its
+    # own padding, which fell out of sync as fields were added over time).
+    _LBL = 10
+
     identity = mem.identity.read().strip()
     if identity:
         first = identity.splitlines()[0][:80]
-        print(f"identity: {first}{'…' if len(identity) > 80 else ''}")
+        print(f"{'identity':<{_LBL}}: {first}{'…' if len(identity) > 80 else ''}")
     else:
-        print("identity: (empty)")
+        print(f"{'identity':<{_LBL}}: (empty)")
     pending = mem.backlog.pending()
-    print(f"backlog : {len(pending)} pending  "
+    print(f"{'backlog':<{_LBL}}: {len(pending)} pending  "
           f"({len(mem.backlog.all())} total)")
     for it in pending[:5]:
         print(f"  - {it.id} (p={it.priority}): {it.title}")
@@ -1054,14 +1731,15 @@ def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> 
         cont = chat_state.get("continuous_state")
     if not isinstance(cont, ContinuousConfigState):
         cont = read_continuous_state(mem.project.root)
-    print(f"continuous: {'on' if cont.enabled else 'off'}")
-    print(f"inbox   : {count_pending_inbox_messages(mem.project.root)} pending")
+    print(f"{'continuous':<{_LBL}}: {'on' if cont.enabled else 'off'}")
+    print(f"{'inbox':<{_LBL}}: {count_pending_inbox_messages(mem.project.root)} pending")
+    _SUBLBL = 11  # fits "done_reason", the longest of this nested trio
     if cont.objective:
-        print(f"  objective: {cont.objective}")
+        print(f"  {'objective':<{_SUBLBL}}: {cont.objective}")
     if cont.done_reason:
-        print(f"  done_reason: {cont.done_reason}")
+        print(f"  {'done_reason':<{_SUBLBL}}: {cont.done_reason}")
     if cont.done_at:
-        print(f"  done_at: {cont.done_at}")
+        print(f"  {'done_at':<{_SUBLBL}}: {cont.done_at}")
     if chat_state is not None:
         started = chat_state.get("session_started_s")
         if started is not None:
@@ -1069,7 +1747,7 @@ def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> 
             count = int(chat_state.get("mission_count", 0))
             total = float(chat_state.get("total_elapsed_s", 0.0))
             last_e = chat_state.get("last_elapsed_s")
-            line = f"timing : uptime {_format_elapsed(uptime)}"
+            line = f"{'timing':<{_LBL}}: uptime {_format_elapsed(uptime)}"
             if count:
                 line += (
                     f"  ·  {count} mission{'s' if count != 1 else ''}"
@@ -1089,18 +1767,96 @@ def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> 
     if ds is not None:
         if ds.alive and ds.pid is not None:
             up = _format_short_duration(ds.uptime_seconds or 0.0)
-            print(f"daemon : alive (pid {ds.pid}, up {up}, "
+            print(f"{'daemon':<{_LBL}}: alive (pid {ds.pid}, up {up}, "
                   f"backend {ds.backend or '?'})")
         else:
-            print("daemon : not running   (start with `argus-skill --daemon`)")
+            print(f"{'daemon':<{_LBL}}: not running   (start with `/daemon start`)")
             tid = chat_state.get("last_thread_id") if chat_state is not None else None
             if tid:
-                print("codex  : reusing the previous session  (/reset to start fresh)")
+                print(f"{'codex':<{_LBL}}: reusing the previous session  (/reset to start fresh)")
+    # Compact four-role line — the active role + its backend/model/effort, with
+    # a pointer to the full `/roles` panel. Fail-soft (never breaks /status).
+    try:
+        from ..cli.roles_status import resolve_all_roles, role_activity
+        acts = role_activity(_life_dir_for(mem))
+        active = next((r for r in ("engineer", "reviewer", "planner", "manager")
+                       if acts.get(r) and acts[r].active), None)
+        cfgs = {c.role: c for c in resolve_all_roles()}
+        if active and active in cfgs:
+            c = cfgs[active]
+            eff = f" {c.effort}" if c.effort else ""
+            print(f"{'roles':<{_LBL}}: ● {active} · {acts[active].label[:40]}"
+                  f"  [{c.backend_label} {c.model}{eff}]   (/roles for all)")
+        else:
+            be = {c.backend_label for c in cfgs.values()}
+            print(f"{'roles':<{_LBL}}: idle · backends {', '.join(sorted(be))}"
+                  f"   (/roles for backend/model/effort)")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ---------------------------------------------------------------------------
 # Help screen
 # ---------------------------------------------------------------------------
+
+def _roles_cmd(mem: Any, chat_state: dict[str, Any], arg_text: str = "") -> None:
+    """`/roles` — show each role's backend / model / reasoning-effort and what
+    it is doing right now. ``/roles watch`` live-refreshes until Ctrl-C."""
+    theme = chat_state.get("theme")
+    from ..cli.roles_status import render_roles_snapshot
+    life_dir = _life_dir_for(mem)
+    width = getattr(theme, "width", 80) if theme is not None else 80
+
+    def _daemon_right() -> str:
+        try:
+            from ..daemon.life_worker import read_daemon_status
+            st = read_daemon_status(mem.project.root)
+            if getattr(st, "alive", False) and getattr(st, "pid", None):
+                s = f"● daemon {st.pid}"
+                return theme.bold_green(s) if theme is not None else s
+            s = "○ no daemon"
+            return theme.gray(s) if theme is not None else s
+        except Exception:  # noqa: BLE001
+            return ""
+
+    watch = arg_text.strip().lower() in ("watch", "-w", "--watch", "live", "-f")
+    if not watch:
+        print(render_roles_snapshot(life_dir, theme, width=width,
+                                    header_right=_daemon_right()), flush=True)
+        return
+
+    # Live refresh: redraw the panel in place every ~1s until Ctrl-C. Only when
+    # attached to a TTY (else fall back to a single snapshot).
+    if not sys.stdout.isatty():
+        print(render_roles_snapshot(life_dir, theme, width=width), flush=True)
+        return
+    hint = "实时刷新中 · 按 Ctrl-C 返回后再输入" if theme is not None else "live · Ctrl-C to stop, then type"
+    print(theme.dim(hint) if theme is not None else hint, flush=True)
+    prev_lines = 0
+    try:
+        sys.stdout.write("\x1b[?25l")  # hide cursor during redraw
+        while True:
+            panel = render_roles_snapshot(life_dir, theme, width=width,
+                                          header_right=_daemon_right())
+            n = panel.count("\n") + 1
+            if prev_lines:
+                # cursor up, then clear from cursor to end of screen so no stale
+                # (possibly wrapped) rows are left behind → no duplicate header.
+                sys.stdout.write(f"\x1b[{prev_lines}A\x1b[J")
+            sys.stdout.write(panel + "\n")
+            sys.stdout.flush()
+            prev_lines = n
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        print()
+        return
+    finally:
+        try:
+            sys.stdout.write("\x1b[?25h")  # restore cursor
+            sys.stdout.flush()
+        except Exception:  # noqa: BLE001
+            pass
+
 
 def _doctor_cmd(mem: Any, chat_state: dict[str, Any], global_root: Any) -> None:
     """`/doctor` — diagnose why no daemon / why auto-spawn failed, with fixes."""
@@ -1110,9 +1866,36 @@ def _doctor_cmd(mem: Any, chat_state: dict[str, Any], global_root: Any) -> None:
 
         checks = run_diagnostics(mem.project.root, global_root=global_root)
         out = render_report(checks, theme)
+        out = _rewrite_cockpit_daemon_fix(out)
+        tail = _recent_daemon_log_tail(mem.project.root)
+        if tail:
+            out = out.rstrip() + "\n\n" + tail
     except Exception as exc:  # noqa: BLE001 — doctor must never crash the REPL
         out = f"/doctor failed: {type(exc).__name__}: {exc}"
     print(out, flush=True)
+
+
+def _rewrite_cockpit_daemon_fix(text: str) -> str:
+    """Doctor runs inside the cockpit; prefer the cockpit-native start command."""
+    return text.replace(
+        "run: argus-skill --daemon",
+        "run: /daemon start  (or argus-skill --daemon from another shell)",
+    )
+
+
+def _recent_daemon_log_tail(
+    life_dir: Path | str,
+    *,
+    max_age_seconds: float = 900.0,
+) -> str:
+    path = Path(life_dir) / "daemon.log"
+    try:
+        age = time.time() - path.stat().st_mtime
+    except OSError:
+        return ""
+    if age > max_age_seconds:
+        return ""
+    return _daemon_log_tail(life_dir)
 
 
 def _plan_cmd(mem: Any, chat_state: dict[str, Any], objective: str) -> None:
@@ -1129,9 +1912,13 @@ def _plan_cmd(mem: Any, chat_state: dict[str, Any], objective: str) -> None:
     runner = _ensure_manager_runner(chat_state, mem)
     from ..manager import plan_mode
 
-    print(theme.gray("drafting a plan…") if theme is not None else "drafting a plan…",
-          flush=True)
-    plan = plan_mode.draft_plan(runner, objective)
+    from ..cli.live_status import LiveStatus
+    with LiveStatus(
+        "drafting a plan…",
+        theme=theme,
+        phrases=["理解目标…", "拆解步骤…", "起草计划…"],
+    ):
+        plan = plan_mode.draft_plan(runner, objective)
     print(plan_mode.render_plan(plan, theme), flush=True)
     # Ask before queuing — the whole point of a preview is approval.
     prompt = "queue this plan as a task? [y/N] "
@@ -1210,8 +1997,10 @@ def _render_help(theme) -> str:  # noqa: ANN001
     rows: list[tuple[str, str]] = [
         ("/help", "show this help"),
         ("/status", "summary of identity, backlog, recent journal"),
+        ("/roles [watch]", "each role's backend · model · reasoning effort · live activity"),
         ("/plan <objective>", "preview a step plan, then approve before queuing"),
         ("/doctor", "diagnose why no daemon / why a task won't run, with fixes"),
+        ("/daemon [status|start|stop|restart]", "control this cockpit's executor"),
         ("/daemons", "list every live daemon across projects"),
         ("/attach <id>", "live-follow another project's daemon (Ctrl-C returns)"),
         ("/config [key=val ...]", "view/change session defaults "
@@ -1237,33 +2026,51 @@ def _render_help(theme) -> str:  # noqa: ANN001
         ("/backend", "show or change the backend (codex / memory)"),
         ("/exit  /quit  :q", "leave the REPL (Ctrl-D also works)"),
     ]
-    width = max(len(k) for k, _ in rows)
+    # Cap the key column so it never eats the whole terminal width itself on
+    # a narrow terminal (long option syntaxes would otherwise leave almost no
+    # room for the wrapped description, e.g. `/add <text> [--once] ...`).
+    width = min(max(len(k) for k, _ in rows), max(16, theme.width // 2 - 4))
     out: list[str] = []
     out.append(theme.bold("argus-skill")
-               + theme.gray("  — unified lifetime-agent REPL"))
+                + theme.gray("  — unified lifetime-agent REPL"))
     out.append("")
     out.append(theme.gray("Slash commands:"))
     for key, desc in rows:
-        out.append(f"  {theme.cyan(key.ljust(width))}  {theme.gray(desc)}")
+        prefix = f"  {key.ljust(width)}  "
+        if len(key) > width:
+            # Key itself is wider than the column (narrow terminal): give it
+            # its own line and hang the description below, fully indented —
+            # unlike the label ⋅ arrow ⋅ message lines in the banner, nothing
+            # is already printed on this row, so every wrapped line (including
+            # the first) needs the real indent added uniformly here rather
+            # than delegating to wrap_after's own (smaller) hang_indent.
+            out.append(f"  {theme.cyan(key)}")
+            hang = width + 4
+            for cont in theme.wrap_after(
+                desc, first_indent=0, hang_indent=0, width=max(20, theme.width - hang)
+            ):
+                out.append(" " * hang + theme.gray(cont))
+            continue
+        desc_lines = theme.wrap_after(desc, first_indent=len(prefix))
+        out.append(f"  {theme.cyan(key.ljust(width))}  " + theme.gray(desc_lines[0]))
+        for cont in desc_lines[1:]:
+            out.append(theme.gray(cont))
     out.append("")
-    out.append(theme.gray(
-        "Free text (no leading '/') is queued for the daemon AND the REPL "
-        "attaches to its run (live event tail)."
-    ))
-    out.append(theme.gray(
-        "Supports --once / --cycles=N / --budget=$X inline flags."
-    ))
-    out.append(theme.gray(
+    for para in (
+        "Free text (no leading '/') is queued for the daemon; by default it "
+        "also arms continuous mode so the planner keeps generating next work.",
+        "If a hint says `argus-skill --daemon` while you are already here, "
+        "type `/daemon start` instead; pasted argus-skill CLI invocations are "
+        "intercepted and never queued as tasks.",
+        "Supports --once / --cycles=N / --budget=$X inline flags.",
         "Ctrl-C while observing stops the tail, not the task — the daemon "
-        "keeps running. Use /status to check on it."
-    ))
-    out.append(theme.gray(
-        "Use /config continuous=true to enable 24/7 continuous improvement mode."
-    ))
-    out.append(theme.gray(
+        "keeps running. Use /status to check on it.",
+        "Use /config continuous=false for a bounded one-off cockpit session.",
         "In continuous mode the planner inspects the project after each "
-        "task and generates new work until the objective is fully satisfied."
-    ))
+        "task and generates new work until the objective is fully satisfied.",
+    ):
+        for line in theme.wrap_after(para, first_indent=0, hang_indent=0):
+            out.append(theme.gray(line))
     out.append("")
     return "\n".join(out)
 
@@ -1306,6 +2113,10 @@ def _seed_chat_state(
         if error:
             return {}, error
 
+    default_continuous = (
+        backend_default != "memory" and not bool(getattr(args, "bounded", False))
+    )
+
     if cli_continuous:
         continuous = True
         objective = cli_objective
@@ -1317,6 +2128,7 @@ def _seed_chat_state(
         continuous = disk_state.enabled
         if continuous and _continuous_session_error(backend_default, True, objective):
             continuous = False
+    config_continuous = continuous or default_continuous
 
     chat_state: dict[str, Any] = {
         "backend": backend_default,
@@ -1339,7 +2151,7 @@ def _seed_chat_state(
         # the operator launched with --bounded.
         "open_ended": not bool(getattr(args, "bounded", False)),
     }
-    chat_state["config"]["continuous"] = continuous
+    chat_state["config"]["continuous"] = config_continuous
     chat_state["continuous_state"] = ContinuousConfigState(
         enabled=continuous,
         objective=objective or disk_objective,
@@ -1515,7 +2327,14 @@ def _run_manager_repl_locked(
                 cfg = _build_worker_config(args, bundle=mem)
                 spawn_rc = spawn_detached_daemon(cfg)
                 if spawn_rc == 0:
-                    started = wait_for_daemon_status(mem.project.root)
+                    from ..cli.live_status import LiveStatus
+                    with LiveStatus(
+                        "启动 daemon 执行器…",
+                        theme=theme,
+                        phrases=["启动 daemon 执行器…", "等待执行器上线…"],
+                        hint="",
+                    ):
+                        started = wait_for_daemon_status(mem.project.root)
                     if started is not None and started.pid is not None:
                         auto_spawn_msg = f"daemon auto-spawned (pid {started.pid})"
                     else:
@@ -1541,7 +2360,7 @@ def _run_manager_repl_locked(
     else:
         # --no-daemon: the REPL no longer executes missions, so without a
         # daemon nothing drains the backlog. Warn unless one happens to be
-        # alive already (e.g. launched separately via `argus --daemon`).
+        # alive already (e.g. launched separately via `argus-skill --daemon`).
         try:
             from ..daemon.life_worker import read_daemon_status
             status = read_daemon_status(mem.project.root)
@@ -1550,8 +2369,11 @@ def _run_manager_repl_locked(
         if status is None or not getattr(status, "alive", False):
             no_daemon_warning = (
                 "--no-daemon: NO executor running — submitted items will sit "
-                "pending forever. Start the executor with `argus --daemon`."
+                "pending forever. Start the executor here with `/daemon start` "
+                "or from another shell with `argus-skill --daemon`."
             )
+
+    global_root = chat_state.get("global_root")
 
     # ── Banner (compact) ───────────────────────────────────────────
     # One brand line + one live-status line. The full config table moved to
@@ -1564,12 +2386,22 @@ def _run_manager_repl_locked(
           + "  " + theme.dim(f"v{_argus_version}"))
     arrow = theme.dim("→")
     label = lambda s: theme.gray(f"{s:<10}")  # noqa: E731
+
+    def _hint_line(label_text: str, message: str, color) -> None:  # noqa: ANN001
+        """Print a `label -> message` line, word-wrapping with a hanging
+        indent on narrow terminals instead of letting the raw text hard-wrap
+        mid-word/mid-command (as plain ``print`` would)."""
+        prefix = f"  {label_text:<10} \u2192 "
+        lines = theme.wrap_after(message, first_indent=len(prefix))
+        print(prefix + color(lines[0]))
+        for cont in lines[1:]:
+            print(color(cont))
+
     pending_n = len(mem.backlog.pending())
     # ``global_root`` is a local of the OUTER run_manager_repl; inside this
     # locked body it lives only in chat_state. Bind it here so the session-name
     # lookup AND the live-daemon hint below resolve (they were silently failing
     # on a NameError before, swallowed by their try/except).
-    global_root = chat_state.get("global_root")
     # Session line (Codex/Claude-Code style): which session this is, and whether
     # it's a fresh one or a resumed one.
     _sid = getattr(args, "session_id", None)
@@ -1586,11 +2418,20 @@ def _run_manager_repl_locked(
         _tag = theme.bold_green("new session") if _is_new else theme.bold("resumed")
         print("  " + _tag + theme.dim("  ·  ") + theme.cyan(_sid)
               + (theme.dim("  ·  ") + theme.gray(_nm) if _nm else ""))
-    print(
-        "  " + _format_daemon_mode_cell(theme, mem)
-        + theme.dim("  ·  ") + theme.bold(str(pending_n)) + theme.gray(" pending")
-        + theme.dim("  ·  ") + theme.cyan(str(mem.project.root))
-    )
+    # The path is usually the variable-length part; if the daemon-cell +
+    # pending count + project root would overflow the terminal width, give
+    # the path its own line instead of letting the terminal hard-wrap it
+    # mid-directory-name.
+    from ..cli.theme import visible_len as _visible_len
+    _life_head = ("  " + _format_daemon_mode_cell(theme, mem)
+                  + theme.dim("  ·  ") + theme.bold(str(pending_n)) + theme.gray(" pending"))
+    _root_str = str(mem.project.root)
+    _root_part = theme.dim("  ·  ") + theme.cyan(_root_str)
+    if _visible_len(_life_head) + 5 + len(_root_str) <= theme.width:
+        print(_life_head + _root_part)
+    else:
+        print(_life_head)
+        print("  " + theme.cyan(_root_str))
     # Surface a LIVE daemon running elsewhere so a fresh session never hides the
     # operator's actual running work. (Answers "why does it say no daemon?" —
     # the daemon is alive under another project; offer the one command to reach
@@ -1607,56 +2448,53 @@ def _run_manager_repl_locked(
                 _o = _others[0]
                 _onm = _o.display_name or (_o.objective[:32] if _o.objective else _o.id)
                 _extra = f" (+{len(_others) - 1} more)" if len(_others) > 1 else ""
-                print(
-                    f"  {label('daemon')} {arrow} "
-                    + theme.yellow(f"a daemon is already running: {_onm}{_extra}")
-                    + theme.dim("  —  ")
-                    + theme.cyan("argus-skill --continue")
-                    + theme.dim(" to attach, or ")
-                    + theme.cyan("/daemons")
-                    + theme.dim(" to list")
+                _hint_line(
+                    "daemon",
+                    f"a daemon is already running: {_onm}{_extra}  —  "
+                    "argus-skill --continue to attach, or /daemons to list",
+                    theme.yellow,
                 )
     except Exception:  # noqa: BLE001 — banner hint must never break startup
         pass
+
     if auto_spawn_msg:
-        print(f"  {label('daemon')} {arrow} " + theme.dim(auto_spawn_msg))
+        _hint_line("daemon", auto_spawn_msg, theme.dim)
     if no_daemon_warning:
-        print(f"  {label('warn')} {arrow} " + theme.yellow(no_daemon_warning))
+        _hint_line("warn", no_daemon_warning, theme.yellow)
     if legacy_zombie_msg:
-        print(f"  {label('warn')} {arrow} " + theme.yellow(legacy_zombie_msg))
+        _hint_line("warn", legacy_zombie_msg, theme.yellow)
     if backend_default == "codex":
         warning = _codex_preflight_warning()
         if warning:
-            print(f"  {label('warn')} {arrow} " + theme.yellow(warning))
+            _hint_line("warn", warning, theme.yellow)
+    # Per-role backend / model / reasoning-effort — surfaced on the banner so
+    # the operator sees which engine each role runs on without typing /roles.
+    try:
+        from ..cli.roles_status import format_roles_banner
+        roles_block = format_roles_banner(theme)
+        if roles_block:
+            print(roles_block)
+    except Exception:  # noqa: BLE001 — banner must never break on this
+        pass
     print()
-    print("  " + theme.gray("greetings & questions are answered here  ·  ")
-          + theme.gray("a real task is queued for the daemon  ·  ")
-          + theme.cyan("/status") + theme.gray(" · ")
-          + theme.cyan("/help") + theme.gray(" · ")
-          + theme.cyan("/exit"))
+    _footer = ("greetings & questions are answered here  ·  a real task is "
+               "queued for the daemon  ·  /status · /help · /exit")
+    _footer_lines = theme.wrap_after(_footer, first_indent=2)
+    print("  " + theme.gray(_footer_lines[0]))
+    for _fline in _footer_lines[1:]:
+        print(theme.gray(_fline))
     print()
 
     base_prompt = theme.bold(theme.cyan("argus"))
-    sep = theme.dim(" › ")
+    sep = "  " + theme.bold(theme.magenta("❯")) + " "  # premium heavy angle, mauve accent
     resume_marker = theme.dim(" ↻")  # subtle indicator when codex session is being reused
-
-    # Full-screen TUI (opencode/Claude-Code style) on a real terminal; falls back
-    # to the line REPL below for non-TTY / NO_COLOR / ARGUS_SKILL_NO_TUI / missing
-    # prompt_toolkit. The TUI reuses dispatch_command, so commands behave the same.
-    try:
-        from .tui import run_manager_tui, tui_available
-        if tui_available():
-            return run_manager_tui(mem, chat_state, global_root)
-    except Exception:  # noqa: BLE001 — any TUI import/start failure → line REPL
-        pass
-
 
     while True:
         prompt = (
             base_prompt + (resume_marker if chat_state.get("last_thread_id") else "") + sep
         )
         try:
-            raw = read_pasted_message(prompt)
+            raw = read_message_with_live_cockpit(prompt, mem, theme)
         except KeyboardInterrupt:
             print()
             continue
@@ -1681,6 +2519,15 @@ def dispatch_command(line, raw, mem, chat_state, global_root, theme) -> str | No
     """Run one REPL line (slash command or free text). Shared by the line REPL
     and the TUI so both surfaces dispatch identically — handlers print to stdout;
     the TUI captures that. Returns "exit" to quit, else None."""
+    alias, alias_note = _cockpit_cli_alias(line)
+    if alias_note:
+        print(theme.gray(alias_note) if theme is not None else alias_note)
+    if alias is None and alias_note is not None:
+        return None
+    if alias is not None:
+        line = alias
+        raw = alias
+
     if not line.startswith("/"):
         _free_text_cmd(mem, raw, chat_state)
         return None
@@ -1700,8 +2547,14 @@ def dispatch_command(line, raw, mem, chat_state, global_root, theme) -> str | No
         if cmd == "/status":
             _status_cmd(mem, chat_state)
             return None
+        if cmd == "/roles":
+            _roles_cmd(mem, chat_state, rest_text)
+            return None
         if cmd == "/doctor":
             _doctor_cmd(mem, chat_state, global_root)
+            return None
+        if cmd == "/daemon":
+            _daemon_cmd(mem, rest_text, chat_state)
             return None
         if cmd == "/daemons":
             _daemons_cmd(chat_state, global_root, mem.project.root)
@@ -1843,6 +2696,8 @@ __all__ = [
     "_seed_chat_state",
     "tail_mission_events",
     "_follow_events_stream",
+    "follow_mission_live_roles",
+    "read_message_with_live_cockpit",
     "_life_dir_for",
     "_record_mission_outcome",
 ]
