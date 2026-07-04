@@ -1258,6 +1258,24 @@ def _emit_manager_event(mem: Any, event: dict[str, Any]) -> None:
         pass
 
 
+def _manager_intent_path(mem: Any) -> Path:
+    return _life_dir_for(mem) / "manager_intent.json"
+
+
+def _write_manager_intent(mem: Any, payload: dict[str, Any]) -> None:
+    try:
+        path = _manager_intent_path(mem)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + f".tmp.{os.getpid()}")
+        tmp.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(tmp, path)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _manager_divide_user_task(mem: Any, body: str, chat_state: dict[str, Any]) -> None:
     """Run Manager division for an operator-submitted task before enqueue.
 
@@ -1265,11 +1283,14 @@ def _manager_divide_user_task(mem: Any, body: str, chat_state: dict[str, Any]) -
     already the Planner's decomposition and must not be routed back through
     Manager again.
     """
+    intent_id = f"intent-{int(time.time() * 1000)}"
     _emit_manager_event(mem, {
-        "type": "life.manager.started",
+        "type": "life.manager.intent.started",
         "agent_layer": "manager",
+        "intent_id": intent_id,
+        "source": "user",
         "objective": body,
-        "text": "manager routing user task",
+        "text": "manager interpreting user task",
     })
     try:
         runner = _ensure_manager_runner(chat_state, mem)
@@ -1282,24 +1303,36 @@ def _manager_divide_user_task(mem: Any, body: str, chat_state: dict[str, Any]) -
                 runner=None,
             )
         division = mgr.divide(body, ask_on_new_domain=False)
-        _emit_manager_event(mem, {
-            "type": "life.manager.completed",
+        payload = {
+            "type": "life.manager.intent.completed",
             "agent_layer": "manager",
+            "intent_id": intent_id,
+            "source": "user",
             "objective": body,
             "vertical": getattr(division, "vertical", ""),
             "kind": getattr(division, "kind", ""),
             "regular": bool(getattr(division, "regular", False)),
             "stages": list(getattr(division, "stages", []) or []),
-            "text": f"manager routed user task to {getattr(division, 'vertical', '')}",
-        })
+            "reason": getattr(division, "headline", lambda: "")(),
+            "text": (
+                f"manager interpreted user task as "
+                f"{getattr(division, 'vertical', '')}"
+            ),
+        }
+        _write_manager_intent(mem, payload)
+        _emit_manager_event(mem, payload)
     except Exception as exc:  # noqa: BLE001
-        _emit_manager_event(mem, {
-            "type": "life.manager.failed",
+        payload = {
+            "type": "life.manager.intent.failed",
             "agent_layer": "manager",
+            "intent_id": intent_id,
+            "source": "user",
             "objective": body,
             "error": f"{type(exc).__name__}: {exc}",
-            "text": "manager routing user task failed",
-        })
+            "text": "manager intent interpretation failed",
+        }
+        _write_manager_intent(mem, payload)
+        _emit_manager_event(mem, payload)
 
 
 def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],

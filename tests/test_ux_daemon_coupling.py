@@ -116,13 +116,17 @@ def test_user_task_is_manager_divided_before_enqueue(tmp_path, monkeypatch):
         json.loads(line)
         for line in (mem.project.root / "events.jsonl").read_text().splitlines()
     ]
+    intent = json.loads((mem.project.root / "manager_intent.json").read_text())
     assert item.objective == "write a research report"
     assert [event["type"] for event in events] == [
-        "life.manager.started",
-        "life.manager.completed",
+        "life.manager.intent.started",
+        "life.manager.intent.completed",
     ]
     assert events[-1]["agent_layer"] == "manager"
     assert events[-1]["vertical"]
+    assert intent["intent_id"] == events[-1]["intent_id"]
+    assert intent["objective"] == "write a research report"
+    assert intent["reason"]
 
 
 def test_continuous_user_task_arms_planner_not_direct_engineer_item(

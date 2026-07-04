@@ -2364,6 +2364,49 @@ class LifeSupervisor:
             new_tasks=[],
         )
 
+    def _manager_intent_context(self) -> dict[str, Any]:
+        """Latest user-intent interpretation written by the cockpit Manager."""
+        try:
+            project = getattr(self.memory, "project", None)
+            root = getattr(project, "root", None)
+            if root is None:
+                root = getattr(self.config, "telemetry_dir", None)
+            if root is None:
+                root = getattr(self.memory, "root", None)
+            if root is None:
+                return {}
+            path = Path(root) / "manager_intent.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return {}
+            keep = (
+                "intent_id", "source", "objective", "vertical", "kind",
+                "regular", "stages", "reason", "text", "error",
+            )
+            return {k: data.get(k) for k in keep if k in data}
+        except Exception:  # noqa: BLE001
+            return {}
+
+    @staticmethod
+    def _manager_intent_prompt_block(intent: dict[str, Any]) -> str:
+        if not intent:
+            return ""
+        parts = [
+            "## Manager intent boundary (authoritative)",
+            f"- intent_id: {intent.get('intent_id') or ''}",
+            f"- source: {intent.get('source') or ''}",
+            f"- user_objective: {intent.get('objective') or ''}",
+            f"- interpreted_vertical: {intent.get('vertical') or ''}",
+            f"- kind: {intent.get('kind') or ''}",
+            f"- stages: {', '.join(str(s) for s in (intent.get('stages') or []))}",
+            f"- reason: {intent.get('reason') or intent.get('text') or ''}",
+            "",
+            "Plan only work consistent with this Manager boundary. If it appears "
+            "wrong, surface a Manager/Planner mismatch instead of silently "
+            "switching scope.",
+        ]
+        return "\n".join(parts)
+
     def _inject_cumulative_cost(
         self, entry: Any, *, in_flight_usd: float = 0.0,
     ) -> None:
@@ -2789,10 +2832,12 @@ class LifeSupervisor:
             return terminal_idle
 
         self._planning_cycles += 1
+        manager_intent = self._manager_intent_context()
         self._emit({
             "type": "life.planner.start",
             "cycle": self._planning_cycles,
             "objective": self.config.continuous_objective[:200],
+            "manager_intent": manager_intent,
         })
 
         # Classify + persist the active vertical once, on the first cycle, so
@@ -2842,6 +2887,7 @@ class LifeSupervisor:
         journal_tail = self._render_journal_for_planner()
         dead_wire_block = self._render_dead_wires_for_planner()
         remaining = self.config.budget.remaining_today(self.memory.journal)
+        runtime_note = self._planner_runtime_with_idle_note()
 
         try:
             from ...planner import Planner
@@ -2859,7 +2905,15 @@ class LifeSupervisor:
                     dead_wire_block=dead_wire_block,
                     budget_remaining_usd=remaining,
                     planning_cycle=self._planning_cycles - 1,
-                    runtime_change_summary=self._planner_runtime_with_idle_note(),
+                    runtime_change_summary=(
+                        self._manager_intent_prompt_block(manager_intent)
+                        + (
+                            "\n\n"
+                            if manager_intent and runtime_note
+                            else ""
+                        )
+                        + runtime_note
+                    ),
                     config=self._planner_config(),
                 )
             finally:
@@ -3327,6 +3381,7 @@ class LifeSupervisor:
                 "title": item.title,
                 "impact_score": task.impact_score,
                 "impact_area": task.impact_area,
+                "manager_intent": manager_intent,
             })
 
         summary_parts = [
@@ -3369,6 +3424,7 @@ class LifeSupervisor:
                 "skipped_recent_failure_titles": skipped_recent_failure_titles,
                 "restart_daemon": verdict.restart_daemon,
                 "restart_reason": verdict.restart_reason,
+                "manager_intent": manager_intent,
             },
         )
         self._emit({
@@ -3390,6 +3446,7 @@ class LifeSupervisor:
             "cost_usd": planner_cost_usd,
             "restart_daemon": verdict.restart_daemon,
             "restart_reason": verdict.restart_reason,
+            "manager_intent": manager_intent,
         })
         self.memory.journal.append(entry)
         self._inject_cumulative_cost(entry)

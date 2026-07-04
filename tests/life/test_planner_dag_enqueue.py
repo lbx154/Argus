@@ -76,8 +76,11 @@ class _DagPlannerRunner:
 
 
 class _NullSink:
-    def handle_event(self, _event):  # pragma: no cover - trivial
-        pass
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    def handle_event(self, event):  # pragma: no cover - trivial
+        self.events.append(event)
 
 
 class _NullRunner:
@@ -95,13 +98,15 @@ def _make_supervisor(tmp_path: Path, monkeypatch, verdict_json: str) -> LifeSupe
         full_emnlp_gate=False,
         open_ended=False,
     )
+    sink = _NullSink()
     sup = LifeSupervisor(
         memory=memory,
         runner=_NullRunner(),
-        sink=_NullSink(),
+        sink=sink,
         config=config,
         planner_runner=_DagPlannerRunner(verdict_json),
     )
+    sup._test_sink = sink  # type: ignore[attr-defined]
 
     # Stub the pre-loop gates so the test exercises ONLY the new two-pass
     # key→id mapping, not the unrelated vertical / wiki / journal machinery.
@@ -174,6 +179,33 @@ def test_dag_verdict_maps_keys_to_real_item_ids(tmp_path, monkeypatch) -> None:
     # And the DAG actually schedules: a/b are ready, c is gated until both done.
     ready_titles = {it.title for it in sup.memory.backlog.ready()}
     assert ready_titles == {"run seed 0", "run seed 1"}
+
+
+def test_planner_events_carry_manager_intent_context(tmp_path, monkeypatch) -> None:
+    sup = _make_supervisor(tmp_path, monkeypatch, _dag_verdict_json())
+    intent = {
+        "intent_id": "intent-1",
+        "source": "user",
+        "objective": "study B200 skill",
+        "vertical": "learning",
+        "kind": "custom",
+        "stages": ["ingest", "study"],
+        "reason": "manager routed to learning",
+    }
+    sup.memory.root.mkdir(parents=True, exist_ok=True)
+    (sup.memory.root / "manager_intent.json").write_text(
+        json.dumps(intent), encoding="utf-8"
+    )
+
+    assert sup._plan_next_work() is True
+
+    events = sup._test_sink.events  # type: ignore[attr-defined]
+    planner_start = next(e for e in events if e["type"] == "life.planner.start")
+    task_added = next(e for e in events if e["type"] == "life.planner.task_added")
+    verdict = next(e for e in events if e["type"] == "life.planner.verdict")
+    assert planner_start["manager_intent"]["vertical"] == "learning"
+    assert task_added["manager_intent"]["intent_id"] == "intent-1"
+    assert verdict["manager_intent"]["reason"] == "manager routed to learning"
 
 
 def test_dag_topological_claim_order(tmp_path, monkeypatch) -> None:

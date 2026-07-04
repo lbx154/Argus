@@ -69,11 +69,21 @@ def test_signal_drops_noise_keeps_signal(tmp_path):
         {"type": "session.roll"},                                                       # noise
         {"type": "round.watchdog.waiting"},                                             # noise
         {"type": "round.review.completed", "status": "continue"},                       # signal
+        {"type": "life.manager.intent.completed", "vertical": "learning"},               # signal
+        {"type": "life.planner.start", "manager_intent": {"vertical": "learning"}},      # signal
+        {"type": "life.planner.task_added", "title": "t"},                               # signal
         {"type": "skill.created", "name": "x"},                                         # signal
         {"type": "loop.done", "text": "status=done"},                                   # signal
     )
     types = [e["type"] for e in _read(tmp_path)]
-    assert types == ["round.review.completed", "skill.created", "loop.done"]
+    assert types == [
+        "round.review.completed",
+        "life.manager.intent.completed",
+        "life.planner.start",
+        "life.planner.task_added",
+        "skill.created",
+        "loop.done",
+    ]
 
 
 def test_signal_never_drops_a_win_or_error(tmp_path):
