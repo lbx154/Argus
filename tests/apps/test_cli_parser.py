@@ -14,6 +14,24 @@ import pytest
 from argus_skill.apps.cli import build_parser, main
 
 
+def test_public_help_is_single_entry_cockpit_help() -> None:
+    help_text = build_parser().format_help()
+    assert "usage: argus" in help_text
+    assert "Then type what you need in natural language." in help_text
+    assert "--daemon" not in help_text
+    assert "--status" not in help_text
+    assert "dashboard" not in help_text.lower()
+    assert "wiki" not in help_text
+
+
+def test_debug_help_still_exposes_internal_flags(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_DEBUG_HELP", "1")
+    help_text = build_parser().format_help()
+    assert "--daemon" in help_text
+    assert "--status" in help_text
+    assert "wiki" in help_text
+
+
 def test_parser_has_only_wiki_subcommand():
     p = build_parser()
     args = p.parse_args(["wiki", "init", "demo"])

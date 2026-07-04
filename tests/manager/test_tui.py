@@ -73,7 +73,7 @@ def test_modal_fragments_highlight_selected_choice() -> None:
 
 def test_slash_registry_covers_core_commands() -> None:
     cmds = {c for c, _ in manager_repl.SLASH_COMMANDS}
-    assert {"/help", "/status", "/add", "/nudge", "/exit"} <= cmds
+    assert cmds == {"/help", "/exit"}
 
 
 def test_dispatch_free_text_enqueues(tmp_path) -> None:

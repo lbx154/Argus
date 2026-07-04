@@ -72,32 +72,7 @@ log = logging.getLogger(__name__)
 #: one-line help). The dispatcher in ``dispatch_command`` is the source of truth;
 #: this list mirrors it for the UI. Keep in sync when adding a command.
 SLASH_COMMANDS: list[tuple[str, str]] = [
-    ("/help", "show commands"),
-    ("/status", "identity · backlog · journal · daemon"),
-    ("/roles", "per-role backend · model · effort · live activity"),
-    ("/doctor", "diagnose daemon/build failures"),
-    ("/daemon", "start/stop/status the executor for this cockpit"),
-    ("/daemons", "list live daemons across projects"),
-    ("/attach", "live-follow another project's daemon"),
-    ("/plan", "preview a step plan before queuing"),
-    ("/start", "enable continuous (7×24) mode"),
-    ("/continuous", "continuous start|stop [objective]"),
-    ("/identity", "view/edit identity card"),
-    ("/project", "view/edit project card"),
-    ("/backlog", "list pending (or all) items"),
-    ("/add", "queue a mission [--once --cycles=N --budget=$X]"),
-    ("/stop", "disable iteration on an item"),
-    ("/done", "mark item done"),
-    ("/skip", "skip an item"),
-    ("/rm", "remove an item"),
-    ("/journal", "tail last N journal entries"),
-    ("/note", "append a journal note"),
-    ("/nudge", "send live operator guidance"),
-    ("/backend", "show/change backend"),
-    ("/config", "view/change session defaults"),
-    ("/reset", "drop codex session (fresh next mission)"),
-    ("/run", "follow daemon draining the backlog"),
-    ("/skills", "list/promote project skills"),
+    ("/help", "show the one-mode cockpit help"),
     ("/exit", "leave"),
 ]
 
@@ -2143,83 +2118,21 @@ def _attach_cmd(chat_state: dict[str, Any], global_root: Any, target: str) -> No
 
 
 def _render_help(theme) -> str:  # noqa: ANN001
-    rows: list[tuple[str, str]] = [
-        ("/help", "show this help"),
-        ("/status", "summary of identity, backlog, recent journal"),
-        ("/roles [watch]", "each role's backend · model · reasoning effort · live activity"),
-        ("/plan <objective>", "preview a step plan, then approve before queuing"),
-        ("/doctor", "diagnose why no daemon / why a task won't run, with fixes"),
-        ("/daemon [status|start|stop|restart]", "control this cockpit's executor"),
-        ("/daemons", "list every live daemon across projects"),
-        ("/attach <id>", "live-follow another project's daemon (Ctrl-C returns)"),
-        ("/config [key=val ...]", "view/change session defaults "
-                                  "(cycles, budget, continuous, daily_cap)"),
-        ("/identity [edit|set …]", "view or update the identity card"),
-        ("/project [set …]", "view or update the project card"),
-        ("/start [objective]", "enable continuous mode "
-                              "(alias of /continuous start)"),
-        ("/continuous start|stop [objective]", "control continuous mode"),
-        ("/backlog [all]", "list pending (or all) items"),
-        ("/add <text> [--once] [--cycles=N] [--budget=$X]",
-            "enqueue a mission for the daemon (iterates until critic stops)"),
-        ("/done|/skip|/rm <id>", "change item status"),
-        ("/stop <id>", "disable iteration on an item (let it finish naturally)"),
-        ("/journal [N]", "tail last N journal entries (default 10)"),
-        ("/note <text>", "append a manual journal note"),
-        ("/nudge <text>", "send live operator guidance — the next "
-                          "engineer round will see it"),
-        ("/run [opts]", "follow the daemon draining the backlog (Ctrl-C returns)"),
-        ("/skills [ls|promote <name>]",
-            "list global skills or promote a project skill to global"),
-        ("/reset", "drop codex session — next mission starts fresh"),
-        ("/backend", "show or change the backend (codex / memory)"),
-        ("/exit  /quit  :q", "leave the REPL (Ctrl-D also works)"),
-    ]
-    # Cap the key column so it never eats the whole terminal width itself on
-    # a narrow terminal (long option syntaxes would otherwise leave almost no
-    # room for the wrapped description, e.g. `/add <text> [--once] ...`).
-    width = min(max(len(k) for k, _ in rows), max(16, theme.width // 2 - 4))
     out: list[str] = []
-    out.append(theme.bold("argus-skill")
-                + theme.gray("  — unified lifetime-agent REPL"))
-    out.append("")
-    out.append(theme.gray("Slash commands:"))
-    for key, desc in rows:
-        prefix = f"  {key.ljust(width)}  "
-        if len(key) > width:
-            # Key itself is wider than the column (narrow terminal): give it
-            # its own line and hang the description below, fully indented —
-            # unlike the label ⋅ arrow ⋅ message lines in the banner, nothing
-            # is already printed on this row, so every wrapped line (including
-            # the first) needs the real indent added uniformly here rather
-            # than delegating to wrap_after's own (smaller) hang_indent.
-            out.append(f"  {theme.cyan(key)}")
-            hang = width + 4
-            for cont in theme.wrap_after(
-                desc, first_indent=0, hang_indent=0, width=max(20, theme.width - hang)
-            ):
-                out.append(" " * hang + theme.gray(cont))
-            continue
-        desc_lines = theme.wrap_after(desc, first_indent=len(prefix))
-        out.append(f"  {theme.cyan(key.ljust(width))}  " + theme.gray(desc_lines[0]))
-        for cont in desc_lines[1:]:
-            out.append(theme.gray(cont))
+    out.append(theme.bold("Argus") + theme.gray("  — one cockpit, one mode"))
     out.append("")
     for para in (
-        "Free text (no leading '/') is queued for the daemon; by default it "
-        "also arms continuous mode so the planner keeps generating next work.",
-        "If a hint says `argus-skill --daemon` while you are already here, "
-        "type `/daemon start` instead; pasted argus-skill CLI invocations are "
-        "intercepted and never queued as tasks.",
-        "Supports --once / --cycles=N / --budget=$X inline flags.",
-        "Ctrl-C while observing stops the tail, not the task — the daemon "
-        "keeps running. Use /status to check on it.",
-        "Use /config continuous=false for a bounded one-off cockpit session.",
-        "In continuous mode the planner inspects the project after each "
-        "task and generates new work until the objective is fully satisfied.",
+        "Type what you need in natural language. The Manager decides whether it "
+        "is chat, status, resume, configuration, planning, or real work.",
+        "Real work follows the single product path: Manager → Planner → "
+        "Idea/Skill → Engineer → Reviewer.",
+        "Examples: `继续上次`, `现在在干什么`, `暂停一下`, `换成 copilot 后端`, "
+        "`帮我优化这个项目`.",
     ):
         for line in theme.wrap_after(para, first_indent=0, hang_indent=0):
             out.append(theme.gray(line))
+        out.append("")
+    out.append(theme.gray("Exit with /exit, Ctrl-D, or `退出`."))
     out.append("")
     return "\n".join(out)
 

@@ -2,16 +2,45 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
+
+
+_PUBLIC_HELP = """usage: argus
+
+Start Argus:
+  argus
+
+Then type what you need in natural language.
+
+Examples:
+  "帮我优化这个项目"
+  "继续上次的任务"
+  "现在在干什么？"
+  "暂停一下"
+  "换成 copilot 后端"
+
+Argus has one user-facing mode: the cockpit. The Manager decides whether your
+message is chat, status, resume, configuration, planning, or real work.
+"""
+
+
+class _ArgusArgumentParser(argparse.ArgumentParser):
+    """Public help is product-facing; full flag help is an internal debug view."""
+
+    def format_help(self) -> str:
+        if os.environ.get("ARGUS_SKILL_DEBUG_HELP", "").strip() == "1":
+            return super().format_help()
+        return _PUBLIC_HELP
 
 
 def build_parser() -> argparse.ArgumentParser:
     from ... import __version__
     from ...skills.builtins import DEFAULT_PROJECT_BUILTIN_SKILLS_DIR
 
-    parser = argparse.ArgumentParser(
-        prog="argus-skill",
-        description="argus-skill — 7×24 supervised lifetime coding agent",
+    parser = _ArgusArgumentParser(
+        prog="argus",
+        description="Argus — one cockpit; describe what you need.",
         # Disable prefix abbreviation so a subcommand flag like
         # ``wiki ingest --init`` is not rejected as an ambiguous abbreviation
         # of top-level options (``--init-identity`` / ``--init-model-api``).
@@ -421,4 +450,3 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     return parser
-
