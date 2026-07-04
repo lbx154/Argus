@@ -27,8 +27,6 @@ def _review_json(**over):
         "round_summary_markdown": "# x",
         "completion_summary_markdown": "",
         "failure_cause": None,
-        "mission_lesson": None,
-        "process_lesson": None,
         "scope": None,
         "planner_report": {"forward_progress": False, "headline": "h", "blocker": "",
                            "recommended_next": "", "evidence_files": []},

@@ -124,21 +124,7 @@ class ReviewDecision:
     operator_question: str = ""
     round_summary_markdown: str = ""
     completion_summary_markdown: str = ""
-    # Phase 1 reviewer→skill feedback loop. Reviewer may classify the
-    # round's failure mode (``skill_gap`` / ``execution_mistake`` /
-    # ``ambiguous_objective`` / ``environmental`` / ``unknown``). When
-    # ``failure_cause == "skill_gap"`` the reviewer also emits a
-    # ``mission_lesson`` — a one-paragraph patch the next round's prompt
-    # should carry verbatim. Empty on success / clean done verdicts.
     failure_cause: str = ""
-    mission_lesson: str = ""
-    # Process self-distillation (judged EVERY mission, success or failure):
-    # a reusable lesson about the agent's own PROCESS — how it worked, where it
-    # wasted/repeated rounds, an incentive friction it hit, or a workaround that
-    # worked — distinct from ``mission_lesson`` (the research METHOD). Distills
-    # PROCESS only; never the outcome/metric/verifier (those stay frozen). Empty
-    # when this mission's process had nothing reusable.
-    process_lesson: str = ""
     verification_summary: str = ""
     # Reviewer completion contract (replaces the hardcoded EMNLP validator
     # gate). For ``final_submission`` missions the reviewer must set
@@ -253,7 +239,7 @@ class ReviewDecision:
         The reviewer JSON schema requires 11 top-level fields. Earlier
         emit sites in runner/engine forwarded only 6, silently dropping
         ``checklist`` (per-item structured eval), ``planner_report``
-        (planner-facing briefing), ``mission_lesson``, ``scope``,
+        (planner-facing briefing), ``scope``,
         ``checkpoint``, and ``verification_summary``. That made postmortem
         of "why did reviewer let this pass?" impossible from events.jsonl.
 
@@ -275,10 +261,6 @@ class ReviewDecision:
             "round_summary_markdown": self.round_summary_markdown or "",
             "completion_summary_markdown": self.completion_summary_markdown or "",
             "failure_cause": self.failure_cause or "",
-            # Previously dropped — these are the structured-eval fields
-            # the reviewer is REQUIRED to emit per reviewer_schema.json.
-            "mission_lesson": self.mission_lesson or "",
-            "process_lesson": self.process_lesson or "",
             "verification_summary": self.verification_summary or "",
             "scope": self.scope or "",
             "checklist": list(self.checklist or []),

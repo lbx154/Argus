@@ -78,8 +78,6 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
         planner_report=_parse_planner_report(parsed, status=status, reason=reason),
         checkpoint=_parse_checkpoint(parsed),
         failure_cause=_parse_failure_cause(parsed),
-        mission_lesson=_parse_mission_lesson(parsed),
-        process_lesson=_parse_process_lesson(parsed),
         skill_ops=_parse_skill_ops(parsed),
         checklist_feedback=_parse_checklist_feedback(parsed),
         step_back=_parse_step_back(parsed),
@@ -260,26 +258,6 @@ def _parse_failure_cause(parsed: dict) -> str:
         normalized = value.strip().lower()
         if normalized in _VALID_FAILURE_CAUSES:
             return normalized
-    return ""
-
-
-def _parse_mission_lesson(parsed: dict) -> str:
-    """Reviewer-authored, reusable lesson emitted alongside a ``skill_gap``
-    failure (e.g. the corrected hyperparameter regime for an RL run).
-    Capped and fail-soft."""
-    value = parsed.get("mission_lesson")
-    if isinstance(value, str):
-        return value.strip()[:4000]
-    return ""
-
-
-def _parse_process_lesson(parsed: dict) -> str:
-    """Reviewer-authored, per-mission lesson about the agent's own PROCESS
-    (incentive frictions, wasted/repeated rounds, a working workaround) — distinct
-    from the method-level ``mission_lesson``. Capped and fail-soft."""
-    value = parsed.get("process_lesson")
-    if isinstance(value, str):
-        return value.strip()[:2000]
     return ""
 
 

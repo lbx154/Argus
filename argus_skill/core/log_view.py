@@ -1,10 +1,8 @@
 """Shared human-log rendering primitives (domain-agnostic plumbing).
 
-Both the persistent ``activity.log`` writer (:mod:`argus_skill.life.activity_log`)
-and the live ``--follow`` terminal view (:mod:`argus_skill.apps.cli._follow`)
-used to grow their OWN copies of timestamping, truncation and "what is the
-current mission" logic, drifting apart over time. This module owns the four
-cross-cutting concerns they share so there is exactly one implementation:
+The live ``--follow`` terminal view (:mod:`argus_skill.apps.cli._follow`) needs
+consistent timestamping, wrapping and "what is the current mission" state. This
+module owns those cross-cutting concerns:
 
 * **Grouping** — a tiny streaming state machine (:class:`LogState` +
   :func:`advance`) that tracks the current mission / planner cycle so events
@@ -16,8 +14,8 @@ cross-cutting concerns they share so there is exactly one implementation:
 * **Full text** — :func:`wrap_body` word-wraps long reason/detail text onto
   continuation lines instead of truncating it (CJK width-aware, no deps).
 * **Assembly** — :func:`block` composes a head line (+ wrapped detail) with the
-  right glyph/indentation; an optional paint callback adds ANSI color for the
-  TTY caller while the file caller stays plain.
+  right glyph/indentation; an optional paint callback adds ANSI color for TTY
+  callers.
 
 Deliberately stdlib-only: it must NOT import from ``argus_skill.life`` or
 ``argus_skill.cli`` (the former would invert the layering, the latter would

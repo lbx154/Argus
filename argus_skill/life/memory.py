@@ -348,22 +348,6 @@ class EventJournal(Journal):
 
     LEGACY_EVENT_TYPE = "journal.entry"
 
-    @staticmethod
-    def _event_type_for_kind(kind: str) -> str:
-        return {
-            "mission_started": "life.mission.started",
-            "mission_complete": "life.mission.completed",
-            "mission_failed": "life.mission.completed",
-            "budget_pause": "life.budget.pause",
-            "planner_cycle": "life.planner.verdict",
-            "planner_done": "life.planner.verdict",
-            "planner_error": "life.planner.error",
-            "planner_waiting": "life.planner.waiting",
-            "lifecycle_block": "life.lifecycle.block",
-            "phase_change": "life.phase.completed",
-            "user_note": "user.note",
-        }.get(kind, f"life.{kind}")
-
     def append(self, entry: JournalEntry) -> None:  # noqa: ARG002
         """Retired write API: project journals are derived from events only."""
         return None

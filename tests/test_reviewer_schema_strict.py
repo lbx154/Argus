@@ -70,7 +70,7 @@ def test_operator_question_parsing_blocked_only():
     from argus_skill.reviewer._parsing import parse_decision_text
 
     common = ('"round_summary_markdown":"x","completion_summary_markdown":"",'
-              '"failure_cause":"","mission_lesson":"","process_lesson":"","scope":"",'
+              '"failure_cause":"","scope":"",'
               '"planner_report":{},"checklist":[],"checkpoint":{},"skill_ops":[],'
               '"checklist_feedback":null,"step_back":null')
     blk = parse_decision_text(

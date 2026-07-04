@@ -897,18 +897,6 @@ class LifeSupervisor:
 
     _MINT_SKILL_TAG = "mint-skill"  # back-compat: tests import this
 
-    def _maybe_journal_process_lesson(
-        self, item: BacklogItem, outcome: Any
-    ) -> None:
-        """Retired compatibility hook.
-
-        Reviewer-authored process lessons were extra explanatory text with no
-        reliable product value. We no longer request, journal, or feed them to
-        Planner; reusable behavior should be explicit skill_ops or derived
-        offline from events.jsonl.
-        """
-        return None
-
     def _maybe_journal_self_evolve_advisory(
         self, item: BacklogItem, result: dict[str, Any] | None
     ) -> list[str]:
@@ -1151,9 +1139,9 @@ class LifeSupervisor:
             if not is_token_allocatable(status):
                 # Log hygiene: the held-item status/event line is identical
                 # every tick a project sits in the same non-allocatable state.
-                # Emit + journal only when the (state, item) signature changes
+                # Emit only when the (state, item) signature changes
                 # or a heartbeat interval elapses — otherwise a long block used
-                # to flood events.jsonl / activity.log with tens of thousands
+                # to flood events.jsonl with tens of thousands
                 # of identical lines. Dispatch behavior is unchanged: we always
                 # return the block dict.
                 state_value = status.state.value
@@ -1739,7 +1727,6 @@ class LifeSupervisor:
             "node_modules",
         }
         ignored_files = {
-            "activity.log",
             "events.jsonl",
             "journal.jsonl",
             "backlog.jsonl",

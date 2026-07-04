@@ -4,7 +4,7 @@ Pre-fix bug: runner.py + mission/engine.py both built the
 ``round.review.completed`` event dict by hand, copying only 6 of the
 11 reviewer JSON schema fields. ``checklist`` (per-item structured
 eval), ``planner_report`` (planner-facing structured briefing),
-``mission_lesson``, ``scope``, ``checkpoint``, and ``verification_summary``
+``scope``, ``checkpoint``, and ``verification_summary``
 were silently dropped. Postmortem of "why did the reviewer let an
 underbaked draft pass?" was impossible from events.jsonl alone.
 
@@ -25,7 +25,6 @@ def _full_review() -> ReviewDecision:
         round_summary_markdown="- evidence: jq OK\n- blocker: BibTeX missing\n",
         completion_summary_markdown="Mission not complete.",
         failure_cause="skill_gap",
-        mission_lesson="Always seed refs.bib from a verified source, not LLM memory.",
         verification_summary="`jq . research/LITERATURE_GROUNDING.json` returned OK.",
         scope="final_submission",
         checklist=[
@@ -64,7 +63,6 @@ def test_to_event_payload_forwards_every_structured_field() -> None:
     assert payload["failure_cause"] == "skill_gap"
 
     # Previously dropped fields — these are the regression guard.
-    assert payload["mission_lesson"].startswith("Always seed")
     assert payload["verification_summary"].startswith("`jq")
     assert payload["scope"] == "final_submission"
     assert isinstance(payload["checklist"], list) and len(payload["checklist"]) == 2
@@ -108,7 +106,6 @@ def test_to_event_payload_handles_empty_synthesized_verdict() -> None:
     assert payload["checklist"] == []
     assert payload["planner_report"] == {}
     assert payload["checkpoint"] == {}
-    assert payload["mission_lesson"] == ""
     assert payload["input_tokens"] == 0
     assert payload["review_skipped"] is True
 
@@ -125,6 +122,6 @@ def test_to_event_payload_extras_can_override_helpers_but_not_lose_data() -> Non
     # All reviewer fields still there.
     for k in (
         "status", "checklist", "planner_report",
-        "mission_lesson", "scope", "checkpoint", "verification_summary",
+        "scope", "checkpoint", "verification_summary",
     ):
         assert k in payload
