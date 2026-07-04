@@ -945,6 +945,99 @@ class LifeSupervisor:
             log.exception("flow-conservation probe hook raised; tick continues")
         return result
 
+    def _manager_divide_item(self, item: BacklogItem) -> dict[str, Any]:
+        """Run Manager routing/division for EVERY claimed backlog item.
+
+        Planner creates work, but Manager is the front door for each task: classify
+        the task into a vertical/data-domain and persist that choice before the
+        Engineer sees it. This is deliberately per-item (not only daemon boot /
+        continuous objective) so manual, planner-generated, and resumed backlog
+        items all show a Manager phase and cannot jump straight to Engineer →
+        Reviewer. Fail-soft via deterministic Manager fallback; events make any
+        failure visible instead of silently skipping the role.
+        """
+        workdir = self._project_workdir()
+        self._emit({
+            "type": "life.manager.started",
+            "item_id": item.id,
+            "title": item.title,
+            "objective": item.objective,
+            "agent_layer": "manager",
+            "text": "manager routing task",
+        })
+        try:
+            mgr = getattr(self.runner, "manager", None)
+            if mgr is None:
+                from ...manager import Manager
+
+                mgr = Manager(
+                    project_root=workdir,
+                    runner=getattr(self.runner, "manager_backend", None)
+                    or getattr(self.runner, "backend", None),
+                    skill_store=getattr(self.runner, "_manager_skill_store", None),
+                    manager_session_root=self.config.telemetry_dir or workdir,
+                )
+            division = mgr.divide(item.objective, ask_on_new_domain=False)
+            payload = {
+                "type": "life.manager.completed",
+                "item_id": item.id,
+                "title": item.title,
+                "objective": item.objective,
+                "agent_layer": "manager",
+                "vertical": getattr(division, "vertical", ""),
+                "kind": getattr(division, "kind", ""),
+                "regular": bool(getattr(division, "regular", False)),
+                "stages": list(getattr(division, "stages", []) or []),
+                "text": (
+                    f"manager routed task to {getattr(division, 'vertical', '')}"
+                ),
+            }
+            self._emit(payload)
+            return payload
+        except Exception as exc:  # noqa: BLE001
+            # Last-resort deterministic fallback still counts as Manager routing:
+            # it is the Manager class without an LLM runner, not a bypass.
+            try:
+                from ...manager import Manager
+
+                division = Manager(project_root=workdir, runner=None).divide(
+                    item.objective
+                )
+                payload = {
+                    "type": "life.manager.completed",
+                    "item_id": item.id,
+                    "title": item.title,
+                    "objective": item.objective,
+                    "agent_layer": "manager",
+                    "vertical": getattr(division, "vertical", ""),
+                    "kind": getattr(division, "kind", ""),
+                    "regular": bool(getattr(division, "regular", False)),
+                    "stages": list(getattr(division, "stages", []) or []),
+                    "fallback": "deterministic",
+                    "manager_error": f"{type(exc).__name__}: {exc}",
+                    "text": (
+                        "manager routed task with deterministic fallback "
+                        f"after {type(exc).__name__}"
+                    ),
+                }
+                self._emit(payload)
+                return payload
+            except Exception as fallback_exc:  # noqa: BLE001
+                payload = {
+                    "type": "life.manager.failed",
+                    "item_id": item.id,
+                    "title": item.title,
+                    "objective": item.objective,
+                    "agent_layer": "manager",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "fallback_error": (
+                        f"{type(fallback_exc).__name__}: {fallback_exc}"
+                    ),
+                    "text": "manager routing failed",
+                }
+                self._emit(payload)
+                return payload
+
     # ------------------------------------------------------------------
     # Self-evolve: thin delegate to SelfEvolveAdvisor
     # ------------------------------------------------------------------
@@ -1364,6 +1457,8 @@ class LifeSupervisor:
             return {"status": "claim_lost", "item_id": item.id}
         item = claimed
         self._missions_started += 1
+
+        self._manager_divide_item(item)
 
         self._emit({
             "type": "life.mission.started",
