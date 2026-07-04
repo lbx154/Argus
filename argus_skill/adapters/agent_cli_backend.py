@@ -322,7 +322,8 @@ class AgentCliBackend:
             "log_path": str(log_path) if log_path is not None else "",
         }
         self._log_agent_io(log_path, {
-            "kind": "start",
+            "type": "agent.io.start",
+            "io_kind": "start",
             "call_id": call_id,
             "run_label": run_label,
             "backend": self._argus_runner.backend,
@@ -343,7 +344,8 @@ class AgentCliBackend:
         except FileNotFoundError as exc:
             log.exception("codex CLI binary not found")
             self._log_agent_io(log_path, {
-                "kind": "error",
+                "type": "agent.io.error",
+                "io_kind": "error",
                 "call_id": call_id,
                 "run_label": run_label,
                 "backend": getattr(self._argus_runner, "backend", ""),
@@ -358,7 +360,8 @@ class AgentCliBackend:
         except Exception as exc:  # noqa: BLE001 — last-line safety net
             log.exception("codex runner raised")
             self._log_agent_io(log_path, {
-                "kind": "error",
+                "type": "agent.io.error",
+                "io_kind": "error",
                 "call_id": call_id,
                 "run_label": run_label,
                 "backend": getattr(self._argus_runner, "backend", ""),
@@ -389,7 +392,8 @@ class AgentCliBackend:
             )
 
         self._log_agent_io(log_path, {
-            "kind": "complete",
+            "type": "agent.io.complete",
+            "io_kind": "complete",
             "call_id": call_id,
             "run_label": run_label,
             "backend": getattr(self._argus_runner, "backend", ""),
@@ -413,7 +417,7 @@ class AgentCliBackend:
         if raw:
             return Path(raw).expanduser()
         if options.working_dir:
-            return Path(options.working_dir).expanduser() / ".argus" / "agent_io.jsonl"
+            return Path(options.working_dir).expanduser() / ".argus" / "events.jsonl"
         return None
 
     def _log_agent_io(self, path: Path | None, row: dict[str, Any]) -> None:
@@ -426,7 +430,8 @@ class AgentCliBackend:
         log_path = str(ctx.get("log_path") or "")
         if log_path:
             self._log_agent_io(Path(log_path), {
-                "kind": "stream",
+                "type": "agent.io.stream",
+                "io_kind": "stream",
                 "call_id": ctx.get("call_id"),
                 "run_label": ctx.get("run_label"),
                 "backend": getattr(self._argus_runner, "backend", ""),

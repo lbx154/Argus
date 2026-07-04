@@ -247,7 +247,7 @@ def test_run_exec_translates_options_and_result(
 def test_run_exec_writes_full_agent_io_log(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    log_path = tmp_path / "agent_io.jsonl"
+    log_path = tmp_path / "events.jsonl"
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
     backend = AgentCliBackend(backend="copilot")
 
@@ -283,7 +283,13 @@ def test_run_exec_writes_full_agent_io_log(
     )
 
     rows = [json.loads(line) for line in log_path.read_text().splitlines()]
-    assert [row["kind"] for row in rows] == ["start", "stream", "stream", "complete"]
+    assert [row["type"] for row in rows] == [
+        "agent.io.start",
+        "agent.io.stream",
+        "agent.io.stream",
+        "agent.io.complete",
+    ]
+    assert [row["io_kind"] for row in rows] == ["start", "stream", "stream", "complete"]
     assert rows[0]["prompt"] == "full prompt text"
     assert rows[0]["run_label"] == "manager"
     assert rows[1]["stream"] == "stdout"
