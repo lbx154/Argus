@@ -38,6 +38,16 @@ from .skills.store import Skill, SkillStore
 
 log = logging.getLogger(__name__)
 
+# Terminal mission statuses on which a matched PROVISIONAL candidate is judged
+# UNPROVEN and closed out (reverted if it was a revision, discarded if fresh).
+# We fire ONLY on genuine ineffectiveness — the engineer held the candidate for
+# the whole mission and never reached an effective result. We deliberately do
+# NOT include ``blocked`` / ``error`` / ``budget_exhausted``: those are external
+# / infra / economic aborts (GPU quota, backend down, cap hit), not evidence
+# that the skill is bad — punishing a candidate for them would wrongly evict
+# skills on jitter.
+_INEFFECTIVE_PROVISIONAL_STATUSES: frozenset[str] = frozenset({"no_progress", "max_rounds"})
+
 
 @dataclass
 class SkillLoopConfig:
@@ -340,18 +350,25 @@ class SkillLoop:
         # Manager generality-check; delete/archive applied directly). The loop
         # only applies what the reviewer requested — there is no separate author.
         # A matched CANDIDATE that just proved effective is confirmed ("入库");
-        # the provisional→confirm lifecycle still gates effectiveness.
-        if (
-            status == "done"
-            and skill is not None
-            and getattr(skill, "provisional", False)
-        ):
+        # an unproven one that dragged through an INEFFECTIVE mission is closed
+        # out (reverted/discarded) — the provisional lifecycle gates both ends.
+        if skill is not None and getattr(skill, "provisional", False):
             try:
-                if self.skill_store.confirm_provisional(skill):
-                    self._emit({"type": "skill.confirmed",
-                                "text": f"confirmed {skill.name} — it proved effective"})
+                if status == "done":
+                    if self.skill_store.confirm_provisional(skill):
+                        self._emit({"type": "skill.confirmed",
+                                    "text": f"confirmed {skill.name} — it proved effective"})
+                elif status in _INEFFECTIVE_PROVISIONAL_STATUSES:
+                    # Root-cause fix for the dead ``discard_provisional`` wire:
+                    # a candidate carried through a mission that never became
+                    # effective is UNPROVEN. Revert it (if a revision of a
+                    # confirmed skill) or discard it (if fresh) so it can't
+                    # linger provisional and be FALSELY confirmed by an
+                    # unrelated later success. ``discard_provisional`` emits the
+                    # ``skill.reverted`` / ``skill.discarded`` event itself.
+                    self.skill_store.discard_provisional(skill, on_event=self._emit)
             except Exception as exc:  # noqa: BLE001 — never break the loop
-                log.warning("confirm_provisional failed (%s: %s)",
+                log.warning("provisional close-out failed (%s: %s)",
                             type(exc).__name__, exc)
 
         if self.config.skill_ops_enabled:

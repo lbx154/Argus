@@ -216,6 +216,71 @@ def test_provisional_confirmed_on_successful_reuse(tmp_path: Path) -> None:
     assert store.load(s["path"]).provisional is False
 
 
+def _continue_review() -> str:
+    return json.dumps({
+        "status": "continue",
+        "reason": "still working",
+        "next_action": "keep going",
+        "round_summary_markdown": "# Review\n\n- continue\n",
+        "completion_summary_markdown": "",
+    })
+
+
+def _blocked_review() -> str:
+    return json.dumps({
+        "status": "blocked",
+        "reason": "blocked on GPU quota (external, not the skill's fault)",
+        "next_action": "wait for quota",
+        "round_summary_markdown": "# Review\n\n- blocked\n",
+        "completion_summary_markdown": "",
+    })
+
+
+def test_provisional_discarded_when_mission_ineffective(tmp_path: Path) -> None:
+    """Root-cause fix for the dead ``discard_provisional`` wire: a matched
+    provisional candidate that dragged through an INEFFECTIVE mission
+    (``max_rounds`` here) is closed out — discarded (fresh skill) rather than
+    lingering provisional where an unrelated later success could confirm it."""
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir, provisional=True)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue("engineer-r1", CannedResponse(message="still trying"))
+    backend.queue("reviewer", CannedResponse(message=_continue_review()))
+
+    events: list[dict] = []
+    outcome = _loop(skills_dir, backend, events).run("say hi", workdir=tmp_path)
+
+    assert outcome.status == "max_rounds"
+    assert any(e.get("type") == "skill.discarded" for e in events), [
+        e.get("type") for e in events]
+    # the fresh candidate is archived out of the active library
+    assert not any(s["name"] == "Write a hello message"
+                   for s in SkillStore(skills_dir).list_summaries())
+
+
+def test_provisional_kept_when_mission_blocked(tmp_path: Path) -> None:
+    """A provisional candidate is NOT punished for an EXTERNAL abort: a mission
+    that ends ``blocked`` (GPU quota, backend down, ...) leaves the candidate
+    provisional so it can still prove itself on a later, unblocked mission."""
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir, provisional=True)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue("engineer-r1", CannedResponse(message="attempted"))
+    backend.queue("reviewer", CannedResponse(message=_blocked_review()))
+
+    events: list[dict] = []
+    outcome = _loop(skills_dir, backend, events).run("say hi", workdir=tmp_path)
+
+    assert outcome.status == "blocked"
+    assert not any(e.get("type") in ("skill.discarded", "skill.reverted")
+                   for e in events), [e.get("type") for e in events]
+    store = SkillStore(skills_dir)
+    s = next(x for x in store.list_summaries() if x["name"] == "Write a hello message")
+    assert store.load(s["path"]).provisional is True
+
+
 def test_skill_ops_ignored_when_disabled(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     backend = MemoryBackend()
