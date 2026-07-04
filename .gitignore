@@ -68,3 +68,12 @@ META_LEDGER.jsonl
 docs/Argus_BP*
 .manager_session.json
 .manager_session.lock
+
+# downloaded external benchmark / eval harnesses + VM images — NEVER repo
+# artifacts (a stray `git add -A` here would try to commit a 35GB qcow2 VM).
+/docker_vm_data/
+/benchmarks/
+/code/
+/data/
+/logs/
+/paper/
