@@ -2365,7 +2365,7 @@ class LifeSupervisor:
         )
 
     def _manager_intent_context(self) -> dict[str, Any]:
-        """Latest user-intent interpretation written by the cockpit Manager."""
+        """Latest user-intent interpretation from the canonical events timeline."""
         try:
             project = getattr(self.memory, "project", None)
             root = getattr(project, "root", None)
@@ -2375,9 +2375,26 @@ class LifeSupervisor:
                 root = getattr(self.memory, "root", None)
             if root is None:
                 return {}
-            path = Path(root) / "manager_intent.json"
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict):
+            data: dict[str, Any] | None = None
+            for name in ("events.jsonl", "events.jsonl.1"):
+                path = Path(root) / name
+                try:
+                    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+                except OSError:
+                    continue
+                for raw in reversed(lines):
+                    try:
+                        event = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(event, dict):
+                        continue
+                    if str(event.get("type") or "").startswith("life.manager.intent."):
+                        data = event
+                        break
+                if data is not None:
+                    break
+            if data is None:
                 return {}
             keep = (
                 "intent_id", "source", "objective", "vertical", "kind",

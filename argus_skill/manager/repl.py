@@ -1258,24 +1258,6 @@ def _emit_manager_event(mem: Any, event: dict[str, Any]) -> None:
         pass
 
 
-def _manager_intent_path(mem: Any) -> Path:
-    return _life_dir_for(mem) / "manager_intent.json"
-
-
-def _write_manager_intent(mem: Any, payload: dict[str, Any]) -> None:
-    try:
-        path = _manager_intent_path(mem)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + f".tmp.{os.getpid()}")
-        tmp.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        os.replace(tmp, path)
-    except Exception:  # noqa: BLE001
-        pass
-
-
 def _manager_divide_user_task(mem: Any, body: str, chat_state: dict[str, Any]) -> None:
     """Run Manager division for an operator-submitted task before enqueue.
 
@@ -1319,7 +1301,6 @@ def _manager_divide_user_task(mem: Any, body: str, chat_state: dict[str, Any]) -
                 f"{getattr(division, 'vertical', '')}"
             ),
         }
-        _write_manager_intent(mem, payload)
         _emit_manager_event(mem, payload)
     except Exception as exc:  # noqa: BLE001
         payload = {
@@ -1331,7 +1312,6 @@ def _manager_divide_user_task(mem: Any, body: str, chat_state: dict[str, Any]) -
             "error": f"{type(exc).__name__}: {exc}",
             "text": "manager intent interpretation failed",
         }
-        _write_manager_intent(mem, payload)
         _emit_manager_event(mem, payload)
 
 

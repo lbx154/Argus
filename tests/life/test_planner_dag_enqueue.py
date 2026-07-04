@@ -193,8 +193,9 @@ def test_planner_events_carry_manager_intent_context(tmp_path, monkeypatch) -> N
         "reason": "manager routed to learning",
     }
     sup.memory.root.mkdir(parents=True, exist_ok=True)
-    (sup.memory.root / "manager_intent.json").write_text(
-        json.dumps(intent), encoding="utf-8"
+    (sup.memory.root / "events.jsonl").write_text(
+        json.dumps({"type": "life.manager.intent.completed", **intent}) + "\n",
+        encoding="utf-8",
     )
 
     assert sup._plan_next_work() is True
