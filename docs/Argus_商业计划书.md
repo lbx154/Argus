@@ -19,7 +19,7 @@
 
 **它真实跑过什么(用可核实的运行体量代替"文件数"虚荣指标):**
 - 在**三类真机公开 benchmark** 上连续运行:CUDA kernel 优化(KernelBench / B200)、训练脚本提速(nanoGPT speedrun / 8×H100)、训练效果优化(nanochat / B200);另有量化因子挖掘、自动写论文垂类。
-- 已沉淀 **24,025 条 codex rollout 轨迹**(每次 LLM 调用的完整 tool_call/输出/上下文)、**404 条独立 mission 级审计链**(`events.jsonl`)、**84,132 条任务生命周期记录**(`memory.jsonl`)。这些是落盘可数的真实运行痕迹,不是 PPT。
+- 已沉淀 **24,025 条 codex rollout 轨迹**(每次 LLM 调用的完整 tool_call/输出/上下文)、**404 条独立 mission 级审计链**(`events.jsonl`)。这些是落盘可数的真实运行痕迹,不是 PPT；旧的 `memory.jsonl` 旁路已合并进 `events.jsonl`。
 
 **核心洞察(也是本 BP 的论点):** Argus 跑出来的**成品**(论文 / kernel / 因子)是三类资产里**最不容易变现**的一类;更有价值的是它为了"绝不作弊"而被迫造出来的两样**副产品**——
 
@@ -139,9 +139,9 @@ FrontierMath 私有 holdout 审计争议、LMArena "Leaderboard Illusion" 刷榜
 |---|---|---|
 | 会话级完整轨迹 | `~/.codex/sessions/.../rollout-*.jsonl`:每次 LLM 调用的 tool_call / result / message / content / 模型参数(**gpt-5.5**, reasoning_effort)——最细粒度原始训练数据,无汇总、无"我记得" | `tools/trajectory_index.py:166-206` |
 | 事件流溯源 | `events.jsonl`:所有 supervisor 事件(mission / phase / planner 决策 / 进度 / 错误 / 账单),自动时间戳,原子 append,超 100MiB 轮转 | `life/event_log.py:1-188` |
-| 决策审计链 | `decisions.jsonl`:planner / engineer / reviewer 结构化决策;`ReviewDecision` 含 status / confidence / failure_cause / mission_lesson / planner_report / checkpoint / checklist——可作 RLHF / policy distillation 的反馈信号 | `tools/trajectory_index.py:228-251`;`core/models.py:94-217` |
-| 高信噪活动日志 | `activity.log`:从 events 自动渲染的里程碑,ISO 时间 + 固定宽类别,可 grep,来自 events 不可手写造假 | `life/activity_log.py:1-330` |
-| 持久任务记忆 | journal / backlog / memory.jsonl 三层任务生命周期(pending→running→done/failed),cost_usd / iteration 数字 = agent 自律的数字证明;全局 / 项目两层隔离防跨项目污染 | `life/memory.py:1-1309` |
+| 决策审计链 | `events.jsonl` / `decisions.jsonl`:planner / engineer / reviewer 结构化决策;`ReviewDecision` 含 status / failure_cause / planner_report / checkpoint / checklist——可作 RLHF / policy distillation 的反馈信号 | `tools/trajectory_index.py`;`core/models.py` |
+| 单一事件时间线 | `events.jsonl`:mission / phase / planner 决策 / 进度 / 错误 / 账单 / backlog 生命周期，自动时间戳，原子 append，超 100MiB 轮转；旧 `activity.log` / `memory.jsonl` 旁路已删除 | `life/event_log.py`;`life/memory.py` |
+| 持久任务队列 | `backlog.jsonl`:pending→running→done/failed，配合 `events.jsonl` 的 cost_usd / iteration 数字形成 agent 自律证明；session artifact root 隔离防跨项目污染 | `life/memory.py` |
 | 实时遥测 | `telemetry.jsonl` 每 10s 心跳 + 子进程 / 文件增量(mtime / size_delta / new_lines),命令行脱敏防 token 泄露,可绘"artifacts 增长曲线"证明没空转 | `life/telemetry.py:1-648` |
 | 蒸馏知识库 | wiki pages(techniques / conflicts / patterns)带 frontmatter + related_runs + confidence;confidence 不是 LLM 猜的,是"在 N 个真实 mission 试过"的统计 | `wiki/schema.py`;`wiki/promotion.py:1-298` |
 | 技能生命周期 | 每个 skill 自带 distill 过程 + provisional 标记,reviewer validate 后才入库;task_history = 显式 training signal | `skills/store.py`;`skills/lifecycle.py:1-250` |

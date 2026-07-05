@@ -118,11 +118,10 @@ skills, anti-cheat, role-identity playbooks) — the operator's #1 concern.
 `_PROTECTED_CATEGORIES = {anti-cheat, guardrail, role-identity}`.
 
 - **archive/delete of a protected skill → refused** (mechanical, no judge).
-- **update of a protected skill → must clear the diff-aware gate**
-  (`Manager.approve_skill_update`, on the Manager's own backend at high effort with
-  role context — the most independent judge for the most sensitive op), which sees
-  old+new and rejects any regression / removed-but-still-valid guidance. It also
-  first clears the ordinary mechanical+dedup+generality gates.
+- **update of a protected skill → refused by the runtime skill path**. Runtime
+  Scientist/Reviewer skill candidates may create/update ordinary provisional
+  skills, but protected / governing skills require an explicit source-code review
+  rather than an automatic runtime update.
 - **a `create` cannot shadow a protected skill** by reusing its name (a top-level
   shadow would win the matcher's last-wins resolution and neutralize the protected
   playbook without touching it) → refused.
@@ -148,8 +147,7 @@ role-identity skills are covered by the category floor.
 
 **LIVE (implemented + tested, off the daemon hot path except where noted):**
 - `Skill.protected` field; `SkillRouter` protected floor (flag + category);
-  diff-aware protected-update gate (`Manager.approve_skill_update`); create-shadow
-  refusal.
+  runtime protected-update refusal; create-shadow refusal.
 - `WikiStore.retire_page` tombstone; `iter_pages` skips `_retired`.
 - `skills/provenance.py` evidence-span verify (subdir-aware, ambiguity-safe).
 - `WikiRouter` structured wiki_ops (create_source/create_page/update_page/
@@ -177,9 +175,9 @@ argus_skill/verticals/learning/stages.py            STAGE_ORDER, checks, checkli
 argus_skill/verticals/learning/skills/reviewer/curation-review.md   gate skill (protected)
 argus_skill/builtin_skills/engineer/study-and-curate.md             method skill (protected, cross-vertical)
 argus_skill/skills/store.py                         Skill.protected field
-argus_skill/skills/skill_router.py                  _PROTECTED_CATEGORIES, _is_protected, protected floor, create-shadow refusal, diff-aware update
-argus_skill/manager/skill_review.py                 approve_skill_update (diff-aware)
-argus_skill/manager/_core.py                        Manager.approve_skill_update (independent backend)
+argus_skill/skills/skill_router.py                  _PROTECTED_CATEGORIES, _is_protected, protected floor, create-shadow refusal, protected-update refusal
+argus_skill/manager/skill_review.py                 project skill placement/tidy judge
+argus_skill/manager/_core.py                        Manager stage / routing / placement authority
 argus_skill/skills/provenance.py                    verify_evidence (quote-in-source)
 argus_skill/wiki/store.py                           retire_page tombstone; iter_pages _retired skip
 argus_skill/wiki/router.py                          WikiRouter (structured wiki_ops)

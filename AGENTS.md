@@ -4,7 +4,7 @@
 
 ## 一句话架构
 
-`argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 管单个任务的 skill 匹配、必要时蒸馏 skill、L1 engineer 执行、L2 reviewer 验收。历史上独立的 L3 critic 逐轮打磨循环已经移除——验收完全交给 L2 reviewer。EMNLP 论文生成 pipeline 是 built-in skill + per-stage reviewer 检查（stage checklists，reviewer 对照 artifact 裁决）+ planner fallback 共同实现的，不是单独一个 `make_paper.py`。`pipeline_contracts.py` 现在只负责 manifest/freshness/validation-priority 这套 artifact 构建-修复工具，不再是质量 gate。
+`argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 管单个任务的 skill 匹配、miss 时调用 Scientist 生成 provisional skill、L1 engineer 执行、L2 reviewer 验收并证明 skill 是否入库。历史上独立的 L3 critic 逐轮打磨循环已经移除——验收完全交给 L2 reviewer。EMNLP 论文生成 pipeline 是 built-in skill + per-stage reviewer 检查（stage checklists，reviewer 对照 artifact 裁决）+ planner fallback 共同实现的，不是单独一个 `make_paper.py`。`pipeline_contracts.py` 现在只负责 manifest/freshness/validation-priority 这套 artifact 构建-修复工具，不再是质量 gate。
 
 主链路：
 
@@ -14,7 +14,7 @@ argus-skill / python -m argus_skill
   -> argus_skill/manager/repl.py 或 argus_skill/daemon/life_worker.py
   -> argus_skill/life/supervisor/_core.py  # backlog / budget / L4 planner
   -> argus_skill/apps/_runtime.py (_SkillLoopRunner.execute(...))
-  -> argus_skill/loop.py                   # matcher -> distiller -> engineer -> reviewer
+  -> argus_skill/loop.py                   # matcher -> Scientist-on-miss -> engineer -> reviewer
   -> argus_skill/engineer/runner.py        # L1 round loop
   -> argus_skill/reviewer/_core.py      # L2 structured verdict
 ```
@@ -24,10 +24,10 @@ argus-skill / python -m argus_skill
 | 层 | 角色 | 主要文件 | 改什么时看这里 |
 | --- | --- | --- | --- |
 | L0 | CLI / daemon / cockpit | `argus_skill/apps/cli/_core.py`, `argus_skill/manager/repl.py`, `argus_skill/daemon/life_worker.py`, `argus_skill/apps/_watch.py` | 命令行参数、REPL、daemon 启停、`--status`、`--follow`、Telegram/事件展示 |
-| L1 | Engineer | `argus_skill/loop.py`, `argus_skill/engineer/runner.py` | 单轮执行 prompt、失败重试、session 续接、acceptance check、进度 watchdog |
+| L1 | Engineer | `argus_skill/loop.py`, `argus_skill/engineer/runner.py` | 单轮执行 prompt、失败重试、session 续接、进度 watchdog |
 | L2 | Reviewer | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` | done/continue/blocked 判断、reviewer JSON schema、论文任务的 peer-review gate |
 | L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor/_core.py` | continuous mode 自动排新任务、EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除（见 `planner/planner.py` 顶部说明），验收只由 L2 reviewer 负责 |
-| Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/scientist/distiller.py`, `argus_skill/builtin_skills/` | skill 匹配、miss 后蒸馏（distiller 复用 engineer backend，不是独立 agent）、writeback、内置论文/research playbook |
+| Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/skills/scientist.py`, `argus_skill/builtin_skills/` | skill 匹配、miss 后由 Scientist 生成 provisional skill、Reviewer 用任务成功证明后 confirm、内置论文/research playbook |
 | Contracts | 论文 artifact 工具 + 状态机 | `argus_skill/skills/pipeline_contracts.py`, `argus_skill/skills/pipeline_policy.py`, `argus_skill/skills/stage_checklists.py` | manifest/freshness/validation-priority 构建-修复（pipeline_contracts）；质量 gate 走 stage checklist（stage_checklists） |
 
 ## 入口和运行面
@@ -47,9 +47,7 @@ argus-skill / python -m argus_skill
 ```text
 ~/.argus-skill/identity.md
 ~/.argus-skill/skills/
-~/.argus-skill/projects/<fingerprint>/project.md
 ~/.argus-skill/projects/<fingerprint>/backlog.jsonl
-~/.argus-skill/projects/<fingerprint>/memory.jsonl   # 本项目日志（每个项目独立，无全局 journal）
 ~/.argus-skill/projects/<fingerprint>/events.jsonl
 ~/.argus-skill/projects/<fingerprint>/continuous.json
 ```
@@ -69,10 +67,10 @@ argus-skill / python -m argus_skill
 
 ```text
 objective_for_skill -> SkillStore.find_relevant(...)
-  miss -> Distiller.distill(...) -> SkillStore.save_distilled(...)
+  miss -> SkillScientist.distill(...) -> SkillStore.save_distilled(..., provisional=True)
 skill_text + task -> SupervisedEngineer.run(...)
-  round k: engineer -> checks -> Reviewer.evaluate(...)
-  done -> SkillStore.writeback_from_trajectory(...)
+  round k: engineer -> Reviewer.evaluate(...)
+  done -> provisional skill confirm
   continue -> next_action 注入下一轮
   blocked/max_rounds -> 返回 outcome
 ```
@@ -80,7 +78,7 @@ skill_text + task -> SupervisedEngineer.run(...)
 改 prompt 时注意：
 
 - 普通任务的 L1 prompt 在 `SkillLoop._build_engineer_prompt`。
-- 论文任务额外 contract 也在这个函数里，包含整链 EMNLP gate（reviewer 的 full-pipeline checklist）、不要把 daemon/route/cache/path 写进论文 prose、正文页数等约束。
+- L1 prompt 现在保持轻量：当前任务、原始用户目标、匹配/Scientist 生成的 skill、Reviewer next_action、turn discipline。不要再把 vertical role banner、stage checklist、operator injected guidance、paper/non-paper long contract 塞回 engineer prompt。
 - `objective_for_skill` 是干净用户目标；不要把 memory prelude 写进 skill history。`SkillStore.append_task_history` 已经在防这个坑。
 
 ## Engineer / Reviewer
@@ -90,7 +88,6 @@ L1 engineer round loop 在 `argus_skill/engineer/runner.py`。
 这里管：
 
 - 每轮调用 backend runner。
-- 运行 acceptance checks：`argus_skill/engineer/checks.py`。
 - backend failure / auth failure / context poisoned / effective progress timeout。
 - 是否清掉 carried Codex thread id。
 - **Curated-memory checkpoint + 结构化 session roll**（见下）。
@@ -129,7 +126,7 @@ session 结构上短命 + 跨 session 边界只交接「经过筛选的有价值
   要跨 mission 续接，给它传一个 project-state 路径即可。
 - 测试：`tests/test_checkpoint.py`、`tests/test_checkpoint_loop.py`。
 
-### Background-subagent advisory + cadence wait（别空转盯长实验）
+### Background-subagent cadence wait（别空转盯长实验）
 
 背景：mission 用 subagent 工具 `--mode supervised` 起一个长跑（如 veRL GRPO
 训练）后，那个 job 已经有自己**独立的 supervisor** 每隔 `monitor_interval` 查健康、
@@ -137,20 +134,15 @@ session 结构上短命 + 跨 session 边界只交接「经过筛选的有价值
 一个健康 run（实测 RL pilot 出现过几百轮只在重读 `status.json` + 写 `MONITOR_*.md`），
 被长程 GPU 实验阻塞，而不是去推进不依赖它的独立工作。
 
-实现（`argus_skill/engineer/background_subagents.py` + `runner.py` + `argus_skill/reviewer/_core.py`）：
+实现（`argus_skill/engineer/background_subagents.py` + `runner.py`）：
 
-- `background_subagents.py`（dependency-free，仿 `failed_tool_ledger.py`）：读
+- `background_subagents.py`：读
   `<workdir>/.argus_subagents/*.json` 注册表，把在跑的 job 分成 `self_watched`
   （supervised + 健康 + registry mtime 新鲜 + 无 concern + decision≠early_stop）和
   `needs_attention`（direct 模式 / discussing / degrading|stuck|diverging / 有
   concern / supervisor 心跳过期 / worker pid 已死）。
-- **消费**：runner 每轮把 `render_background_subagents_advisory(workdir)` 渲染成一段
-  advisory prepend 到 engineer prompt（同 checkpoint / failed-tool advisory 的拼接），
-  并把同一段作为 `background_context` 传给 `reviewer.evaluate` —— reviewer 据此把
-  `next_action` 引导到独立工作而非"再 poll 一次"（不强制 `forward_progress` 值，避免
-  误触发 stall 退出）。注册表为空 → advisory 为 ""，零行为变化。
-- **Agent 主导的 cadence 等待**（"只按 supervisor 节奏复查"）：advisory 告诉 agent，
-  若只剩等待可回复 `WAIT_FOR_SUBAGENT: <task_id>`。runner 检测到该 sentinel 且命中一个
+- **Agent 主导的 cadence 等待**（"只按 supervisor 节奏复查"）：若 engineer 显式回复
+  `WAIT_FOR_SUBAGENT: <task_id>`，runner 检测到该 sentinel 且命中一个
   self-watched in-flight job 时，**跳过昂贵的 checks+reviewer 轮**，按该 job 的
   supervisor 节奏（`monitor_interval`，clamp 到 30–900s）休眠，job 到终态会提前唤醒。
   是 **agent 显式选择**等待，不是 harness 替它决定。sentinel 命中不到自看护 job 时被
@@ -221,8 +213,7 @@ skill 是 markdown 文件，带 YAML-like frontmatter。
 关键文件：
 
 - `argus_skill/skills/store.py`: markdown skill store、frontmatter parse、matcher、save/writeback。
-- `argus_skill/scientist/distiller.py`: miss 后让 scientist 生成新 skill。
-- `argus_skill/scientist/prompts.py`: matcher/distill prompt。
+- `argus_skill/skills/scientist.py`: matcher miss 后让 Scientist/Distiller 生成 provisional skill。
 - `argus_skill/skills/quality.py`: distilled skill 质量门。
 - `argus_skill/skills/lifecycle.py`: reinforce/distill/revise/retire 决策。
 - `argus_skill/skills/builtins.py`: packaged built-in skill seed/export。
@@ -404,7 +395,7 @@ RunnerBackend.run_exec(prompt, options, run_label, resume_thread_id=None) -> Run
 - `argus_skill/adapters/agent_cli_backend.py`: 包 vendored `agent_cli.agent_cli_runner.AgentCliRunner`，真实 codex/claude/copilot CLI 都从这里走。
 - `argus_skill/agent_cli/`: 旧 ArgusBot autoloop 整套已删除，只保留三个底层 CLI driver 模块 `agent_cli_runner` / `runner_backend` / `models`（+ 薄 `__init__`、`LICENSE`、`_VENDORED.md`）。`__init__` 不再 eager import orchestrator/core，所以 `import argus_skill.agent_cli.agent_cli_runner` 没有遗留副作用。历史的 orchestrator / telegram_daemon / feishu_adapter / 第二份 reviewer·planner·checks / dashboard 等 ~33 个模块（~14.9k 行）都已移除——它们早被 `argus_skill.life` / `engineer` / `planner` 取代（Telegram 远控走的是新的 `life/telegram_bot.py`）。
 - `argus_skill/adapters/memory_backend.py`: deterministic 测试/smoke。
-- `_SkillLoopRunner` 在 `apps/_runtime.py` 里组装真实 backend，并把同一个 backend 传给 distiller(scientist)、engineer、reviewer、planner。
+- `_SkillLoopRunner` 在 `apps/_runtime.py` 里组装真实 backend，并把 backend 传给 Scientist、engineer、reviewer、planner。
 
 常见 env：
 
