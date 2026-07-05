@@ -50,6 +50,7 @@ Argus 不是一个"帮你润色论文"的工具，也不是一条把 prompt 串�
 - **没有单独的 validator / 硬编码完成门。** "项目做完了没"是 **L2 reviewer 对照 stage checklist 的裁决**，不是 harness 跑一串正则去判定。退役的 EMNLP validator 已删除——reviewer 是唯一的事实来源。
 - **"反平庸"是 reviewer 的判断，不是 harness 的规则。** checklist 里写的是"至少显式否决一个平庸/已有的 idea 并给出理由"这类**要求 reviewer 去核**的陈述，harness 不去数 improvement 百分比、不去匹配关键词。
 - **记忆是纯 recency 的中立管道。** 注入给 agent 的"过往工作"上下文按时间倒序给最近 N 条（按项目隔离、标注 non-authoritative），**不**用关键词 Jaccard 替 agent 猜"哪条相关"——相关性是 agent 读完自己判断的。
+- **代码/任务产物和 Argus 内部状态必须分开。** Agent 可以在任务需要的代码工作目录里读代码、改代码、跑测试，也可以把用户要的报告、实验结果、benchmark output 写到目标项目或用户指定目录；但 `events.jsonl`、`backlog.jsonl`、`PIPELINE_STATE.json`、`CHECKLISTS.json`、`DOMAINS/` 这类 harness 调度状态必须写到当前 session 的 artifact root（`~/.argus-skill/projects/<session>/`），不能污染 repo 里的 `research/`。判断标准很简单：**用户想要的结果放项目里；Argus 为了调度自己写的内部状态放 session 里。**
 - **唯一正当的"硬规则"是防造假护栏。** 必须用真实公开 benchmark、不许重复行灌水、要留审计包——这些约束的是**作弊**，不是科研选择，所以它们留在 harness 里是合理的。
 - **入口必须显式配置。** 启动 daemon / 进 cockpit 前，必须同时给出 (1) mission objective 和 (2) 至少一个受信任的 special prompt。缺任何一个直接 `exit 2`——我们绝不让 agent 在"不知道目标、不知道机器规则"的情况下空跑或靠猜。
 
