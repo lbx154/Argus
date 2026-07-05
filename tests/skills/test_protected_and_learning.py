@@ -14,7 +14,6 @@ Covers operator requirements:
 """
 from __future__ import annotations
 
-from argus_skill.manager.skill_review import ApprovalVerdict
 from argus_skill.skills.skill_router import SkillRouter
 from argus_skill.skills.store import Skill, SkillStore
 from argus_skill.skills.vertical_select import VERTICALS
@@ -72,31 +71,6 @@ def test_learning_vertical_registered_and_loads():
 
 
 # --------------------------------------------------------------------------- #
-# fakes
-# --------------------------------------------------------------------------- #
-class _MgrFull:
-    """A Manager stub exposing both approve_skill and approve_skill_update."""
-
-    def __init__(self, *, approve: bool = True, update: bool = True):
-        self._a, self._u = approve, update
-        self.update_calls = 0
-
-    def approve_skill(self, *, content, task, op="create"):
-        return ApprovalVerdict(self._a, "ok")
-
-    def approve_skill_update(self, *, old_content, new_content, task, why=""):
-        self.update_calls += 1
-        return ApprovalVerdict(self._u, "ok-update")
-
-
-class _MgrNoUpdate:
-    """A Manager stub with approve_skill but WITHOUT approve_skill_update."""
-
-    def approve_skill(self, *, content, task, op="create"):
-        return ApprovalVerdict(True, "ok")
-
-
-# --------------------------------------------------------------------------- #
 # #1 protected skills cannot be archived/deleted
 # --------------------------------------------------------------------------- #
 def test_protected_skill_cannot_be_archived(tmp_path):
@@ -128,56 +102,30 @@ def test_ordinary_archive_still_works(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# #3 updating a protected skill must clear the diff-aware gate
+# #3 protected skills are not updated by runtime skill candidates
 # --------------------------------------------------------------------------- #
-def test_protected_update_passes_when_diff_aware_approves(tmp_path):
+def test_protected_update_is_rejected(tmp_path):
     store = _store(tmp_path)
     store.save(Skill(name="Gov Skill", description="d", category="learning",
                      content=_content(), protected=True))
-    mgr = _MgrFull(approve=True, update=True)
-    router = SkillRouter(skill_store=store, manager=mgr)
+    router = SkillRouter(skill_store=store)
     counts = router.apply_ops(
         [{"op": "update", "name": "Gov Skill", "content": _content(desc="Revised, improved.")}],
-        task="t")
-    assert counts["updated"] == 1 and mgr.update_calls == 1
-
-
-def test_protected_update_rejected_when_diff_aware_denies(tmp_path):
-    store = _store(tmp_path)
-    store.save(Skill(name="Gov Skill", description="d", category="learning",
-                     content=_content(), protected=True))
-    mgr = _MgrFull(approve=True, update=False)
-    router = SkillRouter(skill_store=store, manager=mgr)
-    counts = router.apply_ops(
-        [{"op": "update", "name": "Gov Skill", "content": _content(desc="Regressive edit.")}],
-        task="t")
-    assert counts["updated"] == 0 and counts["rejected"] == 1 and mgr.update_calls == 1
-
-
-def test_protected_update_refused_without_judge(tmp_path):
-    store = _store(tmp_path)
-    store.save(Skill(name="Gov Skill", description="d", category="learning",
-                     content=_content(), protected=True))
-    # passes approve_skill, but no diff-aware judge available -> refuse (never blind).
-    router = SkillRouter(skill_store=store, manager=_MgrNoUpdate())
-    counts = router.apply_ops(
-        [{"op": "update", "name": "Gov Skill", "content": _content(desc="No judge.")}],
         task="t")
     assert counts["updated"] == 0 and counts["rejected"] == 1
 
 
 def test_ordinary_update_not_gated_by_diff_aware(tmp_path):
-    """A plain, non-protected, non-active update never triggers the diff-aware gate."""
+    """A plain, non-protected update is accepted as a provisional candidate."""
     store = _store(tmp_path)
     store.save(Skill(name="Plain Skill", description="d", category="c",
                      content=_content(name="Plain Skill")))
-    mgr = _MgrFull(approve=True, update=True)
-    router = SkillRouter(skill_store=store, manager=mgr)
+    router = SkillRouter(skill_store=store)
     counts = router.apply_ops(
         [{"op": "update", "name": "Plain Skill",
           "content": _content(name="Plain Skill", desc="Revised.")}],
         task="t")
-    assert counts["updated"] == 1 and mgr.update_calls == 0
+    assert counts["updated"] == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -194,12 +142,11 @@ def test_role_identity_category_is_protected_without_flag(tmp_path):
     assert any(s["name"] == "Role Skill" for s in store.list_summaries())
 
 
-def test_anti_cheat_category_update_needs_diff_aware(tmp_path):
+def test_anti_cheat_category_update_is_refused(tmp_path):
     store = _store(tmp_path)
     store.save(Skill(name="Guard Skill", description="d", category="anti-cheat",
                      content=_content(name="Guard Skill")))
-    # no diff-aware judge available -> a category-protected update is refused
-    counts = SkillRouter(skill_store=store, manager=_MgrNoUpdate()).apply_ops(
+    counts = SkillRouter(skill_store=store).apply_ops(
         [{"op": "update", "name": "Guard Skill",
           "content": _content(name="Guard Skill", desc="edit")}], task="t")
     assert counts["updated"] == 0 and counts["rejected"] == 1
@@ -212,8 +159,7 @@ def test_create_colliding_with_protected_name_is_refused(tmp_path):
     store = _store(tmp_path)
     store.save(Skill(name="Gov Skill", description="d", category="learning",
                      content=_content(), protected=True))
-    mgr = _MgrFull(approve=True, update=True)
-    router = SkillRouter(skill_store=store, manager=mgr)
+    router = SkillRouter(skill_store=store)
     counts = router.apply_ops(
         [{"op": "create", "content": _content(name="Gov Skill", desc="a shadow playbook")}],
         task="t")

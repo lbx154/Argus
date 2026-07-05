@@ -70,7 +70,7 @@ HIGH_VALUE_EVENT_TYPES: frozenset[str] = frozenset({
     "life.inbox.queued",
     "life.daemon.idle_timeout",
     "idea.search.started", "idea.search.completed", "idea.search.skipped",
-    "checks.done", "operator_alert",
+    "operator_alert",
 })
 # In "signal" mode, an engineer.progress event is kept only if its text carries
 # a win/result/error marker (so a measured win or a traceback is never lost).

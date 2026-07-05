@@ -13,12 +13,12 @@ import time
 from pathlib import Path
 
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus_skill.reviewer import Reviewer, ReviewerConfig
 from argus_skill.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
 )
+from argus_skill.reviewer import Reviewer, ReviewerConfig
 
 
 def _write_record(reg: Path, task_id: str, **fields) -> None:
@@ -57,7 +57,7 @@ def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
     )
 
 
-def test_advisory_injected_and_wait_sentinel_skips_reviewer(tmp_path: Path, monkeypatch) -> None:
+def test_wait_sentinel_skips_reviewer(tmp_path: Path, monkeypatch) -> None:
     # Never really sleep during the cadence yield.
     monkeypatch.setattr(time, "sleep", lambda *_a, **_k: None)
     _write_record(tmp_path / ".argus_subagents", "train-1", description="full GRPO run")
@@ -83,12 +83,6 @@ def test_advisory_injected_and_wait_sentinel_skips_reviewer(tmp_path: Path, monk
     )
 
     labels = [label for (label, _p, _o) in backend.history]
-    prompts = {label: p for (label, p, _o) in backend.history}
-
-    # Advisory reached the round-1 engineer prompt.
-    assert "Background subagents in flight" in prompts["engineer-r1"]
-    assert "train-1" in prompts["engineer-r1"]
-
     # The sentinel round skipped the reviewer: engineer-r2 is called directly
     # after engineer-r1, with no "reviewer" call in between.
     assert labels[0] == "engineer-r1"

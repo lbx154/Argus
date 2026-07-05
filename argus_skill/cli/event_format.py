@@ -51,7 +51,6 @@ _EVENT_ICONS: dict[str, str] = {
     "loop.start":  "🚀",
     "loop.done":   "🏁",
     "round.start": "🔁",
-    "checks.done": "🔍",
     # Live codex/claude/copilot stream progress (one beat per
     # ``item.completed`` JSON event the backend emits).
     "engineer.progress": "◆",

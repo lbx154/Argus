@@ -1,23 +1,4 @@
-"""The Manager's skill-library approval gate (generality + correctness).
-
-The Reviewer PROPOSES skill changes (``create`` / ``update``); SkillRouter runs
-the cheap automatic checks (independence by similarity, mechanical structure)
-and then calls THIS gate for the judgement that needs the most context. The
-Manager is the top-level authority in the new architecture — it sees the most
-and owns the two dimensions a stored skill must pass:
-
-  * generality — a capability for a FAMILY of tasks, not the one in front of the
-    reviewer (salvaged from the retired distiller's Generality/Coverage checks);
-  * correctness — the playbook's logic is sound and would not mislead.
-
-This replaces the author grading its own homework with an INDEPENDENT approver.
-``delete`` / ``archive`` do NOT pass through here — retiring a wrong/harmful
-skill is applied directly by SkillRouter on the reviewer's request.
-
-Runs as one focused LLM judge call on the supplied runner; SkillRouter invokes
-it only for a create/update proposal that already cleared the cheap checks, so
-its cost is proportional to surviving proposals (rare).
-"""
+"""Manager skill-library tidy helpers."""
 from __future__ import annotations
 
 import json
@@ -29,36 +10,6 @@ from typing import Any
 from ..core.models import RunnerOptions
 
 log = logging.getLogger(__name__)
-
-
-@dataclass
-class ApprovalVerdict:
-    approved: bool
-    why: str
-
-
-# The judge rubric. The Manager is the top-level authority (it sees the most
-# context), so it owns BOTH dimensions a stored skill must pass: generality
-# (salvaged from the retired distiller's Generality/Coverage checks) and logical
-# correctness. Independence (similarity dedup) and mechanical structure are
-# checked by SkillRouter BEFORE this call, so the judge focuses on judgement.
-_RUBRIC = (
-    "GENERALITY — the playbook must be BROADER than the one task yet still "
-    "ENCLOSE it:\n"
-    "- title names a CAPABILITY (not a single task); steps use placeholders "
-    "(<path>, <N>, <name>) for anything that varies; NO hardcoded paths, ids, "
-    "numbers, or names from this mission survive.\n"
-    "- `When to use` names a FAMILY that contains this task (not just a sibling); "
-    "`How to solve` would produce the needed artefact/answer with at most "
-    "placeholder substitution; `When NOT to use` does not exclude this task.\n"
-    "CORRECTNESS — the playbook's logic must be SOUND:\n"
-    "- the steps are technically correct and in a workable order; no step "
-    "contradicts another; `When NOT to use` does not contradict `When to use`; "
-    "the advice would not mislead an engineer into a wrong or harmful action.\n"
-    "REJECT if it only fits THIS task, hardcodes mission specifics, captures a "
-    "one-off / environmental blocker rather than a reusable skill, OR contains "
-    "incorrect / contradictory / misleading steps."
-)
 
 
 def _extract_json(text: str) -> dict | None:
@@ -78,132 +29,6 @@ def _extract_json(text: str) -> dict | None:
     except json.JSONDecodeError:
         return None
     return value if isinstance(value, dict) else None
-
-
-def approve_skill(
-    *,
-    content: str,
-    task: str,
-    op: str = "create",
-    runner: Any,
-    model: str = "",
-    reasoning_effort: str = "low",
-    role_skill_block: str = "",
-) -> ApprovalVerdict:
-    """Judge a proposed skill playbook's generalizability. Returns
-    ``ApprovalVerdict``. Fail-soft and CONSERVATIVE: any error, empty/unparseable
-    judge output, or missing runner → ``approved=False`` (a skill is kept out of
-    the library unless the gate affirmatively passes it).
-
-    ``role_skill_block`` is OPTIONALLY prepended to the judge prompt — the Manager
-    passes its role skill block here so the approval gate shares the same injected
-    identity/duties context the Manager's other LLM calls use. It defaults to
-    ``""`` so every existing caller (and a Manager with no ``skill_store``) gets a
-    byte-for-byte identical prompt to before this parameter existed."""
-    if not (content or "").strip():
-        return ApprovalVerdict(False, "empty proposal")
-    if runner is None:
-        return ApprovalVerdict(False, "no manager runner available")
-
-    prompt = (
-        f"{role_skill_block}"
-        "You are the Manager's skill-library gate — the top-level authority on "
-        "what enters the shared skill library. A reviewer PROPOSED a capability "
-        f"playbook (op={op}) after working a task. Judge whether it is BOTH "
-        "generalizable AND logically correct enough to keep in a library reused "
-        "across many future tasks.\n\n"
-        f"## Rubric\n{_RUBRIC}\n\n"
-        f"## The task the reviewer just worked\n{task.strip()[:2000]}\n\n"
-        f"## Proposed playbook\n{content.strip()[:12000]}\n\n"
-        "Reply with ONLY a JSON object: "
-        '{\"approve\": true|false, \"why\": \"<clear explanation>\"}. '
-        "Approve only when BOTH generality and correctness are genuinely "
-        "satisfied; when in doubt, reject — a wrong skill is worse than no skill."
-    )
-    try:
-        result = runner.run_exec(
-            prompt=prompt,
-            options=RunnerOptions(
-                model=model or None,
-                reasoning_effort=reasoning_effort,
-                skip_git_repo_check=True,
-                full_auto=True,
-            ),
-            run_label="manager.skill_review",
-        )
-    except Exception as exc:  # noqa: BLE001 — gate must never break the loop
-        log.warning("manager skill gate failed (%s: %s)", type(exc).__name__, exc)
-        return ApprovalVerdict(False, f"gate error: {type(exc).__name__}")
-
-    parsed = _extract_json(getattr(result, "last_agent_message", "") or "")
-    if parsed is None:
-        return ApprovalVerdict(False, "gate returned no JSON verdict")
-    approved = bool(parsed.get("approve"))
-    why = str(parsed.get("why", "")).strip()[:500]
-    return ApprovalVerdict(approved, why or ("approved" if approved else "rejected"))
-
-
-def approve_skill_update(
-    *,
-    old_content: str,
-    new_content: str,
-    task: str,
-    why: str = "",
-    runner: Any,
-    model: str = "",
-    reasoning_effort: str = "low",
-    role_skill_block: str = "",
-) -> ApprovalVerdict:
-    """Diff-aware gate for UPDATING a PROTECTED / governing (or currently-active)
-    skill. Unlike :func:`approve_skill` (which sees only the new text), this sees
-    BOTH the old and new body and judges whether the revision is a FAITHFUL
-    IMPROVEMENT rather than a regression or a removal of still-correct guidance.
-
-    Fail-soft and CONSERVATIVE: any error, empty/unparseable output, or missing
-    runner -> ``approved=False`` (a protected skill is never blindly overwritten).
-    """
-    if not (new_content or "").strip():
-        return ApprovalVerdict(False, "empty revision")
-    if runner is None:
-        return ApprovalVerdict(False, "no runner for update gate")
-
-    prompt = (
-        f"{role_skill_block}"
-        "You are the gate on a revision to a PROTECTED / governing skill. Compare "
-        "the OLD and NEW playbooks and decide whether the NEW one is a FAITHFUL "
-        "IMPROVEMENT — it preserves every still-correct instruction, does not "
-        "weaken a guardrail or drop correct guidance, and its changes are sound.\n\n"
-        f"## Why the reviewer wants this change\n{(why or '(no reason given)').strip()[:1000]}\n\n"
-        f"## Task context\n{task.strip()[:1500]}\n\n"
-        f"## OLD playbook\n{old_content.strip()[:8000]}\n\n"
-        f"## NEW playbook\n{new_content.strip()[:8000]}\n\n"
-        "Reply with ONLY a JSON object: "
-        '{"approve": true|false, "why": "<clear explanation>"}. '
-        "Approve ONLY if the new version keeps everything correct in the old and "
-        "improves it; REJECT any regression, removed-but-still-valid guidance, or "
-        "weakened guardrail. When in doubt, reject."
-    )
-    try:
-        result = runner.run_exec(
-            prompt=prompt,
-            options=RunnerOptions(
-                model=model or None,
-                reasoning_effort=reasoning_effort,
-                skip_git_repo_check=True,
-                full_auto=True,
-            ),
-            run_label="manager.skill_update_review",
-        )
-    except Exception as exc:  # noqa: BLE001 — gate must never break the loop
-        log.warning("skill update gate failed (%s: %s)", type(exc).__name__, exc)
-        return ApprovalVerdict(False, f"gate error: {type(exc).__name__}")
-
-    parsed = _extract_json(getattr(result, "last_agent_message", "") or "")
-    if parsed is None:
-        return ApprovalVerdict(False, "gate returned no JSON verdict")
-    approved = bool(parsed.get("approve"))
-    why_out = str(parsed.get("why", "")).strip()[:500]
-    return ApprovalVerdict(approved, why_out or ("approved" if approved else "rejected"))
 
 
 @dataclass
@@ -248,9 +73,8 @@ def classify_skill_placement(
     """Decide whether a project-distilled skill should be tidied up to the GLOBAL
     layer, to a specific VERTICAL layer, or STAY in the project layer.
 
-    One focused LLM judge, used by the Manager's end-of-mission "tidy-up". Unlike
-    :func:`approve_skill` (a create/update admission gate), this only ROUTES an
-    already-stored project skill. Fail-soft and CONSERVATIVE: any error,
+    One focused LLM judge, used by the Manager's end-of-mission "tidy-up". This
+    only ROUTES an already-stored project skill. Fail-soft and CONSERVATIVE: any error,
     empty/unparseable output, missing runner, or a vertical not in the candidate
     list → ``stay`` (never mis-file)."""
     if not (content or "").strip():
@@ -304,9 +128,6 @@ def classify_skill_placement(
 
 
 __all__ = [
-    "approve_skill",
-    "approve_skill_update",
-    "ApprovalVerdict",
     "classify_skill_placement",
     "PlacementVerdict",
 ]

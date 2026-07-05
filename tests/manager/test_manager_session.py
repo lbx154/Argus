@@ -7,8 +7,8 @@ Covers the four guarantees of ``_ManagerSession``:
   * cross-process serialization — flock keeps concurrent turns from interleaving;
   * fail-open — any session-mode error degrades to a plain no-session call,
     never raising and never blocking the Manager's decision;
-  * Manager wiring — the three Manager LLM calls (is_conversational / divide /
-    approve_skill) actually flow through the shared session.
+  * Manager wiring — the Manager LLM calls (is_conversational / divide) actually
+    flow through the shared session.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ import time
 import pytest
 
 from argus_skill.manager import Manager
-from argus_skill.manager._core import _ManagerSession, _SESSION_FILE
+from argus_skill.manager._core import _SESSION_FILE, _ManagerSession
 
 
 class _Result:
@@ -284,7 +284,7 @@ def test_fail_open_when_root_unwritable(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 7. Manager wiring — all three LLM calls flow through the shared session
+# 7. Manager wiring — Manager LLM calls flow through the shared session
 # ---------------------------------------------------------------------------
 def test_manager_calls_flow_through_one_session(tmp_path):
     fake = _RecordingRunner(reply="research")
@@ -294,16 +294,12 @@ def test_manager_calls_flow_through_one_session(tmp_path):
     mgr.is_conversational("hello there")
     # divide → vertical-classify turn on the SAME session (resumes prior tid).
     mgr.divide("write a paper for EMNLP submission")
-    # approve_skill → skill_review turn on the SAME session (resumes prior tid).
-    mgr.approve_skill(content="# skill\nbody", task="t", op="create")
-
-    # Three turns total, one continuous thread: first None then non-None resumes.
-    assert len(fake.resumes) == 3
+    # Two turns total, one continuous thread: first None then non-None resumes.
+    assert len(fake.resumes) == 2
     assert fake.resumes[0] is None
     assert fake.resumes[1] is not None
-    assert fake.resumes[2] is not None
     # And the persistent session file advanced to the latest minted tid.
-    assert json.loads((tmp_path / _SESSION_FILE).read_text())["thread_id"] == "t3"
+    assert json.loads((tmp_path / _SESSION_FILE).read_text())["thread_id"] == "t2"
 
 
 def test_manager_without_runner_has_no_session(tmp_path):

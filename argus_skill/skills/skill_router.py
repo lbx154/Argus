@@ -5,8 +5,8 @@ role) only PROPOSES changes via ``skill_ops``; SkillRouter owns:
 
   * selection — "which skill fits this task?" (delegates to the existing role
     matcher so this adds no new matching logic);
-  * the write path — create / update / delete / archive, behind a validation
-    pipeline so a bad skill never enters the shared library.
+  * the write path — create / update / delete / archive, behind cheap validation
+    plus the provisional effectiveness lifecycle.
 
 Validation before a create/update is STORED (in order, cheap-first):
 
@@ -14,9 +14,8 @@ Validation before a create/update is STORED (in order, cheap-first):
      description, real body with the expected sections);
   2. independence — it is not a near-duplicate of an existing skill (cosine
      similarity over the same structure ``compaction`` uses for de-duping);
-  3. Manager approval — the generality + logical-correctness judgement, owned by
-     the top-level Manager (it sees the most context). See
-     ``manager.skill_review.approve_skill``.
+  3. provisional proof — create/update candidates are stored as provisional and
+     must later prove effective under Reviewer supervision.
 
 ``delete`` / ``archive`` skip validation — retiring a wrong/harmful skill is
 applied directly on the reviewer's request.
@@ -69,10 +68,10 @@ class SkillRouter:
         self.matcher = matcher
         self.judge_runner = judge_runner
         self.judge_model = judge_model
-        # The single Manager instance owns the generality+correctness gate and
-        # runs it on the Manager's OWN backend. When absent we fall back to the
-        # ``skill_review.approve_skill`` module function on ``judge_runner`` (the
-        # reviewer backend) — preserves behaviour for tests / no-manager callers.
+        # ``manager`` / ``judge_runner`` are retained for constructor compatibility.
+        # Ordinary skill create/update is Scientist/Reviewer-owned: Scientist
+        # or Reviewer authors the candidate, and the Reviewer proves usefulness via
+        # the provisional lifecycle.
         self.manager = manager
         self.sim_threshold = sim_threshold
         # Restartable internal session: the router resumes this for its agentic
@@ -142,8 +141,6 @@ class SkillRouter:
         task: str,
         on_event: EventSink | None,
     ) -> bool:
-        from ..manager.skill_review import approve_skill
-
         content = (op.get("content") or "").strip()
         kind = op.get("op")
 
@@ -178,43 +175,20 @@ class SkillRouter:
                          f"too similar to '{near}' (sim={sim:.2f} ≥ {self.sim_threshold:.2f})")
             return False
 
-        # 3. Manager approval — generality + logical correctness. Prefer the
-        # single Manager instance (its OWN backend); fall back to the module
-        # function on the reviewer backend when no Manager was wired in.
-        if self.manager is not None:
-            verdict = self.manager.approve_skill(
-                content=content, task=task, op=kind,
-            )
-        else:
-            verdict = approve_skill(
-                content=content, task=task, op=kind,
-                runner=self.judge_runner, model=self.judge_model,
-            )
-        if not verdict.approved:
-            self._reject(on_event, kind, f"manager: {verdict.why}")
-            return False
-
-        # 4. store (born provisional — must still prove effective on later reuse).
+        # 3. store (born provisional — must still prove effective on later reuse).
         if kind == "update":
             target = self._find_skill_by_name(op.get("name", ""))
             if target is None:
                 self._emit(on_event, {"type": "skill.op.error",
                                       "text": f"update: skill '{op.get('name')}' not found"})
                 return False
-            # A PROTECTED (governing) skill is never blindly overwritten: it must
-            # clear the diff-aware gate that sees old+new and rejects any
-            # regression. It already cleared the mechanical/dedup/generality checks
-            # above; this is the extra floor.
+            # A PROTECTED (governing) skill is not updated by the ordinary
+            # Scientist/Reviewer skill-generation path. Strengthening protected
+            # guardrails needs an explicit source-code change, not a runtime skill
+            # candidate.
             if self._is_protected(target):
-                uv = self._approve_update(
-                    old_content=target.content, new_content=content,
-                    task=task, why=op.get("why", ""),
-                )
-                if uv is None or not uv.approved:
-                    why = uv.why if uv is not None else "no diff-aware judge available"
-                    self._reject(on_event, kind,
-                                 f"protected update requires diff-aware approval: {why}")
-                    return False
+                self._reject(on_event, kind, "protected skill updates require explicit source review")
+                return False
             updated = self.skill_store.update_skill_content(
                 target, content, task_desc=task, on_event=on_event)
             if updated is not None:
@@ -261,31 +235,6 @@ class SkillRouter:
         self._emit(on_event, {"type": "skill.archived",
                               "text": f"archived {name}" + (f": {why}" if why else "")})
         return True
-
-    # ------------------------------------------------------------------
-    def _approve_update(self, *, old_content: str, new_content: str,
-                        task: str, why: str) -> "Any | None":
-        """Diff-aware approval for a protected/active skill update. Prefers a
-        Manager method when present, else the module function on the judge runner.
-        Returns ``None`` when no judge is available (caller treats that as a
-        refusal for protected/active skills — never a blind overwrite)."""
-        fn = getattr(self.manager, "approve_skill_update", None)
-        if fn is not None:
-            try:
-                return fn(old_content=old_content, new_content=new_content,
-                          task=task, why=why)
-            except Exception as exc:  # noqa: BLE001 — gate must never break the loop
-                log.warning("manager update gate failed (%s: %s)",
-                            type(exc).__name__, exc)
-                from ..manager.skill_review import ApprovalVerdict
-                return ApprovalVerdict(False, f"gate error: {type(exc).__name__}")
-        if self.judge_runner is not None:
-            from ..manager.skill_review import approve_skill_update
-            return approve_skill_update(
-                old_content=old_content, new_content=new_content, task=task,
-                why=why, runner=self.judge_runner, model=self.judge_model,
-            )
-        return None
 
     def _refuse_self_governance(self, on_event: EventSink | None, kind: str,
                                 name: str, reason: str) -> None:

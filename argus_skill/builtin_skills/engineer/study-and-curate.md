@@ -49,7 +49,7 @@ not a failure.
    touch a protected / anti-cheat / role-identity item — you may strengthen it,
    never remove it. Removals go through the strong approval gate and are always
    reversible (a snapshot is kept).
-7. AUTHOR BY COMPOSING, NOT REINVENTING. For skills follow the mint-skill /
+7. AUTHOR BY COMPOSING, NOT REINVENTING. For skills follow the
    skill-authoring-guide format and rules; for wiki follow the wiki-collector
    (sources) and wiki-curator (pages) playbooks. Do not duplicate their guidance
    here — invoke them.

@@ -173,14 +173,28 @@ def test_skill_loop_max_rounds_hit(tmp_path: Path) -> None:
     assert outcome.round_count == 3
 
 
-def test_skill_loop_no_distill_falls_back_to_no_skill(tmp_path: Path) -> None:
-    """A matcher miss must NOT author a skill — the engineer just runs without
-    one. This is the guard against the old proactive distill-on-miss that
-    minted a throwaway provisional skill for every trivial task."""
+def test_skill_loop_scientist_distills_candidate_on_miss(tmp_path: Path) -> None:
+    """A matcher miss asks the Scientist to author a provisional skill, which the
+    engineer uses immediately and the reviewer proves by accepting the mission."""
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("scientist.skill_distill", CannedResponse(message="""# Solve Trivial Task
+## Description
+Reusable playbook for solving simple deterministic tasks.
+## Category
+general
+## When to use
+- Use when a task has no matched skill but has a small deterministic goal.
+## When NOT to use
+- Do not use for broad multi-stage work.
+## How to solve
+1. Read the task.
+2. Do the smallest correct action.
+## Pitfalls
+- Do not invent extra scope.
+"""))
     backend.queue("engineer-r1", CannedResponse(
-        message="Done: solved without a skill. Remaining: none.",
+        message="Done: solved with the scientist skill. Remaining: none.",
     ))
     backend.queue("reviewer", CannedResponse(message=_done_review()))
 
@@ -192,10 +206,11 @@ def test_skill_loop_no_distill_falls_back_to_no_skill(tmp_path: Path) -> None:
     )
     outcome = loop.run("trivial task", workdir=tmp_path)
     assert outcome.successful
-    assert outcome.skill_used is None
-    assert outcome.skill_distilled is False
-    # No skill file was written on a miss.
-    assert not SkillStore(tmp_path / "skills").list_summaries()
+    assert outcome.skill_used == "Solve Trivial Task"
+    assert outcome.skill_distilled is True
+    summaries = SkillStore(tmp_path / "skills").list_summaries()
+    assert [s["name"] for s in summaries] == ["Solve Trivial Task"]
+    assert summaries[0]["provisional"] is False
 
 def test_render_skill_playbook_injects_all_high_fit_skills(tmp_path: Path) -> None:
     from argus_skill.skills.store import Skill

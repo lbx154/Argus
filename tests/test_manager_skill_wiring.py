@@ -18,9 +18,9 @@ import argus_skill.builtin_skills as _builtin
 from argus_skill.manager._core import Manager
 from argus_skill.skills.role_context import load_builtin_skill_text
 from argus_skill.skills.store import (
+    _ROLE_SUBDIRS,
     ROLE_CROSS_READ_POOLS,
     ROLE_SKILL_POOLS,
-    _ROLE_SUBDIRS,
     role_of_path,
 )
 
@@ -210,32 +210,3 @@ def test_manager_classify_prompt_unchanged_without_store(tmp_path: Path) -> None
     # No store → no role-skill header, byte-for-byte the legacy classify prompt.
     assert "Argus manager role skill" not in seen[0]
     assert seen[0] == build_classify_prompt(text)
-
-
-def test_manager_approve_prompt_carries_role_skill_when_store_present(
-    tmp_path: Path,
-) -> None:
-    from argus_skill.skills.store import SkillStore
-
-    store = SkillStore(tmp_path / "skills")
-    runner = _CapturingRunner()
-    mgr = Manager(project_root=tmp_path, runner=runner, skill_store=store)
-
-    verdict = mgr.approve_skill(content="a reusable playbook", task="a task")
-    assert runner.prompts, "manager never built an approve prompt"
-    # The fixed manager role skill is prepended to the approval gate prompt.
-    assert "Argus manager role skill" in runner.prompts[0]
-    assert "Argus Manager Role" in runner.prompts[0]
-    # The approval contract is intact (the gate's own rubric heading survives).
-    assert "skill-library gate" in runner.prompts[0]
-    assert verdict.approved is True
-
-
-def test_manager_approve_prompt_unchanged_without_store(tmp_path: Path) -> None:
-    runner = _CapturingRunner()
-    mgr = Manager(project_root=tmp_path, runner=runner, skill_store=None)
-    mgr.approve_skill(content="a reusable playbook", task="a task")
-    assert runner.prompts
-    # No store → no role-skill header on the approval prompt (back-compat).
-    assert "Argus manager role skill" not in runner.prompts[0]
-    assert runner.prompts[0].startswith("You are the Manager's skill-library gate")

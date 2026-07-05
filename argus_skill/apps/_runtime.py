@@ -775,7 +775,7 @@ class _SkillLoopRunner:
         self.curator_backend = _role_backend("curator")
         self._args = args
         # The ONE Manager instance for this runner. All daemon-side Manager uses
-        # (divide / is_conversational / approve_skill) go through this single
+        # (divide / is_conversational / skill placement) go through this single
         # instance on the manager backend — no more scattered ad-hoc
         # ``Manager(...)`` constructions, and skill approval now genuinely runs
         # on the Manager's backend rather than the reviewer's.
@@ -872,7 +872,7 @@ class _SkillLoopRunner:
         """Proxy to the manager backend so manager-side skill-library gates can
         run_exec against this runner directly.
 
-        ``Manager.approve_skill`` / ``classify_skill_placement`` pass
+        ``Manager.classify_skill_placement`` passes
         ``runner=(self._session or self.runner)``; on the daemon ``_session`` is
         this ``_SkillLoopRunner``, which had no ``run_exec`` — so both the skill
         gate and placement raised ``AttributeError`` (caught → distillation
@@ -1190,10 +1190,8 @@ class _SkillLoopRunner:
         # execute() calls (LifeSupervisor may run several missions in one
         # supervisor.run()) chain off the previous mission's last thread_id.
         seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
-        from ..engineer.failed_tool_ledger import FailedToolLedger
-        ledger = FailedToolLedger()
         self._current_sink = sink
-        self._current_failure_ledger = ledger
+        self._current_failure_ledger = None
         # Scope is threaded structurally from the planner via the backlog
         # item's tags (LifeSupervisor passes _planner_scope_from_item(item)).
         # We no longer re-parse it out of the objective prose — the harness
@@ -1202,7 +1200,6 @@ class _SkillLoopRunner:
         try:
             outcome = loop.run(
                 full_task, workdir=workdir, seed_thread_id=seed,
-                failed_tool_ledger=ledger,
                 objective_for_skill=objective,
                 original_objective=original_objective or objective,
                 scope=mission_scope,
@@ -1671,22 +1668,6 @@ def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = 
 # Supervisor driver (used by both `life run` and chat-mode free text)
 # ---------------------------------------------------------------------------
 
-def _repl_check_commands_for_open_ended(
-    commands: list[str],
-    *,
-    open_ended: bool,
-    objective: str = "",
-) -> list[str]:
-    from ..daemon.life_worker import _apply_bounded_to_check_commands
-
-    # WHY M0.7: REPL-launched bounded missions share the same root cause as
-    # daemon missions; stage_check must receive --bounded at acceptance time.
-    return _apply_bounded_to_check_commands(
-        commands,
-        bounded=not open_ended,
-    )
-
-
 def _build_repl_supervisor_config(
     *,
     per_mission_cap_usd: float,
@@ -1889,11 +1870,7 @@ def _invoke_supervisor(
     # too small for "implement + test + polish" tasks that need many
     # tool calls. Override via ARGUS_SKILL_MAX_ROUNDS.
     ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "500"))
-    ns.check_commands = _repl_check_commands_for_open_ended(
-        list(getattr(ns, "check_commands", []) or []),
-        open_ended=open_ended,
-        objective=continuous_objective,
-    )
+    ns.check_commands = []
 
     # Runtime context injected into every mission prelude so the agent
     # knows its own backend, models, and budget constraints at runtime.
@@ -1969,7 +1946,6 @@ __all__ = [
     "_codex_preflight_warning",
     "_inbox_drainer_for",
     "build_life_runner",
-    "_repl_check_commands_for_open_ended",
     "_build_repl_supervisor_config",
     "run_life_supervisor",
     "_invoke_supervisor",

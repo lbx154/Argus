@@ -106,7 +106,7 @@ class _ManagerSession:
 
     This is a "runner-like" wrapper: it exposes ``run_exec(prompt=, options=,
     run_label=)`` so it can be passed anywhere a runner is expected
-    (``classify_vertical``, ``approve_skill``). It IGNORES any incoming
+    (``classify_vertical`` and other Manager calls). It IGNORES any incoming
     ``resume_thread_id`` and always continues the persistent session instead.
     """
 
@@ -414,7 +414,7 @@ class Manager:
         LLM call (F6) — for pure-classification callers (route / is_conversational
         / decide_stage_transition) that need the fixed manager role context but do
         NOT consume matched skill bodies, so a matcher call each time is pure burn.
-        ``approve_skill`` keeps ``match=True`` — it judges from the matched bodies.
+        Skill placement keeps ``match=True`` — it judges from the matched bodies.
         """
         if self.skill_store is None:
             return ""
@@ -891,61 +891,6 @@ class Manager:
 
         return StageTransition("hold", cur, decision.reason or "manager held",
                                cur, "manager_llm", decision.diagnostic)
-
-    # ---- skill-library approval (the Manager is the top-level authority) ----
-    def approve_skill(
-        self,
-        *,
-        content: str,
-        task: str,
-        op: str = "create",
-        reasoning_effort: str = "high",
-    ) -> Any:
-        """Judge whether a reviewer-proposed skill may enter the library.
-
-        The Manager owns the generality + correctness gate (it sees the most
-        context). Reuses ``skill_review.approve_skill`` but runs it on THIS
-        Manager instance's ``runner`` — so "Manager approval" actually uses the
-        Manager's backend, not the reviewer's. Returns an ``ApprovalVerdict``.
-        """
-        from .skill_review import approve_skill as _approve
-
-        return _approve(
-            content=content,
-            task=task,
-            op=op,
-            runner=(self._session or self.runner),
-            reasoning_effort=reasoning_effort,
-            role_skill_block=self._role_skill_block(task),
-        )
-
-    def approve_skill_update(
-        self,
-        *,
-        old_content: str,
-        new_content: str,
-        task: str,
-        why: str = "",
-        reasoning_effort: str = "high",
-    ) -> Any:
-        """Diff-aware gate for UPDATING a protected/governing (or mission-active)
-        skill. Sees BOTH the old and new body and judges whether the revision is a
-        faithful improvement rather than a regression / removal of correct
-        guidance. Runs on THIS Manager's backend at high effort with role context,
-        so the most sensitive self-modification gets the most INDEPENDENT judge
-        (not the reviewer that proposed the change). Returns an ``ApprovalVerdict``.
-        """
-        from .skill_review import approve_skill_update as _approve_update
-
-        return _approve_update(
-            old_content=old_content,
-            new_content=new_content,
-            task=task,
-            why=why,
-            runner=(self._session or self.runner),
-            reasoning_effort=reasoning_effort,
-            role_skill_block=self._role_skill_block(task),
-        )
 
     def review_self_repair(
         self,

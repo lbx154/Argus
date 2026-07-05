@@ -19,7 +19,6 @@ from typing import Any
 
 from ..core.models import CheckResult, ReviewDecision, RunnerOptions
 from ..core.ports import RunnerBackend
-from ..engineer.checks import summarize_checks
 from ..skills.role_context import format_role_context, load_builtin_skill_text
 from ._parsing import _find_decision_in_messages
 
@@ -523,7 +522,6 @@ class Reviewer:
         ``delta`` alone when resuming a thread that already holds the static.
         """
         error_text = main_error or "none"
-        check_text = summarize_checks(checks)
         reviewer_role_context = format_role_context(
             "Argus reviewer role skill",
             _REVIEWER_ROLE_SKILL,
@@ -1011,9 +1009,10 @@ class Reviewer:
             "    content=the FULL revised markdown.\n"
             "  * archive/delete — retire a matched skill you found WRONG/harmful/\n"
             "    mis-scoped: op=archive, name, why=one clause. Your direct authority.\n"
-            "  create/update are PROPOSALS (a Manager generality-gate rejects\n"
-            "  task-specific ones). Most rounds need NO skill_ops; never propose one\n"
-            "  for a one-off environmental blocker.\n\n"
+            "  create/update are provisional candidates: the Scientist/Reviewer\n"
+            "  authors them, the Engineer must prove them useful in later execution,\n"
+            "  and ineffective candidates are discarded. Most rounds need NO\n"
+            "  skill_ops; never propose one for a one-off environmental blocker.\n\n"
             "Checkpoint rules (you are the MEMORY AUDITOR; this object IS the\n"
             "engineer's entire working memory next round — the raw session is\n"
             "dropped, so a fresh engineer sees ONLY this):\n"
@@ -1145,8 +1144,6 @@ class Reviewer:
             f"Main agent fatal error: {error_text}\n\n"
             "Main agent last summary:\n"
             f"{main_summary}\n\n"
-            "Acceptance check results (include full details in next_action so engineer can act on them):\n"
-            f"{check_text}\n"
             f"{evidence_block}"
         )
         return static, delta

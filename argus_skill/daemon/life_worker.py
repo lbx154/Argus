@@ -112,27 +112,9 @@ class LifeWorkerConfig:
     # mission alive after the planner certifies ``project_done`` instead of
     # hard-stopping. Set False (via ``--bounded``) for a one-shot bounded goal.
     continuous_open_ended: bool = True
-    # Post-engineer check commands run by the reviewer agent after each
-    # engineer round.  For EMNLP projects these auto-refresh manifest and
-    # freshness so the reviewer sees up-to-date validation state without
-    # the engineer having to remember to run them manually.
-    check_commands: list[str] = field(default_factory=lambda: [
-        '{argus_python} -m argus_skill.tools.stage_check --project-root .',
-    ])
-
-
-def _apply_bounded_to_check_commands(commands: list[str], *, bounded: bool) -> list[str]:
-    # WHY M0.7: --bounded previously reached supervisor project_done logic
-    # but not the reviewer acceptance gate, so stage_check kept blocking
-    # train-free diagnostics on paper-pipeline benchmark readiness.
-    if not bounded:
-        return list(commands)
-    out: list[str] = []
-    for cmd in commands:
-        if "stage_check" in cmd and "--bounded" not in cmd:
-            cmd = cmd + " --bounded"
-        out.append(cmd)
-    return out
+    # Retained for config compatibility; post-engineer acceptance checks are no
+    # longer executed by the round loop.
+    check_commands: list[str] = field(default_factory=list)
 
 
 _HANDOFF_CONFIG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_CONFIG"
@@ -1565,12 +1547,7 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     ns.plan_mode = os.environ.get("ARGUS_SKILL_PLAN_MODE", "auto")
     ns.plan_model = os.environ.get("ARGUS_SKILL_PLAN_MODEL")
     ns.check = []
-    # WHY M0.7: bounded daemon missions must pass --bounded into
-    # stage_check; otherwise the reviewer loops on irrelevant paper gates.
-    ns.check_commands = _apply_bounded_to_check_commands(
-        list(cfg.check_commands),
-        bounded=not cfg.continuous_open_ended,
-    )
+    ns.check_commands = []
     ns.color = None
     ns.verbose = False
     ns.quiet = True

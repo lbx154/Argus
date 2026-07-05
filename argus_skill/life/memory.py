@@ -368,14 +368,6 @@ class EventJournal(Journal):
             "life.budget.pause": "budget_pause",
             "life.lifecycle.block": "lifecycle_block",
             "user.note": "user_note",
-            "self_evolve.missing_tool_advisory": (
-                "self_evolve.missing_tool_advisory"
-            ),
-            "self_evolve.failure_observation": "self_evolve.failure_observation",
-            "self_evolve.recurring_failure_advisory": (
-                "self_evolve.recurring_failure_advisory"
-            ),
-            "self_experiment.gap_suspected": "self_experiment.gap_suspected",
         }.get(etype)
         if kind is None:
             return None

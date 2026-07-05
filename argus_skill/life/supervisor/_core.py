@@ -32,7 +32,7 @@ import os
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from ...core.ports import EventSink
 from ...core.pricing import price_for, usd_for_tokens
@@ -150,34 +150,6 @@ def _per_mission_distill_enabled() -> bool:
     on clean daemon shutdown."""
     return os.environ.get("ARGUS_SKILL_PER_MISSION_DISTILL", "").strip().lower() in (
         "1", "true", "yes", "on")
-
-
-def _flow_conservation_probe_enabled() -> bool:
-    """Whether to run the self-experiment flow-conservation probe (approach C).
-    ON by default; ``ARGUS_SKILL_FLOW_CONSERVATION_PROBE=0`` opts out. Pure +
-    deterministic + no LLM — it only emits suspected dead-wire signals for
-    the reviewer/planner to judge."""
-    return os.environ.get(
-        "ARGUS_SKILL_FLOW_CONSERVATION_PROBE", "1"
-    ).strip().lower() in ("1", "true", "yes", "on")
-
-
-# Run the probe once every N completed missions (epoch gate). Reading the whole
-# events.jsonl every tick would be wasteful, and a dead wire is a slow-moving
-# structural fact — checking every few missions is plenty. The gate also lets
-# producers accumulate past ``min_producer`` before the first scan.
-_FLOW_PROBE_DEFAULT_EVERY = 5
-
-
-def _flow_conservation_probe_every() -> int:
-    """Missions between probe runs; ``ARGUS_SKILL_FLOW_CONSERVATION_PROBE_EVERY``
-    overrides (min 1). Invalid / unset falls back to the default."""
-    raw = os.environ.get("ARGUS_SKILL_FLOW_CONSERVATION_PROBE_EVERY", "").strip()
-    try:
-        n = int(raw)
-    except (TypeError, ValueError):
-        return _FLOW_PROBE_DEFAULT_EVERY
-    return n if n >= 1 else _FLOW_PROBE_DEFAULT_EVERY
 
 # Re-emit an unchanged lifecycle-block status/event line at most this often
 # (a heartbeat) so a long-lived blocked state stays visible without spamming
@@ -763,14 +735,7 @@ class LifeSupervisor:
     def _recent_no_progress_failures(self) -> dict[tuple[str, str], Any]:
         """Return recent failed task signatures quarantined from replanning."""
         try:
-            # Read a wider tail and drop Signal-B failure-observation rows
-            # (counting plumbing) so they can't push real no-progress
-            # failures out of the quarantine window.
-            recent_entries = [
-                e
-                for e in self.memory.journal.tail(_PLANNER_RECENT_HISTORY_WINDOW * 4)
-                if getattr(e, "kind", "") != "self_evolve.failure_observation"
-            ][-_PLANNER_RECENT_HISTORY_WINDOW:]
+            recent_entries = self.memory.journal.tail(_PLANNER_RECENT_HISTORY_WINDOW)
         except Exception:  # noqa: BLE001
             log.exception("life supervisor: failed to read recent journal for planner")
             return {}
@@ -855,102 +820,7 @@ class LifeSupervisor:
             return lifecycle_block
 
         result = self._run_one(item)
-
-        # Self-evolve hook (Signal A): scan the just-finished mission's
-        # observable surface for missing-tool patterns. **Detection is
-        # structural** (regex pattern grep — pure plumbing) but **the
-        # mint decision is judgment** ("is this worth minting? was it
-        # a typo? did we just work around it?"). Per skill 04, harness
-        # only does the structural half. We write each detected signal
-        # as an event advisory; the reviewer / planner reads recent
-        # advisories and decides whether to request a mint-skill
-        # mission. This mirrors how F3 mediocrity_finding surfaces
-        # facts to the reviewer without ruling.
-        try:
-            self._maybe_journal_self_evolve_advisory(item, result)
-        except Exception:  # noqa: BLE001 — never let self-evolve crash tick
-            log.exception("self-evolve advisory hook raised; tick continues")
-        # Self-evolve hook (Signal B): scan for INFRA-FAILURE patterns that
-        # recur across missions. Where Signal A flags a missing tool, Signal
-        # B flags the same failure CLASS (CUDA OOM, vLLM engine-init, NCCL,
-        # ...) recurring across N distinct missions — misconfigs of existing
-        # tools that Signal A skips. Detection + counting is structural; the
-        # mint decision stays with the reviewer/planner.
-        try:
-            self._maybe_journal_recurring_failure_advisory(item, result)
-        except Exception:  # noqa: BLE001 — never let self-evolve crash tick
-            log.exception("recurring-failure advisory hook raised; tick continues")
-        # Self-experiment hook (approach C · OBSERVE): epoch-gated flow-
-        # conservation probe. Where Signals A/B scan ONE finished mission, this
-        # scans the WHOLE accumulated signal history for DEAD WIRES — a producer
-        # signal that keeps firing while its intended consumer never does (the
-        # class of deep structural bug argus couldn't previously find, e.g.
-        # missing-tool advisories produced N times but skill.created 0). Pure counting,
-        # no LLM; writes a structural advisory the reviewer/planner may act on.
-        try:
-            if (
-                _flow_conservation_probe_enabled()
-                and self._missions_started > 0
-                and self._missions_started % _flow_conservation_probe_every() == 0
-            ):
-                self._maybe_journal_flow_conservation_advisory()
-        except Exception:  # noqa: BLE001 — never let self-experiment crash tick
-            log.exception("flow-conservation probe hook raised; tick continues")
         return result
-
-    # ------------------------------------------------------------------
-    # Self-evolve: thin delegate to SelfEvolveAdvisor
-    # ------------------------------------------------------------------
-    # Logic lives in argus_skill/life/self_evolve_advisor.py per
-    # docs/edit-principle/skills/06-keep-files-small.md. supervisor.py is already
-    # ~1800 lines; the self-evolve concern (advisory event emission +
-    # dedup + event tailing) belongs in its own module so it can be
-    # discovered + tested + refactored independently.
-
-    _MINT_SKILL_TAG = "mint-skill"  # back-compat: tests import this
-
-    def _maybe_journal_self_evolve_advisory(
-        self, item: BacklogItem, result: dict[str, Any] | None
-    ) -> list[str]:
-        """Surface missing-tool patterns as event advisories.
-
-        Thin delegate — see ``self_evolve_advisor.SelfEvolveAdvisor``
-        for the logic. Kept here as a stable method on supervisor so
-        existing tests + monkeypatches don't have to change.
-        """
-        from ..self_evolve_advisor import SelfEvolveAdvisor
-        return SelfEvolveAdvisor(memory=cast(Any, self.memory)).maybe_journal_advisory(
-            item, result
-        )
-
-    def _maybe_journal_recurring_failure_advisory(
-        self, item: BacklogItem, result: dict[str, Any] | None
-    ) -> list[str]:
-        """Surface recurring infra-failure patterns as event advisories.
-
-        Thin delegate — see ``recurring_failure_advisor.RecurringFailureAdvisor``
-        (Signal B). Kept as a stable supervisor method for tests/monkeypatch.
-        """
-        from ..recurring_failure_advisor import RecurringFailureAdvisor
-        return RecurringFailureAdvisor(
-            memory=cast(Any, self.memory),
-        ).maybe_journal_advisory(item, result)
-
-    def _maybe_journal_flow_conservation_advisory(self) -> list[str]:
-        """Surface suspected DEAD WIRES (flow-conservation gaps) as event
-        advisories. Thin delegate — see ``self_experiment`` (approach C · OBSERVE).
-
-        Scans the accumulated event history for producer→consumer
-        wires where the producer fired ``>= min_producer`` times but the consumer
-        never did. Returns the invariant names newly surfaced this run. The
-        repair DECISION stays with the agent — the harness only counts.
-        """
-        from ..self_experiment import maybe_journal_gap_advisory, run_probe
-        findings = run_probe(cast(Any, self.memory))
-        return maybe_journal_gap_advisory(
-            cast(Any, self.memory),
-            findings,
-        )
 
     # ------------------------------------------------------------------
     # F5 project-lifecycle gate
@@ -1242,24 +1112,9 @@ class LifeSupervisor:
         item_metadata = self._render_backlog_item_metadata(item)
         if item_metadata:
             prelude = item_metadata + "\n---\n\n" + prelude if prelude else item_metadata
-        # Inject runtime context (backend, models, budget) so the agent
-        # knows its own environment. Placed before operator nudges so
-        # nudges can override if needed.
         rt = self.config.runtime_context
         if rt:
             prelude = rt + "\n---\n\n" + prelude if prelude else rt
-        # Drain any pending operator nudges from the inbox bus and
-        # splice them in front of the prelude as live operator
-        # guidance. Each round in the engineer loop will see this as
-        # `Operator message history`.
-        nudges = self._drain_user_inbox()
-        if nudges:
-            prelude = (
-                "## Operator messages (live nudges, most recent last)\n"
-                + "\n".join(f"- {m}" for m in nudges)
-                + "\n\n---\n\n"
-                + prelude
-            )
         # Atomic claim: flip pending → running in one rewrite. If the
         # head moved between the budget peek and now (concurrent writer
         # or user `/rm`), bail; the next tick will re-evaluate.
@@ -2483,8 +2338,7 @@ class LifeSupervisor:
             )
 
         journal_tail = self._render_journal_for_planner()
-        dead_wire_block = self._render_dead_wires_for_planner()
-        remaining = self.config.budget.remaining_today(self.memory.journal)
+
         runtime_note = self._planner_runtime_with_idle_note()
 
         try:
@@ -2500,8 +2354,7 @@ class LifeSupervisor:
                 verdict = planner.plan_next(
                     continuous_objective=self.config.continuous_objective,
                     journal_tail=journal_tail,
-                    dead_wire_block=dead_wire_block,
-                    budget_remaining_usd=remaining,
+
                     planning_cycle=self._planning_cycles - 1,
                     runtime_change_summary=(
                         self._manager_intent_prompt_block(manager_intent)
@@ -2906,15 +2759,7 @@ class LifeSupervisor:
     def _render_journal_for_planner(self) -> str:
         """Render recent event-backed history for the planner's context."""
         try:
-            # Read a larger tail and drop low-level Signal-B failure-
-            # observation rows (counting plumbing) BEFORE truncating, so a
-            # burst of observations can't crowd out real mission outcomes /
-            # advisories. The recurring-failure *advisory* itself is kept.
-            entries = [
-                e
-                for e in self.memory.journal.tail(80)
-                if getattr(e, "kind", "") != "self_evolve.failure_observation"
-            ][-20:]
+            entries = self.memory.journal.tail(20)
         except Exception:  # noqa: BLE001
             return ""
         lines: list[str] = []
@@ -2952,27 +2797,6 @@ class LifeSupervisor:
                             line += "\n" + rendered_sb
             lines.append(line)
         return "\n".join(lines) or "(empty)"
-
-    def _render_dead_wires_for_planner(self) -> str:
-        """Live dead-wire ledger for the planner prompt (C Phase-2 · close-loop).
-
-        每个规划周期实时重跑纯守恒探针,把**当前还开着的** dead wire 端给 planner。
-        This RE-RUNS the pure ConservationProbe read-only (it does NOT journal —
-        the epoch-gated delegate owns the audit trail) and renders the CURRENT
-        open gaps. Self-clearing: a wire vanishes the instant its consumer fires.
-
-        Fail-soft + kill-switchable: any probe/render error, or the probe turned
-        off, yields "" so the planner prompt is byte-for-byte unchanged and
-        planning proceeds exactly as today.
-        """
-        try:
-            if not _flow_conservation_probe_enabled():
-                return ""
-            from ..self_experiment import render_open_gaps_block, run_probe
-            return render_open_gaps_block(run_probe(cast(Any, self.memory)))
-        except Exception:  # noqa: BLE001 — never let the ledger break planning
-            log.exception("dead-wire ledger render failed; planning continues")
-            return ""
 
     @staticmethod
     def _render_planner_report(report: dict) -> str:

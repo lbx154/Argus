@@ -25,7 +25,7 @@ import re
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from ..life.supervisor._config import MissionBudget
@@ -44,11 +44,9 @@ from ..reviewer import Reviewer, ReviewerConfig
 from .background_subagents import (
     find_waitable_subagent,
     parse_wait_sentinel,
-    render_background_subagents_advisory,
     wait_for_subagent_cadence,
 )
 from .checkpoint import CheckpointState, load_checkpoint, save_checkpoint
-from .checks import all_checks_passed, run_checks
 
 log = logging.getLogger(__name__)
 
@@ -492,10 +490,6 @@ class SupervisedConfig:
     )
 
 
-class _AdvisoryLedger(Protocol):
-    def render_advisory(self) -> str: ...
-
-
 @dataclass(frozen=True)
 class _SessionReadResult:
     """Outcome of tailing the new region of one Codex session jsonl."""
@@ -899,7 +893,6 @@ class SupervisedEngineer:
         workdir: Path,
         on_event: Callable[[dict], None] | None = None,
         seed_thread_id: str | None = None,
-        failed_tool_ledger: _AdvisoryLedger | None = None,
         scope: str = "",
         per_mission_budget: "MissionBudget | None" = None,
     ) -> tuple[LoopStatus, list[RoundRecord], str, str, str | None]:
@@ -1090,41 +1083,7 @@ class SupervisedEngineer:
             checkpoint_block = checkpoint.render_for_engineer()
             if checkpoint_block:
                 delta_tail.append(checkpoint_block)
-            # Repeated-tool-failure interrupt: if the same tool/command has failed
-            # multiple times this mission and we haven't yet nudged the agent, add
-            # an advisory. The ledger tracks "already nudged" so it fires once per
-            # tool per mission, not every subsequent round.
-            if failed_tool_ledger is not None:
-                try:
-                    advisory = failed_tool_ledger.render_advisory()
-                except Exception:  # noqa: BLE001 — ledger must never break the loop
-                    advisory = ""
-                if advisory:
-                    delta_tail.append(advisory)
-                    if on_event:
-                        on_event({
-                            "type": "engineer.failure_nudge",
-                            "round": round_index,
-                            "text": "repeated tool failures detected — advisory injected",
-                        })
-            # Background-subagent advisory: if this mission launched long jobs as
-            # SUPERVISED subagents, surface them so the engineer does not babysit a
-            # self-watched run. Recomputed each round (live registry) and reused
-            # for the reviewer so its forward_progress/next_action stays aligned.
             background_advisory = ""
-            if supervised_config.background_subagent_advisory:
-                try:
-                    background_advisory = render_background_subagents_advisory(workdir)
-                except Exception:  # noqa: BLE001 — advisory must never break the loop
-                    background_advisory = ""
-                if background_advisory:
-                    delta_tail.append(background_advisory)
-                    if on_event:
-                        on_event({
-                            "type": "engineer.background_subagents",
-                            "round": round_index,
-                            "text": "background subagent advisory injected",
-                        })
             if delta_tail:
                 engineer_prompt = engineer_prompt + "\n\n" + "\n\n".join(delta_tail)
             if on_event:
@@ -1332,21 +1291,6 @@ class SupervisedEngineer:
                 no_progress_streak = 0
 
             checks_results: list[CheckResult] = []
-            if supervised_config.check_commands:
-                checks_results = run_checks(
-                    supervised_config.check_commands,
-                    timeout_seconds=supervised_config.check_timeout_seconds,
-                    cwd=str(workdir),
-                    artifacts_dir=(
-                        workdir / ".argus" / "checks" / f"round-{round_index}"
-                    ),
-                )
-                if on_event:
-                    on_event({
-                        "type": "checks.done",
-                        "round": round_index,
-                        "text": f"checks: {sum(1 for c in checks_results if c.passed)}/{len(checks_results)} pass",
-                    })
             prev_round = rounds[-1] if rounds else None
             prev_review = getattr(prev_round, "review", None) if prev_round else None
             prev_review_summary = ""
@@ -1483,7 +1427,6 @@ class SupervisedEngineer:
                         failure_cause="environmental",
                         backend_unavailable=True,
                     )
-                review = _coerce_review_for_failed_checks(review, checks_results)
                 # Reviewer backend death (codex subprocess died / output-schema
                 # missing / runner raised) renders NO verdict. It must NEVER be
                 # laundered into a silent "continue": on 2026-06-25 a stale
@@ -1680,14 +1623,7 @@ class SupervisedEngineer:
                     else current_thread_id,
                 )
 
-            # Feed the engineer the REAL output of any failing acceptance check
-            # next round, not just the reviewer's paraphrase. Without this the
-            # engineer debugs blind (the root cause of guess-and-revert loops in
-            # complex iterative environments). Empty when all checks pass.
-            check_diag = failed_check_diagnostics(checks_results)
             last_next_action = review.next_action or ""
-            if check_diag:
-                last_next_action = (last_next_action + "\n\n" + check_diag).strip()
 
         return (
             "max_rounds",
@@ -1791,7 +1727,7 @@ class SupervisedEngineer:
         max_rounds: int,
         hard_escalate_rounds: int = 0,
     ) -> tuple[LoopStatus | None, str]:
-        if review.status == "done" and (not checks_results or all_checks_passed(checks_results)):
+        if review.status == "done":
             return "done", review.reason or "Reviewer judged the objective complete."
         if review.status == "blocked":
             return "blocked", review.reason or "Reviewer blocked progress."
@@ -1822,16 +1758,6 @@ class SupervisedEngineer:
                 "mission is likely stuck on an external / unresolved constraint. "
                 "Ending so the planner can re-plan or decompose. "
                 + (review.reason or ""),
-            )
-        # done but checks failed — treat as continue (reviewer was wrong /
-        # checks discovered residual gap).
-        if review.status == "done" and checks_results and not all_checks_passed(checks_results):
-            log.info(
-                "round %d: reviewer said done but %d/%d checks failed; "
-                "continuing",
-                round_index,
-                sum(1 for c in checks_results if not c.passed),
-                len(checks_results),
             )
         return None, ""
 
@@ -1895,161 +1821,6 @@ def daemon_stop_review_decision(
     )
 
 
-_GATE_MARKER = "🛡  Automated gates"
-_GATE_FAIL_LINE_PREFIX = "  ❌ "
-
-
-def _extract_gate_failures(check: CheckResult) -> list[str]:
-    """Pull structured gate failure summaries out of a stage_check
-    ``CheckResult.output_tail``. Returns one short line per failed gate
-    (e.g. ``"gate:evidence_chain — 1 chain issue(s) across 9 claim(s)"``)
-    so the reviewer's next_action can name them specifically instead of
-    saying "the acceptance checks still fail".
-    """
-    tail = (check.output_tail or "")
-    if _GATE_MARKER not in tail:
-        return []
-    lines = tail.splitlines()
-    failures: list[str] = []
-    in_section = False
-    for line in lines:
-        if _GATE_MARKER in line:
-            in_section = True
-            continue
-        if not in_section:
-            continue
-        # Section ends at the next blank line or the next top-level header.
-        stripped = line.rstrip()
-        if not stripped:
-            break
-        if stripped.startswith("📋") or stripped.startswith("❌") or stripped.startswith("✅"):
-            break
-        if line.startswith(_GATE_FAIL_LINE_PREFIX):
-            # "  ❌ evidence_chain — 1 chain issue(s) ..." → strip the prefix.
-            failures.append("gate:" + line[len(_GATE_FAIL_LINE_PREFIX):].strip())
-    return failures
-
-
-def _fallback_failed_check_handoff(checks: list[CheckResult]) -> str:
-    failed = [check for check in checks if not check.passed]
-    if not failed:
-        return ""
-
-    # Surface automated-gate failures specifically so the reviewer's
-    # next_action names which gate vetoed the round (and why), instead of
-    # the generic "rerun the failed command" handoff.
-    gate_failures: list[str] = []
-    for check in failed:
-        gate_failures.extend(_extract_gate_failures(check))
-
-    if gate_failures:
-        lines = [
-            "Automated research-factory gates vetoed this round. "
-            "Address each gate failure listed below before claiming done; "
-            "the gate validators are Python, not LLM heuristics, so the "
-            "fix must change real artifacts (claims_to_evidence.tsv, "
-            "evidence bundles, baseline reproductions, benchmark coverage).",
-        ]
-        for index, failure in enumerate(gate_failures, start=1):
-            lines.append(f"{index}. {failure}")
-        lines.append(
-            "After fixing, rerun "
-            "`python -m argus_skill.tools.stage_check --project-root .` "
-            "and verify the gate section shows ✅ for every gate before "
-            "marking the round done."
-        )
-        return "\n".join(lines)
-
-    fallback_lines: list[str] = [
-        "The acceptance checks still fail. Convert the validator blockers into concrete fixes, "
-        "then rerun the exact failed command before claiming completion.",
-    ]
-    for index, check in enumerate(failed, start=1):
-        fallback_lines.append(f"{index}. `{check.command}` exited {check.exit_code}.")
-    return "\n".join(fallback_lines)
-
-
-def failed_check_diagnostics(checks: list[CheckResult], *, max_chars: int = 24_000) -> str:
-    """The engineer's STRUCTURED ERROR-FEEDBACK channel.
-
-    The reviewer's ``next_action`` is a paraphrase; on its own the engineer never
-    sees the *literal output* of a failing acceptance check (compile error,
-    traceback, assertion diff, numeric mismatch). In a complex iterative
-    environment — optimizing a GPU kernel, fixing a failing build — that raw output
-    IS the ground truth the engineer needs, and withholding it forces blind
-    guess-and-revert loops. This surfaces the actual output of every failing check
-    so the next engineer turn can fix the root cause instead of re-deriving it.
-
-    Returns "" when nothing failed. When a check's full output was persisted to
-    disk (``output_path``), this emits ONLY the absolute path and a grep hint —
-    codex reads the file on demand instead of paying to re-ingest the whole log
-    every round. When there is no persisted log (no workdir), it falls back to an
-    inline, budget-bounded tail of the output so the error is never lost.
-    """
-    failed = [c for c in checks if not c.passed]
-    if not failed:
-        return ""
-    parts = [
-        "## Acceptance-check output — the REAL error, fix THIS (do not guess or just retry)",
-        "These acceptance commands FAILED this round. Their literal output is the "
-        "ground truth for what is wrong. Read it, find the root cause, and fix it.",
-    ]
-    budget = max(400, int(max_chars))
-    truncated = False
-    for check in failed:
-        parts.append(f"$ {check.command}   (exit={check.exit_code})")
-        if check.output_path:
-            # Full log on disk — hand codex the path, not the blob.
-            parts.append(
-                f"full log: {check.output_path}  "
-                "(grep/sed/less this file for the complete output)"
-            )
-            continue
-        tail = (check.output_tail or "").strip()
-        if not tail:
-            continue
-        if budget <= 0:
-            # Total output budget spent — show remaining failing commands by name
-            # but do NOT keep emitting 400-char floors per check (which busted the
-            # documented max_chars bound across many failing checks).
-            truncated = True
-            continue
-        snippet = tail[-budget:]
-        parts.append("```\n" + snippet + "\n```")
-        budget -= len(snippet)
-    if truncated:
-        parts.append(
-            "…(further failing-check output omitted to stay within the prompt budget)"
-        )
-    return "\n".join(parts)
-
-
-def _coerce_review_for_failed_checks(
-    review: ReviewDecision,
-    checks: list[CheckResult],
-) -> ReviewDecision:
-    failed = [check for check in checks if not check.passed]
-    if not failed:
-        return review
-
-    next_action = (review.next_action or "").strip()
-    if review.status != "done":
-        return replace(review, next_action=next_action or _fallback_failed_check_handoff(failed))
-
-    if not next_action or next_action.casefold().startswith("no further action"):
-        next_action = _fallback_failed_check_handoff(failed)
-    failed_commands = ", ".join(f"`{check.command}` exited {check.exit_code}" for check in failed)
-    return replace(
-        review,
-        status="continue",
-        reason=(
-            "Acceptance checks failed after the engineer turn, so the task cannot be done: "
-            f"{failed_commands}."
-        ),
-        next_action=next_action,
-    )
-
-
 __all__ = [
     "EngineerConfig",
     "SupervisedConfig",
@@ -2057,7 +1828,6 @@ __all__ = [
     "LoopOutcome",
     "backend_failure_review_decision",
     "daemon_stop_review_decision",
-    "failed_check_diagnostics",
     "fatal_error_looks_like_backend_failure",
     "fatal_error_looks_like_daemon_stop_request",
     "fatal_error_looks_like_effective_progress_timeout",

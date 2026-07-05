@@ -22,7 +22,6 @@ def test_planner_prompt_includes_wiki_block_when_present(
     prompt = Planner._build_planner_prompt(
         continuous_objective="research X",
         journal_tail="",
-        budget_remaining_usd=10.0,
         planning_cycle=0,
         runtime_change_summary="",
         mission=None,
@@ -50,7 +49,6 @@ def test_planner_prompt_surfaces_by_status_so_learned_pages_reach_planner(
     prompt = Planner._build_planner_prompt(
         continuous_objective="research X",
         journal_tail="",
-        budget_remaining_usd=10.0,
         planning_cycle=0,
         runtime_change_summary="",
         mission=None,
@@ -68,7 +66,6 @@ def test_planner_prompt_omits_wiki_block_when_absent(
     prompt = Planner._build_planner_prompt(
         continuous_objective="research X",
         journal_tail="",
-        budget_remaining_usd=10.0,
         planning_cycle=0,
         runtime_change_summary="",
         mission=None,
@@ -95,7 +92,6 @@ def test_planner_prompt_does_not_warn_when_query_pack_diagnosis_refs_exist(
     prompt = Planner._build_planner_prompt(
         continuous_objective="research X",
         journal_tail="",
-        budget_remaining_usd=10.0,
         planning_cycle=0,
         runtime_change_summary="",
         mission=None,
@@ -119,7 +115,6 @@ def test_planner_prompt_warns_when_query_pack_diagnosis_refs_are_stale(
     prompt = Planner._build_planner_prompt(
         continuous_objective="research X",
         journal_tail="",
-        budget_remaining_usd=10.0,
         planning_cycle=0,
         runtime_change_summary="",
         mission=None,
@@ -144,7 +139,6 @@ def test_planner_prompt_build_survives_corrupt_bot_state(
     prompt = Planner._build_planner_prompt(
         continuous_objective="research X",
         journal_tail="",
-        budget_remaining_usd=10.0,
         planning_cycle=0,
         runtime_change_summary="",
         mission=None,

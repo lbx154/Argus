@@ -206,7 +206,6 @@ class SkillLoop:
     # ------------------------------------------------------------------
 
     def run(self, task: str, *, workdir: Path | None = None, seed_thread_id: str | None = None,
-            failed_tool_ledger: Any | None = None,
             objective_for_skill: str | None = None,
             original_objective: str | None = None,
             scope: str = "", per_mission_budget: Any | None = None) -> LoopOutcome:
@@ -251,10 +250,41 @@ class SkillLoop:
         skill_distilled = False
         distill_result = None
 
-        # No proactive distill-on-miss: a missed match never authors a skill
-        # pre-emptively (that minted a throwaway playbook for every trivial
-        # task). Skill creation is now gated solely by the reviewer's
-        # ``skill_gap`` verdict on the OUTCOME — see Step 4 / _apply_skill_ops.
+        # Scientist tool on miss: when no reusable engineer skill matches, ask the
+        # Scientist/Distiller role to author one provisional playbook, inject it
+        # into THIS mission, and let the Reviewer prove or reject it through the
+        # provisional lifecycle below.
+        if skill is None:
+            try:
+                from .skills.scientist import SkillScientist
+
+                self._emit({
+                    "type": "skill.scientist.started",
+                    "text": "no high-fit skill; asking Scientist to distill a candidate",
+                })
+                raw_skill = SkillScientist(
+                    self.engineer_runner,
+                    model=self.config.engineer_model,
+                    reasoning_effort=self.config.engineer_reasoning_effort,
+                ).distill(skill_task)
+                if raw_skill:
+                    distilled = self.skill_store.save_distilled(
+                        task_description=skill_task,
+                        raw_distill_output=raw_skill,
+                        on_event=self._emit,
+                        provisional=True,
+                    )
+                    if distilled is not None:
+                        primary_skills = [distilled]
+                        skill = distilled
+                        skill_name = distilled.name
+                        skill_distilled = True
+                        self._emit({
+                            "type": "skill.scientist.created",
+                            "text": f"Scientist created provisional skill {distilled.name}",
+                        })
+            except Exception:  # noqa: BLE001
+                log.debug("Scientist skill generation skipped", exc_info=True)
 
         skill_text = render_skill_playbook(
             self.skill_store, primary_skills, reference_skills
@@ -309,12 +339,11 @@ class SkillLoop:
 
         # Step 3: supervised round-loop
         def build_prompt(next_action: str | None, include_static: bool = True) -> str:
-            extra = self._collect_extra_guidance()
             return self._build_engineer_prompt(
                 task=task,
                 skill_text=skill_text,
                 next_action=next_action,
-                extra_guidance=extra,
+                extra_guidance=[],
                 paper_mission=self.config.paper_mission,
                 original_request=request_anchor,
                 include_static=include_static,
@@ -340,7 +369,6 @@ class SkillLoop:
             workdir=workdir,
             on_event=self.on_event,
             seed_thread_id=seed_thread_id,
-            failed_tool_ledger=failed_tool_ledger,
             scope=scope,
             per_mission_budget=per_mission_budget,
         )
@@ -533,145 +561,13 @@ class SkillLoop:
         original_request: str = "",
         include_static: bool = True,
     ) -> str:
-        # STATIC = byte-stable prefix (constant within a mission: task / skill /
-        # resolved stage / role) → restores gpt-5.5 prefix-cache. DELTA = the
-        # per-round changing tail (reviewer next_action, operator guidance, the
-        # regime-jump explore window). On a RESUMED thread we send DELTA only;
+        # STATIC = byte-stable prefix (constant within a mission: task / skill)
+        # → restores gpt-5.5 prefix-cache. DELTA = the per-round changing tail
+        # (reviewer next_action). On a RESUMED thread we send DELTA only;
         # STATIC is re-sent on round 1 / after a session roll / after a compaction
         # (the anti-amnesia hedge). See SupervisedEngineer.run (F5).
         sections: list[str] = []
         delta_sections: list[str] = []
-        # Vertical-native prompt framing (resolved up-front so it can gate the
-        # paper-execution contract below): the active vertical supplies the
-        # engineer role banner, and the long-horizon paper contract applies ONLY
-        # to a paper vertical (completion_gate == "full_emnlp"). A non-paper
-        # vertical (e.g. speedrun) runs a lean edit→score loop: prepend its
-        # banner and skip the long-horizon paper contract entirely.
-        from .skills.harness_overlay import resolve_project_root
-        from .skills.vertical_select import resolve_vertical
-        from .verticals._base import (
-            load_vertical,
-            vertical_completion_gate,
-            vertical_role_banner,
-        )
-
-        _worktree_root = resolve_project_root()
-        _artifact_root = Path(
-            os.environ.get("ARGUS_SKILL_ARTIFACT_ROOT", "") or _worktree_root
-        ).expanduser()
-        _proot = _artifact_root
-        _vmod = load_vertical(resolve_vertical(_proot), project_root=_proot)
-        _full_emnlp = vertical_completion_gate(_vmod) == "full_emnlp"
-        # An optimize vertical (kernelbench/speedrun/…) is never a paper mission —
-        # keep the engineer prompt consistent with the supervisor scaffold even if
-        # a stale True default leaks in.
-        if not _full_emnlp:
-            paper_mission = False
-        # Measured-benchmark mode (operator opt-in via ARGUS_SKILL_MEASURED_MODE):
-        # the task has a TRUSTED scorer whose measured number is the ONLY judge, so
-        # the ground-truth / stage-checklist GATE framing — which forces the
-        # engineer to maintain provenance files BEFORE it may optimize — is
-        # replaced with a lean explore→write→score directive. Off by default, so
-        # paper / non-benchmark tasks are completely unchanged.
-        import os as _os
-        _measured = _os.environ.get("ARGUS_SKILL_MEASURED_MODE", "").strip().lower() in ("1", "true", "yes", "on")
-        _banner = vertical_role_banner(_vmod, "engineer")
-        if _banner:
-            sections.append(_banner)
-        # Valley-immunity: while a post-jump exploration window is open, tell the
-        # engineer the frozen floor is safe and a regressing candidate is EXPECTED
-        # — score + iterate it (do NOT skip on the train-only proxy gate, do NOT
-        # restore on round 1) so the new regime can cross its initial valley.
-        try:
-            from .regime_jump.ledger import load_ledger as _load_meta_ledger
-            from .regime_jump.meta_prompter import explore_window_block as _explore_block
-
-            _ewin = int(getattr(_load_meta_ledger(_proot), "explore_window", 0) or 0)
-            if _ewin > 0:
-                delta_sections.append(_explore_block(_ewin))
-        except Exception:  # noqa: BLE001 — meta grace must never break prompt building
-            pass
-        # Stage-aware SETUP action control (deterministic safety net). General:
-        # keyed purely on the pipeline stage, NOT on any task/benchmark. At the
-        # setup stage (pre-optimize) the optimize banner's pull toward an
-        # edit→score hill-climb is PREMATURE — the only deliverable is
-        # profiling + the ground-truth gate. Inject a hard override right under
-        # the banner so it suppresses that pull before the engineer acts.
-        from .skills.ground_truth import GROUND_TRUTH_RELPATH
-        from .skills.stage_checklists import current_stage as _current_stage
-
-        try:
-            _stage_now = _current_stage(_proot)
-        except Exception:  # noqa: BLE001 — stage read is best-effort
-            _stage_now = None
-        sections.append(
-            "## Artifact root — keep harness state session-scoped\n"
-            f"- Command working directory: `{_worktree_root}`\n"
-            f"- Harness artifact root: `{_artifact_root}`\n"
-            "- Write pipeline/checklist/domain/audit artifacts under the harness "
-            "artifact root. Do not reuse or mutate the command worktree's "
-            "`research/PIPELINE_STATE.json`, `research/CHECKLISTS.json`, or "
-            "`research/DOMAINS/` unless the operator explicitly asks for repo "
-            "artifact edits.\n"
-        )
-        sections.append(
-            "## Pipeline stage is Manager-owned — do NOT edit it\n"
-            "You may create/update NON-stage fields in "
-            "`research/PIPELINE_STATE.json` (objective, target_venue, artifact "
-            "paths), but you MUST NOT edit the stage fields — `current_stage` or "
-            "any per-stage `status` — and you MUST NOT call `rollback_stage` or "
-            "any other stage-transition helper. Stage transitions (advance AND "
-            "rollback) are decided and written by the Manager, from the "
-            "reviewer's verdict. Your job: produce the current stage's required "
-            "artifacts and report readiness in your summary; the reviewer "
-            "certifies and the Manager moves the stage."
-        )
-        if _stage_now == "setup" and not _measured:
-            sections.append(
-                "## SETUP STAGE — action control (HARD OVERRIDE)\n"
-                "The active stage is `setup` (pre-optimize). Any optimize/"
-                "speedrun framing above that pulls you toward an edit→score "
-                "hill-climb does NOT apply yet — ignore that pull until the "
-                "stage advances past setup. At this stage you are FORBIDDEN "
-                "from:\n"
-                "- running `./eval_solution.sh` (or any scorer) to TUNE or "
-                "chase the metric, and\n"
-                "- editing the recipe / training script to improve the score.\n\n"
-                "Your ONLY deliverables at setup are: (1) PROFILE the run to "
-                "find the real binding constraint with measured numbers, and "
-                "(2) write the verified picture into `"
-                + GROUND_TRUTH_RELPATH
-                + "`. You MAY run the scorer/recipe exactly ONCE, read-only, "
-                "to capture a baseline measurement for the profile — never to "
-                "tune. Scoring-to-tune or recipe edits to chase the number are "
-                "out of scope until setup is complete and the stage advances "
-                "to optimize."
-            )
-        if _measured:
-            sections.append(
-                "## MEASURED-BENCHMARK MODE — the scorer is the ONLY judge\n"
-                "This task has a TRUSTED scorer that returns a real measured number on the "
-                "target hardware. That number is the ONLY thing that matters and the ONLY "
-                "proof anyone needs.\n\n"
-                "**DO NOT write, read, repair, or 'maintain' any GROUND_TRUTH / gate / marker "
-                "/ status / evidence / manifest files. The harness does NOT read them — doing "
-                "so is pure wasted effort. There is no gate to pass except a higher score.**\n\n"
-                "Spend the ENTIRE round on **explore → write → score**:\n"
-                "1. EXPLORE: pick ONE concrete mechanism to try this round, grounded in the "
-                "PROFILE (the real measured bottleneck) + the best library / SOTA / open-source "
-                "implementation for this exact op. Name it in one line.\n"
-                "2. WRITE: implement that candidate in your solution file.\n"
-                "3. SCORE: run the scorer to get the real measured number.\n"
-                "4. JUDGE BY THE NUMBER ALONE: if it beats your best, keep it; if not, NEXT "
-                "round try a DIFFERENT mechanism — never keep tweaking a direction that loses. "
-                "Record ONE terse line (mechanism + measured score) and move on.\n\n"
-                "No bookkeeping, no provenance files, no self-verification ritual — the "
-                "scorer's number IS the verification."
-            )
-        else:
-            from .skills.ground_truth import ground_truth_mandate
-
-            sections.append(ground_truth_mandate("engineer").rstrip())
         if skill_text:
             sections.append("## Skill playbook (read first)\n" + skill_text)
         if original_request.strip():
@@ -684,44 +580,6 @@ class SkillLoop:
                 + original_request.strip()
             )
         sections.append("## Current mission task\n" + task)
-        if paper_mission and _full_emnlp:
-            sections.append(
-                "## Long-horizon paper execution contract\n"
-                "This is not a one-file bounded patch. Treat the engineer as the\n"
-                "owner of the paper trajectory for this mission. The mission spans\n"
-                "MANY bounded turns (see the turn-discipline section below), not\n"
-                "one marathon turn — own the whole stage across those turns, but\n"
-                "land one concrete increment per turn and yield.\n\n"
-                "- The injected skill playbook, current-stage checklist, and\n"
-                "  checkpoint are your brief. `AGENTS.md` and the built-in paper\n"
-                "  skills are reference at their paths — open a specific section\n"
-                "  only when the injected context cannot answer a concrete\n"
-                "  question; do not dump them in full.\n"
-                "- The L2 reviewer rules against the per-stage checklist injected\n"
-                "  below. Make concrete progress on its currently-unchecked items;\n"
-                "  there is no `validate-*` shell command to chase. Read artifacts\n"
-                "  directly when you need to decide what is and is not satisfied.\n"
-                "- Fix multiple adjacent blockers across the mission's turns when\n"
-                "  budget allows: evidence, `paper/main.tex`, body/page flow,\n"
-                "  citations, figures, tables, reviews, assurance, manifest\n"
-                "  freshness, and submission state.\n"
-                "- Do not abandon the mission after one checklist item passes if\n"
-                "  obvious paper-quality blockers remain and are addressable —\n"
-                "  keep going on the NEXT turn (do not cram them all into this one).\n"
-                "- Runtime context is for execution only. Do not copy daemon config,\n"
-                "  local device/cache/path details, capability-vault paths, or\n"
-                "  Argus/Codex reviewer/engineer route names into manuscript prose.\n"
-                "- If the same checklist item repeats, switch from local micro-edits to\n"
-                "  root-cause repair: inspect evidence sufficiency, section depth,\n"
-                "  page map, stale generated artifacts, and figure/table provenance.\n"
-                "- For underfilled papers, improve reader-facing prose, evidence\n"
-                "  integration, and figure/table placement toward 7.5-8 main-content\n"
-                "  pages; keep main/body content within 8 pages, start references\n"
-                "  and appendices on page 9 or later, and do not impose a total-page\n"
-                "  maximum after references begin.\n"
-                "- If the full gate still fails, end with the exact remaining blockers\n"
-                "  and the next concrete command."
-            )
         if next_action:
             delta_sections.append(
                 "## Reviewer guidance from prior round\n"
@@ -729,38 +587,6 @@ class SkillLoop:
                 "following before declaring done:\n\n"
                 + next_action
             )
-        if extra_guidance:
-            delta_sections.append(
-                "## Operator guidance (injected since last round)\n"
-                + "\n\n".join(extra_guidance)
-            )
-        from .skills.stage_checklists import format_stage_checklist
-
-        # Always-on project-venv reminder. Injected for every stage / every
-        # round so the agent never has an excuse for `import X` failures or
-        # for stubbing around a missing dependency. Loaded directly from the
-        # bundled skill so the canonical text in the markdown is the single
-        # source of truth.
-        try:
-            from .skills.builtins import iter_builtin_skill_texts
-            for fname, body in iter_builtin_skill_texts():
-                if fname == "project-venv-package-management.md":
-                    sections.append("## Project venv (install anything you need here)\n" + body)
-                    break
-        except Exception:  # noqa: BLE001 - defensive; missing skill is non-fatal
-            pass
-
-        _proot = _artifact_root
-        # Reuse the stage resolved (guarded) near the top of this builder so a
-        # broken state read degrades to "no stage checklist" instead of raising.
-        stage = _stage_now
-        stage_checklist = (
-            format_stage_checklist(stage, role="engineer", project_root=_proot)
-            if stage
-            else ""
-        )
-        if stage_checklist and not _measured:
-            sections.append(stage_checklist)
         sections.append(
             "## Turn discipline — bounded progress, then yield\n"
             "Do NOT try to finish this whole stage in a single turn. A turn\n"

@@ -33,7 +33,6 @@ def test_planner_suggests_wiki_collect_when_cooldown_elapsed_and_backlog_empty(
     prompt = Planner._build_planner_prompt(
         continuous_objective="research X",
         journal_tail="",
-        budget_remaining_usd=10.0,
         planning_cycle=0,
         runtime_change_summary="",
         mission=None,
@@ -57,7 +56,6 @@ def test_planner_does_not_suggest_wiki_collect_when_cooldown_active(
     prompt = Planner._build_planner_prompt(
         continuous_objective="research X",
         journal_tail="",
-        budget_remaining_usd=10.0,
         planning_cycle=0,
         runtime_change_summary="",
         mission=None,

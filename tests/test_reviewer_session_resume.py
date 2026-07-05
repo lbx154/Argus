@@ -20,7 +20,7 @@ from argus_skill.reviewer._core import ReviewerConfig
 
 # A static-preamble marker (lives in the rubric) + a delta marker (per round).
 _STATIC_MARKER = "Decision rules:"
-_DELTA_HEADER = "Acceptance check results"
+_DELTA_HEADER = "Main agent last summary"
 _REEVALUATE = "RE-EVALUATE INDEPENDENTLY"
 
 
