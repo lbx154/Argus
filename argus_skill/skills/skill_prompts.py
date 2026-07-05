@@ -113,6 +113,106 @@ class Prompts:
             "accepted and treated as `high`."
         )
 
+    # -- Skill-library independence check (LLM judge, progressive disclosure) --
+    @staticmethod
+    def skill_duplicate_check(
+        *,
+        name: str,
+        description: str,
+        category: str,
+        summaries: list[dict],
+    ) -> str:
+        """Ask a small model whether a NEW skill proposal duplicates an
+        EXISTING one — semantic judgment over compact summaries (name +
+        description + category), never full skill bodies, so this stays
+        cheap even against a large library (the same progressive-disclosure
+        shape ``skill_match`` already uses: summaries first, full content
+        only for whatever the caller decides to load next).
+
+        Catches paraphrased duplicates a pure lexical/cosine comparison
+        misses (e.g. "Debug CUDA OOM" vs "Fix GPU memory overflow" — same
+        capability, near-disjoint title vocabulary)."""
+        listing = "\n".join(
+            f"- **{s['name']}**: {s['description']} "
+            f"(category: {s['category'] or 'unspecified'})"
+            for s in summaries
+        )
+        return (
+            "You are the skill-library independence judge. A NEW skill "
+            "playbook has been proposed for a shared, reusable capability "
+            "library. Decide whether it is a near-duplicate of an EXISTING "
+            "skill — i.e. an engineer who already had the existing skill "
+            "would gain NOTHING new from also having this one, because they "
+            "teach the SAME underlying capability (even if the wording, "
+            "title, or framing differs).\n\n"
+            f"## New skill proposal\n"
+            f"- **{name}**: {description} (category: {category or 'unspecified'})\n\n"
+            f"## Existing skills in the library\n{listing or '(library is empty)'}\n\n"
+            "## Instructions\n"
+            "Reply with ONLY a JSON object: "
+            "{\"duplicate\": true|false, \"of\": \"<existing skill name or "
+            "empty string>\", \"why\": \"<one short clause>\"}.\n"
+            "- `duplicate: true` ONLY when the new proposal teaches the SAME "
+            "underlying capability as one existing skill (same sub-domain, "
+            "same tools, same goal) — different title/description wording "
+            "alone does NOT make two skills distinct.\n"
+            "- Two skills that merely share a category, or overlap on a "
+            "generic keyword, are NOT duplicates — `duplicate: false`.\n"
+            "- When genuinely unsure, prefer `duplicate: false` (a missed "
+            "near-duplicate is cheaply caught later; a wrongly-rejected "
+            "distinct skill is a real capability lost)."
+        )
+
+    # -- Periodic library housekeeping (LLM judge, batched clustering) --
+    @staticmethod
+    def skill_compaction_batch(summaries: list[dict]) -> str:
+        """Ask a small model to find every GROUP of near-duplicate skills in
+        ONE batch of the library — the batched-clustering counterpart to
+        ``skill_duplicate_check`` above, mirroring how ``skill_match`` scores
+        a whole candidate batch in a single call rather than one call per
+        pair (O(1) calls per batch instead of O(n^2) pairwise judge calls).
+
+        Deliberately asks ONLY for the grouping (which names are the same
+        capability), never which one to keep: the model only sees
+        name/description/category here, not each skill's PROVEN reuse
+        history (``version`` / ``task_history``) — a real, factual maturity
+        signal the harness has and the model does not. The harness picks the
+        representative from that data (see ``compaction._representative``);
+        the model's job is purely "are these the same thing?"."""
+        listing = "\n".join(
+            f"- **{s['name']}**: {s['description']} "
+            f"(category: {s['category'] or 'unspecified'})"
+            for s in summaries
+        )
+        return (
+            "You are the skill-library compaction judge, doing periodic "
+            "housekeeping on a shared, reusable capability library. Below is "
+            "a batch of skills currently in it (name + description + "
+            "category only). Find every GROUP of 2+ skills that teach the "
+            "SAME underlying capability (paraphrases of each other, even "
+            "with disjoint title/description wording) — these are "
+            "near-duplicates that should be merged down to ONE. You decide "
+            "WHICH skills group together; the harness decides which one in "
+            "each group to keep (from proven reuse history you cannot see) "
+            "— do not try to rank them.\n\n"
+            f"## Skills in this batch\n{listing}\n\n"
+            "## Instructions\n"
+            "Reply with ONLY a JSON object: "
+            "{\"clusters\": [[\"<name>\", \"<name>\", ...], ...]} — a list "
+            "of groups, each group a list of 2+ exact skill names.\n"
+            "- Only emit a group when its skills are genuinely the SAME "
+            "capability — same sub-domain, same tools, same goal. Sharing a "
+            "category or a generic keyword is NOT enough.\n"
+            "- Every name MUST be copied EXACTLY from the list above — "
+            "never invent or paraphrase a name.\n"
+            "- A skill may appear in AT MOST one group.\n"
+            "- Most batches have NO groups at all — "
+            "`{\"clusters\": []}` is the common, correct answer. When "
+            "unsure whether two skills truly duplicate, leave them out "
+            "(a missed near-duplicate is cheap to catch on a later pass; a "
+            "wrongly-merged distinct skill is a real capability lost)."
+        )
+
     # -- Parsing helpers --
     @staticmethod
     def parse_skill_output(raw: str) -> tuple[str, str, str, str]:

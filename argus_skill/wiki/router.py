@@ -7,22 +7,34 @@ router adds the missing third path: a reviewer (or a learning mission) PROPOSES
 structured ``wiki_ops`` and the harness validates + applies them, rebuilds the
 indexes, and emits ``wiki.*`` events — the same shape as skill ``skill_ops``.
 
-Two hard, mechanical guardrails (everything else is the reviewer's judgement):
+Three hard, mechanical guardrails (everything else is the reviewer's judgement):
 
   * evidence — a create_page/update_page's cited spans must quote the immutable
     source verbatim (anti-fabrication); fabricated citations are rejected;
+  * independence — a page proposed under a NEW id must not be a near-duplicate
+    of an EXISTING page. Judged ENTIRELY by an LLM over compact summaries
+    (title + card_type + a short body excerpt — progressive disclosure,
+    mirroring ``SkillRouter``'s duplicate judge). There is no lexical/scored
+    fallback: when no ``judge_runner`` is configured, or the judge call
+    fails, the independence check is simply skipped (fail-open) for that
+    proposal. A genuine revision of the SAME id (``update_page``, or a
+    ``create_page`` that resolves to an id already on disk) is exempt — it
+    is compared against nothing, never itself;
   * removals are tombstones (``retire_page``), never hard deletes, and reversible.
 
 Best-effort: one bad op never breaks the others; the router never raises.
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date
 from pathlib import Path
 from typing import Any, Callable
 
+from ..core.models import RunnerOptions
 from ..skills.provenance import verify_evidence
+from .compaction import build_duplicate_check_prompt
 from .index import rebuild_indexes
 from .schema import PageCard, SourceNote
 from .store import WikiStore, _PAGE_SUBDIR, _validate_stem
@@ -35,10 +47,24 @@ EventSink = Callable[[dict], None]
 class WikiRouter:
     """Owns validated, audited structured CRUD for one project wiki."""
 
-    def __init__(self, wiki_root: "str | Path", *, retired_by: str = "reviewer") -> None:
+    def __init__(
+        self,
+        wiki_root: "str | Path",
+        *,
+        retired_by: str = "reviewer",
+        judge_runner: Any = None,
+        judge_model: str = "",
+        judge_reasoning_effort: str = "high",
+    ) -> None:
         self.wiki_root = Path(wiki_root)
         self.store = WikiStore(self.wiki_root)
         self.retired_by = retired_by
+        # LLM duplicate JUDGE (progressive disclosure over summaries) — the
+        # ONLY independence check; never an approval authority over
+        # well-formed, non-duplicate content.
+        self.judge_runner = judge_runner
+        self.judge_model = judge_model
+        self.judge_reasoning_effort = judge_reasoning_effort
 
     def apply_ops(
         self,
@@ -137,8 +163,24 @@ class WikiRouter:
             self._reject(on_event, op.get("op"), "no evidence span for a learned page")
             return "rejected"
         card_type = str(op.get("card_type") or "technique").strip()
+        existed = self._page_path(card_type, slug).exists()
+        if not existed:
+            # Independence floor: a NEW id must not be a near-duplicate of an
+            # EXISTING page. A revision of the SAME id (``existed`` above) is
+            # exempt — it is compared against nothing, never itself. LLM
+            # judge ONLY (progressive disclosure) — no judge runner
+            # configured, or the call fails -> the check is skipped
+            # (fail-open); there is no scored/lexical fallback.
+            title = str(op.get("title") or slug)
+            body = str(op.get("body") or "")
+            verdict = self._llm_duplicate_check(title=title, body=body, card_type=card_type)
+            if verdict is not None:
+                is_dup, near, why = verdict
+                if is_dup:
+                    self._reject(on_event, op.get("op"),
+                                 f"too similar to '{near}' (llm judge: {why})")
+                    return "rejected"
         try:
-            existed = self._page_path(card_type, slug).exists()
             card = self._build_page(op, slug=slug, card_type=card_type)
             self.store.write_page(card)
         except (KeyError, ValueError) as exc:
@@ -147,6 +189,56 @@ class WikiRouter:
         verb = "updated" if existed else "created"
         self._emit(on_event, {"type": f"wiki.{verb}", "text": f"{verb} {card_type}/{card.id}"})
         return verb
+
+    def _llm_duplicate_check(
+        self, *, title: str, body: str, card_type: str,
+    ) -> tuple[bool, str, str] | None:
+        """Ask the judge runner whether the proposal duplicates an existing
+        page, over COMPACT SUMMARIES only (progressive disclosure). Returns
+        ``(is_duplicate, matched_title, why)``, or ``None`` when no judge
+        runner is configured or the call fails for any reason — the caller
+        then skips the independence check entirely for this proposal
+        (fail-open); there is no scored/lexical fallback."""
+        if self.judge_runner is None:
+            return None
+        pages = self.store.iter_pages()
+        if not pages:
+            return False, "", "wiki is empty"
+        prompt = build_duplicate_check_prompt(
+            title=title, body=body, card_type=card_type, existing_pages=pages,
+        )
+        try:
+            result = self.judge_runner.run_exec(
+                prompt=prompt,
+                options=RunnerOptions(
+                    model=self.judge_model or None,
+                    reasoning_effort=self.judge_reasoning_effort,
+                    skip_git_repo_check=True,
+                    full_auto=True,
+                ),
+                run_label="wiki.duplicate_check",
+            )
+        except Exception as exc:  # noqa: BLE001 — judge is best-effort
+            log.warning("wiki duplicate judge failed (%s: %s)", type(exc).__name__, exc)
+            return None
+        text = (getattr(result, "last_agent_message", "") or "").strip()
+        if not text:
+            return None
+        try:
+            left, right = text.find("{"), text.rfind("}")
+            parsed = json.loads(text[left:right + 1]) if left >= 0 < right else json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        is_dup = bool(parsed.get("duplicate"))
+        of_title = str(parsed.get("of", "") or "").strip()
+        why = str(parsed.get("why", "") or "").strip()[:300]
+        # Fail-closed on a malformed "true but no target": never reject
+        # without naming what it collides with.
+        if is_dup and not of_title:
+            return None
+        return is_dup, of_title, why
 
     def _retire_page(self, op: dict, on_event: EventSink | None) -> bool:
         slug = str(op.get("id") or op.get("slug") or "").strip()

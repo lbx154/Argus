@@ -37,9 +37,9 @@ def test_run_exec_delegates_to_manager_backend() -> None:
     r = _bare_runner()
     r.manager_backend = _StubBackend("manager")
     r._backend = _StubBackend("default")
-    out = r.run_exec(prompt="p", options=None, run_label="manager.skill_review")
+    out = r.run_exec(prompt="p", options=None, run_label="manager.skill_placement")
     assert out == "ran:manager"
-    assert r.manager_backend.calls[0]["run_label"] == "manager.skill_review"
+    assert r.manager_backend.calls[0]["run_label"] == "manager.skill_placement"
     assert not r._backend.calls  # never touches the default when manager is set
 
 

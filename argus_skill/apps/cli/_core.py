@@ -263,7 +263,6 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.init_model_api)
         + bool(args.skill_stats)
         + bool(args.skill_cleanse)
-        + bool(args.skill_compact)
         + bool(args.export_builtin_skills is not None)
         + bool(args.evidence_chain_check)
         + bool(args.anti_mediocrity_check)
@@ -277,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:
             "argus-skill: --daemon / --daemon-fg / --daemon-stop / --status / "
             "--daemon-runbook / --watch / --follow / --notify / --init-identity / "
             "--model-api-status / --init-model-api / --skill-stats / "
-            "--skill-cleanse / --skill-compact / --export-builtin-skills / "
+            "--skill-cleanse / --export-builtin-skills / "
             "--evidence-chain-check / --anti-mediocrity-check / --lifecycle-status / "
             "wiki subcommands "
             "are mutually exclusive.\n"
@@ -335,8 +334,6 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_skill_stats(args))
     if args.skill_cleanse:
         return _run_with_path_resolution_errors(lambda: _cmd_skill_cleanse(args))
-    if args.skill_compact:
-        return _run_with_path_resolution_errors(lambda: _cmd_skill_compact(args))
     if args.export_builtin_skills is not None:
         return _run_with_path_resolution_errors(
             lambda: _cmd_export_builtin_skills(args)
@@ -840,20 +837,6 @@ def _cmd_skill_cleanse(args: argparse.Namespace) -> int:
     from .._skill_cleanse import run_cleanse
     return run_cleanse(
         _resolve_skills_dir(args),
-        dry_run=not bool(args.apply),
-    )
-
-
-def _cmd_skill_compact(args: argparse.Namespace) -> int:
-    from ...skills.compaction import DEFAULT_SIM_THRESHOLD, run_compact
-    threshold = (
-        float(args.sim_threshold)
-        if args.sim_threshold is not None
-        else DEFAULT_SIM_THRESHOLD
-    )
-    return run_compact(
-        _resolve_skills_dir(args),
-        sim_threshold=threshold,
         dry_run=not bool(args.apply),
     )
 

@@ -2,9 +2,10 @@
 
 Historically this module also held a mission-completion → skill-lifecycle
 dispatcher (``decide_action`` / ``apply_action``). That dispatcher is gone:
-skill memory is now reviewer-proposed and applied by ``SkillRouter`` (with the
-Manager generality+correctness gate), so the only thing that survives here is
-the low-level ``archive_skill`` move, reused by ``SkillStore.archive`` /
+skill memory is now reviewer-proposed and applied by ``SkillRouter``
+(mechanical structure + independence checks — no Manager gate, the reviewer
+is sole authority), so the only thing that survives here is the low-level
+``archive_skill`` move, reused by ``SkillStore.archive`` /
 ``SkillStore.discard_provisional`` and by ``compaction``.
 """
 

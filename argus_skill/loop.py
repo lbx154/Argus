@@ -7,17 +7,19 @@ This is the new code that argus-skill exists to deliver. It composes:
     vertical round-loop that supervises the engineer until the reviewer
     is satisfied.
 
-Skill memory is REVIEWER-owned: there is no separate authoring agent. The
-reviewer emits ``skill_ops`` per round (create/update PROPOSALS gated by the
-Manager generality check; delete/archive applied directly), and the loop
-applies them at mission end.
+Skill AND wiki memory are REVIEWER-owned: there is no separate authoring
+agent and no Manager approval gate — the reviewer is the sole authority. The
+reviewer emits ``skill_ops`` (create/update/delete/archive on the reusable
+skill library) and ``wiki_ops`` (create_page/update_page/retire_page on the
+project idea-wiki) per round; the loop applies both at mission end via
+``SkillRouter`` / ``WikiRouter`` respectively.
 
 End-to-end shape:
 
     task → matcher → engineer round-loop (engineer turn → checks → reviewer)
-            done    → confirm a proven candidate, apply skill_ops, return success
+            done    → confirm a proven candidate, apply skill_ops/wiki_ops, success
             continue → inject next_action, next round
-            blocked → stop with reason; still apply skill_ops
+            blocked → stop with reason; still apply skill_ops/wiki_ops
 """
 from __future__ import annotations
 
@@ -71,9 +73,29 @@ class SkillLoopConfig:
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
     # Reviewer-owned skill memory: the reviewer emits ``skill_ops`` per round
-    # (create/update PROPOSALS gated by the Manager generality check;
-    # delete/archive applied directly). Off by default; the daemon enables it.
+    # (create/update/delete/archive) and the loop applies them via
+    # SkillRouter — no Manager approval gate. Off by default; the daemon
+    # enables it.
     skill_ops_enabled: bool = False
+    # Reviewer-owned project wiki memory: the wiki's structured counterpart
+    # to ``skill_ops_enabled`` above. The reviewer emits ``wiki_ops``
+    # (create_page/update_page/retire_page) per round and the loop applies
+    # them via WikiRouter — also no Manager gate. A no-op whenever the
+    # project has no initialized wiki (see ``wiki.auto_hooks.discover_wikis``).
+    # Off by default; the daemon enables it.
+    wiki_ops_enabled: bool = False
+    # Automatic (unattended) library housekeeping — runs after EVERY mission
+    # close, mirroring the wiki mechanical hooks' always-on cadence. Finds
+    # near-duplicate skills/wiki-pages that slipped past the CREATE-time
+    # independence checks (e.g. skills seeded before this check existed, or
+    # two concurrent missions that each passed their OWN check against a
+    # library snapshot that didn't yet contain the other's proposal) and
+    # merges each cluster down to one representative. Cheap when there is
+    # nothing to do (pure cosine similarity, no LLM calls); a no-op-safe,
+    # REVERSIBLE archive/retire move, never a hard delete; a protected/
+    # governing skill is never a merge candidate (self-governance floor).
+    # Off by default; the daemon enables it.
+    auto_compact_enabled: bool = False
     full_auto: bool = True
     skip_git_repo_check: bool = True
     dangerous_yolo: bool = False
@@ -143,7 +165,6 @@ class SkillLoop:
         skill_store: SkillStore | None = None,
         on_event: Callable[[dict], None] | None = None,
         extra_guidance_provider: Callable[[], list[str]] | None = None,
-        manager: Any = None,
     ) -> None:
         self.config = config or SkillLoopConfig()
         self.skills_dir = Path(skills_dir)
@@ -154,11 +175,6 @@ class SkillLoop:
         # Returns a list of additional guidance strings to append to the
         # prompt (used by the daemon to honour /inject between rounds).
         self.extra_guidance_provider = extra_guidance_provider
-        # The single Manager instance, threaded from the runner. When present the
-        # SkillRouter's approval gate runs on the Manager's backend (the real
-        # consolidation); when None it falls back to the reviewer-backed module
-        # function (tests / no-manager callers).
-        self.manager = manager
 
         self.skill_store = skill_store or SkillStore(
             self.skills_dir,
@@ -170,15 +186,20 @@ class SkillLoop:
             self.skill_store, on_event=self.on_event
         )
         self.reviewer = Reviewer(self.reviewer_runner, skill_store=self.skill_store)
-        # The single front door to the skill library: selection (delegated to the
-        # role matcher) + validated CRUD (independence → mechanical → Manager
-        # generality/correctness gate). No role mutates skills directly.
+        # The single front door to the skill library: selection (delegated to
+        # the role matcher) + validated CRUD (mechanical structure →
+        # independence/dedup → provisional-prove-later). The Reviewer is the
+        # sole authority — no role mutates skills directly, and there is no
+        # Manager approval gate. The independence check's ``judge_runner`` is
+        # an LLM duplicate JUDGE (progressive disclosure over summaries, same
+        # backend the reviewer already runs on) — the ONLY independence
+        # check; there is no lexical/scored fallback.
         self.skill_router = SkillRouter(
             skill_store=self.skill_store,
             matcher=self.engineer_mission,
             judge_runner=self.reviewer_runner,
             judge_model=self.config.resolved_reviewer_model(),
-            manager=self.manager,
+            judge_reasoning_effort=self.config.matcher_reasoning_effort or "high",
         )
         self.supervised = SupervisedEngineer(
             engineer_runner=engineer_runner,
@@ -373,13 +394,15 @@ class SkillLoop:
             per_mission_budget=per_mission_budget,
         )
 
-        # Step 4: learn from the OUTCOME. The REVIEWER owns skill memory: it
-        # emits ``skill_ops`` per round (create/update PROPOSALS gated by the
-        # Manager generality-check; delete/archive applied directly). The loop
-        # only applies what the reviewer requested — there is no separate author.
-        # A matched CANDIDATE that just proved effective is confirmed ("入库");
-        # an unproven one that dragged through an INEFFECTIVE mission is closed
-        # out (reverted/discarded) — the provisional lifecycle gates both ends.
+        # Step 4: learn from the OUTCOME. The REVIEWER owns skill AND wiki
+        # memory: it emits ``skill_ops`` (create/update/delete/archive on the
+        # skill library) and ``wiki_ops`` (create_page/update_page/retire_page
+        # on the project wiki) per round — no Manager approval gate for
+        # either. The loop only applies what the reviewer requested; there is
+        # no separate author. A matched CANDIDATE that just proved effective
+        # is confirmed ("入库"); an unproven one that dragged through an
+        # INEFFECTIVE mission is closed out (reverted/discarded) — the
+        # provisional lifecycle gates both ends.
         if skill is not None and getattr(skill, "provisional", False):
             try:
                 if status == "done":
@@ -401,6 +424,24 @@ class SkillLoop:
 
         if self.config.skill_ops_enabled:
             self._apply_skill_ops(rounds=rounds, skill_task=skill_task)
+
+        # Step 4b: automatic library housekeeping — merge near-duplicate
+        # skills that slipped past the create-time independence check (see
+        # ``SkillLoopConfig.auto_compact_enabled`` for the full rationale).
+        # Separate try/except: housekeeping must never shadow (or be shadowed
+        # by) the skill_ops apply above.
+        if self.config.auto_compact_enabled:
+            try:
+                from .skills.compaction import auto_compact_skills
+                auto_compact_skills(
+                    self.skills_dir,
+                    judge_runner=self.reviewer_runner,
+                    judge_model=self.config.resolved_reviewer_model(),
+                    judge_reasoning_effort=self.config.matcher_reasoning_effort or "high",
+                    on_event=self.on_event,
+                )
+            except Exception:  # noqa: BLE001 — housekeeping must never block
+                log.debug("auto_compact_skills raised", exc_info=True)
 
         outcome = LoopOutcome(
             status=status,
@@ -436,6 +477,38 @@ class SkillLoop:
                 mechanical_promote(Path(wiki_path), emit=self.on_event)
         except Exception:  # noqa: BLE001 — wiki maintenance must never block
             log.debug("wiki post-mission hooks raised", exc_info=True)
+
+        # Step 4d: the reviewer's own PROPOSED wiki_ops (create_page/
+        # update_page/retire_page) — runs AFTER the mechanical hooks above so
+        # any source ingested THIS mission is already visible to the
+        # evidence-verbatim check. Separate try/except: a WikiRouter/discover
+        # failure must not shadow a mechanical-hooks failure or vice versa.
+        if self.config.wiki_ops_enabled:
+            try:
+                self._apply_wiki_ops(rounds=rounds, workdir=workdir, wiki_task=skill_task)
+            except Exception:  # noqa: BLE001 — wiki maintenance must never block
+                log.debug("wiki_ops apply raised", exc_info=True)
+
+        # Step 4e: automatic wiki-page housekeeping — the wiki's counterpart
+        # to the skill auto-compaction above (same
+        # ``SkillLoopConfig.auto_compact_enabled`` flag, same rationale:
+        # merge near-duplicate PAGES that slipped past the create-time
+        # independence check). Runs LAST so it sees any page ``wiki_ops`` just
+        # wrote this mission.
+        if self.config.auto_compact_enabled:
+            try:
+                from .wiki.auto_hooks import discover_wikis
+                from .wiki.compaction import auto_compact_wiki
+                for wiki_root in discover_wikis(workdir):
+                    auto_compact_wiki(
+                        wiki_root,
+                        judge_runner=self.reviewer_runner,
+                        judge_model=self.config.resolved_reviewer_model(),
+                        judge_reasoning_effort=self.config.matcher_reasoning_effort or "high",
+                        on_event=self.on_event,
+                    )
+            except Exception:  # noqa: BLE001 — housekeeping must never block
+                log.debug("auto_compact_wiki raised", exc_info=True)
         # Effectiveness telemetry — one structured event per mission so
         # operators can compute hit-rate, mean-rounds-with-skill, and
         # mean-rounds-without-skill from events.jsonl alone.
@@ -656,10 +729,12 @@ class SkillLoop:
     ) -> None:
         """Hand the reviewer's per-round ``skill_ops`` (aggregated across the
         mission) to the SkillRouter, which runs the validation pipeline
-        (independence → mechanical → Manager generality/correctness gate) and
-        applies create/update/archive. Protected/governing skills (frontmatter
-        ``protected: true`` or an anti-cheat/guardrail/role-identity category) are
-        refused for removal and gated diff-aware on update inside the router.
+        (mechanical structure → independence/dedup) and applies
+        create/update/archive — the Reviewer is the sole authority, no
+        Manager gate. Protected/governing skills (frontmatter
+        ``protected: true`` or an anti-cheat/guardrail/role-identity category)
+        are refused for removal AND update inside the router (strengthening one
+        requires an explicit source-code change, never a runtime skill_op).
         Best-effort — the router never raises."""
         ops = self._collect_skill_ops(rounds)
         if not ops:
@@ -680,6 +755,56 @@ class SkillLoop:
                     continue
                 key = (op.get("op"), op.get("name", ""),
                        (op.get("content", "") or "")[:200])
+                if key in seen:
+                    continue
+                seen.add(key)
+                ops.append(op)
+        return ops
+
+    # ------------------------------------------------------------------
+    # Reviewer-owned wiki memory (applied at mission end from per-round ops)
+    # ------------------------------------------------------------------
+    def _apply_wiki_ops(
+        self,
+        *,
+        rounds: list[RoundRecord],
+        workdir: Path,
+        wiki_task: str,
+    ) -> None:
+        """Hand the reviewer's per-round ``wiki_ops`` (aggregated across the
+        mission) to a ``WikiRouter`` for every initialized wiki under
+        ``workdir`` — symmetric to ``_apply_skill_ops`` above, also with no
+        Manager gate. A no-op when the reviewer proposed nothing OR the
+        project has no initialized wiki (``discover_wikis`` returns []); the
+        router never raises (each op fails soft on its own)."""
+        ops = self._collect_wiki_ops(rounds)
+        if not ops:
+            return
+        from .wiki.auto_hooks import discover_wikis
+        from .wiki.router import WikiRouter
+
+        for wiki_root in discover_wikis(workdir):
+            WikiRouter(
+                wiki_root,
+                judge_runner=self.reviewer_runner,
+                judge_model=self.config.resolved_reviewer_model(),
+                judge_reasoning_effort=self.config.matcher_reasoning_effort or "high",
+            ).apply_ops(ops, task=wiki_task, on_event=self.on_event)
+
+    @staticmethod
+    def _collect_wiki_ops(rounds: list[RoundRecord]) -> list[dict]:
+        """Aggregate ``wiki_ops`` across all rounds, de-duplicating identical
+        (op, id, body-prefix) requests the reviewer may repeat round to
+        round — mirrors ``_collect_skill_ops``."""
+        seen: set[tuple] = set()
+        ops: list[dict] = []
+        for rec in rounds or []:
+            review = getattr(rec, "review", None)
+            for op in (getattr(review, "wiki_ops", None) or []):
+                if not isinstance(op, dict):
+                    continue
+                key = (op.get("op"), op.get("id", ""),
+                       (op.get("body", "") or "")[:200])
                 if key in seen:
                     continue
                 seen.add(key)

@@ -12,8 +12,15 @@ Validation before a create/update is STORED (in order, cheap-first):
 
   1. mechanical — the proposal parses to a well-formed playbook (name,
      description, real body with the expected sections);
-  2. independence — it is not a near-duplicate of an existing skill (cosine
-     similarity over the same structure ``compaction`` uses for de-duping);
+  2. independence — it is not a near-duplicate of an existing skill. Judged
+     ENTIRELY by an LLM over COMPACT SUMMARIES (name/description/category —
+     progressive disclosure, same shape the matcher already uses, never full
+     skill bodies) — this catches paraphrased duplicates a lexical
+     comparison would miss (e.g. "Debug CUDA OOM" vs "Fix GPU memory
+     overflow"). There is no lexical/scored fallback: when no
+     ``judge_runner`` is configured, or the judge call fails, the
+     independence check is simply skipped (fail-open) for that proposal —
+     never a silent degrade to a scored heuristic;
   3. provisional proof — create/update candidates are stored as provisional and
      must later prove effective under Reviewer supervision.
 
@@ -26,11 +33,11 @@ its agentic calls can share context and be reset between projects.
 """
 from __future__ import annotations
 
+import json
 import logging
-from types import SimpleNamespace
 from typing import Any, Callable
 
-from .compaction import DEFAULT_SIM_THRESHOLD, _pair_similarity, _skill_profile
+from ..core.models import RunnerOptions
 from .skill_prompts import Prompts
 
 log = logging.getLogger(__name__)
@@ -43,11 +50,12 @@ _REQUIRED_SECTION_HINTS = ("when to use", "how to solve")
 
 # A skill whose CATEGORY marks it as a governing/guardrail playbook is protected
 # at the harness level exactly like an explicit ``protected: true`` frontmatter
-# flag: a self-modifying mission may STRENGTHEN it (only via the diff-aware update
-# gate) but never archive/delete it, and may not shadow it with a same-named
-# create. This is the one legitimate hard rule (anti-cheat / self-governance),
-# enforced mechanically — no judge, no bypass. Note ``learning`` is deliberately
-# NOT here: learned skills must stay reversible.
+# flag: a self-modifying mission can never archive/delete/update it at runtime
+# (strengthening one requires an explicit, out-of-band source-code change), and
+# may not shadow it with a same-named create. This is the one legitimate hard
+# rule (anti-cheat / self-governance), enforced mechanically — no judge, no
+# bypass. Note ``learning`` is deliberately NOT here: learned skills must stay
+# reversible.
 _PROTECTED_CATEGORIES = frozenset({"anti-cheat", "guardrail", "role-identity"})
 
 
@@ -61,19 +69,20 @@ class SkillRouter:
         matcher: Any = None,
         judge_runner: Any = None,
         judge_model: str = "",
-        manager: Any = None,
-        sim_threshold: float = DEFAULT_SIM_THRESHOLD,
+        judge_reasoning_effort: str = "high",
     ) -> None:
         self.skill_store = skill_store
         self.matcher = matcher
+        # Ordinary skill create/update is Scientist/Reviewer-owned: Scientist
+        # or Reviewer authors the candidate, and the Reviewer proves usefulness
+        # via the provisional lifecycle — there is no separate APPROVAL judge
+        # (no Manager gate). ``judge_runner`` below is a DIFFERENT thing: an
+        # LLM call that judges DUPLICATION (semantic independence), same
+        # backend the reviewer/matcher already run on — never a content
+        # approval/rejection authority over well-formed, non-duplicate work.
         self.judge_runner = judge_runner
         self.judge_model = judge_model
-        # ``manager`` / ``judge_runner`` are retained for constructor compatibility.
-        # Ordinary skill create/update is Scientist/Reviewer-owned: Scientist
-        # or Reviewer authors the candidate, and the Reviewer proves usefulness via
-        # the provisional lifecycle.
-        self.manager = manager
-        self.sim_threshold = sim_threshold
+        self.judge_reasoning_effort = judge_reasoning_effort
         # Restartable internal session: the router resumes this for its agentic
         # calls and clears it between projects via ``restart_session``.
         self._thread_id: str | None = None
@@ -110,10 +119,11 @@ class SkillRouter:
 
         Self-governance is enforced by the PROTECTED floor (a skill with
         frontmatter ``protected: true`` or a governing category — see
-        ``_is_protected``): such a skill is never archived/deleted and only
-        updated through the diff-aware gate. Ordinary skills the mission merely
-        USED remain freely retirable — retiring a skill you found wrong/harmful is
-        the flywheel working, not a self-governance breach."""
+        ``_is_protected``): such a skill is never archived/deleted/updated at
+        runtime (strengthening one requires an explicit source-code change).
+        Ordinary skills the mission merely USED remain freely retirable —
+        retiring a skill you found wrong/harmful is the flywheel working, not
+        a self-governance breach."""
         counts = {"created": 0, "updated": 0, "archived": 0, "rejected": 0}
         for op in ops or []:
             kind = (op.get("op") or "").strip().lower()
@@ -165,15 +175,21 @@ class SkillRouter:
                 return False
         # 2. independence — not a near-duplicate (an update is allowed to resemble
         # the very skill it revises, so exclude that one from the comparison).
+        # LLM judge ONLY (progressive disclosure over summaries) — catches
+        # paraphrased duplicates a lexical comparison would miss. No judge
+        # runner configured, or the call fails -> the check is skipped
+        # (fail-open); there is no scored/lexical fallback.
         exclude = op.get("name") if kind == "update" else None
-        sim, near = self._max_similarity(
+        verdict = self._llm_duplicate_check(
             name=name, description=description, category=category,
-            content=content, exclude_name=exclude,
+            exclude_name=exclude,
         )
-        if sim >= self.sim_threshold:
-            self._reject(on_event, kind,
-                         f"too similar to '{near}' (sim={sim:.2f} ≥ {self.sim_threshold:.2f})")
-            return False
+        if verdict is not None:
+            is_dup, near, why = verdict
+            if is_dup:
+                self._reject(on_event, kind,
+                             f"too similar to '{near}' (llm judge: {why})")
+                return False
 
         # 3. store (born provisional — must still prove effective on later reuse).
         if kind == "update":
@@ -194,7 +210,7 @@ class SkillRouter:
             if updated is not None:
                 self._emit(on_event, {"type": "skill.updated",
                                       "text": f"updated {updated.name} -> v{updated.version} "
-                                              f"(candidate, manager-approved)"})
+                                              f"(candidate)"})
                 return True
             return False
 
@@ -204,8 +220,7 @@ class SkillRouter:
         )
         if new_skill is not None:
             self._emit(on_event, {"type": "skill.created",
-                                  "text": f"created candidate skill {new_skill.name} "
-                                          f"(manager-approved)"})
+                                  "text": f"created candidate skill {new_skill.name}"})
             return True
         return False
 
@@ -258,24 +273,61 @@ class SkillRouter:
             return "missing a 'When to use' / 'How to solve' section"
         return ""
 
-    def _max_similarity(
-        self, *, name: str, description: str, category: str, content: str,
+    def _llm_duplicate_check(
+        self, *, name: str, description: str, category: str,
         exclude_name: str | None = None,
-    ) -> tuple[float, str]:
-        proposed = _skill_profile(SimpleNamespace(
-            name=name, description=description, category=category, content=content))
-        best, best_name = 0.0, ""
-        for s in self.skill_store.list_summaries():
-            if exclude_name and s.get("name") == exclude_name:
-                continue
-            try:
-                existing = self.skill_store.load(s["path"])
-            except Exception:  # noqa: BLE001
-                continue
-            sim = _pair_similarity(proposed, _skill_profile(existing))
-            if sim > best:
-                best, best_name = sim, s.get("name", "")
-        return best, best_name
+    ) -> tuple[bool, str, str] | None:
+        """Ask the judge runner whether the proposal duplicates an existing
+        skill, over COMPACT SUMMARIES only (progressive disclosure — cheap
+        even against a large library). Returns ``(is_duplicate, matched_name,
+        why)``, or ``None`` when no judge runner is configured or the call
+        fails for any reason — the caller then skips the independence check
+        entirely for this proposal (fail-open); there is no scored/lexical
+        fallback."""
+        if self.judge_runner is None:
+            return None
+        summaries = [
+            s for s in self.skill_store.list_summaries()
+            if not (exclude_name and s.get("name") == exclude_name)
+        ]
+        if not summaries:
+            return False, "", "library is empty"
+        prompt = Prompts.skill_duplicate_check(
+            name=name, description=description, category=category,
+            summaries=summaries,
+        )
+        try:
+            result = self.judge_runner.run_exec(
+                prompt=prompt,
+                options=RunnerOptions(
+                    model=self.judge_model or None,
+                    reasoning_effort=self.judge_reasoning_effort,
+                    skip_git_repo_check=True,
+                    full_auto=True,
+                ),
+                run_label="skill.duplicate_check",
+            )
+        except Exception as exc:  # noqa: BLE001 — judge is best-effort
+            log.warning("skill duplicate judge failed (%s: %s)", type(exc).__name__, exc)
+            return None
+        text = (getattr(result, "last_agent_message", "") or "").strip()
+        if not text:
+            return None
+        try:
+            left, right = text.find("{"), text.rfind("}")
+            parsed = json.loads(text[left:right + 1]) if left >= 0 < right else json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        is_dup = bool(parsed.get("duplicate"))
+        of_name = str(parsed.get("of", "") or "").strip()
+        why = str(parsed.get("why", "") or "").strip()[:300]
+        # Fail-closed on a malformed "true but no target": never reject
+        # without naming what it collides with.
+        if is_dup and not of_name:
+            return None
+        return is_dup, of_name, why
 
     def _find_skill_by_name(self, name: str) -> Any | None:
         name = (name or "").strip()

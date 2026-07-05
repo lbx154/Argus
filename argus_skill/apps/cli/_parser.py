@@ -254,12 +254,6 @@ def build_parser() -> argparse.ArgumentParser:
              "task_history entries (idempotent migration)",
     )
     skills_grp.add_argument(
-        "--skill-compact",
-        action="store_true",
-        help="cluster near-duplicate skills and propose archiving redundant "
-             "ones; pass --apply to actually archive (otherwise dry-run)",
-    )
-    skills_grp.add_argument(
         "--export-builtin-skills",
         nargs="?",
         const=DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
@@ -271,16 +265,9 @@ def build_parser() -> argparse.ArgumentParser:
     skills_grp.add_argument(
         "--apply",
         action="store_true",
-        help="with --skill-compact / --skill-cleanse: actually mutate disk "
+        help="with --skill-cleanse: actually mutate disk "
              "(default is dry-run); with --export-builtin-skills: replace "
              "existing copied built-in files",
-    )
-    skills_grp.add_argument(
-        "--sim-threshold",
-        type=float,
-        default=None,
-        help="cosine-similarity threshold for --skill-compact clustering "
-             "(default 0.55)",
     )
     skills_grp.add_argument(
         "--skills-dir",

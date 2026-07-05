@@ -8,7 +8,10 @@ Covers operator requirements:
   2. a protected skill can never be archived/deleted, and a `create` cannot
      shadow one by reusing its name; ordinary skills a mission merely used stay
      retirable (retiring a wrong/harmful skill is the flywheel working);
-  3. updating a protected skill must clear the diff-aware + Manager gate;
+  3. updating a protected skill is always refused at runtime, never gated
+     through a diff/approval mechanism — strengthening one requires an
+     explicit, out-of-band source-code change (no Manager approval gate
+     exists for skill content either way — the Reviewer is sole authority);
   (4/5 — deferred effect and rollback — rely on existing mission-close ordering
    and the `.prev.md` snapshot, exercised elsewhere.)
 """

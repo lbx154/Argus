@@ -1078,6 +1078,14 @@ class _SkillLoopRunner:
                 "ARGUS_SKILL_SKILL_OPS",
                 default=True,
             ),
+            "wiki_ops_enabled": _env_flag(
+                "ARGUS_SKILL_WIKI_OPS",
+                default=True,
+            ),
+            "auto_compact_enabled": _env_flag(
+                "ARGUS_SKILL_AUTO_COMPACT",
+                default=True,
+            ),
             "dangerous_yolo": not safe_mode,
             "full_auto": safe_mode,
             "skip_git_repo_check": True,
@@ -1231,7 +1239,6 @@ class _SkillLoopRunner:
             config=config,
             on_event=sink.handle_event,
             extra_guidance_provider=extra_guidance_provider,
-            manager=getattr(self, "manager", None),
         )
         full_task = objective
         if prelude_context:

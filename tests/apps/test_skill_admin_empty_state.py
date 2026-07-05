@@ -31,7 +31,6 @@ def _run_cli(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     ("flag", "expected"),
     [
         ("--skill-cleanse", "cleanse: no skill files found"),
-        ("--skill-compact", "compact: no skill files found"),
     ],
 )
 def test_empty_skill_admin_actions_no_op_cleanly(

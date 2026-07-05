@@ -1,14 +1,15 @@
-"""Reviewer-proposed skill memory: skill_ops → SkillRouter → Manager gate.
+"""Reviewer-proposed skill memory: skill_ops → SkillRouter.
 
-The new contract:
+The contract:
 
 * The reviewer never mutates skills directly. It emits ``skill_ops`` in its
   verdict — ``create``/``update`` PROPOSALS (each carrying playbook markdown)
   and ``archive``/``delete`` requests.
 * ``SkillRouter`` owns the write path. A create/update must clear, in order:
-  (1) mechanical structure, (2) independence (not a near-duplicate), and
-  (3) the Manager generality+correctness gate (an LLM judge on the reviewer
-  backend, run_label ``manager.skill_review``). ``archive`` is applied directly.
+  (1) mechanical structure, (2) independence (not a near-duplicate). There is
+  NO Manager approval gate — the Reviewer is the sole authority.
+  ``archive``/``delete`` are applied directly (the reviewer's direct
+  authority; a protected/governing skill is refused).
 * Every stored change is a CANDIDATE (provisional) and is only confirmed when a
   later round carrying it is effective.
 """
@@ -55,14 +56,6 @@ def _review_with_ops(*, status: str = "blocked", skill_ops: list[dict]) -> str:
     })
 
 
-def _approve(why: str = "general + correct") -> CannedResponse:
-    return CannedResponse(message=json.dumps({"approve": True, "why": why}))
-
-
-def _reject(why: str = "only fits this task") -> CannedResponse:
-    return CannedResponse(message=json.dumps({"approve": False, "why": why}))
-
-
 def _match_hello() -> CannedResponse:
     return CannedResponse(message=json.dumps({
         "matched": [{"name": "Write a hello message", "fit": "high", "why": "greeting"}],
@@ -90,19 +83,31 @@ def _loop(skills_dir: Path, backend: MemoryBackend, events: list,
     )
 
 
+def _queue_no_op_distill(backend: MemoryBackend) -> None:
+    """Suppress the SEPARATE Scientist auto-distill path (fires whenever the
+    matcher returns ``"matched": []``, independent of skill_ops): without a
+    queued response the distiller call gets ``MemoryBackend``'s default
+    filler text and ``save_distilled`` mis-parses it into a garbage
+    "unnamed-skill" entry, polluting these tests' skill-count assertions.
+    ``NONE`` is the Scientist's own documented "no reusable pattern" output."""
+    backend.queue("scientist.skill_distill", CannedResponse(message="NONE"))
+
+
 # ---------------------------------------------------------------------------
-# create — gated by the Manager
+# create — mechanical + independence checks (no Manager gate)
 # ---------------------------------------------------------------------------
 
-def test_reviewer_create_approved_by_manager(tmp_path: Path) -> None:
+def test_reviewer_create_is_stored_as_provisional_no_manager_gate(tmp_path: Path) -> None:
+    """A well-formed, non-duplicate create clears mechanical + independence and
+    is stored directly — there is no Manager judge call in between."""
     skills_dir = tmp_path / "skills"
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    _queue_no_op_distill(backend)
     backend.queue("engineer-r1", CannedResponse(message="Ran a shell tool."))
     backend.queue("reviewer", CannedResponse(
         message=_review_with_ops(skill_ops=[{"op": "create", "content": SKILL_MD,
                                              "why": "reusable greeting capability"}])))
-    backend.queue("manager.skill_review", _approve())
 
     events: list[dict] = []
     _loop(skills_dir, backend, events).run("say hi to the user", workdir=tmp_path)
@@ -115,30 +120,12 @@ def test_reviewer_create_approved_by_manager(tmp_path: Path) -> None:
     assert store.load(created["path"]).provisional is True
 
 
-def test_reviewer_create_rejected_by_manager(tmp_path: Path) -> None:
+def test_create_rejected_when_malformed(tmp_path: Path) -> None:
+    """A one-liner proposal fails the mechanical structure check."""
     skills_dir = tmp_path / "skills"
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
-    backend.queue("engineer-r1", CannedResponse(message="Ran a shell tool."))
-    backend.queue("reviewer", CannedResponse(
-        message=_review_with_ops(skill_ops=[{"op": "create", "content": SKILL_MD,
-                                             "why": "x"}])))
-    backend.queue("manager.skill_review", _reject())
-
-    events: list[dict] = []
-    _loop(skills_dir, backend, events).run("say hi to the user", workdir=tmp_path)
-
-    assert any(e.get("type") == "skill.proposal.rejected" for e in events), [
-        e.get("type") for e in events]
-    assert not SkillStore(skills_dir).list_summaries()
-
-
-def test_create_rejected_when_malformed_before_manager(tmp_path: Path) -> None:
-    """A one-liner proposal fails the mechanical check and never reaches the
-    Manager (no manager.skill_review call queued — would raise if reached)."""
-    skills_dir = tmp_path / "skills"
-    backend = MemoryBackend()
-    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    _queue_no_op_distill(backend)
     backend.queue("engineer-r1", CannedResponse(message="ran"))
     backend.queue("reviewer", CannedResponse(
         message=_review_with_ops(skill_ops=[{"op": "create", "content": "## Title\nx",
@@ -152,16 +139,23 @@ def test_create_rejected_when_malformed_before_manager(tmp_path: Path) -> None:
 
 
 def test_create_rejected_when_too_similar(tmp_path: Path) -> None:
-    """A near-duplicate of an existing skill fails independence before the
-    Manager (no manager call queued)."""
+    """A near-duplicate of an existing skill fails the independence check.
+
+    Independence is judged ENTIRELY by an LLM (no lexical/scored fallback),
+    so this queues a duplicate-check verdict for the judge (the reviewer
+    backend, wired as SkillRouter's ``judge_runner``)."""
     skills_dir = tmp_path / "skills"
     _seed_skill(skills_dir)  # existing "Write a hello message"
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    _queue_no_op_distill(backend)
     backend.queue("engineer-r1", CannedResponse(message="ran"))
     backend.queue("reviewer", CannedResponse(
         message=_review_with_ops(skill_ops=[{"op": "create", "content": SKILL_MD,
                                              "why": "dup"}])))
+    backend.queue("skill.duplicate_check", CannedResponse(message=json.dumps({
+        "duplicate": True, "of": "Write a hello message", "why": "identical content",
+    })))
 
     events: list[dict] = []
     _loop(skills_dir, backend, events).run("say hi", workdir=tmp_path)
@@ -285,6 +279,7 @@ def test_skill_ops_ignored_when_disabled(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    _queue_no_op_distill(backend)
     backend.queue("engineer-r1", CannedResponse(message="ran"))
     backend.queue("reviewer", CannedResponse(
         message=_review_with_ops(skill_ops=[{"op": "create", "content": SKILL_MD, "why": "x"}])))

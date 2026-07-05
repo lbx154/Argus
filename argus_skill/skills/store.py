@@ -152,9 +152,10 @@ class Skill:
     # Protected = a GOVERNING skill (a vertical's seed skill, an anti-cheat /
     # guardrail playbook, a role-identity skill) that a self-modifying mission
     # must not be able to remove or blindly overwrite. SkillRouter refuses to
-    # archive/delete a protected skill, and only lets an UPDATE through the
-    # strong diff-aware + Manager gate (never the cheap overwrite path). Absent
-    # in legacy frontmatter -> ``False`` (an ordinary, freely-editable skill).
+    # archive/delete OR update a protected skill at runtime — strengthening one
+    # requires an explicit, out-of-band source-code change instead (never the
+    # cheap overwrite path). Absent in legacy frontmatter -> ``False`` (an
+    # ordinary, freely-editable skill).
     protected: bool = False
 
     def render(self) -> str:
