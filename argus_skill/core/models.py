@@ -154,13 +154,32 @@ class ReviewDecision:
     # round errored before a verdict (runner then keeps the prior checkpoint).
     checkpoint: dict[str, Any] = field(default_factory=dict)
     # Skill-memory operations the reviewer requests for THIS round (success or
-    # failure). ``create``/``update`` are PROPOSALS — each carries a reusable
-    # capability playbook (``content`` markdown) that the Manager generality-gate
-    # must approve before it is stored; ``delete``/``archive`` retire a matched
-    # skill the reviewer found wrong or harmful. Each item:
-    # ``{"op": "create|update|delete|archive", "name": str, "content": str,
-    # "why": str}``. Empty list when this round warrants no skill change.
+    # failure). The reviewer is the SOLE authority — there is no Manager
+    # approval gate. ``create``/``update`` are stored as PROVISIONAL candidates
+    # (each carries a reusable capability playbook ``content`` markdown) once
+    # they clear the SkillRouter's mechanical + independence checks; a
+    # candidate only becomes confirmed by later proving effective in reuse.
+    # ``delete``/``archive`` retire a matched skill the reviewer found wrong or
+    # harmful. Each item: ``{"op": "create|update|delete|archive", "name": str,
+    # "content": str, "why": str}``. Empty list when this round warrants no
+    # skill change.
     skill_ops: list[dict[str, Any]] = field(default_factory=list)
+    # Wiki-memory operations the reviewer requests for THIS round — the
+    # project idea-wiki's structured counterpart to ``skill_ops`` above, both
+    # applied by the harness with NO Manager gate (the reviewer is the sole
+    # authority here too). ``create_page``/``update_page`` PROPOSE a page
+    # (``body`` markdown); every cited ``evidence`` span is mechanically
+    # verified to quote an immutable wiki source verbatim (anti-fabrication —
+    # see ``skills.provenance.verify_evidence``), so a fabricated citation is
+    # rejected regardless of the reviewer's judgment. ``retire_page`` tombstones
+    # a page (never a hard delete — always reversible). Each item:
+    # ``{"op": "create_page|update_page|retire_page", "id": str,
+    # "card_type": str, "title": str, "status": str, "body": str,
+    # "evidence": [{"source_id": str, "quote": str, "locator": str}],
+    # "tags": [str], "related_runs": [str], "related_projects": [str],
+    # "why": str}``. Empty list when this round warrants no wiki change, or
+    # when the project has no initialized wiki.
+    wiki_ops: list[dict[str, Any]] = field(default_factory=list)
     # Reviewer → Planner checklist feedback (ADVISORY; the reviewer is
     # feedback-only and NEVER writes the checklist store). When the reviewer
     # judges the per-stage checklist itself wrong / incomplete / over-strict for
@@ -267,6 +286,7 @@ class ReviewDecision:
             "planner_report": dict(self.planner_report or {}),
             "checkpoint": dict(self.checkpoint or {}),
             "skill_ops": list(self.skill_ops or []),
+            "wiki_ops": list(self.wiki_ops or []),
             "checklist_feedback": dict(self.checklist_feedback or {}),
             "step_back": (dict(self.step_back) if isinstance(self.step_back, dict) else None),
             # Token bookkeeping (cost-tracking sinks read these).

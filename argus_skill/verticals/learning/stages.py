@@ -17,9 +17,10 @@ The 4 stages:
    scope before anything is written.
 
 3. **curate**: apply the plan. Skill CRUD flows through the reviewer's
-   ``skill_ops`` and the SkillRouter gates (mechanical → dedup → Manager, plus the
-   diff-aware / retire / protected gates); wiki CRUD flows through the structured
-   ``wiki_ops`` / WikiRouter. Removals are always reversible.
+   ``skill_ops`` and the SkillRouter gates (mechanical / dedup / retire /
+   protected — no Manager gate, the reviewer is sole authority); wiki
+   CRUD flows through the structured ``wiki_ops`` / WikiRouter. Removals are
+   always reversible.
 
 4. **review**: final gate — every committed change is evidence-anchored, nothing
    protected was removed, no existing item regressed, indexes rebuilt. The
@@ -34,24 +35,30 @@ agent's / reviewer's):
   source (anti-fabrication), enforced mechanically by ``verify_evidence`` in the
   WikiRouter — see WIRING STATUS below;
 * a protected skill (frontmatter ``protected: true`` OR an anti-cheat / guardrail
-  / role-identity CATEGORY) may be strengthened via the diff-aware update gate but
-  never archived/deleted, and a ``create`` cannot shadow one by reusing its name.
-  This floor is enforced today in SkillRouter (see
-  ``skill_router._PROTECTED_CATEGORIES``). Ordinary skills a mission merely used
-  stay retirable — retiring a wrong/harmful skill is the flywheel working;
+  / role-identity CATEGORY) can never be archived/deleted/updated at runtime
+  (strengthening one requires an explicit, out-of-band source-code change), and
+  a ``create`` cannot shadow one by reusing its name. This floor is enforced
+  today in SkillRouter (see ``skill_router._PROTECTED_CATEGORIES``). Ordinary
+  skills a mission merely used stay retirable — retiring a wrong/harmful skill
+  is the flywheel working;
 * a justified no-op ("the material added nothing, here is why") is a success —
   we do not reward raw library churn.
 
 WIRING STATUS (be honest about what is live vs pending — no overselling):
-* LIVE: the SkillRouter protected/active/diff-aware floors and the WikiStore
-  retire tombstone.
-* PENDING (the "activation" step, off the daemon hot path until reviewed): the
-  ``learn`` CLI/ingest input channel; wiring ``WikiRouter`` into the curate stage
-  (collecting the reviewer's ``wiki_ops`` and running the evidence floor on real
-  missions — until then wiki writes still go through the free-hand curator path);
-  the LayeredSkillStore project-layer isolation; and the ``wiki_ops`` reviewer
-  schema field. The reviewer CHECKLIST_ITEMS enforce evidence/faithfulness as a
-  judgment-layer control in the meantime.
+* LIVE: the SkillRouter protected/active floors, the WikiStore
+  retire tombstone, AND (harness-level, every vertical including this one) the
+  ``wiki_ops`` reviewer schema field + generic ``WikiRouter`` application at
+  mission end (``SkillLoop._apply_wiki_ops``, mirroring ``skill_ops`` /
+  ``_apply_skill_ops``) — a reviewer verdict on ANY mission can now propose
+  ``create_page``/``update_page``/``retire_page`` and have it applied with the
+  evidence-verbatim floor enforced, no separate activation needed.
+* PENDING (off the daemon hot path until reviewed): this vertical's OWN
+  ``ingest``/``study`` stages driving that generic channel end-to-end from a
+  ``learn`` CLI/ingest input channel and a persisted ``CHANGE_PLAN.json``; and
+  the LayeredSkillStore project-layer isolation. Until the ``learn`` CLI lands,
+  free-hand ``WikiStore`` calls via the wiki-curator skill remain the other way
+  wiki pages get written. The reviewer CHECKLIST_ITEMS enforce
+  evidence/faithfulness as a judgment-layer control in the meantime.
 """
 from __future__ import annotations
 

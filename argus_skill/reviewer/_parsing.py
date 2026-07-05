@@ -79,6 +79,7 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
         checkpoint=_parse_checkpoint(parsed),
         failure_cause=_parse_failure_cause(parsed),
         skill_ops=_parse_skill_ops(parsed),
+        wiki_ops=_parse_wiki_ops(parsed),
         checklist_feedback=_parse_checklist_feedback(parsed),
         step_back=_parse_step_back(parsed),
     )
@@ -306,6 +307,79 @@ def _parse_skill_ops(parsed: dict) -> list[dict[str, Any]]:
         if op in {"update", "delete", "archive"} and not name:
             continue
         ops.append({"op": op, "name": name, "content": content, "why": why})
+    return ops
+
+
+_VALID_WIKI_OPS = frozenset({"create_page", "update_page", "retire_page"})
+_VALID_WIKI_CARD_TYPES = frozenset({"technique", "conflict", "pattern"})
+_MAX_WIKI_EVIDENCE_SPANS = 6
+
+
+def _parse_wiki_evidence(raw: Any) -> list[dict[str, str]]:
+    """Evidence spans cited by a ``create_page``/``update_page`` wiki op.
+
+    Fail-soft, like ``_parse_wiki_ops`` itself: a non-list value or a
+    malformed span yields ``[]``/drops that span rather than raising — the
+    WikiRouter's anti-fabrication check (``verify_evidence``) is the real
+    gate; this parser only needs to shape the data for it."""
+    if not isinstance(raw, list):
+        return []
+    spans: list[dict[str, str]] = []
+    for span in raw[:_MAX_WIKI_EVIDENCE_SPANS]:
+        if not isinstance(span, dict):
+            continue
+        source_id = str(span.get("source_id", "")).strip()[:200]
+        quote = str(span.get("quote", "")).strip()[:600]
+        if not source_id or not quote:
+            continue
+        locator = str(span.get("locator", "") or "").strip()[:200]
+        spans.append({"source_id": source_id, "quote": quote, "locator": locator})
+    return spans
+
+
+def _parse_wiki_ops(parsed: dict) -> list[dict[str, Any]]:
+    """Reviewer-requested project-wiki operations for this round — the wiki's
+    structured counterpart to ``_parse_skill_ops`` above, applied by the
+    harness with NO Manager gate. Fail-soft: any malformed entry is dropped,
+    an unknown ``op`` is dropped, and a non-list value yields ``[]`` so the
+    loop simply applies nothing.
+
+    ``create_page``/``update_page`` MUST carry ``id`` and ``body``;
+    ``retire_page`` MUST carry ``id``. Entries missing the field their op
+    needs are dropped here so downstream never half-applies. The evidence
+    spans' anti-fabrication check itself runs later, in the WikiRouter — this
+    parser only shapes the data, it never verifies quotes."""
+    raw = parsed.get("wiki_ops")
+    if not isinstance(raw, list):
+        return []
+    ops: list[dict[str, Any]] = []
+    for entry in raw[:6]:
+        if not isinstance(entry, dict):
+            continue
+        op = str(entry.get("op", "")).strip().lower()
+        if op not in _VALID_WIKI_OPS:
+            continue
+        page_id = str(entry.get("id", "")).strip()[:200]
+        if not page_id:
+            continue
+        card_type = str(entry.get("card_type", "") or "").strip().lower()
+        if card_type not in _VALID_WIKI_CARD_TYPES:
+            card_type = "technique"
+        title = str(entry.get("title", "") or "").strip()[:200]
+        status = str(entry.get("status", "") or "").strip().lower()
+        body = str(entry.get("body", "") or "").strip()[:8000]
+        why = str(entry.get("why", "") or "").strip()[:1000]
+        if op in {"create_page", "update_page"} and not body:
+            continue
+        op_dict: dict[str, Any] = {
+            "op": op, "id": page_id, "card_type": card_type,
+            "title": title, "why": why,
+        }
+        if op in {"create_page", "update_page"}:
+            op_dict["status"] = status or "scratch"
+            op_dict["body"] = body
+            op_dict["evidence"] = _parse_wiki_evidence(entry.get("evidence"))
+        ops.append(op_dict)
     return ops
 
 
