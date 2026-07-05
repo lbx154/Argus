@@ -550,6 +550,12 @@ def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> N
         dangerous_yolo=False,
     )
 
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    # The Manager decides + persists the vertical before planning; seed research
+    # so _resolve_vertical_once trusts it (no runner call) and the planner runs.
+    persist_vertical(tmp_path, "research")
+
     assert LifeSupervisor._plan_next_work(sup) == "awaiting_external"
 
     assert any(s.startswith("awaiting external dependency:") for s in statuses)

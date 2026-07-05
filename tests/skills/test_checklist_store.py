@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 
 from argus_skill.skills import checklist_store as cs
+from argus_skill.skills.vertical_select import persist_vertical
 
 
 def test_absent_stage_returns_none_present_empty_returns_tuple(tmp_path):
@@ -65,7 +66,10 @@ def test_malformed_rows_dropped_on_read(tmp_path):
 
 
 def test_protected_floor_item_not_removable_on_paper_vertical(tmp_path):
-    # The default vertical is research (gate full_emnlp); protected ids are frozen.
+    # The research vertical (gate full_emnlp) freezes protected ids. The Manager
+    # decides + persists the vertical before any read (resolve_vertical is
+    # fail-hard), so seed research here.
+    persist_vertical(tmp_path, "research")
     # Seed run stage then try to remove the protected run.score_variance.
     cs.apply_checklist_ops(tmp_path, [{"op": "seed", "stage": "run", "id": ""}])
     before = {i.id for i in cs.store_items_for_stage(tmp_path, "run")}
@@ -91,6 +95,7 @@ def test_per_stage_cap(tmp_path):
 def test_protected_floor_not_overwritable_via_add(tmp_path):
     # `add` of a protected id must be refused too (it strips + replaces the floor
     # item) — the round-2 bypass: only modify/remove were guarded.
+    persist_vertical(tmp_path, "research")
     cs.apply_checklist_ops(tmp_path, [{"op": "seed", "stage": "run", "id": ""}])
     seed_stmt = {i.id: i.statement for i in cs.store_items_for_stage(tmp_path, "run")}
     res = cs.apply_checklist_ops(tmp_path, [
@@ -106,8 +111,9 @@ def test_protected_floor_reinjected_when_store_emptied_directly(tmp_path):
     # Bypass apply_checklist_ops entirely: write a CHECKLISTS.json that EMPTIES the
     # run stage (what an unsandboxed engineer subprocess can do). The read path must
     # re-inject the protected floor so the reviewer still sees it.
+    persist_vertical(tmp_path, "research")
     path = tmp_path / "research" / "CHECKLISTS.json"
-    path.parent.mkdir(parents=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"revision": 9, "stages": {"run": []}}))
     ids = {i.id for i in cs.store_items_for_stage(tmp_path, "run")}
     assert "run.score_variance" in ids  # re-injected despite the emptied store
@@ -116,9 +122,10 @@ def test_protected_floor_reinjected_when_store_emptied_directly(tmp_path):
 def test_protected_floor_reinjected_canonical_when_weakened_directly(tmp_path):
     # A direct edit that REPLACES a protected item's statement with weak text is
     # canonicalized back to the seed statement on read.
+    persist_vertical(tmp_path, "research")
     canon = {i.id: i.statement for i in cs.seed_items_for(tmp_path, "run")}["run.score_variance"]
     path = tmp_path / "research" / "CHECKLISTS.json"
-    path.parent.mkdir(parents=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"revision": 9, "stages": {"run": [
         {"id": "run.score_variance", "statement": "N/A trivially satisfied", "evidence_hint": ""},
     ]}}))

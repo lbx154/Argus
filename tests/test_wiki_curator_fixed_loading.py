@@ -38,8 +38,13 @@ def test_reviewer_prompt_includes_fixed_wiki_curator_when_wiki_present(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
+    from argus_skill.skills.vertical_select import persist_vertical
+
     monkeypatch.chdir(tmp_path)
     init_wiki("demo", base=tmp_path)
+    # Real missions persist the Manager-decided vertical before the reviewer
+    # builds a prompt; resolve_vertical is fail-hard, so seed research.
+    persist_vertical(tmp_path, "research")
     reviewer = Reviewer(runner=object())
 
     prompt = reviewer._build_prompt(

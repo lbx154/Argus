@@ -57,17 +57,15 @@ def test_research_vertical_passes_the_gate_then_checks_for_a_blocker(tmp_path: P
     assert consulted == [True]  # but it DID pass the gate and check for a blocker
 
 
-def test_stale_research_state_with_bounded_data_domain_disables_emnlp_gate(
+def test_persisted_bounded_data_domain_disables_emnlp_gate(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    """A Manager-authored bounded domain must beat stale ``vertical=research``.
+    """A persisted bounded data domain disables the full-EMNLP final gate.
 
-    This pins the perf_tuning regression: the completed bounded report workspace
-    had ``PIPELINE_STATE.json`` stuck at ``vertical=research`` / ``inspect`` while
-    the active checklist store and domain index clearly described a
-    completion_gate=none data domain. The final-submission override must not fire
-    in that state.
+    The Manager decides + PERSISTS the vertical (no stale-state inference): a
+    completion_gate=none data domain in ``PIPELINE_STATE.json`` means the
+    final-submission override must not fire.
     """
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
     dd.write_data_domain(
@@ -78,7 +76,7 @@ def test_stale_research_state_with_bounded_data_domain_disables_emnlp_gate(
     state_path = tmp_path / "research" / "PIPELINE_STATE.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(
-        '{"current_stage": "inspect", "vertical": "research"}\n',
+        '{"current_stage": "profile", "vertical": "perf_tuning"}\n',
         encoding="utf-8",
     )
     cs.apply_checklist_ops(tmp_path, [
@@ -93,7 +91,7 @@ def test_stale_research_state_with_bounded_data_domain_disables_emnlp_gate(
 
     assert sup._effective_full_emnlp_gate(tmp_path) is False
     assert state_path.read_text(encoding="utf-8") == (
-        '{"current_stage": "inspect", "vertical": "research"}\n'
+        '{"current_stage": "profile", "vertical": "perf_tuning"}\n'
     )
 
 
@@ -110,7 +108,7 @@ def test_tick_skips_inapplicable_final_submission_for_bounded_domain(
     state_path = tmp_path / "research" / "PIPELINE_STATE.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(
-        '{"current_stage": "inspect", "vertical": "research"}\n',
+        '{"current_stage": "profile", "vertical": "perf_tuning"}\n',
         encoding="utf-8",
     )
     cs.apply_checklist_ops(tmp_path, [
@@ -156,5 +154,5 @@ def test_tick_skips_inapplicable_final_submission_for_bounded_domain(
     assert updates[0]["status"] == "skipped"
     assert "not full_emnlp" in updates[0]["last_error"]
     assert state_path.read_text(encoding="utf-8") == (
-        '{"current_stage": "inspect", "vertical": "research"}\n'
+        '{"current_stage": "profile", "vertical": "perf_tuning"}\n'
     )

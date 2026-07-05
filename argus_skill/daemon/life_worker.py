@@ -707,7 +707,7 @@ class LifeWorker:
         inheriting a stale paper stage.
         """
         from ..skills.builtins import builtin_skill_source_path
-        from ..skills.vertical_select import classify_vertical, persist_vertical
+        from ..skills.vertical_select import _persisted_vertical
         from ..tools.new_auto_research_project import (
             init_project_venv,
             load_template_text,
@@ -715,9 +715,17 @@ class LifeWorker:
         )
 
         objective = (self.config.continuous_objective or "").strip()
-        vertical = classify_vertical(objective)
+        # The Manager AGENT decides the vertical (supervisor _resolve_vertical_once
+        # / the divide below persist it). Here we only READ that decision to pick
+        # the AGENTS.md template + skill seed — NO keyword classifier, and we
+        # never persist a guess (seeding must not pre-empt the Manager). Before
+        # the decision is persisted (a fresh mission), ``vertical`` is None and we
+        # fall back to the research template; the Manager's real vertical persists
+        # next and the reviewer loads its checklists from there.
+        vertical = _persisted_vertical(project_root)
         # The optimize-family verticals share the lean benchmark-optimization
-        # contract; only "research" uses the paper/auto-research template.
+        # contract; only "research" (or a not-yet-decided fresh mission) uses the
+        # paper/auto-research template.
         is_optimize = vertical in {
             "kernelbench",
             "speedrun",
@@ -763,14 +771,6 @@ class LifeWorker:
                     objective=objective_arg,
                 )
             agents_path.write_text(agents_md, encoding="utf-8")
-
-        # Persist the resolved vertical (and reset current_stage to the
-        # vertical's first stage) so a kernel/optimize objective is never
-        # treated as a paper run.
-        try:
-            persist_vertical(project_root, vertical)
-        except Exception:  # noqa: BLE001 — best-effort, never break bootstrap
-            log.exception("daemon: failed to persist vertical during bootstrap")
 
         if not (project_root / ".venv").exists():
             init_project_venv(project_root)

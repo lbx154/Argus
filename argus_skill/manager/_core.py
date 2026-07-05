@@ -9,13 +9,12 @@ and commits the choice. The existing engine (LifeSupervisor → Planner → Skil
 This is a thin ORCHESTRATION layer — it reuses the real machinery, adding only
 the user-facing *division* step:
 
-  * classify   → ``skills.vertical_select.classify_vertical`` (LLM if a runner is
-                 given, else a keyword heuristic; optimize verticals routed by
-                 ``_route_optimize_vertical``)
+  * decide     → ``Manager.decide_vertical`` — ONE grounded agent call picks an
+                 existing vertical/data-domain or authors a new data domain (no
+                 keyword classifier; see ``manager/domain_author.py``)
   * stage list → ``verticals/<v>/stages.py`` ``STAGE_ORDER`` via ``load_vertical``
   * commit     → ``skills.vertical_select.persist_vertical`` — the supervisor then
-                 TRUSTS the persisted vertical and does NOT re-classify
-                 (see life/supervisor/_core.py:2460).
+                 TRUSTS the persisted vertical and does NOT re-classify.
 
 The Manager never judges the win and never plans loops itself — it only divides
 the task and hands the current Stage to the existing Planner.
@@ -37,11 +36,10 @@ except ImportError:  # pragma: no cover - non-POSIX fallback
 
 from ..skills import vertical_select
 from ..skills.vertical_select import (
-    classify_vertical,
-    normalize_vertical,
     persist_vertical,
     resolve_vertical,
 )
+from .domain_author import VerticalDecision, VerticalDecisionError
 
 # Verticals that run a lean optimize/speedrun loop rather than the paper pipeline.
 _OPTIMIZE_VERTICALS = frozenset(
@@ -456,30 +454,87 @@ class Manager:
                 log.debug("manager skill match failed", exc_info=True)
         return block
 
-    # ---- triage: is this a regular task, and which vertical/kind? ----
-    def triage(self, task: str) -> tuple[str, str, bool]:
-        """Return (vertical, kind, regular). Reuses vertical_select — no new classifier."""
-        vertical = normalize_vertical(
-            classify_vertical(
-                task,
-                runner=(self._session or self.runner),
-                reasoning_effort=_manager_reasoning_effort(),
+    # ---- the Manager's grounded vertical decision (agent, not keywords) ----
+    def decide_vertical(self, task: str) -> VerticalDecision:
+        """Choose the vertical for ``task`` with ONE grounded Manager agent call.
+
+        The agent picks an existing built-in vertical (preferred — built-ins ship
+        expert reviewer checklists) or an existing project data domain, else
+        AUTHORS a new data domain. It has shell/read access pinned to
+        ``project_root`` and is told to investigate the repo before deciding
+        (same ``dangerous_yolo``/``safe_mode`` convention as every other
+        real-work call).
+
+        FAIL-HARD: no backend, or a model reply that is missing / not a valid
+        choice, RAISES ``VerticalDecisionError``. There is NO keyword classifier
+        and NO silent fallback to the research default.
+        """
+        backend = self._session or self.runner
+        if backend is None:
+            raise VerticalDecisionError(
+                "cannot decide the vertical: the Manager has no backend/runner"
             )
+        from ..core.models import RunnerOptions
+        from ..verticals._data_domain import list_data_domains
+        from .domain_author import (
+            build_vertical_decision_prompt,
+            parse_vertical_decision,
         )
-        kind = "optimize" if vertical in _OPTIMIZE_VERTICALS else "research"
-        return vertical, kind, self._is_regular(task)
+        from .stage_decider import extract_answer
+
+        existing = list_data_domains(self.project_root)
+        prompt = build_vertical_decision_prompt(
+            task,
+            verticals_with_purpose=vertical_select.VERTICAL_PURPOSES,
+            existing_data_domains=existing,
+        )
+        safe_mode = _manager_safe_mode()
+        result = backend.run_exec(
+            prompt=prompt,
+            options=RunnerOptions(
+                reasoning_effort=_manager_reasoning_effort(),
+                working_dir=str(self.project_root),
+                dangerous_yolo=not safe_mode,
+                full_auto=safe_mode,
+                skip_git_repo_check=True,
+            ),
+            run_label="manager-vertical-decide",
+        )
+        decision = parse_vertical_decision(
+            extract_answer(result),
+            known_verticals=list(vertical_select.VERTICALS),
+            existing_data_domains=existing,
+        )
+        if decision is None:
+            raise VerticalDecisionError(
+                f"Manager could not decide a vertical for task {task!r}: the "
+                "model reply was missing or not a valid existing/new choice"
+            )
+        return decision
 
     @staticmethod
-    def _is_regular(task: str) -> bool:
-        """Regular = the task actually reads as a project (carries at least one
-        research/optimize signal), not an empty or throwaway line. The classifier
-        always maps to *some* vertical, so we additionally require a real signal."""
-        t = (task or "").lower()
-        if not t.strip():
-            return False
-        hits = sum(1 for s in vertical_select._SPEEDRUN_SIGNALS if s in t)
-        hits += sum(1 for s in vertical_select._RESEARCH_SIGNALS if s in t)
-        return hits >= 1
+    def _kind_for(vertical: str) -> str:
+        """Coarse kind for a resolved vertical: optimize | research | custom."""
+        if vertical in _OPTIMIZE_VERTICALS:
+            return "optimize"
+        if vertical in ("research", "quant"):
+            return "research"
+        return "custom"  # a project-local (Manager-authored) data domain
+
+    # ---- triage: which vertical/kind, and is this a real task? ----
+    def triage(self, task: str) -> tuple[str, str, bool]:
+        """Return (vertical, kind, regular) from the Manager's agent decision.
+
+        No keyword classifier: the vertical is whatever :meth:`decide_vertical`
+        returns. ``regular`` is simply whether the task is non-blank — the
+        Manager already judged it a real task by choosing/authoring a vertical.
+        """
+        decision = self.decide_vertical(task)
+        return (
+            decision.vertical,
+            self._kind_for(decision.vertical),
+            bool((task or "").strip()),
+        )
 
     # ---- split into the vertical's Stage template ----
     def plan_stages(self, vertical: str) -> list[str]:
@@ -502,125 +557,51 @@ class Manager:
 
     # ---- the user-facing division step ----
     def divide(self, task: str, *, ask_on_new_domain: bool = False) -> Division:
-        """Classify → stages → COMMIT the vertical so the existing supervisor trusts
-        it (no re-classify). Returns the Division for display/confirmation.
+        """Decide the vertical (Manager agent) → stages → COMMIT so the existing
+        supervisor trusts it (no re-classify). Returns the Division for
+        display/confirmation.
 
-        When the Task carries NO preset-vertical signal (research / optimize /
-        quant), the Manager AUTHORS a new data domain instead of forcing the
-        research default. ``ask_on_new_domain`` controls the commit:
+        * existing built-in vertical or existing data domain → persist it.
+        * new data domain → ``ask_on_new_domain`` controls the commit:
+          * ``False`` (autonomous): write the data domain + persist immediately.
+          * ``True`` (ask): return a ``Division`` carrying the proposal with
+            ``pending_confirmation=True`` and write NOTHING — the caller confirms
+            with the operator and then calls :meth:`commit_domain`.
 
-        * ``False`` (autonomous): write the data domain + persist it immediately.
-        * ``True`` (ask): return a ``Division`` carrying the proposal with
-          ``pending_confirmation=True`` and write NOTHING — the caller confirms
-          with the operator and then calls :meth:`commit_domain`.
-
-        If authoring fails (no backend / ambiguous proposal) it falls through to
-        today's preset path (the research default), so behavior is never worse
-        than before.
+        FAIL-HARD: a blank task or an undecidable vertical RAISES. There is no
+        silent fallback to the research default.
         """
-        if task and task.strip() and not self._matches_preset(task):
-            proposal = self._author_domain(task)
-            if proposal is not None:
-                if ask_on_new_domain:
-                    return Division(
-                        task=task, vertical=proposal.name, kind="custom",
-                        regular=True, stages=list(proposal.stages),
-                        proposed_domain=proposal, pending_confirmation=True,
-                    )
-                return self.commit_domain(task, proposal)
-            # authoring failed → fall through to the preset path (research default)
-        vertical, kind, regular = self.triage(task)
-        stages = self.plan_stages(vertical)
+        if not (task and task.strip()):
+            raise ValueError("Manager.divide requires a non-empty task")
+        decision = self.decide_vertical(task)
+        if decision.choice == "new":
+            proposal = decision.proposal
+            if ask_on_new_domain:
+                return Division(
+                    task=task, vertical=proposal.name, kind="custom",
+                    regular=True, stages=list(proposal.stages),
+                    proposed_domain=proposal, pending_confirmation=True,
+                )
+            return self.commit_domain(task, proposal)
+        vertical = decision.vertical
         persist_vertical(self.project_root, vertical)   # supervisor reads & trusts this
-        return Division(task=task, vertical=vertical, kind=kind,
-                        regular=regular, stages=stages)
-
-    @staticmethod
-    def _matches_preset(task: str) -> bool:
-        """Whether the Task carries any preset-vertical signal (research / optimize
-        / quant). When it does NOT, the Manager authors a new data domain."""
-        t = (task or "").lower()
-        if not t.strip():
-            return False
-        for sigs in (
-            vertical_select._SPEEDRUN_SIGNALS,
-            vertical_select._RESEARCH_SIGNALS,
-            vertical_select._QUANT_SIGNALS,
-        ):
-            if any(s in t for s in sigs):
-                return True
-        return False
-
-    def _author_domain(self, task: str) -> Any:
-        """Author a new domain (name + stages) via the Manager LLM, or ``None``.
-
-        Grounded, not a blind one-shot guess from the task sentence: the
-        Manager gets real shell/read access and ``project_root`` as its
-        working dir (same ``dangerous_yolo``/``safe_mode`` convention every
-        other real-work call in this codebase uses — planner, engineer,
-        chat/simple), and the prompt explicitly tells it to inspect the repo
-        before proposing a stage skeleton. Mirrors the Planner's own
-        "inspect project state before deciding" pattern instead of inventing
-        a separate, weaker classify-only path for this decision.
-
-        Returns a :class:`~argus_skill.manager.domain_author.DomainProposal` on a
-        clean proposal; ``None`` when there is no backend or the proposal is
-        ambiguous (fail-closed → caller uses the research default)."""
-        backend = self._session or self.runner
-        if backend is None:
-            return None
-        from ..core.models import RunnerOptions
-        from ..verticals._data_domain import list_data_domains
-        from .domain_author import build_domain_author_prompt, parse_domain_proposal
-        from .stage_decider import extract_answer
-
-        existing = list_data_domains(self.project_root)
-        known = list(vertical_select.VERTICALS)
-        prompt = build_domain_author_prompt(
-            task, known_verticals=known, existing_data_domains=existing
-        )
-        safe_mode = _manager_safe_mode()
-        try:
-            result = backend.run_exec(
-                prompt=prompt,
-                options=RunnerOptions(
-                    reasoning_effort=_manager_reasoning_effort(),
-                    working_dir=str(self.project_root),
-                    dangerous_yolo=not safe_mode,
-                    full_auto=safe_mode,
-                    skip_git_repo_check=True,
-                ),
-                run_label="manager-domain-author",
-            )
-            return parse_domain_proposal(
-                extract_answer(result),
-                known_verticals=known,
-                existing_data_domains=existing,
-            )
-        except Exception:  # noqa: BLE001 — authoring must never crash division
-            log.debug("manager domain authoring failed", exc_info=True)
-            return None
+        stages = self.plan_stages(vertical)
+        return Division(task=task, vertical=vertical, kind=self._kind_for(vertical),
+                        regular=True, stages=stages)
 
     def commit_domain(self, task: str, proposal: Any) -> Division:
         """Write the authored data domain to disk and persist it as the active
-        vertical (so the supervisor trusts it). On any write error, fall back to
-        the research default. Called autonomously by :meth:`divide` or by the REPL
-        after operator confirmation."""
+        vertical (so the supervisor trusts it). FAIL-HARD: a write error
+        PROPAGATES — no silent research fallback. Called autonomously by
+        :meth:`divide` or by the REPL after operator confirmation."""
         from ..verticals._data_domain import write_data_domain
 
-        try:
-            write_data_domain(
-                self.project_root,
-                proposal.name,
-                stages=list(proposal.stages),
-                created_by="manager",
-            )
-        except Exception:  # noqa: BLE001 — write failed → safe research fallback
-            log.warning("commit_domain(%r) write failed; using research", proposal.name, exc_info=True)
-            persist_vertical(self.project_root, "research")
-            stages = self.plan_stages("research")
-            return Division(task=task, vertical="research", kind="research",
-                            regular=False, stages=stages)
+        write_data_domain(
+            self.project_root,
+            proposal.name,
+            stages=list(proposal.stages),
+            created_by="manager",
+        )
         persist_vertical(self.project_root, proposal.name)
         return Division(
             task=task, vertical=proposal.name, kind="custom", regular=True,

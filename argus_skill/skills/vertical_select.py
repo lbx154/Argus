@@ -13,30 +13,29 @@ field in ``research/PIPELINE_STATE.json``:
   right way on this script" rather than "write me a paper". This is the
   nanochat-autoresearch / GPU-kernel-speedrun shape.
 
-Three sides of the selector live here:
+Two sides of the selector live here (the DECIDE side is no longer here — the
+Manager AGENT chooses the vertical; see ``manager/_core.py`` ``decide_vertical``
+and ``manager/domain_author.py``):
 
-* the **read side** (``resolve_vertical``) is cheap, deterministic, LLM-free,
-  and exception-free — it is consulted on every stage transition and gate, so
-  it must never raise and must never spend a token.
-* the **decide side** (``classify_vertical`` / ``_heuristic_classify``) is
-  consulted once at mission bootstrap to pick a vertical from the objective. It
-  may optionally use the LLM runner, but always degrades to a keyword
-  heuristic — and the heuristic always degrades to ``"research"``.
-* the **write side** (``persist_vertical``) writes the resolved vertical into
-  the pipeline state and seeds ``current_stage`` to the vertical's first stage.
+* the **read side** (``resolve_vertical``) is cheap, deterministic, and
+  LLM-free. It reads the vertical the Manager already decided and persisted. It
+  is FAIL-HARD: if nothing valid is resolvable it RAISES
+  ``VerticalResolutionError`` rather than silently defaulting to ``"research"``.
+* the **write side** (``persist_vertical``) writes the chosen vertical into the
+  pipeline state and seeds ``current_stage`` to the vertical's first stage. It
+  validates the name (``require_vertical``) and RAISES on an unknown vertical or
+  a corrupt state file — no swallowed errors.
 
 Precedence for the resolved vertical (read side):
 
-    explicit non-default env ``ARGUS_SKILL_VERTICAL``  >  persisted
-    project-local DATA domain when env / persisted state is the safe default
-    ``research`` and the active checklist store clearly belongs to that domain
-    > persisted ``vertical`` > "research"
+    explicit non-default env ``ARGUS_SKILL_VERTICAL``  >  persisted project-local
+    DATA domain when env is the safe default ``"research"``  >  persisted
+    ``vertical`` in ``research/PIPELINE_STATE.json``  >  RAISE.
 
-Provenance: repurposed from ``pipeline_mode.py`` (mode paper|optimize →
-vertical research|speedrun). The prompt builders (planner / reviewer / loop)
-and the supervisor are now vertical-native; the only surviving back-compat
-shims are ``classify_pipeline_mode`` / ``persist_pipeline_mode``, kept for any
-caller still speaking the old paper|optimize vocabulary.
+There are NO keyword classifiers and NO fallbacks: an objective is never mapped
+to a vertical by matching words, and a missing/corrupt state is never quietly
+coerced to ``"research"``. The Manager decides; the harness only validates,
+persists, and reads back — loudly.
 """
 from __future__ import annotations
 
@@ -66,6 +65,25 @@ VERTICALS: tuple[str, ...] = (
     "learning",
 )
 
+#: One-line purpose per built-in vertical, handed to the Manager's vertical
+#: decision prompt so the agent can PREFER an existing built-in (which ships
+#: expert per-stage reviewer checklists) over authoring a fresh, checklist-less
+#: data domain. Keys must stay in sync with ``VERTICALS``.
+VERTICAL_PURPOSES: dict[str, str] = {
+    "research": "full multi-stage research-PAPER pipeline (literature review → "
+    "experiments → draft → submission); the default when the goal is a written paper",
+    "quant": "finance factor-research REPORT — mine/evaluate equity factors "
+    "(IC/ICIR, backtest, Sharpe) into a reviewer-certified factor report; not a metric loop",
+    "speedrun": "generic single-metric optimize loop on a script/benchmark under a "
+    "wall-clock budget (setup → optimize → measure → report); no paper",
+    "nanochat": "minimize val_bpb on the nanochat train.py (bits-per-byte, ~300s, 1 GPU)",
+    "nanogpt_speedrun": "minimize wall-clock time to reach val_loss<=3.28 on modded-nanogpt (8xH100)",
+    "kernelbench": "maximize SOL score / speedup for GPU kernels (CUDA/Triton/CUTLASS, "
+    "B200, SOL-ExecBench/KernelBench) against a correctness-checked reference",
+    "learning": "ingest operator-provided learning material and update the skill/wiki "
+    "libraries (produce a change plan: create/update/archive skills)",
+}
+
 #: The safe default vertical when intent is unclear or state is missing.
 DEFAULT_VERTICAL: str = "research"
 
@@ -73,6 +91,22 @@ DEFAULT_VERTICAL: str = "research"
 ENV_VERTICAL: str = "ARGUS_SKILL_VERTICAL"
 
 _STATE_RELPATH = ("research", "PIPELINE_STATE.json")
+
+
+class VerticalResolutionError(RuntimeError):
+    """Raised by ``resolve_vertical`` when no vertical can be resolved.
+
+    The Manager DECIDES and PERSISTS the vertical at mission bootstrap; once it
+    has, ``research/PIPELINE_STATE.json`` names it and this never fires. If it
+    DOES fire, a read happened before the decision was persisted, or the state
+    is corrupt — a real invariant violation, surfaced loudly instead of silently
+    defaulting to ``research``.
+    """
+
+
+class UnknownVerticalError(ValueError):
+    """Raised when a value is required to name a known vertical but does not."""
+
 
 
 # --- normalization / read side --------------------------------------------
@@ -114,10 +148,20 @@ def _known_vertical(value: object, project_root: object = None) -> str | None:
     return None
 
 
-def normalize_vertical(value: object) -> str:
-    """Coerce ``value`` to a known vertical, defaulting to ``"research"``."""
-    known = _known_vertical(value)
-    return known if known is not None else DEFAULT_VERTICAL
+def require_vertical(value: object, project_root: object = None) -> str:
+    """Return the known vertical named by ``value`` or raise ``UnknownVerticalError``.
+
+    Replaces the old ``normalize_vertical``, which silently defaulted unknowns to
+    ``"research"``. The operator's contract is fail-hard: an unknown vertical is
+    an error, never a silent coercion.
+    """
+    known = _known_vertical(value, project_root)
+    if known is None:
+        raise UnknownVerticalError(
+            f"{value!r} is not a known vertical "
+            f"(built-ins: {', '.join(VERTICALS)}) nor an existing project data domain"
+        )
+    return known
 
 
 def _normalize_stage(stage: object) -> str:
@@ -133,16 +177,26 @@ def _state_path(project_root: object) -> Path:
 def _persisted_vertical(project_root: object) -> str | None:
     """Return the persisted ``vertical`` from PIPELINE_STATE.json, or ``None``.
 
-    Fail-open: a missing/unreadable/malformed file, a non-dict payload, an
-    absent key, or an unrecognised value all yield ``None`` so resolution falls
-    through to the default.
+    ``None`` only for the legitimate "not decided yet" case: the state file does
+    not exist, OR it exists but carries no (known) ``vertical`` key. A present
+    but CORRUPT file (bad JSON / non-dict payload) is a real fault of
+    Manager-owned state and RAISES ``VerticalResolutionError`` — we do not
+    silently treat corruption as "fresh" and fall through to research.
     """
     try:
-        payload = json.loads(_state_path(project_root).read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 — fail-open: missing/unreadable/malformed
+        raw = _state_path(project_root).read_text(encoding="utf-8")
+    except FileNotFoundError:
         return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise VerticalResolutionError(
+            f"PIPELINE_STATE.json at {_state_path(project_root)} is not valid JSON: {exc}"
+        ) from exc
     if not isinstance(payload, dict):
-        return None
+        raise VerticalResolutionError(
+            f"PIPELINE_STATE.json at {_state_path(project_root)} is not a JSON object"
+        )
     return _known_vertical(payload.get("vertical"), project_root)
 
 
@@ -158,71 +212,6 @@ def _is_project_data_domain(value: str | None, project_root: object) -> bool:
         return False
 
 
-def _custom_checklist_stages(project_root: object) -> set[str]:
-    """Return non-empty stage names from the project checklist store.
-
-    Manager-authored DATA domains write their stage checklist items into
-    ``research/CHECKLISTS.json``. When ``PIPELINE_STATE.json`` is stale at the
-    default ``vertical=research`` but the checklist store clearly names a custom
-    domain's stages, this read-only signal lets the resolver honor the active
-    bounded domain without mutating Manager-owned pipeline state.
-    """
-    path = Path(str(project_root)) / "research" / "CHECKLISTS.json"
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 — absent/malformed store → no signal
-        return set()
-    stages = payload.get("stages") if isinstance(payload, dict) else None
-    if not isinstance(stages, dict):
-        return set()
-    out: set[str] = set()
-    for stage, items in stages.items():
-        if not isinstance(items, list) or not items:
-            continue
-        normalized = _normalize_stage(stage)
-        if normalized:
-            out.add(normalized)
-    return out
-
-
-def _data_domain_from_checklists(project_root: object) -> str | None:
-    """Infer the active project-local DATA domain from custom checklist stages.
-
-    This is intentionally conservative: a domain is returned only when all
-    non-empty checklist-store stages are contained in exactly one loadable
-    project-local data domain, and at least two stages match. That avoids
-    collapsing a normal paper project with one ad-hoc checklist tweak into an
-    unrelated old data domain left in ``research/DOMAINS``.
-    """
-    custom_stages = _custom_checklist_stages(project_root)
-    if len(custom_stages) < 2:
-        return None
-    try:
-        from ..verticals._data_domain import list_data_domains, load_data_domain
-    except Exception:  # noqa: BLE001 — resolver must stay fail-open
-        return None
-
-    candidates: list[tuple[int, str]] = []
-    for name in list_data_domains(project_root):
-        try:
-            domain = load_data_domain(name, project_root)
-        except Exception:  # noqa: BLE001 — bad domain is ignored
-            domain = None
-        if domain is None:
-            continue
-        order = {
-            _normalize_stage(stage)
-            for stage in getattr(domain, "CHECKLIST_STAGE_ORDER", ()) or ()
-            if _normalize_stage(stage)
-        }
-        if custom_stages and custom_stages.issubset(order):
-            candidates.append((len(custom_stages), name))
-
-    if len(candidates) != 1:
-        return None
-    return candidates[0][1]
-
-
 def resolve_vertical(project_root: object = ".") -> str:
     """Resolve the active vertical (cheap, deterministic, no LLM).
 
@@ -230,285 +219,29 @@ def resolve_vertical(project_root: object = ".") -> str:
 
         1. env ``ARGUS_SKILL_VERTICAL`` — only if it names a known vertical
            (a trailing ``-needed`` sentinel is stripped first). Explicit
-           non-default env values win.
-        2. inferred project-local DATA domain when the env / persisted state is
-           only the safe default ``"research"`` and ``research/CHECKLISTS.json``
-           clearly belongs to that domain.
-        3. persisted project-local DATA domain when the env value is only the
-           safe default ``"research"``
-        4. persisted ``vertical`` in ``research/PIPELINE_STATE.json``
-        5. ``"research"`` (the safe default)
+           non-default env values win, EXCEPT the safe default ``"research"``
+           never clobbers a persisted project-local DATA domain.
+        2. persisted ``vertical`` in ``research/PIPELINE_STATE.json``.
 
-    This is the read side consulted on every stage transition/gate; it never
-    raises and never spends a token.
+    FAIL-HARD: if neither yields a known vertical, RAISE
+    ``VerticalResolutionError``. There is no silent default-to-``research`` — the
+    Manager must have DECIDED and PERSISTED the vertical at mission bootstrap
+    before any read. Still deterministic, never spends a token, and (apart from
+    the raise) never mutates state.
     """
     env = _known_vertical(os.environ.get(ENV_VERTICAL), project_root)
     persisted = _persisted_vertical(project_root)
-    inferred_domain = _data_domain_from_checklists(project_root)
     if env is not None:
         if env == DEFAULT_VERTICAL and _is_project_data_domain(persisted, project_root):
             return persisted
-        if env == DEFAULT_VERTICAL and inferred_domain is not None:
-            return inferred_domain
         return env
-
-    if (
-        inferred_domain is not None
-        and (persisted is None or persisted == DEFAULT_VERTICAL)
-    ):
-        return inferred_domain
-
     if persisted is not None:
         return persisted
-
-    return DEFAULT_VERTICAL
-
-
-# --- classification / decide side -----------------------------------------
-
-_SPEEDRUN_SIGNALS: tuple[str, ...] = (
-    "minimize",
-    "maximize",
-    "lower",
-    "reduce",
-    "beat",
-    "optimize",
-    "val_bpb",
-    "bpb",
-    "score",
-    "metric",
-    "speedup",
-    "eval_solution",
-    "train.py",
-    "benchmark score",
-    "loss",
-    "accuracy",
-    "speedrun",
-)
-
-_RESEARCH_SIGNALS: tuple[str, ...] = (
-    "paper",
-    "emnlp",
-    "aaai",
-    "acl",
-    "submission",
-    "write a paper",
-    "draft",
-    "manuscript",
-    "literature",
-    "related work",
-    "venue",
-)
-
-#: Finance factor-research signals. A hit routes the objective to the ``quant``
-#: vertical (a REPORT peer of ``research``, never an optimize/speedrun vertical).
-#: Mixes English and Chinese terms since finance objectives arrive in both.
-_QUANT_SIGNALS: tuple[str, ...] = (
-    "factor",
-    "因子",
-    "quant",
-    "quantitative",
-    "量化",
-    "backtest",
-    "回测",
-    "alpha",
-    "a-share",
-    "a股",
-    "ashare",
-    "股票",
-    "股市",
-    "equity factor",
-    "factor mining",
-    "factor zoo",
-    "ic/icir",
-    "icir",
-    "rankic",
-    "sharpe",
-    "long-short",
-    "portfolio",
-    "qlib",
-)
-
-
-def _looks_quant(text: object) -> bool:
-    """Whether the objective is a finance factor-research mission.
-
-    True when finance signals are present AND strictly dominate the research
-    signals and at least tie the speedrun signals — so a finance factor mission
-    routes to ``quant`` while a generic paper / generic optimize objective does
-    not. Cheap, deterministic, LLM-free.
-    """
-    t = text.lower() if isinstance(text, str) else ""
-    if not t:
-        return False
-    quant_hits = sum(1 for sig in _QUANT_SIGNALS if sig in t)
-    if quant_hits < 1:
-        return False
-    research_hits = sum(1 for sig in _RESEARCH_SIGNALS if sig in t)
-    speedrun_hits = sum(1 for sig in _SPEEDRUN_SIGNALS if sig in t)
-    return quant_hits > research_hits and quant_hits >= speedrun_hits
-
-
-def _heuristic_classify(objective: object) -> str:
-    """Keyword/intent heuristic mapping an objective to a vertical.
-
-    Order: finance factor-research (``quant``) is checked first — it is a REPORT
-    peer of ``research`` (not an optimize vertical), so a finance objective must
-    not be swallowed by the speedrun branch. Otherwise counts SPEEDRUN vs
-    RESEARCH keyword hits and returns ``"speedrun"`` only when speedrun signals
-    clearly dominate (strictly more speedrun hits than research hits, and at
-    least one speedrun hit); otherwise ``"research"`` — the safe default, since
-    producing a paper subsumes optimize work.
-    """
-    text = objective.lower() if isinstance(objective, str) else ""
-    if not text:
-        return "research"
-    if _looks_quant(text):
-        return "quant"
-    speedrun_hits = sum(1 for sig in _SPEEDRUN_SIGNALS if sig in text)
-    research_hits = sum(1 for sig in _RESEARCH_SIGNALS if sig in text)
-    specific_optimize_vertical = _route_optimize_vertical(text)
-    if specific_optimize_vertical != "speedrun" and research_hits == 0:
-        return specific_optimize_vertical
-    if speedrun_hits >= 1 and speedrun_hits > research_hits:
-        return specific_optimize_vertical
-    return "research"
-
-
-def _route_optimize_vertical(text: object) -> str:
-    """Pick the SPECIFIC optimization vertical from objective keywords.
-
-    The three Recursive tasks share the lean optimize shape but optimize
-    DIFFERENT metrics, so route them apart. An unrecognised optimize objective
-    falls back to the generic ``"speedrun"`` vertical.
-    """
-    t = text.lower() if isinstance(text, str) else ""
-    if any(k in t for k in (
-        "kernelbench",
-        "sol-exec",
-        "sol_exec",
-        "speed-of-light",
-        "speed of light",
-        " sol ",
-        "sol score",
-        "gpu kernel",
-        "cuda kernel",
-        "kernel optimization",
-        "kernel-a",
-        "kernel a",
-        "kernel-b",
-        "kernel b",
-        "kernel bench",
-        "torch eager",
-        "eager_time",
-        "b200",
-        ".cu",
-    )):
-        return "kernelbench"
-    if any(k in t for k in ("nanogpt", "modded-nanogpt", "val_loss", "3.28",
-                            "speedrun", "wall-clock", "wall clock",
-                            "time-to-target", "seconds to")):
-        return "nanogpt_speedrun"
-    if any(k in t for k in ("nanochat", "val_bpb", "bpb", "bits-per-byte",
-                            "bits per byte")):
-        return "nanochat"
-    return "speedrun"
-
-
-_LLM_CLASSIFY_PROMPT = (
-    "You are routing an automated research loop. Classify the objective "
-    "below as EXACTLY one word: RESEARCH or SPEEDRUN.\n\n"
-    "Definitions:\n"
-    "- RESEARCH: the goal is to produce a research paper or report. This needs "
-    "a literature review, written sections (draft/manuscript), and a "
-    "submission package for a venue.\n"
-    "- SPEEDRUN: the goal is to directly improve code or a model so it beats "
-    "a numeric metric (e.g. lower a loss/bpb, raise an accuracy/score) on a "
-    "given script or benchmark under a wall-clock budget. No paper, no "
-    "literature review, no writing.\n\n"
-    "Answer with ONLY the single word RESEARCH or SPEEDRUN, nothing else.\n\n"
-    "Objective:\n{objective}\n"
-)
-
-
-def classify_vertical(
-    objective: object,
-    runner: object = None,
-    profile_hint: str | None = None,
-    reasoning_effort: str | None = None,
-) -> str:
-    """Decide the vertical for ``objective`` (bootstrap, once).
-
-    Resolution order:
-
-        1. ``profile_hint`` — if it names a known vertical, trust it verbatim
-           (an explicit operator/profile choice wins over inference).
-        2. ``runner`` LLM classification — if a runner is supplied, ask it to
-           label the objective RESEARCH or SPEEDRUN; on ANY error or an
-           ambiguous answer, fall back to the heuristic.
-        3. ``_heuristic_classify`` — keyword heuristic (when no runner).
-
-    The heuristic itself always degrades to ``"research"``, so the worst case
-    is "ran the full pipeline when a lean loop would have done" — a cost
-    hazard, never a correctness one.
-    """
-    hint = _known_vertical(profile_hint)
-    if hint is not None:
-        return hint
-
-    if runner is None:
-        return _heuristic_classify(objective)
-
-    try:
-        from ..core.models import RunnerOptions
-
-        prompt = _LLM_CLASSIFY_PROMPT.format(objective=str(objective))
-        run_exec = getattr(runner, "run_exec", None)
-        if not callable(run_exec):
-            return _heuristic_classify(objective)
-        result = run_exec(
-            prompt=prompt,
-            options=RunnerOptions(
-                reasoning_effort=reasoning_effort,
-                full_auto=True,
-            ),
-            run_label="vertical-classify",
-        )
-        answer = _parse_llm_vertical(getattr(result, "last_agent_message", "") or "")
-        if answer is not None:
-            # Specialize a generic "speedrun" verdict to the right per-task
-            # vertical; specialize a "research" verdict to "quant" when the
-            # objective is a finance factor-research mission (the LLM only
-            # knows the RESEARCH/SPEEDRUN dichotomy, but a factor report is a
-            # research-shaped REPORT mission served by the quant vertical).
-            if answer == "speedrun":
-                return _route_optimize_vertical(str(objective))
-            if _looks_quant(str(objective)):
-                return "quant"
-            return answer
-    except Exception:  # noqa: BLE001 — any failure degrades to the heuristic
-        log.warning("LLM vertical classification failed; using heuristic", exc_info=True)
-
-    return _heuristic_classify(objective)
-
-
-def _parse_llm_vertical(message: str) -> str | None:
-    """Extract a clean RESEARCH/SPEEDRUN verdict from an LLM reply.
-
-    Returns the normalized vertical only when the answer is unambiguous (names
-    exactly one of the two). Returns ``None`` when the answer is empty, names
-    both, or names neither — the caller then falls back to the heuristic.
-    """
-    if not isinstance(message, str):
-        return None
-    low = message.lower()
-    has_speedrun = "speedrun" in low
-    has_research = "research" in low
-    if has_speedrun and not has_research:
-        return "speedrun"
-    if has_research and not has_speedrun:
-        return "research"
-    return None
+    raise VerticalResolutionError(
+        f"no vertical resolved for {project_root!r}: ARGUS_SKILL_VERTICAL is unset/invalid "
+        f"and research/PIPELINE_STATE.json has no known 'vertical'. The Manager must decide "
+        f"and persist the vertical at mission bootstrap before this read."
+    )
 
 
 # --- persistence (write side) ---------------------------------------------
@@ -537,109 +270,66 @@ def _vertical_first_stage(vertical: str, project_root: object = None) -> str | N
 def persist_vertical(project_root: object, vertical: str) -> None:
     """Persist the chosen ``vertical`` into ``research/PIPELINE_STATE.json``.
 
-    Loads the existing state (or ``{}`` if missing/malformed), creates the
-    ``research/`` directory if needed, and sets ``vertical`` to the normalized
-    name. Written atomically.
+    Validates ``vertical`` against the known built-ins + existing project data
+    domains; an unknown name RAISES ``UnknownVerticalError`` (no silent coercion
+    to ``research``). A corrupt existing state file RAISES. IO errors PROPAGATE —
+    persisting the Manager's decision is load-bearing, not best-effort.
 
     STAGE AUTHORITY — the harness must NOT control ``current_stage``; only the
     reviewer agent moves it (advance via its verdict, or roll back via
     ``stage_checklists.rollback_stage``). So this function SEEDS the vertical's
     first stage only when no stage exists yet (bootstrap of a fresh state
     file); it NEVER overwrites or resets an existing stage. A stale stage left
-    by a vertical change (e.g. a research ``run`` stage seen while persisting
-    the speedrun vertical after a classification false-positive) is real
-    progress — clobbering it to the first stage is an unauthorized rollback
-    that destroys evidence. It is left for the reviewer / rollback path to
-    handle, and the read-side ``current_stage()`` already falls back to the
-    vertical's first stage at read time without mutating the file.
-
-    Fail-open: errors are logged, never raised — persistence is best-effort and
-    must not break mission bootstrap.
+    by a vertical change is real progress — clobbering it to the first stage is
+    an unauthorized rollback that destroys evidence. It is left for the
+    reviewer / rollback path to handle, and the read-side ``current_stage()``
+    already falls back to the vertical's first stage at read time without
+    mutating the file.
     """
+    vert = require_vertical(vertical, project_root)
+    path = _state_path(project_root)
+
     try:
-        vert = normalize_vertical(vertical)
-        # A project-local DATA domain name is valid even though it is not in the
-        # built-in ``VERTICALS`` tuple — keep it verbatim rather than collapsing
-        # it to the research default.
-        if _known_vertical(vertical, project_root) is not None:
-            vert = _strip_needed(str(vertical))
-        path = _state_path(project_root)
-
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        payload: dict = {}
+    else:
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001 — missing/unreadable/malformed → fresh
-            payload = {}
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise VerticalResolutionError(
+                f"PIPELINE_STATE.json at {path} is not valid JSON: {exc}"
+            ) from exc
         if not isinstance(payload, dict):
-            payload = {}
+            raise VerticalResolutionError(
+                f"PIPELINE_STATE.json at {path} is not a JSON object"
+            )
 
-        payload["vertical"] = vert
+    payload["vertical"] = vert
 
-        # SEED-ONLY, NEVER RESET. Stage authority belongs to the reviewer
-        # agent (see docstring). Write an initial stage only when none exists
-        # yet — leave any existing stage, even one not in this vertical's
-        # order, untouched.
-        if not _normalize_stage(payload.get("current_stage")):
-            first_stage = _vertical_first_stage(vert, project_root)
-            if first_stage:
-                payload["current_stage"] = first_stage
+    # SEED-ONLY, NEVER RESET. Stage authority belongs to the reviewer agent
+    # (see docstring). Write an initial stage only when none exists yet — leave
+    # any existing stage, even one not in this vertical's order, untouched.
+    if not _normalize_stage(payload.get("current_stage")):
+        first_stage = _vertical_first_stage(vert, project_root)
+        if first_stage:
+            payload["current_stage"] = first_stage
 
-        path.parent.mkdir(parents=True, exist_ok=True)
-        rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
-        tmp_path = path.with_name(path.name + ".tmp")
-        tmp_path.write_text(rendered, encoding="utf-8")
-        os.replace(tmp_path, path)
-    except Exception:  # noqa: BLE001 — best-effort: log, never raise
-        log.warning("failed to persist vertical %r", vertical, exc_info=True)
-
-
-# --- back-compat shims (delete once all call sites move) -------------------
-#
-# The prompt builders (planner / reviewer / loop) and the supervisor are now
-# vertical-native. These two shims map the old paper|optimize "pipeline mode"
-# vocabulary onto the vertical selector for any caller still speaking it.
-
-
-def classify_pipeline_mode(
-    objective: object,
-    runner: object = None,
-    profile_hint: str | None = None,
-) -> str:
-    """Back-compat: classify and report in the old paper|optimize vocabulary.
-
-    Translates an old-vocabulary ``profile_hint`` (paper|optimize) into the
-    vertical vocabulary, classifies, and maps the result back.
-    """
-    vhint: str | None = None
-    if isinstance(profile_hint, str):
-        h = profile_hint.strip().lower()
-        if h in ("optimize", "speedrun"):
-            vhint = "speedrun"
-        elif h in ("paper", "research"):
-            vhint = "research"
-    vert = classify_vertical(objective, runner=runner, profile_hint=vhint)
-    return "optimize" if vert == "speedrun" else "paper"
-
-
-def persist_pipeline_mode(project_root: object, mode: str) -> None:
-    """Back-compat: persist a paper|optimize mode as a research|speedrun vertical."""
-    vert = (
-        "speedrun"
-        if isinstance(mode, str) and mode.strip().lower() == "optimize"
-        else "research"
-    )
-    persist_vertical(project_root, vert)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    tmp_path = path.with_name(path.name + ".tmp")
+    tmp_path.write_text(rendered, encoding="utf-8")
+    os.replace(tmp_path, path)
 
 
 __all__ = [
     "VERTICALS",
+    "VERTICAL_PURPOSES",
     "DEFAULT_VERTICAL",
     "ENV_VERTICAL",
-    "normalize_vertical",
+    "VerticalResolutionError",
+    "UnknownVerticalError",
+    "require_vertical",
     "resolve_vertical",
-    "classify_vertical",
     "persist_vertical",
-    "_heuristic_classify",
-    # back-compat shims
-    "classify_pipeline_mode",
-    "persist_pipeline_mode",
 ]

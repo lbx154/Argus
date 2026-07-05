@@ -10,13 +10,11 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 from argus_skill.life import MemoryBundle
 from argus_skill.life.memory import LifeMemory
 from argus_skill.manager import repl as manager_repl
-
 
 # ---- T1: auto-spawn targets the session project, not the cwd -------------
 
@@ -106,6 +104,31 @@ def test_user_task_is_manager_divided_before_enqueue(tmp_path, monkeypatch):
     mem.init()
     monkeypatch.setattr(manager_repl, "_daemon_alive_for", lambda life_dir: (False, None))
 
+    # The Manager decides the vertical via ONE grounded agent call (no keyword
+    # fallback); in real cockpit use there is always an LLM runner. Inject a
+    # manager backed by a fake decision runner so the pre-enqueue division runs.
+    from argus_skill.manager import Manager
+
+    class _DecisionResult:
+        def __init__(self, msg: str) -> None:
+            self.last_agent_message = msg
+            self.agent_messages = [msg]
+            self.thread_id = "t1"
+
+    class _DecisionRunner:
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            return _DecisionResult('{"choice": "existing", "vertical": "research"}')
+
+    class _RunnerWithManager:
+        def __init__(self, project_root):
+            self.manager = Manager(project_root=project_root, runner=_DecisionRunner())
+
+    monkeypatch.setattr(
+        manager_repl,
+        "_ensure_manager_runner",
+        lambda chat_state, mem_: _RunnerWithManager(mem_.project.root),
+    )
+
     item, _alive, _pid = manager_repl.enqueue_mission(
         mem,
         "write a research report",
@@ -122,7 +145,7 @@ def test_user_task_is_manager_divided_before_enqueue(tmp_path, monkeypatch):
         "life.manager.intent.completed",
     ]
     assert events[-1]["agent_layer"] == "manager"
-    assert events[-1]["vertical"]
+    assert events[-1]["vertical"] == "research"
     assert events[-1]["objective"] == "write a research report"
     assert events[-1]["reason"]
 

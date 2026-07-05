@@ -1,10 +1,9 @@
 """Daemon bootstrap seeds the AGENTS contract by vertical (paper vs. optimize).
 
-The ``argus start`` hardcoded paper bypass was retired; the only entry is the
-daemon bootstrap, which must classify the continuous objective's vertical and
-seed the matching AGENTS.md — a lean benchmark-optimization contract for the
-optimize-family verticals and the paper/auto-research contract for research —
-and persist the resolved vertical into ``research/PIPELINE_STATE.json``.
+The Manager AGENT decides + persists the vertical; the daemon bootstrap READS
+that persisted vertical (no keyword classifier) and seeds the matching AGENTS.md
+— a lean benchmark-optimization contract for the optimize-family verticals and
+the paper/auto-research contract for research.
 """
 from __future__ import annotations
 
@@ -13,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.daemon import life_worker as lw
 from argus_skill.daemon.life_worker import LifeWorker, LifeWorkerConfig
+from argus_skill.skills.vertical_select import persist_vertical
 
 
 @pytest.fixture(autouse=True)
@@ -34,6 +33,8 @@ def _worker(objective: str) -> LifeWorker:
 
 
 def test_kernel_objective_seeds_optimize_contract(tmp_path: Path) -> None:
+    # The Manager decided kernelbench + persisted it; seeding reads that.
+    persist_vertical(tmp_path, "kernelbench")
     worker = _worker("maximize the KernelBench SOL score for these CUDA kernels on B200")
     worker._seed_project_agents_and_venv(tmp_path)
 
@@ -47,17 +48,18 @@ def test_kernel_objective_seeds_optimize_contract(tmp_path: Path) -> None:
     assert "Anonymous EMNLP Submission" not in agents
     assert "venue submission" in agents.lower() or "no venue" in agents.lower()
 
-    # Vertical persisted, with a clean optimize pipeline state — no paper fields.
+    # The persisted vertical (Manager's decision) is a clean optimize pipeline
+    # state — no paper fields.
     state = json.loads((tmp_path / "research" / "PIPELINE_STATE.json").read_text())
     assert state["vertical"] == "kernelbench"
     assert state["current_stage"] == "research"
     assert "target_venue" not in state
     assert "paper_scope" not in state
-    # No paper 8-stage `stages` map seeded by the optimize bootstrap.
     assert "submission" not in (state.get("stages") or {})
 
 
 def test_research_objective_seeds_paper_contract(tmp_path: Path) -> None:
+    persist_vertical(tmp_path, "research")
     worker = _worker("write an EMNLP long paper surveying agent memory")
     worker._seed_project_agents_and_venv(tmp_path)
 

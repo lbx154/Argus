@@ -9,14 +9,14 @@ The auto-research loop runs ONE of two *verticals*, selected by a single
   numeric-optimization vertical: lower one number (mean val bpb) under a fixed
   wall-clock budget, no paper.
 
-These tests pin the vertical-native API (the old paper|optimize "pipeline mode"
-shims are gone):
+These tests pin the vertical-native API (the keyword classifier + old
+paper|optimize "pipeline mode" shims are gone — the Manager AGENT now decides
+the vertical; see tests/manager/):
 
 * ``resolve_vertical`` precedence — explicit non-default env
   ``ARGUS_SKILL_VERTICAL`` > persisted data-domain under default env
-  ``"research"`` > persisted ``vertical`` > ``"research"``.
-* ``classify_vertical`` heuristic — a nanochat/optimize objective -> speedrun,
-  a paper objective -> research.
+  ``"research"`` > persisted ``vertical`` > RAISE (fail-hard, no default).
+* ``persist_vertical`` / ``require_vertical`` reject unknown verticals (raise).
 * ``format_full_pipeline_checklist`` renders research's 8 stages by default and
   speedrun's 4 stages under ``ARGUS_SKILL_VERTICAL=speedrun``.
 * the speedrun reviewer banner is the INNOVATION-COACH override.
@@ -30,8 +30,10 @@ import pytest
 
 from argus_skill.skills.stage_checklists import current_stage, format_full_pipeline_checklist
 from argus_skill.skills.vertical_select import (
-    classify_vertical,
+    UnknownVerticalError,
+    VerticalResolutionError,
     persist_vertical,
+    require_vertical,
     resolve_vertical,
 )
 from argus_skill.verticals.speedrun.stages import role_banner as speedrun_role_banner
@@ -62,11 +64,20 @@ def _project(tmp_path: Path, vertical: str | None, *, current: str = "run") -> P
 # --- resolve_vertical precedence: env > state > research --------------------
 
 
-def test_resolve_defaults_to_research(tmp_path: Path) -> None:
-    # No PIPELINE_STATE at all -> research.
-    assert resolve_vertical(tmp_path / "nope") == "research"
-    # A state file with no ``vertical`` field -> still research.
-    assert resolve_vertical(_project(tmp_path, None)) == "research"
+def test_resolve_raises_when_nothing_persisted(tmp_path: Path) -> None:
+    # FAIL-HARD: no silent default-to-research. No PIPELINE_STATE at all raises...
+    with pytest.raises(VerticalResolutionError):
+        resolve_vertical(tmp_path / "nope")
+    # ...and a state file with no ``vertical`` field also raises.
+    with pytest.raises(VerticalResolutionError):
+        resolve_vertical(_project(tmp_path, None))
+
+
+def test_resolve_raises_on_corrupt_state(tmp_path: Path) -> None:
+    (tmp_path / "research").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text("{not json", encoding="utf-8")
+    with pytest.raises(VerticalResolutionError):
+        resolve_vertical(tmp_path)
 
 
 def test_resolve_reads_pipeline_state_vertical(tmp_path: Path) -> None:
@@ -81,35 +92,19 @@ def test_resolve_env_overrides_state(
     assert resolve_vertical(root) == "speedrun"
 
 
-# --- classify_vertical heuristic -------------------------------------------
+# --- fail-hard invariants (no keyword classifier lives here anymore) --------
 
 
-def test_classify_nanochat_objective_is_nanochat() -> None:
-    # A nanochat-specific objective (val_bpb) now routes to its OWN per-task
-    # vertical, not the generic speedrun (distinct Recursive tasks).
-    assert classify_vertical("lower the mean val_bpb on train.py under budget") == "nanochat"
-    # A generic optimize objective with no task-specific keyword still -> speedrun.
-    assert classify_vertical("minimize the loss and beat the baseline score") == "speedrun"
+def test_persist_vertical_rejects_unknown_name(tmp_path: Path) -> None:
+    with pytest.raises(UnknownVerticalError):
+        persist_vertical(tmp_path, "not_a_real_vertical")
 
 
-def test_classify_routes_per_task_verticals() -> None:
-    assert classify_vertical("kernel a") == "kernelbench"
-    assert classify_vertical("kernel b") == "kernelbench"
-    assert classify_vertical("kernelbench") == "kernelbench"
-    assert (
-        classify_vertical("minimize wall-clock time to val_loss 3.28 nanogpt speedrun on 8xH100")
-        == "nanogpt_speedrun"
-    )
-    assert (
-        classify_vertical("maximize SOL score for the kernelbench cuda kernels")
-        == "kernelbench"
-    )
-    assert (
-        classify_vertical(
-            "maximize speedup over PyTorch eager for one B200 GPU kernel with a correctness scorer"
-        )
-        == "kernelbench"
-    )
+def test_require_vertical_validates_or_raises() -> None:
+    assert require_vertical("kernelbench") == "kernelbench"
+    assert require_vertical("research") == "research"
+    with pytest.raises(UnknownVerticalError):
+        require_vertical("bogus")
 
 
 def test_kernelbench_keeps_research_as_valid_benchmark_research_stage(tmp_path: Path) -> None:
@@ -175,15 +170,6 @@ def test_kernelbench_reviewer_skill_paths_exist() -> None:
     assert missing == []
 
 
-def test_classify_paper_objective_is_research() -> None:
-    assert (
-        classify_vertical("write an EMNLP paper with a literature review and draft")
-        == "research"
-    )
-    # Empty / ambiguous -> safe research default.
-    assert classify_vertical("") == "research"
-
-
 # --- format_full_pipeline_checklist is vertical-aware ----------------------
 
 
@@ -228,17 +214,6 @@ def test_speedrun_reviewer_banner_is_innovation_coach() -> None:
 # loads, certifies on the full-report gate, and ships its skill files.
 
 QUANT_STAGES: tuple[str, ...] = RESEARCH_STAGES  # same ids, finance semantics
-
-
-def test_classify_quant_objective_is_quant() -> None:
-    # A finance factor-research objective routes to the quant vertical...
-    assert classify_vertical("mine A-share equity factors and backtest alpha") == "quant"
-    assert classify_vertical("挖掘A股因子并回测,评估sharpe与IC/ICIR") == "quant"
-    assert classify_vertical("quantitative factor mining with qlib") == "quant"
-    # ...while a generic paper objective with no finance terms stays research.
-    assert classify_vertical("write an EMNLP paper with a literature review") == "research"
-    # ...and a generic optimize objective is NOT swallowed by quant.
-    assert classify_vertical("minimize the loss and beat the baseline score") == "speedrun"
 
 
 def test_quant_vertical_loads_and_exposes_contract() -> None:

@@ -1865,13 +1865,25 @@ class LifeSupervisor:
         """
         if not self.config.full_emnlp_gate:
             return False
-        from ...skills.vertical_select import resolve_vertical
+        from ...skills.vertical_select import (
+            VerticalResolutionError,
+            resolve_vertical,
+        )
         from ...verticals._base import (
             load_vertical,
             vertical_completion_gate,
         )
 
-        mod = load_vertical(resolve_vertical(workdir), project_root=workdir)
+        try:
+            vertical = resolve_vertical(workdir)
+        except VerticalResolutionError:
+            # The Manager has not decided + persisted the vertical yet. An
+            # undecided mission is definitionally not at its final-submission
+            # gate, so the gate does not apply (keep running); it is NOT a silent
+            # default to research — resolve_vertical still raised loudly, we just
+            # treat "no vertical yet" as "gate not satisfied" for THIS check.
+            return False
+        mod = load_vertical(vertical, project_root=workdir)
         return vertical_completion_gate(mod) == "full_emnlp"
 
     def _final_submission_cert_path(self) -> Path:
@@ -2248,89 +2260,59 @@ class LifeSupervisor:
         return True
 
     def _resolve_vertical_once(self) -> None:
-        """Classify + persist the active vertical exactly once per mission.
+        """DECIDE + persist the active vertical exactly once per mission, BEFORE
+        any gate/stage read (``resolve_vertical``) runs.
 
-        On the first planner cycle (guarded by ``self._vertical_resolved``)
-        we infer the vertical (``research`` vs ``speedrun``) from the continuous
-        objective — trusting an explicit research-profile override when one is
-        declared — and persist it into the session artifact root so every
-        downstream stage/gate read (``resolve_vertical``) sees a stable vertical
-        for the rest of the run.
+        Precedence:
+        * An already-persisted vertical is TRUSTED and re-persisted (sticky
+          across daemon restarts; a chosen per-task vertical stays chosen).
+        * Otherwise, when a continuous objective is set, the MANAGER AGENT
+          decides it (``Manager.divide`` — one grounded call, no keyword
+          classifier) and persists it (autonomously authoring a new data domain
+          when no built-in fits).
 
-        Best-effort: any failure (classification, profile load, persistence) is
-        swallowed so the planner never crashes on vertical bootstrap.
+        FAIL-HARD: an undecidable vertical, a missing backend, or a corrupt
+        ``PIPELINE_STATE.json`` PROPAGATES — a mission that cannot determine its
+        vertical must fail loudly, not silently run the research pipeline.
         """
         if getattr(self, "_vertical_resolved", False):
             return
-        # Flip the guard immediately: this runs once even if classification
-        # below raises, so we never re-classify on later cycles.
+        # Flip the guard immediately so this decision runs exactly once.
         self._vertical_resolved = True
-        # If a known vertical is already persisted (an explicit prior resolution
-        # or an operator edit of research/PIPELINE_STATE.json), TRUST it — do NOT
-        # re-classify and overwrite it on every daemon restart. This makes a
-        # chosen per-task vertical (nanochat / nanogpt_speedrun / kernelbench /
-        # research / speedrun) sticky across restarts.
-        try:
-            from ...skills import vertical_select as _vsel
-            artifact_root = self._artifact_root()
-            persisted = _vsel._persisted_vertical(artifact_root)
-            if persisted is not None:
-                # Trust the persisted vertical and re-persist it (sticky across
-                # restarts). This does NOT touch current_stage — stage authority
-                # is the reviewer agent's; persist_vertical only seeds a stage
-                # when none exists and never resets an existing one.
-                _vsel.persist_vertical(artifact_root, persisted)
-                self._emit({
-                    "type": "life.vertical.resolved",
-                    "vertical": persisted,
-                    "profile_hint": "persisted",
-                    "agent_layer": "planner",
-                })
-                return
-        except Exception:  # noqa: BLE001 — never crash bootstrap on this check
-            pass
-        if not self.config.continuous_objective:
-            return
-        try:
-            from ...skills import vertical_select
-            from ..research_profile import load_research_profile
 
-            # ``profile_vertical`` lands in Phase 3; guard the import so this
-            # migration compiles + runs standalone now (no hint until then).
-            try:
-                from ..research_profile import profile_vertical
-            except ImportError:
-                profile_vertical = None  # type: ignore[assignment]
+        from ...skills import vertical_select as _vsel
 
-            profile = load_research_profile()
-            profile_hint = (
-                profile_vertical(profile.name)
-                if profile is not None and profile_vertical is not None
-                else None
-            )
-            vertical = vertical_select.classify_vertical(
-                self.config.continuous_objective,
-                runner=self.planner_runner,
-                profile_hint=profile_hint,
-                reasoning_effort=os.environ.get(
-                    "ARGUS_SKILL_PLANNER_REASONING_EFFORT", "xhigh"
-                ),
-            )
-            artifact_root = self._artifact_root()
-            vertical_select.persist_vertical(artifact_root, vertical)
+        artifact_root = self._artifact_root()
+        persisted = _vsel._persisted_vertical(artifact_root)
+        if persisted is not None:
+            # Trust the persisted vertical and re-persist it (sticky). Does NOT
+            # touch current_stage — stage authority is the reviewer agent's.
+            _vsel.persist_vertical(artifact_root, persisted)
             self._emit({
                 "type": "life.vertical.resolved",
-                "vertical": vertical,
-                "profile_hint": profile_hint,
+                "vertical": persisted,
+                "profile_hint": "persisted",
                 "agent_layer": "planner",
             })
-            log.info(
-                "life supervisor: resolved vertical = %s (profile_hint=%s)",
-                vertical,
-                profile_hint,
-            )
-        except Exception:  # noqa: BLE001 — never crash the planner on bootstrap
-            log.warning("vertical resolution failed; continuing", exc_info=True)
+            return
+
+        if not self.config.continuous_objective:
+            return
+
+        from ...manager import Manager
+
+        mgr = Manager(project_root=artifact_root, runner=self.planner_runner)
+        division = mgr.divide(self.config.continuous_objective)
+        self._emit({
+            "type": "life.vertical.resolved",
+            "vertical": division.vertical,
+            "profile_hint": "manager",
+            "agent_layer": "planner",
+        })
+        log.info(
+            "life supervisor: resolved vertical = %s (manager-decided)",
+            division.vertical,
+        )
 
     def _plan_next_work(self) -> bool | None | str:
         """Call the planner to generate new backlog items.
@@ -2352,10 +2334,6 @@ class LifeSupervisor:
             "objective": self.config.continuous_objective[:200],
             "manager_intent": manager_intent,
         })
-
-        # Classify + persist the active vertical once, on the first cycle, so
-        # the rest of the run (stages, gates, auto-stop) reads a stable vertical.
-        self._resolve_vertical_once()
 
         wiki_collect_task = self._wiki_collect_task_if_due_under_blocker()
         if wiki_collect_task is not None:
@@ -2387,6 +2365,14 @@ class LifeSupervisor:
                 short_circuit,
                 planner_cost_usd=0.0,
             )
+
+        # The mission is now committing to real planning work — every idle /
+        # blocked / no-runner / done short-circuit above has returned. Decide +
+        # persist the vertical here (once, guarded), so the planner and its
+        # downstream gate reads see a stable vertical. Placing it AFTER the
+        # short-circuits means a blocked/idle cycle never triggers a Manager
+        # decision (nor a wasted planner-runner call).
+        self._resolve_vertical_once()
 
         journal_tail = self._render_journal_for_planner()
 

@@ -18,7 +18,6 @@ import json
 from pathlib import Path
 
 from argus_skill.core.models import ReviewDecision
-from argus_skill.reviewer import _find_decision_in_messages
 from argus_skill.life.event_log import JsonlEventSink
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor import (
@@ -27,6 +26,7 @@ from argus_skill.life.supervisor import (
     LifeSupervisorConfig,
 )
 from argus_skill.planner import PlannerVerdict, TaskSpec
+from argus_skill.reviewer import _find_decision_in_messages
 
 # ---------------------------------------------------------------------------
 # ReviewDecision.final_submission_certified
@@ -169,7 +169,9 @@ def _make_supervisor(tmp_path: Path) -> LifeSupervisor:
         pass
 
     sink = JsonlEventSink(_Sink(), life_dir=mem.root, verbosity="full")
-    return LifeSupervisor(memory=mem, runner=_Runner(), sink=sink, config=cfg)
+    sup = LifeSupervisor(memory=mem, runner=_Runner(), sink=sink, config=cfg)
+    _seed_research_vertical(sup)
+    return sup
 
 
 def _make_supervisor_cfg(tmp_path: Path, **cfg_kwargs) -> LifeSupervisor:
@@ -186,7 +188,18 @@ def _make_supervisor_cfg(tmp_path: Path, **cfg_kwargs) -> LifeSupervisor:
         pass
 
     sink = JsonlEventSink(_Sink(), life_dir=mem.root, verbosity="full")
-    return LifeSupervisor(memory=mem, runner=_Runner(), sink=sink, config=cfg)
+    sup = LifeSupervisor(memory=mem, runner=_Runner(), sink=sink, config=cfg)
+    _seed_research_vertical(sup)
+    return sup
+
+
+def _seed_research_vertical(sup: LifeSupervisor) -> None:
+    # A real mission decides + persists the vertical at run() bootstrap before any
+    # gate read; resolve_vertical is fail-hard, so these unit tests (which invoke
+    # gate methods directly, not run()) seed the research vertical explicitly.
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(sup._artifact_root(), "research")
 
 
 def _append_event(sup: LifeSupervisor, event: dict) -> None:

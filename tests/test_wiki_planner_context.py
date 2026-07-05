@@ -7,6 +7,16 @@ import pytest
 from argus_skill.planner.planner import Planner
 
 
+@pytest.fixture(autouse=True)
+def _persist_research_vertical(tmp_path: Path) -> None:
+    # These tests build the planner prompt on a synthetic tmp project. In a real
+    # mission the Manager decides + persists the vertical before the planner
+    # reads it; resolve_vertical is now fail-hard, so seed the research vertical.
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, "research")
+
+
 def test_planner_prompt_includes_wiki_block_when_present(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

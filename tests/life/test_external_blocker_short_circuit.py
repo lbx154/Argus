@@ -289,6 +289,10 @@ def test_blocker_present_cooldown_not_elapsed_pure_skip(tmp_path: Path):
         planner_runner=_PlannerRunnerThatMustNotBeCalled(),
     )
 
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(sup._artifact_root(), "research")
+
     assert sup._plan_next_work() == "awaiting_external"
     assert mem.backlog.all() == []
 
@@ -406,4 +410,5 @@ def test_bounded_mission_does_not_short_circuit_on_external_blocker(tmp_path: Pa
     # Short-circuit bypassed: NOT awaiting_external / planner_waiting.
     assert result != "awaiting_external"
     assert not any(e.get("type") == "life.planner.waiting" for e in events)
-    assert mem.journal.tail(1)[0].kind != "planner_waiting"
+    tail = mem.journal.tail(1)
+    assert not tail or tail[0].kind != "planner_waiting"

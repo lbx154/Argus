@@ -1,13 +1,19 @@
 """Tests for the Manager new-domain authoring flow in ``Manager.divide``.
 
-A fake runner returns a domain proposal so the LLM authoring path is exercised
-without a real backend.
+``Manager.divide`` makes ONE grounded agent call (``decide_vertical``, see
+``manager/domain_author.py``): the model either picks an existing built-in
+vertical / project data domain (``{"choice": "existing", ...}``) or authors a
+new data domain (``{"choice": "new", ...}``). A fake runner returns one of
+these two JSON shapes so the flow is exercised without a real backend.
 """
 from __future__ import annotations
 
 import json
 
+import pytest
+
 from argus_skill.manager import Manager
+from argus_skill.manager.domain_author import VerticalDecisionError
 from argus_skill.skills import stage_checklists as sc
 from argus_skill.skills import vertical_select as vs
 
@@ -20,22 +26,28 @@ class _FakeResult:
 
 
 class _FakeRunner:
-    """Returns the same domain proposal for every call."""
+    """Returns the same vertical-decision JSON for every call."""
 
-    def __init__(self, proposal: dict) -> None:
-        self._proposal = proposal
+    def __init__(self, decision: dict) -> None:
+        self._decision = decision
         self.calls: list[dict] = []
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         self.calls.append({"prompt": prompt, "options": options, "run_label": run_label})
-        return _FakeResult(json.dumps(self._proposal))
+        return _FakeResult(json.dumps(self._decision))
 
 
-_PROPOSAL = {
+_NEW_DOMAIN_DECISION = {
+    "choice": "new",
     "name": "robotics_sim",
     "stages": ["scope", "simulate", "measure", "report"],
     "rationale": "novel",
     "confidence": 0.8,
+}
+_EXISTING_RESEARCH_DECISION = {
+    "choice": "existing",
+    "vertical": "research",
+    "rationale": "the task is a paper with a literature review and submission",
 }
 # A task carrying NO preset (research/optimize/quant) signal → novel domain.
 _NOVEL_TASK = "Build a closed-loop pick-and-place controller in a MuJoCo world"
@@ -43,7 +55,7 @@ _NOVEL_TASK = "Build a closed-loop pick-and-place controller in a MuJoCo world"
 
 def test_autonomous_authors_and_commits(tmp_path, monkeypatch):
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
-    mgr = Manager(project_root=tmp_path, runner=_FakeRunner(_PROPOSAL))
+    mgr = Manager(project_root=tmp_path, runner=_FakeRunner(_NEW_DOMAIN_DECISION))
     div = mgr.divide(_NOVEL_TASK)
     assert div.kind == "custom" and div.vertical == "robotics_sim"
     assert div.pending_confirmation is False
@@ -55,13 +67,16 @@ def test_autonomous_authors_and_commits(tmp_path, monkeypatch):
 
 def test_ask_mode_defers_write(tmp_path, monkeypatch):
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
-    mgr = Manager(project_root=tmp_path, runner=_FakeRunner(_PROPOSAL))
+    mgr = Manager(project_root=tmp_path, runner=_FakeRunner(_NEW_DOMAIN_DECISION))
     div = mgr.divide(_NOVEL_TASK, ask_on_new_domain=True)
     assert div.pending_confirmation is True
     assert div.proposed_domain is not None
     # Nothing written yet.
     assert not (tmp_path / "research" / "DOMAINS").exists()
-    assert vs.resolve_vertical(tmp_path) == "research"      # still the default
+    # FAIL-HARD: nothing persisted yet, so resolve_vertical raises rather than
+    # silently defaulting to "research".
+    with pytest.raises(vs.VerticalResolutionError):
+        vs.resolve_vertical(tmp_path)
     # Operator confirms.
     committed = mgr.commit_domain(div.task, div.proposed_domain)
     assert committed.vertical == "robotics_sim"
@@ -70,30 +85,30 @@ def test_ask_mode_defers_write(tmp_path, monkeypatch):
 
 def test_preset_task_unchanged(tmp_path, monkeypatch):
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
-    mgr = Manager(project_root=tmp_path, runner=_FakeRunner(_PROPOSAL))
+    mgr = Manager(project_root=tmp_path, runner=_FakeRunner(_EXISTING_RESEARCH_DECISION))
     div = mgr.divide("write an EMNLP paper with a literature review and submission")
     assert div.vertical == "research" and div.kind == "research"
     assert not (tmp_path / "research" / "DOMAINS").exists()  # no domain authored
 
 
-def test_no_runner_falls_back_to_research(tmp_path, monkeypatch):
+def test_no_runner_raises(tmp_path, monkeypatch):
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
-    # No backend → cannot author → safe research default (never worse than before).
-    div = Manager(project_root=tmp_path).divide(_NOVEL_TASK)
-    assert div.vertical == "research"
+    # No backend → cannot decide → FAIL-HARD, no silent research fallback.
+    with pytest.raises(VerticalDecisionError):
+        Manager(project_root=tmp_path).divide(_NOVEL_TASK)
 
 
 def test_authoring_call_is_grounded_not_a_blind_guess(tmp_path, monkeypatch):
-    """Regression: domain authoring must give the Manager real repo access
+    """Regression: the vertical decision must give the Manager real repo access
     (pinned working_dir + dangerous_yolo/full_auto matching the codebase's
     safe_mode convention) instead of a text-only classify call with no tools."""
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_SAFE_MODE", raising=False)
-    runner = _FakeRunner(_PROPOSAL)
+    runner = _FakeRunner(_NEW_DOMAIN_DECISION)
     mgr = Manager(project_root=tmp_path, runner=runner)
     mgr.divide(_NOVEL_TASK)
 
-    call = next(c for c in runner.calls if c["run_label"] == "manager-domain-author")
+    call = next(c for c in runner.calls if c["run_label"] == "manager-vertical-decide")
     opts = call["options"]
     assert opts.working_dir == str(tmp_path)
     assert opts.dangerous_yolo is True
@@ -105,11 +120,11 @@ def test_authoring_call_is_grounded_not_a_blind_guess(tmp_path, monkeypatch):
 def test_authoring_call_respects_safe_mode(tmp_path, monkeypatch):
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
     monkeypatch.setenv("ARGUS_SKILL_SAFE_MODE", "1")
-    runner = _FakeRunner(_PROPOSAL)
+    runner = _FakeRunner(_NEW_DOMAIN_DECISION)
     mgr = Manager(project_root=tmp_path, runner=runner)
     mgr.divide(_NOVEL_TASK)
 
-    call = next(c for c in runner.calls if c["run_label"] == "manager-domain-author")
+    call = next(c for c in runner.calls if c["run_label"] == "manager-vertical-decide")
     opts = call["options"]
     assert opts.dangerous_yolo is False
     assert opts.full_auto is True

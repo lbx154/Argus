@@ -865,7 +865,7 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
         seed_builtin_skills,
         seed_builtin_skills_for_vertical,
     )
-    from ...skills.vertical_select import resolve_vertical
+    from ...skills.vertical_select import VerticalResolutionError, resolve_vertical
 
     raw_target = args.export_builtin_skills or DEFAULT_PROJECT_BUILTIN_SKILLS_DIR
     target = core_paths.resolve_runtime_path(
@@ -879,8 +879,18 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     # builtin pointer stub, so the agent workspace carries the real skill that
     # the vertical's REVIEWER_CHECKLISTS reference. ``--vertical`` overrides; by
     # default the active vertical is resolved from research/PIPELINE_STATE.json
-    # (env ARGUS_SKILL_VERTICAL wins) in the target/cwd.
-    vertical = getattr(args, "vertical", None) or resolve_vertical(Path.cwd())
+    # (env ARGUS_SKILL_VERTICAL wins) in the target/cwd. This is a standalone
+    # operator command that may run outside a decided mission, so fall back to
+    # the ``research`` seed when no vertical is resolvable (the mission-internal
+    # readers all run post-bootstrap, where resolve_vertical is fail-hard).
+    explicit = getattr(args, "vertical", None)
+    if explicit:
+        vertical = explicit
+    else:
+        try:
+            vertical = resolve_vertical(Path.cwd())
+        except VerticalResolutionError:
+            vertical = "research"
     if vertical and vertical != "research":
         result = seed_builtin_skills_for_vertical(
             target, vertical, overwrite=bool(args.apply)

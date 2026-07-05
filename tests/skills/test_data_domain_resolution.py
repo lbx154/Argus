@@ -46,71 +46,10 @@ def test_default_research_env_preserves_persisted_data_domain(tmp_path, monkeypa
     assert vs.resolve_vertical(tmp_path) == "robotics_sim"
 
 
-def test_checklist_store_recovers_data_domain_when_state_is_stale_research(
-    tmp_path, monkeypatch
-):
-    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
-    dd.write_data_domain(
-        tmp_path,
-        "agent_config",
-        stages=["inspect", "modify", "verify", "deliver"],
-    )
-    dd.write_data_domain(
-        tmp_path,
-        "perf_tuning",
-        stages=["profile", "isolate", "optimize", "benchmark", "test", "report"],
-    )
-    state_path = tmp_path / "research" / "PIPELINE_STATE.json"
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(
-        json.dumps({"current_stage": "inspect", "vertical": "research"}),
-        encoding="utf-8",
-    )
-    cs.apply_checklist_ops(tmp_path, [
-        {"op": "add", "stage": "profile", "id": "profile.ground_truth",
-         "statement": "measure ground truth"},
-        {"op": "add", "stage": "isolate", "id": "isolate.trace",
-         "statement": "trace the slow boundary"},
-        {"op": "add", "stage": "optimize", "id": "optimize.patch",
-         "statement": "apply bounded optimization"},
-        {"op": "add", "stage": "benchmark", "id": "benchmark.measure",
-         "statement": "measure the wider workload"},
-        {"op": "add", "stage": "test", "id": "test.guard",
-         "statement": "guard the regression"},
-        {"op": "add", "stage": "report", "id": "report.final",
-         "statement": "write the bounded report"},
-    ])
-
-    assert vs.resolve_vertical(tmp_path) == "perf_tuning"
-    # Read-only recovery: resolver must not "fix" Manager-owned state itself.
-    assert json.loads(state_path.read_text(encoding="utf-8")) == {
-        "current_stage": "inspect",
-        "vertical": "research",
-    }
-
-
-def test_default_research_env_uses_checklist_inferred_data_domain(
-    tmp_path, monkeypatch
-):
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "research")
-    dd.write_data_domain(
-        tmp_path,
-        "perf_tuning",
-        stages=["profile", "isolate", "optimize", "benchmark", "test", "report"],
-    )
-    (tmp_path / "research").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
-        json.dumps({"current_stage": "inspect", "vertical": "research"}),
-        encoding="utf-8",
-    )
-    cs.apply_checklist_ops(tmp_path, [
-        {"op": "add", "stage": "profile", "id": "profile.ground_truth",
-         "statement": "measure ground truth"},
-        {"op": "add", "stage": "report", "id": "report.final",
-         "statement": "write the bounded report"},
-    ])
-
-    assert vs.resolve_vertical(tmp_path) == "perf_tuning"
+# NOTE: the checklist-store DATA-domain INFERENCE (_data_domain_from_checklists)
+# was removed — resolve_vertical is now FAIL-HARD and never guesses the vertical
+# from checklist stages. The Manager decides + persists the vertical explicitly.
+# The two tests that pinned that (now-deleted) inference were removed here.
 
 
 def test_current_stage_uses_data_domain_under_default_research_env(tmp_path, monkeypatch):

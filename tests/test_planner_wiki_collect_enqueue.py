@@ -9,6 +9,15 @@ from argus_skill.planner.planner import Planner
 from argus_skill.wiki.bot_state import BotState, save_bot_state
 
 
+@pytest.fixture(autouse=True)
+def _persist_research_vertical(tmp_path: Path) -> None:
+    # Real missions persist the Manager-decided vertical before the planner runs;
+    # resolve_vertical is fail-hard, so seed research for these synthetic projects.
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, "research")
+
+
 def _make_wiki(tmp_path: Path, project: str = "demo") -> Path:
     wiki = tmp_path / ".autors" / project / "wiki"
     (wiki / "queries").mkdir(parents=True)

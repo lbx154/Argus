@@ -1,6 +1,7 @@
-"""Tests for the Manager division layer — triage / stage split / commit.
+"""Tests for the Manager division layer — decide_vertical / stage split / commit.
 
-Pure-function tests (no LLM): the classifier runs in heuristic mode (runner=None).
+The Manager decides the vertical via ONE grounded agent call; these tests use a
+fake runner returning the decision JSON (no real LLM).
 """
 from __future__ import annotations
 
@@ -10,8 +11,29 @@ from argus_skill.manager import Division, Manager
 from argus_skill.verticals.research.stages import STAGE_ORDER as RESEARCH_STAGES
 
 
-def test_triage_research_paper():
-    vertical, kind, regular = Manager().triage(
+class _DecisionResult:
+    def __init__(self, msg: str) -> None:
+        self.last_agent_message = msg
+        self.agent_messages = [msg]
+        self.thread_id = "t1"
+
+
+class _DecisionRunner:
+    """Fake runner: returns a fixed vertical-decision JSON for every call."""
+
+    def __init__(self, decision: dict) -> None:
+        self._decision = decision
+
+    def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+        return _DecisionResult(json.dumps(self._decision))
+
+
+def _existing(vertical: str) -> _DecisionRunner:
+    return _DecisionRunner({"choice": "existing", "vertical": vertical})
+
+
+def test_triage_existing_research():
+    vertical, kind, regular = Manager(runner=_existing("research")).triage(
         "write a paper on retrieval for EMNLP and prepare the submission"
     )
     assert vertical == "research"
@@ -19,18 +41,13 @@ def test_triage_research_paper():
     assert regular is True
 
 
-def test_triage_optimize_routes_to_nanochat():
-    vertical, kind, regular = Manager().triage(
+def test_triage_existing_nanochat_is_optimize():
+    vertical, kind, regular = Manager(runner=_existing("nanochat")).triage(
         "minimize val_bpb on the nanochat train.py"
     )
-    assert vertical == "nanochat"          # _route_optimize_vertical picked the bpb vertical
+    assert vertical == "nanochat"
     assert kind == "optimize"
     assert regular is True
-
-
-def test_triage_freeform_is_not_regular():
-    _, _, regular = Manager().triage("hi there")
-    assert regular is False                # no research/optimize signal → free-form
 
 
 def test_plan_stages_research_is_the_8_stage_pipeline():
@@ -41,7 +58,7 @@ def test_plan_stages_research_is_the_8_stage_pipeline():
 
 
 def test_divide_commits_vertical_so_supervisor_trusts_it(tmp_path):
-    mgr = Manager(project_root=tmp_path)
+    mgr = Manager(project_root=tmp_path, runner=_existing("nanochat"))
     d = mgr.divide("minimize val_bpb on nanochat train.py")
     assert isinstance(d, Division)
     assert d.vertical == "nanochat" and d.kind == "optimize"
@@ -51,7 +68,9 @@ def test_divide_commits_vertical_so_supervisor_trusts_it(tmp_path):
 
 
 def test_divide_research_persists_and_lists_8_stages(tmp_path):
-    d = Manager(project_root=tmp_path).divide("draft a paper for EMNLP submission")
+    d = Manager(project_root=tmp_path, runner=_existing("research")).divide(
+        "draft a paper for EMNLP submission"
+    )
     assert d.vertical == "research"
     assert d.stages == list(RESEARCH_STAGES)
     assert "regular" in d.headline()

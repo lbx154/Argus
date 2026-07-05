@@ -1,20 +1,22 @@
-"""Manager domain authoring: prompt + strict parser for a NEW data domain.
+"""Manager vertical decision + domain authoring: prompts and strict parsers.
 
-When the Manager triages a Task that matches NO preset vertical, it AUTHORS a new
-domain — a slug name + an ordered Stage list — instead of falling back to the
-research paper pipeline. This is a GROUNDED call (real shell/read access, pinned
-to ``project_root`` — see ``Manager._author_domain``): the prompt tells the model
-to actually inspect the repo before proposing a stage skeleton, rather than
-guessing a generic template from the task sentence alone. This module holds the
-prompt it sends and the strict, fail-closed parser for the JSON proposal,
-mirroring :mod:`argus_skill.manager.stage_decider` (which keeps ``manager/_core``
-thin).
+The Manager makes ONE grounded agent call (``Manager.decide_vertical``, see
+``manager/_core.py``) to choose the vertical for a Task: an existing built-in
+vertical, an existing project data domain, or a freshly AUTHORED domain — a
+slug name + an ordered Stage list. This is a GROUNDED call (real shell/read
+access, pinned to ``project_root``): the prompt tells the model to actually
+inspect the repo before deciding, rather than guessing from the task sentence
+alone. This module holds the prompts it sends and the strict, fail-closed JSON
+parsers, mirroring :mod:`argus_skill.manager.stage_decider` (which keeps
+``manager/_core`` thin).
 
-The proposed domain is persisted as project-local DATA by
+The proposed domain (when authored) is persisted as project-local DATA by
 :func:`argus_skill.verticals._data_domain.write_data_domain`; the per-stage
-checklist is authored later by the Planner. Fail-closed: any ambiguity (bad JSON,
-no usable stages, an un-sluggable name) parses to ``None`` so the Manager falls
-back to the existing safe default (``"research"``).
+checklist is authored later by the Planner. Parsing is fail-closed to ``None``
+on any ambiguity (bad JSON, no usable stages, an un-sluggable/unknown name),
+but the CALLER is FAIL-HARD: ``Manager.decide_vertical`` raises
+``VerticalDecisionError`` on a ``None`` parse — there is NO silent fallback to
+the research default.
 """
 from __future__ import annotations
 
@@ -26,6 +28,15 @@ from typing import Any, Sequence
 _NAME_SANITIZE_RE = re.compile(r"[^a-z0-9_]+")
 _MIN_STAGES = 2
 _MAX_STAGES = 10
+
+
+class VerticalDecisionError(RuntimeError):
+    """Raised when the Manager cannot decide a vertical for a task.
+
+    Fail-hard: no backend/runner, or a model reply that is missing or not a
+    valid choice. There is NO silent fallback to the research default — the
+    Manager must produce a real decision or the mission fails loudly.
+    """
 
 
 @dataclass
@@ -174,6 +185,115 @@ def parse_domain_proposal(
 
 __all__ = [
     "DomainProposal",
+    "VerticalDecision",
+    "VerticalDecisionError",
     "build_domain_author_prompt",
+    "build_vertical_decision_prompt",
     "parse_domain_proposal",
+    "parse_vertical_decision",
 ]
+
+
+@dataclass
+class VerticalDecision:
+    """The Manager's grounded choice of vertical for a task.
+
+    ``choice`` is ``"existing"`` (reuse a known built-in vertical or an existing
+    project data domain) or ``"new"`` (author a fresh data domain). ``vertical``
+    is the chosen/authored name in both cases; ``proposal`` carries the authored
+    domain (stages + slug) only when ``choice == "new"``.
+    """
+
+    choice: str
+    vertical: str
+    proposal: DomainProposal | None = None
+
+
+def build_vertical_decision_prompt(
+    task: str,
+    *,
+    verticals_with_purpose: dict[str, str],
+    existing_data_domains: Sequence[str] = (),
+) -> str:
+    """Render the prompt asking the Manager to CHOOSE a vertical for ``task``.
+
+    The Manager picks an existing built-in vertical when one fits, else an
+    existing project data domain, else authors a NEW data domain. Built-ins are
+    listed with a one-line purpose so the model can prefer them (they ship
+    expert per-stage reviewer checklists; a freshly-authored domain starts with
+    none). This is a GROUNDED, read-only call: investigate the repo first.
+    """
+    menu = "\n".join(
+        f"  - `{name}`: {purpose}" for name, purpose in verticals_with_purpose.items()
+    ) or "  (none)"
+    existing = ", ".join(f"`{v}`" for v in existing_data_domains) or "(none)"
+    return (
+        "You are the MANAGER of an automated research/engineering pipeline. "
+        "Decide which single VERTICAL should run the Task below. A vertical is a "
+        "named pipeline with its own ordered Stages and, for built-ins, expert "
+        "per-stage reviewer checklists.\n\n"
+        "You have shell access in this repository. Before deciding, INVESTIGATE "
+        "— do not guess from the task sentence alone. Read `AGENTS.md`/`README` "
+        "if present and look at the project's structure, language, and tooling "
+        "so your choice fits what this specific repo actually needs. This is a "
+        "READ-ONLY investigation: do NOT edit, create, or delete any file.\n\n"
+        "## Built-in verticals (PREFER one of these when it fits the Task)\n"
+        f"{menu}\n\n"
+        f"## Existing project data domains (also selectable): {existing}\n\n"
+        "## How to choose (in this order)\n"
+        "1. If a BUILT-IN vertical above fits the Task, choose it — built-ins "
+        "carry expert reviewer checklists a fresh domain would lack. E.g. a "
+        "GPU/CUDA/SOL-ExecBench kernel objective is `kernelbench`; a finance "
+        "factor-research report is `quant`; a paper is `research`.\n"
+        "2. Else if an existing project data domain fits, choose it.\n"
+        "3. ONLY if nothing above fits, AUTHOR a new data domain: a slug name "
+        "plus an ordered list of Stages (a phase of work each, lowercase slug, "
+        f"{_MIN_STAGES}-{_MAX_STAGES} stages) grounded in what the repo needs to "
+        "reach a verifiable deliverable. The per-stage checklist is authored "
+        "later by the Planner; you define only the stage SKELETON.\n\n"
+        "## Task\n"
+        f"{(task or '').strip()}\n\n"
+        "When your investigation is done, reply with ONE JSON object and "
+        "NOTHING else (no prose before or after it), in ONE of these two shapes:\n"
+        '{"choice": "existing", "vertical": "<one of the names above>", '
+        '"rationale": "<why it fits, citing what you found in the repo>"}\n'
+        "OR\n"
+        '{"choice": "new", "name": "<slug>", "stages": ["<stage1>", ...], '
+        '"rationale": "<why no existing vertical fits + what you found>", '
+        '"confidence": <0.0-1.0>}\n'
+    )
+
+
+def parse_vertical_decision(
+    raw_text: str,
+    *,
+    known_verticals: Sequence[str] = (),
+    existing_data_domains: Sequence[str] = (),
+) -> VerticalDecision | None:
+    """Validate the Manager's vertical-decision JSON; fail-closed to ``None``.
+
+    ``choice == "existing"`` requires ``vertical`` to name a known built-in or an
+    existing data domain (normalized). ``choice == "new"`` reuses
+    :func:`parse_domain_proposal`. Any ambiguity → ``None`` (the caller raises).
+    """
+    obj = _loads_first_json(raw_text)
+    if not isinstance(obj, dict):
+        return None
+    choice = str(obj.get("choice") or "").strip().lower()
+    if choice == "existing":
+        name = _sluggify_name(obj.get("vertical"))
+        known = {str(v).strip().lower() for v in known_verticals}
+        known |= {str(v).strip().lower() for v in existing_data_domains}
+        if name and name in known:
+            return VerticalDecision(choice="existing", vertical=name, proposal=None)
+        return None
+    if choice == "new":
+        proposal = parse_domain_proposal(
+            raw_text,
+            known_verticals=known_verticals,
+            existing_data_domains=existing_data_domains,
+        )
+        if proposal is None:
+            return None
+        return VerticalDecision(choice="new", vertical=proposal.name, proposal=proposal)
+    return None
