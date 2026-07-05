@@ -48,7 +48,7 @@ class PlannerConfig:
     """Knobs the supervisor passes down to a Planner.plan_next() call."""
 
     model: str | None = None
-    reasoning_effort: str | None = None
+    reasoning_effort: str | None = "xhigh"
     working_dir: str | None = None
     extra_args: list[str] = field(default_factory=list)
     skip_git_repo_check: bool = True
@@ -535,7 +535,7 @@ class Planner:
                 resume_thread_id=None,
                 options=RunnerOptions(
                     model=cfg.model,
-                    reasoning_effort=cfg.reasoning_effort or "high",
+                    reasoning_effort=cfg.reasoning_effort or "xhigh",
                     output_schema_path=PLANNER_SCHEMA_PATH,
                     working_dir=cfg.working_dir,
                     dangerous_yolo=cfg.dangerous_yolo,

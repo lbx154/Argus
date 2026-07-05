@@ -17,7 +17,7 @@ Each role independently resolves three knobs at runtime, all surfaced here:
   Copilot; ``memory`` in tests).
 * **model** — ``ARGUS_SKILL_{ROLE}_MODEL`` (``ARGUS_SKILL_PLAN_MODEL`` for the
   planner) → the capability-vault route → the ``gpt-5.5`` default.
-* **reasoning effort** — ``ARGUS_SKILL_{ROLE}_REASONING_EFFORT`` → ``high``.
+* **reasoning effort** — ``ARGUS_SKILL_{ROLE}_REASONING_EFFORT`` → ``xhigh``.
   Only meaningful for reasoning models (gpt-5.x / o-series); shown as ``—`` for
   a non-reasoning model.
 
@@ -151,12 +151,12 @@ def _resolve_effort(role: str, model: str, env: Mapping[str, str]) -> str | None
     if val:
         return val
     if role == "manager":
-        # REPL Manager triage reuses the engineer effort; Manager._core else
-        # hardcodes "high".
+        # REPL Manager triage reuses the engineer effort; Manager._core also
+        # defaults to xhigh.
         val = (env.get("ARGUS_SKILL_ENGINEER_REASONING_EFFORT") or "").strip()
         if val:
             return val
-    return "high"  # runtime default across roles
+    return "xhigh"  # runtime default across the four resident roles
 
 
 def resolve_role_config(role: str, *, env: Mapping[str, str] | None = None) -> RoleConfig:
@@ -334,6 +334,27 @@ _ROLE_TITLE = {
     "engineer": "Engineer", "reviewer": "Reviewer", "curator": "Curator",
 }
 
+# Fixed role → hue. The SAME role always gets the SAME colour everywhere it is
+# named — startup banner, ``/roles`` panel, the live spinner, and the scrolling
+# event feed — so an operator builds a one-glance colour→role association
+# instead of re-reading text every time (this is the "colour = identity" half
+# of a colour=identity / weight=activity split; see ``role_paint``). Chosen to
+# avoid the two hues this codebase already uses for other meanings (bold_green
+# = "active now" dot, plain yellow = warnings) by pairing intensity with role
+# instead of overloading a single hue for two concepts.
+ROLE_COLOR: dict[str, str] = {
+    "manager": "cyan",
+    "planner": "magenta",
+    "engineer": "green",
+    "reviewer": "yellow",
+}
+ROLE_COLOR_BOLD: dict[str, str] = {
+    "manager": "bold_cyan",
+    "planner": "bold_magenta",
+    "engineer": "bold_green",
+    "reviewer": "bold_yellow",
+}
+
 
 def _fmt_age(age_s: float | None) -> str:
     if age_s is None:
@@ -358,6 +379,21 @@ def _paint(theme: Any, method: str, text: str) -> str:
         return str(fn(text))
     except Exception:  # noqa: BLE001
         return text
+
+
+def role_paint(theme: Any, role: str, text: str, *, bold: bool = True) -> str:
+    """Paint ``text`` in ``role``'s signature hue (see ``ROLE_COLOR``).
+
+    ``bold=True`` (default) uses the full bold variant — for a static
+    reference (the startup banner) or the currently-active role in a live
+    panel. ``bold=False`` renders a softer plain tint for an idle role, so it
+    still carries its identity colour at rest without competing for
+    attention with whichever role is active right now. Unknown roles (e.g.
+    ``curator``) fall through unpainted.
+    """
+    table = ROLE_COLOR_BOLD if bold else ROLE_COLOR
+    method = table.get((role or "").strip().lower())
+    return _paint(theme, method, text) if method else text
 
 
 def _effort_method(effort: str) -> str:
@@ -441,6 +477,7 @@ def format_roles_panel(
     *,
     header_right: str = "",
     width: int = 80,
+    show_config: bool = False,
 ) -> str:
     """A compact, colored per-role panel: backend · model · effort, then the
     live activity on its own indented line. ``theme`` is optional (plain when
@@ -449,7 +486,11 @@ def format_roles_panel(
     name_w = max((len(_ROLE_TITLE.get(c.role, c.role)) for c in configs),
                  default=8)
     lines: list[str] = []
-    title_text = "四角色 · 后端 / 模型 / 推理强度 / 当前动作"
+    title_text = (
+        "四角色 · 后端 / 模型 / 推理强度 / 当前动作"
+        if show_config else
+        "四角色 · 当前动作"
+    )
     # Keep every line strictly narrower than the terminal: a line that reaches the
     # FULL width auto-wraps to a second screen row, which throws off the live
     # in-place redraw's cursor-up count (→ duplicate header). On a narrow terminal
@@ -470,58 +511,63 @@ def format_roles_panel(
     for c in configs:
         act = activities.get(c.role)
         active = bool(act and act.active)
-        dot = _paint(theme, "bold_green" if active else "gray",
-                     "●" if active else "○")
-        name = _ROLE_TITLE.get(c.role, c.role).ljust(name_w)
-        name = _paint(theme, "bold_magenta" if active else "bold", name)
-        sep = _paint(theme, "dim", " · ")
-        backend = _paint(theme, "cyan", c.backend_label)
-        model = _paint(theme, "bold", c.model)
-        if c.effort:
-            effort = (_paint(theme, "dim", "effort ")
-                      + _paint(theme, _effort_method(c.effort), c.effort))
-        else:
-            effort = _paint(theme, "dim", "effort —")
-        lines.append(f"  {dot} {name}  {backend}{sep}{model}{sep}{effort}")
-        # activity line (indented under the name). Clip the free-text label so a
-        # long command never wraps — an in-place live redraw relies on a fixed
-        # line count. Prefix "       ↳ " is 9 cols; keep the whole line ≤ width-2
-        # (2-col margin) so it never reaches the terminal edge and wraps.
+        dot_method = ROLE_COLOR_BOLD.get(c.role, "bold_green") if active else "gray"
+        dot = _paint(theme, dot_method, "●" if active else "○")
+        name_text = _ROLE_TITLE.get(c.role, c.role).ljust(name_w)
+        # Colour = identity (always this role's hue), weight = activity (bold +
+        # full colour only for the role acting right now; a quiet plain tint
+        # otherwise) — so the eye tracks the "active" baton by brightness
+        # while still recognising each role by its consistent hue at rest.
+        name = role_paint(theme, c.role, name_text, bold=active)
         label = act.label if act else "idle"
         age = _fmt_age(act.age_s) if act else ""
         stat = act.status if act else "idle"
         tail = age + ((" · " + stat) if (age and stat and stat != "idle") else "")
         meta_plain = f"  ({tail})" if tail else ""
-        budget = max(12, width - 11 - _disp_width(meta_plain))
-        if _disp_width(label) > budget:
-            # trim to budget columns (CJK-aware), add ellipsis
-            acc = ""
-            w = 0
-            import unicodedata as _ud
-            for ch in label:
-                cw = 2 if _ud.east_asian_width(ch) in ("W", "F") else 1
-                if w + cw > budget - 1:
-                    break
-                acc += ch
-                w += cw
-            label = acc + "…"
-        act_txt = label if active else _paint(theme, "dim", label)
-        meta = _paint(theme, "dim", meta_plain) if tail else ""
-        arrow = _paint(theme, "magenta" if active else "dim", "↳")
-        lines.append(f"       {arrow} {act_txt}{meta}")
+        if show_config:
+            sep = _paint(theme, "dim", " · ")
+            backend = _paint(theme, "cyan", c.backend_label)
+            model = _paint(theme, "bold", c.model)
+            if c.effort:
+                effort = (_paint(theme, "dim", "effort ")
+                          + _paint(theme, _effort_method(c.effort), c.effort))
+            else:
+                effort = _paint(theme, "dim", "effort —")
+            lines.append(f"  {dot} {name}  {backend}{sep}{model}{sep}{effort}")
+            # activity line (indented under the name). Clip the free-text label so a
+            # long command never wraps — an in-place live redraw relies on a fixed
+            # line count. Prefix "       ↳ " is 9 cols; keep the whole line ≤ width-2
+            # (2-col margin) so it never reaches the terminal edge and wraps.
+            budget = max(12, width - 11 - _disp_width(meta_plain))
+            if _disp_width(label) > budget:
+                label = _clip_display(label, budget)
+            act_txt = label if active else _paint(theme, "dim", label)
+            meta = _paint(theme, "dim", meta_plain) if tail else ""
+            arrow = role_paint(theme, c.role, "↳", bold=True) if active else _paint(theme, "dim", "↳")
+            lines.append(f"       {arrow} {act_txt}{meta}")
+        else:
+            # Default live view: one compact action row per role. Config belongs
+            # in /roles, not in the constantly refreshed mission display.
+            meta = _paint(theme, "dim", meta_plain) if tail else ""
+            label_budget = max(10, width - 5 - name_w - _disp_width(meta_plain))
+            if _disp_width(label) > label_budget:
+                label = _clip_display(label, label_budget)
+            act_txt = label if active else _paint(theme, "dim", label)
+            lines.append(f"  {dot} {name}  {act_txt}{meta}")
     lines.append("")
-    # Footer env-var hint. Use the fully-detailed form when it fits; on a narrow
-    # terminal fall back to a compact pointer (and finally clip) so this fixed
-    # line never wraps and desyncs the in-place live redraw.
-    hint_full = "改后端/模型/强度：ARGUS_SKILL_<ROLE>_{BACKEND,MODEL,REASONING_EFFORT}"
-    hint_short = "改后端/模型/强度 → ARGUS_SKILL_<ROLE>_*"
-    if _disp_width(hint_full) <= width - 2:
-        hint = hint_full
-    elif _disp_width(hint_short) <= width - 2:
-        hint = hint_short
-    else:
-        hint = _clip_display(hint_short, max(4, width - 3))
-    lines.append("  " + _paint(theme, "dim", hint))
+    if show_config:
+        # Footer env-var hint. Use the fully-detailed form when it fits; on a narrow
+        # terminal fall back to a compact pointer (and finally clip) so this fixed
+        # line never wraps and desyncs the in-place live redraw.
+        hint_full = "改后端/模型/强度：ARGUS_SKILL_<ROLE>_{BACKEND,MODEL,REASONING_EFFORT}"
+        hint_short = "改后端/模型/强度 → ARGUS_SKILL_<ROLE>_*"
+        if _disp_width(hint_full) <= width - 2:
+            hint = hint_full
+        elif _disp_width(hint_short) <= width - 2:
+            hint = hint_short
+        else:
+            hint = _clip_display(hint_short, max(4, width - 3))
+        lines.append("  " + _paint(theme, "dim", hint))
     # Universal safety net: guarantee no line ever reaches the terminal edge, so
     # the in-place live redraw's line count always matches the screen rows.
     return "\n".join(_clip_ansi_line(ln, width - 1) for ln in lines)
@@ -539,6 +585,7 @@ def format_roles_banner(
     label: str = "roles",
     collapse: bool = False,
     env: Mapping[str, str] | None = None,
+    show_hint: bool = True,
 ) -> str:
     """Compact, config-only per-role block for the startup banner — one line per
     role: ``<name>  <backend> · <model> · effort <e>``. No live activity (all
@@ -565,27 +612,35 @@ def format_roles_banner(
 
     keys = {(c.backend_label, c.model, c.effort) for c in configs}
     if collapse and len(keys) == 1:
+        # Four small role-coloured dots keep the "four roles" identity visible
+        # even when every role shares one config line — a preview of the same
+        # colour language the live panel uses once a mission is running.
+        dots = " ".join(role_paint(theme, c.role, "●") for c in configs)
         one = _cfg_span(configs[0])
-        hint = _paint(theme, "dim", "  ·  四角色实时动作自动常驻，无需 /roles")
-        return f"  {lbl} {one}{hint}"
+        hint = _paint(theme, "dim", "  ·  /roles 查看详情") if show_hint else ""
+        return f"  {lbl} {dots}  {one}{hint}"
 
     name_w = max(len(_ROLE_TITLE.get(c.role, c.role)) for c in configs)
     lines: list[str] = []
     for i, c in enumerate(configs):
         head = lbl if i == 0 else _paint(theme, "gray", " " * 7)
-        name = _paint(theme, "bold", _ROLE_TITLE.get(c.role, c.role).ljust(name_w))
+        name_text = _ROLE_TITLE.get(c.role, c.role).ljust(name_w)
+        name = role_paint(theme, c.role, name_text)  # bold=True: static reference list
         lines.append(f"  {head} {name}  {_cfg_span(c)}")
-    lines.append("  " + _paint(theme, "gray", " " * 7) + " "
-                 + _paint(theme, "dim", "四角色实时动作自动常驻在输入框上方 · 无需 /roles"))
+    if show_hint:
+        lines.append("  " + _paint(theme, "gray", " " * 7) + " "
+                     + _paint(theme, "dim", "输入 /roles 查看后端 / 模型 / 推理强度详情"))
     return "\n".join(lines)
 
 
 def render_roles_snapshot(
     life_dir: Path | str, theme: Any = None, *, width: int = 80,
     header_right: str = "", env: Mapping[str, str] | None = None,
+    show_config: bool = False,
 ) -> str:
     """One-shot convenience: resolve configs + live activity and render."""
     configs = resolve_all_roles(env=env)
     activities = role_activity(life_dir)
     return format_roles_panel(theme, configs, activities,
-                              header_right=header_right, width=width)
+                              header_right=header_right, width=width,
+                              show_config=show_config)

@@ -96,6 +96,12 @@ _EFFECTIVE_PROGRESS_TIMEOUT_MARKER = "effective progress timeout"
 _COMPACTION_THRASH_MARKER = "compaction thrash"
 _RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
 _DAEMON_STOP_INTERRUPT_RE = re.compile(r"^external interrupt:\s*daemon stop requested\b")
+# Distinct from the daemon-stop interrupt above: this fires when the Manager
+# (running in the operator's REPL, a separate process) decided mid-mission
+# that *this one* backlog item should stop right now — the daemon process
+# itself keeps running and will move on to the next ready item. See
+# ``argus_skill.tools.mission_control`` for the writer side of this signal.
+_OPERATOR_ABORT_INTERRUPT_RE = re.compile(r"^external interrupt:\s*operator abort requested\b")
 
 _EFFECTIVE_PROGRESS_TIMEOUT_ENV = "ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS"
 _EFFECTIVE_PROGRESS_CHECK_INTERVAL_ENV = (
@@ -221,6 +227,17 @@ def fatal_error_looks_like_daemon_stop_request(fatal_error: str | None) -> bool:
         return False
     low = str(fatal_error).strip().casefold()
     return bool(_DAEMON_STOP_INTERRUPT_RE.search(low))
+
+
+def fatal_error_looks_like_operator_abort_request(fatal_error: str | None) -> bool:
+    """Return True when the Manager aborted *this one* mission on the
+    operator's behalf (distinct from a full daemon shutdown — the daemon
+    process keeps running and continues with the next ready backlog item).
+    """
+    if not fatal_error:
+        return False
+    low = str(fatal_error).strip().casefold()
+    return bool(_OPERATOR_ABORT_INTERRUPT_RE.search(low))
 
 
 def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
@@ -1184,6 +1201,35 @@ class SupervisedEngineer:
                     None,
                 )
 
+            if fatal_error_looks_like_operator_abort_request(fatal_error):
+                review = operator_abort_review_decision(
+                    fatal_error=fatal_error,
+                    exit_code=getattr(engineer_result, "exit_code", 0),
+                )
+                if on_event:
+                    on_event(_review_event_payload(
+                        review,
+                        round_index=round_index,
+                        round_max=supervised_config.max_rounds,
+                        text="review: skipped (operator abort requested)",
+                        review_skipped=True,
+                    ))
+                rounds.append(RoundRecord(
+                    round_index=round_index,
+                    engineer_message=engineer_message,
+                    engineer_exit_code=engineer_result.exit_code,
+                    checks=[],
+                    review=review,
+                    fatal_error=engineer_result.fatal_error,
+                ))
+                return (
+                    "error",
+                    rounds,
+                    last_engineer_message,
+                    review.reason,
+                    None,
+                )
+
             if fatal_error_looks_like_backend_failure(fatal_error):
                 backend_failure_streak += 1
                 no_progress_streak = 0
@@ -1821,6 +1867,35 @@ def daemon_stop_review_decision(
     )
 
 
+def operator_abort_review_decision(
+    *,
+    fatal_error: str | None,
+    exit_code: int,
+) -> ReviewDecision:
+    error_text = str(fatal_error or f"exit={exit_code}").strip()
+    return ReviewDecision(
+        status="blocked",
+        reason=(
+            "Engineer interrupted because the Manager decided, on the "
+            f"operator's behalf, to abort this mission; error={error_text}"
+        ),
+        next_action=(
+            "This item was intentionally aborted, not a crash — the daemon "
+            "process itself keeps running and will continue with the next "
+            "ready backlog item. Re-add this objective later if it still "
+            "needs doing."
+        ),
+        round_summary_markdown=(
+            "# Review Summary\n\n"
+            "- Reviewer skipped because the Manager aborted this mission on "
+            "the operator's behalf.\n"
+            f"- Error: {error_text}\n"
+        ),
+        completion_summary_markdown="",
+        failure_cause="operator_interrupt",
+    )
+
+
 __all__ = [
     "EngineerConfig",
     "SupervisedConfig",
@@ -1828,8 +1903,10 @@ __all__ = [
     "LoopOutcome",
     "backend_failure_review_decision",
     "daemon_stop_review_decision",
+    "operator_abort_review_decision",
     "fatal_error_looks_like_backend_failure",
     "fatal_error_looks_like_daemon_stop_request",
+    "fatal_error_looks_like_operator_abort_request",
     "fatal_error_looks_like_effective_progress_timeout",
     "fatal_error_looks_like_compaction_thrash",
     "fatal_error_looks_like_recoverable_reconnect",

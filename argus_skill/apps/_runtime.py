@@ -703,10 +703,36 @@ class _SkillLoopRunner:
             shlex.split(raw_extra) if raw_extra else None
         )
         stop_event = getattr(args, "stop_event", None)
+        # Set ONLY by the real 7×24 daemon's own namespace builder (see
+        # ``daemon/life_worker.py:_runner_namespace``) — never by the
+        # REPL-side quick-reply runner (``manager/repl.py:_ensure_manager_runner``)
+        # or by the test/legacy ``_invoke_supervisor`` path. This is what
+        # lets the Manager (running in the OPERATOR's separate REPL process)
+        # ask the daemon to abort whatever mission it is currently executing:
+        # the request is a small file in the shared life_dir (see
+        # ``tools.mission_control``), and only the runner that is actually
+        # driving a real mission round should ever consume it. Gating
+        # explicitly (rather than piggybacking on ``stop_event is not None``)
+        # keeps this correct even if a future change wires a Ctrl-C
+        # ``stop_event`` into one of those other runners for an unrelated
+        # reason — it must never let the Manager's own SELF-turn (which
+        # raises the abort request as one of ITS OWN tool calls) accidentally
+        # kill itself mid-reply.
+        self._enable_mission_abort_signal = bool(
+            getattr(args, "enable_mission_abort_signal", False)
+        )
 
         def _stop_reason() -> str | None:
             if stop_event is not None and stop_event.is_set():
                 return "daemon stop requested"
+            if self._enable_mission_abort_signal:
+                from ..tools.mission_control import pop_pending_mission_abort
+
+                abort_reason = pop_pending_mission_abort(
+                    getattr(self, "_manager_session_root", None)
+                )
+                if abort_reason:
+                    return f"operator abort requested: {abort_reason}"
             return None
 
         self._backend = AgentCliBackend(
@@ -889,17 +915,9 @@ class _SkillLoopRunner:
         seed_thread_id: str | None = None,
         phase_cb: Any = None,
     ) -> "_Outcome | None":
-        # Chat fast-path (operator-REPL/Manager-front-end-only).
-        # Conversational input (greetings, capability questions, acks) doesn't
-        # need matcher → distill → engineer round-loop → reviewer. A trace
-        # before this guard: "hello" cost $0.10 + 72s, ran `pwd && ls && rg
-        # --files && sed README.md`, then the reviewer rejected it for "doing
-        # unrelated repo inspection". A cheap model call classifies the message
-        # and, on a clear CHAT answer, short-circuits to a single chat-prompt
-        # codex call — no skill machinery, no reviewer, no writeback.
-        # Cost note: this classifier runs only on interactive operator free
-        # text (never the 7×24 daemon), so its tiny low-reasoning call is not
-        # part of autonomous spend and is not separately metered.
+        # Operator-REPL front door: classify into SELF (one Codex can handle it)
+        # or TEAM (queue the Planner/Engineer/Reviewer pipeline). Daemon/backlog
+        # work never takes this path.
         from ..core.models import RunnerOptions
 
         _safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
@@ -924,34 +942,66 @@ class _SkillLoopRunner:
                 resume_thread_id=None,
             )
 
-        # The Manager owns the lego-block route decision (chat / simple /
-        # complex); the runner only executes it. Route through the runner's
-        # single Manager instance (manager backend). This whole fast-path is
-        # gated to operator-REPL input (``_allow_chat_fast_path``), so daemon /
-        # backlog / planner work NEVER takes chat or simple — it always runs the
-        # full pipeline with the reviewer gate. The operator is the reviewer for
-        # an interactive simple one-shot.
-        def _phase(label: str) -> None:
-            if callable(phase_cb):
-                try:
-                    phase_cb(label)
-                except Exception:  # noqa: BLE001 — a UI callback must never break triage
-                    pass
+        # The Manager owns the SELF/TEAM route decision; this runner only
+        # executes the chosen path.
+        def _phase(label: str, *, role: str = "manager") -> None:
+            if not callable(phase_cb):
+                return
+            # Prefer the richer ``(label, role=...)`` call (lets the caller
+            # retint a live spinner to this role's signature colour); fall
+            # back to the plain one-arg form for any older/simpler callback
+            # (e.g. a bare ``list.append``, or ``LiveStatus.update`` itself).
+            try:
+                phase_cb(label, role=role)
+                return
+            except TypeError:
+                pass
+            except Exception:  # noqa: BLE001 — a UI callback must never break triage
+                return
+            try:
+                phase_cb(label)
+            except Exception:  # noqa: BLE001
+                pass
 
-        _phase("判断闲聊还是任务…")
+        class _PhaseSink:
+            def __init__(self, inner: EventSink) -> None:
+                self._inner = inner
+
+            def handle_event(self, event: dict[str, Any]) -> None:
+                etype = str(event.get("type") or "")
+                if etype in {"loop.start", "engineer.progress"}:
+                    txt = str(
+                        event.get("text")
+                        or event.get("title")
+                        or event.get("reason")
+                        or event.get("kind")
+                        or ""
+                    ).strip()
+                    if txt:
+                        _phase(f"Manager · {txt[:80]}")
+                self._inner.handle_event(event)
+
+            def handle_stream_line(self, stream: str, line: str) -> None:
+                handler = getattr(self._inner, "handle_stream_line", None)
+                if callable(handler):
+                    handler(stream, line)
+
+            def close(self) -> None:
+                closer = getattr(self._inner, "close", None)
+                if callable(closer):
+                    closer()
+
+        _phase("判断 Codex 独立处理还是交给 Argus 团队…")
         route = self.manager.route(objective, run_exec=_classify_run_exec)
-        if route == "chat":
-            _phase("组织回应…")
-            return self._chat_quick_reply(
-                objective=objective, sink=sink, seed_thread_id=seed_thread_id,
-            )
         if route == "simple":
-            _phase("直接执行一次性小任务…")
+            _phase("Codex 独立处理…")
             return self._simple_quick_reply(
-                objective=objective, sink=sink, seed_thread_id=seed_thread_id,
+                objective=objective,
+                sink=_PhaseSink(sink),
+                seed_thread_id=seed_thread_id,
             )
-        _phase("转交后台执行（复杂任务）…")
-        return None  # complex → full mission pipeline
+        _phase("交给 Planner / Engineer / Reviewer…")
+        return None
 
     def chat_reply_if_conversational(
         self,
@@ -1015,12 +1065,12 @@ class _SkillLoopRunner:
             "engineer_model": args.engineer_model,
             "reviewer_model": args.reviewer_model,
             "engineer_reasoning_effort": getattr(
-                args, "engineer_reasoning_effort", "high"
+                args, "engineer_reasoning_effort", "xhigh"
             ),
             "reviewer_reasoning_effort": getattr(
                 args,
                 "reviewer_reasoning_effort",
-                "high",
+                "xhigh",
             ),
             "max_rounds": args.max_rounds,
             "check_commands": list(getattr(args, "check_commands", []) or []),
@@ -1369,11 +1419,14 @@ class _SkillLoopRunner:
                 prompt=prompt,
                 options=RunnerOptions(
                     model=args.engineer_model,
-                    reasoning_effort=getattr(args, "engineer_reasoning_effort", "high"),
+                    reasoning_effort=getattr(args, "engineer_reasoning_effort", "xhigh"),
                     full_auto=safe_mode,
                     skip_git_repo_check=True,
                     dangerous_yolo=not safe_mode,
                     working_dir=str(workdir),
+                    watchdog_hard_idle_seconds=_env_int(
+                        "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 45,
+                    ),
                 ),
                 run_label="chat-1",
                 resume_thread_id=seed,
@@ -1458,6 +1511,72 @@ class _SkillLoopRunner:
         except Exception:  # noqa: BLE001 — skill is an OPTIONAL block
             return ""
 
+    def _live_mission_status_block(self) -> str:
+        """Best-effort '## Live mission status' block for the SELF prompt.
+
+        Gives the Manager (talking to the operator right now, on its OWN
+        REPL-side runner) real, grounded visibility into whatever the
+        DAEMON — a separate process sharing the same ``life_dir`` — is
+        currently doing, plus the exact shell command to abort it. Empty
+        (and the SELF prompt stays byte-identical to before this existed)
+        whenever nothing is running or the read fails for any reason; this
+        must never break an ordinary chat reply.
+        """
+        session_root = getattr(self, "_manager_session_root", None)
+        if not session_root:
+            return ""
+        try:
+            from ..cli.roles_status import role_activity
+            from ..life.memory import Backlog
+
+            root = Path(session_root)
+            running = [
+                it for it in Backlog(root / "backlog.jsonl").all()
+                if it.status == "running"
+            ]
+            if not running:
+                return ""
+            item = running[0]
+            activity = role_activity(root)
+
+            lines = [
+                "## Live mission status",
+                "A mission is currently running under your supervision in a "
+                f"separate daemon process (life_dir={root}):",
+                f"- item: \"{(item.title or '').strip()[:120]}\" (id={item.id})",
+            ]
+            started = getattr(item, "started_ts", None)
+            if isinstance(started, (int, float)) and started > 0:
+                lines[-1] += f", running for {max(0, int(time.time() - started))}s"
+            for role in ("planner", "engineer", "reviewer"):
+                act = activity.get(role)
+                if act is None or act.status == "idle":
+                    continue
+                lines.append(f"- {role}: {act.label} ({act.status})")
+            lines.append("")
+            lines.append(
+                "Verify progress yourself before answering if useful — you "
+                "have real shell access (grep logs, read files under "
+                f"{root})."
+            )
+            lines.append(
+                "You alone decide whether to abort this mission; act on "
+                "your own judgment, no operator confirmation required. If "
+                "warranted, run exactly this command, then tell the "
+                "operator what you did:"
+            )
+            lines.append(
+                "  python -m argus_skill.tools.mission_control abort "
+                f'--life-dir "{root}" --reason "<why>"'
+            )
+            lines.append(
+                "The daemon process itself stays alive and moves on to the "
+                "next backlog item; only this one mission is interrupted."
+            )
+            return "\n".join(lines)
+        except Exception:  # noqa: BLE001 — status context is OPTIONAL
+            return ""
+
     def _simple_quick_reply(
         self,
         *,
@@ -1481,26 +1600,49 @@ class _SkillLoopRunner:
 
         sink.handle_event({
             "type": "loop.start",
-            "text": f"simple: {objective[:80]}",
+            "text": f"SELF: one Codex handling {objective[:80]}",
         })
 
         self._current_sink = sink
         self._current_failure_ledger = None
-        skill_block = self._simple_match_skill_block(objective)
-        prompt = build_simple_prompt(objective=objective, skill_block=skill_block)
+        prompt = build_simple_prompt(
+            objective=objective,
+            mission_status=self._live_mission_status_block(),
+        )
         workdir = (
             Path(args.workdir).expanduser() if args.workdir else Path.cwd()
         )
+
+
+        def _self_inactivity(snapshot: Any) -> str | None:
+            try:
+                idle = int(getattr(snapshot, "idle_seconds", 0) or 0)
+                sink.handle_event({
+                    "type": "engineer.progress",
+                    "kind": "codex_idle",
+                    "text": f"Codex process running; no stream output for {idle}s",
+                })
+            except Exception:  # noqa: BLE001
+                pass
+            return None
+
         try:
             result = self._backend.run_exec(
                 prompt=prompt,
                 options=RunnerOptions(
                     model=args.engineer_model,
-                    reasoning_effort=getattr(args, "engineer_reasoning_effort", "high"),
+                    reasoning_effort=getattr(args, "engineer_reasoning_effort", "xhigh"),
                     full_auto=safe_mode,
                     skip_git_repo_check=True,
                     dangerous_yolo=not safe_mode,
                     working_dir=str(workdir),
+                    watchdog_hard_idle_seconds=_env_int(
+                        "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 45,
+                    ),
+                    watchdog_soft_idle_seconds=_env_int(
+                        "ARGUS_SKILL_SELF_SOFT_IDLE_SECONDS", 10,
+                    ),
+                    inactivity_callback=_self_inactivity,
                 ),
                 run_label="simple-1",
                 resume_thread_id=seed,
@@ -1848,11 +1990,11 @@ def _invoke_supervisor(
     ns.reviewer_model = os.environ.get("ARGUS_SKILL_REVIEWER_MODEL") or reviewer_default
     ns.engineer_reasoning_effort = os.environ.get(
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
-        "high",
+        "xhigh",
     )
     ns.reviewer_reasoning_effort = os.environ.get(
         "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
-        "high",
+        "xhigh",
     )
     ns.skills_dir = os.environ.get(
         "ARGUS_SKILL_SKILLS_DIR",

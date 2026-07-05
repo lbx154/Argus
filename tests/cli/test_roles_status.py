@@ -69,9 +69,9 @@ def test_model_defaults_to_gpt55():
 
 # ── reasoning effort ──────────────────────────────────────────────────────
 
-def test_effort_shown_for_reasoning_model_defaults_high():
+def test_effort_shown_for_reasoning_model_defaults_xhigh():
     c = resolve_role_config("engineer", env={"ARGUS_SKILL_ENGINEER_MODEL": "gpt-5.5"})
-    assert c.effort == "high"
+    assert c.effort == "xhigh"
 
 
 def test_effort_none_for_non_reasoning_model():
@@ -150,7 +150,7 @@ def test_activity_empty_when_no_events(tmp_path):
 
 # ── panel rendering ────────────────────────────────────────────────────────
 
-def test_panel_lists_all_roles_backends_models(tmp_path):
+def test_panel_default_is_compact_activity_only(tmp_path):
     now = time.time()
     _write_events(tmp_path, [
         {"type": "engineer.progress", "text": "pytest -q", "ts": now - 3},
@@ -161,11 +161,25 @@ def test_panel_lists_all_roles_backends_models(tmp_path):
     out = format_roles_panel(Theme(enabled=False, width=90), configs, acts)
     for title in ("Manager", "Planner", "Engineer", "Reviewer"):
         assert title in out
-    assert "Codex" in out and "Copilot" in out
-    assert "gpt-5.5" in out
-    assert "effort high" in out
+    assert "pytest -q" in out
+    assert "Codex" not in out and "Copilot" not in out
+    assert "gpt-5.5" not in out
+    assert "ARGUS_SKILL_<ROLE>" not in out
     # the active engineer is marked with the filled dot
     assert "●" in out and "○" in out
+
+
+def test_panel_detail_lists_roles_backends_models(tmp_path):
+    env = {"ARGUS_SKILL_REVIEWER_BACKEND": "copilot"}
+    configs = resolve_all_roles(env=env)
+    acts = role_activity(tmp_path)
+    out = format_roles_panel(
+        Theme(enabled=False, width=90), configs, acts, show_config=True
+    )
+    assert "Codex" in out and "Copilot" in out
+    assert "gpt-5.5" in out
+    assert "effort xhigh" in out
+    assert "ARGUS_SKILL_<ROLE>" in out
 
 
 def test_panel_has_ansi_when_theme_enabled(tmp_path):
@@ -244,7 +258,7 @@ def test_banner_lists_all_four_roles_by_default():
     out = format_roles_banner(Theme(enabled=False, width=100), env={})
     for title in ("Manager", "Planner", "Engineer", "Reviewer"):
         assert title in out
-    assert "Codex" in out and "gpt-5.5" in out and "effort high" in out
+    assert "Codex" in out and "gpt-5.5" in out and "effort xhigh" in out
     assert "/roles" in out  # pointer to the live panel
 
 
@@ -254,6 +268,15 @@ def test_banner_collapse_folds_identical_roles():
     # Collapsed → single line, role names not spelled out.
     assert out.count("\n") == 0
     assert "Codex" in out and "gpt-5.5" in out
+
+
+def test_banner_can_omit_hint_for_minimal_startup():
+    from argus_skill.cli.roles_status import format_roles_banner
+    out = format_roles_banner(
+        Theme(enabled=False, width=100), collapse=True, env={}, show_hint=False
+    )
+    assert "/roles" not in out
+    assert "Codex" in out and "effort xhigh" in out
 
 
 def test_banner_shows_rows_when_backends_differ_even_if_collapse():

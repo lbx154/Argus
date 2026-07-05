@@ -24,6 +24,13 @@ def test_theme_enabled_wraps_with_ansi() -> None:
     assert "ok" in out
 
 
+def test_bold_yellow_wraps_bold_plus_yellow() -> None:
+    t = Theme(enabled=True, truecolor=True)
+    out = t.bold_yellow("x")
+    assert out.startswith("\x1b[1m\x1b[38;2;249;226;175m") and out.endswith("\x1b[0m")
+    assert Theme(enabled=False).bold_yellow("x") == "x"
+
+
 def test_theme_auto_disabled_when_no_color_env(monkeypatch) -> None:
     monkeypatch.setenv("NO_COLOR", "1")
     t = Theme.auto()

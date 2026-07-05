@@ -585,7 +585,7 @@ def _render_codex_config_toml(base_url: str, model: str) -> str:
     safe_url = base_url.rstrip("/") + "/" if base_url and not base_url.endswith("/") else base_url
     return (
         f'model = "{safe_model}"\n'
-        'model_reasoning_effort = "high"\n'
+        'model_reasoning_effort = "xhigh"\n'
         "disable_response_storage = true\n"
         'sandbox_mode = "workspace-write"\n'
         'approval_policy = "never"\n'

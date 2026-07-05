@@ -15,10 +15,11 @@ from .._inbox import format_inbox_event
 from . import _core
 
 _FOLLOW_LAYER_LABELS = {
-    "engineer": "L1 工程师",
-    "reviewer": "L2 审查员",
+    "manager": "Manager",
+    "engineer": "Engineer",
+    "reviewer": "Reviewer",
     # critic layer removed,
-    "planner": "L4 规划师",
+    "planner": "Planner",
 }
 
 
@@ -42,6 +43,8 @@ def _follow_layer_from_event(event: dict, current: str) -> str:
     etype = str(event.get("type") or "")
     if etype in {"life.mission.started", "loop.start", "round.start", "round.main.completed"}:
         return "engineer"
+    if etype.startswith("life.manager.") or etype.startswith("manager."):
+        return "manager"
     if etype in {"round.review.started", "round.review.completed"}:
         return "reviewer"
     if etype in {"life.iteration.critic", "life.iteration.continued"}:
@@ -549,7 +552,50 @@ def _command_failed(event: dict) -> bool:
     )
 
 
+_ROLE_TAG_RE = re.compile(r"\[(Manager|Planner|Engineer|Reviewer)\]")
+
+
+def _colorize_role_tags(theme: Any, text: str) -> str:
+    """Recolour every ``[Role]`` tag in ``text`` with that role's signature hue
+    (see ``cli.roles_status.ROLE_COLOR``) — a pure text touch-up applied to an
+    already-rendered, append-only line. No cursor math, no redraw risk: this
+    is the same append-only scrolling feed as before, just with the same
+    colour-per-role language used everywhere else in the cockpit."""
+    if theme is None:
+        return text
+    from ...cli.roles_status import role_paint
+
+    def _sub(m: "re.Match[str]") -> str:
+        name = m.group(1)
+        return role_paint(theme, name, f"[{name}]")
+
+    return _ROLE_TAG_RE.sub(_sub, text)
+
+
 def _format_follow_event(
+    event: dict,
+    current_layer: str,
+    *,
+    mission_context: dict[str, str] | None = None,
+    theme: Any = None,
+) -> str | None:
+    """Render one ``events.jsonl`` line for the scrolling follow view.
+
+    ``theme`` is optional and additive: when given, the ``[Role]`` tag is
+    recoloured in that role's signature hue (see ``_colorize_role_tags``);
+    omitted entirely (``None``, the default), this is byte-for-byte the
+    historical plain-text output every existing caller (the TUI's styled
+    feed pane, tests) already relies on.
+    """
+    rendered = _format_follow_event_body(
+        event, current_layer, mission_context=mission_context
+    )
+    if rendered and theme is not None:
+        return _colorize_role_tags(theme, rendered)
+    return rendered
+
+
+def _format_follow_event_body(
     event: dict,
     current_layer: str,
     *,
@@ -582,6 +628,38 @@ def _format_follow_event(
                 return None
             return f"  [{label}] 🧠 {_clean_follow_text(text, limit=180)}"
         return f"  [{label}] ▸ {_clean_follow_text(text, limit=160)}"
+
+    # Manager events (front-door SELF/TEAM route, vertical division, stage
+    # advance/hold/rollback) previously had NO branch here and silently
+    # vanished from the follow feed — the operator could watch Engineer /
+    # Reviewer / Planner but never see what the Manager itself decided. All
+    # four roles now show up in the same scrolling transcript.
+    if etype == "life.manager.intent.started":
+        return f"🧭 [{_follow_layer_label('manager')}] 判断任务归属…"
+
+    if etype == "life.manager.intent.completed":
+        vertical = str(event.get("vertical") or "")
+        kind = str(event.get("kind") or "")
+        bits = [f"→ {vertical}" if vertical else "分流完成"]
+        if kind:
+            bits.append(f"kind={kind}")
+        return f"🧭 [{_follow_layer_label('manager')}] " + " · ".join(bits)
+
+    if etype == "life.manager.intent.failed":
+        err = _clean_follow_text(str(event.get("error") or ""), limit=None)
+        return f"⚠️ [{_follow_layer_label('manager')}] 分流失败" + (f" · {err}" if err else "")
+
+    if etype == "life.manager.stage_decision":
+        action = str(event.get("action") or "hold")
+        stage = str(event.get("target_stage") or event.get("current_stage") or "")
+        reason = _clean_follow_text(str(event.get("reason") or ""), limit=120)
+        if stage and action != "hold":
+            verdict = f"{action} → {stage}"
+        elif stage:
+            verdict = f"{action} @ {stage}"
+        else:
+            verdict = action
+        return f"🧭 [{_follow_layer_label('manager')}] {verdict}" + (f" · {reason}" if reason else "")
 
     if etype == "life.telemetry":
         inline = _format_telemetry_inline(event)

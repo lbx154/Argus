@@ -28,8 +28,9 @@ Three sides of the selector live here:
 Precedence for the resolved vertical (read side):
 
     explicit non-default env ``ARGUS_SKILL_VERTICAL``  >  persisted
-    project-local DATA domain when env is the safe default ``research``  >
-    persisted ``vertical``  >  "research"
+    project-local DATA domain when env / persisted state is the safe default
+    ``research`` and the active checklist store clearly belongs to that domain
+    > persisted ``vertical`` > "research"
 
 Provenance: repurposed from ``pipeline_mode.py`` (mode paper|optimize →
 vertical research|speedrun). The prompt builders (planner / reviewer / loop)
@@ -157,6 +158,71 @@ def _is_project_data_domain(value: str | None, project_root: object) -> bool:
         return False
 
 
+def _custom_checklist_stages(project_root: object) -> set[str]:
+    """Return non-empty stage names from the project checklist store.
+
+    Manager-authored DATA domains write their stage checklist items into
+    ``research/CHECKLISTS.json``. When ``PIPELINE_STATE.json`` is stale at the
+    default ``vertical=research`` but the checklist store clearly names a custom
+    domain's stages, this read-only signal lets the resolver honor the active
+    bounded domain without mutating Manager-owned pipeline state.
+    """
+    path = Path(str(project_root)) / "research" / "CHECKLISTS.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — absent/malformed store → no signal
+        return set()
+    stages = payload.get("stages") if isinstance(payload, dict) else None
+    if not isinstance(stages, dict):
+        return set()
+    out: set[str] = set()
+    for stage, items in stages.items():
+        if not isinstance(items, list) or not items:
+            continue
+        normalized = _normalize_stage(stage)
+        if normalized:
+            out.add(normalized)
+    return out
+
+
+def _data_domain_from_checklists(project_root: object) -> str | None:
+    """Infer the active project-local DATA domain from custom checklist stages.
+
+    This is intentionally conservative: a domain is returned only when all
+    non-empty checklist-store stages are contained in exactly one loadable
+    project-local data domain, and at least two stages match. That avoids
+    collapsing a normal paper project with one ad-hoc checklist tweak into an
+    unrelated old data domain left in ``research/DOMAINS``.
+    """
+    custom_stages = _custom_checklist_stages(project_root)
+    if len(custom_stages) < 2:
+        return None
+    try:
+        from ..verticals._data_domain import list_data_domains, load_data_domain
+    except Exception:  # noqa: BLE001 — resolver must stay fail-open
+        return None
+
+    candidates: list[tuple[int, str]] = []
+    for name in list_data_domains(project_root):
+        try:
+            domain = load_data_domain(name, project_root)
+        except Exception:  # noqa: BLE001 — bad domain is ignored
+            domain = None
+        if domain is None:
+            continue
+        order = {
+            _normalize_stage(stage)
+            for stage in getattr(domain, "CHECKLIST_STAGE_ORDER", ()) or ()
+            if _normalize_stage(stage)
+        }
+        if custom_stages and custom_stages.issubset(order):
+            candidates.append((len(custom_stages), name))
+
+    if len(candidates) != 1:
+        return None
+    return candidates[0][1]
+
+
 def resolve_vertical(project_root: object = ".") -> str:
     """Resolve the active vertical (cheap, deterministic, no LLM).
 
@@ -165,20 +231,32 @@ def resolve_vertical(project_root: object = ".") -> str:
         1. env ``ARGUS_SKILL_VERTICAL`` — only if it names a known vertical
            (a trailing ``-needed`` sentinel is stripped first). Explicit
            non-default env values win.
-        2. persisted project-local DATA domain when the env value is only the
+        2. inferred project-local DATA domain when the env / persisted state is
+           only the safe default ``"research"`` and ``research/CHECKLISTS.json``
+           clearly belongs to that domain.
+        3. persisted project-local DATA domain when the env value is only the
            safe default ``"research"``
-        3. persisted ``vertical`` in ``research/PIPELINE_STATE.json``
-        4. ``"research"`` (the safe default)
+        4. persisted ``vertical`` in ``research/PIPELINE_STATE.json``
+        5. ``"research"`` (the safe default)
 
     This is the read side consulted on every stage transition/gate; it never
     raises and never spends a token.
     """
     env = _known_vertical(os.environ.get(ENV_VERTICAL), project_root)
     persisted = _persisted_vertical(project_root)
+    inferred_domain = _data_domain_from_checklists(project_root)
     if env is not None:
         if env == DEFAULT_VERTICAL and _is_project_data_domain(persisted, project_root):
             return persisted
+        if env == DEFAULT_VERTICAL and inferred_domain is not None:
+            return inferred_domain
         return env
+
+    if (
+        inferred_domain is not None
+        and (persisted is None or persisted == DEFAULT_VERTICAL)
+    ):
+        return inferred_domain
 
     if persisted is not None:
         return persisted
@@ -357,6 +435,7 @@ def classify_vertical(
     objective: object,
     runner: object = None,
     profile_hint: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> str:
     """Decide the vertical for ``objective`` (bootstrap, once).
 
@@ -389,7 +468,10 @@ def classify_vertical(
             return _heuristic_classify(objective)
         result = run_exec(
             prompt=prompt,
-            options=RunnerOptions(full_auto=True),
+            options=RunnerOptions(
+                reasoning_effort=reasoning_effort,
+                full_auto=True,
+            ),
             run_label="vertical-classify",
         )
         answer = _parse_llm_vertical(getattr(result, "last_agent_message", "") or "")

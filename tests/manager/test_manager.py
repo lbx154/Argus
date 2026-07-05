@@ -71,14 +71,13 @@ def test_manager_no_runner_treats_free_text_as_task():
     assert Manager(runner=None).is_conversational("hi") is False
 
 
-def test_manager_owns_chat_vs_task_decision():
-    # The Manager is the decision-maker: a clear CHAT verdict → True, else TASK.
+def test_manager_owns_self_vs_team_decision():
     mgr = Manager()
     assert mgr.is_conversational(
-        "hello there", run_exec=lambda p: _FakeResult("CHAT")
+        "hello there", run_exec=lambda p: _FakeResult("SELF")
     ) is True
     assert mgr.is_conversational(
-        "minimize val_bpb on train.py", run_exec=lambda p: _FakeResult("TASK")
+        "minimize val_bpb on train.py", run_exec=lambda p: _FakeResult("TEAM")
     ) is False
 
 
@@ -119,13 +118,13 @@ def test_role_skill_block_match_true_fires_matcher(tmp_path):
 
 def test_route_does_not_fire_matcher(tmp_path):
     mgr = _mgr_with_store(tmp_path)
-    out = mgr.route("hello", run_exec=lambda p: _FakeResult("COMPLEX"))
+    out = mgr.route("hello", run_exec=lambda p: _FakeResult("TEAM"))
     assert mgr.mission.calls == 0
-    assert out in ("chat", "simple", "complex")
+    assert out in ("simple", "complex")
 
 
 def test_is_conversational_does_not_fire_matcher(tmp_path):
     mgr = _mgr_with_store(tmp_path)
-    out = mgr.is_conversational("hi there", run_exec=lambda p: _FakeResult("CHAT"))
+    out = mgr.is_conversational("hi there", run_exec=lambda p: _FakeResult("SELF"))
     assert mgr.mission.calls == 0
     assert out is True

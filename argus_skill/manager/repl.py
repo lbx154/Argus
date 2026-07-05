@@ -208,6 +208,7 @@ def tail_mission_events(
                     event,
                     current_layer,
                     mission_context=current_mission,
+                    theme=theme,
                 )
                 if rendered:
                     print(rendered, flush=True)
@@ -379,9 +380,10 @@ def read_message_with_live_cockpit(
     input path — CJK-safe. Degrades to a plain prompt on any of: not a TTY, no
     ``termios``, ``ARGUS_SKILL_COCKPIT_LIVE=0``, no life-dir, no live daemon, a
     too-short terminal, or any unexpected error (the core input path is never
-    put at risk)."""
+    put at risk). The cursor-rewrite cockpit is opt-in via
+    ``ARGUS_SKILL_COCKPIT_LIVE=1``; the default is the plain prompt."""
     from ..apps._input_helpers import read_pasted_message
-    if os.environ.get("ARGUS_SKILL_COCKPIT_LIVE", "1") == "0":
+    if not _live_cockpit_enabled():
         return read_pasted_message(prompt)
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         return read_pasted_message(prompt)
@@ -396,9 +398,8 @@ def read_message_with_live_cockpit(
         life_dir = None
     if life_dir is None:
         return read_pasted_message(prompt)
-    # Only pin the cockpit when a daemon is actually alive — that is when there is
-    # real multi-agent activity worth watching. Idle-with-no-daemon → plain prompt
-    # (no panel spam before every line).
+    # This path is explicit opt-in only. It uses terminal cursor rewrites, so the
+    # default REPL input path stays boring and reliable.
     def _daemon_right() -> str:
         try:
             from ..daemon.life_worker import read_daemon_status
@@ -619,6 +620,7 @@ def _follow_events_stream(
                 event,
                 current_layer,
                 mission_context=current_mission,
+                theme=theme,
             )
             if rendered:
                 print(rendered, flush=True)
@@ -699,7 +701,94 @@ _CONFIG_DEFAULTS: dict[str, Any] = {
     "per_mission_cap": 30.0,
     "daily_cap": 180.0,
     "continuous": False,
+    "manager_effort": "xhigh",
+    "planner_effort": "xhigh",
+    "engineer_effort": "xhigh",
+    "reviewer_effort": "xhigh",
 }
+
+_ROLE_EFFORT_ENVS: dict[str, str] = {
+    "manager": "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
+    "planner": "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
+    "engineer": "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
+    "reviewer": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
+}
+_ROLE_ALIASES: dict[str, tuple[str, ...]] = {
+    "manager": ("manager", "管理", "经理", "前台"),
+    "planner": ("planner", "计划", "规划"),
+    "engineer": ("engineer", "工程", "执行"),
+    "reviewer": ("reviewer", "评审", "验收"),
+}
+_EFFORT_VALUES = ("xhigh", "max", "high", "medium", "low")
+
+
+def _live_cockpit_enabled() -> bool:
+    return os.environ.get("ARGUS_SKILL_COCKPIT_LIVE", "0").strip() == "1"
+
+
+def _live_follow_enabled() -> bool:
+    return os.environ.get("ARGUS_SKILL_FOLLOW_LIVE", "0").strip() == "1"
+
+
+def _maybe_handle_role_effort_text(
+    mem: Any,
+    text: str,
+    chat_state: dict[str, Any],
+) -> bool:
+    """Handle simple operator config requests before they become Planner work.
+
+    The REPL must not send "把四角色 effort 改成 xhigh" through the research
+    pipeline. This conservative recognizer only fires when the text mentions
+    Argus/roles plus an explicit effort value and a configuration verb.
+    """
+    raw = (text or "").strip()
+    low = raw.casefold()
+    if not raw:
+        return False
+    if not any(tok in low for tok in ("effort", "reasoning", "推理", "强度")):
+        return False
+    effort = next((v for v in _EFFORT_VALUES if v in low), "")
+    if not effort:
+        return False
+    if not any(tok in low for tok in ("改", "设置", "设为", "默认", "change", "set", "config", "配置")):
+        return False
+    mentions_product = "argus" in low or "四角色" in low or "4角色" in low or "所有角色" in low
+    roles: list[str] = []
+    if any(tok in low for tok in ("四角色", "四个角色", "4角色", "所有角色", "全部角色", "all roles", "every role")):
+        roles = list(_ROLE_EFFORT_ENVS)
+    else:
+        for role, aliases in _ROLE_ALIASES.items():
+            if any(alias in low for alias in aliases):
+                roles.append(role)
+    if not roles and mentions_product:
+        roles = list(_ROLE_EFFORT_ENVS)
+    if not roles:
+        return False
+
+    for role in roles:
+        os.environ[_ROLE_EFFORT_ENVS[role]] = effort
+    cfg = chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))
+    for role in roles:
+        cfg[f"{role}_effort"] = effort
+    # The cached front-door runner captured the old namespace; rebuild it so
+    # subsequent chat/simple turns also use the new effort.
+    chat_state.pop("manager_runner", None)
+
+    theme = chat_state.get("theme")
+    role_names = " / ".join(role.title() for role in roles)
+    line = f"已把 {role_names} 默认 reasoning effort 设为 {effort}。"
+    print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
+
+    try:
+        from ..daemon.life_worker import read_daemon_status
+
+        st = read_daemon_status(_life_dir_for(mem))
+        if getattr(st, "alive", False):
+            msg = "当前已运行 daemon 的环境不会被热改；用 /daemon restart --drain 在任务边界重启后完全生效。"
+            print(theme.gray("  " + msg) if theme is not None else msg, flush=True)
+    except Exception:  # noqa: BLE001
+        pass
+    return True
 
 
 def _config_cmd(tokens: list[str], chat_state: dict[str, Any],
@@ -1072,14 +1161,14 @@ def _daemon_cmd(
             print(tail)
 
 
-def _spawn_daemon_from_cockpit(cfg: Any) -> int:
+def _spawn_daemon_from_cockpit(cfg: Any, *, quiet: bool = True) -> int:
     """Start a daemon from the cockpit without forking from TUI worker threads."""
     import threading
 
     if threading.current_thread() is threading.main_thread():
         from ..daemon.life_worker import spawn_detached_daemon
 
-        return spawn_detached_daemon(cfg)
+        return spawn_detached_daemon(cfg, quiet=quiet)
 
     import subprocess
 
@@ -1091,7 +1180,7 @@ def _spawn_daemon_from_cockpit(cfg: Any) -> int:
         "from argus_skill.daemon.life_worker import _config_from_payload, "
         "spawn_detached_daemon; "
         "cfg = _config_from_payload(json.loads(sys.stdin.read())); "
-        "raise SystemExit(spawn_detached_daemon(cfg))"
+        f"raise SystemExit(spawn_detached_daemon(cfg, quiet={quiet!r}))"
     )
     try:
         proc = subprocess.run(
@@ -1177,22 +1266,40 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
     try:
         from ..tools.capability_vault import resolve_route_model
 
+        # ``manager_session_root`` MUST match the daemon's own
+        # ``ns.manager_session_root = str(cfg.life_dir)`` (see
+        # ``daemon/life_worker.py:_runner_namespace``) — otherwise this
+        # front-door Manager (built once per REPL session, used for
+        # SELF/TEAM routing + ``divide()``) reads/writes
+        # ``research/PIPELINE_STATE.json`` and ``research/DOMAINS/*.json``
+        # against a DIFFERENT root than the daemon that actually executes
+        # the mission. That mismatch silently drops a Manager-authored
+        # custom domain (e.g. an operator task that doesn't match any
+        # built-in vertical) and logs a spurious
+        # ``load_vertical(...): unknown/half-built vertical`` warning the
+        # next time the daemon resolves the vertical from ITS (correct,
+        # session-scoped) root. ``mem.project_root`` is the per-project
+        # session dir; ``mem.root`` (used below for ``life_dir``, a
+        # differently-scoped, currently-unread-by-this-path field) is the
+        # GLOBAL ``~/.argus-skill`` root — do not conflate the two.
+        session_root = getattr(mem, "project_root", None)
         ns = argparse.Namespace(
             backend=backend or "codex",
             engineer_model=os.environ.get("ARGUS_SKILL_ENGINEER_MODEL")
             or resolve_route_model("engineer"),
             reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL"),
             engineer_reasoning_effort=os.environ.get(
-                "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high"
+                "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh"
             ),
             reviewer_reasoning_effort=os.environ.get(
-                "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high"
+                "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh"
             ),
             plan_mode="auto",
             plan_model=None,
             max_rounds=500,
             check=[],
             workdir=None,
+            manager_session_root=str(session_root) if session_root else None,
             life_dir=getattr(mem, "root", None),
             stop_event=None,
         )
@@ -1278,8 +1385,12 @@ def _manager_divide_user_task(mem: Any, body: str, chat_state: dict[str, Any]) -
         if mgr is None:
             from ..manager import Manager
 
+            # Match the primary path's root (see ``_ensure_manager_runner``):
+            # the session-scoped project dir, NOT the git worktree — so a
+            # degraded (no-runner) divide still persists vertical/domain state
+            # where the daemon's mission execution will actually look for it.
             mgr = Manager(
-                project_root=getattr(mem, "project_worktree", None) or Path.cwd(),
+                project_root=getattr(mem, "project_root", None) or Path.cwd(),
                 runner=None,
             )
         division = mgr.divide(body, ask_on_new_domain=False)
@@ -1315,43 +1426,67 @@ def _manager_divide_user_task(mem: Any, body: str, chat_state: dict[str, Any]) -
 
 def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                    *, on_phase: Any = None) -> str | None:
-    """The Manager is the FIRST responder to every operator line. Classify the
-    input as conversation vs a real task. Returns the Manager's chat reply text
-    when it is conversational (the caller shows it and does NOT enqueue), or
-    ``None`` when it is a task (caller routes it to the backlog). Fail-soft → None
-    (treat as a task). Reused by the line REPL and the TUI so the Manager greets
-    the operator on both surfaces, in every mode (no longer gated to non-continuous).
+    """Front-door route: one-Codex SELF work returns a reply; TEAM work returns
+    ``None`` so the caller queues the Argus Planner/Engineer/Reviewer pipeline.
 
-    ``on_phase(label)`` — optional callback invoked at the REAL phase
-    transitions (classify → reply), so a live status line reflects what the
-    Manager is actually doing rather than a timed cosmetic rotation.
+    ``on_phase(label, *, role=...)`` — optional callback invoked at the REAL
+    phase transitions (classify → reply), so a live status line reflects what
+    the Manager is actually doing rather than a timed cosmetic rotation.
+    ``role`` is a best-effort extra (falls back to the plain one-arg call for
+    any callback that does not accept it) naming which of the four roles
+    drove this update, so the caller can retint a live spinner to match.
     """
     runner = _ensure_manager_runner(chat_state, mem)
     if runner is None or not hasattr(runner, "chat_reply_if_conversational"):
         return None
     captured: list[str] = []
 
-    def _progress_label(event: dict[str, Any]) -> str | None:
-        # Turn a streaming chat-turn action into a short live spinner label so the
-        # operator SEES the manager execute commands (chat can now run tools).
+    def _progress_label(event: dict[str, Any]) -> tuple[str, str] | None:
         try:
             from ..apps.cli._follow import _clean_follow_text
-            txt = str(event.get("text") or event.get("kind") or "").strip()
+            txt = str(
+                event.get("text")
+                or event.get("title")
+                or event.get("reason")
+                or event.get("kind")
+                or ""
+            ).strip()
             if not txt:
                 return None
-            return _clean_follow_text(txt, limit=64)
+            role = str(event.get("agent_layer") or "manager").strip() or "manager"
+            title = {
+                "manager": "Manager",
+                "planner": "Planner",
+                "engineer": "Engineer",
+                "reviewer": "Reviewer",
+            }.get(role, role.title())
+            return role, title + " · " + _clean_follow_text(txt, limit=64)
         except Exception:  # noqa: BLE001
             return None
+
+    def _emit_phase(role: str, label: str) -> None:
+        if not callable(on_phase):
+            return
+        try:
+            on_phase(label, role=role)
+            return
+        except TypeError:
+            pass
+        except Exception:  # noqa: BLE001 — a UI callback must never break triage
+            return
+        try:
+            on_phase(label)
+        except Exception:  # noqa: BLE001
+            pass
 
     class _Capture:
         def handle_event(self, event: dict[str, Any]) -> None:
             try:
                 etype = str(event.get("type") or "")
-                if etype == "engineer.progress":
-                    if callable(on_phase):
-                        lbl = _progress_label(event)
-                        if lbl:
-                            on_phase(lbl)
+                if etype in {"loop.start", "engineer.progress"}:
+                    parsed = _progress_label(event)
+                    if parsed:
+                        _emit_phase(*parsed)
                     return
                 if etype != "round.main.completed":
                     return
@@ -1454,6 +1589,9 @@ def _free_text_cmd(
     body = body or text.strip()
     theme = chat_state.get("theme")
 
+    if _maybe_handle_role_effort_text(mem, body, chat_state):
+        return
+
     # Manager front door — answer conversation, route tasks. Skipped only for a
     # blocked-continuation answer (which must continue the task, not be re-chatted).
     if not chat_state.get("blocked_item_id"):
@@ -1461,8 +1599,27 @@ def _free_text_cmd(
         # phase (classify → reply / hand-off), not a timed cosmetic rotation, so
         # it honestly reflects what the Manager is doing. No-op on non-TTY.
         from ..cli.live_status import LiveStatus
-        with LiveStatus("manager 判断中…", theme=theme) as _live:
-            reply = manager_triage(mem, body, chat_state, on_phase=_live.update)
+        from ..cli.roles_status import ROLE_COLOR_BOLD
+
+        with LiveStatus(
+            "判断 SELF / TEAM…",
+            theme=theme,
+            phrases=["判断 SELF / TEAM…", "等待 Codex 首个事件…"],
+            phrase_interval=10.0,
+            accent=ROLE_COLOR_BOLD.get("manager", "magenta"),
+        ) as _live:
+            # Retint the spinner glyph to whichever role drove this update (the
+            # SAME hue it wears in the banner / /roles panel / follow feed) —
+            # the label text itself stays plain, so there is no risk of a
+            # nested ANSI reset truncating its styling.
+            def _on_phase(label: str, *, role: str | None = None) -> None:
+                accent = ROLE_COLOR_BOLD.get((role or "").strip().lower())
+                if accent:
+                    _live.update_role(accent, label)
+                else:
+                    _live.update(label)
+
+            reply = manager_triage(mem, body, chat_state, on_phase=_on_phase)
         if reply is not None:
             line = (("  " + theme.cyan("argus") + theme.dim(" ↳ ") + reply)
                     if theme is not None else f"  argus ↳ {reply}")
@@ -1498,7 +1655,7 @@ def _free_text_cmd(
         # Multi-agent live view: pin the four-role panel and refresh it in place
         # (interactive TTY). Falls back to the scrolling event tail when piped /
         # non-interactive so tests and logs are unchanged.
-        if sys.stdout.isatty():
+        if sys.stdout.isatty() and _live_follow_enabled():
             final = follow_mission_live_roles(
                 life_dir, None, theme=theme,
                 header="following daemon (Ctrl-C stops observing; daemon keeps running)…",
@@ -1536,7 +1693,7 @@ def _free_text_cmd(
     )
     print(theme.gray(queued) if theme is not None else queued, flush=True)
 
-    if sys.stdout.isatty():
+    if sys.stdout.isatty() and _live_follow_enabled():
         final = follow_mission_live_roles(life_dir, item.id, theme=theme)
     else:
         final = tail_mission_events(life_dir, item.id, theme=theme)
@@ -1909,8 +2066,8 @@ def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> 
             tid = chat_state.get("last_thread_id") if chat_state is not None else None
             if tid:
                 print(f"{'codex':<{_LBL}}: reusing the previous session  (/reset to start fresh)")
-    # Compact four-role line — the active role + its backend/model/effort, with
-    # a pointer to the full `/roles` panel. Fail-soft (never breaks /status).
+    # Compact four-role action line. Backend/model/effort live in /roles, not in
+    # every status snapshot. Fail-soft (never breaks /status).
     try:
         from ..cli.roles_status import resolve_all_roles, role_activity
         acts = role_activity(_life_dir_for(mem))
@@ -1918,14 +2075,10 @@ def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> 
                        if acts.get(r) and acts[r].active), None)
         cfgs = {c.role: c for c in resolve_all_roles()}
         if active and active in cfgs:
-            c = cfgs[active]
-            eff = f" {c.effort}" if c.effort else ""
             print(f"{'roles':<{_LBL}}: ● {active} · {acts[active].label[:40]}"
-                  f"  [{c.backend_label} {c.model}{eff}]   (/roles for all)")
+                  f"   (/roles for details)")
         else:
-            be = {c.backend_label for c in cfgs.values()}
-            print(f"{'roles':<{_LBL}}: idle · backends {', '.join(sorted(be))}"
-                  f"   (/roles for backend/model/effort)")
+            print(f"{'roles':<{_LBL}}: idle   (/roles for details)")
     except Exception:  # noqa: BLE001
         pass
 
@@ -1957,7 +2110,8 @@ def _roles_cmd(mem: Any, chat_state: dict[str, Any], arg_text: str = "") -> None
     watch = arg_text.strip().lower() in ("watch", "-w", "--watch", "live", "-f")
     if not watch:
         print(render_roles_snapshot(life_dir, theme, width=width,
-                                    header_right=_daemon_right()), flush=True)
+                                    header_right=_daemon_right(),
+                                    show_config=True), flush=True)
         return
 
     # Live refresh: redraw the panel in place every ~1s until Ctrl-C. Only when
@@ -1972,7 +2126,8 @@ def _roles_cmd(mem: Any, chat_state: dict[str, Any], arg_text: str = "") -> None
         sys.stdout.write("\x1b[?25l")  # hide cursor during redraw
         while True:
             panel = render_roles_snapshot(life_dir, theme, width=width,
-                                          header_right=_daemon_right())
+                                          header_right=_daemon_right(),
+                                          show_config=True)
             n = panel.count("\n") + 1
             if prev_lines:
                 # cursor up, then clear from cursor to end of screen so no stale
@@ -2350,8 +2505,7 @@ def _run_manager_repl_locked(
 
     from ..apps._input_helpers import enable_bracketed_paste, read_pasted_message
     enable_bracketed_paste()
-    from .. import __version__ as _argus_version
-    from ..cli.branding import TAGLINE, render_logo
+    from ..cli.branding import render_logo
     from ..cli.theme import Theme
 
     theme = Theme.auto(force=getattr(args, "color", None))
@@ -2404,7 +2558,7 @@ def _run_manager_repl_locked(
             status = read_daemon_status(mem.project.root)
             if not status.alive:
                 cfg = _build_worker_config(args, bundle=mem)
-                spawn_rc = spawn_detached_daemon(cfg)
+                spawn_rc = spawn_detached_daemon(cfg, quiet=True)
                 if spawn_rc == 0:
                     from ..cli.live_status import LiveStatus
                     with LiveStatus(
@@ -2457,123 +2611,37 @@ def _run_manager_repl_locked(
 
     global_root = chat_state.get("global_root")
 
-    # ── Banner (compact) ───────────────────────────────────────────
-    # One brand line + one live-status line. The full config table moved to
-    # `/status` (on demand) — a bare REPL launch should not wall-of-text the
-    # operator. Daemon/preflight WARNINGS are still surfaced (they're load-
-    # bearing), and the footer is honest about the chat-fast-path.
+    # ── Banner (minimal) ───────────────────────────────────────────
     print()
     print(render_logo(theme=theme))
-    print("  " + theme.italic(theme.gray(TAGLINE))
-          + "  " + theme.dim(f"v{_argus_version}"))
-    arrow = theme.dim("→")
-    label = lambda s: theme.gray(f"{s:<10}")  # noqa: E731
-
-    def _hint_line(label_text: str, message: str, color) -> None:  # noqa: ANN001
-        """Print a `label -> message` line, word-wrapping with a hanging
-        indent on narrow terminals instead of letting the raw text hard-wrap
-        mid-word/mid-command (as plain ``print`` would)."""
-        prefix = f"  {label_text:<10} \u2192 "
-        lines = theme.wrap_after(message, first_indent=len(prefix))
-        print(prefix + color(lines[0]))
-        for cont in lines[1:]:
-            print(color(cont))
-
-    pending_n = len(mem.backlog.pending())
-    # ``global_root`` is a local of the OUTER run_manager_repl; inside this
-    # locked body it lives only in chat_state. Bind it here so the session-name
-    # lookup AND the live-daemon hint below resolve (they were silently failing
-    # on a NameError before, swallowed by their try/except).
-    # Session line (Codex/Claude-Code style): which session this is, and whether
-    # it's a fresh one or a resumed one.
-    _sid = getattr(args, "session_id", None)
-    if _sid:
-        _is_new = bool(getattr(args, "session_is_new", False))
-        _nm = ""
-        try:
-            from ..core.session import read_session_meta
-            _m = read_session_meta(global_root, _sid)
-            if _m:
-                _nm = _m.display_name or (_m.objective[:40] if _m.objective else "")
-        except Exception:  # noqa: BLE001
-            pass
-        _tag = theme.bold_green("new session") if _is_new else theme.bold("resumed")
-        print("  " + _tag + theme.dim("  ·  ") + theme.cyan(_sid)
-              + (theme.dim("  ·  ") + theme.gray(_nm) if _nm else ""))
-    # The path is usually the variable-length part; if the daemon-cell +
-    # pending count + project root would overflow the terminal width, give
-    # the path its own line instead of letting the terminal hard-wrap it
-    # mid-directory-name.
-    from ..cli.theme import visible_len as _visible_len
-    _life_head = ("  " + _format_daemon_mode_cell(theme, mem)
-                  + theme.dim("  ·  ") + theme.bold(str(pending_n)) + theme.gray(" pending"))
-    _root_str = str(mem.project.root)
-    _root_part = theme.dim("  ·  ") + theme.cyan(_root_str)
-    if _visible_len(_life_head) + 5 + len(_root_str) <= theme.width:
-        print(_life_head + _root_part)
-    else:
-        print(_life_head)
-        print("  " + theme.cyan(_root_str))
-    # Surface a LIVE daemon running elsewhere so a fresh session never hides the
-    # operator's actual running work. (Answers "why does it say no daemon?" —
-    # the daemon is alive under another project; offer the one command to reach
-    # it.) Only shown when THIS session has no daemon of its own.
+    _sid = getattr(args, "session_id", None) or getattr(mem.project, "fingerprint", "")
+    print("  " + theme.gray("session ") + theme.cyan(str(_sid or "-")))
     try:
-        _here_alive, _ = _daemon_alive_for(mem.project.root)
-        if not _here_alive:
-            from ..core.session import live_daemon_sessions
-            _others = [
-                s for s in live_daemon_sessions(global_root)
-                if str((global_root / "projects" / s.id)) != str(mem.project.root)
-            ]
-            if _others:
-                _o = _others[0]
-                _onm = _o.display_name or (_o.objective[:32] if _o.objective else _o.id)
-                _extra = f" (+{len(_others) - 1} more)" if len(_others) > 1 else ""
-                _hint_line(
-                    "daemon",
-                    f"a daemon is already running: {_onm}{_extra}  —  "
-                    "argus-skill --continue to attach, or /daemons to list",
-                    theme.yellow,
-                )
-    except Exception:  # noqa: BLE001 — banner hint must never break startup
-        pass
-
-    if auto_spawn_msg:
-        _hint_line("daemon", auto_spawn_msg, theme.dim)
-    if no_daemon_warning:
-        _hint_line("warn", no_daemon_warning, theme.yellow)
-    if legacy_zombie_msg:
-        _hint_line("warn", legacy_zombie_msg, theme.yellow)
-    if backend_default == "codex":
-        warning = _codex_preflight_warning()
-        if warning:
-            _hint_line("warn", warning, theme.yellow)
+        from ..daemon.life_worker import read_daemon_status as _read_daemon_status
+        _ds = _read_daemon_status(mem.project.root)
+        _pid = str(_ds.pid) if getattr(_ds, "alive", False) and getattr(_ds, "pid", None) else "-"
+    except Exception:  # noqa: BLE001
+        _pid = "-"
+    print("  " + theme.gray("daemon  ") + theme.cyan(_pid))
     # Per-role backend / model / reasoning-effort — surfaced on the banner so
     # the operator sees which engine each role runs on without typing /roles.
     try:
         from ..cli.roles_status import format_roles_banner
-        roles_block = format_roles_banner(theme)
+        roles_block = format_roles_banner(theme, collapse=True, show_hint=False)
         if roles_block:
             print(roles_block)
     except Exception:  # noqa: BLE001 — banner must never break on this
         pass
     print()
-    _footer = ("greetings & questions are answered here  ·  a real task is "
-               "queued for the daemon  ·  /status · /help · /exit")
-    _footer_lines = theme.wrap_after(_footer, first_indent=2)
-    print("  " + theme.gray(_footer_lines[0]))
-    for _fline in _footer_lines[1:]:
-        print(theme.gray(_fline))
-    print()
 
     base_prompt = theme.bold(theme.cyan("argus"))
-    sep = "  " + theme.bold(theme.magenta("❯")) + " "  # premium heavy angle, mauve accent
     resume_marker = theme.dim(" ↻")  # subtle indicator when codex session is being reused
 
     while True:
         prompt = (
-            base_prompt + (resume_marker if chat_state.get("last_thread_id") else "") + sep
+            theme.gray("╭─ ") + base_prompt
+            + (resume_marker if chat_state.get("last_thread_id") else "")
+            + "\n" + theme.gray("╰─ ")
         )
         try:
             raw = read_message_with_live_cockpit(prompt, mem, theme)

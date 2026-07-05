@@ -40,13 +40,13 @@ SKILL_MD = (
 )
 
 
-def test_skill_loop_defaults_use_high_reasoning_effort() -> None:
+def test_skill_loop_defaults_use_xhigh_reasoning_effort() -> None:
     config = SkillLoopConfig()
 
     assert config.engineer_model == "gpt-5.5"
-    assert config.engineer_reasoning_effort == "high"
+    assert config.engineer_reasoning_effort == "xhigh"
     assert config.matcher_reasoning_effort == "high"
-    assert config.reviewer_reasoning_effort == "high"
+    assert config.reviewer_reasoning_effort == "xhigh"
 
 
 def _continue_review() -> str:

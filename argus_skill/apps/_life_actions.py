@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 import uuid
 from pathlib import Path
@@ -229,7 +230,19 @@ _CONFIG_DEFAULTS: dict[str, Any] = {
     "per_mission_cap": 30.0,
     "daily_cap": 180.0,
     "continuous": False,
+    "manager_effort": "xhigh",
+    "planner_effort": "xhigh",
+    "engineer_effort": "xhigh",
+    "reviewer_effort": "xhigh",
 }
+
+_ROLE_EFFORT_ENVS: dict[str, str] = {
+    "manager_effort": "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
+    "planner_effort": "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
+    "engineer_effort": "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
+    "reviewer_effort": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
+}
+_EFFORT_VALUES = {"low", "medium", "high", "xhigh", "max"}
 
 
 def render_config_cmd(
@@ -253,7 +266,9 @@ def render_config_cmd(
             else:
                 config_lines.append(f"  {key:20s} = {value}")
         config_lines.append("")
-        config_lines.append("  usage: /config cycles=10 budget=50 daily_cap=300")
+        config_lines.append(
+            "  usage: /config cycles=10 budget=50 daily_cap=300 engineer_effort=xhigh"
+        )
         return "\n".join(config_lines)
 
     lines: list[str] = []
@@ -277,6 +292,10 @@ def render_config_cmd(
                 parsed: Any = val.lower() in {"true", "on", "yes", "1"}
             elif expected is int:
                 parsed = max(1, int(val))
+            elif expected is str:
+                parsed = val.strip().lower()
+                if key in _ROLE_EFFORT_ENVS and parsed not in _EFFORT_VALUES:
+                    raise ValueError
             else:
                 parsed = max(0.0, float(val))
         except ValueError:
@@ -290,6 +309,9 @@ def render_config_cmd(
                 lines.append(error)
                 continue
         cfg[key] = parsed
+        if key in _ROLE_EFFORT_ENVS:
+            os.environ[_ROLE_EFFORT_ENVS[key]] = str(parsed)
+            chat_state.pop("manager_runner", None)
         if key == "continuous":
             sync_continuous = True
         if isinstance(parsed, float):

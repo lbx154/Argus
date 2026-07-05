@@ -391,10 +391,10 @@ def main(argv: list[str] | None = None) -> int:
         or resolve_route_model("engineer"),
         reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL"),
         engineer_reasoning_effort=os.environ.get(
-            "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high"
+            "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh"
         ),
         reviewer_reasoning_effort=os.environ.get(
-            "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high"
+            "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh"
         ),
         plan_mode="auto",
         plan_model=None,
@@ -444,10 +444,10 @@ def _build_worker_config(args: argparse.Namespace, *, bundle=None):
         reviewer_model=os.environ.get("ARGUS_SKILL_REVIEWER_MODEL")
         or resolve_route_model("reviewer"),
         engineer_reasoning_effort=os.environ.get(
-            "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high"
+            "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh"
         ),
         reviewer_reasoning_effort=os.environ.get(
-            "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high"
+            "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh"
         ),
         per_mission_cap_usd=float(os.environ.get("ARGUS_SKILL_PER_MISSION_CAP_USD", "30.0")),
         daily_cap_usd=float(os.environ.get("ARGUS_SKILL_DAILY_CAP_USD", "180.0")),
@@ -583,6 +583,7 @@ def _cmd_follow(args: argparse.Namespace) -> int:
                 ev,
                 current_layer,
                 mission_context=current_mission,
+                theme=theme,
             )
             if body:
                 ts_field = lv.format_timestamp(ev.get("ts"), state.prev_ts)

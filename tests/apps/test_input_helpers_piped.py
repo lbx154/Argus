@@ -63,6 +63,15 @@ def test_piped_multiline_block_returns_one_message(monkeypatch):
     assert msg.endswith("3. Run pytest at the end.")
 
 
+def test_readline_prompt_marks_ansi_zero_width():
+    prompt = "\x1b[36margus\x1b[0m ❯ "
+    safe = ih._readline_prompt(prompt)
+
+    assert "\001\x1b[36m\002" in safe
+    assert "\001\x1b[0m\002" in safe
+    assert safe.replace("\001", "").replace("\002", "") == prompt
+
+
 def test_piped_blocks_separated_by_blank_line_become_separate_messages(monkeypatch):
     script = (
         "first mission body\n"

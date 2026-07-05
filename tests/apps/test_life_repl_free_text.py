@@ -8,9 +8,12 @@ runtime infrastructure they drive (runner factory, supervisor driver,
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
@@ -21,7 +24,7 @@ import argus_skill.adapters.agent_cli_backend as agent_cli_backend_mod
 from argus_skill.apps import _runtime
 from argus_skill.daemon.life_worker import write_continuous_config
 from argus_skill.life import MemoryBundle
-from argus_skill.life.memory import BacklogItem, LifeMemory
+from argus_skill.life.memory import Backlog, BacklogItem, LifeMemory
 from argus_skill.manager import repl as manager_repl
 
 _ENV_VARS_TO_CLEAR = (
@@ -35,12 +38,16 @@ _ENV_VARS_TO_CLEAR = (
     "ARGUS_SKILL_DAEMON_HANDOFF_TOKEN",
     "ARGUS_SKILL_DAEMON_SOURCE_SIGNATURE",
     "ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE",
+    "ARGUS_SKILL_COCKPIT_LIVE",
     "ARGUS_SKILL_ENGINEER_MODEL",
     "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
+    "ARGUS_SKILL_FOLLOW_LIVE",
     "ARGUS_SKILL_HOME",
     "ARGUS_SKILL_LIFE_BACKEND",
+    "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
     "ARGUS_SKILL_MAX_ROUNDS",
     "ARGUS_SKILL_PER_MISSION_CAP_USD",
+    "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
     "ARGUS_SKILL_PLAN_MODE",
     "ARGUS_SKILL_PLAN_MODEL",
     "ARGUS_SKILL_RESEARCH_PROFILE",
@@ -136,8 +143,8 @@ def test_invoke_supervisor_uses_global_skills_root(
     )
     assert captured["skills_dir"] == str(expected_path)
     assert captured["project_worktree"] == repo
-    assert "- Engineer reasoning effort: high" in captured["runtime_context"]
-    assert "- Reviewer reasoning effort: high" in captured["runtime_context"]
+    assert "- Engineer reasoning effort: xhigh" in captured["runtime_context"]
+    assert "- Reviewer reasoning effort: xhigh" in captured["runtime_context"]
     assert summary == {"missions_run": 0}
     assert last_thread_id is None
 
@@ -258,6 +265,155 @@ def test_skill_loop_runner_uses_session_root_for_manager_artifacts(
     assert runner.manager.project_root == session_root
     assert runner._artifact_root == session_root
     assert os.environ["ARGUS_SKILL_ARTIFACT_ROOT"] == str(session_root)
+
+
+def test_stop_reason_consumes_mission_abort_when_daemon_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The REAL daemon runner (``enable_mission_abort_signal=True``, set only
+    by ``daemon/life_worker.py:_runner_namespace``) must consume a pending
+    mission-abort request written by the Manager's REPL-side runner into the
+    shared life_dir, terminating the in-flight round via the SAME watchdog
+    path already used for daemon-shutdown interrupts."""
+    from argus_skill.tools.mission_control import request_mission_abort
+
+    session_root = tmp_path / "session"
+    session_root.mkdir()
+    captured: dict[str, Any] = {}
+
+    class FakeAgentCliBackend:
+        def __init__(self, *, backend, default_interrupt_reason_provider=None, **kwargs):
+            self.backend = backend
+            captured["interrupt_provider"] = default_interrupt_reason_provider
+
+    monkeypatch.setattr(agent_cli_backend_mod, "AgentCliBackend", FakeAgentCliBackend)
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+
+    _runtime._SkillLoopRunner(
+        argparse.Namespace(
+            stop_event=threading.Event(),
+            workdir=None,
+            manager_session_root=str(session_root),
+            enable_mission_abort_signal=True,
+        ),
+        seed_thread_id=None,
+    )
+
+    provider = captured["interrupt_provider"]
+    assert provider is not None
+    # Nothing requested yet.
+    assert provider() is None
+
+    request_mission_abort(session_root, reason="operator asked to stop")
+    reason = provider()
+    assert reason == "operator abort requested: operator asked to stop"
+    # One-shot: consumed, so the very next poll sees nothing pending.
+    assert provider() is None
+
+
+def test_stop_reason_ignores_mission_abort_when_not_daemon_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A REPL-side runner (``enable_mission_abort_signal`` unset — the
+    default for ``manager/repl.py:_ensure_manager_runner``) must NEVER
+    consume the abort-request file. That file is written by the Manager's
+    OWN SELF-turn tool call; if this same runner's watchdog also consumed
+    it, the Manager could kill its own in-flight reply before it finished
+    answering the operator."""
+    from argus_skill.tools.mission_control import request_mission_abort
+
+    session_root = tmp_path / "session"
+    session_root.mkdir()
+    captured: dict[str, Any] = {}
+
+    class FakeAgentCliBackend:
+        def __init__(self, *, backend, default_interrupt_reason_provider=None, **kwargs):
+            self.backend = backend
+            captured["interrupt_provider"] = default_interrupt_reason_provider
+
+    monkeypatch.setattr(agent_cli_backend_mod, "AgentCliBackend", FakeAgentCliBackend)
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+
+    _runtime._SkillLoopRunner(
+        argparse.Namespace(
+            stop_event=threading.Event(),
+            workdir=None,
+            manager_session_root=str(session_root),
+            # enable_mission_abort_signal intentionally omitted.
+        ),
+        seed_thread_id=None,
+    )
+
+    provider = captured["interrupt_provider"]
+    assert provider is not None  # stop_event alone still installs a provider
+
+    path = request_mission_abort(session_root, reason="operator asked to stop")
+    assert provider() is None
+    # Untouched — a disabled runner must not even peek at (let alone delete)
+    # a request file it has no business consuming.
+    assert path.exists()
+
+
+def test_live_mission_status_block_empty_when_nothing_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = _make_skill_loop_runner(monkeypatch)
+    runner._manager_session_root = tmp_path
+    assert runner._live_mission_status_block() == ""
+
+
+def test_live_mission_status_block_empty_when_no_session_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _make_skill_loop_runner(monkeypatch)
+    runner._manager_session_root = None
+    assert runner._live_mission_status_block() == ""
+
+
+def test_live_mission_status_block_reports_running_item_and_abort_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = _make_skill_loop_runner(monkeypatch)
+    runner._manager_session_root = tmp_path
+
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    backlog.add(
+        BacklogItem.new(title="Optimize matmul kernel", objective="make it 2x faster")
+    )
+    claimed = backlog.claim_next()
+    assert claimed is not None
+
+    events_path = tmp_path / "events.jsonl"
+    events_path.write_text(
+        json.dumps({
+            "type": "engineer.progress",
+            "text": "editing kernel.cu",
+            "ts": time.time(),
+            "agent_layer": "engineer",
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    block = runner._live_mission_status_block()
+    assert "## Live mission status" in block
+    assert "Optimize matmul kernel" in block
+    assert claimed.id in block
+    assert str(tmp_path) in block
+    assert "python -m argus_skill.tools.mission_control abort" in block
+    assert f'--life-dir "{tmp_path}"' in block
+    assert "engineer" in block.lower()
+    # Full autonomy, per the operator's explicit choice: no confirmation gate.
+    assert "no operator confirmation" in block or "no confirmation" in block
+
+
+def test_live_mission_status_block_never_raises_on_corrupt_backlog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = _make_skill_loop_runner(monkeypatch)
+    runner._manager_session_root = tmp_path
+    (tmp_path / "backlog.jsonl").write_text("not json at all{{{", encoding="utf-8")
+    # Fail-soft: a SELF reply must never break because status-gathering did.
+    assert runner._live_mission_status_block() == ""
 
 
 def test_invoke_and_track_clears_stale_thread_id_on_poisoned_outcome(
@@ -921,6 +1077,23 @@ def test_config_cmd_set_iterate_off(capsys: pytest.CaptureFixture[str]) -> None:
     assert chat_state["config"]["iterate"] is False
 
 
+def test_config_cmd_sets_role_effort(capsys: pytest.CaptureFixture[str]) -> None:
+    chat_state: dict[str, Any] = {
+        "config": dict(manager_repl._CONFIG_DEFAULTS),
+        "manager_runner": object(),
+    }
+
+    manager_repl._config_cmd(["engineer_effort=xhigh", "planner_effort=high"], chat_state)
+
+    assert chat_state["config"]["engineer_effort"] == "xhigh"
+    assert chat_state["config"]["planner_effort"] == "high"
+    assert os.environ["ARGUS_SKILL_ENGINEER_REASONING_EFFORT"] == "xhigh"
+    assert os.environ["ARGUS_SKILL_PLANNER_REASONING_EFFORT"] == "high"
+    assert "manager_runner" not in chat_state
+    out = capsys.readouterr().out
+    assert "engineer_effort = xhigh" in out
+
+
 def test_config_cmd_rejects_bad_key(capsys: pytest.CaptureFixture[str]) -> None:
     """/config badkey=1 prints an error."""
     chat_state: dict[str, Any] = {
@@ -961,6 +1134,51 @@ def test_config_cmd_rejects_continuous_on_memory_backend(
     assert "cannot plan" in out
     assert chat_state["config"]["continuous"] is False
     assert not (tmp_path / "continuous.json").exists()
+
+
+def test_free_text_role_effort_config_does_not_enqueue(mem: LifeMemory) -> None:
+    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
+
+    with patch.object(manager_repl, "_ensure_manager_runner") as ensure:
+        manager_repl._free_text_cmd(
+            mem,
+            "把argus里面默认的四角色的推理effort都改成xhigh",
+            chat_state=chat_state,
+        )
+
+    ensure.assert_not_called()
+    assert mem.backlog.pending() == []
+    assert "manager_runner" not in chat_state
+    assert os.environ["ARGUS_SKILL_MANAGER_REASONING_EFFORT"] == "xhigh"
+    assert os.environ["ARGUS_SKILL_PLANNER_REASONING_EFFORT"] == "xhigh"
+    assert os.environ["ARGUS_SKILL_ENGINEER_REASONING_EFFORT"] == "xhigh"
+    assert os.environ["ARGUS_SKILL_REVIEWER_REASONING_EFFORT"] == "xhigh"
+    assert chat_state["config"]["manager_effort"] == "xhigh"
+    assert chat_state["config"]["planner_effort"] == "xhigh"
+    assert chat_state["config"]["engineer_effort"] == "xhigh"
+    assert chat_state["config"]["reviewer_effort"] == "xhigh"
+
+
+def test_unknown_slash_command_does_not_enter_codex(
+    mem: LifeMemory,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Theme:
+        def gray(self, text: str) -> str:
+            return text
+
+    def boom(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("unknown slash command must not be treated as free text")
+
+    monkeypatch.setattr(manager_repl, "_free_text_cmd", boom)
+
+    manager_repl.dispatch_command(
+        "/et", "/et", mem, {"backend": "codex"}, mem.root, _Theme()
+    )
+
+    out = capsys.readouterr().out
+    assert "unknown command: /et" in out
 
 
 # ---------------------------------------------------------------------------
@@ -1109,6 +1327,88 @@ def test_ensure_manager_runner_builds_and_caches_runner(
     assert captured == {}
 
 
+def test_ensure_manager_runner_session_root_matches_daemon_convention(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: the front-door Manager's ``manager_session_root`` MUST be
+    the per-project session dir (``mem.project_root``) — the SAME root the
+    daemon's own ``_runner_namespace`` passes as
+    ``manager_session_root=str(cfg.life_dir)``.
+
+    Before this fix, ``ns`` never set ``manager_session_root`` at all, so the
+    REPL front-door ``Manager`` fell back to ``Path.cwd()`` (the git
+    worktree) while the daemon's mission-execution ``Manager`` used the
+    session-scoped project dir. A Manager-authored custom domain (e.g. an
+    operator task that matches no built-in vertical) then got written to the
+    WRONG root — invisible to the daemon, which logged a spurious
+    ``load_vertical(...): unknown/half-built vertical`` warning and silently
+    dropped back to the ``research`` vertical.
+    """
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+    bundle = MemoryBundle.for_cwd(repo)
+    # These two roots must differ in a real bundle — global vs per-project —
+    # otherwise this test could not distinguish the bug from the fix.
+    assert bundle.root != bundle.project_root
+
+    captured: dict[str, Any] = {}
+
+    def fake_build(ns: argparse.Namespace, *, seed_thread_id: Any = None) -> Any:
+        captured["manager_session_root"] = ns.manager_session_root
+        return object()
+
+    monkeypatch.setattr(_runtime, "build_life_runner", fake_build)
+    chat_state: dict[str, Any] = {"backend": "codex"}
+    manager_repl._ensure_manager_runner(chat_state, bundle)
+
+    assert captured["manager_session_root"] == str(bundle.project_root)
+
+
+def test_manager_divide_user_task_fallback_uses_session_root_not_worktree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: when no cached runner/Manager is available (e.g. build
+    failure), ``_manager_divide_user_task``'s fallback ``Manager(...)`` must
+    STILL use the session-scoped ``mem.project_root`` — not the git worktree
+    — so a degraded divide never splits vertical/domain state onto a root the
+    daemon can't see."""
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+    bundle = MemoryBundle.for_cwd(repo)
+    bundle.project.root.mkdir(parents=True, exist_ok=True)
+    assert bundle.project_root != repo  # worktree vs session dir must differ
+
+    captured: dict[str, Any] = {}
+
+    class _FakeManager:
+        def __init__(self, *, project_root: Any, runner: Any = None) -> None:
+            captured["project_root"] = project_root
+
+        def divide(self, task: str, *, ask_on_new_domain: bool = False) -> Any:
+            class _Division:
+                vertical = "research"
+                kind = "research"
+                regular = True
+                stages: list[str] = []
+
+                @staticmethod
+                def headline() -> str:
+                    return ""
+
+            return _Division()
+
+    monkeypatch.setattr(manager_repl, "_ensure_manager_runner", lambda *a, **k: None)
+    monkeypatch.setattr("argus_skill.manager.Manager", _FakeManager)
+
+    manager_repl._manager_divide_user_task(bundle, "some task", {"backend": "codex"})
+
+    assert captured["project_root"] == bundle.project_root
+
+
 # ---------------------------------------------------------------------------
 # _SkillLoopRunner.chat_reply_if_conversational / _maybe_chat_outcome
 # ---------------------------------------------------------------------------
@@ -1138,11 +1438,10 @@ class _CollectingSink:
         self.events.append(event)
 
 
-def test_chat_reply_if_conversational_true_emits_chat(
+def test_chat_reply_if_conversational_true_emits_self_reply(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When the Manager classifies as chat, the runner emits a chat reply and
-    chat_reply_if_conversational returns True."""
+    """When the Manager routes to SELF, the runner emits a front-stage reply."""
     runner = _make_skill_loop_runner(monkeypatch)
     sink = _CollectingSink()
 
@@ -1154,26 +1453,33 @@ def test_chat_reply_if_conversational_true_emits_chat(
             return True
 
         def route(self, text: str, *, run_exec: Any = None) -> str:
-            return "chat"
+            return "simple"
 
     # The runner now holds the ONE Manager instance; route through it.
     runner.manager = _FakeManager()
 
-    chat_called: dict[str, Any] = {}
+    self_called: dict[str, Any] = {}
+    phases: list[str] = []
 
-    def fake_chat_quick_reply(*, objective: str, sink: Any, seed_thread_id: Any = None):
-        chat_called["objective"] = objective
+    def fake_simple_quick_reply(*, objective: str, sink: Any, seed_thread_id: Any = None):
+        self_called["objective"] = objective
+        sink.handle_event({"type": "loop.start", "text": "SELF: one Codex handling 你好"})
+        sink.handle_event({"type": "engineer.progress", "text": "reading context"})
         sink.handle_event({"type": "round.main.completed", "last_message": "你好!"})
         return _runtime._Outcome(
             success=True, status="done", stop_reason="", rounds=1,
-            last_thread_id=None, chat_mode=True,
+            last_thread_id=None, chat_mode=False,
         )
 
-    monkeypatch.setattr(runner, "_chat_quick_reply", fake_chat_quick_reply)
+    monkeypatch.setattr(runner, "_simple_quick_reply", fake_simple_quick_reply)
 
-    assert runner.chat_reply_if_conversational(objective="你好", sink=sink) is True
-    assert chat_called["objective"] == "你好"
+    assert runner.chat_reply_if_conversational(
+        objective="你好", sink=sink, phase_cb=phases.append
+    ) is True
+    assert self_called["objective"] == "你好"
     assert any(e.get("type") == "round.main.completed" for e in sink.events)
+    assert any("SELF: one Codex handling" in p for p in phases)
+    assert any("Manager · reading context" in p for p in phases)
 
 
 def test_maybe_chat_outcome_false_returns_none(

@@ -139,6 +139,35 @@ def test_update_changes_label_when_no_phrases():
     assert ls._current_label() == "second"
 
 
+def test_update_accent_retints_spinner_glyph_only():
+    ls = LiveStatus(
+        "x", theme=Theme(enabled=True), stream=io.StringIO(),
+        enabled=True, clock=lambda: 0.0,
+    )
+    ls._start = 0.0
+    before = ls.render_frame()
+    assert Theme(enabled=True).magenta(FRAMES[0]) in before
+    ls.update_accent("bold_green")
+    after = ls.render_frame()
+    assert Theme(enabled=True).bold_green(FRAMES[0]) in after
+    # The label text itself is unaffected by the accent change.
+    assert "x" in after
+
+
+def test_update_role_sets_accent_and_label_together():
+    ls = LiveStatus("idle", stream=io.StringIO(), enabled=True, clock=lambda: 0.0)
+    ls._start = 0.0
+    ls.update_role("bold_yellow", "Reviewer · 裁决中")
+    assert ls._accent == "bold_yellow"
+    assert ls._current_label() == "Reviewer · 裁决中"
+
+
+def test_update_accent_ignores_blank_value():
+    ls = LiveStatus("x", stream=io.StringIO(), enabled=True, clock=lambda: 0.0)
+    ls.update_accent("   ")
+    assert ls._accent == "magenta"  # unchanged default
+
+
 def test_empty_label_falls_back():
     ls = LiveStatus("", stream=io.StringIO(), enabled=True, clock=lambda: 0.0)
     assert ls._current_label() == "working…"

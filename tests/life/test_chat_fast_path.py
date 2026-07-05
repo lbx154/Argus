@@ -45,7 +45,7 @@ class _FakeBackend:
     exit_code: int = 0
     fatal_error: str | None = None
     thread_id: str | None = "tid-chat-1"
-    classify_answer: str = "CHAT"
+    classify_answer: str = "SELF"
     calls: list[dict[str, Any]] = field(default_factory=list)
     classify_calls: list[dict[str, Any]] = field(default_factory=list)
 
@@ -141,32 +141,30 @@ def _make_runner(backend: _FakeBackend) -> Any:
     return runner
 
 
-# ---------- chat fast-path: runner unit tests -----------------------------
+# ---------- Manager SELF fast-path: runner unit tests ----------------------
 
-def test_execute_dispatches_to_chat_path_on_greeting() -> None:
-    """English greeting → ``_chat_quick_reply`` → 1 codex call → chat_mode."""
+def test_execute_dispatches_to_manager_self_path_on_greeting() -> None:
+    """English greeting → one Manager turn, no team pipeline."""
     backend = _FakeBackend(response_message="Hi! How can I help?")
     runner = _make_runner(backend)
     sink = _RecordingSink()
 
     out = runner.execute(objective="hello", sink=sink)
 
-    assert out.chat_mode is True
+    assert out.chat_mode is False
     assert out.success is True
     assert out.status == "done"
     assert out.rounds == 1
     # Exactly one backend call (no matcher / distill / reviewer).
     assert len(backend.calls) == 1
-    assert backend.calls[0]["run_label"] == "chat-1"
-    # Chat uses the same high-effort default as the gpt-5.4-mini engineer route.
-    assert backend.calls[0]["options"].reasoning_effort == "high"
+    assert backend.calls[0]["run_label"] == "simple-1"
+    # SELF uses the same xhigh-effort default as the gpt-5.4-mini engineer route.
+    assert backend.calls[0]["options"].reasoning_effort == "xhigh"
 
 
-def test_execute_simple_path_one_turn_no_reviewer(tmp_path: Path) -> None:
-    """A SIMPLE one-shot → ``_simple_quick_reply``: one bounded codex turn with
-    tools, NO reviewer loop, NO planner. Distinct from CHAT (chat_mode=False, the
-    'simple' loop.done marker) and from COMPLEX (no full pipeline)."""
-    backend = _FakeBackend(response_message="17*23 = 391.", classify_answer="SIMPLE")
+def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
+    """A SELF route answer runs one bounded Manager turn with no reviewer."""
+    backend = _FakeBackend(response_message="17*23 = 391.", classify_answer="SELF")
     runner = _make_runner(backend)
     runner._args.skills_dir = str(tmp_path)  # empty store → no skill match call
     sink = _RecordingSink()
@@ -177,6 +175,9 @@ def test_execute_simple_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert out.chat_mode is False  # it's a task, not chat
     assert len(backend.calls) == 1
     assert backend.calls[0]["run_label"] == "simple-1"
+    assert backend.calls[0]["options"].watchdog_hard_idle_seconds == 45
+    assert backend.calls[0]["options"].watchdog_soft_idle_seconds == 10
+    assert callable(backend.calls[0]["options"].inactivity_callback)
     types = [e.get("type") for e in sink.events]
     assert "round.review.completed" not in types  # NO reviewer
     assert "round.review.started" not in types
@@ -185,23 +186,22 @@ def test_execute_simple_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert "算 17*23" in backend.calls[0]["prompt"]
 
 
-def test_execute_complex_answer_uses_full_pipeline() -> None:
-    """A COMPLEX route answer must NOT short-circuit — the fast-path returns None
-    so the full mission pipeline runs."""
-    backend = _FakeBackend(classify_answer="COMPLEX")
+def test_execute_team_answer_uses_full_pipeline() -> None:
+    """A TEAM route answer must not short-circuit."""
+    backend = _FakeBackend(classify_answer="TEAM")
     runner = _make_runner(backend)
     out = runner._maybe_chat_outcome(objective="optimize the kernel", sink=_RecordingSink())
     assert out is None
 
 
-def test_execute_dispatches_to_chat_path_on_chinese_capability_question() -> None:
+def test_execute_dispatches_to_self_path_on_chinese_capability_question() -> None:
     backend = _FakeBackend(response_message="我可以帮你读代码、改文件、跑测试。")
     runner = _make_runner(backend)
     sink = _RecordingSink()
 
     out = runner.execute(objective="你有什么能力？", sink=sink)
 
-    assert out.chat_mode is True
+    assert out.chat_mode is False
     assert len(backend.calls) == 1
     # Prompt must NOT carry the engineer's Verification template (the
     # full ``## Verification (verbatim)`` heading the engineer prompt
@@ -215,11 +215,11 @@ def test_execute_dispatches_to_chat_path_on_chinese_capability_question() -> Non
 
 def test_execute_uses_full_pipeline_on_real_task(monkeypatch: pytest.MonkeyPatch) -> None:
     """A clear engineering task must NOT short-circuit. The model
-    classifier answers TASK, so the runner falls through to the
+    classifier answers TEAM, so the runner falls through to the
     SkillLoop path. We assert ``_chat_quick_reply`` is NOT invoked by
     setting a sentinel that would raise if called.
     """
-    backend = _FakeBackend(classify_answer="TASK")
+    backend = _FakeBackend(classify_answer="TEAM")
     runner = _make_runner(backend)
     sink = _RecordingSink()
 
@@ -339,9 +339,7 @@ def test_chat_path_marks_status_error_on_codex_failure() -> None:
     assert out.success is False
     assert out.status == "error"
     assert "codex died" in out.stop_reason
-    # chat_mode stays True so the supervisor still skips the critic
-    # — there is nothing to polish even on failure.
-    assert out.chat_mode is True
+    assert out.chat_mode is False
 
 
 # ---------- supervisor: chat outcomes skip the critic loop ---------------

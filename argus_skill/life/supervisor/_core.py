@@ -394,6 +394,9 @@ class LifeSupervisor:
         safe_mode = self._safe_mode_enabled()
         return PlannerConfig(
             model=resolve_route_model("planner") or self.reviewer_model,
+            reasoning_effort=os.environ.get(
+                "ARGUS_SKILL_PLANNER_REASONING_EFFORT", "xhigh"
+            ),
             working_dir=str(self._planner_workdir()),
             skip_git_repo_check=True,
             full_auto=safe_mode,
@@ -776,6 +779,12 @@ class LifeSupervisor:
         if item is None:
             return None
 
+        obsolete_final_submission = (
+            self._maybe_skip_inapplicable_final_submission_item(item)
+        )
+        if obsolete_final_submission is not None:
+            return obsolete_final_submission
+
         ok, reason = self.config.budget.can_start(
             item=item, journal=self.memory.journal
         )
@@ -821,6 +830,45 @@ class LifeSupervisor:
 
         result = self._run_one(item)
         return result
+
+    def _maybe_skip_inapplicable_final_submission_item(
+        self,
+        item: BacklogItem,
+    ) -> dict[str, Any] | None:
+        """Retire stale paper-final tasks when the active vertical is bounded.
+
+        ``scope:final_submission`` only has meaning when the active vertical's
+        completion gate is ``full_emnlp``. If a stale default ``research`` state
+        caused the planner to enqueue a final-submission proof for a
+        Manager-authored bounded domain (for example ``perf_tuning``), do not
+        spend another engineer/reviewer round proving the paper pipeline is
+        missing. Mark the planner artifact ``skipped`` and let the bounded
+        project reach its own terminal planner verdict.
+        """
+        if self._planner_scope_from_item(item) != _PLANNER_SCOPE_FINAL_SUBMISSION:
+            return None
+        if self._effective_full_emnlp_gate(self._artifact_root()):
+            return None
+
+        reason = (
+            "skipped stale final_submission task: active vertical completion "
+            "gate is not full_emnlp"
+        )
+        self.memory.backlog.update(
+            item.id,
+            status="skipped",
+            finished_ts=time.time(),
+            last_error=reason,
+        )
+        self._emit({
+            "type": "life.planner.final_submission_skipped",
+            "item_id": item.id,
+            "title": item.title,
+            "reason": reason,
+            "agent_layer": "supervisor",
+        })
+        self._emit_status(reason)
+        return {"status": "skipped", "item_id": item.id, "reason": reason}
 
     # ------------------------------------------------------------------
     # F5 project-lifecycle gate
@@ -2264,6 +2312,9 @@ class LifeSupervisor:
                 self.config.continuous_objective,
                 runner=self.planner_runner,
                 profile_hint=profile_hint,
+                reasoning_effort=os.environ.get(
+                    "ARGUS_SKILL_PLANNER_REASONING_EFFORT", "xhigh"
+                ),
             )
             artifact_root = self._artifact_root()
             vertical_select.persist_vertical(artifact_root, vertical)

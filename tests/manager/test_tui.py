@@ -112,7 +112,7 @@ def test_dispatch_pasted_daemon_cli_starts_executor_not_task(
     def fake_read(life_dir: Any) -> Any:
         return SimpleNamespace(alive=False, pid=None, uptime_seconds=None, backend=None)
 
-    def fake_spawn(cfg: Any) -> int:
+    def fake_spawn(cfg: Any, *, quiet: bool = False) -> int:
         captured["life_dir"] = cfg.life_dir
         captured["backend"] = cfg.backend
         return 0

@@ -49,6 +49,7 @@ _OPTIMIZE_VERTICALS = frozenset(
 )
 
 log = logging.getLogger(__name__)
+_DEFAULT_MANAGER_REASONING_EFFORT = "xhigh"
 
 # Where the Manager's one persistent codex session lives (under project_root).
 _SESSION_FILE = ".manager_session.json"
@@ -59,13 +60,28 @@ _SESSION_LOCK = ".manager_session.lock"
 _MANAGER_ROLE_SKILL = "argus-manager-role.md"
 _MANAGER_ROLE_FALLBACK = """# Argus Manager Role
 
-The Manager is argus-skill's task-divider and pipeline authority. It classifies
-the task into a vertical, splits it into that vertical's stages, owns the
-advance/hold/rollback stage transition (the SOLE post-bootstrap writer of
-`current_stage`), approves which reviewer-proposed skills enter the library, and
-routes free text as conversation-vs-task. It never writes code or judges the win
-itself — it divides the work and hands the current stage to the existing engine.
+You are the Manager. Keep one-Codex work on the front-stage self path; send
+team-sized work to Planner/Engineer/Reviewer. For stage decisions, output only
+the required JSON.
 """
+
+
+def _manager_reasoning_effort() -> str:
+    for key in (
+        "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
+        "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
+    ):
+        raw = (os.environ.get(key) or "").strip()
+        if raw:
+            return raw
+    return _DEFAULT_MANAGER_REASONING_EFFORT
+
+
+def _manager_safe_mode() -> bool:
+    raw = os.environ.get("ARGUS_SKILL_SAFE_MODE")
+    if raw is None:
+        return False
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _session_lock_timeout_s() -> float:
@@ -444,7 +460,11 @@ class Manager:
     def triage(self, task: str) -> tuple[str, str, bool]:
         """Return (vertical, kind, regular). Reuses vertical_select — no new classifier."""
         vertical = normalize_vertical(
-            classify_vertical(task, runner=(self._session or self.runner))
+            classify_vertical(
+                task,
+                runner=(self._session or self.runner),
+                reasoning_effort=_manager_reasoning_effort(),
+            )
         )
         kind = "optimize" if vertical in _OPTIMIZE_VERTICALS else "research"
         return vertical, kind, self._is_regular(task)
@@ -534,6 +554,15 @@ class Manager:
     def _author_domain(self, task: str) -> Any:
         """Author a new domain (name + stages) via the Manager LLM, or ``None``.
 
+        Grounded, not a blind one-shot guess from the task sentence: the
+        Manager gets real shell/read access and ``project_root`` as its
+        working dir (same ``dangerous_yolo``/``safe_mode`` convention every
+        other real-work call in this codebase uses — planner, engineer,
+        chat/simple), and the prompt explicitly tells it to inspect the repo
+        before proposing a stage skeleton. Mirrors the Planner's own
+        "inspect project state before deciding" pattern instead of inventing
+        a separate, weaker classify-only path for this decision.
+
         Returns a :class:`~argus_skill.manager.domain_author.DomainProposal` on a
         clean proposal; ``None`` when there is no backend or the proposal is
         ambiguous (fail-closed → caller uses the research default)."""
@@ -550,10 +579,17 @@ class Manager:
         prompt = build_domain_author_prompt(
             task, known_verticals=known, existing_data_domains=existing
         )
+        safe_mode = _manager_safe_mode()
         try:
             result = backend.run_exec(
                 prompt=prompt,
-                options=RunnerOptions(reasoning_effort="high", skip_git_repo_check=True),
+                options=RunnerOptions(
+                    reasoning_effort=_manager_reasoning_effort(),
+                    working_dir=str(self.project_root),
+                    dangerous_yolo=not safe_mode,
+                    full_auto=safe_mode,
+                    skip_git_repo_check=True,
+                ),
                 run_label="manager-domain-author",
             )
             return parse_domain_proposal(
@@ -619,14 +655,13 @@ class Manager:
                 return _backend.run_exec(
                     prompt=prompt,
                     options=RunnerOptions(
-                        reasoning_effort="high", skip_git_repo_check=True
+                        reasoning_effort=_manager_reasoning_effort(),
+                        skip_git_repo_check=True,
                     ),
                     run_label="manager-converse",
                 )
 
-        return classify_is_conversational(
-            text, run_exec=run_exec, role_skill_block=self._role_skill_block(text, match=False)
-        )
+        return classify_is_conversational(text, run_exec=run_exec)
 
     def route(self, text: str, *, run_exec: Any = None) -> str:
         """The Manager's lego-block router: pick the SMALLEST block that fits the
@@ -649,14 +684,13 @@ class Manager:
                 return _backend.run_exec(
                     prompt=prompt,
                     options=RunnerOptions(
-                        reasoning_effort="high", skip_git_repo_check=True
+                        reasoning_effort=_manager_reasoning_effort(),
+                        skip_git_repo_check=True,
                     ),
                     run_label="manager-route",
                 )
 
-        return classify_route(
-            text, run_exec=run_exec, role_skill_block=self._role_skill_block(text, match=False)
-        )
+        return classify_route(text, run_exec=run_exec)
 
     # ---- stage-transition authority (the Manager OWNS the pipeline stage) ----
     def decide_stage_transition(
@@ -771,7 +805,8 @@ class Manager:
                 return _backend.run_exec(
                     prompt=prompt,
                     options=RunnerOptions(
-                        reasoning_effort="high", skip_git_repo_check=True
+                        reasoning_effort=_manager_reasoning_effort(),
+                        skip_git_repo_check=True,
                     ),
                     run_label="manager-stage",
                 )
@@ -898,7 +933,7 @@ class Manager:
         diff: str,
         files: list[str],
         test_tail: str,
-        reasoning_effort: str = "high",
+        reasoning_effort: str | None = None,
     ) -> Any:
         """Judge whether a captured self-repair may be landed to the shared branch.
 
@@ -915,7 +950,7 @@ class Manager:
             diff=diff,
             files=files,
             test_tail=test_tail,
-            reasoning_effort=reasoning_effort,
+            reasoning_effort=reasoning_effort or _manager_reasoning_effort(),
         )
 
     # ---- skill-library tidy-up (the Manager is the "janitor") ----

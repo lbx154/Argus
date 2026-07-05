@@ -213,6 +213,20 @@ def test_plan_next_passes_planner_config_to_runner() -> None:
     # Structural prompt assertions only — verify the planner prompt
     # carries the runtime context + the current stage checklist headline.
     assert "Runtime source changed since daemon start." in sent_prompt
+
+
+def test_plan_next_defaults_to_xhigh_reasoning_effort() -> None:
+    runner = _FakeRunner(json.dumps({"project_done": True, "reason": "x", "new_tasks": []}))
+
+    Planner(runner).plan_next(
+        continuous_objective="goal",
+        journal_tail="recent work",
+        planning_cycle=0,
+        runtime_change_summary="",
+    )
+
+    sent_prompt, opts = runner.calls[0]
+    assert opts.reasoning_effort == "xhigh"
     assert "## Stage checklist" in sent_prompt
 
 

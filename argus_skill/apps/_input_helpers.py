@@ -97,6 +97,11 @@ def _stdin_is_tty() -> bool:
         return False
 
 
+def _readline_prompt(prompt: str) -> str:
+    """Wrap ANSI escape sequences so GNU readline treats them as zero-width."""
+    return _ANSI_RE.sub(lambda m: "\001" + m.group(0) + "\002", prompt)
+
+
 def read_pasted_message(prompt: str = "> ") -> str | None:
     """Read one logical message from stdin, preserving paste newlines.
 
@@ -114,14 +119,18 @@ def read_pasted_message(prompt: str = "> ") -> str | None:
     A leading ``/`` line is returned by itself so REPL slash-commands
     still parse correctly when scripted.
     """
-    sys.stdout.write(prompt)
-    sys.stdout.flush()
-
     if not _stdin_is_tty():
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
         return _read_piped_block()
 
     try:
-        first = input()
+        try:
+            import readline  # noqa: F401
+            prompt_for_input = _readline_prompt(prompt)
+        except ImportError:
+            prompt_for_input = prompt
+        first = input(prompt_for_input)
     except EOFError:
         return None
     extras = drain_pasted_lines()

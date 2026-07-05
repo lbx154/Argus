@@ -62,8 +62,10 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_PLAN_MODEL", "gpt-5.5", "model for the L4 planner", "models"),
     Knob("ARGUS_SKILL_MATCHER_MODEL", "gpt-5.5", "model for skill matching", "models"),
     # --- reasoning effort ---
-    Knob("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high", "engineer reasoning effort: low|medium|high|xhigh", "reasoning"),
-    Knob("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high", "reviewer reasoning effort", "reasoning"),
+    Knob("ARGUS_SKILL_MANAGER_REASONING_EFFORT", "xhigh", "manager reasoning effort", "reasoning"),
+    Knob("ARGUS_SKILL_PLANNER_REASONING_EFFORT", "xhigh", "planner reasoning effort", "reasoning"),
+    Knob("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh", "engineer reasoning effort: low|medium|high|xhigh", "reasoning"),
+    Knob("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh", "reviewer reasoning effort", "reasoning"),
     # --- budget ---
     Knob("ARGUS_SKILL_PER_MISSION_CAP_USD", "30.0", "USD cap per mission", "budget"),
     Knob("ARGUS_SKILL_DAILY_CAP_USD", "180.0", "USD cap per local day", "budget"),

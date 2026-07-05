@@ -139,7 +139,7 @@ def test_manager_decision_prompt_unchanged_without_store(tmp_path: Path) -> None
 
 
 # --------------------------------------------------------------------------
-# 4. Manager injects its role skill into classify AND approve too
+# 4. Manager does NOT inject role skill into front-door classify
 # --------------------------------------------------------------------------
 class _CapturingRunner:
     """A runner whose ``run_exec`` records the prompt; tolerates the persistent
@@ -161,7 +161,7 @@ class _CapturingRunner:
         return _R()
 
 
-def test_manager_classify_prompt_carries_role_skill_when_store_present(
+def test_manager_classify_prompt_stays_minimal_when_store_present(
     tmp_path: Path,
 ) -> None:
     from argus_skill.skills.store import SkillStore
@@ -175,18 +175,16 @@ def test_manager_classify_prompt_carries_role_skill_when_store_present(
         seen.append(prompt)
 
         class _R:
-            last_agent_message = "TASK"
+            last_agent_message = "TEAM"
             exit_code = 0
 
         return _R()
 
     mgr.is_conversational("是不是要做点什么", run_exec=run_exec)
     assert seen, "manager never built a classify prompt"
-    # The fixed manager role skill is prepended to the classify prompt.
-    assert "Argus manager role skill" in seen[0]
-    assert "Argus Manager Role" in seen[0]
-    # The classify contract is intact (CHAT/TASK labels still present).
-    assert "CHAT" in seen[0] and "TASK" in seen[0]
+    assert "Argus manager role skill" not in seen[0]
+    assert "Argus Manager Role" not in seen[0]
+    assert "SELF" in seen[0] and "TEAM" in seen[0]
 
 
 def test_manager_classify_prompt_unchanged_without_store(tmp_path: Path) -> None:
@@ -199,7 +197,7 @@ def test_manager_classify_prompt_unchanged_without_store(tmp_path: Path) -> None
         seen.append(prompt)
 
         class _R:
-            last_agent_message = "TASK"
+            last_agent_message = "TEAM"
             exit_code = 0
 
         return _R()

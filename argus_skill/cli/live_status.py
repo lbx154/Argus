@@ -92,6 +92,7 @@ class LiveStatus:
         hint: str = "Ctrl-C to cancel",
         enabled: bool | None = None,
         clock: Callable[[], float] | None = None,
+        accent: str = "magenta",
     ) -> None:
         self._stream: TextIO = stream if stream is not None else sys.stdout
         self._theme = theme
@@ -110,6 +111,13 @@ class LiveStatus:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._active = False
+        # The glyph's colour method (a mauve "magenta" by default — the brand
+        # accent). ``update_accent`` lets a multi-role caller retint the
+        # spinner to whichever role is acting right now (e.g. its
+        # ``cli.roles_status.ROLE_COLOR_BOLD`` method name) — a moving
+        # colour "baton" — without touching the label text at all, so there
+        # is no risk of nested ANSI resets truncating the label's own styling.
+        self._accent = str(accent or "magenta").strip() or "magenta"
 
     # ── public API ───────────────────────────────────────────────────────
 
@@ -121,6 +129,21 @@ class LiveStatus:
         """Thread-safe: change the phase label mid-flight."""
         with self._lock:
             self._label = str(label or "").strip() or self._label
+
+    def update_accent(self, accent: str) -> None:
+        """Thread-safe: retint the spinner glyph (e.g. to the role now driving
+        progress), independent of the label text."""
+        accent = str(accent or "").strip()
+        if not accent:
+            return
+        with self._lock:
+            self._accent = accent
+
+    def update_role(self, accent: str, label: str) -> None:
+        """Convenience: set the label and the glyph accent in one call — the
+        common case when a new event names both "who" and "what"."""
+        self.update_accent(accent)
+        self.update(label)
 
     def __enter__(self) -> "LiveStatus":
         if not self._enabled:
@@ -178,10 +201,13 @@ class LiveStatus:
         """The full escape sequence for one repaint (no thread needed)."""
         spin = FRAMES[self._frame % len(FRAMES)]
         label = self._current_label()
+        with self._lock:
+            accent = self._accent
         elapsed = _fmt_elapsed(self._clock() - self._start)
         meta = f"({elapsed}" + (f" · {self._hint}" if self._hint else "") + ")"
         body = (
-            self._color("magenta", spin)  # mauve accent — the signature spinner
+            self._color(accent, spin)  # mauve by default; a multi-role caller
+            # may retint this per active role via ``update_accent``/``update_role``
             + " "
             + self._color("bold", label)
             + "  "

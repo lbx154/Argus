@@ -260,6 +260,9 @@ class Theme:
     def bold_magenta(self, text: str) -> str:
         return self._wrap(text, _BOLD, self._sgr("magenta"))
 
+    def bold_yellow(self, text: str) -> str:
+        return self._wrap(text, _BOLD, self._sgr("yellow"))
+
     # ── gradient ──────────────────────────────────────────────────────
 
     def gradient(

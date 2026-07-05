@@ -1,10 +1,10 @@
 """Fallback + safety tests for the idle live cockpit input path.
 
-``read_message_with_live_cockpit`` pins a live four-role panel above the prompt
-so the operator never has to type ``/roles``. It must degrade to the plain
-``read_pasted_message`` path on every unsupported condition (non-TTY, disabled,
-no daemon, …) so the core input path is never at risk. These tests exercise the
-degrade paths without a real terminal.
+``read_message_with_live_cockpit`` can pin a live four-role panel above the
+prompt when explicitly enabled. It must degrade to the plain
+``read_pasted_message`` path by default and on every unsupported condition
+(non-TTY, disabled, no daemon, …) so the core input path is never at risk.
+These tests exercise the degrade paths without a real terminal.
 """
 
 from __future__ import annotations
@@ -41,6 +41,16 @@ def test_non_tty_delegates_to_plain_read():
         m.assert_called_once()
 
 
+def test_default_disabled_delegates(monkeypatch):
+    monkeypatch.delenv("ARGUS_SKILL_COCKPIT_LIVE", raising=False)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True, raising=False)
+    with patch.object(input_helpers, "read_pasted_message",
+                      return_value="PLAIN") as m:
+        assert _run() == "PLAIN"
+        m.assert_called_once()
+
+
 def test_env_disabled_delegates(monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_COCKPIT_LIVE", "0")
     with patch.object(input_helpers, "read_pasted_message",
@@ -51,6 +61,7 @@ def test_env_disabled_delegates(monkeypatch):
 
 def test_tty_but_no_daemon_delegates(monkeypatch):
     # Force the TTY + termios gates open, but report no live daemon → still plain.
+    monkeypatch.setenv("ARGUS_SKILL_COCKPIT_LIVE", "1")
     monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
     monkeypatch.setattr("sys.stdout.isatty", lambda: True, raising=False)
 

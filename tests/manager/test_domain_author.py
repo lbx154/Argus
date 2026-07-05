@@ -57,3 +57,16 @@ def test_prompt_mentions_known_and_existing():
     )
     assert "research" in prompt and "quant" in prompt and "robotics_sim" in prompt
     assert "JSON" in prompt
+
+
+def test_prompt_instructs_grounded_investigation_not_blind_guess():
+    """Regression: the Manager must be told to actually inspect the repo
+    (shell access, read-only) before proposing a stage skeleton, instead of
+    guessing a generic template from the task sentence alone."""
+    prompt = build_domain_author_prompt(
+        "optimize the slowest function", known_verticals=["research"],
+    )
+    assert "shell access" in prompt.lower()
+    assert "investigate" in prompt.lower()
+    assert "READ-ONLY" in prompt
+    assert "do NOT edit" in prompt

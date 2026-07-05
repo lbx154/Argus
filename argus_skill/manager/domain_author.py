@@ -2,9 +2,13 @@
 
 When the Manager triages a Task that matches NO preset vertical, it AUTHORS a new
 domain — a slug name + an ordered Stage list — instead of falling back to the
-research paper pipeline. This module holds the prompt it sends and the strict,
-fail-closed parser for the JSON proposal, mirroring
-:mod:`argus_skill.manager.stage_decider` (which keeps ``manager/_core`` thin).
+research paper pipeline. This is a GROUNDED call (real shell/read access, pinned
+to ``project_root`` — see ``Manager._author_domain``): the prompt tells the model
+to actually inspect the repo before proposing a stage skeleton, rather than
+guessing a generic template from the task sentence alone. This module holds the
+prompt it sends and the strict, fail-closed parser for the JSON proposal,
+mirroring :mod:`argus_skill.manager.stage_decider` (which keeps ``manager/_core``
+thin).
 
 The proposed domain is persisted as project-local DATA by
 :func:`argus_skill.verticals._data_domain.write_data_domain`; the per-stage
@@ -49,6 +53,15 @@ def build_domain_author_prompt(
         "Task below does NOT fit any preset vertical, so you must DEFINE a new "
         "domain for it: a domain slug and an ordered list of Stages the "
         "pipeline will advance through (research → ... → final deliverable).\n\n"
+        "You have shell access in this repository. Before proposing anything, "
+        "INVESTIGATE — do not guess a generic stage template from the task "
+        "sentence alone. Read `AGENTS.md`/`README` if present, look at the "
+        "project's actual structure, language, and existing tooling (tests, "
+        "build, profiling, benchmarks — whatever is relevant to this task), and "
+        "ground the stage skeleton in what this specific repo actually needs to "
+        "go from the current state to a verifiable deliverable. This is a "
+        "READ-ONLY investigation: do NOT edit, create, or delete any file — "
+        "you are only gathering context to inform your classification.\n\n"
         f"Preset verticals (do NOT reuse these names): {known}\n"
         f"Existing project domains (do NOT reuse these names): {existing}\n\n"
         "## Task\n"
@@ -61,11 +74,14 @@ def build_domain_author_prompt(
         "the stage SKELETON.\n"
         "- The domain `name` is a lowercase slug (letters/digits/"
         "underscore), distinct from every name above.\n"
-        "- Prefer a small, coherent stage set a domain expert would recognize; "
-        "do not pad with ceremony stages.\n\n"
-        "Reply with ONE JSON object and NOTHING else:\n"
+        "- Prefer a small, coherent stage set a domain expert would recognize, "
+        "grounded in what you actually found in the repo — do not pad with "
+        "ceremony stages.\n\n"
+        "When your investigation is done, reply with ONE JSON object and "
+        "NOTHING else (no prose before or after it):\n"
         '{"name": "<slug>", "stages": ["<stage1>", "<stage2>", ...], '
-        '"rationale": "<clear explanation>", "confidence": <0.0-1.0>}\n'
+        '"rationale": "<clear explanation citing what you found in the repo>", '
+        '"confidence": <0.0-1.0>}\n'
     )
 
 

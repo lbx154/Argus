@@ -517,6 +517,7 @@ def test_life_worker_wires_stop_event_to_agent_cli_runner(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "1")
     cfg = LifeWorkerConfig(life_dir=tmp_path, backend="codex", poll_interval=0.1)
     LifeMemory.open(tmp_path).init()
     captured: dict[str, Any] = {}
@@ -590,8 +591,8 @@ def test_runner_namespace_uses_global_skills_root(
     )
     assert ns.skills_dir == str(expected_path)
     assert ns.workdir == str(tmp_path / "repo")
-    assert ns.engineer_reasoning_effort == "high"
-    assert ns.reviewer_reasoning_effort == "high"
+    assert ns.engineer_reasoning_effort == "xhigh"
+    assert ns.reviewer_reasoning_effort == "xhigh"
 
 
 def test_handoff_config_payload_round_trips(tmp_path: Path) -> None:

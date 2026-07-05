@@ -24,8 +24,10 @@ class _FakeRunner:
 
     def __init__(self, proposal: dict) -> None:
         self._proposal = proposal
+        self.calls: list[dict] = []
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+        self.calls.append({"prompt": prompt, "options": options, "run_label": run_label})
         return _FakeResult(json.dumps(self._proposal))
 
 
@@ -79,3 +81,35 @@ def test_no_runner_falls_back_to_research(tmp_path, monkeypatch):
     # No backend → cannot author → safe research default (never worse than before).
     div = Manager(project_root=tmp_path).divide(_NOVEL_TASK)
     assert div.vertical == "research"
+
+
+def test_authoring_call_is_grounded_not_a_blind_guess(tmp_path, monkeypatch):
+    """Regression: domain authoring must give the Manager real repo access
+    (pinned working_dir + dangerous_yolo/full_auto matching the codebase's
+    safe_mode convention) instead of a text-only classify call with no tools."""
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_SAFE_MODE", raising=False)
+    runner = _FakeRunner(_PROPOSAL)
+    mgr = Manager(project_root=tmp_path, runner=runner)
+    mgr.divide(_NOVEL_TASK)
+
+    call = next(c for c in runner.calls if c["run_label"] == "manager-domain-author")
+    opts = call["options"]
+    assert opts.working_dir == str(tmp_path)
+    assert opts.dangerous_yolo is True
+    assert opts.full_auto is False
+    assert "shell access" in call["prompt"].lower()
+    assert "investigate" in call["prompt"].lower()
+
+
+def test_authoring_call_respects_safe_mode(tmp_path, monkeypatch):
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    monkeypatch.setenv("ARGUS_SKILL_SAFE_MODE", "1")
+    runner = _FakeRunner(_PROPOSAL)
+    mgr = Manager(project_root=tmp_path, runner=runner)
+    mgr.divide(_NOVEL_TASK)
+
+    call = next(c for c in runner.calls if c["run_label"] == "manager-domain-author")
+    opts = call["options"]
+    assert opts.dangerous_yolo is False
+    assert opts.full_auto is True

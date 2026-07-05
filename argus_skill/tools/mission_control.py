@@ -1,0 +1,140 @@
+"""Cross-process "abort the running mission" signal.
+
+The Manager runs in the operator's REPL process; the mission it may need to
+abort is executing in the *daemon's* separate OS process. There is no shared
+memory between them, so the request is a small file dropped into the
+session's shared ``life_dir`` — the same directory both processes already
+agree on for ``events.jsonl`` / ``backlog.jsonl`` / ``continuous.json``.
+
+The daemon's supervisor is single-lane (one mission in flight at a time; see
+``life/supervisor/_core.py``), so there is never any ambiguity about *which*
+mission an abort request targets: it is always "whatever round is running
+right now". The running round's watchdog loop (the same one that already
+polls for a daemon-shutdown interrupt — see
+``engineer.runner.fatal_error_looks_like_daemon_stop_request``) polls for
+this file too and consumes (deletes) it exactly once.
+
+This module also exposes a tiny CLI so the Manager — which already has real
+shell access on its SELF turn — can raise the request as an ordinary tool
+call:
+
+    python -m argus_skill.tools.mission_control abort \\
+        --life-dir /root/.argus-skill/projects/s-540c1d6d \\
+        --reason "operator asked to stop the running mission"
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import time
+from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+_ABORT_REQUEST_FILENAME = "mission_abort_request.json"
+
+
+def _abort_request_path(life_dir: Path | str) -> Path:
+    return Path(life_dir) / _ABORT_REQUEST_FILENAME
+
+
+def request_mission_abort(
+    life_dir: Path | str,
+    *,
+    reason: str,
+    requested_by: str = "manager",
+) -> Path:
+    """Drop a one-shot abort request for whatever mission is currently
+    running under ``life_dir``.
+
+    Idempotent: calling this again before the previous request is consumed
+    simply overwrites it (write-to-temp + ``os.replace``, matching the
+    ``continuous.json`` convention in ``daemon.life_worker``). Returns the
+    path written.
+    """
+    path = _abort_request_path(life_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "reason": str(reason or "").strip() or "operator requested abort",
+        "requested_by": requested_by,
+        "requested_at": time.time(),
+    }
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        os.replace(str(tmp), str(path))
+    except OSError:
+        log.warning("failed to write mission abort request to %s", path)
+    return path
+
+
+def pop_pending_mission_abort(life_dir: Path | str | None) -> str | None:
+    """Consume (delete) a pending abort request, returning its reason if one
+    is present.
+
+    Returns ``None`` — never raises — when there is nothing pending, the
+    file is malformed, or ``life_dir`` itself is falsy. This is polled from a
+    tight (sub-second) watchdog loop on every running round, so it must stay
+    cheap and fail silent.
+    """
+    if not life_dir:
+        return None
+    path = _abort_request_path(life_dir)
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        path.unlink()
+    except OSError:
+        pass
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    reason = str(data.get("reason") or "").strip()
+    return reason or "operator requested abort"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="python -m argus_skill.tools.mission_control")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    abort_p = sub.add_parser(
+        "abort",
+        help="ask the daemon to abort whatever mission is currently running",
+    )
+    abort_p.add_argument(
+        "--life-dir", required=True, help="session life_dir shared with the daemon"
+    )
+    abort_p.add_argument(
+        "--reason", default="", help="why the mission is being aborted"
+    )
+    abort_p.add_argument("--requested-by", default="manager")
+    args = parser.parse_args(argv)
+
+    if args.cmd == "abort":
+        path = request_mission_abort(
+            args.life_dir, reason=args.reason, requested_by=args.requested_by
+        )
+        print(
+            f"argus-skill: mission abort requested ({path}). The daemon will "
+            "stop the in-flight round on its next watchdog check and remain "
+            "running to pick up the next backlog item."
+        )
+        return 0
+    return 2
+
+
+__all__ = [
+    "request_mission_abort",
+    "pop_pending_mission_abort",
+    "main",
+]
+
+
+if __name__ == "__main__":  # pragma: no cover — thin CLI wrapper
+    raise SystemExit(main())

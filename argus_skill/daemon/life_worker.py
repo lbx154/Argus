@@ -84,8 +84,8 @@ class LifeWorkerConfig:
     backend: str = "codex"  # "codex" | "memory"
     engineer_model: str = "gpt-5.5"
     reviewer_model: str = "gpt-5.5"
-    engineer_reasoning_effort: str = "high"
-    reviewer_reasoning_effort: str = "high"
+    engineer_reasoning_effort: str = "xhigh"
+    reviewer_reasoning_effort: str = "xhigh"
     per_mission_cap_usd: float = 30.0
     daily_cap_usd: float = 180.0
     planner_task_iteration_max_cycles: int = 6
@@ -431,10 +431,10 @@ def _config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         engineer_model=str(data.get("engineer_model") or resolve_route_model("engineer")),
         reviewer_model=str(data.get("reviewer_model") or resolve_route_model("reviewer")),
         engineer_reasoning_effort=str(
-            data.get("engineer_reasoning_effort") or "high"
+            data.get("engineer_reasoning_effort") or "xhigh"
         ),
         reviewer_reasoning_effort=str(
-            data.get("reviewer_reasoning_effort") or "high"
+            data.get("reviewer_reasoning_effort") or "xhigh"
         ),
         per_mission_cap_usd=float(data.get("per_mission_cap_usd") or 30.0),
         daily_cap_usd=float(data.get("daily_cap_usd") or 180.0),
@@ -1543,6 +1543,12 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
         else os.environ.get("ARGUS_SKILL_WORKDIR")
     )
     ns.manager_session_root = str(cfg.life_dir)
+    # This is the ONE runner construction that actually drives real mission
+    # rounds 7×24, so it is the only one that should ever consume a pending
+    # mission-abort request (see ``apps/_runtime.py:_SkillLoopRunner._stop_reason``
+    # and ``tools.mission_control``) — the REPL-side quick-reply runner never
+    # sets this, so the Manager's own SELF-turn can never abort itself.
+    ns.enable_mission_abort_signal = True
     ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "500"))
     ns.plan_mode = os.environ.get("ARGUS_SKILL_PLAN_MODE", "auto")
     ns.plan_model = os.environ.get("ARGUS_SKILL_PLAN_MODEL")
@@ -2022,7 +2028,7 @@ def stop_daemon(
 # Detach (POSIX double-fork)
 # ---------------------------------------------------------------------------
 
-def spawn_detached_daemon(config: LifeWorkerConfig) -> int:
+def spawn_detached_daemon(config: LifeWorkerConfig, *, quiet: bool = False) -> int:
     """Fork a detached background process running the worker, then exit.
 
     Returns 0 on successful spawn, 2 if a daemon is already running.
@@ -2036,10 +2042,11 @@ def spawn_detached_daemon(config: LifeWorkerConfig) -> int:
     # Pre-flight: refuse to spawn if a live daemon is already there.
     existing = read_daemon_status(config.life_dir)
     if existing.alive and existing.pid is not None:
-        sys.stderr.write(
-            f"argus-skill: daemon already running for this life-dir "
-            f"(pid={existing.pid}, lock={existing.pid_path}).\n"
-        )
+        if not quiet:
+            sys.stderr.write(
+                f"argus-skill: daemon already running for this life-dir "
+                f"(pid={existing.pid}, lock={existing.pid_path}).\n"
+            )
         return 2
     config.life_dir.mkdir(parents=True, exist_ok=True)
     boot_id = _new_boot_id()
@@ -2061,16 +2068,18 @@ def spawn_detached_daemon(config: LifeWorkerConfig) -> int:
                 except (OSError, ValueError):
                     written_pid = 0
                 if written_pid and _process_alive(written_pid):
-                    sys.stdout.write(
-                        f"argus-skill: daemon started (pid {written_pid}, "
-                        f"life_dir={config.life_dir}, log={log_path}).\n"
-                    )
+                    if not quiet:
+                        sys.stdout.write(
+                            f"argus-skill: daemon started (pid {written_pid}, "
+                            f"life_dir={config.life_dir}, log={log_path}).\n"
+                        )
                     return 0
             time.sleep(0.1)
-        sys.stderr.write(
-            "argus-skill: daemon fork succeeded but child did not write its "
-            f"pid file within 5s. Check {log_path} for errors.\n"
-        )
+        if not quiet:
+            sys.stderr.write(
+                "argus-skill: daemon fork succeeded but child did not write its "
+                f"pid file within 5s. Check {log_path} for errors.\n"
+            )
         return 2
 
     # First child — become session leader.
