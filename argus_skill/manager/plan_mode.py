@@ -1,4 +1,4 @@
-"""Plan mode — preview a short step-by-step plan BEFORE any work is queued.
+"""Plan mode — preview a step-by-step plan BEFORE any work is queued.
 
 Codex / Claude-Code / Cursor parity: when the operator types ``/plan <objective>``
 the REPL shows an ordered, scannable outline of HOW the agent *would* approach the
@@ -10,7 +10,7 @@ This module is deliberately thin and self-contained:
 
 * :class:`PlanStep` / :class:`Plan` — the in-memory plan shape.
 * :func:`draft_plan` — ask the model (via the runner the REPL already holds) for
-  a SHORT ordered plan and parse it. Fully fail-soft: any error returns a Plan
+  an ordered plan and parse it. Fully fail-soft: any error returns a Plan
   with a single best-effort step so the REPL never crashes.
 * :func:`render_plan` — pretty, scannable multi-line text (numbered steps + notes).
 * :func:`parse_plan_text` — the pure, unit-testable parser (no live model). Accepts
@@ -28,7 +28,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-# Product contract: a preview plan is SHORT. The model is asked for 3-8 steps;
+# Product contract: a preview plan has a bounded number of steps;
 # :func:`draft_plan` trims to this ceiling. :func:`parse_plan_text` stays
 # uncapped so it faithfully reports whatever it parsed (tests target it).
 _MIN_STEPS = 3
@@ -51,7 +51,7 @@ _BULLET_RE = re.compile(r"^\s*[-*•·]\s+(.*\S)\s*$")
 class PlanStep:
     """One ordered step in a preview plan.
 
-    ``title`` is a short imperative ("Profile the kernel"); ``detail`` is an
+    ``title`` is an imperative ("Profile the kernel"); ``detail`` is an
     optional one-sentence what/why. ``detail`` may be empty.
     """
 
@@ -240,27 +240,28 @@ def parse_plan_notes(text: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def build_plan_prompt(objective: str) -> str:
-    """Render the prompt asking the model for a SHORT preview plan.
+    """Render the prompt asking the model for a preview plan.
 
     The model must OUTLINE only — never do the work, run tools, or write code.
     """
     obj = (objective or "").strip()
     return (
         "You are the planning front-end of an autonomous coding/research agent. "
-        "The operator wants to PREVIEW a short plan BEFORE any work begins. "
-        f"Produce a SHORT, ordered plan ({_MIN_STEPS}-{_MAX_STEPS} steps) of how "
+        "The operator wants to PREVIEW a plan BEFORE any work begins. "
+        f"Produce an ordered plan ({_MIN_STEPS}-{_MAX_STEPS} steps) of how "
         "you WOULD approach the objective.\n\n"
         "Hard rules:\n"
         "1. Do NOT do the work. Do NOT run any shell command, inspect the repo, "
         "or write code. This is an outline only.\n"
-        "2. Each step is one concrete action with a short imperative title.\n"
-        f"3. Keep it to {_MIN_STEPS}-{_MAX_STEPS} steps — high-signal, no filler.\n\n"
+        "2. Each step is one concrete action with an imperative title.\n"
+        f"3. Keep it to {_MIN_STEPS}-{_MAX_STEPS} steps, but include enough detail "
+        "for the operator to understand the approach.\n\n"
         "## Objective\n"
         f"{obj}\n\n"
         "## Your answer\n"
         "Reply with ONE JSON object and NOTHING else:\n"
-        '{"steps": [{"title": "<short imperative>", "detail": "<one sentence '
-        'what/why>"}, ...], "notes": ["<optional caveat or assumption>", ...]}\n'
+        '{"steps": [{"title": "<imperative title>", "detail": "<what/why>"}, ...], '
+        '"notes": ["<optional caveat or assumption>", ...]}\n'
     )
 
 
@@ -335,7 +336,7 @@ def _fallback_plan(objective: str, notes: list[str] | None = None) -> Plan:
 
 
 def draft_plan(runner: Any, objective: str, *, sink: Any = None) -> Plan:
-    """Ask the model for a SHORT ordered preview plan for ``objective``.
+    """Ask the model for an ordered preview plan for ``objective``.
 
     Uses the same runner the REPL already holds (its underlying backend is
     resolved automatically). The model is asked to OUTLINE only — never to do
@@ -371,7 +372,7 @@ def draft_plan(runner: Any, objective: str, *, sink: Any = None) -> Plan:
         _emit(sink, "plan.draft.failed", reason="unparseable plan")
         return _fallback_plan(objective, notes)
 
-    # Enforce the product contract: a preview plan is short.
+    # Enforce the product contract: a preview plan has a bounded number of steps.
     steps = steps[:_MAX_STEPS]
     _emit(sink, "plan.draft.done", steps=len(steps), notes=len(notes))
     return Plan(objective=objective, steps=steps, notes=notes)

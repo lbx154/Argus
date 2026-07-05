@@ -116,7 +116,7 @@ def approve_skill(
         f"## The task the reviewer just worked\n{task.strip()[:2000]}\n\n"
         f"## Proposed playbook\n{content.strip()[:12000]}\n\n"
         "Reply with ONLY a JSON object: "
-        '{\"approve\": true|false, \"why\": \"<one short clause>\"}. '
+        '{\"approve\": true|false, \"why\": \"<clear explanation>\"}. '
         "Approve only when BOTH generality and correctness are genuinely "
         "satisfied; when in doubt, reject — a wrong skill is worse than no skill."
     )
@@ -178,7 +178,7 @@ def approve_skill_update(
         f"## OLD playbook\n{old_content.strip()[:8000]}\n\n"
         f"## NEW playbook\n{new_content.strip()[:8000]}\n\n"
         "Reply with ONLY a JSON object: "
-        '{"approve": true|false, "why": "<one short clause>"}. '
+        '{"approve": true|false, "why": "<clear explanation>"}. '
         "Approve ONLY if the new version keeps everything correct in the old and "
         "improves it; REJECT any regression, removed-but-still-valid guidance, or "
         "weakened guardrail. When in doubt, reject."
@@ -269,7 +269,7 @@ def classify_skill_placement(
         f"## The skill playbook\n{content.strip()[:12000]}\n\n"
         "Reply with ONLY a JSON object: "
         '{"placement": "global"|"vertical"|"stay", '
-        '"vertical": "<name or empty>", "why": "<one short clause>"}. '
+        '"vertical": "<name or empty>", "why": "<clear explanation>"}. '
         'Use "vertical" only with a name from the candidate list; when unsure, '
         'use "stay".'
     )

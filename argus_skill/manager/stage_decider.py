@@ -126,7 +126,7 @@ def build_stage_decision_prompt(
         "- When in doubt, HOLD. Never advance on weak evidence.\n\n"
         "Reply with ONE JSON object and NOTHING else:\n"
         '{"action": "advance|hold|rollback", "target_stage": "<stage name>", '
-        '"reason": "<one sentence>"}\n'
+        '"reason": "<clear explanation>"}\n'
         "For HOLD, set target_stage to the current stage."
     )
 

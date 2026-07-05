@@ -425,9 +425,9 @@ def test_supervisor_skips_critic_for_chat_outcome(tmp_path: Path) -> None:
     rows = mem.backlog.all()
     assert rows[0].id == item.id
     assert rows[0].status == "done"
-    assert [entry.kind for entry in mem.journal.all()] == [
-        "mission_started",
-        "mission_complete",
+    assert [e.get("type") for e in sink.events if e.get("type", "").startswith("life.mission.")] == [
+        "life.mission.started",
+        "life.mission.completed",
     ]
 
 

@@ -1,7 +1,7 @@
 """Manager domain authoring: prompt + strict parser for a NEW data domain.
 
 When the Manager triages a Task that matches NO preset vertical, it AUTHORS a new
-domain — a short name + an ordered Stage list — instead of falling back to the
+domain — a slug name + an ordered Stage list — instead of falling back to the
 research paper pipeline. This module holds the prompt it sends and the strict,
 fail-closed parser for the JSON proposal, mirroring
 :mod:`argus_skill.manager.stage_decider` (which keeps ``manager/_core`` thin).
@@ -47,7 +47,7 @@ def build_domain_author_prompt(
     return (
         "You are the MANAGER of an automated research/engineering pipeline. The "
         "Task below does NOT fit any preset vertical, so you must DEFINE a new "
-        "domain for it: a short domain name and an ordered list of Stages the "
+        "domain for it: a domain slug and an ordered list of Stages the "
         "pipeline will advance through (research → ... → final deliverable).\n\n"
         f"Preset verticals (do NOT reuse these names): {known}\n"
         f"Existing project domains (do NOT reuse these names): {existing}\n\n"
@@ -55,17 +55,17 @@ def build_domain_author_prompt(
         f"{(task or '').strip()}\n\n"
         "## Rules\n"
         f"- Propose {_MIN_STAGES}-{_MAX_STAGES} Stages, ordered from first to "
-        "last. Each Stage is a short lowercase slug (a phase of work, e.g. "
+        "last. Each Stage is a lowercase slug (a phase of work, e.g. "
         "`scope`, `simulate`, `measure`, `report`) — NOT a checklist item. The "
         "per-stage checklist is authored later by the Planner; you only define "
         "the stage SKELETON.\n"
-        "- The domain `name` is a short lowercase slug (letters/digits/"
+        "- The domain `name` is a lowercase slug (letters/digits/"
         "underscore), distinct from every name above.\n"
         "- Prefer a small, coherent stage set a domain expert would recognize; "
         "do not pad with ceremony stages.\n\n"
         "Reply with ONE JSON object and NOTHING else:\n"
         '{"name": "<slug>", "stages": ["<stage1>", "<stage2>", ...], '
-        '"rationale": "<one sentence>", "confidence": <0.0-1.0>}\n'
+        '"rationale": "<clear explanation>", "confidence": <0.0-1.0>}\n'
     )
 
 
@@ -114,7 +114,7 @@ def parse_domain_proposal(
     """Validate the Manager's JSON proposal; fail-closed to ``None`` on ambiguity.
 
     Rules: valid JSON object; ``stages`` is a list of ``_MIN_STAGES``..
-    ``_MAX_STAGES`` short slugs (deduped, order preserved); ``name`` sluggifies to
+    ``_MAX_STAGES`` slugs (deduped, order preserved); ``name`` sluggifies to
     a non-empty slug that does not collide with a preset vertical or an existing
     data domain (a numeric suffix is appended on collision). Anything else →
     ``None``.
