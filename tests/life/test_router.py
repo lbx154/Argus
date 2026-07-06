@@ -120,7 +120,8 @@ def test_build_simple_prompt_is_minimal_and_ignores_skill() -> None:
     assert "17*23" in out
     assert "USE base-arith" not in out
     assert "Argus Manager" in out
-    assert "Codex worker" in out
+    from argus_skill.cli.roles_status import runner_backend_label
+    assert f"{runner_backend_label()} worker" in out
     assert "Answer as Argus Manager" in out
 
 

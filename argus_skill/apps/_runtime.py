@@ -1012,16 +1012,19 @@ class _SkillLoopRunner:
                 if callable(closer):
                     closer()
 
-        _phase("判断 Codex 独立处理还是交给 Argus 团队…")
+        from ..cli.roles_status import runner_backend_label
+        _backend_label = runner_backend_label()
+
+        _phase(f"Deciding: {_backend_label} solo vs. the Argus team…")
         route = self.manager.route(objective, run_exec=_classify_run_exec)
         if route == "simple":
-            _phase("Codex 独立处理…")
+            _phase(f"{_backend_label} handling it solo…")
             return self._simple_quick_reply(
                 objective=objective,
                 sink=_PhaseSink(sink),
                 seed_thread_id=seed_thread_id,
             )
-        _phase("交给 Planner / Engineer / Reviewer…")
+        _phase("Handing off to Planner / Engineer / Reviewer…")
         return None
 
     def classify_needs_continuous(self, objective: str) -> bool:
@@ -1666,9 +1669,10 @@ class _SkillLoopRunner:
         safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
         seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
 
+        from ..cli.roles_status import runner_backend_label
         sink.handle_event({
             "type": "loop.start",
-            "text": f"SELF: one Codex handling {objective[:80]}",
+            "text": f"SELF: one {runner_backend_label()} handling {objective[:80]}",
         })
 
         self._current_sink = sink

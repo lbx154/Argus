@@ -120,10 +120,12 @@ def build_chat_prompt(*, objective: str, identity_card: str = "") -> str:
 def build_simple_prompt(
     *, objective: str, skill_block: str = "", mission_status: str = ""
 ) -> str:
+    from ..cli.roles_status import runner_backend_label
     prefix = f"{mission_status.strip()}\n\n" if mission_status.strip() else ""
     return (
         f"{prefix}"
-        "You are Argus Manager, powered by one Codex worker. Answer as Argus Manager.\n\n"
+        f"You are Argus Manager, powered by one {runner_backend_label()} worker. "
+        "Answer as Argus Manager.\n\n"
         f"Task:\n{objective.strip()}"
     )
 
