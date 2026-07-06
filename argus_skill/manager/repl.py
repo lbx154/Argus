@@ -791,6 +791,104 @@ def _maybe_handle_role_effort_text(
     return True
 
 
+_ROLE_BACKEND_ENVS: dict[str, str] = {
+    "manager": "ARGUS_SKILL_MANAGER_BACKEND",
+    "planner": "ARGUS_SKILL_PLANNER_BACKEND",
+    "engineer": "ARGUS_SKILL_ENGINEER_BACKEND",
+    "reviewer": "ARGUS_SKILL_REVIEWER_BACKEND",
+}
+# Recognized agent CLIs. Checked in order; first alias match wins.
+_BACKEND_VALUE_ALIASES: dict[str, tuple[str, ...]] = {
+    "claude": ("claude code", "claude-code", "claude"),
+    "copilot": ("github copilot", "copilot"),
+    "codex": ("codex",),
+}
+_BACKEND_SWITCH_VERBS = (
+    "换", "切", "改", "设置", "设为", "默认",
+    "switch", "change", "set", "use", "配置",
+)
+
+
+def _maybe_handle_backend_switch_text(
+    mem: Any,
+    text: str,
+    chat_state: dict[str, Any],
+) -> bool:
+    """Handle "switch the CLI backend to X" free text before it becomes work.
+
+    Mirrors ``_maybe_handle_role_effort_text``: a conservative recognizer that
+    only fires when the text names one of the supported agent CLIs (codex /
+    claude / copilot) AND a configuration verb AND either a role name, the
+    word "后端"/"backend", or "默认" — so ordinary chat that merely mentions
+    "copilot" or "codex" in passing is never misread as a config change.
+
+    Flips ``ARGUS_SKILL_RUNNER_BACKEND`` (all roles) or a single role's
+    ``ARGUS_SKILL_<ROLE>_BACKEND`` for THIS process only — the same
+    env-var contract ``_runtime._SkillLoopRunner`` already reads. The running
+    daemon is a separate process with its own environment snapshot, so it
+    keeps the old backend until restarted (``/daemon restart --drain`` or its
+    natural-language equivalent).
+    """
+    raw = (text or "").strip()
+    low = raw.casefold()
+    if not raw:
+        return False
+    backend = next(
+        (
+            name
+            for name, aliases in _BACKEND_VALUE_ALIASES.items()
+            if any(alias in low for alias in aliases)
+        ),
+        "",
+    )
+    if not backend:
+        return False
+    if not any(tok in low for tok in _BACKEND_SWITCH_VERBS):
+        return False
+    roles: list[str] = []
+    for role, aliases in _ROLE_ALIASES.items():
+        if any(alias in low for alias in aliases):
+            roles.append(role)
+    generic = any(
+        tok in low
+        for tok in ("后端", "backend", "默认", "所有角色", "全部角色", "all roles", "every role")
+    )
+    if not roles and not generic:
+        return False
+
+    from ..agent_cli.runner_backend import normalize_runner_backend
+
+    normalized = normalize_runner_backend(backend)
+    theme = chat_state.get("theme")
+    if roles:
+        for role in roles:
+            os.environ[_ROLE_BACKEND_ENVS[role]] = normalized
+        role_names = " / ".join(role.title() for role in roles)
+        line = f"已把 {role_names} 的 CLI 后端设为 {normalized}。"
+    else:
+        os.environ["ARGUS_SKILL_RUNNER_BACKEND"] = normalized
+        line = f"已把 Argus 默认 CLI 后端设为 {normalized}（未单独指定后端的角色都会跟随）。"
+
+    cfg = chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))
+    cfg["runner_backend"] = normalized
+    # The cached front-door runner captured the old backend; rebuild it so
+    # subsequent chat/simple turns also use the new one.
+    chat_state.pop("manager_runner", None)
+
+    print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
+
+    try:
+        from ..daemon.life_worker import read_daemon_status
+
+        st = read_daemon_status(_life_dir_for(mem))
+        if getattr(st, "alive", False):
+            msg = "当前已运行 daemon 的环境不会被热改；用 /daemon restart --drain 在任务边界重启后完全生效。"
+            print(theme.gray("  " + msg) if theme is not None else msg, flush=True)
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
 def _config_cmd(tokens: list[str], chat_state: dict[str, Any],
                 life_dir: Path | None = None) -> None:
     """``/config [key=value ...]`` — view or change REPL-session defaults.
@@ -1641,6 +1739,9 @@ def _free_text_cmd(
     theme = chat_state.get("theme")
 
     if _maybe_handle_role_effort_text(mem, body, chat_state):
+        return
+
+    if _maybe_handle_backend_switch_text(mem, body, chat_state):
         return
 
     # Manager front door — answer conversation, route tasks. Skipped only for a
