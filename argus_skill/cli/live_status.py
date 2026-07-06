@@ -111,6 +111,15 @@ class LiveStatus:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._active = False
+        # Set the moment ``update``/``update_role`` is first called — from then
+        # on ``_current_label`` shows the explicit label instead of rotating
+        # ``phrases`` (see ``_current_label``'s docstring: "an explicit update
+        # wins"). Without this, a caller that passes BOTH ``phrases`` (a cosmetic
+        # fallback for the pre-first-event silence) AND drives real progress via
+        # ``update()`` — e.g. the REPL's manager-triage spinner — would have its
+        # real phase text silently discarded forever in favour of the rotating
+        # placeholder, which is exactly backwards.
+        self._explicit_update = False
         # The glyph's colour method (a mauve "magenta" by default — the brand
         # accent). ``update_accent`` lets a multi-role caller retint the
         # spinner to whichever role is acting right now (e.g. its
@@ -126,9 +135,14 @@ class LiveStatus:
         return self._enabled
 
     def update(self, label: str) -> None:
-        """Thread-safe: change the phase label mid-flight."""
+        """Thread-safe: change the phase label mid-flight.
+
+        From this call on, ``_current_label`` shows this (and later) explicit
+        label instead of rotating ``phrases`` — an explicit update always wins.
+        """
         with self._lock:
             self._label = str(label or "").strip() or self._label
+            self._explicit_update = True
 
     def update_accent(self, accent: str) -> None:
         """Thread-safe: retint the spinner glyph (e.g. to the role now driving
@@ -144,6 +158,7 @@ class LiveStatus:
         common case when a new event names both "who" and "what"."""
         self.update_accent(accent)
         self.update(label)
+
 
     def __enter__(self) -> "LiveStatus":
         if not self._enabled:
@@ -179,7 +194,8 @@ class LiveStatus:
         """Label for this instant: an explicit update wins; else rotate phrases."""
         with self._lock:
             label = self._label
-        if self._phrases:
+            explicit = self._explicit_update
+        if self._phrases and not explicit:
             idx = int((self._clock() - self._start) / self._phrase_interval)
             return self._phrases[idx % len(self._phrases)]
         return label

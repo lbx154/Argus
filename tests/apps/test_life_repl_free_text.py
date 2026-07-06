@@ -48,6 +48,7 @@ _ENV_VARS_TO_CLEAR = (
     "ARGUS_SKILL_MANAGER_BACKEND",
     "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
     "ARGUS_SKILL_MAX_ROUNDS",
+    "ARGUS_SKILL_MODEL",
     "ARGUS_SKILL_PER_MISSION_CAP_USD",
     "ARGUS_SKILL_PLANNER_BACKEND",
     "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
@@ -1224,6 +1225,52 @@ def test_backend_switch_recognizer_does_not_misfire(text: str) -> None:
     chat_state: dict[str, Any] = {"backend": "codex"}
     assert manager_repl._maybe_handle_backend_switch_text(None, text, chat_state) is False
     assert "ARGUS_SKILL_RUNNER_BACKEND" not in os.environ
+
+
+def test_free_text_model_switch_shared_does_not_enqueue(mem: LifeMemory) -> None:
+    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
+
+    with patch.object(manager_repl, "_ensure_manager_runner") as ensure:
+        manager_repl._free_text_cmd(
+            mem,
+            "把模型换成 claude-sonnet-5",
+            chat_state=chat_state,
+        )
+
+    ensure.assert_not_called()
+    assert mem.backlog.pending() == []
+    assert "manager_runner" not in chat_state
+    assert os.environ["ARGUS_SKILL_MODEL"] == "claude-sonnet-5"
+    assert chat_state["config"]["model"] == "claude-sonnet-5"
+
+
+def test_free_text_model_switch_role_specific_prefers_longest_alias(mem: LifeMemory) -> None:
+    """Regression: "gpt-5.4" must not shadow the longer "gpt-5.4-mini" id."""
+    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
+
+    manager_repl._free_text_cmd(
+        mem,
+        "engineer 的模型换成 gpt-5.4-mini",
+        chat_state=chat_state,
+    )
+
+    assert mem.backlog.pending() == []
+    assert os.environ["ARGUS_SKILL_ENGINEER_MODEL"] == "gpt-5.4-mini"
+    assert "ARGUS_SKILL_MODEL" not in os.environ
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "如果是 Copilot 的话，也能允许他调用 Copilot 的所有模型",
+        "claude-opus-4.8 是最强的模型",
+        "换成 claude 后端",  # backend switch, not a model switch
+    ],
+)
+def test_model_switch_recognizer_does_not_misfire(text: str) -> None:
+    chat_state: dict[str, Any] = {"backend": "codex"}
+    assert manager_repl._maybe_handle_model_switch_text(None, text, chat_state) is False
+    assert "ARGUS_SKILL_MODEL" not in os.environ
 
 
 def test_unknown_slash_command_does_not_enter_codex(
