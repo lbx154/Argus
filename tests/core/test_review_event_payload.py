@@ -46,6 +46,7 @@ def _full_review() -> ReviewDecision:
         input_tokens=12345,
         cached_input_tokens=2000,
         output_tokens=789,
+        reasoning_output_tokens=456,
     )
 
 
@@ -75,6 +76,7 @@ def test_to_event_payload_forwards_every_structured_field() -> None:
     assert payload["input_tokens"] == 12345
     assert payload["cached_input_tokens"] == 2000
     assert payload["output_tokens"] == 789
+    assert payload["reasoning_output_tokens"] == 456
     assert payload["usage_scope"] == "delta"
 
     # Caller-supplied extras passed through.
@@ -107,6 +109,7 @@ def test_to_event_payload_handles_empty_synthesized_verdict() -> None:
     assert payload["planner_report"] == {}
     assert payload["checkpoint"] == {}
     assert payload["input_tokens"] == 0
+    assert payload["reasoning_output_tokens"] == 0
     assert payload["review_skipped"] is True
 
 

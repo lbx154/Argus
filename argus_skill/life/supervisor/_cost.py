@@ -56,17 +56,21 @@ class _CostTrackingSink:
         self.reviewer_model = reviewer_model
         self.engineer_input_tokens = 0
         self.engineer_output_tokens = 0
+        self.engineer_reasoning_output_tokens = 0
         self.reviewer_input_tokens = 0
         self.reviewer_output_tokens = 0
+        self.reviewer_reasoning_output_tokens = 0
         self.scientist_input_tokens = 0
         self.scientist_cached_input_tokens = 0
         self.scientist_output_tokens = 0
+        self.scientist_reasoning_output_tokens = 0
         self.scientist_usage_by_model: dict[str, list[int]] = {}
         # F3: otherwise-unaccounted codex calls (manager stage/route/converse/
         # domain-author, vertical-classify) report via codex.util.completed.
         self.util_input_tokens = 0
         self.util_cached_input_tokens = 0
         self.util_output_tokens = 0
+        self.util_reasoning_output_tokens = 0
         self.util_usage_by_model: dict[str, list[int]] = {}
         # Copilot premium-request spend (engineer + reviewer), summed from the
         # already-de-cumulated per-round deltas. Priced into total_usd().
@@ -78,20 +82,21 @@ class _CostTrackingSink:
         self.engineer_cached_input_tokens = 0
         self.reviewer_cached_input_tokens = 0
         self._cumulative_usage_baselines: dict[
-            tuple[str, str], tuple[int, int, int]
+            tuple[str, str], tuple[int, int, int, int]
         ] = {}
 
     def handle_event(self, event: dict[str, Any]) -> None:
         try:
             kind = event.get("type") if isinstance(event, dict) else None
             if kind == "round.main.completed":
-                in_tok, cached_tok, out_tok = self._usage_delta(
+                in_tok, cached_tok, out_tok, reasoning_out_tok = self._usage_delta(
                     event,
                     layer="engineer",
                 )
                 self.engineer_input_tokens += in_tok
                 self.engineer_cached_input_tokens += cached_tok
                 self.engineer_output_tokens += out_tok
+                self.engineer_reasoning_output_tokens += reasoning_out_tok
                 self.copilot_premium_requests += self._premium_delta(event)
                 self._engineer_round_count += 1
             elif kind == "round.review.started":
@@ -106,29 +111,35 @@ class _CostTrackingSink:
                     except Exception:  # noqa: BLE001
                         log.debug("phase change callback failed", exc_info=True)
             elif kind == "round.review.completed":
-                in_tok, cached_tok, out_tok = self._usage_delta(
+                in_tok, cached_tok, out_tok, reasoning_out_tok = self._usage_delta(
                     event,
                     layer="reviewer",
                 )
                 self.reviewer_input_tokens += in_tok
                 self.reviewer_cached_input_tokens += cached_tok
                 self.reviewer_output_tokens += out_tok
+                self.reviewer_reasoning_output_tokens += reasoning_out_tok
                 self.copilot_premium_requests += self._premium_delta(event)
             elif kind == "skill.cost.completed":
                 self._record_scientist_usage(event)
                 self.copilot_premium_requests += self._premium_delta(event)
             elif kind == "codex.util.completed":
-                in_tok, cached_tok, out_tok = self._usage_delta(event, layer="util")
+                in_tok, cached_tok, out_tok, reasoning_out_tok = self._usage_delta(
+                    event,
+                    layer="util",
+                )
                 self.util_input_tokens += in_tok
                 self.util_cached_input_tokens += cached_tok
                 self.util_output_tokens += out_tok
+                self.util_reasoning_output_tokens += reasoning_out_tok
                 self.copilot_premium_requests += self._premium_delta(event)
-                if any((in_tok, cached_tok, out_tok)):
+                if any((in_tok, cached_tok, out_tok, reasoning_out_tok)):
                     key = str(event.get("model") or self.engineer_model)
-                    bucket = self.util_usage_by_model.setdefault(key, [0, 0, 0])
+                    bucket = self.util_usage_by_model.setdefault(key, [0, 0, 0, 0])
                     bucket[0] += in_tok
                     bucket[1] += cached_tok
                     bucket[2] += out_tok
+                    bucket[3] += reasoning_out_tok
         except Exception:  # noqa: BLE001
             log.debug("cost-tracking sink ignored malformed event", exc_info=True)
         # Always forward.
@@ -172,12 +183,18 @@ class _CostTrackingSink:
     def util_usd(self) -> float:
         total = 0.0
         for model, values in self.util_usage_by_model.items():
-            input_tokens, cached_input_tokens, output_tokens = values
+            (
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                reasoning_output_tokens,
+            ) = values
             total += usd_for_tokens(
                 model,
                 input_tokens,
                 cached_input_tokens,
                 output_tokens,
+                reasoning_output_tokens=reasoning_output_tokens,
                 price_lookup=price_for,
             )
         return total
@@ -185,12 +202,18 @@ class _CostTrackingSink:
     def scientist_usd(self) -> float:
         total = 0.0
         for model, values in self.scientist_usage_by_model.items():
-            input_tokens, cached_input_tokens, output_tokens = values
+            (
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                reasoning_output_tokens,
+            ) = values
             total += usd_for_tokens(
                 model,
                 input_tokens,
                 cached_input_tokens,
                 output_tokens,
+                reasoning_output_tokens=reasoning_output_tokens,
                 price_lookup=price_for,
             )
         return total
@@ -201,6 +224,7 @@ class _CostTrackingSink:
             self.engineer_input_tokens,
             self.engineer_cached_input_tokens,
             self.engineer_output_tokens,
+            reasoning_output_tokens=self.engineer_reasoning_output_tokens,
             price_lookup=price_for,
         )
 
@@ -210,6 +234,7 @@ class _CostTrackingSink:
             self.reviewer_input_tokens,
             self.reviewer_cached_input_tokens,
             self.reviewer_output_tokens,
+            reasoning_output_tokens=self.reviewer_reasoning_output_tokens,
             price_lookup=price_for,
         )
 
@@ -229,6 +254,14 @@ class _CostTrackingSink:
             + self.util_output_tokens
         )
 
+    def total_reasoning_output_tokens(self) -> int:
+        return (
+            self.scientist_reasoning_output_tokens
+            + self.engineer_reasoning_output_tokens
+            + self.reviewer_reasoning_output_tokens
+            + self.util_reasoning_output_tokens
+        )
+
     def _record_scientist_usage(self, event: dict[str, Any]) -> None:
         for phase in ("matcher", "distiller"):
             nested = event.get(phase)
@@ -238,6 +271,7 @@ class _CostTrackingSink:
                     "input_tokens": nested.get("input_tokens", 0),
                     "cached_input_tokens": nested.get("cached_input_tokens", 0),
                     "output_tokens": nested.get("output_tokens", 0),
+                    "reasoning_output_tokens": nested.get("reasoning_output_tokens", 0),
                 }
             else:
                 model = str(event.get(f"{phase}_model") or "")
@@ -247,21 +281,26 @@ class _CostTrackingSink:
                         f"{phase}_cached_input_tokens", 0
                     ),
                     "output_tokens": event.get(f"{phase}_output_tokens", 0),
+                    "reasoning_output_tokens": event.get(
+                        f"{phase}_reasoning_output_tokens", 0
+                    ),
                 }
-            in_tok, cached_tok, out_tok = self._usage_delta(
+            in_tok, cached_tok, out_tok, reasoning_out_tok = self._usage_delta(
                 raw,
                 layer=f"scientist:{phase}",
             )
             self.scientist_input_tokens += in_tok
             self.scientist_cached_input_tokens += cached_tok
             self.scientist_output_tokens += out_tok
-            if not any((in_tok, cached_tok, out_tok)):
+            self.scientist_reasoning_output_tokens += reasoning_out_tok
+            if not any((in_tok, cached_tok, out_tok, reasoning_out_tok)):
                 continue
             key = model or self.engineer_model
-            bucket = self.scientist_usage_by_model.setdefault(key, [0, 0, 0])
+            bucket = self.scientist_usage_by_model.setdefault(key, [0, 0, 0, 0])
             bucket[0] += in_tok
             bucket[1] += cached_tok
             bucket[2] += out_tok
+            bucket[3] += reasoning_out_tok
 
     def _premium_delta(self, event: dict[str, Any]) -> float:
         """Copilot premium-request count on a round event (already a per-round
@@ -278,11 +317,12 @@ class _CostTrackingSink:
         event: dict[str, Any],
         *,
         layer: str,
-    ) -> tuple[int, int, int]:
+    ) -> tuple[int, int, int, int]:
         raw = (
             int(event.get("input_tokens", 0) or 0),
             int(event.get("cached_input_tokens", 0) or 0),
             int(event.get("output_tokens", 0) or 0),
+            int(event.get("reasoning_output_tokens", 0) or 0),
         )
         if str(event.get("usage_scope") or "delta").lower() != "cumulative":
             return raw
@@ -302,6 +342,7 @@ class _CostTrackingSink:
             raw[0] - previous[0],
             raw[1] - previous[1],
             raw[2] - previous[2],
+            raw[3] - previous[3],
         )
         if any(value < 0 for value in delta):
             log.debug(

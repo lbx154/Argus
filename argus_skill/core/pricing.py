@@ -32,15 +32,19 @@ def usd_for_tokens(
     cached_input_tokens: int,
     output_tokens: int,
     *,
+    reasoning_output_tokens: int = 0,
     price_lookup: PriceLookup = price_for,
 ) -> float:
-    """Compute USD with cache-aware input pricing."""
+    """Compute USD with cache-aware input pricing and output-priced reasoning tokens."""
     in_price, out_price = price_lookup(model)
     cached = max(0, min(int(cached_input_tokens or 0), max(0, int(input_tokens or 0))))
     fresh = max(0, int(input_tokens or 0) - cached)
     return (
         (fresh * in_price)
         + (cached * (in_price / 10.0))
-        + (max(0, int(output_tokens or 0)) * out_price)
+        + (
+            max(0, int(output_tokens or 0))
+            + max(0, int(reasoning_output_tokens or 0))
+        )
+        * out_price
     ) / 1_000_000
-

@@ -429,10 +429,10 @@ def test_run_exec_handles_generic_exception(
 
 
 def test_token_count_extraction_handles_missing_events():
-    in_tok, cached_tok, out_tok = _sum_token_counts(None)
-    assert (in_tok, cached_tok, out_tok) == (0, 0, 0)
-    in_tok, cached_tok, out_tok = _sum_token_counts([])
-    assert (in_tok, cached_tok, out_tok) == (0, 0, 0)
+    in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts(None)
+    assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (0, 0, 0, 0)
+    in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts([])
+    assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (0, 0, 0, 0)
 
 
 def test_token_count_extraction_picks_latest_nonzero():
@@ -443,8 +443,8 @@ def test_token_count_extraction_picks_latest_nonzero():
         {"type": "agent_message", "input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0},
         {"type": "token_count", "input_tokens": 250, "cached_input_tokens": 25, "output_tokens": 80},
     ]
-    in_tok, cached_tok, out_tok = _sum_token_counts(events)
-    assert (in_tok, cached_tok, out_tok) == (250, 25, 80)
+    in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts(events)
+    assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (250, 25, 80, 0)
 
 
 def test_token_count_extraction_uses_final_usage_tuple_even_with_zero_cached():
@@ -464,8 +464,8 @@ def test_token_count_extraction_uses_final_usage_tuple_even_with_zero_cached():
             },
         },
     ]
-    in_tok, cached_tok, out_tok = _sum_token_counts(events)
-    assert (in_tok, cached_tok, out_tok) == (150, 0, 40)
+    in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts(events)
+    assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (150, 0, 40, 0)
 
 
 def test_token_count_extraction_handles_nested_content():
@@ -475,8 +475,8 @@ def test_token_count_extraction_handles_nested_content():
             "content": {"input_tokens": 42, "cached_input_tokens": 5, "output_tokens": 7},
         }
     ]
-    in_tok, cached_tok, out_tok = _sum_token_counts(events)
-    assert (in_tok, cached_tok, out_tok) == (42, 5, 7)
+    in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts(events)
+    assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (42, 5, 7, 0)
 
 
 def test_token_count_extraction_handles_top_level_cached_tokens():
@@ -488,8 +488,8 @@ def test_token_count_extraction_handles_top_level_cached_tokens():
             "output_tokens": 3,
         }
     ]
-    in_tok, cached_tok, out_tok = _sum_token_counts(events)
-    assert (in_tok, cached_tok, out_tok) == (17, 4, 3)
+    in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts(events)
+    assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (17, 4, 3, 0)
 
 
 def test_token_count_extraction_reads_codex_0_121_usage_field():
@@ -508,8 +508,46 @@ def test_token_count_extraction_reads_codex_0_121_usage_field():
             "usage": {"input_tokens": 12944, "cached_input_tokens": 1234, "output_tokens": 75},
         },
     ]
-    in_tok, cached_tok, out_tok = _sum_token_counts(events)
-    assert (in_tok, cached_tok, out_tok) == (12944, 1234, 75)
+    in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts(events)
+    assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (12944, 1234, 75, 0)
+
+
+def test_token_count_extraction_reads_reasoning_tokens_from_turn_completed_usage() -> None:
+    events = [
+        {"type": "thread.started", "thread_id": "x"},
+        {
+            "type": "turn.completed",
+            "usage": {
+                "input_tokens": 954691,
+                "cached_input_tokens": 846976,
+                "output_tokens": 11399,
+                "reasoning_output_tokens": 4459,
+            },
+        },
+    ]
+    in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts(events)
+    assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (
+        954691,
+        846976,
+        11399,
+        4459,
+    )
+
+
+def test_usage_delta_for_thread_decumulates_reasoning_output_tokens() -> None:
+    backend = AgentCliBackend(backend="codex")
+    assert backend._usage_delta_for_thread(
+        thread_id="t1",
+        raw_totals=(100, 10, 20, 7),
+    ) == (100, 10, 20, 7)
+    assert backend._usage_delta_for_thread(
+        thread_id="t1",
+        raw_totals=(160, 30, 45, 19),
+    ) == (60, 20, 25, 12)
+    assert backend._usage_delta_for_thread(
+        thread_id="t1",
+        raw_totals=(20, 5, 6, 2),
+    ) == (20, 5, 6, 2)
 
 
 def test_run_exec_forwards_watchdog_hooks(

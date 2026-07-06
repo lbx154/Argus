@@ -539,17 +539,24 @@ class SkillLoop:
             distiller_output_tokens = int(
                 getattr(distill_result, "output_tokens", 0) or 0
             )
+            distiller_reasoning_output_tokens = int(
+                getattr(distill_result, "reasoning_output_tokens", 0) or 0
+            )
             matcher_usage = {
                 "model": matcher_model,
                 "input_tokens": int(matcher_input_tokens or 0),
                 "cached_input_tokens": int(matcher_cached_input_tokens or 0),
                 "output_tokens": int(matcher_output_tokens or 0),
+                "reasoning_output_tokens": int(
+                    getattr(match, "reasoning_output_tokens", 0) or 0
+                ),
             }
             distiller_usage = {
                 "model": distiller_model,
                 "input_tokens": distiller_input_tokens,
                 "cached_input_tokens": distiller_cached_input_tokens,
                 "output_tokens": distiller_output_tokens,
+                "reasoning_output_tokens": distiller_reasoning_output_tokens,
             }
             self._emit({
                 "type": "skill.cost.completed",
@@ -561,9 +568,11 @@ class SkillLoop:
                 "matcher_input_tokens": matcher_usage["input_tokens"],
                 "matcher_cached_input_tokens": matcher_usage["cached_input_tokens"],
                 "matcher_output_tokens": matcher_usage["output_tokens"],
+                "matcher_reasoning_output_tokens": matcher_usage["reasoning_output_tokens"],
                 "distiller_input_tokens": distiller_usage["input_tokens"],
                 "distiller_cached_input_tokens": distiller_usage["cached_input_tokens"],
                 "distiller_output_tokens": distiller_usage["output_tokens"],
+                "distiller_reasoning_output_tokens": distiller_usage["reasoning_output_tokens"],
                 "input_tokens": (
                     matcher_usage["input_tokens"] + distiller_usage["input_tokens"]
                 ),
@@ -573,6 +582,10 @@ class SkillLoop:
                 ),
                 "output_tokens": (
                     matcher_usage["output_tokens"] + distiller_usage["output_tokens"]
+                ),
+                "reasoning_output_tokens": (
+                    matcher_usage["reasoning_output_tokens"]
+                    + distiller_usage["reasoning_output_tokens"]
                 ),
                 # Copilot premium-request delta for the distiller turn (0.0 off
                 # copilot; matcher premium is a documented residual — it rides the
