@@ -117,7 +117,7 @@ def test_activity_marks_latest_role_active(tmp_path):
     ])
     acts = role_activity(tmp_path, now=now)
     assert acts["engineer"].active is True
-    assert "跑命令" in acts["engineer"].label and "pytest" in acts["engineer"].label
+    assert "run" in acts["engineer"].label and "pytest" in acts["engineer"].label
     # a completed reviewer verdict is NOT active
     assert acts["reviewer"].active is False
     assert acts["reviewer"].status == "done"

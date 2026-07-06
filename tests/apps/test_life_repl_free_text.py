@@ -569,7 +569,7 @@ def test_blocked_verdict_sets_question_and_reply_continues(mem: LifeMemory) -> N
 
     cont = mem.backlog.pending()[0].objective
     assert "研究 SOL-ExecBench，刷到 SOTA" in cont
-    assert "操作员答复：012 和 005" in cont
+    assert "Operator reply: 012 和 005" in cont
     inbox_file = manager_repl._life_dir_for(mem) / "inbox.jsonl"
     assert inbox_file.exists() and "012 和 005" in inbox_file.read_text(encoding="utf-8")
 
