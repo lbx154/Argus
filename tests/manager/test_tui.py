@@ -11,6 +11,10 @@ from argus_skill.manager import repl as manager_repl
 from argus_skill.manager import tui
 
 
+class _M:  # minimal mem stub — unknown/bogus commands must never touch it
+    pass
+
+
 def test_tui_unavailable_when_opted_out(monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_NO_TUI", "1")
     assert tui.tui_available() is False
@@ -71,9 +75,65 @@ def test_modal_fragments_highlight_selected_choice() -> None:
     assert any(style == "class:modal.selected" and "不批准" in t for style, t in frags)
 
 
-def test_slash_registry_covers_core_commands() -> None:
-    cmds = {c for c, _ in manager_repl.SLASH_COMMANDS}
-    assert cmds == {"/help", "/exit"}
+def test_slash_registry_covers_dispatch_commands() -> None:
+    """``SLASH_COMMANDS`` powers /help *and* TUI tab-completion (see
+    ``tui.py``'s ``FuzzyWordCompleter``). It used to silently drift down to
+    just ``{"/help", "/exit"}`` while ``dispatch_command`` grew to ~20 real
+    commands — this test parses the dispatcher's own source so that class of
+    regression fails loudly instead of quietly shipping an incomplete /help.
+    """
+    import inspect
+    import re
+
+    source = inspect.getsource(manager_repl.dispatch_command)
+    dispatched: set[str] = set()
+    for m in re.finditer(r'cmd (?:==|in)\s*(\([^()]*\)|"/[a-zA-Z]+")', source):
+        dispatched.update(re.findall(r'"(/[a-zA-Z]+)"', m.group(1)))
+    # /verbose and /quiet are deliberately-retired no-ops: dispatch_command
+    # still explains they were removed, but they are intentionally left out
+    # of SLASH_COMMANDS/help/completion so operators don't learn a dead
+    # command.
+    dispatched -= {"/verbose", "/quiet"}
+
+    registered = {c for c, _ in manager_repl.SLASH_COMMANDS}
+    missing = dispatched - registered
+    assert not missing, (
+        f"dispatch_command handles {sorted(missing)} but SLASH_COMMANDS "
+        f"(which drives /help + TUI completion) does not list them"
+    )
+
+
+def test_help_sections_only_reference_registered_commands() -> None:
+    """Every command named in ``_HELP_SECTIONS`` must exist in
+    ``SLASH_COMMANDS`` — otherwise ``_help_command_rows().pop`` silently
+    swallows a typo'd/renamed command instead of surfacing it anywhere."""
+    registered = {c for c, _ in manager_repl.SLASH_COMMANDS}
+    for _section, cmds in manager_repl._HELP_SECTIONS:
+        for cmd in cmds:
+            assert cmd in registered, f"{cmd!r} in _HELP_SECTIONS is not in SLASH_COMMANDS"
+
+
+def test_render_help_lists_real_commands() -> None:
+    """/help must actually list commands (regression: it used to be pure
+    natural-language prose with zero of the ~20 real slash commands in it,
+    so a mistyped command had nowhere to send the operator)."""
+    text = manager_repl._render_help(_Plain())
+    for cmd in ("/status", "/roles", "/daemon", "/doctor", "/add", "/journal"):
+        assert cmd in text, f"{cmd!r} missing from /help output"
+    # Aliases are folded into their primary command's row, not listed bare.
+    assert "/done  (= /skip, /rm)" in text
+
+
+def test_unknown_command_suggests_closest_match() -> None:
+    """A near-miss slash command gets a "did you mean" hint instead of the
+    old dead-loop "(try /help)" (which, before this fix, pointed at a /help
+    that did not list any commands either)."""
+    out = manager_repl.dispatch_command("/stauts", "/stauts", _M(), {}, ".", _Plain())
+    assert out is None
+    assert manager_repl._closest_slash_command("/stauts") == "/status"
+    # A string with no real overlap with any registered command name.
+    assert manager_repl._closest_slash_command("/zzznonsense123") is None
+
 
 
 def test_dispatch_free_text_enqueues(tmp_path) -> None:
@@ -93,8 +153,6 @@ def test_dispatch_free_text_enqueues(tmp_path) -> None:
 
 
 def test_dispatch_exit_unknown() -> None:
-    class _M:  # minimal — unknown cmd shouldn't touch mem
-        pass
     out = manager_repl.dispatch_command("/bogus", "/bogus", _M(), {}, ".", _Plain())
     assert out is None
 

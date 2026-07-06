@@ -70,10 +70,84 @@ log = logging.getLogger(__name__)
 #: Slash commands surfaced to completion + the command palette + /help. (label,
 #: one-line help). The dispatcher in ``dispatch_command`` is the source of truth;
 #: this list mirrors it for the UI. Keep in sync when adding a command.
+#:
+#: A description of ``"alias of /x"`` marks a pure alias: ``_help_command_rows``
+#: folds it into ``/x``'s row instead of listing it separately, so /help stays
+#: readable while every real spelling still completes and is matched by the
+#: unknown-command "did you mean" hint.
 SLASH_COMMANDS: list[tuple[str, str]] = [
-    ("/help", "show the one-mode cockpit help"),
-    ("/exit", "leave"),
+    ("/help", "show this command reference"),
+    ("/commands", "alias of /help"),
+    ("/status", "overall state: daemon, four roles, backlog, journal summary"),
+    ("/roles", "live manager/planner/engineer/reviewer status + backend/model"),
+    ("/journal", "recent task journal entries (/journal N for more, default 10)"),
+    ("/backlog", "pending tasks (/backlog all to include done/skipped)"),
+    ("/add", "queue a task: /add <objective> [--once] [--cycles=N] [--budget=$X]"),
+    ("/plan", "preview how an objective would be broken down, without queuing it"),
+    ("/stop", "stop a task's auto-continue: /stop <item_id>"),
+    ("/done", "mark a task done: /done <item_id>"),
+    ("/skip", "alias of /done"),
+    ("/rm", "alias of /done"),
+    ("/note", "append a note to the journal: /note <text>"),
+    ("/nudge", "inject guidance into the running task: /nudge <message>"),
+    ("/inject", "alias of /nudge"),
+    ("/notify", "alias of /nudge"),
+    ("/run", "attach and live-follow the daemon draining the backlog"),
+    ("/daemon", "control this cockpit's executor: /daemon [start|stop|status]"),
+    ("/daemons", "list every live daemon across all projects"),
+    ("/attach", "read-only follow another project's daemon: /attach <session-id>"),
+    ("/doctor", "diagnose + fix \"why isn't anything running\""),
+    ("/backend", "view/change the runner backend"),
+    ("/config", "view/change this session's defaults (cycles, budget, effort...)"),
+    ("/continuous", "manage auto-generate-new-work mode: /continuous [start|stop|status]"),
+    ("/start", "shortcut for /continuous start <objective>"),
+    ("/identity", "view/edit the operator identity card"),
+    ("/reset", "drop the carried session thread; the next turn starts fresh"),
+    ("/skills", "inspect/promote a skill: /skills [ls|promote <name>]"),
+    ("/exit", "leave the cockpit (also: Ctrl-D, `退出`)"),
 ]
+
+#: Grouping of the *primary* (non-alias) commands above, purely for /help
+#: layout. Any command missing here still shows up (see ``_help_command_rows``)
+#: so a forgotten entry degrades to "unsorted", never to "invisible".
+_HELP_SECTIONS: list[tuple[str, tuple[str, ...]]] = [
+    ("日常查看", ("/status", "/roles", "/journal", "/backlog")),
+    ("任务管理", ("/add", "/plan", "/stop", "/done", "/note", "/nudge", "/run")),
+    ("daemon 与诊断", ("/daemon", "/daemons", "/attach", "/doctor")),
+    ("配置", ("/backend", "/config", "/continuous", "/start", "/identity", "/reset", "/skills")),
+    ("其它", ("/help", "/exit")),
+]
+
+
+def _help_command_rows() -> dict[str, tuple[str, str]]:
+    """Fold alias rows (``"alias of /x"``) from ``SLASH_COMMANDS`` into their
+    primary command. Returns ``{primary_cmd: (display_label, description)}``,
+    where ``display_label`` includes any aliases (e.g. ``"/done (= /skip, /rm)"``).
+    """
+    aliases: dict[str, list[str]] = {}
+    primaries: dict[str, str] = {}
+    for cmd, desc in SLASH_COMMANDS:
+        if desc.startswith("alias of "):
+            aliases.setdefault(desc[len("alias of "):].strip(), []).append(cmd)
+        else:
+            primaries[cmd] = desc
+    rows: dict[str, tuple[str, str]] = {}
+    for cmd, desc in primaries.items():
+        extra = aliases.get(cmd)
+        label = f"{cmd}  (= {', '.join(extra)})" if extra else cmd
+        rows[cmd] = (label, desc)
+    return rows
+
+
+def _closest_slash_command(cmd: str) -> str | None:
+    """Best-effort "did you mean" suggestion for an unrecognized slash command,
+    matched against every real spelling in ``SLASH_COMMANDS`` (aliases
+    included) so a mistyped alias still resolves to a useful hint."""
+    import difflib
+
+    names = [c for c, _ in SLASH_COMMANDS]
+    matches = difflib.get_close_matches(cmd.lower(), names, n=1, cutoff=0.5)
+    return matches[0] if matches else None
 
 
 
@@ -2598,6 +2672,34 @@ def _render_help(theme) -> str:  # noqa: ANN001
         for line in theme.wrap_after(para, first_indent=0, hang_indent=0):
             out.append(theme.gray(line))
         out.append("")
+
+    # Command reference — every real spelling in SLASH_COMMANDS ends up here
+    # (grouped when _HELP_SECTIONS knows it, otherwise in a catch-all bucket),
+    # so /help can never silently omit a command that the dispatcher accepts.
+    rows = _help_command_rows()
+    label_width = max((len(label) for label, _desc in rows.values()), default=0) + 2
+    out.append(theme.bold("命令参考") + theme.gray("  — 自然语言之外，也可以直接打命令"))
+    out.append("")
+    for section, cmds in _HELP_SECTIONS:
+        out.append(theme.gray(f"  {section}"))
+        for cmd in cmds:
+            label, desc = rows.pop(cmd, (cmd, ""))
+            out.append(f"    {label:<{label_width}}{theme.gray(desc)}")
+        out.append("")
+    if rows:
+        out.append(theme.gray("  其它"))
+        for cmd, (label, desc) in rows.items():
+            out.append(f"    {label:<{label_width}}{theme.gray(desc)}")
+        out.append("")
+
+    out.append(theme.gray(
+        "常驻实时角色面板（不用手动 /roles 也能一直看到）： "
+        "ARGUS_SKILL_COCKPIT_LIVE=1"
+    ))
+    out.append(theme.gray(
+        "任务运行期间的实时跟随视图： ARGUS_SKILL_FOLLOW_LIVE=1"
+    ))
+    out.append("")
     out.append(theme.gray("Exit with /exit, Ctrl-D, or `退出`."))
     out.append("")
     return "\n".join(out)
@@ -3115,7 +3217,14 @@ def dispatch_command(line, raw, mem, chat_state, global_root, theme) -> str | No
         if cmd == "/skills":
             _skills_cmd(mem, rest)
             return None
-        print(theme.gray(f"unknown command: {cmd}  (try /help)"))
+        hint = _closest_slash_command(cmd)
+        if hint:
+            print(theme.gray(
+                f"unknown command: {cmd}  — did you mean {hint}?  "
+                f"(/help lists every command)"
+            ))
+        else:
+            print(theme.gray(f"unknown command: {cmd}  (/help lists every command)"))
         return None
 
 
