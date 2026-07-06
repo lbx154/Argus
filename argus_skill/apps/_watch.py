@@ -222,6 +222,28 @@ class _BudgetLineCache:
 
 
 @dataclass
+class _JournalTailCache:
+    """Cache the last N *journal-worthy* entries until the file changes.
+
+    ``EventJournal.tail()`` re-derives its entries by re-scanning the whole
+    ``events.jsonl`` history on every call (no internal caching) — cheap for a
+    fresh project, but ~0.5s on a multi-hour mission's multi-MB event log.
+    Gating on ``_path_signature`` (mirrors ``_BudgetLineCache``) means a busy
+    refresh loop only re-scans when the file actually grew, not on every tick.
+    """
+
+    signature: tuple[int, int, int, int] | None = None
+    entries: list[Any] = field(default_factory=list)
+
+    def get(self, *, journal_path: Path, journal: Any, n: int) -> list[Any]:
+        signature = _path_signature(journal_path)
+        if signature != self.signature:
+            self.signature = signature
+            self.entries = journal.tail(n)
+        return self.entries
+
+
+@dataclass
 class _WatchState:
     events_path: Path
     roll_path: Path
@@ -327,25 +349,8 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
 
         journal = Journal(journal_path)
     budget_cache = _BudgetLineCache()
+    journal_cache = _JournalTailCache()
     plain_console = None if sys.stdout.isatty() else Console(force_terminal=False, color_system=None)
-
-    def _read_journal_tail(n: int = 10) -> list[dict[str, Any]]:
-        try:
-            with journal_path.open("rb") as fh:
-                fh.seek(0, 2)
-                size = fh.tell()
-                tail = min(size, 32 * 1024)
-                fh.seek(size - tail)
-                blob = fh.read().decode("utf-8", errors="replace")
-        except OSError:
-            return []
-        rows = []
-        for line in blob.splitlines()[-n:]:
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-        return rows
 
     def _mission_panel() -> Panel:
         mission = state.mission
@@ -387,15 +392,15 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
         tbl.add_column(style="bold magenta", width=18, no_wrap=True)
         tbl.add_column(width=10, justify="right")
         tbl.add_column()
-        for row in _read_journal_tail(10):
-            ts = row.get("ts", 0)
+        entries = journal_cache.get(journal_path=journal_path, journal=journal, n=10)
+        for entry in entries:
             try:
-                ts_s = time.strftime("%H:%M:%S", time.localtime(float(ts)))
+                ts_s = time.strftime("%H:%M:%S", time.localtime(float(entry.ts)))
             except (TypeError, ValueError):
                 ts_s = "?"
-            kind = str(row.get("kind", "?"))
-            cost = float(row.get("cost_usd", 0.0) or 0.0)
-            title = str(row.get("title", ""))[:80]
+            kind = str(entry.kind or "?")
+            cost = float(entry.cost_usd or 0.0)
+            title = str(entry.title or "")[:80]
             tbl.add_row(ts_s, kind, f"${cost:.4f}", title)
         return Panel(tbl, title="Journal (latest)", border_style="magenta")
 
