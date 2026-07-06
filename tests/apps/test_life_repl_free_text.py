@@ -39,21 +39,27 @@ _ENV_VARS_TO_CLEAR = (
     "ARGUS_SKILL_DAEMON_SOURCE_SIGNATURE",
     "ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE",
     "ARGUS_SKILL_COCKPIT_LIVE",
+    "ARGUS_SKILL_ENGINEER_BACKEND",
     "ARGUS_SKILL_ENGINEER_MODEL",
     "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
     "ARGUS_SKILL_FOLLOW_LIVE",
     "ARGUS_SKILL_HOME",
     "ARGUS_SKILL_LIFE_BACKEND",
+    "ARGUS_SKILL_MANAGER_BACKEND",
     "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
     "ARGUS_SKILL_MAX_ROUNDS",
+    "ARGUS_SKILL_MODEL",
     "ARGUS_SKILL_PER_MISSION_CAP_USD",
+    "ARGUS_SKILL_PLANNER_BACKEND",
     "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
     "ARGUS_SKILL_PLAN_MODE",
     "ARGUS_SKILL_PLAN_MODEL",
     "ARGUS_SKILL_RESEARCH_PROFILE",
     "ARGUS_SKILL_RESEARCH_PROFILE_PATH",
+    "ARGUS_SKILL_REVIEWER_BACKEND",
     "ARGUS_SKILL_REVIEWER_MODEL",
     "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
+    "ARGUS_SKILL_RUNNER_BACKEND",
     "ARGUS_SKILL_SKILLS_DIR",
     "ARGUS_SKILL_TELEGRAM_BOT_TOKEN",
     "ARGUS_SKILL_TELEGRAM_CHAT_ID",
@@ -1174,6 +1180,97 @@ def test_free_text_role_effort_config_does_not_enqueue(mem: LifeMemory) -> None:
     assert chat_state["config"]["planner_effort"] == "xhigh"
     assert chat_state["config"]["engineer_effort"] == "xhigh"
     assert chat_state["config"]["reviewer_effort"] == "xhigh"
+
+
+def test_free_text_backend_switch_config_does_not_enqueue(mem: LifeMemory) -> None:
+    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
+
+    with patch.object(manager_repl, "_ensure_manager_runner") as ensure:
+        manager_repl._free_text_cmd(
+            mem,
+            "把目前的argus默认后端都改成copilot",
+            chat_state=chat_state,
+        )
+
+    ensure.assert_not_called()
+    assert mem.backlog.pending() == []
+    assert "manager_runner" not in chat_state
+    assert os.environ["ARGUS_SKILL_RUNNER_BACKEND"] == "copilot"
+    assert chat_state["config"]["runner_backend"] == "copilot"
+
+
+def test_free_text_backend_switch_role_specific(mem: LifeMemory) -> None:
+    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
+
+    manager_repl._free_text_cmd(
+        mem,
+        "把 reviewer 换成 claude",
+        chat_state=chat_state,
+    )
+
+    assert mem.backlog.pending() == []
+    assert os.environ["ARGUS_SKILL_REVIEWER_BACKEND"] == "claude"
+    assert "ARGUS_SKILL_RUNNER_BACKEND" not in os.environ
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "codex 和 claude 哪个好用",
+        "帮我用 copilot 写一个函数",
+        "今天天气不错",
+    ],
+)
+def test_backend_switch_recognizer_does_not_misfire(text: str) -> None:
+    chat_state: dict[str, Any] = {"backend": "codex"}
+    assert manager_repl._maybe_handle_backend_switch_text(None, text, chat_state) is False
+    assert "ARGUS_SKILL_RUNNER_BACKEND" not in os.environ
+
+
+def test_free_text_model_switch_shared_does_not_enqueue(mem: LifeMemory) -> None:
+    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
+
+    with patch.object(manager_repl, "_ensure_manager_runner") as ensure:
+        manager_repl._free_text_cmd(
+            mem,
+            "把模型换成 claude-sonnet-5",
+            chat_state=chat_state,
+        )
+
+    ensure.assert_not_called()
+    assert mem.backlog.pending() == []
+    assert "manager_runner" not in chat_state
+    assert os.environ["ARGUS_SKILL_MODEL"] == "claude-sonnet-5"
+    assert chat_state["config"]["model"] == "claude-sonnet-5"
+
+
+def test_free_text_model_switch_role_specific_prefers_longest_alias(mem: LifeMemory) -> None:
+    """Regression: "gpt-5.4" must not shadow the longer "gpt-5.4-mini" id."""
+    chat_state: dict[str, Any] = {"backend": "codex", "manager_runner": object()}
+
+    manager_repl._free_text_cmd(
+        mem,
+        "engineer 的模型换成 gpt-5.4-mini",
+        chat_state=chat_state,
+    )
+
+    assert mem.backlog.pending() == []
+    assert os.environ["ARGUS_SKILL_ENGINEER_MODEL"] == "gpt-5.4-mini"
+    assert "ARGUS_SKILL_MODEL" not in os.environ
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "如果是 Copilot 的话，也能允许他调用 Copilot 的所有模型",
+        "claude-opus-4.8 是最强的模型",
+        "换成 claude 后端",  # backend switch, not a model switch
+    ],
+)
+def test_model_switch_recognizer_does_not_misfire(text: str) -> None:
+    chat_state: dict[str, Any] = {"backend": "codex"}
+    assert manager_repl._maybe_handle_model_switch_text(None, text, chat_state) is False
+    assert "ARGUS_SKILL_MODEL" not in os.environ
 
 
 def test_unknown_slash_command_does_not_enter_codex(

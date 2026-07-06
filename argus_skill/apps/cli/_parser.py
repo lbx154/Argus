@@ -19,6 +19,7 @@ Examples:
   "现在在干什么？"
   "暂停一下"
   "换成 copilot 后端"
+  "把模型换成 claude-sonnet-5"
 
 Argus has one user-facing mode: the cockpit. The Manager decides whether your
 message is chat, status, resume, configuration, planning, or real work.

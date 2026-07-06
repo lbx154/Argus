@@ -139,6 +139,32 @@ def test_update_changes_label_when_no_phrases():
     assert ls._current_label() == "second"
 
 
+def test_explicit_update_wins_over_phrase_rotation():
+    """A real ``update()`` (e.g. an on_phase callback firing) must permanently
+    override cosmetic ``phrases`` rotation — regression test for a bug where
+    ``_current_label`` ignored ``update()``/``update_role()`` entirely
+    whenever ``phrases`` was non-empty, so a caller like the REPL's
+    manager-triage spinner (which passes both a cosmetic fallback AND drives
+    real progress via on_phase) never showed real phase text."""
+    clock = {"t": 0.0}
+    ls = LiveStatus(
+        "a", stream=io.StringIO(), enabled=True,
+        phrases=["one", "two"], phrase_interval=5.0,
+        clock=lambda: clock["t"],
+    )
+    ls._start = 0.0
+    assert ls._current_label() == "one"  # still rotating before any real event
+    clock["t"] = 5.0
+    assert ls._current_label() == "two"
+    ls.update("Engineer · writing code")
+    assert ls._current_label() == "Engineer · writing code"
+    # Time keeps moving — the explicit label must stick, not resume rotating.
+    clock["t"] = 12.0
+    assert ls._current_label() == "Engineer · writing code"
+    ls.update_role("bold_green", "Reviewer · 裁决中")
+    assert ls._current_label() == "Reviewer · 裁决中"
+
+
 def test_update_accent_retints_spinner_glyph_only():
     ls = LiveStatus(
         "x", theme=Theme(enabled=True), stream=io.StringIO(),

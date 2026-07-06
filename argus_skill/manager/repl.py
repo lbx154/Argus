@@ -791,6 +791,223 @@ def _maybe_handle_role_effort_text(
     return True
 
 
+_ROLE_BACKEND_ENVS: dict[str, str] = {
+    "manager": "ARGUS_SKILL_MANAGER_BACKEND",
+    "planner": "ARGUS_SKILL_PLANNER_BACKEND",
+    "engineer": "ARGUS_SKILL_ENGINEER_BACKEND",
+    "reviewer": "ARGUS_SKILL_REVIEWER_BACKEND",
+}
+# Recognized agent CLIs. Checked in order; first alias match wins.
+_BACKEND_VALUE_ALIASES: dict[str, tuple[str, ...]] = {
+    "claude": ("claude code", "claude-code", "claude"),
+    "copilot": ("github copilot", "copilot"),
+    "codex": ("codex",),
+}
+_BACKEND_SWITCH_VERBS = (
+    "换", "切", "改", "设置", "设为", "默认",
+    "switch", "change", "set", "use", "配置",
+)
+
+
+def _maybe_handle_backend_switch_text(
+    mem: Any,
+    text: str,
+    chat_state: dict[str, Any],
+) -> bool:
+    """Handle "switch the CLI backend to X" free text before it becomes work.
+
+    Mirrors ``_maybe_handle_role_effort_text``: a conservative recognizer that
+    only fires when the text names one of the supported agent CLIs (codex /
+    claude / copilot) AND a configuration verb AND either a role name, the
+    word "后端"/"backend", or "默认" — so ordinary chat that merely mentions
+    "copilot" or "codex" in passing is never misread as a config change.
+
+    Flips ``ARGUS_SKILL_RUNNER_BACKEND`` (all roles) or a single role's
+    ``ARGUS_SKILL_<ROLE>_BACKEND`` for THIS process only — the same
+    env-var contract ``_runtime._SkillLoopRunner`` already reads. The running
+    daemon is a separate process with its own environment snapshot, so it
+    keeps the old backend until restarted (``/daemon restart --drain`` or its
+    natural-language equivalent).
+    """
+    raw = (text or "").strip()
+    low = raw.casefold()
+    if not raw:
+        return False
+    backend = next(
+        (
+            name
+            for name, aliases in _BACKEND_VALUE_ALIASES.items()
+            if any(alias in low for alias in aliases)
+        ),
+        "",
+    )
+    if not backend:
+        return False
+    if not any(tok in low for tok in _BACKEND_SWITCH_VERBS):
+        return False
+    roles: list[str] = []
+    for role, aliases in _ROLE_ALIASES.items():
+        if any(alias in low for alias in aliases):
+            roles.append(role)
+    generic = any(
+        tok in low
+        for tok in ("后端", "backend", "默认", "所有角色", "全部角色", "all roles", "every role")
+    )
+    if not roles and not generic:
+        return False
+
+    from ..agent_cli.runner_backend import normalize_runner_backend
+
+    normalized = normalize_runner_backend(backend)
+    theme = chat_state.get("theme")
+    if roles:
+        for role in roles:
+            os.environ[_ROLE_BACKEND_ENVS[role]] = normalized
+        role_names = " / ".join(role.title() for role in roles)
+        line = f"已把 {role_names} 的 CLI 后端设为 {normalized}。"
+    else:
+        os.environ["ARGUS_SKILL_RUNNER_BACKEND"] = normalized
+        line = f"已把 Argus 默认 CLI 后端设为 {normalized}（未单独指定后端的角色都会跟随）。"
+
+    cfg = chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))
+    cfg["runner_backend"] = normalized
+    # The cached front-door runner captured the old backend; rebuild it so
+    # subsequent chat/simple turns also use the new one.
+    chat_state.pop("manager_runner", None)
+
+    print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
+
+    try:
+        from ..daemon.life_worker import read_daemon_status
+
+        st = read_daemon_status(_life_dir_for(mem))
+        if getattr(st, "alive", False):
+            msg = "当前已运行 daemon 的环境不会被热改；用 /daemon restart --drain 在任务边界重启后完全生效。"
+            print(theme.gray("  " + msg) if theme is not None else msg, flush=True)
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
+_ROLE_MODEL_ENVS: dict[str, str] = {
+    # Manager REPL triage reuses the engineer route/model (see
+    # ``_ensure_manager_runner`` and ``cli.roles_status._ROLE_MODEL_ENV``).
+    "manager": "ARGUS_SKILL_ENGINEER_MODEL",
+    "planner": "ARGUS_SKILL_PLAN_MODEL",
+    "engineer": "ARGUS_SKILL_ENGINEER_MODEL",
+    "reviewer": "ARGUS_SKILL_REVIEWER_MODEL",
+}
+# Known model ids per backend, as of this build. Not exhaustive — any model
+# the underlying CLI supports already works via ARGUS_SKILL_<ROLE>_MODEL /
+# ARGUS_SKILL_MODEL (agent_cli_runner passes --model straight through with no
+# whitelist); this table only bounds what natural language can RECOGNIZE, so
+# an unlisted model name still falls through untouched to the task/chat path
+# instead of being silently mismatched.
+_MODEL_VALUE_ALIASES: dict[str, tuple[str, ...]] = {
+    "claude-sonnet-5": ("claude-sonnet-5", "claude sonnet 5"),
+    "claude-sonnet-4.6": ("claude-sonnet-4.6", "claude sonnet 4.6"),
+    "claude-sonnet-4.5": ("claude-sonnet-4.5", "claude sonnet 4.5"),
+    "claude-haiku-4.5": ("claude-haiku-4.5", "claude haiku 4.5", "haiku"),
+    "claude-opus-4.8": ("claude-opus-4.8", "claude opus 4.8"),
+    "claude-opus-4.7": ("claude-opus-4.7", "claude opus 4.7"),
+    "claude-opus-4.6": ("claude-opus-4.6", "claude opus 4.6"),
+    "gpt-5.5": ("gpt-5.5", "gpt5.5"),
+    "gpt-5.4": ("gpt-5.4", "gpt5.4"),
+    "gpt-5.3-codex": ("gpt-5.3-codex", "gpt-5.3 codex", "gpt5.3-codex"),
+    "gpt-5.4-mini": ("gpt-5.4-mini", "gpt-5.4 mini", "gpt5.4-mini"),
+    "gpt-5-mini": ("gpt-5-mini", "gpt-5 mini", "gpt5-mini"),
+    "gemini-3.1-pro-preview": (
+        "gemini-3.1-pro-preview", "gemini 3.1 pro", "gemini-3.1-pro",
+    ),
+    "gemini-3.5-flash": ("gemini-3.5-flash", "gemini 3.5 flash"),
+    "mai-code-1-flash-picker": (
+        "mai-code-1-flash-picker", "mai-code-1-flash", "mai code",
+    ),
+}
+_MODEL_SWITCH_VERBS = _BACKEND_SWITCH_VERBS  # same verb vocabulary as backend switch
+
+
+def _maybe_handle_model_switch_text(
+    mem: Any,
+    text: str,
+    chat_state: dict[str, Any],
+) -> bool:
+    """Handle "switch the model to X" free text before it becomes work.
+
+    Same conservative shape as ``_maybe_handle_backend_switch_text``: fires
+    only when the text names a known model id AND a configuration verb AND
+    either a role name or "模型"/"model"/"默认" — so a message that just
+    happens to mention a model name is never misread as a config change.
+    Runs AFTER the backend-switch recognizer, so "换成 claude 后端" is still
+    a backend switch, not a (non-matching) model one — only phrases that
+    fail the backend recognizer's checks (e.g. name a full model id and say
+    "模型") reach here.
+
+    Sets ARGUS_SKILL_<ROLE>_MODEL for a named role, or the shared
+    ARGUS_SKILL_MODEL (every role, unless a role already pins its own) when
+    no role is named — the same env-var contract ``cli.roles_status``
+    already resolves. This is how an operator on the copilot backend picks
+    any model Copilot supports (claude/gpt/gemini/...), not just the
+    gpt-5.5 default — the CLI plumbing already forwards --model verbatim
+    with no whitelist; this recognizer just makes picking one a one-liner.
+    """
+    raw = (text or "").strip()
+    low = raw.casefold()
+    if not raw:
+        return False
+    # Pick the LONGEST matching alias across all models, not the first dict
+    # entry — several ids share a prefix (e.g. "gpt-5.4" is itself a substring
+    # of "gpt-5.4-mini"), so a naive first-match would misidentify the model.
+    model = ""
+    best_len = 0
+    for name, aliases in _MODEL_VALUE_ALIASES.items():
+        for alias in aliases:
+            if alias in low and len(alias) > best_len:
+                model, best_len = name, len(alias)
+    if not model:
+        return False
+    if not any(tok in low for tok in _MODEL_SWITCH_VERBS):
+        return False
+    roles: list[str] = []
+    for role, aliases in _ROLE_ALIASES.items():
+        if any(alias in low for alias in aliases):
+            roles.append(role)
+    generic = any(
+        tok in low
+        for tok in ("模型", "model", "默认", "所有角色", "全部角色", "all roles", "every role")
+    )
+    if not roles and not generic:
+        return False
+
+    theme = chat_state.get("theme")
+    if roles:
+        seen_envs = {_ROLE_MODEL_ENVS[role] for role in roles}
+        for env_var in seen_envs:
+            os.environ[env_var] = model
+        role_names = " / ".join(role.title() for role in roles)
+        line = f"已把 {role_names} 的模型设为 {model}。"
+    else:
+        os.environ["ARGUS_SKILL_MODEL"] = model
+        line = f"已把 Argus 默认模型设为 {model}（未单独指定模型的角色都会跟随）。"
+
+    cfg = chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))
+    cfg["model"] = model
+    chat_state.pop("manager_runner", None)
+
+    print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
+
+    try:
+        from ..daemon.life_worker import read_daemon_status
+
+        st = read_daemon_status(_life_dir_for(mem))
+        if getattr(st, "alive", False):
+            msg = "当前已运行 daemon 的环境不会被热改；用 /daemon restart --drain 在任务边界重启后完全生效。"
+            print(theme.gray("  " + msg) if theme is not None else msg, flush=True)
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
 def _config_cmd(tokens: list[str], chat_state: dict[str, Any],
                 life_dir: Path | None = None) -> None:
     """``/config [key=value ...]`` — view or change REPL-session defaults.
@@ -1643,6 +1860,12 @@ def _free_text_cmd(
     if _maybe_handle_role_effort_text(mem, body, chat_state):
         return
 
+    if _maybe_handle_backend_switch_text(mem, body, chat_state):
+        return
+
+    if _maybe_handle_model_switch_text(mem, body, chat_state):
+        return
+
     # Manager front door — answer conversation, route tasks. Skipped only for a
     # blocked-continuation answer (which must continue the task, not be re-chatted).
     if not chat_state.get("blocked_item_id"):
@@ -1650,12 +1873,22 @@ def _free_text_cmd(
         # phase (classify → reply / hand-off), not a timed cosmetic rotation, so
         # it honestly reflects what the Manager is doing. No-op on non-TTY.
         from ..cli.live_status import LiveStatus
-        from ..cli.roles_status import ROLE_COLOR_BOLD
+        from ..cli.roles_status import ROLE_COLOR_BOLD, resolve_role_config
 
+        # The manager's ACTUAL configured backend — never hardcode "Codex" here;
+        # it silently lied whenever the operator was on claude/copilot (this is
+        # only the pre-first-event placeholder anyway; a real on_phase update
+        # below permanently replaces it — see LiveStatus._current_label).
+        _manager_backend_label = resolve_role_config(
+            "manager", env=os.environ,
+        ).backend_label
         with LiveStatus(
             "判断 SELF / TEAM…",
             theme=theme,
-            phrases=["判断 SELF / TEAM…", "等待 Codex 首个事件…"],
+            phrases=[
+                "判断 SELF / TEAM…",
+                f"等待 {_manager_backend_label} 首个事件…",
+            ],
             phrase_interval=10.0,
             accent=ROLE_COLOR_BOLD.get("manager", "magenta"),
         ) as _live:
@@ -2358,7 +2591,7 @@ def _render_help(theme) -> str:  # noqa: ANN001
         "Real work follows the single product path: Manager → Planner → "
         "Idea/Skill → Engineer → Reviewer.",
         "Examples: `继续上次`, `现在在干什么`, `暂停一下`, `换成 copilot 后端`, "
-        "`帮我优化这个项目`.",
+        "`把模型换成 claude-sonnet-5`, `帮我优化这个项目`.",
     ):
         for line in theme.wrap_after(para, first_indent=0, hang_indent=0):
             out.append(theme.gray(line))
