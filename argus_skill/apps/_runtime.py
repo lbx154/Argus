@@ -817,8 +817,29 @@ class _SkillLoopRunner:
             if getattr(args, "manager_session_root", None)
             else _manager_workdir
         )
-        self._artifact_root = _manager_session_root
-        os.environ["ARGUS_SKILL_ARTIFACT_ROOT"] = str(_manager_session_root)
+        # ``_artifact_root`` / Manager's ``project_root`` MUST be the real
+        # mission WORKDIR, never the daemon's internal life_dir: every OTHER
+        # reader/writer of ``research/PIPELINE_STATE.json`` (stage_checklists.
+        # current_stage/advance_stage, the reviewer's stage-gated checklist,
+        # engineer/runner.py's stage-based branching, resolve_vertical, custom
+        # data-domain lookups) operates against the WORKDIR. Pointing the
+        # Manager's stage-authority writes at ``_manager_session_root`` (life_dir
+        # in daemon/continuous mode — see life_worker.py's
+        # ``ns.manager_session_root = str(cfg.life_dir)``) silently splits the
+        # pipeline state in two: the Manager advances/rolls-back a
+        # PIPELINE_STATE.json under life_dir that NOTHING else ever reads, while
+        # every stage-gated check in the real mission workdir keeps falling back
+        # to the vertical's first stage forever (observed in production: a
+        # kernelbench mission whose life_dir copy legitimately reached
+        # "measure", 8 kernels deep, while its workdir copy never existed —
+        # the mission's own tooling correctly observed "no
+        # research/PIPELINE_STATE.json here" and got stuck waiting on a
+        # transition that had already happened, just in the wrong place).
+        # ``manager_session_root`` is unaffected: it stays daemon/life_dir-scoped
+        # for the Manager's OWN persistent codex session/lock files only (see
+        # ``_ManagerSession``), which is an orthogonal concern.
+        self._artifact_root = _manager_workdir
+        os.environ["ARGUS_SKILL_ARTIFACT_ROOT"] = str(_manager_workdir)
         # Skill matcher for the Manager (same adaptive library the SkillLoop/
         # planner/reviewer match against). Pointed at the daemon's skills dir so
         # the Manager injects its fixed role skill plus any matched manager skill
@@ -827,7 +848,7 @@ class _SkillLoopRunner:
         # behaviour), since this must never block daemon start-up.
         self._manager_skill_store = self._build_manager_skill_store(args)
         self.manager = Manager(
-            project_root=_manager_session_root,
+            project_root=_manager_workdir,
             runner=self.manager_backend or self._backend,
             skill_store=self._manager_skill_store,
             manager_session_root=_manager_session_root,

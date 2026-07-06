@@ -238,9 +238,22 @@ def test_codex_skill_loop_runner_strips_legacy_auto_max_profile(
     assert runner.backend is runner._backend
 
 
-def test_skill_loop_runner_uses_session_root_for_manager_artifacts(
+def test_skill_loop_runner_uses_workdir_for_manager_artifacts_not_session_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Regression: the Manager's ``project_root`` / ``_artifact_root`` (where
+    ``research/PIPELINE_STATE.json`` and every other stage/vertical artifact
+    live) MUST be the real mission workdir, never ``manager_session_root``
+    (the daemon's internal life_dir, used only for the Manager's OWN
+    persistent codex session/lock files). Every OTHER reader/writer of
+    pipeline stage (``stage_checklists.current_stage``/``advance_stage``,
+    ``engineer/runner.py``'s stage branching, ``resolve_vertical``) reads the
+    WORKDIR — pointing the Manager's stage-authority writes at a different
+    root silently splits the pipeline state in two (observed in production: a
+    mission whose life_dir-scoped PIPELINE_STATE.json legitimately advanced
+    to a late stage while its workdir-scoped copy never existed, so every
+    stage-gated check kept falling back to the vertical's first stage
+    forever)."""
     repo = tmp_path / "repo"
     session_root = tmp_path / "session"
     repo.mkdir()
@@ -262,9 +275,13 @@ def test_skill_loop_runner_uses_session_root_for_manager_artifacts(
         seed_thread_id=None,
     )
 
-    assert runner.manager.project_root == session_root
-    assert runner._artifact_root == session_root
-    assert os.environ["ARGUS_SKILL_ARTIFACT_ROOT"] == str(session_root)
+    assert runner.manager.project_root == repo
+    assert runner._artifact_root == repo
+    assert os.environ["ARGUS_SKILL_ARTIFACT_ROOT"] == str(repo)
+    # manager_session_root stays independently life_dir-scoped (session/lock
+    # files only) — unaffected by this fix.
+    assert runner.manager.manager_session_root == session_root
+    assert runner._manager_session_root == session_root
 
 
 def test_stop_reason_consumes_mission_abort_when_daemon_runner(

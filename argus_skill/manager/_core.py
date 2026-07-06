@@ -365,7 +365,16 @@ def _manager_blocked_rollback_artifact(
 class Manager:
     """User-facing entry: divide a Task, then hand it to the existing engine.
 
-    ``project_root`` is the life project dir (where PIPELINE_STATE.json lives).
+    ``project_root`` is the mission's real project WORKDIR — where
+    ``research/PIPELINE_STATE.json``, ``research/DOMAINS/*.json``, and every
+    other stage/vertical artifact live, matching what
+    ``skills.stage_checklists`` / ``skills.vertical_select`` / the reviewer's
+    stage-gated checklist all read and write. It must NEVER be the daemon's
+    internal life_dir (a distinct, life-of-the-daemon scoped directory) — the
+    two are easy to conflate but reads/writes against life_dir are invisible
+    to everything else that tracks pipeline stage. ``manager_session_root``
+    is the separate, orthogonal concern: where the Manager's OWN persistent
+    codex session/lock files live (safe to keep daemon/life_dir-scoped).
     ``runner`` is an optional LLM backend for classification; without it the
     classifier degrades to the deterministic keyword heuristic.
     """
