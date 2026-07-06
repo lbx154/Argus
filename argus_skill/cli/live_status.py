@@ -27,10 +27,28 @@ captured test stdout, and the event-sink paths stay byte-for-byte unchanged.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import threading
 import time
 from typing import Callable, Sequence, TextIO
+
+# ANSI + CJK-aware clip helpers live in ``cli.roles_status`` (well-tested). They
+# are pure text utilities and ``roles_status`` never imports this module, so a
+# top-level import is cycle-free. Fall back to identity clips if anything about
+# that module changes, so the spinner never crashes the work it decorates.
+try:  # pragma: no cover — exercised indirectly via render_frame tests
+    from .roles_status import _clip_ansi_line, _clip_display, _disp_width
+except Exception:  # noqa: BLE001 — never let a helper import break the spinner
+
+    def _disp_width(text: str) -> int:  # type: ignore[misc]
+        return len(text)
+
+    def _clip_display(text: str, budget: int) -> str:  # type: ignore[misc]
+        return text if len(text) <= budget else text[: max(0, budget - 1)] + "…"
+
+    def _clip_ansi_line(s: str, budget: int) -> str:  # type: ignore[misc]
+        return s
 
 # Braille dot-spinner — identical frames/cadence to Codex CLI + Rich `dots`.
 FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -214,21 +232,48 @@ class LiveStatus:
             return text
 
     def render_frame(self) -> str:
-        """The full escape sequence for one repaint (no thread needed)."""
+        """The full escape sequence for one repaint (no thread needed).
+
+        The composed line is clamped to ``terminal width - 1`` display columns
+        so it can never wrap: a wrapped line would leave the overflow row behind
+        when the next frame's ``\\r\\x1b[2K`` only erases the final physical row,
+        producing a cascade of duplicated status lines. The elapsed/hint meta is
+        preserved by budgeting the (plain) label first, with a whole-line clip as
+        the final safety net.
+        """
         spin = FRAMES[self._frame % len(FRAMES)]
         label = self._current_label()
         with self._lock:
             accent = self._accent
         elapsed = _fmt_elapsed(self._clock() - self._start)
         meta = f"({elapsed}" + (f" · {self._hint}" if self._hint else "") + ")"
+
+        # Budget the plain label so spinner (1) + spaces (1 + 2) + meta survive.
+        try:
+            cols = shutil.get_terminal_size((80, 24)).columns
+        except Exception:  # noqa: BLE001
+            cols = 80
+        budget = max(1, cols - 1)
+        fixed = _disp_width(spin) + 1 + 2 + _disp_width(meta)
+        label_budget = budget - fixed
+        if label_budget >= 8:
+            label = _clip_display(label, label_budget)
+        else:
+            # Terminal too narrow to keep both label and meta — drop meta and
+            # give the whole budget to the label instead.
+            meta = ""
+            label = _clip_display(label, max(1, budget - _disp_width(spin) - 1))
+
         body = (
             self._color(accent, spin)  # mauve by default; a multi-role caller
             # may retint this per active role via ``update_accent``/``update_role``
             + " "
             + self._color("bold", label)
-            + "  "
-            + self._color("dim", meta)
+            + ("  " + self._color("dim", meta) if meta else "")
         )
+        # Final safety net: clamp the fully-composed (ANSI-colored) line so no
+        # residual styling width pushes it past the terminal edge.
+        body = _clip_ansi_line(body, budget)
         return _ERASE_LINE + body
 
     def _run(self) -> None:

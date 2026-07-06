@@ -1672,7 +1672,9 @@ class _SkillLoopRunner:
         from ..cli.roles_status import runner_backend_label
         sink.handle_event({
             "type": "loop.start",
-            "text": f"SELF: one {runner_backend_label()} handling {objective[:80]}",
+            # A coarse cap; the real terminal-width clamp lives in
+            # cli.live_status.render_frame so this line can never wrap.
+            "text": f"SELF: one {runner_backend_label()} handling {objective[:120]}",
         })
 
         self._current_sink = sink
