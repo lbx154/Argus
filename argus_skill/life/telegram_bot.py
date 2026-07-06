@@ -239,7 +239,7 @@ class _CommandRouter:
     }
 
     def _detect_active_layer(self, mem: Any) -> str:
-        """Infer the active agent layer from the most recent journal entry."""
+        """Read the explicit active agent layer from the most recent journal entry."""
         try:
             entries = mem.journal.tail(3)
             for e in reversed(entries):
@@ -249,14 +249,6 @@ class _CommandRouter:
                     label = self._LAYER_LABELS.get(layer, "")
                     if label:
                         return label
-                # Fallback: infer from kind
-                kind = getattr(e, "kind", "")
-                if kind in ("mission_started",):
-                    return self._LAYER_LABELS["engineer"]
-                if kind in ("mission_iterated",):
-                    return self._LAYER_LABELS["critic"]
-                if kind in ("planner_cycle", "planner_retry", "planner_done"):
-                    return self._LAYER_LABELS["planner"]
         except Exception:  # noqa: BLE001
             pass
         return ""

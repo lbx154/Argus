@@ -10,12 +10,14 @@ This module is deliberately thin and self-contained:
 
 * :class:`PlanStep` / :class:`Plan` — the in-memory plan shape.
 * :func:`draft_plan` — ask the model (via the runner the REPL already holds) for
-  an ordered plan and parse it. Fully fail-soft: any error returns a Plan
-  with a single best-effort step so the REPL never crashes.
+  an ordered plan and parse it. Failures are surfaced explicitly in the
+  returned :class:`Plan`; the REPL stays alive, but it does NOT silently
+  invent a fake one-step plan.
 * :func:`render_plan` — pretty, scannable multi-line text (numbered steps + notes).
 * :func:`parse_plan_text` — the pure, unit-testable parser (no live model). Accepts
   JSON (list of steps, or an object with a ``steps`` key) and a numbered/bulleted
-  list fallback; returns ``[]`` on garbage so the caller can fail soft.
+  list fallback; returns ``[]`` on garbage so the caller can surface the draft
+  failure explicitly.
 
 Design note (matches the rest of the Manager): the harness does no domain
 judgment here — it only renders a request, parses the reply robustly, and lets
@@ -65,11 +67,15 @@ class Plan:
 
     ``steps`` is the ordered list the operator approves before anything is
     queued; ``notes`` are optional caveats / assumptions the model surfaced.
+    ``error`` is non-empty only when drafting failed, in which case ``steps``
+    is empty and callers should surface the failure rather than pretend a
+    model-authored plan exists.
     """
 
     objective: str
     steps: list[PlanStep] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    error: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -325,14 +331,14 @@ def _emit(sink: Any, event_type: str, **fields: Any) -> None:
         pass
 
 
-def _fallback_plan(objective: str, notes: list[str] | None = None) -> Plan:
-    """A one-step plan used whenever drafting fails (keeps the REPL alive)."""
-    title = _truncate(objective.strip() or "the objective", 80)
-    step = PlanStep(
-        title=title,
-        detail="could not draft a detailed plan — proceed as a single step.",
-    )
-    return Plan(objective=objective, steps=[step], notes=list(notes or []))
+def _draft_failed(
+    objective: str,
+    *,
+    reason: str,
+    notes: list[str] | None = None,
+) -> Plan:
+    """Return an explicit drafting failure without inventing plan steps."""
+    return Plan(objective=objective, steps=[], notes=list(notes or []), error=reason)
 
 
 def draft_plan(runner: Any, objective: str, *, sink: Any = None) -> Plan:
@@ -343,9 +349,10 @@ def draft_plan(runner: Any, objective: str, *, sink: Any = None) -> Plan:
     the work. The reply is parsed by :func:`parse_plan_text` /
     :func:`parse_plan_notes`.
 
-    Fully fail-soft: a missing/raising runner, a non-zero exit, an empty reply,
-    or an unparseable plan all collapse to a single best-effort step so the REPL
-    never crashes. Returns a :class:`Plan` (always with at least one step).
+    A missing/raising runner, a non-zero exit, an empty reply, or an
+    unparseable plan are surfaced explicitly via ``Plan.error`` so the REPL
+    never crashes but also never silently invents a plan. On success,
+    ``Plan.error`` is empty.
     """
     objective = objective or ""
     _emit(sink, "plan.draft.start", objective=_truncate(objective, 120))
@@ -353,24 +360,28 @@ def draft_plan(runner: Any, objective: str, *, sink: Any = None) -> Plan:
     run_exec = _resolve_run_exec(runner)
     if run_exec is None:
         _emit(sink, "plan.draft.failed", reason="no runner backend")
-        return _fallback_plan(objective)
+        return _draft_failed(objective, reason="could not draft plan: no runner backend")
 
     try:
         result = run_exec(build_plan_prompt(objective))
-    except Exception:  # noqa: BLE001 — any backend error → single best-effort step
+    except Exception:  # noqa: BLE001 — keep the REPL alive but surface failure
         _emit(sink, "plan.draft.failed", reason="backend error")
-        return _fallback_plan(objective)
+        return _draft_failed(objective, reason="could not draft plan: backend error")
 
     if int(getattr(result, "exit_code", 0) or 0) != 0:
         _emit(sink, "plan.draft.failed", reason="non-zero exit")
-        return _fallback_plan(objective)
+        return _draft_failed(objective, reason="could not draft plan: planner exited non-zero")
 
     text = _extract_text(result)
     steps = parse_plan_text(text)
     notes = parse_plan_notes(text)
     if not steps:
         _emit(sink, "plan.draft.failed", reason="unparseable plan")
-        return _fallback_plan(objective, notes)
+        return _draft_failed(
+            objective,
+            reason="could not draft plan: model reply was empty or unparseable",
+            notes=notes,
+        )
 
     # Enforce the product contract: a preview plan has a bounded number of steps.
     steps = steps[:_MAX_STEPS]
@@ -412,7 +423,11 @@ def render_plan(plan: Plan, theme: Any = None) -> str:
         lines.append(_style(theme, "bold", header))
 
         if not steps:
-            lines.append("  " + _style(theme, "gray", "(no steps)"))
+            error = str(getattr(plan, "error", "") or "").strip()
+            if error:
+                lines.append("  " + _style(theme, "red", f"draft failed: {error}"))
+            else:
+                lines.append("  " + _style(theme, "gray", "(no steps)"))
         for i, step in enumerate(steps, 1):
             title = str(getattr(step, "title", "") or "").strip()
             detail = str(getattr(step, "detail", "") or "").strip()

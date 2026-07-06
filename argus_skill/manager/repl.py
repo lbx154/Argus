@@ -2271,6 +2271,10 @@ def _plan_cmd(mem: Any, chat_state: dict[str, Any], objective: str) -> None:
     ):
         plan = plan_mode.draft_plan(runner, objective)
     print(plan_mode.render_plan(plan, theme), flush=True)
+    if getattr(plan, "error", ""):
+        note = "plan was not queued because drafting failed; fix the runner or rephrase the objective and try /plan again."
+        print(theme.gray(note) if theme is not None else note, flush=True)
+        return
     # Ask before queuing — the whole point of a preview is approval.
     prompt = "queue this plan as a task? [y/N] "
     try:

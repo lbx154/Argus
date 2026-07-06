@@ -17,10 +17,10 @@ Validation before a create/update is STORED (in order, cheap-first):
      progressive disclosure, same shape the matcher already uses, never full
      skill bodies) — this catches paraphrased duplicates a lexical
      comparison would miss (e.g. "Debug CUDA OOM" vs "Fix GPU memory
-     overflow"). There is no lexical/scored fallback: when no
-     ``judge_runner`` is configured, or the judge call fails, the
-     independence check is simply skipped (fail-open) for that proposal —
-     never a silent degrade to a scored heuristic;
+     overflow"). There is no lexical/scored fallback, and no silent
+     fail-open: when a non-empty library needs the duplicate judge but no
+     usable judge verdict is available, the proposal is rejected explicitly
+     so the harness never guesses or silently waves it through;
   3. provisional proof — create/update candidates are stored as provisional and
      must later prove effective under Reviewer supervision.
 
@@ -180,10 +180,14 @@ class SkillRouter:
         # runner configured, or the call fails -> the check is skipped
         # (fail-open); there is no scored/lexical fallback.
         exclude = op.get("name") if kind == "update" else None
-        verdict = self._llm_duplicate_check(
-            name=name, description=description, category=category,
-            exclude_name=exclude,
-        )
+        try:
+            verdict = self._llm_duplicate_check(
+                name=name, description=description, category=category,
+                exclude_name=exclude,
+            )
+        except RuntimeError as exc:
+            self._reject(on_event, kind, str(exc))
+            return False
         if verdict is not None:
             is_dup, near, why = verdict
             if is_dup:
@@ -280,18 +284,21 @@ class SkillRouter:
         """Ask the judge runner whether the proposal duplicates an existing
         skill, over COMPACT SUMMARIES only (progressive disclosure — cheap
         even against a large library). Returns ``(is_duplicate, matched_name,
-        why)``, or ``None`` when no judge runner is configured or the call
-        fails for any reason — the caller then skips the independence check
-        entirely for this proposal (fail-open); there is no scored/lexical
-        fallback."""
-        if self.judge_runner is None:
-            return None
+        why)``, or ``None`` when there is nothing to compare against. Missing
+        or unusable judge infrastructure RAISES so the caller can reject the
+        proposal explicitly; there is no scored/lexical fallback and no silent
+        fail-open."""
         summaries = [
             s for s in self.skill_store.list_summaries()
             if not (exclude_name and s.get("name") == exclude_name)
         ]
         if not summaries:
             return False, "", "library is empty"
+        if self.judge_runner is None:
+            raise RuntimeError(
+                "duplicate judge unavailable: configure a healthy judge_runner "
+                "before create/update against a non-empty skill library"
+            )
         prompt = Prompts.skill_duplicate_check(
             name=name, description=description, category=category,
             summaries=summaries,
@@ -307,26 +314,29 @@ class SkillRouter:
                 ),
                 run_label="skill.duplicate_check",
             )
-        except Exception as exc:  # noqa: BLE001 — judge is best-effort
+        except Exception as exc:  # noqa: BLE001
             log.warning("skill duplicate judge failed (%s: %s)", type(exc).__name__, exc)
-            return None
+            raise RuntimeError(
+                f"duplicate judge failed: {type(exc).__name__}: {exc}"
+            ) from exc
         text = (getattr(result, "last_agent_message", "") or "").strip()
         if not text:
-            return None
+            raise RuntimeError("duplicate judge returned no text")
         try:
             left, right = text.find("{"), text.rfind("}")
             parsed = json.loads(text[left:right + 1]) if left >= 0 < right else json.loads(text)
         except (json.JSONDecodeError, ValueError):
-            return None
+            raise RuntimeError("duplicate judge returned malformed JSON") from None
         if not isinstance(parsed, dict):
-            return None
+            raise RuntimeError("duplicate judge returned a non-object verdict")
         is_dup = bool(parsed.get("duplicate"))
         of_name = str(parsed.get("of", "") or "").strip()
         why = str(parsed.get("why", "") or "").strip()[:300]
-        # Fail-closed on a malformed "true but no target": never reject
-        # without naming what it collides with.
         if is_dup and not of_name:
-            return None
+            raise RuntimeError(
+                "duplicate judge returned duplicate=true without naming the "
+                "existing conflicting skill"
+            )
         return is_dup, of_name, why
 
     def _find_skill_by_name(self, name: str) -> Any | None:

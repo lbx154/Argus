@@ -1,4 +1,4 @@
-"""On-disk skill store, LLM matcher and keyword fallback.
+"""On-disk skill store and LLM matcher.
 
 Provenance: vendored from ``skill-agent/skill_agent/skill_store.py``. The
 key refactor: ``find_relevant`` no longer imports ``codex_exec`` directly.
@@ -7,8 +7,10 @@ so the same store works against codex, claude-code, or the test stub.
 
 Skills are markdown files with a YAML-style frontmatter block. The
 ``Skill`` dataclass + parse/render helpers are unchanged. ``SkillStore``
-indexes the directory, asks a small model to pick the best match for a
-task, and falls back to keyword overlap if the matcher errors out.
+indexes the directory and asks a small model to pick the best match for a
+task. There is NO lexical/keyword fallback: on matcher failure or an
+unusable matcher response we surface the failure and return ``None`` so the
+caller takes the full expensive path rather than silently guessing a match.
 """
 from __future__ import annotations
 
@@ -676,18 +678,21 @@ class SkillStore:
                     ),
                     run_label="matcher",
                 )
-            except Exception as exc:  # noqa: BLE001 — best-effort, keyword fallback
+            except Exception as exc:  # noqa: BLE001 — matcher failure must not guess
                 log.error("skill matcher subprocess raised: %s", exc)
                 if on_event:
-                    on_event({"type": "match.error",
-                              "text": f"matcher subprocess raised: {exc} — falling back to keyword overlap"})
-                kw = self._keyword_fallback(task_description, summaries=summaries)
+                    on_event(
+                        {
+                            "type": "match.error",
+                            "text": (
+                                f"matcher subprocess raised: {exc} — "
+                                "treating as no match"
+                            ),
+                        }
+                    )
                 self._last_match_input_tokens = 0
                 self._last_match_cached_input_tokens = 0
                 self._last_match_output_tokens = 0
-                if kw:
-                    self._cache_match(cache_key, kw)
-                    return kw, 0
                 self._cache_match(cache_key, [])
                 return None, 0
 
@@ -703,17 +708,19 @@ class SkillStore:
                 log.error("skill matcher subprocess failed: %s ; stderr: %s",
                           err, stderr_tail)
                 if on_event:
-                    on_event({"type": "match.error",
-                              "text": f"matcher subprocess failed: {err}"
-                                      + (f" — {stderr_tail}" if stderr_tail else "")
-                                      + " — falling back to keyword overlap"})
-                kw = self._keyword_fallback(task_description, summaries=summaries)
+                    on_event(
+                        {
+                            "type": "match.error",
+                            "text": (
+                                f"matcher subprocess failed: {err}"
+                                + (f" — {stderr_tail}" if stderr_tail else "")
+                                + " — treating as no match"
+                            ),
+                        }
+                    )
                 self._last_match_input_tokens = 0
                 self._last_match_cached_input_tokens = 0
                 self._last_match_output_tokens = 0
-                if kw:
-                    self._cache_match(cache_key, kw)
-                    return kw, 0
                 self._cache_match(cache_key, [])
                 return None, 0
             in_tok += int(getattr(result, "input_tokens", 0) or 0)
@@ -811,36 +818,6 @@ class SkillStore:
         raise RuntimeError(f"unable to allocate skill path for {skill.name!r}")
 
     @staticmethod
-    def _normalize_tokens(text: str) -> set[str]:
-        return {
-            token
-            for token in re.findall(
-                r"[a-z0-9]+", text.lower().replace("_", " ").replace("-", " ")
-            )
-            if len(token) >= 3
-        }
-
-    def _score_summary(self, task_description: str, summary: dict) -> int:
-        task_lower = task_description.lower()
-        task_tokens = self._normalize_tokens(task_description)
-        summary_text = " ".join(
-            [
-                summary.get("name", ""),
-                summary.get("description", ""),
-                summary.get("category", ""),
-                *summary.get("task_history", []),
-            ]
-        )
-        summary_tokens = self._normalize_tokens(summary_text)
-        overlap = len(task_tokens & summary_tokens)
-        score = overlap
-        if summary.get("category") and summary["category"].lower() in task_lower:
-            score += 4
-        if summary.get("name") and summary["name"].lower() in task_lower:
-            score += 6
-        return score
-
-    @staticmethod
     def _scope_summaries(
         summaries: list[dict],
         *,
@@ -883,39 +860,6 @@ class SkillStore:
     def role_for(self, skill: "Skill") -> str:
         """Role bucket of a loaded skill (its on-disk subdir, else general)."""
         return role_of_path(skill.path, self.skills_dir)
-
-    def _keyword_fallback(
-        self,
-        task_description: str,
-        *,
-        summaries: list[dict] | None = None,
-        min_score: int = 2,
-        limit: int = 3,
-    ) -> list[Skill]:
-        """Best-effort keyword-overlap match. Used when the matcher
-        subprocess raises (e.g., codex not installed in tests). Returns
-        skills with strong token overlap; empty list if nothing scores
-        above ``min_score``. ``summaries`` is the already role-scoped pool
-        when called from :meth:`find_relevant`, so the fallback respects
-        the same scoping as the LLM matcher."""
-        if summaries is None:
-            summaries = self.list_summaries()
-        if not summaries:
-            return []
-        scored = [
-            (self._score_summary(task_description, s), idx, s)
-            for idx, s in enumerate(summaries)
-        ]
-        scored.sort(key=lambda item: (-item[0], item[1]))
-        picks: list[Skill] = []
-        for score, _, summary in scored[:limit]:
-            if score < min_score:
-                break
-            try:
-                picks.append(self.load(str(Path(summary["path"]))))
-            except (OSError, KeyError):
-                continue
-        return picks
 
     @staticmethod
     def _extract_matched_names(response: str) -> tuple[list[str], bool]:

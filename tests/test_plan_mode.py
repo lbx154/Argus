@@ -3,8 +3,8 @@
 Plan mode previews a SHORT step-by-step plan BEFORE any task is queued
 (Codex / Claude-Code / Cursor parity). These tests target the pure parser
 (:func:`parse_plan_text` / :func:`parse_plan_notes`) and the renderer
-(:func:`render_plan`) — no live model — plus :func:`draft_plan`'s fail-soft
-behaviour driven by tiny stub runners.
+(:func:`render_plan`) — no live model — plus :func:`draft_plan`'s explicit
+failure surfacing driven by tiny stub runners.
 """
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ from argus_skill.manager.plan_mode import (
     parse_plan_text,
     render_plan,
 )
-
 
 # ---------------------------------------------------------------------------
 # Stub runner shapes (no live model)
@@ -214,6 +213,12 @@ def test_render_plan_no_steps_is_safe() -> None:
     assert "(no steps)" in out
 
 
+def test_render_plan_surfaces_draft_error() -> None:
+    out = render_plan(Plan(objective="x", steps=[], notes=[], error="backend error"))
+    assert "draft failed" in out
+    assert "backend error" in out
+
+
 def test_render_plan_with_theme_uses_theme_methods() -> None:
     class _Theme:
         def __init__(self) -> None:
@@ -253,7 +258,7 @@ def test_render_plan_failsoft_theme_method_raises() -> None:
 
 
 # ---------------------------------------------------------------------------
-# draft_plan — happy path + fail-soft (stub runners, never a live model)
+# draft_plan — happy path + explicit failure surfacing (stub runners only)
 # ---------------------------------------------------------------------------
 
 def test_draft_plan_parses_stub_reply() -> None:
@@ -289,29 +294,30 @@ def test_draft_plan_trims_to_eight_steps() -> None:
     assert len(plan.steps) == 8
 
 
-def test_draft_plan_failsoft_on_boom_runner() -> None:
+def test_draft_plan_runner_error_sets_explicit_error() -> None:
     plan = draft_plan(_BoomRunner(), "my objective")  # must not raise
-    assert len(plan.steps) == 1
-    assert "my objective" in plan.steps[0].title
+    assert plan.steps == []
+    assert "backend error" in plan.error
 
 
-def test_draft_plan_failsoft_on_none_runner() -> None:
+def test_draft_plan_missing_runner_sets_explicit_error() -> None:
     plan = draft_plan(None, "lonely objective")
-    assert len(plan.steps) == 1
-    assert "lonely objective" in plan.steps[0].title
+    assert plan.steps == []
+    assert "no runner backend" in plan.error
 
 
-def test_draft_plan_failsoft_on_nonzero_exit() -> None:
+def test_draft_plan_nonzero_exit_sets_explicit_error() -> None:
     runner = _StubRunner(json.dumps([{"title": "Ignored"}]), exit_code=1)
     plan = draft_plan(runner, "obj")
-    assert len(plan.steps) == 1
-    assert "Ignored" not in plan.steps[0].title
+    assert plan.steps == []
+    assert "non-zero" in plan.error
 
 
-def test_draft_plan_failsoft_on_garbage_reply() -> None:
+def test_draft_plan_garbage_reply_sets_explicit_error() -> None:
     runner = _StubRunner("I am not going to give you JSON, sorry.")
     plan = draft_plan(runner, "obj")
-    assert len(plan.steps) == 1  # single best-effort step
+    assert plan.steps == []
+    assert "unparseable" in plan.error
 
 
 def test_draft_plan_emits_sink_events() -> None:
