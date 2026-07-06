@@ -312,9 +312,15 @@ class SkillLoop:
         )
         skill_name = skill.name if skill else None
 
-        # Candidate SOURCE augmentation: on the research stage, run ONE codex
-        # live-web-search ideation and APPEND its candidates to
-        # research/IDEA_CANDIDATES.md so idea-creator ranks over a richer pool.
+        # Candidate SOURCE augmentation: on the "research" VERTICAL's research
+        # stage only, run ONE codex live-web-search ideation and APPEND its
+        # candidates to research/IDEA_CANDIDATES.md so idea-creator ranks over a
+        # richer pool. NOT gated on the stage NAME alone — "research" is also
+        # the first stage's name for the optimize-family verticals (kernelbench/
+        # speedrun/nanochat/nanogpt_speedrun; see their own STAGE_ORDER), and this
+        # feature's prompt is explicitly paper-ideation ("candidate discovery for
+        # a paper") — firing it there wastes a live-web-search call (and rate-
+        # limit budget) on a mission that will never read IDEA_CANDIDATES.md.
         # Selection is untouched; fail-open + run-once. Opt-out via
         # ARGUS_SKILL_IDEA_SEARCH=0. Recorded on the event stream so operators
         # (cockpit / --follow / events.jsonl) see the extra candidate source.
@@ -329,9 +335,13 @@ class SkillLoop:
                     augment_idea_candidates as _augment_ideas,
                 )
                 from .skills.stage_checklists import current_stage as _cur_stage
+                from .skills.vertical_select import _persisted_vertical
 
-                if (_cur_stage(workdir) or "").strip().lower() == "research" and not (
-                    _ideas_seeded(workdir)
+                is_research_vertical = (_persisted_vertical(workdir) or "research") == "research"
+                if (
+                    is_research_vertical
+                    and (_cur_stage(workdir) or "").strip().lower() == "research"
+                    and not _ideas_seeded(workdir)
                 ):
                     self._emit({
                         "type": "idea.search.started",

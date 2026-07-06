@@ -236,3 +236,49 @@ def test_loop_idea_search_run_once_no_reemit(tmp_path):
     assert "idea.search.started" not in [e.get("type") for e in events]
     assert "idea-search" not in [lbl for lbl, _p, _o in backend.history]
 
+
+def test_loop_skips_idea_search_for_a_non_research_vertical_sharing_the_stage_name(
+    tmp_path,
+):
+    """Regression: the optimize-family verticals (kernelbench/speedrun/nanochat/
+    nanogpt_speedrun) also name their FIRST stage "research" (see each
+    vertical's own ``STAGE_ORDER``) — that is a shared STAGE name, not the
+    "research" (paper) VERTICAL. The paper-ideation hook ("candidate discovery
+    for a paper") must not fire just because ``current_stage == "research"``;
+    it must also confirm the persisted VERTICAL is actually "research"."""
+    import json
+
+    from argus_skill import SkillLoop, SkillLoopConfig
+    from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+
+    (tmp_path / "research").mkdir()
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "kernelbench", "current_stage": "research"}),
+        encoding="utf-8",
+    )
+
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("distiller", CannedResponse(message=""))
+    backend.queue("engineer-r1", CannedResponse(message="wrote ground truth; done."))
+    backend.queue("reviewer", CannedResponse(message=json.dumps({
+        "status": "done", "reason": "x", "next_action": "none",
+        "round_summary_markdown": "# r\n", "completion_summary_markdown": "d",
+    })))
+
+    events: list = []
+    loop = SkillLoop(
+        skills_dir=tmp_path / "skills",
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=2),
+        on_event=events.append,
+    )
+    loop.run("maximize SOL score on SOL-ExecBench kernels", workdir=tmp_path)
+
+    assert "idea.search.started" not in [e.get("type") for e in events]
+    assert "idea-search" not in [lbl for lbl, _p, _o in backend.history]
+    assert _read_candidates(str(tmp_path)) == ""
+
+
+
