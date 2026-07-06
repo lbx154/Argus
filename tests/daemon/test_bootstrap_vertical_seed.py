@@ -73,6 +73,32 @@ def test_research_objective_seeds_paper_contract(tmp_path: Path) -> None:
     assert state["current_stage"] == "research"
 
 
+def test_env_forced_vertical_seeds_optimize_contract_on_a_fresh_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: an operator-forced ``ARGUS_SKILL_VERTICAL`` must be honored at
+    SEED time too, not just by the later ``resolve_vertical`` read.
+
+    On a genuinely FRESH project (nothing persisted to ``PIPELINE_STATE.json``
+    yet — the Manager has not run its first turn), seeding used to consult
+    ONLY the persisted state and always fall back to the ~5x larger paper
+    contract, permanently baking in irrelevant paper/citation/figure prose for
+    the rest of the mission (``AGENTS.md`` is never regenerated once written).
+    The env var must win here exactly like it does in ``resolve_vertical``.
+    """
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "kernelbench")
+    assert not (tmp_path / "research" / "PIPELINE_STATE.json").exists()
+
+    worker = _worker("maximize the SOL score on SOL-ExecBench kernels")
+    worker._seed_project_agents_and_venv(tmp_path)
+
+    agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    assert "kernel" in agents.lower()
+    assert "optimiz" in agents.lower()
+    assert "EMNLP" not in agents
+    assert "## Argus harness modification map" not in agents
+
+
 def test_bootstrap_is_idempotent_on_existing_agents(tmp_path: Path) -> None:
     """An existing AGENTS.md is never clobbered on a re-bootstrap."""
     sentinel = "# AGENTS.md\n\noperator-authored contract — do not overwrite\n"
