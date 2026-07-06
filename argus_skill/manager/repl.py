@@ -1565,6 +1565,57 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
     return item, daemon_alive, daemon_pid
 
 
+def _maybe_auto_promote_to_continuous(
+    mem: Any, body: str, chat_state: dict[str, Any], theme: Any,
+) -> bool:
+    """Let the Manager judge whether ``body`` is open-ended work that should run
+    as a STANDING (continuous) campaign, rather than a one-shot bounded
+    mission — so the operator never has to manually pass
+    ``--continuous --objective`` (or type ``/continuous start``) for work that
+    is inherently open-ended (e.g. "optimize as many kernels as possible").
+    Arms continuous mode the same way ``/continuous start <objective>`` does
+    (``write_continuous_config`` — the daemon hot-reloads it, no restart).
+
+    Fail-soft in every direction: no runner (memory backend, build failure), a
+    classify error, an already-continuous session (caller only calls this when
+    not yet continuous), or a config gate failure (empty objective / memory
+    backend) all leave the task on its normal bounded (one-shot backlog) path.
+    Returns True iff continuous mode was armed (``chat_state`` is mutated in
+    that case, mirroring ``/continuous start``).
+    """
+    runner = _ensure_manager_runner(chat_state, mem)
+    classify = getattr(runner, "classify_needs_continuous", None)
+    if runner is None or not callable(classify):
+        return False
+    try:
+        if not classify(body):
+            return False
+    except Exception:  # noqa: BLE001 — classify failure must never force continuous
+        return False
+
+    from ..daemon.life_worker import continuous_mode_error, write_continuous_config
+
+    backend = str(chat_state.get("backend") or "codex")
+    if continuous_mode_error(backend, True, body):
+        return False
+
+    life_dir = _life_dir_for(mem)
+    write_continuous_config(life_dir, enabled=True, objective=body)
+    chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))["continuous"] = True
+    chat_state["continuous_objective"] = body
+    msg = (
+        "Manager 判定：这是开放式任务，没有天然终点 → 已自动设为 7×24 持续目标"
+        "（continuous mode），daemon 会自主规划推进，直到目标耗尽或你输入 "
+        "/continuous stop。"
+    )
+    print(
+        ("  " + theme.cyan("argus") + theme.dim(" ↳ ") + msg) if theme is not None
+        else f"  argus ↳ {msg}",
+        flush=True,
+    )
+    return True
+
+
 def _free_text_cmd(
     mem: Any,
     text: str,
@@ -1625,6 +1676,16 @@ def _free_text_cmd(
                     if theme is not None else f"  argus ↳ {reply}")
             print(line, flush=True)
             return
+
+        # TEAM work reached this point — let the Manager judge whether it is
+        # open-ended (STANDING) and should be auto-armed as a continuous
+        # campaign, so the operator never has to manually pass
+        # --continuous --objective for work like "optimize as many X as
+        # possible". Only relevant the FIRST time a session goes standing;
+        # once continuous, every later task already flows through the
+        # existing continuous branch below unchanged.
+        if not continuous:
+            continuous = _maybe_auto_promote_to_continuous(mem, body, chat_state, theme)
 
     item, daemon_alive, daemon_pid = enqueue_mission(
         mem, body, chat_state, iterate=iterate, max_cycles=max_cycles, budget=budget)

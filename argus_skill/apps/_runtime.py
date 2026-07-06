@@ -1024,6 +1024,46 @@ class _SkillLoopRunner:
         _phase("交给 Planner / Engineer / Reviewer…")
         return None
 
+    def classify_needs_continuous(self, objective: str) -> bool:
+        """Should ``objective`` (already routed to the TEAM/complex path) be
+        armed as a STANDING (continuous) campaign instead of a one-shot bounded
+        mission? Used by the REPL front door so the operator never has to
+        manually pass ``--continuous --objective`` for open-ended work typed
+        straight into chat. Fail-soft: any classify error returns ``False`` (the
+        task stays on its normal bounded path) — a classify hiccup must never
+        force an expensive 7x24 campaign.
+        """
+        from ..core.models import RunnerOptions
+
+        _safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
+        _workdir = (
+            Path(self._args.workdir).expanduser()
+            if getattr(self._args, "workdir", None)
+            else Path.cwd()
+        )
+
+        def _classify_run_exec(prompt: str) -> Any:
+            return self._backend.run_exec(
+                prompt=prompt,
+                options=RunnerOptions(
+                    model=self._args.engineer_model,
+                    reasoning_effort="low",
+                    full_auto=_safe_mode,
+                    skip_git_repo_check=True,
+                    dangerous_yolo=not _safe_mode,
+                    working_dir=str(_workdir),
+                ),
+                run_label="router-classify-persistence",
+                resume_thread_id=None,
+            )
+
+        try:
+            return bool(
+                self.manager.needs_persistence(objective, run_exec=_classify_run_exec)
+            )
+        except Exception:  # noqa: BLE001 — a classify failure must never force continuous
+            return False
+
     def chat_reply_if_conversational(
         self,
         *,

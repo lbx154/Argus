@@ -7,9 +7,11 @@ import pytest
 from argus_skill.life.router import (
     build_chat_prompt,
     build_classify_prompt,
+    build_persistence_prompt,
     build_route_prompt,
     build_simple_prompt,
     classify_is_conversational,
+    classify_needs_persistence,
     classify_route,
 )
 
@@ -136,3 +138,46 @@ def test_build_simple_prompt_includes_mission_status_when_given() -> None:
     assert out.startswith(status + "\n\n")
     assert "how's it going?" in out
     assert "Argus Manager" in out
+
+
+# ---- classify_needs_persistence: BOUNDED vs STANDING -----------------------
+
+@pytest.mark.parametrize(("answer", "expected"), [
+    ("STANDING", True), ("standing", True), (" STANDING ", True),
+    ("CONTINUOUS", True), ("PERSIST", True), ("PERSISTENT", True),
+    ("BOUNDED", False), ("bounded", False), ("BOUNDED.", False),
+])
+def test_classify_needs_persistence_two_way(answer: str, expected: bool) -> None:
+    assert classify_needs_persistence(
+        "x", run_exec=_runner(_FakeResult(message=answer))
+    ) is expected
+
+
+@pytest.mark.parametrize("answer", ["", "maybe", "yes"])
+def test_classify_needs_persistence_unknown_falls_back_to_bounded(answer: str) -> None:
+    assert classify_needs_persistence(
+        "x", run_exec=_runner(_FakeResult(message=answer))
+    ) is False
+
+
+def test_classify_needs_persistence_empty_is_bounded_without_calling_model() -> None:
+    run = _runner(_FakeResult(message="STANDING"))
+    assert classify_needs_persistence("   ", run_exec=run) is False
+    assert run.calls == []  # type: ignore[attr-defined]
+
+
+def test_classify_needs_persistence_backend_exception_is_bounded() -> None:
+    assert classify_needs_persistence("x", run_exec=_runner(RuntimeError("boom"))) is False
+
+
+def test_classify_needs_persistence_nonzero_exit_is_bounded() -> None:
+    res = _FakeResult(message="STANDING", exit_code=1)
+    assert classify_needs_persistence("x", run_exec=_runner(res)) is False
+
+
+def test_persistence_prompt_has_two_labels_and_safe_default_hint() -> None:
+    p = build_persistence_prompt("optimize all the kernels", role_skill_block="IGNORED")
+    assert "BOUNDED" in p and "STANDING" in p
+    assert "IGNORED" not in p
+    assert "optimize all the kernels" in p
+    assert "When in doubt, answer BOUNDED" in p

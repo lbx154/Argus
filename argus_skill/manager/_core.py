@@ -682,6 +682,36 @@ class Manager:
 
         return classify_route(text, run_exec=run_exec)
 
+    def needs_persistence(self, text: str, *, run_exec: Any = None) -> bool:
+        """Should this task be armed as a STANDING (continuous) campaign, or is
+        it BOUNDED (one mission, drains once)? The Manager owns this decision so
+        the operator never has to manually pass ``--continuous --objective`` for
+        open-ended work typed straight into chat (e.g. "optimize as many kernels
+        as possible"). Reuses ``life/router.classify_needs_persistence`` (biases
+        hard to BOUNDED — never silently force an expensive 7x24 campaign onto a
+        task that did not ask for one). With no backend, returns False — the
+        safe default."""
+        from ..life.router import classify_needs_persistence as _classify
+
+        if run_exec is None:
+            if self.runner is None:
+                return False
+            from ..core.models import RunnerOptions
+
+            _backend = self._session or self.runner
+
+            def run_exec(prompt: str) -> Any:  # noqa: ANN401
+                return _backend.run_exec(
+                    prompt=prompt,
+                    options=RunnerOptions(
+                        reasoning_effort=_manager_reasoning_effort(),
+                        skip_git_repo_check=True,
+                    ),
+                    run_label="manager-persistence",
+                )
+
+        return _classify(text, run_exec=run_exec)
+
     # ---- stage-transition authority (the Manager OWNS the pipeline stage) ----
     def decide_stage_transition(
         self,
