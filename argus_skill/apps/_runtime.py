@@ -1809,10 +1809,11 @@ def _format_daemon_mode_cell(theme, mem: _SplitMemory) -> str:  # noqa: ANN001
 
 
 def _codex_preflight_warning() -> str | None:
-    """Return a one-line warning if the codex backend cannot run, else None.
+    """Return a one-line warning if the configured runner backend's CLI
+    cannot run, else None.
 
     Surfaced on the banner so the user does not discover at mission time
-    that ArgusBot or the ``codex`` binary are missing. Best-effort: if
+    that ArgusBot or the configured CLI binary are missing. Best-effort: if
     anything raises we stay quiet — a confusing warning is worse than no
     warning, and the real failure path (``_SkillLoopRunner``) will
     print a precise error when a mission actually starts.
@@ -1828,10 +1829,23 @@ def _codex_preflight_warning() -> str | None:
         return ("bundled agent_cli failed to load — "
                 "check the argus-skill install")
     import shutil
-    bin_path = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or shutil.which("codex")
+
+    # BUG FIX: this used to hardcode `shutil.which("codex")` regardless of
+    # which CLI is actually configured, so an operator running entirely on
+    # ARGUS_SKILL_RUNNER_BACKEND=claude/copilot (no `codex` npm package
+    # installed at all, by design) got a false "codex binary not found"
+    # warning on every banner / `/doctor` run. Check whichever backend is
+    # actually configured; "codex" (the default) keeps its exact original
+    # message for backward compatibility.
+    backend = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND") or "codex"
+    bin_path = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or shutil.which(backend)
     if not bin_path:
-        return ("`codex` binary not found on PATH — install with "
-                "`npm install -g @openai/codex` or set ARGUS_SKILL_RUNNER_BIN")
+        if backend == "codex":
+            hint = "install with `npm install -g @openai/codex`"
+        else:
+            hint = f"install the `{backend}` CLI"
+        return (f"`{backend}` binary not found on PATH — {hint} "
+                f"or set ARGUS_SKILL_RUNNER_BIN")
     return None
 
 

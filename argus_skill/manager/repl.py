@@ -2429,8 +2429,19 @@ def _status_cmd(mem: _SplitMemory, chat_state: dict[str, Any] | None = None) -> 
     if ds is not None:
         if ds.alive and ds.pid is not None:
             up = _format_short_duration(ds.uptime_seconds or 0.0)
+            # ds.backend is "codex" (a real CLI backend — historically named
+            # after the first one supported) vs "memory" (deterministic test
+            # double). It is NOT which real CLI is actually configured per
+            # role (that's ARGUS_SKILL_RUNNER_BACKEND, shown correctly in
+            # /roles). Printing the raw "codex" here reads as "this daemon is
+            # calling the Codex CLI" even when running claude/copilot, which
+            # contradicts /roles right next to it — so relabel the real-mode
+            # case instead of echoing the misleading literal string.
+            backend_label = (
+                "memory (test)" if ds.backend == "memory" else "live — see /roles"
+            )
             print(f"{'daemon':<{_LBL}}: alive (pid {ds.pid}, up {up}, "
-                  f"backend {ds.backend or '?'})")
+                  f"backend {backend_label})")
         else:
             print(f"{'daemon':<{_LBL}}: not running   (start with `/daemon start`)")
             tid = chat_state.get("last_thread_id") if chat_state is not None else None

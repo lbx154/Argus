@@ -304,16 +304,22 @@ cockpit（`--life-dir` 指向隔离的临时目录，backend=copilot，`ARGUS_SK
   敲一遍命令、盯着回显文字看才会发现——单纯读 `_parse_add_flags` 的解析逻辑
   完全看不出问题（解析本身是对的，问题在解析结果传下去之后被另一处覆盖）。
   已修复并补了回归测试（`tests/apps/test_life_repl_free_text.py::test_add_only_custom_budget_sets_real_enforced_cap`）。这条和"预算规划"那份需求强相关，建议一并告知负责预算审计的人。
-- **`/status` 和 `/doctor` 里的 "backend" 字样具有误导性**：本机把
-  `ARGUS_SKILL_RUNNER_BACKEND` 配成了 `copilot`（`/roles` 面板正确显示
+- **`/status` 和 `/doctor` 里的 "backend" 字样具有误导性**（2026-07-06 追加：已修复）：
+  本机把 `ARGUS_SKILL_RUNNER_BACKEND` 配成了 `copilot`（`/roles` 面板正确显示
   `Copilot · gpt-5.5`），但 `/status` 的 `daemon: alive (..., backend codex)`
   和 `/doctor` 的 `backend preflight ✓ codex backend runnable ...` 都显示
   `codex`。这是两套不同的"backend"概念（daemon 级的 `ARGUS_SKILL_LIFE_BACKEND`
   默认 `codex`，跟每个角色实际执行用的 `ARGUS_SKILL_RUNNER_BACKEND` 是分开的），
   但呈现给操作者时用了同一个词，容易让人怀疑"到底是不是真的在用 copilot"。
-  这次没有改（属于 P1 `/status` 信息分层的一部分，改起来涉及想清楚这两个
-  概念该怎么分别呈现），但记录下来给后续人当作 P1 的具体输入，不要重新发现
-  一遍。
+  顺手挖出一个更严重的关联 bug：`/doctor` 的 `backend preflight` 检查硬编码
+  `shutil.which("codex")`，完全不看 `ARGUS_SKILL_RUNNER_BACKEND` 实际配置的是
+  什么——纯用 copilot/claude、本来就没装 `codex` npm 包的操作者，会在每次
+  `/doctor` / 启动横幅上收到一条虚假的"codex binary not found"报错。已修复：
+  `/status`、`--status`、`/doctor` 三处都换成检查真正配置的 backend 对应的
+  二进制，`/status`/`--status` 的展示文字也从误导性的 `backend codex` 改成
+  `backend live — see /roles`（`memory` 模式保持 `backend memory (test)`
+  不变）。改动文件：`apps/_runtime.py`、`tools/doctor.py`、`apps/cli/_core.py`、
+  `manager/repl.py`；新增 3 个测试（`tests/test_doctor.py`）。
 - **`/add` 排队时，Manager 会先做一次任务分诊（`_manager_divide_user_task`），
   这一步没有任何"正在处理"提示**：真实环境里这一步偶尔会明显变慢（本次验证
   时甚至观察到几次在 40–100 秒内都没有返回），期间 cockpit 完全没有输出，

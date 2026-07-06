@@ -1379,8 +1379,15 @@ def _cmd_status(args: argparse.Namespace) -> int:
     print(f"  project  : {bundle.project.root}")
     if status.alive and status.pid is not None:
         uptime = _format_short_duration(status.uptime_seconds or 0.0)
-        backend = status.backend or "?"
-        print(f"  daemon   : alive (pid {status.pid}, up {uptime}, backend {backend})")
+        # status.backend is "codex" (real CLI backend) vs "memory" (test
+        # double) — not which real CLI is configured per role (that's
+        # ARGUS_SKILL_RUNNER_BACKEND, shown in /roles). See the matching
+        # comment in manager/repl.py::_status_cmd for why the raw value
+        # isn't printed here.
+        backend_label = (
+            "memory (test)" if status.backend == "memory" else "live — see /roles"
+        )
+        print(f"  daemon   : alive (pid {status.pid}, up {uptime}, backend {backend_label})")
     else:
         print("  daemon   : not running   (start with `argus-skill --daemon`)")
     print(f"  {format_budget_status(bundle.journal, status=status)}")

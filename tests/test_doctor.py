@@ -152,6 +152,58 @@ def test_run_diagnostics_returns_all_five_checks_and_never_raises(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# backend preflight — must check the CONFIGURED backend, not always "codex"
+# ---------------------------------------------------------------------------
+
+def test_backend_preflight_checks_configured_backend_not_always_codex(monkeypatch):
+    """Regression: this used to hardcode ``shutil.which("codex")`` regardless
+    of ``ARGUS_SKILL_RUNNER_BACKEND``, so an operator running entirely on
+    copilot/claude (no ``codex`` npm package installed, by design) got a
+    false "codex binary not found" warning on every banner / /doctor run."""
+    from argus_skill.tools.doctor import _check_backend_preflight
+
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
+    monkeypatch.setattr(
+        "shutil.which", lambda name: "/usr/bin/copilot" if name == "copilot" else None
+    )
+
+    check = _check_backend_preflight()
+    assert check.ok is True
+    assert "copilot" in check.detail
+    assert "codex" not in check.detail
+
+
+def test_backend_preflight_missing_binary_names_the_configured_backend(monkeypatch):
+    from argus_skill.tools.doctor import _check_backend_preflight
+
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "claude")
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
+    monkeypatch.setattr("shutil.which", lambda name: None)
+
+    check = _check_backend_preflight()
+    assert check.ok is False
+    assert "claude" in check.detail
+    assert "claude" in check.fix
+    assert "codex" not in check.detail
+
+
+def test_backend_preflight_defaults_to_codex_with_original_install_hint(monkeypatch):
+    """The default (unset) backend keeps the exact original codex message so
+    existing operators see no change."""
+    from argus_skill.tools.doctor import _check_backend_preflight
+
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
+    monkeypatch.setattr("shutil.which", lambda name: None)
+
+    check = _check_backend_preflight()
+    assert check.ok is False
+    assert "codex" in check.detail
+    assert "npm install -g @openai/codex" in check.fix
+
+
+# ---------------------------------------------------------------------------
 # model-API reachability via an injected probe (no real network)
 # ---------------------------------------------------------------------------
 
