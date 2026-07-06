@@ -231,6 +231,7 @@ def test_read_daemon_status_parses_budget_caps(tmp_path: Path) -> None:
                 "life_dir": str(tmp_path),
                 "per_mission_cap_usd": 12.5,
                 "daily_cap_usd": 42.25,
+                "global_daily_cap_usd": 84.5,
             }
         ),
         encoding="utf-8",
@@ -239,6 +240,7 @@ def test_read_daemon_status_parses_budget_caps(tmp_path: Path) -> None:
     assert s.alive is True
     assert s.per_mission_cap_usd == 12.5
     assert s.daily_cap_usd == 42.25
+    assert s.global_daily_cap_usd == 84.5
 
 
 def test_resolve_effective_budget_falls_back_to_env_when_daemon_is_down(
@@ -247,6 +249,7 @@ def test_resolve_effective_budget_falls_back_to_env_when_daemon_is_down(
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "7.5")
     monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "19.25")
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "55.0")
     status = DaemonStatus(
         alive=False,
         pid=1234,
@@ -256,12 +259,14 @@ def test_resolve_effective_budget_falls_back_to_env_when_daemon_is_down(
         backend="memory",
         per_mission_cap_usd=99.0,
         daily_cap_usd=88.0,
+        global_daily_cap_usd=77.0,
     )
 
     budget = resolve_effective_budget(status)
 
     assert budget.per_mission_cap_usd == 7.5
     assert budget.daily_cap_usd == 19.25
+    assert budget.global_daily_cap_usd == 55.0
 
 
 def test_stop_daemon_returns_1_when_no_daemon(tmp_path: Path) -> None:

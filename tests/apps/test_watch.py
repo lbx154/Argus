@@ -277,16 +277,19 @@ def test_budget_line_cache_reuses_previous_result_until_inputs_change(
     class _FakeBudget:
         per_mission_cap_usd = 2.5
         daily_cap_usd = 5.0
+        global_daily_cap_usd = 9.0
 
         def remaining_today(self, journal: object) -> float:  # noqa: ARG002
             calls["n"] += 1
             return 3.0
 
     monkeypatch.setattr(watch_mod, "resolve_effective_budget", lambda status: _FakeBudget())
+    monkeypatch.setattr(watch_mod, "global_daily_spend", lambda global_root=None: 1.25)
     status = Namespace(
         alive=True,
         per_mission_cap_usd=2.5,
         daily_cap_usd=5.0,
+        global_daily_cap_usd=9.0,
     )
 
     first = cache.render(journal_path=journal_path, journal=object(), status=status)
@@ -294,7 +297,10 @@ def test_budget_line_cache_reuses_previous_result_until_inputs_change(
     journal_path.write_text('{"ts": 1, "cost_usd": 1.0}\n', encoding="utf-8")
     third = cache.render(journal_path=journal_path, journal=object(), status=status)
 
-    assert first == "budget   : per-mission $2.50 · daily $5.00 · remaining $3.00"
+    assert first == (
+        "budget   : per-mission $2.50 · daily $5.00 · "
+        "global $1.25/$9.00 · remaining $3.00"
+    )
     assert second == first
     assert third == first
     assert calls["n"] == 2
@@ -505,7 +511,8 @@ def test_watch_subprocess_renders_inbox_guidance_and_keeps_offset(tmp_path: Path
     output = stdout + stderr
     after = offset_path.read_text(encoding="utf-8")
     assert proc.returncode == 0, proc
-    assert "budget   : per-mission $2.50 · daily $5.00 · remaining $3.50" in output
+    assert "budget   :" in output
+    assert "remaining $3.50" in output
     assert "title" in output
     assert "ship the cockpit" in output
     assert "objective" in output
@@ -720,4 +727,5 @@ def test_watch_subprocess_shows_paused_budget_when_exhausted(tmp_path: Path) -> 
 
     output = stdout + stderr
     assert proc.returncode == 0, proc
-    assert "budget   : per-mission $2.50 · daily $5.00 · remaining $0.00 (paused)" in output
+    assert "budget   :" in output
+    assert "remaining $0.00 (paused)" in output

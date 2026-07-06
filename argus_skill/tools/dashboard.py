@@ -650,11 +650,22 @@ def scrape_project_detail(life_dir: Path) -> dict:
             "artifact": v.get("artifact", ""),
         })
 
+    from ..life.supervisor import global_daily_spend
+
+    global_root = None
+    try:
+        if life_dir.parent.name == "projects":
+            global_root = life_dir.parent.parent
+    except OSError:
+        global_root = None
+
     detail = {
         **base,
         "caps": {
             "per_mission": (_read_json(life_dir / "daemon.status.json") or {}).get("per_mission_cap_usd"),
             "daily": (_read_json(life_dir / "daemon.status.json") or {}).get("daily_cap_usd"),
+            "global_daily": (_read_json(life_dir / "daemon.status.json") or {}).get("global_daily_cap_usd"),
+            "global_daily_spend": global_daily_spend(global_root=global_root),
         },
         "stage_detail": stage_detail,
         "last_gate": pipe.get("last_gate", {}),

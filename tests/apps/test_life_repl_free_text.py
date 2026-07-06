@@ -140,6 +140,7 @@ def test_invoke_supervisor_uses_global_skills_root(
         max_missions=1,
         per_mission_cap_usd=1.0,
         daily_cap_usd=1.0,
+        global_daily_cap_usd=0.0,
     )
 
     expected_path = (
@@ -193,6 +194,7 @@ def test_invoke_supervisor_injects_research_profile(
         max_missions=1,
         per_mission_cap_usd=1.0,
         daily_cap_usd=1.0,
+        global_daily_cap_usd=0.0,
     )
 
     assert "Runtime info" in captured["runtime_context"]
@@ -463,6 +465,7 @@ def test_invoke_and_track_clears_stale_thread_id_on_poisoned_outcome(
             max_missions=1,
             per_mission_cap_usd=1.0,
             daily_cap_usd=1.0,
+            global_daily_cap_usd=0.0,
             quiet=True,
         )
 
@@ -482,6 +485,25 @@ def test_add_only_default_priority(mem: LifeMemory, capsys: pytest.CaptureFixtur
     assert head.id == item.id
     out = capsys.readouterr().out
     assert "do the dishes" in out
+
+
+def test_add_only_custom_budget_sets_real_enforced_cap(
+    mem: LifeMemory, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Regression: ``/add ... --budget=$X`` used to be threaded only into
+    ``iteration_budget_usd`` while ``max_cost_usd`` stayed hardcoded at the
+    $30 default. ``LifeBudget.effective_per_mission_cap`` (the function that
+    actually gates real spend — see life/supervisor/_config.py) reads
+    ``item.max_cost_usd``, not ``iteration_budget_usd``, so an operator
+    typing ``--budget=1`` got zero real enforcement of that cap: the printed
+    confirmation even echoed back ``max_cost=$30.00``. Verified live against
+    a real cockpit session before this fix.
+    """
+    item = manager_repl._add_only(mem, "do the dishes", iteration_budget_usd=1.0)
+    assert item.max_cost_usd == 1.0
+    assert item.iteration_budget_usd == 1.0
+    out = capsys.readouterr().out
+    assert "max_cost=$1.00" in out
 
 
 def test_free_text_runs_just_typed_objective_not_older_pending(

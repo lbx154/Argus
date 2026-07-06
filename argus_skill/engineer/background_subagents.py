@@ -41,6 +41,7 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Callable
 
 # Registry directory name. Canonical definition is
 # ``argus_skill.tools.subagent._core.REGISTRY_DIR`` (a ``Path(".argus_subagents")``);
@@ -79,6 +80,7 @@ _STALE_MULTIPLIER = 2.0
 # Sentinel an agent emits when the only remaining work is to wait for a
 # self-watched subagent to reach its next checkpoint / terminal report.
 _WAIT_SENTINEL = "WAIT_FOR_SUBAGENT:"
+_SUPERVISOR_USAGE_BASELINE_FIELD = "supervisor_cost_folded_totals"
 
 
 @dataclass(frozen=True)
@@ -193,6 +195,21 @@ def _registry_dir(workdir: Path | str) -> Path:
     return Path(workdir) / _REGISTRY_DIRNAME
 
 
+def _registry_files(workdir: Path | str) -> list[Path]:
+    try:
+        return sorted(f for f in _registry_dir(workdir).glob("*.json") if not f.name.endswith(".tmp"))
+    except OSError:
+        return []
+
+
+def _read_registry_record(path: Path) -> dict[str, Any] | None:
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return record if isinstance(record, dict) else None
+
+
 def _coerce_float(value: object, default: float) -> float:
     try:
         return float(value)  # type: ignore[arg-type]
@@ -258,20 +275,10 @@ def scan_inflight_subagents(
     state) are excluded. Never raises — a missing/unreadable registry yields ``[]``.
     """
     now = time.time() if now is None else now
-    reg = _registry_dir(workdir)
     out: list[InflightSubagent] = []
-    try:
-        files = sorted(reg.glob("*.json"))
-    except OSError:
-        return out
-    for f in files:
-        if f.name.endswith(".tmp"):
-            continue
-        try:
-            record = json.loads(f.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if not isinstance(record, dict):
+    for f in _registry_files(workdir):
+        record = _read_registry_record(f)
+        if record is None:
             continue
         try:
             mtime: float | None = f.stat().st_mtime
@@ -281,6 +288,140 @@ def scan_inflight_subagents(
         if sub is not None:
             out.append(sub)
     return out
+
+
+def _usage_tuple_from_record(record: dict[str, Any]) -> tuple[int, int, int, int]:
+    def _coerce(value: object) -> int:
+        try:
+            return int(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 0
+
+    return (
+        _coerce(record.get("supervisor_input_tokens", record.get("input_tokens"))),
+        _coerce(
+            record.get(
+                "supervisor_cached_input_tokens",
+                record.get("cached_input_tokens"),
+            )
+        ),
+        _coerce(record.get("supervisor_output_tokens", record.get("output_tokens"))),
+        _coerce(
+            record.get(
+                "supervisor_reasoning_output_tokens",
+                record.get("reasoning_output_tokens"),
+            )
+        ),
+    )
+
+
+def _baseline_tuple_from_record(record: dict[str, Any]) -> tuple[int, int, int, int]:
+    raw = record.get(_SUPERVISOR_USAGE_BASELINE_FIELD)
+    if not isinstance(raw, dict):
+        return (0, 0, 0, 0)
+    merged = {
+        "input_tokens": raw.get("input_tokens", raw.get("supervisor_input_tokens", 0)),
+        "cached_input_tokens": raw.get(
+            "cached_input_tokens",
+            raw.get("supervisor_cached_input_tokens", 0),
+        ),
+        "output_tokens": raw.get("output_tokens", raw.get("supervisor_output_tokens", 0)),
+        "reasoning_output_tokens": raw.get(
+            "reasoning_output_tokens",
+            raw.get("supervisor_reasoning_output_tokens", 0),
+        ),
+    }
+    return _usage_tuple_from_record(merged)
+
+
+def _delta_from_totals(
+    current: tuple[int, int, int, int],
+    baseline: tuple[int, int, int, int],
+) -> tuple[int, int, int, int]:
+    delta = (
+        current[0] - baseline[0],
+        current[1] - baseline[1],
+        current[2] - baseline[2],
+        current[3] - baseline[3],
+    )
+    if any(value < 0 for value in delta):
+        return current
+    return delta
+
+
+def _write_registry_record(path: Path, record: dict[str, Any]) -> None:
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _persist_folded_baseline(
+    path: Path,
+    *,
+    folded_totals: tuple[int, int, int, int],
+) -> None:
+    current = _read_registry_record(path)
+    if current is None:
+        return
+    existing = _baseline_tuple_from_record(current)
+    merged = (
+        max(existing[0], folded_totals[0]),
+        max(existing[1], folded_totals[1]),
+        max(existing[2], folded_totals[2]),
+        max(existing[3], folded_totals[3]),
+    )
+    current[_SUPERVISOR_USAGE_BASELINE_FIELD] = {
+        "input_tokens": merged[0],
+        "cached_input_tokens": merged[1],
+        "output_tokens": merged[2],
+        "reasoning_output_tokens": merged[3],
+    }
+    try:
+        _write_registry_record(path, current)
+    except OSError:
+        return
+
+
+def emit_subagent_cost_events(
+    workdir: Path | str,
+    on_event: Callable[[dict[str, Any]], None] | None,
+) -> None:
+    """Fold supervised-subagent registry usage into the mission cost sink.
+
+    Uses a registry-persisted folded baseline so sequential missions only pay for
+    the NEW delta since the last successful fold-in, even though the registry
+    stores lifetime-cumulative supervisor token totals.
+    """
+    if on_event is None:
+        return
+    for path in _registry_files(workdir):
+        record = _read_registry_record(path)
+        if record is None:
+            continue
+        totals = _usage_tuple_from_record(record)
+        if not any(totals):
+            continue
+        baseline = _baseline_tuple_from_record(record)
+        delta = _delta_from_totals(totals, baseline)
+        if not any(delta):
+            continue
+        try:
+            on_event({
+                "type": "codex.util.completed",
+                "agent_layer": "subagent",
+                "model": str(record.get("supervisor_usage_model") or ""),
+                "run_label": str(record.get("task_id") or path.stem),
+                "session_id": str(record.get("task_id") or path.stem),
+                "input_tokens": delta[0],
+                "cached_input_tokens": delta[1],
+                "output_tokens": delta[2],
+                "reasoning_output_tokens": delta[3],
+                "premium_requests": 0.0,
+                "usage_scope": "delta",
+            })
+        except Exception:
+            continue
+        _persist_folded_baseline(path, folded_totals=totals)
 
 
 def _format_elapsed(seconds: float) -> str:

@@ -31,6 +31,7 @@ from typing import Any, Sequence
 
 from ..daemon.life_worker import read_continuous_state, read_daemon_status, resolve_effective_budget
 from ..life.status import describe_continuous_state, select_current_running_item
+from ..life.supervisor import global_daily_spend
 from ._inbox import count_pending_inbox_messages, format_inbox_event
 
 
@@ -198,15 +199,25 @@ class _PathTail:
 class _BudgetLineCache:
     """Cache the rendered budget line until its inputs change."""
 
-    signature: tuple[tuple[int, int, int, int] | None, float, float] | None = None
+    signature: tuple[tuple[int, int, int, int] | None, float, float, float, float] | None = None
     line: str = ""
 
     def render(self, *, journal_path: Path, journal: Any, status: Any) -> str:
         budget = resolve_effective_budget(status)
+        global_root = None
+        life_dir = getattr(status, "life_dir", None)
+        try:
+            if life_dir is not None and Path(life_dir).expanduser().parent.name == "projects":
+                global_root = Path(life_dir).expanduser().parent.parent
+        except TypeError:
+            global_root = None
+        global_spend = global_daily_spend(global_root=global_root)
         signature = (
             _path_signature(journal_path),
             budget.per_mission_cap_usd,
             budget.daily_cap_usd,
+            budget.global_daily_cap_usd,
+            global_spend,
         )
         if signature != self.signature:
             self.signature = signature
@@ -216,6 +227,7 @@ class _BudgetLineCache:
                 "budget   : "
                 f"per-mission ${budget.per_mission_cap_usd:.2f} · "
                 f"daily ${budget.daily_cap_usd:.2f} · "
+                f"global ${global_spend:.2f}/${budget.global_daily_cap_usd:.2f} · "
                 f"remaining ${remaining:.2f}{tail}"
             )
         return self.line

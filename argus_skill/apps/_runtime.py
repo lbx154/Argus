@@ -1882,6 +1882,7 @@ def _build_repl_supervisor_config(
     *,
     per_mission_cap_usd: float,
     daily_cap_usd: float,
+    global_daily_cap_usd: float,
     once: bool,
     max_missions: int,
     project_worktree: Path | None,
@@ -1899,6 +1900,7 @@ def _build_repl_supervisor_config(
         budget=LifeBudget(
             per_mission_cap_usd=per_mission_cap_usd,
             daily_cap_usd=daily_cap_usd,
+            global_daily_cap_usd=global_daily_cap_usd,
             max_missions=1 if once else max_missions,
         ),
         poll_interval_seconds=2.0,
@@ -1930,6 +1932,7 @@ def run_life_supervisor(
     max_missions: int,
     per_mission_cap_usd: float,
     daily_cap_usd: float,
+    global_daily_cap_usd: float,
     project_worktree: Path | None = None,
     artifact_root: Path | None = None,
     quiet: bool = False,
@@ -2005,6 +2008,7 @@ def run_life_supervisor(
         cfg = _build_repl_supervisor_config(
             per_mission_cap_usd=per_mission_cap_usd,
             daily_cap_usd=daily_cap_usd,
+            global_daily_cap_usd=global_daily_cap_usd,
             once=once,
             max_missions=max_missions,
             project_worktree=project_worktree,
@@ -2040,6 +2044,7 @@ def _invoke_supervisor(
     max_missions: int,
     per_mission_cap_usd: float,
     daily_cap_usd: float,
+    global_daily_cap_usd: float,
     quiet: bool = False,
     seed_thread_id: str | None = None,
     continuous: bool = False,
@@ -2097,6 +2102,7 @@ def _invoke_supervisor(
         f"- Max rounds per mission: {ns.max_rounds}\n"
         f"- Per-mission budget cap: ${per_mission_cap_usd:.2f}\n"
         f"- Daily budget cap: ${daily_cap_usd:.2f}\n"
+        f"- Global daily budget cap: ${global_daily_cap_usd:.2f}\n"
         f"- Mode: {mode_label}\n"
         f"- Command workdir: {Path.cwd()}\n"
         f"- Harness artifact root: {_memory_project_root(mem)}\n"
@@ -2124,6 +2130,7 @@ def _invoke_supervisor(
         max_missions=max_missions,
         per_mission_cap_usd=per_mission_cap_usd,
         daily_cap_usd=daily_cap_usd,
+        global_daily_cap_usd=global_daily_cap_usd,
         project_worktree=getattr(mem, "project_worktree", None) or Path.cwd(),
         artifact_root=_memory_project_root(mem),
         quiet=quiet,

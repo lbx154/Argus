@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import json
+import time
 from dataclasses import dataclass
 from typing import Any
 
 import pytest
 
 from argus_skill.core.pricing import usd_for_tokens
-from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus_skill.life.memory import BacklogItem, Journal, JournalEntry, LifeMemory
+from argus_skill.life.supervisor import (
+    LifeBudget,
+    LifeSupervisor,
+    LifeSupervisorConfig,
+    global_daily_spend,
+)
 
 
 class _RecordingSink:
@@ -130,6 +137,101 @@ def test_effective_per_mission_cap_clamps_to_smaller_of_item_and_global() -> Non
     assert budget.effective_per_mission_cap(pricey) == 30.0  # global cap binds
 
 
+def _write_journal_rows(path, rows: list[dict[str, float]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(json.dumps(row) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+
+def test_global_daily_spend_sums_across_projects_and_rollover(tmp_path) -> None:
+    now = time.time()
+    local = time.localtime(now)
+    day_start = time.mktime((local.tm_year, local.tm_mon, local.tm_mday, 0, 0, 0, 0, 0, -1))
+    root = tmp_path / "root"
+    _write_journal_rows(
+        root / "projects" / "p1" / "journal.jsonl",
+        [
+            {"ts": day_start - 1, "cost_usd": 99.0},
+            {"ts": day_start + 10, "cost_usd": 1.25},
+        ],
+    )
+    _write_journal_rows(
+        root / "projects" / "p2" / "journal.jsonl.1",
+        [
+            {"ts": day_start + 20, "cost_usd": 2.5},
+            {"ts": day_start - 20, "cost_usd": 7.0},
+        ],
+    )
+
+    assert global_daily_spend(global_root=root, now=now) == pytest.approx(3.75)
+
+
+def test_can_start_blocks_on_global_daily_cap_even_when_project_daily_allows(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = time.time()
+    local = time.localtime(now)
+    day_start = time.mktime((local.tm_year, local.tm_mon, local.tm_mday, 0, 0, 0, 0, 0, -1))
+    root = tmp_path / "root"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    _write_journal_rows(
+        root / "projects" / "p1" / "journal.jsonl",
+        [{"ts": day_start + 1, "cost_usd": 6.0}],
+    )
+    _write_journal_rows(
+        root / "projects" / "p2" / "journal.jsonl.1",
+        [{"ts": day_start + 2, "cost_usd": 5.0}],
+    )
+    local_journal = Journal(root / "projects" / "p3" / "journal.jsonl")
+    entry = JournalEntry.new(kind="mission_complete", title="local", summary="local", cost_usd=1.0)
+    entry.ts = day_start + 3
+    local_journal.append(entry)
+    budget = LifeBudget(
+        per_mission_cap_usd=3.0,
+        daily_cap_usd=20.0,
+        global_daily_cap_usd=12.0,
+    )
+    item = BacklogItem.new(title="t", objective="o", max_cost_usd=3.0)
+
+    allowed, reason = budget.can_start(item=item, journal=local_journal, now=now)
+
+    assert allowed is False
+    assert "global daily spend" in reason
+    assert "global daily cap" in reason
+
+
+def test_global_daily_cap_zero_is_backward_compatible(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    journal = Journal(tmp_path / "journal.jsonl")
+    item = BacklogItem.new(title="t", objective="o", max_cost_usd=3.0)
+    budget = LifeBudget(
+        per_mission_cap_usd=3.0,
+        daily_cap_usd=20.0,
+        global_daily_cap_usd=0.0,
+    )
+    calls = {"n": 0}
+
+    def fake_global_daily_spend(**kwargs: Any) -> float:
+        calls["n"] += 1
+        return 999.0
+
+    monkeypatch.setattr(
+        "argus_skill.life.supervisor._config.global_daily_spend",
+        fake_global_daily_spend,
+    )
+
+    allowed, reason = budget.can_start(item=item, journal=journal, now=time.time())
+
+    assert allowed is True
+    assert reason == ""
+    assert calls["n"] == 0
+
+
 class _BudgetExhaustedRunner:
     """A runner whose mission trips the mid-mission cost breaker — it returns a
     ``budget_exhausted`` outcome (success=False), as ``LifeRuntime.execute`` does
@@ -180,4 +282,3 @@ def test_budget_exhausted_outcome_leaves_item_pending_and_journals_budget_pause(
     completed = [e for e in sink.events if e.get("type") == "life.mission.completed"]
     assert completed and completed[-1]["status"] == "budget_pause"
     assert completed[-1]["success"] is False
-

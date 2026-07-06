@@ -39,6 +39,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..core.codex_usage import sum_token_counts as _sum_token_counts
 from ..core.models import RunnerOptions, RunnerResult
 
 log = logging.getLogger(__name__)
@@ -591,67 +592,6 @@ class AgentCliBackend:
             # current total as a fresh delta rather than a negative credit.
             return raw_total
         return delta
-
-
-def _sum_token_counts(events: list[dict[str, Any]] | None) -> tuple[int, int, int, int]:
-    """Best-effort token accounting from the codex JSON event stream.
-
-    The codex CLI emits events with shapes like::
-
-        {"type": "token_count", "input_tokens": 1234, "output_tokens": 567}
-
-    or, in older versions, a ``msg`` envelope::
-
-        {"type": "msg", "content": {..., "input_tokens": ...}}
-
-    We pick the complete tuple from the final token-bearing event rather
-    than summing — codex emits running totals, not per-event deltas. Zero
-    is a valid value in that final tuple (for example, no cached input).
-    If the run produced no countable events we return (0, 0, 0, 0).
-    """
-    if not events:
-        return 0, 0, 0, 0
-    last: tuple[int, int, int, int] = (0, 0, 0, 0)
-    for event in events:
-        if not isinstance(event, dict):
-            continue
-        # Newer codex events (>=0.121): usage nested under top-level "usage".
-        #   {"type":"turn.completed","usage":{"input_tokens":..,"output_tokens":..}}
-        usage = event.get("usage") if isinstance(event.get("usage"), dict) else None
-        in_tok = 0
-        cached_tok = 0
-        out_tok = 0
-        reasoning_out_tok = 0
-        if usage is not None:
-            in_tok = _coerce_int(usage.get("input_tokens"))
-            cached_tok = _coerce_int(usage.get("cached_input_tokens"))
-            out_tok = _coerce_int(usage.get("output_tokens"))
-            reasoning_out_tok = _coerce_int(usage.get("reasoning_output_tokens"))
-        # Fallback: top-level fields (older codex / token_count event).
-        if in_tok == 0:
-            in_tok = _coerce_int(event.get("input_tokens"))
-        if cached_tok == 0:
-            cached_tok = _coerce_int(event.get("cached_input_tokens"))
-        if out_tok == 0:
-            out_tok = _coerce_int(event.get("output_tokens"))
-        if reasoning_out_tok == 0:
-            reasoning_out_tok = _coerce_int(event.get("reasoning_output_tokens"))
-        # Older codex events: nested under 'msg' / 'content'.
-        if in_tok == 0 or cached_tok == 0 or out_tok == 0 or reasoning_out_tok == 0:
-            content = event.get("content") if isinstance(event.get("content"), dict) else None
-            if content is not None:
-                if in_tok == 0:
-                    in_tok = _coerce_int(content.get("input_tokens"))
-                if cached_tok == 0:
-                    cached_tok = _coerce_int(content.get("cached_input_tokens"))
-                if out_tok == 0:
-                    out_tok = _coerce_int(content.get("output_tokens"))
-                if reasoning_out_tok == 0:
-                    reasoning_out_tok = _coerce_int(content.get("reasoning_output_tokens"))
-        if in_tok > 0 or cached_tok > 0 or out_tok > 0 or reasoning_out_tok > 0:
-            last = (in_tok, cached_tok, out_tok, reasoning_out_tok)
-    return last
-
 
 def _sum_copilot_premium_requests(events: list[dict[str, Any]] | None) -> float:
     """Best-effort copilot premium-request total from its JSON event stream.

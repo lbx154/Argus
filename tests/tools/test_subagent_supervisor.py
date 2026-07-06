@@ -604,9 +604,17 @@ def test_run_discussion_processes_preexisting_engineer_turn(monkeypatch, tmp_pat
 
     def fake_discuss(task_id, task_data, model, cwd, thread_id=None):
         seen["calls"] += 1
-        return (True, "Acknowledged, your pre-emptive rationale resolves it.", thread_id)
+        return (
+            True,
+            "Acknowledged, your pre-emptive rationale resolves it.",
+            thread_id,
+            (0, 0, 0, 0),
+        )
 
-    monkeypatch.setattr("argus_skill.tools.subagent._core._supervisor_discuss", fake_discuss)
+    monkeypatch.setattr(
+        "argus_skill.tools.subagent._core._supervisor_discuss_with_usage",
+        fake_discuss,
+    )
     monkeypatch.setattr("argus_skill.tools.subagent._core.DISCUSSION_POLL_INTERVAL", 0)
     from argus_skill.tools.subagent import _run_discussion
     _run_discussion(tid, {"concern": "x", "command": "python t.py"}, "gpt-5.5", str(tmp_path))
@@ -672,6 +680,53 @@ def test_run_codex_retries_fresh_when_resume_empty(monkeypatch, tmp_path) -> Non
     msgs, tid = _sub._run_codex("P", "gpt-5.5", str(tmp_path), thread_id="DEAD")
     assert seq == [True, False]  # resumed, then retried fresh
     assert msgs  # got a message from the fresh run
+
+
+def test_run_supervised_persists_supervisor_usage_totals(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    _skip_supervisor_summary(monkeypatch)
+
+    class _Proc:
+        def __init__(self) -> None:
+            self.pid = 4321
+            self.returncode = 0
+            self._wait_calls = 0
+
+        def wait(self, timeout=None):
+            self._wait_calls += 1
+            if self._wait_calls == 1:
+                raise _sub._core.subprocess.TimeoutExpired("cmd", timeout)
+            return 0
+
+    proc = _Proc()
+    monkeypatch.setattr(_sub._core.subprocess, "Popen", lambda *a, **k: proc)
+    monkeypatch.setattr(_sub._core, "_child_env", lambda: {})
+    monkeypatch.setattr(_sub._core, "_tail_file", lambda *a, **k: "")
+    monkeypatch.setattr(_sub._core, "_alert_engineer", lambda *a, **k: "report")
+    monkeypatch.setattr(_sub._core, "_persist_experiment_record", lambda *a, **k: None)
+    monkeypatch.setattr(
+        _sub._core,
+        "_supervisor_check_with_usage",
+        lambda *a, **k: ("continue", "healthy", "", "sup-thread", (120, 15, 30, 6)),
+    )
+
+    _sub._run_supervised(
+        "train-1",
+        "echo hi",
+        "demo",
+        timeout=999,
+        monitor_interval=1,
+        model="gpt-5.5",
+        cwd=str(tmp_path),
+        preflight=False,
+    )
+
+    record = json.loads((tmp_path / ".argus_subagents" / "train-1.json").read_text())
+    assert record["supervisor_usage_model"] == "gpt-5.5"
+    assert record["supervisor_input_tokens"] == 120
+    assert record["supervisor_cached_input_tokens"] == 15
+    assert record["supervisor_output_tokens"] == 30
+    assert record["supervisor_reasoning_output_tokens"] == 6
 
 
 def test_open_discussion_blockers_only_counts_live_fresh(monkeypatch, tmp_path) -> None:
