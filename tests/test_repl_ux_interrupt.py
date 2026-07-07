@@ -12,6 +12,7 @@ Covers the 2026-07 line-REPL overhaul:
 from __future__ import annotations
 
 import queue
+from unittest.mock import patch
 
 import pytest
 
@@ -119,6 +120,59 @@ def test_prompt_toolkit_reader_ctrl_c_propagates():
             )
     finally:
         cm.__exit__(None, None, None)
+
+
+def test_prompt_toolkit_reader_panel_off_by_default(monkeypatch, capsys):
+    """Regression: switching the INPUT engine to prompt_toolkit must not
+    silently re-enable the live four-role panel — it was deliberately
+    reverted to opt-in (ARGUS_SKILL_COCKPIT_LIVE=1) for the legacy cbreak
+    engine, and ``_use_prompt_toolkit_input`` is intentionally independent of
+    that flag (see its docstring). Without opting in, the status line printed
+    above the input must be the same lightweight one-liner the plain engine
+    shows by default (``format_prompt_status_line``), and the heavy panel
+    renderer (``render_roles_snapshot``) must not even be called."""
+    from argus_skill.manager import repl as r
+
+    monkeypatch.delenv("ARGUS_SKILL_COCKPIT_LIVE", raising=False)
+    monkeypatch.setattr(r, "_life_dir_for", lambda mem: "/tmp/x")
+    with patch("argus_skill.cli.roles_status.render_roles_snapshot") as panel_mock, \
+         patch("argus_skill.cli.roles_status.format_prompt_status_line",
+               return_value="memory · gpt-5.5") as line_mock:
+        cm, pipe, session = _session_with_pipe()
+        try:
+            pipe.send_text("hi\n")
+            r.read_message_prompt_toolkit(
+                "> ", mem=object(), theme=None,
+                chat_state={"prompt_session": session},
+            )
+        finally:
+            cm.__exit__(None, None, None)
+    panel_mock.assert_not_called()
+    line_mock.assert_called_once()
+    assert "memory · gpt-5.5" in capsys.readouterr().out
+
+
+def test_prompt_toolkit_reader_panel_shows_when_opted_in(monkeypatch, capsys):
+    """The full panel only replaces the one-liner once the operator opts in."""
+    from argus_skill.manager import repl as r
+
+    monkeypatch.setenv("ARGUS_SKILL_COCKPIT_LIVE", "1")
+    monkeypatch.setattr(r, "_life_dir_for", lambda mem: "/tmp/x")
+    with patch("argus_skill.cli.roles_status.render_roles_snapshot",
+               return_value="PANEL") as panel_mock, \
+         patch("argus_skill.cli.roles_status.format_prompt_status_line") as line_mock:
+        cm, pipe, session = _session_with_pipe()
+        try:
+            pipe.send_text("hi\n")
+            r.read_message_prompt_toolkit(
+                "> ", mem=object(), theme=None,
+                chat_state={"prompt_session": session},
+            )
+        finally:
+            cm.__exit__(None, None, None)
+    panel_mock.assert_called_once()
+    line_mock.assert_not_called()
+    assert "PANEL" in capsys.readouterr().out
 
 
 # --- run_exec terminates the child on Ctrl-C -------------------------------
