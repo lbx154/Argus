@@ -291,10 +291,11 @@ class _TailWaitSpinner:
     """A manually-ticked, single-line braille spinner for the scrolling event
     tails (:func:`tail_mission_events` / :func:`_follow_events_stream`).
 
-    The live four-role panel animates itself, but the DEFAULT follow path is a
-    passive tail that would otherwise just blink an empty cursor between the
-    daemon's events — the "只有光标闪烁没有内容" dead window. This paints a
-    status line during each idle gap and erases it before any real event line
+    The live four-role panel animates itself, but this passive tail is the
+    fallback path (non-TTY/piped output, or ``ARGUS_SKILL_FOLLOW_LIVE=0``)
+    that would otherwise just blink an empty cursor between the daemon's
+    events — the "只有光标闪烁没有内容" dead window. This paints a status
+    line during each idle gap and erases it before any real event line
     prints, so the wait always animates without disturbing the scrollback.
 
     The ROLE shown is real — :meth:`set_activity` tracks the role that is
@@ -500,9 +501,9 @@ def tail_mission_events(
     current_mission: dict[str, str] = {"item_id": str(item_id), "title": "", "objective": ""}
     last_review: dict[str, Any] | None = None
     # An -ing status line animates during the idle gaps so the wait never looks
-    # like a frozen blinking cursor (this passive tail is the DEFAULT path;
-    # the live role panel only shows when the operator explicitly opts in via
-    # ARGUS_SKILL_FOLLOW_LIVE=1).
+    # like a frozen blinking cursor (this passive tail is the fallback path;
+    # the live role panel is the default when attached to a real terminal,
+    # see ARGUS_SKILL_FOLLOW_LIVE).
     spinner = _TailWaitSpinner(theme)
     printer = _TailPrinter(spinner)
     # We read from the start of the log and rely on the ``item_id`` filter to
@@ -972,12 +973,13 @@ def _use_prompt_toolkit_input() -> bool:
     """True iff the default TTY input should use prompt_toolkit — the default
     cockpit input engine: `/` completion + honest Ctrl-C + resumable
     conversations, all in one driver. This ONLY controls the INPUT engine;
-    whether the live 4-role panel is also drawn above it is a separate,
-    opt-in decision (see ``_live_cockpit_enabled`` / ``_panel_text`` in
-    :func:`read_message_prompt_toolkit`) — conflating the two made the panel
-    reappear by default through this new engine even after it was
-    deliberately reverted to opt-in for the legacy cbreak engine, which is
-    exactly the confusion this split avoids. Off for: non-TTY / piped stdin,
+    whether the live 4-role panel is also drawn above it is a SEPARATE flag
+    (``_live_cockpit_enabled`` — see ``_panel_text`` in
+    :func:`read_message_prompt_toolkit`) that this function deliberately does
+    not consult. Both happen to default to "on" today, but keeping them
+    independent means turning either one off (``ARGUS_SKILL_NO_PROMPT_TOOLKIT=1``
+    for the input engine, ``ARGUS_SKILL_COCKPIT_LIVE=0`` for the panel) never
+    silently flips the other. Off for: non-TTY / piped stdin,
     ``ARGUS_SKILL_NO_PROMPT_TOOLKIT=1`` (falls back to the legacy cbreak panel /
     plain reader), or a missing prompt_toolkit."""
     if os.environ.get("ARGUS_SKILL_NO_PROMPT_TOOLKIT") == "1":
@@ -1005,13 +1007,13 @@ def read_message_prompt_toolkit(
     Prints a status line ABOVE the input (as scrollback, repainted each turn)
     and hands prompt_toolkit only the short ╭─/╰─ box, so the ``/``
     completion menu positions cleanly BELOW the input — one engine, no
-    cbreak/prompt_toolkit tug-of-war. That status line is the same lightweight
-    one-liner the plain cbreak engine shows by default (``format_prompt_status_line``);
-    the FULL live four-role panel only replaces it when the operator has
-    opted in via ``ARGUS_SKILL_COCKPIT_LIVE=1`` — this input engine and the
-    panel are independent choices (see ``_use_prompt_toolkit_input``), so
-    switching to prompt_toolkit does not silently re-enable a panel that was
-    deliberately reverted to opt-in.
+    cbreak/prompt_toolkit tug-of-war. That status line is the full live
+    four-role panel by default (``_live_cockpit_enabled``, same flag the
+    legacy cbreak engine honours) — this input engine and the panel are
+    independent choices (see ``_use_prompt_toolkit_input``), but both
+    default to showing it automatically; ``ARGUS_SKILL_COCKPIT_LIVE=0``
+    drops back to the same lightweight one-liner the plain engine falls
+    back to (``format_prompt_status_line``).
 
     Returns the line, or ``None`` on EOF (Ctrl-D). Ctrl-C raises
     ``KeyboardInterrupt`` (the caller arms double-Ctrl-C exit). Any init/render
@@ -1034,9 +1036,11 @@ def read_message_prompt_toolkit(
     def _panel_text() -> str:
         """Status text drawn above the prompt (empty if unavailable).
 
-        Full four-role panel only when opted in (``_live_cockpit_enabled``);
-        otherwise the same compact one-liner the plain engine defaults to,
-        so leaving the panel off doesn't also erase all status visibility."""
+        Full four-role panel by default (``_live_cockpit_enabled``); falls
+        back to the same compact one-liner the plain engine shows if the
+        operator opts out (``ARGUS_SKILL_COCKPIT_LIVE=0``) or panel
+        rendering itself fails, so turning the panel off doesn't also erase
+        all status visibility."""
         if life_dir is None:
             return ""
         if _live_cockpit_enabled():
@@ -1101,13 +1105,12 @@ def read_message_with_live_cockpit(
     The panel refreshes in place ~1×/s; the moment the operator starts typing it
     is dismissed and the keystroke is handed to the normal (readline-editable)
     input path — CJK-safe. Degrades to a plain prompt on any of: not a TTY, no
-    ``termios``, ``ARGUS_SKILL_COCKPIT_LIVE`` not opted in, no life-dir, no live
-    daemon, a too-short terminal, or any unexpected error (the core input path
-    is never put at risk). Opt-in ONLY: set ``ARGUS_SKILL_COCKPIT_LIVE=1`` to
-    enable this cursor-rewrite panel; the plain prompt is the default (a brief
-    default-on experiment was reverted after live operator reports of
-    terminal-width-dependent redraw glitches and confusing panel
-    appear/disappear timing)."""
+    ``termios``, ``ARGUS_SKILL_COCKPIT_LIVE=0``, no life-dir, no live daemon, a
+    too-short terminal, or any unexpected error (the core input path is never
+    put at risk). ON by default — showing multi-role progress automatically,
+    with no manual step required, is the whole point; set
+    ``ARGUS_SKILL_COCKPIT_LIVE=0`` to opt back OUT to the plain prompt (e.g.
+    for scripting/logging where a redrawing panel is unwanted)."""
     from ..apps._input_helpers import read_pasted_message
     if not _live_cockpit_will_activate(mem):
         return read_pasted_message(prompt)
@@ -1119,8 +1122,10 @@ def read_message_with_live_cockpit(
     import tty
     life_dir = _life_dir_for(mem)
 
-    # This path is explicit opt-in only. It uses terminal cursor rewrites, so the
-    # default REPL input path stays boring and reliable.
+    # This path is ON by default. It uses terminal cursor rewrites — every
+    # unsupported condition above degrades to the boring, always-reliable
+    # plain input path instead, so enabling it by default never risks the
+    # core input path itself.
     def _daemon_right() -> str:
         try:
             from ..daemon.life_worker import read_daemon_status
@@ -1516,25 +1521,20 @@ def _print_role_config_confirmation(
 
 
 def _live_cockpit_enabled() -> bool:
-    """Default OFF: the four-role idle-prompt panel is opt-in only.
-
-    Was briefly made default-on this session, but repeated live operator
-    reports (typing-time corruption, confusing before/after-Enter panel
-    disappearance, terminal-width-dependent redraw glitches) made clear the
-    redrawing panel causes more confusion than the visibility it adds for
-    day-to-day use — reverted back to requiring an explicit opt-in. Set
-    ``ARGUS_SKILL_COCKPIT_LIVE=1`` to opt IN to the panel; ``/roles`` /
-    ``/roles watch`` remain available on demand regardless of this flag."""
-    return _env_flag("ARGUS_SKILL_COCKPIT_LIVE", False)
+    """Default ON: the four-role idle-prompt panel shows automatically —
+    the operator's explicit, standing requirement is that multi-role
+    progress be visible without any manual step (no ``/roles``, no env var).
+    Set ``ARGUS_SKILL_COCKPIT_LIVE=0`` to opt back OUT to the plain prompt
+    (e.g. for scripting/logging where a redrawing panel is unwanted)."""
+    return _env_flag("ARGUS_SKILL_COCKPIT_LIVE", True)
 
 
 def _live_follow_enabled() -> bool:
-    """Default OFF: watching a mission run shows the plain scrolling event
-    tail, not the live four-role panel — same reasoning as
-    ``_live_cockpit_enabled`` (reverted from a brief default-on experiment
-    after live operator reports of redraw glitches). Set
-    ``ARGUS_SKILL_FOLLOW_LIVE=1`` to opt back IN to the live panel."""
-    return _env_flag("ARGUS_SKILL_FOLLOW_LIVE", False)
+    """Default ON: watching a mission run shows the live four-role panel —
+    same reasoning as ``_live_cockpit_enabled``. Set
+    ``ARGUS_SKILL_FOLLOW_LIVE=0`` to opt back OUT to the plain scrolling
+    event tail."""
+    return _env_flag("ARGUS_SKILL_FOLLOW_LIVE", True)
 
 
 def _maybe_handle_role_effort_text(
@@ -3777,12 +3777,12 @@ def _render_help(theme) -> str:  # noqa: ANN001
         "ARGUS_SKILL_NO_PROMPT_TOOLKIT=1 for the plain reader"
     ))
     out.append(theme.gray(
-        "Persistent live role panel is OFF by default; set "
-        "ARGUS_SKILL_COCKPIT_LIVE=1 to opt in"
+        "Persistent live role panel is ON by default; set "
+        "ARGUS_SKILL_COCKPIT_LIVE=0 to opt out"
     ))
     out.append(theme.gray(
-        "Live-follow view while a task is running is OFF by default; set "
-        "ARGUS_SKILL_FOLLOW_LIVE=1 to opt in"
+        "Live-follow view while a task is running is ON by default; set "
+        "ARGUS_SKILL_FOLLOW_LIVE=0 to opt out"
     ))
     out.append("")
     out.append(theme.gray(

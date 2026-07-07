@@ -122,41 +122,18 @@ def test_prompt_toolkit_reader_ctrl_c_propagates():
         cm.__exit__(None, None, None)
 
 
-def test_prompt_toolkit_reader_panel_off_by_default(monkeypatch, capsys):
-    """Regression: switching the INPUT engine to prompt_toolkit must not
-    silently re-enable the live four-role panel — it was deliberately
-    reverted to opt-in (ARGUS_SKILL_COCKPIT_LIVE=1) for the legacy cbreak
-    engine, and ``_use_prompt_toolkit_input`` is intentionally independent of
-    that flag (see its docstring). Without opting in, the status line printed
-    above the input must be the same lightweight one-liner the plain engine
-    shows by default (``format_prompt_status_line``), and the heavy panel
-    renderer (``render_roles_snapshot``) must not even be called."""
+def test_prompt_toolkit_reader_panel_on_by_default(monkeypatch, capsys):
+    """Regression: switching the INPUT engine to prompt_toolkit must show the
+    SAME live four-role panel the operator gets by default with the legacy
+    cbreak engine — showing multi-role progress automatically, with no
+    manual step, is the whole point, and ``_use_prompt_toolkit_input`` is
+    intentionally independent of ``ARGUS_SKILL_COCKPIT_LIVE`` (see its
+    docstring) but both default to the panel being visible. With no env var
+    set, the full panel renderer (``render_roles_snapshot``) must be called,
+    not the lightweight one-liner fallback."""
     from argus_skill.manager import repl as r
 
     monkeypatch.delenv("ARGUS_SKILL_COCKPIT_LIVE", raising=False)
-    monkeypatch.setattr(r, "_life_dir_for", lambda mem: "/tmp/x")
-    with patch("argus_skill.cli.roles_status.render_roles_snapshot") as panel_mock, \
-         patch("argus_skill.cli.roles_status.format_prompt_status_line",
-               return_value="memory · gpt-5.5") as line_mock:
-        cm, pipe, session = _session_with_pipe()
-        try:
-            pipe.send_text("hi\n")
-            r.read_message_prompt_toolkit(
-                "> ", mem=object(), theme=None,
-                chat_state={"prompt_session": session},
-            )
-        finally:
-            cm.__exit__(None, None, None)
-    panel_mock.assert_not_called()
-    line_mock.assert_called_once()
-    assert "memory · gpt-5.5" in capsys.readouterr().out
-
-
-def test_prompt_toolkit_reader_panel_shows_when_opted_in(monkeypatch, capsys):
-    """The full panel only replaces the one-liner once the operator opts in."""
-    from argus_skill.manager import repl as r
-
-    monkeypatch.setenv("ARGUS_SKILL_COCKPIT_LIVE", "1")
     monkeypatch.setattr(r, "_life_dir_for", lambda mem: "/tmp/x")
     with patch("argus_skill.cli.roles_status.render_roles_snapshot",
                return_value="PANEL") as panel_mock, \
@@ -173,6 +150,31 @@ def test_prompt_toolkit_reader_panel_shows_when_opted_in(monkeypatch, capsys):
     panel_mock.assert_called_once()
     line_mock.assert_not_called()
     assert "PANEL" in capsys.readouterr().out
+
+
+def test_prompt_toolkit_reader_panel_hidden_when_opted_out(monkeypatch, capsys):
+    """Setting ARGUS_SKILL_COCKPIT_LIVE=0 drops the prompt_toolkit engine back
+    to the same lightweight one-liner the legacy engine falls back to —
+    turning the panel off doesn't erase all status visibility."""
+    from argus_skill.manager import repl as r
+
+    monkeypatch.setenv("ARGUS_SKILL_COCKPIT_LIVE", "0")
+    monkeypatch.setattr(r, "_life_dir_for", lambda mem: "/tmp/x")
+    with patch("argus_skill.cli.roles_status.render_roles_snapshot") as panel_mock, \
+         patch("argus_skill.cli.roles_status.format_prompt_status_line",
+               return_value="memory · gpt-5.5") as line_mock:
+        cm, pipe, session = _session_with_pipe()
+        try:
+            pipe.send_text("hi\n")
+            r.read_message_prompt_toolkit(
+                "> ", mem=object(), theme=None,
+                chat_state={"prompt_session": session},
+            )
+        finally:
+            cm.__exit__(None, None, None)
+    panel_mock.assert_not_called()
+    line_mock.assert_called_once()
+    assert "memory · gpt-5.5" in capsys.readouterr().out
 
 
 # --- run_exec terminates the child on Ctrl-C -------------------------------
