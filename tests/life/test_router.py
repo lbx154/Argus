@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from argus_skill.life.router import (
+    _IDENTITY_GUARD,
     build_chat_prompt,
     build_classify_prompt,
     build_persistence_prompt,
@@ -106,7 +107,23 @@ def test_classify_prompt_is_minimal_and_ignores_role_skill() -> None:
 
 def test_build_chat_prompt_is_minimal() -> None:
     out = build_chat_prompt(objective="你好")
-    assert out == "You are Argus Manager. Answer as Argus Manager.\n\nMessage:\n你好"
+    assert out == (
+        "You are Argus Manager. Answer as Argus Manager.\n\n"
+        + _IDENTITY_GUARD
+        + "Message:\n你好"
+    )
+
+
+def test_build_chat_prompt_never_points_operator_at_the_backend_cli() -> None:
+    """Regression: the Manager must never tell the operator to go run a
+    command in "the backend's CLI" to change Argus's own model/backend/
+    effort — live-confirmed bad advice ("在 Copilot CLI 里请运行：/model")
+    caused by the LLM conflating the transient execution backend with a
+    separate tool. The identity guard must always be present so this can't
+    silently regress."""
+    out = build_chat_prompt(objective="把你的模型换成sonnet 5")
+    assert "backend's CLI" in out
+    assert "/backend" in out and "/config" in out
 
 
 def test_build_chat_prompt_includes_identity_when_given() -> None:
@@ -123,6 +140,16 @@ def test_build_simple_prompt_is_minimal_and_ignores_skill() -> None:
     from argus_skill.cli.roles_status import runner_backend_label
     assert f"{runner_backend_label()} worker" in out
     assert "Answer as Argus Manager" in out
+
+
+def test_build_simple_prompt_never_points_operator_at_the_backend_cli() -> None:
+    """Same regression as build_chat_prompt: this is the path a real free-text
+    config request (e.g. "把你的模型换成sonnet 5") actually takes once routed
+    SELF/simple — confirmed live to produce "在 Copilot CLI 里请运行：/model"
+    without this guard."""
+    out = build_simple_prompt(objective="把你的模型换成sonnet 5")
+    assert "backend's CLI" in out
+    assert "/backend" in out and "/config" in out
 
 
 def test_build_simple_prompt_omits_mission_status_block_when_empty() -> None:

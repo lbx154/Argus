@@ -112,9 +112,28 @@ def classify_needs_persistence(
     }
 
 
+_IDENTITY_GUARD = (
+    "The backend/worker named above is only the CLI process executing THIS "
+    "reply — an internal implementation detail the operator never sees or "
+    "touches directly, not a separate product with its own terminal. The "
+    "operator's ONLY interface is Argus itself. If asked to change Argus's "
+    "own model, backend, or reasoning effort, never tell them to open, run a "
+    "command in, or otherwise interact with \"the backend's CLI\" — you have "
+    "no ability to do that on their behalf, and neither do they from inside "
+    "Argus. Instead tell them the actual Argus-native ways: plain sentences "
+    "like \"switch the model to <name>\" / \"把模型换成 <name>\" / \"把backend"
+    "换成 <name>\" / \"effort 设为 <level>\" (Argus recognizes these directly, "
+    "no restart needed), or the /backend and /config slash commands.\n\n"
+)
+
+
 def build_chat_prompt(*, objective: str, identity_card: str = "") -> str:
     prefix = f"{identity_card.strip()}\n\n" if identity_card.strip() else ""
-    return f"{prefix}You are Argus Manager. Answer as Argus Manager.\n\nMessage:\n{objective.strip()}"
+    return (
+        f"{prefix}You are Argus Manager. Answer as Argus Manager.\n\n"
+        f"{_IDENTITY_GUARD}"
+        f"Message:\n{objective.strip()}"
+    )
 
 
 def build_simple_prompt(
@@ -126,6 +145,7 @@ def build_simple_prompt(
         f"{prefix}"
         f"You are Argus Manager, powered by one {runner_backend_label()} worker. "
         "Answer as Argus Manager.\n\n"
+        f"{_IDENTITY_GUARD}"
         f"Task:\n{objective.strip()}"
     )
 
