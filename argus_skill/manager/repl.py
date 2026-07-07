@@ -159,12 +159,24 @@ def _bottom_hint_line(theme: Any, status: str) -> str:  # noqa: ANN001
     (captured live via a pty + pyte terminal emulator), as opposed to
     Copilot CLI's heavier full alternate-screen approach. Right side is
     dropped on narrow terminals rather than truncated into nonsense.
+
+    Uses ``theme.live_width()`` (re-queries the tty), NOT the cached
+    ``theme.width`` snapshot taken once at startup: this line's length is
+    padded to exactly fill the terminal, and every "move up N rows" redraw
+    around it (the live-cockpit panel, the readline handoff) assumes one
+    physical row per logical line. If the operator resizes their terminal —
+    or a stale ``COLUMNS`` env var disagreed with the tty from the start —
+    a line padded for the WRONG width wraps into two physical rows and
+    desyncs that row count, confirmed live via pty+pyte: the input row and
+    a wrapped fragment of this very hint line visually collided on the same
+    row ("╰─ 你er send · /help commands").
     """
     from ..cli.theme import visible_len
+    width = theme.live_width()
     left = theme.dim("Enter send · /help commands")
-    if not status or theme.width < 60:
+    if not status or width < 60:
         return "  " + left
-    pad = theme.width - visible_len(left) - visible_len(status) - 4
+    pad = width - visible_len(left) - visible_len(status) - 4
     if pad < 1:
         return "  " + left
     return "  " + left + (" " * pad) + status
@@ -325,6 +337,11 @@ class _TailWaitSpinner:
             self._layer = lay
 
     def _width(self) -> int:
+        if self._theme is not None and hasattr(self._theme, "live_width"):
+            try:
+                return max(20, int(self._theme.live_width()))
+            except Exception:  # noqa: BLE001
+                pass
         w = getattr(self._theme, "width", 80) if self._theme is not None else 80
         try:
             return max(20, int(w))
@@ -618,7 +635,6 @@ def follow_mission_live_roles(
 
     life_dir = Path(life_dir)
     events_path = life_dir / "events.jsonl"
-    width = getattr(theme, "width", 80) if theme is not None else 80
     deadline = time.monotonic() + max(0.0, float(timeout))
     offset = 0
     last_review: dict[str, Any] | None = None
@@ -684,6 +700,13 @@ def follow_mission_live_roles(
             spin = _SPIN_FRAMES[frame_i % len(_SPIN_FRAMES)]
             frame_i += 1
             spin_p = theme.bold_cyan(spin) if theme is not None else spin
+            # Re-queried every redraw, not hoisted above the loop — the
+            # operator can resize their terminal WHILE a mission runs, and a
+            # width baked in once at function entry would wrap this padded
+            # header line on the next redraw, undercounting ``n`` below and
+            # desyncing the "move up N rows" erase (same class of bug fixed
+            # for the idle-prompt panel via ``Theme.live_width``).
+            width = theme.live_width() if theme is not None else 80
             panel = render_roles_snapshot(
                 life_dir, theme, width=width,
                 header_right=spin_p + "  " + _daemon_right(),
@@ -845,7 +868,18 @@ def _split_readline_safe_prompt(prompt: str, theme: Any) -> tuple[str, str] | No
     if len(parts) != 3:
         return None
     banner_line, input_prefix, rest = parts
-    rest_clean = _ANSI_RE.sub("", rest)
+    # ``_ANSI_RE`` only matches bracketed ``\x1b[...`` sequences, so it strips
+    # the ``\x1b[<n>A`` / ``\x1b[<n>C`` halves of a trailing
+    # ``cursor_up_and_forward`` escape but NOT the bare "\r" it unconditionally
+    # emits between them (``theme.cursor_up_and_forward`` always appends "\r"
+    # to reset to column 0, even when ``forward=0`` skips the "\x1b[nC" part
+    # entirely) — that stray literal carriage return is not ANSI, so the
+    # regex leaves it sitting in ``rest_clean``. Currently harmless only
+    # because it happens to be followed immediately by a row-advancing "\n"
+    # (both reset column 0; ONLCR makes the "\n" alone equivalent), but
+    # relying on that adjacency is fragile — a hint line has no legitimate
+    # reason to contain a raw "\r", so drop it explicitly.
+    rest_clean = _ANSI_RE.sub("", rest).replace("\r", "")
     pre_print = (
         banner_line + "\n"
         + "\n"  # blank placeholder input row — filled in by input() below
@@ -901,12 +935,17 @@ def read_message_with_live_cockpit(
     from ..cli.roles_status import render_roles_snapshot
     import select as _select
 
-    width = getattr(theme, "width", 80) if theme is not None else 80
-
     hint = ("Just start typing to chat · Ctrl-C refresh · Ctrl-D exit"
             if theme is not None else "(type to chat · Ctrl-D exits)")
 
     def _block() -> str:
+        # Re-queried every refresh (not hoisted above the loop): the operator
+        # can resize their terminal while this panel idles, and a width
+        # baked in once at the top would silently wrap the padded
+        # "roles · activity" header line on the next redraw — desyncing the
+        # "move up N rows" erase math the same way a stale ``theme.width``
+        # did (see ``Theme.live_width``).
+        width = theme.live_width() if theme is not None else 80
         panel = render_roles_snapshot(life_dir, theme, width=width,
                                       header_right=_daemon_right())
         hint_line = "  " + (theme.dim(hint) if theme is not None else hint)
@@ -3140,7 +3179,6 @@ def _roles_cmd(mem: Any, chat_state: dict[str, Any], arg_text: str = "") -> None
     theme = chat_state.get("theme")
     from ..cli.roles_status import render_roles_snapshot
     life_dir = _life_dir_for(mem)
-    width = getattr(theme, "width", 80) if theme is not None else 80
 
     def _daemon_right() -> str:
         try:
@@ -3156,6 +3194,7 @@ def _roles_cmd(mem: Any, chat_state: dict[str, Any], arg_text: str = "") -> None
 
     watch = arg_text.strip().lower() in ("watch", "-w", "--watch", "live", "-f")
     if not watch:
+        width = theme.live_width() if theme is not None else 80
         print(render_roles_snapshot(life_dir, theme, width=width,
                                     header_right=_daemon_right(),
                                     show_config=True), flush=True)
@@ -3164,6 +3203,7 @@ def _roles_cmd(mem: Any, chat_state: dict[str, Any], arg_text: str = "") -> None
     # Live refresh: redraw the panel in place every ~1s until Ctrl-C. Only when
     # attached to a TTY (else fall back to a single snapshot).
     if not sys.stdout.isatty():
+        width = theme.live_width() if theme is not None else 80
         print(render_roles_snapshot(life_dir, theme, width=width), flush=True)
         return
     hint = "Live · press Ctrl-C to return, then type" if theme is not None else "live · Ctrl-C to stop, then type"
@@ -3172,6 +3212,11 @@ def _roles_cmd(mem: Any, chat_state: dict[str, Any], arg_text: str = "") -> None
     try:
         sys.stdout.write("\x1b[?25l")  # hide cursor during redraw
         while True:
+            # Re-queried every redraw (see ``Theme.live_width``) — ``/roles
+            # watch`` can sit open for a long time, well past any terminal
+            # resize, and a width fixed at function entry would wrap this
+            # padded header the moment it disagrees with the real terminal.
+            width = theme.live_width() if theme is not None else 80
             panel = render_roles_snapshot(life_dir, theme, width=width,
                                           header_right=_daemon_right(),
                                           show_config=True)

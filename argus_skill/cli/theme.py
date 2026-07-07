@@ -165,6 +165,35 @@ class Theme:
         truecolor = enabled and supports_truecolor()
         return cls(enabled=enabled, width=width, truecolor=truecolor)
 
+    def live_width(self) -> int:
+        """Re-query the terminal's CURRENT column count, bypassing ``self.width``.
+
+        ``Theme.auto()`` runs once at REPL startup and freezes ``width`` for
+        the theme's whole lifetime (it's a ``frozen`` dataclass). Anything
+        built for a WRAPPING-SENSITIVE, cursor-row-counted redraw (the live
+        cockpit panel, the bottom hint line) silently corrupts the instant
+        the content is wider than the terminal's real, CURRENT width — every
+        "move up N rows" calculation assumes one physical row per logical
+        line, and that assumption breaks the moment a padded line wraps.
+        Two ways this cached value goes stale even when the code is correct:
+        the operator resizes their terminal mid-session, or a stale
+        ``COLUMNS`` env var (tmux/screen not re-exporting it on resize) made
+        ``shutil.get_terminal_size()`` — which checks ``COLUMNS``/``LINES``
+        before falling back to the OS — disagree with the tty from the
+        start. ``os.get_terminal_size()`` queries the tty directly (no env
+        var involved), so calling it fresh right before building any such
+        content sidesteps both. Falls back to ``self.width`` for a disabled
+        theme (non-TTY output, where nothing wraps visibly anyway) or if the
+        live query fails for any reason.
+        """
+        if not self.enabled:
+            return self.width
+        try:
+            cols = os.get_terminal_size(sys.__stdout__.fileno()).columns
+        except (OSError, ValueError, AttributeError):
+            return self.width
+        return max(40, min(cols, 120))
+
     # ── wrapping ──────────────────────────────────────────────────────
 
     def wrap_after(
