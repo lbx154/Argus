@@ -100,3 +100,19 @@ def test_cli_config_help_exits_zero_and_prints_knobs() -> None:
     assert proc.returncode == 0, proc.stderr
     assert "ARGUS_SKILL_LIFE_BACKEND" in proc.stdout
     assert "control knobs" in proc.stdout
+
+
+def test_cli_config_snapshot_writes_file(tmp_path) -> None:
+    out = tmp_path / "argus_runtime_settings.md"
+    proc = subprocess.run(
+        [sys.executable, "-m", "argus_skill", "--config-snapshot", str(out)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert out.exists()
+    text = out.read_text(encoding="utf-8")
+    assert "Role Hyperparameters" in text
+    assert "ARGUS_SKILL_MODEL" in text
+    assert "config snapshot written" in proc.stdout

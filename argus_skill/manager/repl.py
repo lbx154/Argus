@@ -159,12 +159,24 @@ def _bottom_hint_line(theme: Any, status: str) -> str:  # noqa: ANN001
     (captured live via a pty + pyte terminal emulator), as opposed to
     Copilot CLI's heavier full alternate-screen approach. Right side is
     dropped on narrow terminals rather than truncated into nonsense.
+
+    Uses ``theme.live_width()`` (re-queries the tty), NOT the cached
+    ``theme.width`` snapshot taken once at startup: this line's length is
+    padded to exactly fill the terminal, and every "move up N rows" redraw
+    around it (the live-cockpit panel, the readline handoff) assumes one
+    physical row per logical line. If the operator resizes their terminal —
+    or a stale ``COLUMNS`` env var disagreed with the tty from the start —
+    a line padded for the WRONG width wraps into two physical rows and
+    desyncs that row count, confirmed live via pty+pyte: the input row and
+    a wrapped fragment of this very hint line visually collided on the same
+    row ("╰─ 你er send · /help commands").
     """
     from ..cli.theme import visible_len
+    width = theme.live_width()
     left = theme.dim("Enter send · /help commands")
-    if not status or theme.width < 60:
+    if not status or width < 60:
         return "  " + left
-    pad = theme.width - visible_len(left) - visible_len(status) - 4
+    pad = width - visible_len(left) - visible_len(status) - 4
     if pad < 1:
         return "  " + left
     return "  " + left + (" " * pad) + status
@@ -325,6 +337,11 @@ class _TailWaitSpinner:
             self._layer = lay
 
     def _width(self) -> int:
+        if self._theme is not None and hasattr(self._theme, "live_width"):
+            try:
+                return max(20, int(self._theme.live_width()))
+            except Exception:  # noqa: BLE001
+                pass
         w = getattr(self._theme, "width", 80) if self._theme is not None else 80
         try:
             return max(20, int(w))
@@ -618,7 +635,6 @@ def follow_mission_live_roles(
 
     life_dir = Path(life_dir)
     events_path = life_dir / "events.jsonl"
-    width = getattr(theme, "width", 80) if theme is not None else 80
     deadline = time.monotonic() + max(0.0, float(timeout))
     offset = 0
     last_review: dict[str, Any] | None = None
@@ -684,6 +700,13 @@ def follow_mission_live_roles(
             spin = _SPIN_FRAMES[frame_i % len(_SPIN_FRAMES)]
             frame_i += 1
             spin_p = theme.bold_cyan(spin) if theme is not None else spin
+            # Re-queried every redraw, not hoisted above the loop — the
+            # operator can resize their terminal WHILE a mission runs, and a
+            # width baked in once at function entry would wrap this padded
+            # header line on the next redraw, undercounting ``n`` below and
+            # desyncing the "move up N rows" erase (same class of bug fixed
+            # for the idle-prompt panel via ``Theme.live_width``).
+            width = theme.live_width() if theme is not None else 80
             panel = render_roles_snapshot(
                 life_dir, theme, width=width,
                 header_right=spin_p + "  " + _daemon_right(),
@@ -818,6 +841,54 @@ def _visual_row_delta(text: str) -> int:
     return delta
 
 
+def _split_readline_safe_prompt(prompt: str, theme: Any) -> tuple[str, str] | None:
+    """Turn a ``banner\\ninput_prefix\\nhint+cursor-escape`` prompt (built for
+    the live-cockpit's own cursor-controlled ``_block()`` rendering) into a
+    ``(pre_print_text, bare_input_prompt)`` pair that's safe to hand to
+    input()/readline instead.
+
+    Feeding the ORIGINAL 3-line, escape-laden string straight to readline
+    corrupts the display the instant readline does its own internal redraw:
+    readline counts the embedded ``"\\n"``s to learn where editing starts,
+    but the trailing ``cursor_up_and_forward`` escape moves the cursor to a
+    DIFFERENT row than that count implies (live-reproduced via pty+pyte:
+    typing "hello" rendered progressively as "h" -> "he" -> "el h" ->
+    "ellh" -> "ello", eating characters and the input-row prefix). This is
+    the same "Round 1" class of bug already fixed for the non-live-cockpit
+    prompt path — reproduced here: print everything except the input row
+    directly, land the cursor on a blank input row via
+    ``cursor_up_and_forward(2, 0)``, and return the bare input-row prefix
+    for the caller to use as the real prompt.
+
+    Returns ``None`` (caller should use ``prompt`` as-is) if it is not
+    shaped as expected (defensive — must never break the input path)."""
+    from ..apps._input_helpers import _ANSI_RE
+
+    parts = prompt.split("\n", 2)
+    if len(parts) != 3:
+        return None
+    banner_line, input_prefix, rest = parts
+    # ``_ANSI_RE`` only matches bracketed ``\x1b[...`` sequences, so it strips
+    # the ``\x1b[<n>A`` / ``\x1b[<n>C`` halves of a trailing
+    # ``cursor_up_and_forward`` escape but NOT the bare "\r" it unconditionally
+    # emits between them (``theme.cursor_up_and_forward`` always appends "\r"
+    # to reset to column 0, even when ``forward=0`` skips the "\x1b[nC" part
+    # entirely) — that stray literal carriage return is not ANSI, so the
+    # regex leaves it sitting in ``rest_clean``. Currently harmless only
+    # because it happens to be followed immediately by a row-advancing "\n"
+    # (both reset column 0; ONLCR makes the "\n" alone equivalent), but
+    # relying on that adjacency is fragile — a hint line has no legitimate
+    # reason to contain a raw "\r", so drop it explicitly.
+    rest_clean = _ANSI_RE.sub("", rest).replace("\r", "")
+    pre_print = (
+        banner_line + "\n"
+        + "\n"  # blank placeholder input row — filled in by input() below
+        + rest_clean + "\n"
+        + theme.cursor_up_and_forward(2, 0)
+    )
+    return pre_print, input_prefix
+
+
 def read_message_with_live_cockpit(
     prompt: str,
     mem: Any,
@@ -864,12 +935,17 @@ def read_message_with_live_cockpit(
     from ..cli.roles_status import render_roles_snapshot
     import select as _select
 
-    width = getattr(theme, "width", 80) if theme is not None else 80
-
     hint = ("Just start typing to chat · Ctrl-C refresh · Ctrl-D exit"
             if theme is not None else "(type to chat · Ctrl-D exits)")
 
     def _block() -> str:
+        # Re-queried every refresh (not hoisted above the loop): the operator
+        # can resize their terminal while this panel idles, and a width
+        # baked in once at the top would silently wrap the padded
+        # "roles · activity" header line on the next redraw — desyncing the
+        # "move up N rows" erase math the same way a stale ``theme.width``
+        # did (see ``Theme.live_width``).
+        width = theme.live_width() if theme is not None else 80
         panel = render_roles_snapshot(life_dir, theme, width=width,
                                       header_right=_daemon_right())
         hint_line = "  " + (theme.dim(hint) if theme is not None else hint)
@@ -926,6 +1002,24 @@ def read_message_with_live_cockpit(
             pass
 
     # ── classify the first keystroke ──────────────────────────────────────────
+    # ``prompt`` here is still the multi-line, escape-laden string the caller
+    # built for THIS function's own _block() rendering (banner row + "\n" +
+    # input-row prefix + "\n" + bottom hint line + a trailing
+    # cursor_up_and_forward escape) — never meant to be handed to
+    # input()/readline directly. Every return below that hands off to
+    # read_pasted_message(prompt) used to do exactly that, corrupting the
+    # display the instant readline redrew internally: readline counts the
+    # embedded "\n"s to learn where editing starts, but the trailing escape
+    # moves the ACTUAL cursor to a different row than that count implies —
+    # the exact "Round 1" class of bug already fixed for the non-live-cockpit
+    # prompt path (see the caller). Reproduce that fix's pattern here: print
+    # everything except the input row directly, land the cursor on a blank
+    # input row, and hand read_pasted_message only the bare input-row prefix.
+    _split = _split_readline_safe_prompt(prompt, theme)
+    if _split is not None:
+        _pre_print, prompt = _split
+        sys.stdout.write(_pre_print)
+        sys.stdout.flush()
     if interrupted:
         return ""  # Ctrl-C while idle → just refresh the cockpit
     if raw == b"" or raw[:1] == b"\x04":
@@ -1168,6 +1262,27 @@ _ROLE_ALIASES: dict[str, tuple[str, ...]] = {
 _EFFORT_VALUES = ("xhigh", "max", "high", "medium", "low")
 
 
+def _looks_like_bare_effort_control(text: str) -> bool:
+    """Recognize short operator controls such as ``effort 设为 high``.
+
+    Role-specific phrases are handled by alias matching below. This helper is
+    only for the Argus-native shorthand the operator sees in the cockpit, so it
+    requires an explicit assignment shape and does not fire on advisory text like
+    "should effort be high or medium?".
+    """
+    return bool(
+        re.search(
+            r"effort\s*(?:=|:|设为|设置为|设置成|改成|换成|to\b|set\s+to\b|change\s+to\b)",
+            text,
+        )
+        or re.search(r"(?:推理|强度)\s*(?:设为|设置为|设置成|改成|换成)", text)
+        or re.search(
+            r"\b(?:set|change)\s+(?:reasoning\s+)?effort\s+to\b",
+            text,
+        )
+    )
+
+
 def _print_role_config_confirmation(
     theme: Any, roles: list[str] | None = None
 ) -> None:
@@ -1234,7 +1349,13 @@ def _maybe_handle_role_effort_text(
         return False
     if not any(tok in low for tok in ("改", "设置", "设为", "默认", "change", "set", "config", "配置")):
         return False
-    mentions_product = "argus" in low or "四角色" in low or "4角色" in low or "所有角色" in low
+    mentions_product = (
+        "argus" in low
+        or "四角色" in low
+        or "4角色" in low
+        or "所有角色" in low
+        or _looks_like_bare_effort_control(low)
+    )
     roles: list[str] = []
     if any(tok in low for tok in ("四角色", "四个角色", "4角色", "所有角色", "全部角色", "all roles", "every role")):
         roles = list(_ROLE_EFFORT_ENVS)
@@ -1413,9 +1534,8 @@ _ROLE_MODEL_ENVS: dict[str, str] = {
 # Known model ids per backend, as of this build. Not exhaustive — any model
 # the underlying CLI supports already works via ARGUS_SKILL_<ROLE>_MODEL /
 # ARGUS_SKILL_MODEL (agent_cli_runner passes --model straight through with no
-# whitelist); this table only bounds what natural language can RECOGNIZE, so
-# an unlisted model name still falls through untouched to the task/chat path
-# instead of being silently mismatched.
+# whitelist). This table covers friendly aliases; explicit assignment forms like
+# ``model=gpt-6.1-codex`` are parsed by _extract_explicit_model_switch_value.
 _MODEL_VALUE_ALIASES: dict[str, tuple[str, ...]] = {
     "claude-sonnet-5": ("claude-sonnet-5", "claude sonnet 5", "sonnet 5", "sonnet5"),
     "claude-sonnet-4.6": ("claude-sonnet-4.6", "claude sonnet 4.6", "sonnet 4.6"),
@@ -1438,6 +1558,41 @@ _MODEL_VALUE_ALIASES: dict[str, tuple[str, ...]] = {
     ),
 }
 _MODEL_SWITCH_VERBS = _BACKEND_SWITCH_VERBS  # same verb vocabulary as backend switch
+_MODEL_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,80}")
+
+
+def _normalize_explicit_model_id(value: str) -> str:
+    token = value.strip().strip("`'\"“”‘’.,，。;；")
+    if not token or not _MODEL_ID_RE.fullmatch(token):
+        return ""
+    if token in _BACKEND_VALUE_ALIASES:
+        return ""
+    # Avoid treating plain provider/backend names as model ids. Real model ids
+    # almost always carry a generation, family separator, or version marker.
+    if not any(ch.isdigit() or ch in ".:-" for ch in token):
+        return ""
+    return token
+
+
+def _extract_explicit_model_switch_value(raw: str) -> str:
+    """Extract the model id from explicit assignment phrases.
+
+    The backend runner already forwards arbitrary model ids; the REPL should not
+    require a code update every time a provider adds a new version. Keep this
+    conservative: only parse phrases that explicitly mention model/模型 and use
+    an assignment verb.
+    """
+    patterns = (
+        r"(?:模型|model)\s*(?:=|:|设为|设置为|设置成|改成|换成|to\b)\s*([A-Za-z0-9][A-Za-z0-9._:-]{0,80})",
+        r"\b(?:switch|change|set|use)\s+(?:the\s+)?model\s+(?:to\s+)?([A-Za-z0-9][A-Za-z0-9._:-]{0,80})",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, raw, flags=re.IGNORECASE)
+        if match:
+            model = _normalize_explicit_model_id(match.group(1))
+            if model:
+                return model
+    return ""
 
 
 def _maybe_handle_model_switch_text(
@@ -1468,17 +1623,6 @@ def _maybe_handle_model_switch_text(
     low = raw.casefold()
     if not raw:
         return False
-    # Pick the LONGEST matching alias across all models, not the first dict
-    # entry — several ids share a prefix (e.g. "gpt-5.4" is itself a substring
-    # of "gpt-5.4-mini"), so a naive first-match would misidentify the model.
-    model = ""
-    best_len = 0
-    for name, aliases in _MODEL_VALUE_ALIASES.items():
-        for alias in aliases:
-            if alias in low and len(alias) > best_len:
-                model, best_len = name, len(alias)
-    if not model:
-        return False
     if not any(tok in low for tok in _MODEL_SWITCH_VERBS):
         return False
     roles: list[str] = []
@@ -1490,6 +1634,19 @@ def _maybe_handle_model_switch_text(
         for tok in ("模型", "model", "默认", "所有角色", "全部角色", "all roles", "every role")
     )
     if not roles and not generic:
+        return False
+    # Pick the LONGEST matching alias across all models, not the first dict
+    # entry — several ids share a prefix (e.g. "gpt-5.4" is itself a substring
+    # of "gpt-5.4-mini"), so a naive first-match would misidentify the model.
+    model = ""
+    best_len = 0
+    for name, aliases in _MODEL_VALUE_ALIASES.items():
+        for alias in aliases:
+            if alias in low and len(alias) > best_len:
+                model, best_len = name, len(alias)
+    if not model:
+        model = _extract_explicit_model_switch_value(raw)
+    if not model:
         return False
 
     theme = chat_state.get("theme")
@@ -3022,7 +3179,6 @@ def _roles_cmd(mem: Any, chat_state: dict[str, Any], arg_text: str = "") -> None
     theme = chat_state.get("theme")
     from ..cli.roles_status import render_roles_snapshot
     life_dir = _life_dir_for(mem)
-    width = getattr(theme, "width", 80) if theme is not None else 80
 
     def _daemon_right() -> str:
         try:
@@ -3038,6 +3194,7 @@ def _roles_cmd(mem: Any, chat_state: dict[str, Any], arg_text: str = "") -> None
 
     watch = arg_text.strip().lower() in ("watch", "-w", "--watch", "live", "-f")
     if not watch:
+        width = theme.live_width() if theme is not None else 80
         print(render_roles_snapshot(life_dir, theme, width=width,
                                     header_right=_daemon_right(),
                                     show_config=True), flush=True)
@@ -3046,6 +3203,7 @@ def _roles_cmd(mem: Any, chat_state: dict[str, Any], arg_text: str = "") -> None
     # Live refresh: redraw the panel in place every ~1s until Ctrl-C. Only when
     # attached to a TTY (else fall back to a single snapshot).
     if not sys.stdout.isatty():
+        width = theme.live_width() if theme is not None else 80
         print(render_roles_snapshot(life_dir, theme, width=width), flush=True)
         return
     hint = "Live · press Ctrl-C to return, then type" if theme is not None else "live · Ctrl-C to stop, then type"
@@ -3054,6 +3212,11 @@ def _roles_cmd(mem: Any, chat_state: dict[str, Any], arg_text: str = "") -> None
     try:
         sys.stdout.write("\x1b[?25l")  # hide cursor during redraw
         while True:
+            # Re-queried every redraw (see ``Theme.live_width``) — ``/roles
+            # watch`` can sit open for a long time, well past any terminal
+            # resize, and a width fixed at function entry would wrap this
+            # padded header the moment it disagrees with the real terminal.
+            width = theme.live_width() if theme is not None else 80
             panel = render_roles_snapshot(life_dir, theme, width=width,
                                           header_right=_daemon_right(),
                                           show_config=True)
@@ -3227,7 +3390,8 @@ def _render_help(theme) -> str:  # noqa: ANN001
         "Idea/Skill → Engineer → Reviewer.",
         "Examples: `resume last task`, `what are you doing now`, "
         "`pause for now`, `switch to the copilot backend`, "
-        "`switch the model to claude-sonnet-5`, `help me optimize this project`.",
+        "`把backend换成 copilot`, `switch the model to claude-sonnet-5`, "
+        "`effort 设为 high`, `help me optimize this project`.",
     ):
         for line in theme.wrap_after(para, first_indent=0, hang_indent=0):
             out.append(theme.gray(line))

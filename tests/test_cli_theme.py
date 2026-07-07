@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from unittest import mock
 
 from argus_skill.cli.theme import BOX, Theme
@@ -82,6 +83,49 @@ def test_theme_auto_disabled_when_not_a_tty(monkeypatch) -> None:
     with mock.patch("sys.stdout.isatty", return_value=False):
         t = Theme.auto()
     assert t.enabled is False
+
+
+# ── live_width (re-queried terminal size, bypassing the cached snapshot) ───
+
+def test_live_width_disabled_theme_returns_cached_width() -> None:
+    """Non-TTY output never wraps visibly, so a disabled theme just returns
+    its cached ``width`` without touching the terminal at all."""
+    t = Theme(enabled=False, width=80)
+    with mock.patch("os.get_terminal_size") as m:
+        assert t.live_width() == 80
+        m.assert_not_called()
+
+
+def test_live_width_queries_os_terminal_size_when_enabled() -> None:
+    """Regression: ``Theme.auto()`` runs once at REPL startup and freezes
+    ``width`` for the theme's whole lifetime. If the operator resizes their
+    terminal afterward — or a stale ``COLUMNS`` env var disagreed with the
+    tty from the start (``shutil.get_terminal_size`` checks ``COLUMNS``
+    before the OS) — every row-counted redraw built from the cached
+    ``theme.width`` desyncs the moment a padded line wraps at the REAL,
+    current width (live-reproduced via pty+pyte: a mismatched width wrapped
+    the padded "roles · activity" header and the input row collided with a
+    fragment of the hint line, "╰─ 你er send · /help commands"). ``live_width``
+    must re-query the tty directly (``os.get_terminal_size``, which — unlike
+    ``shutil.get_terminal_size`` — never consults ``COLUMNS``/``LINES``) so
+    every render call sees the terminal's true, current size."""
+    t = Theme(enabled=True, width=120)  # stale cached value
+    with mock.patch("os.get_terminal_size", return_value=os.terminal_size((80, 24))):
+        assert t.live_width() == 80
+
+
+def test_live_width_clamps_between_40_and_120() -> None:
+    t = Theme(enabled=True, width=80)
+    with mock.patch("os.get_terminal_size", return_value=os.terminal_size((200, 24))):
+        assert t.live_width() == 120
+    with mock.patch("os.get_terminal_size", return_value=os.terminal_size((10, 24))):
+        assert t.live_width() == 40
+
+
+def test_live_width_falls_back_to_cached_width_on_error() -> None:
+    t = Theme(enabled=True, width=80)
+    with mock.patch("os.get_terminal_size", side_effect=OSError("no tty")):
+        assert t.live_width() == 80
 
 
 # ── horizontal rule ───────────────────────────────────────────────────────
