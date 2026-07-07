@@ -199,15 +199,25 @@ def _life_dir_for(mem: Any) -> Path:
     return Path(project_root)
 
 
-_TAIL_WAIT_PHRASES: tuple[str, ...] = (
-    "Thinking…",
-    "Planning…",
-    "Reasoning…",
-    "Analyzing…",
-    "Working…",
-    "Reviewing…",
-    "Waiting for the daemon's next update…",
-)
+_TAIL_ROLE_TITLES: dict[str, str] = {
+    "manager": "Manager",
+    "planner": "Planner",
+    "engineer": "Engineer",
+    "reviewer": "Reviewer",
+    "critic": "Reviewer",
+}
+# Honest present-continuous fallback per role — used only when we have no
+# concrete last-action note to show (e.g. the role just became active). NOT a
+# cosmetic timer rotation: the label always names the role that is REALLY
+# working right now (repository convention — keep status honest, never fake a
+# rotating phrase). See the manager-triage spinner for the same rule.
+_TAIL_ROLE_VERBS: dict[str, str] = {
+    "manager": "deciding",
+    "planner": "planning",
+    "engineer": "working",
+    "reviewer": "reviewing",
+    "critic": "reviewing",
+}
 
 
 class _TailWaitSpinner:
@@ -216,9 +226,16 @@ class _TailWaitSpinner:
 
     The live four-role panel animates itself, but the DEFAULT follow path is a
     passive tail that would otherwise just blink an empty cursor between the
-    daemon's events — the "只有光标闪烁没有内容" dead window. This paints an
-    -ing status line during each idle gap and erases it before any real event
-    line prints, so the wait always animates without disturbing the scrollback.
+    daemon's events — the "只有光标闪烁没有内容" dead window. This paints a
+    status line during each idle gap and erases it before any real event line
+    prints, so the wait always animates without disturbing the scrollback.
+
+    The label is HONEST, not a cosmetic timer rotation: :meth:`set_activity`
+    feeds it the REAL current role + that role's latest action (from the event
+    stream), so during a silent gap it shows e.g. "Engineer · running the
+    baseline check… (12s)" — the work that is genuinely still in flight — not a
+    random verb. Before the first event it says it is waiting. (Same "keep the
+    live status truthful" rule the manager-triage spinner follows.)
 
     No-op on non-TTY / piped / NO_COLOR / ARGUS_SKILL_NO_SPINNER (same gate as
     ``LiveStatus``). Driven by hand — no background thread — so it can never
@@ -242,6 +259,20 @@ class _TailWaitSpinner:
         self._i = 0
         self._painted = False
         self._start = time.monotonic()
+        self._layer: str | None = None
+        self._note: str = ""
+
+    def set_activity(self, layer: str | None, note: str = "") -> None:
+        """Record the REAL current role + latest action so the idle label
+        reflects what the daemon is actually doing (not a canned phrase)."""
+        lay = (layer or "").strip().lower() or None
+        if lay is not None and lay != self._layer:
+            # A new role took over — its predecessor's action no longer applies.
+            self._layer = lay
+            self._note = ""
+        note = " ".join(str(note or "").split())  # collapse whitespace/newlines
+        if note:
+            self._note = note
 
     def _width(self) -> int:
         w = getattr(self._theme, "width", 80) if self._theme is not None else 80
@@ -250,6 +281,19 @@ class _TailWaitSpinner:
         except Exception:  # noqa: BLE001
             return 80
 
+    def _label(self) -> str:
+        """The honest status text for this instant (no glyph / meta)."""
+        if self._layer is None:
+            return "Waiting for the daemon's first event…"
+        title = _TAIL_ROLE_TITLES.get(self._layer, self._layer.title())
+        if self._note:
+            note = self._note
+            if len(note) > 72:
+                note = note[:71].rstrip() + "…"
+            return f"{title} · {note}"
+        verb = _TAIL_ROLE_VERBS.get(self._layer, "working")
+        return f"{title} {verb}…"
+
     def tick(self) -> None:
         """Paint / advance the in-place status line (no-op when disabled)."""
         if not self._enabled:
@@ -257,14 +301,14 @@ class _TailWaitSpinner:
         glyph = self._frames[self._i % len(self._frames)]
         self._i += 1
         elapsed = int(time.monotonic() - self._start)
-        phrase = _TAIL_WAIT_PHRASES[
-            int((time.monotonic() - self._start) / 3.0) % len(_TAIL_WAIT_PHRASES)
-        ]
-        plain = f"{glyph} {phrase}  ({elapsed}s · Ctrl-C to stop observing)"
+        label = self._label()
+        plain = f"{glyph} {label}  ({elapsed}s · Ctrl-C to stop observing)"
         # Never let the status line reach the terminal edge: a wrapped line
         # would survive the next tick's single-row erase and stack up.
         if len(plain) > self._width() - 1:
-            plain = f"{glyph} {phrase}"
+            plain = f"{glyph} {label}"
+            if len(plain) > self._width() - 1:
+                plain = plain[: self._width() - 1].rstrip()
         body = plain[len(glyph):]  # everything after the (1-col) glyph
         g = self._theme.bold_cyan(glyph) if self._theme is not None else glyph
         try:
@@ -322,6 +366,15 @@ class _TailPrinter:
 
     def feed(self, event: dict[str, Any], rendered: str | None) -> None:
         """Handle one rendered event line (``None`` = nothing to show)."""
+        # Keep the idle spinner HONEST: record the real role now acting and its
+        # latest concrete action, so a silent gap shows what is truly in flight.
+        # Never surface gated reasoning text (respect ARGUS_SKILL_SHOW_REASONING)
+        # — update the role only for those.
+        layer = str(event.get("agent_layer") or "").strip().lower() or None
+        note = ""
+        if rendered is not None and str(event.get("kind") or "") != "reasoning":
+            note = str(event.get("action_summary") or event.get("text") or "")
+        self._spinner.set_activity(layer, note)
         if rendered is None:
             return
         mid = str(event.get("message_id") or "")

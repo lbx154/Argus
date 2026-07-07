@@ -421,26 +421,37 @@ def test_with_manager_spinner_propagates_fn_error_without_rerun():
         _with_manager_spinner(None, "Manager choosing the vertical…", _boom)
     assert calls == [1]  # ran once, not retried by the spinner wrapper
 
-def test_tail_wait_spinner_animates_and_clears():
+def test_tail_wait_spinner_animates_and_reflects_real_activity():
     """The passive event tail is the DEFAULT follow path; without an indicator
     its idle gaps are a frozen blinking cursor ("只有光标闪烁没有内容"). The
-    spinner must paint a braille glyph + an -ing phrase on tick() and erase it
-    on clear() so a real event line prints on a clean line."""
+    spinner must paint a braille glyph and — crucially — an HONEST label driven
+    by the REAL current role + action (set_activity), not a canned rotation."""
     import io
     from argus_skill.manager.repl import _TailWaitSpinner
     from argus_skill.cli.live_status import FRAMES
 
     buf = io.StringIO()
     spin = _TailWaitSpinner(theme=None, stream=buf, enabled=True)
+
+    # Before any event: honestly says it is waiting.
     spin.tick()
+    assert "Waiting for the daemon" in buf.getvalue()
+
+    # Once a real engineer action is known, the label reflects it (role + note),
+    # not a fixed phrase.
+    buf.truncate(0); buf.seek(0)
+    spin.set_activity("engineer", "running the baseline check")
     spin.tick()
     out = buf.getvalue()
     assert any(f in out for f in FRAMES), "no braille frame painted"
-    assert "…" in out and any(
-        v in out for v in ("Thinking", "Planning", "Waiting", "Working",
-                            "Reasoning", "Analyzing", "Reviewing")
-    ), "no -ing phrase painted"
+    assert "Engineer" in out and "running the baseline check" in out
     assert "\x1b[2K" in out, "spinner did not use an in-place erase"
+
+    # A role with no concrete note falls back to an honest present-continuous.
+    buf.truncate(0); buf.seek(0)
+    spin.set_activity("reviewer", "")
+    spin.tick()
+    assert "Reviewer reviewing…" in buf.getvalue()
 
     buf.truncate(0); buf.seek(0)
     spin.clear()
