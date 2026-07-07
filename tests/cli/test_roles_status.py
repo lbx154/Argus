@@ -291,3 +291,86 @@ def test_banner_plain_when_theme_disabled():
     from argus_skill.cli.roles_status import format_roles_banner
     out = format_roles_banner(Theme(enabled=False, width=100), env={})
     assert "\x1b[" not in out
+
+
+# ── prompt status line (repeating, drawn every REPL turn) ─────────────────
+
+def test_prompt_status_line_shows_shared_backend_and_model():
+    from argus_skill.cli.roles_status import format_prompt_status_line
+    out = format_prompt_status_line(Theme(enabled=False, width=100), env={})
+    assert out == "Codex · gpt-5.5"
+
+
+def test_prompt_status_line_reflects_a_switched_backend():
+    from argus_skill.cli.roles_status import format_prompt_status_line
+    env = {"ARGUS_SKILL_RUNNER_BACKEND": "copilot", "ARGUS_SKILL_MODEL": "claude-sonnet-5"}
+    out = format_prompt_status_line(Theme(enabled=False, width=100), env=env)
+    assert out == "Copilot · claude-sonnet-5"
+
+
+def test_prompt_status_line_shows_mixed_hint_when_roles_differ():
+    from argus_skill.cli.roles_status import format_prompt_status_line
+    env = {"ARGUS_SKILL_REVIEWER_BACKEND": "claude"}
+    out = format_prompt_status_line(Theme(enabled=False, width=100), env=env)
+    assert "mixed" in out
+    assert "/roles" in out
+
+
+def test_prompt_status_line_plain_when_theme_disabled():
+    from argus_skill.cli.roles_status import format_prompt_status_line
+    out = format_prompt_status_line(Theme(enabled=False, width=100), env={})
+    assert "\x1b[" not in out
+
+
+# ── prompt activity suffix: the multi-agent-specific "who's driving now" bit,
+# missing from every single-agent reference tool (Codex CLI / Claude Code) by
+# construction, since they only ever have one actor. ───────────────────────
+
+def test_prompt_activity_suffix_empty_when_no_life_dir():
+    from argus_skill.cli.roles_status import format_prompt_activity_suffix
+    assert format_prompt_activity_suffix(None) == ""
+
+
+def test_prompt_activity_suffix_empty_when_nothing_active(tmp_path):
+    from argus_skill.cli.roles_status import format_prompt_activity_suffix
+    # No events.jsonl at all — role_activity() reports every role idle.
+    assert format_prompt_activity_suffix(tmp_path) == ""
+
+
+def test_prompt_activity_suffix_names_the_active_role(tmp_path):
+    from argus_skill.cli.roles_status import format_prompt_activity_suffix
+    now = time.time()
+    _write_events(tmp_path, [
+        {"type": "engineer.progress", "text": "running pytest", "ts": now - 2},
+    ])
+    out = format_prompt_activity_suffix(tmp_path, Theme(enabled=False, width=100))
+    assert out == "● Engineer"
+
+
+def test_prompt_activity_suffix_fails_soft_on_unreadable_life_dir(tmp_path):
+    from argus_skill.cli.roles_status import format_prompt_activity_suffix
+    (tmp_path / "events.jsonl").write_text("not json at all{{{", encoding="utf-8")
+    # Corrupt lines are skipped by role_activity's own JSON parsing (fail-soft
+    # at that layer already); the suffix must still resolve to "" cleanly.
+    assert format_prompt_activity_suffix(tmp_path) == ""
+
+
+def test_prompt_status_line_appends_active_role_when_life_dir_given(tmp_path):
+    from argus_skill.cli.roles_status import format_prompt_status_line
+    now = time.time()
+    _write_events(tmp_path, [
+        {"type": "round.review.started", "ts": now - 1},
+    ])
+    out = format_prompt_status_line(
+        Theme(enabled=False, width=100), env={}, life_dir=tmp_path,
+    )
+    assert out == "Codex · gpt-5.5  ● Reviewer"
+
+
+def test_prompt_status_line_unchanged_when_life_dir_omitted():
+    """Byte-for-byte prior behaviour when the caller does not pass life_dir
+    (the default) — no regression for any existing caller/test."""
+    from argus_skill.cli.roles_status import format_prompt_status_line
+    out = format_prompt_status_line(Theme(enabled=False, width=100), env={})
+    assert out == "Codex · gpt-5.5"
+

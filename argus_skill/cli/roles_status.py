@@ -651,6 +651,81 @@ def format_roles_banner(
     return "\n".join(lines)
 
 
+def format_prompt_activity_suffix(
+    life_dir: Path | str | None, theme: Any = None,
+) -> str:
+    """Compact "● Role" suffix naming whichever role is active RIGHT NOW.
+
+    This is the one piece of ambient status a single-agent tool (Codex CLI,
+    Claude Code) structurally never needs to answer, since it only ever has
+    one actor. Argus always has four (Manager/Planner/Engineer/Reviewer)
+    cooperating on the SAME objective, so "who is actually driving this
+    instant" is core status, not a nice-to-have — and today it was only
+    visible behind an undiscovered opt-in env var
+    (``ARGUS_SKILL_COCKPIT_LIVE=1``, see ``read_message_with_live_cockpit``)
+    or by manually typing ``/roles``. This makes the single highest-value bit
+    of that panel (is anyone active, and which one) zero-config and always
+    on, reusing the exact same ``role_activity`` source and ``●``/colour
+    convention as ``/roles`` and the live cockpit panel.
+
+    Returns "" when there is no life_dir, no role is currently active, or
+    anything about reading ``events.jsonl`` fails — fail-soft, since this
+    must never break the input prompt.
+    """
+    if not life_dir:
+        return ""
+    try:
+        activities = role_activity(life_dir)
+        active = next((a for a in activities.values() if a.active), None)
+        if active is None:
+            return ""
+        dot = role_paint(theme, active.role, "●", bold=True)
+        title = role_paint(theme, active.role, _ROLE_TITLE.get(active.role, active.role),
+                           bold=True)
+        return f"{dot} {title}"
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def format_prompt_status_line(
+    theme: Any, *, env: Mapping[str, str] | None = None,
+    life_dir: Path | str | None = None,
+) -> str:
+    """One-line backend/model (+ active-role) summary for the REPEATING input
+    prompt.
+
+    The startup banner's ``format_roles_banner`` prints once and then scrolls
+    out of view after the very first reply — an operator several turns into a
+    conversation has no ambient way to see which engine is live without
+    separately typing ``/roles``, and a model/backend switch (see
+    ``_print_role_config_confirmation`` in ``manager/repl.py``) only proved
+    itself for that one turn. Surfacing this line in the prompt box itself
+    (drawn every turn, right where the operator is about to type) keeps it
+    persistently visible instead of a one-shot banner. Collapses to the
+    shared value when every role agrees (the common case); a short "mixed"
+    hint otherwise, since the full per-role breakdown already lives in
+    ``/roles``.
+
+    ``life_dir``, when given, additionally appends
+    :func:`format_prompt_activity_suffix` — which of the four roles is
+    active right now — so the multi-agent-specific "who's driving" status is
+    on the same always-visible line, not tucked behind ``/roles`` or a live
+    cockpit env var. Omitted (``None``, the default) reproduces the exact
+    prior backend/model-only output, byte for byte.
+    """
+    configs = resolve_all_roles(env=env)
+    if not configs:
+        return ""
+    keys = {(c.backend_label, c.model) for c in configs}
+    if len(keys) == 1:
+        c = configs[0]
+        base = _paint(theme, "cyan", f"{c.backend_label} · {c.model}")
+    else:
+        base = _paint(theme, "dim", "mixed backends/models — /roles for details")
+    suffix = format_prompt_activity_suffix(life_dir, theme)
+    return f"{base}  {suffix}" if suffix else base
+
+
 def render_roles_snapshot(
     life_dir: Path | str, theme: Any = None, *, width: int = 80,
     header_right: str = "", env: Mapping[str, str] | None = None,

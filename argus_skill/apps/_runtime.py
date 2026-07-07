@@ -264,6 +264,13 @@ class _Outcome:
     # was skipped (error) or never ran. Journaled by the supervisor; the stage
     # write itself already happened inside execute.
     stage_transition: dict = field(default_factory=dict)
+    # The reviewer's ``operator_question`` (reviewer_schema.json) from the
+    # FINAL round, when the mission stopped with ``status == "blocked"``. The
+    # supervisor persists this onto the backlog item (``pending_question``)
+    # so it survives past this one event and /status can list it later —
+    # without this, the question only ever existed for as long as whatever
+    # REPL/TUI process happened to be tailing events.jsonl at that instant.
+    operator_question: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -1353,6 +1360,7 @@ class _SkillLoopRunner:
         planner_report: dict = {}
         checklist_feedback: dict = {}
         step_back: dict | None = None
+        operator_question = ""
         rounds_list = getattr(outcome, "rounds", None) or []
         if rounds_list:
             _final_review = getattr(rounds_list[-1], "review", None)
@@ -1366,6 +1374,9 @@ class _SkillLoopRunner:
                 _sb = getattr(_final_review, "step_back", None)
                 if isinstance(_sb, dict) and _sb:
                     step_back = _sb
+                operator_question = str(
+                    getattr(_final_review, "operator_question", "") or ""
+                ).strip()
         if mission_scope == "final_submission":
             final_review = None
             if rounds_list:
@@ -1400,6 +1411,7 @@ class _SkillLoopRunner:
             checklist_feedback=checklist_feedback,
             step_back=step_back,
             stage_transition=stage_transition,
+            operator_question=operator_question,
         )
 
     def _decide_stage_transition(
@@ -1606,7 +1618,7 @@ class _SkillLoopRunner:
                 if it.status == "running"
             ]
             if not running:
-                return ""
+                return self._recent_mission_history_block(root)
             item = running[0]
             activity = role_activity(root)
 
@@ -1643,6 +1655,51 @@ class _SkillLoopRunner:
             lines.append(
                 "The daemon process itself stays alive and moves on to the "
                 "next backlog item; only this one mission is interrupted."
+            )
+            return "\n".join(lines)
+        except Exception:  # noqa: BLE001 — status context is OPTIONAL
+            return ""
+
+    def _recent_mission_history_block(self, root: Path) -> str:
+        """Best-effort '## Recent mission history' fallback for
+        ``_live_mission_status_block`` when nothing is running right now.
+
+        Without this, a mission that finished (or blocked waiting on the
+        operator) between their last message and this one was invisible to
+        the Manager's reply — the live-status block simply returned "", so
+        "what just happened?" / "why did it stop?" asked right after a
+        mission ends had zero grounding. Reads the SAME derived-from-events
+        journal ``role_activity`` already reads (``EventJournal`` over
+        ``events.jsonl`` — see ``life/memory.py``; the legacy ``Journal``
+        write API over a separate ``journal.jsonl`` is retired and is always
+        empty in production, so reading that file here would silently find
+        nothing). Empty whenever there is no history yet or the read fails
+        for any reason — this must never break an ordinary chat reply.
+        """
+        try:
+            from ..life.memory import EventJournal
+
+            recent = EventJournal(root / "events.jsonl").tail(1)
+            if not recent:
+                return ""
+            entry = recent[0]
+            age_s = max(0, int(time.time() - float(entry.ts)))
+            lines = [
+                "## Recent mission history",
+                "No mission is running right now under your supervision "
+                f"(life_dir={root}). The most recent recorded event there, "
+                f"{age_s}s ago:",
+                f"- {entry.kind}: \"{(entry.title or '').strip()[:120]}\"",
+            ]
+            summary = (entry.summary or "").strip()
+            if summary:
+                lines.append(f"  {summary[:300]}")
+            lines.append("")
+            lines.append(
+                "This may or may not be what the operator is asking about — "
+                "judge relevance from its age and content. Verify yourself "
+                "if useful (grep logs, read files) before answering; you "
+                f"have real shell access under {root}."
             )
             return "\n".join(lines)
         except Exception:  # noqa: BLE001 — status context is OPTIONAL
@@ -1815,10 +1872,11 @@ def _format_daemon_mode_cell(theme, mem: _SplitMemory) -> str:  # noqa: ANN001
 
 
 def _codex_preflight_warning() -> str | None:
-    """Return a one-line warning if the codex backend cannot run, else None.
+    """Return a one-line warning if the configured runner backend's CLI
+    cannot run, else None.
 
     Surfaced on the banner so the user does not discover at mission time
-    that ArgusBot or the ``codex`` binary are missing. Best-effort: if
+    that ArgusBot or the configured CLI binary are missing. Best-effort: if
     anything raises we stay quiet — a confusing warning is worse than no
     warning, and the real failure path (``_SkillLoopRunner``) will
     print a precise error when a mission actually starts.
@@ -1834,10 +1892,23 @@ def _codex_preflight_warning() -> str | None:
         return ("bundled agent_cli failed to load — "
                 "check the argus-skill install")
     import shutil
-    bin_path = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or shutil.which("codex")
+
+    # BUG FIX: this used to hardcode `shutil.which("codex")` regardless of
+    # which CLI is actually configured, so an operator running entirely on
+    # ARGUS_SKILL_RUNNER_BACKEND=claude/copilot (no `codex` npm package
+    # installed at all, by design) got a false "codex binary not found"
+    # warning on every banner / `/doctor` run. Check whichever backend is
+    # actually configured; "codex" (the default) keeps its exact original
+    # message for backward compatibility.
+    backend = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND") or "codex"
+    bin_path = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or shutil.which(backend)
     if not bin_path:
-        return ("`codex` binary not found on PATH — install with "
-                "`npm install -g @openai/codex` or set ARGUS_SKILL_RUNNER_BIN")
+        if backend == "codex":
+            hint = "install with `npm install -g @openai/codex`"
+        else:
+            hint = f"install the `{backend}` CLI"
+        return (f"`{backend}` binary not found on PATH — {hint} "
+                f"or set ARGUS_SKILL_RUNNER_BIN")
     return None
 
 

@@ -35,6 +35,7 @@ class _Outcome:
     skill_distilled: bool = True
     had_follow_up: bool = False
     final_message: str = "done"
+    operator_question: str = ""
 
 
 class _ScientistSpendRunner:
@@ -282,3 +283,77 @@ def test_budget_exhausted_outcome_leaves_item_pending_and_journals_budget_pause(
     completed = [e for e in sink.events if e.get("type") == "life.mission.completed"]
     assert completed and completed[-1]["status"] == "budget_pause"
     assert completed[-1]["success"] is False
+
+
+class _BlockedQuestionRunner:
+    """A runner whose mission stops with a reviewer 'blocked' verdict carrying
+    an operator_question — the shape apps/_runtime.py's real execute()
+    produces (``_Outcome.operator_question``, extracted from the final
+    round's ReviewDecision when ``status == "blocked"``)."""
+
+    def execute(self, **kwargs: Any) -> _Outcome:
+        return _Outcome(
+            success=False, status="blocked", final_message="needs a decision",
+            operator_question="fp16 精度损失可以接受吗，还是必须 fp32？",
+        )
+
+
+def test_blocked_verdict_persists_operator_question_onto_backlog_item(
+    tmp_path,
+) -> None:
+    """Point 11 of the 11-point CLI directive: the reviewer's operator_question
+    must be durably visible, not just live in whatever REPL/TUI process
+    happened to be tailing events.jsonl at that instant. The supervisor is the
+    ONE place every mission outcome (daemon or REPL-attached) flows through,
+    so this is where the question gets persisted onto the (now-terminal)
+    backlog item for /status to read later — see manager/repl.py's
+    ``_status_cmd`` pending-questions section."""
+    mem = LifeMemory.open(tmp_path / "life")
+    sink = _RecordingSink()
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(per_mission_cap_usd=30.0, daily_cap_usd=180.0, max_missions=2),
+        poll_interval_seconds=0.01,
+    )
+    sup = LifeSupervisor(
+        memory=mem, runner=_BlockedQuestionRunner(), sink=sink, config=cfg,
+    )
+
+    item = mem.backlog.add(BacklogItem.new(
+        title="Optimize matmul kernel", objective="make it 2x faster",
+    ))
+
+    sup.tick()
+
+    rows = {row.id: row for row in mem.backlog.all()}
+    # Terminal like any other non-success outcome — "blocked" is not a
+    # separate backlog status; pending_question is what distinguishes
+    # "reviewer needs a decision" from a genuine crash/error.
+    assert rows[item.id].status == "failed"
+    assert rows[item.id].pending_question == "fp16 精度损失可以接受吗，还是必须 fp32？"
+
+
+def test_non_blocked_failure_does_not_set_pending_question(tmp_path) -> None:
+    """A plain error/crash (status != "blocked") must never populate
+    pending_question — it is specifically for "the reviewer needs YOU to
+    decide something", not every failure."""
+
+    class _CrashRunner:
+        def execute(self, **kwargs: Any) -> _Outcome:
+            return _Outcome(success=False, status="error", final_message="boom")
+
+    mem = LifeMemory.open(tmp_path / "life")
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(per_mission_cap_usd=30.0, daily_cap_usd=180.0, max_missions=2),
+        poll_interval_seconds=0.01,
+    )
+    sup = LifeSupervisor(
+        memory=mem, runner=_CrashRunner(), sink=_RecordingSink(), config=cfg,
+    )
+    item = mem.backlog.add(BacklogItem.new(title="task", objective="x"))
+
+    sup.tick()
+
+    rows = {row.id: row for row in mem.backlog.all()}
+    assert rows[item.id].status == "failed"
+    assert rows[item.id].pending_question == ""
+

@@ -31,6 +31,35 @@ def test_bold_yellow_wraps_bold_plus_yellow() -> None:
     assert Theme(enabled=False).bold_yellow("x") == "x"
 
 
+# ── cursor_up_and_forward (redraw-style bottom hint under the prompt) ──────
+
+def test_cursor_up_and_forward_disabled_is_a_noop() -> None:
+    """Piped/non-TTY output must never see raw escape codes."""
+    assert Theme(enabled=False).cursor_up_and_forward(1, 3) == ""
+
+
+def test_cursor_up_and_forward_uses_bracketed_csi_forms() -> None:
+    """Regression: must use \\x1b[<n>A / \\x1b[<n>C (bracketed CSI), NOT bare
+    DEC save/restore-cursor (ESC 7 / ESC 8) — the latter slips past
+    apps/_input_helpers._ANSI_RE (which only matches "\\x1b[...") uninvisible-
+    ized and corrupts readline's line-start bookkeeping while the operator is
+    typing (confirmed live via a pty capture this session: the prompt prefix
+    visually vanished the instant a keystroke was echoed)."""
+    out = Theme(enabled=True).cursor_up_and_forward(1, 3)
+    assert out == "\x1b[1A\r\x1b[3C"
+    # Every escape segment must be bracketed so apps/_input_helpers._ANSI_RE
+    # (r"\x1b\[[0-9;]*[a-zA-Z~]") recognizes and zero-widths it for readline.
+    import re
+    ansi_re = re.compile(r"\x1b\[[0-9;]*[a-zA-Z~]")
+    stripped = ansi_re.sub("", out)
+    assert stripped == "\r"
+
+
+def test_cursor_up_and_forward_zero_up_skips_the_row_move() -> None:
+    out = Theme(enabled=True).cursor_up_and_forward(0, 5)
+    assert out == "\r\x1b[5C"
+
+
 def test_theme_auto_disabled_when_no_color_env(monkeypatch) -> None:
     monkeypatch.setenv("NO_COLOR", "1")
     t = Theme.auto()

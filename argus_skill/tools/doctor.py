@@ -24,6 +24,7 @@ operator never has to guess which line matters.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -213,10 +214,11 @@ def _check_model_api(probe: Callable[..., Any] | None) -> Check:
 
 
 def _check_backend_preflight() -> Check:
-    """(4) Reuse ``_codex_preflight_warning`` — can the codex backend run?
+    """(4) Reuse ``_codex_preflight_warning`` — can the configured runner
+    backend (``ARGUS_SKILL_RUNNER_BACKEND``, default codex) actually run?
 
-    The warning already embeds its own fix (install codex / reinstall). On
-    import failure we still return a failed Check rather than raising.
+    The warning already embeds its own fix (install the CLI / reinstall).
+    On import failure we still return a failed Check rather than raising.
     """
     try:
         from ..apps._runtime import _codex_preflight_warning
@@ -236,12 +238,13 @@ def _check_backend_preflight() -> Check:
             f"backend preflight raised ({type(exc).__name__}: {exc})",
             "reinstall argus-skill",
         )
+    backend = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND") or "codex"
     if warning:
-        return Check("backend preflight", False, f"codex backend cannot run: {warning}", warning)
+        return Check("backend preflight", False, f"{backend} backend cannot run: {warning}", warning)
     return Check(
         "backend preflight",
         True,
-        "codex backend runnable (bundled agent_cli + codex binary present)",
+        f"{backend} backend runnable (bundled agent_cli + {backend} binary present)",
         "",
     )
 
