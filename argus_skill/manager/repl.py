@@ -734,6 +734,60 @@ def _drain_available_bytes(fd: int, first: bytes) -> bytes:
     return data
 
 
+def _live_cockpit_will_activate(mem: Any) -> bool:
+    """True iff ``read_message_with_live_cockpit`` will actually render the
+    fancy cbreak-mode cockpit panel for the current turn, rather than
+    silently falling back to a plain ``input()`` call underneath.
+
+    Mirrors — as a single shared check — every early-return guard at the top
+    of that function (env opt-out, TTY-ness, ``termios`` availability,
+    resolvable life-dir, a live daemon, a tall-enough terminal). This exists
+    because the REPL's own prompt construction must decide, BEFORE calling
+    ``read_message_with_live_cockpit``, whether it is safe to pre-print a
+    plain-prompt layout itself and hand that function a bare single-row
+    prompt: ``_live_cockpit_enabled()`` alone is NOT sufficient for that
+    decision, since it only reflects the ``ARGUS_SKILL_COCKPIT_LIVE`` opt-out
+    and says nothing about the daemon/terminal-size conditions checked here —
+    trusting it alone let a stale multi-row prompt (meant only for the
+    fancy-panel path, which manages its own redraws) slip into the plain
+    ``input()`` fallback and corrupt the display the moment readline did any
+    internal redraw (confirmed live: the "╰─ " prefix vanished mid-keystroke
+    whenever the daemon happened to be down, e.g. under ``--no-daemon``).
+    Keeping this as one shared helper means the two call sites can never
+    drift out of sync on what "will the fancy panel actually show" means.
+    """
+    if not _live_cockpit_enabled():
+        return False
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return False
+    try:
+        import termios  # noqa: F401
+        import tty  # noqa: F401
+    except Exception:  # noqa: BLE001 — no POSIX terminal control
+        return False
+    try:
+        life_dir = _life_dir_for(mem)
+    except Exception:  # noqa: BLE001
+        life_dir = None
+    if life_dir is None:
+        return False
+    try:
+        from ..daemon.life_worker import read_daemon_status
+        st0 = read_daemon_status(life_dir)
+        if not (getattr(st0, "alive", False) and getattr(st0, "pid", None)):
+            return False
+    except Exception:  # noqa: BLE001
+        return False
+    try:
+        import shutil
+        rows = shutil.get_terminal_size((80, 24)).lines
+    except Exception:  # noqa: BLE001
+        rows = 24
+    if rows < 16:
+        return False
+    return True
+
+
 def read_message_with_live_cockpit(
     prompt: str,
     mem: Any,
@@ -753,21 +807,10 @@ def read_message_with_live_cockpit(
     put at risk). The cursor-rewrite cockpit is ON by default; set
     ``ARGUS_SKILL_COCKPIT_LIVE=0`` to opt back out to the plain prompt."""
     from ..apps._input_helpers import read_pasted_message
-    if not _live_cockpit_enabled():
+    if not _live_cockpit_will_activate(mem):
         return read_pasted_message(prompt)
-    if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        return read_pasted_message(prompt)
-    try:
-        import termios
-        import tty
-    except Exception:  # noqa: BLE001 — no POSIX terminal control
-        return read_pasted_message(prompt)
-    try:
-        life_dir = _life_dir_for(mem)
-    except Exception:  # noqa: BLE001
-        life_dir = None
-    if life_dir is None:
-        return read_pasted_message(prompt)
+    life_dir = _life_dir_for(mem)
+
     # This path is explicit opt-in only. It uses terminal cursor rewrites, so the
     # default REPL input path stays boring and reliable.
     def _daemon_right() -> str:
@@ -782,26 +825,10 @@ def read_message_with_live_cockpit(
         lab = "○ no daemon"
         return theme.gray(lab) if theme is not None else lab
 
-    try:
-        from ..daemon.life_worker import read_daemon_status
-        st0 = read_daemon_status(life_dir)
-        if not (getattr(st0, "alive", False) and getattr(st0, "pid", None)):
-            return read_pasted_message(prompt)
-    except Exception:  # noqa: BLE001
-        return read_pasted_message(prompt)
-
     from ..cli.roles_status import render_roles_snapshot
     import select as _select
 
     width = getattr(theme, "width", 80) if theme is not None else 80
-    # Need room for the panel (12) + hint (1) + prompt (1) + margin; else plain.
-    try:
-        import shutil
-        rows = shutil.get_terminal_size((80, 24)).lines
-    except Exception:  # noqa: BLE001
-        rows = 24
-    if rows < 16:
-        return read_pasted_message(prompt)
 
     hint = ("Just start typing to chat · Ctrl-C refresh · Ctrl-D exit"
             if theme is not None else "(type to chat · Ctrl-D exits)")
@@ -3568,44 +3595,70 @@ def _run_manager_repl_locked(
                 status = format_prompt_status_line(theme, life_dir=_prompt_life_dir)
             except Exception:  # noqa: BLE001
                 status = ""
-        box = (
+        banner_row = (
             theme.cyan("╭─ ") + base_prompt
             + (resume_marker if chat_state.get("last_thread_id") else "")
-            + "\n" + theme.cyan("╰─ ")
         )
-        # BUG FIX: the previous version folded the hint-line-below-the-input
+        input_row_prefix = theme.cyan("╰─ ")
+        # BUG FIX (two rounds — both confirmed live, not just in a pty capture):
+        #
+        # Round 1: the original version folded the hint-line-below-the-input
         # redraw trick INTO the single string handed to input()/readline —
-        # box + "\n" + hint + cursor_up_and_forward, all as one "prompt".
-        # That put a cursor-repositioning escape code AFTER the last literal
-        # "\n" in what readline itself parses as the prompt, so readline's
-        # own row/column bookkeeping (which counts embedded newlines to learn
-        # where editing starts) and the ACTUAL cursor position (moved by the
-        # escape code to a totally different row) permanently disagreed.
-        # Simple pasted single words never triggered readline's own internal
-        # redraw path in testing, so a pty+pyte capture looked perfect; a
-        # real operator's session (confirmed live) hit whatever redraw
-        # readline does trigger and the prompt visually corrupted — the
-        # "╰─ " row vanished and the hint line's text got typed into.
-        # Fix: print the box + hint + cursor-jump OURSELVES first (skipped
-        # for the rarer opt-in live-cockpit panel, which owns this region
-        # itself), then hand input() a prompt with NOTHING after the cursor
-        # is already sitting in the right spot — no embedded newline for
-        # readline to recount, so its bookkeeping can't disagree with reality.
-        live_cockpit = _live_cockpit_enabled()
+        # box + "\n" + hint + cursor_up_and_forward, all as one "prompt". That
+        # put a cursor-repositioning escape code AFTER the last literal "\n"
+        # in what readline parses as the prompt, so readline's own row
+        # bookkeeping (counts embedded newlines to learn where editing
+        # starts) and the ACTUAL cursor position (moved by the escape code to
+        # a different row) permanently disagreed.
+        #
+        # Round 2: moving the redraw entirely to a pre-print with an EMPTY
+        # prompt (so readline never sees an embedded newline) still broke,
+        # because ``cursor_up_and_forward(1, 3)`` lands the physical cursor
+        # at COLUMN 3 (past "╰─ ") while an empty prompt makes readline
+        # assume it started at column 0 — a 3-column disagreement invisible
+        # while simply echoing typed characters, but exposed the moment
+        # readline does ANY internal redraw (confirmed live: the "╰─ " prefix
+        # vanished and got overwritten by the typed text the instant a
+        # redraw fired, e.g. while a LiveStatus spinner raced it).
+        #
+        # Fix: pre-print only what is NOT on the input row (banner above +
+        # a blank placeholder for the input row + the hint below), jump back
+        # up to COLUMN 0 of the (still blank) input row — matching readline's
+        # own assumption exactly — and then hand "╰─ " itself to input() as
+        # the real prompt, so readline's bookkeeping and the physical cursor
+        # agree from the start; any internal redraw reprints "╰─ " correctly
+        # instead of losing it.
+        #
+        # Round 3: gating this on ``_live_cockpit_enabled()`` (an env-var-only
+        # check) was ALSO wrong — that flag can be true while
+        # ``read_message_with_live_cockpit`` still silently falls back to a
+        # PLAIN ``input()`` underneath (no daemon running, a short terminal,
+        # no termios, etc.). In that fallback, whatever ``prompt`` this branch
+        # built gets handed to plain ``input()`` — so choosing the OLD
+        # multi-row combined-prompt form here (meant only for when the fancy
+        # panel truly renders and manages its own redraws) reintroduced
+        # exactly the Round-1 corruption (confirmed live under
+        # ``--no-daemon``: default env, no daemon, "╰─ " still vanished
+        # mid-keystroke). ``_live_cockpit_will_activate`` mirrors every guard
+        # ``read_message_with_live_cockpit`` itself checks, so this branch and
+        # that function can never disagree about which path is really live.
+        live_cockpit = _live_cockpit_will_activate(mem)
         if live_cockpit:
             prompt = (
-                box
+                banner_row
+                + "\n" + input_row_prefix
                 + "\n" + _bottom_hint_line(theme, status)
                 + theme.cursor_up_and_forward(1, 3)
             )
         else:
             sys.stdout.write(
-                box
+                banner_row
+                + "\n"  # blank placeholder input row — filled in by input() below
                 + "\n" + _bottom_hint_line(theme, status)
-                + theme.cursor_up_and_forward(1, 3)
+                + "\n" + theme.cursor_up_and_forward(2, 0)
             )
             sys.stdout.flush()
-            prompt = ""
+            prompt = input_row_prefix
         try:
             raw = read_message_with_live_cockpit(prompt, mem, theme)
         except KeyboardInterrupt:

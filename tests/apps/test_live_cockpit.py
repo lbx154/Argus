@@ -115,3 +115,115 @@ def test_live_follow_enabled_default_and_opt_out(monkeypatch):
     assert manager_repl._live_follow_enabled() is False
     monkeypatch.setenv("ARGUS_SKILL_FOLLOW_LIVE", "1")
     assert manager_repl._live_follow_enabled() is True
+
+
+# ── _live_cockpit_will_activate ────────────────────────────────────────────
+#
+# The REPL's main loop must decide, BEFORE calling
+# read_message_with_live_cockpit, whether that function will actually render
+# the fancy cbreak-mode panel or silently fall back to a plain input(). Using
+# only _live_cockpit_enabled() (an env-var-only check) for that decision was
+# a real, live-confirmed bug: the flag can be True while the function still
+# falls back (e.g. --no-daemon), and in that fallback the multi-row combined
+# prompt meant ONLY for the fancy panel got handed to plain input() instead,
+# corrupting the display the moment readline redrew internally. These tests
+# pin _live_cockpit_will_activate to agree, in every branch, with what
+# read_message_with_live_cockpit itself decides.
+
+def test_will_activate_false_when_disabled_by_env(monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_COCKPIT_LIVE", "0")
+    assert manager_repl._live_cockpit_will_activate(object()) is False
+
+
+def test_will_activate_false_when_not_a_tty(monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_COCKPIT_LIVE", "1")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False, raising=False)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True, raising=False)
+    assert manager_repl._live_cockpit_will_activate(object()) is False
+
+
+def test_will_activate_false_when_no_life_dir(monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_COCKPIT_LIVE", "1")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True, raising=False)
+    with patch.object(manager_repl, "_life_dir_for", return_value=None):
+        assert manager_repl._live_cockpit_will_activate(object()) is False
+
+
+def test_will_activate_false_when_no_daemon_alive(monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_COCKPIT_LIVE", "1")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True, raising=False)
+
+    class _St:
+        alive = False
+        pid = None
+
+    with patch.object(manager_repl, "_life_dir_for", return_value="/tmp/x"), \
+         patch("argus_skill.daemon.life_worker.read_daemon_status",
+               return_value=_St()):
+        assert manager_repl._live_cockpit_will_activate(object()) is False
+
+
+def test_will_activate_false_when_terminal_too_short(monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_COCKPIT_LIVE", "1")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True, raising=False)
+
+    class _St:
+        alive = True
+        pid = 123
+
+    import shutil as _shutil
+    with patch.object(manager_repl, "_life_dir_for", return_value="/tmp/x"), \
+         patch("argus_skill.daemon.life_worker.read_daemon_status",
+               return_value=_St()), \
+         patch.object(_shutil, "get_terminal_size",
+                      return_value=_shutil.os.terminal_size((80, 10))):
+        assert manager_repl._live_cockpit_will_activate(object()) is False
+
+
+def test_will_activate_true_when_every_condition_met(monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_COCKPIT_LIVE", "1")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True, raising=False)
+
+    class _St:
+        alive = True
+        pid = 123
+
+    import shutil as _shutil
+    with patch.object(manager_repl, "_life_dir_for", return_value="/tmp/x"), \
+         patch("argus_skill.daemon.life_worker.read_daemon_status",
+               return_value=_St()), \
+         patch.object(_shutil, "get_terminal_size",
+                      return_value=_shutil.os.terminal_size((80, 40))):
+        assert manager_repl._live_cockpit_will_activate(object()) is True
+
+
+def test_no_daemon_scenario_never_reaches_cbreak_setup(monkeypatch):
+    """Regression for the live-confirmed bug: under --no-daemon (no daemon
+    alive), read_message_with_live_cockpit must go straight to
+    read_pasted_message and never touch termios/tty — even with
+    ARGUS_SKILL_COCKPIT_LIVE left at its default-on value — so the REPL main
+    loop's decision to skip the multi-row combined prompt (see
+    _live_cockpit_will_activate) is calling into a function that actually
+    behaves the same way."""
+    monkeypatch.delenv("ARGUS_SKILL_COCKPIT_LIVE", raising=False)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True, raising=False)
+
+    class _St:
+        alive = False
+        pid = None
+
+    with patch.object(manager_repl, "_life_dir_for", return_value="/tmp/x"), \
+         patch("argus_skill.daemon.life_worker.read_daemon_status",
+               return_value=_St()), \
+         patch("termios.tcgetattr") as tcgetattr_mock, \
+         patch.object(input_helpers, "read_pasted_message",
+                      return_value="PLAIN") as m:
+        assert manager_repl._live_cockpit_will_activate("mem-sentinel") is False
+        assert _run(prompt="╰─ ", mem="mem-sentinel") == "PLAIN"
+        m.assert_called_once_with("╰─ ")
+        tcgetattr_mock.assert_not_called()
