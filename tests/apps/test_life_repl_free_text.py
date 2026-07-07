@@ -441,6 +441,53 @@ def test_live_mission_status_block_never_raises_on_corrupt_backlog(
     assert runner._live_mission_status_block() == ""
 
 
+def test_live_mission_status_block_falls_back_to_recent_history_when_idle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing is running right now, but a mission just finished (or blocked
+    waiting on the operator). Before this, the live-status block silently
+    returned "" the moment nothing was `running`, so a "what just happened?"
+    / "why did it stop?" question asked right after a mission ends had zero
+    grounding — the Manager could only guess. It should instead surface the
+    most recent real event (derived from ``events.jsonl``, the same source
+    ``role_activity`` already reads — NOT the retired ``journal.jsonl`` write
+    API, which is always empty in production)."""
+    runner = _make_skill_loop_runner(monkeypatch)
+    runner._manager_session_root = tmp_path
+
+    events_path = tmp_path / "events.jsonl"
+    events_path.write_text(
+        json.dumps({
+            "type": "life.mission.completed",
+            "objective": "Optimize matmul kernel",
+            "success": False,
+            "reason": "reviewer blocked: needs operator input on precision tradeoff",
+            "ts": time.time() - 30,
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    block = runner._live_mission_status_block()
+    assert "## Recent mission history" in block
+    assert "mission_failed" in block
+    assert "Optimize matmul kernel" in block
+    assert "needs operator input on precision tradeoff" in block
+    assert str(tmp_path) in block
+    # Must not be confused with an actually-running mission's block.
+    assert "## Live mission status" not in block
+
+
+def test_live_mission_status_block_never_raises_on_corrupt_events(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = _make_skill_loop_runner(monkeypatch)
+    runner._manager_session_root = tmp_path
+    (tmp_path / "events.jsonl").write_text("not json at all{{{", encoding="utf-8")
+    # Fail-soft: a SELF reply must never break because the recent-history
+    # fallback couldn't parse events.jsonl.
+    assert runner._live_mission_status_block() == ""
+
+
 def test_invoke_and_track_clears_stale_thread_id_on_poisoned_outcome(
     mem: LifeMemory,
 ) -> None:

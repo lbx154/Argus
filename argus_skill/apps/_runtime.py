@@ -1606,7 +1606,7 @@ class _SkillLoopRunner:
                 if it.status == "running"
             ]
             if not running:
-                return ""
+                return self._recent_mission_history_block(root)
             item = running[0]
             activity = role_activity(root)
 
@@ -1643,6 +1643,51 @@ class _SkillLoopRunner:
             lines.append(
                 "The daemon process itself stays alive and moves on to the "
                 "next backlog item; only this one mission is interrupted."
+            )
+            return "\n".join(lines)
+        except Exception:  # noqa: BLE001 — status context is OPTIONAL
+            return ""
+
+    def _recent_mission_history_block(self, root: Path) -> str:
+        """Best-effort '## Recent mission history' fallback for
+        ``_live_mission_status_block`` when nothing is running right now.
+
+        Without this, a mission that finished (or blocked waiting on the
+        operator) between their last message and this one was invisible to
+        the Manager's reply — the live-status block simply returned "", so
+        "what just happened?" / "why did it stop?" asked right after a
+        mission ends had zero grounding. Reads the SAME derived-from-events
+        journal ``role_activity`` already reads (``EventJournal`` over
+        ``events.jsonl`` — see ``life/memory.py``; the legacy ``Journal``
+        write API over a separate ``journal.jsonl`` is retired and is always
+        empty in production, so reading that file here would silently find
+        nothing). Empty whenever there is no history yet or the read fails
+        for any reason — this must never break an ordinary chat reply.
+        """
+        try:
+            from ..life.memory import EventJournal
+
+            recent = EventJournal(root / "events.jsonl").tail(1)
+            if not recent:
+                return ""
+            entry = recent[0]
+            age_s = max(0, int(time.time() - float(entry.ts)))
+            lines = [
+                "## Recent mission history",
+                "No mission is running right now under your supervision "
+                f"(life_dir={root}). The most recent recorded event there, "
+                f"{age_s}s ago:",
+                f"- {entry.kind}: \"{(entry.title or '').strip()[:120]}\"",
+            ]
+            summary = (entry.summary or "").strip()
+            if summary:
+                lines.append(f"  {summary[:300]}")
+            lines.append("")
+            lines.append(
+                "This may or may not be what the operator is asking about — "
+                "judge relevance from its age and content. Verify yourself "
+                "if useful (grep logs, read files) before answering; you "
+                f"have real shell access under {root}."
             )
             return "\n".join(lines)
         except Exception:  # noqa: BLE001 — status context is OPTIONAL
