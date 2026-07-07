@@ -818,6 +818,43 @@ def _visual_row_delta(text: str) -> int:
     return delta
 
 
+def _split_readline_safe_prompt(prompt: str, theme: Any) -> tuple[str, str] | None:
+    """Turn a ``banner\\ninput_prefix\\nhint+cursor-escape`` prompt (built for
+    the live-cockpit's own cursor-controlled ``_block()`` rendering) into a
+    ``(pre_print_text, bare_input_prompt)`` pair that's safe to hand to
+    input()/readline instead.
+
+    Feeding the ORIGINAL 3-line, escape-laden string straight to readline
+    corrupts the display the instant readline does its own internal redraw:
+    readline counts the embedded ``"\\n"``s to learn where editing starts,
+    but the trailing ``cursor_up_and_forward`` escape moves the cursor to a
+    DIFFERENT row than that count implies (live-reproduced via pty+pyte:
+    typing "hello" rendered progressively as "h" -> "he" -> "el h" ->
+    "ellh" -> "ello", eating characters and the input-row prefix). This is
+    the same "Round 1" class of bug already fixed for the non-live-cockpit
+    prompt path — reproduced here: print everything except the input row
+    directly, land the cursor on a blank input row via
+    ``cursor_up_and_forward(2, 0)``, and return the bare input-row prefix
+    for the caller to use as the real prompt.
+
+    Returns ``None`` (caller should use ``prompt`` as-is) if it is not
+    shaped as expected (defensive — must never break the input path)."""
+    from ..apps._input_helpers import _ANSI_RE
+
+    parts = prompt.split("\n", 2)
+    if len(parts) != 3:
+        return None
+    banner_line, input_prefix, rest = parts
+    rest_clean = _ANSI_RE.sub("", rest)
+    pre_print = (
+        banner_line + "\n"
+        + "\n"  # blank placeholder input row — filled in by input() below
+        + rest_clean + "\n"
+        + theme.cursor_up_and_forward(2, 0)
+    )
+    return pre_print, input_prefix
+
+
 def read_message_with_live_cockpit(
     prompt: str,
     mem: Any,
@@ -926,6 +963,24 @@ def read_message_with_live_cockpit(
             pass
 
     # ── classify the first keystroke ──────────────────────────────────────────
+    # ``prompt`` here is still the multi-line, escape-laden string the caller
+    # built for THIS function's own _block() rendering (banner row + "\n" +
+    # input-row prefix + "\n" + bottom hint line + a trailing
+    # cursor_up_and_forward escape) — never meant to be handed to
+    # input()/readline directly. Every return below that hands off to
+    # read_pasted_message(prompt) used to do exactly that, corrupting the
+    # display the instant readline redrew internally: readline counts the
+    # embedded "\n"s to learn where editing starts, but the trailing escape
+    # moves the ACTUAL cursor to a different row than that count implies —
+    # the exact "Round 1" class of bug already fixed for the non-live-cockpit
+    # prompt path (see the caller). Reproduce that fix's pattern here: print
+    # everything except the input row directly, land the cursor on a blank
+    # input row, and hand read_pasted_message only the bare input-row prefix.
+    _split = _split_readline_safe_prompt(prompt, theme)
+    if _split is not None:
+        _pre_print, prompt = _split
+        sys.stdout.write(_pre_print)
+        sys.stdout.flush()
     if interrupted:
         return ""  # Ctrl-C while idle → just refresh the cockpit
     if raw == b"" or raw[:1] == b"\x04":

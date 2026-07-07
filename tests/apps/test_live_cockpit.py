@@ -126,6 +126,40 @@ def test_visual_row_delta_handles_cursor_down():
     assert manager_repl._visual_row_delta(text) == 4
 
 
+def test_split_readline_safe_prompt_extracts_input_row():
+    """Regression: read_message_with_live_cockpit used to hand the ORIGINAL
+    3-line, escape-laden prompt (banner + input-row prefix + hint line with
+    a trailing cursor_up_and_forward escape) straight to read_pasted_message
+    once a real keystroke arrived. That corrupted the display the instant
+    readline did its own internal redraw — live-reproduced via pty+pyte as
+    typing "hello" rendering progressively as "h" -> "he" -> "el h" ->
+    "ellh" -> "ello" (characters and the "╰─ " prefix both eaten). The fix
+    splits the composite prompt and hands read_pasted_message only the bare
+    input-row prefix, pre-printing everything else directly."""
+    from argus_skill.cli.theme import Theme
+
+    theme = Theme(enabled=True)
+    prompt = "╭─ argus" + "\n" + "╰─ " + "\n" + "hint text" + theme.cursor_up_and_forward(1, 3)
+    result = manager_repl._split_readline_safe_prompt(prompt, theme)
+    assert result is not None
+    pre_print, bare_prompt = result
+    assert bare_prompt == "╰─ "
+    assert "╭─ argus" in pre_print
+    assert "hint text" in pre_print
+    # The pre-printed portion must not carry the OLD escape forward (that
+    # would just relocate the same bug); it lands the cursor with its own
+    # fresh cursor_up_and_forward(2, 0) instead.
+    assert "\x1b[1A\x1b[3C" not in pre_print
+
+
+def test_split_readline_safe_prompt_returns_none_for_unexpected_shape():
+    from argus_skill.cli.theme import Theme
+
+    theme = Theme(enabled=True)
+    assert manager_repl._split_readline_safe_prompt("just one line", theme) is None
+    assert manager_repl._split_readline_safe_prompt("two\nlines", theme) is None
+
+
 def test_exports_symbol():
     assert "read_message_with_live_cockpit" in manager_repl.__all__
 
