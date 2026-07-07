@@ -206,18 +206,51 @@ _TAIL_ROLE_TITLES: dict[str, str] = {
     "reviewer": "Reviewer",
     "critic": "Reviewer",
 }
-# Honest present-continuous fallback per role — used only when we have no
-# concrete last-action note to show (e.g. the role just became active). NOT a
-# cosmetic timer rotation: the label always names the role that is REALLY
-# working right now (repository convention — keep status honest, never fake a
-# rotating phrase). See the manager-triage spinner for the same rule.
-_TAIL_ROLE_VERBS: dict[str, str] = {
-    "manager": "deciding",
-    "planner": "planning",
-    "engineer": "working",
-    "reviewer": "reviewing",
-    "critic": "reviewing",
+# Per-role present-continuous vocabulary for the passive-tail idle spinner.
+# The ROLE shown is always real (set from the live event stream); only the
+# specific verb rotates through that role's own list so a silent gap reads as
+# lively, role-appropriate motion instead of a frozen cursor. We deliberately
+# DON'T echo the last log line here — it just repeated the scrollback.
+_TAIL_ROLE_VERBS: dict[str, tuple[str, ...]] = {
+    "manager": (
+        "deciding", "routing", "triaging", "delegating", "coordinating",
+        "dispatching", "orchestrating", "weighing options", "assessing",
+        "choosing the vertical",
+    ),
+    "planner": (
+        "planning", "scoping", "sequencing", "decomposing", "strategizing",
+        "mapping the work", "prioritizing", "outlining", "drafting the plan",
+        "laying out steps",
+    ),
+    "engineer": (
+        "working", "coding", "implementing", "editing", "building",
+        "wiring things up", "refactoring", "debugging", "running checks",
+        "testing", "patching", "iterating", "tracing", "digging in",
+        "reproducing", "instrumenting",
+    ),
+    "reviewer": (
+        "reviewing", "checking", "verifying", "auditing", "validating",
+        "inspecting", "cross-checking", "vetting", "weighing the verdict",
+        "judging",
+    ),
+    "critic": (
+        "reviewing", "checking", "verifying", "auditing", "validating",
+        "inspecting", "cross-checking", "vetting", "weighing the verdict",
+        "judging",
+    ),
 }
+# Shown before the very first event arrives (no role known yet).
+_TAIL_WAIT_VERBS: tuple[str, ...] = (
+    "waiting for the daemon's first event",
+    "attaching to the live run",
+    "connecting to the daemon",
+    "standing by",
+    "warming up",
+)
+# How long each verb stays before rotating to the next (seconds). The glyph
+# still spins at _TAIL_SPIN_INTERVAL; only the WORD changes this slowly, so it
+# stays readable.
+_TAIL_PHRASE_INTERVAL = 2.5
 
 
 def _tail_spin_interval() -> float:
@@ -248,12 +281,12 @@ class _TailWaitSpinner:
     status line during each idle gap and erases it before any real event line
     prints, so the wait always animates without disturbing the scrollback.
 
-    The label is HONEST, not a cosmetic timer rotation: :meth:`set_activity`
-    feeds it the REAL current role + that role's latest action (from the event
-    stream), so during a silent gap it shows e.g. "Engineer · running the
-    baseline check… (12s)" — the work that is genuinely still in flight — not a
-    random verb. Before the first event it says it is waiting. (Same "keep the
-    live status truthful" rule the manager-triage spinner follows.)
+    The ROLE shown is real — :meth:`set_activity` tracks the role that is
+    genuinely active from the event stream — while that role's own
+    present-continuous vocabulary (:data:`_TAIL_ROLE_VERBS`) rotates slowly so
+    the gap reads as role-appropriate motion (e.g. "Engineer implementing…",
+    "Reviewer verifying…") instead of a frozen cursor or a repeated log line.
+    Before the first event it rotates a "waiting for the daemon" vocabulary.
 
     No-op on non-TTY / piped / NO_COLOR / ARGUS_SKILL_NO_SPINNER (same gate as
     ``LiveStatus``). Driven by hand — no background thread — so it can never
@@ -278,19 +311,15 @@ class _TailWaitSpinner:
         self._painted = False
         self._start = time.monotonic()
         self._layer: str | None = None
-        self._note: str = ""
 
     def set_activity(self, layer: str | None, note: str = "") -> None:
-        """Record the REAL current role + latest action so the idle label
-        reflects what the daemon is actually doing (not a canned phrase)."""
+        """Record the REAL current role so the idle label shows role-appropriate
+        motion. ``note`` is accepted for call-site compatibility but ignored —
+        we deliberately don't echo the last log line (it just repeats the
+        scrollback)."""
         lay = (layer or "").strip().lower() or None
-        if lay is not None and lay != self._layer:
-            # A new role took over — its predecessor's action no longer applies.
+        if lay is not None:
             self._layer = lay
-            self._note = ""
-        note = " ".join(str(note or "").split())  # collapse whitespace/newlines
-        if note:
-            self._note = note
 
     def _width(self) -> int:
         w = getattr(self._theme, "width", 80) if self._theme is not None else 80
@@ -300,16 +329,16 @@ class _TailWaitSpinner:
             return 80
 
     def _label(self) -> str:
-        """The honest status text for this instant (no glyph / meta)."""
+        """The status text for this instant: role + a slowly-rotating
+        present-continuous verb from that role's vocabulary."""
+        elapsed = time.monotonic() - self._start
+        step = int(elapsed / _TAIL_PHRASE_INTERVAL)
         if self._layer is None:
-            return "Waiting for the daemon's first event…"
+            verb = _TAIL_WAIT_VERBS[step % len(_TAIL_WAIT_VERBS)]
+            return f"{verb[:1].upper()}{verb[1:]}…"
         title = _TAIL_ROLE_TITLES.get(self._layer, self._layer.title())
-        if self._note:
-            note = self._note
-            if len(note) > 72:
-                note = note[:71].rstrip() + "…"
-            return f"{title} · {note}"
-        verb = _TAIL_ROLE_VERBS.get(self._layer, "working")
+        verbs = _TAIL_ROLE_VERBS.get(self._layer) or ("working",)
+        verb = verbs[step % len(verbs)]
         return f"{title} {verb}…"
 
     def tick(self) -> None:
@@ -384,15 +413,11 @@ class _TailPrinter:
 
     def feed(self, event: dict[str, Any], rendered: str | None) -> None:
         """Handle one rendered event line (``None`` = nothing to show)."""
-        # Keep the idle spinner HONEST: record the real role now acting and its
-        # latest concrete action, so a silent gap shows what is truly in flight.
-        # Never surface gated reasoning text (respect ARGUS_SKILL_SHOW_REASONING)
-        # — update the role only for those.
+        # Keep the idle spinner's ROLE honest: record which role is really
+        # acting now so a silent gap animates that role's own vocabulary. We do
+        # NOT surface the log text itself (it just repeats the scrollback).
         layer = str(event.get("agent_layer") or "").strip().lower() or None
-        note = ""
-        if rendered is not None and str(event.get("kind") or "") != "reasoning":
-            note = str(event.get("action_summary") or event.get("text") or "")
-        self._spinner.set_activity(layer, note)
+        self._spinner.set_activity(layer)
         if rendered is None:
             return
         mid = str(event.get("message_id") or "")

@@ -424,34 +424,41 @@ def test_with_manager_spinner_propagates_fn_error_without_rerun():
 def test_tail_wait_spinner_animates_and_reflects_real_activity():
     """The passive event tail is the DEFAULT follow path; without an indicator
     its idle gaps are a frozen blinking cursor ("只有光标闪烁没有内容"). The
-    spinner must paint a braille glyph and — crucially — an HONEST label driven
-    by the REAL current role + action (set_activity), not a canned rotation."""
+    spinner must paint a braille glyph and a role-appropriate -ing verb driven
+    by the REAL current role (set_activity), rotating that role's own
+    vocabulary — and it must NOT echo the raw log line."""
     import io
-    from argus_skill.manager.repl import _TailWaitSpinner
+    from argus_skill.manager.repl import (
+        _TailWaitSpinner, _TAIL_ROLE_VERBS, _TAIL_WAIT_VERBS,
+    )
     from argus_skill.cli.live_status import FRAMES
 
     buf = io.StringIO()
     spin = _TailWaitSpinner(theme=None, stream=buf, enabled=True)
 
-    # Before any event: honestly says it is waiting.
+    # Before any event: rotates a "waiting for the daemon" phrase.
     spin.tick()
-    assert "Waiting for the daemon" in buf.getvalue()
+    assert any(v[:6] in buf.getvalue().lower() for v in _TAIL_WAIT_VERBS)
 
-    # Once a real engineer action is known, the label reflects it (role + note),
-    # not a fixed phrase.
+    # Once a real engineer action is known, the label shows the Engineer role +
+    # one of ITS verbs — and never the passed-in log note.
     buf.truncate(0); buf.seek(0)
     spin.set_activity("engineer", "running the baseline check")
     spin.tick()
     out = buf.getvalue()
     assert any(f in out for f in FRAMES), "no braille frame painted"
-    assert "Engineer" in out and "running the baseline check" in out
+    assert "Engineer" in out
+    assert any(v in out for v in _TAIL_ROLE_VERBS["engineer"]), "no engineer verb"
+    assert "running the baseline check" not in out, "must not echo the log note"
     assert "\x1b[2K" in out, "spinner did not use an in-place erase"
 
-    # A role with no concrete note falls back to an honest present-continuous.
+    # A different role rotates its OWN vocabulary.
     buf.truncate(0); buf.seek(0)
-    spin.set_activity("reviewer", "")
+    spin.set_activity("reviewer")
     spin.tick()
-    assert "Reviewer reviewing…" in buf.getvalue()
+    rout = buf.getvalue()
+    assert "Reviewer" in rout
+    assert any(v in rout for v in _TAIL_ROLE_VERBS["reviewer"]), "no reviewer verb"
 
     buf.truncate(0); buf.seek(0)
     spin.clear()
