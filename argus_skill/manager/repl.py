@@ -686,13 +686,24 @@ def follow_mission_live_roles(
     Manager work in real time WITHOUT typing ``/roles watch``.
 
     Reuses the ``/roles`` panel (per-role backend/model/effort + current
-    activity, active role highlighted) driven off ``events.jsonl``. Detects the
-    mission's ``life.mission.completed`` (attaching the last reviewer verdict as
+    activity, active role highlighted) driven off ``events.jsonl``. Press
+    ``Ctrl+O`` to unfold a live, coalesced reasoning feed under the panel (the
+    agents' thinking, streamed fragments collapsed into clean lines); press it
+    again to collapse back to the dashboard. Detects the mission's
+    ``life.mission.completed`` (attaching the last reviewer verdict as
     ``_last_review``) and returns it; ``None`` on Ctrl-C / timeout (the daemon
     keeps running). TTY-only — the caller falls back to the scrolling tail for
     non-interactive / piped output.
     """
     from ..cli.roles_status import render_roles_snapshot
+    from ..apps.cli._follow import (
+        _FollowCoalescer,
+        _follow_layer_from_event,
+        _format_follow_event,
+    )
+    import select as _select
+    import shutil
+    from collections import deque as _deque
 
     life_dir = Path(life_dir)
     events_path = life_dir / "events.jsonl"
@@ -701,6 +712,39 @@ def follow_mission_live_roles(
     last_review: dict[str, Any] | None = None
     completed: dict[str, Any] | None = None
     prev_lines = 0
+    # ── Ctrl+O expand: a scrolling reasoning pane pinned UNDER the role panel ──
+    # The panel alone is a dashboard (one line per role); pressing Ctrl+O (like
+    # Claude Code's transcript toggle) unfolds a live, coalesced feed of the
+    # agents' thinking below it. Starts collapsed unless ARGUS_SKILL_FOLLOW_EXPAND=1.
+    expanded = _env_flag("ARGUS_SKILL_FOLLOW_EXPAND", False)
+    feed_lines: "_deque[str]" = _deque(maxlen=400)
+    current_layer = "engineer"
+
+    def _emit_feed(ev: dict) -> None:
+        nonlocal current_layer
+        current_layer = _follow_layer_from_event(ev, current_layer)
+        # Plain (theme=None) so the fixed-width in-place redraw never desyncs on
+        # ANSI width; the coalescer already collapsed streamed fragments.
+        line = _format_follow_event(ev, current_layer, theme=None)
+        if line:
+            feed_lines.append(line)
+
+    coalescer = _FollowCoalescer(_emit_feed)
+
+    # Raw-cbreak keyboard so Ctrl+O is caught without Enter (ISIG kept, so Ctrl+C
+    # still interrupts). No-op on non-TTY / no-termios → panel only, no toggle.
+    _kbd_fd: int | None = None
+    _kbd_old = None
+    try:
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            import termios
+            import tty
+            _kbd_fd = sys.stdin.fileno()
+            _kbd_old = termios.tcgetattr(_kbd_fd)
+            tty.setcbreak(_kbd_fd)
+    except Exception:  # noqa: BLE001 — keyboard is optional; never break observing
+        _kbd_fd = None
+
     # Braille spinner pinned in the panel header so the view visibly ANIMATES
     # even before the daemon claims the task / emits its first event — otherwise
     # the pre-first-event window is a static idle panel that feels frozen. Fall
@@ -727,13 +771,40 @@ def follow_mission_live_roles(
         s = "○ no daemon"
         return theme.gray(s) if theme is not None else s
 
+    def _build_block(width: int, spin_p: str) -> str:
+        panel = render_roles_snapshot(
+            life_dir, theme, width=width,
+            header_right=spin_p + "  " + _daemon_right(),
+        )
+        lines: list[str] = [panel]
+        if _kbd_fd is not None:
+            if expanded:
+                rows = shutil.get_terminal_size((80, 24)).lines
+                panel_h = panel.count("\n") + 1
+                budget = max(3, rows - panel_h - 3)
+                window = list(feed_lines)[-budget:]
+                sep = "  ── reasoning · Ctrl+O collapse "
+                sep = sep + "─" * max(0, width - len(sep) - 1)
+                lines.append(theme.gray(sep) if theme is not None else sep)
+                if window:
+                    for ln in window:
+                        lines.append(ln[: max(1, width - 1)])
+                else:
+                    hint = "  (waiting for the agents' first thoughts…)"
+                    lines.append(theme.gray(hint) if theme is not None else hint)
+            else:
+                hint = "  Ctrl+O expand reasoning · Ctrl+C stop observing"
+                lines.append(theme.dim(hint) if theme is not None else hint)
+        return "\n".join(lines)
+
     if header:
         print(theme.gray(header) if theme is not None else header, flush=True)
     try:
         sys.stdout.write("\x1b[?25l")  # hide cursor during in-place redraw
         sys.stdout.flush()
         while time.monotonic() < deadline:
-            # Drain new events to spot completion + the latest reviewer verdict.
+            # Drain new events to spot completion + the latest reviewer verdict,
+            # and feed the coalescer that powers the Ctrl+O reasoning pane.
             try:
                 with events_path.open("r", encoding="utf-8") as fh:
                     fh.seek(offset)
@@ -751,6 +822,7 @@ def follow_mission_live_roles(
                     continue
                 if not isinstance(ev, dict):
                     continue
+                coalescer.feed(ev)
                 t = str(ev.get("type") or "")
                 if t == "round.review.completed":
                     last_review = ev
@@ -758,6 +830,7 @@ def follow_mission_live_roles(
                     ev_item = str(ev.get("item_id") or "")
                     if not item_id or not ev_item or ev_item == str(item_id):
                         completed = ev
+            coalescer.flush_idle()  # settle a quiet streamed message into the pane
             spin = _SPIN_FRAMES[frame_i % len(_SPIN_FRAMES)]
             frame_i += 1
             spin_p = theme.bold_cyan(spin) if theme is not None else spin
@@ -768,28 +841,46 @@ def follow_mission_live_roles(
             # desyncing the "move up N rows" erase (same class of bug fixed
             # for the idle-prompt panel via ``Theme.live_width``).
             width = theme.live_width() if theme is not None else 80
-            panel = render_roles_snapshot(
-                life_dir, theme, width=width,
-                header_right=spin_p + "  " + _daemon_right(),
-            )
-            n = panel.count("\n") + 1
+            block = _build_block(width, spin_p)
+            n = block.count("\n") + 1
             if prev_lines:
                 # cursor up + clear to end of screen (robust against any wrap)
                 sys.stdout.write(f"\x1b[{prev_lines}A\x1b[J")
-            sys.stdout.write(panel + "\n")
+            sys.stdout.write(block + "\n")
             sys.stdout.flush()
             prev_lines = n
             if completed is not None:
                 if last_review is not None:
                     completed.setdefault("_last_review", last_review)
                 return completed
-            time.sleep(tick)
+            # Wait up to `tick`, waking early on a keystroke so Ctrl+O is snappy.
+            if _kbd_fd is not None:
+                try:
+                    r, _, _ = _select.select([_kbd_fd], [], [], tick)
+                except (OSError, ValueError):
+                    r = []
+                if r:
+                    try:
+                        data = os.read(_kbd_fd, 64)
+                    except OSError:
+                        data = b""
+                    if b"\x0f" in data:  # Ctrl+O toggles the reasoning pane
+                        expanded = not expanded
+            else:
+                time.sleep(tick)
         return None
     except KeyboardInterrupt:
         note = "\n(stopped observing — mission keeps running in the daemon; /status to check)"
         print(theme.gray(note) if theme is not None else note, flush=True)
         return None
     finally:
+        coalescer.flush()
+        if _kbd_fd is not None and _kbd_old is not None:
+            try:
+                import termios
+                termios.tcsetattr(_kbd_fd, termios.TCSADRAIN, _kbd_old)
+            except Exception:  # noqa: BLE001
+                pass
         try:
             sys.stdout.write("\x1b[?25h")  # restore cursor
             sys.stdout.flush()

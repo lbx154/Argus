@@ -787,3 +787,31 @@ def test_clip_follow_summary_cuts_on_word_boundary_with_count():
     assert head.split()[-1] in {"alpha", "beta", "gamma", "delta"}, \
         f"cut mid-word: {head[-12:]!r}"
     assert _clip_follow_summary("short and sweet", 240) == "short and sweet"
+
+
+def test_live_roles_panel_feeds_coalescer_and_returns_completion(tmp_path):
+    """The role panel now also drains events into the Ctrl+O reasoning-pane
+    coalescer. In a non-TTY context (no keyboard, pane hidden) it must still
+    render the panel and return the mission's completion — i.e. the new
+    coalescer.feed path never breaks the existing dashboard/return contract."""
+    import io
+    import json
+    import contextlib
+    from argus_skill.manager.repl import follow_mission_live_roles
+
+    events = tmp_path / "events.jsonl"
+    events.write_text(
+        json.dumps({
+            "type": "engineer.progress", "kind": "agent_message",
+            "text": '{"status":"done","reason":"ok"}', "agent_layer": "reviewer",
+            "replace": True, "message_id": "r1", "item_id": "it1",
+        }) + "\n"
+        + json.dumps({"type": "life.mission.completed", "item_id": "it1",
+                      "status": "done"}) + "\n",
+        encoding="utf-8",
+    )
+    sink = io.StringIO()
+    with contextlib.redirect_stdout(sink):
+        result = follow_mission_live_roles(tmp_path, "it1", theme=None, timeout=5.0)
+    assert result is not None and result.get("type") == "life.mission.completed"
+    assert "roles" in sink.getvalue()  # the dashboard rendered
