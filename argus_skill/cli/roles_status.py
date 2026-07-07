@@ -71,11 +71,11 @@ _ROLE_EFFORT_ENV = {
 }
 
 _ROLE_DESC = {
-    "manager": "front door · 分流闲聊/任务、批复 skill",
-    "planner": "backlog 空时排新任务、终审分流",
-    "engineer": "L1 执行 · 写代码 / 跑命令",
-    "reviewer": "L2 验收 · done / continue / blocked",
-    "curator": "skill 池维护 · 蒸馏 / 回写",
+    "manager": "front door · triages chat/tasks, approves skills",
+    "planner": "queues new work when backlog is empty, final-gate routing",
+    "engineer": "L1 execution · writes code / runs commands",
+    "reviewer": "L2 acceptance · done / continue / blocked",
+    "curator": "skill-pool upkeep · distill / write-back",
 }
 
 
@@ -112,6 +112,24 @@ def _resolve_backend(role: str, env: Mapping[str, str]) -> str:
         if val:
             return _normalize_backend(val)
     return "codex"
+
+
+def runner_backend_label(env: Mapping[str, str] | None = None) -> str:
+    """Display label of the *current* runner backend (Codex / Claude Code /
+    Copilot), resolved from ``ARGUS_SKILL_RUNNER_BACKEND`` →
+    ``ARGUS_SKILL_LIFE_BACKEND`` → ``codex``.
+
+    Used by user-facing copy (status phrases, the Manager chat identity) so the
+    single-worker SELF path names the backend the operator actually configured
+    instead of a hardcoded "Codex". Fail-soft to "Codex" so a resolution hiccup
+    never breaks the line it decorates.
+    """
+    env = env if env is not None else os.environ
+    try:
+        backend = _resolve_backend("manager", env)
+        return _BACKEND_LABEL.get(backend, backend or "Codex")
+    except Exception:  # noqa: BLE001 — display copy must never crash
+        return "Codex"
 
 
 def _resolve_model(role: str, env: Mapping[str, str]) -> str:
@@ -252,8 +270,8 @@ def _describe_engineer_progress(text: str) -> str:
               or low.startswith(_CMD_PREFIXES))
     if is_cmd:
         cmd = _unwrap_shell(t)
-        return "跑命令 · " + cmd[:72]
-    return "思考中" + (f" · {t[:60]}" if t else "")
+        return "run · " + cmd[:72]
+    return "thinking" + (f" · {t[:60]}" if t else "")
 
 
 def _describe_event(event: dict[str, Any]) -> tuple[str, str]:
@@ -263,21 +281,21 @@ def _describe_event(event: dict[str, Any]) -> tuple[str, str]:
     if etype == "engineer.progress":
         return _describe_engineer_progress(str(event.get("text") or "")), "running"
     if etype == "round.review.started":
-        return "评审裁决中", "running"
+        return "reviewing", "running"
     if etype == "round.review.completed":
-        return f"裁决 {status or 'done'}", status or "done"
+        return f"verdict {status or 'done'}", status or "done"
     if etype == "round.start":
         rnd = event.get("round_index")
-        return (f"第 {rnd} 轮" if rnd is not None else "开始一轮"), "running"
+        return (f"round {rnd}" if rnd is not None else "new round"), "running"
     if etype == "loop.start" or etype == "life.mission.started":
-        return "启动任务", "running"
+        return "starting mission", "running"
     if etype == "loop.done" or etype == "life.mission.completed":
-        return f"完成 · {status}" if status else "完成", status or "done"
+        return f"done · {status}" if status else "done", status or "done"
     if etype.startswith("life.planner"):
         verdict = str(event.get("verdict") or event.get("decision") or "")
         if etype.endswith("start"):
-            return "规划新任务中", "running"
-        return (f"规划裁决 {verdict}" if verdict else "规划完成"), verdict or "done"
+            return "planning new work", "running"
+        return (f"plan verdict {verdict}" if verdict else "planning done"), verdict or "done"
     # generic
     text = str(event.get("text") or event.get("reason") or event.get("title") or "")
     return (" ".join(text.split())[:70] or etype), status or ""
@@ -361,12 +379,12 @@ def _fmt_age(age_s: float | None) -> str:
         return ""
     s = int(age_s)
     if s < 1:
-        return "刚刚"
+        return "just now"
     if s < 60:
-        return f"{s}s 前"
+        return f"{s}s ago"
     if s < 3600:
-        return f"{s // 60}m 前"
-    return f"{s // 3600}h 前"
+        return f"{s // 60}m ago"
+    return f"{s // 3600}h ago"
 
 
 def _paint(theme: Any, method: str, text: str) -> str:
@@ -487,9 +505,9 @@ def format_roles_panel(
                  default=8)
     lines: list[str] = []
     title_text = (
-        "四角色 · 后端 / 模型 / 推理强度 / 当前动作"
+        "roles · backend / model / effort / activity"
         if show_config else
-        "四角色 · 当前动作"
+        "roles · activity"
     )
     # Keep every line strictly narrower than the terminal: a line that reaches the
     # FULL width auto-wraps to a second screen row, which throws off the live
@@ -559,8 +577,8 @@ def format_roles_panel(
         # Footer env-var hint. Use the fully-detailed form when it fits; on a narrow
         # terminal fall back to a compact pointer (and finally clip) so this fixed
         # line never wraps and desyncs the in-place live redraw.
-        hint_full = "改后端/模型/强度：ARGUS_SKILL_<ROLE>_{BACKEND,MODEL,REASONING_EFFORT}"
-        hint_short = "改后端/模型/强度 → ARGUS_SKILL_<ROLE>_*"
+        hint_full = "change backend/model/effort: ARGUS_SKILL_<ROLE>_{BACKEND,MODEL,REASONING_EFFORT}"
+        hint_short = "change backend/model/effort → ARGUS_SKILL_<ROLE>_*"
         if _disp_width(hint_full) <= width - 2:
             hint = hint_full
         elif _disp_width(hint_short) <= width - 2:
@@ -617,7 +635,7 @@ def format_roles_banner(
         # colour language the live panel uses once a mission is running.
         dots = " ".join(role_paint(theme, c.role, "●") for c in configs)
         one = _cfg_span(configs[0])
-        hint = _paint(theme, "dim", "  ·  /roles 查看详情") if show_hint else ""
+        hint = _paint(theme, "dim", "  ·  /roles for details") if show_hint else ""
         return f"  {lbl} {dots}  {one}{hint}"
 
     name_w = max(len(_ROLE_TITLE.get(c.role, c.role)) for c in configs)
@@ -629,7 +647,7 @@ def format_roles_banner(
         lines.append(f"  {head} {name}  {_cfg_span(c)}")
     if show_hint:
         lines.append("  " + _paint(theme, "gray", " " * 7) + " "
-                     + _paint(theme, "dim", "输入 /roles 查看后端 / 模型 / 推理强度详情"))
+                     + _paint(theme, "dim", "type /roles for backend / model / effort details"))
     return "\n".join(lines)
 
 

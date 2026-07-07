@@ -507,7 +507,7 @@ def read_message_with_live_cockpit(
     if rows < 16:
         return read_pasted_message(prompt)
 
-    hint = ("直接开始输入即可对话 · Ctrl-C 刷新 · Ctrl-D 退出"
+    hint = ("Just start typing to chat · Ctrl-C refresh · Ctrl-D exit"
             if theme is not None else "(type to chat · Ctrl-D exits)")
 
     def _block() -> str:
@@ -850,7 +850,7 @@ def _maybe_handle_role_effort_text(
 
     theme = chat_state.get("theme")
     role_names = " / ".join(role.title() for role in roles)
-    line = f"已把 {role_names} 默认 reasoning effort 设为 {effort}。"
+    line = f"Set {role_names} default reasoning effort to {effort}."
     print(("  " + theme.cyan("argus") + theme.dim(" ↳ ") + line) if theme is not None else line, flush=True)
 
     try:
@@ -858,7 +858,10 @@ def _maybe_handle_role_effort_text(
 
         st = read_daemon_status(_life_dir_for(mem))
         if getattr(st, "alive", False):
-            msg = "当前已运行 daemon 的环境不会被热改；用 /daemon restart --drain 在任务边界重启后完全生效。"
+            msg = (
+                "A running daemon won't hot-reload this; use /daemon restart --drain "
+                "to fully apply at the next task boundary."
+            )
             print(theme.gray("  " + msg) if theme is not None else msg, flush=True)
     except Exception:  # noqa: BLE001
         pass
@@ -938,10 +941,13 @@ def _maybe_handle_backend_switch_text(
         for role in roles:
             os.environ[_ROLE_BACKEND_ENVS[role]] = normalized
         role_names = " / ".join(role.title() for role in roles)
-        line = f"已把 {role_names} 的 CLI 后端设为 {normalized}。"
+        line = f"Set {role_names} CLI backend to {normalized}."
     else:
         os.environ["ARGUS_SKILL_RUNNER_BACKEND"] = normalized
-        line = f"已把 Argus 默认 CLI 后端设为 {normalized}（未单独指定后端的角色都会跟随）。"
+        line = (
+            f"Set Argus default CLI backend to {normalized} "
+            "(roles without their own backend follow)."
+        )
 
     cfg = chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))
     cfg["runner_backend"] = normalized
@@ -956,7 +962,10 @@ def _maybe_handle_backend_switch_text(
 
         st = read_daemon_status(_life_dir_for(mem))
         if getattr(st, "alive", False):
-            msg = "当前已运行 daemon 的环境不会被热改；用 /daemon restart --drain 在任务边界重启后完全生效。"
+            msg = (
+                "A running daemon won't hot-reload this; use /daemon restart --drain "
+                "to fully apply at the next task boundary."
+            )
             print(theme.gray("  " + msg) if theme is not None else msg, flush=True)
     except Exception:  # noqa: BLE001
         pass
@@ -1059,10 +1068,13 @@ def _maybe_handle_model_switch_text(
         for env_var in seen_envs:
             os.environ[env_var] = model
         role_names = " / ".join(role.title() for role in roles)
-        line = f"已把 {role_names} 的模型设为 {model}。"
+        line = f"Set {role_names} model to {model}."
     else:
         os.environ["ARGUS_SKILL_MODEL"] = model
-        line = f"已把 Argus 默认模型设为 {model}（未单独指定模型的角色都会跟随）。"
+        line = (
+            f"Set Argus default model to {model} "
+            "(roles without their own model follow)."
+        )
 
     cfg = chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))
     cfg["model"] = model
@@ -1075,7 +1087,10 @@ def _maybe_handle_model_switch_text(
 
         st = read_daemon_status(_life_dir_for(mem))
         if getattr(st, "alive", False):
-            msg = "当前已运行 daemon 的环境不会被热改；用 /daemon restart --drain 在任务边界重启后完全生效。"
+            msg = (
+                "A running daemon won't hot-reload this; use /daemon restart --drain "
+                "to fully apply at the next task boundary."
+            )
             print(theme.gray("  " + msg) if theme is not None else msg, flush=True)
     except Exception:  # noqa: BLE001
         pass
@@ -1434,9 +1449,9 @@ def _daemon_cmd(
         return
     from ..cli.live_status import LiveStatus
     with LiveStatus(
-        "启动 daemon…",
+        "Starting daemon…",
         theme=chat_state.get("theme"),
-        phrases=["启动 daemon…", "等待执行器上线…"],
+        phrases=["Starting daemon…", "Waiting for the executor to come online…"],
         hint="",
     ):
         started = wait_for_daemon_status(life_dir)
@@ -1829,7 +1844,7 @@ def enqueue_mission(mem: Any, body: str, chat_state: dict[str, Any], *,
             queue_inbox_message(_life_dir_for(mem), body, source="repl.answer")
         except Exception:  # noqa: BLE001
             pass
-        body = f"{prior}\n\n操作员答复：{body}"
+        body = f"{prior}\n\nOperator reply: {body}"
     chat_state["last_objective"] = body
     _manager_divide_user_task(mem, body, chat_state)
     life_dir = _life_dir_for(mem)
@@ -1895,9 +1910,10 @@ def _maybe_auto_promote_to_continuous(
     chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))["continuous"] = True
     chat_state["continuous_objective"] = body
     msg = (
-        "Manager 判定：这是开放式任务，没有天然终点 → 已自动设为 7×24 持续目标"
-        "（continuous mode），daemon 会自主规划推进，直到目标耗尽或你输入 "
-        "/continuous stop。"
+        "Manager decided this is open-ended work with no natural endpoint → "
+        "automatically set it as a 7×24 continuous goal (continuous mode); "
+        "the daemon will plan and advance autonomously until the goal is "
+        "exhausted or you type /continuous stop."
     )
     print(
         ("  " + theme.cyan("argus") + theme.dim(" ↳ ") + msg) if theme is not None
@@ -1957,11 +1973,11 @@ def _free_text_cmd(
             "manager", env=os.environ,
         ).backend_label
         with LiveStatus(
-            "判断 SELF / TEAM…",
+            "Deciding SELF / TEAM…",
             theme=theme,
             phrases=[
-                "判断 SELF / TEAM…",
-                f"等待 {_manager_backend_label} 首个事件…",
+                "Deciding SELF / TEAM…",
+                f"Waiting for {_manager_backend_label}'s first event…",
             ],
             phrase_interval=10.0,
             accent=ROLE_COLOR_BOLD.get("manager", "magenta"),
@@ -2241,7 +2257,7 @@ def _surface_blocked_question(chat_state: dict[str, Any], theme: Any) -> None:
     q = str(chat_state.get("blocked_question") or "").strip()
     if not q:
         return
-    line = f"❓ 需要你定夺：{q}（直接回复即可继续该任务）"
+    line = f"❓ Needs your call: {q} (reply to continue this task)"
     print(theme.yellow(line) if theme is not None else line, flush=True)
 
 
@@ -2500,7 +2516,7 @@ def _roles_cmd(mem: Any, chat_state: dict[str, Any], arg_text: str = "") -> None
     if not sys.stdout.isatty():
         print(render_roles_snapshot(life_dir, theme, width=width), flush=True)
         return
-    hint = "实时刷新中 · 按 Ctrl-C 返回后再输入" if theme is not None else "live · Ctrl-C to stop, then type"
+    hint = "Live · press Ctrl-C to return, then type" if theme is not None else "live · Ctrl-C to stop, then type"
     print(theme.dim(hint) if theme is not None else hint, flush=True)
     prev_lines = 0
     try:
@@ -2587,7 +2603,7 @@ def _plan_cmd(mem: Any, chat_state: dict[str, Any], objective: str) -> None:
     with LiveStatus(
         "drafting a plan…",
         theme=theme,
-        phrases=["理解目标…", "拆解步骤…", "起草计划…"],
+        phrases=["Understanding the goal…", "Breaking down steps…", "Drafting a plan…"],
     ):
         plan = plan_mode.draft_plan(runner, objective)
     print(plan_mode.render_plan(plan, theme), flush=True)
@@ -2677,8 +2693,9 @@ def _render_help(theme) -> str:  # noqa: ANN001
         "is chat, status, resume, configuration, planning, or real work.",
         "Real work follows the single product path: Manager → Planner → "
         "Idea/Skill → Engineer → Reviewer.",
-        "Examples: `继续上次`, `现在在干什么`, `暂停一下`, `换成 copilot 后端`, "
-        "`把模型换成 claude-sonnet-5`, `帮我优化这个项目`.",
+        "Examples: `resume last task`, `what are you doing now`, "
+        "`pause for now`, `switch to the copilot backend`, "
+        "`switch the model to claude-sonnet-5`, `help me optimize this project`.",
     ):
         for line in theme.wrap_after(para, first_indent=0, hang_indent=0):
             out.append(theme.gray(line))
@@ -2975,9 +2992,9 @@ def _run_manager_repl_locked(
                 if spawn_rc == 0:
                     from ..cli.live_status import LiveStatus
                     with LiveStatus(
-                        "启动 daemon 执行器…",
+                        "Starting daemon executor…",
                         theme=theme,
-                        phrases=["启动 daemon 执行器…", "等待执行器上线…"],
+                        phrases=["Starting daemon executor…", "Waiting for the executor to come online…"],
                         hint="",
                     ):
                         started = wait_for_daemon_status(mem.project.root)
