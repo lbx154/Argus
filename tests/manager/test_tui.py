@@ -195,6 +195,55 @@ def test_dispatch_pasted_daemon_cli_starts_executor_not_task(
     assert "daemon: started (pid 12345)" in screen
 
 
+def test_daemon_restart_does_not_demand_objective_for_ambient_continuous_default(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Regression: a plain `argus` launch defaults chat_state["config"]
+    ["continuous"] to True (see _seed_chat_state's default_continuous — any
+    non-memory, non---bounded session) even though the operator never typed
+    /continuous start <objective>. /daemon restart/start used to read that
+    ambient True straight into continuous_mode_error, which correctly
+    demands a non-empty objective for *real* continuous mode — hard-failing
+    with "--continuous requires a non-empty --objective" and leaving NO
+    daemon running, even though the original boot-time autospawn (which
+    reads argparse's continuous=False default instead) had just started one
+    fine. `/daemon restart --drain` must not regress a working daemon to no
+    daemon at all just because nobody has opted into continuous planning."""
+    from argus_skill.daemon import life_worker
+    from argus_skill.life.memory import LifeMemory
+
+    mem = LifeMemory.open(root=tmp_path)
+    cs: dict[str, Any] = {
+        "backend": "codex",
+        "config": {"continuous": True},  # the ambient default, not operator intent
+        "continuous_objective": "",
+        "global_root": tmp_path,
+        "open_ended": True,
+    }
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        life_worker, "read_daemon_status",
+        lambda life_dir: SimpleNamespace(alive=False, pid=None, uptime_seconds=None, backend=None),
+    )
+
+    def fake_spawn(cfg: Any, *, quiet: bool = False) -> int:
+        captured["continuous"] = cfg.continuous
+        return 0
+
+    monkeypatch.setattr(life_worker, "spawn_detached_daemon", fake_spawn)
+    monkeypatch.setattr(
+        life_worker, "wait_for_daemon_status",
+        lambda life_dir: SimpleNamespace(alive=True, pid=1, uptime_seconds=0.0, backend="codex"),
+    )
+
+    manager_repl._daemon_cmd(mem, "restart", cs)
+
+    screen = capsys.readouterr().out
+    assert "requires a non-empty" not in screen
+    assert captured.get("continuous") is False
+
+
 def test_dispatch_unknown_argus_cli_invocation_is_not_queued(tmp_path, capsys) -> None:
     from argus_skill.life.memory import LifeMemory
 

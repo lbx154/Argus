@@ -1371,9 +1371,12 @@ def _daemon_cmd(
         st = read_daemon_status(life_dir)
         if st.alive and st.pid is not None:
             up = _format_short_duration(st.uptime_seconds or 0.0)
+            # Same relabeling as _status_cmd / --status: st.backend is the
+            # real-vs-memory-test toggle, not the per-role CLI (see /roles).
+            backend_label = "memory (test)" if st.backend == "memory" else "live — see /roles"
             print(
                 f"daemon: alive (pid {st.pid}, up {up}, "
-                f"backend {st.backend or '?'})"
+                f"backend {backend_label})"
             )
         else:
             print("daemon: not running. Start it with /daemon start")
@@ -1410,6 +1413,21 @@ def _daemon_cmd(
     )
     continuous = bool(chat_state.get("config", {}).get("continuous", False))
     objective = str(chat_state.get("continuous_objective") or "").strip()
+    if continuous and not objective:
+        # BUG FIX: chat_state["config"]["continuous"] defaults to True for any
+        # ordinary bare launch (see _seed_chat_state's default_continuous —
+        # backend != memory and not --bounded), even when the operator never
+        # typed /continuous start <objective> or --objective. The original
+        # boot-time autospawn (_build_worker_config from CLI args) tolerates
+        # this fine because it reads args.continuous, which is False unless
+        # --continuous was passed. /daemon start|restart used chat_state's
+        # value instead and hard-failed with "--continuous requires a
+        # non-empty --objective" — regressing an already-working daemon to
+        # NO daemon at all on a plain `/daemon restart --drain`. Since there
+        # is no real objective to plan toward yet, don't ask for continuous
+        # planning here; the operator can still turn it on later with
+        # `/continuous start <objective>`.
+        continuous = False
     error = continuous_mode_error(backend, continuous, objective)
     if error:
         print(error)
