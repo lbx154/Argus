@@ -99,6 +99,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/daemon", "control this cockpit's executor: /daemon [start|stop|status]"),
     ("/daemons", "list every live daemon across all projects"),
     ("/attach", "read-only follow another project's daemon: /attach <session-id>"),
+    ("/resume", "replay the previous conversation (/resume list = all; /resume <id> = one)"),
     ("/doctor", "diagnose + fix \"why isn't anything running\""),
     ("/backend", "view/change the runner backend"),
     ("/config", "view/change this session's defaults (cycles, budget, effort...)"),
@@ -116,7 +117,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
 _HELP_SECTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("Everyday", ("/status", "/roles", "/journal", "/backlog")),
     ("Task management", ("/add", "/plan", "/stop", "/done", "/note", "/nudge", "/run")),
-    ("Daemon & diagnostics", ("/daemon", "/daemons", "/attach", "/doctor")),
+    ("Daemon & diagnostics", ("/daemon", "/daemons", "/attach", "/resume", "/doctor")),
     ("Configuration", ("/backend", "/config", "/continuous", "/start", "/identity", "/reset", "/skills")),
     ("Other", ("/help", "/exit")),
 ]
@@ -889,6 +890,185 @@ def _split_readline_safe_prompt(prompt: str, theme: Any) -> tuple[str, str] | No
     return pre_print, input_prefix
 
 
+def _build_slash_completer():
+    """A prompt_toolkit completer offering the slash commands (with their
+    one-line descriptions) as a live dropdown — but ONLY when the current line
+    starts with ``/``, so ordinary chat never pops a menu. Primary spellings
+    only; ``alias of …`` rows are folded out (their target already shows)."""
+    from prompt_toolkit.completion import Completer, Completion
+
+    class _SlashCompleter(Completer):
+        def get_completions(self, document, complete_event):  # noqa: ANN001
+            word = document.text_before_cursor
+            if not word.startswith("/"):
+                return
+            for cmd, desc in SLASH_COMMANDS:
+                if desc.startswith("alias of "):
+                    continue
+                if cmd.startswith(word):
+                    yield Completion(
+                        cmd,
+                        start_position=-len(word),
+                        display=cmd,
+                        display_meta=desc,
+                    )
+
+    return _SlashCompleter()
+
+
+def _get_prompt_session(chat_state: dict[str, Any], mem: Any):
+    """Lazily build + cache the prompt_toolkit ``PromptSession`` used for the
+    line REPL's TTY input: live slash-command completion + per-session history.
+    Cached on ``chat_state`` so history/completer persist for the session."""
+    sess = chat_state.get("prompt_session")
+    if sess is not None:
+        return sess
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.history import FileHistory, InMemoryHistory
+
+    try:
+        hist: Any = FileHistory(str(_life_dir_for(mem) / "repl_history"))
+    except Exception:  # noqa: BLE001 — history is best-effort
+        hist = InMemoryHistory()
+
+    # prompt_toolkit only auto-triggers completion on INSERT (buffer.py) and a
+    # lone exact match is discarded — so editing a slash command mid-line (e.g.
+    # backspace then retype) leaves no dropdown. Re-run completion after a
+    # delete when the line is a slash command, so the menu always reflects the
+    # current text.
+    from prompt_toolkit.key_binding import KeyBindings
+
+    kb = KeyBindings()
+
+    def _retrigger_slash(buf: Any) -> None:
+        try:
+            if buf.text.lstrip().startswith("/"):
+                buf.complete_state = None
+                buf.start_completion()
+        except Exception:  # noqa: BLE001 — completion is best-effort
+            pass
+
+    @kb.add("backspace")
+    def _(event: Any) -> None:  # noqa: ANN401
+        event.current_buffer.delete_before_cursor()
+        _retrigger_slash(event.current_buffer)
+
+    @kb.add("delete")
+    def _(event: Any) -> None:  # noqa: ANN401
+        event.current_buffer.delete()
+        _retrigger_slash(event.current_buffer)
+
+    sess = PromptSession(
+        completer=_build_slash_completer(),
+        history=hist,
+        complete_while_typing=True,
+        key_bindings=kb,
+    )
+    chat_state["prompt_session"] = sess
+    return sess
+
+
+def _use_prompt_toolkit_input() -> bool:
+    """True iff the default TTY input should use prompt_toolkit — the default
+    cockpit input engine: live 4-role panel (above the input) + `/` completion
+    + honest Ctrl-C, all in one driver. Off for: non-TTY / piped stdin,
+    ``ARGUS_SKILL_NO_PROMPT_TOOLKIT=1`` (falls back to the legacy cbreak panel /
+    plain reader), or a missing prompt_toolkit."""
+    if os.environ.get("ARGUS_SKILL_NO_PROMPT_TOOLKIT") == "1":
+        return False
+    try:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            return False
+    except Exception:  # noqa: BLE001
+        return False
+    try:
+        import prompt_toolkit  # noqa: F401
+    except Exception:  # noqa: BLE001
+        return False
+    return True
+
+
+def read_message_prompt_toolkit(
+    prompt: str,
+    mem: Any,
+    theme: Any,
+    chat_state: dict[str, Any],
+) -> str | None:
+    """Read one operator line via prompt_toolkit — the unified cockpit input.
+
+    Prints the live 4-role panel ABOVE the input (as scrollback, repainted each
+    turn) and hands prompt_toolkit only the short ╭─/╰─ box, so the ``/``
+    completion menu positions cleanly BELOW the input — one engine, no
+    cbreak/prompt_toolkit tug-of-war.
+
+    Returns the line, or ``None`` on EOF (Ctrl-D). Ctrl-C raises
+    ``KeyboardInterrupt`` (the caller arms double-Ctrl-C exit). Any init/render
+    failure falls back to the plain, always-reliable reader."""
+    from ..apps._input_helpers import read_pasted_message
+
+    try:
+        from prompt_toolkit import ANSI
+
+        session = _get_prompt_session(chat_state, mem)
+    except Exception:  # noqa: BLE001 — never let the input path die
+        return read_pasted_message(prompt)
+
+    # Resolve the life-dir once; the panel callable re-renders fresh each refresh.
+    try:
+        life_dir = _life_dir_for(mem)
+    except Exception:  # noqa: BLE001
+        life_dir = None
+
+    def _panel_text() -> str:
+        """The live role panel drawn above the prompt (empty if unavailable)."""
+        if life_dir is None:
+            return ""
+        try:
+            import shutil
+
+            from ..cli.roles_status import render_roles_snapshot
+            width = shutil.get_terminal_size((80, 24)).columns
+            return render_roles_snapshot(life_dir, theme, width=width) + "\n"
+        except Exception:  # noqa: BLE001 — fall back to the one-liner, then empty
+            try:
+                from ..cli.roles_status import format_prompt_status_line
+                s = format_prompt_status_line(theme, life_dir=life_dir)
+                return (s + "\n") if s else ""
+            except Exception:  # noqa: BLE001
+                return ""
+
+    # Print the panel ABOVE the input as ordinary scrollback — NOT folded into
+    # the prompt `message`. Folding a tall panel into the message pushed the
+    # input line near the bottom, so prompt_toolkit flipped the `/` completion
+    # menu ABOVE the input. With the panel printed above and only the short
+    # ╭─/╰─ box handed to prompt_toolkit, the menu positions cleanly BELOW the
+    # input (its normal behaviour). Trade-off: the panel repaints each turn
+    # (when you return to the prompt), not sub-second while idle.
+    try:
+        panel = _panel_text()
+        if panel:
+            sys.stdout.write(panel)
+            sys.stdout.flush()
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        return session.prompt(ANSI(prompt))
+    except EOFError:
+        return None
+    except KeyboardInterrupt:
+        # Intentionally propagates to the caller (arms the double-Ctrl-C exit).
+        raise
+    except Exception:  # noqa: BLE001 — never let a PT hiccup kill the cockpit
+        # An odd terminal, a resize race, or any prompt_toolkit-internal error
+        # must NOT crash the REPL. Disable PT for the rest of the session and
+        # fall back to the plain, always-reliable reader for this and every
+        # subsequent turn.
+        chat_state.pop("prompt_session", None)
+        chat_state["prompt_toolkit_disabled"] = True
+        return read_pasted_message(prompt)
+
+
 def read_message_with_live_cockpit(
     prompt: str,
     mem: Any,
@@ -1021,7 +1201,9 @@ def read_message_with_live_cockpit(
         sys.stdout.write(_pre_print)
         sys.stdout.flush()
     if interrupted:
-        return ""  # Ctrl-C while idle → just refresh the cockpit
+        # Ctrl-C while idle: propagate so the REPL loop arms double-Ctrl-C exit
+        # (the panel re-renders on the next loop iteration anyway).
+        raise KeyboardInterrupt
     if raw == b"" or raw[:1] == b"\x04":
         return None  # Ctrl-D / EOF → quit
     if raw[:1] in (b"\r", b"\n"):
@@ -2630,6 +2812,17 @@ def _free_text_cmd(
     if _maybe_handle_model_switch_text(mem, body, chat_state):
         return
 
+    # Persist this turn to the session transcript (for /resume replay + labels).
+    # The config-switch handlers above already returned, so only real chat/task
+    # turns are logged. Fail-soft: transcript I/O must never break the REPL.
+    from ..core import transcript as _transcript
+    _tlife: Any = None
+    try:
+        _tlife = _life_dir_for(mem)
+        _transcript.append_turn(_tlife, "operator", body)
+    except Exception:  # noqa: BLE001
+        _tlife = None
+
     # Manager front door — answer conversation, route tasks. Skipped only for a
     # blocked-continuation answer (which must continue the task, not be re-chatted).
     if not chat_state.get("blocked_item_id"):
@@ -2672,6 +2865,8 @@ def _free_text_cmd(
             line = (("  " + theme.cyan("argus") + theme.dim(" ↳ ") + reply)
                     if theme is not None else f"  argus ↳ {reply}")
             print(line, flush=True)
+            if _tlife is not None:
+                _transcript.append_turn(_tlife, "argus", reply)
             return
 
         # TEAM work reached this point — let the Manager judge whether it is
@@ -2688,6 +2883,11 @@ def _free_text_cmd(
         mem, body, chat_state, iterate=iterate, max_cycles=max_cycles,
         budget=budget, theme=theme)
     life_dir = _life_dir_for(mem)
+    if _tlife is not None:
+        _transcript.append_turn(
+            _tlife, "argus",
+            f"→ queued for the daemon (task {getattr(item, 'id', '') or '?'})",
+        )
 
     if continuous:
         if not daemon_alive:
@@ -3379,6 +3579,123 @@ def _attach_cmd(chat_state: dict[str, Any], global_root: Any, target: str) -> No
     _follow_events_stream(proj, theme=theme, header=None)
 
 
+def _print_transcript(
+    life_dir: Any, theme: Any, *, limit: int | None = None, header: str | None = None
+) -> bool:
+    """Print a session's saved operator↔argus conversation. Returns True if any."""
+    from ..core import transcript as _transcript
+
+    turns = _transcript.read_turns(life_dir, limit=limit)
+    if not turns:
+        return False
+    if header:
+        print(theme.bold(header) if theme is not None else header, flush=True)
+    for t in turns:
+        text = str(t.get("text") or "").strip()
+        if not text:
+            continue
+        if t.get("role") == "operator":
+            tag = theme.cyan("you ›") if theme is not None else "you ›"
+        else:
+            tag = (theme.cyan("argus") + theme.dim(" ↳")) if theme is not None else "argus ↳"
+        print(f"  {tag} {text}", flush=True)
+    return True
+
+
+def _resume_cmd(
+    mem: Any, chat_state: dict[str, Any], global_root: Any, rest_text: str
+) -> None:
+    """`/resume` — replay the PREVIOUS conversation (the most recent other
+    session that has saved chat). ``/resume <id>`` replays a specific session;
+    ``/resume list`` shows all resumable sessions (labelled by first message).
+
+    A running cockpit is bound to one session; hot-swapping mid-process is
+    unsafe (singleton lock), so this shows the saved conversation + the exact
+    relaunch command to switch into it."""
+    theme = chat_state.get("theme")
+    _gray = theme.gray if theme is not None else (lambda s: s)
+    from ..core import transcript as _transcript
+    from ..core.session import list_sessions, live_daemon_sessions
+
+    def _projdir(sid: str) -> Path:
+        return Path(global_root) / "projects" / sid
+
+    def _label(s: Any) -> str:
+        if s.display_name:
+            return s.display_name
+        if s.objective:
+            return s.objective[:50]
+        first = _transcript.first_operator_text(_projdir(s.id)).strip()
+        first = " ".join(first.split())
+        return (first[:50] + ("…" if len(first) > 50 else "")) if first else "(unnamed)"
+
+    try:
+        sessions = list_sessions(global_root, include_empty=False)
+        live = {s.id for s in live_daemon_sessions(global_root)}
+    except Exception:  # noqa: BLE001
+        sessions, live = [], set()
+
+    # Current session id — excluded when defaulting to "the previous conversation".
+    try:
+        cur_sid = Path(_life_dir_for(mem)).name if mem is not None else None
+    except Exception:  # noqa: BLE001
+        cur_sid = None
+
+    def _show_conversation(sid: str) -> None:
+        shown = _print_transcript(_projdir(sid), theme, header=f"Conversation · {sid}")
+        if not shown:
+            print(_gray(f"(no saved conversation for {sid})"), flush=True)
+        cmd = f"argus-skill --resume {sid}"
+        print(_gray("Continue it (relaunches the cockpit bound to that session; "
+                    "its daemon keeps running in the background):"), flush=True)
+        print("  " + (theme.cyan(cmd) if theme is not None else cmd), flush=True)
+
+    def _show_list() -> None:
+        if not sessions:
+            print(_gray("No resumable sessions yet."), flush=True)
+            return
+        now = time.time()
+        print(theme.bold("Resumable sessions") if theme is not None else "resumable sessions:", flush=True)
+        for s in sessions[:20]:
+            age = max(0.0, now - (s.last_active or 0))
+            age_s = (f"{int(age // 86400)}d" if age >= 86400
+                     else f"{int(age // 3600)}h" if age >= 3600
+                     else f"{int(age // 60)}m")
+            mark = "● live" if s.id in live else "      "
+            print(_gray(f"  {mark}  {s.id}  {age_s:>4} ago  ·  {_label(s)}"), flush=True)
+        print(_gray(
+            "Show one:  /resume <id>   ·   relaunch into it:  argus-skill --resume <id>"
+        ), flush=True)
+
+    target = (rest_text or "").strip()
+
+    if target.lower() in ("list", "ls", "all"):
+        _show_list()
+        return
+
+    if not target:
+        # Default: jump to the PREVIOUS conversation — the most recent OTHER
+        # session that actually holds a saved conversation.
+        prior = next(
+            (s.id for s in sessions
+             if s.id != cur_sid and _transcript.has_transcript(_projdir(s.id))),
+            None,
+        )
+        if prior is None:
+            print(_gray("No previous conversation yet — `/resume list` to see all sessions."), flush=True)
+            return
+        _show_conversation(prior)
+        return
+
+    match = next((s.id for s in sessions if s.id == target), None) \
+        or next((s.id for s in sessions if s.id.startswith(target)), None)
+    if match is None:
+        msg = f"no session matches {target!r} — `/resume list` to see them."
+        print(theme.yellow(msg) if theme is not None else msg, flush=True)
+        return
+    _show_conversation(match)
+
+
 def _render_help(theme) -> str:  # noqa: ANN001
     out: list[str] = []
     out.append(theme.bold("Argus") + theme.gray("  — one cockpit, one mode"))
@@ -3416,16 +3733,31 @@ def _render_help(theme) -> str:  # noqa: ANN001
             out.append(f"    {label:<{label_width}}{theme.gray(desc)}")
         out.append("")
 
+    out.append(theme.bold("Sessions") + theme.gray("  — get back to a past conversation (run in your shell, not a cockpit command)"))
+    out.append("")
+    for label, desc in (
+        ("argus-skill --continue", "resume the last session (prefers the one with a live daemon)"),
+        ("argus-skill --resume", "pick a past session from a list (● live = still-running daemon)"),
+        ("argus-skill --resume <id>", "jump straight to a specific session id"),
+    ):
+        out.append(f"    {label:<28}{theme.gray(desc)}")
+    out.append(theme.gray("    note: a bare `argus-skill` opens a NEW session — it does not resume."))
+    out.append("")
+
     out.append(theme.gray(
-        "Persistent live role panel is ON by default; set "
-        "ARGUS_SKILL_COCKPIT_LIVE=0 to opt back out"
+        "Live 4-role panel + `/` command completion are ON by default (one "
+        "prompt_toolkit UI); set ARGUS_SKILL_NO_PROMPT_TOOLKIT=1 for the plain reader"
     ))
     out.append(theme.gray(
         "Live-follow view while a task is running is ON by default; set "
         "ARGUS_SKILL_FOLLOW_LIVE=0 to opt back out"
     ))
     out.append("")
-    out.append(theme.gray("Exit with /exit, Ctrl-D, or `退出`."))
+    out.append(theme.gray(
+        "Keys:  Ctrl-C cancels the current input / interrupts thinking (back to the "
+        "prompt)   ·   Ctrl-C twice, Ctrl-D, or /exit quits   ·   "
+        "argus-skill --continue returns to the last session"
+    ))
     out.append("")
     return "\n".join(out)
 
@@ -3761,6 +4093,18 @@ def _run_manager_repl_locked(
         pass
     print()
 
+    # If this session already has a saved conversation (i.e. we're resuming it,
+    # not opening a fresh one), replay the last few turns so the operator sees
+    # where they left off. A brand-new session has no transcript → nothing shown.
+    try:
+        if _print_transcript(
+            _life_dir_for(mem), theme, limit=6,
+            header=theme.gray("↩ resuming — recent conversation:") if theme is not None else "↩ resuming — recent conversation:",
+        ):
+            print()
+    except Exception:  # noqa: BLE001
+        pass
+
     base_prompt = theme.bold(theme.cyan("argus"))
     resume_marker = theme.dim(" ↻")  # subtle indicator when codex session is being reused
     try:
@@ -3787,6 +4131,10 @@ def _run_manager_repl_locked(
     # keystroke, effectively reimplementing part of readline itself, which
     # is out of scope for this pass.
 
+    # Double-Ctrl-C to exit: a single Ctrl-C cancels the current input /
+    # interrupts thinking and stays; a SECOND consecutive Ctrl-C (nothing typed
+    # in between) quits. Any successful input re-disarms it.
+    pending_exit = False
     while True:
         # Backend/model status resolved fresh every turn (not just once in
         # the startup banner) so a switch (see _print_role_config_confirmation)
@@ -3845,29 +4193,48 @@ def _run_manager_repl_locked(
         # mid-keystroke). ``_live_cockpit_will_activate`` mirrors every guard
         # ``read_message_with_live_cockpit`` itself checks, so this branch and
         # that function can never disagree about which path is really live.
-        live_cockpit = _live_cockpit_will_activate(mem)
-        if live_cockpit:
-            prompt = (
-                banner_row
-                + "\n" + input_row_prefix
-                + "\n" + _bottom_hint_line(theme, status)
-                + theme.cursor_up_and_forward(1, 3)
-            )
+        use_ptk = _use_prompt_toolkit_input() and not chat_state.get("prompt_toolkit_disabled")
+        if use_ptk:
+            # prompt_toolkit is the default engine and owns ALL rendering: the
+            # live 4-role panel is drawn ABOVE the input by
+            # read_message_prompt_toolkit's refreshing message and the `/` menu
+            # floats below. Hand it only the ╭─/╰─ box — NO manual pre-print
+            # (that would double-draw and fight prompt_toolkit's own redraws).
+            prompt = banner_row + "\n" + input_row_prefix
         else:
-            sys.stdout.write(
-                banner_row
-                + "\n"  # blank placeholder input row — filled in by input() below
-                + "\n" + _bottom_hint_line(theme, status)
-                + "\n" + theme.cursor_up_and_forward(2, 0)
-            )
-            sys.stdout.flush()
-            prompt = input_row_prefix
+            live_cockpit = _live_cockpit_will_activate(mem)
+            if live_cockpit:
+                prompt = (
+                    banner_row
+                    + "\n" + input_row_prefix
+                    + "\n" + _bottom_hint_line(theme, status)
+                    + theme.cursor_up_and_forward(1, 3)
+                )
+            else:
+                sys.stdout.write(
+                    banner_row
+                    + "\n"  # blank placeholder input row — filled in by input() below
+                    + "\n" + _bottom_hint_line(theme, status)
+                    + "\n" + theme.cursor_up_and_forward(2, 0)
+                )
+                sys.stdout.flush()
+                prompt = input_row_prefix
         try:
-            raw = read_message_with_live_cockpit(prompt, mem, theme)
+            if use_ptk:
+                raw = read_message_prompt_toolkit(prompt, mem, theme, chat_state)
+            else:
+                raw = read_message_with_live_cockpit(prompt, mem, theme)
         except KeyboardInterrupt:
+            if pending_exit:
+                print()
+                print(theme.gray("bye."))
+                return 0
+            pending_exit = True
             print()
+            print(theme.gray("(Ctrl-C again to exit  ·  Ctrl-D or /exit also quits)"))
             continue
-        if theme.enabled and sys.stdout.isatty():
+        pending_exit = False  # a successful read re-disarms the double-Ctrl-C exit
+        if not use_ptk and theme.enabled and sys.stdout.isatty():
             # The operator's Enter already advanced the real terminal cursor
             # exactly one row past wherever their typing visually ended
             # (accounting for wrapping automatically — this is the terminal's
@@ -3888,9 +4255,20 @@ def _run_manager_repl_locked(
             print(theme.gray("bye."))
             return 0
 
-        if dispatch_command(line, raw, mem, chat_state, global_root, theme) == "exit":
-            print(theme.gray("bye."))
-            return 0
+        try:
+            if dispatch_command(line, raw, mem, chat_state, global_root, theme) == "exit":
+                print(theme.gray("bye."))
+                return 0
+        except KeyboardInterrupt:
+            # Ctrl-C while the Manager is thinking / tailing: interrupt THIS
+            # turn and return to the prompt — never exit the cockpit. The
+            # background daemon mission keeps running (use /daemon stop for it).
+            print()
+            print(theme.gray(
+                "⎋ interrupted — back to the prompt  ·  the background daemon "
+                "mission keeps running (use /daemon stop to stop it)"
+            ))
+            continue
 
 
 def dispatch_command(line, raw, mem, chat_state, global_root, theme) -> str | None:
@@ -3939,6 +4317,9 @@ def dispatch_command(line, raw, mem, chat_state, global_root, theme) -> str | No
             return None
         if cmd == "/attach":
             _attach_cmd(chat_state, global_root, rest_text)
+            return None
+        if cmd == "/resume":
+            _resume_cmd(mem, chat_state, global_root, rest_text)
             return None
         if cmd == "/plan":
             _plan_cmd(mem, chat_state, rest_text)

@@ -14,9 +14,11 @@ The design is intentionally minimal:
   disk write failure poison the in-memory event flow.
 * One JSON object per line. ``ts`` is injected if the caller didn't.
 * Soft size cap: when ``events.jsonl`` exceeds ``ROLL_BYTES`` we rotate
-  to ``events.jsonl.1``. We keep at most one historical roll. This is a
-  cockpit log, not an audit trail — operators who need deep history
-  should ship to OTel (Phase G12).
+  to ``events.jsonl.1``. We retain EVERY generation: the previous ``.1``
+  is moved aside to the next free ``events.jsonl.<N>`` (``.2``, ``.3``, …)
+  rather than being deleted, so no event is ever lost. ``.1`` always holds
+  the most-recent previous roll (readers/tailers that expect it keep
+  working); the full lifetime history is the union of ``events.jsonl*``.
 * Concurrency: a process-local ``threading.Lock`` guards the append.
   Multiple processes writing to the same file is fine on Linux because
   ``open(..., "a")`` + a single short ``write()`` is atomic up to
@@ -222,8 +224,17 @@ class JsonlEventSink:
         if size < self._roll_bytes:
             return
         try:
+            # Preserve EVERY generation. Instead of deleting the previous roll,
+            # move it aside to the next free ``events.jsonl.<N>`` (N>=2) so no
+            # events are ever lost. ``.1`` stays the most-recent previous roll
+            # (readers/tailers that expect it keep working); older generations
+            # accumulate as .2, .3, … and are swept up by the ``events.jsonl*``
+            # glob during full-history reconstruction.
             if self._roll_path.exists():
-                self._roll_path.unlink()
+                n = 2
+                while (self._dir / f"{EVENT_FILE}.{n}").exists():
+                    n += 1
+                os.replace(self._roll_path, self._dir / f"{EVENT_FILE}.{n}")
             os.replace(self._path, self._roll_path)
         except Exception:  # noqa: BLE001
             pass
