@@ -1579,6 +1579,15 @@ def _maybe_handle_role_effort_text(
 
     for role in roles:
         os.environ[_ROLE_EFFORT_ENVS[role]] = effort
+    from ..core.knob_store import write_persisted_knob
+
+    for role in roles:
+        # Persist too — see the matching comment in
+        # _maybe_handle_backend_switch_text: without this, the switch only
+        # lasted for THIS process and was invisible to the daemon (a
+        # separate process) until restarted, and even the REPL forgot it on
+        # its own next launch.
+        write_persisted_knob(_ROLE_EFFORT_ENVS[role], effort)
     cfg = chat_state.setdefault("config", dict(_CONFIG_DEFAULTS))
     for role in roles:
         cfg[f"{role}_effort"] = effort
@@ -1689,13 +1698,23 @@ def _maybe_handle_backend_switch_text(
 
     normalized = normalize_runner_backend(backend)
     theme = chat_state.get("theme")
+    from ..core.knob_store import write_persisted_knob
+
     if roles:
         for role in roles:
             os.environ[_ROLE_BACKEND_ENVS[role]] = normalized
+            # Persist too — an env-var-only switch used to only last for THIS
+            # process; the daemon (a separate process) never saw it until
+            # restarted, and even the REPL forgot it on its own next launch.
+            # core.knobs.resolve_role_backend / cli.roles_status now check
+            # this file whenever no env var is set, so "change it once" holds
+            # across restarts, not just for the process that made the switch.
+            write_persisted_knob(_ROLE_BACKEND_ENVS[role], normalized)
         role_names = " / ".join(role.title() for role in roles)
         line = f"Set {role_names} CLI backend to {normalized}."
     else:
         os.environ["ARGUS_SKILL_RUNNER_BACKEND"] = normalized
+        write_persisted_knob("ARGUS_SKILL_RUNNER_BACKEND", normalized)
         line = (
             f"Set Argus default CLI backend to {normalized} "
             "(roles without their own backend follow)."
@@ -1859,14 +1878,23 @@ def _maybe_handle_model_switch_text(
         return False
 
     theme = chat_state.get("theme")
+    from ..core.knob_store import write_persisted_knob
+
     if roles:
         seen_envs = {_ROLE_MODEL_ENVS[role] for role in roles}
         for env_var in seen_envs:
             os.environ[env_var] = model
+            # Persist too — see the matching comment in
+            # _maybe_handle_backend_switch_text: without this, the switch
+            # only lasted for THIS process and was invisible to the daemon
+            # (a separate process) until restarted, and even the REPL forgot
+            # it on its own next launch.
+            write_persisted_knob(env_var, model)
         role_names = " / ".join(role.title() for role in roles)
         line = f"Set {role_names} model to {model}."
     else:
         os.environ["ARGUS_SKILL_MODEL"] = model
+        write_persisted_knob("ARGUS_SKILL_MODEL", model)
         line = (
             f"Set Argus default model to {model} "
             "(roles without their own model follow)."

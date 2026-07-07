@@ -69,9 +69,14 @@ _ENV_VARS_TO_CLEAR = (
 
 
 @pytest.fixture(autouse=True)
-def _clear_ambient_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _clear_ambient_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     for name in _ENV_VARS_TO_CLEAR:
         monkeypatch.delenv(name, raising=False)
+    # core.knob_store now persists backend/model/reasoning-effort switches to
+    # <ARGUS_SKILL_HOME>/config.json — isolate it to a per-test tmp dir so
+    # these tests never read OR WRITE a real operator's persisted knobs
+    # (this box runs live argus-skill daemons outside the test suite too).
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-skill-home"))
 
 
 @pytest.fixture()
@@ -1292,6 +1297,14 @@ def test_config_cmd_sets_role_effort(capsys: pytest.CaptureFixture[str]) -> None
     assert "manager_runner" not in chat_state
     out = capsys.readouterr().out
     assert "engineer_effort = xhigh" in out
+    # Regression: /config must also persist (core.knob_store), same as the
+    # natural-language recognizer — see the matching comment in
+    # test_free_text_role_effort_config_does_not_enqueue.
+    from argus_skill.core.knob_store import read_persisted_knobs
+
+    persisted = read_persisted_knobs()
+    assert persisted["ARGUS_SKILL_ENGINEER_REASONING_EFFORT"] == "xhigh"
+    assert persisted["ARGUS_SKILL_PLANNER_REASONING_EFFORT"] == "high"
 
 
 def test_config_cmd_rejects_bad_key(capsys: pytest.CaptureFixture[str]) -> None:
@@ -1357,6 +1370,17 @@ def test_free_text_role_effort_config_does_not_enqueue(mem: LifeMemory) -> None:
     assert chat_state["config"]["planner_effort"] == "xhigh"
     assert chat_state["config"]["engineer_effort"] == "xhigh"
     assert chat_state["config"]["reviewer_effort"] == "xhigh"
+    # Regression: this switch used to only set os.environ for THIS process —
+    # a restart of the REPL, or the daemon booting fresh, silently reverted
+    # to the default. It must also persist (core.knob_store), so "change it
+    # once" survives both.
+    from argus_skill.core.knob_store import read_persisted_knobs
+
+    persisted = read_persisted_knobs()
+    assert persisted["ARGUS_SKILL_MANAGER_REASONING_EFFORT"] == "xhigh"
+    assert persisted["ARGUS_SKILL_PLANNER_REASONING_EFFORT"] == "xhigh"
+    assert persisted["ARGUS_SKILL_ENGINEER_REASONING_EFFORT"] == "xhigh"
+    assert persisted["ARGUS_SKILL_REVIEWER_REASONING_EFFORT"] == "xhigh"
 
 
 def test_free_text_bare_effort_config_applies_all_roles(mem: LifeMemory) -> None:
@@ -1443,6 +1467,11 @@ def test_free_text_backend_switch_config_does_not_enqueue(mem: LifeMemory) -> No
     assert "manager_runner" not in chat_state
     assert os.environ["ARGUS_SKILL_RUNNER_BACKEND"] == "copilot"
     assert chat_state["config"]["runner_backend"] == "copilot"
+    # Regression: must also persist (core.knob_store) — see the matching
+    # comment in test_free_text_role_effort_config_does_not_enqueue.
+    from argus_skill.core.knob_store import read_persisted_knobs
+
+    assert read_persisted_knobs()["ARGUS_SKILL_RUNNER_BACKEND"] == "copilot"
 
 
 def test_free_text_backend_switch_role_specific(mem: LifeMemory) -> None:
@@ -1457,6 +1486,9 @@ def test_free_text_backend_switch_role_specific(mem: LifeMemory) -> None:
     assert mem.backlog.pending() == []
     assert os.environ["ARGUS_SKILL_REVIEWER_BACKEND"] == "claude"
     assert "ARGUS_SKILL_RUNNER_BACKEND" not in os.environ
+    from argus_skill.core.knob_store import read_persisted_knobs
+
+    assert read_persisted_knobs()["ARGUS_SKILL_REVIEWER_BACKEND"] == "claude"
 
 
 def test_backend_switch_role_specific_confirmation_only_shows_that_role(
@@ -1507,6 +1539,11 @@ def test_free_text_model_switch_shared_does_not_enqueue(mem: LifeMemory) -> None
     assert "manager_runner" not in chat_state
     assert os.environ["ARGUS_SKILL_MODEL"] == "claude-sonnet-5"
     assert chat_state["config"]["model"] == "claude-sonnet-5"
+    # Regression: must also persist (core.knob_store) — see the matching
+    # comment in test_free_text_role_effort_config_does_not_enqueue.
+    from argus_skill.core.knob_store import read_persisted_knobs
+
+    assert read_persisted_knobs()["ARGUS_SKILL_MODEL"] == "claude-sonnet-5"
 
 
 def test_free_text_model_switch_accepts_explicit_unknown_model_id(

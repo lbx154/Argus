@@ -53,6 +53,7 @@ from pathlib import Path
 __all__ = [
     "global_root",
     "identity_path",
+    "config_path",
     "journal_path",
     "bus_root",
     "commands_path",
@@ -132,6 +133,15 @@ def global_root() -> Path:
 
 def identity_path() -> Path:
     return global_root() / "identity.md"
+
+
+def config_path() -> Path:
+    """``~/.argus-skill/config.json`` — persisted operator knob overrides
+    (backend / model / reasoning-effort switches made via natural language or
+    ``/backend``, ``/config``), read by :mod:`argus_skill.core.knob_store`.
+    Global (not per-project), same footing as ``identity_path`` — these are
+    cross-project operator preferences, not project-scoped state."""
+    return global_root() / "config.json"
 
 
 def journal_path() -> Path:

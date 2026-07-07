@@ -122,10 +122,13 @@ def resolve_role_model(
 ) -> str:
     """Resolve a role model using Argus's runtime model precedence.
 
-    Precedence is role-specific override -> ``ARGUS_SKILL_MODEL`` -> route
-    default. The Manager's free-text model switch writes the shared default, so
-    every execution path should use this helper rather than reading the vault
-    directly.
+    Precedence is role-specific override -> ``ARGUS_SKILL_MODEL`` ->
+    persisted switch (``core.knob_store`` — a prior ``/backend``/``/config``
+    or natural-language "把模型换成 X" switch, so it survives a restart of
+    this process AND is what the next daemon boot reads too) -> route
+    default. Every execution path should use this helper rather than reading
+    the vault directly, so a persisted switch is honored EVERYWHERE
+    consistently, not just in whichever process happened to make it.
     """
     env_map = env if env is not None else os.environ
     if role_env:
@@ -135,6 +138,70 @@ def resolve_role_model(
     shared = str(env_map.get("ARGUS_SKILL_MODEL", "") or "").strip()
     if shared:
         return shared
+    from .knob_store import read_persisted_knobs
+
+    persisted = read_persisted_knobs()
+    if role_env:
+        persisted_role = persisted.get(role_env, "").strip()
+        if persisted_role:
+            return persisted_role
+    persisted_shared = persisted.get("ARGUS_SKILL_MODEL", "").strip()
+    if persisted_shared:
+        return persisted_shared
     from ..tools.capability_vault import resolve_route_model
 
     return resolve_route_model(route, env_map)
+
+
+def resolve_role_backend(role: str, *, env: Mapping[str, str] | None = None) -> str:
+    """Resolve a role's agent-CLI backend (codex / claude / copilot / memory)
+    using Argus's runtime precedence.
+
+    Precedence: role-specific override (``ARGUS_SKILL_<ROLE>_BACKEND``) ->
+    shared ``ARGUS_SKILL_RUNNER_BACKEND`` -> shared ``ARGUS_SKILL_LIFE_BACKEND``
+    -> persisted switch (the same three vars, same order — a prior
+    ``/backend`` switch or natural-language "engineer 用 claude") -> ``codex``.
+    Returns the RAW value (unnormalized); callers that need the canonical
+    codex/claude/copilot spelling should pass it through
+    ``agent_cli.runner_backend.normalize_runner_backend``, same as every
+    existing caller of this precedence already does.
+    """
+    env_map = env if env is not None else os.environ
+    candidates = [v for v in (
+        f"ARGUS_SKILL_{role.upper()}_BACKEND" if role else "",
+        "ARGUS_SKILL_RUNNER_BACKEND",
+        "ARGUS_SKILL_LIFE_BACKEND",
+    ) if v]
+    for var in candidates:
+        val = str(env_map.get(var, "") or "").strip()
+        if val:
+            return val
+    from .knob_store import read_persisted_knobs
+
+    persisted = read_persisted_knobs()
+    for var in candidates:
+        val = persisted.get(var, "").strip()
+        if val:
+            return val
+    return "codex"
+
+
+def resolve_role_reasoning_effort(
+    role_env: str, *, env: Mapping[str, str] | None = None, default: str = "xhigh",
+) -> str:
+    """Resolve a role's reasoning effort using Argus's runtime precedence:
+    role-specific env override -> persisted switch (a prior ``/config``
+    switch or natural-language "engineer 用 high 强度") -> ``default``.
+    """
+    env_map = env if env is not None else os.environ
+    if role_env:
+        explicit = str(env_map.get(role_env, "") or "").strip()
+        if explicit:
+            return explicit
+    if role_env:
+        from .knob_store import read_persisted_knobs
+
+        persisted = read_persisted_knobs().get(role_env, "").strip()
+        if persisted:
+            return persisted
+    return default

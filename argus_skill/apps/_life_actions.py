@@ -323,6 +323,15 @@ def render_config_cmd(
         cfg[key] = parsed
         if key in _ROLE_EFFORT_ENVS:
             os.environ[_ROLE_EFFORT_ENVS[key]] = str(parsed)
+            # Persist too — an env-var-only switch used to only last for
+            # THIS process; the daemon (a separate process) never saw it
+            # until restarted, and even the REPL forgot it on its own next
+            # launch. core.knobs.resolve_role_reasoning_effort now checks
+            # this file whenever no env var is set, so "change it once via
+            # /config" holds across restarts too.
+            from ..core.knob_store import write_persisted_knob
+
+            write_persisted_knob(_ROLE_EFFORT_ENVS[key], str(parsed))
             chat_state.pop("manager_runner", None)
         if key == "continuous":
             sync_continuous = True

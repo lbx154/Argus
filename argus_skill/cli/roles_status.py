@@ -13,14 +13,21 @@ Argus runs four cooperating roles (plus a curator pool):
 Each role independently resolves three knobs at runtime, all surfaced here:
 
 * **backend** — ``ARGUS_SKILL_{ROLE}_BACKEND`` → ``ARGUS_SKILL_RUNNER_BACKEND``
-  → ``ARGUS_SKILL_LIFE_BACKEND`` → ``codex`` (one of Codex / Claude Code /
-  Copilot; ``memory`` in tests).
+  → ``ARGUS_SKILL_LIFE_BACKEND`` → a persisted ``/backend`` switch
+  (``core.knob_store``) → ``codex`` (one of Codex / Claude Code / Copilot;
+  ``memory`` in tests).
 * **model** — ``ARGUS_SKILL_{ROLE}_MODEL`` (``ARGUS_SKILL_PLAN_MODEL`` for the
-  planner) → ``ARGUS_SKILL_MODEL`` → the capability-vault route → the
-  ``gpt-5.5`` default.
-* **reasoning effort** — ``ARGUS_SKILL_{ROLE}_REASONING_EFFORT`` → ``xhigh``.
-  Only meaningful for reasoning models (gpt-5.x / o-series); shown as ``—`` for
-  a non-reasoning model.
+  planner) → ``ARGUS_SKILL_MODEL`` → a persisted ``/backend``/``/config``
+  switch → the capability-vault route → the ``gpt-5.5`` default.
+* **reasoning effort** — ``ARGUS_SKILL_{ROLE}_REASONING_EFFORT`` → a persisted
+  switch → ``xhigh``. Only meaningful for reasoning models (gpt-5.x /
+  o-series); shown as ``—`` for a non-reasoning model.
+
+All three precedence chains are canonically implemented once in
+``core.knobs`` (``resolve_role_backend`` / ``resolve_role_model`` /
+``resolve_role_reasoning_effort``) — this module calls them rather than
+re-implementing the precedence, so a persisted switch is honored consistently
+everywhere it's read, not just wherever it happened to be made.
 
 Live activity is derived from the project's ``events.jsonl`` tail (no new
 telemetry): the newest event mapped to each role, the role that is active right
@@ -104,21 +111,15 @@ def _normalize_backend(raw: str) -> str:
 
 
 def _resolve_backend(role: str, env: Mapping[str, str]) -> str:
-    for var in (
-        f"ARGUS_SKILL_{role.upper()}_BACKEND",
-        "ARGUS_SKILL_RUNNER_BACKEND",
-        "ARGUS_SKILL_LIFE_BACKEND",
-    ):
-        val = (env.get(var) or "").strip()
-        if val:
-            return _normalize_backend(val)
-    return "codex"
+    from ..core.knobs import resolve_role_backend
+
+    return _normalize_backend(resolve_role_backend(role, env=env))
 
 
 def runner_backend_label(env: Mapping[str, str] | None = None) -> str:
     """Display label of the *current* runner backend (Codex / Claude Code /
     Copilot), resolved from ``ARGUS_SKILL_RUNNER_BACKEND`` →
-    ``ARGUS_SKILL_LIFE_BACKEND`` → ``codex``.
+    ``ARGUS_SKILL_LIFE_BACKEND`` → a persisted ``/backend`` switch → ``codex``.
 
     Used by user-facing copy (status phrases, the Manager chat identity) so the
     single-worker SELF path names the backend the operator actually configured
@@ -134,15 +135,14 @@ def runner_backend_label(env: Mapping[str, str] | None = None) -> str:
 
 
 def _resolve_model(role: str, env: Mapping[str, str]) -> str:
-    explicit = (env.get(_ROLE_MODEL_ENV.get(role, "")) or "").strip()
-    if explicit:
-        return explicit
-    shared = (env.get("ARGUS_SKILL_MODEL") or "").strip()
-    if shared:
-        return shared
+    from ..core.knobs import resolve_role_model
+
     try:
-        from ..tools.capability_vault import resolve_route_model
-        return resolve_route_model(_ROLE_ROUTE.get(role, "text"), env)
+        return resolve_role_model(
+            _ROLE_ROUTE.get(role, "text"),
+            role_env=_ROLE_MODEL_ENV.get(role, ""),
+            env=env,
+        )
     except Exception:  # noqa: BLE001
         return "gpt-5.5"
 
@@ -166,16 +166,21 @@ def is_reasoning_model(model: str) -> bool:
 def _resolve_effort(role: str, model: str, env: Mapping[str, str]) -> str | None:
     if not is_reasoning_model(model):
         return None
-    val = (env.get(_ROLE_EFFORT_ENV.get(role, "")) or "").strip()
-    if val:
-        return val
+    from ..core.knobs import resolve_role_reasoning_effort
+
+    role_env = _ROLE_EFFORT_ENV.get(role, "")
     if role == "manager":
         # REPL Manager triage reuses the engineer effort; Manager._core also
-        # defaults to xhigh.
-        val = (env.get("ARGUS_SKILL_ENGINEER_REASONING_EFFORT") or "").strip()
+        # defaults to xhigh. Check manager's own knob (env, then a persisted
+        # switch) before falling back to engineer's (same two layers), so an
+        # explicit manager-specific switch on EITHER layer still wins.
+        val = resolve_role_reasoning_effort(role_env, env=env, default="")
         if val:
             return val
-    return "xhigh"  # runtime default across the four resident roles
+        return resolve_role_reasoning_effort(
+            "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", env=env, default="xhigh",
+        )
+    return resolve_role_reasoning_effort(role_env, env=env, default="xhigh")
 
 
 def resolve_role_config(role: str, *, env: Mapping[str, str] | None = None) -> RoleConfig:

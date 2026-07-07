@@ -68,6 +68,7 @@ def test_top_level_paths_compose_from_root(
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     assert paths.identity_path() == tmp_path / "identity.md"
+    assert paths.config_path() == tmp_path / "config.json"
     assert paths.journal_path() == tmp_path / "journal.jsonl"
     assert paths.bus_root() == tmp_path / "bus"
     assert paths.commands_path() == tmp_path / "bus" / "commands.jsonl"

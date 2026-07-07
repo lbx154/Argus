@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any, Callable, ClassVar, Protocol
 
 from ..core import paths as core_paths  # noqa: F401 — re-exported convenience
-from ..core.knobs import resolve_role_model
+from ..core.knobs import resolve_role_model, resolve_role_reasoning_effort
 from ..core.models import RunnerResult
 from ..core.ports import EventSink
 from ..engineer.runner import should_clear_thread_id_after_outcome
@@ -2140,13 +2140,11 @@ def _invoke_supervisor(
         "reviewer",
         role_env="ARGUS_SKILL_REVIEWER_MODEL",
     )
-    ns.engineer_reasoning_effort = os.environ.get(
+    ns.engineer_reasoning_effort = resolve_role_reasoning_effort(
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
-        "xhigh",
     )
-    ns.reviewer_reasoning_effort = os.environ.get(
+    ns.reviewer_reasoning_effort = resolve_role_reasoning_effort(
         "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
-        "xhigh",
     )
     ns.skills_dir = os.environ.get(
         "ARGUS_SKILL_SKILLS_DIR",

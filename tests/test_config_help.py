@@ -9,7 +9,19 @@ from __future__ import annotations
 import subprocess
 import sys
 
+import pytest
+
 from argus_skill.core.knobs import KNOBS, format_config_help, resolve_role_model
+
+
+@pytest.fixture(autouse=True)
+def _isolated_argus_skill_home(tmp_path, monkeypatch):
+    """resolve_role_model() now also consults core.knob_store's persisted
+    config (~/.argus-skill/config.json by default) as a fallback layer —
+    isolate ARGUS_SKILL_HOME so these tests never read (or, via a future
+    /backend or /config switch made on this same machine, race against) a
+    REAL operator's persisted knobs."""
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-skill-home"))
 
 
 def test_registry_is_well_formed() -> None:
@@ -88,6 +100,50 @@ def test_role_model_override_beats_shared_default() -> None:
     assert (
         resolve_role_model("engineer", role_env="ARGUS_SKILL_ENGINEER_MODEL", env=env)
         == "gpt-5.4-mini"
+    )
+
+
+def test_persisted_model_switch_survives_a_bare_env(monkeypatch, tmp_path) -> None:
+    """Regression: a /backend or /config model switch used to only set
+    os.environ for THIS process — restart the REPL (or let the daemon boot
+    fresh) and the switch was gone. resolve_role_model must now ALSO fall
+    back to core.knob_store's persisted config.json when NO env var is set
+    at all for this process, so "change it once" actually holds."""
+    from argus_skill.core import knob_store
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    knob_store.write_persisted_knob("ARGUS_SKILL_MODEL", "claude-sonnet-5")
+
+    assert resolve_role_model("engineer", role_env="ARGUS_SKILL_ENGINEER_MODEL", env={}) == (
+        "claude-sonnet-5"
+    )
+
+
+def test_persisted_role_specific_model_beats_persisted_shared(monkeypatch, tmp_path) -> None:
+    from argus_skill.core import knob_store
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    knob_store.write_persisted_knob("ARGUS_SKILL_MODEL", "claude-sonnet-5")
+    knob_store.write_persisted_knob("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini")
+
+    assert resolve_role_model("engineer", role_env="ARGUS_SKILL_ENGINEER_MODEL", env={}) == (
+        "gpt-5.4-mini"
+    )
+
+
+def test_explicit_env_beats_a_persisted_switch(monkeypatch, tmp_path) -> None:
+    """A deliberate, explicit env var for THIS process (a shell script, CI,
+    a Docker -e flag) must always outrank a previously-persisted natural-
+    language switch — a persisted "I said this in chat last week" default
+    should never silently shadow a one-off override."""
+    from argus_skill.core import knob_store
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    knob_store.write_persisted_knob("ARGUS_SKILL_MODEL", "claude-sonnet-5")
+
+    env = {"ARGUS_SKILL_MODEL": "gpt-5.4-mini"}
+    assert resolve_role_model("engineer", role_env="ARGUS_SKILL_ENGINEER_MODEL", env=env) == (
+        "gpt-5.4-mini"
     )
 
 

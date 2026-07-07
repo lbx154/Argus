@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 import time
 
+import pytest
+
 from argus_skill.cli.roles_status import (
     ROLES,
     format_roles_panel,
@@ -17,6 +19,17 @@ from argus_skill.cli.roles_status import (
     role_activity,
 )
 from argus_skill.cli.theme import Theme
+
+
+@pytest.fixture(autouse=True)
+def _isolated_argus_skill_home(tmp_path, monkeypatch):
+    """resolve_role_config's backend/model/effort resolution now also falls
+    back to core.knob_store's persisted config.json (~/.argus-skill/config.json
+    by default) when a test passes an env={} with nothing set for a given
+    knob — isolate ARGUS_SKILL_HOME so these "falls back to the hard-coded
+    default" tests never read (or race against) a REAL operator's persisted
+    switches on this machine."""
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-skill-home"))
 
 
 # ── backend resolution + fallback chain ───────────────────────────────────
