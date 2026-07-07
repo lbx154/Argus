@@ -252,6 +252,7 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.status)
         + bool(args.daemon_runbook)
         + bool(getattr(args, "config_help", False))
+        + bool(getattr(args, "config_snapshot", None))
         + bool(getattr(args, "gc", False))
         + bool(args.watch)
         + bool(args.follow)
@@ -274,7 +275,8 @@ def main(argv: list[str] | None = None) -> int:
     if action_flags > 1:
         sys.stderr.write(
             "argus-skill: --daemon / --daemon-fg / --daemon-stop / --status / "
-            "--daemon-runbook / --watch / --follow / --notify / --init-identity / "
+            "--daemon-runbook / --config-help / --config-snapshot / "
+            "--watch / --follow / --notify / --init-identity / "
             "--model-api-status / --init-model-api / --skill-stats / "
             "--skill-cleanse / --export-builtin-skills / "
             "--evidence-chain-check / --anti-mediocrity-check / --lifecycle-status / "
@@ -310,6 +312,8 @@ def main(argv: list[str] | None = None) -> int:
         from ...core.knobs import format_config_help
         sys.stdout.write(format_config_help())
         return 0
+    if getattr(args, "config_snapshot", None):
+        return _run_with_path_resolution_errors(lambda: _cmd_config_snapshot(args))
     if getattr(args, "gc", False):
         return _run_with_path_resolution_errors(lambda: _cmd_gc(args))
     if args.watch:
@@ -820,6 +824,16 @@ def _cmd_init_model_api(args: argparse.Namespace) -> int:
 
     path = bootstrap_model_api_vault(_model_api_env(args))
     print(f"argus-skill: model API capability saved at {path} (0600, secret not printed)")
+    return 0
+
+
+def _cmd_config_snapshot(args: argparse.Namespace) -> int:
+    from ...core.config_snapshot import write_config_snapshot
+
+    raw = getattr(args, "config_snapshot", None) or "argus_runtime_settings.md"
+    out = core_paths.resolve_runtime_path(raw, context="--config-snapshot")
+    path = write_config_snapshot(out, env=os.environ)
+    print(f"argus-skill: config snapshot written to {path}")
     return 0
 
 

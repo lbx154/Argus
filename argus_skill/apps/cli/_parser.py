@@ -101,6 +101,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="print the operator-facing ARGUS_* control knobs (default + current value) and exit",
     )
     daemon_grp.add_argument(
+        "--config-snapshot",
+        nargs="?",
+        const="argus_runtime_settings.md",
+        default=None,
+        metavar="PATH",
+        help="write the resolved backend/model/effort + ARGUS_* knob snapshot "
+             "to PATH (default: ./argus_runtime_settings.md; .json writes JSON)",
+    )
+    daemon_grp.add_argument(
         "--gc",
         action="store_true",
         help="garbage-collect stale projects (no live daemon/repl + untouched for "
