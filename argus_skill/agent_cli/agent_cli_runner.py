@@ -175,6 +175,16 @@ class AgentCliRunner:
             check_external_interrupt()
             try:
                 stream_name, text = line_queue.get(timeout=0.25)
+            except KeyboardInterrupt:
+                # Operator Ctrl-C while the agent CLI is "thinking": the main
+                # thread blocks on this queue.get almost the entire subprocess
+                # lifetime, so an interrupt lands here. Terminate the child
+                # (terminate -> kill via the shared helper) so it is not
+                # orphaned and does not keep burning tokens, then re-raise so
+                # the REPL loop can return to its prompt.
+                if process.poll() is None:
+                    self._terminate_process(process)
+                raise
             except queue.Empty:
                 now = time.monotonic()
                 idle_seconds = now - last_activity_at
@@ -348,6 +358,15 @@ class AgentCliRunner:
             command.extend(["-m", options.model])
         if options.reasoning_effort:
             command.extend(["-c", f'model_reasoning_effort="{options.reasoning_effort}"'])
+            # Stream a reasoning summary DURING the turn so the operator sees the
+            # model is actively working instead of a silent "no stream output"
+            # gap — gpt-5.x at high effort reasons server-side for tens of
+            # seconds emitting nothing otherwise, which reads like a hang. "auto"
+            # lets the model size the summary; ARGUS_SKILL_REASONING_SUMMARY=none
+            # opts back out.
+            summary = (os.environ.get("ARGUS_SKILL_REASONING_SUMMARY") or "auto").strip()
+            if summary.lower() not in {"none", "off", "0", "false", ""}:
+                command.extend(["-c", f'model_reasoning_summary="{summary}"'])
         if options.sandbox_mode:
             # Sandboxed role: confine writes to the workspace (-C) plus the
             # explicit --add-dir allowlist; keep network on for research. This

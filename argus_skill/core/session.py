@@ -154,8 +154,9 @@ def list_sessions(
 
 
 def _project_has_content(project_dir: Path) -> bool:
-    """True if a project dir holds real work (backlog items or recorded events)."""
-    for name in ("backlog.jsonl", "events.jsonl"):
+    """True if a project dir holds real work (backlog items or recorded events)
+    or a saved operator↔Manager conversation (transcript)."""
+    for name in ("backlog.jsonl", "events.jsonl", "transcript.jsonl"):
         try:
             f = project_dir / name
             if f.exists() and f.stat().st_size > 2:

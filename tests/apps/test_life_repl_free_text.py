@@ -803,9 +803,13 @@ def test_repl_help_matches_documented_command_surface(tmp_path: Path) -> None:
         "Planner",
         "Engineer",
         "Reviewer",
+        # upstream's natural-language config-switch examples
         "把backend换成",
         "effort 设为 high",
-        "Exit with /exit",
+        # Exit + session-resume surface (2026-07 key-semantics footer replaced
+        # the old "Exit with /exit" line with a fuller Ctrl-C/Ctrl-D + resume hint).
+        "/exit",
+        "--continue",
     ):
         assert fragment in out
     assert "/config [key=val ...]" not in out
